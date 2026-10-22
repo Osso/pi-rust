@@ -211,7 +211,7 @@ mod lossless_tests {
 
     #[test]
     fn distinct_surrogates_are_highlighted_before_terminal_encoding() {
-        crate::modes::interactive::theme::init_theme(Some("dark"), false).unwrap();
+        crate::modes::interactive::theme::init_theme(Some(&JsString::from("dark")), false).unwrap();
         let old = JsString::from_utf16(vec![0x61, 0xd800, 0x62]);
         let new = JsString::from_utf16(vec![0x61, 0xd801, 0x62]);
         let (removed, added) = render_intra_line_diff(&old, &new);
@@ -228,7 +228,7 @@ mod lossless_tests {
 
     #[test]
     fn paired_surrogate_and_literal_replacement_remain_distinct() {
-        crate::modes::interactive::theme::init_theme(Some("dark"), false).unwrap();
+        crate::modes::interactive::theme::init_theme(Some(&JsString::from("dark")), false).unwrap();
         let input = JsString::from_utf16(vec![45, 49, 32, 0xd83d, 0xde00, 10, 43, 49, 32, 0xfffd]);
         let output = render_diff(&input);
         assert!(output.contains("😀"));

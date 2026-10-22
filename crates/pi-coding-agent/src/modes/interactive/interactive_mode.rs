@@ -11884,7 +11884,7 @@ mod ui_tests {
     struct CaptureTerminal {
         rows: usize,
         columns: usize,
-        writes: Vec<String>,
+        writes: Vec<JsString>,
         events: Vec<TerminalEvent>,
         progress: Vec<bool>,
         start_error: Option<TerminalRawModeError>,
@@ -11892,11 +11892,11 @@ mod ui_tests {
 
     impl CaptureTerminal {
         fn send_input(&mut self, data: &str) {
-            self.events.push(TerminalEvent::Input(data.to_owned()));
+            self.events.push(TerminalEvent::Input(JsString::from(data.to_owned())));
         }
 
-        fn output(&self) -> String {
-            pi_tui::utils::strip_terminal_sequences(&self.writes.concat())
+        fn output(&self) -> JsString {
+            pi_tui::utils::strip_terminal_sequences(JsString::join(&self.writes, ""))
         }
     }
 
@@ -11909,8 +11909,8 @@ mod ui_tests {
         }
         fn stop(&mut self) {}
         fn drain_input(&mut self, _max_ms: u64, _idle_ms: u64) {}
-        fn write(&mut self, data: &str) {
-            self.writes.push(data.to_owned());
+        fn write(&mut self, data: &JsString) {
+            self.writes.push(data.clone());
         }
         fn columns(&self) -> usize {
             self.columns
@@ -11927,7 +11927,7 @@ mod ui_tests {
         fn clear_line(&mut self) {}
         fn clear_from_cursor(&mut self) {}
         fn clear_screen(&mut self) {}
-        fn set_title(&mut self, _title: &str) {}
+        fn set_title(&mut self, _title: &JsString) {}
         fn set_progress(&mut self, active: bool) {
             self.progress.push(active);
         }
@@ -12104,7 +12104,7 @@ mod ui_tests {
                     let agent = Agent::new(AgentOptions {
                         initial_state: Some(AgentInitialState {
                             model: Some(model),
-                            system_prompt: Some(String::new()),
+                            system_prompt: Some(JsString::default()),
                             thinking_level: Some(ThinkingLevel::Off),
                             tools: Some(Vec::new()),
                             messages: None,
@@ -12132,7 +12132,7 @@ mod ui_tests {
                         excluded_tool_names: None,
                         permission_prompt_tool: None,
                         agent_dir: Some(request.agent_dir.clone()),
-                        control_db_path: Some(format!("{}/control.sqlite", request.agent_dir)),
+                        control_db_path: Some(js_format!("{}/control.sqlite", request.agent_dir)),
                         base_tools: Vec::new(),
                         custom_tools: Vec::new(),
                         custom_tool_definitions: Vec::new(),
@@ -12164,18 +12164,20 @@ mod ui_tests {
                         model_fallback_message: None,
                     })
                 })
-                    as pi_ai::request::BoxFuture<'static, Result<CreateAgentSessionRuntimeResult, String>>
+                    as pi_ai::request::BoxFuture<'static, Result<CreateAgentSessionRuntimeResult, JsString>>
             }) as crate::core::agent_session_runtime::CreateAgentSessionRuntimeFactory
         };
         let session_manager = if persist_session {
             let session_dir = temp.path().join("sessions").display().to_string();
-            SessionManager::create(&cwd, Some(&session_dir), None).expect("persisted session manager")
+            SessionManager::create(&JsString::from(&cwd), Some(&JsString::from(&session_dir)), None)
+                .expect("persisted session manager")
         } else {
-            SessionManager::in_memory(Some(&cwd), None).expect("session manager")
+            SessionManager::in_memory(Some(&JsString::from(&cwd)), None).expect("session manager")
         };
-        let runtime = create_agent_session_runtime(factory, &cwd, &cwd, session_manager)
-            .await
-            .expect("runtime");
+        let runtime =
+            create_agent_session_runtime(factory, &JsString::from(&cwd), &JsString::from(&cwd), session_manager)
+                .await
+                .expect("runtime");
         let runtime = share_agent_session_runtime(runtime).await;
         let terminal = Rc::new(RefCell::new(CaptureTerminal {
             rows: 24,
@@ -12200,26 +12202,31 @@ mod ui_tests {
         (mode, terminal, faux, temp)
     }
 
+    fn js_path(path: &Path) -> JsString {
+        JsString::from(path.to_str().expect("utf-8 test path"))
+    }
+
     fn init_dark_theme() {
         let theme_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("theme");
-        let dark = crate::modes::interactive::theme::load_theme_from_path(&theme_dir.join("dark.json"), None)
+        let dark = crate::modes::interactive::theme::load_theme_from_path(&js_path(&theme_dir.join("dark.json")), None)
             .expect("dark theme");
-        let light = crate::modes::interactive::theme::load_theme_from_path(&theme_dir.join("light.json"), None)
-            .expect("light theme");
+        let light =
+            crate::modes::interactive::theme::load_theme_from_path(&js_path(&theme_dir.join("light.json")), None)
+                .expect("light theme");
         crate::modes::interactive::theme::set_registered_themes(vec![
             std::sync::Arc::new(dark),
             std::sync::Arc::new(light),
         ])
         .expect("register fixture themes");
-        crate::modes::interactive::theme::init_theme(Some("dark"), false).expect("dark theme");
+        crate::modes::interactive::theme::init_theme(Some(&JsString::from("dark")), false).expect("dark theme");
     }
 
     async fn pump(
         mode: &Rc<InteractiveMode>,
         events: &mut tokio::sync::mpsc::UnboundedReceiver<AgentSessionEvent>,
         terminal: &Rc<RefCell<CaptureTerminal>>,
-        predicate: impl Fn(&str) -> bool,
-    ) -> String {
+        predicate: impl Fn(&JsString) -> bool,
+    ) -> JsString {
         let mut handled = 0usize;
         for _ in 0..200 {
             mode.ui.process_events();
@@ -12242,10 +12249,10 @@ mod ui_tests {
         let chat_render = mode
             .chat_container
             .try_borrow_mut()
-            .map(|mut chat| chat.render(80).join("\n"))
+            .map(|mut chat| JsString::join(chat.render(80), "\n"))
             .unwrap_or_default();
         panic!(
-            "timed out; messages={}; streaming={}; actions={}; events={handled}; chat={}; assistant={:?}; chat_render={chat_render}; output: {}",
+            "timed out; messages={}; streaming={}; actions={}; events={handled:?}; chat={}; assistant={:?}; chat_render={chat_render:?}; output: {:?}",
             mode.session().messages().len(),
             mode.session().is_streaming(),
             mode.actions.borrow().len(),
@@ -12305,16 +12312,16 @@ mod ui_tests {
                 let loader = Arc::new(StaticResourceLoader {
                     skills: crate::core::resource_loader::LoadedSkills {
                         skills: vec![crate::core::skills::Skill {
-                            name: "commit".to_owned(),
-                            description: "commit work".to_owned(),
-                            file_path: "/tmp/skill/SKILL.md".to_owned(),
-                            base_dir: "/tmp/skill".to_owned(),
+                            name: JsString::from("commit"),
+                            description: JsString::from("commit work"),
+                            file_path: JsString::from("/tmp/skill/SKILL.md"),
+                            base_dir: JsString::from("/tmp/skill"),
                             source_info: crate::core::source_info::SourceInfo {
-                                path: "/tmp/skill/SKILL.md".to_owned(),
-                                source: "local".to_owned(),
+                                path: JsString::from("/tmp/skill/SKILL.md"),
+                                source: JsString::from("local"),
                                 scope: crate::core::source_info::SourceScope::Project,
                                 origin: crate::core::source_info::SourceOrigin::TopLevel,
-                                base_dir: Some("/tmp/skill".to_owned()),
+                                base_dir: Some(JsString::from("/tmp/skill")),
                             },
                             disable_model_invocation: false,
                         }],
@@ -12322,14 +12329,14 @@ mod ui_tests {
                     },
                     agents_files: crate::core::resource_loader::LoadedAgentsFiles {
                         agents_files: vec![crate::core::system_prompt::ContextFile {
-                            path: "/tmp/project/AGENTS.md".to_owned(),
-                            content: String::new(),
+                            path: JsString::from("/tmp/project/AGENTS.md"),
+                            content: JsString::default(),
                         }],
                     },
                     rules_files: crate::core::resource_loader::LoadedRulesFiles {
                         rules_files: vec![crate::core::resource_loader::RuleFile {
-                            path: "/tmp/rules/01-identity.md".to_owned(),
-                            content: String::new(),
+                            path: JsString::from("/tmp/rules/01-identity.md"),
+                            content: JsString::default(),
                         }],
                     },
                     ..StaticResourceLoader::default()
@@ -12337,15 +12344,16 @@ mod ui_tests {
                 let (mode, _terminal, _faux, _temp) = build_mode_with_loader(loader, None).await;
                 let _events = start(&mode).await;
                 mode.show_loaded_resources(false, false);
-                let rendered = pi_tui::utils::strip_terminal_sequences(
-                    &mode.loaded_resources_container.borrow_mut().render(220).join("\n"),
-                );
-                assert!(rendered.contains("[Context]"), "{rendered}");
-                assert!(rendered.contains("AGENTS.md"), "{rendered}");
-                assert!(rendered.contains("[User Rules]"), "{rendered}");
-                assert!(rendered.contains("01-identity.md"), "{rendered}");
-                assert!(rendered.contains("[Skills]"), "{rendered}");
-                assert!(rendered.contains("commit"), "{rendered}");
+                let rendered = pi_tui::utils::strip_terminal_sequences(&JsString::join(
+                    mode.loaded_resources_container.borrow_mut().render(220),
+                    "\n",
+                ));
+                assert!(rendered.contains("[Context]"), "{rendered:?}");
+                assert!(rendered.contains("AGENTS.md"), "{rendered:?}");
+                assert!(rendered.contains("[User Rules]"), "{rendered:?}");
+                assert!(rendered.contains("01-identity.md"), "{rendered:?}");
+                assert!(rendered.contains("[Skills]"), "{rendered:?}");
+                assert!(rendered.contains("commit"), "{rendered:?}");
             })
             .await;
     }
@@ -12378,7 +12386,11 @@ mod ui_tests {
                 let result = Rc::clone(&selection);
                 let handle = tokio::task::spawn_local(async move {
                     let value = ui
-                        .select("Pick", &["one".to_owned(), "two".to_owned()], None)
+                        .select(
+                            &JsString::from("Pick"),
+                            &[JsString::from("one"), JsString::from("two")],
+                            None,
+                        )
                         .await
                         .expect("select result");
                     *result.borrow_mut() = value;
@@ -12403,7 +12415,7 @@ mod ui_tests {
                     .first()
                     .cloned()
                     .expect("selector mounted");
-                selector.borrow_mut().handle_input("\r");
+                selector.borrow_mut().handle_input(&JsString::from("\r"));
                 for _ in 0..50 {
                     mode.handle_ui_requests().await;
                     if selection.borrow().is_some() {
@@ -12412,7 +12424,7 @@ mod ui_tests {
                     tokio::time::sleep(Duration::from_millis(2)).await;
                 }
                 let _ = handle.await;
-                assert_eq!(selection.borrow().as_deref(), Some("one"));
+                assert_eq!(selection.borrow().as_ref(), Some(&JsString::from("one")));
                 assert_eq!(mode.editor_container.borrow().children().len(), 1);
                 let _ = pump(&mode, &mut events, &terminal, |_| true).await;
             })
@@ -12422,8 +12434,8 @@ mod ui_tests {
     struct StaticWidget;
 
     impl ExtensionUiComponent for StaticWidget {
-        fn render(&self, _width: usize) -> Vec<String> {
-            vec!["custom widget".to_owned()]
+        fn render(&self, _width: usize) -> Vec<JsString> {
+            vec![JsString::from("custom widget")]
         }
 
         fn wants_input(&self) -> bool {
@@ -12440,17 +12452,17 @@ mod ui_tests {
                 let lines: Vec<String> = (0..12).map(|index| format!("line-{index}")).collect();
                 mode.ui_sender
                     .send(UiRequest::SetWidget {
-                        key: "status".to_owned(),
-                        content: Some(lines),
+                        key: JsString::from("status"),
+                        content: Some(lines.into_iter().map(JsString::from).collect::<Vec<_>>()),
                         placement: WidgetPlacement::AboveEditor,
                     })
                     .expect("widget request");
                 mode.handle_ui_requests().await;
-                let rendered = mode.widget_container_above.borrow_mut().render(80).join("\n");
-                assert!(rendered.contains("line-0"), "{rendered}");
-                assert!(rendered.contains("line-9"), "{rendered}");
-                assert!(!rendered.contains("line-10"), "{rendered}");
-                assert!(rendered.contains("... (widget truncated)"), "{rendered}");
+                let rendered = JsString::join(mode.widget_container_above.borrow_mut().render(80), "\n");
+                assert!(rendered.contains("line-0"), "{rendered:?}");
+                assert!(rendered.contains("line-9"), "{rendered:?}");
+                assert!(!rendered.contains("line-10"), "{rendered:?}");
+                assert!(rendered.contains("... (widget truncated)"), "{rendered:?}");
             })
             .await;
     }
@@ -12464,25 +12476,25 @@ mod ui_tests {
                 let factory: ExtensionUiComponentFactory = Arc::new(|_context| Box::new(StaticWidget));
                 mode.ui_sender
                     .send(UiRequest::SetWidgetComponent {
-                        key: "custom".to_owned(),
+                        key: JsString::from("custom"),
                         content: Some(factory),
                         placement: WidgetPlacement::AboveEditor,
                     })
                     .expect("widget request");
                 mode.handle_ui_requests().await;
-                let rendered = mode.widget_container_above.borrow_mut().render(80).join("\n");
-                assert!(rendered.contains("custom widget"), "{rendered}");
+                let rendered = JsString::join(mode.widget_container_above.borrow_mut().render(80), "\n");
+                assert!(rendered.contains("custom widget"), "{rendered:?}");
 
                 mode.ui_sender
                     .send(UiRequest::SetWidgetComponent {
-                        key: "custom".to_owned(),
+                        key: JsString::from("custom"),
                         content: None,
                         placement: WidgetPlacement::BelowEditor,
                     })
                     .expect("widget removal");
                 mode.handle_ui_requests().await;
-                let rendered = mode.widget_container_above.borrow_mut().render(80).join("\n");
-                assert!(!rendered.contains("custom widget"), "{rendered}");
+                let rendered = JsString::join(mode.widget_container_above.borrow_mut().render(80), "\n");
+                assert!(!rendered.contains("custom widget"), "{rendered:?}");
             })
             .await;
     }
@@ -12495,7 +12507,7 @@ mod ui_tests {
                 let (mode, _terminal, _faux, _temp) = build_mode().await;
                 let theme = std::sync::Arc::new(
                     crate::modes::interactive::theme::load_theme_from_path(
-                        &Path::new(env!("CARGO_MANIFEST_DIR")).join("theme").join("light.json"),
+                        &js_path(&Path::new(env!("CARGO_MANIFEST_DIR")).join("theme").join("light.json")),
                         None,
                     )
                     .expect("light theme"),
@@ -12571,8 +12583,8 @@ mod ui_tests {
                 let agent_dir = tempfile::tempdir().expect("agent dir");
                 let cwd = tempfile::tempdir().expect("cwd");
                 let settings = SettingsManager::create(
-                    &cwd.path().display().to_string(),
-                    Some(agent_dir.path()),
+                    &js_path(cwd.path()),
+                    Some(&js_path(agent_dir.path())),
                     SettingsManagerCreateOptions::default(),
                 )
                 .expect("settings manager");
@@ -12608,8 +12620,8 @@ mod ui_tests {
                 let agent_dir = tempfile::tempdir().expect("agent dir");
                 let cwd = tempfile::tempdir().expect("cwd");
                 let settings = SettingsManager::create(
-                    &cwd.path().display().to_string(),
-                    Some(agent_dir.path()),
+                    &js_path(cwd.path()),
+                    Some(&js_path(agent_dir.path())),
                     SettingsManagerCreateOptions::default(),
                 )
                 .expect("settings manager");
@@ -12646,8 +12658,8 @@ mod ui_tests {
                 let agent_dir = tempfile::tempdir().expect("agent dir");
                 let cwd = tempfile::tempdir().expect("cwd");
                 let settings = SettingsManager::create(
-                    &cwd.path().display().to_string(),
-                    Some(agent_dir.path()),
+                    &js_path(cwd.path()),
+                    Some(&js_path(agent_dir.path())),
                     SettingsManagerCreateOptions::default(),
                 )
                 .expect("settings manager");
@@ -12677,7 +12689,8 @@ mod ui_tests {
 
                 let session_cwd = mode.session().cwd().to_owned();
                 let session_agent_dir = mode.session().agent_dir().to_owned();
-                let store = crate::core::trust_manager::ProjectTrustStore::new(&session_agent_dir);
+                let store =
+                    crate::core::trust_manager::ProjectTrustStore::new(&session_agent_dir).expect("trust store");
                 let entry = store
                     .get_entry(&session_cwd)
                     .expect("trust entry read")
@@ -12699,8 +12712,8 @@ mod ui_tests {
                 let agent_dir = tempfile::tempdir().expect("agent dir");
                 let cwd = tempfile::tempdir().expect("cwd");
                 let settings = SettingsManager::create(
-                    &cwd.path().display().to_string(),
-                    Some(agent_dir.path()),
+                    &js_path(cwd.path()),
+                    Some(&js_path(agent_dir.path())),
                     SettingsManagerCreateOptions::default(),
                 )
                 .expect("settings manager");
@@ -12743,8 +12756,8 @@ mod ui_tests {
                 let agent_dir = tempfile::tempdir().expect("agent dir");
                 let cwd = tempfile::tempdir().expect("cwd");
                 let settings = SettingsManager::create(
-                    &cwd.path().display().to_string(),
-                    Some(agent_dir.path()),
+                    &js_path(cwd.path()),
+                    Some(&js_path(agent_dir.path())),
                     SettingsManagerCreateOptions::default(),
                 )
                 .expect("settings manager");
@@ -12798,9 +12811,11 @@ mod ui_tests {
                 let session_dir = session_dir.display().to_string();
                 {
                     let mut manager = session.session_manager();
-                    *manager = SessionManager::create(&cwd, Some(&session_dir), None).expect("persisted manager");
+                    *manager = SessionManager::create(&cwd, Some(&JsString::from(&session_dir)), None)
+                        .expect("persisted manager");
                 }
-                let mut target = SessionManager::create(&cwd, Some(&session_dir), None).expect("target session");
+                let mut target =
+                    SessionManager::create(&cwd, Some(&JsString::from(&session_dir)), None).expect("target session");
                 target
                     .append_message(pi_agent_core::agent::types::AgentMessage::User(
                         pi_ai::types::UserMessage {
@@ -12815,7 +12830,7 @@ mod ui_tests {
                 target.persist_for_recovery().expect("persist target session");
                 let target_id = target.get_session_id().to_owned();
                 let target_file = target.get_session_file().expect("target file");
-                assert!(std::path::Path::new(&target_file).exists());
+                assert!(std::path::Path::new(&&encode_node_utf8(&target_file)).exists());
 
                 terminal.borrow_mut().send_input("/resume");
                 mode.ui.process_events();
@@ -12845,7 +12860,7 @@ mod ui_tests {
 
                 let selector = mode.active_session_selector.borrow().clone();
                 if let Some(selector) = selector {
-                    selector.lock().await.handle_input("\r");
+                    selector.lock().await.handle_input(&JsString::from("\r"));
                 }
                 let output = pump(&mode, &mut events, &terminal, |output| {
                     output.contains("Resumed session")
@@ -12938,7 +12953,13 @@ mod ui_tests {
                 init_dark_theme();
                 let mut settings_map = serde_json::Map::new();
                 settings_map.insert("branchSummary".to_owned(), serde_json::json!({"skipPrompt": true}));
-                let settings = SettingsManager::in_memory(settings_map, SettingsManagerCreateOptions::default());
+                let settings = SettingsManager::in_memory(
+                    settings_map
+                        .into_iter()
+                        .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                        .collect::<pi_js_compat::js_json::JsObject>(),
+                    SettingsManagerCreateOptions::default(),
+                );
                 let (mode, terminal, _faux, _temp) = build_mode_with_settings(
                     StaticResourceLoader::new() as Arc<dyn crate::core::resource_loader::ResourceLoader>,
                     None,
@@ -13029,8 +13050,8 @@ mod ui_tests {
                 let agent_dir = tempfile::tempdir().expect("agent dir");
                 let cwd = tempfile::tempdir().expect("cwd");
                 let settings = SettingsManager::create(
-                    &cwd.path().display().to_string(),
-                    Some(agent_dir.path()),
+                    &js_path(cwd.path()),
+                    Some(&js_path(agent_dir.path())),
                     SettingsManagerCreateOptions::default(),
                 )
                 .expect("settings manager");
@@ -13148,13 +13169,13 @@ mod ui_tests {
         let path = temp.path().join("CHANGELOG.md");
         std::fs::write(&path, "## [1.1.0]\n- Added feature\n\n## [1.0.0]\n- Older feature\n").expect("changelog");
 
-        let display = changelog_display_for(Some("1.0.0"), &path, false);
+        let display = changelog_display_for(Some(&JsString::from("1.0.0")), &path, false);
         assert!(display.update_version);
         let markdown = display.markdown.expect("new entry markdown");
-        assert!(markdown.contains("Added feature"), "{markdown}");
-        assert!(!markdown.contains("Older feature"), "{markdown}");
+        assert!(markdown.contains("Added feature"), "{markdown:?}");
+        assert!(!markdown.contains("Older feature"), "{markdown:?}");
 
-        let display = changelog_display_for(Some("1.1.0"), &path, false);
+        let display = changelog_display_for(Some(&JsString::from("1.1.0")), &path, false);
         assert!(!display.update_version);
         assert!(display.markdown.is_none());
 
@@ -13173,13 +13194,15 @@ mod ui_tests {
         local
             .run_until(async {
                 let (mode, _terminal, _faux, _temp) = build_mode().await;
-                *mode.changelog_markdown.borrow_mut() = Some("## [1.2.3]\n- Added feature".to_owned());
+                *mode.changelog_markdown.borrow_mut() = Some(JsString::from("## [1.2.3]\n- Added feature"));
                 mode.startup_notices_shown.set(false);
                 mode.show_startup_notices_if_needed();
-                let rendered =
-                    pi_tui::utils::strip_terminal_sequences(&mode.chat_container.borrow_mut().render(120).join("\n"));
-                assert!(rendered.contains("What's New"), "{rendered}");
-                assert!(rendered.contains("Added feature"), "{rendered}");
+                let rendered = pi_tui::utils::strip_terminal_sequences(&JsString::join(
+                    mode.chat_container.borrow_mut().render(120),
+                    "\n",
+                ));
+                assert!(rendered.contains("What's New"), "{rendered:?}");
+                assert!(rendered.contains("Added feature"), "{rendered:?}");
                 let children = mode.chat_container.borrow().children().len();
                 mode.show_startup_notices_if_needed();
                 assert_eq!(mode.chat_container.borrow().children().len(), children);
@@ -13188,11 +13211,13 @@ mod ui_tests {
                 mode.settings_mut(|settings| settings.set_collapse_changelog(true));
                 mode.startup_notices_shown.set(false);
                 mode.show_startup_notices_if_needed();
-                let rendered =
-                    pi_tui::utils::strip_terminal_sequences(&mode.chat_container.borrow_mut().render(120).join("\n"));
+                let rendered = pi_tui::utils::strip_terminal_sequences(&JsString::join(
+                    mode.chat_container.borrow_mut().render(120),
+                    "\n",
+                ));
                 assert!(
                     rendered.contains("Updated to v1.2.3. Use /changelog to view full changelog."),
-                    "{rendered}"
+                    "{rendered:?}"
                 );
             })
             .await;
@@ -13208,7 +13233,7 @@ mod ui_tests {
                 *mode.http_fetch.borrow_mut() = Some(Arc::new(RecordingFetch {
                     requests: Arc::clone(&requests),
                 }));
-                mode.report_install_telemetry("0.84.1");
+                mode.report_install_telemetry(&JsString::from("0.84.1"));
                 for _ in 0..50 {
                     if !requests.lock().expect("requests").is_empty() {
                         break;
@@ -13223,13 +13248,13 @@ mod ui_tests {
                         recorded[0].headers,
                         vec![(
                             "User-Agent".to_owned(),
-                            crate::utils::pi_user_agent::get_pi_user_agent(&"0.84.1".into())
+                            encode_node_utf8(&crate::utils::pi_user_agent::get_pi_user_agent(&"0.84.1".into()))
                         )]
                     );
                 }
                 requests.lock().expect("requests").clear();
                 mode.settings_mut(|settings| settings.set_enable_install_telemetry(false));
-                mode.report_install_telemetry("0.84.1");
+                mode.report_install_telemetry(&JsString::from("0.84.1"));
                 tokio::time::sleep(Duration::from_millis(20)).await;
                 assert!(requests.lock().expect("requests").is_empty());
             })
@@ -13247,10 +13272,11 @@ mod ui_tests {
 
                 let working = |mode: &Rc<InteractiveMode>| {
                     let editor = mode.editor();
-                    let rendered = pi_tui::utils::strip_terminal_sequences(&editor.borrow_mut().render(80).join("\n"));
+                    let rendered =
+                        pi_tui::utils::strip_terminal_sequences(&JsString::join(editor.borrow_mut().render(80), "\n"));
                     pi_tui::components::loader::DEFAULT_FRAMES
                         .iter()
-                        .any(|frame| rendered.contains(frame))
+                        .any(|frame| rendered.contains(*frame))
                 };
                 assert!(!working(&mode));
                 mode.set_prompt_activity(PromptActivitySource::SummaryMaterialization, true);
@@ -13315,18 +13341,22 @@ mod ui_tests {
 
                 mode.maybe_warn_about_anthropic_subscription_auth(Some(model.clone()))
                     .await;
-                let rendered =
-                    pi_tui::utils::strip_terminal_sequences(&mode.chat_container.borrow_mut().render(200).join("\n"));
+                let rendered = pi_tui::utils::strip_terminal_sequences(&JsString::join(
+                    mode.chat_container.borrow_mut().render(200),
+                    "\n",
+                ));
                 assert!(
                     rendered.contains("Anthropic subscription auth is active."),
-                    "{rendered}"
+                    "{rendered:?}"
                 );
                 assert!(mode.anthropic_subscription_warning_shown.get());
 
                 mode.chat_container.borrow_mut().clear();
                 mode.maybe_warn_about_anthropic_subscription_auth(Some(model)).await;
-                let rendered =
-                    pi_tui::utils::strip_terminal_sequences(&mode.chat_container.borrow_mut().render(200).join("\n"));
+                let rendered = pi_tui::utils::strip_terminal_sequences(&JsString::join(
+                    mode.chat_container.borrow_mut().render(200),
+                    "\n",
+                ));
                 assert!(!rendered.contains("Anthropic subscription auth is active."));
             })
             .await;
@@ -13347,7 +13377,13 @@ mod ui_tests {
                 let (mode, _terminal, _faux, _temp) = build_mode_with_extra_providers(
                     StaticResourceLoader::new(),
                     None,
-                    SettingsManager::in_memory(settings, SettingsManagerCreateOptions::default()),
+                    SettingsManager::in_memory(
+                        settings
+                            .into_iter()
+                            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                            .collect::<pi_js_compat::js_json::JsObject>(),
+                        SettingsManagerCreateOptions::default(),
+                    ),
                     vec![pi_ai::providers::anthropic::anthropic_provider()],
                     credentials,
                     false,
@@ -13397,19 +13433,19 @@ mod ui_tests {
                     .await
                     .expect("session message");
 
-                mode.handle_share_command_with_program(&gh.display().to_string())
+                mode.handle_share_command_with_program(&JsString::from(&gh.display().to_string()))
                     .await;
 
                 let rendered = pi_tui::utils::strip_terminal_sequences(
-                    &mode.chat_container.borrow_mut().render(200).join("\n"),
+                    &JsString::join(mode.chat_container.borrow_mut().render(200), "\n"),
                 );
                 assert!(
                     rendered.contains("Share URL: https://pi.dev/session/#abc123"),
-                    "{rendered}"
+                    "{rendered:?}"
                 );
                 assert!(
                     rendered.contains("Gist: https://gist.github.com/alice/abc123"),
-                    "{rendered}"
+                    "{rendered:?}"
                 );
                 assert!(!std::env::temp_dir().join("session.html").exists());
             })
@@ -13456,13 +13492,13 @@ mod ui_tests {
         }
     }
 
-    fn status_text(mode: &Rc<InteractiveMode>) -> String {
-        let rendered = mode.status_container.borrow_mut().render(160).join("\n");
+    fn status_text(mode: &Rc<InteractiveMode>) -> JsString {
+        let rendered = JsString::join(mode.status_container.borrow_mut().render(160), "\n");
         pi_tui::utils::strip_terminal_sequences(&rendered)
     }
 
-    fn chat_text(mode: &Rc<InteractiveMode>) -> String {
-        let rendered = mode.chat_container.borrow_mut().render(160).join("\n");
+    fn chat_text(mode: &Rc<InteractiveMode>) -> JsString {
+        let rendered = JsString::join(mode.chat_container.borrow_mut().render(160), "\n");
         pi_tui::utils::strip_terminal_sequences(&rendered)
     }
 
@@ -13478,32 +13514,32 @@ mod ui_tests {
         store: &MultiAgentStore,
         name: &str,
         slot: Option<i64>,
-        transcript_path: Option<&str>,
+        transcript_path: Option<&JsString>,
         model: Option<crate::core::multi_agent_store::AgentModel>,
-    ) -> String {
+    ) -> JsString {
         let agent = AgentSnapshot {
             id: store.allocate_agent_id_for_lifecycle_coordinator("agent").unwrap(),
             parent_id: None,
-            display_name: name.to_owned(),
-            agent_type: "worker".to_owned(),
+            display_name: JsString::from(name.to_owned()),
+            agent_type: JsString::from("worker"),
             origin: None,
             lifecycle: AgentLifecycle::Running,
             revision: 1,
-            created_at: "2026-06-27T00:00:00.000Z".to_owned(),
-            updated_at: "2026-06-27T00:00:00.000Z".to_owned(),
-            cwd: "/repo".to_owned(),
+            created_at: JsString::from("2026-06-27T00:00:00.000Z"),
+            updated_at: JsString::from("2026-06-27T00:00:00.000Z"),
+            cwd: JsString::from("/repo"),
             worktree: None,
             model,
             account: None,
             permission: crate::core::multi_agent_store::AgentPermission {
-                policy: "on-request".to_owned(),
+                policy: JsString::from("on-request"),
                 inherited_from: None,
                 narrowed: true,
             },
             slot: slot.map(|index| crate::core::multi_agent_store::AgentSlot { index, pinned: true }),
             transcript: transcript_path.map(|path| crate::core::multi_agent_store::AgentTranscriptMetadata {
-                session_id: "child-session".to_owned(),
-                path: Some(path.to_owned()),
+                session_id: JsString::from("child-session"),
+                path: Some(JsString::from(path.to_owned())),
             }),
             event_stream: None,
             worker: None,
@@ -13512,7 +13548,10 @@ mod ui_tests {
             last_activity: None,
             result: None,
             error: None,
-            extra: serde_json::Map::new(),
+            extra: serde_json::Map::new()
+                .into_iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect::<pi_js_compat::js_json::JsObject>(),
         };
         let id = agent.id.clone();
         store.publish_lifecycle_coordinator_snapshot(&agent).unwrap();
@@ -13543,11 +13582,15 @@ mod ui_tests {
         .await
     }
 
-    fn write_child_session(root: &Path, cwd: &str, messages: &[&str]) -> (String, String) {
-        let session_dir = root.join("child-sessions").display().to_string();
+    fn write_child_session(root: &Path, cwd: &JsString, messages: &[&str]) -> (JsString, JsString) {
+        let session_dir = js_path(&root.join("child-sessions"));
         let mut manager = SessionManager::create(cwd, Some(&session_dir), None).expect("child session");
-        manager.append_model_change("faux", "faux-2").expect("model change");
-        manager.append_thinking_level_change("high").expect("thinking change");
+        manager
+            .append_model_change(&JsString::from("faux"), &JsString::from("faux-2"))
+            .expect("model change");
+        manager
+            .append_thinking_level_change(&JsString::from("high"))
+            .expect("thinking change");
         for text in messages {
             manager
                 .append_message(AgentMessage::User(pi_ai::types::UserMessage {
@@ -13571,7 +13614,7 @@ mod ui_tests {
             .append_message(AgentMessage::Assistant(Box::new(assistant)))
             .expect("child assistant");
         manager.persist_for_recovery().expect("persist child");
-        let path = manager.get_session_file().expect("child file").to_owned();
+        let path = manager.get_session_file().expect("child file").clone();
         (path, session_dir)
     }
 
@@ -13589,21 +13632,21 @@ mod ui_tests {
 
                 terminal.borrow_mut().send_input("\x1b2");
                 mode.ui.process_events();
-                assert_eq!(store.get_selected_agent_id().as_deref(), Some(first.as_str()));
+                assert_eq!(store.get_selected_agent_id().as_ref(), Some(&first));
                 let chat = chat_text(&mode);
-                assert!(chat.contains("Viewing live agent: First"), "{chat}");
+                assert!(chat.contains("Viewing live agent: First"), "{chat:?}");
 
                 terminal.borrow_mut().send_input("\x1b3");
                 mode.ui.process_events();
-                assert_eq!(store.get_selected_agent_id().as_deref(), Some(second.as_str()));
+                assert_eq!(store.get_selected_agent_id().as_ref(), Some(&second));
                 let chat = chat_text(&mode);
-                assert!(chat.contains("Viewing live agent: Second"), "{chat}");
+                assert!(chat.contains("Viewing live agent: Second"), "{chat:?}");
 
                 terminal.borrow_mut().send_input("\x1b1");
                 mode.ui.process_events();
                 assert_eq!(store.get_selected_agent_id(), None);
                 let chat = chat_text(&mode);
-                assert!(!chat.contains("Viewing live agent:"), "{chat}");
+                assert!(!chat.contains("Viewing live agent:"), "{chat:?}");
             })
             .await;
     }
@@ -13615,7 +13658,7 @@ mod ui_tests {
             .run_until(async {
                 let store = test_store();
                 let done = spawn_agent(&store, "Done", Some(1), None, None);
-                let mut snapshot = store.get_agent(&done).expect("agent");
+                let mut snapshot = store.get_agent(&JsString::from(&done)).expect("agent");
                 snapshot.lifecycle = AgentLifecycle::Completed;
                 snapshot.revision += 1;
                 store.publish_lifecycle_coordinator_snapshot(&snapshot).unwrap();
@@ -13624,11 +13667,11 @@ mod ui_tests {
                 let _events = start(&mode).await;
 
                 assert!(mode.select_agent_slot(1));
-                assert_eq!(store.get_selected_agent_id().as_deref(), Some(active.as_str()));
+                assert_eq!(store.get_selected_agent_id().as_ref(), Some(&active));
                 assert!(!status_text(&mode).contains("not active"));
 
                 assert!(mode.select_agent_slot(2));
-                assert_eq!(store.get_selected_agent_id().as_deref(), Some(active.as_str()));
+                assert_eq!(store.get_selected_agent_id().as_ref(), Some(&active));
                 assert!(!mode.select_agent_slot(5));
             })
             .await;
@@ -13651,34 +13694,34 @@ mod ui_tests {
                 mode.handle_event(AgentSessionEvent::Agent(AgentEvent::ModelRequestStart))
                     .await;
                 let status = status_text(&mode);
-                assert!(status.contains("Thinking... 0s"), "{status}");
+                assert!(status.contains("Thinking... 0s"), "{status:?}");
 
                 clock.advance(2_000.0);
                 mode.poll_timers();
                 let status = status_text(&mode);
-                assert!(status.contains("Thinking... 2s"), "{status}");
+                assert!(status.contains("Thinking... 2s"), "{status:?}");
 
                 mode.handle_event(AgentSessionEvent::Agent(AgentEvent::ModelRequestEnd))
                     .await;
                 clock.advance(2_000.0);
                 mode.poll_timers();
                 let status = status_text(&mode);
-                assert!(status.contains("Thinking... 2s"), "timer must stop: {status}");
+                assert!(status.contains("Thinking... 2s"), "timer must stop: {status:?}");
 
                 mode.handle_event(AgentSessionEvent::Agent(AgentEvent::ToolExecutionStart {
                     tool_call_id: "bash-1".to_owned(),
                     tool_name: "bash".to_owned(),
-                    args: serde_json::json!({"command": "sleep 10"}),
+                    args: JsValue::from(serde_json::json!({"command": "sleep 10"})),
                     started_at: clock.0.get(),
                 }))
                 .await;
                 let status = status_text(&mode);
-                assert!(status.contains("Waiting for command..."), "{status}");
+                assert!(status.contains("Waiting for command..."), "{status:?}");
                 mode.pending_tools.borrow_mut().clear();
                 clock.advance(2_000.0);
                 mode.poll_timers();
                 let status = status_text(&mode);
-                assert!(status.contains("Waiting for command... Elapsed: 2s"), "{status}");
+                assert!(status.contains("Waiting for command... Elapsed: 2s"), "{status:?}");
             })
             .await;
     }
@@ -13703,7 +13746,7 @@ mod ui_tests {
                 let status = status_text(&mode);
                 assert!(
                     status.contains("Retrying (1/3) in 3s... (escape to cancel)"),
-                    "{status}"
+                    "{status:?}"
                 );
 
                 tokio::time::sleep(Duration::from_millis(1_100)).await;
@@ -13711,7 +13754,7 @@ mod ui_tests {
                 let status = status_text(&mode);
                 assert!(
                     status.contains("Retrying (1/3) in 2s... (escape to cancel)"),
-                    "{status}"
+                    "{status:?}"
                 );
 
                 mode.handle_event(AgentSessionEvent::AutoRetryEnd(
@@ -13724,9 +13767,12 @@ mod ui_tests {
                 ))
                 .await;
                 let status = status_text(&mode);
-                assert!(!status.contains("Retrying ("), "{status}");
+                assert!(!status.contains("Retrying ("), "{status:?}");
                 let chat = chat_text(&mode);
-                assert!(chat.contains("Retry failed after 3 attempts: Unknown error"), "{chat}");
+                assert!(
+                    chat.contains("Retry failed after 3 attempts: Unknown error"),
+                    "{chat:?}"
+                );
             })
             .await;
     }
@@ -13741,7 +13787,7 @@ mod ui_tests {
             r#type: source_type,
             provider: provider.to_owned(),
             model: model.to_owned(),
-            endpoint: endpoint.map(str::to_owned),
+            endpoint: endpoint.map(str::to_owned).map(JsString::from),
         }
     }
 
@@ -13750,7 +13796,7 @@ mod ui_tests {
     ) -> crate::core::compaction::CompactionResult {
         crate::core::compaction::CompactionResult {
             summary: "summary".into(),
-            first_kept_entry_id: "entry-1".to_owned(),
+            first_kept_entry_id: JsString::from("entry-1"),
             tokens_before: 123.0,
             duration_ms: None,
             estimated_tokens_after: None,
@@ -13774,28 +13820,40 @@ mod ui_tests {
             Some("https://chatgpt.com/backend-api/codex/responses/compact"),
         );
         assert_eq!(
-            format_compaction_start_label("manual", Some(&remote), "(escape to cancel)"),
+            format_compaction_start_label(
+                &JsString::from("manual"),
+                Some(&remote),
+                &JsString::from("(escape to cancel)")
+            ),
             "Compacting context via OpenAI remote endpoint (openai-codex/gpt-5.5, https://chatgpt.com/backend-api/codex/responses/compact)... (escape to cancel)"
         );
 
         let local = compaction_source(CompactionSourceType::Local, "anthropic", "claude-sonnet-4-5", None);
         assert_eq!(
-            format_compaction_start_label("threshold", Some(&local), "(escape to cancel)"),
+            format_compaction_start_label(
+                &JsString::from("threshold"),
+                Some(&local),
+                &JsString::from("(escape to cancel)")
+            ),
             "Auto-compacting locally... (escape to cancel)"
         );
         assert_eq!(
-            format_compaction_start_label("overflow", None, "(escape to cancel)"),
+            format_compaction_start_label(&JsString::from("overflow"), None, &JsString::from("(escape to cancel)")),
             "Context overflow detected, Auto-compacting... (escape to cancel)"
         );
         assert_eq!(
-            format_compaction_start_label("overflow", Some(&remote), "(escape to cancel)"),
+            format_compaction_start_label(
+                &JsString::from("overflow"),
+                Some(&remote),
+                &JsString::from("(escape to cancel)")
+            ),
             "Context overflow detected, Auto-compacting via OpenAI remote endpoint (openai-codex/gpt-5.5, https://chatgpt.com/backend-api/codex/responses/compact)... (escape to cancel)"
         );
 
         assert_eq!(
             format_compaction_failure_message(
                 "Context overflow recovery failed: Turn prefix summarization failed: Request timed out.",
-                "overflow",
+                &JsString::from("overflow"),
                 Some(&compaction_source(
                     CompactionSourceType::Local,
                     "ollama",
@@ -13813,7 +13871,7 @@ mod ui_tests {
             .join("\n")
         );
         assert_eq!(
-            format_compaction_failure_message("Compaction failed: boom", "manual", None),
+            format_compaction_failure_message("Compaction failed: boom", &JsString::from("manual"), None),
             [
                 "Compaction failed.",
                 "No compaction was saved; context remains unchanged.",
@@ -13849,7 +13907,7 @@ mod ui_tests {
                 let (mode, terminal, _faux, _temp) = build_mode_with_settings(
                     StaticResourceLoader::new(),
                     None,
-                    SettingsManager::in_memory(settings, SettingsManagerCreateOptions::default()),
+                    SettingsManager::in_memory(settings.into_iter().map(|(key, value)| (JsString::from(key), JsValue::from(value))).collect::<pi_js_compat::js_json::JsObject>(), SettingsManagerCreateOptions::default()),
                 )
                 .await;
                 let _events = start(&mode).await;
@@ -13879,7 +13937,7 @@ mod ui_tests {
                     status.contains(
                         "Compacting context via OpenAI remote endpoint (openai/gpt-4.1-mini, https://api.openai.com/v1/responses/compact)... (escape to cancel)"
                     ),
-                    "{status}"
+                    "{status:?}"
                 );
                 assert!(mode.auto_compaction_loader.borrow().is_some());
                 assert_eq!(mode.auto_compaction_source_hint.borrow().as_ref(), Some(&source_hint));
@@ -13947,7 +14005,7 @@ mod ui_tests {
                 let chat = chat_text(&mode);
                 assert!(
                     chat.contains("Compaction completed locally (anthropic/claude-sonnet-4-5)"),
-                    "{chat}"
+                    "{chat:?}"
                 );
 
                 mode.handle_event(AgentSessionEvent::CompactionStart(
@@ -13977,7 +14035,7 @@ mod ui_tests {
                 )))
                 .await;
                 let chat = chat_text(&mode);
-                let normalized = chat.lines().map(|text| text.trim()).collect::<Vec<_>>().join("\n");
+                let normalized = JsString::join(chat.split('\n').map(|text| text.trim()), "\n");
                 assert!(
                     normalized.contains(
                         &[
@@ -13989,7 +14047,7 @@ mod ui_tests {
                         ]
                         .join("\n")
                     ),
-                    "{chat}"
+                    "{chat:?}"
                 );
 
                 mode.handle_event(AgentSessionEvent::CompactionStart(
@@ -14012,7 +14070,7 @@ mod ui_tests {
                 )))
                 .await;
                 let chat = chat_text(&mode);
-                let normalized = chat.lines().map(|text| text.trim()).collect::<Vec<_>>().join("\n");
+                let normalized = JsString::join(chat.split('\n').map(|text| text.trim()), "\n");
                 assert!(
                     normalized.contains(
                         &[
@@ -14022,7 +14080,7 @@ mod ui_tests {
                         ]
                         .join("\n")
                     ),
-                    "{chat}"
+                    "{chat:?}"
                 );
             })
             .await;
@@ -14036,27 +14094,34 @@ mod ui_tests {
                 let temp = tempfile::tempdir().expect("temp dir");
                 let cwd = temp.path().join("repo");
                 std::fs::create_dir_all(&cwd).expect("cwd");
-                let (path, _session_dir) =
-                    write_child_session(temp.path(), &cwd.display().to_string(), &["child prompt"]);
+                let (path, _session_dir) = write_child_session(temp.path(), &js_path(&cwd), &["child prompt"]);
                 let store = test_store();
                 spawn_agent(&store, "Child", Some(1), Some(&path), None);
                 let (mode, _terminal, _faux, _temp) = build_mode_with_store(Arc::clone(&store), TuiMode::Regular).await;
                 let _events = start(&mode).await;
-                let main_footer =
-                    pi_tui::utils::strip_terminal_sequences(&mode.footer.borrow_mut().render(200).join("\n"));
-                assert!(main_footer.contains("faux-1"), "{main_footer}");
+                let main_footer = pi_tui::utils::strip_terminal_sequences(&JsString::join(
+                    mode.footer.borrow_mut().render(200),
+                    "\n",
+                ));
+                assert!(main_footer.contains("faux-1"), "{main_footer:?}");
 
                 assert!(mode.select_agent_slot(1));
-                let footer = pi_tui::utils::strip_terminal_sequences(&mode.footer.borrow_mut().render(200).join("\n"));
-                assert!(footer.contains("faux-2"), "{footer}");
-                assert!(!footer.contains("faux-1"), "{footer}");
-                assert!(footer.contains('↑'), "child usage must be shown: {footer}");
+                let footer = pi_tui::utils::strip_terminal_sequences(&JsString::join(
+                    mode.footer.borrow_mut().render(200),
+                    "\n",
+                ));
+                assert!(footer.contains("faux-2"), "{footer:?}");
+                assert!(!footer.contains("faux-1"), "{footer:?}");
+                assert!(footer.contains('↑'), "child usage must be shown: {footer:?}");
                 let chat = chat_text(&mode);
-                assert!(chat.contains("child prompt"), "{chat}");
+                assert!(chat.contains("child prompt"), "{chat:?}");
 
-                assert!(mode.select_agent_view_from_bridge("main"));
-                let footer = pi_tui::utils::strip_terminal_sequences(&mode.footer.borrow_mut().render(200).join("\n"));
-                assert!(footer.contains("faux-1"), "{footer}");
+                assert!(mode.select_agent_view_from_bridge(&JsString::from("main")));
+                let footer = pi_tui::utils::strip_terminal_sequences(&JsString::join(
+                    mode.footer.borrow_mut().render(200),
+                    "\n",
+                ));
+                assert!(footer.contains("faux-1"), "{footer:?}");
             })
             .await;
     }
@@ -14123,8 +14188,7 @@ mod ui_tests {
                 let temp = tempfile::tempdir().expect("temp dir");
                 let cwd = temp.path().join("repo");
                 std::fs::create_dir_all(&cwd).expect("cwd");
-                let (path, session_dir) =
-                    write_child_session(temp.path(), &cwd.display().to_string(), &["first child message"]);
+                let (path, session_dir) = write_child_session(temp.path(), &js_path(&cwd), &["first child message"]);
                 let store = test_store();
                 spawn_agent(&store, "Child", Some(1), Some(&path), None);
                 let (mode, _terminal, _faux, _temp) = build_mode_with_store(Arc::clone(&store), TuiMode::Regular).await;
@@ -14132,7 +14196,9 @@ mod ui_tests {
                 assert!(mode.select_agent_slot(1));
                 assert!(chat_text(&mode).contains("first child message"));
 
-                let mut manager = SessionManager::open(&path, Some(&session_dir), None).expect("open child");
+                let mut manager =
+                    SessionManager::open(&JsString::from(&path), Some(&JsString::from(&session_dir)), None)
+                        .expect("open child");
                 manager
                     .append_message(AgentMessage::User(pi_ai::types::UserMessage {
                         role: pi_ai::types::UserRole::Tag,
@@ -14144,7 +14210,7 @@ mod ui_tests {
                     .expect("append child message");
                 manager.persist_for_recovery().expect("persist child");
 
-                let mut rendered = String::new();
+                let mut rendered = JsString::default();
                 for _ in 0..400 {
                     mode.poll_child_view_events();
                     rendered = chat_text(&mode);
@@ -14153,7 +14219,7 @@ mod ui_tests {
                     }
                     tokio::time::sleep(Duration::from_millis(5)).await;
                 }
-                assert!(rendered.contains("second child message"), "{rendered}");
+                assert!(rendered.contains("second child message"), "{rendered:?}");
             })
             .await;
     }
@@ -14248,7 +14314,7 @@ mod ui_tests {
                     let cell = tui.create_fixed_cell();
                     cell.place(0, 0);
                     assert!(
-                        !cell.update("x"),
+                        !cell.update(&JsString::from("x")),
                         "TS base cells request a render, not an immediate write"
                     );
                     cell.clear();
@@ -14273,17 +14339,17 @@ mod ui_tests {
 
     struct ReleaseInput {
         opted_in: bool,
-        inputs: Arc<std::sync::Mutex<Vec<String>>>,
+        inputs: Arc<std::sync::Mutex<Vec<JsString>>>,
     }
     impl ExtensionUiComponent for ReleaseInput {
-        fn render(&self, _: usize) -> Vec<String> {
+        fn render(&self, _: usize) -> Vec<JsString> {
             vec!["release fixture".into()]
         }
         fn wants_key_release(&self) -> bool {
             self.opted_in
         }
-        fn handle_input(&self, data: &str) {
-            self.inputs.lock().unwrap().push(data.into());
+        fn handle_input(&self, data: &JsString) {
+            self.inputs.lock().unwrap().push(data.clone());
         }
     }
 
@@ -14343,19 +14409,19 @@ mod ui_tests {
                 terminal.borrow_mut().writes.clear();
                 tui.stop();
                 assert!(
-                    terminal.borrow().writes.concat().contains("\x1b[?1004l"),
+                    JsString::join(&terminal.borrow().writes, "").contains("\x1b[?1004l"),
                     "stop must release before returning"
                 );
                 terminal.borrow_mut().writes.clear();
                 tui.start().unwrap();
                 assert!(
-                    terminal.borrow().writes.concat().contains("\x1b[?1004h"),
+                    JsString::join(&terminal.borrow().writes, "").contains("\x1b[?1004h"),
                     "start must reacquire before returning"
                 );
                 tui.stop();
                 let error = TerminalRawModeError::new(true, "fixture raw-mode failure");
                 terminal.borrow_mut().start_error = Some(error.clone());
-                assert_eq!(tui.start(), Err(error.to_string()));
+                assert_eq!(tui.start(), Err(JsString::from(error.to_string())));
                 terminal.borrow_mut().start_error = None;
             })
             .await;
@@ -14372,8 +14438,8 @@ mod ui_tests {
             self.0.store(focused, std::sync::atomic::Ordering::SeqCst);
         }
 
-        fn render(&self, _width: usize) -> Vec<String> {
-            vec![format!(
+        fn render(&self, _width: usize) -> Vec<JsString> {
+            vec![js_format!(
                 "input{}",
                 if self.focused() == Some(true) {
                     pi_tui::tui::CURSOR_MARKER
@@ -14392,7 +14458,7 @@ mod ui_tests {
     }
 
     impl ExtensionUiComponent for SizedExtensionInput {
-        fn handle_input(&self, data: &str) {
+        fn handle_input(&self, data: &JsString) {
             if data == "\r" {
                 self.done
                     .call(Some(pi_js_compat::js_json!({"action":"Search","query":"x"})));
@@ -14407,9 +14473,9 @@ mod ui_tests {
         fn set_focused(&self, focused: bool) {
             self.focus.store(focused, std::sync::atomic::Ordering::SeqCst);
         }
-        fn render(&self, width: usize) -> Vec<String> {
+        fn render(&self, width: usize) -> Vec<JsString> {
             self.rendered_width.store(width, std::sync::atomic::Ordering::SeqCst);
-            vec![format!(
+            vec![js_format!(
                 "overlay{}",
                 if self.focused() == Some(true) {
                     pi_tui::tui::CURSOR_MARKER
@@ -14428,15 +14494,15 @@ mod ui_tests {
         done: ExtensionUiDone,
     }
     impl ExtensionUiComponent for LocalEditorForm {
-        fn render(&self, width: usize) -> Vec<String> {
+        fn render(&self, width: usize) -> Vec<JsString> {
             self.editor.borrow_mut().render(width)
         }
-        fn handle_input(&self, data: &str) {
+        fn handle_input(&self, data: &JsString) {
             if data == "\r" {
                 self.done
                     .call(Some(pi_js_compat::js_json!(self.editor.borrow().get_text())));
             } else {
-                self.editor.borrow_mut().handle_input(data);
+                self.editor.borrow_mut().handle_input(&JsString::from(data));
             }
         }
     }
@@ -14447,7 +14513,7 @@ mod ui_tests {
         done: ExtensionUiDone,
     }
     impl ExtensionUiComponent for RetainedOverlay {
-        fn render(&self, _: usize) -> Vec<String> {
+        fn render(&self, _: usize) -> Vec<JsString> {
             vec!["toggle".into()]
         }
         fn on_overlay_handle(&self, handle: Rc<dyn crate::core::extensions::ExtensionUiOverlayHandle>) {
@@ -14523,15 +14589,15 @@ mod ui_tests {
 
     struct NestedInput {
         width: Arc<std::sync::atomic::AtomicUsize>,
-        input: Arc<std::sync::Mutex<Vec<String>>>,
+        input: Arc<std::sync::Mutex<Vec<JsString>>>,
     }
     impl ExtensionUiComponent for NestedInput {
-        fn render(&self, width: usize) -> Vec<String> {
+        fn render(&self, width: usize) -> Vec<JsString> {
             self.width.store(width, std::sync::atomic::Ordering::SeqCst);
-            vec!["nested".to_owned()]
+            vec![JsString::from("nested")]
         }
-        fn handle_input(&self, input: &str) {
-            self.input.lock().unwrap().push(input.to_owned());
+        fn handle_input(&self, input: &JsString) {
+            self.input.lock().unwrap().push(input.clone());
         }
     }
 
@@ -14649,12 +14715,12 @@ mod ui_tests {
                 let (mode, terminal, _faux, _temp) = build_mode().await;
                 let _events = start(&mode).await;
                 for overlay in [false, true] {
-                    mode.editor().borrow_mut().set_text("before");
+                    mode.editor().borrow_mut().set_text(&JsString::from("before"));
                     let editor = mode.editor();
                     let (send, receive) = tokio::sync::oneshot::channel();
                     mode.show_extension_custom(
                         Rc::new(move |context, done| {
-                            editor.borrow_mut().set_text("factory");
+                            editor.borrow_mut().set_text(&JsString::from("factory"));
                             crate::core::extensions::ready_custom_component(Box::new(LocalEditorForm {
                                 editor: RefCell::new(pi_tui::components::editor::Editor::new(
                                     Rc::new(context.tui),
@@ -14672,7 +14738,7 @@ mod ui_tests {
                     );
                     tokio::task::yield_now().await;
                     let ui = mode.ui_context();
-                    ui.set_editor_text("during");
+                    ui.set_editor_text(&JsString::from("during"));
                     mode.handle_ui_requests().await;
                     assert_eq!(mode.editor().borrow().get_text(), "during");
                     terminal.borrow_mut().send_input("\r");
@@ -14692,11 +14758,11 @@ mod ui_tests {
         disposed: Arc<std::sync::atomic::AtomicUsize>,
     }
     impl ExtensionUiComponent for AsyncEditorForm {
-        fn render(&self, width: usize) -> Vec<String> {
+        fn render(&self, width: usize) -> Vec<JsString> {
             self.form.render(width)
         }
-        fn handle_input(&self, data: &str) {
-            self.form.handle_input(data);
+        fn handle_input(&self, data: &JsString) {
+            self.form.handle_input(&JsString::from(data));
         }
         fn dispose(&self) {
             self.disposed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -14711,9 +14777,9 @@ mod ui_tests {
                 let _events = start(&mode).await;
                 for overlay in [false, true] {
                     for (early, reject) in [(false, false), (false, true), (true, false), (true, true)] {
-                        mode.editor().borrow_mut().set_text("before");
+                        mode.editor().borrow_mut().set_text(&JsString::from("before"));
                         let editor = mode.ui.get_focused_component().unwrap();
-                        let (release, pending) = tokio::sync::oneshot::channel::<Result<(), String>>();
+                        let (release, pending) = tokio::sync::oneshot::channel::<Result<(), JsString>>();
                         let pending = Arc::new(std::sync::Mutex::new(Some(pending)));
                         let handles = Arc::new(std::sync::atomic::AtomicUsize::new(0));
                         let counted = handles.clone();
@@ -14755,13 +14821,13 @@ mod ui_tests {
                         tokio::task::yield_now().await;
                         assert!(!mode.ui.has_overlay_entries(), "pending factory must not mount");
                         assert!(Rc::ptr_eq(&editor, &mode.ui.get_focused_component().unwrap()));
-                        ui.set_editor_text("during");
+                        ui.set_editor_text(&JsString::from("during"));
                         mode.handle_ui_requests().await;
                         terminal.borrow_mut().writes.clear();
                         mode.ui.request_render_force();
                         mode.ui.render_now();
                         assert!(
-                            terminal.borrow().writes.concat().contains("during"),
+                            JsString::join(&terminal.borrow().writes, "").contains("during"),
                             "pending factory leaves editor visible"
                         );
                         let early_result = if early {
@@ -14771,7 +14837,7 @@ mod ui_tests {
                         };
                         release
                             .send(if reject {
-                                Err("async failure".to_owned())
+                                Err(JsString::from("async failure"))
                             } else {
                                 Ok(())
                             })
@@ -14788,7 +14854,7 @@ mod ui_tests {
                                 "late settlement must not restore twice"
                             );
                         } else if reject {
-                            assert_eq!(result.take().unwrap().await, Err("async failure".to_owned()));
+                            assert_eq!(result.take().unwrap().await, Err(JsString::from("async failure")));
                             assert!(!mode.ui.has_overlay_entries());
                             assert!(Rc::ptr_eq(&editor, &mode.ui.get_focused_component().unwrap()));
                             assert_eq!(
@@ -14832,7 +14898,7 @@ mod ui_tests {
                 let _events = start(&mode).await;
                 for overlay in [false, true] {
                     for synchronous in [false, true] {
-                        mode.editor().borrow_mut().set_text("before");
+                        mode.editor().borrow_mut().set_text(&JsString::from("before"));
                         let retained = Rc::new(RefCell::new(None::<ExtensionUiDone>));
                         let saved = retained.clone();
                         let (send, receive) = tokio::sync::oneshot::channel();
@@ -14840,9 +14906,9 @@ mod ui_tests {
                             Rc::new(move |_, done| {
                                 *saved.borrow_mut() = Some(done);
                                 if synchronous {
-                                    Err("rejected".to_owned())
+                                    Err(JsString::from("rejected"))
                                 } else {
-                                    Ok(Box::pin(async { Err("rejected".to_owned()) }))
+                                    Ok(Box::pin(async { Err(JsString::from("rejected")) }))
                                 }
                             }),
                             Some(ExtensionUiCustomOptions {
@@ -14852,8 +14918,8 @@ mod ui_tests {
                             send,
                         );
                         tokio::task::yield_now().await;
-                        assert_eq!(receive.await.unwrap(), Err("rejected".to_owned()));
-                        mode.editor().borrow_mut().set_text("after rejection");
+                        assert_eq!(receive.await.unwrap(), Err(JsString::from("rejected")));
+                        mode.editor().borrow_mut().set_text(&JsString::from("after rejection"));
                         if overlay {
                             mode.extension_factory_context()
                                 .tui
@@ -14869,7 +14935,7 @@ mod ui_tests {
                             mode.editor().borrow().get_text(),
                             if overlay { "after rejection" } else { "before" }
                         );
-                        mode.editor().borrow_mut().set_text("after close");
+                        mode.editor().borrow_mut().set_text(&JsString::from("after close"));
                         done.call(None);
                         assert_eq!(
                             mode.editor().borrow().get_text(),
@@ -14916,12 +14982,12 @@ mod ui_tests {
             .run_until(async {
                 let (mode, _terminal, _faux, _temp) = build_mode().await;
                 let _events = start(&mode).await;
-                mode.editor().borrow_mut().set_text("draft 🚀");
+                mode.editor().borrow_mut().set_text(&JsString::from("draft 🚀"));
                 let focused = mode.ui.get_focused_component().unwrap();
                 for overlay in [false, true] {
                     let ui = mode.ui_context();
                     let result = ui.custom(
-                        Arc::new(|_, _| Err("fixture constructor failed".to_owned())),
+                        Arc::new(|_, _| Err(JsString::from("fixture constructor failed"))),
                         Some(ExtensionUiCustomOptions {
                             overlay: Some(overlay),
                             overlay_options: Some(Arc::new(|| panic!("failed factory must not resolve options"))),
@@ -14929,7 +14995,7 @@ mod ui_tests {
                         }),
                     );
                     mode.handle_ui_requests().await;
-                    assert_eq!(result.await, Err("fixture constructor failed".to_owned()));
+                    assert_eq!(result.await, Err(JsString::from("fixture constructor failed")));
                     assert!(!mode.ui.has_overlay_entries());
                     assert!(Rc::ptr_eq(&focused, &mode.ui.get_focused_component().unwrap()));
                     assert_eq!(mode.editor().borrow().get_text(), "draft 🚀");
@@ -14948,7 +15014,7 @@ mod ui_tests {
                 let result = ui.custom(
                     Arc::new(|_, done| {
                         done.call(Some(pi_js_compat::js_json!("closed first")));
-                        Err("too late".to_owned())
+                        Err(JsString::from("too late"))
                     }),
                     None,
                 );
@@ -14992,11 +15058,11 @@ mod ui_tests {
                 mode.ui.render_now();
                 assert_eq!(width.load(std::sync::atomic::Ordering::SeqCst), 70);
                 assert!(
-                    terminal.borrow().writes.concat().contains("\x1b[13G"),
+                    JsString::join(&terminal.borrow().writes, "").contains("\x1b[13G"),
                     "centered 70-cell overlay plus seven input cells must position hardware cursor at column 13"
                 );
                 assert!(
-                    !terminal.borrow().writes.concat().contains(pi_tui::tui::CURSOR_MARKER),
+                    !JsString::join(&terminal.borrow().writes, "").contains(pi_tui::tui::CURSOR_MARKER),
                     "renderer must consume cursor markers"
                 );
                 let done = done.borrow().clone().unwrap();
@@ -15171,10 +15237,10 @@ mod ui_tests {
         });
         let extension = crate::core::extensions::load_extension_from_factory(
             factory,
-            "/tmp",
+            &JsString::from("/tmp"),
             Arc::new(crate::core::event_bus::EventBusController::new()),
             runtime.clone(),
-            "/tmp/test-extension",
+            &JsString::from("/tmp/test-extension"),
         )
         .await
         .expect("extension");
@@ -15189,7 +15255,7 @@ mod ui_tests {
         build_mode_with_loader(loader, None).await
     }
 
-    async fn render_lossless_custom_role(role: JsString) -> String {
+    async fn render_lossless_custom_role(role: JsString) -> JsString {
         let runtime = crate::core::extensions::create_extension_runtime();
         let factory: crate::core::extensions::ExtensionFactory = Arc::new(|api| {
             api.register_message_renderer(
@@ -15212,10 +15278,10 @@ mod ui_tests {
         });
         let extension = crate::core::extensions::load_extension_from_factory(
             factory,
-            "/tmp",
+            &JsString::from("/tmp"),
             Arc::new(crate::core::event_bus::EventBusController::new()),
             runtime.clone(),
-            "/tmp/raw-role-extension",
+            &JsString::from("/tmp/raw-role-extension"),
         )
         .await
         .unwrap();
@@ -15231,7 +15297,7 @@ mod ui_tests {
         let _events = start(&mode).await;
         let value = pi_js_compat::js_json!({"role": role, "content": "raw-role-content", "display": true});
         mode.add_custom_message_to_chat(value.as_object().unwrap());
-        mode.chat_container.borrow_mut().render(80).join("\n")
+        JsString::join(mode.chat_container.borrow_mut().render(80), "\n")
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -15254,11 +15320,11 @@ mod ui_tests {
 
     fn custom_entry(message: &str) -> crate::core::session_manager::CustomEntry {
         crate::core::session_manager::CustomEntry {
-            custom_type: "test-entry".to_owned(),
+            custom_type: JsString::from("test-entry"),
             data: Some(pi_js_compat::js_json!({"message": message})),
-            id: "entry-1".to_owned(),
+            id: JsString::from("entry-1"),
             parent_id: None,
-            timestamp: "2026-06-27T00:00:00.000Z".to_owned(),
+            timestamp: JsString::from("2026-06-27T00:00:00.000Z"),
         }
     }
 
@@ -15269,8 +15335,8 @@ mod ui_tests {
             .run_until(async {
                 let (mode, _terminal, _faux, _temp) = build_mode_with_custom_entry_renderer().await;
                 let _events = start(&mode).await;
-                let resources = mode.loaded_resources_container.borrow_mut().render(80).join("\n");
-                assert!(resources.contains("test-extension"), "{resources}");
+                let resources = JsString::join(mode.loaded_resources_container.borrow_mut().render(80), "\n");
+                assert!(resources.contains("test-extension"), "{resources:?}");
                 mode.handle_event(AgentSessionEvent::EntryAppended(
                     crate::core::agent_session::EntryAppendedEvent {
                         event_type: "entry_appended",
@@ -15279,7 +15345,7 @@ mod ui_tests {
                 ))
                 .await;
                 let chat = chat_text(&mode);
-                assert!(chat.contains("appended entry"), "{chat}");
+                assert!(chat.contains("appended entry"), "{chat:?}");
             })
             .await;
     }
@@ -15334,7 +15400,7 @@ mod ui_tests {
                     "persisted entry",
                 )))]);
                 let chat = chat_text(&mode);
-                assert!(chat.contains("persisted entry"), "{chat}");
+                assert!(chat.contains("persisted entry"), "{chat:?}");
             })
             .await;
     }
@@ -15380,8 +15446,8 @@ mod ui_tests {
                 mode.maybe_show_cache_miss_notice(&current);
 
                 let chat = chat_text(&mode);
-                assert!(chat.contains("Cache miss after 10m idle"), "{chat}");
-                assert!(chat.contains("100k tokens re-billed"), "{chat}");
+                assert!(chat.contains("Cache miss after 10m idle"), "{chat:?}");
+                assert!(chat.contains("100k tokens re-billed"), "{chat:?}");
             })
             .await;
     }
@@ -15419,25 +15485,25 @@ mod ui_tests {
                     SessionEntry::Known(KnownSessionEntry::Message(
                         crate::core::session_manager::SessionMessageEntry {
                             mailbox_store_refs: None,
-                            id: "m1".to_owned(),
+                            id: JsString::from("m1"),
                             parent_id: None,
-                            timestamp: "2026-06-27T00:00:00.000Z".to_owned(),
+                            timestamp: JsString::from("2026-06-27T00:00:00.000Z"),
                             message: Box::new(AgentMessage::Assistant(Box::new(assistant))),
                         },
                     )),
                     SessionEntry::Known(KnownSessionEntry::Message(
                         crate::core::session_manager::SessionMessageEntry {
                             mailbox_store_refs: None,
-                            id: "m2".to_owned(),
-                            parent_id: Some("m1".to_owned()),
-                            timestamp: "2026-06-27T00:00:01.000Z".to_owned(),
+                            id: JsString::from("m2"),
+                            parent_id: Some(JsString::from("m1")),
+                            timestamp: JsString::from("2026-06-27T00:00:01.000Z"),
                             message: Box::new(AgentMessage::ToolResult(result)),
                         },
                     )),
                 ];
                 mode.render_session_entries(&entries);
                 let chat = chat_text(&mode);
-                assert!(chat.contains("replayed tool output"), "{chat}");
+                assert!(chat.contains("replayed tool output"), "{chat:?}");
             })
             .await;
     }
@@ -15456,12 +15522,16 @@ mod ui_tests {
                 let (mode, _terminal, _faux, _temp) =
                     build_mode_with_settings(StaticResourceLoader::new(), None, settings).await;
                 let cwd = mode.cwd();
-                std::fs::create_dir_all(Path::new(&cwd).join(crate::config::config_dir_name()).join("skills"))
-                    .expect("project resources");
+                std::fs::create_dir_all(
+                    Path::new(&encode_node_utf8(&cwd))
+                        .join(crate::config::config_dir_name())
+                        .join("skills"),
+                )
+                .expect("project resources");
                 let _events = start(&mode).await;
                 let chat = chat_text(&mode);
-                assert!(chat.contains("This project is not trusted."), "{chat}");
-                assert!(chat.contains("Use /trust to save a trust decision"), "{chat}");
+                assert!(chat.contains("This project is not trusted."), "{chat:?}");
+                assert!(chat.contains("Use /trust to save a trust decision"), "{chat:?}");
             })
             .await;
     }
@@ -15470,17 +15540,17 @@ mod ui_tests {
     struct TestEditorComponent;
 
     impl Component for TestEditorComponent {
-        fn render(&mut self, _width: usize) -> Vec<String> {
-            vec!["custom-editor".to_owned()]
+        fn render(&mut self, _width: usize) -> Vec<JsString> {
+            vec![JsString::from("custom-editor")]
         }
     }
 
     impl EditorComponent for TestEditorComponent {
-        fn get_text(&self) -> String {
-            String::new()
+        fn get_text(&self) -> JsString {
+            JsString::default()
         }
 
-        fn set_text(&mut self, _text: &str) {}
+        fn set_text(&mut self, _text: &JsString) {}
     }
 
     struct TestDetachHandle {
@@ -15502,7 +15572,7 @@ mod ui_tests {
                 let (mode, terminal, _faux, _temp) = build_mode().await;
                 let mut events = start(&mode).await;
                 let output = pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
-                assert!(output.contains("ctrl+b to background tools"), "output:\n{output}");
+                assert!(output.contains("ctrl+b to background tools"), "output:\n{output:?}");
 
                 let context = mode.session().extension_runner().create_context();
                 let registry = context
@@ -15521,14 +15591,17 @@ mod ui_tests {
                     output.contains("Detached tool to background job")
                 })
                 .await;
-                assert!(detached.load(std::sync::atomic::Ordering::SeqCst), "output:\n{output}");
+                assert!(
+                    detached.load(std::sync::atomic::Ordering::SeqCst),
+                    "output:\n{output:?}"
+                );
                 drop(subscription);
             })
             .await;
     }
 
-    type RestartOutcome = Arc<Mutex<Option<Result<(), String>>>>;
-    type RestartCalls = Arc<Mutex<Vec<(Option<String>, String)>>>;
+    type RestartOutcome = Arc<Mutex<Option<Result<(), JsString>>>>;
+    type RestartCalls = Arc<Mutex<Vec<(Option<JsString>, JsString)>>>;
 
     async fn build_mode_with_restart_extension() -> (
         Rc<InteractiveMode>,
@@ -15554,8 +15627,8 @@ mod ui_tests {
                                 notice: None,
                                 process: None,
                             })) {
-                                Ok(future) => future.await.map_err(|error| error.to_string()),
-                                Err(error) => Err(error.to_string()),
+                                Ok(future) => future.await.map_err(|error| error.message),
+                                Err(error) => Err(error.message),
                             };
                             *command_outcome.lock().unwrap() = Some(result);
                             Ok(())
@@ -15572,10 +15645,10 @@ mod ui_tests {
         });
         let extension = crate::core::extensions::load_extension_from_factory(
             factory,
-            "/tmp",
+            &JsString::from("/tmp"),
             Arc::new(crate::core::event_bus::EventBusController::new()),
             runtime.clone(),
-            "/tmp/restart-extension",
+            &JsString::from("/tmp/restart-extension"),
         )
         .await
         .expect("extension");
@@ -15621,7 +15694,7 @@ mod ui_tests {
                                 .lock()
                                 .unwrap()
                                 .push((options.prompt.clone(), options.session_file.clone()));
-                            Err("restart failed".to_owned())
+                            Err(JsString::from("restart failed"))
                         })
                     }));
                 }
@@ -15646,7 +15719,7 @@ mod ui_tests {
 
                 assert_eq!(
                     outcome.lock().unwrap().clone(),
-                    Some(Err("restart failed".to_owned())),
+                    Some(Err(JsString::from("restart failed"))),
                     "the extension caller observes the restart failure"
                 );
                 let calls = calls.lock().unwrap().clone();
@@ -15675,13 +15748,19 @@ mod ui_tests {
     }
 
     fn stop_settings(value: Value) -> crate::core::settings_manager::Settings {
-        value.as_object().expect("settings object").clone()
+        value
+            .as_object()
+            .expect("settings object")
+            .clone()
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>()
     }
 
     struct DisposingFooter(std::sync::Arc<std::sync::atomic::AtomicBool>);
 
     impl crate::core::extensions::types::ExtensionUiComponent for DisposingFooter {
-        fn render(&self, _width: usize) -> Vec<String> {
+        fn render(&self, _width: usize) -> Vec<JsString> {
             Vec::new()
         }
 
@@ -15748,7 +15827,7 @@ mod ui_tests {
                 mode.stop();
                 assert_eq!(mode.ui.mode(), TuiMode::Regular);
                 let output = terminal.borrow().output();
-                assert!(output.contains("stop-transcript-marker"), "{output}");
+                assert!(output.contains("stop-transcript-marker"), "{output:?}");
             })
             .await;
     }
@@ -15768,7 +15847,7 @@ mod ui_tests {
                 mode.stop();
                 assert_eq!(mode.ui.mode(), TuiMode::Fullscreen);
                 let output = terminal.borrow().output();
-                assert!(!output.contains("stop-transcript-marker"), "{output}");
+                assert!(!output.contains("stop-transcript-marker"), "{output:?}");
             })
             .await;
     }
@@ -15792,13 +15871,13 @@ mod ui_tests {
                 })));
                 mode.pending_tools
                     .borrow_mut()
-                    .insert("tool-1".to_owned(), component(Text::new("pending", 0, 0)));
-                let listener = mode
-                    .ui
-                    .add_input_listener(Rc::new(|_data: &str| pi_tui::tui::TuiInputListenerResult::default()));
+                    .insert(JsString::from("tool-1"), component(Text::new("pending", 0, 0)));
+                let listener = mode.ui.add_input_listener(Rc::new(|_data: &JsString| {
+                    pi_tui::tui::TuiInputListenerResult::default()
+                }));
                 mode.terminal_input_listeners
                     .borrow_mut()
-                    .push((listener, std::sync::Arc::new(|_data: &str| None)));
+                    .push((listener, std::sync::Arc::new(|_data: &JsString| None)));
                 terminal.borrow_mut().progress.clear();
 
                 mode.stop();
@@ -15816,36 +15895,41 @@ mod ui_tests {
 mod tests {
     use super::*;
 
+    fn js_path(path: &Path) -> JsString {
+        JsString::from(path.to_str().expect("utf-8 test path"))
+    }
+
     fn init_dark_theme() {
         let theme_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("theme");
-        let dark = crate::modes::interactive::theme::load_theme_from_path(&theme_dir.join("dark.json"), None)
+        let dark = crate::modes::interactive::theme::load_theme_from_path(&js_path(&theme_dir.join("dark.json")), None)
             .expect("dark theme");
-        let light = crate::modes::interactive::theme::load_theme_from_path(&theme_dir.join("light.json"), None)
-            .expect("light theme");
+        let light =
+            crate::modes::interactive::theme::load_theme_from_path(&js_path(&theme_dir.join("light.json")), None)
+                .expect("light theme");
         crate::modes::interactive::theme::set_registered_themes(vec![
             std::sync::Arc::new(dark),
             std::sync::Arc::new(light),
         ])
         .expect("register fixture themes");
-        crate::modes::interactive::theme::init_theme(Some("dark"), false).expect("dark theme");
+        crate::modes::interactive::theme::init_theme(Some(&JsString::from("dark")), false).expect("dark theme");
     }
 
     fn source_info(path: &str, source: &str, scope: SourceScope, base_dir: Option<&str>) -> SourceInfo {
         SourceInfo {
-            path: path.to_owned(),
-            source: source.to_owned(),
+            path: JsString::from(path.to_owned()),
+            source: JsString::from(source.to_owned()),
             scope,
             origin: crate::core::source_info::SourceOrigin::TopLevel,
-            base_dir: base_dir.map(str::to_owned),
+            base_dir: base_dir.map(str::to_owned).map(JsString::from),
         }
     }
 
     #[test]
     fn quote_if_needed_matches_shell_safe_rule() {
-        assert_eq!(quote_if_needed("simple-value_1.2"), "simple-value_1.2");
-        assert_eq!(quote_if_needed(""), "''");
-        assert_eq!(quote_if_needed("a b"), "'a b'");
-        assert_eq!(quote_if_needed("it's"), "'it'\\''s'");
+        assert_eq!(quote_if_needed(&JsString::from("simple-value_1.2")), "simple-value_1.2");
+        assert_eq!(quote_if_needed(&JsString::from("")), "''");
+        assert_eq!(quote_if_needed(&JsString::from("a b")), "'a b'");
+        assert_eq!(quote_if_needed(&JsString::from("it's")), "'it'\\''s'");
     }
 
     #[test]
@@ -15876,8 +15960,8 @@ mod tests {
     #[test]
     fn compact_extension_labels_follow_source_abbreviations() {
         let extensions = vec![
-            ("/tmp/extensions/answer.ts".to_owned(), None),
-            ("/tmp/extensions/btw.ts".to_owned(), None),
+            (JsString::from("/tmp/extensions/answer.ts"), None),
+            (JsString::from("/tmp/extensions/btw.ts"), None),
         ];
         assert_eq!(
             get_compact_extension_labels(&extensions),
@@ -15889,7 +15973,7 @@ mod tests {
     fn compact_extension_labels_strip_index_and_disambiguate() {
         let extensions = vec![
             (
-                "/tmp/alpha/one/index.ts".to_owned(),
+                JsString::from("/tmp/alpha/one/index.ts"),
                 Some(source_info(
                     "/tmp/alpha/one/index.ts",
                     "cli",
@@ -15898,7 +15982,7 @@ mod tests {
                 )),
             ),
             (
-                "/tmp/beta/one/index.ts".to_owned(),
+                JsString::from("/tmp/beta/one/index.ts"),
                 Some(source_info(
                     "/tmp/beta/one/index.ts",
                     "cli",
@@ -15907,7 +15991,7 @@ mod tests {
                 )),
             ),
             (
-                "/tmp/gamma/one/index.ts".to_owned(),
+                JsString::from("/tmp/gamma/one/index.ts"),
                 Some(source_info(
                     "/tmp/gamma/one/index.ts",
                     "cli",
@@ -15932,7 +16016,7 @@ mod tests {
         );
         assert_eq!(
             get_compact_extension_label(
-                "/tmp/project/.pi/npm/node_modules/pi-markdown-preview/extensions/index.ts",
+                &JsString::from("/tmp/project/.pi/npm/node_modules/pi-markdown-preview/extensions/index.ts"),
                 Some(&npm)
             ),
             "pi-markdown-preview"
@@ -15946,7 +16030,9 @@ mod tests {
         );
         assert_eq!(
             get_compact_extension_label(
-                "/tmp/project/.pi/git/github.com/HazAT/pi-interactive-subagents/extensions/subagents/index.ts",
+                &JsString::from(
+                    "/tmp/project/.pi/git/github.com/HazAT/pi-interactive-subagents/extensions/subagents/index.ts"
+                ),
                 Some(&git)
             ),
             "HazAT/pi-interactive-subagents:subagents"
@@ -15958,7 +16044,7 @@ mod tests {
         assert_eq!(
             get_display_source_info(None),
             DisplaySourceInfo {
-                label: "project".to_owned(),
+                label: JsString::from("project"),
                 scope_label: None,
                 color: ThemeColor::Muted,
             }
@@ -15967,8 +16053,8 @@ mod tests {
         assert_eq!(
             get_display_source_info(Some(&temporary)),
             DisplaySourceInfo {
-                label: "path".to_owned(),
-                scope_label: Some("temp".to_owned()),
+                label: JsString::from("path"),
+                scope_label: Some(JsString::from("temp")),
                 color: ThemeColor::Muted,
             }
         );
@@ -15980,15 +16066,15 @@ mod tests {
     fn scope_groups_order_project_user_path_and_sort_paths() {
         let items = vec![
             ScopeGroupItem {
-                path: "/tmp/project/.pi/skills/b".to_owned(),
+                path: JsString::from("/tmp/project/.pi/skills/b"),
                 source_info: None,
             },
             ScopeGroupItem {
-                path: "/tmp/project/.pi/skills/a".to_owned(),
+                path: JsString::from("/tmp/project/.pi/skills/a"),
                 source_info: None,
             },
             ScopeGroupItem {
-                path: "/home/u/.pi/skills/c".to_owned(),
+                path: JsString::from("/home/u/.pi/skills/c"),
                 source_info: Some(source_info("/home/u/.pi/skills/c", "local", SourceScope::User, None)),
             },
         ];
@@ -16004,7 +16090,7 @@ mod tests {
     fn find_source_info_walks_parent_directories() {
         let mut infos = HashMap::new();
         infos.insert(
-            "/tmp/project/.pi/npm/node_modules/pkg".to_owned(),
+            JsString::from("/tmp/project/.pi/npm/node_modules/pkg"),
             source_info(
                 "/tmp/project/.pi/npm/node_modules/pkg",
                 "npm:pkg",
@@ -16012,8 +16098,11 @@ mod tests {
                 None,
             ),
         );
-        let found = find_source_info_for_path("/tmp/project/.pi/npm/node_modules/pkg/extensions/a.ts", &infos);
-        assert_eq!(found.map(|info| info.source.as_str()), Some("npm:pkg"));
+        let found = find_source_info_for_path(
+            &JsString::from("/tmp/project/.pi/npm/node_modules/pkg/extensions/a.ts"),
+            &infos,
+        );
+        assert_eq!(found.map(|info| &info.source), Some(&JsString::from("npm:pkg")));
     }
 
     #[test]
@@ -16022,21 +16111,21 @@ mod tests {
         let diagnostics = vec![
             ResourceDiagnostic {
                 diagnostic_type: ResourceDiagnosticType::Collision,
-                message: "collision".to_owned(),
+                message: JsString::from("collision"),
                 path: None,
                 collision: Some(crate::core::diagnostics::ResourceCollision {
                     resource_type: crate::core::diagnostics::ResourceType::Skill,
-                    name: "commit".to_owned(),
-                    winner_path: "/a/winner".to_owned(),
-                    loser_path: "/b/loser".to_owned(),
+                    name: JsString::from("commit"),
+                    winner_path: JsString::from("/a/winner"),
+                    loser_path: JsString::from("/b/loser"),
                     winner_source: None,
                     loser_source: None,
                 }),
             },
             ResourceDiagnostic {
                 diagnostic_type: ResourceDiagnosticType::Warning,
-                message: "bad file".to_owned(),
-                path: Some("/c/file".to_owned()),
+                message: JsString::from("bad file"),
+                path: Some(JsString::from("/c/file")),
                 collision: None,
             },
         ];
@@ -16053,7 +16142,12 @@ mod tests {
     fn compact_list_sorts_and_trims() {
         init_dark_theme();
         let output = format_compact_list(
-            &["read".to_owned(), " bash ".to_owned(), String::new(), "edit".to_owned()],
+            &[
+                JsString::from("read"),
+                JsString::from(" bash "),
+                JsString::default(),
+                JsString::from("edit"),
+            ],
             true,
         );
         let plain = pi_tui::utils::strip_terminal_sequences(&output);
@@ -16063,15 +16157,15 @@ mod tests {
     #[test]
     fn extension_display_path_strips_index() {
         assert_eq!(
-            format_extension_display_path("/tmp/extensions/plan-mode/index.ts"),
+            format_extension_display_path(&JsString::from("/tmp/extensions/plan-mode/index.ts")),
             "/tmp/extensions/plan-mode"
         );
         assert_eq!(
-            format_extension_display_path("/tmp/extensions/plan-mode/index.js"),
+            format_extension_display_path(&JsString::from("/tmp/extensions/plan-mode/index.js")),
             "/tmp/extensions/plan-mode"
         );
         assert_eq!(
-            format_extension_display_path("/tmp/extensions/webfetch.ts"),
+            format_extension_display_path(&JsString::from("/tmp/extensions/webfetch.ts")),
             "/tmp/extensions/webfetch.ts"
         );
     }
@@ -16080,7 +16174,13 @@ mod tests {
     fn expandable_text_switches_bodies() {
         use pi_tui::tui::Component;
 
-        let mut text = ExpandableText::new(|| "collapsed".to_owned(), || "expanded".to_owned(), false, 0, 0);
+        let mut text = ExpandableText::new(
+            || JsString::from("collapsed"),
+            || JsString::from("expanded"),
+            false,
+            0,
+            0,
+        );
         assert_eq!(text.render(40)[0].trim_end(), "collapsed");
         text.set_expanded(true);
         assert_eq!(text.render(40)[0].trim_end(), "expanded");
@@ -16090,26 +16190,32 @@ mod tests {
 
     #[test]
     fn unix_relative_paths_match_posix_relative() {
-        assert_eq!(posix_relative("/a/b", "/a/b/c/d"), "c/d");
-        assert_eq!(posix_relative("/a/b/c", "/a/d"), "../../d");
-        assert_eq!(posix_relative("/a", "/a"), "");
+        assert_eq!(
+            posix_relative(&JsString::from("/a/b"), &JsString::from("/a/b/c/d")),
+            "c/d"
+        );
+        assert_eq!(
+            posix_relative(&JsString::from("/a/b/c"), &JsString::from("/a/d")),
+            "../../d"
+        );
+        assert_eq!(posix_relative(&JsString::from("/a"), &JsString::from("/a")), "");
     }
 
     #[test]
     fn path_segments_ignore_root_and_home_markers() {
         assert_eq!(
-            get_compact_display_path_segments("/tmp/x/index.ts"),
+            get_compact_display_path_segments(&JsString::from("/tmp/x/index.ts")),
             vec!["tmp".to_owned(), "x".to_owned(), "index.ts".to_owned()]
         );
     }
 
     #[test]
     fn parsed_posix_paths_match_node_shape() {
-        assert_eq!(parse_posix_path("index.ts").dir, "");
-        assert_eq!(parse_posix_path("index.ts").name, "index");
-        assert_eq!(parse_posix_path("subagents/index.ts").dir, "subagents");
-        assert_eq!(parse_posix_path("subagents/index.ts").name, "index");
-        assert_eq!(parse_posix_path("answer.ts").name, "answer");
+        assert_eq!(parse_posix_path(&JsString::from("index.ts")).dir, "");
+        assert_eq!(parse_posix_path(&JsString::from("index.ts")).name, "index");
+        assert_eq!(parse_posix_path(&JsString::from("subagents/index.ts")).dir, "subagents");
+        assert_eq!(parse_posix_path(&JsString::from("subagents/index.ts")).name, "index");
+        assert_eq!(parse_posix_path(&JsString::from("answer.ts")).name, "answer");
     }
 
     #[test]
@@ -16155,10 +16261,7 @@ mod tests {
 
     #[test]
     fn pathbuf_components_are_used_for_relative_paths() {
-        assert_eq!(
-            relative_path("/tmp/a", "/tmp/a/b"),
-            PathBuf::from("b").to_string_lossy()
-        );
+        assert_eq!(relative_path("/tmp/a", "/tmp/a/b"), Ok(JsString::from("b")));
         assert!(matches!(
             Path::new("/tmp/a").components().next(),
             Some(std::path::Component::RootDir)
