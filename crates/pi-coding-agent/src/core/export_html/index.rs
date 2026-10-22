@@ -8,11 +8,10 @@ use pi_ai::types::TextOrImageContent;
 use pi_js_compat::base64::btoa;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
+use pi_js_compat::js_regex::JsRegex;
 use pi_js_compat::number::{js_number_to_string, parse_int};
 use pi_js_compat::string::replace;
-use regex::Regex;
 use serde::Serialize;
-use serde_json::Value;
 
 use crate::config::package_config;
 use crate::core::session_manager::{SessionEntry, SessionHeader, SessionManager, SessionManagerError};
@@ -43,7 +42,9 @@ impl ExportError {
         match self {
             Self::Message(message) => message.clone(),
             Self::Path(error) => error.message().clone(),
-            other => other.to_string().into(),
+            Self::Theme(error) => error.message(),
+            Self::Session(error) => error.message().clone(),
+            Self::Io(error) => error.to_string().into(),
         }
     }
 }
@@ -125,7 +126,7 @@ pub trait ToolHtmlRenderer {
 #[derive(Clone, Default)]
 pub struct ExportOptions {
     pub output_path: Option<JsString>,
-    pub theme_name: Option<String>,
+    pub theme_name: Option<JsString>,
     pub tool_renderer: Option<std::rc::Rc<dyn ToolHtmlRenderer>>,
 }
 
@@ -148,34 +149,34 @@ struct Rgb {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DerivedExportColors {
-    page_bg: String,
-    card_bg: String,
-    info_bg: String,
+    page_bg: JsString,
+    card_bg: JsString,
+    info_bg: JsString,
 }
 
-fn hex_color_pattern() -> &'static Regex {
-    static PATTERN: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    PATTERN.get_or_init(|| Regex::new(r"^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$").expect("valid"))
+fn hex_color_pattern() -> &'static JsRegex {
+    static PATTERN: std::sync::OnceLock<JsRegex> = std::sync::OnceLock::new();
+    PATTERN.get_or_init(|| JsRegex::new(r"^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$").expect("valid"))
 }
 
-fn rgb_color_pattern() -> &'static Regex {
-    static PATTERN: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    PATTERN.get_or_init(|| Regex::new(r"^rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$").expect("valid"))
+fn rgb_color_pattern() -> &'static JsRegex {
+    static PATTERN: std::sync::OnceLock<JsRegex> = std::sync::OnceLock::new();
+    PATTERN.get_or_init(|| JsRegex::new(r"^rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$").expect("valid"))
 }
 
-fn parse_color(color: &str) -> Option<Rgb> {
+fn parse_color(color: &JsString) -> Option<Rgb> {
     if let Some(captures) = hex_color_pattern().captures(color) {
         return Some(Rgb {
-            r: parse_int(&captures[1].encode_utf16().collect::<Vec<_>>(), 16),
-            g: parse_int(&captures[2].encode_utf16().collect::<Vec<_>>(), 16),
-            b: parse_int(&captures[3].encode_utf16().collect::<Vec<_>>(), 16),
+            r: parse_int(&captures.get(1).expect("red capture").text().units().to_vec(), 16),
+            g: parse_int(&captures.get(2).expect("green capture").text().units().to_vec(), 16),
+            b: parse_int(&captures.get(3).expect("blue capture").text().units().to_vec(), 16),
         });
     }
     let captures = rgb_color_pattern().captures(color)?;
     Some(Rgb {
-        r: parse_int(&captures[1].encode_utf16().collect::<Vec<_>>(), 10),
-        g: parse_int(&captures[2].encode_utf16().collect::<Vec<_>>(), 10),
-        b: parse_int(&captures[3].encode_utf16().collect::<Vec<_>>(), 10),
+        r: parse_int(&captures.get(1).expect("red capture").text().units().to_vec(), 10),
+        g: parse_int(&captures.get(2).expect("green capture").text().units().to_vec(), 10),
+        b: parse_int(&captures.get(3).expect("blue capture").text().units().to_vec(), 10),
     })
 }
 
@@ -191,12 +192,12 @@ fn get_luminance(rgb: Rgb) -> f64 {
     0.2126 * to_linear(rgb.r) + 0.7152 * to_linear(rgb.g) + 0.0722 * to_linear(rgb.b)
 }
 
-fn adjust_brightness(color: &str, factor: f64) -> String {
+fn adjust_brightness(color: &JsString, factor: f64) -> JsString {
     let Some(parsed) = parse_color(color) else {
         return color.to_owned();
     };
     let adjust = |channel: f64| (channel * factor).round().clamp(0.0, 255.0);
-    format!(
+    js_format!(
         "rgb({}, {}, {})",
         js_number_to_string(adjust(parsed.r)),
         js_number_to_string(adjust(parsed.g)),
@@ -204,12 +205,12 @@ fn adjust_brightness(color: &str, factor: f64) -> String {
     )
 }
 
-fn derive_export_colors(base_color: &str) -> DerivedExportColors {
+fn derive_export_colors(base_color: &JsString) -> DerivedExportColors {
     let Some(parsed) = parse_color(base_color) else {
         return DerivedExportColors {
-            page_bg: "rgb(24, 24, 30)".to_owned(),
-            card_bg: "rgb(30, 30, 36)".to_owned(),
-            info_bg: "rgb(60, 55, 40)".to_owned(),
+            page_bg: "rgb(24, 24, 30)".into(),
+            card_bg: "rgb(30, 30, 36)".into(),
+            info_bg: "rgb(60, 55, 40)".into(),
         };
     };
 
@@ -220,7 +221,7 @@ fn derive_export_colors(base_color: &str) -> DerivedExportColors {
         return DerivedExportColors {
             page_bg: adjust_brightness(base_color, 0.96),
             card_bg: base_color.to_owned(),
-            info_bg: format!(
+            info_bg: js_format!(
                 "rgb({}, {}, {})",
                 js_number_to_string((parsed.r + 10.0).min(255.0)),
                 js_number_to_string((parsed.g + 5.0).min(255.0)),
@@ -231,7 +232,7 @@ fn derive_export_colors(base_color: &str) -> DerivedExportColors {
     DerivedExportColors {
         page_bg: adjust_brightness(base_color, 0.7),
         card_bg: adjust_brightness(base_color, 0.85),
-        info_bg: format!(
+        info_bg: js_format!(
             "rgb({}, {}, {})",
             js_number_to_string((parsed.r + 20.0).min(255.0)),
             js_number_to_string((parsed.g + 15.0).min(255.0)),
@@ -240,44 +241,47 @@ fn derive_export_colors(base_color: &str) -> DerivedExportColors {
     }
 }
 
-fn user_message_bg(colors: &[(String, String)]) -> String {
+fn user_message_bg(colors: &[(JsString, JsString)]) -> JsString {
     colors
         .iter()
         .find(|(key, _)| key == "userMessageBg")
         .map(|(_, value)| value.clone())
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "#343541".to_owned())
+        .unwrap_or_else(|| "#343541".into())
 }
 
-fn generate_theme_vars(theme_name: Option<&str>) -> Result<String, ThemeError> {
+fn generate_theme_vars(theme_name: Option<&JsString>) -> Result<JsString, ThemeError> {
     let colors = get_resolved_theme_colors(theme_name)?;
-    let mut lines: Vec<String> = colors.iter().map(|(key, value)| format!("--{key}: {value};")).collect();
+    let mut lines: Vec<JsString> = colors
+        .iter()
+        .map(|(key, value)| js_format!("--{}: {};", key, value))
+        .collect();
 
     let theme_export = get_theme_export_colors(theme_name);
     let derived_colors = derive_export_colors(&user_message_bg(&colors));
 
-    lines.push(format!(
+    lines.push(js_format!(
         "--exportPageBg: {};",
         theme_export.page_bg.unwrap_or(derived_colors.page_bg)
     ));
-    lines.push(format!(
+    lines.push(js_format!(
         "--exportCardBg: {};",
         theme_export.card_bg.unwrap_or(derived_colors.card_bg)
     ));
-    lines.push(format!(
+    lines.push(js_format!(
         "--exportInfoBg: {};",
         theme_export.info_bg.unwrap_or(derived_colors.info_bg)
     ));
 
-    Ok(lines.join("\n      "))
+    Ok(JsString::join(lines, "\n      "))
 }
 
 /// Tool metadata embedded in the export.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ToolSummary {
     pub name: String,
-    pub description: String,
-    pub parameters: Value,
+    pub description: JsString,
+    pub parameters: JsValue,
 }
 
 /// Session payload embedded as base64 in the HTML.
@@ -295,7 +299,7 @@ pub struct SessionData {
     pub rendered_tools: Option<IndexMap<String, RenderedToolHtml>>,
 }
 
-fn generate_html(session_data: &SessionData, theme_name: Option<&str>) -> Result<String, ExportError> {
+fn generate_html(session_data: &SessionData, theme_name: Option<&JsString>) -> Result<JsString, ExportError> {
     let theme_vars = generate_theme_vars(theme_name)?;
     let colors = get_resolved_theme_colors(theme_name)?;
     let theme_export = get_theme_export_colors(theme_name);
@@ -310,9 +314,7 @@ fn generate_html(session_data: &SessionData, theme_name: Option<&str>) -> Result
         .info_bg
         .unwrap_or_else(|| derived_export_colors.info_bg.clone());
 
-    let session_json =
-        serde_json::to_string(session_data).map_err(|error| ExportError::Message(error.to_string().into()))?;
-    let session_value = pi_js_compat::js_json::parse_lossless(&session_json)
+    let session_value = pi_js_compat::js_json::to_value(session_data)
         .map_err(|error| ExportError::Message(error.to_string().into()))?;
     let session_json = pi_js_compat::js_json::stringify_lossless(&session_value);
     let session_data_base64 = btoa(session_json.as_bytes());
@@ -421,8 +423,9 @@ fn path_exists(path: &JsString) -> bool {
     Path::new(&encode_node_utf8(path)).exists()
 }
 
-fn write_html(output_path: &JsString, html: String) -> Result<(), ExportError> {
-    std::fs::write(encode_node_utf8(output_path), html)?;
+fn write_html(output_path: &JsString, html: JsString) -> Result<(), ExportError> {
+    std::fs::write(encode_node_utf8(output_path), encode_node_utf8(&html))
+        .map_err(|error| ExportError::Message(pi_js_compat::node_fs::node_fs_error(&error, "open", output_path)))?;
     Ok(())
 }
 
@@ -461,15 +464,15 @@ pub async fn export_session_to_html(
                 .iter()
                 .map(|tool| ToolSummary {
                     name: tool.name().to_owned(),
-                    description: tool.description().to_owned(),
-                    parameters: tool.parameters().clone(),
+                    description: tool.description().to_owned().into(),
+                    parameters: tool.parameters().clone().into(),
                 })
                 .collect()
         }),
         rendered_tools,
     };
 
-    let html = generate_html(&session_data, options.theme_name.as_deref())?;
+    let html = generate_html(&session_data, options.theme_name.as_ref())?;
 
     let output_path = output_path_or_default(options.output_path, &session_file)?;
     write_html(&output_path, html)?;
@@ -503,7 +506,7 @@ pub async fn export_from_file(input_path: &JsString, options: Option<ExportOptio
         rendered_tools: None,
     };
 
-    let html = generate_html(&session_data, options.theme_name.as_deref())?;
+    let html = generate_html(&session_data, options.theme_name.as_ref())?;
 
     let output_path = output_path_or_default(options.output_path, &resolved_input_path)?;
     write_html(&output_path, html)?;
@@ -514,6 +517,35 @@ pub async fn export_from_file(input_path: &JsString, options: Option<ExportOptio
 mod lossless_tests {
     use super::*;
     use pi_js_compat::js_json::JsString;
+
+    #[test]
+    fn html_write_error_keeps_original_raw_output_path() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = JsString::from(temporary.path().to_str().unwrap()) + "/" + JsString::from_utf16(vec![0xd800]);
+        std::fs::create_dir_all(encode_node_utf8(&path)).unwrap();
+        let error = write_html(&path, "content".into()).unwrap_err();
+        assert!(error.message().contains(&path));
+    }
+
+    #[test]
+    fn tool_summary_payload_keeps_raw_description_and_schema_text() {
+        let raw = JsString::from_utf16(vec![0xd800]);
+        let data = SessionData {
+            header: None,
+            entries: vec![],
+            leaf_id: None,
+            system_prompt: None,
+            tools: Some(vec![ToolSummary {
+                name: "fixture".into(),
+                description: raw.clone(),
+                parameters: pi_js_compat::js_json!({"description": raw}),
+            }]),
+            rendered_tools: None,
+        };
+        let html = generate_html(&data, None).unwrap();
+        let expected = btoa(br#"{"header":null,"entries":[],"leafId":null,"tools":[{"name":"fixture","description":"\ud800","parameters":{"description":"\ud800"}}]}"#);
+        assert!(html.contains(expected));
+    }
 
     #[test]
     fn html_payload_stringifies_surrogates_without_replacing_or_html_escaping() {

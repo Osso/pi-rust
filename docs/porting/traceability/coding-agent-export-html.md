@@ -78,3 +78,19 @@ Shared JS stringify/object enumeration is used at this module's audited observab
 Frozen storage edge: `repin_session_storage::export_uses_read_only_stale_archive_and_legacy_source` covers archive/stale export and legacy source immutability; initial RED File not found on stale path.
 
 Bounded merged evidence and unresolved consumer/classification limits: [session storage integration](session-storage-integration.md). No fresh gate or whole-module promotion.
+
+## Q18 native HTML export (2026-10-22)
+
+ExportOptions.theme_name, CSS/theme text, generated HTML, tool descriptions and
+parameter JSON use native JsString/JsValue. Color matching uses native JsRegex;
+first replacement + JS replacement expansion uses the single native string
+helper. Session payload serializes directly from the native authority before
+base64; HTML encodes only at the actual filesystem write. Theme/session errors
+return native messages; write errors bind the original raw output path to NodeFS.
+
+Raw tool description/schema payload, raw output-path write failure, and the
+existing raw session payload fixtures are written but unexecuted while coding
+compilation remains blocked. replacement-export-1 has zero export_html primaries
+(before the new write-error fixture/boundary correction). Canonical replacement
+leaf proof is separate:9 tests/180 Node differential cases PASS; do not infer
+HTML runtime PASS from that leaf result.
