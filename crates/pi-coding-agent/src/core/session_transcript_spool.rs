@@ -2,6 +2,7 @@
 //! synchronous callers retain bounded decoding, hard timeout and termination.
 use super::session_manager::SessionManagerError;
 use super::session_transcript::{create_session_transcript_read_stream, read_session_transcript_path};
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
@@ -78,7 +79,7 @@ fn wait_worker(child: &mut Child, timeout: Duration) -> io::Result<bool> {
         std::thread::sleep(Duration::from_millis(5));
     }
 }
-fn spool_archived_transcript(source: &str, target: &Path, errors: &Path) -> Result<(), SessionManagerError> {
+fn spool_archived_transcript(source: &JsString, target: &Path, errors: &Path) -> Result<(), SessionManagerError> {
     let executable = crate::config::get_package_dir().join(if cfg!(windows) { "pi.exe" } else { "pi" });
     let stderr = OpenOptions::new()
         .write(true)
@@ -87,7 +88,7 @@ fn spool_archived_transcript(source: &str, target: &Path, errors: &Path) -> Resu
         .map_err(|e| SessionManagerError::new(e.to_string()))?;
     let child = Command::new(&executable)
         .arg(SESSION_TRANSCRIPT_WORKER_MODE)
-        .arg(source)
+        .arg(encode_node_utf8(source))
         .arg(target)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -97,24 +98,23 @@ fn spool_archived_transcript(source: &str, target: &Path, errors: &Path) -> Resu
             SessionManagerError::new(format!("Cannot start transcript worker {}: {e}", executable.display()))
         })?;
     let mut worker = Worker(child);
+    let failure_prefix = JsString::from("Cannot decompress session transcript ") + source + ": ";
     match wait_worker(&mut worker.0, SPOOL_TIMEOUT) {
         Ok(true) => Ok(()),
-        Ok(false) => Err(SessionManagerError::new(format!(
-            "Cannot decompress session transcript {source}: {}",
-            fs::read_to_string(errors).map_err(|e| SessionManagerError::new(e.to_string()))?
-        ))),
-        Err(cause) if cause.kind() == io::ErrorKind::TimedOut => Err(SessionManagerError::new(format!(
-            "Timed out decompressing session transcript: {source}"
-        ))),
-        Err(cause) => Err(SessionManagerError::new(format!(
-            "Cannot decompress session transcript {source}: {cause}"
-        ))),
+        Ok(false) => {
+            let worker_error = fs::read_to_string(errors).map_err(|e| SessionManagerError::new(e.to_string()))?;
+            Err(SessionManagerError::new(failure_prefix + worker_error))
+        }
+        Err(cause) if cause.kind() == io::ErrorKind::TimedOut => Err(SessionManagerError::new(
+            JsString::from("Timed out decompressing session transcript: ") + source,
+        )),
+        Err(cause) => Err(SessionManagerError::new(failure_prefix + cause.to_string())),
     }
 }
 
 pub fn with_seekable_session_transcript<T>(
-    path: &str,
-    read: impl FnOnce(&str) -> Result<T, SessionManagerError>,
+    path: &JsString,
+    read: impl FnOnce(&JsString) -> Result<T, SessionManagerError>,
 ) -> Result<T, SessionManagerError> {
     let source = read_session_transcript_path(path);
     if !source.ends_with(".jsonl.zst") {
@@ -126,7 +126,7 @@ pub fn with_seekable_session_transcript<T>(
         .map_err(|e| SessionManagerError::new(e.to_string()))?;
     let plain = directory.path().join("transcript.jsonl");
     let result = spool_archived_transcript(&source, &plain, &directory.path().join("worker-error"))
-        .and_then(|()| read(&plain.to_string_lossy()));
+        .and_then(|()| read(&JsString::from(plain.to_string_lossy().as_ref())));
     // Unlike TempDir's silent Drop, surface cleanup failure just as TS finally.
     directory.close().map_err(|e| SessionManagerError::new(e.to_string()))?;
     result

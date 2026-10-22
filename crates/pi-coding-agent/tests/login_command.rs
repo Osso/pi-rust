@@ -16,13 +16,14 @@ use pi_coding_agent::cli::login_command::{
 };
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_js_compat::js_json::JsString;
 use serde_json::{Map, Value};
 
 struct TestIo {
     lines: Mutex<Vec<String>>,
     next_line: Mutex<usize>,
-    stdout: Mutex<String>,
-    stderr: Mutex<String>,
+    stdout: Mutex<JsString>,
+    stderr: Mutex<JsString>,
 }
 
 impl TestIo {
@@ -30,30 +31,30 @@ impl TestIo {
         Arc::new(Self {
             lines: Mutex::new(lines.iter().map(|line| (*line).to_owned()).collect()),
             next_line: Mutex::new(0),
-            stdout: Mutex::new(String::new()),
-            stderr: Mutex::new(String::new()),
+            stdout: Mutex::new(JsString::default()),
+            stderr: Mutex::new(JsString::default()),
         })
     }
 
-    fn output(&self) -> String {
+    fn output(&self) -> JsString {
         self.stdout.lock().unwrap().clone()
     }
 
-    fn error(&self) -> String {
+    fn error(&self) -> JsString {
         self.stderr.lock().unwrap().clone()
     }
 }
 
 impl LoginIo for TestIo {
-    fn stdout(&self, message: &str) {
+    fn stdout(&self, message: &JsString) {
         self.stdout.lock().unwrap().push_str(message);
     }
 
-    fn stderr(&self, message: &str) {
+    fn stderr(&self, message: &JsString) {
         self.stderr.lock().unwrap().push_str(message);
     }
 
-    fn read_line<'a>(&'a self, prompt: &'a str) -> BoxFuture<'a, Result<String, String>> {
+    fn read_line<'a>(&'a self, prompt: &'a str) -> BoxFuture<'a, Result<String, JsString>> {
         self.stdout.lock().unwrap().push_str(prompt);
         let mut index = self.next_line.lock().unwrap();
         let line = self.lines.lock().unwrap().get(*index).cloned().unwrap_or_default();
@@ -458,6 +459,30 @@ fn prints_usage_for_help_and_unknown_flags() {
             assert_eq!(outcome.exit_code, Some(expected_exit));
             assert!(io.error().starts_with("Usage: pi login <provider> [--browser-cli]"));
         }
+    });
+}
+
+#[test]
+fn raw_oauth_error_reaches_captured_stderr_without_display_projection() {
+    runtime().block_on(async {
+        let model_runtime = create_runtime(auth_storage()).await;
+        model_runtime.register_native_provider(oauth_provider(
+            "raw-error",
+            "Raw Provider",
+            Box::new(|_| Box::pin(async { Err(AuthError::failed(JsString::from_utf16(vec![0xd800, 0x21, 0xdfff]))) })),
+        ));
+        let io = TestIo::new(&[]);
+        let exit = run_login_command(RunLoginCommandOptions {
+            model_runtime,
+            provider_id: "raw-error".into(),
+            io: io.clone(),
+            use_browser_cli: false,
+            open_browser_cli_url: None,
+        })
+        .await;
+        assert_eq!(exit, 1);
+        assert!(io.error().contains(&JsString::from_utf16(vec![0xd800, 0x21, 0xdfff])));
+        assert!(!io.error().contains("�"));
     });
 }
 

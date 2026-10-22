@@ -5,9 +5,10 @@ use std::os::unix::fs::symlink;
 use std::path::PathBuf;
 
 use pi_coding_agent::utils::paths::{
-    PathInputOptions, canonicalize_path, format_path_relative_to_cwd_or_absolute, get_cwd_relative_path,
-    get_file_revision, is_local_path, normalize_path, normalize_windows_shell_path, resolve_path,
+    PathInputOptions, canonicalize_path, format_path_relative_to_cwd_or_absolute, get_cwd_relative_path, is_local_path,
+    normalize_path, resolve_path,
 };
+use pi_js_compat::js_json::JsString;
 use tempfile::TempDir;
 
 fn options() -> PathInputOptions {
@@ -52,20 +53,6 @@ fn falls_back_to_the_raw_path_for_missing_targets_and_dangling_links() {
 }
 
 #[test]
-fn reports_file_revision_and_none_for_missing_files() {
-    let dir = TempDir::new().expect("temp dir");
-    let file = dir.path().join("file.txt");
-    fs::write(&file, "hello").expect("write file");
-
-    let revision = get_file_revision(&text(&file)).expect("revision");
-    let parts = revision.split(':').collect::<Vec<_>>();
-    assert_eq!(parts.len(), 5, "{revision}");
-    assert!(parts.iter().all(|part| part.parse::<u128>().is_ok()), "{revision}");
-
-    assert_eq!(get_file_revision(&text(dir.path().join("missing"))), None);
-}
-
-#[test]
 fn identifies_local_paths() {
     for value in ["my-package", "./foo", "file:///tmp/foo", "/tmp/foo", "  spaced  "] {
         assert!(is_local_path(value), "{value}");
@@ -83,34 +70,10 @@ fn identifies_local_paths() {
 }
 
 #[test]
-fn converts_windows_shell_paths() {
-    assert_eq!(
-        normalize_windows_shell_path("/c/Users/example/project"),
-        "C:\\Users\\example\\project"
-    );
-    assert_eq!(normalize_windows_shell_path("/cygdrive/d/work"), "D:\\work");
-    assert_eq!(normalize_windows_shell_path("/mnt/e/source"), "E:\\source");
-    assert_eq!(normalize_windows_shell_path("/c"), "C:\\");
-
-    for path in [
-        "C:/Users/example",
-        "C:\\Users\\example",
-        "//server/share/file",
-        "/c/Users\\example",
-        "relative/file",
-        "/tmp/file",
-        "/mnt/cygdrive/c/x",
-        "/cygdrive/mnt/c/x",
-    ] {
-        assert_eq!(normalize_windows_shell_path(path), path);
-    }
-}
-
-#[test]
 fn expands_only_home_tilde_shortcuts() {
     let home = "/home/example";
     let with_home = PathInputOptions {
-        home_dir: Some(home.to_owned()),
+        home_dir: Some(home.into()),
         ..PathInputOptions::default()
     };
 
@@ -125,7 +88,7 @@ fn expands_only_home_tilde_shortcuts() {
             "~",
             &PathInputOptions {
                 expand_tilde: Some(false),
-                home_dir: Some(home.to_owned()),
+                home_dir: Some(home.into()),
                 ..PathInputOptions::default()
             }
         )
@@ -199,15 +162,15 @@ fn computes_cwd_relative_paths_and_rejects_traversal() {
     let cwd = "/tmp/pi-paths-cwd";
     assert_eq!(
         get_cwd_relative_path("/tmp/pi-paths-cwd/..config/AGENTS.md", cwd).unwrap(),
-        Some("..config/AGENTS.md".to_owned())
+        Some(JsString::from("..config/AGENTS.md"))
     );
     assert_eq!(
         get_cwd_relative_path("/tmp/pi-paths-cwd", cwd).unwrap(),
-        Some(".".to_owned())
+        Some(JsString::from("."))
     );
     assert_eq!(
         get_cwd_relative_path("/tmp/pi-paths-cwd/sub/file", cwd).unwrap(),
-        Some("sub/file".to_owned())
+        Some(JsString::from("sub/file"))
     );
     assert_eq!(get_cwd_relative_path("/tmp/AGENTS.md", cwd).unwrap(), None);
     assert_eq!(

@@ -617,12 +617,12 @@ struct TestSession {
 }
 
 impl SessionPersistence for TestSession {
-    fn metadata_control_db_path(&self) -> Option<String> {
-        Some(self.control_db_path.clone())
+    fn metadata_control_db_path(&self) -> Option<pi_js_compat::js_json::JsString> {
+        Some(self.control_db_path.as_str().into())
     }
 
-    fn session_file(&self) -> Option<String> {
-        Some(self.session_path.clone())
+    fn session_file(&self) -> Option<pi_js_compat::js_json::JsString> {
+        Some(self.session_path.as_str().into())
     }
 }
 

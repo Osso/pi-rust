@@ -8,9 +8,10 @@ use std::os::unix::fs::symlink;
 use std::path::PathBuf;
 
 use pi_coding_agent::utils::paths::{
-    PathInputOptions, canonicalize_path, format_path_relative_to_cwd_or_absolute, get_cwd_relative_path,
-    get_file_revision, is_local_path, normalize_path, normalize_windows_shell_path, resolve_path,
+    PathInputOptions, canonicalize_path, format_path_relative_to_cwd_or_absolute, get_cwd_relative_path, is_local_path,
+    normalize_path, resolve_path,
 };
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
@@ -58,7 +59,7 @@ impl Options {
         PathInputOptions {
             trim: self.trim,
             expand_tilde: self.expand_tilde,
-            home_dir: self.home_dir.map(str::to_owned),
+            home_dir: self.home_dir.map(JsString::from),
             strip_at_prefix: self.strip_at_prefix,
             normalize_unicode_spaces: self.normalize_unicode_spaces,
         }
@@ -67,13 +68,11 @@ impl Options {
 
 enum Case {
     IsLocal(&'static str),
-    WindowsShell(&'static str),
     Normalize(&'static str, Options),
     Resolve(&'static str, &'static str, Options),
     Relative(&'static str, &'static str),
     FormatRelative(&'static str, &'static str),
     Canonicalize(PathBuf),
-    Revision(PathBuf),
 }
 
 fn cases() -> Vec<Case> {
@@ -91,22 +90,6 @@ fn cases() -> Vec<Case> {
         Case::IsLocal("ssh://host/repo"),
         Case::IsLocal("FILE:///tmp"),
         Case::IsLocal("npm"),
-        Case::WindowsShell("/c/Users/example/project"),
-        Case::WindowsShell("/cygdrive/d/work"),
-        Case::WindowsShell("/mnt/e/source"),
-        Case::WindowsShell("/c"),
-        Case::WindowsShell("/c/"),
-        Case::WindowsShell("/MNT/e/source"),
-        Case::WindowsShell("/C/Users"),
-        Case::WindowsShell("C:/Users/example"),
-        Case::WindowsShell("C:\\Users\\example"),
-        Case::WindowsShell("//server/share/file"),
-        Case::WindowsShell("/c/Users\\example"),
-        Case::WindowsShell("relative/file"),
-        Case::WindowsShell("/tmp/file"),
-        Case::WindowsShell("/1/x"),
-        Case::WindowsShell("/mnt/cygdrive/c/x"),
-        Case::WindowsShell("/cygdrive/mnt/c/x"),
         Case::Normalize("~", Options::home()),
         Case::Normalize("~/file.txt", Options::home()),
         Case::Normalize("~draft.md", Options::home()),
@@ -201,9 +184,7 @@ fn cases() -> Vec<Case> {
     cases.push(Case::Canonicalize(dir.path().to_path_buf()));
     cases.push(Case::Canonicalize(link));
     cases.push(Case::Canonicalize(dangling));
-    cases.push(Case::Canonicalize(missing.clone()));
-    cases.push(Case::Revision(file));
-    cases.push(Case::Revision(missing));
+    cases.push(Case::Canonicalize(missing));
 
     cases
 }
@@ -242,7 +223,6 @@ fn request(cases: &[Case]) -> Value {
             let name = format!("case {index}");
             match case {
                 Case::IsLocal(input) => json!({"kind": "is_local", "name": name, "input": input}),
-                Case::WindowsShell(input) => json!({"kind": "windows_shell", "name": name, "input": input}),
                 Case::Normalize(input, options) => {
                     json!({"kind": "normalize", "name": name, "input": input, "options": options.to_json()})
                 }
@@ -262,13 +242,15 @@ fn request(cases: &[Case]) -> Value {
                 Case::Canonicalize(path) => {
                     json!({"kind": "canonicalize", "name": name, "path": path.to_string_lossy()})
                 }
-                Case::Revision(path) => {
-                    json!({"kind": "revision", "name": name, "path": path.to_string_lossy()})
-                }
             }
         })
         .collect::<Vec<_>>();
     json!({"id": REQUEST_ID, "operation": "coding_agent_paths", "cases": cases})
+}
+
+/// Every fixture in this matrix is scalar; raw-unit cases live in `lossless_paths`.
+fn scalar(value: JsString) -> Value {
+    Value::String(value.to_utf8().expect("scalar path fixture"))
 }
 
 fn response(cases: &[Case]) -> Value {
@@ -278,20 +260,18 @@ fn response(cases: &[Case]) -> Value {
         .map(|(index, case)| {
             let name = format!("case {index}");
             let value = match case {
-                Case::IsLocal(input) => Ok(json!(is_local_path(input))),
-                Case::WindowsShell(input) => Ok(json!(normalize_windows_shell_path(input))),
-                Case::Normalize(input, options) => {
-                    normalize_path(input, &options.to_path_options()).map(|value| json!(value))
-                }
+                Case::IsLocal(input) => Ok(json!(is_local_path(*input))),
+                Case::Normalize(input, options) => normalize_path(*input, &options.to_path_options()).map(scalar),
                 Case::Resolve(input, base, options) => {
-                    resolve_path(input, base, &options.to_path_options()).map(|value| json!(value))
+                    resolve_path(*input, *base, &options.to_path_options()).map(scalar)
                 }
-                Case::Relative(file_path, cwd) => get_cwd_relative_path(file_path, cwd).map(|value| json!(value)),
+                Case::Relative(file_path, cwd) => {
+                    get_cwd_relative_path(*file_path, *cwd).map(|value| value.map_or(Value::Null, scalar))
+                }
                 Case::FormatRelative(file_path, cwd) => {
-                    format_path_relative_to_cwd_or_absolute(file_path, cwd).map(|value| json!(value))
+                    format_path_relative_to_cwd_or_absolute(*file_path, *cwd).map(scalar)
                 }
-                Case::Canonicalize(path) => Ok(json!(canonicalize_path(&path.to_string_lossy()))),
-                Case::Revision(path) => Ok(json!(get_file_revision(&path.to_string_lossy()))),
+                Case::Canonicalize(path) => Ok(scalar(canonicalize_path(path.to_str().expect("scalar fixture path")))),
             };
             match value {
                 Ok(value) => json!({"name": name, "ok": true, "value": value}),

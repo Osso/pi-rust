@@ -16,7 +16,7 @@ Contract: [lossless content](../../specs/lossless-content.md). Frozen source: `4
 
 ## Chalk styling checkpoint
 
-Chalk styling accepts/returns `JsString`; embedded close-code reopening and CRLF/LF encasing operate on UTF-16 units without encoding content. The new raw differential invokes the pinned Chalk module, but `chalk-red.jsonl` remains compiler-blocked. Coding style consumers still require propagation; no module/runtime PASS is claimed yet.
+Chalk styling accepts/returns `JsString`; embedded close-code reopening and CRLF/LF encasing operate on UTF-16 units without encoding content. The raw differential invokes pinned Chalk. The original coding target remains compiler-blocked (`chalk-red.jsonl`); a standalone manifest imports the actual Chalk module and actual differential target without coding consumers. Its unchanged mandatory runner uses explicit private `PI_TEST_SANDBOX_DIR`; `chalk-standalone/selected-sandbox-result.log` records 3/3 tests, including raw styles, scalar style cases and supports-color detection. The first hidden-`/tmp` attempt failed before execution. This proves only the module; coding style propagation and independent verification remain pending.
 
 ## Session-name lookup checkpoint
 
@@ -48,13 +48,13 @@ The main commits above preserve `SessionInfoChangedEvent.name` and `ExtensionUiC
 
 ### Merged lane checkpoints
 
-- Provider `5909f149`: `final-ingress-green.log` records **6/6 sandbox PASS** at executable revision `1b01dc97` (later lane changes docs only), exercising actual one-byte SSE and Codex WebSocket. Frozen provider differentials cover SSE; Mistral retains its explicit source sanitizer sites. [Ingress traceability](lossless-provider-ingress.md) retains human-error, unapproved scalar-metadata and non-stream-image gaps.
+- Provider `5909f149`: `final-ingress-green.log` records **6/6 sandbox PASS** at executable revision `1b01dc97` (later lane changes docs only), exercising actual one-byte SSE and Codex WebSocket. Frozen provider differentials cover SSE; Mistral retains its explicit source sanitizer sites. [Ingress traceability](lossless-provider-ingress.md) records the then-open human-error/metadata/image boundaries; current [metadata approval](../../specs/lossless-content.md#what-it-must-do) supersedes its pending classification, not its proof limits.
 - Runtime `e3ce34c3`: raw `AgentDetails` error/result, terminal/cancellation `JsObject` mutation/replay and `WritableSessionMetadata.name` reach explicit Node UTF-8 encoding at SQL binds. Library/test probes report zero owned errors or warnings but exit 101 on external errors; tests never execute. This is compiler-only evidence, not runtime acceptance. [Runtime/mailbox traceability](lossless-runtime-mailbox.md) records behavioral targets; final report: `/tmp/pi-rust-repin-lossless-core-runtime/REPORT.md`.
 - Bundled `553ed154`: raw notification callbacks and parser/llama error chains integrated. Final lane library probe remains blocked (83 errors, seven owned primary locations); added tests are compiler-blocked. Report: `/tmp/pi-rust-repin-lossless-bundled/REPORT.md`. These lane-local counts do not describe the current merged tree.
 
 ### Unapproved TUI boundary gap
 
-Frozen `Component.render(width): string[]` retains UTF-16 through composition until `terminal.write(buffer)`. Rust `Component::render -> Vec<String>` and scalar Text storage/cache/render cannot retain lone units. Encoding at Text/notification construction is premature, **not** the actual source terminal boundary; it is not approved. Raw input/cursor, width/wrap/slice, style and frame propagation also remain open. Exact investigation: `/tmp/pi-rust-repin-raw-tui-boundary.md`. Scalar metadata restrictions likewise remain unapproved; retaining them during integration grants no approval. These checkpoints establish neither Q18 nor full-port acceptance.
+Frozen `Component.render(width): string[]` retains UTF-16 through composition until `terminal.write(buffer)`. Rust `Component::render -> Vec<String>` and scalar Text storage/cache/render cannot retain lone units. Encoding at Text/notification construction is premature, **not** the actual source terminal boundary; it is not approved. Raw input/cursor, width/wrap/slice, style and frame propagation also remain open. Exact investigation: `/tmp/pi-rust-repin-raw-tui-boundary.md`. Opaque scalar provider metadata now has [explicit user approval](../../specs/lossless-content.md#what-it-must-do); human text/errors and arbitrary argument JSON do not. Input must widen to UTF-16, not become a representation gap. These checkpoints establish neither Q18 nor full-port acceptance.
 
 ## Development proof ledger
 
@@ -83,7 +83,7 @@ A generic dispatcher fixture hung after a Google provider task panicked on a bar
 
 No whole-value argument/event adapters remain. Validator integration at `1120b034` uses the lane's JsValue engine directly; its entrypoint now constructs JsValue::Object(call.arguments.clone()). Anthropic events are JsValue throughout.
 
-`anthropic_messages::metadata_text` remains a checked UTF-8 restriction for scalar provider metadata (ids/names/type discriminators, stop reasons/explanations, signatures). This restriction remains unapproved pending user classification; parent retention is not user approval. Unmatched units produce an error, never replacement. Text, thinking and argument content never call this helper.
+`anthropic_messages::metadata_text` remains a checked UTF-8 restriction for scalar provider metadata (ids/names/type discriminators, stop reasons/explanations, signatures). User approved scalar opaque provider IDs/names, type/stop tags and signatures on 2026-10-21 (“Approve scalar metadata gap”), requiring explicit errors rather than replacement. Human explanations/errors and arbitrary argument JSON remain excluded from that approval. Unmatched units produce an error, never replacement. Text, thinking and argument content never call this helper.
 
 ### Native fragment / Anthropic ingress checkpoint
 

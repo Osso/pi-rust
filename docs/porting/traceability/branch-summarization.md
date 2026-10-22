@@ -5,6 +5,10 @@ Rust: `crates/pi-agent-core/src/harness/compaction/branch_summarization.rs`. Tes
 
 Pinned source: commit `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
+## Q18 native human-error consumer proof
+
+Against frozen `4f9e6f8a4`, `lossless_provider_errors::branch_failures_preserve_raw_error_and_source_defaults` proves native failed/aborted provider text, exact `Branch summary failed: ` prefix, missing-message defaults, and empty-message preservation. BranchSummaryError.message is JsString; only Display encodes. Earlier module evidence below retains its original pin and is not upgraded by this bounded proof.
+
 ## Exports and branches
 
 | TypeScript | Rust | Tests |

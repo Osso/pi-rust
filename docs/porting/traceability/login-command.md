@@ -4,6 +4,8 @@ Pinned source: `packages/coding-agent/src/cli/login-command.ts` at `532f7d12cd19
 
 Rust: `crates/pi-coding-agent/src/cli/login_command.rs`.
 
+Q18 native errors: LoginIo stdout/stderr take &JsString; read_line errors, BrowserCliOpener failures and handle_login_command errors are JsString. OAuth runtime errors propagate message data to captured stderr; StdioLoginIo alone encodes at write_all. Added `raw_oauth_error_reaches_captured_stderr_without_display_projection`; execution blocked by concurrent coding-library dependencies, so not new-pin runtime proof.
+
 Interactive process module. Behavioral proof with a scripted `LoginIo` and a registered test OAuth provider: `tests/login_command.rs` (7 tests, ports of `test/login-command.test.ts`).
 
 | TypeScript source | Observable behavior | Rust proof |

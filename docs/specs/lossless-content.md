@@ -14,7 +14,8 @@ Approved 2026-10-21: shared JS message text and arbitrary JSON properties retain
 - [x] Core custom-message text uses the same UTF-16 authority; coding-agent consumers remain pending.
 - [x] Tool-call arguments and complete/partial JSON argument parsing use lossless object/value authorities.
 - [x] Anthropic SSE retains text/thinking and native UTF-16 JSON fragments through ordered block/delta/stop handling.
-- [ ] Classify checked scalar provider metadata restrictions (ids/names/type tags, stop reasons/explanations, signatures); these restrictions are not user-approved.
+- [x] User classification (2026-10-21): “Approve scalar metadata gap” for opaque provider IDs/names, type/stop tags and signatures. Unpaired units must cause explicit errors, never replacement; arbitrary argument keys named `id`/`name`/`type` and human text/errors are not covered.
+- [ ] Input values, UTF-16 cursor positions, inside-pair edits and rendered lines must match frozen source. User chose “Widen Input to UTF-16” (2026-10-21), not a representation gap.
 - [x] Core execution/hook parameters use those same authorities; coding-agent tool wrappers remain pending.
 - [ ] Agent result text/details survive agent loop, JSONL append/reload and TS reread in both directions.
 - [ ] Question relay, ask-questions, mailbox and session-name tools preserve arbitrary UTF-16.
@@ -45,7 +46,7 @@ Approved 2026-10-21: shared JS message text and arbitrary JSON properties retain
 
 - [ ] Downstream compilation, broad affected targets, persisted JSONL proof, session-name runtime integration and final warning-free workspace check remain open. All new parent `lossless_session` tests are compiler-blocked, not runtime PASS.
 - [ ] Raw UI text must survive component rendering/composition to the actual terminal write. Scalar `Vec<String>` render lines and premature Text encoding remain unapproved gaps; raw RPC/notification queues alone do not establish lossless UI.
-- [ ] Human provider errors, scalar protocol metadata and non-stream image JSON remain gaps. Merged ingress `5909f149` has six sandbox SSE/Codex-WebSocket tests PASS; runtime `e3ce34c3` and bundled `553ed154` have compiler-blocked tests, not runtime acceptance. See the [bounded integration checkpoints](../porting/traceability/lossless-content.md#merged-lane-checkpoints); no Q18/full-port acceptance.
+- [ ] Human provider errors have a bounded native transport proof, but downstream error consumers, human stop explanations and non-stream image JSON remain open. Opaque scalar protocol metadata is an approved gap with explicit rejection; it does not waive broader ingress validation. Merged ingress `5909f149` has six sandbox SSE/Codex-WebSocket tests PASS; runtime `e3ce34c3` and bundled `553ed154` have compiler-blocked tests, not runtime acceptance. See the [bounded integration checkpoints](../porting/traceability/lossless-content.md#merged-lane-checkpoints); no Q18/full-port acceptance.
 
 ## Out of scope
 

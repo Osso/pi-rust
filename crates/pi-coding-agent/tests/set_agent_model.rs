@@ -215,11 +215,11 @@ struct Persistence {
     session: String,
 }
 impl pi_coding_agent::core::multi_agent_store::SessionPersistence for Persistence {
-    fn metadata_control_db_path(&self) -> Option<String> {
-        Some(self.db.clone())
+    fn metadata_control_db_path(&self) -> Option<pi_js_compat::js_json::JsString> {
+        Some(self.db.as_str().into())
     }
-    fn session_file(&self) -> Option<String> {
-        Some(self.session.clone())
+    fn session_file(&self) -> Option<pi_js_compat::js_json::JsString> {
+        Some(self.session.as_str().into())
     }
 }
 

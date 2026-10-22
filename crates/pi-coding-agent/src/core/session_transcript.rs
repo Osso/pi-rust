@@ -3,23 +3,33 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read};
 use std::path::Path;
 
-pub fn is_session_transcript_file(path: &str) -> bool {
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
+
+pub fn is_session_transcript_file(path: impl Into<JsString>) -> bool {
+    let path = path.into();
     path.ends_with(".jsonl") || path.ends_with(".jsonl.zst")
 }
 
-pub fn read_session_transcript_path(path: &str) -> String {
-    let archived = format!("{path}.zst");
-    if !Path::new(path).exists() && path.ends_with(".jsonl") && Path::new(&archived).exists() {
+/// Pure string selection; only the two existence probes cross the filesystem binding.
+pub fn read_session_transcript_path(path: impl Into<JsString>) -> JsString {
+    let path = path.into();
+    let archived = path.clone() + ".zst";
+    let plain_exists = path_exists(&path);
+    if !plain_exists && path.ends_with(".jsonl") && path_exists(&archived) {
         archived
     } else {
-        path.to_owned()
+        path
     }
 }
 
+fn path_exists(path: &JsString) -> bool {
+    Path::new(&encode_node_utf8(path)).exists()
+}
+
 /// Byte stream; callers decode UTF-8 across read boundaries, never per chunk.
-pub fn create_session_transcript_read_stream(path: &str) -> io::Result<Box<dyn Read + Send>> {
+pub fn create_session_transcript_read_stream(path: impl Into<JsString>) -> io::Result<Box<dyn Read + Send>> {
     let source = read_session_transcript_path(path);
-    let file = File::open(&source)?;
+    let file = File::open(encode_node_utf8(&source))?;
     if source.ends_with(".jsonl.zst") {
         Ok(Box::new(SessionZstdDecoder::new(file)?))
     } else {
@@ -27,13 +37,14 @@ pub fn create_session_transcript_read_stream(path: &str) -> io::Result<Box<dyn R
     }
 }
 
-pub fn read_session_transcript_bytes(path: &str) -> io::Result<Vec<u8>> {
+pub fn read_session_transcript_bytes(path: impl Into<JsString>) -> io::Result<Vec<u8>> {
     let mut bytes = Vec::new();
     create_session_transcript_read_stream(path)?.read_to_end(&mut bytes)?;
     Ok(bytes)
 }
 
-pub fn read_session_transcript_text(path: &str) -> io::Result<String> {
+/// `Buffer.toString("utf8")` decodes file bytes; that result is always scalar text.
+pub fn read_session_transcript_text(path: impl Into<JsString>) -> io::Result<String> {
     Ok(String::from_utf8_lossy(&read_session_transcript_bytes(path)?).into_owned())
 }
 
