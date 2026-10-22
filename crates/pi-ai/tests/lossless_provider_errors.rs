@@ -478,3 +478,44 @@ async fn codex_retry_callback_keeps_raw_fetch_failure_message() {
     let event = parse_lossless(reasons[0].as_str()).unwrap();
     assert_eq!(event.get("reason").unwrap().as_string(), Some(&human_error()));
 }
+
+#[test]
+fn provider_inner_payload_and_retry_limit_text_remain_native() {
+    use pi_ai::api::openai_sdk::{format_request_error, provider_error_from_body};
+    use pi_ai::utils::provider_retry::{ProviderRequestError, RetryDelayLimitError};
+    let body = r#"{"error":{"message":"human\ud800end\udfff","metadata":{"raw":"nested\udfff"}}}"#;
+    let provider = provider_error_from_body(400, body);
+    let expected = parse_lossless(body).unwrap();
+    assert_eq!(provider.inner_error.as_deref(), expected.get("error"));
+    assert_eq!(provider.message, JsString::join(["400 ".into(), human_error()], ""));
+    let limit = ProviderRequestError::<pi_ai::request::CallbackError>::RetryDelayLimit(RetryDelayLimitError {
+        delay_ms: 2000.0,
+        max_ms: 1000.0,
+        provider_message: human_error(),
+    });
+    assert_eq!(
+        format_request_error(&limit, None),
+        JsString::join(
+            ["Server requested 2s retry delay (max: 1s). ".into(), human_error()],
+            ""
+        )
+    );
+}
+
+#[tokio::test]
+async fn completions_error_metadata_raw_is_human_text_not_scalar_metadata() {
+    let events = r#"data: {"error":{"message":"human\ud800end\udfff","metadata":{"raw":"nested\udfff"}}}
+
+"#;
+    let (url, server) = serve_sse(events);
+    let expected = JsString::join(
+        [human_error(), "\nnested".into(), JsString::from_utf16(vec![0xdfff])],
+        "",
+    );
+    assert_final_error(
+        stream_for("openai-completions", &url, options("openai-completions")),
+        &expected,
+    )
+    .await;
+    server.join().unwrap();
+}

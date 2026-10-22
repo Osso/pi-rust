@@ -361,7 +361,11 @@ async fn header_timeout_reports_configured_timeout() {
 
     assert_eq!(result.stop_reason, StopReason::Error);
     assert_eq!(
-        result.error_message.as_deref(),
+        result
+            .error_message
+            .as_ref()
+            .map(|text| text.to_utf8().unwrap())
+            .as_deref(),
         Some("Codex SSE response headers timed out after 10ms")
     );
     assert_eq!(fetch.requests().len(), 1);
@@ -377,7 +381,11 @@ async fn body_read_timeout_reports_configured_timeout() {
 
     assert_eq!(result.stop_reason, StopReason::Error);
     assert_eq!(
-        result.error_message.as_deref(),
+        result
+            .error_message
+            .as_ref()
+            .map(|text| text.to_utf8().unwrap())
+            .as_deref(),
         Some("Codex SSE body read timed out after 20ms")
     );
 }
@@ -406,7 +414,14 @@ async fn abort_mid_stream_stops_after_delivered_delta() {
 
     assert_eq!(deltas, vec!["one".to_owned()]);
     assert_eq!(result.stop_reason, StopReason::Aborted);
-    assert_eq!(result.error_message.as_deref(), Some("Request was aborted"));
+    assert_eq!(
+        result
+            .error_message
+            .as_ref()
+            .map(|text| text.to_utf8().unwrap())
+            .as_deref(),
+        Some("Request was aborted")
+    );
 }
 
 #[tokio::test]
@@ -618,7 +633,11 @@ async fn fails_when_retry_delay_exceeds_limit() {
 
     assert_eq!(result.stop_reason, StopReason::Error);
     assert_eq!(
-        result.error_message.as_deref(),
+        result
+            .error_message
+            .as_ref()
+            .map(|text| text.to_utf8().unwrap())
+            .as_deref(),
         Some("Server requested 2s retry delay (max: 1s)")
     );
     assert_eq!(fetch.requests().len(), 1);
@@ -634,6 +653,8 @@ async fn malformed_sse_json_is_a_protocol_error() {
     assert!(
         result
             .error_message
+            .as_ref()
+            .map(|text| text.to_utf8().unwrap())
             .as_deref()
             .unwrap()
             .starts_with("Invalid Codex SSE JSON:")
@@ -688,7 +709,11 @@ async fn missing_api_key_produces_error_stream() {
 
     assert_eq!(result.stop_reason, StopReason::Error);
     assert_eq!(
-        result.error_message.as_deref(),
+        result
+            .error_message
+            .as_ref()
+            .map(|text| text.to_utf8().unwrap())
+            .as_deref(),
         Some("No API key for provider: openai-codex")
     );
 }
@@ -909,14 +934,22 @@ async fn websocket_connect_timeout_is_reported_without_sse_fallback() {
 
     assert_eq!(result.stop_reason, StopReason::Error);
     assert_eq!(
-        result.error_message.as_deref(),
+        result
+            .error_message
+            .as_ref()
+            .map(|text| text.to_utf8().unwrap())
+            .as_deref(),
         Some("WebSocket connect timeout after 50ms")
     );
     assert!(fetch.requests().is_empty());
     let stats = get_openai_codex_websocket_debug_stats("ws-connect-timeout").expect("stats");
     assert_eq!(stats.websocket_failures, 1);
     assert_eq!(
-        stats.last_websocket_error.as_deref(),
+        stats
+            .last_websocket_error
+            .as_ref()
+            .map(|text| text.to_utf8().unwrap())
+            .as_deref(),
         Some("WebSocket connect timeout after 50ms")
     );
     reset_openai_codex_websocket_debug_stats(Some("ws-connect-timeout"));
@@ -939,7 +972,11 @@ async fn websocket_idle_timeout_before_first_event_emits_no_start() {
 
     assert_eq!(result.stop_reason, StopReason::Error);
     assert_eq!(
-        result.error_message.as_deref(),
+        result
+            .error_message
+            .as_ref()
+            .map(|text| text.to_utf8().unwrap())
+            .as_deref(),
         Some("WebSocket idle timeout after 50ms")
     );
     assert!(
@@ -1191,7 +1228,11 @@ async fn sends_native_websocket_pings_while_waiting() {
     let result = stream.result().await.expect("result");
 
     assert_eq!(
-        result.error_message.as_deref(),
+        result
+            .error_message
+            .as_ref()
+            .map(|text| text.to_utf8().unwrap())
+            .as_deref(),
         Some("WebSocket idle timeout after 91000ms")
     );
     tokio::time::resume();
@@ -1239,7 +1280,7 @@ async fn honors_iso_8601_retry_after_dates() {
         .strip_prefix("Server requested ")
         .and_then(|rest| rest.strip_suffix("s retry delay (max: 1s)"))
         .expect("retry delay message");
-    let requested: f64 = requested.parse().expect("delay seconds");
+    let requested: f64 = requested.to_utf8().unwrap().parse().expect("delay seconds");
     assert!(
         (30_000_000_000.0..40_000_000_000.0).contains(&requested),
         "delay seconds {requested}"
