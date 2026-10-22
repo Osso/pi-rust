@@ -309,7 +309,6 @@ fn scoped_models_filters_raw_missing_ids_and_preserves_search_input() {
         ModelsConfig {
             all_models: vec![],
             enabled_model_ids: Some(vec![raw.clone()]),
-            refresh_status: None,
         },
         ModelsCallbacks {
             on_change: Rc::new(move |value| *callback.borrow_mut() = Some(value)),

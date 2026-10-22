@@ -162,7 +162,6 @@ function instantiate(
 				{
 					allModels: models,
 					enabledModelIds: props.enabledModelIds,
-					refreshStatus: props.refreshStatus,
 				},
 				{
 					onChange: (enabled: string[] | null) => push(`change:${JSON.stringify(enabled)}`),

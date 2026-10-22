@@ -502,7 +502,7 @@ fn scoped_models_cases() -> Vec<Value> {
         json!({
             "name": "scoped-all",
             "component": "scoped_models",
-            "props": {"models": models, "enabledModelIds": null, "refreshStatus": null},
+            "props": {"models": models, "enabledModelIds": null},
             "width": 100,
             "steps": [
                 {"key": "\u{1b}[B"},
@@ -520,7 +520,6 @@ fn scoped_models_cases() -> Vec<Value> {
             "props": {
                 "models": models,
                 "enabledModelIds": ["claude-sonnet-4/anthropic", "missing/model", "gpt-5/openai"],
-                "refreshStatus": "Refreshing model catalogs…",
             },
             "width": 100,
             "steps": [
@@ -535,7 +534,7 @@ fn scoped_models_cases() -> Vec<Value> {
         json!({
             "name": "scoped-search",
             "component": "scoped_models",
-            "props": {"models": models, "enabledModelIds": null, "refreshStatus": null},
+            "props": {"models": models, "enabledModelIds": null},
             "width": 80,
             "steps": [
                 {"key": "g"},
@@ -550,7 +549,7 @@ fn scoped_models_cases() -> Vec<Value> {
         json!({
             "name": "scoped-scroll",
             "component": "scoped_models",
-            "props": {"models": many, "enabledModelIds": null, "refreshStatus": null},
+            "props": {"models": many, "enabledModelIds": null},
             "width": 60,
             "steps": [
                 {"key": "\u{1b}[B"},
@@ -1008,7 +1007,6 @@ fn run_component_case(case: &Value) -> Value {
                 ModelsConfig {
                     all_models: models,
                     enabled_model_ids: enabled_model_ids.map(|ids| ids.into_iter().map(JsString::from).collect()),
-                    refresh_status: props["refreshStatus"].as_str().map(str::to_owned).map(JsString::from),
                 },
                 ModelsCallbacks {
                     on_change: Rc::new(move |enabled| {
