@@ -778,10 +778,11 @@ pub async fn create_command_settings_manager(
         };
     if let Some(result) = &extensions_result {
         for error in &result.errors {
-            project_trust_warnings
-                .lock()
-                .unwrap()
-                .push(format!("Failed to load extension \"{}\": {}", error.path, error.error));
+            project_trust_warnings.lock().unwrap().push(format!(
+                "Failed to load extension \"{}\": {}",
+                error.path,
+                pi_js_compat::js_json::encode_node_utf8(&error.error)
+            ));
         }
     }
 
