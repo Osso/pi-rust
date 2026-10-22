@@ -88,6 +88,7 @@ fn custom_messages_match_the_pinned_typescript_source() {
     let mut oracle = oracle::TsOracle::spawn("interactive-components-oracle.ts", "packages/coding-agent/src");
     for (request, actual) in custom_message_cases() {
         let expected = oracle.request(&request);
+        assert_eq!(expected["ok"], true, "oracle error for {request}: {expected}");
         assert_eq!(actual, expected["output"], "mismatch for {request}");
     }
 }
@@ -98,6 +99,7 @@ fn interactive_leaf_helpers_match_the_pinned_typescript_source() {
     let mut oracle = oracle::TsOracle::spawn("interactive-components-oracle.ts", "packages/coding-agent/src");
     for (request, actual) in requests() {
         let expected = oracle.request(&request);
+        assert_eq!(expected["ok"], true, "oracle error for {request}: {expected}");
         assert_eq!(actual, expected["output"], "mismatch for {request}");
     }
 }

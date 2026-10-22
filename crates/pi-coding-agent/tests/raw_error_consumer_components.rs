@@ -299,7 +299,7 @@ async fn bash_execution_keeps_raw_command_and_streamed_output() {
 }
 
 #[test]
-fn scoped_models_keeps_raw_unavailable_id_search_and_refresh_status() {
+fn scoped_models_filters_raw_missing_ids_and_preserves_search_input() {
     use pi_coding_agent::modes::interactive::components::scoped_models_selector::*;
     init_theme();
     let raw = JsString::from_utf16(vec![0xd800]);
@@ -309,7 +309,7 @@ fn scoped_models_keeps_raw_unavailable_id_search_and_refresh_status() {
         ModelsConfig {
             all_models: vec![],
             enabled_model_ids: Some(vec![raw.clone()]),
-            refresh_status: Some(raw.clone()),
+            refresh_status: None,
         },
         ModelsCallbacks {
             on_change: Rc::new(move |value| *callback.borrow_mut() = Some(value)),
@@ -317,12 +317,14 @@ fn scoped_models_keeps_raw_unavailable_id_search_and_refresh_status() {
             on_cancel: Rc::new(|| {}),
         },
     );
-    assert!(JsString::join(selector.render(80), "\n").contains(&raw));
+    assert!(JsString::join(selector.render(80), "\n").contains("No matching models"));
+    assert!(!JsString::join(selector.render(80), "\n").contains(&raw));
     selector.handle_input(&raw);
-    assert!(!JsString::join(selector.render(80), "\n").contains("No matching models"));
-    selector.set_refresh_status(&raw, RefreshStatusKind::Warning);
+    let rendered = JsString::join(selector.render(80), "\n");
+    assert!(rendered.contains(&raw), "search input lost units: {rendered:?}");
+    assert!(rendered.contains("No matching models"));
     selector.handle_input(&"\r".into());
-    assert_eq!(*selected.borrow(), Some(Some(vec![])));
+    assert_eq!(*selected.borrow(), None);
 }
 
 #[test]

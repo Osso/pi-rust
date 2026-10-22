@@ -186,10 +186,11 @@ function instantiate(
 				handleInput(data: string): void;
 			})(
 				props.mode,
+				{ get: () => undefined },
 				providers,
-				(id: string, authType: string) => push(`select:${id}:${authType}`),
+				(id: string) => push(`select:${id}`),
 				() => push("cancel"),
-				props.initialSearchInput,
+				(id: string) => providers.find((provider) => provider.id === id)?.status ?? {},
 			);
 			return { component: instance };
 		}
@@ -199,8 +200,7 @@ function instantiate(
 				render(width: number): string[];
 				handleInput(data: string): void;
 				showDeviceCode(info: unknown): void;
-				showDetails(lines: string[]): void;
-				showInfo(message: string, links: unknown[], showCloseHint: boolean): void;
+				showInfo(lines: string[]): void;
 				showWaiting(message: string): void;
 				showProgress(message: string): void;
 				showPrompt(message: string, placeholder?: string): Promise<string>;
@@ -219,11 +219,10 @@ function instantiate(
 							instance.showDeviceCode(action.info);
 							return;
 						case "show_details":
-							instance.showDetails(action.lines ?? []);
+							instance.showInfo(action.lines ?? []);
 							return;
 						case "show_info":
-							instance.showInfo(action.message ?? "", action.links ?? [], action.showCloseHint ?? false);
-							return;
+							throw new Error("Frozen LoginDialog has no provider-owned message/link info API");
 						case "show_waiting":
 							instance.showWaiting(action.message ?? "");
 							return;

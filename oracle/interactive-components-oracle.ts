@@ -447,7 +447,7 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 			themes: [],
 		};
 		const selector = new selectorModule.ConfigSelectorComponent(
-			{ global: resolved, project: resolved },
+			resolved,
 			settingsManager,
 			request.cwd,
 			request.agentDir,
@@ -455,8 +455,6 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 			() => {},
 			() => {},
 			24,
-			request.writeScope,
-			true,
 		);
 		const renders: string[][] = [];
 		for (const input of request.inputs) {
