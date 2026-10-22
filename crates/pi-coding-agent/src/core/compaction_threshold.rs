@@ -1,12 +1,11 @@
 //! Optional automatic-compaction percentage (`core/compaction-threshold.ts`).
 
-use pi_js_compat::js_json::{JsValue, to_js_string};
-use serde_json::Value;
+use pi_js_compat::js_json::{JsString, JsValue, to_js_string};
 
 use super::settings_manager::SettingsFailure;
 
 /// Missing means reserve-token triggering; present values must be finite percentages in `(0, 100]`.
-pub fn parse_compaction_threshold_percent(value: Option<&Value>) -> Result<Option<f64>, SettingsFailure> {
+pub fn parse_compaction_threshold_percent(value: Option<&JsValue>) -> Result<Option<f64>, SettingsFailure> {
     let Some(value) = value else {
         return Ok(None);
     };
@@ -17,10 +16,10 @@ pub fn parse_compaction_threshold_percent(value: Option<&Value>) -> Result<Optio
     {
         return Ok(Some(percent));
     }
-    let text = to_js_string(&JsValue::from(value))
-        .map_err(SettingsFailure::new)?
-        .to_utf8_lossy();
-    Err(SettingsFailure::new(format!(
-        "Invalid compaction.thresholdPercent setting: {text}. Use a finite number greater than 0 and at most 100, or remove the setting."
-    )))
+    let text = to_js_string(value).map_err(SettingsFailure::new)?;
+    Err(SettingsFailure::new(
+        JsString::from("Invalid compaction.thresholdPercent setting: ")
+            + text
+            + ". Use a finite number greater than 0 and at most 100, or remove the setting.",
+    ))
 }

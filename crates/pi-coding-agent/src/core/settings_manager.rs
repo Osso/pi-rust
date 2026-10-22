@@ -20,9 +20,9 @@ pub enum ScrollViewScrollbar {
     Always,
     Hidden,
 }
+use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
 use pi_tui::tui::TuiMode;
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 
 use crate::config::{get_agent_dir, package_config};
 use crate::core::http_dispatcher::{DEFAULT_HTTP_IDLE_TIMEOUT_MS, HttpIdleTimeout, parse_http_idle_timeout_ms};
@@ -39,7 +39,7 @@ const SETTINGS_LOCK_ATTEMPTS: usize = 10;
 const SETTINGS_LOCK_DELAY: Duration = Duration::from_millis(20);
 
 /// A settings document. Insertion order is preserved for byte-identical files.
-pub type Settings = Map<String, Value>;
+pub type Settings = JsObject;
 
 /// The settings handle owned by `AgentSession` and shared with the interactive mode.
 pub type SharedSettingsManager = Arc<Mutex<SettingsManager>>;
@@ -130,30 +130,30 @@ impl SettingsScope {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SettingsError {
     pub scope: SettingsScope,
-    pub message: String,
+    pub message: JsString,
 }
 
 /// A synchronous settings operation failure (thrown by the TypeScript source).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SettingsFailure {
-    message: String,
+    message: JsString,
 }
 
 impl SettingsFailure {
-    pub(crate) fn new(message: impl Into<String>) -> Self {
+    pub(crate) fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
         }
     }
 
-    pub fn message(&self) -> &str {
+    pub fn message(&self) -> &JsString {
         &self.message
     }
 }
 
 impl std::fmt::Display for SettingsFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&self.message.to_utf8_lossy())
     }
 }
 
@@ -390,7 +390,7 @@ pub struct ThinkingBudgetsSettings {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MarkdownSettings {
-    pub code_block_indent: Option<String>,
+    pub code_block_indent: Option<JsString>,
     pub mermaid: Option<MermaidRenderingMode>,
 }
 
@@ -434,11 +434,11 @@ pub struct AgentProfileSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<AgentProfileContext>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
+    pub model: Option<JsString>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking_level: Option<AgentProfileThinkingLevel>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tools: Option<Vec<String>>,
+    pub tools: Option<Vec<JsString>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -456,11 +456,31 @@ pub struct PackageFilter {
     pub themes: Option<Vec<JsString>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub enum PackageSource {
     Name(JsString),
     Filter(PackageFilter),
+}
+
+const PACKAGE_SOURCE_MISMATCH: &str = "data did not match any variant of untagged enum PackageSource";
+
+/// Lossless JSON cannot pass through serde's buffered untagged content, so the variant is
+/// chosen from the parsed value (same acceptance and message as the derived untagged enum).
+impl<'de> Deserialize<'de> for PackageSource {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        package_source_from_value(&Value::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
+fn package_source_from_value(value: &Value) -> Result<PackageSource, &'static str> {
+    match value {
+        Value::String(name) => Ok(PackageSource::Name(name.clone())),
+        Value::Object(_) => js_json::from_value(value)
+            .map(PackageSource::Filter)
+            .map_err(|_| PACKAGE_SOURCE_MISMATCH),
+        _ => Err(PACKAGE_SOURCE_MISMATCH),
+    }
 }
 
 impl PackageSource {
@@ -557,8 +577,8 @@ pub struct SettingsManager {
     modified_nested_fields: Vec<(String, Vec<String>)>,
     modified_project_fields: Vec<String>,
     modified_project_nested_fields: Vec<(String, Vec<String>)>,
-    global_settings_load_error: Option<String>,
-    project_settings_load_error: Option<String>,
+    global_settings_load_error: Option<JsString>,
+    project_settings_load_error: Option<JsString>,
     errors: Vec<SettingsError>,
     pending_writes: Vec<PendingSettingsWrite>,
     drain_scheduled: bool,
@@ -638,7 +658,7 @@ impl SettingsManager {
         let mut initial = settings;
         migrate_settings(&mut initial);
         let _ = storage.with_lock(SettingsScope::Global, &mut |_| {
-            Some(js_json::stringify_pretty(&Value::Object(initial.clone())))
+            Some(js_json::stringify_lossless_pretty(&Value::Object(initial.clone())))
         });
         Self::from_storage(Box::new(storage), options)
     }
@@ -675,7 +695,7 @@ impl SettingsManager {
             Ok(settings) => SettingsLoad { settings, error: None },
             Err(error) => SettingsLoad {
                 settings: Settings::new(),
-                error: Some(error.to_string()),
+                error: Some(error.message().clone()),
             },
         }
     }
@@ -691,13 +711,13 @@ impl SettingsManager {
     pub fn get_merged_settings(&self) -> Settings {
         let mut settings = self.settings.clone();
         if let Some(profile) = self.session_sandbox_profile {
-            settings.insert("sandboxProfile".to_owned(), Value::String(profile.as_str().to_owned()));
+            settings.insert("sandboxProfile".into(), Value::String(profile.as_str().into()));
         }
         settings
     }
 
     pub fn get_agent_profile(&self, agent_type: &str) -> Option<AgentProfileSettings> {
-        let normalized = agent_type.trim();
+        let normalized = pi_js_compat::string::js_trim(agent_type);
         if normalized.is_empty() {
             return None;
         }
@@ -707,27 +727,24 @@ impl SettingsManager {
             .and_then(Value::as_object)
             .and_then(|agents| agents.get(normalized));
         match configured.filter(|value| !value.is_null()) {
-            Some(value) => serde_json::from_value(value.clone()).ok(),
+            Some(value) => js_json::from_value(value).ok(),
             None => default_agent_profile(normalized),
         }
     }
 
-    pub fn get_permission_prompt_tool(&self) -> Option<&str> {
-        self.settings.get("permissionPromptTool").and_then(Value::as_str)
+    pub fn get_permission_prompt_tool(&self) -> Option<&JsString> {
+        self.settings.get("permissionPromptTool").and_then(Value::as_string)
     }
 
     pub fn get_approval_policy(&self) -> ApprovalPolicy {
-        normalize_approval_policy(self.settings.get("approvalPolicy").and_then(Value::as_str))
+        normalize_approval_policy(enum_literal(self.settings.get("approvalPolicy")).as_deref())
     }
 
     pub fn get_approval_preset(&self) -> ApprovalPresetName {
-        if let Some(preset) = self
-            .settings
-            .get("approvalPreset")
-            .and_then(Value::as_str)
-            .filter(|preset| is_approval_preset_name(preset))
+        if let Some(preset) =
+            enum_literal(self.settings.get("approvalPreset")).filter(|preset| is_approval_preset_name(preset))
         {
-            return ApprovalPresetName::parse(preset).expect("validated approval preset");
+            return ApprovalPresetName::parse(&preset).expect("validated approval preset");
         }
         approval_preset_for_policy(self.get_approval_policy())
     }
@@ -779,19 +796,14 @@ impl SettingsManager {
     }
 
     fn get_explicit_configured_sandbox_profile(&self) -> Option<SandboxProfileName> {
-        if let Some(profile) = self
-            .project_settings
-            .get("sandboxProfile")
-            .and_then(Value::as_str)
-            .filter(|profile| is_sandbox_profile_name(profile))
+        if let Some(profile) =
+            enum_literal(self.project_settings.get("sandboxProfile")).filter(|profile| is_sandbox_profile_name(profile))
         {
-            return SandboxProfileName::parse(profile);
+            return SandboxProfileName::parse(&profile);
         }
-        self.global_settings
-            .get("sandboxProfile")
-            .and_then(Value::as_str)
+        enum_literal(self.global_settings.get("sandboxProfile"))
             .filter(|profile| is_sandbox_profile_name(profile))
-            .and_then(SandboxProfileName::parse)
+            .and_then(|profile| SandboxProfileName::parse(&profile))
     }
 
     pub fn get_explicit_sandbox_profile(&self) -> Option<SandboxProfileName> {
@@ -914,10 +926,10 @@ impl SettingsManager {
         Ok(())
     }
 
-    fn record_error(&mut self, scope: SettingsScope, error: &str) {
+    fn record_error(&mut self, scope: SettingsScope, error: impl Into<JsString>) {
         self.errors.push(SettingsError {
             scope,
-            message: error.to_owned(),
+            message: error.into(),
         });
     }
 
@@ -951,7 +963,7 @@ impl SettingsManager {
                         settings
                     }
                     Err(error) => {
-                        current_parse_error = Some(error.to_string());
+                        current_parse_error = Some(error.message().clone());
                         return None;
                     }
                 },
@@ -977,22 +989,22 @@ impl SettingsManager {
                     for nested_key in nested_modified {
                         match in_memory_nested.get(nested_key) {
                             Some(value) => {
-                                merged_nested.insert(nested_key.clone(), value.clone());
+                                merged_nested.insert(nested_key.as_str().into(), value.clone());
                             }
                             None => {
                                 merged_nested.shift_remove(nested_key);
                             }
                         }
                     }
-                    merged.insert(field.clone(), Value::Object(merged_nested));
+                    merged.insert(field.as_str().into(), Value::Object(merged_nested));
                 } else {
-                    merged.insert(field.clone(), value.clone());
+                    merged.insert(field.as_str().into(), value.clone());
                 }
             }
-            Some(js_json::stringify_pretty(&Value::Object(merged)))
+            Some(js_json::stringify_lossless_pretty(&Value::Object(merged)))
         });
         if let Err(error) = result {
-            storage_error = Some(error.to_string());
+            storage_error = Some(error.message().clone());
         }
         if let Some(error) = current_parse_error {
             return Err(SettingsFailure::new(error));
@@ -1084,8 +1096,8 @@ impl SettingsManager {
         std::mem::take(&mut self.errors)
     }
 
-    pub fn get_last_changelog_version(&self) -> Option<&str> {
-        self.settings.get("lastChangelogVersion").and_then(Value::as_str)
+    pub fn get_last_changelog_version(&self) -> Option<&JsString> {
+        self.settings.get("lastChangelogVersion").and_then(Value::as_string)
     }
 
     pub fn set_last_changelog_version(&mut self, version: &str) {
@@ -1095,19 +1107,19 @@ impl SettingsManager {
     }
 
     pub fn get_session_dir(&self) -> Option<pi_js_compat::js_json::JsString> {
-        let value = self.settings.get("sessionDir").and_then(Value::as_str)?;
+        let value = self.settings.get("sessionDir").and_then(Value::as_string)?;
         if value.is_empty() {
             return Some(Default::default());
         }
-        Some(normalize_path(value, &PathInputOptions::default()).unwrap_or_else(|_| value.into()))
+        Some(normalize_path(value.clone(), &PathInputOptions::default()).unwrap_or_else(|_| value.clone()))
     }
 
-    pub fn get_default_provider(&self) -> Option<&str> {
-        self.settings.get("defaultProvider").and_then(Value::as_str)
+    pub fn get_default_provider(&self) -> Option<&JsString> {
+        self.settings.get("defaultProvider").and_then(Value::as_string)
     }
 
-    pub fn get_default_model(&self) -> Option<&str> {
-        self.settings.get("defaultModel").and_then(Value::as_str)
+    pub fn get_default_model(&self) -> Option<&JsString> {
+        self.settings.get("defaultModel").and_then(Value::as_string)
     }
 
     pub fn set_default_provider(&mut self, provider: &str) {
@@ -1131,7 +1143,7 @@ impl SettingsManager {
     }
 
     pub fn get_steering_mode(&self) -> pi_agent_core::harness::QueueMode {
-        parse_queue_mode(self.settings.get("steeringMode").and_then(Value::as_str))
+        parse_queue_mode(enum_literal(self.settings.get("steeringMode")).as_deref())
             .unwrap_or(pi_agent_core::harness::QueueMode::All)
     }
 
@@ -1142,7 +1154,7 @@ impl SettingsManager {
     }
 
     pub fn get_follow_up_mode(&self) -> pi_agent_core::harness::QueueMode {
-        parse_queue_mode(self.settings.get("followUpMode").and_then(Value::as_str))
+        parse_queue_mode(enum_literal(self.settings.get("followUpMode")).as_deref())
             .unwrap_or(pi_agent_core::harness::QueueMode::OneAtATime)
     }
 
@@ -1152,22 +1164,22 @@ impl SettingsManager {
         self.save();
     }
 
-    pub fn get_theme_setting(&self) -> Option<&str> {
-        self.settings.get("theme").and_then(Value::as_str)
+    pub fn get_theme_setting(&self) -> Option<&JsString> {
+        self.settings.get("theme").and_then(Value::as_string)
     }
 
-    pub fn get_theme(&self) -> Option<&str> {
-        self.get_theme_setting().filter(|theme| !theme.contains('/'))
+    pub fn get_theme(&self) -> Option<&JsString> {
+        self.get_theme_setting().filter(|theme| !theme.contains("/"))
     }
 
-    pub fn set_theme(&mut self, theme: &str) {
+    pub fn set_theme(&mut self, theme: &JsString) {
         set_string(&mut self.global_settings, "theme", theme);
         self.mark_modified("theme", None);
         self.save();
     }
 
     pub fn get_default_thinking_level(&self) -> Option<ThinkingLevel> {
-        parse_thinking_level(self.settings.get("defaultThinkingLevel").and_then(Value::as_str))
+        parse_thinking_level(enum_literal(self.settings.get("defaultThinkingLevel")).as_deref())
     }
 
     pub fn set_default_thinking_level(&mut self, level: ThinkingLevel) {
@@ -1177,7 +1189,7 @@ impl SettingsManager {
     }
 
     pub fn get_transport(&self) -> Transport {
-        parse_transport(self.settings.get("transport").and_then(Value::as_str)).unwrap_or(Transport::Auto)
+        parse_transport(enum_literal(self.settings.get("transport")).as_deref()).unwrap_or(Transport::Auto)
     }
 
     pub fn set_transport(&mut self, transport: Transport) {
@@ -1321,25 +1333,21 @@ impl SettingsManager {
         let value = self.settings.get(setting_name);
         let parsed = match value {
             None => None,
-            Some(Value::Number(number)) => {
-                parse_http_idle_timeout_ms(HttpIdleTimeout::Number(number.as_f64().unwrap_or(f64::NAN)))
-            }
-            Some(Value::String(text)) => parse_http_idle_timeout_ms(HttpIdleTimeout::String(text)),
-            Some(other) => {
-                return Err(SettingsFailure::new(format!(
-                    "Invalid {setting_name} setting: {}",
-                    js_json::stringify(other)
-                )));
-            }
+            Some(Value::Number(number)) => parse_http_idle_timeout_ms(HttpIdleTimeout::Number(*number)),
+            // The timeout grammar is ASCII: unpaired units are an invalid number, as in JavaScript.
+            Some(Value::String(text)) => text
+                .to_utf8()
+                .ok()
+                .and_then(|text| parse_http_idle_timeout_ms(HttpIdleTimeout::String(&text))),
+            Some(_) => None,
         };
         if parsed.is_some() {
             return Ok(parsed);
         }
         if let Some(value) = value {
-            return Err(SettingsFailure::new(format!(
-                "Invalid {setting_name} setting: {}",
-                js_json::stringify(value)
-            )));
+            return Err(SettingsFailure::new(
+                JsString::from(format!("Invalid {setting_name} setting: ")) + js_json::stringify_lossless(value),
+            ));
         }
         Ok(None)
     }
@@ -1409,22 +1417,22 @@ impl SettingsManager {
             .unwrap_or(false)
     }
 
-    pub fn get_external_editor_command(&self) -> String {
-        if let Some(configured) = self.settings.get("externalEditor").and_then(Value::as_str)
+    pub fn get_external_editor_command(&self) -> JsString {
+        if let Some(configured) = self.settings.get("externalEditor").and_then(Value::as_string)
             && !configured.trim().is_empty()
         {
-            return configured.to_owned();
+            return configured.clone();
         }
         if let Some(environment_editor) = pi_js_compat::process_env::get("VISUAL")
             .filter(|value| !value.is_empty())
             .or_else(|| pi_js_compat::process_env::get("EDITOR").filter(|value| !value.is_empty()))
         {
-            return environment_editor;
+            return environment_editor.into();
         }
         if cfg!(target_os = "windows") {
-            "notepad".to_owned()
+            "notepad".into()
         } else {
-            "nano".to_owned()
+            "nano".into()
         }
     }
 
@@ -1440,14 +1448,11 @@ impl SettingsManager {
         self.save();
     }
 
-    pub fn get_shell_path(&self) -> Option<String> {
-        self.settings
-            .get("shellPath")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
+    pub fn get_shell_path(&self) -> Option<JsString> {
+        self.settings.get("shellPath").and_then(Value::as_string).cloned()
     }
 
-    pub fn set_shell_path(&mut self, path: Option<&str>) {
+    pub fn set_shell_path(&mut self, path: Option<&JsString>) {
         set_optional_string(&mut self.global_settings, "shellPath", path);
         self.mark_modified("shellPath", None);
         self.save();
@@ -1467,7 +1472,7 @@ impl SettingsManager {
     }
 
     pub fn get_default_project_trust(&self) -> DefaultProjectTrust {
-        match self.global_settings.get("defaultProjectTrust").and_then(Value::as_str) {
+        match enum_literal(self.global_settings.get("defaultProjectTrust")).as_deref() {
             Some("always") => DefaultProjectTrust::Always,
             Some("never") => DefaultProjectTrust::Never,
             _ => DefaultProjectTrust::Ask,
@@ -1485,21 +1490,21 @@ impl SettingsManager {
         self.save();
     }
 
-    pub fn get_shell_command_prefix(&self) -> Option<&str> {
-        self.settings.get("shellCommandPrefix").and_then(Value::as_str)
+    pub fn get_shell_command_prefix(&self) -> Option<&JsString> {
+        self.settings.get("shellCommandPrefix").and_then(Value::as_string)
     }
 
-    pub fn set_shell_command_prefix(&mut self, prefix: Option<&str>) {
+    pub fn set_shell_command_prefix(&mut self, prefix: Option<&JsString>) {
         set_optional_string(&mut self.global_settings, "shellCommandPrefix", prefix);
         self.mark_modified("shellCommandPrefix", None);
         self.save();
     }
 
     pub fn get_npm_command(&self) -> Option<Vec<JsString>> {
-        string_array(self.settings.get("npmCommand")).map(|values| values.into_iter().map(JsString::from).collect())
+        string_array(self.settings.get("npmCommand"))
     }
 
-    pub fn set_npm_command(&mut self, command: Option<&[String]>) {
+    pub fn set_npm_command(&mut self, command: Option<&[JsString]>) {
         set_optional_string_array(&mut self.global_settings, "npmCommand", command);
         self.mark_modified("npmCommand", None);
         self.save();
@@ -1538,8 +1543,8 @@ impl SettingsManager {
             .unwrap_or(false)
     }
 
-    pub fn get_tracking_id(&self) -> Option<&str> {
-        self.settings.get("trackingId").and_then(Value::as_str)
+    pub fn get_tracking_id(&self) -> Option<&JsString> {
+        self.settings.get("trackingId").and_then(Value::as_string)
     }
 
     pub fn set_enable_analytics(&mut self, enabled: bool) {
@@ -1549,10 +1554,10 @@ impl SettingsManager {
             && self
                 .global_settings
                 .get("trackingId")
-                .and_then(Value::as_str)
-                .is_none_or(str::is_empty)
+                .and_then(Value::as_string)
+                .is_none_or(JsString::is_empty)
         {
-            set_string(&mut self.global_settings, "trackingId", &random_uuid());
+            set_string(&mut self.global_settings, "trackingId", random_uuid());
             self.mark_modified("trackingId", None);
         }
         self.save();
@@ -1571,77 +1576,73 @@ impl SettingsManager {
     pub fn set_project_packages(&mut self, packages: Vec<PackageSource>) -> Result<(), SettingsFailure> {
         let value = packages_to_value(&packages);
         self.update_project_settings("packages", &mut |settings| {
-            settings.insert("packages".to_owned(), value.clone());
+            settings.insert("packages".into(), value.clone());
         })
     }
 
-    pub fn get_extension_paths(&self) -> Vec<String> {
+    pub fn get_extension_paths(&self) -> Vec<JsString> {
         string_array(self.settings.get("extensions")).unwrap_or_default()
     }
 
     pub fn get_disabled_extensions(&self) -> Vec<JsString> {
-        string_array(self.settings.get("disabledExtensions"))
-            .unwrap_or_default()
-            .into_iter()
-            .map(JsString::from)
-            .collect()
+        string_array(self.settings.get("disabledExtensions")).unwrap_or_default()
     }
 
-    pub fn set_extension_paths(&mut self, paths: &[String]) {
+    pub fn set_extension_paths(&mut self, paths: &[JsString]) {
         set_string_array(&mut self.global_settings, "extensions", paths);
         self.mark_modified("extensions", None);
         self.save();
     }
 
-    pub fn set_project_extension_paths(&mut self, paths: &[String]) -> Result<(), SettingsFailure> {
+    pub fn set_project_extension_paths(&mut self, paths: &[JsString]) -> Result<(), SettingsFailure> {
         self.update_project_settings("extensions", &mut |settings| {
             set_string_array(settings, "extensions", paths);
         })
     }
 
-    pub fn get_skill_paths(&self) -> Vec<String> {
+    pub fn get_skill_paths(&self) -> Vec<JsString> {
         string_array(self.settings.get("skills")).unwrap_or_default()
     }
 
-    pub fn set_skill_paths(&mut self, paths: &[String]) {
+    pub fn set_skill_paths(&mut self, paths: &[JsString]) {
         set_string_array(&mut self.global_settings, "skills", paths);
         self.mark_modified("skills", None);
         self.save();
     }
 
-    pub fn set_project_skill_paths(&mut self, paths: &[String]) -> Result<(), SettingsFailure> {
+    pub fn set_project_skill_paths(&mut self, paths: &[JsString]) -> Result<(), SettingsFailure> {
         self.update_project_settings("skills", &mut |settings| {
             set_string_array(settings, "skills", paths);
         })
     }
 
-    pub fn get_prompt_template_paths(&self) -> Vec<String> {
+    pub fn get_prompt_template_paths(&self) -> Vec<JsString> {
         string_array(self.settings.get("prompts")).unwrap_or_default()
     }
 
-    pub fn set_prompt_template_paths(&mut self, paths: &[String]) {
+    pub fn set_prompt_template_paths(&mut self, paths: &[JsString]) {
         set_string_array(&mut self.global_settings, "prompts", paths);
         self.mark_modified("prompts", None);
         self.save();
     }
 
-    pub fn set_project_prompt_template_paths(&mut self, paths: &[String]) -> Result<(), SettingsFailure> {
+    pub fn set_project_prompt_template_paths(&mut self, paths: &[JsString]) -> Result<(), SettingsFailure> {
         self.update_project_settings("prompts", &mut |settings| {
             set_string_array(settings, "prompts", paths);
         })
     }
 
-    pub fn get_theme_paths(&self) -> Vec<String> {
+    pub fn get_theme_paths(&self) -> Vec<JsString> {
         string_array(self.settings.get("themes")).unwrap_or_default()
     }
 
-    pub fn set_theme_paths(&mut self, paths: &[String]) {
+    pub fn set_theme_paths(&mut self, paths: &[JsString]) {
         set_string_array(&mut self.global_settings, "themes", paths);
         self.mark_modified("themes", None);
         self.save();
     }
 
-    pub fn set_project_theme_paths(&mut self, paths: &[String]) -> Result<(), SettingsFailure> {
+    pub fn set_project_theme_paths(&mut self, paths: &[JsString]) -> Result<(), SettingsFailure> {
         self.update_project_settings("themes", &mut |settings| {
             set_string_array(settings, "themes", paths);
         })
@@ -1663,7 +1664,7 @@ impl SettingsManager {
     pub fn get_thinking_budgets(&self) -> Option<ThinkingBudgetsSettings> {
         self.settings
             .get("thinkingBudgets")
-            .and_then(|value| serde_json::from_value(value.clone()).ok())
+            .and_then(|value| js_json::from_value(value).ok())
     }
 
     pub fn get_show_images(&self) -> bool {
@@ -1727,7 +1728,7 @@ impl SettingsManager {
     }
 
     pub fn get_tui_mode(&self) -> TuiMode {
-        if self.settings.get("tuiMode").and_then(Value::as_str) == Some("fullscreen") {
+        if enum_literal(self.settings.get("tuiMode")).as_deref() == Some("fullscreen") {
             TuiMode::Fullscreen
         } else {
             TuiMode::Regular
@@ -1745,7 +1746,7 @@ impl SettingsManager {
     }
 
     pub fn get_fullscreen_exit_output(&self) -> FullscreenExitOutput {
-        if self.settings.get("fullscreenExitOutput").and_then(Value::as_str) == Some("resume-hint") {
+        if enum_literal(self.settings.get("fullscreenExitOutput")).as_deref() == Some("resume-hint") {
             FullscreenExitOutput::ResumeHint
         } else {
             FullscreenExitOutput::Transcript
@@ -1763,7 +1764,7 @@ impl SettingsManager {
     }
 
     pub fn get_fullscreen_scrollbar(&self) -> ScrollViewScrollbar {
-        match self.settings.get("fullscreenScrollbar").and_then(Value::as_str) {
+        match enum_literal(self.settings.get("fullscreenScrollbar")).as_deref() {
             Some("always") => ScrollViewScrollbar::Always,
             Some("hidden") => ScrollViewScrollbar::Hidden,
             _ => ScrollViewScrollbar::Auto,
@@ -1801,13 +1802,13 @@ impl SettingsManager {
         self.save();
     }
 
-    pub fn get_enabled_models(&self) -> Option<Vec<String>> {
+    pub fn get_enabled_models(&self) -> Option<Vec<JsString>> {
         string_array(self.settings.get("enabledModels"))
     }
 
     pub fn set_enabled_models(
         &mut self,
-        patterns: Option<&[String]>,
+        patterns: Option<&[JsString]>,
         scope: SettingsScope,
     ) -> Result<(), SettingsFailure> {
         if scope == SettingsScope::Project {
@@ -1816,7 +1817,7 @@ impl SettingsManager {
                 if value.is_null() {
                     settings.shift_remove("enabledModels");
                 } else {
-                    settings.insert("enabledModels".to_owned(), value.clone());
+                    settings.insert("enabledModels".into(), value.clone());
                 }
             });
         }
@@ -1832,7 +1833,7 @@ impl SettingsManager {
     }
 
     pub fn get_double_escape_action(&self) -> DoubleEscapeAction {
-        match self.settings.get("doubleEscapeAction").and_then(Value::as_str) {
+        match enum_literal(self.settings.get("doubleEscapeAction")).as_deref() {
             Some("fork") => DoubleEscapeAction::Fork,
             Some("none") => DoubleEscapeAction::None,
             _ => DoubleEscapeAction::Tree,
@@ -1851,7 +1852,7 @@ impl SettingsManager {
     }
 
     pub fn get_tree_filter_mode(&self) -> TreeFilterMode {
-        match self.settings.get("treeFilterMode").and_then(Value::as_str) {
+        match enum_literal(self.settings.get("treeFilterMode")).as_deref() {
             Some("no-tools") => TreeFilterMode::NoTools,
             Some("user-only") => TreeFilterMode::UserOnly,
             Some("labeled-only") => TreeFilterMode::LabeledOnly,
@@ -1934,14 +1935,14 @@ impl SettingsManager {
         self.save();
     }
 
-    pub fn get_code_block_indent(&self) -> String {
-        nested_str(&self.settings, "markdown", "codeBlockIndent")
-            .unwrap_or("  ")
-            .to_owned()
+    pub fn get_code_block_indent(&self) -> JsString {
+        nested_string(&self.settings, "markdown", "codeBlockIndent")
+            .cloned()
+            .unwrap_or_else(|| "  ".into())
     }
 
     pub fn get_mermaid_rendering_mode(&self) -> MermaidRenderingMode {
-        match nested_str(&self.settings, "markdown", "mermaid") {
+        match enum_literal(nested_value(&self.settings, "markdown", "mermaid")).as_deref() {
             Some("off") => MermaidRenderingMode::Off,
             Some("final") => MermaidRenderingMode::Final,
             _ => MermaidRenderingMode::Streaming,
@@ -1958,7 +1959,7 @@ impl SettingsManager {
             &mut self.global_settings,
             "markdown",
             "mermaid",
-            Value::String(value.to_owned()),
+            Value::String(value.into()),
         );
         self.mark_modified("markdown", Some("mermaid"));
         self.save();
@@ -1981,15 +1982,15 @@ impl SettingsManager {
 
 struct SettingsLoad {
     settings: Settings,
-    error: Option<String>,
+    error: Option<JsString>,
 }
 
 fn parse_settings(content: &str) -> Result<Settings, SettingsFailure> {
-    match js_json::parse(content).map_err(|error| SettingsFailure::new(error.to_string()))? {
+    match js_json::parse_lossless(content).map_err(|error| SettingsFailure::new(error.to_string()))? {
         Value::Object(settings) => Ok(settings),
         other => Err(SettingsFailure::new(format!(
             "Settings must be a JSON object, got {}",
-            js_json::stringify(&other)
+            js_json::stringify_lossless(&other)
         ))),
     }
 }
@@ -1997,7 +1998,7 @@ fn parse_settings(content: &str) -> Result<Settings, SettingsFailure> {
 fn migrate_settings(settings: &mut Settings) {
     if settings.contains_key("queueMode") && !settings.contains_key("steeringMode") {
         let queue_mode = settings.get("queueMode").cloned().unwrap_or(Value::Null);
-        settings.insert("steeringMode".to_owned(), queue_mode);
+        settings.insert("steeringMode".into(), queue_mode);
         settings.shift_remove("queueMode");
     }
 
@@ -2005,8 +2006,8 @@ fn migrate_settings(settings: &mut Settings) {
         && let Some(websockets) = settings.get("websockets").and_then(Value::as_bool)
     {
         settings.insert(
-            "transport".to_owned(),
-            Value::String(if websockets { "websocket" } else { "sse" }.to_owned()),
+            "transport".into(),
+            Value::String(if websockets { "websocket" } else { "sse" }.into()),
         );
         settings.shift_remove("websockets");
     }
@@ -2015,11 +2016,11 @@ fn migrate_settings(settings: &mut Settings) {
         if let Some(enable) = skills_settings.get("enableSkillCommands")
             && !settings.contains_key("enableSkillCommands")
         {
-            settings.insert("enableSkillCommands".to_owned(), enable.clone());
+            settings.insert("enableSkillCommands".into(), enable.clone());
         }
         match skills_settings.get("customDirectories").and_then(Value::as_array) {
             Some(directories) if !directories.is_empty() => {
-                settings.insert("skills".to_owned(), Value::Array(directories.clone()));
+                settings.insert("skills".into(), Value::Array(directories.clone()));
             }
             _ => {
                 settings.shift_remove("skills");
@@ -2027,11 +2028,8 @@ fn migrate_settings(settings: &mut Settings) {
         }
     }
 
-    if settings.get("approvalPreset").and_then(Value::as_str) == Some("llm-approved") {
-        settings.insert(
-            "approvalPreset".to_owned(),
-            Value::String("llm-approved-deny".to_owned()),
-        );
+    if enum_literal(settings.get("approvalPreset")).as_deref() == Some("llm-approved") {
+        settings.insert("approvalPreset".into(), Value::String("llm-approved-deny".into()));
     }
 
     if let Some(Value::Object(retry)) = settings.get("retry").cloned() {
@@ -2043,16 +2041,25 @@ fn migrate_settings(settings: &mut Settings) {
             if let Some(max_delay) = max_delay
                 && provider_delay.is_none_or(Value::is_null)
             {
-                provider.insert("maxRetryDelayMs".to_owned(), js_number::js_number_value(max_delay));
-                retry.insert("provider".to_owned(), Value::Object(provider));
+                provider.insert("maxRetryDelayMs".into(), json_number(max_delay));
+                retry.insert("provider".into(), Value::Object(provider));
             }
         } else if let Some(max_delay) = retry.get("maxDelayMs").and_then(Value::as_f64) {
-            let mut provider = Map::new();
-            provider.insert("maxRetryDelayMs".to_owned(), js_number::js_number_value(max_delay));
-            retry.insert("provider".to_owned(), Value::Object(provider));
+            let mut provider = JsObject::new();
+            provider.insert("maxRetryDelayMs".into(), json_number(max_delay));
+            retry.insert("provider".into(), Value::Object(provider));
         }
         retry.shift_remove("maxDelayMs");
-        settings.insert("retry".to_owned(), Value::Object(retry));
+        settings.insert("retry".into(), Value::Object(retry));
+    }
+}
+
+/// `JSON.stringify` writes non-finite numbers as `null`.
+fn json_number(value: f64) -> Value {
+    if value.is_finite() {
+        Value::Number(value)
+    } else {
+        Value::Null
     }
 }
 
@@ -2088,35 +2095,35 @@ fn default_agent_profile(name: &str) -> Option<AgentProfileSettings> {
             context: Some(AgentProfileContext::Fresh),
             model: None,
             thinking_level: None,
-            tools: Some(vec!["browser-cli".to_owned()]),
+            tools: Some(vec!["browser-cli".into()]),
         },
         "explore" => AgentProfileSettings {
             context: None,
-            model: Some("openai/gpt-5-mini".to_owned()),
+            model: Some("openai/gpt-5-mini".into()),
             thinking_level: Some(AgentProfileThinkingLevel::Low),
             tools: None,
         },
         "implement" => AgentProfileSettings {
             context: None,
-            model: Some("openai/gpt-5.5".to_owned()),
+            model: Some("openai/gpt-5.5".into()),
             thinking_level: Some(AgentProfileThinkingLevel::Medium),
             tools: None,
         },
         "verifier" => AgentProfileSettings {
             context: None,
-            model: Some("openai/gpt-5-mini".to_owned()),
+            model: Some("openai/gpt-5-mini".into()),
             thinking_level: Some(AgentProfileThinkingLevel::Low),
             tools: None,
         },
         "documentation-update" => AgentProfileSettings {
             context: None,
-            model: Some("openai/gpt-5-mini".to_owned()),
+            model: Some("openai/gpt-5-mini".into()),
             thinking_level: Some(AgentProfileThinkingLevel::Low),
             tools: None,
         },
         "reviewer" => AgentProfileSettings {
             context: Some(AgentProfileContext::Fresh),
-            model: Some("openai/gpt-5.5".to_owned()),
+            model: Some("openai/gpt-5.5".into()),
             thinking_level: Some(AgentProfileThinkingLevel::Medium),
             tools: None,
         },
@@ -2167,7 +2174,7 @@ fn parse_packages(value: Option<&Value>) -> Result<Vec<PackageSource>, SettingsF
     entries
         .iter()
         .map(|entry| {
-            serde_json::from_value(entry.clone())
+            package_source_from_value(entry)
                 .map_err(|error| SettingsFailure::new(format!("Invalid package source: {error}")))
         })
         .collect()
@@ -2177,19 +2184,24 @@ fn packages_to_value(packages: &[PackageSource]) -> Value {
     Value::Array(
         packages
             .iter()
-            .map(|package| serde_json::to_value(package).expect("package source serializes"))
+            .map(|package| js_json::to_value(package).expect("package source serializes"))
             .collect(),
     )
 }
 
-fn strings_to_value(values: &[String]) -> Value {
+fn strings_to_value(values: &[JsString]) -> Value {
     Value::Array(values.iter().map(|value| Value::String(value.clone())).collect())
 }
 
-fn string_array(value: Option<&Value>) -> Option<Vec<String>> {
+fn string_array(value: Option<&Value>) -> Option<Vec<JsString>> {
     let values = value?.as_array()?;
-    let strings: Option<Vec<String>> = values.iter().map(|value| value.as_str().map(str::to_owned)).collect();
-    strings
+    values.iter().map(|value| value.as_string().cloned()).collect()
+}
+
+/// Settings enum values are ASCII literals. A string with unpaired units matches none of them,
+/// so treating its failed UTF-8 conversion as "no literal" is exact, not lossy.
+fn enum_literal(value: Option<&Value>) -> Option<String> {
+    value?.as_string()?.to_utf8().ok()
 }
 
 fn nested_value<'a>(settings: &'a Settings, field: &str, nested_key: &str) -> Option<&'a Value> {
@@ -2207,19 +2219,19 @@ fn nested_bool(settings: &Settings, field: &str, nested_key: &str) -> Option<boo
     nested_value(settings, field, nested_key).and_then(Value::as_bool)
 }
 
-fn nested_str<'a>(settings: &'a Settings, field: &str, nested_key: &str) -> Option<&'a str> {
-    nested_value(settings, field, nested_key).and_then(Value::as_str)
+fn nested_string<'a>(settings: &'a Settings, field: &str, nested_key: &str) -> Option<&'a JsString> {
+    nested_value(settings, field, nested_key).and_then(Value::as_string)
 }
 
 fn set_value(settings: &mut Settings, key: &str, value: Value) {
-    settings.insert(key.to_owned(), value);
+    settings.insert(key.into(), value);
 }
 
-fn set_string(settings: &mut Settings, key: &str, value: &str) {
-    settings.insert(key.to_owned(), Value::String(value.to_owned()));
+fn set_string(settings: &mut Settings, key: &str, value: impl Into<JsString>) {
+    settings.insert(key.into(), Value::String(value.into()));
 }
 
-fn set_optional_string(settings: &mut Settings, key: &str, value: Option<&str>) {
+fn set_optional_string(settings: &mut Settings, key: &str, value: Option<&JsString>) {
     match value {
         Some(value) => set_string(settings, key, value),
         None => {
@@ -2229,18 +2241,18 @@ fn set_optional_string(settings: &mut Settings, key: &str, value: Option<&str>) 
 }
 
 fn set_bool(settings: &mut Settings, key: &str, value: bool) {
-    settings.insert(key.to_owned(), Value::Bool(value));
+    settings.insert(key.into(), Value::Bool(value));
 }
 
 fn set_number(settings: &mut Settings, key: &str, value: f64) {
-    settings.insert(key.to_owned(), js_number::js_number_value(value));
+    settings.insert(key.into(), json_number(value));
 }
 
-fn set_string_array(settings: &mut Settings, key: &str, values: &[String]) {
-    settings.insert(key.to_owned(), strings_to_value(values));
+fn set_string_array(settings: &mut Settings, key: &str, values: &[JsString]) {
+    settings.insert(key.into(), strings_to_value(values));
 }
 
-fn set_optional_string_array(settings: &mut Settings, key: &str, values: Option<&[String]>) {
+fn set_optional_string_array(settings: &mut Settings, key: &str, values: Option<&[JsString]>) {
     match values {
         Some(values) => set_string_array(settings, key, values),
         None => {
@@ -2255,12 +2267,12 @@ fn set_nested(settings: &mut Settings, field: &str, nested_key: &str, value: Val
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
-    object.insert(nested_key.to_owned(), value);
-    settings.insert(field.to_owned(), Value::Object(object));
+    object.insert(nested_key.into(), value);
+    settings.insert(field.into(), Value::Object(object));
 }
 
 fn set_number_nested(settings: &mut Settings, field: &str, nested_key: &str, value: f64) {
-    set_nested(settings, field, nested_key, js_number::js_number_value(value));
+    set_nested(settings, field, nested_key, json_number(value));
 }
 
 /// `Math.max(min, Math.floor(value))`; `NaN` stays `NaN`.
