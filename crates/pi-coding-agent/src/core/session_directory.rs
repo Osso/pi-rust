@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use pi_ai::utils::uuid::random_uuid;
+use pi_ai::utils::random_uuid::random_uuid;
 use pi_js_compat::collator::{locale_compare, locale_compare_utf16};
 use pi_js_compat::js_json::{JsString, JsValue};
 

@@ -5856,7 +5856,11 @@ impl InteractiveMode {
                 crate::utils::clipboard_image::extension_for_image_mime_type(&image.mime_type).unwrap_or("png");
             let file_path = node_join(
                 JsString::from(std::env::temp_dir().to_string_lossy().as_ref()),
-                js_format!("pi-clipboard-{}.{}", pi_ai::utils::uuid::random_uuid(), extension),
+                js_format!(
+                    "pi-clipboard-{}.{}",
+                    pi_ai::utils::random_uuid::random_uuid(),
+                    extension
+                ),
             );
             if std::fs::write(encode_node_utf8(&file_path), &image.bytes).is_ok() {
                 self.clipboard_temp_files.borrow_mut().track(file_path.clone());

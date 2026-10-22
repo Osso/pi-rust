@@ -1,5 +1,6 @@
+//! Frozen agent-core/session/uuid.ts.
+
 use std::sync::{Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 struct UuidV7Generator {
     last_timestamp: i64,
@@ -26,10 +27,11 @@ impl UuidV7Generator {
         }
 
         let sequence = self.sequence;
-        let timestamp = self.last_timestamp as u64;
+        let timestamp = self.last_timestamp as f64;
         let mut bytes = [0_u8; 16];
         for (index, byte) in bytes.iter_mut().take(6).enumerate() {
-            *byte = (timestamp >> (40 - 8 * index)) as u8;
+            let divisor = (1_u64 << (40 - 8 * index)) as f64;
+            *byte = (timestamp / divisor) as i64 as u8;
         }
         bytes[6] = 0x70 | ((sequence >> 28) as u8 & 0x0f);
         bytes[7] = (sequence >> 20) as u8;
@@ -67,25 +69,48 @@ pub fn uuidv7() -> String {
     generator.generate(now_millis(), random)
 }
 
-/// `crypto.randomUUID()`: RFC 9562 version 4 from OS randomness.
-pub fn random_uuid() -> String {
-    let mut bytes = [0_u8; 16];
-    getrandom::fill(&mut bytes).expect("OS random source must be available for UUIDv4");
-    bytes[6] = 0x40 | (bytes[6] & 0x0f);
-    bytes[8] = 0x80 | (bytes[8] & 0x3f);
-    format_uuid(&bytes)
-}
-
 fn now_millis() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as i64)
-        .unwrap_or(0)
+    pi_js_compat::date::js_now_millis() as i64
 }
 
 #[cfg(test)]
 mod tests {
     use super::UuidV7Generator;
+
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-ai/tests/support/oracle.rs"));
+    }
+
+    #[test]
+    fn timestamp_sequence_and_random_bit_vectors_match_frozen() {
+        let mut oracle = oracle::TsOracle::spawn(
+            "agent-core-uuid-oracle.ts",
+            "packages/agent-core/src/harness/session/uuid.ts",
+        );
+        let groups = [
+            vec![(-1, [0; 16]), (-2, [0xab; 16]), (0, [0xcd; 16])],
+            vec![
+                (0x0123_4567_89ab, [0xff; 16]),
+                (0x0123_4567_89ab, [0; 16]),
+                (0x0123_4567_89aa, [1; 16]),
+            ],
+            vec![(0x1_0000_0000_0000, [0x55; 16]), (8_640_000_000_000_000, [0xaa; 16])],
+        ];
+        for (id, steps) in groups.into_iter().enumerate() {
+            let mut generator = UuidV7Generator::new();
+            let actual = steps
+                .iter()
+                .map(|(timestamp, random)| generator.generate(*timestamp, *random))
+                .collect::<Vec<_>>();
+            let request_steps = steps
+                .iter()
+                .map(|(timestamp, random)| serde_json::json!({"timestamp":timestamp,"random":random}))
+                .collect::<Vec<_>>();
+            let response = oracle.request(&serde_json::json!({"id":id,"operation":"vectors","steps":request_steps}));
+            assert_eq!(response["ok"], true, "{response}");
+            assert_eq!(serde_json::json!(actual), response["output"]);
+        }
+    }
 
     const TIMESTAMP: i64 = 0x0123_4567_89ab;
 
@@ -109,6 +134,12 @@ mod tests {
         assert_eq!(third, "01234567-89ac-7000-8000-000000000000");
         assert!(first < second);
         assert!(second < third);
+    }
+
+    #[test]
+    fn negative_timestamps_follow_frozen_division_then_bitwise_conversion() {
+        let mut generator = UuidV7Generator::new();
+        assert_eq!(generator.generate(-1, [0; 16]), "00000000-00ff-7000-8000-000000000000");
     }
 
     #[test]

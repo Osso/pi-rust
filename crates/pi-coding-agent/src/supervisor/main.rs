@@ -755,7 +755,7 @@ pub async fn run_supervisor_service() -> Result<(), JsString> {
     let signal = CancellationToken::new();
     install_stop_signals(&signal);
     let loop_result = run_supervisor_request_loop(RunSupervisorRequestLoopInput {
-        claim_token: pi_ai::utils::uuid::random_uuid().into(),
+        claim_token: pi_ai::utils::random_uuid::random_uuid().into(),
         console_prompts,
         control_db_path,
         session: Arc::new(session.clone()),

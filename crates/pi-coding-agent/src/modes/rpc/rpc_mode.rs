@@ -12,7 +12,7 @@ use std::time::Duration;
 use pi_agent_core::agent::types::AgentEvent;
 use pi_ai::request::BoxFuture;
 use pi_ai::types::InputSource;
-use pi_ai::utils::uuid::random_uuid;
+use pi_ai::utils::random_uuid::random_uuid;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use serde::Serialize;

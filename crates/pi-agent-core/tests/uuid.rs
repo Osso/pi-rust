@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use pi_ai::utils::uuid::uuidv7;
+use pi_agent_core::uuidv7;
 
 fn now_millis() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64

@@ -7,7 +7,7 @@ pub mod agent;
 pub mod harness;
 pub mod node;
 
-pub use pi_ai::utils::uuid::uuidv7;
+pub use harness::session::uuid::uuidv7;
 
 pub use agent::types::*;
 pub use agent::{
