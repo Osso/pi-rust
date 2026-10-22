@@ -283,7 +283,8 @@ fn prepare_detached_job_finalization(
     terminal_agent.insert("updatedAt".to_owned(), Value::String(terminal.terminal_at.clone()));
     terminal_agent.remove("worker");
     validate_persisted_agent_payload(&terminal_agent, &context)?;
-    let terminal_agent_snapshot = parse_agent_snapshot(&terminal_agent, &context)?;
+    let terminal_agent_snapshot =
+        parse_agent_snapshot(&js_json::stringify(&Value::Object(terminal_agent.clone())), &context)?;
     let terminal_transport = if super::agents::should_notify_detached_job_owner(&agent) {
         let owner = MultiAgentRuntimeOwnerIdentity {
             agent_id: ownership.owner_agent_id.clone(),
@@ -360,7 +361,10 @@ fn detached_job_replay_result(
     let context = format!("multi_agent_agents:{session_path}#{}", terminal.job_id);
     validate_persisted_agent_payload(terminal_agent, &context)?;
     Ok(FinalizeDetachedJobResult::Ok {
-        terminal_agent: Box::new(parse_agent_snapshot(terminal_agent, &context)?),
+        terminal_agent: Box::new(parse_agent_snapshot(
+            &js_json::stringify(&Value::Object(terminal_agent.clone())),
+            &context,
+        )?),
         terminal_revision,
     })
 }

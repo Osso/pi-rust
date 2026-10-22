@@ -735,8 +735,8 @@ fn read_steering_mutation_agent(
         return Ok(None);
     };
     let context = format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id);
-    let agent = parse_stored_json_object(&data, &context)?;
-    let agent = parse_agent_snapshot(&agent, &context)?;
+
+    let agent = parse_agent_snapshot(&data, &context)?;
     Ok(Some((agent, data)))
 }
 
@@ -885,7 +885,7 @@ fn build_steering_mailbox_message(
     Ok(AgentMailboxMessage {
         extra: js_json::JsObject::new(),
         body: Some(input.body.clone().into()),
-        created_at: input.updated_at.clone(),
+        created_at: input.updated_at.clone().into(),
         file_refs: input.file_refs.clone(),
         from_agent_id: input.from_agent_id.clone().into(),
         id: message_id.to_owned().into(),
@@ -894,7 +894,7 @@ fn build_steering_mailbox_message(
         target_checkpoint: input.target_checkpoint,
         thread_id: input.thread_id.clone(),
         to_agent_id: input.agent_id.clone().into(),
-        updated_at: input.updated_at.clone(),
+        updated_at: input.updated_at.clone().into(),
         error: None,
     })
 }
@@ -978,7 +978,7 @@ pub fn commit_multi_agent_detach_mark(
             };
             let context = format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id);
             let agent = parse_stored_json_object(&data, &context)?;
-            let mut agent_snapshot = parse_agent_snapshot(&agent, &context)?;
+            let mut agent_snapshot = parse_agent_snapshot(&data, &context)?;
             let ownership = read_multi_agent_runtime_ownership_row(db, &input.session_path, &input.agent_id)?;
             let identity = ownership_identity(
                 &input.session_path,
@@ -1087,7 +1087,7 @@ pub(super) fn read_steering_delivery_plan(
     };
     let agent_context = format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id);
     let agent_object = parse_stored_json_object(&agent_data, &agent_context)?;
-    let agent = parse_agent_snapshot(&agent_object, &agent_context)?;
+    let agent = parse_agent_snapshot(&agent_data, &agent_context)?;
     let ownership = read_multi_agent_runtime_ownership_row(db, &input.session_path, &input.agent_id)?;
     let identity = ownership_identity(
         &input.session_path,
@@ -1129,14 +1129,19 @@ pub(super) fn read_steering_delivery_plan(
     if !is_steering_message || !addressed_to_agent {
         return Ok(Err(SteeringCommandError::MessageNotFound));
     }
-    let mut updated_agent_object = agent_object.clone();
-    updated_agent_object.insert("lifecycle".to_owned(), Value::String(input.requested_lifecycle.clone()));
-    updated_agent_object.insert("revision".to_owned(), Value::from(agent.revision + 1));
-    updated_agent_object.insert("updatedAt".to_owned(), Value::String(input.updated_at.clone()));
-    let updated_agent: AgentSnapshot = serde_json::from_value(Value::Object(updated_agent_object))
+    let mut updated_agent_object = super::parse_stored_json_object_lossless(&agent_data, &agent_context)?;
+    updated_agent_object.insert(
+        "lifecycle".into(),
+        JsValue::String(input.requested_lifecycle.clone().into()),
+    );
+    updated_agent_object.insert("revision".into(), JsValue::Number((agent.revision + 1) as f64));
+    updated_agent_object.insert("updatedAt".into(), JsValue::String(input.updated_at.clone().into()));
+    let updated_agent: AgentSnapshot = js_json::from_value(&JsValue::Object(updated_agent_object))
         .map_err(|error| ControlDbError::new(error.to_string()))?;
-    let updated_message: AgentMailboxMessage = serde_json::from_value(Value::Object(message.clone()))
-        .map_err(|error| ControlDbError::new(error.to_string()))?;
+    let updated_message: AgentMailboxMessage = js_json::from_value(
+        &js_json::parse_lossless(&message_data).map_err(|error| ControlDbError::new(error.to_string()))?,
+    )
+    .map_err(|error| ControlDbError::new(error.to_string()))?;
     Ok(Ok(SteeringDeliveryPlan {
         agent_data,
         message_data,
@@ -1155,7 +1160,7 @@ pub(super) fn persist_steering_delivery(
 ) -> Result<bool, ControlDbError> {
     with_immediate_transaction(db, |db| {
         if super::is_mailbox_message_expired(
-            Some(&plan.updated_message.created_at),
+            plan.updated_message.created_at.to_utf8().ok().as_deref(),
             pi_js_compat::date::js_now_millis(),
         ) {
             return Ok(false);
@@ -1825,7 +1830,7 @@ fn read_active_parent_snapshot(
     if !is_nonterminal_lifecycle(parent.get("lifecycle")) {
         return Ok(None);
     }
-    let agent = parse_agent_snapshot(&parent, &context)?;
+    let agent = parse_agent_snapshot(&data, &context)?;
     Ok(Some(ActiveParentSnapshot {
         agent: Some(agent),
         data: Some(data),
@@ -2315,8 +2320,8 @@ fn read_attached_runtime_agent(
         return Ok(AttachedRuntimeAgentRead::Err(AcquireAttachedError::AgentNotFound));
     };
     let context = format!("multi_agent_agents:{session_path}#{agent_id}");
-    let agent = parse_stored_json_object(&data, &context)?;
-    match parse_agent_snapshot(&agent, &context) {
+
+    match parse_agent_snapshot(&data, &context) {
         Ok(agent) => Ok(AttachedRuntimeAgentRead::Ok {
             agent: Box::new(agent),
             data,
@@ -2385,14 +2390,11 @@ fn read_persisted_supervisor_session_authority(
     let Some(supervisor_agent_data) = supervisor_agent else {
         return Ok(None);
     };
-    let snapshot = parse_stored_json_object(
-        &supervisor_agent_data,
-        &format!(
-            "multi_agent_agents:{session_path}#{}",
-            supervisor.agent_id.as_deref().unwrap_or_default()
-        ),
-    )?;
-    let agent = parse_agent_snapshot(&snapshot, "multi_agent_agents:supervisor")?;
+    let context = format!(
+        "multi_agent_agents:{session_path}#{}",
+        supervisor.agent_id.as_deref().unwrap_or_default()
+    );
+    let agent = parse_agent_snapshot(&supervisor_agent_data, &context)?;
     if agent
         .transcript
         .as_ref()
@@ -3239,8 +3241,8 @@ pub fn read_multi_agent_agent(
             return Ok(None);
         };
         let context = format!("multi_agent_agents:{session_path}#{agent_id}");
-        let agent = parse_stored_json_object(&data, &context)?;
-        Ok(Some(parse_agent_snapshot(&agent, &context)?))
+
+        Ok(Some(parse_agent_snapshot(&data, &context)?))
     })
 }
 
@@ -3258,8 +3260,8 @@ pub fn read_multi_agent_agents(
                 continue;
             };
             let context = format!("multi_agent_agents:{session_path}#{agent_id}");
-            let agent = parse_stored_json_object(&data, &context)?;
-            agents.push(parse_agent_snapshot(&agent, &context)?);
+
+            agents.push(parse_agent_snapshot(&data, &context)?);
         }
         Ok(agents)
     })
@@ -3297,9 +3299,9 @@ pub fn list_detached_artifact_agents_updated_at_or_before(
         let mut records = Vec::new();
         for (session_path, agent_id, data) in rows {
             let context = format!("multi_agent_agents:{session_path}#{agent_id}");
-            let agent = parse_stored_json_object(&data, &context)?;
+
             records.push(DetachedArtifactAgentRecord {
-                agent: parse_agent_snapshot(&agent, &context)?,
+                agent: parse_agent_snapshot(&data, &context)?,
                 session_path,
             });
         }

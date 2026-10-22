@@ -102,11 +102,12 @@ pub use sessions::{
     find_active_session_metadata_by_id, find_active_session_metadata_by_name, list_active_session_metadata,
     list_archived_session_metadata, list_descendant_session_paths, list_empty_main_session_candidates,
     list_resume_session_metadata, list_session_metadata, list_subagent_session_paths, normalize_session_name,
-    read_last_message, read_or_migrate_prompt_history, read_prompt_history, read_session_goal, read_session_metadata,
-    read_session_name_state, read_session_sandbox_profile, record_prompt_history_entry, relocate_and_archive_session,
-    relocate_and_unarchive_session, relocate_session_control_data, remove_session_metadata, remove_sessions_metadata,
-    unarchive_session, write_last_message, write_session_goal, write_session_metadata, write_session_model,
-    write_session_name, write_session_sandbox_profile, write_session_thinking_level,
+    normalize_session_name_utf16, read_last_message, read_or_migrate_prompt_history, read_prompt_history,
+    read_session_goal, read_session_metadata, read_session_name_state, read_session_sandbox_profile,
+    record_prompt_history_entry, relocate_and_archive_session, relocate_and_unarchive_session,
+    relocate_session_control_data, remove_session_metadata, remove_sessions_metadata, unarchive_session,
+    write_last_message, write_session_goal, write_session_metadata, write_session_model, write_session_name,
+    write_session_sandbox_profile, write_session_thinking_level,
 };
 
 pub use crate::core::sqlite::ControlDbError;
@@ -166,10 +167,10 @@ pub struct RuntimeMailboxMessage {
     pub target_checkpoint: Option<SteeringCheckpoint>,
     pub store_ref: RuntimeMailboxStoreRef,
     pub status: RuntimeMailboxMessageStatus,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: JsString,
+    pub updated_at: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub claimed_at: Option<String>,
+    pub claimed_at: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<JsString>,
 }
@@ -1119,6 +1120,14 @@ pub(crate) fn runtime_mailbox_message_from_canonical_row(
             .ok_or_else(|| ControlDbError::new(format!("Invalid persisted string {key} at {context}")))
     };
     let optional_text = |key: &str| raw.get(&JsString::from(key)).and_then(JsValue::as_string).cloned();
+    let original = parse_stored_json_object(&row.data, &context)?;
+    let delivery_text = |key: &str| {
+        if message.get(key) == original.get(key) {
+            optional_text(key)
+        } else {
+            message.get(key).and_then(Value::as_str).map(JsString::from)
+        }
+    };
     Ok(RuntimeMailboxMessage {
         id: row.id,
         recipient: RuntimeMailboxAddress {
@@ -1142,22 +1151,18 @@ pub(crate) fn runtime_mailbox_message_from_canonical_row(
             session_path: row.session_path.clone().into(),
         },
         status: to_runtime_mailbox_message_status(&require_string_field(message, "status", &context)?),
-        created_at: require_string_field(message, "createdAt", &context)?,
-        updated_at: match message.get("updatedAt") {
-            Some(Value::String(value)) => value.clone(),
-            _ => row.updated_at.clone(),
-        },
-        claimed_at: optional_string_field(message, "claimedAt", &context)?,
-        error: message
-            .get("error")
-            .and_then(Value::as_str)
-            .and_then(|_| optional_text("error")),
+        created_at: text("createdAt")?,
+        updated_at: delivery_text("updatedAt").unwrap_or_else(|| row.updated_at.clone().into()),
+        claimed_at: delivery_text("claimedAt"),
+        error: delivery_text("error"),
     })
 }
 
-pub(crate) fn parse_agent_snapshot(data: &Map<String, Value>, context: &str) -> Result<AgentSnapshot, ControlDbError> {
-    validate_persisted_agent_payload(data, context)?;
-    serde_json::from_value(Value::Object(data.clone()))
+pub(crate) fn parse_agent_snapshot(serialized: &str, context: &str) -> Result<AgentSnapshot, ControlDbError> {
+    let validation = parse_stored_json_object(serialized, context)?;
+    validate_persisted_agent_payload(&validation, context)?;
+    let value = js_json::parse_lossless(serialized).map_err(|error| ControlDbError::new(error.to_string()))?;
+    js_json::from_value(&value)
         .map_err(|error| ControlDbError::new(format!("Invalid persisted agent payload at {context}: {error}")))
 }
 

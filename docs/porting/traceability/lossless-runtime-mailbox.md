@@ -9,7 +9,8 @@ Contract: [lossless runtime/mailbox](../../specs/lossless-runtime-mailbox.md).
 | Store public mailbox serialization / UTF-16 IDs and arbitrary unknown keys | `lossless_runtime_mailbox::store_message_serialization_preserves_raw_addresses_file_refs_and_unknown_keys` | Added; library integration pending |
 | Supervisor request DB payload and response serialization | `lossless_runtime_mailbox::supervisor_request_and_response_preserve_raw_content` | Added; library integration pending |
 | Recipient receipt encoding | `runtime_mailbox_acceptance` now serializes refs directly with `js_json::to_value` | Existing acceptance targets await parent integration |
-| Completion summary notification | UTF-16 trim/concatenation; no scalar `as_deref` | Runtime test pending parent integration |
+| Completion summary notification | `lossless_runtime_mailbox::completion_notification_keeps_summary_units_and_duration` | Added; library integration pending |
+| Raw name normalization and SQL binding | `lossless_runtime_mailbox::session_name_normalization_retains_units_until_sql_text_binding` | RED attempt library-blocked before test compilation |
 
 Original JSON CAS is retained. Read-only scalar schema validation is not used as a persisted write or public content authority. SQLite keys are encoded only at concrete storage/helper boundaries.
 

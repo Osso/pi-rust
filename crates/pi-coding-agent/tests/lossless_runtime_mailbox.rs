@@ -6,7 +6,7 @@ use pi_js_compat::js_json::{self, JsValue};
 fn enqueue_retry_restore_retains_raw_payload_and_rejects_replacement_collision() {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("control.sqlite").display().to_string();
-    let wire = r#"{"recipient":{"sessionId":"to","agentId":null},"sender":{"sessionId":"from","agentId":null},"kind":"message","storeRef":{"sessionPath":"/fixture/s","messageId":"m"},"message":{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"before\ud800after","fileRefs":[{"path":"/raw/\udfff","label":"\ud800"}],"unknown":{"\ud800":"high","�":"replacement"}}}"#;
+    let wire = r#"{"recipient":{"sessionId":"to","agentId":null},"sender":{"sessionId":"from","agentId":null},"kind":"message","storeRef":{"sessionPath":"/fixture/s","messageId":"m"},"message":{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"before\ud800after","updatedAt":"\udfff","fileRefs":[{"path":"/raw/\udfff","label":"\ud800"}],"unknown":{"\ud800":"high","�":"replacement"}}}"#;
     let input: EnqueueStoredRuntimeMailboxMessageInput =
         js_json::from_value(&js_json::parse_lossless(wire).unwrap()).unwrap();
     let id = enqueue_stored_runtime_mailbox_message(&database, &input).unwrap();
@@ -15,6 +15,7 @@ fn enqueue_retry_restore_retains_raw_payload_and_rejects_replacement_collision()
     let projection = js_json::to_value(&message).unwrap();
     assert_eq!(projection.get("body"), input.message.get("body"));
     assert_eq!(projection.get("fileRefs"), input.message.get("fileRefs"));
+    assert_eq!(projection.get("updatedAt"), input.message.get("updatedAt"));
     let state = read_multi_agent_state(&database, "/fixture/s").unwrap().unwrap();
     assert_eq!(state.mailbox_messages[0].get("body"), input.message.get("body"));
     struct Persistence(String);
@@ -60,6 +61,11 @@ fn supervisor_request_and_response_preserve_raw_content() {
     let id = post_supervisor_request(&database, &input).unwrap();
     let restored = read_supervisor_request(&database, id).unwrap().unwrap();
     assert_eq!(restored.payload, input.payload);
+    let prompt = pi_coding_agent::supervisor::service::build_supervisor_prompt(&restored);
+    let request_json = prompt.split_once("Request:\n").unwrap().1;
+    let request = js_json::parse_lossless(request_json).unwrap();
+    assert_eq!(request.get("payload"), Some(&payload));
+
     let response: SupervisorResponse =
         js_json::from_value(&js_json::parse_lossless(r#"{"kind":"advisory","answer":"raw\udfff"}"#).unwrap()).unwrap();
     assert_eq!(
@@ -96,4 +102,32 @@ fn completion_notification_keeps_summary_units_and_duration() {
     let messages = store.list_mailbox_messages().unwrap();
     let expected = js_json::parse_lossless(r#""Scout completed: raw\ud800. Duration: 42ms""#).unwrap();
     assert_eq!(messages[0].body.as_ref(), expected.as_string());
+}
+
+#[test]
+fn session_name_normalization_retains_units_until_sql_text_binding() {
+    use pi_js_compat::js_json::JsString;
+    let input = JsString::from_utf16(vec![0xfeff, 0xd800, 13, 10, 13, 9, 98, 0xdcff, 0x3000]);
+    let expected = JsString::from_utf16(vec![0xd800, 32, 9, 98, 0xdcff]);
+    assert_eq!(normalize_session_name_utf16(Some(&input)), Some(expected.clone()));
+    assert_eq!(normalize_session_name_utf16(Some(&JsString::from("\r\n "))), None);
+    assert_eq!(
+        normalize_session_name(Some("\u{feff}A\r\n\rB \u{3000}")),
+        Some("A B".into())
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("control.sqlite").display().to_string();
+    let now = pi_coding_agent::utils::iso_time::now_iso_string();
+    let metadata: WritableSessionMetadata = serde_json::from_value(serde_json::json!({
+        "sessionPath":"/fixture/s","id":"s","cwd":"/repo","createdAt":now,"modifiedAt":now,
+        "messageCount":0,"firstMessage":""
+    }))
+    .unwrap();
+    write_session_metadata(&database, &metadata).unwrap();
+    write_session_name(&database, "/fixture/s", Some(&input)).unwrap();
+    assert_eq!(
+        read_session_name_state(&database, "/fixture/s").unwrap().name,
+        Some(expected.to_utf8_lossy())
+    );
+    assert_eq!(input.units()[1], 0xd800);
 }

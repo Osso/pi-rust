@@ -325,8 +325,8 @@ pub struct AgentMailboxMessage {
     pub to_agent_id: JsString,
     pub kind: MailboxMessageKindValue,
     pub status: MailboxMessageStatusValue,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: JsString,
+    pub updated_at: JsString,
     pub body: Option<JsString>,
     pub file_refs: Option<JsValue>,
     pub target_checkpoint: Option<SteeringCheckpoint>,
@@ -520,7 +520,7 @@ pub enum ActiveAgentTargetSelectionResult {
     Inactive { agent: Box<AgentSnapshot> },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AgentMetadataCommandResult {
     Ok(Box<AgentSnapshot>),
     NotFound {
@@ -1025,7 +1025,7 @@ impl MultiAgentStore {
         Ok(AgentMailboxMessage {
             extra: JsObject::new(),
             body: Some(input.body.clone()),
-            created_at: timestamp.clone(),
+            created_at: timestamp.clone().into(),
             file_refs: validate_mailbox_file_refs(input.file_refs.as_ref(), "steer_agent")?,
             from_agent_id: input.from_agent_id.clone().into(),
             id: self.create_message_id()?.into(),
@@ -1034,7 +1034,7 @@ impl MultiAgentStore {
             target_checkpoint: input.target_checkpoint,
             thread_id: input.thread_id.clone(),
             to_agent_id: agent_id.to_owned().into(),
-            updated_at: timestamp,
+            updated_at: timestamp.into(),
             error: None,
         })
     }
@@ -1269,7 +1269,10 @@ impl MultiAgentStore {
             )
         };
         for message in messages {
-            let expired = crate::core::session_control_db::is_mailbox_message_expired(Some(&message.created_at), now);
+            let expired = crate::core::session_control_db::is_mailbox_message_expired(
+                message.created_at.to_utf8().ok().as_deref(),
+                now,
+            );
             let vanished = if expired {
                 false
             } else if let Some(target) = &persistence {
@@ -1295,7 +1298,7 @@ impl MultiAgentStore {
     }
     fn mailbox_message_is_expired(&self, message: &AgentMailboxMessage) -> bool {
         crate::core::session_control_db::is_mailbox_message_expired(
-            Some(&message.created_at),
+            message.created_at.to_utf8().ok().as_deref(),
             pi_js_compat::date::date_parse(&self.now()),
         )
     }
@@ -1369,7 +1372,7 @@ impl MultiAgentStore {
         let updated = AgentMailboxMessage {
             error: Some(error.clone()),
             status: MailboxMessageStatusValue::Failed,
-            updated_at: self.now(),
+            updated_at: self.now().into(),
             ..message
         };
         self.lock()
@@ -1612,8 +1615,8 @@ impl MultiAgentStore {
             to_agent_id: parent_id.into(),
             kind: MailboxMessageKindValue::ParentRequest,
             status: MailboxMessageStatusValue::Pending,
-            created_at: timestamp.clone(),
-            updated_at: timestamp,
+            created_at: timestamp.clone().into(),
+            updated_at: timestamp.into(),
             body: Some(input.body.clone()),
             file_refs: file_refs
                 .as_ref()
@@ -1668,8 +1671,8 @@ impl MultiAgentStore {
             to_agent_id: target.id.clone().into(),
             kind: MailboxMessageKindValue::Message,
             status: MailboxMessageStatusValue::Pending,
-            created_at: timestamp.clone(),
-            updated_at: timestamp,
+            created_at: timestamp.clone().into(),
+            updated_at: timestamp.into(),
             body: Some(input.body.clone()),
             file_refs: validate_mailbox_file_refs(input.file_refs.as_ref(), "send_agent_message")?,
             target_checkpoint: None,
@@ -1730,8 +1733,8 @@ impl MultiAgentStore {
             to_agent_id: target.id.clone().into(),
             kind: MailboxMessageKindValue::Message,
             status: MailboxMessageStatusValue::Pending,
-            created_at: timestamp.clone(),
-            updated_at: timestamp,
+            created_at: timestamp.clone().into(),
+            updated_at: timestamp.into(),
             body: Some(input.body.clone()),
             file_refs: validate_mailbox_file_refs(input.file_refs.as_ref(), "send_agent_message")?,
             target_checkpoint: None,
@@ -1765,14 +1768,14 @@ impl MultiAgentStore {
             extra: JsObject::new(),
             file_refs: validate_mailbox_file_refs(input.file_refs.as_ref(), "record_outbound_session_message")?,
             body: Some(input.body.clone()),
-            created_at: timestamp.clone(),
+            created_at: timestamp.clone().into(),
             from_agent_id: input.from_agent_id.clone().into(),
             id: self.create_message_id()?.into(),
             kind: MailboxMessageKindValue::Message,
             status: MailboxMessageStatusValue::Pending,
             thread_id: input.thread_id.clone(),
             to_agent_id: input.to_agent_id.clone().into(),
-            updated_at: timestamp,
+            updated_at: timestamp.into(),
             target_checkpoint: None,
             error: None,
         };
@@ -2155,7 +2158,7 @@ impl MultiAgentStore {
         let message = AgentMailboxMessage {
             extra: JsObject::new(),
             body: Some(body.into()),
-            created_at: timestamp.clone(),
+            created_at: timestamp.clone().into(),
             from_agent_id: agent.id.clone().into(),
             id: self.create_message_id()?.into(),
             kind: MailboxMessageKindValue::System,
@@ -2166,7 +2169,7 @@ impl MultiAgentStore {
                 .clone()
                 .unwrap_or_else(|| MAIN_THREAD_AGENT_ID.to_owned())
                 .into(),
-            updated_at: timestamp,
+            updated_at: timestamp.into(),
             file_refs: file_refs
                 .as_ref()
                 .map(js_json::to_value)

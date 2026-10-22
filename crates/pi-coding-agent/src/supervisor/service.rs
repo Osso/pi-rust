@@ -66,7 +66,7 @@ pub fn build_supervisor_prompt(request: &SupervisorRequest) -> String {
     let payload = pi_js_compat::js_json!({
         "deadlineAt": request.deadline_at.clone(),
         "kind": request.kind,
-        "payload": request.payload.clone(),
+        "payload": JsValue::Object(request.payload.clone()),
         "projectId": request.project_id.clone(),
         "senderSessionId": request.sender_session_id.clone(),
     });
