@@ -26,7 +26,7 @@ fn buffer_base64_matches_node_for_raw_high_low_pairs_and_wide_low_bytes() {
         vec![0xdc41, 0xdc41],
         vec![0xd841, 0xdc41],
         vec![0x141, 0x141],
-        vec![81, 81, 0xd83d, 0xde00, 81, 81],
+        vec![81, 81, 0xd800, 81, 81],
         vec![0x151, 0x151, 0x13d, 0x13d],
         vec![0x120, 81, 0x109, 81, 0x10a, 61],
         vec![45, 95, 43, 47, 65, 81, 61, 61],
