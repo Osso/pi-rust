@@ -9,7 +9,12 @@ async function main(): Promise<void> {
 		const controller = new AbortController();
 		controller.abort();
 		let result: unknown;
-		if (input.kind === "paths") {
+		if (input.kind === "fs") {
+			result = [];
+			for (const [method, path] of input.operations) {
+				(result as unknown[]).push(await env[method](path));
+			}
+		} else if (input.kind === "paths") {
 			result = [];
 			for (const path of input.paths) (result as unknown[]).push(await env.absolutePath(path));
 			for (const parts of input.joins) (result as unknown[]).push(await env.joinPath(parts));

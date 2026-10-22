@@ -233,3 +233,80 @@ async fn relative_env_paths_decode_raw_process_cwd_like_node() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+fn file_error_value(error: pi_agent_core::harness::FileError) -> JsValue {
+    let mut value = json!({"code":error.code.as_str(), "message":error.message});
+    if let Some(path) = error.path {
+        value["path"] = JsValue::String(path);
+    }
+    json!({"ok":false,"error":value})
+}
+fn file_info_value(info: pi_agent_core::harness::FileInfo) -> JsValue {
+    json!({"name":info.name,"path":info.path,"kind":info.kind.as_str(),"size":info.size,"mtimeMs":info.mtime_ms})
+}
+async fn read_operation(env: &NodeExecutionEnv, method: &str, path: &JsString) -> JsValue {
+    let result = match method {
+        "fileInfo" => env.file_info(path).await.map(file_info_value),
+        "exists" => env.exists(path, None).await.map(JsValue::Bool),
+        "readTextFile" => env
+            .read_text_file(path, None)
+            .await
+            .map(|text| JsValue::String(text.into())),
+        "canonicalPath" => env.canonical_path(path).await.map(JsValue::String),
+        "listDir" => env
+            .list_dir(path, None)
+            .await
+            .map(|infos| JsValue::Array(infos.into_iter().map(file_info_value).collect())),
+        _ => panic!("unknown fixture method"),
+    };
+    match result {
+        Ok(value) => json!({"ok":true,"value":value}),
+        Err(error) => file_error_value(error),
+    }
+}
+#[tokio::test]
+async fn node_filesystem_metadata_and_failure_matrix_matches_frozen() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("dir")).unwrap();
+    let file = std::fs::File::create(root.path().join("dated")).unwrap();
+    file.set_times(std::fs::FileTimes::new().set_modified(std::time::UNIX_EPOCH - std::time::Duration::from_secs(1)))
+        .unwrap();
+    std::os::unix::fs::symlink("missing", root.path().join("broken")).unwrap();
+    let fifo = root.path().join("fifo");
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let env = env(root.path().to_str().unwrap());
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let operations: Vec<(&str, JsString)> = vec![
+        ("fileInfo", "dir///".into()),
+        ("fileInfo", "dated".into()),
+        ("fileInfo", "fifo".into()),
+        ("exists", "fifo".into()),
+        ("exists", "broken".into()),
+        ("exists", "missing".into()),
+        ("fileInfo", raw),
+        ("fileInfo", "null\0byte".into()),
+        ("readTextFile", "dir".into()),
+        ("fileInfo", "dated/child".into()),
+        ("readTextFile", "missing".into()),
+        ("canonicalPath", "missing".into()),
+        ("listDir", "dated".into()),
+    ];
+    let expected = oracle().request(&json!({"kind":"fs","root":root.path(),"operations":operations}));
+    let mut actual = Vec::new();
+    for (method, path) in operations {
+        actual.push(read_operation(&env, method, &path).await);
+    }
+    let actual = JsValue::Array(actual);
+    assert!(
+        actual == expected,
+        "actual={}\nexpected={}",
+        pi_js_compat::js_json::stringify_lossless(&actual),
+        pi_js_compat::js_json::stringify_lossless(&expected)
+    );
+}

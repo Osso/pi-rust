@@ -92,7 +92,7 @@ impl FileSystem for NodeExecutionEnv {
             }
             let bytes = tokio::fs::read(&encode_node_utf8(&resolved))
                 .await
-                .map_err(|error| file_error(&error, "open", &resolved))?;
+                .map_err(|error| read_file_error(&error, &resolved))?;
             Ok(String::from_utf8_lossy(&bytes).into_owned())
         })
     }
@@ -126,7 +126,7 @@ impl FileSystem for NodeExecutionEnv {
             }
             tokio::fs::read(&encode_node_utf8(&resolved))
                 .await
-                .map_err(|error| file_error(&error, "open", &resolved))
+                .map_err(|error| read_file_error(&error, &resolved))
         })
     }
 
@@ -233,11 +233,10 @@ impl FileSystem for NodeExecutionEnv {
         _abort: Option<&'a CancellationToken>,
     ) -> BoxFuture<'a, Result<bool, FileError>> {
         Box::pin(async move {
-            let resolved = resolve_path(&self.cwd, path);
-            match tokio::fs::symlink_metadata(&encode_node_utf8(&resolved)).await {
+            match self.file_info(path).await {
                 Ok(_) => Ok(true),
-                Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
-                Err(error) => Err(file_error(&error, "lstat", &resolved)),
+                Err(error) if error.code == FileErrorCode::NotFound => Ok(false),
+                Err(error) => Err(error),
             }
         })
     }
@@ -865,6 +864,15 @@ fn abort_result(abort: Option<&CancellationToken>, path: &JsString) -> Option<Fi
         .map(|_| FileError::new(FileErrorCode::Aborted, "aborted", Some(path.to_owned()), None))
 }
 
+fn file_basename(path: &JsString) -> JsString {
+    let end = path
+        .units()
+        .iter()
+        .rposition(|unit| *unit != u16::from(b'/'))
+        .map_or(0, |index| index + 1);
+    path.slice(0, end).split('/').last().unwrap_or_default()
+}
+
 fn file_info_from_metadata(path: &JsString, metadata: &std::fs::Metadata) -> Result<FileInfo, FileError> {
     let file_type = metadata.file_type();
     let kind = if file_type.is_file() {
@@ -882,50 +890,49 @@ fn file_info_from_metadata(path: &JsString, metadata: &std::fs::Metadata) -> Res
         ));
     };
     Ok(FileInfo {
-        name: path.split('/').last().unwrap_or_default(),
+        name: file_basename(path),
         path: path.to_owned(),
         kind,
         size: metadata.len() as f64,
-        mtime_ms: metadata
-            .modified()
-            .ok()
-            .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
-            .map(|duration| duration.as_secs_f64() * 1000.0)
-            .unwrap_or(0.0),
+        mtime_ms: {
+            use std::os::unix::fs::MetadataExt;
+            metadata.mtime() as f64 * 1000.0 + metadata.mtime_nsec() as f64 / 1_000_000.0
+        },
     })
+}
+
+fn read_file_error(error: &io::Error, path: &JsString) -> FileError {
+    let syscall = if error.kind() == io::ErrorKind::IsADirectory {
+        "read"
+    } else {
+        "open"
+    };
+    file_error(error, syscall, path)
 }
 
 fn file_error(error: &io::Error, syscall: &str, path: &JsString) -> FileError {
-    let (code, description, error_code) = match error_parts(error) {
-        Some(parts) => parts,
-        None => return unknown_file_error(error, syscall, path),
+    if let Some(invalid) = pi_js_compat::node_fs::node_path_argument_error(path) {
+        return FileError::new(FileErrorCode::Unknown, invalid.message, Some(path.clone()), None);
+    }
+    let record = pi_js_compat::node_fs::node_fs_error_record(error, syscall, path);
+    let code = match record.code {
+        "ABORT_ERR" => FileErrorCode::Aborted,
+        "ENOENT" => FileErrorCode::NotFound,
+        "EACCES" | "EPERM" => FileErrorCode::PermissionDenied,
+        "ENOTDIR" => FileErrorCode::NotDirectory,
+        "EISDIR" => FileErrorCode::IsDirectory,
+        "EINVAL" => FileErrorCode::Invalid,
+        _ => FileErrorCode::Unknown,
+    };
+    let message = if syscall == "read" {
+        pi_js_compat::node_fs::node_promises_read_error(error, path)
+    } else {
+        record.message
     };
     FileError::new(
-        error_code,
-        js_format!("{}: {}, {} '{}'", code, description, syscall, path),
-        Some(path.to_owned()),
-        Some(Box::new(io::Error::new(error.kind(), error.to_string()))),
-    )
-}
-
-fn error_parts(error: &io::Error) -> Option<(&'static str, &'static str, FileErrorCode)> {
-    Some(match error.kind() {
-        io::ErrorKind::NotFound => ("ENOENT", "no such file or directory", FileErrorCode::NotFound),
-        io::ErrorKind::PermissionDenied => ("EACCES", "permission denied", FileErrorCode::PermissionDenied),
-        io::ErrorKind::NotADirectory => ("ENOTDIR", "not a directory", FileErrorCode::NotDirectory),
-        io::ErrorKind::IsADirectory => ("EISDIR", "illegal operation on a directory", FileErrorCode::IsDirectory),
-        io::ErrorKind::InvalidInput => ("EINVAL", "invalid argument", FileErrorCode::Invalid),
-        io::ErrorKind::AlreadyExists => ("EEXIST", "file already exists", FileErrorCode::Unknown),
-        io::ErrorKind::DirectoryNotEmpty => ("ENOTEMPTY", "directory not empty", FileErrorCode::Unknown),
-        _ => return None,
-    })
-}
-
-fn unknown_file_error(error: &io::Error, syscall: &str, path: &JsString) -> FileError {
-    FileError::new(
-        FileErrorCode::Unknown,
-        js_format!("UNKNOWN: {}, {} '{}'", error.to_string(), syscall, path),
-        Some(path.to_owned()),
+        code,
+        message,
+        Some(path.clone()),
         Some(Box::new(io::Error::new(error.kind(), error.to_string()))),
     )
 }
