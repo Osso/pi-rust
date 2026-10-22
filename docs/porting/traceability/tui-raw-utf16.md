@@ -275,3 +275,7 @@ render state, not merely removal of a valid-Unicode panic. Numeric algorithms/ga
 ### Nested malformed CSI / valid SGR
 
 Legacy `verifier_regressions::nested_csi_keeps_sgr_on_wrapped_line` reproduced a native tracker discrepancy: frozen `/\x1b\[([\d;]*)m/` searches past an invalid CSI prefix. The native implementation now uses the shared `JsRegex` search, retaining raw text unchanged; no source delta or sanitization. Targeted verifier, utility and raw utility proofs cover the correction.
+
+### Integrated native TUI checkpoint
+
+All `pi-tui` library/integration targets compile with native types (full parent-requested `cargo test -j4 -p pi-tui --no-run`). Native Markdown, keybinding registry and StdinBuffer/ProcessTerminal input groups are implemented; raw proofs are in `raw_markdown`, `raw_keybindings`, `raw_stdin`. Legacy test fixtures/virtual-terminal captured writes are native. Editor/word/autocomplete source drivers no longer translate unit cursors to UTF8 byte offsets. Raw custom truncator/submenu/abort/region/working-prompt/highlighter-specific cases remain pending; existing broader tests must not be cited as those exact raw proofs. Parent owns final cross-crate acceptance.

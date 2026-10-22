@@ -1,5 +1,4 @@
 use pi_tui::components::input::{Input, InputOptions};
-use pi_tui::tui::Component;
 use pi_tui::utils::extract_ansi_code;
 
 #[test]
