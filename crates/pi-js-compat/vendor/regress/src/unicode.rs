@@ -371,7 +371,7 @@ pub(crate) fn add_case_canonicalized_code_points(
             }
         }
     }
-    let mut expanded = input;
+    let mut expanded = canonical.clone();
     for transform in TO_UPPERCASE.iter() {
         for point in transform.transformed_from().codepoints() {
             if canonical.contains(uppercase(point)) {
