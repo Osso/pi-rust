@@ -5,7 +5,6 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io;
-use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -98,7 +97,7 @@ impl FileSystem for NodeExecutionEnv {
         &'a self,
         path: &'a JsString,
         abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<JsString, FileError>> {
+    ) -> BoxFuture<'a, Result<String, FileError>> {
         Box::pin(async move {
             let resolved = resolve_path(&self.cwd, path);
             if let Some(error) = abort_result(abort, &resolved) {
@@ -107,7 +106,7 @@ impl FileSystem for NodeExecutionEnv {
             let bytes = tokio::fs::read(&encode_node_utf8(&resolved))
                 .await
                 .map_err(|error| file_error(&error, "open", &resolved))?;
-            Ok(String::from_utf8_lossy(&bytes).into_owned().into())
+            Ok(String::from_utf8_lossy(&bytes).into_owned())
         })
     }
 
@@ -115,7 +114,7 @@ impl FileSystem for NodeExecutionEnv {
         &'a self,
         path: &'a JsString,
         options: ReadTextLinesOptions,
-    ) -> BoxFuture<'a, Result<Vec<JsString>, FileError>> {
+    ) -> BoxFuture<'a, Result<Vec<String>, FileError>> {
         Box::pin(async move {
             let resolved = resolve_path(&self.cwd, path);
             if let Some(error) = abort_result(options.abort.as_ref(), &resolved) {
@@ -135,7 +134,7 @@ impl FileSystem for NodeExecutionEnv {
             if let Some(max_lines) = options.max_lines {
                 lines.truncate(max_lines);
             }
-            Ok(lines.into_iter().map(JsString::from).collect())
+            Ok(lines)
         })
     }
 
@@ -187,7 +186,7 @@ impl FileSystem for NodeExecutionEnv {
                 .open(&encode_node_utf8(&resolved))
                 .await
                 .map_err(|error| file_error(&error, "open", &resolved))?;
-            file.write_all(content.as_bytes())
+            file.write_all(&content.as_bytes())
                 .await
                 .map_err(|error| file_error(&error, "write", &resolved))?;
             file.flush()
@@ -334,7 +333,7 @@ impl FileSystem for NodeExecutionEnv {
 impl Shell for NodeExecutionEnv {
     fn exec<'a>(
         &'a self,
-        command: &'a str,
+        command: &'a JsString,
         options: ShellExecOptions,
     ) -> BoxFuture<'a, Result<ShellExecResult, ExecutionError>> {
         Box::pin(async move { self.exec_command(command, options).await })
@@ -346,7 +345,11 @@ impl Shell for NodeExecutionEnv {
 }
 
 impl NodeExecutionEnv {
-    async fn exec_command(&self, command: &str, options: ShellExecOptions) -> Result<ShellExecResult, ExecutionError> {
+    async fn exec_command(
+        &self,
+        command: &JsString,
+        options: ShellExecOptions,
+    ) -> Result<ShellExecResult, ExecutionError> {
         if options.abort.as_ref().is_some_and(CancellationToken::is_cancelled) {
             return Err(ExecutionError::new(ExecutionErrorCode::Aborted, "aborted", None));
         }
@@ -389,12 +392,12 @@ impl NodeExecutionEnv {
     fn spawn_shell(
         &self,
         shell: &ShellConfig,
-        command: &str,
+        command: &JsString,
         cwd: &JsString,
         options: &ShellExecOptions,
     ) -> Result<tokio::process::Child, ExecutionError> {
         let mut process = Command::new(&shell.shell);
-        process.args(&shell.args).arg(command);
+        process.args(&shell.args).arg(encode_node_utf8(command));
         process.current_dir(encode_node_utf8(cwd));
         process.env_clear();
         process.envs(build_env(&self.shell_env, options.env.as_ref(), options.inherit_env));
@@ -423,7 +426,10 @@ async fn ensure_working_directory(cwd: &JsString) -> Result<(), ExecutionError> 
     }
     Err(ExecutionError::new(
         ExecutionErrorCode::SpawnError,
-        format!("Working directory does not exist: {cwd}\nCannot execute bash commands."),
+        js_format!(
+            "Working directory does not exist: {}\nCannot execute bash commands.",
+            cwd
+        ),
         None,
     ))
 }
@@ -786,7 +792,7 @@ struct ShellConfig {
 
 async fn get_shell_config(custom_shell_path: Option<&str>) -> Result<ShellConfig, ExecutionError> {
     if let Some(custom_shell_path) = custom_shell_path {
-        if path_exists(custom_shell_path).await {
+        if path_exists(&custom_shell_path.into()).await {
             return Ok(ShellConfig {
                 shell: custom_shell_path.to_owned(),
                 args: vec!["-c".to_owned()],
@@ -798,7 +804,7 @@ async fn get_shell_config(custom_shell_path: Option<&str>) -> Result<ShellConfig
             None,
         ));
     }
-    if path_exists("/bin/bash").await {
+    if path_exists(&"/bin/bash".into()).await {
         return Ok(ShellConfig {
             shell: "/bin/bash".to_owned(),
             args: vec!["-c".to_owned()],
@@ -822,7 +828,7 @@ async fn find_bash_on_path() -> Option<String> {
         return None;
     }
     let first_match = stdout.trim().lines().next()?.trim();
-    if first_match.is_empty() || !path_exists(first_match).await {
+    if first_match.is_empty() || !path_exists(&first_match.into()).await {
         return None;
     }
     Some(first_match.to_owned())

@@ -466,15 +466,15 @@ impl Error for BranchSummaryError {
 /// Content accepted by filesystem write and append operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileContent<'a> {
-    Text(&'a str),
+    Text(&'a JsString),
     Bytes(&'a [u8]),
 }
 
 impl<'a> FileContent<'a> {
-    pub fn as_bytes(self) -> &'a [u8] {
+    pub fn as_bytes(self) -> std::borrow::Cow<'a, [u8]> {
         match self {
-            Self::Text(text) => text.as_bytes(),
-            Self::Bytes(bytes) => bytes,
+            Self::Text(text) => std::borrow::Cow::Owned(pi_js_compat::js_json::encode_node_utf8(text).into_bytes()),
+            Self::Bytes(bytes) => std::borrow::Cow::Borrowed(bytes),
         }
     }
 }
@@ -575,12 +575,12 @@ pub trait FileSystem: Send + Sync {
         &'a self,
         path: &'a JsString,
         abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<JsString, FileError>>;
+    ) -> BoxFuture<'a, Result<String, FileError>>;
     fn read_text_lines<'a>(
         &'a self,
         path: &'a JsString,
         options: ReadTextLinesOptions,
-    ) -> BoxFuture<'a, Result<Vec<JsString>, FileError>>;
+    ) -> BoxFuture<'a, Result<Vec<String>, FileError>>;
     fn read_binary_file<'a>(
         &'a self,
         path: &'a JsString,
@@ -623,7 +623,7 @@ pub trait FileSystem: Send + Sync {
 pub trait Shell: Send + Sync {
     fn exec<'a>(
         &'a self,
-        command: &'a str,
+        command: &'a JsString,
         options: ShellExecOptions,
     ) -> BoxFuture<'a, Result<ShellExecResult, ExecutionError>>;
     /// Release shell resources. Must be best-effort and must not fail.

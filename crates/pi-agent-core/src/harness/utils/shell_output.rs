@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -19,14 +20,14 @@ pub type ShellChunkHandler = dyn Fn(&str, &ShellCaptureProgress) + Send + Sync;
 pub struct ShellCaptureProgress {
     pub output: String,
     pub truncation: TruncationResult,
-    pub full_output_path: Option<String>,
+    pub full_output_path: Option<JsString>,
     pub last_line_bytes: usize,
 }
 
 /// Options for [`execute_shell_with_capture`].
 #[derive(Clone, Default)]
 pub struct ShellCaptureOptions {
-    pub cwd: Option<String>,
+    pub cwd: Option<JsString>,
     pub env: Option<HashMap<String, String>>,
     pub inherit_env: Option<bool>,
     pub timeout: Option<f64>,
@@ -57,7 +58,7 @@ impl std::fmt::Debug for ShellCaptureOptions {
 pub struct ShellCaptureResult {
     pub output: String,
     pub truncation: TruncationResult,
-    pub full_output_path: Option<String>,
+    pub full_output_path: Option<JsString>,
     pub last_line_bytes: usize,
     pub exit_code: Option<i32>,
     pub cancelled: bool,
@@ -78,7 +79,7 @@ fn keep_code_point(character: char) -> bool {
 /// Executes a command while sanitizing, truncating, and optionally persisting its output.
 pub async fn execute_shell_with_capture(
     env: &Arc<dyn ExecutionEnv>,
-    command: &str,
+    command: &JsString,
     options: ShellCaptureOptions,
 ) -> Result<ShellCaptureResult, ExecutionError> {
     let state = Arc::new(Mutex::new(CaptureState::default()));
@@ -198,7 +199,7 @@ struct CaptureState {
     completed_lines: usize,
     has_open_line: bool,
     current_line_bytes: usize,
-    full_output_path: Option<String>,
+    full_output_path: Option<JsString>,
     full_output_requested: bool,
     accepting_output: bool,
 }
@@ -291,13 +292,13 @@ async fn create_full_output_file(
 ) -> Result<(), ExecutionError> {
     let temp_file = env
         .create_temp_file(CreateTempFileOptions {
-            prefix: Some("bash-".to_owned()),
-            suffix: Some(".log".to_owned()),
+            prefix: Some("bash-".into()),
+            suffix: Some(".log".into()),
         })
         .await
         .map_err(to_execution_error)?;
     state.lock().expect("capture state lock").full_output_path = Some(temp_file.clone());
-    env.append_file(&temp_file, FileContent::Text(initial_content))
+    env.append_file(&temp_file, FileContent::Text(&initial_content.into()))
         .await
         .map_err(to_execution_error)
 }
@@ -313,7 +314,7 @@ async fn append_full_output(
         .full_output_path
         .clone()
         .ok_or_else(|| ExecutionError::new(ExecutionErrorCode::Unknown, "Full output path was not created", None))?;
-    env.append_file(&path, FileContent::Text(text))
+    env.append_file(&path, FileContent::Text(&text.into()))
         .await
         .map_err(to_execution_error)
 }

@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
@@ -14,7 +15,7 @@ pub struct FileMutationQueue {
 
 #[derive(Debug, Default)]
 struct QueueState {
-    entries: HashMap<String, QueueEntry>,
+    entries: HashMap<JsString, QueueEntry>,
 }
 
 #[derive(Debug)]
@@ -29,7 +30,7 @@ impl FileMutationQueue {
     }
 
     /// Runs `operation` while holding the mutation lock for `path`.
-    pub async fn run<T, F>(&self, env: &dyn ExecutionEnv, path: &str, operation: F) -> Result<T, FileError>
+    pub async fn run<T, F>(&self, env: &dyn ExecutionEnv, path: &JsString, operation: F) -> Result<T, FileError>
     where
         T: Send,
         F: Future<Output = T> + Send,
@@ -43,7 +44,7 @@ impl FileMutationQueue {
         Ok(value)
     }
 
-    async fn register(&self, key: &str) -> Arc<Mutex<()>> {
+    async fn register(&self, key: &JsString) -> Arc<Mutex<()>> {
         let mut state = self.state.lock().await;
         let entry = state.entries.entry(key.to_owned()).or_insert_with(|| QueueEntry {
             lock: Arc::new(Mutex::new(())),
@@ -53,7 +54,7 @@ impl FileMutationQueue {
         Arc::clone(&entry.lock)
     }
 
-    async fn release(&self, key: &str, lock: &Arc<Mutex<()>>) {
+    async fn release(&self, key: &JsString, lock: &Arc<Mutex<()>>) {
         let mut state = self.state.lock().await;
         let Some(entry) = state.entries.get_mut(key) else {
             return;
@@ -68,7 +69,7 @@ impl FileMutationQueue {
     }
 }
 
-async fn mutation_queue_key(env: &dyn ExecutionEnv, path: &str) -> Result<String, FileError> {
+async fn mutation_queue_key(env: &dyn ExecutionEnv, path: &JsString) -> Result<JsString, FileError> {
     let absolute_path = env.absolute_path(path, None).await?;
     match env.canonical_path(&absolute_path).await {
         Ok(canonical_path) => Ok(canonical_path),

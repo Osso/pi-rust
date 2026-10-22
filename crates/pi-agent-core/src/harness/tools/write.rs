@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
-use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
+use pi_js_compat::js_json::{JsString, JsValue};
 use serde_json::{Value, json};
 
 use crate::agent::{AgentTool, AgentToolResult, ToolError};
@@ -75,7 +75,7 @@ async fn execute_write(
     signal: Option<CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
     let (path, content) = parse_write_input(&params)?;
-    let absolute_path = resolve_tool_path(context.env.as_ref(), &encode_node_utf8(&path), signal.as_ref())
+    let absolute_path = resolve_tool_path(context.env.as_ref(), &path, signal.as_ref())
         .await
         .map_err(|error| ToolError::new(error.message))?;
     let env = Arc::clone(&context.env);
@@ -105,11 +105,11 @@ async fn write_operation(
     env: &dyn crate::harness::types::ExecutionEnv,
     path: &JsString,
     content: &JsString,
-    absolute_path: &str,
+    absolute_path: &JsString,
     signal: Option<&CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
     ensure_not_aborted(signal)?;
-    env.write_file(absolute_path, FileContent::Text(&encode_node_utf8(content)), signal)
+    env.write_file(absolute_path, FileContent::Text(content), signal)
         .await
         .map_err(|error| ToolError::new(error.message))?;
     ensure_not_aborted(signal)?;
