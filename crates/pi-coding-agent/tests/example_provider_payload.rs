@@ -5,6 +5,8 @@ mod provider_payload;
 #[path = "support/extensions.rs"]
 mod support;
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::auth::types::CredentialStore;
@@ -35,11 +37,14 @@ async fn run_native(request: &Value) -> Value {
     let mut registry = ExtensionRegistry::new();
     registry.register("<example:provider-payload>", factory);
     let extension = load_extension_from_factory(
-        registry.get("<example:provider-payload>").unwrap().clone(),
-        &cwd,
+        registry
+            .get(&JsString::from("<example:provider-payload>"))
+            .unwrap()
+            .clone(),
+        &JsString::from(&cwd),
         support::event_bus(),
         runtime.clone(),
-        "<example:provider-payload>",
+        &JsString::from("<example:provider-payload>"),
     )
     .await
     .unwrap();
@@ -66,7 +71,11 @@ async fn run_native(request: &Value) -> Value {
     let mut payloads = Vec::new();
     for event in request["events"].as_array().unwrap() {
         if event["type"] == "before_provider_request" {
-            payloads.push(runner.emit_before_provider_request(event["payload"].clone()).await);
+            payloads.push(
+                runner
+                    .emit_before_provider_request(JsValue::from(event["payload"].clone()))
+                    .await,
+            );
         } else {
             let mut event: ExtensionEvent = serde_json::from_value(event.clone()).unwrap();
             runner.emit(&mut event).await;

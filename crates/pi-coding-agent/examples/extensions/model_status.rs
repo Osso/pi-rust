@@ -1,4 +1,5 @@
 //! Opt-in native `model-status.ts`. Default output is stdout, like console.log.
+use pi_js_compat::js_json::JsString;
 use std::io::{Write, stdout};
 use std::sync::{Arc, Mutex};
 
@@ -23,7 +24,7 @@ pub fn model_status_with_output(pi: &ExtensionApi, output: impl Write + Send + '
                 if event.source != ModelSelectSource::Restore {
                     ui.notify(&format!("Model: {next}"), Some(NotifyType::Info));
                 }
-                ui.set_status("model", Some(&format!("🤖 {}", event.model.id)));
+                ui.set_status(&JsString::from("model"), Some(&format!("🤖 {}", event.model.id)));
                 let source = match event.source {
                     ModelSelectSource::Set => "set",
                     ModelSelectSource::Cycle => "cycle",

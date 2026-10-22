@@ -10,6 +10,8 @@ mod export_fixture;
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::encode_node_utf8;
 use std::fs;
 use std::path::PathBuf;
 
@@ -119,17 +121,17 @@ async fn differential_export_probe() {
         let expected_html = expected["html"].as_str().expect("html string");
 
         let actual_path = export_from_file(
-            &input,
+            &JsString::from(&input),
             Some(ExportOptions {
-                output_path: Some(rust_output.display().to_string()),
-                theme_name: theme_name.map(str::to_owned),
+                output_path: Some(JsString::from(rust_output.display().to_string())),
+                theme_name: theme_name.map(str::to_owned).map(JsString::from),
                 ..ExportOptions::default()
             }),
         )
         .await
         .expect("rust export succeeds");
 
-        let actual_html = fs::read_to_string(&actual_path).expect("read rust html");
+        let actual_html = fs::read_to_string(&&encode_node_utf8(&actual_path)).expect("read rust html");
         assert_same_html(&actual_html, expected_html, theme);
     }
 }
@@ -155,8 +157,11 @@ async fn differential_missing_file_probe() {
         json!({ "inputPath": missing, "outputPath": "/tmp/out.html" }),
     );
     assert_eq!(expected["ok"], json!(false));
-    let error = export_from_file(missing, Some(ExportOptions::from_output_path("/tmp/out.html")))
-        .await
-        .expect_err("missing file must fail");
+    let error = export_from_file(
+        &JsString::from(missing),
+        Some(ExportOptions::from_output_path("/tmp/out.html")),
+    )
+    .await
+    .expect_err("missing file must fail");
     assert_eq!(error.message(), expected["error"].as_str().unwrap());
 }

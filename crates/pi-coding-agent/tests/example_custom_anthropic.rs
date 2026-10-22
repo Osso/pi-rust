@@ -18,6 +18,7 @@ use pi_coding_agent::core::event_bus::EventBusController;
 use pi_coding_agent::core::extensions::{
     ExtensionFactory, ExtensionRegistry, create_extension_runtime, load_extension_from_factory,
 };
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
@@ -138,7 +139,7 @@ impl AuthInteraction for Interaction {
             panic!("unexpected event {event:?}");
         }
     }
-    fn prompt(&self, prompt: AuthPrompt) -> BoxFuture<'_, Result<String, CallbackError>> {
+    fn prompt(&self, prompt: AuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>> {
         Box::pin(async move {
             let AuthPromptKind::Text { message, placeholder } = prompt.kind else {
                 panic!("unexpected prompt");
@@ -177,18 +178,21 @@ async fn provider(input: &Value, calls: Arc<Mutex<Vec<Value>>>) -> Arc<dyn Provi
     extension_runtime.set_provider_handlers(pi_coding_agent::core::extensions::extension_runtime::ProviderHandlers {
         register_provider: Arc::new(|_, _, _| panic!("JSON config provider slot must not be used")),
         register_native_provider: Arc::new(move |provider, path| {
-            assert_eq!(path, Some("<example:custom-anthropic>"));
+            assert_eq!(path, Some(&JsString::from("<example:custom-anthropic>")));
             *capture.lock().unwrap() = Some(provider);
             Ok(())
         }),
         unregister_provider: Arc::new(|_, _| panic!("not an unregister flow")),
     });
     load_extension_from_factory(
-        registry.get("<example:custom-anthropic>").unwrap().clone(),
-        "/tmp",
+        registry
+            .get(&JsString::from("<example:custom-anthropic>"))
+            .unwrap()
+            .clone(),
+        &JsString::from("/tmp"),
         Arc::new(EventBusController::new()),
         extension_runtime.clone(),
-        "<example:custom-anthropic>",
+        &JsString::from("<example:custom-anthropic>"),
     )
     .await
     .unwrap();
@@ -209,10 +213,10 @@ async fn default_factory_registers_exact_catalog_without_network() {
     });
     load_extension_from_factory(
         factory,
-        "/tmp",
+        &JsString::from("/tmp"),
         Arc::new(EventBusController::new()),
         runtime.clone(),
-        "<example:custom-anthropic>",
+        &JsString::from("<example:custom-anthropic>"),
     )
     .await
     .unwrap();
