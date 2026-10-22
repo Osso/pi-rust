@@ -6,6 +6,8 @@ use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
 
+use crate::utils::paths::node_resolve;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use tokio::sync::oneshot;
 
 struct Tail {
@@ -13,17 +15,17 @@ struct Tail {
     released: oneshot::Receiver<()>,
 }
 
-fn queues() -> MutexGuard<'static, HashMap<String, Tail>> {
-    static QUEUES: LazyLock<Mutex<HashMap<String, Tail>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+fn queues() -> MutexGuard<'static, HashMap<JsString, Tail>> {
+    static QUEUES: LazyLock<Mutex<HashMap<JsString, Tail>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
     QUEUES.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Resolves `file_path` to an absolute path and, when it exists, its canonical form.
-fn mutation_queue_key(file_path: &str) -> io::Result<String> {
-    let resolved = std::path::absolute(file_path)?;
-    match std::fs::canonicalize(&resolved) {
-        Ok(canonical) => Ok(canonical.to_string_lossy().into_owned()),
-        Err(error) if is_missing_path_error(&error) => Ok(resolved.to_string_lossy().into_owned()),
+fn mutation_queue_key(file_path: &JsString) -> io::Result<JsString> {
+    let resolved = node_resolve("", file_path).map_err(|error| io::Error::other(error.to_string()))?;
+    match std::fs::canonicalize(encode_node_utf8(&resolved)) {
+        Ok(canonical) => Ok(canonical.to_string_lossy().into_owned().into()),
+        Err(error) if is_missing_path_error(&error) => Ok(resolved),
         Err(error) => Err(error),
     }
 }
@@ -37,7 +39,7 @@ fn is_missing_path_error(error: &io::Error) -> bool {
 /// Operations for different files still run in parallel. The queue is released
 /// even when the operation fails or panics. Fails only when the path cannot be
 /// resolved; the operation's own result is returned unchanged.
-pub async fn with_file_mutation_queue<T, F, Fut>(file_path: &str, operation: F) -> io::Result<T>
+pub async fn with_file_mutation_queue<T, F, Fut>(file_path: &JsString, operation: F) -> io::Result<T>
 where
     F: FnOnce() -> Fut,
     Fut: Future<Output = T>,
@@ -46,7 +48,7 @@ where
     Ok(run_queued(key, operation).await)
 }
 
-async fn run_queued<T, F, Fut>(key: String, operation: F) -> T
+async fn run_queued<T, F, Fut>(key: JsString, operation: F) -> T
 where
     F: FnOnce() -> Fut,
     Fut: Future<Output = T>,
@@ -81,7 +83,7 @@ fn next_generation() -> u64 {
 }
 
 struct QueueGuard {
-    key: String,
+    key: JsString,
     generation: u64,
 }
 
