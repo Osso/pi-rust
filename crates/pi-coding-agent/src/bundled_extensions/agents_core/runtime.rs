@@ -519,7 +519,7 @@ fn create_main_thread_snapshot() -> Value {
 
 fn find_last_session_message(entries: &[SessionEntry]) -> Value {
     for entry in entries.iter().rev() {
-        if let SessionEntry::Known(KnownSessionEntry::Message(message)) = entry {
+        if let Some(KnownSessionEntry::Message(message)) = entry.known().as_deref() {
             return summarize_session_message(message);
         }
     }

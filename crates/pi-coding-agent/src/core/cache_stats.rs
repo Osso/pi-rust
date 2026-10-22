@@ -116,13 +116,12 @@ fn scan(entries: &[SessionEntry], models: &dyn ModelPriceSource) -> Scan {
     let mut misses = Vec::new();
 
     for (index, entry) in entries.iter().enumerate() {
-        match entry {
-            SessionEntry::Known(KnownSessionEntry::Compaction(_))
-            | SessionEntry::Known(KnownSessionEntry::BranchSummary(_)) => {
+        match entry.known().as_deref() {
+            Some(KnownSessionEntry::Compaction(_)) | Some(KnownSessionEntry::BranchSummary(_)) => {
                 previous = None;
                 continue;
             }
-            SessionEntry::Known(KnownSessionEntry::Message(message)) => {
+            Some(KnownSessionEntry::Message(message)) => {
                 let assistant = match message.message.as_ref() {
                     pi_agent_core::agent::AgentMessage::Assistant(assistant) => assistant.as_ref(),
                     _ => continue,

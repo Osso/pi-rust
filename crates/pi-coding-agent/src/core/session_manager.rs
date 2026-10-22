@@ -689,9 +689,13 @@ impl<'de> Deserialize<'de> for SessionEntry {
 
 impl SessionEntry {
     /// A transient typed projection; imported objects remain the sole stored authority.
+    /// Consumers read entries through this view, never by matching `Known` directly.
     pub fn known(&self) -> Option<Cow<'_, KnownSessionEntry>> {
         match self {
             Self::Known(entry) => Some(Cow::Borrowed(entry)),
+            Self::Unknown(_) if self.entry_type() == "message" => self
+                .as_message()
+                .map(|entry| Cow::Owned(KnownSessionEntry::Message(entry.into_owned()))),
             Self::Unknown(object) => pi_js_compat::js_json::from_value(&JsValue::Object(object.0.clone()))
                 .ok()
                 .map(Cow::Owned),
@@ -765,11 +769,13 @@ impl SessionEntry {
     pub fn as_message(&self) -> Option<Cow<'_, SessionMessageEntry>> {
         match self {
             Self::Known(KnownSessionEntry::Message(entry)) => Some(Cow::Borrowed(entry)),
-            Self::Unknown(object) if self.entry_type() == "message" => {
-                pi_js_compat::js_json::from_value(&JsValue::Object(object.0.clone()))
-                    .ok()
-                    .map(Cow::Owned)
-            }
+            Self::Unknown(object) if self.entry_type() == "message" => Some(Cow::Owned(SessionMessageEntry {
+                id: self.id()?.clone(),
+                parent_id: self.parent_id().cloned(),
+                timestamp: self.timestamp()?.clone(),
+                message: Box::new(self.message()?.into_owned()),
+                mailbox_store_refs: object.get("mailboxStoreRefs").cloned().map(PersistedJsonValue),
+            })),
             _ => None,
         }
     }
@@ -822,7 +828,8 @@ impl SessionEntry {
         }
     }
 
-    fn message(&self) -> Option<Cow<'_, AgentMessage>> {
+    /// Typed view of a `message` record's message, raw objects included.
+    pub fn message(&self) -> Option<Cow<'_, AgentMessage>> {
         match self {
             Self::Known(KnownSessionEntry::Message(entry)) => Some(Cow::Borrowed(entry.message.as_ref())),
             Self::Unknown(object) if self.entry_type() == "message" => {

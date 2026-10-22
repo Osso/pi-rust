@@ -343,12 +343,13 @@ fn resolve_child_extension_factories(extension_factories: Option<&ChildExtension
 }
 
 fn is_message_role(entry: &SessionEntry, role: &str) -> bool {
-    matches!(entry, SessionEntry::Known(KnownSessionEntry::Message(message)) if message.message.role() == role)
+    matches!(entry.known().as_deref(), Some(KnownSessionEntry::Message(message)) if message.message.role() == role)
 }
 
 fn find_active_tool_call_entry<'a>(branch: &'a [SessionEntry], active_tool_call_id: &str) -> Option<&'a SessionEntry> {
     branch.iter().rev().find(|entry| {
-        let SessionEntry::Known(KnownSessionEntry::Message(message)) = entry else {
+        let known = entry.known();
+        let Some(KnownSessionEntry::Message(message)) = known.as_deref() else {
             return false;
         };
         let pi_agent_core::AgentMessage::Assistant(assistant) = message.message.as_ref() else {

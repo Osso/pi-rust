@@ -223,3 +223,12 @@ role-typed `AgentMessage` decode, keeping the exact object as `Custom` only when
 `Message` variant (source messages are untyped). Regression from the raw-authority change made every
 reloaded user/assistant message `Custom`. RED `reloaded_message_records_project_typed_roles` and
 `interactive_child_view` (session-records-red.log), GREEN 6/6 + 1/1 (session-records-green.log).
+
+Consumer projection contract (Q18): reopened records are always `SessionEntry::Unknown`, so no production consumer
+matches `SessionEntry::Known` directly. Consumers read `entry.known()`, `as_message()` or `message()`; message
+records whose `message` object does not fit a typed role project it as `AgentMessage::Custom` (the same rule as
+`message()`), so `known()`/`as_message()` never hide a loaded message record. Converted consumers: compaction and
+branch summarization, cache stats, agent-session tree navigation and detached completion, tree selector, interactive
+footer/mode, default footer, effort, codex-fast, run-plan, goal rendering, agents-core runtime/session
+factories/parent journal. Proof: `lossless_session_projections` (RED `session-projections-red.log`: reopened
+`prepare_branch_entries` empty; GREEN `projection-green.log`).

@@ -41,7 +41,8 @@ struct SessionFooterData {
 }
 
 fn add_entry_usage(totals: &mut UsageTotals, entry: &SessionEntry) {
-    let SessionEntry::Known(KnownSessionEntry::Message(message)) = entry else {
+    let known = entry.known();
+    let Some(KnownSessionEntry::Message(message)) = known.as_deref() else {
         return;
     };
     match message.message.as_ref() {
@@ -145,7 +146,7 @@ impl FooterComponent {
             .map(|manager| manager.get_entries())
             .unwrap_or_default();
         for entry in entries {
-            if let SessionEntry::Known(KnownSessionEntry::Message(message)) = &entry
+            if let Some(KnownSessionEntry::Message(message)) = entry.known().as_deref()
                 && let pi_agent_core::agent::AgentMessage::Assistant(assistant) = message.message.as_ref()
             {
                 add_usage_to_totals(&mut usage_totals, &assistant.usage);

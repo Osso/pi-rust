@@ -200,10 +200,8 @@ fn latest_future_review_at(ctx: &ExtensionContext) -> Result<Option<JsString>, H
     let session = ctx.session_manager()?;
     let entries = lock_session_manager(&session).get_entries();
     for entry in entries.iter().rev() {
-        let crate::core::session_manager::SessionEntry::Known(crate::core::session_manager::KnownSessionEntry::Custom(
-            entry,
-        )) = entry
-        else {
+        let known = entry.known();
+        let Some(crate::core::session_manager::KnownSessionEntry::Custom(entry)) = known.as_deref() else {
             continue;
         };
         if entry.custom_type != SUPERVISOR_STATUS_TYPE {

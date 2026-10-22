@@ -191,21 +191,21 @@ fn extract_file_operations(
 
 /// Extract an [`AgentMessage`] from an entry if it produces one.
 fn get_message_from_entry(entry: &SessionEntry) -> Option<AgentMessage> {
-    match entry {
-        SessionEntry::Known(KnownSessionEntry::Message(entry)) => Some((*entry.message).clone()),
-        SessionEntry::Known(KnownSessionEntry::CustomMessage(entry)) => Some(create_custom_message(
+    match entry.known().as_deref() {
+        Some(KnownSessionEntry::Message(entry)) => Some((*entry.message).clone()),
+        Some(KnownSessionEntry::CustomMessage(entry)) => Some(create_custom_message(
             &entry.custom_type,
             entry.content.clone(),
             entry.display,
             entry.details.clone(),
             timestamp_millis(&entry.timestamp),
         )),
-        SessionEntry::Known(KnownSessionEntry::BranchSummary(entry)) => Some(create_branch_summary_message(
+        Some(KnownSessionEntry::BranchSummary(entry)) => Some(create_branch_summary_message(
             &entry.summary,
             &entry.from_id,
             timestamp_millis(&entry.timestamp),
         )),
-        SessionEntry::Known(KnownSessionEntry::Compaction(entry)) => Some(create_compaction_summary_message(
+        Some(KnownSessionEntry::Compaction(entry)) => Some(create_compaction_summary_message(
             &entry.summary,
             entry.tokens_before,
             timestamp_millis(&entry.timestamp),
@@ -219,10 +219,10 @@ fn get_message_from_entry(entry: &SessionEntry) -> Option<AgentMessage> {
 }
 
 fn get_message_from_entry_for_compaction(entry: &SessionEntry) -> Option<AgentMessage> {
-    if matches!(entry, SessionEntry::Known(KnownSessionEntry::Compaction(_))) {
+    if matches!(entry.known().as_deref(), Some(KnownSessionEntry::Compaction(_))) {
         return None;
     }
-    if let SessionEntry::Known(KnownSessionEntry::Message(session_message)) = entry
+    if let Some(KnownSessionEntry::Message(session_message)) = entry.known().as_deref()
         && let AgentMessage::User(user) = session_message.message.as_ref()
         && user.input_source == Some(pi_ai::types::InputSource::Extension)
     {

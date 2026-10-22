@@ -2674,7 +2674,8 @@ impl AgentSession {
             if entry.entry_type() != "custom" {
                 return false;
             }
-            let SessionEntry::Known(crate::core::session_manager::KnownSessionEntry::Custom(custom)) = entry else {
+            let known = entry.known();
+            let Some(crate::core::session_manager::KnownSessionEntry::Custom(custom)) = known.as_deref() else {
                 return false;
             };
             if custom.custom_type != DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE {
@@ -6837,8 +6838,8 @@ impl AgentSession {
             from_extension = true;
         }
 
-        let (new_leaf_id, editor_text) = match &target_entry {
-            SessionEntry::Known(crate::core::session_manager::KnownSessionEntry::Message(message))
+        let (new_leaf_id, editor_text) = match target_entry.known().as_deref() {
+            Some(crate::core::session_manager::KnownSessionEntry::Message(message))
                 if message.message.role() == "user" =>
             {
                 let text = match message.message.as_ref() {
@@ -6847,7 +6848,7 @@ impl AgentSession {
                 };
                 (message.parent_id.clone(), Some(text))
             }
-            SessionEntry::Known(crate::core::session_manager::KnownSessionEntry::CustomMessage(message)) => {
+            Some(crate::core::session_manager::KnownSessionEntry::CustomMessage(message)) => {
                 let text = match &message.content {
                     CustomMessageContent::Text(text) => text.clone(),
                     CustomMessageContent::Blocks(blocks) => JsString::join(
@@ -6891,9 +6892,9 @@ impl AgentSession {
             crate::core::extensions::types::SessionTreeEvent {
                 new_leaf_id: lock(&self.inner.session_manager).get_leaf_id().cloned(),
                 old_leaf_id,
-                summary_entry: summary_entry.clone().and_then(|entry| match entry {
-                    SessionEntry::Known(crate::core::session_manager::KnownSessionEntry::BranchSummary(summary)) => {
-                        Some(summary)
+                summary_entry: summary_entry.clone().and_then(|entry| match entry.known().as_deref() {
+                    Some(crate::core::session_manager::KnownSessionEntry::BranchSummary(summary)) => {
+                        Some(summary.clone())
                     }
                     _ => None,
                 }),

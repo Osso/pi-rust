@@ -1,5 +1,6 @@
 //! Ported from `coding-agent/src/modes/interactive/components/tree-selector.ts`.
 
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -331,16 +332,14 @@ fn format_label_timestamp(timestamp: &JsString, now_millis: i64) -> JsString {
     js_format!("{}/{}/{} {}", year, month, day, time)
 }
 
-fn entry_message(entry: &SessionEntry) -> Option<&AgentMessage> {
-    match entry {
-        SessionEntry::Known(KnownSessionEntry::Message(message)) => Some(message.message.as_ref()),
-        _ => None,
-    }
+fn entry_message(entry: &SessionEntry) -> Option<Cow<'_, AgentMessage>> {
+    entry.message()
 }
 
-fn assistant_message(entry: &SessionEntry) -> Option<&AssistantMessage> {
+fn assistant_message(entry: &SessionEntry) -> Option<Cow<'_, AssistantMessage>> {
     match entry_message(entry)? {
-        AgentMessage::Assistant(message) => Some(message),
+        Cow::Borrowed(AgentMessage::Assistant(message)) => Some(Cow::Borrowed(message.as_ref())),
+        Cow::Owned(AgentMessage::Assistant(message)) => Some(Cow::Owned(*message)),
         _ => None,
     }
 }
@@ -674,7 +673,7 @@ impl TreeList {
         if entry.id() == self.current_leaf_id.as_ref() {
             return false;
         }
-        let has_text = has_text_content(message);
+        let has_text = has_text_content(&message);
         let is_error_or_aborted = !matches!(message.stop_reason, StopReason::Stop | StopReason::ToolUse);
         !has_text && !is_error_or_aborted
     }
@@ -967,8 +966,8 @@ impl TreeList {
             parts.push(label.clone().into());
         }
 
-        match entry {
-            SessionEntry::Known(KnownSessionEntry::Message(message)) => {
+        match entry.known().as_deref() {
+            Some(KnownSessionEntry::Message(message)) => {
                 let message = message.message.as_ref();
                 parts.push(message.role().to_owned());
                 parts.push(extract_message_full_content(message));
@@ -979,41 +978,41 @@ impl TreeList {
                     parts.push(command.to_owned());
                 }
             }
-            SessionEntry::Known(KnownSessionEntry::CustomMessage(entry)) => {
+            Some(KnownSessionEntry::CustomMessage(entry)) => {
                 parts.push(entry.custom_type.clone().into());
                 parts.push(extract_custom_message_content(&entry.content));
             }
-            SessionEntry::Known(KnownSessionEntry::Compaction(entry)) => {
+            Some(KnownSessionEntry::Compaction(entry)) => {
                 parts.push(JsString::from("compaction").into());
                 parts.push(entry.summary.clone());
             }
-            SessionEntry::Known(KnownSessionEntry::BranchSummary(entry)) => {
+            Some(KnownSessionEntry::BranchSummary(entry)) => {
                 parts.push(JsString::from("branch summary").into());
                 parts.push(entry.summary.clone());
             }
-            SessionEntry::Known(KnownSessionEntry::SessionInfo(entry)) => {
+            Some(KnownSessionEntry::SessionInfo(entry)) => {
                 parts.push(JsString::from("title").into());
                 if let Some(name) = &entry.name {
                     parts.push(name.clone().into());
                 }
             }
-            SessionEntry::Known(KnownSessionEntry::ModelChange(entry)) => {
+            Some(KnownSessionEntry::ModelChange(entry)) => {
                 parts.push(JsString::from("model").into());
                 parts.push(entry.model_id.clone().into());
             }
-            SessionEntry::Known(KnownSessionEntry::ThinkingLevelChange(entry)) => {
+            Some(KnownSessionEntry::ThinkingLevelChange(entry)) => {
                 parts.push(JsString::from("thinking").into());
                 parts.push(entry.thinking_level.clone().into());
             }
-            SessionEntry::Known(KnownSessionEntry::Custom(entry)) => {
+            Some(KnownSessionEntry::Custom(entry)) => {
                 parts.push(JsString::from("custom").into());
                 parts.push(entry.custom_type.clone().into());
             }
-            SessionEntry::Known(KnownSessionEntry::Label(entry)) => {
+            Some(KnownSessionEntry::Label(entry)) => {
                 parts.push(JsString::from("label").into());
                 parts.push(entry.label.clone().unwrap_or_default().into());
             }
-            SessionEntry::Unknown(_) => {}
+            None => {}
         }
 
         JsString::join(parts, " ")
@@ -1073,8 +1072,8 @@ impl TreeList {
 
     fn get_entry_copy_text(&self, node: &SessionTreeNode) -> Option<JsString> {
         let entry = &node.entry;
-        let text = match entry {
-            SessionEntry::Known(KnownSessionEntry::Message(message)) => {
+        let text = match entry.known().as_deref() {
+            Some(KnownSessionEntry::Message(message)) => {
                 let message = message.message.as_ref();
                 if message.role() == "bashExecution" {
                     match message {
@@ -1090,11 +1089,9 @@ impl TreeList {
                     }
                 }
             }
-            SessionEntry::Known(KnownSessionEntry::CustomMessage(entry)) => {
-                Some(extract_custom_message_content(&entry.content))
-            }
-            SessionEntry::Known(KnownSessionEntry::Compaction(entry)) => Some(entry.summary.clone()),
-            SessionEntry::Known(KnownSessionEntry::BranchSummary(entry)) => Some(entry.summary.clone()),
+            Some(KnownSessionEntry::CustomMessage(entry)) => Some(extract_custom_message_content(&entry.content)),
+            Some(KnownSessionEntry::Compaction(entry)) => Some(entry.summary.clone()),
+            Some(KnownSessionEntry::BranchSummary(entry)) => Some(entry.summary.clone()),
             _ => None,
         };
         text.filter(|text| !text.trim().is_empty())
@@ -1102,8 +1099,8 @@ impl TreeList {
 
     fn get_entry_display_text(&self, node: &SessionTreeNode, is_selected: bool) -> JsString {
         let entry = &node.entry;
-        let result = match entry {
-            SessionEntry::Known(KnownSessionEntry::Message(message)) => {
+        let result = match entry.known().as_deref() {
+            Some(KnownSessionEntry::Message(message)) => {
                 let message = message.message.as_ref();
                 match message.role() {
                     role if role == "user" => {
@@ -1112,7 +1109,7 @@ impl TreeList {
                     }
                     role if role == "assistant" => {
                         let message = assistant_message(entry).expect("assistant entry");
-                        let text_content = normalize(&slice_utf16(&extract_assistant_content(message), 200));
+                        let text_content = normalize(&slice_utf16(&extract_assistant_content(&message), 200));
                         if !text_content.is_empty() {
                             with_theme(|theme| theme.fg(ThemeColor::Success, "assistant: ")) + &text_content
                         } else if message.stop_reason == StopReason::Aborted {
@@ -1161,11 +1158,11 @@ impl TreeList {
                     role => with_theme(|theme| theme.fg(ThemeColor::Dim, &js_format!("[{}]", (&role)))),
                 }
             }
-            SessionEntry::Known(KnownSessionEntry::CustomMessage(entry)) => {
+            Some(KnownSessionEntry::CustomMessage(entry)) => {
                 with_theme(|theme| theme.fg(ThemeColor::CustomMessageLabel, &js_format!("[{}]: ", entry.custom_type)))
                     + &normalize(&extract_custom_message_content(&entry.content))
             }
-            SessionEntry::Known(KnownSessionEntry::Compaction(entry)) => {
+            Some(KnownSessionEntry::Compaction(entry)) => {
                 let tokens = js_round(entry.tokens_before / 1000.0);
                 with_theme(|theme| {
                     theme.fg(
@@ -1174,25 +1171,25 @@ impl TreeList {
                     )
                 }) + &normalize(&entry.summary)
             }
-            SessionEntry::Known(KnownSessionEntry::BranchSummary(entry)) => {
+            Some(KnownSessionEntry::BranchSummary(entry)) => {
                 with_theme(|theme| theme.fg(ThemeColor::Warning, "[branch summary]: ")) + &normalize(&entry.summary)
             }
-            SessionEntry::Known(KnownSessionEntry::ModelChange(entry)) => {
+            Some(KnownSessionEntry::ModelChange(entry)) => {
                 with_theme(|theme| theme.fg(ThemeColor::Dim, &js_format!("[model: {}]", entry.model_id)))
             }
-            SessionEntry::Known(KnownSessionEntry::ThinkingLevelChange(entry)) => {
+            Some(KnownSessionEntry::ThinkingLevelChange(entry)) => {
                 with_theme(|theme| theme.fg(ThemeColor::Dim, &js_format!("[thinking: {}]", entry.thinking_level)))
             }
-            SessionEntry::Known(KnownSessionEntry::Custom(entry)) => {
+            Some(KnownSessionEntry::Custom(entry)) => {
                 with_theme(|theme| theme.fg(ThemeColor::Dim, &js_format!("[custom: {}]", entry.custom_type)))
             }
-            SessionEntry::Known(KnownSessionEntry::Label(entry)) => with_theme(|theme| {
+            Some(KnownSessionEntry::Label(entry)) => with_theme(|theme| {
                 theme.fg(
                     ThemeColor::Dim,
                     &js_format!("[label: {}]", entry.label.clone().unwrap_or_else(|| "(cleared)".into())),
                 )
             }),
-            SessionEntry::Known(KnownSessionEntry::SessionInfo(entry)) => match &entry.name {
+            Some(KnownSessionEntry::SessionInfo(entry)) => match &entry.name {
                 Some(name) => with_theme(|theme| {
                     theme.fg(ThemeColor::Dim, "[title: ")
                         + &theme.fg(ThemeColor::Dim, name)

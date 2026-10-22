@@ -4776,7 +4776,7 @@ impl InteractiveMode {
         let all_entries = self.session.borrow().session_manager().get_entries();
         let compaction_count = all_entries
             .iter()
-            .filter(|entry| matches!(entry, SessionEntry::Known(KnownSessionEntry::Compaction(_))))
+            .filter(|entry| matches!(entry.known().as_deref(), Some(KnownSessionEntry::Compaction(_))))
             .count();
         if compaction_count > 0 {
             let times = if compaction_count == 1 {
@@ -4828,7 +4828,7 @@ impl InteractiveMode {
         let tool_cwd = source_cwd.cloned().unwrap_or_else(|| self.cwd());
         let mut rendered_pending_tools: IndexMap<JsString, ComponentRef> = IndexMap::new();
         for entry in entries {
-            if let SessionEntry::Known(KnownSessionEntry::Custom(custom)) = entry {
+            if let Some(KnownSessionEntry::Custom(custom)) = entry.known().as_deref() {
                 self.add_custom_entry_to_chat(custom);
                 continue;
             }
@@ -11439,7 +11439,7 @@ impl InteractiveMode {
                 self.update_editor_border_color();
             }
             AgentSessionEvent::EntryAppended(event) => {
-                if let SessionEntry::Known(KnownSessionEntry::Custom(custom)) = &event.entry
+                if let Some(KnownSessionEntry::Custom(custom)) = event.entry.known().as_deref()
                     && self.add_custom_entry_to_chat(custom)
                 {
                     self.ui.request_render();

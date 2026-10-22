@@ -132,26 +132,26 @@ pub fn collect_entries_for_branch_summary(
 }
 
 fn get_message_from_entry(entry: &SessionEntry) -> Option<AgentMessage> {
-    match entry {
-        SessionEntry::Known(KnownSessionEntry::Message(entry)) => {
+    match entry.known().as_deref() {
+        Some(KnownSessionEntry::Message(entry)) => {
             if entry.message.role() == "toolResult" {
                 return None;
             }
             Some((*entry.message).clone())
         }
-        SessionEntry::Known(KnownSessionEntry::CustomMessage(entry)) => Some(create_custom_message(
+        Some(KnownSessionEntry::CustomMessage(entry)) => Some(create_custom_message(
             &entry.custom_type,
             entry.content.clone(),
             entry.display,
             entry.details.clone(),
             timestamp_millis(&entry.timestamp),
         )),
-        SessionEntry::Known(KnownSessionEntry::BranchSummary(entry)) => Some(create_branch_summary_message(
+        Some(KnownSessionEntry::BranchSummary(entry)) => Some(create_branch_summary_message(
             &entry.summary,
             &entry.from_id,
             timestamp_millis(&entry.timestamp),
         )),
-        SessionEntry::Known(KnownSessionEntry::Compaction(entry)) => Some(create_compaction_summary_message(
+        Some(KnownSessionEntry::Compaction(entry)) => Some(create_compaction_summary_message(
             &entry.summary,
             entry.tokens_before,
             timestamp_millis(&entry.timestamp),
@@ -172,7 +172,7 @@ pub fn prepare_branch_entries(entries: &[SessionEntry], token_budget: f64) -> Br
 
     // First pass: cumulative file tracking from pi-generated branch summaries.
     for entry in entries {
-        if let SessionEntry::Known(KnownSessionEntry::BranchSummary(summary)) = entry
+        if let Some(KnownSessionEntry::BranchSummary(summary)) = entry.known().as_deref()
             && !summary.from_hook.unwrap_or(false)
             && let Some(details) = summary.details.as_ref()
         {

@@ -14,7 +14,7 @@ use crate::core::footer_data_provider::{BranchChangeSubscription, FooterDataProv
 use crate::core::multi_agent_store::{
     AgentLifecycle, AgentSnapshot, MultiAgentStore, is_active_lifecycle, lifecycle_name,
 };
-use crate::core::session_manager::{KnownSessionEntry, SessionEntry, lock_session_manager};
+use crate::core::session_manager::{KnownSessionEntry, lock_session_manager};
 use crate::modes::interactive::components::footer::{format_cwd_for_footer, format_tokens};
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 use crate::utils::footer_status::{format_extension_status_text_lines, sanitize_footer_status_text};
@@ -163,7 +163,8 @@ fn session_usage(session: &FooterSessionOverride) -> SessionUsage {
     };
     let entries = lock_session_manager(session_manager).get_entries();
     for entry in entries {
-        let SessionEntry::Known(KnownSessionEntry::Message(message)) = &entry else {
+        let known = entry.known();
+        let Some(KnownSessionEntry::Message(message)) = known.as_deref() else {
             continue;
         };
         let pi_agent_core::agent::AgentMessage::Assistant(assistant) = message.message.as_ref() else {

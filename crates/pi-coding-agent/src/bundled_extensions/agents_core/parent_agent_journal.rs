@@ -127,7 +127,8 @@ pub fn read_active_parent_agent_ids_from_session_entries(entries: &[SessionEntry
     let mut started = HashSet::new();
     let mut completed = HashSet::new();
     for entry in entries {
-        let SessionEntry::Known(crate::core::session_manager::KnownSessionEntry::Custom(custom)) = entry else {
+        let known = entry.known();
+        let Some(crate::core::session_manager::KnownSessionEntry::Custom(custom)) = known.as_deref() else {
             continue;
         };
         if custom.custom_type != AGENT_START_CUSTOM_TYPE && custom.custom_type != AGENT_COMPLETE_CUSTOM_TYPE {

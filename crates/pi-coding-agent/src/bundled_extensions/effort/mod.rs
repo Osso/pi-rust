@@ -10,7 +10,7 @@ use crate::core::extensions::types::{
     BeforeAgentStartEvent, BeforeAgentStartEventResult, BoxFuture, ExtensionApi, ExtensionCommandContext,
     ExtensionContext, HandlerError, NotifyType, SessionTreeEvent, ThinkingLevelSelectEvent,
 };
-use crate::core::session_manager::{KnownSessionEntry, SessionEntry, lock_session_manager};
+use crate::core::session_manager::{KnownSessionEntry, lock_session_manager};
 use crate::modes::interactive::theme::ThemeColor;
 
 const DELEGATION_MODE_ENTRY: &str = "multi-agent-mode";
@@ -112,7 +112,8 @@ fn restore_delegation_mode(state: &DelegationState, ctx: &ExtensionContext) -> R
     state.set_mode(MultiAgentMode::Proactive);
     let session_manager = ctx.session_manager()?;
     for entry in lock_session_manager(&session_manager).get_branch(None) {
-        let SessionEntry::Known(KnownSessionEntry::Custom(custom)) = entry else {
+        let known = entry.known();
+        let Some(KnownSessionEntry::Custom(custom)) = known.as_deref() else {
             continue;
         };
         if custom.custom_type != DELEGATION_MODE_ENTRY {
