@@ -58,3 +58,89 @@ fn user_message_keeps_raw_units_across_padding_and_invalidation() {
         assert!(output.contains("\u{1b}]133;B\u{7}\u{1b}]133;C\u{7}"));
     }
 }
+
+#[test]
+fn setup_ignores_raw_input_then_completes_both_steps() {
+    use pi_coding_agent::modes::interactive::{components::first_time_setup::*, theme::TerminalTheme};
+    init_theme();
+    let submitted = Rc::new(Cell::new(None));
+    let callback = submitted.clone();
+    let mut setup = FirstTimeSetupComponent::new(FirstTimeSetupOptions {
+        detected_theme: TerminalTheme::Dark,
+        on_theme_preview: Rc::new(|_| {}),
+        on_submit: Rc::new(move |value| callback.set(Some(value))),
+        on_cancel: Rc::new(|| {}),
+    });
+    setup.handle_input(&JsString::from_utf16(vec![0xd800]));
+    assert!(JsString::join(setup.render(80), "\n").contains("Pick a theme."));
+    setup.handle_input(&"\n".into());
+    setup.handle_input(&"\n".into());
+    assert_eq!(
+        submitted.get(),
+        Some(FirstTimeSetupResult {
+            theme: TerminalTheme::Dark,
+            share_analytics: true
+        })
+    );
+}
+
+#[test]
+fn trust_selector_keeps_raw_path_in_summary() {
+    use pi_coding_agent::{
+        core::trust_manager::{ProjectTrustDecision, ProjectTrustStoreEntry},
+        modes::interactive::components::trust_selector::*,
+    };
+    init_theme();
+    let raw_path = JsString::from("/tmp/q18-") + JsString::from_utf16(vec![0xd800]);
+    let mut selector = TrustSelectorComponent::new(TrustSelectorOptions {
+        cwd: raw_path.clone(),
+        saved_decision: Some(ProjectTrustStoreEntry {
+            path: raw_path.clone(),
+            decision: ProjectTrustDecision::Trusted,
+        }),
+        project_trusted: true,
+        on_select: Rc::new(|_| {}),
+        on_cancel: Rc::new(|| {}),
+    })
+    .unwrap();
+    selector.handle_input(&JsString::from_utf16(vec![0xdc00]));
+    assert!(JsString::join(selector.render(120), "\n").contains(&raw_path));
+}
+
+#[test]
+fn permission_selectors_ignore_raw_input_and_keep_scope_selection() {
+    use pi_coding_agent::{
+        core::permissions::presets::{APPROVAL_PRESETS, SANDBOX_PROFILES},
+        modes::interactive::components::{approval_selector::*, sandbox_selector::*},
+    };
+    init_theme();
+    let approved = Rc::new(Cell::new(None));
+    let callback = approved.clone();
+    let mut approval = ApprovalSelectorComponent::new(ApprovalSelectorOptions {
+        current_preset: APPROVAL_PRESETS[0].name,
+        on_select: Rc::new(move |value| callback.set(Some(value))),
+        on_cancel: Rc::new(|| {}),
+    });
+    approval.handle_input(&JsString::from_utf16(vec![0xd800]));
+    approval.handle_input(&"\t".into());
+    approval.handle_input(&"\n".into());
+    assert_eq!(approved.get().unwrap().scope, ApprovalScope::Project);
+    assert!(JsString::join(approval.render(80), "\n").contains("Save scope: project"));
+    let selected = Rc::new(Cell::new(None));
+    let callback = selected.clone();
+    let mut sandbox = SandboxSelectorComponent::new(SandboxSelectorOptions {
+        current_profile: SANDBOX_PROFILES[0].name,
+        session_profile: None,
+        on_select: Rc::new(move |value| callback.set(Some(value))),
+        on_cancel: Rc::new(|| {}),
+    });
+    sandbox.handle_input(&JsString::from_utf16(vec![0xdc00]));
+    sandbox.handle_input(&"\t".into());
+    sandbox.handle_input(&"\t".into());
+    sandbox.handle_input(&"\n".into());
+    assert_eq!(
+        selected.get(),
+        Some(SandboxSelectorSelection::Session { profile: None })
+    );
+    assert!(JsString::join(sandbox.render(80), "\n").contains("Inherit global/project"));
+}

@@ -1,5 +1,6 @@
 //! Ported from `packages/coding-agent/src/modes/interactive/components/trust-selector.ts`.
 
+use pi_js_compat::{js_format, js_json::JsString};
 use std::rc::Rc;
 
 use pi_tui::components::spacer::Spacer;
@@ -21,16 +22,16 @@ pub struct TrustSelection {
 }
 
 pub struct TrustSelectorOptions {
-    pub cwd: String,
+    pub cwd: JsString,
     pub saved_decision: Option<ProjectTrustStoreEntry>,
     pub project_trusted: bool,
     pub on_select: Rc<dyn Fn(TrustSelection)>,
     pub on_cancel: Rc<dyn Fn()>,
 }
 
-fn format_decision(trust_path: Option<&str>, decision: Option<&ProjectTrustStoreEntry>) -> String {
+fn format_decision(trust_path: Option<&JsString>, decision: Option<&ProjectTrustStoreEntry>) -> JsString {
     let Some(decision) = decision else {
-        return "none".to_owned();
+        return "none".into();
     };
     let label = if decision.decision == ProjectTrustDecision::Trusted {
         "trusted"
@@ -38,8 +39,8 @@ fn format_decision(trust_path: Option<&str>, decision: Option<&ProjectTrustStore
         "untrusted"
     };
     match trust_path {
-        Some(trust_path) if decision.path != trust_path => format!("{label} (inherited from {})", decision.path),
-        _ => format!("{label} ({})", decision.path),
+        Some(trust_path) if &decision.path != trust_path => js_format!("{} (inherited from {})", label, &decision.path),
+        _ => js_format!("{} ({})", label, &decision.path),
     }
 }
 
@@ -56,17 +57,17 @@ pub struct TrustSelectorComponent {
 }
 
 impl TrustSelectorComponent {
-    pub fn new(options: TrustSelectorOptions) -> Self {
-        let trust_options = get_project_trust_options(&options.cwd, false);
+    pub fn new(options: TrustSelectorOptions) -> Result<Self, crate::utils::paths::PathError> {
+        let trust_options = get_project_trust_options(&options.cwd, false)?;
         let saved_decision = options.saved_decision.clone();
-        let saved_text = format!(
+        let saved_text = js_format!(
             "Saved decision: {}",
             format_decision(
-                trust_options.first().and_then(|option| option.saved_path.as_deref()),
+                trust_options.first().and_then(|option| option.saved_path.as_ref()),
                 saved_decision.as_ref(),
             )
         );
-        let session_text = format!(
+        let session_text = js_format!(
             "Current session: {}",
             if options.project_trusted {
                 "trusted"
@@ -132,11 +133,11 @@ impl TrustSelectorComponent {
             .position(|option| selector.is_saved_option(option))
             .unwrap_or(0);
         selector.update_list();
-        selector
+        Ok(selector)
     }
 
     fn is_saved_option(&self, option: &ProjectTrustOption) -> bool {
-        let Some(saved_path) = option.saved_path.as_deref() else {
+        let Some(saved_path) = option.saved_path.as_ref() else {
             return false;
         };
         let Some(saved_decision) = &self.saved_decision else {
@@ -147,7 +148,7 @@ impl TrustSelectorComponent {
         } else {
             ProjectTrustDecision::Untrusted
         };
-        saved_decision.decision == decision && saved_decision.path == saved_path
+        saved_decision.decision == decision && &saved_decision.path == saved_path
     }
 
     fn update_list(&mut self) {
@@ -158,26 +159,29 @@ impl TrustSelectorComponent {
             let checkmark = if is_current {
                 with_theme(|theme| theme.fg(ThemeColor::Success, " ✓"))
             } else {
-                String::new()
+                JsString::default()
             };
             let prefix = if is_selected {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, "→ "))
             } else {
-                "  ".to_owned()
+                JsString::from("  ")
             };
             let label = if is_selected {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, &option.label))
             } else {
                 with_theme(|theme| theme.fg(ThemeColor::Text, &option.label))
             };
-            self.list_container
-                .add_child(component(Text::new(format!("{prefix}{label}{checkmark}"), 1, 0)));
+            self.list_container.add_child(component(Text::new(
+                js_format!("{}{}{}", prefix, label, checkmark),
+                1,
+                0,
+            )));
         }
     }
 }
 
 impl Component for TrustSelectorComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
         for child in &self.prefix_children {
             lines.extend(child.borrow_mut().render(width));
@@ -189,7 +193,7 @@ impl Component for TrustSelectorComponent {
         lines
     }
 
-    fn handle_input(&mut self, key_data: &str) {
+    fn handle_input(&mut self, key_data: &JsString) {
         let keybindings = get_keybindings();
         if keybindings.matches(key_data, "tui.select.up") || key_data == "k" {
             self.selected_index = self.selected_index.saturating_sub(1);

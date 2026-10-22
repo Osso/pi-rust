@@ -1,5 +1,6 @@
 //! Ported from `coding-agent/src/modes/interactive/components/first-time-setup.ts`.
 
+use pi_js_compat::{js_format, js_json::JsString};
 use std::rc::Rc;
 
 use pi_tui::components::spacer::Spacer;
@@ -76,7 +77,7 @@ impl FirstTimeSetupComponent {
             with_theme(|theme| {
                 theme.fg(
                     ThemeColor::Accent,
-                    &theme.bold(&format!(
+                    &theme.bold(&js_format!(
                         "Welcome to {}, the minimal coding agent.",
                         crate::config::package_config().app_name
                     )),
@@ -98,7 +99,7 @@ impl FirstTimeSetupComponent {
                     with_theme(|theme| {
                         theme.fg(
                             ThemeColor::Muted,
-                            &format!("Detected system appearance: {}", self.options.detected_theme.as_str()),
+                            &js_format!("Detected system appearance: {}", self.options.detected_theme.as_str()),
                         )
                     }),
                     1,
@@ -158,14 +159,14 @@ impl FirstTimeSetupComponent {
                 let prefix = if is_selected {
                     theme.fg(ThemeColor::Accent, "→ ")
                 } else {
-                    "  ".to_owned()
+                    JsString::from("  ")
                 };
                 let label = if is_selected {
-                    theme.fg(ThemeColor::Accent, label)
+                    theme.fg(ThemeColor::Accent, *label)
                 } else {
-                    theme.fg(ThemeColor::Text, label)
+                    theme.fg(ThemeColor::Text, *label)
                 };
-                format!("{prefix}{label}")
+                js_format!("{}{}", prefix, label)
             });
             self.container.add_child(component(Text::new(text, 1, 0)));
         }
@@ -192,11 +193,11 @@ impl FirstTimeSetupComponent {
 }
 
 impl Component for FirstTimeSetupComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.container.render(width)
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         let keybindings = get_keybindings();
         if keybindings.matches(data, "tui.select.up") || data == "k" {
             self.move_selection(-1);

@@ -1,5 +1,6 @@
 //! Ported from `packages/coding-agent/src/modes/interactive/components/approval-selector.ts`.
 
+use pi_js_compat::{js_format, js_json::JsString};
 use std::rc::Rc;
 
 use pi_tui::components::spacer::Spacer;
@@ -108,7 +109,7 @@ impl ApprovalSelectorComponent {
     fn update_list(&mut self) {
         self.list_container.clear();
         self.list_container.add_child(component(Text::new(
-            with_theme(|theme| theme.fg(ThemeColor::Muted, &format!("Save scope: {}", self.scope.as_str()))),
+            with_theme(|theme| theme.fg(ThemeColor::Muted, &js_format!("Save scope: {}", self.scope.as_str()))),
             1,
             0,
         )));
@@ -120,7 +121,7 @@ impl ApprovalSelectorComponent {
             let prefix = if is_selected {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, "→ "))
             } else {
-                "  ".to_owned()
+                JsString::from("  ")
             };
             let label = if is_selected {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, preset.label))
@@ -130,10 +131,13 @@ impl ApprovalSelectorComponent {
             let checkmark = if is_current {
                 with_theme(|theme| theme.fg(ThemeColor::Success, " ✓"))
             } else {
-                String::new()
+                JsString::default()
             };
-            self.list_container
-                .add_child(component(Text::new(format!("{prefix}{label}{checkmark}"), 1, 0)));
+            self.list_container.add_child(component(Text::new(
+                js_format!("{}{}{}", prefix, label, checkmark),
+                1,
+                0,
+            )));
         }
     }
 
@@ -143,7 +147,7 @@ impl ApprovalSelectorComponent {
 }
 
 impl Component for ApprovalSelectorComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
         for child in &self.prefix_children {
             lines.extend(child.borrow_mut().render(width));
@@ -155,7 +159,7 @@ impl Component for ApprovalSelectorComponent {
         lines
     }
 
-    fn handle_input(&mut self, key_data: &str) {
+    fn handle_input(&mut self, key_data: &JsString) {
         let keybindings = get_keybindings();
         if keybindings.matches(key_data, "tui.select.up") || key_data == "k" {
             self.selected_index = self.selected_index.saturating_sub(1);
