@@ -14,6 +14,22 @@ Rust: `crates/pi-js-compat/src/node_fs.rs`. Pure compatibility prerequisite for 
 | Unproven descriptions | ETXTBSY retains std text; no full libuv strerror expansion |
 | Pathless `uv_cwd` / deleted current directory | `node_fs_errors.rs::removed_current_directory_error_has_node_message_and_pathless_own_fields`; actual generator original-source/real-native-binary deleted-CWD differential preserves message, negative errno, code and syscall before fetching |
 
+## Q18 native per-origin contract
+
+Approved by parent against the common pin on 2026-10-21: path/program inputs and record syscall/path/message fields are `JsString`. Callers supply raw units, never pre-repaired paths. The single ordinary filesystem error-record builder models Node's already-crossed OS boundary by decoding its UTF-8 path back to native text (unpaired units become U+FFFD). `NodeReadApi` still distinguishes synchronous and promises EISDIR metadata.
+
+| Origin | Required path behavior | Behavioral fixture |
+|---|---|---|
+| fs sync | Error path/message reflect UTF-8 boundary repair | `lossless_node_fs::fs_sync_repairs_only_the_crossed_filesystem_path` |
+| fs.promises | Same repair; retain API-specific EISDIR path behavior | `fs_promises_repairs_only_the_crossed_filesystem_path` |
+| child_process spawn | Executable remains raw in syscall/path/message | `spawn_keeps_raw_executable_in_message_syscall_and_path` |
+| Unix connect/listen | Address text remains raw | `sockets_keep_raw_address_in_connect_and_listen_errors` |
+| NUL path validation | Inspect original UTF-16 before any FS call; truncate inspection by units | `nul_validation_inspects_raw_units_before_any_boundary_repair` |
+
+Evidence: direct builtin Node probes covered open/read/write/mkdir/stat/access/readdir in both sync/promises APIs, spawn/spawnSync, and Unix connect/listen. In-crate runner-backed RED `/tmp/pi-rust-repin-lossless-tools/node-origin-red.log` passed the two fs-origin cases and failed spawn/socket/NUL because scalar APIs forced premature encoding. No mock filesystem or probe crate is involved. GREEN pending at this checkpoint.
+
+Additional observed origin distinction: rmSync's EISDIR directory validation retains raw path text; its OS-origin EACCES message repairs the path. The two branches remain explicit in `node_rm_error`, not a blanket sanitizer. Console inspection escapes lone units and preserves valid pairs.
+
 ## Q18 close-error prerequisite
 
 Main granted pathless close and raw OS EIO formatting for spill-close propagation. `node_fs_errors::pathless_close_and_eio_messages_match_nodes_uv_exception` invokes the actual Node `internal/errors` UVException constructor for `close` without a path and `open` with a path. `node-close-red.log` proves the prior erroneous empty quoted path and std EIO description. Native OS EIO now uses `i/o error`; a constructed ErrorKind-only custom diagnostic is not overwritten. Close with an empty path omits both metadata and quoted suffix. GREEN and existing constructed-kind regression execution pending at this checkpoint; no broad strerror claim.
@@ -62,7 +78,7 @@ edit-diff case-27 RED precede implementation. Sync callers retain their old API.
 - Unknown errno descriptions retain the existing std text rather than claiming complete Node conformance.
 - Existing `node_errno_name(0)` panics in rustix; zero is not a filesystem failure errno. Preserved outside this observed-error slice, not tested as supported behavior.
 - The record contains no stack. `console_message` renders the error line and own properties without fabricating JS frames; generator-specific stack presentation belongs to its caller.
-- Typed Rust inputs exclude invalid JS argument types. Paths here are UTF-8 strings; arbitrary non-UTF-8 OS path parity is not established.
+- Typed Rust inputs exclude invalid JS argument types. Paths are native UTF-16 strings; arbitrary non-UTF-8 OS path parity is not established.
 
 ## Focused proof
 
