@@ -121,3 +121,13 @@ async fn oauth_to_auth_does_not_narrow_token_before_request() {
         .unwrap();
     assert_eq!(auth.api_key, Some(raw));
 }
+
+#[test]
+fn auth_event_json_retains_raw_prompt_related_text() {
+    let wire = r#"{"type":"info","message":"\ud800","links":[{"url":"https://example.test/\udfff","label":"\udc00"}]}"#;
+    let event: pi_ai::auth::types::AuthEvent = serde_json::from_str(wire).unwrap();
+    assert_eq!(
+        js_json::parse_lossless(serde_json::to_string(&event).unwrap()).unwrap(),
+        js_json::parse_lossless(wire).unwrap()
+    );
+}
