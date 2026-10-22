@@ -85,7 +85,7 @@ pub async fn resolve_credential_for_print(
     kind: CredentialPrintKind,
     min_expiry_ms: Option<f64>,
     signal: Option<CancellationToken>,
-) -> Result<String, CredentialPrintError> {
+) -> Result<JsString, CredentialPrintError> {
     let target = validate_auth_command_args(args, kind.auth_command_kind())?;
     let credential_types = credential_types(model_runtime, signal.clone()).await?;
     let providers = select_providers(model_runtime, &target, &credential_types)?;
@@ -239,7 +239,7 @@ async fn collect_credentials(
     signal: Option<CancellationToken>,
     providers: impl Iterator<Item = &CredentialProvider>,
     credential_types: &[CredentialInfo],
-) -> Vec<(String, String)> {
+) -> Vec<(String, JsString)> {
     let mut credentials = Vec::new();
     for provider in providers {
         let credential_type = credential_type(credential_types, &provider.id);

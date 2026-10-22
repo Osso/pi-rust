@@ -840,35 +840,25 @@ impl Drop for TimeoutSignal {
 // Auth command
 // =============================================================================
 
-fn auth_check_result_json(result: &AuthCheckResult, credential: Option<&str>) -> String {
-    let mut object = serde_json::Map::new();
-    object.insert(
-        "status".to_owned(),
-        serde_json::Value::String(result.status.as_str().to_owned()),
-    );
-    object.insert(
-        "provider".to_owned(),
-        serde_json::Value::String(result.provider.clone()),
-    );
+/// `JSON.stringify(result)`: the credential keeps exact UTF-16 (unpaired
+/// surrogates become `\uXXXX` escapes).
+fn auth_check_result_json(result: &AuthCheckResult, credential: Option<&JsString>) -> String {
+    let mut object = pi_js_compat::js_json::JsObject::new();
+    let mut insert = |key: &str, value: JsString| {
+        object.insert(key.into(), pi_js_compat::js_json::JsValue::String(value));
+    };
+    insert("status", result.status.as_str().into());
+    insert("provider", result.provider.as_str().into());
     if let Some(reason) = result.reason {
-        object.insert(
-            "reason".to_owned(),
-            serde_json::Value::String(reason.as_str().to_owned()),
-        );
+        insert("reason", reason.as_str().into());
     }
     if let Some(auth_type) = result.auth_type {
-        object.insert(
-            "authType".to_owned(),
-            serde_json::Value::String(auth_type.as_str().to_owned()),
-        );
+        insert("authType", auth_type.as_str().into());
     }
     if let Some(credential) = credential {
-        object.insert(
-            "credentials".to_owned(),
-            serde_json::Value::String(credential.to_owned()),
-        );
+        insert("credentials", credential.clone());
     }
-    serde_json::Value::Object(object).to_string()
+    pi_js_compat::js_json::stringify_lossless(&pi_js_compat::js_json::JsValue::Object(object))
 }
 
 fn credential_print_kind(kind: AuthCommandKind) -> Option<CredentialPrintKind> {
@@ -883,7 +873,7 @@ async fn check_auth_with_credentials(
     command: &AuthCommand,
     parsed: &Args,
     requested_auth: &AuthCommandTarget,
-) -> (AuthCheckResult, Option<String>) {
+) -> (AuthCheckResult, Option<JsString>) {
     let credentials: std::sync::Arc<dyn CredentialStore> = if command.no_refresh() {
         std::sync::Arc::new(ReadOnlyAuthStorage::new(None))
     } else {
@@ -939,9 +929,9 @@ async fn run_auth_check_command(
 ) {
     let (result, credential) = check_auth_with_credentials(command, parsed, requested_auth).await;
     let output = if command.json() {
-        auth_check_result_json(&result, credential.as_deref())
+        JsString::from(auth_check_result_json(&result, credential.as_ref()))
     } else {
-        credential.unwrap_or_else(|| result.status.as_str().to_owned())
+        credential.unwrap_or_else(|| result.status.as_str().into())
     };
     console_log(&output);
     *exit_code = match result.status {
