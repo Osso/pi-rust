@@ -3,6 +3,7 @@
 //! A scrolling single-column selection list with an aligned description column
 //! and configurable primary-column truncation.
 
+use pi_js_compat::{js_json::JsString, js_regex::JsRegex};
 use std::rc::Rc;
 
 use super::text::StyleFn;
@@ -16,13 +17,13 @@ const MIN_DESCRIPTION_WIDTH: usize = 10;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelectItem {
-    pub value: String,
-    pub label: String,
-    pub description: Option<String>,
+    pub value: JsString,
+    pub label: JsString,
+    pub description: Option<JsString>,
 }
 
 impl SelectItem {
-    pub fn new(value: impl Into<String>, label: impl Into<String>) -> Self {
+    pub fn new(value: impl Into<JsString>, label: impl Into<JsString>) -> Self {
         Self {
             value: value.into(),
             label: label.into(),
@@ -30,7 +31,7 @@ impl SelectItem {
         }
     }
 
-    pub fn with_description(mut self, description: impl Into<String>) -> Self {
+    pub fn with_description(mut self, description: impl Into<JsString>) -> Self {
         self.description = Some(description.into());
         self
     }
@@ -60,19 +61,19 @@ impl SelectListTheme {
 }
 
 fn identity() -> StyleFn {
-    Rc::new(|text: &str| text.to_string())
+    Rc::new(|text: &JsString| text.clone())
 }
 
 /// Context passed to a custom primary-column truncator.
 pub struct SelectListTruncatePrimaryContext<'a> {
-    pub text: &'a str,
+    pub text: &'a JsString,
     pub max_width: i64,
     pub column_width: i64,
     pub item: &'a SelectItem,
     pub is_selected: bool,
 }
 
-pub type TruncatePrimaryFn = Rc<dyn Fn(&SelectListTruncatePrimaryContext<'_>) -> String>;
+pub type TruncatePrimaryFn = Rc<dyn Fn(&SelectListTruncatePrimaryContext<'_>) -> JsString>;
 
 #[derive(Clone, Default)]
 pub struct SelectListLayoutOptions {
@@ -115,8 +116,8 @@ impl SelectList {
         }
     }
 
-    pub fn set_filter(&mut self, filter: &str) {
-        let filter = filter.to_lowercase();
+    pub fn set_filter(&mut self, filter: impl Into<JsString>) {
+        let filter = filter.into().to_lowercase();
         self.filtered_items = self
             .items
             .iter()
@@ -139,7 +140,7 @@ impl SelectList {
         self.selected_index
     }
 
-    fn get_display_value(item: &SelectItem) -> &str {
+    fn get_display_value(item: &SelectItem) -> &JsString {
         if item.label.is_empty() {
             &item.value
         } else {
@@ -172,7 +173,7 @@ impl SelectList {
         widest.clamp(min, max)
     }
 
-    fn truncate_primary(&self, item: &SelectItem, is_selected: bool, max_width: i64, column_width: i64) -> String {
+    fn truncate_primary(&self, item: &SelectItem, is_selected: bool, max_width: i64, column_width: i64) -> JsString {
         let render_width = max_width.max(0) as usize;
         let display_value = Self::get_display_value(item);
         let truncated = match &self.layout.truncate_primary {
@@ -193,9 +194,9 @@ impl SelectList {
         item: &SelectItem,
         is_selected: bool,
         width: usize,
-        description_single_line: Option<&str>,
+        description_single_line: Option<&JsString>,
         primary_column_width: usize,
-    ) -> String {
+    ) -> JsString {
         let prefix = if is_selected { "→ " } else { "  " };
         let prefix_width = visible_width(prefix);
 
@@ -223,21 +224,23 @@ impl SelectList {
             if remaining_width > MIN_DESCRIPTION_WIDTH {
                 let truncated_desc = truncate_to_width_with(description, remaining_width, "", false);
                 if is_selected {
-                    return (self.theme.selected_text)(&format!("{prefix}{truncated_value}{spacing}{truncated_desc}"));
+                    return (self.theme.selected_text)(
+                        &(JsString::from(prefix) + &truncated_value + &spacing + &truncated_desc),
+                    );
                 }
 
-                let desc_text = (self.theme.description)(&format!("{spacing}{truncated_desc}"));
-                return format!("{prefix}{truncated_value}{desc_text}");
+                let desc_text = (self.theme.description)(&(JsString::from(&spacing) + &truncated_desc));
+                return JsString::from(prefix) + &truncated_value + &desc_text;
             }
         }
 
         let max_width = width as i64 - prefix_width as i64 - 2;
         let truncated_value = self.truncate_primary(item, is_selected, max_width, max_width);
         if is_selected {
-            return (self.theme.selected_text)(&format!("{prefix}{truncated_value}"));
+            return (self.theme.selected_text)(&(JsString::from(prefix) + &truncated_value));
         }
 
-        format!("{prefix}{truncated_value}")
+        JsString::from(prefix) + &truncated_value
     }
 
     fn notify_selection_change(&self) {
@@ -248,11 +251,11 @@ impl SelectList {
 }
 
 impl Component for SelectList {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
 
         if self.filtered_items.is_empty() {
-            lines.push((self.theme.no_match)("  No matching commands"));
+            lines.push((self.theme.no_match)(&JsString::from("  No matching commands")));
             return lines;
         }
 
@@ -266,12 +269,12 @@ impl Component for SelectList {
         for index in start_index..end_index {
             let item = &self.filtered_items[index];
             let is_selected = index == self.selected_index;
-            let description_single_line = item.description.as_deref().map(normalize_to_single_line);
+            let description_single_line = item.description.as_ref().map(normalize_to_single_line);
             lines.push(self.render_item(
                 item,
                 is_selected,
                 width,
-                description_single_line.as_deref(),
+                description_single_line.as_ref(),
                 primary_column_width,
             ));
         }
@@ -321,19 +324,9 @@ impl Component for SelectList {
     }
 }
 
-fn normalize_to_single_line(text: &str) -> String {
-    let mut result = String::with_capacity(text.len());
-    let mut in_break = false;
-    for character in text.chars() {
-        if character == '\r' || character == '\n' {
-            if !in_break {
-                result.push(' ');
-            }
-            in_break = true;
-        } else {
-            in_break = false;
-            result.push(character);
-        }
-    }
-    pi_js_compat::string::js_trim(&result).to_string()
+fn normalize_to_single_line(text: &JsString) -> JsString {
+    JsRegex::new(r"[\r\n]+")
+        .expect("line break pattern")
+        .replace_all(text, " ")
+        .trim()
 }

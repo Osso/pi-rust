@@ -98,3 +98,14 @@ callback output, Spacer, flow/bottom RootCompositor, Loader before/after raw mes
 update. Native interface RED -> source differential GREEN. CancellableLoader's
 wrapper compiles only when remaining crate integration is unblocked; dedicated raw
 abort/cancellation proof still pending.
+
+## SelectList
+
+Item value/label/description, filters, normalized descriptions, primary truncation
+context/callback results, styling, and rendered lines are native strings. `set_filter`
+accepts `Into<JsString>`. Native shared JsRegex performs newline normalization.
+`raw_select` compares 24 frozen scenarios (4 raw corpora × widths 0,1,4,12,41,72),
+including scroll selection, selected item values, actual `onSelect` raw callback values,
+raw prefix filters, no-match paths, and wide description columns. Interface RED then
+source differential GREEN. Custom primary callback raw signature migrated; dedicated
+custom callback corpus pending.

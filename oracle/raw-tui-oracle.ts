@@ -39,7 +39,9 @@ async function main(): Promise<void> {
 					states.push({ value: input.getValue(), cursor: (input as unknown as { cursor: number }).cursor, lines: input.render(request.width) });
 				}
 				output = { states, submitted };
-			} else if (request.operation === "components") {
+			} else if (request.operation === "select") {
+                output = await captureSelect(source, native(request.units), request.width);
+            } else if (request.operation === "components") {
                 output = await captureComponents(source, native(request.units), request.width, request.padding);
             } else if (request.operation === "frame") {
                 output = await captureFrame(source, native(request.units));
@@ -154,4 +156,24 @@ async function captureComponents(source: string, raw: string, width: number, pad
     };
     loader.stop();
     return output;
+}
+
+async function captureSelect(source: string, raw: string, width: number): Promise<unknown> {
+    const module = await import(pathToFileURL(path.join(source, "components/select-list.ts")).href);
+    const identity = (value: string): string => value;
+    const theme = { selectedPrefix: identity, selectedText: identity, description: identity, scrollInfo: identity, noMatch: identity };
+    const items = [0,1,2].map((index) => ({ value: raw + index, label: raw + "label" + index, description: raw + "\r\n desc " + raw }));
+    const list = new module.SelectList(items, 2, theme);
+    const callbacks: string[] = [];
+    list.onSelect = (item: { value: string }) => callbacks.push(item.value);
+    const lines = [list.render(width)];
+    list.handleInput("\x1b[B");
+    list.handleInput("\r");
+    lines.push(list.render(width));
+    list.setFilter(raw);
+    lines.push(list.render(width));
+    const selected = list.getSelectedItem()?.value ?? null;
+    list.setFilter(raw + "missing");
+    lines.push(list.render(width));
+    return [lines, selected, callbacks];
 }
