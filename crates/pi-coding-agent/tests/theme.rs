@@ -7,6 +7,7 @@
 #[path = "support/env_probe.rs"]
 mod env_probe;
 
+use pi_js_compat::js_json::JsString;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -247,26 +248,26 @@ fn theme_detection_probe() {
     );
 
     assert_eq!(
-        parse_auto_theme_setting(Some("light/dark")),
+        parse_auto_theme_setting(Some(&JsString::from("light/dark"))),
         Some(pi_coding_agent::modes::interactive::theme::AutoThemeSetting {
-            light_theme: "light".to_owned(),
-            dark_theme: "dark".to_owned(),
+            light_theme: JsString::from("light"),
+            dark_theme: JsString::from("dark"),
         })
     );
     assert_eq!(
-        resolve_theme_setting(Some("dark"), TerminalTheme::Light).as_deref(),
-        Some("dark")
+        resolve_theme_setting(Some(&JsString::from("dark")), TerminalTheme::Light).as_ref(),
+        Some(&JsString::from("dark"))
     );
     assert_eq!(
-        resolve_theme_setting(Some("light/dark"), TerminalTheme::Light).as_deref(),
-        Some("light")
+        resolve_theme_setting(Some(&JsString::from("light/dark")), TerminalTheme::Light).as_ref(),
+        Some(&JsString::from("light"))
     );
     assert_eq!(
-        resolve_theme_setting(Some("light/dark"), TerminalTheme::Dark).as_deref(),
-        Some("dark")
+        resolve_theme_setting(Some(&JsString::from("light/dark")), TerminalTheme::Dark).as_ref(),
+        Some(&JsString::from("dark"))
     );
     assert_eq!(
-        resolve_theme_setting(Some("light/dark/extra"), TerminalTheme::Dark),
+        resolve_theme_setting(Some(&JsString::from("light/dark/extra")), TerminalTheme::Dark),
         None
     );
 }
@@ -328,31 +329,31 @@ fn theme_export_probe() {
     use pi_coding_agent::modes::interactive::theme::{ThemeExportColors, get_theme_export_colors};
 
     assert_eq!(
-        get_theme_export_colors(Some("custom-export-vars")),
+        get_theme_export_colors(Some(&JsString::from("custom-export-vars"))),
         ThemeExportColors {
-            page_bg: Some("#112233".to_owned()),
-            card_bg: Some("#223344".to_owned()),
-            info_bg: Some("#445566".to_owned()),
+            page_bg: Some(JsString::from("#112233")),
+            card_bg: Some(JsString::from("#223344")),
+            info_bg: Some(JsString::from("#445566")),
         }
     );
     assert_eq!(
-        get_theme_export_colors(Some("custom-export-recursive")),
+        get_theme_export_colors(Some(&JsString::from("custom-export-recursive"))),
         ThemeExportColors {
-            page_bg: Some("#abcdef".to_owned()),
-            card_bg: Some("#005f87".to_owned()),
+            page_bg: Some(JsString::from("#abcdef")),
+            card_bg: Some(JsString::from("#005f87")),
             info_bg: None,
         }
     );
     assert_eq!(
-        get_theme_export_colors(Some("dark")),
+        get_theme_export_colors(Some(&JsString::from("dark"))),
         ThemeExportColors {
-            page_bg: Some("#18181e".to_owned()),
-            card_bg: Some("#1e1e24".to_owned()),
-            info_bg: Some("#3c3728".to_owned()),
+            page_bg: Some(JsString::from("#18181e")),
+            card_bg: Some(JsString::from("#1e1e24")),
+            info_bg: Some(JsString::from("#3c3728")),
         }
     );
     assert_eq!(
-        get_theme_export_colors(Some("does-not-exist")),
+        get_theme_export_colors(Some(&JsString::from("does-not-exist"))),
         ThemeExportColors::default()
     );
 }
@@ -407,7 +408,7 @@ fn theme_picker_probe() {
         .map(|info| {
             serde_json::json!({
                 "name": info.name,
-                "path": info.path.map(|path| path.display().to_string()),
+                "path": info.path,
             })
         })
         .collect();
@@ -449,7 +450,11 @@ fn theme_scrollbar_probe() {
     legacy["name"] = serde_json::json!("legacy-scrollbar-theme");
     legacy["colors"].as_object_mut().unwrap().remove("scrollbarThumb");
     let (_directory, path) = write_theme("legacy", &legacy);
-    let theme = load_theme_from_path(&path, Some(ColorMode::Truecolor)).unwrap();
+    let theme = load_theme_from_path(
+        &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+        Some(ColorMode::Truecolor),
+    )
+    .unwrap();
     assert_eq!(
         theme.get_bg_ansi(ThemeBg::ScrollbarThumb),
         theme.get_bg_ansi(ThemeBg::SelectedBg)
@@ -459,7 +464,11 @@ fn theme_scrollbar_probe() {
     custom["name"] = serde_json::json!("custom-scrollbar-theme");
     custom["colors"]["scrollbarThumb"] = serde_json::json!("#123456");
     let (_directory, path) = write_theme("custom", &custom);
-    let theme = load_theme_from_path(&path, Some(ColorMode::Truecolor)).unwrap();
+    let theme = load_theme_from_path(
+        &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+        Some(ColorMode::Truecolor),
+    )
+    .unwrap();
     assert_eq!(theme.get_bg_ansi(ThemeBg::ScrollbarThumb), "\x1b[48;2;18;52;86m");
 
     let mut legacy_search = dark.clone();
@@ -470,7 +479,11 @@ fn theme_scrollbar_probe() {
         .unwrap()
         .remove("searchMatchText");
     let (_directory, path) = write_theme("legacy-search", &legacy_search);
-    let theme = load_theme_from_path(&path, Some(ColorMode::Truecolor)).unwrap();
+    let theme = load_theme_from_path(
+        &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+        Some(ColorMode::Truecolor),
+    )
+    .unwrap();
     assert_eq!(
         theme.get_bg_ansi(ThemeBg::SearchMatchBg),
         theme.get_bg_ansi(ThemeBg::SelectedBg)
@@ -485,7 +498,11 @@ fn theme_scrollbar_probe() {
     custom_search["colors"]["searchMatchBg"] = serde_json::json!("#112233");
     custom_search["colors"]["searchMatchText"] = serde_json::json!("#223344");
     let (_directory, path) = write_theme("custom-search", &custom_search);
-    let theme = load_theme_from_path(&path, Some(ColorMode::Truecolor)).unwrap();
+    let theme = load_theme_from_path(
+        &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+        Some(ColorMode::Truecolor),
+    )
+    .unwrap();
     assert_eq!(theme.get_bg_ansi(ThemeBg::SearchMatchBg), "\x1b[48;2;17;34;51m");
     assert_eq!(theme.get_fg_ansi(ThemeColor::SearchMatchText), "\x1b[38;2;34;51;68m");
 }
@@ -518,7 +535,7 @@ fn theme_global_probe() {
         true_color: false,
         hyperlinks: false,
     });
-    let ansi256_theme = get_theme_by_name("dark").expect("dark theme");
+    let ansi256_theme = get_theme_by_name(&JsString::from("dark")).expect("dark theme");
     assert_eq!(ansi256_theme.get_color_mode(), ColorMode::Color256);
     assert!(ansi256_theme.get_fg_ansi(ThemeColor::Accent).starts_with("\x1b[38;5;"));
 
@@ -527,7 +544,7 @@ fn theme_global_probe() {
         true_color: true,
         hyperlinks: false,
     });
-    let truecolor_theme = get_theme_by_name("dark").expect("dark theme");
+    let truecolor_theme = get_theme_by_name(&JsString::from("dark")).expect("dark theme");
     assert_eq!(truecolor_theme.get_color_mode(), ColorMode::Truecolor);
     assert!(
         truecolor_theme
@@ -535,30 +552,38 @@ fn theme_global_probe() {
             .starts_with("\x1b[38;2;")
     );
 
-    init_theme(Some("missing-theme"), false).expect("dark fallback");
-    assert_eq!(current_theme().name.as_deref(), Some("dark"));
+    init_theme(Some(&JsString::from("missing-theme")), false).expect("dark fallback");
+    assert_eq!(current_theme().name.as_ref(), Some(&JsString::from("dark")));
 
     let changes = Rc::new(Cell::new(0));
     let counter = Rc::clone(&changes);
     on_theme_change(Rc::new(move || counter.set(counter.get() + 1)));
-    let result = set_theme("light", false).expect("light theme");
+    let result = set_theme(&JsString::from("light"), false).expect("light theme");
     assert!(result.success);
     assert_eq!(result.error, None);
-    assert_eq!(current_theme().name.as_deref(), Some("light"));
+    assert_eq!(current_theme().name.as_ref(), Some(&JsString::from("light")));
     assert_eq!(changes.get(), 1);
 
-    let failure = set_theme("does-not-exist", false).expect("dark fallback");
+    let failure = set_theme(&JsString::from("does-not-exist"), false).expect("dark fallback");
     assert!(!failure.success);
-    assert_eq!(failure.error.as_deref(), Some("Theme not found: does-not-exist"));
-    assert_eq!(current_theme().name.as_deref(), Some("dark"));
+    assert_eq!(
+        failure.error.as_ref(),
+        Some(&JsString::from("Theme not found: does-not-exist"))
+    );
+    assert_eq!(current_theme().name.as_ref(), Some(&JsString::from("dark")));
 
-    let in_memory = std::sync::Arc::new(get_theme_by_name("light").expect("light theme").as_ref().clone());
+    let in_memory = std::sync::Arc::new(
+        get_theme_by_name(&JsString::from("light"))
+            .expect("light theme")
+            .as_ref()
+            .clone(),
+    );
     set_theme_instance(in_memory);
-    assert_eq!(current_theme().name.as_deref(), Some("light"));
+    assert_eq!(current_theme().name.as_ref(), Some(&JsString::from("light")));
 
-    let slash = set_theme("bad/name", false).expect("dark fallback");
+    let slash = set_theme(&JsString::from("bad/name"), false).expect("dark fallback");
     assert!(!slash.success);
-    assert_eq!(slash.error.as_deref(), Some("Theme not found: bad/name"));
+    assert_eq!(slash.error.as_ref(), Some(&JsString::from("Theme not found: bad/name")));
 }
 
 #[test]
@@ -601,7 +626,7 @@ fn theme_resolved_probe() {
 
     let output_path = std::env::var("THEME_PROBE_OUT").expect("THEME_PROBE_OUT");
     let output = serde_json::json!({
-        "dark": get_resolved_theme_colors(Some("dark")).unwrap(),
+        "dark": get_resolved_theme_colors(Some(&JsString::from("dark"))).unwrap(),
     });
     fs::write(output_path, serde_json::to_string(&output).unwrap()).expect("write probe output");
 }
@@ -629,22 +654,35 @@ fn theme_validation_probe() {
     };
 
     let (_directory, path) = write("{\"name\":\"x\"}");
-    let error = load_theme_from_path(&path, None).unwrap_err().to_string();
+    let error = load_theme_from_path(
+        &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+        None,
+    )
+    .unwrap_err()
+    .to_string();
     assert!(error.starts_with("Invalid theme \""));
     assert!(error.ends_with("\n\nOther errors:\n  - /: must have required properties colors"));
     assert!(!error.contains("Missing required color tokens"));
 
     let (_directory, path) = write("{\"name\":\"x\",\"colors\":{}}");
-    let error = load_theme_from_path(&path, None).unwrap_err().to_string();
+    let error = load_theme_from_path(
+        &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+        None,
+    )
+    .unwrap_err()
+    .to_string();
     assert!(error.contains("Missing required color tokens:\n  - accent\n"));
     assert!(!error.contains("Other errors"));
 
     let (_directory, path) = write("[]");
     assert!(
-        load_theme_from_path(&path, None)
-            .unwrap_err()
-            .to_string()
-            .contains("/: must be object")
+        load_theme_from_path(
+            &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+            None
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("/: must be object")
     );
 
     let dark: serde_json::Value = serde_json::from_str(
@@ -661,7 +699,12 @@ fn theme_validation_probe() {
     slash["name"] = serde_json::json!("a/b");
     let (_directory, path) = write(&serde_json::to_string(&slash).unwrap());
     assert_eq!(
-        load_theme_from_path(&path, None).unwrap_err().to_string(),
+        load_theme_from_path(
+            &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+            None
+        )
+        .unwrap_err()
+        .to_string(),
         "Invalid theme name \"a/b\": theme names cannot contain \"/\" because it is reserved for automatic light/dark theme settings."
     );
 
@@ -670,7 +713,12 @@ fn theme_validation_probe() {
     bad["colors"]["extraColor"] = serde_json::json!("#fff");
     let (_directory, path) = write(&serde_json::to_string(&bad).unwrap());
     assert_eq!(
-        load_theme_from_path(&path, None).unwrap_err().to_string(),
+        load_theme_from_path(
+            &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+            None
+        )
+        .unwrap_err()
+        .to_string(),
         "Invalid hex color: #fff"
     );
 
@@ -680,7 +728,12 @@ fn theme_validation_probe() {
     circular["colors"]["accent"] = serde_json::json!("a");
     let (_directory, path) = write(&serde_json::to_string(&circular).unwrap());
     assert_eq!(
-        load_theme_from_path(&path, None).unwrap_err().to_string(),
+        load_theme_from_path(
+            &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+            None
+        )
+        .unwrap_err()
+        .to_string(),
         "Circular variable reference detected: a"
     );
 
@@ -689,7 +742,12 @@ fn theme_validation_probe() {
     missing_var["colors"]["accent"] = serde_json::json!("doesnotexist");
     let (_directory, path) = write(&serde_json::to_string(&missing_var).unwrap());
     assert_eq!(
-        load_theme_from_path(&path, None).unwrap_err().to_string(),
+        load_theme_from_path(
+            &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+            None
+        )
+        .unwrap_err()
+        .to_string(),
         "Variable reference not found: doesnotexist"
     );
 }
@@ -709,15 +767,21 @@ fn theme_language_probe() {
     }
     use pi_coding_agent::modes::interactive::theme::{get_language_from_path, is_light_theme};
 
-    assert_eq!(get_language_from_path("src/main.rs"), Some("rust"));
-    assert_eq!(get_language_from_path("src/app.TSX"), Some("typescript"));
-    assert_eq!(get_language_from_path("Makefile"), Some("makefile"));
-    assert_eq!(get_language_from_path("Dockerfile"), Some("dockerfile"));
-    assert_eq!(get_language_from_path("notes.unknown"), None);
-    assert_eq!(get_language_from_path("no-extension"), None);
-    assert_eq!(get_language_from_path("trailing."), None);
-    assert!(is_light_theme(Some("light")));
-    assert!(!is_light_theme(Some("dark")));
+    assert_eq!(get_language_from_path(&JsString::from("src/main.rs")), Some("rust"));
+    assert_eq!(
+        get_language_from_path(&JsString::from("src/app.TSX")),
+        Some("typescript")
+    );
+    assert_eq!(get_language_from_path(&JsString::from("Makefile")), Some("makefile"));
+    assert_eq!(
+        get_language_from_path(&JsString::from("Dockerfile")),
+        Some("dockerfile")
+    );
+    assert_eq!(get_language_from_path(&JsString::from("notes.unknown")), None);
+    assert_eq!(get_language_from_path(&JsString::from("no-extension")), None);
+    assert_eq!(get_language_from_path(&JsString::from("trailing.")), None);
+    assert!(is_light_theme(Some(&JsString::from("light"))));
+    assert!(!is_light_theme(Some(&JsString::from("dark"))));
     assert!(!is_light_theme(None));
 }
 
@@ -746,9 +810,12 @@ fn theme_missing_builtin_probe() {
     assert_eq!(get_available_themes().unwrap_err().to_string(), expected);
     assert_eq!(get_available_themes_with_paths().unwrap_err().to_string(), expected);
     // `getThemeByName` catches, so it returns undefined instead of throwing.
-    assert!(get_theme_by_name("dark").is_none());
+    assert!(get_theme_by_name(&JsString::from("dark")).is_none());
     // `setTheme` catches the requested theme, then the dark fallback re-throws.
-    assert_eq!(set_theme("light", false).unwrap_err().to_string(), expected);
+    assert_eq!(
+        set_theme(&JsString::from("light"), false).unwrap_err().to_string(),
+        expected
+    );
     assert_eq!(
         try_current_theme().unwrap_err(),
         ThemeError::NotInitialized,
