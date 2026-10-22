@@ -522,7 +522,13 @@ async fn run_native_bridge_command(input: &JsValue) -> JsValue {
         options.model = Some(model);
     }
     let harness = Harness::new(vec![extension.clone()], runtime, options).await;
-    let handler = extension.read().commands.get(&"usage".into()).unwrap().handler.clone();
+    let handler = extension
+        .read()
+        .commands
+        .get(&JsString::from("usage"))
+        .unwrap()
+        .handler
+        .clone();
     let error = handler(
         input.get("args").and_then(JsValue::as_string).unwrap().clone(),
         harness.command_context(),
