@@ -10,6 +10,7 @@ use pi_coding_agent::core::settings_manager::{
     DefaultProjectTrust, DoubleEscapeAction, PackageSource, SettingsManager, SettingsManagerCreateOptions,
     SettingsScope, TreeFilterMode,
 };
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
@@ -157,7 +158,7 @@ fn apply_step(manager: &mut SettingsManager, step: &Value, agent_dir: &Path, pro
         });
 
     match op {
-        "set_last_changelog_version" => manager.set_last_changelog_version(value.as_str().unwrap()),
+        "set_last_changelog_version" => manager.set_last_changelog_version(&JsString::from(value.as_str().unwrap())),
         "set_enable_analytics" => manager.set_enable_analytics(value.as_bool().unwrap()),
         "set_theme" => manager.set_theme(value.as_str().unwrap()),
         "set_default_provider" => manager.set_default_provider(value.as_str().unwrap()),

@@ -1100,7 +1100,7 @@ impl SettingsManager {
         self.settings.get("lastChangelogVersion").and_then(Value::as_string)
     }
 
-    pub fn set_last_changelog_version(&mut self, version: &str) {
+    pub fn set_last_changelog_version(&mut self, version: &JsString) {
         set_string(&mut self.global_settings, "lastChangelogVersion", version);
         self.mark_modified("lastChangelogVersion", None);
         self.save();
