@@ -144,7 +144,7 @@ impl ErrorCase {
 fn body_value(body: &ErrorBody) -> Value {
     match body {
         ErrorBody::Text(text) => json!(text),
-        ErrorBody::Json(value) => value.clone(),
+        ErrorBody::Json(value) => json!(value),
     }
 }
 

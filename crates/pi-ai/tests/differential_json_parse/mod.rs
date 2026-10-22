@@ -56,7 +56,7 @@ fn compare_strict_parsing(oracle: &mut oracle::TsOracle) {
                 );
                 assert_eq!(
                     normalize_numbers(result["value"].clone()),
-                    normalize_numbers(value),
+                    normalize_numbers(json!(value)),
                     "strict parse mismatch for {text:?}"
                 );
             }
@@ -90,7 +90,9 @@ fn compare_streaming_parsing(oracle: &mut oracle::TsOracle) {
     for (index, (result, text)) in results.iter().zip(cases.iter()).enumerate() {
         assert_eq!(
             normalize_numbers(result["value"].clone()),
-            normalize_numbers(parse_streaming_json(text.as_deref())),
+            normalize_numbers(json!(parse_streaming_json(
+                text.as_ref().map(pi_js_compat::js_json::JsString::from).as_ref()
+            ))),
             "streaming mismatch for case {index}: {text:?}"
         );
     }

@@ -49,7 +49,7 @@ fn assistant_message_round_trips_exact_wire_shape() {
     let AssistantContent::ToolCall(call) = &assistant.content[2] else {
         panic!("third block must be a tool call");
     };
-    assert_eq!(call.arguments["limit"], 10.into());
+    assert_eq!(call.arguments["limit"], pi_js_compat::js_json::JsValue::Number(10.0));
 }
 
 fn round_trip_stream_block(kind: &str, block: Value) {

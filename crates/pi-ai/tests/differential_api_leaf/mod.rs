@@ -51,7 +51,8 @@ fn compare_prompt_cache_keys(oracle: &mut oracle::TsOracle) {
         .expect("clamp results must be an array");
     assert_eq!(results.len(), cases.len());
     for (result, key) in results.iter().zip(cases.iter()) {
-        let actual = clamp_openai_prompt_cache_key(key.as_deref()).map_or(Value::Null, |key| json!(key));
+        let actual = clamp_openai_prompt_cache_key(key.as_ref().map(pi_js_compat::js_json::JsString::from).as_ref())
+            .map_or(Value::Null, |key| json!(key));
         assert_eq!(result["key"], actual, "clamp mismatch for {key:?}");
     }
 }

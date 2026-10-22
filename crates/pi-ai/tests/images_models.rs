@@ -295,7 +295,10 @@ async fn merges_provider_resolved_env_into_image_options() {
     let env = recorded.request.env.as_ref().expect("merged env");
     let keys: Vec<&str> = env.keys().map(String::as_str).collect();
     assert_eq!(keys, vec!["zeta", "SHARED", "alpha"]);
-    assert_eq!(env.get("SHARED").map(String::as_str), Some("request"));
+    assert_eq!(
+        env.get("SHARED"),
+        Some(&pi_js_compat::js_json::JsString::from("request"))
+    );
 }
 
 #[tokio::test]
@@ -339,8 +342,14 @@ async fn applies_auth_base_url_and_headers_to_the_request_model() {
     assert_eq!(
         recorded.options.request.headers,
         Some(IndexMap::from([
-            ("x-auth".to_owned(), Some("request".to_owned())),
-            ("x-request".to_owned(), Some("request".to_owned())),
+            (
+                "x-auth".to_owned(),
+                Some(pi_js_compat::js_json::JsString::from("request"))
+            ),
+            (
+                "x-request".to_owned(),
+                Some(pi_js_compat::js_json::JsString::from("request"))
+            ),
         ]))
     );
 }

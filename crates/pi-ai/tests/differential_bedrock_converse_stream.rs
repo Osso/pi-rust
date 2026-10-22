@@ -893,7 +893,7 @@ async fn run_rust(
         fetch.requests(),
         events,
         message,
-        captured.lock().expect("capture").clone(),
+        json!(captured.lock().expect("capture").clone()),
     )
 }
 
@@ -1009,7 +1009,7 @@ fn verify_signature(scenario: &Scenario, oracle_request: &Value) {
     if let Some(api_key) = &scenario.options.request.api_key {
         assert_eq!(
             oracle_request["headers"]["Authorization"].as_str(),
-            Some(format!("Bearer {api_key}").as_str()),
+            Some(pi_js_compat::js_json::encode_node_utf8(&pi_js_compat::js_format!("Bearer {}", api_key)).as_str()),
             "bearer authorization mismatch for {}",
             scenario.name
         );

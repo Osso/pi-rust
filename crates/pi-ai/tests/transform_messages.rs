@@ -132,7 +132,7 @@ fn converts_thinking_blocks_to_text_when_the_source_model_differs() {
     let texts: Vec<&str> = content
         .iter()
         .filter_map(|block| match block {
-            AssistantContent::Text(text) => Some(text.text.as_str()),
+            AssistantContent::Text(text) => Some(&text.text),
             _ => None,
         })
         .collect();

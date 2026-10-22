@@ -65,11 +65,14 @@ fn response_chunks(scenario: &Value) -> Vec<Vec<u8>> {
     if scenario["response"]["chunking"].as_str() == Some("bytes") {
         chunks
             .into_iter()
-            .flat_map(String::into_bytes)
+            .flat_map(|text| pi_js_compat::js_json::encode_node_utf8(&text).into_bytes())
             .map(|byte| vec![byte])
             .collect()
     } else {
-        chunks.into_iter().map(String::into_bytes).collect()
+        chunks
+            .into_iter()
+            .map(|text| pi_js_compat::js_json::encode_node_utf8(&text).into_bytes())
+            .collect()
     }
 }
 
@@ -105,7 +108,7 @@ fn stream_options(scenario: &Value, fetch: Arc<RecordingFetch>) -> StreamOptions
         }
     }
     if options["onPayload"].as_str() == Some("augment") {
-        stream_options.request.on_payload = Some(Arc::new(|payload: Value, _model: Model| {
+        stream_options.request.on_payload = Some(Arc::new(|payload: pi_js_compat::js_json::JsValue, _model: Model| {
             Box::pin(async move {
                 let mut payload = payload;
                 let object = payload.as_object_mut().expect("payload object");

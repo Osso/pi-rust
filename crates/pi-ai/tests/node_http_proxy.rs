@@ -113,14 +113,14 @@ use url::Url;
 fn env(pairs: &[(&str, &str)]) -> ProviderEnv {
     pairs
         .iter()
-        .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+        .map(|(key, value)| ((*key).to_owned(), pi_js_compat::js_json::JsString::from(*value)))
         .collect()
 }
 
 fn process(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
     pairs
         .iter()
-        .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+        .map(|(key, value)| ((*key).to_owned(), pi_js_compat::js_json::JsString::from(*value)))
         .collect()
 }
 

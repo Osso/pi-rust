@@ -131,7 +131,7 @@ fn compare_conversion(
     let allowed_set = allowed.iter().map(|value| (*value).to_owned()).collect::<BTreeSet<_>>();
     let parsed_options = options.map(convert_options);
     let actual = convert_responses_messages(&parsed_model, &parsed_context, &allowed_set, parsed_options.as_ref())
-        .map(Value::Array)
+        .map(|value| json!(value))
         .unwrap_or_else(|error| json!({"error": error}));
     assert_eq!(actual, expected, "convertMessages scenario {id}");
 }

@@ -236,7 +236,7 @@ async fn builds_adaptive_and_budget_thinking_payloads() {
     let mut stream_options = options(adaptive_fetch.clone(), env());
     stream_options.extra.insert("reasoning".to_owned(), json!("xhigh"));
     stream_options.request.on_payload = Some(Arc::new(move |payload, _model| {
-        *captured_clone.lock().expect("capture") = Some(payload);
+        *captured_clone.lock().expect("capture") = Some(json!(payload));
         Box::pin(async { Ok(None) })
     }));
     drain(stream(model(), context(), stream_options)).await;
@@ -365,7 +365,7 @@ async fn reports_crc_checksum_failures() {
 
     assert_eq!(message.stop_reason, StopReason::Error);
     let error_message = message.error_message.expect("error message");
-    assert!(error_message.starts_with("The message checksum ("), "{error_message}");
+    assert!(error_message.starts_with("The message checksum ("), "{error_message:?}");
     assert!(error_message.contains("did not match the expected value of"));
     assert_eq!(
         message

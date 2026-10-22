@@ -216,38 +216,43 @@ async fn serializes_sdk_style_payloads_to_the_mistral_wire_format() {
     });
     options.stream.session_id = Some(("session-1".to_owned()).into());
     options.stream.request.headers = Some(
-        [("x-custom".to_owned(), Some("value".to_owned()))]
-            .into_iter()
-            .collect(),
+        [(
+            "x-custom".to_owned(),
+            Some(pi_js_compat::js_json::JsString::from("value")),
+        )]
+        .into_iter()
+        .collect(),
     );
-    options.stream.request.on_payload = Some(Arc::new(move |payload: Value, _model: Model| {
-        let captured = Arc::clone(&captured_clone);
-        Box::pin(async move {
-            *captured.lock().unwrap() = Some(payload.clone());
-            let mut augmented = payload;
-            let object = augmented.as_object_mut().unwrap();
-            object.insert("topP".to_owned(), json!(0.9));
-            object.insert("randomSeed".to_owned(), json!(42));
-            object.insert(
-                "responseFormat".to_owned(),
-                json!({
-                    "type": "json_schema",
-                    "jsonSchema": {
-                        "name": "result",
-                        "schemaDefinition": {
-                            "type": "object",
-                            "properties": {"maxTokens": {"type": "number"}},
+    options.stream.request.on_payload = Some(Arc::new(
+        move |payload: pi_js_compat::js_json::JsValue, _model: Model| {
+            let captured = Arc::clone(&captured_clone);
+            Box::pin(async move {
+                *captured.lock().unwrap() = Some(payload.clone());
+                let mut augmented = payload;
+                let object = augmented.as_object_mut().unwrap();
+                object.insert("topP".to_owned(), json!(0.9));
+                object.insert("randomSeed".to_owned(), json!(42));
+                object.insert(
+                    "responseFormat".to_owned(),
+                    json!({
+                        "type": "json_schema",
+                        "jsonSchema": {
+                            "name": "result",
+                            "schemaDefinition": {
+                                "type": "object",
+                                "properties": {"maxTokens": {"type": "number"}},
+                            },
                         },
-                    },
-                }),
-            );
-            object.insert("presencePenalty".to_owned(), json!(0.1));
-            object.insert("frequencyPenalty".to_owned(), json!(0.2));
-            object.insert("parallelToolCalls".to_owned(), json!(true));
-            object.insert("safePrompt".to_owned(), json!(true));
-            Ok(Some(augmented))
-        })
-    }));
+                    }),
+                );
+                object.insert("presencePenalty".to_owned(), json!(0.1));
+                object.insert("frequencyPenalty".to_owned(), json!(0.2));
+                object.insert("parallelToolCalls".to_owned(), json!(true));
+                object.insert("safePrompt".to_owned(), json!(true));
+                Ok(Some(augmented))
+            })
+        },
+    ));
 
     let observed = Arc::new(Mutex::new(None));
     let observed_clone = Arc::clone(&observed);
@@ -515,8 +520,14 @@ async fn honors_case_insensitive_header_overrides_and_explicit_affinity_suppress
     let mut model = model("mistral-large-latest", false);
     model.headers = Some(
         [
-            ("Authorization".to_owned(), "Bearer model-key".to_owned()),
-            ("X-Affinity".to_owned(), "model-affinity".to_owned()),
+            (
+                "Authorization".to_owned(),
+                pi_js_compat::js_json::JsString::from("Bearer model-key"),
+            ),
+            (
+                "X-Affinity".to_owned(),
+                pi_js_compat::js_json::JsString::from("model-affinity"),
+            ),
         ]
         .into_iter()
         .collect(),
@@ -630,7 +641,10 @@ async fn preserves_raw_mistral_finish_reasons() {
 
         assert_eq!(message.stop_reason, expected_stop, "{finish_reason}");
         assert_eq!(message.raw_stop_reason.as_deref(), Some(finish_reason));
-        assert_eq!(message.error_message.as_ref(), expected_error);
+        assert_eq!(
+            message.error_message.as_ref(),
+            expected_error.map(pi_js_compat::js_json::JsString::from).as_ref()
+        );
     }
 }
 
@@ -744,13 +758,15 @@ async fn capture_reasoning_payload(model_id: &str, reasoning: Option<pi_ai::type
     let mut stream_options = SimpleStreamOptions::default();
     stream_options.stream.request.fetch = Some(fetch);
     stream_options.stream.request.api_key = Some(("fake-key".to_owned()).into());
-    stream_options.stream.request.on_payload = Some(Arc::new(move |payload: Value, _model: Model| {
-        let captured = Arc::clone(&captured_clone);
-        Box::pin(async move {
-            *captured.lock().unwrap() = Some(payload.clone());
-            Ok(None)
-        })
-    }));
+    stream_options.stream.request.on_payload = Some(Arc::new(
+        move |payload: pi_js_compat::js_json::JsValue, _model: Model| {
+            let captured = Arc::clone(&captured_clone);
+            Box::pin(async move {
+                *captured.lock().unwrap() = Some(payload.clone());
+                Ok(None)
+            })
+        },
+    ));
     stream_options.reasoning = reasoning;
 
     let event_stream = stream_simple(model(model_id, true), context(), stream_options);

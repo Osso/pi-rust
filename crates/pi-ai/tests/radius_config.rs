@@ -67,7 +67,9 @@ fn sanitizes_valid_configs_and_filters_shallowly_invalid_models() {
         "maxTokens": 1
     }));
 
-    let parsed = sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(&value)).expect("config");
+    let parsed = sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(&value))
+        .unwrap()
+        .expect("config");
     assert_eq!(parsed.base_url, "https://radius.example/v1");
     assert_eq!(parsed.models.len(), 2);
     assert_eq!(parsed.models[0].id, "alpha");
@@ -77,14 +79,31 @@ fn sanitizes_valid_configs_and_filters_shallowly_invalid_models() {
 
 #[test]
 fn rejects_non_object_or_malformed_configs() {
-    assert!(sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(&json!(null))).is_none());
-    assert!(sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(&json!([]))).is_none());
-    assert!(sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(&json!({"baseUrl": "x"}))).is_none());
-    assert!(sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(&json!({"models": []}))).is_none());
+    assert!(
+        sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(&json!(null)))
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(&json!([])))
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(&json!({"baseUrl": "x"})))
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(&json!({"models": []})))
+            .unwrap()
+            .is_none()
+    );
     assert!(
         sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(
             &json!({"baseUrl": 1, "models": []})
         ))
+        .unwrap()
         .is_none()
     );
 }
@@ -93,20 +112,24 @@ fn rejects_non_object_or_malformed_configs() {
 fn reads_the_gateway_config_from_the_credential_extra_fields() {
     let mut credential = OAuthCredential::new("r", "a", 0.0);
     credential.extra.insert("gatewayConfig".into(), config().into());
-    let parsed = get_radius_credential_config(Some(&credential)).expect("gateway config");
+    let parsed = get_radius_credential_config(Some(&credential))
+        .unwrap()
+        .expect("gateway config");
     assert_eq!(parsed.models.len(), 2);
 
     let mut invalid = OAuthCredential::new("r", "a", 0.0);
     invalid
         .extra
         .insert("gatewayConfig".into(), json!({"baseUrl": 1}).into());
-    assert!(get_radius_credential_config(Some(&invalid)).is_none());
-    assert!(get_radius_credential_config(None).is_none());
+    assert!(get_radius_credential_config(Some(&invalid)).unwrap().is_none());
+    assert!(get_radius_credential_config(None).unwrap().is_none());
 }
 
 #[test]
 fn builds_pi_messages_models_from_gateway_entries() {
-    let parsed = sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(&config())).unwrap();
+    let parsed = sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(&config()))
+        .unwrap()
+        .unwrap();
     let models = get_radius_models_from_config("radius", &parsed);
     assert_eq!(models.len(), 2);
     let model = &models[0];
@@ -121,8 +144,8 @@ fn builds_pi_messages_models_from_gateway_entries() {
 
     let mut credential = OAuthCredential::new("r", "a", 0.0);
     credential.extra.insert("gatewayConfig".into(), config().into());
-    assert_eq!(get_radius_models("radius", Some(&credential)).len(), 2);
-    assert!(get_radius_models("radius", None).is_empty());
+    assert_eq!(get_radius_models("radius", Some(&credential)).unwrap().len(), 2);
+    assert!(get_radius_models("radius", None).unwrap().is_empty());
 }
 
 #[tokio::test]

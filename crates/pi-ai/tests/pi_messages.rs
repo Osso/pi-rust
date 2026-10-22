@@ -194,7 +194,11 @@ async fn streams_text_and_tool_calls_and_resolves_the_terminal_message() {
     stream_options.stream.session_id = Some(("session-1".to_owned()).into());
     stream_options.tool_choice = Some(PiMessagesToolChoice::Auto);
     stream_options.stream.max_tokens = Some(100.0);
-    stream_options.stream.request.headers = Some([("x-custom".to_owned(), Some("1".to_owned()))].into_iter().collect());
+    stream_options.stream.request.headers = Some(
+        [("x-custom".to_owned(), Some(pi_js_compat::js_json::JsString::from("1")))]
+            .into_iter()
+            .collect(),
+    );
 
     let (events, message) = collect(stream(model(), context(), stream_options)).await;
 
@@ -325,7 +329,7 @@ async fn surfaces_backend_error_responses_with_diagnostics() {
     let (_, message) = collect(stream(model(), context(), options(fetch, "stale"))).await;
 
     assert_eq!(message.stop_reason, StopReason::Error);
-    let error_message = message.error_message.as_ref().unwrap_or_default();
+    let error_message = message.error_message.clone().unwrap_or_default();
     assert!(error_message.contains("401"));
     assert!(error_message.contains("Token expired"));
     assert!(error_message.contains("unauthorized"));
@@ -366,7 +370,7 @@ async fn errors_when_no_api_key_is_provided() {
     assert!(
         message
             .error_message
-            .as_ref()
+            .clone()
             .unwrap_or_default()
             .contains("No API key provided")
     );
@@ -392,7 +396,7 @@ async fn errors_when_the_stream_ends_without_a_terminal_event() {
     assert!(
         message
             .error_message
-            .as_ref()
+            .clone()
             .unwrap_or_default()
             .contains("stream ended without a terminal event")
     );

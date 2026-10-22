@@ -39,9 +39,16 @@ fn assert_failure(error: &CallbackError, source: &Value, events: &[&str], status
     assert!(source["ownError"]["stack"].is_string());
     assert!(source["stderr"].as_str().expect("raw stderr").contains("TypeError"));
     eprintln!("Native evidence: {error:?}");
-    assert_eq!(error.message, source["error"]["message"]);
+    assert_eq!(
+        error.message,
+        pi_js_compat::js_json::JsString::from(source["error"]["message"].as_str().unwrap())
+    );
     assert_eq!(error.name, source["error"]["name"]);
-    assert_eq!(error.to_string(), error.message, "Display stays message-only");
+    assert_eq!(
+        error.to_string(),
+        pi_js_compat::js_json::encode_node_utf8(&error.message),
+        "Display stays message-only"
+    );
     let cause = error.cause.as_deref().expect("native cause is retained");
     assert!(!cause.is_empty());
     for secret in [

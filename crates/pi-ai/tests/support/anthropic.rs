@@ -28,7 +28,7 @@ fn headers_from_json(value: Option<&Value>) -> Option<ProviderHeaders> {
     Some(
         object
             .iter()
-            .map(|(name, value)| (name.clone(), value.as_str().map(str::to_owned)))
+            .map(|(name, value)| (name.clone(), value.as_str().map(pi_js_compat::js_json::JsString::from)))
             .collect(),
     )
 }
@@ -38,7 +38,11 @@ fn env_from_json(value: Option<&Value>) -> Option<ProviderEnv> {
     Some(
         object
             .iter()
-            .filter_map(|(name, value)| value.as_str().map(|value| (name.clone(), value.to_owned())))
+            .filter_map(|(name, value)| {
+                value
+                    .as_str()
+                    .map(|value| (name.clone(), pi_js_compat::js_json::JsString::from(value)))
+            })
             .collect(),
     )
 }

@@ -74,11 +74,14 @@ fn response_chunks(scenario: &Value) -> Vec<Vec<u8>> {
     if scenario["response"]["chunking"].as_str() == Some("bytes") {
         chunks
             .into_iter()
-            .flat_map(String::into_bytes)
+            .flat_map(|text| pi_js_compat::js_json::encode_node_utf8(&text).into_bytes())
             .map(|byte| vec![byte])
             .collect()
     } else {
-        chunks.into_iter().map(String::into_bytes).collect()
+        chunks
+            .into_iter()
+            .map(|text| pi_js_compat::js_json::encode_node_utf8(&text).into_bytes())
+            .collect()
     }
 }
 
@@ -95,7 +98,11 @@ fn parse_env(value: &Value) -> Option<ProviderEnv> {
     let object = value.as_object()?;
     let env: ProviderEnv = object
         .iter()
-        .filter_map(|(name, value)| value.as_str().map(|value| (name.clone(), value.to_owned())))
+        .filter_map(|(name, value)| {
+            value
+                .as_str()
+                .map(|value| (name.clone(), pi_js_compat::js_json::JsString::from(value)))
+        })
         .collect();
     Some(env)
 }
@@ -128,10 +135,10 @@ fn stream_options(scenario: &Value, fetch: Arc<RecordingFetch>) -> StreamOptions
         stream_options.extra.insert("debug".to_owned(), value.clone());
     }
     if options["onPayload"].as_str() == Some("replace") {
-        stream_options.request.on_payload = Some(Arc::new(|payload: Value, _model: Model| {
+        stream_options.request.on_payload = Some(Arc::new(|payload: pi_js_compat::js_json::JsValue, _model: Model| {
             Box::pin(async move {
                 let mut payload = payload;
-                payload["marker"] = json!(true);
+                payload["marker"] = pi_js_compat::js_json::JsValue::Bool(true);
                 Ok(Some(payload))
             })
         }));
@@ -161,7 +168,11 @@ async fn observe(scenario: &Value) -> Value {
         .map(|headers| {
             headers
                 .iter()
-                .filter_map(|(name, value)| value.as_str().map(|value| (name.clone(), value.to_owned())))
+                .filter_map(|(name, value)| {
+                    value
+                        .as_str()
+                        .map(|value| (name.clone(), pi_js_compat::js_json::JsString::from(value)))
+                })
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
