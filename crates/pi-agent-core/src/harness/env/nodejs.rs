@@ -5,7 +5,7 @@
 
 mod read_lines;
 
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -34,16 +34,16 @@ static TEMP_NAME_COUNTER: AtomicU64 = AtomicU64::new(0);
 #[derive(Debug, Clone, Default)]
 pub struct NodeExecutionEnvOptions {
     pub cwd: JsString,
-    pub shell_path: Option<String>,
-    pub shell_env: HashMap<String, String>,
+    pub shell_path: Option<JsString>,
+    pub shell_env: IndexMap<String, Option<JsString>>,
 }
 
 /// Filesystem and process execution environment backed by the host OS.
 #[derive(Debug)]
 pub struct NodeExecutionEnv {
     cwd: JsString,
-    shell_path: Option<String>,
-    shell_env: HashMap<String, String>,
+    shell_path: Option<JsString>,
+    shell_env: IndexMap<String, Option<JsString>>,
 }
 
 impl NodeExecutionEnv {
@@ -311,7 +311,7 @@ impl NodeExecutionEnv {
         }
         let timeout_ms = resolve_timeout_ms(options.timeout)?;
         let cwd = resolve_exec_cwd(&self.cwd, options.cwd.as_ref());
-        let shell = get_shell_config(self.shell_path.as_deref()).await?;
+        let shell = get_shell_config(self.shell_path.as_ref()).await?;
 
         let mut child = self.spawn_shell(&shell, command, &cwd, &options)?;
         let pid = child.id();
@@ -331,11 +331,15 @@ impl NodeExecutionEnv {
         cwd: &JsString,
         options: &ShellExecOptions,
     ) -> Result<tokio::process::Child, ExecutionError> {
-        let mut process = Command::new(&shell.shell);
+        let mut process = Command::new(encode_node_utf8(&shell.shell));
         process.args(&shell.args).arg(encode_node_utf8(command));
         process.current_dir(encode_node_utf8(cwd));
         process.env_clear();
-        process.envs(build_env(&self.shell_env, options.env.as_ref()));
+        process.envs(
+            build_env(&self.shell_env, options.env.as_ref())
+                .into_iter()
+                .filter_map(|(key, value)| value.map(|value| (key, encode_node_utf8(&value)))),
+        );
         process.stdin(std::process::Stdio::null());
         process.stdout(std::process::Stdio::piped());
         process.stderr(std::process::Stdio::piped());
@@ -345,7 +349,7 @@ impl NodeExecutionEnv {
         process.spawn().map_err(|error| {
             ExecutionError::new(
                 ExecutionErrorCode::SpawnError,
-                pi_js_compat::node_fs::node_spawn_error_record(&error, &shell.shell.clone().into()).message,
+                pi_js_compat::node_fs::node_spawn_error_record(&error, &shell.shell).message,
                 Some(Box::new(error)),
             )
         })
@@ -686,25 +690,28 @@ fn resolve_timeout_ms(timeout: Option<f64>) -> Result<Option<f64>, ExecutionErro
 }
 
 fn build_env(
-    shell_env: &HashMap<String, String>,
-    extra_env: Option<&HashMap<String, String>>,
-) -> HashMap<String, String> {
-    let mut environment = pi_js_compat::process_env::vars().into_iter().collect::<HashMap<_, _>>();
+    shell_env: &IndexMap<String, Option<JsString>>,
+    extra_env: Option<&IndexMap<String, JsString>>,
+) -> IndexMap<String, Option<JsString>> {
+    let mut environment: IndexMap<_, _> = pi_js_compat::process_env::vars()
+        .into_iter()
+        .map(|(key, value)| (key.into(), Some(value.into())))
+        .collect();
     environment.extend(shell_env.iter().map(|(key, value)| (key.clone(), value.clone())));
     if let Some(extra_env) = extra_env {
-        environment.extend(extra_env.iter().map(|(key, value)| (key.clone(), value.clone())));
+        environment.extend(extra_env.iter().map(|(key, value)| (key.clone(), Some(value.clone()))));
     }
     environment
 }
 
 struct ShellConfig {
-    shell: String,
+    shell: JsString,
     args: Vec<String>,
 }
 
-async fn get_shell_config(custom_shell_path: Option<&str>) -> Result<ShellConfig, ExecutionError> {
-    if let Some(custom_shell_path) = custom_shell_path {
-        if path_exists(&custom_shell_path.into()).await {
+async fn get_shell_config(custom_shell_path: Option<&JsString>) -> Result<ShellConfig, ExecutionError> {
+    if let Some(custom_shell_path) = custom_shell_path.filter(|path| !path.is_empty()) {
+        if path_exists(custom_shell_path).await {
             return Ok(ShellConfig {
                 shell: custom_shell_path.to_owned(),
                 args: vec!["-c".to_owned()],
@@ -712,24 +719,24 @@ async fn get_shell_config(custom_shell_path: Option<&str>) -> Result<ShellConfig
         }
         return Err(ExecutionError::new(
             ExecutionErrorCode::ShellUnavailable,
-            format!("Custom shell path not found: {custom_shell_path}"),
+            js_format!("Custom shell path not found: {}", custom_shell_path),
             None,
         ));
     }
     if path_exists(&"/bin/bash".into()).await {
         return Ok(ShellConfig {
-            shell: "/bin/bash".to_owned(),
+            shell: "/bin/bash".into(),
             args: vec!["-c".to_owned()],
         });
     }
     if let Some(bash) = find_bash_on_path().await {
         return Ok(ShellConfig {
-            shell: bash,
+            shell: bash.into(),
             args: vec!["-c".to_owned()],
         });
     }
     Ok(ShellConfig {
-        shell: "sh".to_owned(),
+        shell: "sh".into(),
         args: vec!["-c".to_owned()],
     })
 }

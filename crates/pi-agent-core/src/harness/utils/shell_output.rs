@@ -1,6 +1,7 @@
 //! Frozen shell capture: raw-byte spill threshold and whole-chunk UTF-16 retention.
 
-use std::collections::{HashMap, VecDeque};
+use indexmap::IndexMap;
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
@@ -17,7 +18,7 @@ pub type ShellChunkHandler = dyn Fn(&JsString) -> Result<(), ExecutionError> + S
 #[derive(Clone, Default)]
 pub struct ShellCaptureOptions {
     pub cwd: Option<JsString>,
-    pub env: Option<HashMap<String, String>>,
+    pub env: Option<IndexMap<String, JsString>>,
     pub timeout: Option<f64>,
     pub abort: Option<CancellationToken>,
     pub on_chunk: Option<Arc<ShellChunkHandler>>,

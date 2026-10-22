@@ -16,7 +16,7 @@ fn oracle() -> oracle::TsOracle {
 fn env(root: &str) -> Arc<NodeExecutionEnv> {
     Arc::new(NodeExecutionEnv::new(NodeExecutionEnvOptions {
         cwd: root.into(),
-        shell_env: [("CORE_CONFIG".into(), "configured".into())].into(),
+        shell_env: [("CORE_CONFIG".into(), Some("configured".into()))].into(),
         ..Default::default()
     }))
 }
@@ -439,5 +439,37 @@ async fn temporary_files_and_raw_directory_prefix_match_node_contract() {
         "actual={}\nexpected={}",
         pi_js_compat::js_json::stringify_lossless(&actual),
         pi_js_compat::js_json::stringify_lossless(&expected)
+    );
+}
+
+#[tokio::test]
+async fn shell_options_retain_native_units_until_process_boundary() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = JsString::from(root.path().to_str().unwrap());
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let shell = cwd.clone() + "/" + raw.clone();
+    std::os::unix::fs::symlink("/bin/bash", pi_js_compat::js_json::encode_node_utf8(&shell)).unwrap();
+    let native = NodeExecutionEnv::new(NodeExecutionEnvOptions {
+        cwd: cwd.clone(),
+        shell_path: Some(shell.clone()),
+        shell_env: [("RAW".into(), Some(raw.clone())), ("OMIT".into(), None)].into(),
+    });
+    let command = JsString::from("printf '%s:%s' \"$RAW\" \"$EXTRA\"");
+    let options = ShellExecOptions {
+        env: Some([("EXTRA".into(), raw.clone())].into()),
+        ..Default::default()
+    };
+    let expected=oracle().request(&json!({"kind":"shell-boundary","root":cwd,"shellPath":shell,"shellEnv":{"RAW":raw},"undefinedEnv":["OMIT"],"extraEnv":{"EXTRA":raw},"command":command}));
+    assert_eq!(shell_result(native.exec(&command, options).await), expected);
+    let missing = cwd.clone() + "/missing" + raw;
+    let native = NodeExecutionEnv::new(NodeExecutionEnvOptions {
+        cwd: cwd.clone(),
+        shell_path: Some(missing.clone()),
+        ..Default::default()
+    });
+    let expected = oracle().request(&json!({"kind":"shell-boundary","root":cwd,"shellPath":missing,"command":"true"}));
+    assert_eq!(
+        shell_result(native.exec(&"true".into(), Default::default()).await),
+        expected
     );
 }

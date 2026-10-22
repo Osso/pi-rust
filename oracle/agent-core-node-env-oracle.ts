@@ -7,11 +7,15 @@ async function main(): Promise<void> {
 	const { NodeExecutionEnv } = await import(pathToFileURL(process.argv[2]!).href);
 	for await (const line of createInterface({ input: process.stdin })) {
 		const input = JSON.parse(line);
-		const env = new NodeExecutionEnv({ cwd: input.root, shellEnv: { CORE_CONFIG: "configured" } });
+		const shellEnv = input.shellEnv ?? { CORE_CONFIG: "configured" };
+		for (const key of input.undefinedEnv ?? []) shellEnv[key] = undefined;
+		const env = new NodeExecutionEnv({ cwd: input.root, shellPath: input.shellPath, shellEnv });
 		const controller = new AbortController();
 		controller.abort();
 		let result: unknown;
-		if (input.kind === "temp") {
+		if (input.kind === "shell-boundary") {
+			result = await env.exec(input.command, { env: input.extraEnv });
+		} else if (input.kind === "temp") {
 			const file = await env.createTempFile({ prefix: "pre", suffix: ".end" });
 			if (!file.ok) throw file.error;
 			const name = basename(file.value);

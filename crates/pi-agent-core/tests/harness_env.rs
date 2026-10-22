@@ -2,7 +2,6 @@
 
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::encode_node_utf8;
-use std::collections::HashMap;
 use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::sync::Arc;
@@ -22,9 +21,9 @@ fn temp_dir() -> TempDir {
 
 fn env_at(root: &Path) -> NodeExecutionEnv {
     NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(root.to_str().expect("utf-8 test path").to_owned()),
+        cwd: JsString::from(root.to_str().expect("utf-8 test path")),
         shell_path: None,
-        shell_env: HashMap::new(),
+        shell_env: Default::default(),
     })
 }
 
@@ -44,7 +43,7 @@ async fn reads_writes_lists_and_removes_files_and_directories() {
     assert_eq!(
         env.join_path(
             &[
-                JsString::from(root.path().to_str().expect("utf-8 test path").to_owned()),
+                JsString::from(root.path().to_str().expect("utf-8 test path")),
                 JsString::from("nested"),
                 JsString::from("child")
             ],
@@ -421,7 +420,7 @@ async fn executes_commands_in_cwd_with_environment_overrides() {
         .exec(
             &JsString::from("printf '%s:%s' \"$PWD\" \"$NODE_ENV_TEST\""),
             ShellExecOptions {
-                env: Some(HashMap::from([("NODE_ENV_TEST".to_owned(), "ok".to_owned())])),
+                env: Some([("NODE_ENV_TEST".into(), "ok".into())].into()),
                 ..ShellExecOptions::default()
             },
         )
@@ -440,11 +439,11 @@ async fn executes_commands_in_cwd_with_environment_overrides() {
 #[tokio::test]
 async fn applies_shell_environment_overrides() {
     let root = temp_dir();
-    let mut shell_env = HashMap::new();
-    shell_env.insert("PI_SESSION_FILE".to_owned(), "/stale/parent.jsonl".to_owned());
-    shell_env.insert("PI_CODING_AGENT".to_owned(), "true".to_owned());
+    let mut shell_env = indexmap::IndexMap::new();
+    shell_env.insert("PI_SESSION_FILE".into(), Some("/stale/parent.jsonl".into()));
+    shell_env.insert("PI_CODING_AGENT".into(), Some("true".into()));
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(root.path().to_str().expect("utf-8 test path").to_owned()),
+        cwd: JsString::from(root.path().to_str().expect("utf-8 test path")),
         shell_path: None,
         shell_env,
     });
@@ -462,7 +461,7 @@ async fn applies_shell_environment_overrides() {
         .exec(
             &JsString::from("printf '%s:%s|%s' \"${PI_SESSION_FILE+x}\" \"${PI_SESSION_FILE-}\" \"$PI_CODING_AGENT\""),
             ShellExecOptions {
-                env: Some(HashMap::from([("PI_SESSION_FILE".to_owned(), String::new())])),
+                env: Some([("PI_SESSION_FILE".into(), JsString::default())].into()),
                 ..ShellExecOptions::default()
             },
         )
@@ -563,9 +562,9 @@ async fn returns_shell_unavailable_and_spawn_errors() {
     let root = temp_dir();
     let missing_shell = root.path().join("missing-shell");
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(root.path().to_str().expect("utf-8 test path").to_owned()),
-        shell_path: Some(missing_shell.to_str().expect("utf-8 test path").to_owned()),
-        shell_env: HashMap::new(),
+        cwd: JsString::from(root.path().to_str().expect("utf-8 test path")),
+        shell_path: Some(missing_shell.to_str().expect("utf-8 test path").into()),
+        shell_env: Default::default(),
     });
     let error = env
         .exec(&JsString::from("printf ok"), ShellExecOptions::default())
@@ -586,9 +585,9 @@ async fn returns_shell_unavailable_and_spawn_errors() {
     .await
     .unwrap();
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(root.path().to_str().expect("utf-8 test path").to_owned()),
-        shell_path: Some(shell_path.to_str().expect("utf-8 test path").to_owned()),
-        shell_env: HashMap::new(),
+        cwd: JsString::from(root.path().to_str().expect("utf-8 test path")),
+        shell_path: Some(shell_path.to_str().expect("utf-8 test path").into()),
+        shell_env: Default::default(),
     });
     let error = env
         .exec(&JsString::from("printf ok"), ShellExecOptions::default())
