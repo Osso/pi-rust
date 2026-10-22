@@ -76,3 +76,35 @@ context-file fixture trees compared against the real pinned TypeScript module).
 None found in the ported branches; the context-file differential matched the pinned source for
 ordinary repos, nested/sibling/bare worktrees, submodules, symlinked memory, override layering, and
 directory candidates.
+
+## Q18 native continuation (2026-10-22)
+
+All stored prompt/rule/context content, path keys, inline names, override inputs,
+diagnostics, and ResourceLoader results now use `JsString`. Native node path
+operations preserve units until actual filesystem reads/stat/readdir; read bytes
+use Node UTF-8 replacement behavior at that ingress. Locale sorting uses UTF-16
+collation. `lossless_resource_loader` checks literal prompts, inline names, and
+static getters with raw units; written but unexecuted.
+
+replacement-resources-2: 20 remaining primary diagnostics, all stale package
+resource/metadata contracts or the UI-owned native theme API. Coding tests remain
+library-blocked. No runtime PASS or renewed frozen parity claim.
+
+Settings `get_disabled_extensions` returns native strings, but its JSON ingress
+remains scalar serde_json pending the separately assigned SettingsManager native
+authority slice. This projection does not claim lossless persisted settings.
+
+### Source-drift removals
+
+Removed old-only AGENTS.override.md precedence and worktree-shadow suppression;
+neither exists in common-pin resource-loader.ts:88–122 and no locked delta
+authorizes them. Context candidates now match the frozen AGENTS/CLAUDE lists and
+family selection. Deleted shadow-only tests; updated layered instructions
+expectations. New frozen oracle comparison covers an override file beside regular
+AGENTS files. Coding compilation still blocks its execution (no behavioral RED
+claim). The now-unneeded native footer path migration is reverted completely.
+
+`extend_resources` returns `Result` and propagates update failures rather than
+discarding them. AgentSession forwards the error from resource discovery through
+reload/bind_extensions. Invalid file-URL fixture asserts an observable failure;
+written but unexecuted. These are source-drift removals, not approved deviations.

@@ -197,3 +197,10 @@ decision): frozen extension discovery throws on `path.resolve(dir, 123)`. The
 Rust typed manifest rejects the whole malformed resource field; it must not
 claim differential parity or silently retain a filtered partial resource list.
 See [manifest traceability](../porting/traceability/pi-manifest.md).
+
+### Approved frontmatter YAML gap (2026-10-22)
+
+Keep `serde_yaml_ng`. YAML frontmatter with literal or escaped unpaired UTF-16
+units must fail explicitly in `parse_yaml_frontmatter`; no partial parse, lossy
+replacement, or silent drop. User approved recording this parity gap. Body text
+outside frontmatter remains native.

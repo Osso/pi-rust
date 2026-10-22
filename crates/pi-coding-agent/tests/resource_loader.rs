@@ -188,7 +188,7 @@ async fn project_resources_win_name_collisions() {
 }
 
 #[tokio::test]
-async fn agents_context_files_layer_with_overrides_and_memory() {
+async fn agents_context_files_layer_with_memory() {
     let temp = TempDir::new().unwrap();
     let agent_dir = temp.path().join("agent");
     let cwd = temp.path().join("project");
@@ -211,10 +211,10 @@ async fn agents_context_files_layer_with_overrides_and_memory() {
     assert_eq!(
         contents,
         vec![
-            "global override",
+            "global instructions",
             "project instructions",
             "Project memory.",
-            "service override"
+            "service instructions"
         ]
     );
 }
@@ -769,63 +769,6 @@ async fn missing_additional_extension_path_is_reported() {
             .iter()
             .any(|error| error.error == format!("Extension path does not exist: {}", missing.to_string_lossy()))
     );
-}
-
-#[test]
-fn shadowed_worktree_context_files_are_deduplicated() {
-    let temp = TempDir::new().unwrap();
-    let agent_dir = temp.path().join("agent");
-    std::fs::create_dir_all(&agent_dir).unwrap();
-    let outer = temp.path().join("outer");
-    let main = outer.join("main");
-    let worktree = main.join("worktrees/feat");
-    let worktree_src = worktree.join("src");
-    std::fs::create_dir_all(&worktree_src).unwrap();
-    let git_dir = main.join(".git/worktrees/feat");
-    std::fs::create_dir_all(&git_dir).unwrap();
-    std::fs::write(main.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
-    std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/feat\n").unwrap();
-    std::fs::write(git_dir.join("commondir"), "../..").unwrap();
-    std::fs::write(worktree.join(".git"), format!("gitdir: {}\n", git_dir.display())).unwrap();
-    std::fs::write(main.join("AGENTS.md"), "main repo instructions").unwrap();
-    std::fs::write(worktree.join("AGENTS.md"), "worktree instructions").unwrap();
-    std::fs::write(outer.join("AGENTS.md"), "outer instructions").unwrap();
-
-    let contents: Vec<String> =
-        load_project_context_files(&worktree_src.to_string_lossy(), &agent_dir.to_string_lossy())
-            .into_iter()
-            .map(|file| file.content)
-            .collect();
-    assert_eq!(contents, vec!["outer instructions", "worktree instructions"]);
-}
-
-#[test]
-fn bare_layout_container_context_is_not_shadowed() {
-    let temp = TempDir::new().unwrap();
-    let agent_dir = temp.path().join("agent");
-    std::fs::create_dir_all(&agent_dir).unwrap();
-    let proj = temp.path().join("proj");
-    let bare = proj.join(".bare");
-    let worktree = proj.join("main");
-    let worktree_git_dir = bare.join("worktrees/main");
-    std::fs::create_dir_all(&worktree_git_dir).unwrap();
-    std::fs::create_dir_all(&worktree).unwrap();
-    std::fs::write(bare.join("HEAD"), "ref: refs/heads/main\n").unwrap();
-    std::fs::write(worktree_git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
-    std::fs::write(worktree_git_dir.join("commondir"), "../..").unwrap();
-    std::fs::write(
-        worktree.join(".git"),
-        format!("gitdir: {}\n", worktree_git_dir.display()),
-    )
-    .unwrap();
-    std::fs::write(proj.join("AGENTS.md"), "container instructions").unwrap();
-    std::fs::write(worktree.join("AGENTS.md"), "worktree instructions").unwrap();
-
-    let contents: Vec<String> = load_project_context_files(&worktree.to_string_lossy(), &agent_dir.to_string_lossy())
-        .into_iter()
-        .map(|file| file.content)
-        .collect();
-    assert_eq!(contents, vec!["container instructions", "worktree instructions"]);
 }
 
 #[test]

@@ -27,3 +27,11 @@ Differential proof: request `26007` executes the real pinned module across 28 va
 
 ## Q18 common-pin migration
 Native extraction normalizes/slices/trims JsString and returns a JsValue frontmatter authority plus native body. `lossless_resources::frontmatter_body_keeps_raw_units_after_native_extraction` compares raw body extraction to the frozen module; `resources-red.jsonl` remains library-blocked, not runtime PASS. The YAML parser is deliberately isolated in `parse_yaml_frontmatter`: serde_yaml_ng still rejects literal/escaped unmatched units explicitly. Main requested this interim restriction pending the user's gap/native-parser decision; this is **not** approved exact YAML parity. No replacement or silent parse drop occurs in this module.
+
+## Approved YAML gap (2026-10-22)
+
+User decision: **Record gap**. Keep `serde_yaml_ng`; frontmatter YAML containing
+unpaired UTF-16 units (literal or escaped) fails explicitly in
+`parse_yaml_frontmatter`. No replacement, silent omission, or partial YAML. This
+is an approved parity gap, not pending interim behavior. Native body text outside
+YAML remains lossless.

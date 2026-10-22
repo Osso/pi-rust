@@ -40,3 +40,11 @@ Source: `packages/coding-agent/src/core/prompt-templates.ts` (285 lines, pinned 
 
 ## Q18 common-pin migration
 Template text/name/description/hint/file path and load options use JsString. Substitution uses native JsRegex capture ranges and native defaults/arguments. Source regex has numeric defaults only; the old `${ARGUMENTS:-...}` extension was removed to match the frozen expression. The file-description cap now retains native 60-unit slices instead of String::from_utf16_lossy. Filesystem operations alone encode paths; entries follow libuv bytewise scandir ordering, not locale comparison. Directory iteration errors are caught as a whole readdir operation. `lossless_resources::substitutions_keep_raw_template_defaults_and_arguments` is compiler-blocked (`resources-red.jsonl`), not runtime PASS. Old scalar corpus results above predate this change.
+
+## Approved YAML gap (2026-10-22)
+
+User decision: **Record gap**. Keep `serde_yaml_ng`; frontmatter YAML containing
+unpaired UTF-16 units (literal or escaped) fails explicitly in
+`parse_yaml_frontmatter`. No replacement, silent omission, or partial YAML. This
+is an approved parity gap, not pending interim behavior. Native body text outside
+YAML remains lossless.
