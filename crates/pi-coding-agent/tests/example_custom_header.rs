@@ -37,7 +37,7 @@ impl ExtensionUiTuiBackend for Terminal {
     fn stop(&self) {
         panic!("fixture does not release terminal")
     }
-    fn start(&self) -> Result<(), String> {
+    fn start(&self) -> Result<(), pi_js_compat::js_json::JsString> {
         panic!("fixture does not acquire terminal")
     }
 

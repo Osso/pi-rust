@@ -95,7 +95,7 @@ impl ExtensionUiTuiBackend for Terminal {
     fn stop(&self) {
         panic!("no terminal release")
     }
-    fn start(&self) -> Result<(), String> {
+    fn start(&self) -> Result<(), pi_js_compat::js_json::JsString> {
         panic!("no terminal start")
     }
     fn terminal_rows(&self) -> usize {

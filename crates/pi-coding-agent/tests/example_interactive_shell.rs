@@ -36,7 +36,7 @@ impl ExtensionUiTuiBackend for Backend {
     fn stop(&self) {
         self.0.lock().unwrap().push(json!(["stop"]));
     }
-    fn start(&self) -> Result<(), String> {
+    fn start(&self) -> Result<(), pi_js_compat::js_json::JsString> {
         self.0.lock().unwrap().push(json!(["start"]));
         Ok(())
     }
