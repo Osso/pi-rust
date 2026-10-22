@@ -801,7 +801,7 @@ fn process_instance_id_from(
     let value = serde_json::json!({
         "pid": identity.pid,
         "startTimeTicks": identity.start_time_ticks,
-        "incarnation": pi_ai::utils::uuid::uuidv7(),
+        "incarnation": pi_agent_core::uuidv7(),
     });
     Ok(js_json::stringify(&value))
 }

@@ -1,5 +1,7 @@
 # openai-codex-responses traceability
 
+Q9 UUID ownership correction: frozen `openai-codex-responses.ts:1613` generates `crypto.randomUUID()` when no session ID is supplied. Rust now uses the v4 OS-entropy primitive, not agent-core UUIDv7. Real local-WebSocket test `websocket_without_a_session_uses_a_crypto_random_uuid_v4_request_id` reproduced version 7 RED, now version 4 GREEN; verifies matching session/request headers. Logs: `/tmp/pi-rust-repin-delta-agent-core/codex-uuid-{red,green}.log`. [UUID ownership](uuid.md).
+
 Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
 
 Q18 ingress representation and current bounded proof: [lossless provider ingress](lossless-provider-ingress.md). Earlier suite counts below are historical, not new-pin rerun evidence.

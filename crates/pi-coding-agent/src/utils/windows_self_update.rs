@@ -95,7 +95,7 @@ pub fn quarantine_windows_native_dependencies(package_dir: &Path, shared_objects
         "{}-{}-{}",
         pi_ai::request::now_millis(),
         std::process::id(),
-        pi_ai::utils::uuid::random_uuid()
+        pi_ai::utils::random_uuid::random_uuid()
     );
     let quarantine_run_dir = quarantine_root.join(unique);
     for loaded_file in loaded_files {

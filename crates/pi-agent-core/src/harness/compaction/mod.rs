@@ -2,6 +2,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::uuidv7;
 use pi_ai::models::Models;
 use pi_ai::request::{ProviderRequestOptions, SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{
@@ -13,7 +14,6 @@ use pi_ai::utils::estimate::{
 };
 use pi_ai::utils::retry::{RetryCallbacks, RetryPolicy, retry_assistant_call};
 use pi_ai::utils::text::{ContentText, content_text};
-use pi_ai::utils::uuid::uuidv7;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;

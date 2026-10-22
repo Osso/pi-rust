@@ -1396,7 +1396,7 @@ impl AgentSession {
             thinking_phase_timeout_error: Mutex::new(None),
             disable_runtime_coordination_inbound,
             on_shared_channel_message_delivered,
-            terminal_outbox_claim_id: pi_ai::utils::uuid::random_uuid(),
+            terminal_outbox_claim_id: pi_ai::utils::random_uuid::random_uuid(),
             terminal_outbox_last_cleanup_at: Mutex::new(None),
             multi_agent_active_tools: Mutex::new(Vec::new()),
             background_compaction_cache: Mutex::new(None),

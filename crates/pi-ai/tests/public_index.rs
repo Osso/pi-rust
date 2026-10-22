@@ -57,7 +57,6 @@ fn crate_root_reexports_are_usable() {
         pi_ai::content_text(ContentText::String("hello"), "\n"),
         "hello".to_owned()
     );
-    assert_eq!(pi_ai::uuidv7().len(), 36);
     assert_eq!(
         pi_ai::string_enum(&["a", "b"], pi_ai::StringEnumOptions::default()).into_value(),
         json!({"type": "string", "enum": ["a", "b"]})

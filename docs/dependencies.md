@@ -81,7 +81,7 @@ All direct dependencies are exact-pinned.
 - `tokio-tungstenite = 0.30.0` (`rustls-tls-webpki-roots`) — Codex WebSocket transport, including header-carrying handshakes and ping/close control frames.
 - `futures-util = 0.3.34` (`sink`) — `SinkExt`/`StreamExt` over the split WebSocket stream.
 - `zstd = 0.14.3` — compresses Codex SSE request bodies at the source's level 3.
-- `getrandom = 0.4.3` — fills UUIDv7 and retry-jitter random bytes from the OS.
+- `getrandom = 0.4.3` — fills native `crypto.randomUUID()` v4 and retry-jitter bytes from the OS. UUIDv7 belongs to agent-core, not AI.
 - `httpdate = 1.0.3` — parses HTTP-date `Retry-After` headers.
 - `url = 2.5.8` — parses target and proxy URLs for `utils::node_http_proxy` with WHATWG-compatible host/port/protocol semantics; also parses and joins provider base URLs (`mistral-conversations`) and normalizes AI Gateway request paths (`cloudflare-gateway-binding`).
 - `sha2 = 0.10.9` — computes the PKCE S256 code challenge and the SHA-256 payload/canonical-request digests used by Bedrock SigV4.
@@ -94,6 +94,7 @@ All direct dependencies are exact-pinned.
 
 - `pi-js-compat` (path, `=0.0.0`) — `localeCompare` ordering and `Buffer` Base64 helpers.
 - `pi-ai` (path, `=0.0.0`) — supplies the message/model/context/event-stream contracts, JSON streaming parser, and (for the agent loop) tool-argument validation shared with the provider layer.
+- `getrandom = 0.4.3` (exact) — OS entropy for frozen `agent-core/harness/session/uuid.ts`; UUIDv7 implementation and tests live in agent-core. [Boundary/gap](porting/traceability/uuid.md).
 - `serde = 1.0.229` — derives the agent event, message, and tool-result wire records.
 - `serde_json = 1.0.151` (`preserve_order`) — carries JSON-shaped tool arguments/details and preserves TypeScript object insertion order in proxy request bodies.
 - `tokio = 1.53.3` (`macros`, `rt`, `sync`, `time`, `fs`, `process`, `io-util`) — runs the agent loop, event stream notifications, scripted-stream tests, and the node execution environment's async filesystem/process I/O.
@@ -105,7 +106,7 @@ All direct dependencies are exact-pinned.
 - `serde_yaml_ng = 0.10.0` (exact) — parses skill and prompt-template YAML frontmatter in `harness::frontmatter`.
 - `pi-telemetry = { path = "../pi-telemetry", version = "=0.0.0" }` — temporarily retained only for the old scaffold `AgentHarnessOptions.context`; old-only telemetry schema module/root exports were removed in Q9. Remove this dependency with the scaffold replacement.
 - `tempfile = 3.27.0` (dev, exact) — creates isolated fixture trees for the node-env, tool, shell-capture, loader, and differential tests, and isolated JSONL session roots.
-- Session storage/search adds no runtime dependency: `serde`/`serde_json` (`preserve_order`) carry the durable JSONL records and search projections, `tokio` (`sync`) supplies the state/write mutexes, `tokio-util` supplies search cancellation, and `pi-ai` supplies `BoxFuture` and UUIDv7. JSONL file naming formats ISO timestamps with std only.
+- Session storage/search adds no runtime dependency: `serde`/`serde_json` (`preserve_order`) carry the durable JSONL records and search projections, `tokio` (`sync`) supplies the state/write mutexes, `tokio-util` supplies search cancellation, and `pi-ai` supplies `BoxFuture`; agent-core owns UUIDv7. JSONL file naming formats ISO timestamps with std only.
 
 The harness events, messages, reducer, and orchestration-type slices add no runtime or development dependency beyond the shared `pi-ai`/`tokio-util`/`serde` contracts. The `ToolExecutionMode`, `ThinkingLevel`, and `AgentToolExecutionContext` slices add no runtime or development dependency; `ThinkingLevel` does not depend on the distinct protocol schema. Existing public-index typeproofs use the pinned TypeScript toolchain. The harness tools/env slice adds `rustix` for process-group kill and `icu_normalizer` for NFC/NFD/NFKC/NFKD, both exact-pinned; `tempfile` is test-only. Typed filesystem/execution, compaction and branch-summary errors, `QueueMode`, `ToolExecutionMode`, and `ThinkingLevel` enum/literal mappings, `CompactionSettings`/`should_compact`, module-local `SUMMARIZATION_SYSTEM_PROMPT` (not exported from the harness root or package index), module-local `CutPointResult`/`ContextUsageEstimate` (not exported from the harness root or package index), `Skill`/`PromptTemplate`/`PromptTemplateDiagnostic`/`AgentHarnessResources` values, prompt-template argument helpers, Skill system-prompt/invocation formatting, summary marker constants and value-only `BashExecutionMessage`/`BranchSummaryMessage` records, compaction file-operation formatting, image MIME/Base64 helpers, edit line-ending/BOM helpers, `FileKind`/`FileInfo` metadata values, output truncation, binary-output sanitization, and the jsdiff line-diff/unified-patch port use only the Rust standard library beyond these dependencies.
 

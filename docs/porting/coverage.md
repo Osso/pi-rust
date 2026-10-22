@@ -26,7 +26,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `agent-core/src/harness/session/memory-storage.ts` | 131 | — | todo | — | new on master |
 | `agent-core/src/harness/session/repo-utils.ts` | 51 | — | todo | — | new on master |
 | `agent-core/src/harness/session/session.ts` | 273 | — | todo | — | new on master |
-| `agent-core/src/harness/session/uuid.ts` | 54 | 0 | todo | `crates/pi-ai/src/utils/uuid.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/utils/uuid.rs`; old path: `ai/src/utils/uuid.ts`; RFC 9562 UUIDv7 with monotonic sequence; TS vectors + structural differential. |
+| `agent-core/src/harness/session/uuid.ts` | 54 | 0 | partial | `crates/pi-agent-core/src/harness/session/uuid.rs` | Rehomed from AI; 4 module+3 public tests+200-ID frozen oracle GREEN; 8 fresh deterministic frozen vectors include negative dates/rollback/wrap. GAP: absent-globalThis.crypto Math.random path has no native realm; unsupported environment per parent classification 2026-10-22. No weak fallback. [Map](traceability/uuid.md). |
 | `agent-core/src/harness/skills.ts` | 375 | 6 | done | `crates/pi-agent-core/src/harness/skills.rs` | 13 loader+8 formatting tests, retained loader/utility differentials; native Skill fields and frozen POSIX dirname. Approved YAML wording/escape deviations. [Map](traceability/agent-core-skills.md). |
 | `agent-core/src/harness/system-prompt.ts` | 34 | 6 | done | `crates/pi-agent-core/src/harness/system_prompt.rs` | Exact formatting/filter/escaping proved by 8 shared tests and common-pin differential. Native metadata/output. [Map](traceability/agent-core-system-prompt.md). |
 | `agent-core/src/harness/types.ts` | 838 | — | todo | — | new on master |

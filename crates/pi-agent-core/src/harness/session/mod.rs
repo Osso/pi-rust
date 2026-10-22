@@ -7,6 +7,7 @@ pub mod memory;
 pub mod state;
 pub mod testing;
 pub mod types;
+pub mod uuid;
 
 pub use context::{
     ContextEntryTransform, CustomEntryContextMessageProjector, SessionContext, SessionContextBuildOptions,

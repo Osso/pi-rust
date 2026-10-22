@@ -925,7 +925,7 @@ pub struct UuidV7IdGenerator;
 
 impl IdGenerator for UuidV7IdGenerator {
     fn next(&self) -> String {
-        pi_ai::utils::uuid::uuidv7()
+        crate::uuidv7()
     }
 }
 

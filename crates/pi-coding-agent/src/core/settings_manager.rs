@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use pi_agent_core::harness::ThinkingLevel;
 use pi_ai::types::Transport;
-use pi_ai::utils::uuid::random_uuid;
+use pi_ai::utils::random_uuid::random_uuid;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
 use pi_js_compat::number as js_number;
 use serde::{Deserialize, Serialize};
