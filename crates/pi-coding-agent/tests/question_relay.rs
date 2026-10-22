@@ -11,8 +11,8 @@ use pi_coding_agent::core::extensions::{
 use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions, SessionPersistence};
 use pi_coding_agent::core::session_control_db::{get_control_db_path, list_runtime_mailbox_messages};
 use pi_coding_agent::core::session_manager::lock_session_manager;
-use pi_js_compat::{js_json, js_json as json};
 use pi_js_compat::js_json::{JsString, JsValue as Value};
+use pi_js_compat::{js_json, js_json as json};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
@@ -146,9 +146,15 @@ async fn child_nonblocking_relays_formatted_request_and_correlates_answers() {
     .unwrap();
     assert_eq!(result.details.as_ref().unwrap()["requestId"], json!("call-1"));
     assert_eq!(result.details.as_ref().unwrap()["queued"], json!(true));
-    let requests = f.store.list_pending_mailbox_messages_for_agent(&JsString::from("main")).unwrap();
+    let requests = f
+        .store
+        .list_pending_mailbox_messages_for_agent(&JsString::from("main"))
+        .unwrap();
     assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0].thread_id.as_ref(), Some(&JsString::from("ask_questions:child:call-1")));
+    assert_eq!(
+        requests[0].thread_id.as_ref(),
+        Some(&JsString::from("ask_questions:child:call-1"))
+    );
     assert_eq!(
         requests[0].body.as_ref().unwrap(),
         "Child agent child asks (requestId: call-1). The child continues meanwhile.\nReply with answer_question using agentId \"child\" and requestId \"call-1\", answers keyed by exact question text. Ask the user with ask_questions first when you cannot answer.\n\n1. [Path] Choose?\n   Choose one, or give another answer:\n   - A — first\n   - B"
@@ -190,7 +196,10 @@ async fn child_blocking_cancellation_preserves_sent_request() {
     .unwrap();
     assert_eq!(result.details.as_ref().unwrap()["cancelled"], json!(true));
     assert_eq!(
-        f.store.list_pending_mailbox_messages_for_agent(&JsString::from("main")).unwrap().len(),
+        f.store
+            .list_pending_mailbox_messages_for_agent(&JsString::from("main"))
+            .unwrap()
+            .len(),
         1
     );
     assert!(result.details.as_ref().unwrap().get("runtimeMailboxDelivery").is_none());
@@ -212,9 +221,15 @@ async fn missing_identity_explicit_blocking_and_direct_child_route_are_enforced(
         missing.message,
         "ask_questions requires explicit blocking: true or false"
     );
-    let missing = (f.ask.execute)("bad".into(), json!(questions(true)), None, None, f.context(None, true).await)
-        .await
-        .unwrap_err();
+    let missing = (f.ask.execute)(
+        "bad".into(),
+        json!(questions(true)),
+        None,
+        None,
+        f.context(None, true).await,
+    )
+    .await
+    .unwrap_err();
     assert_eq!(
         missing.message,
         "ask_questions in a child agent requires its agent identity and control database"
@@ -301,7 +316,7 @@ async fn blocking_reply_claims_only_child_and_request_and_returns_acceptance_des
 async fn mailbox_body_and_remote_host_are_literal_and_unknown_local_sessions_are_rejected() {
     let f = Fixture::new().await;
     let context = f.context(None, false).await;
-    let remote=(f.send.execute)("remote".into(),json!({"body":"  exact body\n","toAgentId":"child-on-peer","toSessionId":"remote-session","toHost":"peer-host"})),None,None,context.clone().await.unwrap();
+    let remote=(f.send.execute)("remote".into(),json!({"body":"  exact body\n","toAgentId":"child-on-peer","toSessionId":"remote-session","toHost":"peer-host"}),None,None,context.clone()).await.unwrap();
     assert_ne!(remote.is_error, Some(true));
     let messages = list_runtime_mailbox_messages(&f.db).unwrap();
     assert_eq!(messages.len(), 1);
@@ -472,7 +487,10 @@ async fn blocking_child_waits_for_a_later_answer_on_the_500ms_poll() {
     ));
     tokio::task::yield_now().await;
     assert_eq!(
-        f.store.list_pending_mailbox_messages_for_agent(&JsString::from("main")).unwrap().len(),
+        f.store
+            .list_pending_mailbox_messages_for_agent(&JsString::from("main"))
+            .unwrap()
+            .len(),
         1
     );
     assert!(!waiting.is_finished(), "child must block before a parent answer exists");
