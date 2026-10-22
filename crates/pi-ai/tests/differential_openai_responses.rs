@@ -1,3 +1,6 @@
+#[path = "support/provider_normalize.rs"]
+pub mod provider_normalize;
+
 #[path = "support/oracle.rs"]
 mod oracle;
 #[path = "support/recording_fetch.rs"]
@@ -15,8 +18,7 @@ use recording_fetch::{RecordingFetch, ScriptedResponse};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-const ENV_HEADERS: [&str; 5] = [
-    "user-agent",
+const ENV_HEADERS: [&str; 4] = [
     "x-stainless-os",
     "x-stainless-arch",
     "x-stainless-runtime",
@@ -176,12 +178,12 @@ fn stream_options(
     }
 }
 
-fn request_value(request: &HttpRequest) -> Value {
+fn request_value(request: &HttpRequest, configured_headers: &BTreeSet<String>) -> Value {
     let headers = request
         .headers
         .iter()
         .map(|(name, value)| {
-            let value = if ENV_HEADERS.contains(&name.as_str()) {
+            let value = if ENV_HEADERS.contains(&name.as_str()) && !configured_headers.contains(name) {
                 "<env>"
             } else {
                 value
@@ -227,20 +229,24 @@ fn assert_json_eq(actual: &Value, expected: &Value, path: &str) {
     }
 }
 
+#[test]
+fn clock_normalization_preserves_arbitrary_request_and_argument_json() {
+    let data = json!({"timestamp":123,"timestampMs":456,"id":"probe_1700000000000_1",
+        "stack":"user stack","partialJson":"user text","partialArgs":"args","streamIndex":7,"index":9});
+    let mut capture = json!({"requests":[{"body":{"metadata":data}}],
+        "events":[{"type":"toolcall_delta","partial":{"timestamp":1000,"content":[{"type":"toolCall","arguments":data}]}}],
+        "result":{"timestamp":2000,"content":[{"type":"toolCall","arguments":data}],"errorMessage":"Invalid Codex SSE JSON: exact text"}});
+    normalize_timestamps(&mut capture);
+    assert_eq!(capture["events"][0]["partial"]["timestamp"], 0);
+    assert_eq!(capture["result"]["timestamp"], 0);
+    assert_eq!(capture["events"][0]["partial"]["content"][0]["arguments"], data);
+    assert_eq!(capture["result"]["content"][0]["arguments"], data);
+    assert_eq!(capture["requests"][0]["body"]["metadata"], data);
+    assert_eq!(capture["result"]["errorMessage"], "Invalid Codex SSE JSON: exact text");
+}
+
 fn normalize_timestamps(value: &mut Value) {
-    match value {
-        Value::Array(items) => items.iter_mut().for_each(normalize_timestamps),
-        Value::Object(map) => {
-            for (key, entry) in map.iter_mut() {
-                if key == "timestamp" {
-                    *entry = json!(0);
-                } else {
-                    normalize_timestamps(entry);
-                }
-            }
-        }
-        _ => {}
-    }
+    provider_normalize::normalize_capture_clocks(value);
 }
 
 async fn collect_stream(mut stream: AssistantMessageEventStream) -> (Vec<Value>, Value) {
@@ -369,7 +375,12 @@ async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
         stream(model, context, options)
     };
     let (events, result) = collect_stream(stream).await;
-    let requests = fetch.requests().iter().map(request_value).collect::<Vec<_>>();
+    let configured_headers = provider_normalize::configured_headers(&scenario.model, &scenario.stream);
+    let requests = fetch
+        .requests()
+        .iter()
+        .map(|request| request_value(request, &configured_headers))
+        .collect::<Vec<_>>();
     let mut actual = json!({"requests": requests, "events": events, "result": result});
     normalize_timestamps(&mut actual);
     assert_json_eq(&actual, expected, &format!("openai-responses scenario {}", scenario.id));

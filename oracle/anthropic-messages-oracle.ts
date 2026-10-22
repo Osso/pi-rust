@@ -1,4 +1,6 @@
+import { dirname } from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { installAssistantSnapshots } from "./assistant-snapshots.ts";
 import { pathToFileURL } from "node:url";
 import {
 	clearFetchScript,
@@ -209,6 +211,7 @@ async function main(): Promise<void> {
 	if (modulePath === undefined)
 		throw new Error("anthropic messages oracle requires a source module path");
 	installScriptedFetch();
+	await installAssistantSnapshots(dirname(dirname(modulePath)));
 	const api = (await import(pathToFileURL(modulePath).href)) as AnthropicApi;
 	serve(api);
 }
