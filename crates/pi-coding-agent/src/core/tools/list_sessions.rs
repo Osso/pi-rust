@@ -166,7 +166,7 @@ impl AgentHarnessTool<ExtensionContext> for ListSessionsTool {
                     .map(|(index, session)| js_format!("{}. {}", index + 1, format_session_line(session)))
                     .collect()
             };
-            let details = js_json::json!({ "sessions": sessions });
+            let details = pi_js_compat::js_json!({ "sessions": sessions });
             Ok(text_result(JsString::join(lines, "\n"), details))
         })
     }

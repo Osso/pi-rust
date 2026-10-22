@@ -58,8 +58,8 @@ fn parent_request_lookup_matches_native_parent_id_not_replacement_text() {
     let message = js_json::parse_lossless(r#"{"id":"native-msg","fromAgentId":"child","toAgentId":"parent-\udfff","kind":"parent_request","status":"pending","body":"body-\ud800"}"#).unwrap();
     upsert_multi_agent_mailbox_message(&path, "/fixture/session", &"native-msg".into(), &message).unwrap();
     let mut wrong = message;
-    wrong["id"] = js_json::json!("wrong-parent");
-    wrong["toAgentId"] = js_json::json!("parent-�");
+    wrong["id"] = pi_js_compat::js_json!("wrong-parent");
+    wrong["toAgentId"] = pi_js_compat::js_json!("parent-�");
     let error = upsert_multi_agent_mailbox_message(&path, "/fixture/session", &JsString::from("wrong-parent"), &wrong)
         .unwrap_err();
     assert!(error.message().contains("Invalid parent request target"));

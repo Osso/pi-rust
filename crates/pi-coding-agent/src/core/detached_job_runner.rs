@@ -68,7 +68,7 @@ impl DetachedJobAgentType {
 }
 
 /// A registered detached job with its persisted agent and ownership.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DetachedJobOwnership {
     pub agent: AgentSnapshot,
     pub artifacts: DetachedJobArtifacts,

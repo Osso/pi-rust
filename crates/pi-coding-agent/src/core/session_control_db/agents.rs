@@ -372,7 +372,7 @@ pub struct RecoverDeadMultiAgentRuntimeInput {
     pub supervisor: SupervisorRuntimeOwnership,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RecoverDeadMultiAgentRuntimeResult {
     Ok { agent: Map, terminal_revision: i64 },
     Err { error: RecoverDeadRuntimeError },
@@ -1343,7 +1343,12 @@ fn read_lifecycle_mutation_plan(
     {
         return Ok(LifecycleMutationRead::Err(LifecycleCommandError::InvalidTransition));
     }
-    let revision = agent.get("revision").and_then(Value::as_i64).unwrap_or(0) + 1;
+    let revision = agent
+        .get("revision")
+        .and_then(Value::as_f64)
+        .map(|value| value as i64)
+        .unwrap_or(0)
+        + 1;
     let mut updated = agent.clone();
     if persist_suppression {
         updated.insert("suppressTerminalNotification".into(), JsValue::Bool(true));
@@ -1578,7 +1583,12 @@ fn read_terminal_mutation_plan(
             input, &agent,
         )));
     }
-    let terminal_revision = agent.get("revision").and_then(Value::as_i64).unwrap_or(0) + 1;
+    let terminal_revision = agent
+        .get("revision")
+        .and_then(Value::as_f64)
+        .map(|value| value as i64)
+        .unwrap_or(0)
+        + 1;
     if !current_lifecycle
         .to_utf8()
         .ok()
@@ -1596,7 +1606,7 @@ fn read_terminal_mutation_plan(
         "lifecycle".into(),
         JsValue::String(input.terminal_lifecycle.clone().into()),
     );
-    updated.insert("revision".into(), JsValue::from(terminal_revision));
+    updated.insert("revision".into(), JsValue::Number(terminal_revision as f64));
     updated.insert("updatedAt".into(), JsValue::String(input.updated_at.clone().into()));
     Ok(TerminalMutationRead::Plan(TerminalMutationPlan {
         agent_data,
@@ -3684,7 +3694,11 @@ fn prepare_dead_runtime_recovery(
     now_iso: &str,
 ) -> Result<DeadRuntimeRecoveryPlan, ControlDbError> {
     let (agent, agent_data) = recoverable;
-    let revision = agent.get("revision").and_then(Value::as_i64).unwrap_or(0);
+    let revision = agent
+        .get("revision")
+        .and_then(Value::as_f64)
+        .map(|value| value as i64)
+        .unwrap_or(0);
     let terminal_revision = revision + 1;
     let cancelling = agent
         .get("lifecycle")
@@ -3693,7 +3707,7 @@ fn prepare_dead_runtime_recovery(
     let mut updated_agent = agent.clone();
     updated_agent.insert(
         "error".into(),
-        js_json::json!({
+        pi_js_compat::js_json!({
             "code": "lost_runtime",
             "message": if cancelling {
                 "Cancellation requested; agent owner process exited before terminal confirmation."
@@ -3721,7 +3735,7 @@ fn prepare_dead_runtime_recovery(
         result.insert("toolCallId".into(), Value::String(tool_call_id));
         updated_agent.insert("result".into(), Value::Object(result));
     }
-    updated_agent.insert("revision".into(), Value::from(terminal_revision));
+    updated_agent.insert("revision".into(), Value::Number(terminal_revision as f64));
     updated_agent.insert("updatedAt".into(), Value::String(now_iso.into()));
     updated_agent.shift_remove("worker");
     let terminal_transport = if should_notify_detached_job_owner(&agent) {

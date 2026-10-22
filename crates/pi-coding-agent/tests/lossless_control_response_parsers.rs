@@ -10,7 +10,7 @@ fn carriers(wire: &JsString) -> [JsValue; 3] {
     [
         js_json::parse_lossless(wire).unwrap(),
         JsValue::String(wire.clone()),
-        js_json::json!({"content":[{"type":"text","text":wire}]}),
+        pi_js_compat::js_json!({"content":[{"type":"text","text":wire}]}),
     ]
 }
 

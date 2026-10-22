@@ -312,10 +312,17 @@ fn prepare_detached_job_finalization(
             terminal,
             &agent,
             &agent_data,
-            agent.get("revision").and_then(Value::as_i64).unwrap_or(0),
+            agent
+                .get("revision")
+                .and_then(Value::as_f64)
+                .map_or(0, |value| value as i64),
         )?))));
     }
-    let terminal_revision = agent.get("revision").and_then(Value::as_i64).unwrap_or(0) + 1;
+    let terminal_revision = agent
+        .get("revision")
+        .and_then(Value::as_f64)
+        .map_or(0, |value| value as i64)
+        + 1;
     let can_finalize = current_lifecycle == "running" || current_lifecycle == "cancelling";
     if !can_finalize || has_active_persisted_descendant(db, &session_path, &terminal.job_id)? {
         return Ok(Some(FinalizePreflight::Result(Box::new(
