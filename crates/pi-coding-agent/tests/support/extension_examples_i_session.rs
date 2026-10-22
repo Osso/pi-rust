@@ -24,6 +24,65 @@ use serde_json::{Map, Value, json};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 type Trace = Arc<Mutex<Vec<Value>>>;
+
+// Source compat auth reads stored keys independently of the faux stream API.
+struct StoredFixtureKey;
+impl pi_ai::auth::types::ApiKeyAuth for StoredFixtureKey {
+    fn name(&self) -> &str {
+        "Fixture"
+    }
+    fn resolve(
+        &self,
+        input: pi_ai::auth::types::ApiKeyResolveInput,
+    ) -> BoxFuture<'static, Result<Option<pi_ai::auth::types::AuthResult>, pi_ai::auth::types::AuthError>> {
+        Box::pin(async move {
+            Ok(input
+                .credential
+                .and_then(|credential| credential.key)
+                .map(|key| pi_ai::auth::types::AuthResult {
+                    auth: pi_ai::auth::types::ModelAuth {
+                        api_key: Some(key),
+                        ..Default::default()
+                    },
+                    env: None,
+                    source: None,
+                }))
+        })
+    }
+}
+struct FixtureStreams(Arc<dyn pi_ai::models::Provider>);
+impl pi_ai::models::ProviderStreams for FixtureStreams {
+    fn stream(
+        &self,
+        model: pi_ai::types::Model,
+        context: pi_ai::types::Context,
+        options: pi_ai::request::StreamOptions,
+    ) -> pi_ai::utils::event_stream::AssistantMessageEventStream {
+        self.0.stream(model, context, options)
+    }
+    fn stream_simple(
+        &self,
+        model: pi_ai::types::Model,
+        context: pi_ai::types::Context,
+        options: pi_ai::request::SimpleStreamOptions,
+    ) -> pi_ai::utils::event_stream::AssistantMessageEventStream {
+        self.0.stream_simple(model, context, options)
+    }
+}
+fn provider_with_stored_key_auth(provider: Arc<dyn pi_ai::models::Provider>) -> Arc<dyn pi_ai::models::Provider> {
+    pi_ai::models::create_provider(pi_ai::models::CreateProviderOptions {
+        id: provider.id().to_owned(),
+        name: None,
+        base_url: None,
+        headers: None,
+        auth: pi_ai::auth::types::ProviderAuth::api_key(Arc::new(StoredFixtureKey)),
+        models: provider.get_models(),
+        fetch_models: None,
+        filter_models: None,
+        api: pi_ai::models::ProviderApi::Single(Arc::new(FixtureStreams(provider))),
+    })
+}
+
 struct Backend;
 impl ExtensionUiTuiBackend for Backend {
     fn show_overlay(
@@ -202,7 +261,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     })
     .await
     .unwrap();
-    models.register_native_provider(faux.provider.clone());
+    models.register_native_provider(provider_with_stored_key_auth(faux.provider.clone()));
     if request["noAuth"] != true {
         models.refresh(Default::default()).await.unwrap();
     }
