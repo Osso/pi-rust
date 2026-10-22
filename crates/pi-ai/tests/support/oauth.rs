@@ -119,7 +119,7 @@ impl AuthInteraction for TestInteraction {
         self.signal.clone()
     }
 
-    fn prompt(&self, prompt: AuthPrompt) -> BoxFuture<'_, Result<String, CallbackError>> {
+    fn prompt(&self, prompt: AuthPrompt) -> BoxFuture<'_, Result<pi_js_compat::js_json::JsString, CallbackError>> {
         self.prompts.lock().expect("prompts mutex").push(PromptRecord {
             kind: prompt.kind,
             signal: prompt.signal,
@@ -132,7 +132,7 @@ impl AuthInteraction for TestInteraction {
             .unwrap_or(PromptAnswer::Error("unexpected prompt".to_owned()));
         Box::pin(async move {
             match answer {
-                PromptAnswer::Text(text) => Ok(text),
+                PromptAnswer::Text(text) => Ok(text.into()),
                 PromptAnswer::Error(message) => Err(CallbackError::new(message)),
                 PromptAnswer::Pending => std::future::pending().await,
             }

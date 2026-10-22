@@ -1,6 +1,7 @@
 //! Provider-owned auth behavior: Anthropic, Amazon Bedrock, Cloudflare, Vertex,
 //! and GitHub Copilot model filtering.
 
+use pi_js_compat::js_json::JsString;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -32,12 +33,12 @@ struct TestAuthContext {
 
 impl AuthContext for TestAuthContext {
     fn env(&self, name: &str) -> BoxFuture<'_, Option<pi_js_compat::js_json::JsString>> {
-        let value = self.env.get(name).cloned();
+        let value = self.env.get(name).cloned().map(JsString::from);
         Box::pin(async move { value })
     }
 
     fn file_exists(&self, path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
-        let exists = self.files.iter().any(|file| file == path);
+        let exists = self.files.iter().any(|file| JsString::from(file) == *path);
         Box::pin(async move { exists })
     }
 }
@@ -62,7 +63,7 @@ fn resolve_input(ctx: Arc<dyn AuthContext>, credential: Option<ApiKeyCredential>
 
 fn api_key_credential(key: &str) -> ApiKeyCredential {
     ApiKeyCredential {
-        key: Some(key.to_owned()),
+        key: Some((key.to_owned()).into()),
         env: None,
     }
 }
@@ -104,7 +105,10 @@ fn anthropic_resolves_auth_token_as_bearer_header() {
         None,
     );
     let mut headers = pi_ai::types::ProviderHeaders::new();
-    headers.insert("Authorization".to_owned(), Some("Bearer auth-token".to_owned()));
+    headers.insert(
+        "Authorization".to_owned(),
+        Some(("Bearer auth-token".to_owned()).into()),
+    );
     assert_eq!(
         result,
         AuthResult {
@@ -114,7 +118,7 @@ fn anthropic_resolves_auth_token_as_bearer_header() {
                 base_url: None,
             },
             env: None,
-            source: Some("ANTHROPIC_AUTH_TOKEN".to_owned()),
+            source: Some(("ANTHROPIC_AUTH_TOKEN".to_owned()).into()),
         }
     );
 }
@@ -149,7 +153,7 @@ fn anthropic_api_key_is_last_and_stored_credential_wins() {
         provider.as_ref(),
         auth_context(&[("ANTHROPIC_API_KEY", "api-key")], &[]),
         Some(ApiKeyCredential {
-            key: Some("stored".to_owned()),
+            key: Some(("stored".to_owned()).into()),
             env: Some(ProviderEnv::from([("SCOPED".to_owned(), "value".to_owned())])),
         }),
     );
@@ -231,10 +235,12 @@ fn bedrock_login_covers_bearer_profile_and_chain_flows() {
     assert_eq!(
         profile_interaction.events(),
         vec![AuthEvent::Info {
-            message: "Amazon Bedrock supports AWS profiles, IAM credentials, and role-based credentials.".to_owned(),
+            message: ("Amazon Bedrock supports AWS profiles, IAM credentials, and role-based credentials.".to_owned())
+                .into(),
             links: Some(vec![AuthInfoLink {
-                url: "https://docs.aws.amazon.com/sdkref/latest/guide/standardized-credentials.html".to_owned(),
-                label: Some("AWS credential provider chain".to_owned()),
+                url: ("https://docs.aws.amazon.com/sdkref/latest/guide/standardized-credentials.html".to_owned())
+                    .into(),
+                label: Some(("AWS credential provider chain".to_owned()).into()),
             }]),
         }]
     );
@@ -362,7 +368,7 @@ fn cloudflare_workers_ai_merges_partial_stored_credential_with_env() {
         provider.as_ref(),
         auth_context(&[("CLOUDFLARE_ACCOUNT_ID", "env-account")], &[]),
         Some(ApiKeyCredential {
-            key: Some("stored-key".to_owned()),
+            key: Some(("stored-key".to_owned()).into()),
             env: None,
         }),
     );
@@ -440,7 +446,7 @@ fn cloudflare_login_prompts_for_key_account_and_gateway() {
     assert_eq!(
         credential,
         ApiKeyCredential {
-            key: Some("cf-key".to_owned()),
+            key: Some(("cf-key".to_owned()).into()),
             env: Some(ProviderEnv::from([
                 ("CLOUDFLARE_ACCOUNT_ID".to_owned(), "account-id".to_owned()),
                 ("CLOUDFLARE_GATEWAY_ID".to_owned(), "gateway-id".to_owned()),
