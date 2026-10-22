@@ -52,7 +52,7 @@ pub struct ContactParentParams {
 }
 
 fn find_agent_by_raw_id(store: &MultiAgentStore, id: &JsString) -> Option<AgentSnapshot> {
-    // Store identities are generated scalar UUIDs. A non-scalar lookup has no matching identity.
+    // Store keys are scalar strings; a non-scalar input cannot identify an existing key.
     id.to_utf8().ok().and_then(|id| store.get_agent(&id))
 }
 
@@ -286,7 +286,7 @@ fn validate_explicit_runtime_target(
     let target_matches = match target_session_id {
         None => true,
         Some(None) => false,
-        Some(Some(target_session_id)) => target_session_id == to_session_id,
+        Some(Some(target_session_id)) => &target_session_id == to_session_id,
     };
     if target_matches {
         return Ok(None);
@@ -402,12 +402,13 @@ fn send_main_runtime_session_message(
     }
     Ok(tool_result(
         if remote {
-            format!(
-                "Queued message to session {to_session_id} for relay to host {}.",
-                params.to_host.as_ref().unwrap_or("")
-            )
+            JsString::from("Queued message to session ")
+                + &to_session_id
+                + " for relay to host "
+                + params.to_host.clone().unwrap_or_default()
+                + "."
         } else {
-            format!("Sent message to session {to_session_id}.")
+            JsString::from("Sent message to session ") + &to_session_id + "."
         },
         json!({"agent": sender, "message": message}),
     ))
@@ -486,7 +487,7 @@ fn deliver_parent_contact(
         ));
     }
     Ok(tool_result(
-        format!("Contacted parent for {}.", agent.display_name),
+        JsString::from("Contacted parent for ") + &agent.display_name + ".",
         json!({"agent": agent, "message": message}),
     ))
 }

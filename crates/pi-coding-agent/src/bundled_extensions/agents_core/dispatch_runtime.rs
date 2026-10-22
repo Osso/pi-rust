@@ -40,7 +40,8 @@ pub struct WaitingDesktopNotificationRegistration {
     pub unsubscribe_transition: crate::core::multi_agent_store::AgentSubscription,
 }
 
-pub type WaitingDesktopNotificationHandles = Arc<Mutex<HashMap<String, WaitingDesktopNotificationRegistration>>>;
+pub type WaitingDesktopNotificationHandles =
+    Arc<Mutex<HashMap<pi_js_compat::js_json::JsString, WaitingDesktopNotificationRegistration>>>;
 
 /// `AttachSessionDispatchInput` from `dispatch-runtime.ts`.
 #[derive(Clone)]
@@ -820,10 +821,12 @@ fn notify_waiting_agent(
         return None;
     }
     desktop_notifier.notify(&DesktopNotification {
-        body: message
-            .body
-            .clone()
-            .unwrap_or_else(|| format!("{} is waiting for input.", message.from_agent_id)),
+        body: pi_js_compat::js_json::encode_node_utf8(
+            &message
+                .body
+                .clone()
+                .unwrap_or_else(|| message.from_agent_id.clone() + " is waiting for input."),
+        ),
         expire_time_ms: Some(PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS),
         title: "Pi agent needs input".to_owned(),
         urgency: None,
@@ -843,7 +846,7 @@ fn remember_waiting_desktop_notification(
     let agent_id = message.from_agent_id.clone();
     let waiting_for_close = Arc::clone(waiting);
     let unsubscribe_transition = store.subscribe_agent_transitions(move |previous, current| {
-        if current.id != agent_id || previous.lifecycle != AgentLifecycle::WaitingForInput {
+        if agent_id != current.id || previous.lifecycle != AgentLifecycle::WaitingForInput {
             return;
         }
         if current.lifecycle != AgentLifecycle::WaitingForInput {
@@ -873,8 +876,11 @@ fn close_waiting_desktop_notification_when_not_waiting(
     close_waiting_desktop_notification(agent_id, waiting);
 }
 
-pub fn close_waiting_desktop_notification(agent_id: &str, waiting: &WaitingDesktopNotificationHandles) {
-    let registration = waiting.lock().expect("waiting notifications").remove(agent_id);
+pub fn close_waiting_desktop_notification(
+    agent_id: impl Into<pi_js_compat::js_json::JsString>,
+    waiting: &WaitingDesktopNotificationHandles,
+) {
+    let registration = waiting.lock().expect("waiting notifications").remove(&agent_id.into());
     let Some(registration) = registration else {
         return;
     };
@@ -887,7 +893,7 @@ fn is_waiting_for_input_notification(message: &AgentMailboxMessage) -> bool {
         && message.status == MailboxMessageStatusValue::Pending
         && message
             .thread_id
-            .as_deref()
+            .as_ref()
             .is_some_and(|thread_id| thread_id.starts_with("agent-waiting-for-input:"))
 }
 

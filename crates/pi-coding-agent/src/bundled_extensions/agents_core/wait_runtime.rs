@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use pi_agent_core::AgentToolResult;
-use serde_json::json;
+use pi_js_compat::{js_json as json, js_json::JsString};
 
 use crate::core::extensions::types::{ExtensionContext, HandlerError};
 use crate::core::lifecycle_coordinator::LifecycleCoordinator;
@@ -274,7 +274,7 @@ pub async fn wait_notifications_runtime(
             state
                 .agents
                 .into_iter()
-                .filter_map(|value| serde_json::from_value::<AgentSnapshot>(value).ok())
+                .filter_map(|value| pi_js_compat::js_json::from_value::<AgentSnapshot>(&value).ok())
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
@@ -340,8 +340,10 @@ fn consume_non_agent_wake(
                 .as_deref()
                 .and_then(|agent_id| store.get_agent(agent_id));
             let text = match agent {
-                Some(agent) => format!("Woken after steering {}.", agent.display_name),
-                None => "Woken after supervisor steering.".to_owned(),
+                Some(agent) => {
+                    pi_js_compat::js_json::JsString::from("Woken after steering ") + &agent.display_name + "."
+                }
+                None => "Woken after supervisor steering.".into(),
             };
             Ok(tool_result(text, json!({"wakeUp": wake_up})))
         }
@@ -386,7 +388,7 @@ fn runtime_coordination_recipient(
 fn take_pending_wait_coordination(
     store: &Arc<MultiAgentStore>,
     recipient: Option<RuntimeCoordinationRecipient>,
-) -> Result<Option<String>, HandlerError> {
+) -> Result<Option<JsString>, HandlerError> {
     let Some(recipient) = recipient else {
         return Ok(None);
     };
@@ -401,17 +403,18 @@ fn take_pending_wait_coordination(
         mark_wait_mailbox_store_message_delivered(store, message)?;
     }
     let channel_messages = take_pending_wait_shared_channel_messages(&recipient)?;
-    let mut sections: Vec<String> = mailbox_messages
+    let mut sections: Vec<JsString> = mailbox_messages
         .iter()
         .map(|message| format_runtime_mailbox_prompt(message, &recipient.address.session_id))
-        .collect();
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(HandlerError::new)?;
     if !channel_messages.is_empty() {
         sections.push(format_shared_channel_prompt(
             &channel_messages,
             &recipient.address.session_id,
         ));
     }
-    Ok((!sections.is_empty()).then(|| sections.join("\n\n")))
+    Ok((!sections.is_empty()).then(|| JsString::join(sections, "\n\n")))
 }
 
 fn mark_wait_mailbox_store_message_delivered(
@@ -420,7 +423,7 @@ fn mark_wait_mailbox_store_message_delivered(
 ) -> Result<(), HandlerError> {
     if store
         .get_persistence_target()
-        .map(|persistence| persistence.session_path)
+        .map(|persistence| pi_js_compat::js_json::JsString::from(persistence.session_path))
         != Some(message.store_ref.session_path.clone())
     {
         return Ok(());
@@ -500,7 +503,7 @@ fn list_pending_terminal_notifications(
             state
                 .agents
                 .into_iter()
-                .filter_map(|value| serde_json::from_value(value).ok())
+                .filter_map(|value| pi_js_compat::js_json::from_value(&value).ok())
                 .collect()
         })
         .unwrap_or_default();

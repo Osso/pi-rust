@@ -106,7 +106,7 @@ pub async fn set_agent_model(
     let name = store
         .get_agent(&params.agent_id)
         .map(|agent| agent.display_name)
-        .unwrap_or_else(|| params.agent_id.clone());
+        .unwrap_or_else(|| pi_js_compat::js_json::JsString::from(&params.agent_id));
     let model = target.model();
     let description = model
         .as_ref()
@@ -119,11 +119,12 @@ pub async fn set_agent_model(
         details["modelId"] = json!(model.id);
     }
     Ok(super::tool_results::tool_result(
-        format!(
-            "{name} ({}) now uses {description}, effort {}; applies from its next model request.",
-            params.agent_id,
-            level.as_str()
-        ),
+        pi_js_compat::js_json::JsString::from(name)
+            + format!(
+                " ({}) now uses {description}, effort {}; applies from its next model request.",
+                params.agent_id,
+                level.as_str()
+            ),
         details,
     ))
 }

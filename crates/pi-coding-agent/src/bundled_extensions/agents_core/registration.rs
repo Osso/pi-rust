@@ -199,7 +199,7 @@ fn register_session_shutdown_hook(pi: &ExtensionApi, registration: &AgentsCoreRe
                         abort_agent_handle_safely(&registration.store, &agent_id);
                     }
                 }
-                let waiting_ids: Vec<String> = registration
+                let waiting_ids: Vec<pi_js_compat::js_json::JsString> = registration
                     .waiting_desktop_notifications
                     .lock()
                     .expect("waiting notifications")
@@ -622,7 +622,7 @@ fn validate_and_notify_background_command(
     background: &BackgroundDispatchContext,
     args: &pi_js_compat::js_json::JsString,
     ctx: &ExtensionCommandContext,
-) -> Result<Option<String>, HandlerError> {
+) -> Result<Option<pi_js_compat::js_json::JsString>, HandlerError> {
     if is_child_agent_runtime(&ctx.context)? {
         notify(ctx, CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, NotifyType::Error)?;
         return Ok(None);

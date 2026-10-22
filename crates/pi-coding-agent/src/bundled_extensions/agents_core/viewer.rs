@@ -69,8 +69,8 @@ fn format_agent_list_content(agents: &[AgentSnapshot]) -> String {
     std::iter::once(header).chain(entries).collect::<Vec<_>>().join("\n")
 }
 
-fn quote(value: &str) -> String {
-    serde_json::to_string(value).unwrap_or_else(|_| format!("\"{value}\""))
+fn quote(value: impl Into<JsString>) -> String {
+    js_json::stringify_lossless(&Value::String(value.into()))
 }
 
 fn lifecycle_name(lifecycle: AgentLifecycle) -> &'static str {

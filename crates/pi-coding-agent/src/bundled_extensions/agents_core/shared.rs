@@ -40,7 +40,7 @@ pub struct WaitAgentsWakeUp {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub coordination_prompt: Option<String>,
+    pub coordination_prompt: Option<pi_js_compat::js_json::JsString>,
     pub kind: WaitAgentsWakeKind,
 }
 
@@ -53,7 +53,7 @@ impl WaitAgentsWakeUp {
         }
     }
 
-    pub fn coordination(prompt: String) -> Self {
+    pub fn coordination(prompt: pi_js_compat::js_json::JsString) -> Self {
         Self {
             agent_id: None,
             coordination_prompt: Some(prompt),
@@ -118,7 +118,7 @@ pub fn empty_agent(agent_id: &str) -> AgentSnapshot {
     AgentSnapshot {
         id: agent_id.to_owned(),
         parent_id: None,
-        display_name: agent_id.to_owned(),
+        display_name: agent_id.to_owned().into(),
         agent_type: "unknown".to_owned(),
         origin: None,
         lifecycle: AgentLifecycle::Failed,

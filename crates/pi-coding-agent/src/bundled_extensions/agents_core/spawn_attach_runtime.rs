@@ -50,7 +50,7 @@ const CRASH_RECOVERY_PROMPT: &str = "Continue the conversation from where it lef
 pub struct SpawnAgentParams {
     pub agent_type: Option<String>,
     pub context: Option<String>,
-    pub display_name: Option<String>,
+    pub display_name: Option<JsString>,
     pub parent_id: Option<String>,
     pub prompt: JsString,
 }
@@ -59,8 +59,8 @@ pub struct SpawnAgentParams {
 #[serde(rename_all = "camelCase")]
 pub struct AttachSessionAgentParams {
     pub agent_type: Option<String>,
-    pub display_name: Option<String>,
-    pub name: Option<String>,
+    pub display_name: Option<JsString>,
+    pub name: Option<JsString>,
     pub parent_id: Option<String>,
     pub path: Option<String>,
     pub prompt: Option<JsString>,
@@ -292,8 +292,8 @@ fn prepare_spawn(input: &ValidSpawnInput) -> Result<PrepareResult, HandlerError>
     let display_name = input
         .params
         .display_name
-        .as_deref()
-        .map(js_trim)
+        .as_ref()
+        .map(JsString::trim)
         .filter(|value| !value.is_empty())
         .or_else(|| {
             input
@@ -302,9 +302,9 @@ fn prepare_spawn(input: &ValidSpawnInput) -> Result<PrepareResult, HandlerError>
                 .as_deref()
                 .map(js_trim)
                 .filter(|value| !value.is_empty())
+                .map(JsString::from)
         })
-        .unwrap_or("Agent")
-        .to_owned();
+        .unwrap_or_else(|| "Agent".into());
     let prepared = coordinator
         .prepare_child(&PrepareChildCommandInput {
             spawn: SpawnAgent {
@@ -554,13 +554,14 @@ fn dispatch_spawned_agent(input: &ValidSpawnInput, spawn: CommittedSpawn) -> Res
     });
     release_ownership_after_dispatch(&input.dispatches, &input.ownerships, &agent.id);
     Ok(tool_result(
-        format!(
-            "Spawned {} ({}) [type: {}, context: {}]",
-            agent.display_name,
-            agent.id,
-            agent.agent_type,
-            context_name(spawn.spawn.prepared.context)
-        ),
+        JsString::from("Spawned ")
+            + &agent.display_name
+            + format!(
+                " ({}) [type: {}, context: {}]",
+                agent.id,
+                agent.agent_type,
+                context_name(spawn.spawn.prepared.context)
+            ),
         json!({"agent": agent, "dispatched": true, "prompt": input.params.prompt}),
     ))
 }
@@ -579,7 +580,7 @@ fn spawn_error(message: &str, prompt: &JsString) -> AgentToolResult {
     )
 }
 
-fn attach_error(message: &str, prompt: Option<&JsString>) -> AgentToolResult {
+fn attach_error(message: impl Into<JsString>, prompt: Option<&JsString>) -> AgentToolResult {
     let mut details = json!({"agent": empty_agent("attach_session_agent"), "dispatched": false});
     if let Some(prompt) = prompt {
         details["prompt"] = json!(prompt);
@@ -602,7 +603,7 @@ pub struct AttachSessionAgentRuntimeInput {
 
 struct AttachSessionTarget {
     cwd: String,
-    name: Option<String>,
+    name: Option<JsString>,
     path: String,
     session_id: String,
 }
@@ -629,7 +630,7 @@ pub async fn attach_session_agent(input: &AttachSessionAgentRuntimeInput) -> Res
             "Could not resume session {}: no attached session runtime is configured.",
             target.session_id
         );
-        return Ok(attach_error(&message, Some(prompt)));
+        return Ok(attach_error(&message, Some(&prompt)));
     }
     let agent = match create_attached_agent(&input.store, &input.params, &target, &input.ctx)? {
         Ok(agent) => agent,
@@ -645,7 +646,7 @@ pub async fn attach_session_agent(input: &AttachSessionAgentRuntimeInput) -> Res
             ));
         }
     };
-    Ok(dispatch_attached_agent(input, agent, prompt))
+    Ok(dispatch_attached_agent(input, agent, prompt.as_ref()))
 }
 
 fn dispatch_attached_agent(
@@ -655,7 +656,7 @@ fn dispatch_attached_agent(
 ) -> AgentToolResult {
     let Some(prompt) = prompt else {
         return tool_result(
-            format!("Attached {} ({})", agent.display_name, agent.id),
+            JsString::from("Attached ") + &agent.display_name + format!(" ({})", agent.id),
             json!({"agent": agent, "dispatched": false}),
         );
     };
@@ -674,11 +675,11 @@ fn dispatch_attached_agent(
     .unwrap_or(None);
     match dispatched {
         Some(dispatched) => tool_result(
-            format!("Attached and resumed {} ({})", dispatched.display_name, dispatched.id),
+            JsString::from("Attached and resumed ") + &dispatched.display_name + format!(" ({})", dispatched.id),
             json!({"agent": dispatched, "dispatched": true, "prompt": prompt}),
         ),
         None => tool_result(
-            format!("Attached {} ({})", agent.display_name, agent.id),
+            JsString::from("Attached ") + &agent.display_name + format!(" ({})", agent.id),
             json!({"agent": agent, "dispatched": false}),
         ),
     }
@@ -706,12 +707,11 @@ fn create_attached_agent(
     };
     let display_name = params
         .display_name
-        .as_deref()
-        .map(js_trim)
+        .as_ref()
+        .map(JsString::trim)
         .filter(|value| !value.is_empty())
-        .map(str::to_owned)
         .or_else(|| target.name.clone())
-        .unwrap_or_else(|| format!("Session {}", target.session_id));
+        .unwrap_or_else(|| format!("Session {}", target.session_id).into());
     let model = resolve_configured_agent_profile(&agent_type, ctx)?
         .model_metadata
         .or_else(|| parent.as_ref().and_then(|parent| parent.model.clone()));
@@ -785,9 +785,13 @@ fn build_attached_session_permission(
 fn load_attach_session_target(
     params: &AttachSessionAgentParams,
     ctx: &ExtensionContext,
-) -> Result<Result<AttachSessionTarget, String>, HandlerError> {
+) -> Result<Result<AttachSessionTarget, JsString>, HandlerError> {
     let selectors = (
-        params.name.as_deref().map(js_trim).filter(|value| !value.is_empty()),
+        params
+            .name
+            .as_ref()
+            .map(JsString::trim)
+            .filter(|value| !value.is_empty()),
         params.path.as_deref().map(js_trim).filter(|value| !value.is_empty()),
         params
             .session_id
@@ -795,13 +799,13 @@ fn load_attach_session_target(
             .map(js_trim)
             .filter(|value| !value.is_empty()),
     );
-    let count = [selectors.0, selectors.1, selectors.2]
+    let count = [selectors.0.is_some(), selectors.1.is_some(), selectors.2.is_some()]
         .into_iter()
-        .filter(Option::is_some)
+        .filter(|selected| *selected)
         .count();
     if count != 1 {
         return Ok(Err(
-            "Could not attach session: provide exactly one of path, sessionId, or name.".to_owned(),
+            "Could not attach session: provide exactly one of path, sessionId, or name.".into(),
         ));
     }
     let session_manager = ctx.session_manager()?;
@@ -824,18 +828,20 @@ fn load_attach_session_target(
     let mut sessions = local_sessions;
     sessions.extend(all_sessions);
     let sessions = dedupe_sessions_by_path(sessions);
-    Ok(match find_matching_session(&sessions, selectors.0, selectors.2) {
-        SessionMatch::Found(session) => Ok(session_info_to_target(session)),
-        SessionMatch::Ambiguous(selector) => Err(format!(
-            "Could not attach session: {selector} matches multiple sessions."
-        )),
-        SessionMatch::NotFound => Err("Could not attach session: session not found.".to_owned()),
-    })
+    Ok(
+        match find_matching_session(&sessions, selectors.0.as_ref(), selectors.2) {
+            SessionMatch::Found(session) => Ok(session_info_to_target(session)),
+            SessionMatch::Ambiguous(selector) => {
+                Err(JsString::from("Could not attach session: ") + selector + " matches multiple sessions.")
+            }
+            SessionMatch::NotFound => Err("Could not attach session: session not found.".into()),
+        },
+    )
 }
 
 enum SessionMatch<'a> {
     Found(&'a SessionInfo),
-    Ambiguous(String),
+    Ambiguous(JsString),
     NotFound,
 }
 
@@ -849,7 +855,7 @@ fn dedupe_sessions_by_path(sessions: Vec<SessionInfo>) -> Vec<SessionInfo> {
 
 fn find_matching_session<'a>(
     sessions: &'a [SessionInfo],
-    name: Option<&str>,
+    name: Option<&JsString>,
     session_id: Option<&str>,
 ) -> SessionMatch<'a> {
     if let Some(session_id) = session_id {
@@ -857,10 +863,10 @@ fn find_matching_session<'a>(
     }
     let matches: Vec<&SessionInfo> = sessions
         .iter()
-        .filter(|session| session.name.as_deref() == name)
+        .filter(|session| session.name.as_ref().map(JsString::from).as_ref() == name)
         .collect();
     if matches.len() > 1 {
-        return SessionMatch::Ambiguous(name.unwrap_or("name").to_owned());
+        return SessionMatch::Ambiguous(name.cloned().unwrap_or_else(|| "name".into()));
     }
     match matches.first() {
         Some(session) => SessionMatch::Found(session),
@@ -871,7 +877,7 @@ fn find_matching_session<'a>(
 fn find_matching_session_id<'a>(sessions: &'a [SessionInfo], session_id: &str) -> SessionMatch<'a> {
     let exact: Vec<&SessionInfo> = sessions.iter().filter(|session| session.id == session_id).collect();
     if exact.len() > 1 {
-        return SessionMatch::Ambiguous(session_id.to_owned());
+        return SessionMatch::Ambiguous(session_id.into());
     }
     if let Some(session) = exact.first() {
         return SessionMatch::Found(session);
@@ -881,7 +887,7 @@ fn find_matching_session_id<'a>(sessions: &'a [SessionInfo], session_id: &str) -
         .filter(|session| session.id.starts_with(session_id))
         .collect();
     if prefix.len() > 1 {
-        return SessionMatch::Ambiguous(session_id.to_owned());
+        return SessionMatch::Ambiguous(session_id.into());
     }
     match prefix.first() {
         Some(session) => SessionMatch::Found(session),
@@ -892,7 +898,7 @@ fn find_matching_session_id<'a>(sessions: &'a [SessionInfo], session_id: &str) -
 fn session_info_to_target(session: &SessionInfo) -> AttachSessionTarget {
     AttachSessionTarget {
         cwd: session.cwd.clone(),
-        name: session.name.clone(),
+        name: session.name.clone().map(JsString::from),
         path: session.path.clone(),
         session_id: session.id.clone(),
     }

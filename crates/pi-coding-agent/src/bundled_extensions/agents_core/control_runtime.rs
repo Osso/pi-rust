@@ -152,9 +152,9 @@ pub async fn cancel_agent(
     match cancelled {
         CancelReservedAgentResult::Ok { agent } => Ok(tool_result(
             if agent.lifecycle == AgentLifecycle::Aborted {
-                format!("Cancelled {}.", agent.display_name)
+                JsString::from("Cancelled ") + &agent.display_name + "."
             } else {
-                format!("Cancellation requested for {}.", agent.display_name)
+                JsString::from("Cancellation requested for ") + &agent.display_name + "."
             },
             pi_js_compat::js_json!({"agent": agent, "reason": params.reason}),
         )),
@@ -308,7 +308,7 @@ pub fn steer_agent(
     )?;
     match steered {
         AgentSteeringRequestResult::Ok { agent, message } => Ok(tool_result(
-            format!("Queued steering for {}.", agent.display_name),
+            JsString::from("Queued steering for ") + &agent.display_name + ".",
             pi_js_compat::js_json!({"agent": agent, "message": message}),
         )),
         AgentSteeringRequestResult::Err { agent, message, error } => Ok(error_tool_result(
@@ -564,7 +564,7 @@ fn steering_ownership_unavailable(agent: &AgentSnapshot, message: &JsString) -> 
     }
 }
 
-fn empty_message(agent_id: &str, body: &str) -> AgentMailboxMessage {
+fn empty_message(agent_id: &str, body: &JsString) -> AgentMailboxMessage {
     create_failed_mailbox_message(
         body,
         "supervisor",

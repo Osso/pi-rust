@@ -91,7 +91,7 @@ pub fn create_multi_agent_runtime_handles() -> MultiAgentRuntimeHandles {
     MultiAgentRuntimeHandles::new()
 }
 
-pub fn wake_wait_agents_after_coordination(runtime_handles: &MultiAgentRuntimeHandles, prompt: &str) {
+pub fn wake_wait_agents_after_coordination(runtime_handles: &MultiAgentRuntimeHandles, prompt: &JsString) {
     runtime_handles
         .wait_wake_listeners
         .emit(&super::shared::WaitAgentsWakeUp::coordination(prompt.to_owned()));
@@ -149,6 +149,7 @@ pub fn assert_no_wait_agents_params(params: &Value, api_name: &str) -> Result<()
 }
 
 pub fn format_agent_status(agent: &AgentSnapshot) -> JsString {
+    let status = JsString::from(&agent.display_name) + format!(" is {}", lifecycle_name(agent.lifecycle));
     let summary = agent
         .result
         .as_ref()
@@ -156,25 +157,17 @@ pub fn format_agent_status(agent: &AgentSnapshot) -> JsString {
         .map(JsString::trim)
         .unwrap_or_default();
     if !summary.is_empty() {
-        return JsString::from(format!(
-            "{} is {}: ",
-            agent.display_name,
-            lifecycle_name(agent.lifecycle)
-        )) + summary;
+        return status + ": " + summary;
     }
-    let error_message = agent
+    let error = agent
         .error
         .as_ref()
         .map(|error| error.message.trim())
         .unwrap_or_default();
-    if !error_message.is_empty() {
-        return JsString::from(format!(
-            "{} is {}: ",
-            agent.display_name,
-            lifecycle_name(agent.lifecycle)
-        )) + error_message;
+    if !error.is_empty() {
+        return status + ": " + error;
     }
-    format!("{} is {}.", agent.display_name, lifecycle_name(agent.lifecycle)).into()
+    status + "."
 }
 
 fn lifecycle_name(lifecycle: crate::core::multi_agent_store::AgentLifecycle) -> &'static str {
