@@ -1,5 +1,6 @@
 //! Differential: `architect/main.ts` cycle and request completion against the pinned TypeScript module.
 
+use pi_js_compat::js_json::JsString;
 #[path = "support/oracle.rs"]
 mod oracle;
 
@@ -10,12 +11,13 @@ use pi_coding_agent::architect::main::{SentArchitectMessage, complete_sent_archi
 use pi_coding_agent::architect::observer::ArchitectObserver;
 use pi_coding_agent::core::session_control_db::{PostArchitectRequestInput, post_architect_request};
 use pi_coding_agent::core::session_manager::{NewSessionOptions, SessionManager};
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsValue as Value;
 
 const SOURCE_MODULE: &str = "packages/coding-agent/src/architect/main.ts";
 
-fn normalize_session_file(path: &str, dir: &str) -> Vec<Value> {
-    let content = std::fs::read_to_string(path).expect("session file");
+fn normalize_session_file(path: &JsString, dir: &str) -> Vec<Value> {
+    let content = std::fs::read_to_string(path.to_utf8().expect("utf-8 test path")).expect("session file");
     content
         .lines()
         .filter(|line| !line.is_empty())
@@ -47,14 +49,14 @@ fn normalize_strings(value: &mut Value, dir: &str) {
     }
 }
 
-fn normalize_prompt(prompt: &str) -> String {
-    let mut normalized = String::new();
-    let chars: Vec<char> = prompt.chars().collect();
+fn normalize_prompt(prompt: &JsString) -> JsString {
+    let mut normalized = JsString::default();
+    let chars = prompt.units();
     let mut index = 0;
     while index < chars.len() {
         if is_iso_timestamp_start(&chars, index) {
             let mut end = index;
-            while end < chars.len() && chars[end] != 'Z' {
+            while end < chars.len() && chars[end] != u16::from(b'Z') {
                 end += 1;
             }
             if end < chars.len() {
@@ -68,44 +70,47 @@ fn normalize_prompt(prompt: &str) -> String {
             index += 36;
             continue;
         }
-        normalized.push(chars[index]);
+        normalized.push_unit(chars[index]);
         index += 1;
     }
     normalized
 }
 
-fn is_iso_timestamp_start(chars: &[char], index: usize) -> bool {
+fn is_iso_timestamp_start(chars: &[u16], index: usize) -> bool {
     if index + 20 > chars.len() {
         return false;
     }
-    let digits = |offset: usize| chars[index + offset].is_ascii_digit();
+    let digits = |offset: usize| (u16::from(b'0')..=u16::from(b'9')).contains(&chars[index + offset]);
     digits(0)
         && digits(1)
         && digits(2)
         && digits(3)
-        && chars[index + 4] == '-'
+        && chars[index + 4] == u16::from(b'-')
         && digits(5)
         && digits(6)
-        && chars[index + 7] == '-'
+        && chars[index + 7] == u16::from(b'-')
         && digits(8)
         && digits(9)
-        && chars[index + 10] == 'T'
+        && chars[index + 10] == u16::from(b'T')
         && digits(11)
         && digits(12)
-        && chars[index + 13] == ':'
+        && chars[index + 13] == u16::from(b':')
 }
 
-fn is_uuid_start(chars: &[char], index: usize) -> bool {
+fn is_uuid_start(chars: &[u16], index: usize) -> bool {
     if index + 36 > chars.len() {
         return false;
     }
     for (offset, character) in chars[index..index + 36].iter().enumerate() {
         let separator = matches!(offset, 8 | 13 | 18 | 23);
         if separator {
-            if *character != '-' {
+            if *character != u16::from(b'-') {
                 return false;
             }
-        } else if !character.is_ascii_hexdigit() {
+        } else if !(u16::from(b'0')..=u16::from(b'9')).contains(character)
+            && !(u16::from(b'a')..=u16::from(b'f')).contains(character)
+            && !(u16::from(b'A')..=u16::from(b'F')).contains(character)
+        {
             return false;
         }
     }
@@ -122,11 +127,11 @@ fn normalize_entry(value: &mut Value) {
         Value::Object(object) => {
             for (key, child) in object.iter_mut() {
                 if key == "id" || key == "parentId" {
-                    *child = Value::String("<id>".to_owned());
+                    *child = Value::String("<id>".to_owned().into());
                 } else if key == "timestamp" {
-                    *child = Value::String("<timestamp>".to_owned());
+                    *child = Value::String("<timestamp>".to_owned().into());
                 } else if key == "cwd" {
-                    *child = Value::String("<cwd>".to_owned());
+                    *child = Value::String("<cwd>".to_owned().into());
                 } else {
                     normalize_entry(child);
                 }
@@ -140,10 +145,10 @@ async fn run_rust(dir: &str) -> Value {
     let control_db_path = format!("{dir}/control.sqlite");
     let session_dir = format!("{dir}/sessions");
     let manager = SessionManager::create(
-        dir,
-        Some(&session_dir),
+        &JsString::from(dir),
+        Some(&JsString::from(session_dir)),
         Some(NewSessionOptions {
-            id: Some("architect".to_owned()),
+            id: Some("architect".to_owned().into()),
             ..Default::default()
         }),
     )
@@ -153,21 +158,21 @@ async fn run_rust(dir: &str) -> Value {
     post_architect_request(
         &control_db_path,
         &PostArchitectRequestInput {
-            sender_session_id: "main-session".to_owned(),
-            project_cwd: dir.to_owned(),
-            body: "review this design".to_owned(),
+            sender_session_id: "main-session".to_owned().into(),
+            project_cwd: dir.to_owned().into(),
+            body: "review this design".to_owned().into(),
         },
     )
     .expect("post request");
-    let observer = Arc::new(ArchitectObserver::new(&control_db_path, None));
+    let observer = Arc::new(ArchitectObserver::new(&JsString::from(&control_db_path), None));
     let prompt_manager = Arc::clone(&manager);
-    let prompt_text = Arc::new(Mutex::new(String::new()));
+    let prompt_text = Arc::new(Mutex::new(JsString::default()));
     let captured_prompt = Arc::clone(&prompt_text);
-    run_architect_cycle(Arc::clone(&observer), move |content: String| {
+    run_architect_cycle(Arc::clone(&observer), move |content: JsString| {
         *captured_prompt.lock().unwrap() = content.clone();
         let manager = Arc::clone(&prompt_manager);
         async move {
-            let message: AgentMessage = serde_json::from_value(json!({
+            let message: AgentMessage = pi_js_compat::js_json::from_value(&json!({
                 "role": "assistant",
                 "content": [{"type": "text", "text": content}],
                 "api": "faux",
@@ -194,9 +199,9 @@ async fn run_rust(dir: &str) -> Value {
     complete_sent_architect_request(
         &*observer,
         &SentArchitectMessage {
-            thread_id: Some("architect-request:1".to_owned()),
-            to_agent_id: "main".to_owned(),
-            to_session_id: "main-session".to_owned(),
+            thread_id: Some("architect-request:1".to_owned().into()),
+            to_agent_id: "main".to_owned().into(),
+            to_session_id: "main-session".to_owned().into(),
         },
     )
     .expect("complete request");
@@ -236,7 +241,11 @@ async fn architect_request_cycle_matches_typescript() {
         "operation": "architect-request-loop",
         "dir": ts_dir.path().display().to_string()
     }));
-    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "{response:?}"
+    );
     let ts = &response["output"];
     assert_eq!(rust["controlRows"], ts["controlRows"]);
     assert_eq!(rust["prompt"], ts["prompt"]);

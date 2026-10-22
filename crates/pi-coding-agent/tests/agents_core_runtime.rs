@@ -1,5 +1,6 @@
 //! Behavioral tests for agents-core runtime, registration, and mailbox flows.
 
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -35,11 +36,12 @@ use pi_coding_agent::core::session_control_db::{
     get_control_db_path, list_runtime_mailbox_messages, read_multi_agent_agent,
 };
 use pi_coding_agent::core::session_manager::{SessionManager, SharedSessionManager, lock_session_manager};
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsValue as Value;
 
 struct TestPersistence {
     control_db_path: String,
-    session_path: String,
+    session_path: JsString,
 }
 
 impl SessionPersistence for TestPersistence {
@@ -48,14 +50,14 @@ impl SessionPersistence for TestPersistence {
     }
 
     fn session_file(&self) -> Option<pi_js_compat::js_json::JsString> {
-        Some(self.session_path.as_str().into())
+        Some(self.session_path.clone())
     }
 }
 
 struct TestDir {
     _dir: tempfile::TempDir,
     control_db_path: String,
-    session_path: String,
+    session_path: JsString,
     cwd: String,
 }
 
@@ -66,8 +68,12 @@ fn test_dir() -> TestDir {
     let control_db_path = get_control_db_path(dir.path());
     let session_dir = dir.path().join("sessions");
     std::fs::create_dir_all(&session_dir).expect("session dir");
-    let session_manager =
-        SessionManager::create(&cwd, Some(&session_dir.display().to_string()), None).expect("session manager");
+    let session_manager = SessionManager::create(
+        &JsString::from(&cwd),
+        Some(&JsString::from(session_dir.display().to_string())),
+        None,
+    )
+    .expect("session manager");
     let session_path = session_manager.get_session_file().expect("session file").to_owned();
     TestDir {
         _dir: dir,
@@ -91,34 +97,34 @@ fn store_with_persistence(test: &TestDir) -> Arc<MultiAgentStore> {
 
 #[derive(Default)]
 struct RecordingNotifier {
-    notifications: Mutex<Vec<String>>,
+    notifications: Mutex<Vec<JsString>>,
 }
 
 impl DesktopNotifier for RecordingNotifier {
     fn notify(&self, notification: &DesktopNotification) -> Option<Box<dyn DesktopNotificationHandle>> {
-        self.notifications
-            .lock()
-            .expect("notifications")
-            .push(format!("{}|{}", notification.title, notification.body));
+        self.notifications.lock().expect("notifications").push(JsString::join(
+            [notification.title.clone(), notification.body.clone()],
+            "|",
+        ));
         None
     }
 }
 
 #[derive(Default)]
 struct RecordingUi {
-    notifications: Mutex<Vec<(String, Option<NotifyType>)>>,
-    editor_text: Mutex<String>,
+    notifications: Mutex<Vec<(JsString, Option<NotifyType>)>>,
+    editor_text: Mutex<JsString>,
 }
 
 impl ExtensionUiContext for RecordingUi {
-    fn notify(&self, message: &str, notify_type: Option<NotifyType>) {
+    fn notify(&self, message: &JsString, notify_type: Option<NotifyType>) {
         self.notifications
             .lock()
             .expect("notifications")
             .push((message.to_owned(), notify_type));
     }
 
-    fn set_editor_text(&self, text: &str) {
+    fn set_editor_text(&self, text: &JsString) {
         *self.editor_text.lock().expect("editor text") = text.to_owned();
     }
 }
@@ -173,7 +179,7 @@ fn context_actions(
         has_pending_messages: Arc::new(|| false),
         shutdown: Arc::new(|| {}),
         restart: Arc::new(|_| Box::pin(async { Ok(()) })),
-        get_control_db_path: Some(Arc::new(move || Some(control_db_path.clone()))),
+        get_control_db_path: Some(Arc::new(move || Some(control_db_path.clone().into()))),
         get_context_usage: Arc::new(|| None),
         get_multi_agent_agent_id: None,
         get_multi_agent_parent_session_id: None,
@@ -181,11 +187,11 @@ fn context_actions(
         get_multi_agent_store: None,
         get_tool_detach_registry: None,
         compact: Arc::new(|_| {}),
-        get_system_prompt: Arc::new(String::new),
+        get_system_prompt: Arc::new(JsString::default),
         get_system_prompt_options: None,
     };
     if let Some(agent_id) = agent_id {
-        actions.get_multi_agent_agent_id = Some(Arc::new(move || Some(agent_id.clone())));
+        actions.get_multi_agent_agent_id = Some(Arc::new(move || Some(agent_id.clone().into())));
     }
     if requires_agent_id {
         actions.get_multi_agent_requires_agent_id = Some(Arc::new(|| true));
@@ -200,7 +206,7 @@ async fn test_context(
     requires_agent_id: bool,
 ) -> (ExtensionRunner, ExtensionContext) {
     let session_manager = Arc::new(Mutex::new(
-        SessionManager::in_memory(Some(&test.cwd), None).expect("session"),
+        SessionManager::in_memory(Some(&JsString::from(&test.cwd)), None).expect("session"),
     ));
     test_context_with(test, session_manager, ui, agent_id, requires_agent_id).await
 }
@@ -224,7 +230,7 @@ async fn test_context_with_extensions(
     extensions: Vec<pi_coding_agent::core::extensions::Extension>,
 ) -> (ExtensionRunner, ExtensionContext) {
     let runtime = create_extension_runtime();
-    let storage = pi_coding_agent::core::auth_storage::AuthStorage::in_memory(serde_json::Map::new());
+    let storage = pi_coding_agent::core::auth_storage::AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new());
     let model_runtime = pi_coding_agent::core::model_runtime::ModelRuntime::create(
         pi_coding_agent::core::model_runtime::CreateModelRuntimeOptions {
             credentials: Some(Arc::new(storage)),
@@ -256,11 +262,11 @@ fn seed_child(store: &Arc<MultiAgentStore>, test: &TestDir, id: &str, transcript
         .prepare_child(
             &pi_coding_agent::core::lifecycle_coordinator::PrepareChildCommandInput {
                 spawn: pi_coding_agent::core::multi_agent_store::SpawnAgent {
-                    parent_id: Some("main".to_owned()),
-                    display_name: "Child".to_owned(),
+                    parent_id: Some("main".to_owned().into()),
+                    display_name: "Child".to_owned().into(),
                     agent_type: "explore".into(),
                     origin: None,
-                    cwd: test.cwd.clone(),
+                    cwd: test.cwd.clone().into(),
                     permission: pi_coding_agent::core::multi_agent_store::AgentPermission {
                         policy: "on-request".into(),
                         inherited_from: None,
@@ -271,13 +277,13 @@ fn seed_child(store: &Arc<MultiAgentStore>, test: &TestDir, id: &str, transcript
                     account: None,
                     slot: None,
                     transcript: Some(pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata {
-                        session_id: transcript_session.to_owned(),
-                        path: Some(format!("/tmp/{transcript_session}.jsonl")),
+                        session_id: transcript_session.to_owned().into(),
+                        path: Some(format!("/tmp/{transcript_session}.jsonl").into()),
                     }),
                     event_stream: None,
                     worker: None,
                 },
-                agent_id: Some(id.to_owned()),
+                agent_id: Some(id.to_owned().into()),
                 detached: None,
                 result: None,
             },
@@ -286,7 +292,7 @@ fn seed_child(store: &Arc<MultiAgentStore>, test: &TestDir, id: &str, transcript
     let created = coordinator
         .commit_running_child(
             &prepared,
-            &test.session_path,
+            &JsString::from(&test.session_path),
             pi_coding_agent::bundled_extensions::agents_core::lifecycle_runtime::runtime_process_identity(),
             None,
         )
@@ -315,8 +321,8 @@ impl FakeSession {
             messages: Arc::new(Mutex::new(Vec::new())),
             transcript: transcript_session.map(|session_id| {
                 pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata {
-                    session_id: session_id.to_owned(),
-                    path: Some(format!("/tmp/{session_id}.jsonl")),
+                    session_id: session_id.to_owned().into(),
+                    path: Some(format!("/tmp/{session_id}.jsonl").into()),
                 }
             }),
             summary: summary.to_owned(),
@@ -334,11 +340,11 @@ impl ChildAgentSession for FakeSession {
         self.messages.lock().expect("messages").clone()
     }
 
-    fn prompt(&self, text: String) -> BoxFuture<'static, Result<(), String>> {
+    fn prompt(&self, text: JsString) -> BoxFuture<'static, Result<(), JsString>> {
         let summary = self.summary.clone();
         let messages = self.messages.lock().expect("messages").clone();
         let _ = messages;
-        let user: AgentMessage = serde_json::from_value(json!({
+        let user: AgentMessage = pi_js_compat::js_json::from_value(&json!({
             "role": "user",
             "content": text,
             "timestamp": 0
@@ -377,12 +383,12 @@ fn fake_factory(summary: &'static str, transcript: bool) -> ChildAgentSessionFac
     })
 }
 
-type JournalEntries = Arc<Mutex<Vec<(String, Option<Value>)>>>;
+type JournalEntries = Arc<Mutex<Vec<(JsString, Option<Value>)>>>;
 
 fn recording_journal() -> (JournalWriter, JournalEntries) {
     let entries = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&entries);
-    let writer = JournalWriter::from_handler(Arc::new(move |custom_type: &str, data: Option<Value>| {
+    let writer = JournalWriter::from_handler(Arc::new(move |custom_type: &JsString, data: Option<Value>| {
         sink.lock().expect("journal").push((custom_type.to_owned(), data));
         Ok(())
     }));
@@ -417,10 +423,17 @@ async fn spawn_agent_persists_running_child_and_journals_start() {
     .expect("spawn");
 
     let details = result.details.clone().expect("details");
-    let agent_id = details["agent"]["id"].as_str().expect("agent id").to_owned();
+    let agent_id = details["agent"]["id"].as_string().expect("agent id").to_owned();
     assert_eq!(
         text(&result),
-        format!("Spawned explore ({agent_id}) [type: explore, context: inherit]")
+        JsString::join(
+            [
+                JsString::from("Spawned explore ("),
+                agent_id.clone(),
+                JsString::from(") [type: explore, context: inherit]")
+            ],
+            ""
+        )
     );
     assert_eq!(details["dispatched"], json!(true));
     assert_eq!(details["prompt"], json!("do work"));
@@ -443,8 +456,8 @@ async fn spawn_agent_persists_running_child_and_journals_start() {
     let completed = dispatch.await.expect("dispatch result");
     assert_eq!(completed.lifecycle, AgentLifecycle::Completed);
     assert_eq!(
-        completed.result.as_ref().and_then(|result| result.summary.as_deref()),
-        Some("child done")
+        completed.result.as_ref().and_then(|result| result.summary.as_ref()),
+        Some(&JsString::from("child done"))
     );
     let persisted = read_multi_agent_agent(&test.control_db_path, &test.session_path, &agent_id)
         .expect("read agent")
@@ -583,7 +596,7 @@ async fn cancel_agent_requests_cancellation_for_owned_runtime() {
     .await
     .expect("spawn");
     let agent_id = result.details.expect("details")["agent"]["id"]
-        .as_str()
+        .as_string()
         .expect("id")
         .to_owned();
 
@@ -592,14 +605,14 @@ async fn cancel_agent_requests_cancellation_for_owned_runtime() {
         &handles,
         &CancelAgentParams {
             agent_id: agent_id.clone(),
-            reason: Some("done".to_owned()),
+            reason: Some("done".to_owned().into()),
         },
     )
     .await
     .expect("cancel");
     assert!(
         text(&cancelled).starts_with("Cancellation requested for ") || text(&cancelled).starts_with("Cancelled "),
-        "unexpected text: {}",
+        "unexpected text: {:?}",
         text(&cancelled)
     );
     let agent = store.get_agent(&agent_id).expect("agent");
@@ -619,8 +632,8 @@ async fn steer_without_runtime_identity_reports_unavailable_identity() {
         &store,
         &handles,
         &pi_coding_agent::bundled_extensions::agents_core::control_runtime::SteerAgentParams {
-            agent_id: "missing".to_owned(),
-            message: "hello".to_owned(),
+            agent_id: "missing".to_owned().into(),
+            message: "hello".to_owned().into(),
             ..Default::default()
         },
         Some(&ctx),
@@ -641,15 +654,15 @@ async fn steering_requests_reject_unknown_agents() {
     let result = request_agent_steering(
         &store,
         &AgentSteeringRequest {
-            agent_id: "missing".to_owned(),
-            message: "hello".to_owned(),
+            agent_id: "missing".to_owned().into(),
+            message: "hello".to_owned().into(),
             file_refs: None,
             target_checkpoint: None,
         },
         &AgentSteeringRuntimeBinding {
             actor_agent_id: None,
-            control_db_path: test.control_db_path.clone(),
-            session_id: test.session_path.clone(),
+            control_db_path: test.control_db_path.clone().into(),
+            session_id: test.session_path.clone().into(),
         },
         None,
     )
@@ -669,16 +682,16 @@ async fn mailbox_delivers_to_child_session_and_records_outbound_message() {
     let store = store_with_persistence(&test);
     seed_child(&store, &test, "child", "child-session");
 
-    pi_coding_agent::core::session_control_db::write_session_metadata(&test.control_db_path, &serde_json::from_value(json!({"sessionPath":format!("{}/child.jsonl",test.cwd),"id":"child-session","cwd":test.cwd,"createdAt":pi_coding_agent::utils::iso_time::now_iso_string(),"modifiedAt":pi_coding_agent::utils::iso_time::now_iso_string(),"messageCount":0,"firstMessage":""})).unwrap()).unwrap();
+    pi_coding_agent::core::session_control_db::write_session_metadata(&test.control_db_path, &pi_js_compat::js_json::from_value(&json!({"sessionPath":format!("{}/child.jsonl",test.cwd),"id":"child-session","cwd":test.cwd,"createdAt":pi_coding_agent::utils::iso_time::now_iso_string(),"modifiedAt":pi_coding_agent::utils::iso_time::now_iso_string(),"messageCount":0,"firstMessage":""})).unwrap()).unwrap();
     let (_runner, ctx) = test_context(&test, None, None, false).await;
     let result = send_agent_message(
         &store,
         &SendAgentMessageParams {
             file_refs: None,
-            message: "hello".to_owned(),
+            message: "hello".to_owned().into(),
             thread_id: None,
-            to_agent_id: "child".to_owned(),
-            to_session_id: Some("child-session".to_owned()),
+            to_agent_id: "child".to_owned().into(),
+            to_session_id: Some("child-session".to_owned().into()),
             to_host: None,
         },
         Some(&ctx),
@@ -693,7 +706,10 @@ async fn mailbox_delivers_to_child_session_and_records_outbound_message() {
     let runtime_rows = list_runtime_mailbox_messages(&test.control_db_path).expect("runtime mailbox");
     assert_eq!(runtime_rows.len(), 1);
     assert_eq!(runtime_rows[0].recipient.session_id, "child-session");
-    assert_eq!(runtime_rows[0].recipient.agent_id.as_deref(), Some("child"));
+    assert_eq!(
+        runtime_rows[0].recipient.agent_id.clone(),
+        Some(JsString::from("child"))
+    );
     assert_eq!(runtime_rows[0].sender.agent_id, None);
 }
 
@@ -708,7 +724,7 @@ async fn contact_parent_delivers_to_parent_session() {
         &store,
         &ContactParentParams {
             file_refs: None,
-            message: "need input".to_owned(),
+            message: "need input".to_owned().into(),
             thread_id: None,
         },
         Some(&ctx),
@@ -720,9 +736,11 @@ async fn contact_parent_delivers_to_parent_session() {
     assert_eq!(runtime_rows[0].recipient.agent_id, None);
     assert_eq!(
         runtime_rows[0].recipient.session_id,
-        lock_session_manager(&ctx.session_manager().expect("session")).get_session_id()
+        lock_session_manager(&ctx.session_manager().expect("session"))
+            .get_session_id()
+            .clone()
     );
-    assert_eq!(runtime_rows[0].sender.agent_id.as_deref(), Some("child"));
+    assert_eq!(runtime_rows[0].sender.agent_id.clone(), Some(JsString::from("child")));
 }
 
 #[tokio::test]
@@ -791,7 +809,7 @@ async fn request_handler_returns_last_session_message_summary() {
     };
     options.runtime_handles = Some(create_multi_agent_runtime_handles());
     let handler = create_multi_agent_pi_request_handler(&options, None);
-    let mut session_manager = SessionManager::in_memory(Some(&test.cwd), None).expect("session");
+    let mut session_manager = SessionManager::in_memory(Some(&JsString::from(&test.cwd)), None).expect("session");
     let mut assistant = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux", 2);
     assistant
         .content
@@ -808,7 +826,7 @@ async fn request_handler_returns_last_session_message_summary() {
         .expect("last");
     assert_eq!(details["role"], json!("assistant"));
     assert_eq!(details["truncated"], json!(true));
-    assert_eq!(details["text"].as_str().expect("text").len(), 2000);
+    assert_eq!(details["text"].as_string().expect("text").len(), 2000);
     assert_eq!(details["content"], details["text"]);
 }
 
@@ -822,10 +840,10 @@ async fn mailbox_registration_includes_question_relay_tools() {
             );
             Box::pin(async move { result })
         }),
-        "/repo",
+        &JsString::from("/repo"),
         Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
         create_extension_runtime(),
-        "<mailbox-registration>",
+        &JsString::from("<mailbox-registration>"),
     )
     .await
     .unwrap();
@@ -856,10 +874,10 @@ async fn registration_exposes_the_source_tools_and_commands() {
             let result = multi_agent_extension(pi, &options);
             Box::pin(async move { result })
         }),
-        &test.cwd,
+        &JsString::from(&(test.cwd)),
         Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
         create_extension_runtime(),
-        "<first-party:agents-core>",
+        &JsString::from("<first-party:agents-core>"),
     )
     .await
     .expect("extension");
@@ -896,7 +914,7 @@ async fn registration_exposes_the_source_tools_and_commands() {
         "Create a child agent record and optionally dispatch it through the multi-agent runtime."
     );
     assert_eq!(
-        spawn.parameters,
+        Value::from(spawn.parameters.clone()),
         json!({
             "type": "object",
             "required": ["prompt"],
@@ -922,7 +940,7 @@ async fn registration_exposes_the_source_tools_and_commands() {
         .definition
         .clone();
     assert_eq!(
-        wait.parameters,
+        Value::from(wait.parameters.clone()),
         json!({"type": "object", "properties": {}, "additionalProperties": false})
     );
     assert_eq!(
@@ -932,8 +950,8 @@ async fn registration_exposes_the_source_tools_and_commands() {
             .get(&pi_js_compat::js_json::JsString::from("bg"))
             .expect("bg")
             .description
-            .as_deref(),
-        Some("Run a prompt as a background agent job.")
+            .clone(),
+        Some(JsString::from("Run a prompt as a background agent job."))
     );
     assert_eq!(
         extension
@@ -942,8 +960,8 @@ async fn registration_exposes_the_source_tools_and_commands() {
             .get(&pi_js_compat::js_json::JsString::from("jobs"))
             .expect("jobs")
             .description
-            .as_deref(),
-        Some("List background agent jobs.")
+            .clone(),
+        Some(JsString::from("List background agent jobs."))
     );
 }
 
@@ -963,15 +981,15 @@ async fn background_command_reports_unavailable_and_validation_errors() {
             let result = multi_agent_extension(pi, &options);
             Box::pin(async move { result })
         }),
-        &test.cwd,
+        &JsString::from(&(test.cwd)),
         Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
         create_extension_runtime(),
-        "<first-party:agents-core>",
+        &JsString::from("<first-party:agents-core>"),
     )
     .await
     .expect("extension");
     let session_manager = Arc::new(Mutex::new(
-        SessionManager::in_memory(Some(&test.cwd), None).expect("session"),
+        SessionManager::in_memory(Some(&JsString::from(&test.cwd)), None).expect("session"),
     ));
     let (runner, _ctx) = test_context_with_extensions(
         &test,
@@ -983,14 +1001,14 @@ async fn background_command_reports_unavailable_and_validation_errors() {
     )
     .await;
     let command = runner.get_command("bg").expect("bg command").handler;
-    command(String::new(), runner.create_command_context())
+    command(String::new().into(), runner.create_command_context())
         .await
         .expect("bg command");
     let notifications = ui.notifications.lock().expect("notifications").clone();
     assert_eq!(
         notifications[0],
         (
-            "Background jobs are unavailable: no child session runtime is configured.".to_owned(),
+            JsString::from("Background jobs are unavailable: no child session runtime is configured."),
             Some(NotifyType::Error)
         )
     );
@@ -1006,10 +1024,10 @@ async fn jobs_command_lists_background_agents() {
     pi_coding_agent::bundled_extensions::agents_core::runtime::jobs_command(&store, &command_ctx).expect("jobs");
     assert_eq!(
         ui.notifications.lock().expect("notifications").clone(),
-        vec![("No background jobs.".to_owned(), Some(NotifyType::Info))]
+        vec![(JsString::from("No background jobs."), Some(NotifyType::Info))]
     );
 
-    let mut agent = serde_json::from_value::<AgentSnapshot>(json!({
+    let mut agent = pi_js_compat::js_json::from_value::<AgentSnapshot>(&json!({
         "id": "job",
         "displayName": "Background Job",
         "agentType": "background",
@@ -1032,10 +1050,17 @@ async fn jobs_command_lists_background_agents() {
 async fn attach_session_agent_attaches_a_saved_session() {
     let test = test_dir();
     let store = store_with_persistence(&test);
-    let session_dir = std::path::Path::new(&test.session_path).parent().expect("parent");
-    let mut saved =
-        SessionManager::create(&test.cwd, Some(&session_dir.display().to_string()), None).expect("saved session");
-    saved.set_session_name(Some("Saved Session")).expect("in-memory name");
+    let session_path = test.session_path.to_utf8().expect("utf-8 test path");
+    let session_dir = std::path::Path::new(&session_path).parent().expect("parent");
+    let mut saved = SessionManager::create(
+        &JsString::from(&test.cwd),
+        Some(&JsString::from(session_dir.display().to_string())),
+        None,
+    )
+    .expect("saved session");
+    saved
+        .set_session_name(Some(&JsString::from("Saved Session")))
+        .expect("in-memory name");
     saved.persist_for_recovery().expect("persist header");
     let saved_id = saved.get_session_id().to_owned();
     let saved_path = saved.get_session_file().expect("saved path").to_owned();
@@ -1074,7 +1099,10 @@ async fn attach_session_agent_attaches_a_saved_session() {
         json!(saved_id),
         "attach must preserve the freshly persisted session header"
     );
-    assert_eq!(details["agent"]["displayName"], json!(format!("Session {saved_id}")));
+    assert_eq!(
+        details["agent"]["displayName"],
+        json!(JsString::join([JsString::from("Session "), saved_id.clone()], ""))
+    );
     assert_eq!(details["agent"]["transcript"]["path"], json!(saved_path));
     assert!(text(&result).starts_with("Attached "));
 }
@@ -1103,7 +1131,7 @@ async fn wait_agent_consumes_pending_terminal_notification() {
     .await
     .expect("spawn");
     let agent_id = result.details.expect("details")["agent"]["id"]
-        .as_str()
+        .as_string()
         .expect("id")
         .to_owned();
     let dispatch = handles
@@ -1165,7 +1193,7 @@ async fn request_handler_lists_agents_and_routes_select_callback() {
     assert_eq!(selected.lock().expect("selected").as_slice(), ["child"]);
 }
 
-fn text(result: &AgentToolResult) -> String {
+fn text(result: &AgentToolResult) -> JsString {
     match &result.content[0] {
         pi_ai::types::TextOrImageContent::Text(text) => text.text.clone(),
         pi_ai::types::TextOrImageContent::Image(_) => panic!("expected text content"),
@@ -1188,19 +1216,20 @@ async fn wait_slice_uses_latest_model_request_and_does_not_cancel_active_agents(
             let result = multi_agent_extension(pi, &options);
             Box::pin(async move { result })
         }),
-        &test.cwd,
+        &JsString::from(&(test.cwd)),
         Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
         create_extension_runtime(),
-        "<wait-slice>",
+        &JsString::from("<wait-slice>"),
     )
     .await
     .unwrap();
     let session = Arc::new(Mutex::new(
-        SessionManager::open(&test.session_path, None, None).unwrap(),
+        SessionManager::open(&JsString::from(&test.session_path), None, None).unwrap(),
     ));
     let (runner, ctx) = test_context_with_extensions(&test, session, None, None, false, vec![extension]).await;
     let mut event: pi_coding_agent::core::extensions::types::ExtensionEvent =
-        serde_json::from_value(json!({"type":"model_request_start"})).expect("model_request_start extension event");
+        pi_js_compat::js_json::from_value(&json!({"type":"model_request_start"}))
+            .expect("model_request_start extension event");
     runner.emit(&mut event).await;
     *handles
         .latest_model_request_started_at
@@ -1223,9 +1252,12 @@ async fn wait_slice_uses_latest_model_request_and_does_not_cancel_active_agents(
     );
     let result = waiting.await.unwrap();
     assert_eq!(result.details.unwrap(), json!({"timedOut":true}));
-    assert_eq!(store.get_agent("child").unwrap().lifecycle, AgentLifecycle::Running);
+    assert_eq!(
+        store.get_agent(&JsString::from("child")).unwrap().lifecycle,
+        AgentLifecycle::Running
+    );
     let mut end: pi_coding_agent::core::extensions::types::ExtensionEvent =
-        serde_json::from_value(json!({"type":"agent_end","messages":[]})).unwrap();
+        pi_js_compat::js_json::from_value(&json!({"type":"agent_end","messages":[]})).unwrap();
     runner.emit(&mut end).await;
     let signal = tokio_util::sync::CancellationToken::new();
     let waiting = tokio::spawn({

@@ -1,4 +1,5 @@
 //! Frozen agent-model-tool registration and live-child mutation contract.
+use pi_js_compat::js_json::JsString;
 #[path = "support/bundled.rs"]
 mod bundled;
 #[path = "support/oracle.rs"]
@@ -20,7 +21,7 @@ use pi_coding_agent::core::resource_loader::StaticResourceLoader;
 use pi_coding_agent::core::sdk::{CreateAgentSessionOptions, create_agent_session};
 use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
-use serde_json::json;
+use pi_js_compat::js_json as json;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -35,17 +36,17 @@ async fn registered(options: MultiAgentExtensionOptions) -> Extension {
             let result = multi_agent_extension(api, &options);
             Box::pin(async move { result })
         }),
-        "/fixture",
+        &JsString::from("/fixture"),
         Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
         create_extension_runtime(),
-        "<first-party:agents-core>",
+        &JsString::from("<first-party:agents-core>"),
     )
     .await
     .expect("agents-core factory")
 }
 
 fn agent(id: &str, lifecycle: &str, agent_type: &str) -> AgentSnapshot {
-    serde_json::from_value(json!({
+    pi_js_compat::js_json::from_value(&json!({
         "id": id, "parentId": "main", "displayName": "Worker", "agentType": agent_type,
         "lifecycle": lifecycle, "revision": 0, "createdAt": "2026-10-21T00:00:00.000Z",
         "updatedAt": "2026-10-21T00:00:00.000Z", "cwd": "/fixture",
@@ -69,7 +70,7 @@ async fn errors_and_order_match_frozen_registered_tool() {
     for agent in &agents {
         store.publish_lifecycle_coordinator_snapshot(agent).unwrap();
     }
-    store.select_agent_view("active");
+    store.select_agent_view(&JsString::from("active"));
     let extension = registered(MultiAgentExtensionOptions {
         store: Some(store.clone()),
         ..Default::default()
@@ -106,7 +107,7 @@ async fn errors_and_order_match_frozen_registered_tool() {
         assert_eq!(
             json!({"error": error.message, "selected": store.get_selected_agent_id()}),
             expected,
-            "{params}"
+            "{params:?}"
         );
     }
 }
@@ -148,7 +149,7 @@ async fn live_fixture_with_persistence(persistence: Option<(&mut oracle::TsOracl
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(Arc::new(AuthStorage::in_memory(
             serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(
-                json!({"faux": {"type":"api_key", "key":"fixture"}}),
+                serde_json::json!({"faux": {"type":"api_key", "key":"fixture"}}),
             )
             .unwrap(),
         ))),
@@ -170,24 +171,24 @@ async fn live_fixture_with_persistence(persistence: Option<(&mut oracle::TsOracl
     if let Some((oracle, source_created, owner_session)) = persistence {
         seed_owned_store(oracle, source_created, owner_session, &dir, &store);
     }
-    store.select_agent_view("viewed");
+    store.select_agent_view(&JsString::from("viewed"));
     let settings = Arc::new(Mutex::new(SettingsManager::in_memory(
         Default::default(),
         SettingsManagerCreateOptions::default(),
     )));
     let child = create_agent_session(CreateAgentSessionOptions {
-        cwd: Some(cwd.clone()),
-        agent_dir: Some(cwd.clone()),
+        cwd: Some(cwd.clone().into()),
+        agent_dir: Some(cwd.clone().into()),
         model_runtime: Some(runtime),
         model: faux.get_model(Some("old")),
         thinking_level: Some(ThinkingLevel::Low),
         resource_loader: Some(StaticResourceLoader::new()),
-        session_manager: Some(SessionManager::in_memory(Some(&cwd), None).unwrap()),
+        session_manager: Some(SessionManager::in_memory(Some(&JsString::from(&cwd)), None).unwrap()),
         settings_manager: Some(settings.clone()),
-        control_db_path: Some(dir.path().join("control.db").display().to_string()),
+        control_db_path: Some(dir.path().join("control.db").display().to_string().into()),
         multi_agent_store: Some(store.clone()),
         multi_agent_agent_id: Some("child".into()),
-        multi_agent_parent_session_id: persisted.then(|| "fixture-parent".to_owned()),
+        multi_agent_parent_session_id: persisted.then(|| JsString::from("fixture-parent")),
         disable_runtime_coordination_inbound: true,
         ..Default::default()
     })
@@ -250,20 +251,26 @@ fn seed_owned_store(
                 "owner":{"sessionId":owner_session,"agentId":null}, "nowIso":child.updated_at, "agent":child
             }}),
         );
-        assert_eq!(result["ok"], true, "{result}");
+        assert_eq!(result["ok"], pi_js_compat::js_json::JsValue::Bool(true), "{result:?}");
     } else {
-        db::bootstrap_multi_agent_agent(&path, &session, "viewed", &serde_json::to_value(viewed).unwrap()).unwrap();
+        db::bootstrap_multi_agent_agent(
+            &path,
+            &session,
+            &JsString::from("viewed"),
+            &pi_js_compat::js_json::to_value(&viewed).unwrap(),
+        )
+        .unwrap();
         let result = db::create_multi_agent_child_with_runtime_ownership(
             &path,
             &db::CreateMultiAgentChildWithRuntimeOwnershipInput {
-                session_path: session.clone(),
+                session_path: session.clone().into(),
                 agent_id: "child".into(),
                 process_identity: identity,
                 owner: db::MultiAgentRuntimeOwnerIdentity {
                     session_id: owner_session.into(),
                     agent_id: None,
                 },
-                now_iso: child.updated_at.clone(),
+                now_iso: child.updated_at.to_utf8().expect("fixture timestamp"),
                 agent: child,
             },
         )
@@ -281,7 +288,8 @@ fn seed_owned_store(
 #[tokio::test]
 async fn live_request_keeps_old_model_next_request_uses_effective_model_and_effort() {
     let fixture = live_fixture().await;
-    let before_settings = serde_json::to_value(fixture.settings.lock().unwrap().get_global_settings()).unwrap();
+    let before_settings =
+        pi_js_compat::js_json::to_value(&fixture.settings.lock().unwrap().get_global_settings()).unwrap();
     let started = Arc::new(tokio::sync::Notify::new());
     let release = Arc::new(tokio::sync::Notify::new());
     let observed = Arc::new(Mutex::new(Vec::new()));
@@ -358,7 +366,7 @@ async fn live_request_keeps_old_model_next_request_uses_effective_model_and_effo
     assert!(
         publication_states
             .iter()
-            .all(|model| serde_json::to_value(model).unwrap()
+            .all(|model| pi_js_compat::js_json::to_value(model).unwrap()
                 == json!({"providerId":"faux","modelId":"new","thinkingLevel":"high"})),
         "every published model must already contain effective clamped effort: {publication_states:?}"
     );
@@ -371,9 +379,12 @@ async fn live_request_keeps_old_model_next_request_uses_effective_model_and_effo
         *observed.lock().unwrap(),
         vec![("old".into(), Some(pi_ai::types::ThinkingLevel::Low))]
     );
-    assert_eq!(fixture.store.get_selected_agent_id().as_deref(), Some("viewed"));
     assert_eq!(
-        serde_json::to_value(fixture.store.get_agent("child").unwrap().model).unwrap(),
+        fixture.store.get_selected_agent_id().clone(),
+        Some(JsString::from("viewed"))
+    );
+    assert_eq!(
+        pi_js_compat::js_json::to_value(&fixture.store.get_agent(&JsString::from("child")).unwrap().model).unwrap(),
         json!({"providerId":"faux","modelId":"new","thinkingLevel":"high"})
     );
     release.notify_one();
@@ -392,7 +403,7 @@ async fn live_request_keeps_old_model_next_request_uses_effective_model_and_effo
     );
     assert_eq!(
         before_settings,
-        serde_json::to_value(fixture.settings.lock().unwrap().get_global_settings()).unwrap(),
+        pi_js_compat::js_json::to_value(&fixture.settings.lock().unwrap().get_global_settings()).unwrap(),
         "child mutation must not change global defaults"
     );
 }
@@ -402,7 +413,7 @@ impl pi_coding_agent::bundled_extensions::agents_core::shared::ChildAgentSession
     fn messages(&self) -> Vec<pi_agent_core::agent::types::AgentMessage> {
         Vec::new()
     }
-    fn prompt(&self, _text: String) -> pi_ai::request::BoxFuture<'static, Result<(), String>> {
+    fn prompt(&self, _text: JsString) -> pi_ai::request::BoxFuture<'static, Result<(), JsString>> {
         Box::pin(async { panic!("boundary fixture must not prompt") })
     }
     fn transcript(&self) -> Option<pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata> {
@@ -539,7 +550,7 @@ async fn source_owned_state_and_fresh_native_state_are_readable_by_same_source_a
         let session = fixture._dir.path().join("parent.session");
         let read = json!({"op":"read","db":path,"session":session,"agentId":"child"});
         let mut manifest = oracle.request(&json!({"op":"manifest","db":path}));
-        assert_eq!(manifest["userVersion"], 15);
+        assert_eq!(manifest["userVersion"], json!(15));
         manifest["direction"] = json!(if source_created {
             "TS-create/Rust-mutate/same-TS-read"
         } else {
@@ -549,7 +560,7 @@ async fn source_owned_state_and_fresh_native_state_are_readable_by_same_source_a
         manifest["observations"] = json!([]);
         assert_eq!(
             oracle.request(&read),
-            serde_json::to_value(fixture.store.get_agent("child").unwrap()).unwrap()
+            pi_js_compat::js_json::to_value(&fixture.store.get_agent(&JsString::from("child")).unwrap()).unwrap()
         );
         let extension = registered(MultiAgentExtensionOptions {
             store: Some(fixture.store.clone()),
@@ -577,21 +588,28 @@ async fn source_owned_state_and_fresh_native_state_are_readable_by_same_source_a
             let result = (definition.execute)("fixture".into(), params, None, None, harness.runner.create_context())
                 .await
                 .unwrap();
-            assert_eq!(result.details.as_ref().unwrap()["thinkingLevel"], "off");
+            assert_eq!(
+                result.details.as_ref().unwrap()["thinkingLevel"],
+                pi_js_compat::js_json!("off")
+            );
             let source_read = oracle.request(&read);
             assert_eq!(
                 source_read,
-                serde_json::to_value(fixture.store.get_agent("child").unwrap()).unwrap()
+                pi_js_compat::js_json::to_value(&fixture.store.get_agent(&JsString::from("child")).unwrap()).unwrap()
             );
             assert_eq!(
                 source_read["model"],
                 json!({"providerId":"faux","modelId":"plain","thinkingLevel":"off"})
             );
             assert_eq!(
-                source_read["revision"], 1,
+                source_read["revision"],
+                json!(1),
                 "model metadata must preserve lifecycle revision"
             );
-            assert_eq!(fixture.store.get_selected_agent_id().as_deref(), Some("viewed"));
+            assert_eq!(
+                fixture.store.get_selected_agent_id().clone(),
+                Some(JsString::from("viewed"))
+            );
             manifest["observations"].as_array_mut().unwrap().push(source_read);
         }
         use sha2::Digest;
@@ -701,15 +719,23 @@ async fn parent_default_set_model_path_retains_model_and_effort_defaults() {
     let fixture = live_fixture().await;
     let cwd = fixture._dir.path().display().to_string();
     let parent = create_agent_session(CreateAgentSessionOptions {
-        cwd: Some(cwd.clone()),
-        agent_dir: Some(cwd.clone()),
+        cwd: Some(cwd.clone().into()),
+        agent_dir: Some(cwd.clone().into()),
         model_runtime: Some(fixture.child.model_runtime().clone()),
         model: fixture.faux.get_model(Some("old")),
         thinking_level: Some(ThinkingLevel::Low),
         resource_loader: Some(StaticResourceLoader::new()),
-        session_manager: Some(SessionManager::in_memory(Some(&cwd), None).unwrap()),
+        session_manager: Some(SessionManager::in_memory(Some(&JsString::from(&cwd)), None).unwrap()),
         settings_manager: Some(fixture.settings.clone()),
-        control_db_path: Some(fixture._dir.path().join("parent-control.db").display().to_string()),
+        control_db_path: Some(
+            fixture
+                ._dir
+                .path()
+                .join("parent-control.db")
+                .display()
+                .to_string()
+                .into(),
+        ),
         ..Default::default()
     })
     .await
@@ -723,8 +749,8 @@ async fn parent_default_set_model_path_retains_model_and_effort_defaults() {
     assert_eq!(parent.model().id, "plain");
     assert_eq!(parent.thinking_level(), ThinkingLevel::Off);
     let settings = fixture.settings.lock().unwrap();
-    assert_eq!(settings.get_default_provider(), Some("faux"));
-    assert_eq!(settings.get_default_model(), Some("plain"));
+    assert_eq!(settings.get_default_provider(), Some(&JsString::from("faux")));
+    assert_eq!(settings.get_default_model(), Some(&JsString::from("plain")));
     assert_eq!(settings.get_default_thinking_level(), Some(ThinkingLevel::High));
 }
 
@@ -777,11 +803,11 @@ async fn live_effective_results_and_effort_literals_match_frozen_session() {
         .await
         {
             Ok(result) => {
-                json!({"result":result,"selected":fixture.store.get_selected_agent_id(), "model":fixture.store.get_agent("child").unwrap().model})
+                json!({"result":result,"selected":fixture.store.get_selected_agent_id(), "model":fixture.store.get_agent(&JsString::from("child")).unwrap().model})
             }
             Err(error) => json!({"error":error.message,"selected":fixture.store.get_selected_agent_id()}),
         };
-        assert_eq!(actual, expected, "{params}");
+        assert_eq!(actual, expected, "{params:?}");
     }
 }
 
@@ -797,15 +823,18 @@ async fn registers_agent_model_tool_without_approval() {
     assert_eq!(tool.label, "Set Agent Model");
     assert_eq!(tool.approval_required, Some(false));
     assert_eq!(tool.parameters["additionalProperties"], false);
-    assert_eq!(tool.parameters["required"], serde_json::json!(["agentId"]));
+    assert_eq!(
+        pi_js_compat::js_json::JsValue::from(tool.parameters["required"].clone()),
+        pi_js_compat::js_json!(["agentId"])
+    );
     let mut oracle = oracle::TsOracle::spawn(
         "agent-model-tool-oracle.ts",
         "packages/coding-agent/extensions/agents-core/src/agent-model-tool.ts",
     );
-    let actual = serde_json::json!({
+    let actual = pi_js_compat::js_json!({
         "name": tool.name, "label": tool.label, "description": tool.description,
         "promptGuidelines": tool.prompt_guidelines, "approvalRequired": tool.approval_required,
         "parameters": tool.parameters,
     });
-    assert_eq!(actual, oracle.request(&serde_json::json!({"op": "metadata"})));
+    assert_eq!(actual, oracle.request(&pi_js_compat::js_json!({"op": "metadata"})));
 }

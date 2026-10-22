@@ -1,5 +1,6 @@
 //! Behavioral port of the architect observer, prompt, project-spec, and main helpers.
 
+use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
 use pi_coding_agent::architect::main::{
@@ -19,20 +20,20 @@ use tempfile::TempDir;
 
 fn session() -> ArchitectSessionSnapshot {
     ArchitectSessionSnapshot {
-        cwd: "/repo".to_owned(),
-        goal_json: Some(r#"{"objective":"Keep tests green"}"#.to_owned()),
-        id: "main-session".to_owned(),
+        cwd: "/repo".to_owned().into(),
+        goal_json: Some(r#"{"objective":"Keep tests green"}"#.to_owned().into()),
+        id: "main-session".to_owned().into(),
         is_subagent: false,
-        name: Some("main".to_owned()),
+        name: Some("main".to_owned().into()),
     }
 }
 
 fn request(id: i64) -> ArchitectRequest {
     ArchitectRequest {
         id,
-        sender_session_id: "main".to_owned(),
+        sender_session_id: "main".to_owned().into(),
         project_cwd: None,
-        body: "Architect: assess goal drift".to_owned(),
+        body: "Architect: assess goal drift".to_owned().into(),
         status: ArchitectRequestStatus::Pending,
         created_at: "2026-07-10T00:00:00.000Z".to_owned(),
         claimed_at: None,
@@ -49,7 +50,7 @@ fn emits_initial_state_changes_and_stays_stable() {
     assert_eq!(create_architect_observation(Some(&initial), &[session()], &[]), None);
 
     let mut changed = session();
-    changed.goal_json = Some(r#"{"objective":"Deploy safely"}"#.to_owned());
+    changed.goal_json = Some(r#"{"objective":"Deploy safely"}"#.to_owned().into());
     let observation = create_architect_observation(Some(&initial), &[changed.clone()], &[]).unwrap();
     assert_eq!(observation.reason, ArchitectObservationReason::SessionStateChanged);
     assert_eq!(observation.sessions, [changed]);
@@ -59,8 +60,11 @@ fn emits_initial_state_changes_and_stays_stable() {
 fn retains_live_session_across_goal_completion_and_stabilizes() {
     let initial = create_architect_observation(None, &[session()], &[]).unwrap();
     let mut completed = session();
-    completed.goal_json =
-        Some(r#"{"objective":"Keep tests green","completedAt":"2026-07-10T00:00:00.000Z"}"#.to_owned());
+    completed.goal_json = Some(
+        r#"{"objective":"Keep tests green","completedAt":"2026-07-10T00:00:00.000Z"}"#
+            .to_owned()
+            .into(),
+    );
     let completion = create_architect_observation(Some(&initial), &[completed.clone()], &[]).unwrap();
     assert_eq!(completion.reason, ArchitectObservationReason::SessionStateChanged);
     assert_eq!(completion.sessions[0].id, "main-session");
@@ -88,7 +92,7 @@ fn observer_reads_a_snapshot_on_every_observation() {
             Ok(pi_coding_agent::architect::observer::ArchitectSnapshot { requests, sessions })
         })
     };
-    let observer = ArchitectObserver::new("/unused", Some(reader));
+    let observer = ArchitectObserver::new(&JsString::from("/unused"), Some(reader));
 
     let initial = observer.observe().unwrap().unwrap();
     assert_eq!(initial.reason, ArchitectObservationReason::SessionStateChanged);
@@ -103,7 +107,7 @@ fn missing_control_database_returns_empty_without_creating_it() {
     let temp = TempDir::new().unwrap();
     let control_db_path = temp.path().join("missing.sqlite").display().to_string();
 
-    let snapshot = read_architect_snapshot(&control_db_path).unwrap();
+    let snapshot = read_architect_snapshot(&JsString::from(&control_db_path)).unwrap();
 
     assert!(snapshot.requests.is_empty());
     assert!(snapshot.sessions.is_empty());
@@ -189,13 +193,13 @@ fn keeps_the_deterministic_newest_live_metadata_row_per_session_id() {
     .unwrap();
     db.close().unwrap();
 
-    let snapshot = read_architect_snapshot(&control_db_path).unwrap();
+    let snapshot = read_architect_snapshot(&JsString::from(&control_db_path)).unwrap();
     assert_eq!(snapshot.sessions.len(), 1);
     assert_eq!(snapshot.sessions[0].id, "live");
     assert_eq!(snapshot.sessions[0].cwd, "/current");
     assert_eq!(
-        snapshot.sessions[0].goal_json.as_deref(),
-        Some(r#"{"objective":"Current"}"#)
+        snapshot.sessions[0].goal_json.clone(),
+        Some(JsString::from(r#"{"objective":"Current"}"#))
     );
     assert!(snapshot.requests.is_empty());
 }
@@ -288,12 +292,12 @@ fn keeps_the_most_recently_registered_main_session_per_live_process() {
     }
     db.close().unwrap();
 
-    let snapshot = read_architect_snapshot(&control_db_path).unwrap();
+    let snapshot = read_architect_snapshot(&JsString::from(&control_db_path)).unwrap();
     assert_eq!(
         snapshot
             .sessions
             .iter()
-            .map(|session| session.id.as_str())
+            .map(|session| session.id.clone())
             .collect::<Vec<_>>(),
         ["current-main", "other-main"]
     );
@@ -317,11 +321,14 @@ fn prompt_serializes_the_observation_after_the_bounded_instructions() {
         parts[2],
         "Send explicit-request replies through send_agent_message; send periodic advice only when the system prompt threshold is met."
     );
-    let parsed: serde_json::Value = serde_json::from_str(parts[3]).unwrap();
-    assert_eq!(parsed["reason"], "architect_request");
-    assert_eq!(parsed["requests"][0]["id"], 4);
-    assert_eq!(parsed["sessions"][0]["id"], "main-session");
-    assert_eq!(parsed["sessions"][0]["goalJson"], r#"{"objective":"Keep tests green"}"#);
+    let parsed: pi_js_compat::js_json::JsValue = serde_json::from_str(parts[3]).unwrap();
+    assert_eq!(parsed["reason"], pi_js_compat::js_json!("architect_request"));
+    assert_eq!(parsed["requests"][0]["id"], pi_js_compat::js_json!(4));
+    assert_eq!(parsed["sessions"][0]["id"], pi_js_compat::js_json!("main-session"));
+    assert_eq!(
+        parsed["sessions"][0]["goalJson"],
+        pi_js_compat::js_json!(r#"{"objective":"Keep tests green"}"#)
+    );
     assert!(ARCHITECT_SYSTEM_PROMPT.contains("threadId \"architect-request:<request id>\""));
     assert!(ARCHITECT_SYSTEM_PROMPT.contains("Never use broadcast or the global shared channel"));
 }
@@ -387,11 +394,11 @@ fn futures_block<F: std::future::Future>(future: F) -> F::Output {
 }
 
 struct CountingCompleter {
-    completed: Mutex<Vec<(i64, String)>>,
+    completed: Mutex<Vec<(i64, JsString)>>,
 }
 
 impl pi_coding_agent::architect::main::ArchitectRequestCompleter for CountingCompleter {
-    fn complete_request(&self, request_id: i64, sender_session_id: &str) -> Result<(), String> {
+    fn complete_request(&self, request_id: i64, sender_session_id: &JsString) -> Result<(), JsString> {
         self.completed
             .lock()
             .unwrap()
@@ -408,40 +415,43 @@ fn completes_only_targeted_architect_request_threads() {
     complete_sent_architect_request(
         &completer,
         &SentArchitectMessage {
-            thread_id: Some("architect-request:4".to_owned()),
-            to_agent_id: "main".to_owned(),
-            to_session_id: "sender-main".to_owned(),
+            thread_id: Some("architect-request:4".to_owned().into()),
+            to_agent_id: "main".to_owned().into(),
+            to_session_id: "sender-main".to_owned().into(),
         },
     )
     .unwrap();
     complete_sent_architect_request(
         &completer,
         &SentArchitectMessage {
-            thread_id: Some("other-thread:4".to_owned()),
-            to_agent_id: "main".to_owned(),
-            to_session_id: "sender-main".to_owned(),
+            thread_id: Some("other-thread:4".to_owned().into()),
+            to_agent_id: "main".to_owned().into(),
+            to_session_id: "sender-main".to_owned().into(),
         },
     )
     .unwrap();
     complete_sent_architect_request(
         &completer,
         &SentArchitectMessage {
-            thread_id: Some("architect-request:4".to_owned()),
-            to_agent_id: "child".to_owned(),
-            to_session_id: "sender-main".to_owned(),
+            thread_id: Some("architect-request:4".to_owned().into()),
+            to_agent_id: "child".to_owned().into(),
+            to_session_id: "sender-main".to_owned().into(),
         },
     )
     .unwrap();
     complete_sent_architect_request(
         &completer,
         &SentArchitectMessage {
-            thread_id: Some("architect-request:0".to_owned()),
-            to_agent_id: "main".to_owned(),
-            to_session_id: "sender-main".to_owned(),
+            thread_id: Some("architect-request:0".to_owned().into()),
+            to_agent_id: "main".to_owned().into(),
+            to_session_id: "sender-main".to_owned().into(),
         },
     )
     .unwrap();
-    assert_eq!(*completer.completed.lock().unwrap(), [(4, "sender-main".to_owned())]);
+    assert_eq!(
+        *completer.completed.lock().unwrap(),
+        [(4, JsString::from("sender-main"))]
+    );
 }
 
 #[test]
@@ -462,7 +472,7 @@ fn blocks_global_broadcast_tools_for_the_architect() {
     ] {
         let blocked = block_architect_global_broadcast(tool).unwrap();
         assert_eq!(blocked.block, Some(true));
-        assert_eq!(blocked.reason.as_deref(), Some(reason));
+        assert_eq!(blocked.reason.clone(), Some(JsString::from(reason)));
     }
     assert!(block_architect_global_broadcast("read").is_none());
     assert_eq!(ARCHITECT_EXCLUDED_TOOL_NAMES.len(), 5);
@@ -470,7 +480,7 @@ fn blocks_global_broadcast_tools_for_the_architect() {
 
 #[test]
 fn console_snapshot_and_settings_match_the_service_contract() {
-    let snapshot = create_architect_console_snapshot("/home", 42, None, Vec::new());
+    let snapshot = create_architect_console_snapshot(&JsString::from("/home"), 42, None, Vec::new());
     assert_eq!(
         snapshot.service,
         pi_coding_agent::core::resident_console_transport::ResidentConsoleService::Architect
@@ -488,8 +498,8 @@ fn console_snapshot_and_settings_match_the_service_contract() {
 async fn console_prompt_queue_is_fifo_and_wakes_waiters() {
     let queue = Arc::new(ArchitectConsolePromptQueue::new());
     let signal = tokio_util::sync::CancellationToken::new();
-    queue.enqueue("first".to_owned(), "1".to_owned());
-    queue.enqueue("second".to_owned(), "2".to_owned());
+    queue.enqueue("first".to_owned().into(), "1".to_owned().into());
+    queue.enqueue("second".to_owned().into(), "2".to_owned().into());
     assert_eq!(queue.take().unwrap().text, "first");
     assert_eq!(queue.take().unwrap().text, "second");
     assert!(queue.take().is_none());
@@ -502,7 +512,7 @@ async fn console_prompt_queue_is_fifo_and_wakes_waiters() {
         })
     };
     tokio::task::yield_now().await;
-    queue.enqueue("third".to_owned(), "3".to_owned());
+    queue.enqueue("third".to_owned().into(), "3".to_owned().into());
     tokio::time::timeout(std::time::Duration::from_secs(1), waiting)
         .await
         .expect("waiter wakes")
@@ -516,11 +526,11 @@ struct FixedObserver {
 }
 
 impl pi_coding_agent::architect::main::ArchitectCycleObserver for FixedObserver {
-    fn observe(&self) -> Result<Option<ArchitectObservation>, String> {
+    fn observe(&self) -> Result<Option<ArchitectObservation>, JsString> {
         Ok(self.observations.lock().unwrap().remove(0))
     }
 
-    fn renew_requests(&self, request_ids: &[i64]) -> Result<(), String> {
+    fn renew_requests(&self, request_ids: &[i64]) -> Result<(), JsString> {
         self.renewed.lock().unwrap().push(request_ids.to_vec());
         Ok(())
     }
@@ -541,7 +551,7 @@ async fn architect_cycle_prompts_only_when_an_observation_exists() {
     });
     let prompts = Arc::new(Mutex::new(Vec::new()));
     let recorded = prompts.clone();
-    run_architect_cycle(observer.clone(), move |prompt: String| {
+    run_architect_cycle(observer.clone(), move |prompt: JsString| {
         let recorded = recorded.clone();
         async move {
             recorded.lock().unwrap().push(prompt);
@@ -553,7 +563,7 @@ async fn architect_cycle_prompts_only_when_an_observation_exists() {
     assert!(prompts.lock().unwrap().is_empty());
 
     let prompts_for_closure = prompts.clone();
-    run_architect_cycle(observer, move |prompt: String| {
+    run_architect_cycle(observer, move |prompt: JsString| {
         let recorded = prompts_for_closure.clone();
         async move {
             recorded.lock().unwrap().push(prompt);
@@ -582,7 +592,8 @@ async fn project_spec_tool_registration_reads_specs_and_reports_paths() {
         DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension, ResourceLoader,
     };
     use pi_coding_agent::core::session_manager::SessionManager;
-    use serde_json::{Map, json};
+    use pi_js_compat::js_json as json;
+    use pi_js_compat::js_json::JsObject as Map;
 
     let project = TempDir::new().unwrap();
     let agent = TempDir::new().unwrap();
@@ -596,10 +607,10 @@ async fn project_spec_tool_registration_reads_specs_and_reports_paths() {
         Box::pin(async move { result.map_err(HandlerError::new) })
     });
     let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
-        cwd: project.path().display().to_string(),
-        agent_dir: agent.path().display().to_string(),
+        cwd: project.path().display().to_string().into(),
+        agent_dir: agent.path().display().to_string().into(),
         extension_factories: vec![InlineExtension::Factory {
-            extension_path: Some("<inline:architect>".to_owned()),
+            extension_path: Some("<inline:architect>".to_owned().into()),
             factory,
         }],
         no_extensions: true,
@@ -628,7 +639,7 @@ async fn project_spec_tool_registration_reads_specs_and_reports_paths() {
     assert_eq!(definition.approval_required, Some(false));
     assert_eq!(definition.prompt_guidelines, Some(Vec::new()));
     assert_eq!(
-        definition.parameters,
+        pi_js_compat::js_json::JsValue::from(definition.parameters),
         json!({
             "type": "object",
             "properties": {
@@ -651,7 +662,7 @@ async fn project_spec_tool_registration_reads_specs_and_reports_paths() {
         extensions.runtime.clone(),
         project.path().display().to_string(),
         Arc::new(Mutex::new(
-            SessionManager::in_memory(Some(&project.path().display().to_string()), None).unwrap(),
+            SessionManager::in_memory(Some(&JsString::from(project.path().display().to_string())), None).unwrap(),
         )),
         Arc::new(ModelRegistry::new(model_runtime)),
         None,
@@ -716,7 +727,7 @@ async fn console_server_exposes_the_architect_snapshot_and_prompt_queue() {
         ..Default::default()
     });
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(serde_json::Map::new()))),
+        credentials: Some(Arc::new(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()))),
         models_path: Some(None),
         refresh_on_create: Some(false),
         ..Default::default()
@@ -726,18 +737,18 @@ async fn console_server_exposes_the_architect_snapshot_and_prompt_queue() {
     runtime.register_native_provider(Arc::clone(&faux.provider));
     let model = runtime.get_model("openai-codex", "gpt-5.6-sol").unwrap();
     let session_manager = SessionManager::create(
-        &cwd,
-        Some(&temp.path().join("sessions").display().to_string()),
+        &JsString::from(&cwd),
+        Some(&JsString::from(temp.path().join("sessions").display().to_string())),
         Some(NewSessionOptions {
-            id: Some("architect".to_owned()),
+            id: Some("architect".to_owned().into()),
             ..Default::default()
         }),
     )
     .unwrap();
     let session = create_agent_session(CreateAgentSessionOptions {
-        cwd: Some(cwd),
-        agent_dir: Some(temp.path().display().to_string()),
-        control_db_path: Some(temp.path().join("control.sqlite").display().to_string()),
+        cwd: Some(cwd.into()),
+        agent_dir: Some(temp.path().display().to_string().into()),
+        control_db_path: Some(temp.path().join("control.sqlite").display().to_string().into()),
         model_runtime: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
@@ -751,14 +762,14 @@ async fn console_server_exposes_the_architect_snapshot_and_prompt_queue() {
     let control_db_path = temp.path().join("control.sqlite").display().to_string();
     let prompt_queue = Arc::new(ArchitectConsolePromptQueue::new());
     let server = create_architect_console_server(CreateArchitectConsoleServerInput {
-        control_db_path: control_db_path.clone(),
-        cwd: "/fixed/architect".to_owned(),
+        control_db_path: control_db_path.clone().into(),
+        cwd: "/fixed/architect".to_owned().into(),
         generation: 17,
         prompt_queue: Arc::clone(&prompt_queue),
         session,
     });
     server.start().await.unwrap();
-    let client = ResidentConsoleClient::<SessionEntry, serde_json::Value>::connect(
+    let client = ResidentConsoleClient::<SessionEntry, pi_js_compat::js_json::JsValue>::connect(
         &format!("{control_db_path}.architect-console.sock"),
         ResidentConsoleService::Architect,
     )
@@ -773,8 +784,8 @@ async fn console_server_exposes_the_architect_snapshot_and_prompt_queue() {
     assert_eq!(
         prompt_queue.take(),
         Some(ArchitectConsolePrompt {
-            id: "prompt-1".to_owned(),
-            text: "inspect this".to_owned(),
+            id: "prompt-1".to_owned().into(),
+            text: "inspect this".to_owned().into(),
         })
     );
     client.close().await;
