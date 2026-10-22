@@ -9,7 +9,8 @@ use pi_ai::request::BoxFuture;
 use pi_coding_agent::core::extensions::types::*;
 use pi_coding_agent::core::session_control_db::{get_control_db_path, list_runtime_mailbox_messages};
 use pi_coding_agent::core::tools::ask_questions::AskQuestionsTool;
-use serde_json::{Value, json};
+use pi_js_compat::js_json::{JsString, JsValue as Value};
+use pi_js_compat::{js_json, js_json as json};
 use std::collections::VecDeque;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -42,11 +43,11 @@ impl ExtensionUiTuiBackend for Backend {
     }
 }
 struct Ui {
-    scripts: Mutex<VecDeque<Result<Vec<String>, String>>>,
-    seen: Mutex<Vec<String>>,
+    scripts: Mutex<VecDeque<Result<Vec<JsString>, JsString>>>,
+    seen: Mutex<Vec<JsString>>,
 }
 impl Ui {
-    fn new(scripts: Vec<Result<Vec<String>, String>>) -> Arc<Self> {
+    fn new(scripts: Vec<Result<Vec<JsString>, JsString>>) -> Arc<Self> {
         Arc::new(Self {
             scripts: Mutex::new(scripts.into()),
             seen: Mutex::new(Vec::new()),
@@ -57,7 +58,12 @@ impl ExtensionUiContext for Ui {
     fn theme(&self) -> Arc<pi_coding_agent::modes::interactive::theme::Theme> {
         Arc::new(
             pi_coding_agent::modes::interactive::theme::load_theme_from_path(
-                &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"),
+                &JsString::from(
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("theme/dark.json")
+                        .to_str()
+                        .expect("utf-8 test path"),
+                ),
                 Some(pi_coding_agent::modes::interactive::theme::ColorMode::Truecolor),
             )
             .unwrap(),
@@ -67,7 +73,7 @@ impl ExtensionUiContext for Ui {
         &'a self,
         factory: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<Value>, String>> {
+    ) -> BoxFuture<'a, Result<Option<Value>, JsString>> {
         Box::pin(async move {
             let keys = self.scripts.lock().unwrap().pop_front().expect("UI request")?;
             let result = Arc::new(Mutex::new(None));
@@ -82,19 +88,25 @@ impl ExtensionUiContext for Ui {
             )?
             .now_or_never()
             .expect("ready panel")?;
-            self.seen.lock().unwrap().push(component.render(80).join("\n"));
+            self.seen
+                .lock()
+                .unwrap()
+                .push(JsString::join(component.render(80), "\n"));
             component.set_focused(true);
             for key in keys {
-                component.handle_input(&key);
-                self.seen.lock().unwrap().push(component.render(80).join("\n"));
+                component.handle_input(&JsString::from(&key));
+                self.seen
+                    .lock()
+                    .unwrap()
+                    .push(JsString::join(component.render(80), "\n"));
             }
             let result = result.lock().unwrap().clone();
             Ok(result)
         })
     }
 }
-fn keys(keys: &[&str]) -> Result<Vec<String>, String> {
-    Ok(keys.iter().map(|key| (*key).to_owned()).collect())
+fn keys(keys: &[&str]) -> Result<Vec<JsString>, JsString> {
+    Ok(keys.iter().map(|key| JsString::from(*key)).collect())
 }
 async fn ctx(ui: Arc<Ui>) -> ExtensionContext {
     tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "session"))
@@ -116,7 +128,7 @@ async fn explicit_boolean_is_required_before_ui_or_question_validation() {
             params["blocking"] = blocking;
         }
         let error = AskQuestionsTool::new()
-            .execute("id".into(), params, None, None, context.clone(), None)
+            .execute("id".into(), json!(params), None, None, context.clone(), None)
             .await
             .unwrap_err();
         assert_eq!(error.message, "ask_questions requires explicit blocking: true or false");
@@ -165,20 +177,20 @@ async fn blocking_panels_match_frozen_answers_for_real_keystrokes() {
                 None,
             )
             .await
-            .unwrap_or_else(|error| panic!("{questions}: {script:?}: frozen={expected}: {error:?}"));
+            .unwrap_or_else(|error| panic!("{questions:?}: {script:?}: frozen={expected:?}: {error:?}"));
         assert_eq!(
             result.details.as_ref().unwrap()["answers"],
-            expected["result"]["answers"],
-            "{questions}"
+            json!(expected["result"]["answers"]),
+            "{questions:?}"
         );
         assert_eq!(
             result.details.as_ref().unwrap()["cancelled"],
-            expected["result"]["cancelled"]
+            json!(expected["result"]["cancelled"])
         );
         assert_eq!(
-            serde_json::to_value(&result.content).unwrap()[0]["text"],
+            js_json::to_value(&result.content).unwrap()[0]["text"],
             expected["toolText"],
-            "answer enumeration for {questions}"
+            "answer enumeration for {questions:?}"
         );
         let strip = pi_coding_agent::utils::ansi::strip_ansi;
         let actual = ui
@@ -186,21 +198,21 @@ async fn blocking_panels_match_frozen_answers_for_real_keystrokes() {
             .lock()
             .unwrap()
             .iter()
-            .map(|text| strip(text))
+            .map(|text| strip(&JsString::from(text)))
             .collect::<Vec<_>>();
         let renders = expected["renders"]
             .as_array()
             .unwrap()
             .iter()
-            .map(|text| strip(text.as_str().unwrap()))
+            .map(|text| strip(&JsString::from(text.as_string().unwrap())))
             .collect::<Vec<_>>();
-        assert_eq!(actual, renders, "panel rendering for {questions}");
+        assert_eq!(actual, renders, "panel rendering for {questions:?}");
     }
 }
 #[tokio::test]
 async fn nonblocking_answers_and_cancellation_arrive_via_correlated_inbox() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().to_str().unwrap();
+    let root = dir.path().to_str().expect("utf-8 test path");
     let db = get_control_db_path(dir.path());
     let ui = Ui::new(vec![keys(&["answer", "\r"]), keys(&["\u{1b}"])]);
     let context = tool_context::TestContextBuilder::new(root, tool_context::persisted_session(root, root, "session"))
@@ -222,8 +234,8 @@ async fn nonblocking_answers_and_cancellation_arrive_via_correlated_inbox() {
             )
             .await
             .unwrap();
-        assert_eq!(result.details.as_ref().unwrap()["queued"], true);
-        assert_eq!(result.details.as_ref().unwrap()["requestId"], id);
+        assert_eq!(result.details.as_ref().unwrap()["queued"], json!(true));
+        assert_eq!(result.details.as_ref().unwrap()["requestId"], json!(id));
     }
     for _ in 0..100 {
         if list_runtime_mailbox_messages(&db).unwrap().len() == 2 {
@@ -246,11 +258,11 @@ async fn failed_panel_does_not_strand_later_requests() {
     let context = ctx(ui).await;
     let params = json!({"blocking":true,"questions":[{"question":"Free?"}]});
     let (first, second) = tokio::join!(
-        AskQuestionsTool::new().execute("one".into(), params.clone(), None, None, context.clone(), None),
-        AskQuestionsTool::new().execute("two".into(), params, None, None, context, None)
+        AskQuestionsTool::new().execute("one".into(), json!(params.clone()), None, None, context.clone(), None),
+        AskQuestionsTool::new().execute("two".into(), json!(params), None, None, context, None)
     );
     assert_eq!(first.unwrap_err().message, "panel failed");
-    assert_eq!(second.unwrap().details.unwrap()["answers"]["Free?"], "next");
+    assert_eq!(second.unwrap().details.unwrap()["answers"]["Free?"], json!("next"));
 }
 
 #[derive(Default)]
@@ -271,7 +283,7 @@ impl ExtensionUiContext for PendingUi {
         &'a self,
         _: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<Value>, String>> {
+    ) -> BoxFuture<'a, Result<Option<Value>, JsString>> {
         Box::pin(async move {
             let (sender, receiver) = tokio::sync::oneshot::channel();
             self.panels.lock().unwrap().push(sender);
@@ -346,7 +358,8 @@ async fn agent_abort_keeps_pending_panel_fifo_until_settlement() {
         .unwrap()
         .unwrap();
     assert!(!agent.is_streaming());
-    let mut second = tokio::spawn(AskQuestionsTool::new().execute("second".into(), params, None, None, context, None));
+    let mut second =
+        tokio::spawn(AskQuestionsTool::new().execute("second".into(), json!(params), None, None, context, None));
     for _ in 0..20 {
         tokio::task::yield_now().await;
     }
@@ -366,6 +379,6 @@ async fn agent_abort_keeps_pending_panel_fifo_until_settlement() {
     ui.settle();
     assert_eq!(
         second.await.unwrap().unwrap().details.unwrap()["answers"]["Question?"],
-        "settled"
+        json!("settled")
     );
 }

@@ -11,20 +11,21 @@ use pi_coding_agent::core::extensions::{
 use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions, SessionPersistence};
 use pi_coding_agent::core::session_control_db::{get_control_db_path, list_runtime_mailbox_messages};
 use pi_coding_agent::core::session_manager::lock_session_manager;
-use serde_json::{Value, json};
+use pi_js_compat::{js_json, js_json as json};
+use pi_js_compat::js_json::{JsString, JsValue as Value};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 struct Persistence {
     db: String,
-    path: String,
+    path: JsString,
 }
 impl SessionPersistence for Persistence {
     fn metadata_control_db_path(&self) -> Option<pi_js_compat::js_json::JsString> {
         Some(self.db.as_str().into())
     }
     fn session_file(&self) -> Option<pi_js_compat::js_json::JsString> {
-        Some(self.path.as_str().into())
+        Some(self.path.clone())
     }
 }
 struct Fixture {
@@ -39,7 +40,7 @@ struct Fixture {
 impl Fixture {
     async fn new() -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().to_str().unwrap();
+        let root = dir.path().to_str().expect("utf-8 test path");
         let session = tool_context::persisted_session(root, root, "parent-session");
         let db = get_control_db_path(dir.path());
         let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
@@ -53,14 +54,14 @@ impl Fixture {
             agent.display_name = id.into();
             agent.lifecycle = pi_coding_agent::core::multi_agent_store::AgentLifecycle::Running;
             agent.transcript = Some(pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata {
-                session_id: format!("session-{id}"),
+                session_id: format!("session-{id}").into(),
                 path: None,
             });
             pi_coding_agent::core::session_control_db::bootstrap_multi_agent_agent(
                 &db,
                 lock_session_manager(&session).get_session_file().unwrap(),
-                id,
-                &serde_json::to_value(&agent).unwrap(),
+                &JsString::from(id),
+                &js_json::to_value(&agent).unwrap(),
             )
             .unwrap();
             store.publish_lifecycle_coordinator_snapshot(&agent).unwrap();
@@ -74,10 +75,10 @@ impl Fixture {
                 let result = multi_agent_extension(pi, &options);
                 Box::pin(async move { result })
             }),
-            root,
+            &JsString::from(root),
             Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
             create_extension_runtime(),
-            "<questions>",
+            &JsString::from("<questions>"),
         )
         .await
         .unwrap();
@@ -136,20 +137,20 @@ async fn child_nonblocking_relays_formatted_request_and_correlates_answers() {
     let f = Fixture::new().await;
     let result = (f.ask.execute)(
         "call-1".into(),
-        questions(false),
+        json!(questions(false)),
         None,
         None,
         f.context(Some("child"), true).await,
     )
     .await
     .unwrap();
-    assert_eq!(result.details.as_ref().unwrap()["requestId"], "call-1");
-    assert_eq!(result.details.as_ref().unwrap()["queued"], true);
-    let requests = f.store.list_pending_mailbox_messages_for_agent("main").unwrap();
+    assert_eq!(result.details.as_ref().unwrap()["requestId"], json!("call-1"));
+    assert_eq!(result.details.as_ref().unwrap()["queued"], json!(true));
+    let requests = f.store.list_pending_mailbox_messages_for_agent(&JsString::from("main")).unwrap();
     assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0].thread_id.as_deref(), Some("ask_questions:child:call-1"));
+    assert_eq!(requests[0].thread_id.as_ref(), Some(&JsString::from("ask_questions:child:call-1")));
     assert_eq!(
-        requests[0].body.as_deref().unwrap(),
+        requests[0].body.as_ref().unwrap(),
         "Child agent child asks (requestId: call-1). The child continues meanwhile.\nReply with answer_question using agentId \"child\" and requestId \"call-1\", answers keyed by exact question text. Ask the user with ask_questions first when you cannot answer.\n\n1. [Path] Choose?\n   Choose one, or give another answer:\n   - A — first\n   - B"
     );
     (f.answer.execute)(
@@ -167,7 +168,7 @@ async fn child_nonblocking_relays_formatted_request_and_correlates_answers() {
         .find(|message| message.store_ref.message_id == "ask_questions:child:call-1")
         .unwrap();
     assert_eq!(
-        serde_json::from_str::<Value>(&answer.body).unwrap(),
+        js_json::parse_lossless(&answer.body).unwrap(),
         json!({"type":"ask_questions_answer", "requestId":"call-1", "answers":{"Choose?":"A"}, "cancelled":false})
     );
     assert_eq!(answer.recipient.session_id, "session-child");
@@ -180,16 +181,16 @@ async fn child_blocking_cancellation_preserves_sent_request() {
     cancel.cancel();
     let result = (f.ask.execute)(
         "cancelled".into(),
-        questions(true),
+        json!(questions(true)),
         Some(cancel),
         None,
         f.context(Some("child"), true).await,
     )
     .await
     .unwrap();
-    assert_eq!(result.details.as_ref().unwrap()["cancelled"], true);
+    assert_eq!(result.details.as_ref().unwrap()["cancelled"], json!(true));
     assert_eq!(
-        f.store.list_pending_mailbox_messages_for_agent("main").unwrap().len(),
+        f.store.list_pending_mailbox_messages_for_agent(&JsString::from("main")).unwrap().len(),
         1
     );
     assert!(result.details.as_ref().unwrap().get("runtimeMailboxDelivery").is_none());
@@ -211,7 +212,7 @@ async fn missing_identity_explicit_blocking_and_direct_child_route_are_enforced(
         missing.message,
         "ask_questions requires explicit blocking: true or false"
     );
-    let missing = (f.ask.execute)("bad".into(), questions(true), None, None, f.context(None, true).await)
+    let missing = (f.ask.execute)("bad".into(), json!(questions(true)), None, None, f.context(None, true).await)
         .await
         .unwrap_err();
     assert_eq!(
@@ -268,7 +269,7 @@ async fn blocking_reply_claims_only_child_and_request_and_returns_acceptance_des
         std::time::Duration::from_secs(2),
         (f.ask.execute)(
             "same".into(),
-            questions(true),
+            json!(questions(true)),
             None,
             None,
             f.context(Some("child"), true).await,
@@ -277,13 +278,13 @@ async fn blocking_reply_claims_only_child_and_request_and_returns_acceptance_des
     .await
     .unwrap()
     .unwrap();
-    assert_eq!(result.details.as_ref().unwrap()["cancelled"], true);
+    assert_eq!(result.details.as_ref().unwrap()["cancelled"], json!(true));
     assert_eq!(result.details.as_ref().unwrap()["answers"], json!({"Choose?":""}));
     let delivery = &result.details.as_ref().unwrap()["runtimeMailboxDelivery"];
     assert_eq!(delivery["messages"].as_array().unwrap().len(), 1);
     assert_eq!(
         delivery["messages"][0]["storeRef"]["messageId"],
-        "ask_questions:child:same"
+        json!("ask_questions:child:same")
     );
     let messages = list_runtime_mailbox_messages(&f.db).unwrap();
     let claimed = messages
@@ -300,7 +301,7 @@ async fn blocking_reply_claims_only_child_and_request_and_returns_acceptance_des
 async fn mailbox_body_and_remote_host_are_literal_and_unknown_local_sessions_are_rejected() {
     let f = Fixture::new().await;
     let context = f.context(None, false).await;
-    let remote=(f.send.execute)("remote".into(),json!({"body":"  exact body\n","toAgentId":"child-on-peer","toSessionId":"remote-session","toHost":"peer-host"}),None,None,context.clone()).await.unwrap();
+    let remote=(f.send.execute)("remote".into(),json!({"body":"  exact body\n","toAgentId":"child-on-peer","toSessionId":"remote-session","toHost":"peer-host"})),None,None,context.clone().await.unwrap();
     assert_ne!(remote.is_error, Some(true));
     let messages = list_runtime_mailbox_messages(&f.db).unwrap();
     assert_eq!(messages.len(), 1);
@@ -315,7 +316,7 @@ async fn mailbox_body_and_remote_host_are_literal_and_unknown_local_sessions_are
         .unwrap();
     assert_eq!(
         serde_json::from_str::<Value>(&data).unwrap()["recipientHost"],
-        "peer-host"
+        json!("peer-host")
     );
     for (params, reason) in [
         (
@@ -331,7 +332,7 @@ async fn mailbox_body_and_remote_host_are_literal_and_unknown_local_sessions_are
             "Unknown local session unknown-local; pass toHost for a session on another host.",
         ),
     ] {
-        let result = (f.send.execute)("invalid".into(), params, None, None, context.clone())
+        let result = (f.send.execute)("invalid".into(), json!(params), None, None, context.clone())
             .await
             .unwrap();
         assert_eq!(result.is_error, Some(true));
@@ -371,7 +372,7 @@ async fn relay_requests_validation_and_cancellation_match_frozen_whole_module() 
         cancel.cancel();
         let result = (f.ask.execute)(
             "call".into(),
-            params.clone(),
+            json!(params.clone()),
             Some(cancel),
             None,
             f.context(agent_id, requires).await,
@@ -379,7 +380,7 @@ async fn relay_requests_validation_and_cancellation_match_frozen_whole_module() 
         .await;
         let sent = f
             .store
-            .list_pending_mailbox_messages_for_agent("main")
+            .list_pending_mailbox_messages_for_agent(&JsString::from("main"))
             .unwrap()
             .into_iter()
             .map(|message| json!({"message":message.body,"threadId":message.thread_id}))
@@ -390,7 +391,7 @@ async fn relay_requests_validation_and_cancellation_match_frozen_whole_module() 
             }
             Err(error) => json!({"error":error.message,"sent":sent}),
         };
-        assert_eq!(actual, expected, "{params}");
+        assert_eq!(actual, expected, "{params:?}");
     }
 }
 
@@ -421,7 +422,7 @@ async fn delivered_answer_parsing_and_unchecked_payload_fields_match_frozen() {
         enqueue_stored_runtime_mailbox_message(&f.db,&EnqueueStoredRuntimeMailboxMessageInput{recipient_host:None,recipient,sender:RuntimeMailboxAddress{agent_id:None,session_id:"parent".into()},kind:RuntimeMailboxMessageKind::Reply,store_ref:RuntimeMailboxStoreRef{session_path:lock_session_manager(&f.session).get_session_file().unwrap().into(),message_id:"ask_questions:child:call".into()},message:json!({"body":body,"id":"ask_questions:child:call","kind":"reply","status":"pending","fromAgentId":"main","toAgentId":"child"}),updated_at:None}).unwrap();
         let result = (f.ask.execute)(
             "call".into(),
-            questions(true),
+            json!(questions(true)),
             None,
             None,
             f.context(Some("child"), true).await,
@@ -429,7 +430,7 @@ async fn delivered_answer_parsing_and_unchecked_payload_fields_match_frozen() {
         .await;
         let sent = f
             .store
-            .list_pending_mailbox_messages_for_agent("main")
+            .list_pending_mailbox_messages_for_agent(&JsString::from("main"))
             .unwrap()
             .into_iter()
             .map(|message| json!({"message":message.body,"threadId":message.thread_id}))
@@ -438,7 +439,7 @@ async fn delivered_answer_parsing_and_unchecked_payload_fields_match_frozen() {
             Ok(mut result) => {
                 let delivery = &mut result.details.as_mut().unwrap()["runtimeMailboxDelivery"];
                 delivery["controlDbPath"] = json!("<db>");
-                delivery["messages"][0]["storeRef"]["sessionPath"] = json!("<store>");
+                delivery["messages"].as_array_mut().unwrap()[0]["storeRef"]["sessionPath"] = json!("<store>");
                 json!({"result":{"content":result.content,"details":result.details,"isError":result.is_error},"sent":sent})
             }
             Err(error) => json!({"error":error.message,"sent":sent}),
@@ -464,14 +465,14 @@ async fn blocking_child_waits_for_a_later_answer_on_the_500ms_poll() {
     .unwrap();
     let waiting = tokio::spawn((f.ask.execute)(
         "later".into(),
-        questions(true),
+        json!(questions(true)),
         None,
         None,
         f.context(Some("child"), true).await,
     ));
     tokio::task::yield_now().await;
     assert_eq!(
-        f.store.list_pending_mailbox_messages_for_agent("main").unwrap().len(),
+        f.store.list_pending_mailbox_messages_for_agent(&JsString::from("main")).unwrap().len(),
         1
     );
     assert!(!waiting.is_finished(), "child must block before a parent answer exists");
@@ -490,13 +491,13 @@ async fn blocking_child_waits_for_a_later_answer_on_the_500ms_poll() {
     tokio::time::advance(std::time::Duration::from_millis(1)).await;
     let result = waiting.await.unwrap().unwrap();
     assert_eq!(result.details.as_ref().unwrap()["answers"], json!({"Choose?":"B"}));
-    assert_eq!(result.details.as_ref().unwrap()["cancelled"], false);
+    assert_eq!(result.details.as_ref().unwrap()["cancelled"], json!(false));
 }
 
 #[tokio::test]
 async fn inactive_child_unavailable_mailbox_and_failed_parent_transport_are_explicit() {
     let f = Fixture::new().await;
-    let mut child = f.store.get_agent("child").unwrap();
+    let mut child = f.store.get_agent(&JsString::from("child")).unwrap();
     child.lifecycle = pi_coding_agent::core::multi_agent_store::AgentLifecycle::Completed;
     f.store.publish_lifecycle_coordinator_snapshot(&child).unwrap();
     let error = (f.answer.execute)(
@@ -525,7 +526,7 @@ async fn inactive_child_unavailable_mailbox_and_failed_parent_transport_are_expl
     f.store.set_persistence_session_manager(None);
     let error = (f.ask.execute)(
         "call".into(),
-        questions(false),
+        json!(questions(false)),
         None,
         None,
         f.context(Some("child"), true).await,

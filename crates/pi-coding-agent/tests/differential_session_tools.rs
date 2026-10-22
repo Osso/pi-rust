@@ -19,7 +19,8 @@ use pi_coding_agent::core::session_directory::{
     BroadcastSessionFilters, BroadcastSessionsInput, SessionDirectoryOptions, broadcast_to_sessions, list_sessions,
 };
 use pi_coding_agent::core::session_health::SessionHealthRecord;
-use serde_json::{Value, json};
+use pi_js_compat::js_json::{JsString, JsValue as Value};
+use pi_js_compat::{js_json, js_json as json};
 
 struct Oracle {
     inner: oracle::TsOracle,
@@ -51,15 +52,21 @@ fn self_pid() -> u32 {
 
 fn apply_setup(control_db_path: &str, setup: &[Value]) {
     for step in setup {
-        match step["op"].as_str().expect("setup op") {
+        match step["op"]
+            .as_string()
+            .expect("setup op")
+            .to_utf8()
+            .expect("ASCII fixture setup operation")
+            .as_str()
+        {
             "metadata" => write_session_metadata(
                 control_db_path,
                 &WritableSessionMetadata {
-                    session_path: step["sessionPath"].as_str().expect("sessionPath").to_owned(),
-                    id: step["id"].as_str().expect("id").to_owned(),
-                    cwd: step["cwd"].as_str().expect("cwd").to_owned(),
-                    name: step["name"].as_str().map(str::to_owned),
-                    parent_session_path: step["parentSessionPath"].as_str().map(str::to_owned),
+                    session_path: step["sessionPath"].as_string().expect("sessionPath").to_owned().into(),
+                    id: step["id"].as_string().expect("id").to_owned().into(),
+                    cwd: step["cwd"].as_string().expect("cwd").to_owned().into(),
+                    name: step["name"].as_string().cloned(),
+                    parent_session_path: step["parentSessionPath"].as_string().cloned(),
                     archived_at: None,
                     is_archived: None,
                     is_subagent: step["isSubagent"].as_bool(),
@@ -68,27 +75,32 @@ fn apply_setup(control_db_path: &str, setup: &[Value]) {
                     model_id: None,
                     thinking_level: None,
                     created_at: step["createdAt"]
-                        .as_str()
-                        .unwrap_or("2026-01-01T00:00:00.000Z")
-                        .to_owned(),
+                        .as_string()
+                        .unwrap_or(&JsString::from("2026-01-01T00:00:00.000Z"))
+                        .to_owned()
+                        .into(),
                     modified_at: step["modifiedAt"]
-                        .as_str()
-                        .unwrap_or("2026-01-01T00:10:00.000Z")
-                        .to_owned(),
-                    message_count: step["messageCount"].as_i64().unwrap_or(1),
-                    first_message: step["firstMessage"].as_str().unwrap_or("hello").to_owned(),
+                        .as_string()
+                        .unwrap_or(&JsString::from("2026-01-01T00:10:00.000Z"))
+                        .to_owned()
+                        .into(),
+                    message_count: step["messageCount"].as_f64().map(|value| value as i64).unwrap_or(1),
+                    first_message: step["firstMessage"]
+                        .as_string()
+                        .unwrap_or(&JsString::from("hello"))
+                        .to_owned()
+                        .into(),
                 },
             )
             .expect("write metadata"),
             "goal" => write_session_goal(
                 control_db_path,
-                step["sessionPath"].as_str().expect("sessionPath"),
-                step["goalJson"].as_str(),
+                step["sessionPath"].as_string().expect("sessionPath"),
+                step["goalJson"].as_string(),
             )
             .expect("write goal"),
             "health" => {
-                let record: SessionHealthRecord =
-                    serde_json::from_value(step["record"].clone()).expect("health record");
+                let record: SessionHealthRecord = js_json::from_value(&step["record"].clone()).expect("health record");
                 write_session_health(control_db_path, &record).expect("write health");
             }
             "listener" => {
@@ -99,28 +111,30 @@ fn apply_setup(control_db_path: &str, setup: &[Value]) {
                 register_runtime_mailbox_listener(
                     control_db_path,
                     &RuntimeMailboxAddress {
-                        agent_id: step["agentId"].as_str().map(str::to_owned),
-                        session_id: step["sessionId"].as_str().expect("sessionId").to_owned(),
+                        agent_id: step["agentId"].as_string().cloned(),
+                        session_id: step["sessionId"].as_string().expect("sessionId").to_owned().into(),
                     },
                     pid,
-                    step["sessionPath"].as_str(),
+                    step["sessionPath"].as_string(),
                     Default::default(),
                 )
                 .expect("register listener");
             }
-            "archive" => {
-                archive_session(control_db_path, step["sessionPath"].as_str().expect("sessionPath")).expect("archive")
-            }
+            "archive" => archive_session(control_db_path, step["sessionPath"].as_string().expect("sessionPath"))
+                .expect("archive"),
             other => panic!("unknown setup op {other}"),
         }
     }
-    for step in setup.iter().filter(|step| step["op"] == "listener") {
-        let updated_at = step["updatedAt"].as_str().unwrap_or("2026-01-01T00:10:00.000Z");
+    for step in setup.iter().filter(|step| step["op"] == json!("listener")) {
+        let updated_at = step["updatedAt"]
+            .as_string()
+            .cloned()
+            .unwrap_or_else(|| "2026-01-01T00:10:00.000Z".into());
         let connection = rusqlite::Connection::open(control_db_path).expect("open control db");
         connection
             .execute(
                 "UPDATE runtime_mailbox_listeners SET updated_at = ? WHERE recipient_session_id = ?",
-                rusqlite::params![updated_at, step["sessionId"].as_str().expect("sessionId")],
+                rusqlite::params![updated_at, step["sessionId"].as_string().expect("sessionId")],
             )
             .expect("update listener timestamp");
     }
@@ -137,7 +151,9 @@ fn directory_options(request: &Value) -> SessionDirectoryOptions {
         })
         .collect();
     SessionDirectoryOptions {
-        now_ms: Some(pi_js_compat::date::date_parse(request["nowIso"].as_str().expect("nowIso")) as i64),
+        now_ms: Some(
+            pi_js_compat::date::date_parse_utf16(request["nowIso"].as_string().expect("nowIso").units()) as i64,
+        ),
         include_ended: request["includeEnded"].as_bool(),
         is_runtime_process_alive: Some(std::sync::Arc::new(move |pid| alive_pids.contains(&Some(pid)))),
     }
@@ -176,17 +192,17 @@ fn listener_state(control_db_path: &str) -> Value {
             .expect("listeners")
             .into_iter()
             .map(|listener| {
-                let mut entry = serde_json::Map::new();
-                entry.insert("sessionId".to_owned(), Value::String(listener.session_id));
+                let mut entry = js_json::JsObject::new();
+                entry.insert("sessionId".into(), Value::String(listener.session_id));
                 entry.insert(
-                    "agentId".to_owned(),
+                    "agentId".into(),
                     listener.agent_id.map(Value::String).unwrap_or(Value::Null),
                 );
-                entry.insert("pid".to_owned(), json!(listener.pid));
+                entry.insert("pid".into(), json!(listener.pid));
                 if let Some(session_path) = listener.session_path {
-                    entry.insert("sessionPath".to_owned(), Value::String(session_path));
+                    entry.insert("sessionPath".into(), Value::String(session_path.into()));
                 }
-                entry.insert("updatedAt".to_owned(), Value::String(listener.updated_at));
+                entry.insert("updatedAt".into(), Value::String(listener.updated_at.into()));
                 Value::Object(entry)
             })
             .collect(),
@@ -198,7 +214,7 @@ fn health_state(control_db_path: &str) -> Value {
         list_session_health(control_db_path)
             .expect("health")
             .into_iter()
-            .map(|health| serde_json::to_value(health).expect("health serializes"))
+            .map(|health| js_json::to_value(&health).expect("health serializes"))
             .collect(),
     )
 }
@@ -365,12 +381,12 @@ fn session_directory_list_differential() {
             "setup": setup,
         });
         for (key, value) in options.as_object().expect("options") {
-            ts_request[key] = value.clone();
+            ts_request.as_object_mut().unwrap().insert(key.clone(), value.clone());
         }
         let response = oracle.request(ts_request);
-        assert_eq!(response["ok"], true, "{name}: {}", response["error"]);
+        assert_eq!(response["ok"], json!(true), "{name}: {:?}", response["error"]);
 
-        let sessions = list_sessions(&rust_db, &directory_options(&options)).expect("list sessions");
+        let sessions = list_sessions(&JsString::from(&rust_db), &directory_options(&options)).expect("list sessions");
         let rust = json!({ "sessions": stable_sessions(&sessions) });
         assert_eq!(response["output"], rust, "{name}");
     }
@@ -449,32 +465,34 @@ fn session_directory_broadcast_differential() {
             "broadcast": broadcast,
         });
         for (key, value) in options.as_object().expect("options") {
-            ts_request[key] = value.clone();
+            ts_request.as_object_mut().unwrap().insert(key.clone(), value.clone());
         }
         let response = oracle.request(ts_request);
-        assert_eq!(response["ok"], true, "{name}: {}", response["error"]);
+        assert_eq!(response["ok"], json!(true), "{name}: {:?}", response["error"]);
 
         let rust_results = broadcast_to_sessions(
-            &rust_db,
+            &JsString::from(&rust_db),
             &BroadcastSessionsInput {
-                message: broadcast["message"].as_str().expect("message").to_owned(),
+                message: broadcast["message"].as_string().expect("message").to_owned().into(),
                 filters: Some(BroadcastSessionFilters {
                     session_ids: broadcast["filters"]["sessionIds"]
                         .as_array()
-                        .map(|ids| ids.iter().map(|id| id.as_str().expect("id").to_owned()).collect()),
-                    cwd: broadcast["filters"]["cwd"].as_str().map(str::to_owned),
-                    name: broadcast["filters"]["name"].as_str().map(str::to_owned),
+                        .map(|ids| ids.iter().map(|id| id.as_string().expect("id").to_owned()).collect()),
+                    cwd: broadcast["filters"]["cwd"].as_string().cloned(),
+                    name: broadcast["filters"]["name"].as_string().cloned(),
                     status: None,
                 }),
                 sender_session_id: broadcast["senderSessionId"]
-                    .as_str()
+                    .as_string()
                     .expect("senderSessionId")
-                    .to_owned(),
+                    .to_owned()
+                    .into(),
                 sender_session_path: broadcast["senderSessionPath"]
-                    .as_str()
+                    .as_string()
                     .expect("senderSessionPath")
-                    .to_owned(),
-                sender_agent_id: broadcast["senderAgentId"].as_str().map(str::to_owned),
+                    .to_owned()
+                    .into(),
+                sender_agent_id: broadcast["senderAgentId"].as_string().cloned(),
             },
             &directory_options(&options),
         )
@@ -498,7 +516,7 @@ fn tool_request(module: &str, factory: &str, params: Value, extra: Value) -> Val
         "params": params,
     });
     for (key, value) in extra.as_object().expect("extra") {
-        request[key] = value.clone();
+        request.as_object_mut().unwrap().insert(key.clone(), value.clone());
     }
     request
 }
@@ -507,7 +525,7 @@ fn rust_tool_result(result: Result<pi_agent_core::AgentToolResult, pi_agent_core
     match result {
         Ok(result) => json!({
             "ok": true,
-            "content": serde_json::to_value(&result.content).expect("content"),
+            "content": js_json::to_value(&result.content).expect("content"),
             "details": result.details,
             "isError": result.is_error,
             "terminate": result.terminate,
@@ -539,7 +557,7 @@ async fn end_turn_tool_differential() {
         ));
         let rust = rust_tool_result(
             EndTurnTool::new()
-                .execute("tool-call".to_owned(), params, None, None, context.clone(), None)
+                .execute("tool-call".to_owned(), json!(params), None, None, context.clone(), None)
                 .await,
         );
         assert_eq!(response["output"], rust);
@@ -574,7 +592,7 @@ async fn channel_post_tool_differential() {
                 .1;
         let rust = rust_tool_result(
             ChannelPostTool::new()
-                .execute("tool-call".to_owned(), params, None, None, context, None)
+                .execute("tool-call".to_owned(), json!(params), None, None, context, None)
                 .await,
         );
         assert_eq!(response["output"], rust, "{name}");
@@ -591,7 +609,7 @@ async fn channel_post_tool_differential() {
                 .collect::<Vec<_>>(),
             "cursor": read_shared_channel_cursor(
                 &rust_db,
-                &RuntimeMailboxAddress { agent_id: None, session_id: session_id.to_owned() },
+                &RuntimeMailboxAddress { agent_id: None, session_id: session_id.to_owned().into() },
             )
             .expect("cursor"),
         });
@@ -649,7 +667,7 @@ async fn ask_architect_tool_differential() {
                 .1;
         let rust = rust_tool_result(
             AskArchitectTool::new()
-                .execute("tool-call".to_owned(), params, None, None, context, None)
+                .execute("tool-call".to_owned(), json!(params), None, None, context, None)
                 .await,
         );
         assert_eq!(response["output"], rust, "{name}");
@@ -675,16 +693,13 @@ async fn ask_architect_tool_differential() {
 }
 
 fn session_file(id: &str, cwd: &str, entries: &[(&str, &str)], name: Option<&str>) -> String {
-    let mut lines = vec![
-        json!({
-            "type": "session",
-            "version": 3,
-            "id": id,
-            "timestamp": "2026-01-01T00:00:00.000Z",
-            "cwd": cwd
-        })
-        .to_string(),
-    ];
+    let mut lines = vec![json!({
+        "type": "session",
+        "version": 3,
+        "id": id,
+        "timestamp": "2026-01-01T00:00:00.000Z",
+        "cwd": cwd
+    })];
     let mut parent: Option<String> = None;
     for (index, (kind, content)) in entries.iter().enumerate() {
         let entry_id = format!("{id}-entry-{index}");
@@ -734,22 +749,26 @@ fn session_file(id: &str, cwd: &str, entries: &[(&str, &str)], name: Option<&str
             other => panic!("unknown entry kind {other}"),
         };
         parent = Some(entry_id);
-        lines.push(line.to_string());
+        lines.push(line);
     }
     if let Some(name) = name {
         let entry_id = format!("{id}-entry-name");
-        lines.push(
-            json!({
-                "type": "session_info",
-                "id": entry_id,
-                "parentId": parent,
-                "timestamp": "2026-01-01T00:00:09.000Z",
-                "name": name
-            })
-            .to_string(),
-        );
+        lines.push(json!({
+            "type": "session_info",
+            "id": entry_id,
+            "parentId": parent,
+            "timestamp": "2026-01-01T00:00:09.000Z",
+            "name": name
+        }));
     }
-    format!("{}\n", lines.join("\n"))
+    format!(
+        "{}\n",
+        lines
+            .iter()
+            .map(js_json::stringify_lossless)
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
 }
 
 fn write_file(root: &Path, relative: &str, content: &str) {
@@ -766,8 +785,13 @@ fn session_fixture_root() -> tempfile::TempDir {
     std::fs::create_dir_all(root.path().join("current")).expect("current dir");
     std::fs::create_dir_all(root.path().join("target")).expect("target dir");
     std::fs::create_dir_all(root.path().join("short")).expect("short dir");
-    let current_cwd = root.path().join("current").display().to_string();
-    let target_cwd = root.path().join("target").display().to_string();
+    let current_cwd = root
+        .path()
+        .join("current")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
+    let target_cwd = root.path().join("target").to_str().expect("utf-8 test path").to_owned();
     write_file(
         root.path(),
         "sessions/current.jsonl",
@@ -793,7 +817,7 @@ fn session_fixture_root() -> tempfile::TempDir {
         "sessions/short.jsonl",
         &session_file(
             "019f8def-1111-7000-8000-000000000001",
-            &root.path().join("short").display().to_string(),
+            &root.path().join("short").to_str().expect("utf-8 test path").to_owned(),
             &[("user", "short work"), ("assistant", "short reply")],
             None,
         ),
@@ -829,8 +853,13 @@ async fn search_current_session_history_tool_differential() {
 
     let root = temp_root("pi-search-history-");
     std::fs::create_dir_all(root.path().join("sessions")).expect("sessions dir");
-    let session_path = root.path().join("sessions/history.jsonl").display().to_string();
-    let cwd = root.path().display().to_string();
+    let session_path = root
+        .path()
+        .join("sessions/history.jsonl")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
+    let cwd = root.path().to_str().expect("utf-8 test path").to_owned();
     write_file(
         root.path(),
         "sessions/history.jsonl",
@@ -874,7 +903,11 @@ async fn search_current_session_history_tool_differential() {
     }
     std::fs::write(
         &session_path,
-        rows.iter().map(Value::to_string).collect::<Vec<_>>().join("\n") + "\n",
+        rows.iter()
+            .map(js_json::stringify_lossless)
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n",
     )
     .unwrap();
     let mut oracle = Oracle::new();
@@ -932,12 +965,19 @@ async fn search_current_session_history_tool_differential() {
             json!({
                 "cwd": cwd,
                 "sessionFile": session_path,
-                "sessionDir": root.path().join("sessions").display().to_string()
+                "sessionDir": root.path().join("sessions").to_str().expect("utf-8 test path").to_owned()
             }),
         ));
         let manager = SessionManager::open(
-            &session_path,
-            Some(&root.path().join("sessions").display().to_string()),
+            &JsString::from(&session_path),
+            Some(&JsString::from(
+                &root
+                    .path()
+                    .join("sessions")
+                    .to_str()
+                    .expect("utf-8 test path")
+                    .to_owned(),
+            )),
             None,
         )
         .expect("open session");
@@ -947,7 +987,7 @@ async fn search_current_session_history_tool_differential() {
             .1;
         let rust = rust_tool_result(
             SearchCurrentSessionHistoryTool::new()
-                .execute("tool-call".to_owned(), params, None, None, context, None)
+                .execute("tool-call".to_owned(), json!(params), None, None, context, None)
                 .await,
         );
         assert_eq!(response["output"], rust, "{name}");
@@ -963,11 +1003,11 @@ async fn search_current_session_history_live_numbers_differential() {
     use std::sync::{Arc, Mutex};
 
     let root = temp_root("pi-history-live-numbers-");
-    let cwd = root.path().display().to_string();
-    let mut manager = SessionManager::create(&cwd, Some(&cwd), None).unwrap();
+    let cwd = root.path().to_str().expect("utf-8 test path").to_owned();
+    let mut manager = SessionManager::create(&JsString::from(&cwd), Some(&JsString::from(&cwd)), None).unwrap();
     manager
         .append_message(
-            serde_json::from_value::<AgentMessage>(json!({"role":"user","content":"fixture","timestamp":1})).unwrap(),
+            js_json::from_value::<AgentMessage>(&json!({"role":"user","content":"fixture","timestamp":1})).unwrap(),
         )
         .unwrap();
     let mut assistant = AssistantMessage::empty("openai-responses", "openai", "fixture", 2);
@@ -995,11 +1035,11 @@ async fn search_current_session_history_live_numbers_differential() {
         ));
         let native = rust_tool_result(
             SearchCurrentSessionHistoryTool::new()
-                .execute("call".into(), params, None, None, context.clone(), None)
+                .execute("call".into(), json!(params), None, None, context.clone(), None)
                 .await,
         );
-        assert_eq!(source["output"]["details"]["totalMatches"], count, "{query}");
-        assert_eq!(native["details"]["totalMatches"], count, "{query}");
+        assert_eq!(source["output"]["details"]["totalMatches"], json!(count), "{query}");
+        assert_eq!(native["details"]["totalMatches"], json!(count), "{query}");
         assert_eq!(native["content"], source["output"]["content"], "{query}");
     }
 }
@@ -1014,8 +1054,8 @@ async fn resume_session_tool_differential() {
 
     struct Recorder {
         cancelled: bool,
-        path: Arc<Mutex<Option<String>>>,
-        starter: Arc<Mutex<Option<String>>>,
+        path: Arc<Mutex<Option<JsString>>>,
+        starter: Arc<Mutex<Option<JsString>>>,
     }
 
     impl Recorder {
@@ -1038,10 +1078,25 @@ async fn resume_session_tool_differential() {
     }
 
     let root = session_fixture_root();
-    let root_path = root.path().display().to_string();
-    let sessions_dir = root.path().join("sessions").display().to_string();
-    let current_path = root.path().join("sessions/current.jsonl").display().to_string();
-    let target_path = root.path().join("sessions/target.jsonl").display().to_string();
+    let root_path = root.path().to_str().expect("utf-8 test path").to_owned();
+    let sessions_dir = root
+        .path()
+        .join("sessions")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
+    let current_path = root
+        .path()
+        .join("sessions/current.jsonl")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
+    let target_path = root
+        .path()
+        .join("sessions/target.jsonl")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
 
     let control_db_path = get_control_db_path(root.path());
     for (file, name) in [
@@ -1051,13 +1106,22 @@ async fn resume_session_tool_differential() {
         ("dup-a.jsonl", Some("duplicate target")),
         ("dup-b.jsonl", Some("duplicate target")),
     ] {
-        let path = root.path().join("sessions").join(file).display().to_string();
-        let mut manager = SessionManager::open(&path, Some(&sessions_dir), None).expect("fixture manager");
+        let path = root
+            .path()
+            .join("sessions")
+            .join(file)
+            .to_str()
+            .expect("utf-8 test path")
+            .to_owned();
+        let mut manager = SessionManager::open(&JsString::from(&path), Some(&JsString::from(&sessions_dir)), None)
+            .expect("fixture manager");
         manager
-            .set_metadata_control_db_path(Some(&control_db_path), Default::default())
+            .set_metadata_control_db_path(Some(&JsString::from(&control_db_path)), Default::default())
             .expect("metadata");
         if let Some(name) = name {
-            manager.set_session_name(Some(name)).expect("fixture name");
+            manager
+                .set_session_name(Some(&JsString::from(name)))
+                .expect("fixture name");
         }
     }
     let mut oracle = Oracle {
@@ -1081,7 +1145,7 @@ async fn resume_session_tool_differential() {
         ("ambiguous", json!({ "name": "duplicate target" })),
         (
             "missing",
-            json!({ "path": root.path().join("missing.jsonl").display().to_string() }),
+            json!({ "path": root.path().join("missing.jsonl").to_str().expect("utf-8 test path").to_owned() }),
         ),
         ("both", json!({ "id": "target", "path": target_path })),
         ("neither", json!({})),
@@ -1105,7 +1169,12 @@ async fn resume_session_tool_differential() {
             }),
         ));
         let recorder = Recorder::new(name == "cancelled");
-        let manager = SessionManager::open(&current_path, Some(&sessions_dir), None).expect("open session");
+        let manager = SessionManager::open(
+            &JsString::from(&current_path),
+            Some(&JsString::from(&sessions_dir)),
+            None,
+        )
+        .expect("open session");
         let (mut runner, context) = tool_context::TestContextBuilder::new(&root_path, Arc::new(Mutex::new(manager)))
             .control_db_path(&control_db_path)
             .build()
@@ -1114,18 +1183,18 @@ async fn resume_session_tool_differential() {
             recorder.callback(context.clone()),
         )));
         let result = ResumeSessionTool::new()
-            .execute("tool-call".to_owned(), params, None, None, context, None)
+            .execute("tool-call".to_owned(), json!(params), None, None, context, None)
             .await;
         let mut rust = rust_tool_result(result);
-        if rust["ok"] == true {
+        if rust["ok"] == json!(true) {
             let path = recorder.path.lock().expect("path").clone();
             let starter = recorder.starter.lock().expect("starter").clone();
-            let mut switched = serde_json::Map::new();
+            let mut switched = js_json::JsObject::new();
             if let Some(path) = path {
-                switched.insert("path".to_owned(), Value::String(path));
+                switched.insert("path".into(), Value::String(path));
             }
             if let Some(starter) = starter {
-                switched.insert("starter".to_owned(), Value::String(starter));
+                switched.insert("starter".into(), Value::String(starter));
             }
             rust["switched"] = Value::Object(switched);
         }
@@ -1160,10 +1229,20 @@ async fn change_working_directory_tool_differential() {
     }
 
     let root = session_fixture_root();
-    let root_path = root.path().display().to_string();
-    let sessions_dir = root.path().join("sessions").display().to_string();
-    let current_path = root.path().join("sessions/current.jsonl").display().to_string();
-    let target_cwd = root.path().join("target").display().to_string();
+    let root_path = root.path().to_str().expect("utf-8 test path").to_owned();
+    let sessions_dir = root
+        .path()
+        .join("sessions")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
+    let current_path = root
+        .path()
+        .join("sessions/current.jsonl")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
+    let target_cwd = root.path().join("target").to_str().expect("utf-8 test path").to_owned();
     let whitespace_dir = root.path().join(" target with whitespace ");
     std::fs::create_dir_all(&whitespace_dir).expect("whitespace dir");
 
@@ -1191,7 +1270,12 @@ async fn change_working_directory_tool_differential() {
         let recorder = Arc::new(Recorder {
             calls: Mutex::new(Vec::new()),
         });
-        let manager = SessionManager::open(&current_path, Some(&sessions_dir), None).expect("open session");
+        let manager = SessionManager::open(
+            &JsString::from(&current_path),
+            Some(&JsString::from(&sessions_dir)),
+            None,
+        )
+        .expect("open session");
         let (mut runner, context) = tool_context::TestContextBuilder::new(&root_path, Arc::new(Mutex::new(manager)))
             .build()
             .await;
@@ -1200,10 +1284,10 @@ async fn change_working_directory_tool_differential() {
             Arc::new(|| Box::pin(async { Ok(()) })),
         );
         let result = ChangeWorkingDirectoryTool::new()
-            .execute("tool-call".to_owned(), params, None, None, context, None)
+            .execute("tool-call".to_owned(), json!(params), None, None, context, None)
             .await;
         let mut rust = rust_tool_result(result);
-        if rust["ok"] == true {
+        if rust["ok"] == json!(true) {
             runner
                 .deliver_tool_result_relocation("tool-call")
                 .await
@@ -1296,7 +1380,7 @@ async fn list_sessions_tool_differential() {
                 .1;
         let rust = rust_tool_result(
             ListSessionsTool::new()
-                .execute("tool-call".to_owned(), params, None, None, context, None)
+                .execute("tool-call".to_owned(), json!(params), None, None, context, None)
                 .await,
         );
         assert_eq!(response["output"], rust, "{name}");
@@ -1334,12 +1418,27 @@ async fn broadcast_tool_differential() {
         }),
     ];
     let root = session_fixture_root();
-    let sessions_dir = root.path().join("sessions").display().to_string();
-    let sender_path = root.path().join("sessions/sender.jsonl").display().to_string();
+    let sessions_dir = root
+        .path()
+        .join("sessions")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
+    let sender_path = root
+        .path()
+        .join("sessions/sender.jsonl")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     write_file(
         root.path(),
         "sessions/sender.jsonl",
-        &session_file("sender-session", &root.path().display().to_string(), &[], None),
+        &session_file(
+            "sender-session",
+            &root.path().to_str().expect("utf-8 test path").to_owned(),
+            &[],
+            None,
+        ),
     );
 
     let mut oracle = Oracle::new();
@@ -1358,26 +1457,33 @@ async fn broadcast_tool_differential() {
             params.clone(),
             json!({
                 "controlDbPath": ts_db,
-                "cwd": root.path().display().to_string(),
+                "cwd": root.path().to_str().expect("utf-8 test path").to_owned(),
                 "sessionId": "sender-session",
                 "sessionFile": sender_path,
                 "sessionDir": sessions_dir,
                 "setup": setup.clone()
             }),
         ));
-        let sender = SessionManager::open(&sender_path, Some(&sessions_dir), None).expect("open sender session");
-        let context =
-            tool_context::TestContextBuilder::new(&root.path().display().to_string(), Arc::new(Mutex::new(sender)))
-                .control_db_path(&rust_db)
-                .build()
-                .await
-                .1;
+        let sender = SessionManager::open(
+            &JsString::from(&sender_path),
+            Some(&JsString::from(&sessions_dir)),
+            None,
+        )
+        .expect("open sender session");
+        let context = tool_context::TestContextBuilder::new(
+            &root.path().to_str().expect("utf-8 test path").to_owned(),
+            Arc::new(Mutex::new(sender)),
+        )
+        .control_db_path(&rust_db)
+        .build()
+        .await
+        .1;
         let rust = rust_tool_result(
             BroadcastTool::new()
-                .execute("tool-call".to_owned(), params, None, None, context, None)
+                .execute("tool-call".to_owned(), json!(params), None, None, context, None)
                 .await,
         );
-        assert_eq!(response["ok"], true, "{name}: {:?}", response["error"]);
+        assert_eq!(response["ok"], json!(true), "{name}: {:?}", response["error"]);
         assert_eq!(response["output"], rust, "{name}");
     }
 }
@@ -1392,8 +1498,8 @@ async fn ask_questions_tool_differential() {
     use std::sync::{Arc, Mutex};
 
     struct ScriptedUi {
-        selects: Mutex<VecDeque<Option<String>>>,
-        inputs: Mutex<VecDeque<Option<String>>>,
+        selects: Mutex<VecDeque<Option<JsString>>>,
+        inputs: Mutex<VecDeque<Option<JsString>>>,
         panel_result: Value,
     }
 
@@ -1402,26 +1508,26 @@ async fn ask_questions_tool_differential() {
             &'a self,
             _: pi_coding_agent::core::extensions::types::ExtensionUiCustomFactory,
             _: Option<pi_coding_agent::core::extensions::types::ExtensionUiCustomOptions>,
-        ) -> BoxFuture<'a, Result<Option<Value>, String>> {
+        ) -> BoxFuture<'a, Result<Option<Value>, JsString>> {
             let value = self.panel_result.clone();
             Box::pin(async move { Ok(Some(value)) })
         }
         fn select<'a>(
             &'a self,
-            _title: &str,
-            _options: &[String],
+            _title: &JsString,
+            _options: &[JsString],
             _opts: Option<&pi_coding_agent::core::extensions::ExtensionUiDialogOptions>,
-        ) -> BoxFuture<'a, Result<Option<String>, String>> {
+        ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
             let choice = self.selects.lock().expect("selects").pop_front().flatten();
             Box::pin(async move { Ok(choice) })
         }
 
         fn input<'a>(
             &'a self,
-            _title: &str,
-            _placeholder: Option<&str>,
+            _title: &JsString,
+            _placeholder: Option<&JsString>,
             _opts: Option<&pi_coding_agent::core::extensions::ExtensionUiDialogOptions>,
-        ) -> BoxFuture<'a, Result<Option<String>, String>> {
+        ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
             let answer = self.inputs.lock().expect("inputs").pop_front().flatten();
             Box::pin(async move { Ok(answer) })
         }
@@ -1498,8 +1604,8 @@ async fn ask_questions_tool_differential() {
             };
             let ui_script = json!({
                 "panelResult": panel_result,
-                "selects": selects.iter().map(|value| value.map(str::to_owned)).collect::<Vec<_>>(),
-                "inputs": inputs.iter().map(|value| value.map(str::to_owned)).collect::<Vec<_>>()
+                "selects": selects.iter().map(|value| value.map(JsString::from)).collect::<Vec<_>>(),
+                "inputs": inputs.iter().map(|value| value.map(JsString::from)).collect::<Vec<_>>()
             });
             let response = oracle.request(tool_request(
                 "core/tools/ask-questions.ts",
@@ -1508,8 +1614,8 @@ async fn ask_questions_tool_differential() {
                 json!({ "cwd": "/repo", "uiScript": ui_script }),
             ));
             let ui = Arc::new(ScriptedUi {
-                selects: Mutex::new(selects.iter().map(|value| value.map(str::to_owned)).collect()),
-                inputs: Mutex::new(inputs.iter().map(|value| value.map(str::to_owned)).collect()),
+                selects: Mutex::new(selects.iter().map(|value| value.map(JsString::from)).collect()),
+                inputs: Mutex::new(inputs.iter().map(|value| value.map(JsString::from)).collect()),
                 panel_result,
             });
             let context =
@@ -1521,7 +1627,7 @@ async fn ask_questions_tool_differential() {
                     .1;
             let rust = rust_tool_result(
                 AskQuestionsTool::new()
-                    .execute("tool-call".to_owned(), params, None, None, context, None)
+                    .execute("tool-call".to_owned(), json!(params), None, None, context, None)
                     .await,
             );
             assert_eq!(response["output"], rust, "{name}, explicit={explicit}");
