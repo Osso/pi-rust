@@ -167,7 +167,7 @@ fn select_option<'a>(
             return Ok(default_option_id.unwrap_or_default().to_owned());
         }
 
-        let selected_index = pi_js_compat::number::parse_int(&answer, 10) - 1.0;
+        let selected_index = pi_js_compat::number::parse_int(&answer.encode_utf16().collect::<Vec<_>>(), 10) - 1.0;
         if selected_index.is_finite()
             && selected_index >= 0.0
             && selected_index.fract() == 0.0

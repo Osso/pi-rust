@@ -403,15 +403,7 @@ fn hex_to_rgb(hex: &JsString) -> Result<RgbColor, ThemeError> {
     if cleaned.len() != 6 {
         return Err(ThemeError::InvalidHexColor(hex.into()));
     }
-    let channel = |start: usize| {
-        // A surrogate terminates parseInt's numeric grammar, like any non-digit.
-        let prefix: String = cleaned.units()[start..start + 2]
-            .iter()
-            .take_while(|unit| !(0xd800..=0xdfff).contains(*unit))
-            .map(|unit| char::from_u32(u32::from(*unit)).expect("non-surrogate BMP unit"))
-            .collect();
-        parse_int(&prefix, 16)
-    };
+    let channel = |start: usize| parse_int(&cleaned.units()[start..start + 2], 16);
     let (r, g, b) = (channel(0), channel(2), channel(4));
     if r.is_nan() || g.is_nan() || b.is_nan() {
         return Err(ThemeError::InvalidHexColor(hex.into()));
@@ -1274,7 +1266,7 @@ pub trait TerminalAutoThemeDetector: TerminalBackgroundThemeDetector {
 fn get_color_fg_bg_background_index(colorfgbg: &str) -> Option<i64> {
     let parts: Vec<&str> = colorfgbg.split(';').collect();
     for part in parts.iter().rev() {
-        let background = parse_int(part.trim(), 10);
+        let background = parse_int(&part.trim().encode_utf16().collect::<Vec<_>>(), 10);
         if background.fract() == 0.0 && (0.0..=255.0).contains(&background) {
             return Some(background as i64);
         }

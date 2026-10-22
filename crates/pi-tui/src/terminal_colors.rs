@@ -1,6 +1,5 @@
 //! Terminal color-scheme and background-color report parsing over native strings.
 
-use crate::text_units::ascii_protocol;
 use pi_js_compat::js_json::JsString;
 
 /// 8-bit RGB color.
@@ -34,9 +33,7 @@ fn parse_osc_hex_channel(channel: &JsString) -> Option<u8> {
     if max <= 0.0 {
         return None;
     }
-    // A numeric-parser projection of already validated ASCII digits, not text state.
-    let digits = ascii_protocol(channel)?;
-    let value = pi_js_compat::number::parse_int(&digits, 16);
+    let value = pi_js_compat::number::parse_int(channel.units(), 16);
     let rounded = ((value / max) * 255.0).round();
     // Existing approved nonfinite numeric gap: RgbColor channels are typed u8.
     rounded.is_finite().then_some(rounded as u8)

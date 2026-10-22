@@ -29,12 +29,14 @@ CLDR collation data for the tested locales.
 | Source behaviour | Rust item | Proof |
 |---|---|---|
 | `Number(string)` (whitespace, `0x`/`0b`/`0o`, `Infinity`, `NaN` rejection) | `parse_number` | `tests/number.rs`, `tests/differential_number.rs` |
-| `Number.parseInt(string, radix)` (`radix` 0/16 prefix handling, longest digit prefix) | `parse_int` | `tests/number.rs`, `tests/differential_number.rs` |
+| `Number.parseInt(string, radix)` (`radix` 0/16 prefix handling, longest digit prefix) | sole `parse_int(&[u16], radix)`; native whitespace/sign/prefix/digit scan, no replacement | `tests/number.rs`, `tests/differential_number.rs` |
 | `Number.parseFloat(string)` (leading numeric prefix, exponent rollback) | `parse_float` | `tests/number.rs`, `tests/differential_number.rs` |
 | ECMA-262 `Number::toString`: shortest digits, even-digit ties, exponent thresholds, signed zero, non-finite | `js_number_to_string` via `ryu_js::Buffer::format` | `tests/number.rs`, `tests/differential_number.rs`, `tests/differential_number_bits.rs::shared_formatter_and_json_consumers_match_node_same_bits` |
 | Generic serde finite numeric meaning without i128 range errors; Some/None and non-finite null | `serialize`, `serialize_option`; exact integer conversion only in i64/u64 range | `generic_serde_preserves_finite_numeric_meaning_without_range_errors` exercises actual attributed fields through `serde_json::to_value` |
 | Numeric value storage, not shortest-decimal integer substitution | `js_number_value` | Same test: as_f64 bits/range and exact unsafe-integer storage; historical `matches_node_json_stringify_numbers` is semantic-only |
 | Literal compact/pretty JSON and String coercion | `js_json` shared writer / `to_js_string` | Same-bit test compares Node text literally for lossless writer, serde writer, parse/write and scalar coercion |
+
+Native parseInt checkpoint: existing 21 scalar pairs plus 52 raw UTF-16 Node cases cover high/low/pair suffixes after digits, leading U+FEFF, invalid-leading units, U+0085, signs/negative zero and radix0/16/invalid. HTML/chalk local parsers and theme's scalar prefix adapter were removed; callers share this one API. Numeric accumulation is unchanged; no arbitrary-precision expansion or new rounding proof is claimed.
 
 Differential: 36 `Number` inputs, 28 `parseFloat` inputs, 21 `parseInt` pairs,
 26 `String(Number(s))` inputs, and 27 `JSON.stringify(Number(s))` inputs against

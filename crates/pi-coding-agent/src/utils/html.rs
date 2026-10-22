@@ -19,7 +19,11 @@ pub fn decode_html_entity(entity: &JsString) -> Option<JsString> {
     } else {
         (entity.strip_prefix("#")?, 10)
     };
-    decode_code_point(parse_int(&digits, radix)?)
+    let point = pi_js_compat::number::parse_int(digits.units(), radix);
+    if !point.is_finite() {
+        return None;
+    }
+    decode_code_point(point as i64)
 }
 
 /// Mirrors the source's direct indexed decoder, including its 16-unit bound.
@@ -44,42 +48,4 @@ fn decode_code_point(code_point: i64) -> Option<JsString> {
         vec![0xd800 + (offset >> 10) as u16, 0xdc00 + (offset & 0x3ff) as u16]
     };
     Some(JsString::from_utf16(units))
-}
-
-fn parse_int(text: &JsString, radix: u32) -> Option<i64> {
-    let trimmed = text.trim_start();
-    let (negative, unsigned) = if let Some(unsigned) = trimmed.strip_prefix("-") {
-        (true, unsigned)
-    } else {
-        (false, trimmed.strip_prefix("+").unwrap_or(trimmed))
-    };
-    let digits = if radix == 16 {
-        unsigned
-            .strip_prefix("0x")
-            .or_else(|| unsigned.strip_prefix("0X"))
-            .unwrap_or(unsigned)
-    } else {
-        unsigned
-    };
-    let value = parse_digits(&digits, radix)?;
-    Some(if negative { -value } else { value })
-}
-
-fn parse_digits(digits: &JsString, radix: u32) -> Option<i64> {
-    let mut value = 0_i64;
-    let mut matched = false;
-    for unit in digits.units() {
-        let digit = match unit {
-            48..=57 => u32::from(*unit - 48),
-            65..=70 => u32::from(*unit - 65 + 10),
-            97..=102 => u32::from(*unit - 97 + 10),
-            _ => break,
-        };
-        if digit >= radix {
-            break;
-        }
-        value = value.saturating_mul(i64::from(radix)).saturating_add(i64::from(digit));
-        matched = true;
-    }
-    matched.then_some(value)
 }

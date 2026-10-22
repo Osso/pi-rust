@@ -4,7 +4,7 @@
 use serde::Serializer;
 use serde_json::Value;
 
-use crate::string::is_js_whitespace_char;
+use crate::string::{is_js_whitespace_char, is_js_whitespace_unit};
 
 /// Exact integral binary64 values representable in serde_json's i64/u64 storage.
 /// This is a numeric conversion, not JavaScript shortest-decimal formatting.
@@ -62,30 +62,39 @@ pub fn parse_number(input: &str) -> f64 {
 
 /// JavaScript `Number.parseInt(string, radix)`: leading whitespace, optional
 /// sign, then the longest digit prefix; `NaN` when no digit is present.
-pub fn parse_int(input: &str, radix: u32) -> f64 {
-    let trimmed = input.trim_start_matches(is_js_whitespace_char);
-    let (negative, unsigned) = match trimmed.as_bytes().first() {
-        Some(b'+') => (false, &trimmed[1..]),
-        Some(b'-') => (true, &trimmed[1..]),
+pub fn parse_int(input: &[u16], radix: u32) -> f64 {
+    let first = input
+        .iter()
+        .position(|unit| !is_js_whitespace_unit(*unit))
+        .unwrap_or(input.len());
+    let trimmed = &input[first..];
+    let (negative, unsigned) = match trimmed.first() {
+        Some(unit) if *unit == u16::from(b'+') => (false, &trimmed[1..]),
+        Some(unit) if *unit == u16::from(b'-') => (true, &trimmed[1..]),
         _ => (false, trimmed),
     };
-    let (digits, radix) = match radix {
-        0 => match unsigned.strip_prefix("0x").or_else(|| unsigned.strip_prefix("0X")) {
-            Some(hex) => (hex, 16),
-            None => (unsigned, 10),
-        },
-        16 => match unsigned.strip_prefix("0x").or_else(|| unsigned.strip_prefix("0X")) {
-            Some(hex) => (hex, 16),
-            None => (unsigned, 16),
-        },
-        radix @ 2..=36 => (unsigned, radix),
-        _ => return f64::NAN,
+    let has_hex_prefix = unsigned.first() == Some(&u16::from(b'0'))
+        && unsigned
+            .get(1)
+            .is_some_and(|unit| *unit == u16::from(b'x') || *unit == u16::from(b'X'));
+    let radix = if radix == 0 {
+        if has_hex_prefix { 16 } else { 10 }
+    } else {
+        radix
     };
-
+    if !(2..=36).contains(&radix) {
+        return f64::NAN;
+    }
+    let digits = if radix == 16 && has_hex_prefix {
+        &unsigned[2..]
+    } else {
+        unsigned
+    };
     let mut value = 0.0;
     let mut seen_digit = false;
-    for character in digits.chars() {
-        let Some(digit) = character.to_digit(radix) else {
+    for unit in digits {
+        let digit = char::from_u32(u32::from(*unit)).and_then(|character| character.to_digit(radix));
+        let Some(digit) = digit else {
             break;
         };
         value = value * f64::from(radix) + f64::from(digit);

@@ -3,6 +3,13 @@
 use pi_js_compat::number::{js_number_to_string, parse_float, parse_int, parse_number};
 
 #[test]
+fn parses_raw_utf16_prefix_without_replacing_surrogates() {
+    assert_eq!(parse_int(&[0xfeff, 0x31, 0x32, 0xd800], 10), 12.0);
+    assert_eq!(parse_int(&[0x31, 0x32, 0xdc00], 10), 12.0);
+    assert!(parse_int(&[0xd800, 0x31], 10).is_nan());
+}
+
+#[test]
 fn parses_strings_like_javascript_parse_int() {
     let cases: &[(&str, u32, f64)] = &[
         ("", 10, f64::NAN),
@@ -28,7 +35,7 @@ fn parses_strings_like_javascript_parse_int() {
         ("\u{a0}\u{feff}12\u{2028}", 10, 12.0),
     ];
     for (input, radix, expected) in cases {
-        let parsed = parse_int(input, *radix);
+        let parsed = parse_int(&input.encode_utf16().collect::<Vec<_>>(), *radix);
         assert_eq!(
             parsed.to_bits(),
             expected.to_bits(),

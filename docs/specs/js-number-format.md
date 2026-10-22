@@ -8,7 +8,8 @@
 - [x] Shared JSON compact/pretty writers and scalar coercion agree literally with same-bit Node String/JSON.stringify; JSON non-finite values emit `null`.
 - [x] Generic serde attributed f64/Option<f64> fields accept finite values near ±1e20 without integer range errors and preserve binary64 meaning, modulo JSON negative-zero normalization.
 - [x] Keep exact representable i64/u64 numeric storage or original f64, never substitute the shortest decimal integer for the stored binary value; non-finite serde values become null.
-- [x] Retain existing public helper APIs and parseNumber/parseInt/parseFloat/toFixed behavior; toFixed's existing non-finite/large-number formatter delegation uses the corrected primitive.
+- [x] `parse_int(&[u16], radix)` is the sole parseInt API: scan JS whitespace, optional sign, radix0/16 `0x` handling and longest digit prefix directly over native units. Surrogates terminate the prefix; never replace them. Callers share it rather than local parsers.
+- [x] Retain other public helper APIs and parseNumber/parseInt/parseFloat/toFixed behavior; toFixed's existing non-finite/large-number formatter delegation uses the corrected primitive.
 
 ## How it works
 

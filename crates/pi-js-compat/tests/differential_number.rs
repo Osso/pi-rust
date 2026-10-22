@@ -185,7 +185,7 @@ fn matches_node_number_conversions() {
         .collect();
     let actual_int: Vec<String> = INT_VALUES
         .iter()
-        .map(|(value, radix)| normalize_parsed(parse_int(value, *radix)))
+        .map(|(value, radix)| normalize_parsed(parse_int(&value.encode_utf16().collect::<Vec<_>>(), *radix)))
         .collect();
     assert_eq!(actual_int, expected_int, "parseInt(string, radix)");
 
@@ -200,6 +200,41 @@ fn matches_node_number_conversions() {
         .map(|value| js_number_to_string(parse_number(value)))
         .collect();
     assert_eq!(actual_strings, expected_strings, "String(Number(string))");
+}
+
+#[test]
+fn parse_int_matches_node_for_raw_utf16_prefixes() {
+    let mut oracle = oracle::TsOracle::spawn("js-compat-oracle.ts", "packages/coding-agent/src/index.ts");
+    let mut cases = vec![
+        (vec![0xd800, 0x31], 10),
+        (vec![0xdc00, 0x31], 10),
+        (vec![0xfeff, 0x2d, 0x30, 0xd800], 10),
+        (vec![0x85, 0x31], 10),
+        (vec![0xfeff, 0x30, 0x78, 0x66, 0xdc00], 0),
+        (vec![0x31], 1),
+        (vec![0x31], 37),
+    ];
+    for prefix in ["12", "0xF", "-0", "+12", "0Xff"] {
+        for suffix in [vec![0xd800], vec![0xdc00], vec![0xd83d, 0xde00]] {
+            let units = prefix.encode_utf16().chain(suffix).collect::<Vec<_>>();
+            for radix in [0, 10, 16] {
+                cases.push((units.clone(), radix));
+            }
+        }
+    }
+    let response=oracle.request(&json!({"id":"raw-parse-int","operation":"number","number_values":[],"float_values":[],"int_values":[],"number_strings":[],"int_utf16_values":cases}));
+    assert_eq!(response["ok"], true, "{response}");
+    let expected = response["output"]["int_utf16"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    let actual = cases
+        .iter()
+        .map(|(units, radix)| normalize_parsed(parse_int(units, *radix)))
+        .collect::<Vec<_>>();
+    assert_eq!(actual, expected);
 }
 
 const FIXED_CASES: &[(f64, u32)] = &[
