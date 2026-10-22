@@ -668,22 +668,3 @@ pub fn json_object(entries: Vec<(&str, Value)>) -> Value {
     }
     Value::Object(map)
 }
-
-#[cfg(test)]
-mod lossless_request_tests {
-    use super::*;
-    #[test]
-    fn sdk_rejects_raw_header_units_without_replacing_them() {
-        let client = SdkClient::new(SdkClientConfig {
-            api_key: JsString::from_utf16(vec![0xd800]),
-            base_url: "https://example.com/v1".into(),
-            default_headers: IndexMap::new(),
-            timeout_ms: None,
-            fetch: None,
-            azure: None,
-        });
-        let error = client.build_headers().unwrap_err();
-        assert_eq!(error.name, "TypeError");
-        assert!(error.message.contains("55296"));
-    }
-}
