@@ -585,5 +585,5 @@ pub struct AgentState {
     pub is_model_request_active: bool,
     pub streaming_message: Option<AgentMessage>,
     pub pending_tool_calls: IndexSet<String>,
-    pub error_message: Option<String>,
+    pub error_message: Option<JsString>,
 }

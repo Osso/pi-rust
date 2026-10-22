@@ -15,24 +15,24 @@ use crate::types::{AssistantMessage, AssistantMessageEvent};
 /// Failure passed to [`EventSender::fail`]; maps the TypeScript `unknown` error value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StreamFailure {
-    message: String,
+    message: pi_js_compat::js_json::JsString,
 }
 
 impl StreamFailure {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<pi_js_compat::js_json::JsString>) -> Self {
         Self {
             message: message.into(),
         }
     }
 
-    pub fn message(&self) -> &str {
+    pub fn message(&self) -> &pi_js_compat::js_json::JsString {
         &self.message
     }
 }
 
 impl fmt::Display for StreamFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message))
     }
 }
 

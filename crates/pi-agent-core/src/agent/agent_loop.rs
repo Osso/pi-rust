@@ -44,7 +44,7 @@ pub fn agent_loop(
         let result = run_agent_loop(prompts, context, config, event_sink(sender.clone()), signal, stream_fn).await;
         match result {
             Ok(messages) => sender.end(Some(messages)),
-            Err(error) => sender.fail(StreamFailure::new(error.to_string())),
+            Err(error) => sender.fail(StreamFailure::new(error.message().clone())),
         }
     });
     stream
@@ -65,7 +65,7 @@ pub fn agent_loop_continue(
         let result = run_agent_loop_continue(context, config, event_sink(sender.clone()), signal, stream_fn).await;
         match result {
             Ok(messages) => sender.end(Some(messages)),
-            Err(error) => sender.fail(StreamFailure::new(error.to_string())),
+            Err(error) => sender.fail(StreamFailure::new(error.message().clone())),
         }
     });
     Ok(stream)
@@ -1076,7 +1076,7 @@ async fn prepare_tool_call(
 
     let prepared_tool_call = match prepare_tool_call_arguments(&tool, tool_call) {
         Ok(prepared) => prepared,
-        Err(error) => return immediate_error(error.to_string(), original_arguments(tool_call)),
+        Err(error) => return immediate_error(error.message().clone(), original_arguments(tool_call)),
     };
     let validated_args = match validate_tool_arguments(&llm_tool(&tool), &prepared_tool_call) {
         Ok(args) => args,
@@ -1127,7 +1127,7 @@ async fn apply_before_tool_call(
     };
     let before_result = before_tool_call(before_context, signal.clone())
         .await
-        .map_err(|error| Box::new(immediate_error(error.to_string(), original_arguments(tool_call))))?;
+        .map_err(|error| Box::new(immediate_error(error.message().clone(), original_arguments(tool_call))))?;
     let validated_args = args_cell
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -1340,7 +1340,7 @@ async fn apply_after_tool_call(
     match after_tool_call(after_context, signal.clone()).await {
         Ok(Some(after_result)) => apply_after_tool_call_result(executed, after_result),
         Ok(None) => (executed.result, executed.is_error),
-        Err(error) => (create_error_tool_result(error.to_string()), true),
+        Err(error) => (create_error_tool_result(error.message().clone()), true),
     }
 }
 

@@ -360,18 +360,15 @@ fn summarize_branch_response(
             response
                 .error_message
                 .clone()
-                .unwrap_or_else(|| "Branch summary aborted".to_owned()),
+                .unwrap_or_else(|| "Branch summary aborted".into()),
             None,
         ));
     }
     if response.stop_reason == StopReason::Error {
-        let detail = response
-            .error_message
-            .clone()
-            .unwrap_or_else(|| "Unknown error".to_owned());
+        let detail = response.error_message.clone().unwrap_or_else(|| "Unknown error".into());
         return Err(BranchSummaryError::new(
             BranchSummaryErrorCode::SummarizationFailed,
-            format!("Branch summary failed: {detail}"),
+            JsString::from("Branch summary failed: ") + detail,
             None,
         ));
     }

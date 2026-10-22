@@ -37,3 +37,7 @@ Readability: manual changed-line Rust and oracle audit; `rust-code-analysis-cli`
 Existing direct provider/inline fixture targets are not completion evidence: they contain unrelated base `ec129b36` content-API fixture drift (native JsValue versus scalar values, native citation/content strings). Native error fixture consumers observed in those targets were adapted; remaining integration belongs to the full port gate. Focused runtime proofs are separate and passing.
 
 Final focused error target: 11 PASS at `05711a09`, no warnings. Existing ingress target: 6 PASS at `d352d3b2`; subsequent edits do not change its content paths. Focused utility evidence is recorded in the external handoff ledger.
+
+## Q18 core error consumers
+
+`lossless_provider_errors` in pi-agent-core proves raw StreamFailure UTF16 through agent-loop failure results, failed/aborted compaction response prefixes, and failed assistant JSON serialization. AgentState, CompactionError, BranchSummaryError and proxy human errors retain JsString; Display alone encodes. Core listener/hook and coding-session retry integration proof remains in progress. No parent integration claim.

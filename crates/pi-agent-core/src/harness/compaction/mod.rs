@@ -877,21 +877,15 @@ fn summarize_response(
     if response.stop_reason == StopReason::Aborted {
         return Err(CompactionError::new(
             CompactionErrorCode::Aborted,
-            response
-                .error_message
-                .clone()
-                .unwrap_or_else(|| aborted_message.to_owned()),
+            response.error_message.clone().unwrap_or_else(|| aborted_message.into()),
             None,
         ));
     }
     if response.stop_reason == StopReason::Error {
-        let detail = response
-            .error_message
-            .clone()
-            .unwrap_or_else(|| "Unknown error".to_owned());
+        let detail = response.error_message.clone().unwrap_or_else(|| "Unknown error".into());
         return Err(CompactionError::new(
             CompactionErrorCode::SummarizationFailed,
-            format!("{failed_prefix}{detail}"),
+            JsString::from(failed_prefix) + detail,
             None,
         ));
     }
