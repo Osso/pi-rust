@@ -1854,9 +1854,9 @@ async fn connect_websocket(
     for (name, value) in headers {
         let name = HeaderName::from_bytes(name.as_bytes())
             .map_err(|error| CodexStreamError::Transport(error.to_string().into()))?;
-        let value = crate::request::header_value(value).map_err(|error| CodexStreamError::Transport(error.message))?;
+        let value = crate::request::header_bytes(value).map_err(|error| CodexStreamError::Transport(error.message))?;
         let value =
-            HeaderValue::from_str(&value).map_err(|error| CodexStreamError::Transport(error.to_string().into()))?;
+            HeaderValue::from_bytes(&value).map_err(|error| CodexStreamError::Transport(error.to_string().into()))?;
         request.headers_mut().insert(name, value);
     }
 

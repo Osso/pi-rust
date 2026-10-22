@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use url::Url;
 
-use crate::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
+use crate::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse, header_bytes};
 
 /// Message of the `AbortError` thrown by `fetch` when its signal aborts.
 pub const ABORT_ERROR_MESSAGE: &str = "This operation was aborted";
@@ -120,6 +120,8 @@ fn build_request(client: &reqwest::Client, request: HttpRequest) -> Result<reqwe
         .map_err(|error| CallbackError::new(error.to_string()))?;
     let mut builder = client.request(method, &request.url);
     for (name, value) in &request.headers {
+        let value = reqwest::header::HeaderValue::from_bytes(&header_bytes(&value.as_str().into())?)
+            .map_err(|error| CallbackError::new(error.to_string()))?;
         builder = builder.header(name, value);
     }
     if let Some(body) = request.body {
@@ -135,7 +137,7 @@ fn into_http_response(response: reqwest::Response, signal: Option<CancellationTo
         .map(|(name, value)| {
             (
                 name.as_str().to_owned(),
-                String::from_utf8_lossy(value.as_bytes()).into_owned(),
+                value.as_bytes().iter().copied().map(char::from).collect(),
             )
         })
         .collect();

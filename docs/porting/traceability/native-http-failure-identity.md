@@ -34,6 +34,7 @@ Full raw own Node error properties/stacks/causes and stderr, native errors, comm
 | `build_request`, non-network errors | Preserve legacy `Error`/no cause, no network-name rewrite | `request_builder_errors_are_not_reclassified_as_network_failures` (invalid method, URL, header) |
 | `until_aborted` | Preserve legacy abort message/name/no cause | `cancelled_signal_aborts_pending_fetch` |
 | Successful fetch/body | Preserve request/response behavior | `default_fetch_sends_method_headers_body_and_streams_response` |
+| Header value bytes (`build_request`, `into_http_response`, Codex `connect_websocket`) | undici/Node `http` ByteStrings: units 0x80-0xFF are single Latin-1 bytes both directions, never UTF-8; one authority `request::header_bytes` | `http::latin1_header_values_cross_the_wire_as_single_bytes` (RED `http-latin1-red.log`), `openai_codex_responses::websocket_handshake_sends_latin1_header_values_as_single_bytes` (RED `ws-latin1-red.log`: sent `cafÃ©`); GREEN `*-latin1-green.log` |
 
 `ReqwestBody` normalizes body/decode failures only; send normalizes reqwest request failures only. Other adapter branches retain the legacy constructor. Fake callback constructors and callback source flow are unchanged. No additional struct-literal migrations were necessary.
 

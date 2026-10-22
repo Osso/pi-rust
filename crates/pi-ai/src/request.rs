@@ -92,6 +92,12 @@ pub fn header_value(value: &JsString) -> Result<String, CallbackError> {
     Ok(value.to_utf8().expect("ByteString units are Unicode scalars"))
 }
 
+/// Wire bytes of a ByteString header value: each unit 0-255 is one byte (undici/Node `http`), never UTF-8.
+pub(crate) fn header_bytes(value: &JsString) -> Result<Vec<u8>, CallbackError> {
+    header_value(value)?;
+    Ok(value.units().iter().map(|unit| *unit as u8).collect())
+}
+
 /// WHATWG URL input conversion at HTTP request construction.
 pub fn request_url(value: &JsString) -> Result<String, CallbackError> {
     let input = pi_js_compat::js_json::encode_node_utf8(value);
