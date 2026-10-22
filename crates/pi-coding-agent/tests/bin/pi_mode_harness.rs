@@ -27,7 +27,9 @@ use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::core::tools::result::terminating_text_result;
 use pi_coding_agent::modes::print_mode::{PrintMode, PrintModeOptions, run_print_mode};
 use pi_coding_agent::modes::rpc::rpc_mode::run_rpc_mode;
-use serde_json::{Map, Value, json};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8, parse_lossless};
+use pi_js_compat::{js_format, js_json};
+use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 /// `createEndTurnToolDefinition()` as an `AgentTool`, matching the source tool.
@@ -58,7 +60,7 @@ impl AgentTool for EndTurnAgentTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: Value,
+        params: JsValue,
         _signal: Option<CancellationToken>,
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -66,14 +68,14 @@ impl AgentTool for EndTurnAgentTool {
         Box::pin(async move {
             let reason = params
                 .get("reason")
-                .and_then(Value::as_str)
+                .and_then(JsValue::as_string)
                 .ok_or_else(|| ToolError::new("end_turn reason must be a non-empty string"))?;
-            if pi_js_compat::string::js_trim(reason).is_empty() {
+            if reason.trim().is_empty() {
                 return Err(ToolError::new("end_turn reason must be a non-empty string"));
             }
             Ok(terminating_text_result(
-                format!("Turn ended: {reason}"),
-                json!({ "reason": reason }),
+                js_format!("Turn ended: {}", reason),
+                js_json!({ "reason": reason }),
             ))
         })
     }
@@ -87,7 +89,14 @@ fn optional_env(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|value| !value.is_empty())
 }
 
-fn faux_handle(responses: &[Value]) -> FauxProviderHandle {
+fn parse_json_array(text: &str) -> Vec<JsValue> {
+    match parse_lossless(text).expect("harness JSON") {
+        JsValue::Array(values) => values,
+        _ => panic!("harness JSON must be an array"),
+    }
+}
+
+fn faux_handle(responses: &[JsValue]) -> FauxProviderHandle {
     let handle = faux_provider(RegisterFauxProviderOptions {
         api: Some("faux".to_owned()),
         token_size: Some(FauxTokenSize {
@@ -100,39 +109,54 @@ fn faux_handle(responses: &[Value]) -> FauxProviderHandle {
     handle
 }
 
-fn response_step(value: &Value) -> FauxResponseStep {
+fn string_field<'a>(value: &'a JsValue, field: &str) -> Option<&'a JsString> {
+    value.get(field).and_then(JsValue::as_string)
+}
+
+/// Opaque fixture ids/names stay scalar under the approved provider-id gap.
+fn scalar_field(value: &JsValue, field: &str) -> String {
+    string_field(value, field)
+        .and_then(|text| text.to_utf8().ok())
+        .unwrap_or_else(|| panic!("{field} must be a scalar string"))
+}
+
+fn response_step(value: &JsValue) -> FauxResponseStep {
     if let Some(tool) = value.get("tool") {
-        let name = tool["name"].as_str().expect("tool name").to_owned();
-        let id = tool["id"].as_str().expect("tool id").to_owned();
-        let arguments = tool["arguments"].as_object().cloned().unwrap_or_else(Map::new);
+        let arguments = tool
+            .get("arguments")
+            .and_then(JsValue::as_object)
+            .cloned()
+            .unwrap_or_default();
         return faux_assistant_message(
-            faux_tool_call(name, arguments, Some(id)),
+            faux_tool_call(scalar_field(tool, "name"), arguments, Some(scalar_field(tool, "id"))),
             FauxAssistantMessageOptions::default(),
         )
         .into();
     }
     let mut blocks = Vec::new();
-    if let Some(text) = value["text"].as_str().filter(|text| !text.is_empty()) {
+    if let Some(text) = string_field(value, "text").filter(|text| !text.is_empty()) {
         blocks.push(pi_ai::types::AssistantContent::Text(pi_ai::types::TextContent::new(
             text,
         )));
     }
-    if let Some(reason) = value["endTurn"].as_str() {
-        let id = value["toolId"].as_str().expect("endTurn toolId");
-        let mut arguments = Map::new();
-        arguments.insert("reason".to_owned(), Value::String(reason.to_owned()));
-        blocks.push(faux_tool_call("end_turn", arguments, Some(id.to_owned())));
+    if let Some(reason) = string_field(value, "endTurn") {
+        let mut arguments = JsObject::new();
+        arguments.insert("reason".into(), JsValue::String(reason.clone()));
+        blocks.push(faux_tool_call(
+            "end_turn",
+            arguments,
+            Some(scalar_field(value, "toolId")),
+        ));
     }
-    let text = value["text"].as_str().unwrap_or_default();
-    let stop_reason = value["stopReason"].as_str().map(|reason| match reason {
-        "error" => StopReason::Error,
-        "aborted" => StopReason::Aborted,
-        "length" => StopReason::Length,
-        "toolUse" => StopReason::ToolUse,
-        other => panic!("unsupported stop reason: {other}"),
+    let stop_reason = string_field(value, "stopReason").map(|reason| match reason.to_utf8().as_deref() {
+        Ok("error") => StopReason::Error,
+        Ok("aborted") => StopReason::Aborted,
+        Ok("length") => StopReason::Length,
+        Ok("toolUse") => StopReason::ToolUse,
+        _ => panic!("unsupported stop reason"),
     });
     let content = if blocks.is_empty() {
-        pi_ai::providers::faux::FauxContent::Text(text.to_owned())
+        pi_ai::providers::faux::FauxContent::Text(String::new())
     } else {
         pi_ai::providers::faux::FauxContent::Blocks(blocks)
     };
@@ -140,7 +164,7 @@ fn response_step(value: &Value) -> FauxResponseStep {
         content,
         FauxAssistantMessageOptions {
             stop_reason,
-            error_message: value["errorMessage"].as_str().map(str::to_owned),
+            error_message: string_field(value, "errorMessage").cloned(),
             ..FauxAssistantMessageOptions::default()
         },
     )
@@ -148,9 +172,9 @@ fn response_step(value: &Value) -> FauxResponseStep {
 }
 
 async fn model_runtime(handle: &FauxProviderHandle) -> ModelRuntime {
-    let mut data = Map::new();
+    let mut data = Vec::new();
     if std::env::var("PI_HARNESS_NO_AUTH").as_deref() != Ok("1") {
-        data.insert("faux".to_owned(), json!({"type": "api_key", "key": "faux-key"}));
+        data.push(("faux", js_json!({"type": "api_key", "key": "faux-key"})));
     }
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(Arc::new(AuthStorage::in_memory(data))),
@@ -172,16 +196,16 @@ async fn model_runtime(handle: &FauxProviderHandle) -> ModelRuntime {
 
 async fn build_runtime(
     handle: &FauxProviderHandle,
-    cwd: &str,
-    agent_dir: &str,
-    session_dir: &str,
+    cwd: &JsString,
+    agent_dir: &JsString,
+    session_dir: &JsString,
 ) -> std::sync::Arc<tokio::sync::Mutex<AgentSessionRuntime>> {
     let runtime = model_runtime(handle).await;
     let model = handle.get_model(None).expect("faux model");
     let resource_loader: Arc<dyn pi_coding_agent::core::resource_loader::ResourceLoader> = StaticResourceLoader::new();
     let services = create_agent_session_services(CreateAgentSessionServicesOptions {
-        cwd: cwd.to_owned(),
-        agent_dir: Some(agent_dir.to_owned()),
+        cwd: cwd.clone(),
+        agent_dir: Some(agent_dir.clone()),
         settings_manager: None,
         model_runtime: Some(runtime),
         model_runtime_signal: None,
@@ -197,10 +221,10 @@ async fn build_runtime(
         description: "End the current model turn. Provide a concise reason explaining why the turn is finished."
             .to_owned(),
         parameters: pi_coding_agent::core::tools::end_turn::parameters().clone(),
-        prompt_snippet: Some("End the current model turn with a required reason".to_owned()),
+        prompt_snippet: Some("End the current model turn with a required reason".into()),
         prompt_guidelines: vec![
-            "Call end_turn only when the task is complete, progress requires user input, or the user explicitly asks you to stop. If work remains and progress is possible, continue working instead of calling end_turn. Assistant text alone does not finish the turn.".to_owned(),
-            "Provide one concise, non-empty reason.".to_owned(),
+            "Call end_turn only when the task is complete, progress requires user input, or the user explicitly asks you to stop. If work remains and progress is possible, continue working instead of calling end_turn. Assistant text alone does not finish the turn.".into(),
+            "Provide one concise, non-empty reason.".into(),
         ],
         approval_required: std::env::var("PI_HARNESS_APPROVAL").as_deref() == Ok("1"),
         approval_kind: None,
@@ -290,10 +314,10 @@ async fn build_runtime(
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let mode = env("PI_HARNESS_MODE");
-    let cwd = env("PI_HARNESS_CWD");
-    let agent_dir = env("PI_HARNESS_AGENT_DIR");
-    let session_dir = env("PI_HARNESS_SESSION_DIR");
-    let responses: Vec<Value> = serde_json::from_str(&env("PI_HARNESS_RESPONSES")).expect("responses JSON");
+    let cwd = JsString::from(env("PI_HARNESS_CWD"));
+    let agent_dir = JsString::from(env("PI_HARNESS_AGENT_DIR"));
+    let session_dir = JsString::from(env("PI_HARNESS_SESSION_DIR"));
+    let responses = parse_json_array(&env("PI_HARNESS_RESPONSES"));
     let handle = faux_handle(&responses);
     pi_coding_agent::modes::interactive::theme::init_theme(None, false).expect("theme");
     let runtime = build_runtime(&handle, &cwd, &agent_dir, &session_dir).await;
@@ -327,13 +351,16 @@ async fn main() {
 
     match mode.as_str() {
         "rpc" => {
-            run_rpc_mode(runtime).await;
+            if let Err(error) = run_rpc_mode(runtime).await {
+                eprintln!("{}", encode_node_utf8(&error));
+                std::process::exit(1);
+            }
         }
         "print-text" | "print-json" => {
-            let prompts: Vec<String> =
-                serde_json::from_str(&optional_env("PI_HARNESS_PROMPTS").unwrap_or_else(|| "[]".to_owned()))
-                    .expect("prompts JSON");
-            let mut prompts = prompts.into_iter();
+            let prompts = parse_json_array(&optional_env("PI_HARNESS_PROMPTS").unwrap_or_else(|| "[]".to_owned()));
+            let mut prompts = prompts
+                .into_iter()
+                .map(|prompt| prompt.as_string().cloned().expect("prompt string"));
             let initial_message = prompts.next();
             let options = PrintModeOptions {
                 mode: if mode == "print-json" {

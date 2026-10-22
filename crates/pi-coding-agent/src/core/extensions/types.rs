@@ -95,6 +95,12 @@ impl From<&str> for HandlerError {
     }
 }
 
+impl From<JsString> for HandlerError {
+    fn from(message: JsString) -> Self {
+        Self::new(message)
+    }
+}
+
 /// Typed handler for one event/result pair.
 ///
 /// Events are passed by value (a cheap `Clone` snapshot); contexts are cheap

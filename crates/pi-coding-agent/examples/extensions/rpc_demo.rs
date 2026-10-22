@@ -1,15 +1,16 @@
 //! Opt-in native RPC extension UI demonstration; register explicitly.
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{JsString, JsValue};
+use pi_js_compat::js_regex::JsRegex;
 use std::sync::{
     Arc, LazyLock,
     atomic::{AtomicU64, Ordering},
 };
 
-// JS uses ASCII word boundaries/case folding but ECMAScript whitespace for \s.
-static DANGEROUS: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"(?i-u:\brm)[\t\n\x0B\x0C\r \u{00A0}\u{1680}\u{2000}-\u{200A}\u{2028}\u{2029}\u{202F}\u{205F}\u{3000}\u{FEFF}]+(?i-u:-rf?|--recursive)|(?i-u:\bsudo\b)")
-        .expect("literal dangerous-command regex")
-});
+static RECURSIVE_RM: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::with_flags(r"\brm\s+(-rf?|--recursive)", "i").expect("literal rm regex"));
+static SUDO: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::with_flags(r"\bsudo\b", "i").expect("literal sudo regex"));
 
 pub fn rpc_demo_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     register_lifecycle(pi)?;
@@ -39,8 +40,8 @@ pub fn rpc_demo_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         Arc::new(|_, ctx| {
             Box::pin(async move {
                 let ui = ctx.ui()?;
-                ui.set_editor_text("This text was set by the rpc-demo extension.");
-                ui.notify("Editor prefilled", Some(NotifyType::Info));
+                ui.set_editor_text(&"This text was set by the rpc-demo extension.".into());
+                ui.notify(&"Editor prefilled".into(), Some(NotifyType::Info));
                 Ok(())
             })
         }),
@@ -54,17 +55,20 @@ fn register_lifecycle(pi: &ExtensionApi) -> Result<(), HandlerError> {
         let count = count.clone();
         Box::pin(async move {
             let ui = ctx.ui()?;
-            ui.set_title(if event.reason == SessionStartReason::New {
+            ui.set_title(&JsString::from(if event.reason == SessionStartReason::New {
                 "pi RPC Demo (new session)"
             } else {
                 "pi RPC Demo"
-            });
+            }));
             ui.set_widget(
-                "rpc-demo",
+                &"rpc-demo".into(),
                 Some(&["--- RPC Extension UI Demo ---".into(), "Loaded and ready.".into()]),
                 None,
             );
-            ui.set_status("rpc-demo", Some(&format!("Turns: {}", count.load(Ordering::Relaxed))));
+            ui.set_status(
+                &"rpc-demo".into(),
+                Some(&js_format!("Turns: {}", count.load(Ordering::Relaxed))),
+            );
             Ok(None)
         }) as BoxFuture<'static, Result<Option<()>, HandlerError>>
     })?;
@@ -74,7 +78,7 @@ fn register_lifecycle(pi: &ExtensionApi) -> Result<(), HandlerError> {
         Box::pin(async move {
             let turn = count.fetch_add(1, Ordering::Relaxed) + 1;
             ctx.ui()?
-                .set_status("rpc-demo", Some(&format!("Turn {turn} running...")));
+                .set_status(&"rpc-demo".into(), Some(&js_format!("Turn {} running...", turn)));
             Ok(None)
         }) as BoxFuture<'static, Result<Option<()>, HandlerError>>
     })?;
@@ -82,8 +86,8 @@ fn register_lifecycle(pi: &ExtensionApi) -> Result<(), HandlerError> {
         let count = turns.clone();
         Box::pin(async move {
             ctx.ui()?.set_status(
-                "rpc-demo",
-                Some(&format!("Turn {} done", count.load(Ordering::Relaxed))),
+                &"rpc-demo".into(),
+                Some(&js_format!("Turn {} done", count.load(Ordering::Relaxed))),
             );
             Ok(None)
         }) as BoxFuture<'static, Result<Option<()>, HandlerError>>
@@ -98,28 +102,35 @@ async fn confirm_clear(
         return Ok(None);
     }
     let ui = ctx.ui()?;
-    if ui.confirm("Clear session?", "All messages will be lost.", None).await? {
+    if ui
+        .confirm(&"Clear session?".into(), &"All messages will be lost.".into(), None)
+        .await?
+    {
         return Ok(None);
     }
-    ui.notify("Clear cancelled", Some(NotifyType::Info));
+    ui.notify(&"Clear cancelled".into(), Some(NotifyType::Info));
     Ok(Some(SessionBeforeSwitchResult { cancel: Some(true) }))
 }
 async fn prompt_input(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
     let ui = ctx.ui()?;
-    let value = ui.input("Enter a value", Some("type something..."), None).await?;
+    let value = ui
+        .input(&"Enter a value".into(), Some(&"type something...".into()), None)
+        .await?;
     let message = value
         .filter(|v| !v.is_empty())
-        .map(|v| format!("You entered: {v}"))
+        .map(|v| js_format!("You entered: {}", v))
         .unwrap_or_else(|| "Input cancelled".into());
     ui.notify(&message, Some(NotifyType::Info));
     Ok(())
 }
 async fn prompt_editor(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
     let ui = ctx.ui()?;
-    let text = ui.editor("Edit some text", Some("Line 1\nLine 2\nLine 3")).await?;
+    let text = ui
+        .editor(&"Edit some text".into(), Some(&"Line 1\nLine 2\nLine 3".into()))
+        .await?;
     let message = text
         .filter(|t| !t.is_empty())
-        .map(|t| format!("Editor submitted ({} lines)", t.split('\n').count()))
+        .map(|t| js_format!("Editor submitted ({} lines)", t.split('\n').count()))
         .unwrap_or_else(|| "Editor cancelled".into());
     ui.notify(&message, Some(NotifyType::Info));
     Ok(())
@@ -134,9 +145,10 @@ async fn confirm_dangerous(
     let command = event
         .input
         .get("command")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("undefined");
-    if !DANGEROUS.is_match(command) {
+        .and_then(JsValue::as_string)
+        .cloned()
+        .unwrap_or_else(|| "undefined".into());
+    if !RECURSIVE_RM.is_match(command.clone()) && !SUDO.is_match(command.clone()) {
         return Ok(None);
     }
     if !ctx.has_ui()? {
@@ -145,16 +157,16 @@ async fn confirm_dangerous(
     let ui = ctx.ui()?;
     let choice = ui
         .select(
-            &format!("Dangerous command: {command}"),
+            &js_format!("Dangerous command: {}", command),
             &["Allow".into(), "Block".into()],
             None,
         )
         .await?;
-    if choice.as_deref() != Some("Allow") {
-        ui.notify("Command blocked by user", Some(NotifyType::Warning));
+    if choice.as_ref().is_none_or(|choice| *choice != "Allow") {
+        ui.notify(&"Command blocked by user".into(), Some(NotifyType::Warning));
         return Ok(Some(block("Blocked by user")));
     }
-    ui.notify("Command allowed", Some(NotifyType::Info));
+    ui.notify(&"Command allowed".into(), Some(NotifyType::Info));
     Ok(None)
 }
 fn block(reason: &str) -> ToolCallEventResult {

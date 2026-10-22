@@ -8,6 +8,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 
 use pi_ai::request::BoxFuture;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 
 /// `DETACHED_BASH_RUNNER_MODE`.
 pub const DETACHED_BASH_RUNNER_MODE: &str = "--internal-detached-bash-runner";
@@ -29,8 +30,8 @@ pub fn run_internal_bwrap_fs_worker(args: &[String]) -> Option<i32> {
 
 /// The runner bodies this module dispatches to.
 pub trait DetachedRunnerHost: Send + Sync {
-    fn run_bash<'a>(&'a self, manifest_path: &'a str) -> BoxFuture<'a, Result<(), String>>;
-    fn run_pyrun<'a>(&'a self, manifest_path: &'a str) -> BoxFuture<'a, Result<(), String>>;
+    fn run_bash<'a>(&'a self, manifest_path: &'a JsString) -> BoxFuture<'a, Result<(), JsString>>;
+    fn run_pyrun<'a>(&'a self, manifest_path: &'a JsString) -> BoxFuture<'a, Result<(), JsString>>;
 }
 
 /// Outcome of a handled runner invocation.
@@ -39,7 +40,7 @@ pub struct InternalRunnerOutcome {
     /// `process.exitCode = 1` after a failed run.
     pub exit_code: Option<i32>,
     /// The message written to `<manifest>.runner-error`, when the run failed.
-    pub runner_error: Option<String>,
+    pub runner_error: Option<JsString>,
 }
 
 /// `runInternalDetachedRunner`.
@@ -63,10 +64,11 @@ pub async fn run_internal_detached_runner(
         ));
     };
 
+    let runner_manifest_path = JsString::from(manifest_path);
     let result = if mode == DETACHED_BASH_RUNNER_MODE {
-        host.run_bash(manifest_path).await
+        host.run_bash(&runner_manifest_path).await
     } else {
-        host.run_pyrun(manifest_path).await
+        host.run_pyrun(&runner_manifest_path).await
     };
     match result {
         Ok(()) => Ok(Some(InternalRunnerOutcome {
@@ -85,7 +87,7 @@ pub async fn run_internal_detached_runner(
 }
 
 /// `writeFileSync(path, message + "\n", { encoding: "utf8", mode: 0o600 })`.
-fn write_runner_error(path: &str, message: &str) -> Result<(), String> {
+fn write_runner_error(path: &str, message: &JsString) -> Result<(), String> {
     let mut options = OpenOptions::new();
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -94,5 +96,5 @@ fn write_runner_error(path: &str, message: &str) -> Result<(), String> {
         options.mode(0o600);
     }
     let mut file = options.open(path).map_err(|error| error.to_string())?;
-    writeln!(file, "{message}").map_err(|error| error.to_string())
+    writeln!(file, "{}", encode_node_utf8(message)).map_err(|error| error.to_string())
 }

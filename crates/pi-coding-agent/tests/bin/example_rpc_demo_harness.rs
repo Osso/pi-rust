@@ -11,14 +11,17 @@ use pi_coding_agent::core::{
     sdk::{CreateAgentSessionOptions, create_agent_session},
     session_manager::SessionManager,
 };
-use serde_json::{Value, json};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
 use std::sync::{Arc, Mutex};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    let cwd = std::env::args().nth(1).unwrap();
-    let agent = std::path::Path::new(&cwd).join("rust-agent");
-    std::fs::create_dir_all(&agent).unwrap();
+    let cwd_arg = std::env::args().nth(1).unwrap();
+    let agent_path = std::path::Path::new(&cwd_arg).join("rust-agent");
+    std::fs::create_dir_all(&agent_path).unwrap();
+    let cwd = JsString::from(cwd_arg.as_str());
+    let agent = JsString::from(agent_path.display().to_string());
     let slot: Arc<Mutex<Option<AgentSession>>> = Arc::default();
     let captured = slot.clone();
     let factory: ExtensionFactory = Arc::new(move |api| {
@@ -31,25 +34,32 @@ async fn main() {
             Arc::new(move |args, ctx| {
                 let session = captured.lock().unwrap().clone().unwrap();
                 Box::pin(async move {
-                    let input: Value = serde_json::from_str(&args).unwrap();
+                    let input = js_json::parse_lossless(&encode_node_utf8(&args)).unwrap();
                     let mut runner = session.extension_runner();
                     let ui = ctx.ui()?;
-                    if input["noUi"] == true {
+                    if input.get("noUi") == Some(&JsValue::Bool(true)) {
                         runner.set_ui_context(None, ExtensionMode::Rpc);
                     }
-                    let result = if input["type"] == "tool_call" {
-                        let mut event = serde_json::from_value(input).unwrap();
-                        json!(runner.emit_tool_call(&mut event).await?)
+                    let result = if input
+                        .get("type")
+                        .and_then(JsValue::as_string)
+                        .is_some_and(|kind| *kind == "tool_call")
+                    {
+                        let mut event = js_json::from_value(&input).unwrap();
+                        js_json::to_value(&runner.emit_tool_call(&mut event).await?).unwrap()
                     } else {
-                        let mut event = serde_json::from_value(input).unwrap();
+                        let mut event = js_json::from_value(&input).unwrap();
                         match runner.emit(&mut event).await {
-                            EmitResult::None => Value::Null,
-                            EmitResult::SessionBeforeSwitch(result) => json!(result),
+                            EmitResult::None => JsValue::Null,
+                            EmitResult::SessionBeforeSwitch(result) => js_json::to_value(&result).unwrap(),
                             other => panic!("unsupported fixture result: {other:?}"),
                         }
                     };
                     runner.set_ui_context(Some(ui.clone()), ExtensionMode::Rpc);
-                    ui.notify(&format!("fixture result: {result}"), Some(NotifyType::Info));
+                    ui.notify(
+                        &js_format!("fixture result: {}", js_json::stringify_lossless(&result)),
+                        Some(NotifyType::Info),
+                    );
                     Ok(())
                 })
             }),
@@ -63,11 +73,11 @@ async fn main() {
     let mut registry = ExtensionRegistry::new();
     registry.register("rpc-demo", factory);
     let extension = load_extension_from_factory(
-        registry.get("rpc-demo").unwrap().clone(),
+        registry.get(&"rpc-demo".into()).unwrap().clone(),
         &cwd,
         Arc::new(pi_coding_agent::core::event_bus::create_event_bus()),
         runtime.clone(),
-        "/fixture/rpc-demo",
+        &"/fixture/rpc-demo".into(),
     )
     .await
     .unwrap();
@@ -80,7 +90,7 @@ async fn main() {
         ..Default::default()
     });
     let models = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(serde_json::Map::new()))),
+        credentials: Some(Arc::new(AuthStorage::in_memory(Vec::<(JsString, JsValue)>::new()))),
         models_path: Some(None),
         allow_model_network: false,
         ..Default::default()
@@ -92,7 +102,7 @@ async fn main() {
     ));
     let services = AgentSessionServices {
         cwd: cwd.clone(),
-        agent_dir: agent.display().to_string(),
+        agent_dir: agent.clone(),
         model_runtime: models.clone(),
         settings_manager: settings.clone(),
         resource_loader: loader.clone(),
@@ -101,7 +111,7 @@ async fn main() {
     let manager = SessionManager::in_memory(Some(&cwd), None).unwrap();
     let options = |manager, reason| CreateAgentSessionOptions {
         cwd: Some(cwd.clone()),
-        agent_dir: Some(agent.display().to_string()),
+        agent_dir: Some(agent.clone()),
         model_runtime: Some(models.clone()),
         resource_loader: Some(loader.clone()),
         settings_manager: Some(settings.clone()),
@@ -156,5 +166,8 @@ async fn main() {
         None,
     ))
     .await;
-    pi_coding_agent::modes::rpc::rpc_mode::run_rpc_mode(runtime).await;
+    if let Err(error) = pi_coding_agent::modes::rpc::rpc_mode::run_rpc_mode(runtime).await {
+        eprintln!("{}", encode_node_utf8(&error));
+        std::process::exit(1);
+    }
 }

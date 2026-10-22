@@ -13,21 +13,22 @@ use pi_coding_agent::core::detached_bash_runner::run_detached_bash_runner;
 use pi_coding_agent::internal_runner::DetachedRunnerHost;
 use pi_coding_agent::main_runner::{MainOptions, console_error, run_main_or_report_error};
 use pi_coding_agent::utils::chalk::Chalk;
+use pi_js_compat::js_json::JsString;
 
 /// Internal runner host backed by the ported detached bash runner.
 struct CliDetachedRunnerHost;
 
 impl DetachedRunnerHost for CliDetachedRunnerHost {
-    fn run_bash<'a>(&'a self, manifest_path: &'a str) -> BoxFuture<'a, Result<(), String>> {
+    fn run_bash<'a>(&'a self, manifest_path: &'a JsString) -> BoxFuture<'a, Result<(), JsString>> {
         Box::pin(async move {
             run_detached_bash_runner(manifest_path, None)
                 .await
                 .map(|_| ())
-                .map_err(|error| error.to_string())
+                .map_err(|error| error.message().clone())
         })
     }
 
-    fn run_pyrun<'a>(&'a self, manifest_path: &'a str) -> BoxFuture<'a, Result<(), String>> {
+    fn run_pyrun<'a>(&'a self, manifest_path: &'a JsString) -> BoxFuture<'a, Result<(), JsString>> {
         Box::pin(async move { run_detached_pyrun_runner(manifest_path).await.map(|_| ()) })
     }
 }
