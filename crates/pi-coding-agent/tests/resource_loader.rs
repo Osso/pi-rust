@@ -608,9 +608,7 @@ async fn extend_resources_loads_skills_and_prompts_with_metadata() {
             },
         }],
         prompt_paths: vec![ExtendedResourcePath {
-            path: JsString::from(extra_prompts.join("extra.md").to_str().unwrap())
-                .into_owned()
-                .into(),
+            path: JsString::from(extra_prompts.join("extra.md").to_str().unwrap()),
             metadata: pi_coding_agent::core::package_manager::PathMetadata {
                 source: "extension:extra".to_owned().into(),
                 scope: pi_coding_agent::core::package_manager::SourceScope::Temporary,
