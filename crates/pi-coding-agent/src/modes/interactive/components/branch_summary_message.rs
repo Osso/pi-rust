@@ -1,5 +1,6 @@
 //! Ported from `coding-agent/src/modes/interactive/components/branch-summary-message.ts`.
 
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::rc::Rc;
 
 use pi_agent_core::harness::messages::BranchSummaryMessage;
@@ -58,7 +59,7 @@ impl BranchSummaryMessageComponent {
             let color: StyleFn =
                 Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::CustomMessageText, text)));
             self.container.add_child(component(Markdown::with_shared_theme(
-                header.to_owned() + &self.message.summary,
+                encode_node_utf8(&(JsString::from(header) + &self.message.summary)),
                 0,
                 0,
                 self.markdown_theme.clone(),

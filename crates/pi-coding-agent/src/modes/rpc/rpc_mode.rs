@@ -344,7 +344,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
         RpcCommandBody::GetState => Ok(Some(RpcResponse::success_with_data(
             id,
             "get_state",
-            js_json::to_value(session_state(&session)).expect("state must serialize"),
+            js_json::to_value(&session_state(&session)).expect("state must serialize"),
         ))),
         RpcCommandBody::SetModel { provider, model_id } => {
             let model = session
@@ -570,7 +570,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             Ok(Some(RpcResponse::success_with_data(
                 id,
                 "get_last_assistant_text",
-                js_json::to_value(LastAssistantTextData { text }).expect("text must serialize"),
+                js_json::to_value(&LastAssistantTextData { text }).expect("text must serialize"),
             )))
         }
         RpcCommandBody::SetSessionName { name } => {
@@ -641,7 +641,7 @@ async fn run_bash(
 
     if let Some(result) = event_result.as_ref().and_then(|result| result.result.clone()) {
         let result: BashResult =
-            js_json::from_value(&result).map_err(|error| format!("Invalid user_bash result: {error}"))?;
+            serde_json::from_value(result).map_err(|error| format!("Invalid user_bash result: {error}"))?;
         session.record_bash_result(command, &result, exclude_from_context);
         return Ok(result);
     }
@@ -693,7 +693,7 @@ fn collect_commands(session: &AgentSession) -> Vec<RpcSlashCommand> {
 fn start_prompt(
     state: &Arc<RpcState>,
     id: Option<String>,
-    message: String,
+    message: JsString,
     images: Vec<pi_ai::types::ImageContent>,
     streaming_behavior: Option<StreamingBehavior>,
 ) {

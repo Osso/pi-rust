@@ -15,9 +15,9 @@ use std::time::{Duration, Instant};
 use pi_agent_core::AgentToolResult;
 use pi_ai::types::TextOrImageContent;
 use pi_js_compat::date::js_now_millis;
+use pi_js_compat::js_json::{JsString, JsValue};
 use pi_tui::tui::{Component, ComponentRef, Container};
 use pi_tui::{Box as BoxComponent, Image, ImageOptions, ImageProtocol, ImageTheme, Spacer, Text, get_capabilities};
-use serde_json::Value;
 
 use crate::core::extensions::types::{RenderShell, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
 use crate::core::tools::render_utils;
@@ -43,7 +43,7 @@ pub struct ToolExecutionOptions {
 #[derive(Debug, Clone)]
 pub struct ToolExecutionResult {
     pub content: Vec<TextOrImageContent>,
-    pub details: Option<Value>,
+    pub details: Option<JsValue>,
     pub is_error: bool,
 }
 
@@ -70,21 +70,28 @@ pub fn limit_tool_result_content(content: &[TextOrImageContent]) -> Vec<TextOrIm
     let Some(first_text_block_index) = text_block_indexes.first().copied() else {
         return content.to_vec();
     };
-    let output_lines = text_block_indexes
-        .iter()
-        .map(|index| match &content[*index] {
-            TextOrImageContent::Text(text) => text.text.as_str(),
-            TextOrImageContent::Image(_) => "",
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-        .split('\n')
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
+    let joined = JsString::join(
+        text_block_indexes.iter().filter_map(|index| match &content[*index] {
+            TextOrImageContent::Text(text) => Some(&text.text),
+            TextOrImageContent::Image(_) => None,
+        }),
+        "\n",
+    );
+    let output_lines = joined.split('\n').collect::<Vec<_>>();
     if output_lines.len() <= MAX_TOOL_OUTPUT_LINES {
         return content.to_vec();
     }
-    let limited_text = limit_tool_output_lines(&output_lines).join("\n");
+    let head = MAX_TOOL_OUTPUT_LINES / 2;
+    let hidden = output_lines.len() - MAX_TOOL_OUTPUT_LINES;
+    let marker = JsString::from(format!("... ({hidden} more lines hidden)"));
+    let tail_start = output_lines.len() - (MAX_TOOL_OUTPUT_LINES - head);
+    let limited_text = JsString::join(
+        output_lines[..head]
+            .iter()
+            .chain(std::iter::once(&marker))
+            .chain(output_lines[tail_start..].iter()),
+        "\n",
+    );
     content
         .iter()
         .enumerate()
@@ -131,7 +138,7 @@ pub struct ToolExecutionComponent {
     image_spacers: Vec<ComponentRef>,
     tool_name: String,
     tool_call_id: String,
-    args: Value,
+    args: JsValue,
     expanded: bool,
     show_images: bool,
     image_width_cells: usize,
@@ -156,7 +163,7 @@ impl ToolExecutionComponent {
     pub fn new(
         tool_name: impl Into<String>,
         tool_call_id: impl Into<String>,
-        args: Value,
+        args: JsValue,
         options: ToolExecutionOptions,
         tool_definition: Option<ToolDefinition>,
         request_render: Arc<dyn Fn() + Send + Sync>,
@@ -338,7 +345,7 @@ impl ToolExecutionComponent {
         ))))
     }
 
-    pub fn update_args(&mut self, args: Value) {
+    pub fn update_args(&mut self, args: JsValue) {
         self.args = args;
         self.update_display();
     }
@@ -487,7 +494,7 @@ impl ToolExecutionComponent {
 
     fn format_tool_execution(&self) -> String {
         let mut text = with_theme(|theme| theme.fg(ThemeColor::ToolTitle, &theme.bold(&self.tool_name)));
-        let content = js_json::stringify_pretty(&self.args);
+        let content = js_json::stringify_lossless_pretty(&self.args);
         if !content.is_empty() {
             text.push_str("\n\n");
             text.push_str(&content);
@@ -695,5 +702,23 @@ impl Component for ToolExecutionComponent {
 
     fn invalidate(&mut self) {
         self.update_display();
+    }
+}
+
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    use pi_js_compat::js_json::JsString;
+    #[test]
+    fn output_limit_retains_surrogates_and_original_result() {
+        let raw = JsString::join((0..101).map(|_| JsString::from_utf16(vec![0xd800])), "\n");
+        let original = vec![TextOrImageContent::text(raw.clone())];
+        let output = limit_tool_result_content(&original);
+        let TextOrImageContent::Text(text) = &output[0] else {
+            panic!("text")
+        };
+        assert_eq!(text.text.units()[0], 0xd800);
+        assert!(text.text.contains("... (1 more lines hidden)"));
+        assert_eq!(original[0], TextOrImageContent::text(raw));
     }
 }

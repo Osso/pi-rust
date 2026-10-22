@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use pi_ai::types::{AssistantContent, AssistantMessage, StopReason};
-use pi_js_compat::string::js_trim;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use pi_tui::components::text::StyleFn;
 use pi_tui::tui::component;
 use pi_tui::{Component, Container, Markdown, MarkdownOptions, MarkdownTheme, Spacer, Text};
@@ -89,9 +89,9 @@ impl AssistantMessageComponent {
         let mut index = 0;
         while index < message.content.len() {
             match &message.content[index] {
-                AssistantContent::Text(text) if !js_trim(&text.text).is_empty() => {
+                AssistantContent::Text(text) if !text.text.trim().is_empty() => {
                     self.content_container.add_child(component(Markdown::with_shared_theme(
-                        js_trim(&text.text),
+                        encode_node_utf8(&text.text.trim()),
                         self.output_pad,
                         0,
                         self.markdown_theme.clone(),
@@ -116,7 +116,7 @@ impl AssistantMessageComponent {
                         let AssistantContent::Thinking(thinking) = &message.content[index] else {
                             break;
                         };
-                        let thinking = js_trim(&thinking.thinking);
+                        let thinking = thinking.thinking.trim();
                         if !thinking.is_empty() {
                             thinking_blocks.push(thinking.to_owned());
                         }
@@ -139,7 +139,7 @@ impl AssistantMessageComponent {
                         let color: StyleFn =
                             Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::ThinkingText, text)));
                         self.content_container.add_child(component(Markdown::with_shared_theme(
-                            thinking_blocks.join("\n\n"),
+                            encode_node_utf8(&JsString::join(thinking_blocks, "\n\n")),
                             self.output_pad,
                             0,
                             self.markdown_theme.clone(),
@@ -214,8 +214,8 @@ impl AssistantMessageComponent {
 
 fn is_visible_content(content: &AssistantContent) -> bool {
     match content {
-        AssistantContent::Text(text) => !js_trim(&text.text).is_empty(),
-        AssistantContent::Thinking(thinking) => !js_trim(&thinking.thinking).is_empty(),
+        AssistantContent::Text(text) => !text.text.trim().is_empty(),
+        AssistantContent::Thinking(thinking) => !thinking.thinking.trim().is_empty(),
         AssistantContent::ToolCall(_) => false,
     }
 }

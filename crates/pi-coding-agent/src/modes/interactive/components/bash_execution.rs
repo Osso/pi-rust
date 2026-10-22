@@ -17,7 +17,8 @@ use crate::core::tools::truncate::{
     DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncationOptions, TruncationResult, truncate_tail,
 };
 use crate::modes::interactive::theme::{ThemeColor, with_theme};
-use crate::utils::ansi::strip_ansi;
+use crate::utils::ansi::strip_ansi_js;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 
 const BASH_TIMER_INTERVAL_MS: u64 = 1000;
 const PREVIEW_LINES: usize = 20;
@@ -38,8 +39,8 @@ enum BashStatus {
 
 /// Displays a bash command execution with streaming output.
 pub struct BashExecutionComponent {
-    command: String,
-    output_lines: Vec<String>,
+    command: JsString,
+    output_lines: Vec<JsString>,
     status: BashStatus,
     exit_code: Option<i32>,
     loader: ComponentRef,
@@ -57,7 +58,7 @@ pub struct BashExecutionComponent {
 
 impl BashExecutionComponent {
     pub fn new(
-        command: impl Into<String>,
+        command: impl Into<JsString>,
         request_render: Rc<dyn Fn()>,
         exclude_from_context: bool,
         options: BashExecutionOptions,
@@ -122,9 +123,10 @@ impl BashExecutionComponent {
         self.update_display();
     }
 
-    pub fn append_output(&mut self, chunk: &str) {
-        let clean = strip_ansi(chunk).replace("\r\n", "\n").replace('\r', "\n");
-        let new_lines: Vec<String> = clean.split('\n').map(str::to_owned).collect();
+    pub fn append_output(&mut self, chunk: impl Into<JsString>) {
+        let chunk = chunk.into();
+        let clean = strip_ansi_js(&chunk).replace("\r\n", "\n").replace("\r", "\n");
+        let new_lines: Vec<JsString> = clean.split('\n').collect();
         if self.output_lines.is_empty() {
             self.output_lines.extend(new_lines);
         } else {
@@ -210,7 +212,7 @@ impl BashExecutionComponent {
     }
 
     fn update_display(&mut self) {
-        let full_output = self.output_lines.join("\n");
+        let full_output = JsString::join(&self.output_lines, "\n");
         let context_truncation = truncate_tail(
             &full_output,
             TruncationOptions {
@@ -221,7 +223,11 @@ impl BashExecutionComponent {
         let available_lines: Vec<String> = if context_truncation.content.is_empty() {
             Vec::new()
         } else {
-            context_truncation.content.split('\n').map(str::to_owned).collect()
+            context_truncation
+                .content
+                .split('\n')
+                .map(|line| pi_js_compat::js_json::encode_node_utf8(&line))
+                .collect()
         };
         let preview_start = available_lines.len().saturating_sub(PREVIEW_LINES);
         let preview_logical_lines = &available_lines[preview_start..];
@@ -229,7 +235,12 @@ impl BashExecutionComponent {
 
         let mut children: Vec<ComponentRef> = Vec::new();
         children.push(component(Text::new(
-            with_theme(|theme| theme.fg(ThemeColor::BashMode, &theme.bold(&format!("$ {}", self.command)))),
+            with_theme(|theme| {
+                theme.fg(
+                    ThemeColor::BashMode,
+                    &theme.bold(&format!("$ {}", encode_node_utf8(&self.command))),
+                )
+            }),
             1,
             0,
         )));
@@ -348,7 +359,7 @@ impl BashExecutionComponent {
 
     /// Raw output used to build the `BashExecutionMessage`.
     pub fn get_output(&self) -> String {
-        self.output_lines.join("\n")
+        JsString::join(&self.output_lines, "\n")
     }
 
     pub fn get_command(&self) -> &str {

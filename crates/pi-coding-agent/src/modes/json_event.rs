@@ -27,7 +27,7 @@ pub fn to_json_event<T: Serialize>(event: &T) -> JsValue {
         .cloned()
         .expect("message_update events carry assistantMessageEvent");
     if let Some(object) = assistant_message_event.as_object_mut() {
-        object.shift_remove(&"partial".into());
+        object.shift_remove(&pi_js_compat::js_json::JsString::from("partial"));
     }
     pi_js_compat::js_json!({"type": "message_update", "assistantMessageEvent": assistant_message_event})
 }
