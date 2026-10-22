@@ -730,6 +730,21 @@ fn scenarios() -> Vec<Scenario> {
     });
 
     scenarios.push(Scenario {
+        name: "gateway-plain-error",
+        model: model(),
+        context: context(),
+        options: options(),
+        process_env: BTreeMap::new(),
+        capture_payload: false,
+        simple: None,
+        script: vec![ResponseSpec::http(
+            403,
+            vec![("content-type", "text/plain")],
+            "blocked by gateway WAF",
+        )],
+    });
+
+    scenarios.push(Scenario {
         name: "mid-stream-exception",
         model: model(),
         context: context(),

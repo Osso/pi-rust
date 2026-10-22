@@ -1692,7 +1692,11 @@ fn http_error(status: u16, headers: &[(String, String)], body: &[u8]) -> Bedrock
     let message = parsed_message.unwrap_or_else(|| code.clone().unwrap_or_else(|| "UnknownError".to_owned()));
     // Frozen normalizeProviderError stringifies the consumed Node IncomingMessage.
     // Its cycle makes safeJsonStringify return String(responseBody), not raw bytes.
-    let body = Some("[object Object]".to_owned());
+    let body = Some(if parsed.is_some() {
+        "[object Object]".to_owned()
+    } else {
+        text
+    });
     BedrockError {
         name: code.clone(),
         message: message.into(),

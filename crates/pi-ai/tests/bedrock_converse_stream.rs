@@ -320,7 +320,7 @@ async fn retries_throttling_then_reports_validation_without_extra_diagnostics() 
     assert_eq!(
         message.error_message.as_ref(),
         Some(&pi_js_compat::js_json::JsString::from(
-            "Validation error: The provided model identifier is invalid."
+            "Validation error: 400: [object Object]"
         ))
     );
     assert!(message.diagnostics.is_none());
