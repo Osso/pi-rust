@@ -345,7 +345,7 @@ async fn cancellation_after_raw_delta_retains_partial_and_aborted_status() {
     let cancel = tokio_util::sync::CancellationToken::new();
     let mut options = pi_ai::request::StreamOptions::default();
     options.request.api_key = Some("fake".into());
-    options.signal = Some(cancel.clone());
+    options.request.signal = Some(cancel.clone());
     let mut stream = pi_ai::api::openai_completions::stream(
         test_model("openai-completions", &url),
         Context {
