@@ -706,6 +706,7 @@ fn timestamp_normalization_rejects_missing_padding() {
 }
 
 struct ProcessFixture {
+    _environment_guard: std::sync::MutexGuard<'static, ()>,
     directory: tempfile::TempDir,
     path: String,
 }
@@ -717,6 +718,8 @@ impl Drop for ProcessFixture {
 }
 fn process_fixture() -> ProcessFixture {
     use std::os::unix::fs::PermissionsExt;
+    static ENVIRONMENT: Mutex<()> = Mutex::new(());
+    let environment_guard = ENVIRONMENT.lock().unwrap();
     let directory = tempfile::tempdir().unwrap();
     let program = directory.path().join("bash");
     std::fs::write(
@@ -755,7 +758,11 @@ while True:
     let control = directory.path().join("control");
     std::fs::write(&control, "").unwrap();
     pi_js_compat::process_env::set("OVERLAY_QA_CONTROL", control.to_str().unwrap());
-    ProcessFixture { directory, path }
+    ProcessFixture {
+        _environment_guard: environment_guard,
+        directory,
+        path,
+    }
 }
 async fn wait_for_process_ready() {
     let control = pi_js_compat::process_env::get("OVERLAY_QA_CONTROL").unwrap();

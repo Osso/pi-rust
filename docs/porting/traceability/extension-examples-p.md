@@ -47,6 +47,8 @@ RED evidence: missing module (01); streaming post-close label (08); source-globa
 
 Frozen `4f9e6f8a4` `overlay-qa-tests.ts:1409–1428` appends one UTF-16 unit, removes one unit on backspace, and passes typed text directly to width truncation. No scalar projection or render-slice boundary exists there. Native `panels.rs::streaming_render` now constructs `JsString` directly from its stored units. `streaming_panel_retains_raw_typed_units_until_backspace` exercises the real extension command/factory and nested panel: both U+D800 and U+DC00 must remain in rendered output, then disappear on backspace. RED `/tmp/pi-rust-repin-lossless-interactive/test-overlay-typed-red.log` observed U+FFFD. Historical passive differential projection below remains a separately recorded old fixture boundary, not evidence for streaming replacement.
 
+Common-pin oracle setup uses frozen `core/model-registry.ts::ModelRegistry.inMemory` (:374–375); retired `test/model-runtime-test-utils.ts` does not exist. At parent `fd79d875`, five differential tests failed before a response because of that import. After replacement, eight tests passed; two exposed concurrent process fixtures restoring/removing each other's process-global PATH/control variables. A fixture-lifetime mutex now serializes those environment mutations. These were oracle setup and test-state defects, not frozen component divergences; assertions remain unchanged.
+
 ## Boundaries and pending cases
 
 - String boundary: request UTF-16 unit `[55296]` projects to U+FFFD before the existing String component API, matching [compatibility](../../specs/compatibility.md#out-of-scope). The passive fixture renders the replacement character; source receives `toWellFormed()` at the same boundary. Ordinary text/frames are unchanged.
