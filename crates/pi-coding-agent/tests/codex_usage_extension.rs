@@ -82,7 +82,7 @@ fn maps_usage_payload() {
     let usage = map_codex_usage_payload(&usage_payload(json!({})));
     assert_eq!(usage.plan_type.as_deref(), Some("pro"));
     assert_eq!(usage.account_id, None);
-    assert_eq!(usage.reset_credits_available, 3.0);
+    assert_eq!(usage.reset_credits_available, Some(3.0));
     assert_eq!(usage.limits.len(), 1);
     let limit = &usage.limits[0];
     assert_eq!(limit.limit_id, "codex");

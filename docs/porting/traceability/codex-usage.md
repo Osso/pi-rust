@@ -36,3 +36,7 @@ Source: `packages/coding-agent/extensions/codex-usage/src/index.ts`. Rust:
   UUIDv4 values and are normalized in the differential.
 - HTTP goes through `pi_ai::request::Fetch`; the extension factory accepts an
   injected fetch, defaulting to `pi_ai::http::default_fetch`.
+
+## Q18 missing reset-credit DRIFT
+
+Observed RED at c9cf6ea1: `differential_codex_usage` case `map-empty` returned Rust `resetCreditsAvailable: 0`, frozen TS `null` (`codex-fixtures-green.log`). Frozen `extensions/codex-usage/src/index.ts:73,121` explicitly retains `number | null`; line 131 defaults only display and line 498 defaults reset eligibility. Parent approved correction on 2026-10-22. Rust now retains `Option<f64>` and applies zero only at those consuming branches; the existing map/format/reset differential remains the behavioral proof. Focused GREEN pending.

@@ -60,8 +60,8 @@ pub struct CodexUsage {
     pub plan_type: Option<String>,
     pub account_id: Option<JsString>,
     pub email: Option<JsString>,
-    #[serde(serialize_with = "pi_js_compat::number::serialize")]
-    pub reset_credits_available: f64,
+    #[serde(serialize_with = "pi_js_compat::number::serialize_option")]
+    pub reset_credits_available: Option<f64>,
     pub limits: Vec<CodexRateLimit>,
 }
 
@@ -248,8 +248,7 @@ pub fn map_codex_usage_payload(payload: &Value) -> CodexUsage {
         reset_credits_available: payload
             .get("rate_limit_reset_credits")
             .and_then(|credits| credits.get("available_count"))
-            .and_then(Value::as_f64)
-            .unwrap_or(0.0),
+            .and_then(Value::as_f64),
         limits,
     }
 }
@@ -384,7 +383,7 @@ pub fn format_codex_usage(usage: &CodexUsage) -> JsString {
     lines.push(
         format!(
             "Reset credits: {} available",
-            js_number_to_string(usage.reset_credits_available)
+            js_number_to_string(usage.reset_credits_available.unwrap_or(0.0))
         )
         .into(),
     );
@@ -551,7 +550,7 @@ async fn reset_codex_usage_and_send_result(
     fetch: &dyn Fetch,
 ) -> Result<(), HandlerError> {
     let usage_before_reset = read_codex_usage(ctx, fetch).await?;
-    if usage_before_reset.reset_credits_available <= 0.0 {
+    if usage_before_reset.reset_credits_available.unwrap_or(0.0) <= 0.0 {
         send_codex_usage_message(
             pi,
             format_codex_usage(&usage_before_reset) + "\n\nNo reset credits available.",
@@ -565,7 +564,7 @@ async fn reset_codex_usage_and_send_result(
             &"Are you sure you want to reset OpenAI Codex usage?".into(),
             &pi_js_compat::js_format!(
                 "This will consume 1 of {} available reset credits.",
-                js_number_to_string(usage_before_reset.reset_credits_available)
+                js_number_to_string(usage_before_reset.reset_credits_available.unwrap_or(0.0))
             ),
             None,
         )
