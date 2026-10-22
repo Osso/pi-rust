@@ -597,3 +597,41 @@ async fn differential_openai_responses_stream() {
 
     let _ = usage();
 }
+
+#[tokio::test]
+async fn open_tool_scratch_matches_frozen_success_error_and_argument_done() {
+    let mut oracle = TsOracle::spawn("openai-responses-oracle.ts", "packages/ai/src/api/openai-responses.ts");
+    let opening = vec![
+        json!({"type":"response.created","response":{"id":"resp_open"}}),
+        json!({"type":"response.output_item.added","output_index":0,"item":{
+            "type":"function_call","id":"fc_open","call_id":"call_open","name":"lookup","arguments":"{\"seed\":"}}),
+        json!({"type":"response.function_call_arguments.delta","output_index":0,"delta":"1"}),
+    ];
+    let completed = json!({"type":"response.completed","response":{"id":"resp_open","status":"completed"}});
+    let tails = [
+        vec![completed.clone()],
+        vec![json!({"type":"error","code":"probe","message":"open tool failed"})],
+        vec![json!({"type":"response.incomplete","response":{"incomplete_details":{"reason":"content_filter"}}})],
+        vec![
+            json!({"type":"response.function_call_arguments.done","output_index":0,"arguments":"{\"seed\":1,\"tail\":2}"}),
+            json!({"type":"response.output_item.done","output_index":0,"item":{
+                "type":"function_call","id":"fc_open","call_id":"call_open","name":"lookup","arguments":""}}),
+            completed.clone(),
+        ],
+        vec![
+            json!({"type":"response.function_call_arguments.done","output_index":0,"arguments":"{\"replacement\":3}"}),
+            json!({"type":"response.output_item.done","output_index":0,"item":{
+                "type":"function_call","id":"fc_open","call_id":"call_open","name":"lookup","arguments":""}}),
+            completed,
+        ],
+    ];
+    for (index, tail) in tails.into_iter().enumerate() {
+        let mut events = opening.clone();
+        events.extend(tail);
+        run_scenario(
+            &mut oracle,
+            Scenario::new(100 + index as i64, base_model("openai", "gpt-5.5", true), &events),
+        )
+        .await;
+    }
+}

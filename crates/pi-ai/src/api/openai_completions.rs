@@ -10,10 +10,7 @@ use indexmap::IndexMap;
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
-use crate::api::constrained_sampling::{
-    GrammarToolInputJsonBuffer, append_grammar_tool_input_json_delta, create_grammar_tool_input_properties,
-    get_grammar_tool_input,
-};
+use crate::api::constrained_sampling::{create_grammar_tool_input_properties, get_grammar_tool_input};
 use crate::api::github_copilot_headers::{build_copilot_dynamic_headers, has_copilot_vision_input};
 use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
 use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
@@ -1177,14 +1174,6 @@ fn create_client(
 // Stream processing
 // =============================================================================
 
-#[derive(Default)]
-struct ToolState {
-    partial_args: Option<pi_js_compat::js_json::JsString>,
-    custom_property: Option<String>,
-    json_buffer: GrammarToolInputJsonBuffer,
-    stream_index: Option<i64>,
-}
-
 #[derive(Debug)]
 pub enum CompletionsFailure {
     Sdk(SdkError),
@@ -1244,36 +1233,6 @@ fn finish_block(
     }
 }
 
-fn custom_tool_call_input(tool_call: &ToolCall, state: &ToolState) -> pi_js_compat::js_json::JsString {
-    let Some(property) = &state.custom_property else {
-        return Default::default();
-    };
-    tool_call
-        .arguments
-        .get(property)
-        .and_then(JsValue::as_string)
-        .cloned()
-        .unwrap_or_default()
-}
-
-fn append_custom_tool_call_input(
-    tool_call: &mut ToolCall,
-    state: &mut ToolState,
-    next_input: impl Into<pi_js_compat::js_json::JsString>,
-    close: bool,
-) -> Result<Option<String>, String> {
-    let next_input = next_input.into();
-    let Some(property) = state.custom_property.clone() else {
-        return Ok(None);
-    };
-    let delta = append_grammar_tool_input_json_delta(&mut state.json_buffer, &property, &next_input, close)
-        .map_err(|error| error.message)?;
-    tool_call
-        .arguments
-        .insert(property.into(), pi_js_compat::js_json::JsValue::String(next_input));
-    Ok(delta)
-}
-
 fn parse_arguments(partial_args: Option<&pi_js_compat::js_json::JsString>) -> JsObject {
     match parse_streaming_json(partial_args) {
         JsValue::Object(map) => map,
@@ -1302,69 +1261,38 @@ fn is_encrypted_ingress_detail(detail: &JsValue) -> bool {
             .is_some_and(|data| !data.is_empty())
 }
 
-fn ingress_i64(value: &JsValue) -> Option<i64> {
-    let number = value.as_f64()?;
-    (number.fract() == 0.0 && number >= i64::MIN as f64 && number <= i64::MAX as f64).then_some(number as i64)
+fn stream_index_key(index: f64) -> u64 {
+    if index == 0.0 { 0 } else { index.to_bits() }
 }
 
 fn ensure_tool_call_block(
     blocks: &mut Vec<AssistantContent>,
-    tool_states: &mut BTreeMap<usize, ToolState>,
-    by_index: &mut BTreeMap<i64, usize>,
+    by_index: &mut BTreeMap<u64, usize>,
     by_id: &mut BTreeMap<String, usize>,
     tool_call: &JsValue,
-    grammar_tool_input_properties: &IndexMap<String, String>,
     pending: &mut BTreeMap<String, String>,
 ) -> (usize, bool) {
-    let stream_index = tool_call.get("index").and_then(ingress_i64);
+    let stream_index = tool_call.get("index").and_then(JsValue::as_f64);
     let name = tool_call
         .get("function")
         .and_then(|function| function.get("name"))
-        .or_else(|| tool_call.get("custom").and_then(|custom| custom.get("name")))
         .and_then(ingress_metadata_text)
         .unwrap_or_default();
     let id = tool_call.get("id").and_then(ingress_metadata_text).unwrap_or_default();
 
-    let mut block_index = stream_index.and_then(|index| by_index.get(&index).copied());
+    let mut block_index = stream_index.and_then(|index| by_index.get(&stream_index_key(index)).copied());
     if block_index.is_none() && !id.is_empty() {
         block_index = by_id.get(&id).copied();
     }
     let mut created = false;
     if block_index.is_none() {
-        let custom_input_property = if tool_call.get("custom").is_some() && tool_call.get("function").is_none() {
-            Some(
-                grammar_tool_input_properties
-                    .get(&name)
-                    .cloned()
-                    .unwrap_or_else(|| "input".to_owned()),
-            )
-        } else {
-            None
-        };
-        let has_custom_input = custom_input_property.is_some();
-        let mut arguments = JsObject::new();
-        if let Some(property) = &custom_input_property {
-            arguments.insert(property.clone().into(), JsValue::String(Default::default()));
-        }
-        let mut block = ToolCall::new(id.to_owned(), &name, arguments);
-        let _ = &mut block;
+        let mut block = ToolCall::new(id.to_owned(), &name, JsObject::new());
+        block.partial_args = Some(Default::default());
+        block.stream_index = stream_index;
         blocks.push(AssistantContent::ToolCall(block));
         let index = blocks.len() - 1;
-        tool_states.insert(
-            index,
-            ToolState {
-                partial_args: if has_custom_input {
-                    None
-                } else {
-                    Some(Default::default())
-                },
-                custom_property: custom_input_property,
-                json_buffer: GrammarToolInputJsonBuffer::default(),
-                stream_index,
-            },
-        );
         if let Some(stream_index) = stream_index {
-            by_index.insert(stream_index, index);
+            by_index.insert(stream_index_key(stream_index), index);
         }
         if !id.is_empty() {
             by_id.insert(id.to_owned(), index);
@@ -1373,42 +1301,20 @@ fn ensure_tool_call_block(
         block_index = Some(index);
     }
     let index = block_index.expect("tool call block");
+    let AssistantContent::ToolCall(tool_call_block) = &mut blocks[index] else {
+        unreachable!("tool call index");
+    };
     if let Some(stream_index) = stream_index
-        && tool_states
-            .get(&index)
-            .is_some_and(|state| state.stream_index.is_none())
+        && tool_call_block.stream_index.is_none()
     {
-        if let Some(state) = tool_states.get_mut(&index) {
-            state.stream_index = Some(stream_index);
-        }
-        by_index.insert(stream_index, index);
+        tool_call_block.stream_index = Some(stream_index);
+        by_index.insert(stream_index_key(stream_index), index);
     }
     if !id.is_empty() {
         by_id.insert(id.to_owned(), index);
     }
-    let AssistantContent::ToolCall(tool_call_block) = &mut blocks[index] else {
-        unreachable!("tool call index");
-    };
     if tool_call_block.name.is_empty() && !name.is_empty() {
         tool_call_block.name = name.to_owned();
-    }
-    if tool_call.get("custom").is_some()
-        && tool_call.get("function").is_none()
-        && tool_states
-            .get(&index)
-            .is_some_and(|state| state.custom_property.is_none())
-    {
-        let property = grammar_tool_input_properties
-            .get(&tool_call_block.name)
-            .cloned()
-            .unwrap_or_else(|| "input".to_owned());
-        tool_call_block
-            .arguments
-            .insert(property.clone().into(), JsValue::String(Default::default()));
-        if let Some(state) = tool_states.get_mut(&index) {
-            state.custom_property = Some(property);
-            state.partial_args = None;
-        }
     }
     apply_pending_reasoning_detail(tool_call_block, pending);
     (index, created)
@@ -1419,13 +1325,11 @@ pub async fn process_completions_stream(
     output: &mut AssistantMessage,
     sender: &AssistantMessageEventSender,
     model: &Model,
-    grammar_tool_input_properties: &IndexMap<String, String>,
 ) -> Result<bool, CompletionsFailure> {
     let mut text_block: Option<usize> = None;
     let mut thinking_block: Option<usize> = None;
     let mut has_finish_reason = false;
-    let mut tool_states: BTreeMap<usize, ToolState> = BTreeMap::new();
-    let mut tool_by_index: BTreeMap<i64, usize> = BTreeMap::new();
+    let mut tool_by_index: BTreeMap<u64, usize> = BTreeMap::new();
     let mut tool_by_id: BTreeMap<String, usize> = BTreeMap::new();
     let mut pending_reasoning_details: BTreeMap<String, String> = BTreeMap::new();
 
@@ -1566,11 +1470,9 @@ pub async fn process_completions_stream(
             for tool_call in tool_calls {
                 let (index, created) = ensure_tool_call_block(
                     &mut output.content,
-                    &mut tool_states,
                     &mut tool_by_index,
                     &mut tool_by_id,
                     tool_call,
-                    grammar_tool_input_properties,
                     &mut pending_reasoning_details,
                 );
                 if created {
@@ -1589,7 +1491,6 @@ pub async fn process_completions_stream(
                 if let Some(name) = tool_call
                     .get("function")
                     .and_then(|function| function.get("name"))
-                    .or_else(|| tool_call.get("custom").and_then(|custom| custom.get("name")))
                     .and_then(ingress_metadata_text)
                     .as_deref()
                     && let AssistantContent::ToolCall(block) = &mut output.content[index]
@@ -1606,27 +1507,11 @@ pub async fn process_completions_stream(
                     .filter(|arguments| !arguments.is_empty())
                 {
                     delta_text = arguments.to_owned();
-                    let state = tool_states.entry(index).or_default();
-                    let partial = state.partial_args.get_or_insert_default();
-                    partial.push_str(arguments);
-                    let parsed = parse_arguments(Some(partial));
                     if let AssistantContent::ToolCall(block) = &mut output.content[index] {
-                        block.arguments = parsed;
+                        let partial = block.partial_args.get_or_insert_default();
+                        partial.push_str(arguments);
+                        block.arguments = parse_arguments(Some(partial));
                     }
-                } else if let Some(input) = tool_call
-                    .get("custom")
-                    .and_then(|custom| custom.get("input"))
-                    .and_then(JsValue::as_string)
-                    .filter(|input| !input.is_empty())
-                {
-                    let state = tool_states.entry(index).or_default();
-                    let AssistantContent::ToolCall(block) = &mut output.content[index] else {
-                        continue;
-                    };
-                    let next_input = custom_tool_call_input(block, state) + input;
-                    let delta = append_custom_tool_call_input(block, state, &next_input, false)
-                        .map_err(|error| CompletionsFailure::Message(error.into()))?;
-                    delta_text = delta.unwrap_or_default().into();
                 }
                 sender.push(AssistantMessageEvent::ToolCallDelta {
                     content_index: index,
@@ -1654,6 +1539,11 @@ pub async fn process_completions_stream(
     }
 
     for index in 0..output.content.len() {
+        if let AssistantContent::ToolCall(block) = &mut output.content[index] {
+            block.arguments = parse_arguments(block.partial_args.as_ref());
+            block.partial_args = None;
+            block.stream_index = None;
+        }
         finish_block(&output.content, index, sender, output);
     }
     Ok(has_finish_reason)
@@ -1824,8 +1714,7 @@ async fn run_stream(
     });
 
     let mut stream = response.stream;
-    let has_finish_reason =
-        process_completions_stream(&mut stream, output, sender, model, &grammar_tool_input_properties).await?;
+    let has_finish_reason = process_completions_stream(&mut stream, output, sender, model).await?;
 
     if stream_options
         .request
@@ -1887,6 +1776,17 @@ fn run_and_emit(
         let mut output = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis() as f64);
         let result = run_stream(&model, &context, &stream_options, &options, &mut output, &sender).await;
         if let Err(failure) = result {
+            for block in &mut output.content {
+                match block {
+                    AssistantContent::Text(block) => block.index = None,
+                    AssistantContent::Thinking(block) => block.index = None,
+                    AssistantContent::ToolCall(block) => {
+                        block.index = None;
+                        block.partial_args = None;
+                        block.stream_index = None;
+                    }
+                }
+            }
             output.stop_reason = if stream_options
                 .request
                 .signal

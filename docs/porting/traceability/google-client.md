@@ -6,6 +6,14 @@ Source of truth (read-only): `node_modules/@google/genai` (`ApiClient`, `Models.
 Rust: `crates/pi-ai/src/api/google_client.rs`.
 Tests: `crates/pi-ai/tests/differential_google_api.rs` (66 scenarios), `crates/pi-ai/tests/google_api.rs`.
 
+## Q4 SDK identity boundary
+
+Frozen `@google/genai/dist/node/index.mjs:13327–13332,21331` sends `google-genai-sdk/1.52.0 gl-node/${process.version}` in User-Agent and x-goog-api-client. Native now retains the stable SDK and language labels, using `unknown` for unavailable host Node version. The wrapper masks only the gl-node version component at those two captured request-header paths, and only when neither model nor caller configured that header. A concrete normalizer regression preserves altered SDK versions, language tags and explicit headers. No oracle-side header waiver exists. Both actual-source Google targets advanced from missing language-label RED to source-absent rawStopReason RED (`google-runtime-identity-{red-2,green-1}.log`). Removed that source-absent output field and its derived error string; frozen Google emits `An unknown error occurred` for mapped error reasons. Both targets then advanced to missing maxOutputTokens65535 cap (`google-stop-fields-green-1.log`); subsequent [shared request repairs](google-shared.md) restore the66-scenario whole-provider matrix. `google-retry-wrapper-green-1.log`: both source matrices plus supplied-ID/runtime-header regressions GREEN. Seven/eight behavioral tests passed; the remaining old retry assertion was replaced as described below. Public/typed old-only helpers and wider module gaps remain pending, not full-lane acceptance.
+
+## Frozen caller retry boundary
+
+Frozen Generative90/Vertex105 await SDK generateContentStream directly; their providers do not wrap the call in retryGoogleRequest or consume maxRetries. Exact source scenarios Generative35/Vertex119 sent one failed request while native sent two. Removed the native provider wrapper; request error/event/result compares now pass. The old `vertex_retries_reuse_the_cached_access_token` test asserted the superseded wrapper, so it now asserts one authenticated500 API request and the exact source error without provider retries. GoogleRetryOptions/retry_google_request remain source-absent public cleanup debt; they are no longer used by these adapters. This preserves the observed frozen caller contract rather than silently adding retry behavior.
+
 ## Behavior → proof
 | SDK behavior | Rust | Test |
 |---|---|---|

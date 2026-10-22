@@ -282,7 +282,7 @@ async fn authorized_user_tokens_use_the_refresh_token_grant() {
 }
 
 #[tokio::test]
-async fn vertex_retries_reuse_the_cached_access_token() {
+async fn vertex_does_not_add_provider_retries_after_token_authentication() {
     let credentials = format!("{FIXTURES}/service-account.json");
     let fetch = RecordingFetch::new(vec![
         token_response(),
@@ -300,11 +300,15 @@ async fn vertex_retries_reuse_the_cached_access_token() {
         options,
     ))
     .await;
-    assert_eq!(message.stop_reason, pi_ai::types::StopReason::Stop, "{message:?}");
+    assert_eq!(message.stop_reason, pi_ai::types::StopReason::Error, "{message:?}");
+    assert_eq!(
+        message.error_message.as_ref().unwrap(),
+        r#"{"error":{"message":"boom"}}"#
+    );
     let requests = fetch.requests();
-    assert_eq!(requests.len(), 3);
+    assert_eq!(requests.len(), 2);
     assert_eq!(requests[0].url, "https://oauth2.googleapis.com/token");
-    assert_eq!(requests[1].url, requests[2].url);
+    assert!(requests[1].url.contains(":streamGenerateContent"));
 }
 
 #[tokio::test]

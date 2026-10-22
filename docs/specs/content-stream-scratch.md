@@ -1,6 +1,6 @@
 # Valid content-stream scratch preservation
 
-Preserve valid runtime output properties from pinned `packages/ai/src/api/anthropic-messages.ts` and `packages/coding-agent/examples/extensions/custom-provider-anthropic/index.ts`. [Traceability](../porting/traceability/ai-types.md) records the bounded representation and producer proof.
+Preserve valid runtime output properties from pinned Anthropic Messages, shared OpenAI Responses consumers, and `packages/coding-agent/examples/extensions/custom-provider-anthropic/index.ts`. [Traceability](../porting/traceability/ai-types.md) records the bounded representation and producer proof.
 
 ## What it must do
 
@@ -9,16 +9,23 @@ Preserve valid runtime output properties from pinned `packages/ai/src/api/anthro
 - [x] Anthropic Messages start/delta snapshots retain indices and accumulated tool JSON; stop removes scratch before end snapshots.
 - [x] Anthropic Messages errors before block stop remove scratch before error/result snapshots, retaining parsed arguments, text, thinking, usage, and source error ownership.
 - [x] Compare full pinned-provider event content without filtering `index` or `partialJson`; retain documented timestamp and SDK identity proof boundaries.
+- [x] Shared Responses tool starts retain initial `partialJson`; deltas accumulate and parse it; arguments.done replaces it and emits only an additional suffix; output_item.done removes it before tool end.
+- [x] An unfinished tool retains its buffer on successful Responses completion; provider failures remove it before error/result in Responses, Azure and Codex.
+- [x] Completions start/delta snapshots retain native `partialArgs` and binary64 `streamIndex`; stream finalization or provider error removes them before end/error snapshots. Fractional indices address distinct interleaved tools without integer narrowing.
 
 ## How it works
 
 - [Shared content representation](../porting/traceability/ai-types.md)
 - [Anthropic lifecycle and remaining proof boundaries](../porting/traceability/anthropic-messages.md)
+- [Responses lifecycle and consumers](../porting/traceability/openai-responses-shared.md#native-tool-scratch-lifecycle)
+- [Completions lifecycle](../porting/traceability/openai-completions.md#native-completions-scratch)
 
 ## Implementation inventory
 
 - `crates/pi-ai/src/types.rs`: optional content fields and constructor absence.
 - `crates/pi-ai/src/api/anthropic_messages.rs`: source-matching scratch lifecycle.
+- `crates/pi-ai/src/api/openai_responses_shared.rs`: native tool scratch authority and start/delta/done lifecycle.
+- `crates/pi-ai/src/api/{openai_responses,azure_openai_responses,openai_codex_responses}.rs`: failure cleanup at the owning provider boundary.
 - Existing workspace struct literals: mechanical `None` initialization only.
 
 ## Tests asserting this spec
@@ -27,10 +34,13 @@ Preserve valid runtime output properties from pinned `packages/ai/src/api/anthro
 - `crates/pi-ai/tests/anthropic_messages.rs`: existing 27 adapter behavioral tests.
 - `crates/pi-ai/tests/differential_anthropic_messages.rs`: 44 controlled-fetch/SSE source scenarios; three new open-block errors.
 - `oracle/anthropic-messages-oracle.ts`, `crates/pi-ai/tests/support/anthropic.rs`: timestamp normalization only for event content; no scratch filtering.
+- `crates/pi-ai/tests/differential_openai_responses{,_shared}.rs`: unmasked full events; five open-tool success/failure/arguments.done scenarios.
+- Azure whole-provider differential and Codex `differential_open_tool_error_cleans_scratch_after_delta_snapshots`: full open-tool failure events and results.
+- `crates/pi-ai/tests/differential_openai_completions.rs`:35 existing scenarios and four numeric-index/open-error/EOF/source-absent custom cases; no scratch filtering.
 
 ## Known gaps (current cycle)
 
-- [ ] Other providers' `customInput`, `streamIndex`, and `partialArgs` remain unrepresented; this slice does not prove their lifecycle.
+- [ ] Other providers' scratch fields remain unproved; Mistral partialArgs and Bedrock index lifecycle are separate slices. Source-absent customInput behavior is removed only where explicitly traced.
 - [ ] Full native custom Anthropic example lifecycle is independently owned by its example slice; shared serde preservation does not establish producer parity.
 
 ## Out of scope

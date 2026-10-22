@@ -2,7 +2,7 @@
 
 ## Q4 common-pin status
 
-Partial. Corrected global-fetch oracle now drives frozen SDK requests. SDK header6.26.0 restored; removed source-absent rawStopReason assignment after exact scenario0 event/result key RED (`differential_openai_completions-sdk626.log`). Current recorded matrix (35 scenarios) and9 behavioral tests pass at `56a4113a` (`completions-budget-green.log`). Restored frozen request behavior: no Baseten chat_template_args, no Qwen reasoning_effort, function-only tools with strict:false, no sampling-param merge/deferred placement/thinking-token-budget, uniform affinity headers, incremented SDK retry count. These are exact request/event/result comparisons, not whole-module parity. Old public grammar/message-conversion options and stream grammar handling remain to remove; option/compat type cleanup remains pending. [Exact audit/proof](../ai-scripted-provider-oracles.md). Historical recorded-fetch parity claims below are superseded. No assertion narrowed; `request.fetch` is an approved Rust-only seam; unset must match frozen default fetch (`AGENTS.md`).
+Partial. Corrected global-fetch oracle now drives frozen SDK requests. SDK header6.26.0 restored; removed source-absent rawStopReason assignment after exact scenario0 event/result key RED (`differential_openai_completions-sdk626.log`). Current recorded matrix (35 scenarios) and9 behavioral tests pass at `56a4113a` (`completions-budget-green.log`). Restored frozen request behavior: no Baseten chat_template_args, no Qwen reasoning_effort, function-only tools with strict:false, no sampling-param merge/deferred placement/thinking-token-budget, uniform affinity headers, incremented SDK retry count. These are exact request/event/result comparisons, not whole-module parity. Old public grammar/message-conversion options remain to remove; source-absent stream custom-input handling is removed by the native scratch slice below. Option/compat type cleanup remains pending. [Exact audit/proof](../ai-scripted-provider-oracles.md). Historical recorded-fetch parity claims below are superseded. No assertion narrowed; `request.fetch` is an approved Rust-only seam; unset must match frozen default fetch (`AGENTS.md`).
 
 Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
 
@@ -11,6 +11,12 @@ Q18 ingress representation and current bounded proof: [lossless provider ingress
 Source: `packages/ai/src/api/openai-completions.ts` and `openai-completions.lazy.ts`.
 Rust: `crates/pi-ai/src/api/openai_completions.rs`.
 Tests: module unit tests, `crates/pi-ai/tests/openai_completions.rs` (9 behavioral), `crates/pi-ai/tests/differential_openai_completions.rs` (35 recorded-fetch scenarios).
+
+## Native Completions scratch
+
+Frozen `openai-completions.ts:200–242,278–317,405–420,459–465` carries `partialArgs` and numeric `streamIndex` on tool blocks. Native ToolCall fields now retain them in start/delta snapshots, accumulating and parsing one argument buffer. Finalization parses/removes both before toolcall_end; provider catches remove both before error/result. Removed private ToolState's alternate buffers and source-absent custom-input streaming. Function-only source ignores old custom input fields; a direct frozen scenario proves that behavior.
+
+The old integer-only stream lookup rejected fractional indices, creating14 events instead of frozen10 for interleaved0.5/0.75 indices (`completions-native-scratch-red.log`). Lookup now keys exact binary64 bits, with signed zero sharing a key as JS Map requires; the observable streamIndex retains its original f64. No number narrowing is used. New four-case actual-source test covers fractional interleaving, SDK error during open tools, EOF without finish_reason and retired custom input. Existing35 scenarios plus four new cases and9 behavioral tests GREEN (`completions-native-scratch-green-1.log`). [Contract](../../specs/content-stream-scratch.md).
 
 ## Symbols → proof
 | TS | Rust | Test |

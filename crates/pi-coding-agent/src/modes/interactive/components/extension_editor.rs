@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::io::Write;
 use std::ops::{Deref, DerefMut};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::rc::Rc;
 
@@ -23,7 +23,7 @@ use crate::core::keybindings::KeybindingsManager as AppKeybindingsManager;
 use crate::core::tools::node_fs::{node_fs_error, node_read_error};
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{ThemeColor, get_editor_theme, with_theme};
-use crate::utils::uncaught::{ERROR, throw_uncaught};
+use crate::utils::uncaught::{ERROR, UncaughtError, catch_panics, format_uncaught, throw_uncaught};
 
 /// Host surface needed to suspend the TUI around an external editor.
 pub trait ExtensionEditorHost: EditorHost {
@@ -146,39 +146,141 @@ impl ExtensionEditorComponent {
             Ok(duration) => duration.as_millis() as i128,
             Err(error) => -(error.duration().as_millis() as i128),
         };
-        let file = std::env::temp_dir().join(format!("pi-extension-editor-{millis}.md"));
-        if let Err(error) = std::fs::write(&file, encode_node_utf8(&content)) {
-            finish_external_editor(self.tui.as_ref(), &file);
-            throw_uncaught(ERROR, node_fs_error(&error, "open", &file.display().to_string().into()));
+        let name = format!("pi-extension-editor-{millis}.md");
+        let file = extension_editor_temp_file(&name);
+        if let Err(error) = capture_editor_step(|| begin_external_editor(self.tui.as_ref(), &file, &content, &command))
+        {
+            let error = match capture_editor_step(|| finish_external_editor(self.tui.as_ref(), &file)) {
+                Ok(()) => error,
+                Err(finally_error) => finally_error,
+            };
+            // An async source function rejects later even when its pre-await work throws.
+            tokio::task::spawn_local(async move {
+                throw_uncaught(error.label, error.message);
+            });
+            return;
         }
-        self.tui.suspend();
-        let _ = std::io::stdout().write_all(
+        let child = spawn_external_editor(&command, &file);
+        let editor = Rc::clone(&self.editor);
+        let tui = Rc::clone(&self.tui);
+        tokio::task::spawn_local(complete_external_editor(child, file, editor, tui));
+    }
+}
+
+fn extension_editor_temp_file(name: &str) -> PathBuf {
+    let nonempty_env = |key| pi_js_compat::process_env::get(key).filter(|value| !value.is_empty());
+    if cfg!(target_os = "windows") {
+        let directory = nonempty_env("TEMP").or_else(|| nonempty_env("TMP")).unwrap_or_else(|| {
+            let root = nonempty_env("SystemRoot").or_else(|| nonempty_env("windir"));
+            // This is Node's literal undefined + '\\temp' result when both are absent.
+            format!("{}\\temp", root.as_deref().unwrap_or("undefined"))
+        });
+        PathBuf::from(directory).join(name)
+    } else {
+        let directory = nonempty_env("TMPDIR")
+            .or_else(|| nonempty_env("TMP"))
+            .or_else(|| nonempty_env("TEMP"))
+            .unwrap_or_else(|| "/tmp".into());
+        let path = crate::utils::paths::node_join(directory, name);
+        PathBuf::from(encode_node_utf8(&path))
+    }
+}
+
+async fn complete_external_editor(
+    child: Result<Option<tokio::process::Child>, UncaughtError>,
+    file: PathBuf,
+    editor: Rc<RefCell<Editor>>,
+    tui: Rc<dyn ExtensionEditorHost>,
+) {
+    let result = match child {
+        Ok(child) => await_external_editor(child, &file).await,
+        Err(error) => Err(error),
+    };
+    let result = result.and_then(|content| {
+        capture_editor_step(|| {
+            if let Some(content) = content {
+                editor.borrow_mut().set_text(content);
+            }
+            Ok(())
+        })
+    });
+    let finally_result = capture_editor_step(|| finish_external_editor(tui.as_ref(), &file));
+    if let Err(error) = finally_result.and(result) {
+        throw_uncaught(error.label, error.message);
+    }
+}
+
+fn editor_failure(message: impl Into<JsString>) -> UncaughtError {
+    UncaughtError {
+        label: ERROR,
+        message: message.into(),
+    }
+}
+
+fn capture_editor_step<T>(step: impl FnOnce() -> Result<T, UncaughtError>) -> Result<T, UncaughtError> {
+    match catch_panics(step) {
+        Ok(result) => result,
+        Err(payload) => match payload.downcast::<UncaughtError>() {
+            Ok(error) => Err(*error),
+            Err(payload) => {
+                // Non-native Rust panics are formatted with the standard Error prefix.
+                let diagnostic = format_uncaught(payload.as_ref());
+                Err(editor_failure(diagnostic.slice(ERROR.len() + 2, diagnostic.len())))
+            }
+        },
+    }
+}
+
+fn begin_external_editor(
+    tui: &dyn ExtensionEditorHost,
+    file: &Path,
+    content: &JsString,
+    command: &JsString,
+) -> Result<(), UncaughtError> {
+    std::fs::write(file, encode_node_utf8(content))
+        .map_err(|error| editor_failure(node_fs_error(&error, "open", &file.display().to_string().into())))?;
+    tui.suspend();
+    std::io::stdout()
+        .write_all(
             encode_node_utf8(&js_format!(
                 "Launching external editor: {}\nPi will resume when the editor exits.\n",
                 command
             ))
             .as_bytes(),
-        );
-        let child = spawn_external_editor(&command, &file);
-        let editor = Rc::clone(&self.editor);
-        let tui = Rc::clone(&self.tui);
-        tokio::task::spawn_local(async move {
-            let result = await_external_editor(child, &file).await;
-            if let Ok(Some(content)) = &result {
-                editor.borrow_mut().set_text(content);
-            }
-            finish_external_editor(tui.as_ref(), &file);
-            if let Err(error) = result {
-                throw_uncaught(ERROR, error);
-            }
-        });
-    }
+        )
+        .map_err(|error| editor_failure(error.to_string()))?;
+    Ok(())
 }
 
-fn spawn_external_editor(command: &JsString, file: &Path) -> std::io::Result<tokio::process::Child> {
+fn validate_external_editor_arguments(executable: &JsString, arguments: &[JsString]) -> Result<(), UncaughtError> {
+    use pi_js_compat::node_fs::invalid_argument_value_message;
+    let invalid = |name: &str, reason: &str, value: &JsString| UncaughtError {
+        label: "TypeError [ERR_INVALID_ARG_VALUE]",
+        message: invalid_argument_value_message(name, reason, value),
+    };
+    if executable.is_empty() {
+        return Err(invalid("file", "cannot be empty", executable));
+    }
+    if executable.contains('\0') {
+        return Err(invalid("file", "must be a string without null bytes", executable));
+    }
+    for (index, argument) in arguments.iter().enumerate() {
+        if argument.contains('\0') {
+            return Err(invalid(
+                &format!("args[{index}]"),
+                "must be a string without null bytes",
+                argument,
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn spawn_external_editor(command: &JsString, file: &Path) -> Result<Option<tokio::process::Child>, UncaughtError> {
     let mut parts = command.split(' ');
-    let executable = parts.next().unwrap_or_default();
-    let arguments: Vec<_> = parts.map(|argument| encode_node_utf8(&argument)).collect();
+    let executable = parts.next().expect("string splitting yields at least one part");
+    let arguments: Vec<_> = parts.collect();
+    validate_external_editor_arguments(&executable, &arguments)?;
     let mut process = if cfg!(target_os = "windows") {
         let mut process = tokio::process::Command::new("cmd");
         process
@@ -188,23 +290,25 @@ fn spawn_external_editor(command: &JsString, file: &Path) -> std::io::Result<tok
         process
     } else {
         let mut process = tokio::process::Command::new(encode_node_utf8(&executable));
-        process.args(arguments).arg(file);
+        process.args(arguments.iter().map(encode_node_utf8)).arg(file);
         process
     };
-    process
+    let child = process
         .env_clear()
         .envs(pi_js_compat::process_env::vars())
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
-        .spawn()
+        .spawn();
+    // Frozen child 'error' resolves null; only argument-validation throws reject.
+    Ok(child.ok())
 }
 
 async fn await_external_editor(
-    child: std::io::Result<tokio::process::Child>,
+    child: Option<tokio::process::Child>,
     file: &Path,
-) -> Result<Option<JsString>, JsString> {
-    let Ok(mut child) = child else {
+) -> Result<Option<JsString>, UncaughtError> {
+    let Some(mut child) = child else {
         return Ok(None);
     };
     let Ok(status) = child.wait().await else {
@@ -214,17 +318,17 @@ async fn await_external_editor(
         return Ok(None);
     }
     let bytes = std::fs::read(file)
-        .map_err(|error| JsString::from(node_read_error(&error, &file.display().to_string().into())))?;
+        .map_err(|error| editor_failure(node_read_error(&error, &file.display().to_string().into())))?;
     let text = String::from_utf8_lossy(&bytes);
     Ok(Some(text.strip_suffix('\n').unwrap_or(&text).into()))
 }
 
-fn finish_external_editor(tui: &dyn ExtensionEditorHost, file: &Path) {
+fn finish_external_editor(tui: &dyn ExtensionEditorHost, file: &Path) -> Result<(), UncaughtError> {
     // Frozen finally deliberately ignores unlink failures.
     let _ = std::fs::remove_file(file);
-    tui.resume()
-        .unwrap_or_else(|error| throw_uncaught(ERROR, error.to_string()));
+    tui.resume().map_err(|error| editor_failure(error.to_string()))?;
     tui.request_forced_render();
+    Ok(())
 }
 
 impl Deref for ExtensionEditorComponent {

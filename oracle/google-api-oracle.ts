@@ -61,38 +61,10 @@ type RecordedRequest = {
 	jwt?: { header: unknown; claims: unknown; signatureLength: number } | null;
 };
 
-const GENERATED_ID = /_1\d{12}_\d+$/;
-
-function normalizeId(id: string): string {
-	return id.replace(GENERATED_ID, "_<generated>");
-}
-
-function normalizeMessage(value: unknown): unknown {
-	const copy = normalizeAssistantMessageClock(value);
-	if (
-		copy !== null &&
-		typeof copy === "object" &&
-		"content" in copy &&
-		Array.isArray(copy.content)
-	) {
-		for (const block of copy.content) {
-			if (
-				block &&
-				typeof block === "object" &&
-				block.type === "toolCall" &&
-				typeof block.id === "string"
-			) {
-				block.id = normalizeId(block.id);
-			}
-		}
-	}
-	return copy;
-}
-
 function normalizeEvent(value: unknown): unknown {
 	const copy = structuredClone(value) as Record<string, unknown>;
 	for (const key of ["partial", "message", "error"]) {
-		if (copy[key] !== undefined) copy[key] = normalizeMessage(copy[key]);
+		if (copy[key] !== undefined) copy[key] = normalizeAssistantMessageClock(copy[key]);
 	}
 	return copy;
 }
@@ -370,7 +342,7 @@ async function execute(request: RunRequest, api: ApiModule): Promise<unknown> {
 			if (events.length === consumed) events.push(normalizeEvent(event));
 			consumed++;
 		}
-		const result = normalizeMessage(await stream.result());
+		const result = normalizeAssistantMessageClock(await stream.result());
 		return { requests, events, result };
 	} finally {
 		clearFetchScript();

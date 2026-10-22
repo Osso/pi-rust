@@ -2,7 +2,7 @@
 
 ## Q4 common-pin SDK identity
 
-Frozen installed `node_modules/openai/package.json:3` and `core/error.mjs:67–69` identify SDK6.26.0 and APIUserAbortError text `Request was aborted.`. Native SDK headers now use6.26.0, and retry-layer abort formatting matches that exact message. Three corrected actual-SDK differentials proved RED version6.40→6.26, then advanced to independent body/shape drifts; OpenRouter Images now GREEN13 behavioral +1 whole differential after two abort REDs. Revision `6ec0609f` + identity slice, `/tmp/pi-rust-repin-delta-ai/ledger.md`.
+Frozen installed `node_modules/openai/package.json:3` and `core/error.mjs:67–69` identify SDK6.26.0 and APIUserAbortError text `Request was aborted.`. Native SDK headers now use6.26.0, with client names `OpenAI/JS` versus Azure's `AzureOpenAI/JS`, and retry-layer abort formatting matches that exact message. Unmasked Azure whole-provider differential reproduced the wrong client name, then passed all11 scenarios after selecting the configured SDK class name (`azure-sdk-name-green.log`). Three corrected actual-SDK differentials proved RED version6.40→6.26, then advanced to independent body/shape drifts; OpenRouter Images now GREEN13 behavioral +1 whole differential after two abort REDs. Revision `6ec0609f` + identity slice, `/tmp/pi-rust-repin-delta-ai/ledger.md`.
 
 Approved Rust-only `options.request.fetch` seam is recorded in AGENTS.md; absence must preserve frozen default-fetch behavior. It is not a frozen option, source oracle injection, or fallback. Shared HTTP response JSON is still scalar in the nonstreaming SDK path and requires lossless migration; no whole-SDK parity claim.
 
@@ -18,7 +18,7 @@ Tests: covered indirectly by `crates/pi-ai/tests/differential_openai_responses.r
 - `SdkClient` builds `HttpRequest` values and sends them through `Fetch` (`options.request.fetch` or `http::default_fetch()`).
 - `SseJsonStream` decodes `\n\n` / `\r\r` / `\r\n\r\n`-delimited SSE chunks, joins multi-line `data:` fields, stops at `[DONE]`, and maps `data.error` to `ProviderError` exactly like `new APIError(undefined, data.error, ...)`.
 - HTTP failures reproduce `APIError.generate` message construction and `normalizeProviderError` field probing. `ProviderError` was extended with `body` (parsed SDK inner error text) and `inner_error` so `formatProviderError` produces the same status/body output as TypeScript.
-- `X-Stainless-Runtime-Version` is emitted as `unknown`; Rust has no Node `process.version`. Differential tests replace environment-derived values (`user-agent`, `x-stainless-os/arch/runtime/runtime-version`) with `<env>` on both sides.
+- `X-Stainless-Runtime-Version` is emitted as `unknown`; Rust has no Node `process.version`. Differential tests scope normalization to environment-derived `x-stainless-os/arch/runtime/runtime-version` headers; deterministic SDK user-agent strings compare exactly. [Normalizer audit](../ai-scripted-provider-oracles.md#provider-oracle-normalizer-audit-2026-10-22).
 
 ## Symbols → proof
 | Behavior | Rust | Test |
