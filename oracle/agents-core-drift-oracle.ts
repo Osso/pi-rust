@@ -11,6 +11,103 @@ async function main() {
 		new URL("../../../src/core/settings-manager.ts", runtimeUrl).href
 	);
 
+	const checkUiCallback = async (invalidatedAtCompletion: boolean) => {
+		const { SessionManager } = await import(
+			new URL("../../../src/core/session-manager.ts", runtimeUrl).href
+		);
+		const { MultiAgentStore } = await import(
+			new URL("../../../src/core/multi-agent-store.ts", runtimeUrl).href
+		);
+		const root = mkdtempSync(join(tmpdir(), "background-ui-lifetime-"));
+		const manager = SessionManager.create(root, join(root, "sessions"));
+		manager.setMetadataControlDbPath(join(root, "control.sqlite"));
+		const store = new MultiAgentStore();
+		store.setPersistenceSessionManager(manager);
+		const handles = runtime.createMultiAgentRuntimeHandles();
+		const notifications: string[] = [];
+		const ui = {
+			notify: (message: string) => notifications.push(message),
+			setEditorText: () => {},
+		};
+		let invalidated = false;
+		const ctx = {
+			cwd: root,
+			sessionManager: manager,
+			modelRegistry: { getAll: () => [] },
+			get ui() {
+				if (invalidated)
+					throw new Error("ui getter failed after dispatch started");
+				return ui;
+			},
+		};
+		const completion = Promise.withResolvers<void>();
+		const reported = Promise.withResolvers<unknown>();
+		const onRejection = (reason: unknown) => reported.resolve(reason);
+		const commands = new Map<
+			string,
+			{ handler: (args: string, ctx: unknown) => Promise<void> }
+		>();
+		process.on("unhandledRejection", onRejection);
+		try {
+			runtime.registerAgentsCoreTools(
+				{
+					on: () => {},
+					registerTool: () => {},
+					registerCommand: (
+						name: string,
+						command: { handler: (args: string, ctx: unknown) => Promise<void> },
+					) => commands.set(name, command),
+				},
+				{
+					store,
+					runtimeHandles: handles,
+					desktopNotifier: () => undefined,
+					createChildSession: async () => ({
+						messages: [],
+						prompt: () => completion.promise,
+					}),
+				},
+			);
+			const command = commands.get("bg");
+			if (!command) throw new Error("source did not register bg");
+			await command.handler("inspect fixture", ctx);
+			const before = notifications.length;
+			const dispatch = handles.dispatches.values().next().value;
+			if (!dispatch)
+				throw new Error("source did not start background dispatch");
+			invalidated = invalidatedAtCompletion;
+			completion.resolve();
+			const finalAgent = await dispatch;
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			let failure: string | undefined;
+			if (invalidatedAtCompletion) {
+				const timer = setTimeout(
+					() => reported.reject(new Error("source omitted UI rejection")),
+					3000,
+				);
+				try {
+					const error = await reported.promise;
+					if (!(error instanceof Error))
+						throw new Error("expected source Error rejection");
+					failure = error.message;
+				} finally {
+					clearTimeout(timer);
+				}
+			}
+			return {
+				before,
+				after: notifications.length,
+				lifecycle: finalAgent.lifecycle,
+				failure,
+			};
+		} finally {
+			completion.resolve();
+			await Promise.all([...handles.dispatches.values()]);
+			process.off("unhandledRejection", onRejection);
+			rmSync(root, { recursive: true, force: true });
+		}
+	};
+
 	for await (const line of createInterface({
 		input: process.stdin,
 		terminal: false,
@@ -96,6 +193,11 @@ async function main() {
 					handler.dispose();
 					rmSync(root, { recursive: true, force: true });
 				}
+				continue;
+			} else if (input.kind === "uiCallback") {
+				process.stdout.write(
+					`${JSON.stringify(await checkUiCallback(input.invalidated))}\n`,
+				);
 				continue;
 			} else if (input.kind === "registration") {
 				runtime.registerAgentsCoreTools(

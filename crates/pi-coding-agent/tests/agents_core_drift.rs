@@ -192,3 +192,172 @@ async fn public_spawn_does_not_commit_an_agent_after_the_session_getter_fails() 
         JsString::from(expected["message"].as_str().unwrap())
     );
 }
+
+#[test]
+fn public_background_completion_uses_live_ui_and_reports_async_getter_failure() {
+    let mut source = oracle::TsOracle::spawn(
+        "agents-core-drift-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src/runtime.ts",
+    );
+    for invalidated in [false, true] {
+        let expected = source.request(&serde_json::json!({"kind":"uiCallback","invalidated":invalidated}));
+        assert_eq!(expected["before"], 1);
+        assert_eq!(expected["after"], if invalidated { 1 } else { 2 });
+        assert_eq!(expected["lifecycle"], "completed");
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .env(
+                "PI_TEST_BACKGROUND_UI",
+                if invalidated { "invalidated" } else { "active" },
+            )
+            .args([
+                "--ignored",
+                "--exact",
+                "background_ui_lifetime_child",
+                "--test-threads=1",
+                "--nocapture",
+            ])
+            .output()
+            .unwrap();
+        if invalidated {
+            assert_eq!(
+                output.status.code(),
+                Some(1),
+                "async UI failure must reach the process uncaught handler"
+            );
+            assert_eq!(
+                String::from_utf8_lossy(&output.stderr).trim(),
+                format!("Error: {}", expected["failure"].as_str().unwrap())
+            );
+        } else {
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        }
+    }
+}
+
+struct ControlledCompletionSession {
+    started: tokio::sync::Notify,
+    complete: Arc<tokio::sync::Notify>,
+}
+
+impl ChildAgentSession for ControlledCompletionSession {
+    fn messages(&self) -> Vec<pi_agent_core::AgentMessage> {
+        Vec::new()
+    }
+    fn transcript(&self) -> Option<AgentTranscriptMetadata> {
+        None
+    }
+    fn prompt(&self, _text: JsString) -> pi_ai::request::BoxFuture<'static, Result<(), JsString>> {
+        self.started.notify_one();
+        let complete = self.complete.clone();
+        Box::pin(async move {
+            complete.notified().await;
+            Ok(())
+        })
+    }
+}
+
+#[derive(Default)]
+struct BackgroundUi {
+    notifications: Mutex<Vec<JsString>>,
+    terminal_notification: tokio::sync::Notify,
+}
+
+impl pi_coding_agent::core::extensions::ExtensionUiContext for BackgroundUi {
+    fn notify(&self, message: &JsString, _level: Option<pi_coding_agent::core::extensions::NotifyType>) {
+        let mut notifications = self.notifications.lock().unwrap();
+        notifications.push(message.clone());
+        if notifications.len() > 1 {
+            self.terminal_notification.notify_one();
+        }
+    }
+}
+
+struct NoDesktopNotifier;
+impl pi_coding_agent::core::desktop_notification::DesktopNotifier for NoDesktopNotifier {
+    fn notify(
+        &self,
+        _notification: &pi_coding_agent::core::desktop_notification::DesktopNotification,
+    ) -> Option<Box<dyn pi_coding_agent::core::desktop_notification::DesktopNotificationHandle>> {
+        None
+    }
+}
+
+#[tokio::test]
+#[ignore = "subprocess fixture only"]
+async fn background_ui_lifetime_child() {
+    use pi_coding_agent::core::extensions::ExtensionMode;
+    let Some(mode) = std::env::var_os("PI_TEST_BACKGROUND_UI") else {
+        return;
+    };
+    pi_coding_agent::utils::uncaught::install_uncaught_handler();
+    let directory = tempfile::tempdir().unwrap();
+    let cwd: JsString = directory.path().to_str().unwrap().into();
+    let session_dir: JsString = directory.path().join("sessions").to_str().unwrap().into();
+    let manager = Arc::new(Mutex::new(
+        SessionManager::create(&cwd, Some(&session_dir), None).unwrap(),
+    ));
+    let db: JsString = directory.path().join("control.sqlite").to_str().unwrap().into();
+    lock_session_manager(&manager)
+        .set_metadata_control_db_path(Some(&db), Default::default())
+        .unwrap();
+    let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
+    store.set_persistence_session_manager(Some(&*lock_session_manager(&manager)));
+    let session = Arc::new(ControlledCompletionSession {
+        started: Default::default(),
+        complete: Arc::new(Default::default()),
+    });
+    let factory_session = session.clone();
+    let options = MultiAgentExtensionOptions {
+        store: Some(store.clone()),
+        desktop_notifier: Some(Arc::new(NoDesktopNotifier)),
+        create_child_session: Some(ChildAgentSessionFactory::new(move |_| {
+            let session = factory_session.clone();
+            Box::pin(async move { Ok(session as Arc<dyn ChildAgentSession>) })
+        })),
+        ..Default::default()
+    };
+    let runtime = support::runtime();
+    let extension = load_extension_from_factory(
+        Arc::new(move |pi| {
+            let result = register_agents_core_tools(pi, &options);
+            Box::pin(async move { result })
+        }),
+        &cwd,
+        support::event_bus(),
+        runtime.clone(),
+        &JsString::from("<background-ui-drift>"),
+    )
+    .await
+    .unwrap();
+    let mut runner = ExtensionRunner::new(
+        vec![extension],
+        runtime,
+        &cwd,
+        manager,
+        support::model_registry().await,
+        None,
+    );
+    support::bind(&mut runner);
+    let ui = Arc::new(BackgroundUi::default());
+    runner.set_ui_context(Some(ui.clone()), ExtensionMode::Rpc);
+    let command = runner.get_command("bg").unwrap().handler;
+    command("inspect fixture".into(), runner.create_command_context())
+        .await
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(3), session.started.notified())
+        .await
+        .unwrap();
+    assert_eq!(ui.notifications.lock().unwrap().len(), 1);
+    if mode == "invalidated" {
+        runner.invalidate(Some("ui getter failed after dispatch started"));
+    }
+    session.complete.notify_one();
+    tokio::time::timeout(std::time::Duration::from_secs(3), ui.terminal_notification.notified())
+        .await
+        .unwrap();
+    assert_eq!(ui.notifications.lock().unwrap().len(), 2);
+    assert_eq!(
+        store.list_agents()[0].lifecycle,
+        pi_coding_agent::core::multi_agent_store::AgentLifecycle::Completed
+    );
+}
