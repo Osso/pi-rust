@@ -35,7 +35,6 @@ use crate::utils::event_stream::{
     AssistantMessageEventSender, AssistantMessageEventStream, create_assistant_message_event_stream,
 };
 use crate::utils::hash::short_hash;
-use crate::utils::headers::headers_to_record;
 use crate::utils::json_parse::parse_streaming_json;
 use crate::utils::sanitize_unicode::sanitize_surrogates;
 use pi_js_compat::number::{js_number_to_string, js_number_value};
@@ -443,18 +442,6 @@ async fn request_mistral_stream(
         .await
         .map_err(|error| signal_error(&signal, error.message))?;
 
-    if let Some(on_response) = &options.stream.request.on_response {
-        on_response(
-            crate::types::ProviderResponse {
-                status: f64::from(response.status),
-                headers: headers_to_record(response.headers.clone()),
-            },
-            model.clone(),
-        )
-        .await
-        .map_err(|error| MistralError::message(error.message))?;
-    }
-
     if !(200..300).contains(&response.status) {
         let body = read_response_text(response.body, &signal).await?;
         return Err(MistralError::Http {
@@ -488,6 +475,11 @@ fn build_mistral_headers(model: &Model, api_key: &JsString, options: &MistralOpt
             pi_js_compat::js_format!("Bearer {}", api_key),
         ),
         ("content-type".to_owned(), JsString::from("application/json")),
+        ("cookie".to_owned(), JsString::default()),
+        (
+            "user-agent".to_owned(),
+            JsString::from("mistral-client-typescript/2.2.6"),
+        ),
     ]);
     apply_model_header_overrides(&mut headers, model.headers.as_ref());
     apply_mistral_header_overrides(&mut headers, options.stream.request.headers.as_ref());
