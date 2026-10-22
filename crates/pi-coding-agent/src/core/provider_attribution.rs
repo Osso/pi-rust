@@ -1,6 +1,7 @@
 //! Port of `packages/coding-agent/src/core/provider-attribution.ts`.
 
 use pi_ai::types::{Model, ProviderHeaders};
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use url::Url;
 
 use crate::core::settings_manager::SettingsManager;
@@ -59,7 +60,7 @@ fn get_default_attribution_headers(model: &Model, settings_manager: &SettingsMan
     )
 }
 
-fn get_session_headers(model: &Model, session_id: Option<&str>) -> Option<ProviderHeaders> {
+fn get_session_headers(model: &Model, session_id: Option<&JsString>) -> Option<ProviderHeaders> {
     let session_id = session_id?;
     if model.provider != "opencode" && model.provider != "opencode-go" && !matches_host(&model.base_url, OPENCODE_HOST)
     {
@@ -67,7 +68,7 @@ fn get_session_headers(model: &Model, session_id: Option<&str>) -> Option<Provid
     }
     Some(
         [
-            ("x-opencode-session".to_owned(), Some(session_id.to_owned())),
+            ("x-opencode-session".to_owned(), Some(encode_node_utf8(session_id))),
             ("x-opencode-client".to_owned(), Some("pi".to_owned())),
         ]
         .into_iter()
@@ -81,7 +82,7 @@ fn get_session_headers(model: &Model, session_id: Option<&str>) -> Option<Provid
 pub fn merge_provider_attribution_headers(
     model: &Model,
     settings_manager: &SettingsManager,
-    session_id: Option<&str>,
+    session_id: Option<&JsString>,
     header_sources: &[Option<ProviderHeaders>],
 ) -> Option<ProviderHeaders> {
     let mut merged: ProviderHeaders = ProviderHeaders::new();

@@ -45,7 +45,22 @@ fn merged(
     session_id: Option<&str>,
     sources: &[Option<ProviderHeaders>],
 ) -> Option<ProviderHeaders> {
-    merge_provider_attribution_headers(model, settings_manager, session_id, sources)
+    let session_id = session_id.map(pi_js_compat::js_json::JsString::from);
+    merge_provider_attribution_headers(model, settings_manager, session_id.as_ref(), sources)
+}
+
+#[test]
+fn native_session_id_encodes_only_in_header_construction() {
+    let session_id = pi_js_compat::js_json::JsString::from_utf16(vec![0xd800]);
+    let headers = merge_provider_attribution_headers(
+        &model("opencode", "https://opencode.ai", "model"),
+        &settings(false),
+        Some(&session_id),
+        &[],
+    )
+    .unwrap();
+    assert_eq!(headers.get("x-opencode-session"), Some(&Some("�".into())));
+    assert_eq!(session_id.units(), &[0xd800]);
 }
 
 #[test]

@@ -33,3 +33,10 @@ the pure header cases of `test/sdk-openrouter-attribution.test.ts`).
 Gaps: the SDK-level capture path (session streaming) is not ported here; the
 pure merge is. Header maps are `BTreeMap` (sorted) rather than insertion-ordered;
 JSON object key order is not semantically observable.
+
+## Q18 native session header input (2026-10-22)
+
+Attribution helpers take native session IDs; only construction of the concrete
+ProviderHeaders value encodes x-opencode-session. Raw-unit header fixture written
+but unexecuted while coding compilation is blocked. SDK no longer projects a
+native session ID to scalar text before calling attribution helpers.
