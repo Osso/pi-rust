@@ -261,3 +261,13 @@ UTF8 binary-metadata boundary, not generic component sanitation.
 RED reproduced old Rust's byte4096 panic for4095A+😀Z; actual source splits a pair across
 native chunks. Current original native sequence JSON matches frozen source GREEN.
 Raw constructor/cache/protocol metadata/dimensions corpus is next; not acceptance.
+
+Expanded image proof GREEN:45 frozen scenarios (5 native high/low/pair/mixed/control
+corpora × none/Kitty/iTerm2 × widths1/3/8). Compares raw Kitty/iTerm2 parameters and
+payloads, native width/height strings, source UTF8/base64 name metadata, raw hyperlinks,
+MIME/filename/fallback styling callback inputs, delete sequences, renderImage's actual
+source fields sequence/rows/imageId, original/cache/invalidated Image lines and IDs.
+A real PNG header represented entirely by high-surrogate base64 units decodes to18x36
+through source Buffer semantics while Image render retains the ORIGINAL raw base64
+payload. Together with the4096-unit split-pair case this proves raw construction/cache/
+render state, not merely removal of a valid-Unicode panic. Numeric algorithms/gaps unchanged.

@@ -39,7 +39,11 @@ async function main(): Promise<void> {
 					states.push({ value: input.getValue(), cursor: (input as unknown as { cursor: number }).cursor, lines: input.render(request.width) });
 				}
 				output = { states, submitted };
-			} else if (request.operation === "kitty_encode") {
+			} else if (request.operation === "image_values") {
+                output = await captureImageValues(source,native(request.units),request.protocol,request.width);
+            } else if (request.operation === "image_dimensions") {
+                output = await captureImageDimensions(source,native(request.units));
+            } else if (request.operation === "kitty_encode") {
                 const module = await import(pathToFileURL(path.join(source, "terminal-image.ts")).href);
                 output = module.encodeKitty(native(request.units));
             } else if (request.operation === "editor_actions") {
@@ -334,4 +338,38 @@ async function captureEditorActions(source: string, actions: Array<{set?:number[
         states.push({text:editor.getText(),expanded:editor.getExpandedText(),cursor:[cursor.line,cursor.col],lines,history:editor.getHistory()});
     }
     return {states,changes,submissions};
+}
+
+async function captureImageValues(source: string, raw: string, protocol: string, width: number): Promise<unknown> {
+    const module = await import(pathToFileURL(path.join(source, "terminal-image.ts")).href);
+    const imageApi = await import(pathToFileURL(path.join(source, "components/image.ts")).href);
+    module.setCapabilities({images:protocol === "none" ? null : protocol,trueColor:true,hyperlinks:true});
+    module.setCellDimensions({widthPx:9,heightPx:18});
+    const dimensions = {widthPx:18,heightPx:36};
+    const kitty = module.encodeKitty(raw,{columns:2,rows:3,imageId:9,moveCursor:false});
+    const iterm = module.encodeITerm2(raw,{width:raw,height:raw + "%",name:raw + ".png",preserveAspectRatio:false,inline:false});
+    const link = module.hyperlink(raw,"https://host/" + raw);
+    const mime = "image/" + raw;
+    const filename = raw + ".png";
+    const fallback = module.imageFallback(mime,dimensions,filename);
+    const result = module.renderImage(raw,dimensions,{maxWidthCells:6,maxHeightCells:3,imageId:9,moveCursor:false});
+    const rendered = result ? [result.sequence,result.rows,result.imageId ?? null] : null;
+    const seen: string[] = [];
+    const image = new imageApi.Image(raw,mime,{fallbackColor:(value: string) => { seen.push(value); return raw + value + raw; }},{filename,imageId:9},dimensions);
+    const first = image.render(width);
+    const cached = image.render(width);
+    image.invalidate();
+    const invalidated = image.render(width);
+    return [kitty,iterm,link,fallback,[module.deleteKittyImage(9),module.deleteAllKittyImages()],rendered,[first,cached,invalidated,image.getImageId() ?? null],seen];
+}
+
+async function captureImageDimensions(source: string, raw: string): Promise<unknown> {
+    const module = await import(pathToFileURL(path.join(source, "terminal-image.ts")).href);
+    const imageApi = await import(pathToFileURL(path.join(source, "components/image.ts")).href);
+    module.setCapabilities({images:"kitty",trueColor:true,hyperlinks:true});
+    module.setCellDimensions({widthPx:9,heightPx:18});
+    const result = module.getImageDimensions(raw,"image/png");
+    const dimensions = result ? [result.widthPx,result.heightPx] : null;
+    const image = new imageApi.Image(raw,"image/png",{fallbackColor:(value: string) => value},{imageId:9});
+    return [dimensions,image.render(10)];
 }
