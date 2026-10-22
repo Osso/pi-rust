@@ -156,10 +156,12 @@ fn launch_relay(path: &str) -> Result<(), String> {
     Ok(())
 }
 /// Called in a detached startup task; relay failure must not fail its session.
-pub async fn ensure_relay_running(path: &str, settings: Option<&RelaySettings>) -> Result<(), String> {
+pub async fn ensure_relay_running(path: &JsString, settings: Option<&RelaySettings>) -> Result<(), String> {
     if settings.is_none() {
         return Ok(());
     }
+    // Every use below is a filesystem path (directory, lock, identity, log).
+    let path = &pi_js_compat::js_json::encode_node_utf8(path);
     create_private_parent(path)?;
     let guard = acquire_relay_lock(path, true)
         .await?

@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use pi_ai::utils::uuid::random_uuid;
-use pi_js_compat::collator::locale_compare;
+use pi_js_compat::collator::{locale_compare, locale_compare_utf16};
 use pi_js_compat::js_json::{JsString, JsValue};
 use serde_json::Value;
 
@@ -73,7 +73,7 @@ fn runtime_probe(options: &SessionDirectoryOptions) -> RuntimeProcessProbe {
         .unwrap_or_else(|| Arc::new(is_pi_runtime_process_alive))
 }
 
-fn health_by_session_id(control_db_path: &str) -> Result<HashMap<JsString, SessionHealthRecord>, ControlDbError> {
+fn health_by_session_id(control_db_path: &JsString) -> Result<HashMap<JsString, SessionHealthRecord>, ControlDbError> {
     let mut map = HashMap::new();
     for health in list_session_health(control_db_path)? {
         map.insert(health.session_id.clone(), health);
@@ -91,7 +91,7 @@ fn newest_metadata_by_session_id(metadata: Vec<SessionMetadata>) -> Vec<SessionM
 
 /// `reconcileSessionRuntimeBindings`.
 pub fn reconcile_session_runtime_bindings(
-    control_db_path: &str,
+    control_db_path: &JsString,
     options: &SessionDirectoryOptions,
 ) -> Result<(), ControlDbError> {
     let now_ms = resolve_now_ms(options);
@@ -99,7 +99,7 @@ pub fn reconcile_session_runtime_bindings(
 }
 
 fn reconcile_current_main_session_bindings(
-    control_db_path: &str,
+    control_db_path: &JsString,
     now_ms: i64,
     is_runtime_process_alive: &RuntimeProcessProbe,
 ) -> Result<HashMap<JsString, CurrentMainSessionBinding>, ControlDbError> {
@@ -110,7 +110,7 @@ fn reconcile_current_main_session_bindings(
         if updated_at_order.is_ne() {
             return updated_at_order;
         }
-        locale_compare(&left.session_id, &right.session_id)
+        locale_compare_utf16(left.session_id.units(), right.session_id.units())
     });
 
     let mut seen_pids = HashSet::new();
@@ -191,7 +191,7 @@ fn synchronized_bound_session_health(
 }
 
 fn sync_bound_session_health(
-    control_db_path: &str,
+    control_db_path: &JsString,
     session_id: &JsString,
     binding: &CurrentMainSessionBinding,
     health_map: &mut HashMap<JsString, SessionHealthRecord>,
@@ -210,7 +210,7 @@ fn sync_bound_session_health(
 }
 
 fn retire_unbound_session_health_if_needed(
-    control_db_path: &str,
+    control_db_path: &JsString,
     metadata: &SessionMetadata,
     health_map: &mut HashMap<JsString, SessionHealthRecord>,
     bindings: &HashMap<JsString, CurrentMainSessionBinding>,
@@ -231,7 +231,7 @@ fn retire_unbound_session_health_if_needed(
 }
 
 fn ensure_health_synced_from_listeners(
-    control_db_path: &str,
+    control_db_path: &JsString,
     metadata: &[SessionMetadata],
     health_map: &mut HashMap<JsString, SessionHealthRecord>,
     bindings: &HashMap<JsString, CurrentMainSessionBinding>,
@@ -273,7 +273,7 @@ fn to_directory_entry(metadata: &SessionMetadata, health: &SessionHealthRecord, 
 
 /// `listSessions`.
 pub fn list_sessions(
-    control_db_path: &str,
+    control_db_path: &JsString,
     options: &SessionDirectoryOptions,
 ) -> Result<Vec<SessionDirectoryEntry>, ControlDbError> {
     let now_ms = resolve_now_ms(options);
@@ -301,7 +301,7 @@ pub fn list_sessions(
 }
 
 fn current_main_session_ids(
-    control_db_path: &str,
+    control_db_path: &JsString,
     now_ms: i64,
     is_runtime_process_alive: &RuntimeProcessProbe,
 ) -> Result<HashSet<JsString>, ControlDbError> {
@@ -345,7 +345,7 @@ fn matches_filters(entry: &SessionDirectoryEntry, filters: Option<&BroadcastSess
 
 /// `broadcastToSessions`.
 pub fn broadcast_to_sessions(
-    control_db_path: &str,
+    control_db_path: &JsString,
     input: &BroadcastSessionsInput,
     options: &SessionDirectoryOptions,
 ) -> Result<Vec<SessionBroadcastResult>, ControlDbError> {
@@ -446,7 +446,7 @@ pub fn broadcast_to_sessions(
 }
 
 fn send_broadcast(
-    control_db_path: &str,
+    control_db_path: &JsString,
     message: &JsString,
     input: &BroadcastSessionsInput,
     entry: &SessionDirectoryEntry,
