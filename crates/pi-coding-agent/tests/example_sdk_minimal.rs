@@ -274,7 +274,7 @@ fn entrypoint_error_keeps_name_message_and_failure_status_without_debug_quotes()
     let message = "prompt failed: \"quoted\"\nnext line";
     if let Ok(case) = std::env::var("PI_SDK_MINIMAL_DIAGNOSTIC_FIXTURE") {
         let result = if case == "failure" {
-            Err(minimal::ExampleError(message.to_owned()))
+            Err(minimal::ExampleError(JsString::from(message.to_owned())))
         } else {
             Ok(())
         };

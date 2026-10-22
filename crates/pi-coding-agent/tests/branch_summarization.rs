@@ -341,11 +341,17 @@ fn carries_branch_summary_details_and_compaction_entries_into_preparation() {
     let AgentMessage::Custom(summary) = &preparation.messages[0] else {
         panic!("branch summary message must be custom");
     };
-    assert_eq!(summary.get("summary").and_then(Value::as_str), Some("earlier branch"));
+    assert_eq!(
+        summary.get("summary").and_then(JsValue::as_string),
+        Some("earlier branch")
+    );
     let AgentMessage::Custom(compaction_message) = &preparation.messages[1] else {
         panic!("compaction summary message must be custom");
     };
-    assert_eq!(compaction_message.get("durationMs").and_then(Value::as_f64), Some(12.5));
+    assert_eq!(
+        compaction_message.get("durationMs").and_then(JsValue::as_f64),
+        Some(12.5)
+    );
 }
 
 #[test]
@@ -366,7 +372,7 @@ fn includes_custom_message_entries_in_branch_messages() {
     let AgentMessage::Custom(message) = &preparation.messages[0] else {
         panic!("custom message must be custom");
     };
-    assert_eq!(message.get("customType").and_then(Value::as_str), Some("test"));
+    assert_eq!(message.get("customType").and_then(JsValue::as_string), Some("test"));
 }
 
 #[test]

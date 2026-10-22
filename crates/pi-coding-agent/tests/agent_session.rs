@@ -30,6 +30,7 @@ use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRunti
 use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
 use pi_coding_agent::core::tool_detach_registry::ToolDetachHandle;
+use pi_js_compat::js_format;
 use serde_json::json;
 
 struct Fixture {
@@ -836,9 +837,9 @@ impl pi_agent_core::agent::types::AgentTool for EchoTool {
         Box::pin(async move {
             let text = params
                 .get("text")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default()
-                .to_owned();
+                .and_then(JsValue::as_string)
+                .cloned()
+                .unwrap_or_default();
             Ok(pi_agent_core::agent::types::AgentToolResult::text(text))
         })
     }
@@ -958,8 +959,11 @@ async fn binds_extension_relocation_handlers_on_the_session() {
             as pi_ai::request::BoxFuture<'static, Result<(), pi_coding_agent::core::extensions::types::HandlerError>>
     });
     let recorded = Arc::clone(&calls);
-    let prepare = Arc::new(move |cwd: &str| {
-        recorded.lock().unwrap().push(format!("prepare:{cwd}"));
+    let prepare = Arc::new(move |cwd: &JsString| {
+        recorded
+            .lock()
+            .unwrap()
+            .push(format!("prepare:{}", encode_node_utf8(cwd)));
         Box::pin(async { Ok(()) })
             as pi_ai::request::BoxFuture<'static, Result<(), pi_coding_agent::core::extensions::types::HandlerError>>
     });
@@ -1066,23 +1070,21 @@ async fn runtime_mailbox_delivery_prompts_the_session_and_removes_the_accepted_r
         .find_map(|message| match message {
             AgentMessage::User(user) => Some(match &user.content {
                 pi_ai::types::UserContent::Text(text) => text.clone(),
-                pi_ai::types::UserContent::Blocks(blocks) => JsString::from(
-                    blocks
-                        .iter()
-                        .filter_map(|block| match block {
-                            pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.as_str()),
-                            pi_ai::types::TextOrImageContent::Image(_) => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join(""),
+                pi_ai::types::UserContent::Blocks(blocks) => JsString::join(
+                    blocks.iter().filter_map(|block| match block {
+                        pi_ai::types::TextOrImageContent::Text(text) => Some(&text.text),
+                        pi_ai::types::TextOrImageContent::Image(_) => None,
+                    }),
+                    "",
                 ),
             }),
             _ => None,
         })
         .expect("delivered mailbox prompt");
-    assert!(user_text.contains("From:"), "{user_text}");
-    assert!(user_text.contains("- session: parent-session"), "{user_text}");
-    assert!(user_text.contains("hello from parent"), "{user_text}");
+    let user_text_utf8 = encode_node_utf8(&user_text);
+    assert!(user_text.contains("From:"), "{user_text_utf8}");
+    assert!(user_text.contains("- session: parent-session"), "{user_text_utf8}");
+    assert!(user_text.contains("hello from parent"), "{user_text_utf8}");
 
     let rows = list_runtime_mailbox_messages(&control_db_path).expect("mailbox rows");
     assert!(rows.is_empty(), "accepted mailbox row must be removed: {rows:?}");
@@ -1146,17 +1148,19 @@ async fn shared_channel_delivery_formats_and_queues_messages_after_the_initial_c
         })
         .expect("shared channel custom message");
     assert_eq!(
-        custom.get("customType").and_then(serde_json::Value::as_str),
-        Some("shared_channel")
+        custom.get("customType").and_then(JsValue::as_string),
+        Some(&JsString::from("shared_channel"))
     );
     let content = custom
         .get("content")
-        .and_then(serde_json::Value::as_str)
+        .and_then(JsValue::as_string)
+        .cloned()
         .unwrap_or_default();
-    assert!(content.contains("From shared channel:"), "{content}");
-    assert!(content.contains("- session: other-session"), "{content}");
-    assert!(content.contains("hello channel"), "{content}");
-    assert_eq!(custom.get("display").and_then(serde_json::Value::as_bool), Some(true));
+    let content_utf8 = encode_node_utf8(&content);
+    assert!(content.contains("From shared channel:"), "{content_utf8}");
+    assert!(content.contains("- session: other-session"), "{content_utf8}");
+    assert!(content.contains("hello channel"), "{content_utf8}");
+    assert_eq!(custom.get("display").and_then(JsValue::as_bool), Some(true));
 }
 
 #[tokio::test]
@@ -1177,7 +1181,7 @@ async fn execute_bash_records_streams_and_commits() {
     use pi_coding_agent::core::agent_session::ExecuteBashOptions;
 
     let fixture = fixture().await;
-    let updates = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let updates = Arc::new(std::sync::Mutex::new(Vec::<JsString>::new()));
     let sink = Arc::clone(&updates);
     let committed = Arc::new(AtomicUsize::new(0));
     let committed_sink = Arc::clone(&committed);
@@ -1213,7 +1217,7 @@ async fn record_bash_result_commits_immediately_without_message_end() {
     let sink = Arc::clone(&message_end_roles);
     fixture.session.subscribe(Arc::new(move |event| {
         if let AgentSessionEvent::Agent(pi_agent_core::agent::types::AgentEvent::MessageEnd { message }) = event {
-            sink.lock().unwrap().push(message.role().to_owned());
+            sink.lock().unwrap().push(message.role());
         }
     }));
 
@@ -1519,9 +1523,9 @@ impl pi_agent_core::agent::types::AgentTool for PermissionEchoTool {
     > {
         let text = params
             .get("text")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default()
-            .to_owned();
+            .and_then(JsValue::as_string)
+            .cloned()
+            .unwrap_or_default();
         self.executed.lock().unwrap().push(text.clone());
         Box::pin(async move { Ok(pi_agent_core::agent::types::AgentToolResult::text(text)) })
     }
@@ -1529,7 +1533,7 @@ impl pi_agent_core::agent::types::AgentTool for PermissionEchoTool {
 
 struct ApprovalPromptTool {
     name: String,
-    calls: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+    calls: Arc<std::sync::Mutex<Vec<JsValue>>>,
     response: serde_json::Value,
 }
 
@@ -1586,7 +1590,9 @@ impl pi_agent_core::agent::types::AgentTool for ApprovalPromptTool {
 fn permission_tool_call(text: &str) -> pi_ai::providers::faux::FauxContent {
     pi_ai::providers::faux::FauxContent::Blocks(vec![pi_ai::providers::faux::faux_tool_call(
         "echo",
-        [("text".to_owned(), json!(text))].into_iter().collect(),
+        [(JsString::from("text"), JsValue::from(json!(text)))]
+            .into_iter()
+            .collect(),
         Some("call-1".to_owned()),
     )])
 }
@@ -1990,10 +1996,7 @@ async fn bash_tool_exposes_live_session_environment_variables() {
     .await;
     let (session_id, session_file) = {
         let manager = fixture.session.session_manager();
-        (
-            manager.get_session_id().to_owned(),
-            manager.get_session_file().map(str::to_owned),
-        )
+        (manager.get_session_id().to_owned(), manager.get_session_file().cloned())
     };
     let definition = fixture.session.get_tool_definition("bash").expect("bash definition");
     let result = definition
@@ -2016,12 +2019,13 @@ async fn bash_tool_exposes_live_session_environment_variables() {
             pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
             pi_ai::types::TextOrImageContent::Image(_) => None,
         })
-        .collect::<Vec<_>>()
-        .join("\n");
+        .collect::<Vec<_>>();
+    let text = JsString::join(text, "\n");
     assert_eq!(
         text,
-        format!(
-            "{session_id}|{}|faux|faux-1|off",
+        js_format!(
+            "{}|{}|faux|faux-1|off",
+            session_id,
             session_file.expect("persisted session file")
         )
     );
@@ -2086,7 +2090,7 @@ async fn update_compaction_summary_returns_the_persistence_error() {
         .session_manager()
         .get_entry(&compaction_id)
         .and_then(|entry| entry.as_compaction())
-        .cloned()
+        .map(std::borrow::Cow::into_owned)
         .expect("compaction entry");
     assert_eq!(compaction.summary, "original summary");
 }
@@ -2097,15 +2101,18 @@ async fn update_compaction_summary_returns_the_persistence_error() {
 
 #[derive(Default)]
 struct ScriptedApprovalUi {
-    selections: std::sync::Mutex<VecDeque<Option<String>>>,
-    titles: std::sync::Mutex<Vec<String>>,
-    options: std::sync::Mutex<Vec<Vec<String>>>,
+    selections: std::sync::Mutex<VecDeque<Option<JsString>>>,
+    titles: std::sync::Mutex<Vec<JsString>>,
+    options: std::sync::Mutex<Vec<Vec<JsString>>>,
 }
 
 impl ScriptedApprovalUi {
     fn with_selection(selection: &str) -> Self {
         let ui = Self::default();
-        ui.selections.lock().unwrap().push_back(Some(selection.to_owned()));
+        ui.selections
+            .lock()
+            .unwrap()
+            .push_back(Some(JsString::from(selection.to_owned())));
         ui
     }
 }
@@ -2116,8 +2123,8 @@ impl ExtensionUiContext for ScriptedApprovalUi {
         title: &JsString,
         options: &[JsString],
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> pi_ai::request::BoxFuture<'a, Result<Option<JsString>, String>> {
-        self.titles.lock().unwrap().push(title.to_owned());
+    ) -> pi_ai::request::BoxFuture<'a, Result<Option<JsString>, JsString>> {
+        self.titles.lock().unwrap().push(title.clone());
         self.options.lock().unwrap().push(options.to_vec());
         let selection = self.selections.lock().unwrap().pop_front().flatten();
         Box::pin(async move { Ok(selection) })
@@ -2125,7 +2132,7 @@ impl ExtensionUiContext for ScriptedApprovalUi {
 }
 
 struct SpawnRecorderTool {
-    calls: Arc<std::sync::Mutex<Vec<(String, serde_json::Value)>>>,
+    calls: Arc<std::sync::Mutex<Vec<(String, JsValue)>>>,
 }
 
 impl pi_agent_core::agent::types::AgentTool for SpawnRecorderTool {
@@ -2234,17 +2241,14 @@ async fn human_allow_always_spawns_the_permission_config_agent() {
     let (tool_call_id, params) = &spawned[0];
     assert_eq!(tool_call_id, "allow-always:call-1");
     assert_eq!(
-        params.get("agentType").and_then(serde_json::Value::as_str),
+        params.get("agentType").and_then(JsValue::as_string),
         Some("permission-config")
     );
     assert_eq!(
-        params.get("displayName").and_then(serde_json::Value::as_str),
+        params.get("displayName").and_then(JsValue::as_string),
         Some("Allow command")
     );
-    let prompt = params
-        .get("prompt")
-        .and_then(serde_json::Value::as_str)
-        .expect("prompt");
+    let prompt = params.get("prompt").and_then(JsValue::as_string).expect("prompt");
     assert!(
         prompt.contains("Target project: /syncthing/Sync/Projects/claude/claude-bash-hook"),
         "prompt: {prompt}"
@@ -2274,9 +2278,9 @@ fn recording_supervisor(
             input
                 .payload
                 .get("toolName")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default()
-                .to_owned(),
+                .and_then(JsValue::as_string)
+                .cloned()
+                .unwrap_or_default(),
         );
         let response = response.clone();
         Box::pin(async move { Ok(response) })
@@ -2350,9 +2354,9 @@ async fn llm_reviewer_auto_approves_read_only_builtin_tools() {
             pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
             _ => None,
         })
-        .collect::<Vec<_>>()
-        .join("");
-    assert!(text.contains("a.txt"), "tool result: {text}");
+        .collect::<Vec<_>>();
+    let text = JsString::join(text, "");
+    assert!(text.contains("a.txt"), "tool result: {}", encode_node_utf8(&text));
     assert!(!tool_result.is_error);
 }
 
@@ -2696,8 +2700,8 @@ impl ExtensionUiContext for FailingApprovalUi {
         _title: &JsString,
         _options: &[JsString],
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> pi_ai::request::BoxFuture<'a, Result<Option<JsString>, String>> {
-        Box::pin(async { Err("dialog failed".to_owned()) })
+    ) -> pi_ai::request::BoxFuture<'a, Result<Option<JsString>, JsString>> {
+        Box::pin(async { Err(JsString::from("dialog failed")) })
     }
 }
 
@@ -2771,7 +2775,7 @@ async fn human_approval_ui_errors_abort_the_tool_call() {
 async fn supervisor_requester_errors_abort_the_tool_call() {
     let executed = Arc::new(std::sync::Mutex::new(Vec::new()));
     let requester: SupervisorDecisionRequester =
-        Arc::new(|_input| Box::pin(async { Err("supervisor unavailable".to_owned()) }));
+        Arc::new(|_input| Box::pin(async { Err(JsString::from("supervisor unavailable")) }));
     let mut settings = pi_coding_agent::core::settings_manager::Settings::new();
     settings.insert(JsString::from("approvalPolicy"), JsValue::from(json!("on-request")));
     settings.insert(
@@ -2883,7 +2887,7 @@ async fn fixture_with_test_command() -> Fixture {
             "testcmd",
             Some("Test command".into()),
             None,
-            Arc::new(|_args: String, _ctx: ExtensionCommandContext| {
+            Arc::new(|_args: JsString, _ctx: ExtensionCommandContext| {
                 Box::pin(async { Ok(()) })
                     as pi_coding_agent::core::extensions::BoxFuture<'static, Result<(), HandlerError>>
             }),

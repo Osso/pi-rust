@@ -68,9 +68,13 @@ async fn lists_only_three_of_four_persisted_sessions_and_reopens_latest() {
     }
     let output = support::Output::default();
     let _main = example::main;
-    let sessions = example::run([a.options, b.options, c.options, d.options], Some(&dir), output.clone())
-        .await
-        .unwrap();
+    let sessions = example::run(
+        [a.options, b.options, c.options, d.options],
+        Some(&JsString::from(&dir)),
+        output.clone(),
+    )
+    .await
+    .unwrap();
     assert_eq!(sessions.len(), 4);
     assert_eq!(output.text().lines().filter(|line| line.starts_with("  ")).count(), 3);
     let new_file = output

@@ -103,17 +103,17 @@ fn compaction_entry(id: &str, parent_id: Option<&str>, summary: &str, first_kept
     ))
 }
 
-fn ids(entries: &[SessionEntry]) -> Vec<String> {
+fn ids(entries: &[SessionEntry]) -> Vec<JsString> {
     entries
         .iter()
-        .map(|entry| entry.id().unwrap_or_default().to_owned())
+        .map(|entry| entry.id().cloned().unwrap_or_default())
         .collect()
 }
 
-fn tree_ids(nodes: &[SessionTreeNode]) -> Vec<String> {
+fn tree_ids(nodes: &[SessionTreeNode]) -> Vec<JsString> {
     let mut result = Vec::new();
     for node in nodes {
-        result.push(node.entry.id().unwrap_or_default().to_owned());
+        result.push(node.entry.id().cloned().unwrap_or_default());
         result.extend(tree_ids(&node.children));
     }
     result
@@ -177,21 +177,21 @@ fn migrates_v1_entries_and_is_idempotent() {
     let FileEntry::Header(header) = &entries[0] else {
         panic!("expected header");
     };
-    assert_eq!(header.version, Some(3.0));
+    assert_eq!(header.version(), Some(3.0));
     let first = entries[1].entry().unwrap();
     let second = entries[2].entry().unwrap();
     assert_eq!(first.id().unwrap().len(), 8);
     assert_eq!(first.parent_id(), None);
     assert_eq!(second.parent_id(), first.id());
 
-    let before: Vec<Option<String>> = entries
+    let before: Vec<Option<JsString>> = entries
         .iter()
-        .map(|entry| entry.entry().and_then(|entry| entry.id().map(str::to_owned)))
+        .map(|entry| entry.entry().and_then(|entry| entry.id().cloned()))
         .collect();
     migrate_session_entries(&mut entries);
-    let after: Vec<Option<String>> = entries
+    let after: Vec<Option<JsString>> = entries
         .iter()
-        .map(|entry| entry.entry().and_then(|entry| entry.id().map(str::to_owned)))
+        .map(|entry| entry.entry().and_then(|entry| entry.id().cloned()))
         .collect();
     assert_eq!(before, after);
 }
@@ -205,7 +205,7 @@ fn builds_context_without_compaction() {
         assistant_entry("4", Some("3"), "great"),
     ];
     let context = build_session_context(&entries, LeafSelection::Last);
-    let roles: Vec<&str> = context.messages.iter().map(AgentMessage::role).collect();
+    let roles: Vec<JsString> = context.messages.iter().map(AgentMessage::role).collect();
     assert_eq!(roles, ["user", "assistant", "user", "assistant"]);
     assert_eq!(context.thinking_level, "off");
     assert_eq!(
@@ -345,7 +345,7 @@ fn drops_orphaned_tool_results_from_capped_pre_compaction_suffix() {
         compaction_entry("5", Some("4"), "Summary", "1"),
     ];
     let context = build_session_context(&entries, LeafSelection::Last);
-    let roles: Vec<&str> = context.messages.iter().map(AgentMessage::role).collect();
+    let roles: Vec<JsString> = context.messages.iter().map(AgentMessage::role).collect();
     assert_eq!(roles, ["compactionSummary", "assistant"]);
     assert_eq!(context.messages[1], assistant_message("done", 1));
 }
@@ -415,7 +415,8 @@ fn reads_files_and_headers() {
     assert_eq!(
         read_session_header(&JsString::from(&valid.display().to_string()))
             .unwrap()
-            .id,
+            .id()
+            .clone(),
         "abc"
     );
 
@@ -1056,8 +1057,8 @@ fn forks_only_the_active_compacted_slice() {
         .collect();
     assert_eq!(serialized_ids, ["kept-1", "compaction-1", "after-1"]);
     assert_eq!(
-        forked.get_header().unwrap().parent_session.as_deref(),
-        Some(file.display().to_string().as_str())
+        forked.get_header().unwrap().parent_session(),
+        Some(&JsString::from(file.display().to_string()))
     );
 }
 
@@ -1118,7 +1119,7 @@ fn tree_traversal_and_branching() {
     let id1 = session.append_message(user_message("1", 1)).unwrap();
     let id2 = session.append_message(assistant_message("2", 2)).unwrap();
     let id3 = session.append_message(user_message("3", 3)).unwrap();
-    assert_eq!(session.get_leaf_id(), Some(id3.as_str()));
+    assert_eq!(session.get_leaf_id(), Some(&id3));
     assert_eq!(ids(&session.get_branch(None)), [id1.clone(), id2.clone(), id3.clone()]);
     assert_eq!(ids(&session.get_branch(Some(&id2))), [id1.clone(), id2.clone()]);
 
@@ -1126,20 +1127,20 @@ fn tree_traversal_and_branching() {
     let id4 = session.append_message(user_message("4-branch", 4)).unwrap();
     let tree = session.get_tree();
     assert_eq!(tree.len(), 1);
-    assert_eq!(tree[0].entry.id(), Some(id1.as_str()));
+    assert_eq!(tree[0].entry.id(), Some(&id1));
     assert_eq!(tree[0].children.len(), 1);
-    assert_eq!(tree[0].children[0].entry.id(), Some(id2.as_str()));
+    assert_eq!(tree[0].children[0].entry.id(), Some(&id2));
     assert_eq!(tree[0].children[0].children.len(), 2);
-    let child_ids: Vec<&str> = tree[0].children[0]
+    let child_ids: Vec<&JsString> = tree[0].children[0]
         .children
         .iter()
         .map(|node| node.entry.id().unwrap())
         .collect();
-    assert!(child_ids.contains(&id3.as_str()));
-    assert!(child_ids.contains(&id4.as_str()));
+    assert!(child_ids.contains(&&id3));
+    assert!(child_ids.contains(&&id4));
 
-    assert_eq!(session.get_leaf_entry().unwrap().id(), Some(id4.as_str()));
-    assert_eq!(session.get_entry(&id1).unwrap().id(), Some(id1.as_str()));
+    assert_eq!(session.get_leaf_entry().unwrap().id(), Some(&id4));
+    assert_eq!(session.get_entry(&id1).unwrap().id(), Some(&id1));
     assert!(session.branch(&JsString::from("nonexistent")).is_err());
 }
 
@@ -1165,10 +1166,10 @@ fn labels_and_tree_nodes() {
         .unwrap();
     assert_eq!(session.get_label(&msg1), Some(&JsString::from("third")));
     let tree = session.get_tree();
-    let node = tree.iter().find(|node| node.entry.id() == Some(msg1.as_str())).unwrap();
+    let node = tree.iter().find(|node| node.entry.id() == Some(&msg1)).unwrap();
     let last = session.get_entry(&last_label).unwrap().as_label().unwrap();
     assert_eq!(node.label.as_ref(), Some(&JsString::from("third")));
-    assert_eq!(node.label_timestamp.as_ref(), Some(last.timestamp.as_str()));
+    assert_eq!(node.label_timestamp.as_ref(), Some(&last.timestamp));
 
     assert_eq!(
         session
@@ -1191,7 +1192,7 @@ fn branched_session_rewires_labels_and_preserves_path() {
         .unwrap();
     let id2 = session.append_message(user_message("followup", 2)).unwrap();
     session.create_branched_session(&id2).unwrap();
-    assert_eq!(session.get_entry(&model_id).unwrap().parent_id(), Some(id1.as_str()));
+    assert_eq!(session.get_entry(&model_id).unwrap().parent_id(), Some(&id1));
     assert_eq!(session.get_label(&id1), Some(&JsString::from("checkpoint")));
 }
 
@@ -1273,9 +1274,9 @@ fn update_compaction_summary_rewrites_and_restores_on_failure() {
     assert_eq!(compaction.summary, "edited summary");
     assert_eq!(
         compaction.details.as_deref(),
-        Some(&serde_json::json!({"source":"test"}))
+        Some(&JsValue::from(serde_json::json!({"source":"test"})))
     );
-    assert_eq!(reopened.get_leaf_id(), Some(leaf.as_str()));
+    assert_eq!(reopened.get_leaf_id(), Some(&leaf));
     assert_eq!(reopened.build_session_context().messages[0].role(), "compactionSummary");
 
     let provider_native = pi_ai::types::ProviderNativeContext {
@@ -1368,7 +1369,7 @@ fn custom_entries_participate_in_the_tree_but_not_context() {
         SessionEntry::Known(KnownSessionEntry::Custom(entry)) => {
             assert_eq!(entry.custom_type, "my_data");
             assert_eq!(entry.data, (Some(serde_json::json!({"foo":"bar"}))).map(JsValue::from));
-            assert_eq!(entry.parent_id.as_ref(), Some(msg1.as_str()));
+            assert_eq!(entry.parent_id.as_ref(), Some(&msg1));
         }
         other => panic!("unexpected entry {other:?}"),
     }
@@ -1496,7 +1497,7 @@ fn continues_most_recent_session() {
         Some(&JsString::from(&dir.display().to_string())),
     )
     .unwrap();
-    assert_eq!(continued.get_session_file(), Some(file.as_str()));
+    assert_eq!(continued.get_session_file(), Some(&file));
 }
 
 #[test]
@@ -1548,8 +1549,8 @@ fn custom_session_ids_round_trip() {
         }))
         .unwrap();
     assert_eq!(session.get_session_id(), "abc-123_def.456");
-    assert_eq!(session.get_header().unwrap().id, "abc-123_def.456");
-    assert_eq!(session.get_header().unwrap().version, Some(CURRENT_SESSION_VERSION));
+    assert_eq!(session.get_header().unwrap().id(), "abc-123_def.456");
+    assert_eq!(session.get_header().unwrap().version(), Some(CURRENT_SESSION_VERSION));
 }
 
 #[test]
@@ -1915,9 +1916,9 @@ fn open_preserves_a_freshly_persisted_header() {
     );
     assert_eq!(opened.get_cwd(), dir.display().to_string());
     let header = opened.get_header().expect("header");
-    assert_eq!(header.id, created_id);
-    assert_eq!(header.version, Some(CURRENT_SESSION_VERSION));
-    assert_eq!(header.parent_session.as_deref(), Some("/parent/session.jsonl"));
+    assert_eq!(header.id(), created_id);
+    assert_eq!(header.version(), Some(CURRENT_SESSION_VERSION));
+    assert_eq!(header.parent_session(), Some(&JsString::from("/parent/session.jsonl")));
 
     let header_only_dir = temp_dir("session-open-header-only");
     let header_only_dir_path = header_only_dir.display().to_string();

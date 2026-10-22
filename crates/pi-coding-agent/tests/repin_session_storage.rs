@@ -890,7 +890,7 @@ fn frozen_storage_suffix_noops_missing_and_metadata_surviving_plain_branches() {
     let expected = call(&mut ts, json!({"op":"predicates","paths":paths}));
     for (index, path) in paths.iter().enumerate() {
         assert_eq!(
-            json!({"transcript":is_session_transcript_file(path),"archive":is_archived_session_file(&JsString::from(path)),"resolved":read_session_transcript_path(path)}),
+            json!({"transcript":is_session_transcript_file(*path),"archive":is_archived_session_file(&*JsString::from(path)),"resolved":read_session_transcript_path(*path)}),
             expected[index]
         );
     }

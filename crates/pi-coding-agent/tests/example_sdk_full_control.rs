@@ -4,6 +4,7 @@ mod example;
 mod oracle;
 #[path = "support/sdk_examples.rs"]
 mod support;
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
 use serde_json::json;
 
@@ -127,7 +128,10 @@ async fn replaces_discovery_settings_prompt_and_tools() {
     let context = &requests[0]["context"];
     assert_eq!(
         context["systemPrompt"],
-        format!("You are a minimal assistant.\nAvailable: read, bash. Be concise.\nCurrent working directory: {cwd}\n")
+        js_format!(
+            "You are a minimal assistant.\nAvailable: read, bash. Be concise.\nCurrent working directory: {}\n",
+            cwd
+        )
     );
     let names: Vec<_> = context["tools"]
         .as_array()

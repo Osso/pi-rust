@@ -4,6 +4,7 @@ mod example;
 mod oracle;
 #[path = "support/sdk_examples.rs"]
 mod support;
+use pi_js_compat::js_format;
 use serde_json::json;
 
 #[tokio::test]
@@ -38,8 +39,9 @@ async fn replaces_then_appends_prompt_and_preserves_output_order() {
     let requests = first.requests.lock().unwrap();
     assert_eq!(
         requests[0]["context"]["systemPrompt"],
-        format!(
-            "You are a helpful assistant that speaks like a pirate.\nAlways end responses with \"Arrr!\"\nCurrent working directory: {cwd}\n"
+        js_format!(
+            "You are a helpful assistant that speaks like a pirate.\nAlways end responses with \"Arrr!\"\nCurrent working directory: {}\n",
+            cwd
         )
     );
     assert_eq!(

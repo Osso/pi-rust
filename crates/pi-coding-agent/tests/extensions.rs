@@ -9,6 +9,7 @@ mod oracle;
 #[path = "support/extensions.rs"]
 mod support;
 
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 use pi_js_compat::js_json::encode_node_utf8;
@@ -135,17 +136,17 @@ async fn dispatch(temp_dir: &str) -> Value {
         api.on_before_agent_start(h!(BeforeAgentStartEvent, [l5], |_e, ctx| {
             support::log(
                 &l5,
-                format!("e1:before_agent_start:{}", ctx.get_system_prompt().unwrap()),
+                js_format!("e1:before_agent_start:{}", ctx.get_system_prompt().unwrap()),
             );
             Ok(Some(BeforeAgentStartEventResult {
-                system_prompt: Some(format!("{}|e1", ctx.get_system_prompt().unwrap())),
+                system_prompt: Some(js_format!("{}|e1", ctx.get_system_prompt().unwrap())),
                 message: None,
             }))
         }))
         .unwrap();
         api.on_input(h!(InputEvent, |e, _c| {
             Ok(Some(InputEventResult::Transform {
-                text: format!("{}[e1]", e.text),
+                text: js_format!("{}[e1]", e.text),
                 images: None,
             }))
         }))
@@ -173,7 +174,7 @@ async fn dispatch(temp_dir: &str) -> Value {
         .unwrap();
         let l6 = Arc::clone(&l1);
         api.on_user_bash(h!(UserBashEvent, [l6], |e, _c| {
-            support::log(&l6, format!("e1:user_bash:{}", e.command));
+            support::log(&l6, js_format!("e1:user_bash:{}", e.command));
             Ok(Some(UserBashEventResult {
                 operations: None,
                 result: Some(JsValue::from(
@@ -184,7 +185,7 @@ async fn dispatch(temp_dir: &str) -> Value {
         .unwrap();
         let l7 = Arc::clone(&l1);
         api.on_message_end(h!(MessageEndEvent, [l7], |e, _c| {
-            support::log(&l7, format!("e1:message_end:{}", e.message.role()));
+            support::log(&l7, js_format!("e1:message_end:{}", e.message.role()));
             Ok(Some(MessageEndEventResult {
                 message: Some(e.message.clone()),
             }))
@@ -224,14 +225,14 @@ async fn dispatch(temp_dir: &str) -> Value {
         .unwrap();
         api.on_before_agent_start(h!(BeforeAgentStartEvent, |_e, ctx| {
             Ok(Some(BeforeAgentStartEventResult {
-                system_prompt: Some(format!("{}|e2", ctx.get_system_prompt().unwrap())),
+                system_prompt: Some(js_format!("{}|e2", ctx.get_system_prompt().unwrap())),
                 message: None,
             }))
         }))
         .unwrap();
         api.on_input(h!(InputEvent, |e, _c| {
             Ok(Some(InputEventResult::Transform {
-                text: format!("{}[e2]", e.text),
+                text: js_format!("{}[e2]", e.text),
                 images: None,
             }))
         }))
@@ -315,7 +316,7 @@ async fn dispatch(temp_dir: &str) -> Value {
     let headers = runner
         .emit_before_provider_headers(pi_ai::types::ProviderHeaders::from_iter([(
             "User-Agent".to_owned(),
-            Some("x".to_owned()),
+            Some(JsString::from("x")),
         )]))
         .await;
     steps.push(json!({"headers": headers}));
@@ -411,7 +412,7 @@ async fn errors_scenario(temp_dir: &str) -> Value {
     let headers = runner
         .emit_before_provider_headers(pi_ai::types::ProviderHeaders::from_iter([(
             "User-Agent".to_owned(),
-            Some("x".to_owned()),
+            Some(JsString::from("x")),
         )]))
         .await;
     steps.push(json!({"headers": headers}));
@@ -476,7 +477,7 @@ async fn commands_scenario(temp_dir: &str) -> Value {
             "shared-cmd",
             Some("First command".into()),
             None,
-            Arc::new(|_args: String, _ctx: ExtensionCommandContext| {
+            Arc::new(|_args: JsString, _ctx: ExtensionCommandContext| {
                 Box::pin(async { Ok(()) })
                     as pi_coding_agent::core::extensions::BoxFuture<'static, Result<(), HandlerError>>
             }),
@@ -489,7 +490,7 @@ async fn commands_scenario(temp_dir: &str) -> Value {
             "shared-cmd",
             Some("Second command".into()),
             None,
-            Arc::new(|_args: String, _ctx: ExtensionCommandContext| {
+            Arc::new(|_args: JsString, _ctx: ExtensionCommandContext| {
                 Box::pin(async { Ok(()) })
                     as pi_coding_agent::core::extensions::BoxFuture<'static, Result<(), HandlerError>>
             }),
@@ -499,7 +500,7 @@ async fn commands_scenario(temp_dir: &str) -> Value {
             "solo",
             Some("Solo".into()),
             None,
-            Arc::new(|_args: String, _ctx: ExtensionCommandContext| {
+            Arc::new(|_args: JsString, _ctx: ExtensionCommandContext| {
                 Box::pin(async { Ok(()) })
                     as pi_coding_agent::core::extensions::BoxFuture<'static, Result<(), HandlerError>>
             }),
@@ -593,7 +594,7 @@ async fn input_scenario(temp_dir: &str) -> Value {
                 Ok(Some(InputEventResult::Handled))
             } else {
                 Ok(Some(InputEventResult::Transform {
-                    text: format!("{}[1]", e.text),
+                    text: js_format!("{}[1]", e.text),
                     images: None,
                 }))
             }
@@ -604,7 +605,7 @@ async fn input_scenario(temp_dir: &str) -> Value {
     let b = support::extension(&runtime, temp_dir, &path_in(temp_dir, "b.ts"), |api| {
         api.on_input(h!(InputEvent, |e, _c| {
             Ok(Some(InputEventResult::Transform {
-                text: format!("{}[2]", e.text),
+                text: js_format!("{}[2]", e.text),
                 images: None,
             }))
         }))
@@ -628,7 +629,7 @@ async fn input_images_scenario(temp_dir: &str) -> Value {
     let runtime = support::runtime();
     let a = support::extension(&runtime, temp_dir, &path_in(temp_dir, "images.ts"), |api| {
         api.on_input(h!(InputEvent, |e, _c| {
-            match e.text.as_str() {
+            match e.text.to_utf8().as_deref().unwrap_or_default() {
                 "same" => Ok(Some(InputEventResult::Transform {
                     text: e.text.clone(),
                     images: e.images.clone(),
@@ -1028,7 +1029,7 @@ async fn mutations_scenario(temp_dir: &str) -> Value {
         .unwrap();
         api.on_tool_call(h!(ToolCallEvent, |e, _c| {
             let mut input = e.input;
-            let next = input.get("a").and_then(Value::as_i64).unwrap_or_default() + 1;
+            let next = input.get("a").and_then(JsValue::as_f64).unwrap_or_default() as i64 + 1;
             input.insert(JsString::from("b"), JsValue::from(json!(next)));
             Ok(Some(ToolCallEventResult {
                 reason: Some(JsString::from("mut")),
@@ -1046,7 +1047,7 @@ async fn mutations_scenario(temp_dir: &str) -> Value {
         api.on_before_provider_headers(h!(BeforeProviderHeadersEvent, |e, _c| {
             let mut headers = e.headers;
             let previous = headers.get("X-1").and_then(Clone::clone).unwrap_or_default();
-            headers.insert("X-2".to_owned(), Some(format!("{previous}2")));
+            headers.insert("X-2".to_owned(), Some(js_format!("{}2", previous)));
             Ok(Some(headers))
         }))
         .unwrap();
@@ -1067,7 +1068,7 @@ async fn mutations_scenario(temp_dir: &str) -> Value {
     let headers = runner
         .emit_before_provider_headers(pi_ai::types::ProviderHeaders::from_iter([(
             "User-Agent".to_owned(),
-            Some("x".to_owned()),
+            Some(JsString::from("x")),
         )]))
         .await;
     json!({
@@ -1586,10 +1587,10 @@ async fn gates_and_reviewers_patch_tool_input() {
             .collect::<pi_js_compat::js_json::JsObject>(),
     };
     runner.emit_tool_gates(&mut event).await.unwrap();
-    assert_eq!(event.input.get("gate"), Some(&json!(true)));
+    assert_eq!(event.input.get("gate"), Some(&JsValue::Bool(true)));
 
     runner.emit_approval_reviewers(&mut event).await.unwrap();
-    assert_eq!(event.input.get("approved"), Some(&json!(true)));
+    assert_eq!(event.input.get("approved"), Some(&JsValue::Bool(true)));
     assert!(event.input.get("command").is_none());
 }
 
@@ -1959,7 +1960,11 @@ fn configured_directories_use_manifest_or_index() {
 
 #[test]
 fn disabled_extension_names_filter_paths_and_inline_ids() {
-    let disabled = vec![" foo.ts ".to_owned(), "<first-party:goal>".to_owned(), String::new()];
+    let disabled = vec![
+        JsString::from(" foo.ts "),
+        JsString::from("<first-party:goal>"),
+        JsString::default(),
+    ];
     assert!(is_extension_path_disabled(
         &disabled,
         &JsString::from("/tmp/foo.ts"),
@@ -2240,7 +2245,7 @@ async fn wrapped_definitions_inject_execution_identity_and_cap_output() {
     );
     assert_eq!(updates.lock().unwrap().len(), 1);
     let details = result.details.expect("capped details");
-    let full_output_path = details["fullOutputPath"].as_str().expect("spill path").to_owned();
+    let full_output_path = encode_node_utf8(details["fullOutputPath"].as_string().expect("spill path"));
     assert!(
         std::fs::read_to_string(&full_output_path)
             .expect("spill file")
@@ -2258,10 +2263,10 @@ async fn wrapped_definitions_forward_prepare_arguments_and_prepare_execution() {
     let mut definition = text_definition(Arc::new(|_id, _params, _signal, _on_update, _context| {
         Box::pin(async { Ok(wrapped_text_result("done".to_owned())) })
     }));
-    definition.prepare_arguments = Some(Arc::new(|args: &Value| {
+    definition.prepare_arguments = Some(Arc::new(|args: &JsValue| {
         let mut args = args.clone();
-        if let Some(object) = args.as_object_mut() {
-            object.insert("prepared".to_owned(), Value::Bool(true));
+        if let JsValue::Object(object) = &mut args {
+            object.insert("prepared".into(), JsValue::Bool(true));
         }
         Ok(args)
     }));
@@ -2410,9 +2415,9 @@ async fn runtime_registration_from_command_is_visible_to_runner() {
             .collect::<pi_js_compat::js_json::JsObject>(),
     };
     runner.emit_tool_gates(&mut event).await.unwrap();
-    assert_eq!(event.input["late_gate"], true);
+    assert_eq!(event.input["late_gate"], JsValue::Bool(true));
     runner.emit_approval_reviewers(&mut event).await.unwrap();
-    assert_eq!(event.input["late_review"], true);
+    assert_eq!(event.input["late_review"], JsValue::Bool(true));
 }
 
 #[tokio::test]

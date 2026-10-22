@@ -180,7 +180,7 @@ fn message_text(messages: &[AgentMessage]) -> String {
             AgentMessage::Custom(object) => object
                 .get("summary")
                 .or_else(|| object.get("content"))
-                .and_then(Value::as_str)
+                .and_then(JsValue::as_string)
                 .unwrap_or_default()
                 .to_owned(),
         })
@@ -544,7 +544,10 @@ fn handles_multiple_compactions_using_latest() {
     let AgentMessage::Custom(object) = &loaded.messages[0] else {
         panic!("summary message must be a custom message");
     };
-    let summary = object.get("summary").and_then(Value::as_str).expect("summary field");
+    let summary = object
+        .get("summary")
+        .and_then(JsValue::as_string)
+        .expect("summary field");
     assert!(summary.contains("Second summary"));
 }
 

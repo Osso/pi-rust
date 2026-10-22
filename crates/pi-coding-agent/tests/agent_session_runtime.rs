@@ -1,5 +1,6 @@
 //! Behavioral tests for `core/agent-session-runtime.ts`.
 
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 use pi_js_compat::js_json::encode_node_utf8;
@@ -187,7 +188,7 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
                     fork_logs
                         .lock()
                         .unwrap()
-                        .push(format!("before_fork:{}", event.entry_id));
+                        .push(js_format!("before_fork:{}", event.entry_id));
                     Ok(cancel_fork.then_some(SessionBeforeForkResult {
                         cancel: Some(true),
                         skip_conversation_restore: None,
