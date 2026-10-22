@@ -262,11 +262,11 @@ async fn ask_prompts_with_every_option_and_persists_the_choice() {
     assert_eq!(
         ui.labels(),
         vec![
-            "Trust".to_owned(),
+            JsString::from("Trust"),
             pi_js_compat::js_format!("Trust parent folder ({0})", s(project.parent().unwrap())),
-            "Trust (this session only)".to_owned(),
-            "Do not trust".to_owned(),
-            "Do not trust (this session only)".to_owned(),
+            JsString::from("Trust (this session only)"),
+            JsString::from("Do not trust"),
+            JsString::from("Do not trust (this session only)"),
         ]
     );
     assert_eq!(store.get(&project_path).unwrap(), ProjectTrustDecision::Untrusted);
@@ -540,7 +540,10 @@ async fn cli_context_selects_through_the_startup_ui_in_interactive_mode() {
     assert_eq!(selected.as_ref(), Some(&JsString::from("Yes")));
     assert_eq!(
         *startup.selections.lock().unwrap(),
-        vec![("Pick".to_owned(), vec!["Yes".to_owned(), "No".to_owned()])]
+        vec![(
+            JsString::from("Pick"),
+            vec![JsString::from("Yes"), JsString::from("No")]
+        )]
     );
 
     assert_eq!(
@@ -552,7 +555,7 @@ async fn cli_context_selects_through_the_startup_ui_in_interactive_mode() {
     );
     assert_eq!(
         *startup.inputs.lock().unwrap(),
-        vec![("Name".to_owned(), Some("placeholder".to_owned()))]
+        vec![(JsString::from("Name"), Some(JsString::from("placeholder")))]
     );
 }
 
@@ -573,7 +576,10 @@ async fn cli_context_confirm_uses_yes_no_labels() {
     );
     assert_eq!(
         *startup.selections.lock().unwrap(),
-        vec![("Title\nBody".to_owned(), vec!["Yes".to_owned(), "No".to_owned()])]
+        vec![(
+            JsString::from("Title\nBody"),
+            vec![JsString::from("Yes"), JsString::from("No")]
+        )]
     );
 
     let startup = RecordingStartupUi::new(Some("No"), None);

@@ -158,7 +158,10 @@ async fn project_resources_win_name_collisions() {
         .into_iter()
         .find(|prompt| prompt.name == "commit")
         .unwrap();
-    assert_eq!(prompt.file_path, cwd.join(".pi/prompts/commit.md").to_string_lossy());
+    assert_eq!(
+        prompt.file_path,
+        JsString::from(cwd.join(".pi/prompts/commit.md").to_str().unwrap())
+    );
     let skill = resource_loader
         .get_skills()
         .skills
@@ -167,7 +170,7 @@ async fn project_resources_win_name_collisions() {
         .unwrap();
     assert_eq!(
         skill.file_path,
-        cwd.join(".pi/skills/collision/SKILL.md").to_string_lossy()
+        JsString::from(cwd.join(".pi/skills/collision/SKILL.md").to_str().unwrap())
     );
     let themes = resource_loader.get_themes();
     let theme = themes
@@ -291,7 +294,7 @@ async fn context_file_variants_dedupe_and_directories_are_ignored() {
     resource_loader.reload().await.unwrap();
     let files = resource_loader.get_agents_files().agents_files;
     assert_eq!(files.len(), 1);
-    assert_eq!(files[0].path, cwd.join("AGENTS.md").to_string_lossy());
+    assert_eq!(files[0].path, JsString::from(cwd.join("AGENTS.md").to_str().unwrap()));
 
     let nested_loader = loader(&directory_cwd, &agent_dir, true);
     nested_loader.reload().await.unwrap();
@@ -605,7 +608,9 @@ async fn extend_resources_loads_skills_and_prompts_with_metadata() {
             },
         }],
         prompt_paths: vec![ExtendedResourcePath {
-            path: extra_prompts.join("extra.md").to_string_lossy().into_owned().into(),
+            path: JsString::from(extra_prompts.join("extra.md").to_str().unwrap())
+                .into_owned()
+                .into(),
             metadata: pi_coding_agent::core::package_manager::PathMetadata {
                 source: "extension:extra".to_owned().into(),
                 scope: pi_coding_agent::core::package_manager::SourceScope::Temporary,
@@ -623,7 +628,10 @@ async fn extend_resources_loads_skills_and_prompts_with_metadata() {
         .find(|skill| skill.name == "extra-skill")
         .unwrap();
     assert_eq!(skill.source_info.source, "extension:extra");
-    assert_eq!(skill.source_info.path, extra_skill.join("SKILL.md").to_string_lossy());
+    assert_eq!(
+        skill.source_info.path,
+        JsString::from(extra_skill.join("SKILL.md").to_str().unwrap())
+    );
     let prompt = resource_loader
         .get_prompts()
         .prompts
@@ -633,7 +641,7 @@ async fn extend_resources_loads_skills_and_prompts_with_metadata() {
     assert_eq!(prompt.source_info.source, "extension:extra");
     assert_eq!(
         prompt.source_info.path,
-        extra_prompts.join("extra.md").to_string_lossy()
+        JsString::from(extra_prompts.join("extra.md").to_str().unwrap())
     );
 }
 

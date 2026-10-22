@@ -186,7 +186,7 @@ fn unknown_auth_subcommands_have_exact_dynamic_messages() {
             "Unknown auth command \"{subcommand}\". Use \"pi auth print-api-key\", \"pi auth print-bearer-token\", or \"pi auth check\"."
         );
         let actual = error(case);
-        assert_eq!(actual.message(), expected);
+        assert_eq!(actual.message(), &pi_js_compat::js_json::JsString::from(expected));
     }
 }
 
@@ -234,7 +234,10 @@ fn credential_commands_reject_check_only_flags() {
 
     for (case, flag) in cases {
         let actual = error(case);
-        assert_eq!(actual.message(), format!("{flag} is only supported by auth check"));
+        assert_eq!(
+            actual.message(),
+            &pi_js_compat::js_format!("{0} is only supported by auth check", flag)
+        );
     }
 
     let actual = error(&["auth", "print-bearer-token", "--min-expiry", "1h", "--json"]);
@@ -385,7 +388,7 @@ fn auth_command_errors_expose_source_compatible_identity_and_message() {
     let expected = "Unknown auth command \"unknown\". Use \"pi auth print-api-key\", \"pi auth print-bearer-token\", or \"pi auth check\".";
 
     assert_eq!(actual.name(), "Error");
-    assert_eq!(actual.message(), expected);
+    assert_eq!(actual.message(), &pi_js_compat::js_json::JsString::from(expected));
     assert_eq!(actual.to_string(), expected);
     assert!(actual.source().is_none());
 

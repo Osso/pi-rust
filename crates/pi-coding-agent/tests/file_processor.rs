@@ -168,7 +168,10 @@ fn reports_missing_files_with_the_source_message() {
         .await
         .unwrap_err();
 
-        assert_eq!(error.message(), format!("File not found: {}", missing.display()));
+        assert_eq!(
+            error.message(),
+            &pi_js_compat::js_format!("File not found: {0}", missing.display().to_string())
+        );
         std::fs::remove_dir_all(dir).unwrap();
     });
 }

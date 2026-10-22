@@ -299,7 +299,7 @@ fn status_response(id: u64, status: Value) -> Value {
 fn explicit_status(config: &str, entries: &[(&str, &str)]) -> Value {
     let values = entries
         .iter()
-        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+        .map(|(name, value)| ((*name).to_owned(), pi_js_compat::js_json::JsString::from(*value)))
         .collect::<HashMap<_, _>>();
     normalized_status(config, Some(&values))
 }
