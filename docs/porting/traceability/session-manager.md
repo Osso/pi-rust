@@ -140,3 +140,17 @@ mutates a persistence-only raw object copy, retaining arbitrary entry/message/co
 fields and raw keys unless the pinned truncation algorithm explicitly removes them.
 Dedicated `lossless_session_persistence` tests reproduced empty raw-header output and
 uncapped imported tool results before implementation. Integration proof remains pending.
+
+Q18 imported identity uses UTF-16 lookup/index keys and transient typed projections.
+`FileEntry::Json` retains valid JSON primitives/arrays without invented wrappers. Such
+values are parse/serialization proof only, not typed runtime-record inputs.
+
+The v1 migration now resolves `firstKeptEntryIndex` in the original single-pass mutation
+order and deletes the legacy field only for compaction records; a pinned differential
+reproduced the former two-pass mismatch with a future raw target ID. The pinned TS
+collision Set is never populated, whereas Rust currently tracks generated IDs: this
+source discrepancy is awaiting user classification, not new-pin parity evidence.
+
+Raw imported common-role messages remain complete objects in the context projection;
+this proof does not establish downstream agent/provider interpretation of those raw
+objects. Main integration owns that consumer gate. Native path integration remains open.

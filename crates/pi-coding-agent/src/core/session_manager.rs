@@ -680,17 +680,13 @@ impl<'de> Deserialize<'de> for SessionEntry {
 }
 
 impl SessionEntry {
-    pub(crate) fn from_value(value: Value) -> Self {
-        match serde_json::from_value::<KnownSessionEntry>(value.clone()) {
-            Ok(entry) => Self::Known(entry),
-            Err(_) => match value {
-                Value::Object(object) => Self::Unknown(object.into()),
-                other => {
-                    let mut object = Map::new();
-                    object.insert("value".to_owned(), other);
-                    Self::Unknown(object.into())
-                }
-            },
+    /// A transient typed projection; imported objects remain the sole stored authority.
+    pub fn known(&self) -> Option<Cow<'_, KnownSessionEntry>> {
+        match self {
+            Self::Known(entry) => Some(Cow::Borrowed(entry)),
+            Self::Unknown(object) => pi_js_compat::js_json::from_value(&JsValue::Object(object.0.clone()))
+                .ok()
+                .map(Cow::Owned),
         }
     }
 
@@ -829,71 +825,37 @@ impl SessionEntry {
         }
     }
 
-    fn set_id_parent(&mut self, id: JsString, parent_id: Option<JsString>) {
-        match self {
-            Self::Known(KnownSessionEntry::Message(entry)) => {
-                entry.id = id;
-                entry.parent_id = parent_id;
-            }
-            Self::Known(KnownSessionEntry::ThinkingLevelChange(entry)) => {
-                entry.id = id;
-                entry.parent_id = parent_id;
-            }
-            Self::Known(KnownSessionEntry::ModelChange(entry)) => {
-                entry.id = id;
-                entry.parent_id = parent_id;
-            }
-            Self::Known(KnownSessionEntry::Compaction(entry)) => {
-                entry.id = id;
-                entry.parent_id = parent_id;
-            }
-            Self::Known(KnownSessionEntry::BranchSummary(entry)) => {
-                entry.id = id;
-                entry.parent_id = parent_id;
-            }
-            Self::Known(KnownSessionEntry::Custom(entry)) => {
-                entry.id = id;
-                entry.parent_id = parent_id;
-            }
-            Self::Known(KnownSessionEntry::CustomMessage(entry)) => {
-                entry.id = id;
-                entry.parent_id = parent_id;
-            }
-            Self::Known(KnownSessionEntry::Label(entry)) => {
-                entry.id = id;
-                entry.parent_id = parent_id;
-            }
-            Self::Known(KnownSessionEntry::SessionInfo(entry)) => {
-                entry.id = id;
-                entry.parent_id = parent_id;
-            }
-            Self::Unknown(object) => {
-                object.insert("id".into(), JsValue::String(id));
-                object.insert(
-                    "parentId".into(),
-                    parent_id.map(JsValue::String).unwrap_or(JsValue::Null),
-                );
-            }
+    fn object_mut(&mut self) -> &mut JsObject {
+        if let Self::Known(_) = self {
+            let value = pi_js_compat::js_json::to_value(self).expect("known record serializes losslessly");
+            let JsValue::Object(object) = value else {
+                unreachable!("known record is an object")
+            };
+            *self = Self::Unknown(UnknownSessionEntry(object));
         }
+        let Self::Unknown(object) = self else {
+            unreachable!("record converted to raw authority")
+        };
+        &mut object.0
+    }
+
+    fn set_id_parent(&mut self, id: JsString, parent_id: Option<JsString>) {
+        let object = self.object_mut();
+        object.insert("id".into(), JsValue::String(id));
+        object.insert(
+            "parentId".into(),
+            parent_id.map(JsValue::String).unwrap_or(JsValue::Null),
+        );
     }
 
     fn set_hook_role_to_custom(&mut self) {
-        match self {
-            Self::Known(KnownSessionEntry::Message(entry)) => {
-                if let AgentMessage::Custom(object) = entry.message.as_mut()
-                    && object.get("role").and_then(JsValue::as_string) == Some(&JsString::from("hookMessage"))
-                {
-                    object.insert("role".into(), JsValue::String("custom".into()));
-                }
-            }
-            Self::Unknown(object) => {
-                if let Some(message) = object.get_mut("message").and_then(JsValue::as_object_mut)
-                    && message.get("role").and_then(JsValue::as_string) == Some(&JsString::from("hookMessage"))
-                {
-                    message.insert("role".into(), JsValue::String("custom".into()));
-                }
-            }
-            _ => {}
+        if self.entry_type() != "message" {
+            return;
+        }
+        if let Some(message) = self.object_mut().get_mut("message").and_then(JsValue::as_object_mut)
+            && message.get("role").and_then(JsValue::as_string) == Some(&JsString::from("hookMessage"))
+        {
+            message.insert("role".into(), JsValue::String("custom".into()));
         }
     }
 }
@@ -904,23 +866,29 @@ impl SessionEntry {
 pub enum FileEntry {
     Header(SessionHeader),
     Entry(SessionEntry),
+    /// JSON.parse accepts non-record values; preserve them without a fabricated object.
+    Json(PersistedJsonValue),
 }
 impl<'de> Deserialize<'de> for FileEntry {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let raw = Box::<serde_json::value::RawValue>::deserialize(deserializer)?;
-        if let Ok(header) = serde_json::from_str::<SessionHeader>(raw.get()) {
-            return Ok(Self::Header(header));
+        let value = JsValue::deserialize(deserializer)?;
+        match value {
+            JsValue::Object(fields) => {
+                if fields.get("type").and_then(JsValue::as_string) == Some(&JsString::from("session")) {
+                    Ok(Self::Header(SessionHeader { fields }))
+                } else {
+                    Ok(Self::Entry(SessionEntry::Unknown(UnknownSessionEntry(fields))))
+                }
+            }
+            value => Ok(Self::Json(PersistedJsonValue(value))),
         }
-        serde_json::from_str(raw.get())
-            .map(Self::Entry)
-            .map_err(serde::de::Error::custom)
     }
 }
 
 impl FileEntry {
     pub fn entry(&self) -> Option<&SessionEntry> {
         match self {
-            Self::Header(_) => None,
+            Self::Header(_) | Self::Json(_) => None,
             Self::Entry(entry) => Some(entry),
         }
     }
@@ -929,14 +897,14 @@ impl FileEntry {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionModel {
-    pub provider: String,
-    pub model_id: String,
+    pub provider: JsString,
+    pub model_id: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SessionContext {
     pub messages: Vec<AgentMessage>,
-    pub thinking_level: String,
+    pub thinking_level: JsString,
     pub model: Option<SessionModel>,
 }
 
@@ -947,7 +915,7 @@ pub enum LeafSelection<'a> {
     #[default]
     Last,
     None,
-    Id(&'a str),
+    Id(&'a JsString),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -956,9 +924,9 @@ pub struct SessionTreeNode {
     pub entry: SessionEntry,
     pub children: Vec<SessionTreeNode>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
+    pub label: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub label_timestamp: Option<String>,
+    pub label_timestamp: Option<JsString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -985,7 +953,7 @@ pub type SessionListProgress<'a> = &'a mut dyn FnMut(usize, usize);
 pub enum ForkEntrySelection {
     All,
     None,
-    From(String),
+    From(JsString),
 }
 
 /// Optional compaction metadata recorded by [`SessionManager::append_compaction`].
@@ -1040,59 +1008,60 @@ pub fn assert_valid_session_id(id: &str) -> Result<(), SessionManagerError> {
 }
 
 fn migrate_v1_to_v2(entries: &mut [FileEntry]) {
-    let mut ids: HashMap<JsString, ()> = HashMap::new();
-    let mut previous_id: Option<JsString> = None;
-
-    for entry in entries.iter_mut() {
-        match entry {
+    // Collision policy awaits classification of the pinned source's unpopulated Set.
+    let mut ids = HashMap::new();
+    let mut previous_id = None;
+    for position in 0..entries.len() {
+        let first_kept_index = match &mut entries[position] {
             FileEntry::Header(header) => {
                 header.set_version(2.0);
+                continue;
             }
+            FileEntry::Json(_) => continue,
             FileEntry::Entry(entry) => {
                 let id = generate_id_for_ids(&ids);
                 ids.insert(id.clone(), ());
-                entry.set_id_parent(id.clone(), previous_id.clone());
+                entry.set_id_parent(id.clone(), previous_id);
                 previous_id = Some(id);
+                if entry.entry_type() != "compaction" {
+                    continue;
+                }
+                entry.object_mut().get("firstKeptEntryIndex").and_then(JsValue::as_f64)
             }
-        }
-    }
-
-    let entry_ids: Vec<Option<JsString>> = entries
-        .iter()
-        .map(|entry| match entry {
-            FileEntry::Header(_) => None,
-            FileEntry::Entry(entry) => entry.id().cloned(),
-        })
-        .collect();
-    for entry in entries.iter_mut() {
-        let FileEntry::Entry(entry) = entry else {
-            continue;
         };
-        match entry {
-            SessionEntry::Known(KnownSessionEntry::Compaction(compaction)) => {
-                if let Some(index) = compaction.first_kept_entry_index {
-                    if let Some(Some(id)) = entry_ids.get(index as usize) {
-                        compaction.first_kept_entry_id = id.clone();
-                    }
-                    compaction.first_kept_entry_index = None;
-                }
-            }
-            SessionEntry::Unknown(object) => {
-                if let Some(index) = object.get("firstKeptEntryIndex").and_then(JsValue::as_f64) {
-                    if let Some(Some(id)) = entry_ids.get(index as usize) {
-                        object.insert("firstKeptEntryId".into(), JsValue::String(id.clone()));
-                    }
-                    object.shift_remove("firstKeptEntryIndex");
-                }
-            }
-            _ => {}
+        if let Some(index) = first_kept_index {
+            migrate_first_kept_entry(entries, position, index);
         }
     }
+}
+
+fn migrate_first_kept_entry(entries: &mut [FileEntry], position: usize, index: f64) {
+    // JS array property access does not truncate fractional/negative indices.
+    let target = (index >= 0.0 && index.fract() == 0.0 && index < entries.len() as f64)
+        .then(|| entries[index as usize].entry())
+        .flatten();
+    let target_id = target.map(|entry| entry.id().cloned());
+    let FileEntry::Entry(entry) = &mut entries[position] else {
+        unreachable!("compaction entry")
+    };
+    let object = entry.object_mut();
+    if let Some(target_id) = target_id {
+        match target_id {
+            Some(id) => {
+                object.insert("firstKeptEntryId".into(), JsValue::String(id));
+            }
+            None => {
+                object.shift_remove("firstKeptEntryId");
+            }
+        }
+    }
+    object.shift_remove("firstKeptEntryIndex");
 }
 
 fn migrate_v2_to_v3(entries: &mut [FileEntry]) {
     for entry in entries.iter_mut() {
         match entry {
+            FileEntry::Json(_) => {}
             FileEntry::Header(header) => header.set_version(3.0),
             FileEntry::Entry(entry) => entry.set_hook_role_to_custom(),
         }
@@ -1105,7 +1074,7 @@ pub fn migrate_to_current_version(entries: &mut [FileEntry]) -> bool {
         .iter()
         .find_map(|entry| match entry {
             FileEntry::Header(header) => Some(header.version().unwrap_or(1.0)),
-            FileEntry::Entry(_) => None,
+            FileEntry::Entry(_) | FileEntry::Json(_) => None,
         })
         .unwrap_or(1.0);
 
@@ -1134,14 +1103,6 @@ pub fn parse_session_entries(content: &str) -> Vec<FileEntry> {
         .filter(|line| !line.trim().is_empty())
         .filter_map(|line| parse_session_file_entry(line).ok())
         .collect()
-}
-
-fn parse_file_entry_value(value: Value) -> FileEntry {
-    let is_header = value.get("type").and_then(Value::as_str) == Some("session");
-    if is_header && let Ok(header) = serde_json::from_value::<SessionHeader>(value.clone()) {
-        return FileEntry::Header(header);
-    }
-    FileEntry::Entry(SessionEntry::from_value(value))
 }
 
 /// Latest compaction entry in the list.
@@ -1195,25 +1156,25 @@ fn build_session_path<'a>(entries: &'a [SessionEntry], leaf: LeafSelection<'_>) 
     path
 }
 
-fn context_settings(path: &[&SessionEntry]) -> (String, Option<SessionModel>) {
-    let mut thinking_level = "off".to_owned();
+fn context_settings(path: &[&SessionEntry]) -> (JsString, Option<SessionModel>) {
+    let mut thinking_level = JsString::from("off");
     let mut model = None;
     for entry in path {
-        match entry {
-            SessionEntry::Known(KnownSessionEntry::ThinkingLevelChange(change)) => {
+        match entry.known().as_deref() {
+            Some(KnownSessionEntry::ThinkingLevelChange(change)) => {
                 thinking_level = change.thinking_level.clone();
             }
-            SessionEntry::Known(KnownSessionEntry::ModelChange(change)) => {
+            Some(KnownSessionEntry::ModelChange(change)) => {
                 model = Some(SessionModel {
                     provider: change.provider.clone(),
                     model_id: change.model_id.clone(),
                 });
             }
-            SessionEntry::Known(KnownSessionEntry::Message(message)) => {
+            Some(KnownSessionEntry::Message(message)) => {
                 if let AgentMessage::Assistant(assistant) = message.message.as_ref() {
                     model = Some(SessionModel {
-                        provider: assistant.provider.clone(),
-                        model_id: assistant.model.clone(),
+                        provider: assistant.provider.clone().into(),
+                        model_id: assistant.model.clone().into(),
                     });
                 }
             }
@@ -1223,11 +1184,22 @@ fn context_settings(path: &[&SessionEntry]) -> (String, Option<SessionModel>) {
     (thinking_level, model)
 }
 
+fn record_timestamp_millis(timestamp: &JsString) -> Option<i64> {
+    // A lone surrogate cannot occur in any valid Date.parse grammar.
+    timestamp
+        .to_utf8()
+        .ok()
+        .and_then(|text| pi_js_compat::date::date_parse_millis(&text))
+}
+
 fn message_from_context_entry(entry: &SessionEntry) -> Option<AgentMessage> {
-    match entry {
-        SessionEntry::Known(KnownSessionEntry::Message(message)) => Some(message.message.as_ref().clone()),
-        SessionEntry::Known(KnownSessionEntry::CustomMessage(message)) => {
-            let timestamp = pi_js_compat::date::date_parse_millis(&message.timestamp).unwrap_or(0);
+    if let Some(message) = entry.message() {
+        return Some(message.into_owned());
+    }
+    match entry.known().as_deref() {
+        Some(KnownSessionEntry::Message(message)) => Some(message.message.as_ref().clone()),
+        Some(KnownSessionEntry::CustomMessage(message)) => {
+            let timestamp = record_timestamp_millis(&message.timestamp).unwrap_or(0);
             Some(create_custom_message(
                 &message.custom_type,
                 message.content.clone(),
@@ -1236,16 +1208,16 @@ fn message_from_context_entry(entry: &SessionEntry) -> Option<AgentMessage> {
                 timestamp,
             ))
         }
-        SessionEntry::Known(KnownSessionEntry::BranchSummary(summary)) if !summary.summary.is_empty() => {
-            let timestamp = pi_js_compat::date::date_parse_millis(&summary.timestamp).unwrap_or(0);
+        Some(KnownSessionEntry::BranchSummary(summary)) if !summary.summary.is_empty() => {
+            let timestamp = record_timestamp_millis(&summary.timestamp).unwrap_or(0);
             Some(create_branch_summary_message(
                 &summary.summary,
                 &summary.from_id,
                 timestamp,
             ))
         }
-        SessionEntry::Known(KnownSessionEntry::Compaction(compaction)) => {
-            let timestamp = pi_js_compat::date::date_parse_millis(&compaction.timestamp).unwrap_or(0);
+        Some(KnownSessionEntry::Compaction(compaction)) => {
+            let timestamp = record_timestamp_millis(&compaction.timestamp).unwrap_or(0);
             Some(create_compaction_summary_message(
                 &compaction.summary,
                 compaction.tokens_before,
@@ -1449,7 +1421,7 @@ fn collect_kept_entries<'a>(
     let mut kept = Vec::new();
     let mut found_first = false;
     for entry in path.iter().take(compaction_index) {
-        if entry.id() == Some(compaction.first_kept_entry_id.as_str()) {
+        if entry.id() == Some(&compaction.first_kept_entry_id) {
             found_first = true;
         }
         if found_first {
@@ -1484,10 +1456,10 @@ pub fn build_context_entries(entries: &[SessionEntry], leaf: LeafSelection<'_>) 
     };
 
     let mut context_entries = vec![(*compaction).clone()];
-    let first_kept = compaction.as_compaction().map(|data| data.first_kept_entry_id.as_str());
+    let first_kept = compaction.as_compaction().map(|data| data.first_kept_entry_id.clone());
     let mut found_first = false;
     for entry in path.iter().take(compaction_index) {
-        if Some(entry.id().unwrap_or_default()) == first_kept {
+        if entry.id() == first_kept.as_ref() {
             found_first = true;
         }
         if found_first {
@@ -1558,7 +1530,9 @@ fn parse_session_entry_line(line: &str) -> Option<FileEntry> {
 
 /// Parse JSONL without projecting message content through scalar-only JSON.
 pub(crate) fn parse_session_file_entry(line: &str) -> Result<FileEntry, SessionManagerError> {
-    serde_json::from_str(line).map_err(control_db_error)
+    pi_js_compat::js_json::parse_lossless(line)
+        .map_err(|cause| error(cause.into_message()))
+        .and_then(|value| pi_js_compat::js_json::from_value(&value).map_err(control_db_error))
 }
 
 fn decode_utf8_lossy(bytes: &[u8]) -> String {
@@ -1715,8 +1689,8 @@ struct ReverseSessionScan {
     has_inactive_entries: bool,
     active_path: Vec<SessionEntry>,
     is_reading_leaf: bool,
-    required_parent_id: Option<String>,
-    latest_compaction: Option<(String, String)>,
+    required_parent_id: Option<JsString>,
+    latest_compaction: Option<(JsString, JsString)>,
     found_first_kept_entry: bool,
     preceding_cwd: Option<String>,
     allow_incomplete_trailing_entry: bool,
@@ -1795,10 +1769,10 @@ fn cwd_from_changed_entry(entry: &SessionEntry) -> Option<String> {
 }
 
 fn scan_session_entry_reverse(scan: &mut ReverseSessionScan, entry: SessionEntry) -> bool {
-    let entry_id = entry.id().unwrap_or_default().to_owned();
-    let parent_id = entry.parent_id().map(str::to_owned);
+    let entry_id = entry.id().unwrap_or_else(|| empty_js_string()).to_owned();
+    let parent_id = entry.parent_id().cloned();
 
-    let is_active_entry = scan.is_reading_leaf || scan.required_parent_id.as_deref() == Some(entry_id.as_str());
+    let is_active_entry = scan.is_reading_leaf || scan.required_parent_id.as_ref() == Some(&entry_id);
     if !is_active_entry {
         scan.has_inactive_entries = true;
         return false;
@@ -2250,7 +2224,7 @@ fn write_fork_entries(
     let session_entries: Vec<SessionEntry> = source_entries
         .into_iter()
         .filter_map(|entry| match entry {
-            FileEntry::Header(_) => None,
+            FileEntry::Header(_) | FileEntry::Json(_) => None,
             FileEntry::Entry(entry) => Some(entry),
         })
         .collect();
@@ -2262,7 +2236,7 @@ fn write_fork_entries(
     for (index, entry) in entries_to_copy.into_iter().enumerate() {
         let mut entry = entry;
         if index == 0 {
-            entry.set_id_parent(entry.id().unwrap_or_default().to_owned(), None);
+            entry.set_id_parent(entry.id().unwrap_or_else(|| empty_js_string()).to_owned(), None);
         }
         let line = serialize_session_entry_for_persistence(&FileEntry::Entry(entry));
         writeln!(file, "{line}").map_err(|error| SessionManagerError::new(error.to_string()))?;
@@ -2283,18 +2257,18 @@ fn select_fork_entries(entries: Vec<SessionEntry>, selection: Option<ForkEntrySe
 
 fn build_session_tree(
     entries: &[SessionEntry],
-    labels: &[(String, String)],
-    label_timestamps: &[(String, String)],
+    labels: &[(JsString, JsString)],
+    label_timestamps: &[(JsString, JsString)],
 ) -> Vec<SessionTreeNode> {
     let mut nodes: Vec<Option<SessionTreeNode>> = entries
         .iter()
         .map(|entry| {
-            let id = entry.id().unwrap_or_default();
+            let id = entry.id().unwrap_or_else(|| empty_js_string());
             Some(SessionTreeNode {
                 entry: entry.clone(),
                 children: Vec::new(),
-                label: lookup_label(labels, id).map(str::to_owned),
-                label_timestamp: lookup_label(label_timestamps, id).map(str::to_owned),
+                label: lookup_label(labels, id).cloned(),
+                label_timestamp: lookup_label(label_timestamps, id).cloned(),
             })
         })
         .collect();
@@ -2307,15 +2281,12 @@ fn build_session_tree(
         .collect()
 }
 
-fn lookup_label<'a>(labels: &'a [(String, String)], id: &str) -> Option<&'a str> {
-    labels
-        .iter()
-        .find(|(target, _)| target == id)
-        .map(|(_, value)| value.as_str())
+fn lookup_label<'a>(labels: &'a [(JsString, JsString)], id: &JsString) -> Option<&'a JsString> {
+    labels.iter().find(|(target, _)| target == id).map(|(_, value)| value)
 }
 
 fn link_tree_positions(entries: &[SessionEntry]) -> (Vec<Vec<usize>>, Vec<usize>) {
-    let index: HashMap<&str, usize> = entries
+    let index: HashMap<&JsString, usize> = entries
         .iter()
         .enumerate()
         .filter_map(|(position, entry)| entry.id().map(|id| (id, position)))
@@ -2352,12 +2323,7 @@ fn attach_children_in_bottom_up_order(
             .iter()
             .filter_map(|child| nodes[*child].take())
             .collect();
-        children.sort_by_key(|node| {
-            node.entry
-                .timestamp()
-                .and_then(pi_js_compat::date::date_parse_millis)
-                .unwrap_or(0)
-        });
+        children.sort_by_key(|node| node.entry.timestamp().and_then(record_timestamp_millis).unwrap_or(0));
         if let Some(mut node) = nodes[*position].take() {
             node.children = children;
             nodes[*position] = Some(node);
@@ -2367,13 +2333,16 @@ fn attach_children_in_bottom_up_order(
 
 fn rechain_path_without_labels(path: &[SessionEntry]) -> Vec<SessionEntry> {
     let mut rechain: Vec<SessionEntry> = Vec::new();
-    let mut parent_id: Option<String> = None;
+    let mut parent_id: Option<JsString> = None;
     for entry in path {
         if entry.as_label().is_some() {
             continue;
         }
         let mut entry = entry.clone();
-        entry.set_id_parent(entry.id().unwrap_or_default().to_owned(), parent_id.clone());
+        entry.set_id_parent(
+            entry.id().unwrap_or_else(|| empty_js_string()).to_owned(),
+            parent_id.clone(),
+        );
         parent_id = entry.id().cloned();
         rechain.push(entry);
     }
@@ -2388,12 +2357,12 @@ fn entry_id_set(entries: &[SessionEntry]) -> HashMap<JsString, ()> {
 }
 
 fn build_branch_label_entries(
-    labels: &[(String, String)],
-    label_timestamps: &[(String, String)],
+    labels: &[(JsString, JsString)],
+    label_timestamps: &[(JsString, JsString)],
     path_without_labels: &[SessionEntry],
     path_entry_ids: &mut HashMap<JsString, ()>,
 ) -> Vec<SessionEntry> {
-    let labels_to_write: Vec<(String, String, String)> = labels
+    let labels_to_write: Vec<(JsString, JsString, JsString)> = labels
         .iter()
         .filter(|(target_id, _)| path_entry_ids.contains_key(target_id))
         .map(|(target_id, label)| {
@@ -2469,9 +2438,9 @@ pub struct SessionManager {
     flushed: bool,
     file_entries: Vec<FileEntry>,
     by_id: HashMap<JsString, usize>,
-    labels_by_id: Vec<(String, String)>,
-    label_timestamps_by_id: Vec<(String, String)>,
-    leaf_id: Option<String>,
+    labels_by_id: Vec<(JsString, JsString)>,
+    label_timestamps_by_id: Vec<(JsString, JsString)>,
+    leaf_id: Option<JsString>,
     is_subagent: bool,
     subagent_name: Option<JsString>,
     metadata_control_db_path: Option<String>,
@@ -2787,11 +2756,7 @@ impl SessionManager {
             if let Some(label) = entry.as_label() {
                 label_updates.push((
                     label.target_id.clone(),
-                    label
-                        .label
-                        .as_deref()
-                        .filter(|label| !label.is_empty())
-                        .map(str::to_owned),
+                    label.label.as_ref().filter(|label| !label.is_empty()).cloned(),
                     label.timestamp.clone(),
                 ));
             }
@@ -2804,7 +2769,7 @@ impl SessionManager {
         }
     }
 
-    fn set_label(&mut self, target_id: &str, label: &str, timestamp: &str) {
+    fn set_label(&mut self, target_id: &JsString, label: &JsString, timestamp: &JsString) {
         if let Some(existing) = self.labels_by_id.iter_mut().find(|(id, _)| id == target_id) {
             existing.1 = label.to_owned();
         } else {
@@ -2818,16 +2783,16 @@ impl SessionManager {
         }
     }
 
-    fn remove_label(&mut self, target_id: &str) {
+    fn remove_label(&mut self, target_id: &JsString) {
         self.labels_by_id.retain(|(id, _)| id != target_id);
         self.label_timestamps_by_id.retain(|(id, _)| id != target_id);
     }
 
-    fn label(&self, target_id: &str) -> Option<&str> {
+    fn label(&self, target_id: &JsString) -> Option<&JsString> {
         self.labels_by_id
             .iter()
             .find(|(id, _)| id == target_id)
-            .map(|(_, label)| label.as_str())
+            .map(|(_, label)| label)
     }
 
     fn rewrite_file(&mut self) -> Result<(), SessionManagerError> {
@@ -2860,7 +2825,7 @@ impl SessionManager {
 
     fn has_assistant(&self) -> bool {
         self.file_entries.iter().any(|entry| match entry {
-            FileEntry::Header(_) => false,
+            FileEntry::Header(_) | FileEntry::Json(_) => false,
             FileEntry::Entry(entry) => entry.message().is_some_and(|message| message.role() == "assistant"),
         })
     }
@@ -2899,8 +2864,8 @@ impl SessionManager {
         Ok(())
     }
 
-    fn append_entry(&mut self, entry: SessionEntry) -> Result<String, SessionManagerError> {
-        let id = entry.id().unwrap_or_default().to_owned();
+    fn append_entry(&mut self, entry: SessionEntry) -> Result<JsString, SessionManagerError> {
+        let id = entry.id().unwrap_or_else(|| empty_js_string()).to_owned();
         self.file_entries.push(FileEntry::Entry(entry.clone()));
         let position = self.file_entries.len() - 1;
         self.by_id.insert(id.clone(), position);
@@ -2912,8 +2877,8 @@ impl SessionManager {
         Ok(id)
     }
 
-    fn timestamp(&self) -> String {
-        iso_time::now_iso_string()
+    fn timestamp(&self) -> JsString {
+        iso_time::now_iso_string().into()
     }
 
     pub fn is_persisted(&self) -> bool {
@@ -3238,24 +3203,24 @@ impl SessionManager {
         self.write_metadata_snapshot()
     }
 
-    pub fn get_leaf_id(&self) -> Option<&str> {
-        self.leaf_id.as_deref()
+    pub fn get_leaf_id(&self) -> Option<&JsString> {
+        self.leaf_id.as_ref()
     }
 
     pub fn get_leaf_entry(&self) -> Option<&SessionEntry> {
-        let id = self.leaf_id.as_deref()?;
+        let id = self.leaf_id.as_ref()?;
         self.get_entry(id)
     }
 
-    pub fn get_entry(&self, id: &str) -> Option<&SessionEntry> {
+    pub fn get_entry(&self, id: &JsString) -> Option<&SessionEntry> {
         let position = *self.by_id.get(id)?;
         match self.file_entries.get(position)? {
             FileEntry::Entry(entry) => Some(entry),
-            FileEntry::Header(_) => None,
+            FileEntry::Header(_) | FileEntry::Json(_) => None,
         }
     }
 
-    pub fn get_children(&self, parent_id: &str) -> Vec<SessionEntry> {
+    pub fn get_children(&self, parent_id: &JsString) -> Vec<SessionEntry> {
         self.file_entries
             .iter()
             .filter_map(|entry| match entry {
@@ -3265,11 +3230,11 @@ impl SessionManager {
             .collect()
     }
 
-    pub fn get_label(&self, id: &str) -> Option<&str> {
+    pub fn get_label(&self, id: &JsString) -> Option<&JsString> {
         self.label(id)
     }
 
-    pub fn append_message(&mut self, message: AgentMessage) -> Result<String, SessionManagerError> {
+    pub fn append_message(&mut self, message: AgentMessage) -> Result<JsString, SessionManagerError> {
         self.append_message_with_mailbox_store_refs(message, None)
     }
 
@@ -3277,7 +3242,7 @@ impl SessionManager {
         &mut self,
         message: AgentMessage,
         mailbox_store_refs: Option<&[super::session_control_db::RuntimeMailboxStoreRef]>,
-    ) -> Result<String, SessionManagerError> {
+    ) -> Result<JsString, SessionManagerError> {
         let mailbox_store_refs = mailbox_store_refs
             .map(|refs| {
                 let json = serde_json::to_string(refs).map_err(control_db_error)?;
@@ -3296,7 +3261,7 @@ impl SessionManager {
         self.append_entry(entry)
     }
 
-    pub fn append_thinking_level_change(&mut self, thinking_level: &str) -> Result<String, SessionManagerError> {
+    pub fn append_thinking_level_change(&mut self, thinking_level: &JsString) -> Result<JsString, SessionManagerError> {
         let entry = SessionEntry::Known(KnownSessionEntry::ThinkingLevelChange(ThinkingLevelChangeEntry {
             id: generate_id(&self.by_id),
             parent_id: self.leaf_id.clone(),
@@ -3306,7 +3271,11 @@ impl SessionManager {
         self.append_entry(entry)
     }
 
-    pub fn append_model_change(&mut self, provider: &str, model_id: &str) -> Result<String, SessionManagerError> {
+    pub fn append_model_change(
+        &mut self,
+        provider: &JsString,
+        model_id: &JsString,
+    ) -> Result<JsString, SessionManagerError> {
         let entry = SessionEntry::Known(KnownSessionEntry::ModelChange(ModelChangeEntry {
             id: generate_id(&self.by_id),
             parent_id: self.leaf_id.clone(),
@@ -3321,10 +3290,10 @@ impl SessionManager {
     pub fn append_compaction(
         &mut self,
         summary: &JsString,
-        first_kept_entry_id: &str,
+        first_kept_entry_id: &JsString,
         tokens_before: f64,
         options: CompactionAppendOptions,
-    ) -> Result<String, SessionManagerError> {
+    ) -> Result<JsString, SessionManagerError> {
         let entry = SessionEntry::Known(KnownSessionEntry::Compaction(CompactionEntry {
             id: generate_id(&self.by_id),
             parent_id: self.leaf_id.clone(),
@@ -3343,11 +3312,15 @@ impl SessionManager {
     }
 
     /// Update a compaction summary in place and rewrite the file.
-    pub fn update_compaction_summary(&mut self, entry_id: &str, summary: &JsString) -> Result<(), SessionManagerError> {
+    pub fn update_compaction_summary(
+        &mut self,
+        entry_id: &JsString,
+        summary: &JsString,
+    ) -> Result<(), SessionManagerError> {
         let position = *self
             .by_id
             .get(entry_id)
-            .ok_or_else(|| error(format!("Entry {entry_id} not found")))?;
+            .ok_or_else(|| error(JsString::from("Entry ") + entry_id + " not found"))?;
         let trimmed = summary.trim();
         if trimmed.is_empty() {
             return Err(error("Compaction summary must be non-empty"));
@@ -3356,12 +3329,12 @@ impl SessionManager {
             Some(FileEntry::Entry(SessionEntry::Known(KnownSessionEntry::Compaction(compaction)))) => {
                 compaction.clone()
             }
-            _ => return Err(error(format!("Entry {entry_id} is not a compaction"))),
+            _ => return Err(error(JsString::from("Entry ") + entry_id + " is not a compaction")),
         };
         let FileEntry::Entry(SessionEntry::Known(KnownSessionEntry::Compaction(entry))) =
             &mut self.file_entries[position]
         else {
-            return Err(error(format!("Entry {entry_id} is not a compaction")));
+            return Err(error(JsString::from("Entry ") + entry_id + " is not a compaction"));
         };
         entry.summary = trimmed.to_owned();
         if entry.provider_native.is_some() {
@@ -3383,9 +3356,9 @@ impl SessionManager {
 
     pub fn append_custom_entry(
         &mut self,
-        custom_type: &str,
+        custom_type: &JsString,
         data: Option<JsValue>,
-    ) -> Result<String, SessionManagerError> {
+    ) -> Result<JsString, SessionManagerError> {
         let entry = SessionEntry::Known(KnownSessionEntry::Custom(CustomEntry {
             custom_type: custom_type.to_owned(),
             data,
@@ -3398,11 +3371,11 @@ impl SessionManager {
 
     pub fn append_custom_message_entry(
         &mut self,
-        custom_type: &str,
+        custom_type: &JsString,
         content: CustomMessageContent,
         display: bool,
         details: Option<JsValue>,
-    ) -> Result<String, SessionManagerError> {
+    ) -> Result<JsString, SessionManagerError> {
         let entry = SessionEntry::Known(KnownSessionEntry::CustomMessage(CustomMessageEntry {
             custom_type: custom_type.to_owned(),
             content,
@@ -3415,9 +3388,13 @@ impl SessionManager {
         self.append_entry(entry)
     }
 
-    pub fn append_label_change(&mut self, target_id: &str, label: Option<&str>) -> Result<String, SessionManagerError> {
+    pub fn append_label_change(
+        &mut self,
+        target_id: &JsString,
+        label: Option<&JsString>,
+    ) -> Result<JsString, SessionManagerError> {
         if !self.by_id.contains_key(target_id) {
-            return Err(error(format!("Entry {target_id} not found")));
+            return Err(error(JsString::from("Entry ") + target_id + " not found"));
         }
         let timestamp = self.timestamp();
         let entry = SessionEntry::Known(KnownSessionEntry::Label(LabelEntry {
@@ -3425,7 +3402,7 @@ impl SessionManager {
             parent_id: self.leaf_id.clone(),
             timestamp: timestamp.clone(),
             target_id: target_id.to_owned(),
-            label: label.map(str::to_owned),
+            label: label.cloned(),
         }));
         let id = self.append_entry(entry)?;
         match label {
@@ -3436,8 +3413,8 @@ impl SessionManager {
     }
 
     /// Walk from an entry to the root, returning the path in root-first order.
-    pub fn get_branch(&self, from_id: Option<&str>) -> Vec<SessionEntry> {
-        let start_id = from_id.or(self.leaf_id.as_deref());
+    pub fn get_branch(&self, from_id: Option<&JsString>) -> Vec<SessionEntry> {
+        let start_id = from_id.or(self.leaf_id.as_ref());
         let Some(mut current) = start_id.and_then(|id| self.get_entry(id)) else {
             return Vec::new();
         };
@@ -3462,7 +3439,7 @@ impl SessionManager {
 
     pub fn build_context_entries(&self) -> Vec<SessionEntry> {
         let entries = self.get_entries();
-        let leaf = match self.leaf_id.as_deref() {
+        let leaf = match self.leaf_id.as_ref() {
             Some(id) => LeafSelection::Id(id),
             None => LeafSelection::None,
         };
@@ -3471,7 +3448,7 @@ impl SessionManager {
 
     pub fn build_session_context(&self) -> SessionContext {
         let entries = self.get_entries();
-        let leaf = match self.leaf_id.as_deref() {
+        let leaf = match self.leaf_id.as_ref() {
             Some(id) => LeafSelection::Id(id),
             None => LeafSelection::None,
         };
@@ -3481,7 +3458,7 @@ impl SessionManager {
     pub fn get_header(&self) -> Option<&SessionHeader> {
         self.file_entries.iter().find_map(|entry| match entry {
             FileEntry::Header(header) => Some(header),
-            FileEntry::Entry(_) => None,
+            FileEntry::Entry(_) | FileEntry::Json(_) => None,
         })
     }
 
@@ -3494,7 +3471,7 @@ impl SessionManager {
             .iter()
             .filter_map(|entry| match entry {
                 FileEntry::Entry(entry) => Some(entry.clone()),
-                FileEntry::Header(_) => None,
+                FileEntry::Header(_) | FileEntry::Json(_) => None,
             })
             .collect()
     }
@@ -3503,9 +3480,9 @@ impl SessionManager {
         build_session_tree(&self.get_entries(), &self.labels_by_id, &self.label_timestamps_by_id)
     }
 
-    pub fn branch(&mut self, branch_from_id: &str) -> Result<(), SessionManagerError> {
+    pub fn branch(&mut self, branch_from_id: &JsString) -> Result<(), SessionManagerError> {
         if !self.by_id.contains_key(branch_from_id) {
-            return Err(error(format!("Entry {branch_from_id} not found")));
+            return Err(error(JsString::from("Entry ") + branch_from_id + " not found"));
         }
         self.leaf_id = Some(branch_from_id.to_owned());
         Ok(())
@@ -3517,20 +3494,20 @@ impl SessionManager {
 
     pub fn branch_with_summary(
         &mut self,
-        branch_from_id: Option<&str>,
+        branch_from_id: Option<&JsString>,
         summary: &JsString,
         details: Option<JsValue>,
         from_hook: Option<bool>,
-    ) -> Result<String, SessionManagerError> {
+    ) -> Result<JsString, SessionManagerError> {
         if let Some(branch_from_id) = branch_from_id
             && !self.by_id.contains_key(branch_from_id)
         {
-            return Err(error(format!("Entry {branch_from_id} not found")));
+            return Err(error(JsString::from("Entry ") + branch_from_id + " not found"));
         }
-        self.leaf_id = branch_from_id.map(str::to_owned);
+        self.leaf_id = branch_from_id.cloned();
         let entry = SessionEntry::Known(KnownSessionEntry::BranchSummary(BranchSummaryEntry {
             id: generate_id(&self.by_id),
-            parent_id: branch_from_id.map(str::to_owned),
+            parent_id: branch_from_id.cloned(),
             timestamp: self.timestamp(),
             from_id: branch_from_id.unwrap_or("root").to_owned(),
             summary: summary.to_owned(),

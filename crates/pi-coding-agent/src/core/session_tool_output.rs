@@ -227,6 +227,7 @@ pub fn serialize_session_entry_for_persistence(entry: &FileEntry) -> String {
     match entry {
         FileEntry::Header(header) => serde_json::to_string(header).expect("header serializes losslessly"),
         FileEntry::Entry(entry) => serialize_session_entry(entry),
+        FileEntry::Json(value) => serde_json::to_string(value).expect("JSON value serializes losslessly"),
     }
 }
 
@@ -431,7 +432,7 @@ pub fn migrate_tool_result_session_files(agent_dir: &str, now: impl Fn() -> i64)
                     }
                     FileEntry::Entry(truncated)
                 }
-                FileEntry::Header(_) => entry.clone(),
+                FileEntry::Header(_) | FileEntry::Json(_) => entry.clone(),
             };
             capped_entries.push(capped);
         }
