@@ -834,8 +834,16 @@ fn build_websocket_headers(
     delete_header(&mut headers, "content-type");
     delete_header(&mut headers, "openai-beta");
     set_header(&mut headers, "openai-beta", OPENAI_BETA_RESPONSES_WEBSOCKETS);
-    set_header(&mut headers, "x-client-request-id", &encode_node_utf8(request_id));
-    set_header(&mut headers, "session-id", &encode_node_utf8(request_id));
+    set_header(
+        &mut headers,
+        "x-client-request-id",
+        &pi_js_compat::js_json::encode_node_utf8(request_id),
+    );
+    set_header(
+        &mut headers,
+        "session-id",
+        &pi_js_compat::js_json::encode_node_utf8(request_id),
+    );
     headers
 }
 

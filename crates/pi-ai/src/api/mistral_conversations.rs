@@ -541,7 +541,7 @@ fn should_use_prompt_caching(options: &MistralOptions) -> bool {
         && options
             .stream
             .session_id
-            .as_deref()
+            .as_ref()
             .is_some_and(|session_id| !session_id.is_empty())
 }
 
@@ -638,7 +638,7 @@ fn build_chat_payload(
     context: &Context,
     messages: &[Message],
     options: &MistralOptions,
-) -> Result<Value, MistralError> {
+) -> Result<JsValue, MistralError> {
     let mut payload = Map::new();
     payload.insert("model".to_owned(), Value::String(model.id.clone()));
     payload.insert("stream".to_owned(), Value::Bool(true));
@@ -670,12 +670,6 @@ fn build_chat_payload(
             Value::String(reasoning_effort.wire_value().to_owned()),
         );
     }
-    if should_use_prompt_caching(options) {
-        payload.insert(
-            "promptCacheKey".to_owned(),
-            Value::String(options.stream.session_id.clone().unwrap_or_default()),
-        );
-    }
 
     if let Some(system_prompt) = &context.system_prompt
         && !system_prompt.is_empty()
@@ -687,7 +681,14 @@ fn build_chat_payload(
         );
     }
 
-    Ok(Value::Object(payload))
+    let mut payload = JsValue::from(Value::Object(payload));
+    if should_use_prompt_caching(options) {
+        payload.as_object_mut().expect("payload object").insert(
+            "promptCacheKey".into(),
+            JsValue::String(options.stream.session_id.clone().unwrap_or_default()),
+        );
+    }
+    Ok(payload)
 }
 
 fn tool_choice_value(choice: &MistralToolChoice) -> Value {
