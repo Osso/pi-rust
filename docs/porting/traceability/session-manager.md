@@ -134,3 +134,9 @@ imported identities, labels and timestamps. Dedicated regressions: `lossless_ses
 Initial exact-record harness RED: both raw fixtures were silently discarded by the old
 scalar deserializers. Full module/integration proof remains pending; this is not new-pin
 whole-module parity evidence. Path API integration and persistence round trips remain open.
+
+Q18 persistence serializer now serializes the raw header directly. Tool-output capping
+mutates a persistence-only raw object copy, retaining arbitrary entry/message/content
+fields and raw keys unless the pinned truncation algorithm explicitly removes them.
+Dedicated `lossless_session_persistence` tests reproduced empty raw-header output and
+uncapped imported tool results before implementation. Integration proof remains pending.
