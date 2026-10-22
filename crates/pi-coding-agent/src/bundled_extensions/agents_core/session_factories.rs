@@ -10,7 +10,6 @@ use pi_ai::request::BoxFuture;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use serde::Serialize;
-use serde_json::Value;
 
 use crate::core::agent_session::{AgentSession, ExtensionBindings, PromptOptions};
 use crate::core::extensions::types::{
@@ -239,8 +238,10 @@ impl UnboundChildAgentSession for AgentSessionChildSession {
     fn bind_extensions(&self) -> BoxFuture<'static, Result<(), pi_js_compat::js_json::JsString>> {
         let session = self.session.clone();
         Box::pin(async move {
-            session.bind_extensions(ExtensionBindings::default()).await;
-            Ok(())
+            session
+                .bind_extensions(ExtensionBindings::default())
+                .await
+                .map_err(|error| error.message().clone())
         })
     }
 

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use pi_agent_core::AgentToolResult;
 use pi_ai::types::{TextContent, TextOrImageContent};
-use pi_js_compat::js_json::{self, JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
+use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
 use std::sync::OnceLock;
 
 use crate::core::extensions::loader::ExtensionFactory;

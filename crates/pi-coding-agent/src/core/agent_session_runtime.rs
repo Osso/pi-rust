@@ -50,7 +50,7 @@ pub type CreateAgentSessionRuntimeFactory = Arc<
 >;
 
 /// Callback receiving the replacement session.
-pub type RebindSessionHandler = Arc<dyn Fn(AgentSession) -> BoxFuture<'static, ()> + Send + Sync>;
+pub type RebindSessionHandler = Arc<dyn Fn(AgentSession) -> BoxFuture<'static, Result<(), JsString>> + Send + Sync>;
 /// Callback invoked before the outgoing session is invalidated.
 pub type BeforeSessionInvalidateHandler = Arc<dyn Fn() + Send + Sync>;
 /// Callback invoked before a process restart.
@@ -233,13 +233,14 @@ impl AgentSessionRuntime {
         }
     }
 
-    async fn finish_session_replacement(&self, with_session: Option<ReplacedSessionCallback>) {
+    async fn finish_session_replacement(&self, with_session: Option<ReplacedSessionCallback>) -> Result<(), JsString> {
         if let Some(rebind) = &self.rebind_session {
-            rebind(self.session.clone()).await;
+            rebind(self.session.clone()).await?;
         }
         if let Some(with_session) = with_session {
             with_session(self.session.create_replaced_session_context()).await;
         }
+        Ok(())
     }
 
     async fn teardown_current(&self, reason: SessionShutdownReason, target_session_file: Option<JsString>) {
@@ -347,7 +348,7 @@ impl AgentSessionRuntime {
             .create_runtime(&cwd, session_manager, "resume", previous_session_file)
             .await?;
         self.apply(result);
-        self.finish_session_replacement(with_session).await;
+        self.finish_session_replacement(with_session).await?;
         Ok(SessionTransitionResult { cancelled: false })
     }
 
@@ -407,7 +408,7 @@ impl AgentSessionRuntime {
             .create_runtime(&cwd, prepared.session_manager, "resume", prepared.previous_session_file)
             .await?;
         self.apply(result);
-        self.finish_session_replacement(None).await;
+        self.finish_session_replacement(None).await?;
         Ok(())
     }
 
@@ -502,7 +503,7 @@ impl AgentSessionRuntime {
             .create_runtime(&cwd, session_manager, "restart", previous_session_file)
             .await?;
         self.apply(result);
-        self.finish_session_replacement(None).await;
+        self.finish_session_replacement(None).await?;
         Ok(())
     }
 
@@ -549,7 +550,7 @@ impl AgentSessionRuntime {
             *handle.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = manager;
             self.session.agent().set_messages(messages);
         }
-        self.finish_session_replacement(options.with_session).await;
+        self.finish_session_replacement(options.with_session).await?;
         Ok(SessionTransitionResult { cancelled: false })
     }
 
@@ -567,7 +568,7 @@ impl AgentSessionRuntime {
             .create_runtime(cwd, session_manager, "fork", previous_session_file)
             .await?;
         self.apply(result);
-        self.finish_session_replacement(with_session).await;
+        self.finish_session_replacement(with_session).await?;
         Ok(())
     }
 
@@ -744,7 +745,7 @@ impl AgentSessionRuntime {
             .create_runtime(&cwd, session_manager, "resume", previous_session_file)
             .await?;
         self.apply(result);
-        self.finish_session_replacement(None).await;
+        self.finish_session_replacement(None).await?;
         Ok(SessionTransitionResult { cancelled: false })
     }
 

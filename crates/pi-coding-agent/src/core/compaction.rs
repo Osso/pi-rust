@@ -324,7 +324,7 @@ fn find_protected_suffix_start_index(entries: &[SessionEntry], start_index: usiz
 }
 
 fn is_turn_start_entry(entry: &SessionEntry) -> bool {
-    if (entry.entry_type() == "branch_summary" || entry.entry_type() == "custom_message") {
+    if entry.entry_type() == "branch_summary" || entry.entry_type() == "custom_message" {
         return true;
     }
     if entry.entry_type() != "message" {

@@ -785,30 +785,6 @@ pub(crate) fn to_runtime_mailbox_message_status(value: impl Into<JsString>) -> R
     }
 }
 
-pub(crate) fn nullable_string_field(
-    data: &JsObject,
-    field: &str,
-    context: &JsString,
-) -> Result<Option<JsString>, ControlDbError> {
-    match data.get(field) {
-        Some(JsValue::Null) => Ok(None),
-        Some(JsValue::String(value)) => Ok(Some(value.clone())),
-        _ => Err(ControlDbError::new(js_format!("Invalid {} at {}", field, context))),
-    }
-}
-
-pub(crate) fn optional_string_field(
-    data: &JsObject,
-    field: &str,
-    context: &JsString,
-) -> Result<Option<JsString>, ControlDbError> {
-    match data.get(field) {
-        None => Ok(None),
-        Some(JsValue::String(value)) => Ok(Some(value.clone())),
-        Some(_) => Err(ControlDbError::new(js_format!("Invalid {} at {}", field, context))),
-    }
-}
-
 /// `getRuntimeProcessInstanceId`: throws when the process identity cannot be read.
 pub fn get_runtime_process_instance_id() -> Result<&'static str, ControlDbError> {
     static INSTANCE: OnceLock<Result<String, JsString>> = OnceLock::new();

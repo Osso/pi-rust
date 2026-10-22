@@ -125,7 +125,7 @@ pub async fn run_print_mode(runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>
 }
 
 async fn run_prompts(state: &Arc<PrintState>, options: &PrintModeOptions) -> Result<(), JsString> {
-    rebind_session(state).await;
+    rebind_session(state).await?;
     if let Some(message) = &options.initial_message {
         state
             .current_session()
@@ -247,16 +247,17 @@ async fn set_rebind_session(state: &Arc<PrintState>) {
     let handler: crate::core::agent_session_runtime::RebindSessionHandler = Arc::new(move |session| {
         let handler_state = handler_state.clone();
         Box::pin(async move {
-            if let Some(state) = handler_state.upgrade() {
-                *lock(&state.session) = session;
-                rebind_session(&state).await;
-            }
+            let Some(state) = handler_state.upgrade() else {
+                return Ok(());
+            };
+            *lock(&state.session) = session;
+            rebind_session(&state).await
         })
     });
     state.runtime.lock().await.set_rebind_session(Some(handler));
 }
 
-async fn rebind_session(state: &Arc<PrintState>) {
+async fn rebind_session(state: &Arc<PrintState>) -> Result<(), JsString> {
     let session = state.current_session();
     let mode = if state.mode == PrintMode::Json {
         ExtensionMode::Json
@@ -277,7 +278,8 @@ async fn rebind_session(state: &Arc<PrintState>) {
             })),
             ..ExtensionBindings::default()
         })
-        .await;
+        .await
+        .map_err(|error| error.message().clone())?;
 
     state.clear_subscriptions();
     let listener_state = Arc::downgrade(state);
@@ -304,6 +306,7 @@ async fn rebind_session(state: &Arc<PrintState>) {
             }));
         lock(&state.subscriptions).agent.push(id);
     }
+    Ok(())
 }
 
 fn record_completed_assistant_message(state: &PrintState, event: &AgentSessionEvent) {

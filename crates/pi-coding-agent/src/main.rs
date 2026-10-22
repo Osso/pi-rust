@@ -2279,7 +2279,10 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
     }
 
     if parsed.list_tools == Some(true) || parsed.list_extensions == Some(true) {
-        session.bind_extensions(ExtensionBindings::default()).await;
+        session
+            .bind_extensions(ExtensionBindings::default())
+            .await
+            .map_err(|error| error.message().clone())?;
         if parsed.list_tools == Some(true) {
             let tools: Vec<crate::core::extensions::types::ToolInfo> = session
                 .get_all_tools()
@@ -2369,7 +2372,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
 
     if app_mode == AppMode::Rpc {
         print_timings();
-        run_rpc_mode(runtime).await;
+        run_rpc_mode(runtime).await?;
         return Ok(None);
     }
     if app_mode == AppMode::Interactive {

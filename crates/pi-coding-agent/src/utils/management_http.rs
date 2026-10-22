@@ -72,17 +72,13 @@ pub async fn fetch_with_retry(
 
 /// `AbortSignal.any([init.signal, AbortSignal.timeout(timeoutMs)])`.
 pub(crate) struct RequestDeadline {
+    /// Signal handed to `fetch`: cancelled by either the caller or the timeout.
     signal: CancellationToken,
     timed_out: CancellationToken,
     timer: tokio::task::JoinHandle<()>,
 }
 
 impl RequestDeadline {
-    /// Signal handed to `fetch`: cancelled by either the caller or the timeout.
-    pub(crate) fn signal(&self) -> &CancellationToken {
-        &self.signal
-    }
-
     pub(crate) fn start(parent: Option<&CancellationToken>, timeout_ms: Option<u64>) -> Option<Self> {
         let timeout = Duration::from_millis(timeout_ms.filter(|ms| *ms > 0)?);
         let signal = parent.map_or_else(CancellationToken::new, CancellationToken::child_token);

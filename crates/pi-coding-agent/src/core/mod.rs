@@ -30,7 +30,6 @@ pub mod host_relay_client;
 pub mod host_relay_resident;
 pub mod host_relay_store;
 pub mod http_dispatcher;
-mod js_string;
 pub mod keybindings;
 pub mod lifecycle_coordinator;
 pub mod messages;

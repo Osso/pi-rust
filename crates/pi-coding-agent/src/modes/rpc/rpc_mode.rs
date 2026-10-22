@@ -118,7 +118,7 @@ impl RpcState {
 }
 
 /// Runs RPC mode until shutdown exits the process.
-pub async fn run_rpc_mode(runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>) {
+pub async fn run_rpc_mode(runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>) -> Result<(), JsString> {
     let (session, agent_dir) = {
         let runtime = runtime.lock().await;
         (runtime.session().clone(), Some(runtime.services().agent_dir.clone()))
@@ -134,9 +134,9 @@ pub async fn run_rpc_mode(runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>)
         input: Mutex::new(None),
     });
 
-    let signal_tasks = register_signal_handlers(Arc::clone(&state));
     set_rebind_session(&state).await;
-    rebind_session(&state).await;
+    rebind_session(&state).await?;
+    let signal_tasks = register_signal_handlers(Arc::clone(&state));
 
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<String>();
     let reader = attach_jsonl_line_reader(tokio::io::stdin(), move |line| {
@@ -162,6 +162,7 @@ pub async fn run_rpc_mode(runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>)
     for task in signal_tasks {
         task.abort();
     }
+    Ok(())
 }
 
 /// Continues a restored session that was interrupted or asked for a continuation.
@@ -327,7 +328,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
                     .await?
             };
             if !result.cancelled {
-                rebind_session(state).await;
+                rebind_session(state).await?;
             }
             Ok(Some(RpcResponse::success_with_data(
                 id,
@@ -471,7 +472,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
                 runtime.switch_session(session_path, None, None).await?
             };
             if !result.cancelled {
-                rebind_session(state).await;
+                rebind_session(state).await?;
             }
             Ok(Some(RpcResponse::success_with_data(
                 id,
@@ -485,7 +486,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
                 runtime.fork(entry_id, ForkPosition::Before, None).await?
             };
             if !result.cancelled {
-                rebind_session(state).await;
+                rebind_session(state).await?;
             }
             let data = ForkResponseData {
                 text: result.selected_text,
@@ -507,7 +508,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
                 runtime.fork(&leaf_id, ForkPosition::At, None).await?
             };
             if !result.cancelled {
-                rebind_session(state).await;
+                rebind_session(state).await?;
             }
             Ok(Some(RpcResponse::success_with_data(
                 id,
@@ -730,16 +731,17 @@ async fn set_rebind_session(state: &Arc<RpcState>) {
     let handler: crate::core::agent_session_runtime::RebindSessionHandler = Arc::new(move |session| {
         let handler_state = handler_state.clone();
         Box::pin(async move {
-            if let Some(state) = handler_state.upgrade() {
-                *lock(&state.session) = session;
-                rebind_session(&state).await;
-            }
+            let Some(state) = handler_state.upgrade() else {
+                return Ok(());
+            };
+            *lock(&state.session) = session;
+            rebind_session(&state).await
         })
     });
     state.runtime.lock().await.set_rebind_session(Some(handler));
 }
 
-async fn rebind_session(state: &Arc<RpcState>) {
+async fn rebind_session(state: &Arc<RpcState>) -> Result<(), JsString> {
     let session = state.current_session();
     let ui_state = Arc::downgrade(state);
     let shutdown_state = Arc::downgrade(state);
@@ -773,7 +775,8 @@ async fn rebind_session(state: &Arc<RpcState>) {
             })),
             ..ExtensionBindings::default()
         })
-        .await;
+        .await
+        .map_err(|error| error.message().clone())?;
 
     state.clear_subscriptions();
     let listener_state = Arc::downgrade(state);
@@ -805,6 +808,7 @@ async fn rebind_session(state: &Arc<RpcState>) {
             })
         }));
     lock(&state.subscriptions).agent.push(id);
+    Ok(())
 }
 
 async fn check_shutdown_requested(state: &Arc<RpcState>) {

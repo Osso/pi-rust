@@ -296,7 +296,7 @@ pub fn load_project_context_files(cwd: &JsString, agent_dir: &JsString) -> Vec<C
         let project_context_files: Vec<LoadedContextFile> = loaded_context_files
             .into_iter()
             .filter(|context_file| {
-                (context_file.path != project_memory_path || context_file.real_path != global_project_memory_real_path)
+                context_file.path != project_memory_path || context_file.real_path != global_project_memory_real_path
             })
             .collect();
         append_unique_context_files(&mut context_files, project_context_files, &mut seen_paths);

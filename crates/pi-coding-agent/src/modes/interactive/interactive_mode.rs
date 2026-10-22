@@ -6511,7 +6511,7 @@ impl InteractiveMode {
         self.build_header();
         self.show_loaded_resources(false, true);
         self.show_startup_notices_if_needed();
-        self.bind_extensions().await;
+        self.bind_extensions().await?;
         self.render_initial_messages();
         self.subscribe_to_agent();
         self.update_ui_shared();
@@ -6587,7 +6587,7 @@ impl InteractiveMode {
         header.add_child(component(Spacer::new(1)));
     }
 
-    async fn bind_extensions(self: &Rc<Self>) {
+    async fn bind_extensions(self: &Rc<Self>) -> Result<(), JsString> {
         let session = self.session();
         let ui_context = self.ui_context();
         let footer_data = Arc::clone(&self.footer_data_provider);
@@ -6707,10 +6707,12 @@ impl InteractiveMode {
                 })),
                 on_error: None,
             })
-            .await;
+            .await
+            .map_err(|error| error.message().clone())?;
         self.setup_autocomplete_provider();
         self.footer.borrow_mut().invalidate();
         self.ui.request_render();
+        Ok(())
     }
 
     fn subscribe_to_agent(self: &Rc<Self>) {

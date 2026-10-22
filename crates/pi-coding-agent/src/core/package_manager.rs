@@ -42,7 +42,7 @@ use crate::utils::child_process::node_spawn_error_message;
 use crate::utils::git::{GitSource, parse_git_url};
 use crate::utils::paths::{
     PathInputOptions, canonicalize_path, is_local_path, mark_path_ignored_by_cloud_sync, node_basename, node_dirname,
-    node_extname, node_is_absolute, node_join, relative_path, resolve_path,
+    node_join, relative_path, resolve_path,
 };
 use pi_js_compat::js_json;
 use pi_js_compat::js_json::JsString;

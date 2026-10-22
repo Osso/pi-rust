@@ -6,7 +6,6 @@ use std::sync::Arc;
 use pi_ai::utils::uuid::random_uuid;
 use pi_js_compat::collator::{locale_compare, locale_compare_utf16};
 use pi_js_compat::js_json::{JsString, JsValue};
-use serde_json::Value;
 
 use crate::core::runtime_process::is_pi_runtime_process_alive;
 use crate::core::session_control_db::{
