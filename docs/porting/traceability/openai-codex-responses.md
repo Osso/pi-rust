@@ -1,5 +1,7 @@
 # openai-codex-responses traceability
 
+Q18 ingress representation and current bounded proof: [lossless provider ingress](lossless-provider-ingress.md). Earlier suite counts below are historical, not new-pin rerun evidence.
+
 Source: `packages/ai/src/api/openai-codex-responses.ts` and `openai-codex-responses.lazy.ts`.
 Rust: `crates/pi-ai/src/api/openai_codex_responses.rs`.
 Tests: `crates/pi-ai/tests/openai_codex_responses.rs` (31 behavioral), `crates/pi-ai/tests/differential_openai_codex_responses.rs` (5 differential suites) against the pinned TS module. The WebSocket suites use the shared scripted server in `crates/pi-ai/tests/support/ws_server.rs` for both TS and Rust.

@@ -6,7 +6,7 @@ Frozen source: `4f9e6f8a4`, `packages/ai/src/api/{openai-completions,openai-resp
 |---|---|---|
 | OpenAI SDK SSE → completions | `SseJsonStream` parses JsValue; text/thinking and function/custom argument fragments remain JsString | Real loopback chunked HTTP, one-byte frames, exact delta order and final units |
 | SDK SSE → Responses shared | Native events, slots, done records, refusal/summary joins and citation buffers | Real one-byte loopback text/thinking/argument events; direct Azure + Codex SSE; actual frozen provider stream comparison |
-| Codex SSE/WebSocket → shared Responses | Native parse/queue/map/error payload and response normalization | Direct Codex SSE and frozen provider comparison pass; direct real-loopback WebSocket fixture added |
+| Codex SSE/WebSocket → shared Responses | Native parse/queue/map/error payload and response normalization | Direct Codex SSE and frozen provider comparison pass; direct real-loopback WebSocket fixture PASS |
 | Mistral SSE → content/arguments | Native parse and argument buffers; frozen ingress sanitizeSurrogates calls retained | Real loopback sanitized text/thinking and raw nested arguments |
 | Scalar protocol metadata | Exact protocol paths checked before scalar extraction; unpaired units produce stream error, not replacement/drop | Pending user classification; not full metadata parity |
 
@@ -31,4 +31,4 @@ Artifacts: `/tmp/pi-rust-repin-lossless-ingress/`.
 - `mutant-replace.log`: SDK scalar-parser replacement compiles; Responses text assertion fails U+FFFD versus D800.
 - `mutant-reject.log`: SDK content-as-metadata rejection compiles; expected ToolUse fails against Error. Both mutants restored byte-identically; SDK SHA256 `2b2fa0a11d15d7dfffa8cb170632d25435dec0b4b04025a23d4afcd7a41a7ca0`.
 
-Final direct WebSocket proof and exact revision ledger follow in the lane report. No workspace readiness claim.
+`websocket-green.log`: revision `1b01dc97`, direct real-loopback Codex WebSocket text/thinking/argument case PASS. `final-ingress-green.log`: same revision, all six focused tests PASS, no warnings; later documentation-only edits do not invalidate it. Exact revision ledger: `/tmp/pi-rust-repin-lossless-ingress/REPORT.md`. No workspace readiness claim.
