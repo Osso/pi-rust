@@ -7,10 +7,6 @@ use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use crate::types::ProviderEnv;
 use crate::utils::provider_env::resolve_provider_env_value;
 
-pub const ANTHROPIC_AUTH_TOKEN_ENV: &str = "ANTHROPIC_AUTH_TOKEN";
-pub const ANTHROPIC_OAUTH_TOKEN_ENV: &str = "ANTHROPIC_OAUTH_TOKEN";
-pub const ANTHROPIC_API_KEY_ENV: &str = "ANTHROPIC_API_KEY";
-
 const GOOGLE_APPLICATION_CREDENTIALS: &str = "GOOGLE_APPLICATION_CREDENTIALS";
 const VERTEX_ADC_DEFAULT_PATH: &str = ".config/gcloud/application_default_credentials.json";
 
@@ -74,17 +70,11 @@ fn api_key_env_vars(provider: &str) -> Option<Vec<&'static str>> {
         return Some(vec!["COPILOT_GITHUB_TOKEN"]);
     }
     if provider == "anthropic" {
-        return Some(vec![
-            ANTHROPIC_AUTH_TOKEN_ENV,
-            ANTHROPIC_OAUTH_TOKEN_ENV,
-            ANTHROPIC_API_KEY_ENV,
-        ]);
+        return Some(vec!["ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"]);
     }
 
     let env_var = match provider {
         "ant-ling" => "ANT_LING_API_KEY",
-        "qwen-token-plan" | "qwen-token-plan-individual" => "QWEN_TOKEN_PLAN_API_KEY",
-        "qwen-token-plan-cn" => "QWEN_TOKEN_PLAN_CN_API_KEY",
         "openai" => "OPENAI_API_KEY",
         "nvidia" => "NVIDIA_API_KEY",
         "deepseek" => "DEEPSEEK_API_KEY",
@@ -93,7 +83,6 @@ fn api_key_env_vars(provider: &str) -> Option<Vec<&'static str>> {
         "groq" => "GROQ_API_KEY",
         "cerebras" => "CEREBRAS_API_KEY",
         "xai" => "XAI_API_KEY",
-        "radius" => "RADIUS_API_KEY",
         "openrouter" => "OPENROUTER_API_KEY",
         "vercel-ai-gateway" => "AI_GATEWAY_API_KEY",
         "zai" => "ZAI_API_KEY",
@@ -105,7 +94,6 @@ fn api_key_env_vars(provider: &str) -> Option<Vec<&'static str>> {
         "huggingface" => "HF_TOKEN",
         "fireworks" => "FIREWORKS_API_KEY",
         "together" => "TOGETHER_API_KEY",
-        "baseten" => "BASETEN_API_KEY",
         "opencode" | "opencode-go" => "OPENCODE_API_KEY",
         "kimi-coding" => "KIMI_API_KEY",
         "cloudflare-workers-ai" | "cloudflare-ai-gateway" => "CLOUDFLARE_API_KEY",
@@ -152,12 +140,7 @@ pub fn get_env_api_key_with(
     vertex_adc: &VertexAdc,
 ) -> Option<JsString> {
     if let Some(env_keys) = find_env_keys_with(provider, env, &process_env) {
-        let api_key_env = if provider == "anthropic" {
-            env_keys.iter().find(|key| *key != ANTHROPIC_AUTH_TOKEN_ENV)
-        } else {
-            env_keys.first()
-        };
-        if let Some(name) = api_key_env
+        if let Some(name) = env_keys.first()
             && let Some(value) = resolve_provider_env_value(name, env, &process_env)
         {
             return Some(value);

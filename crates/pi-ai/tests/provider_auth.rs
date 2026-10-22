@@ -23,6 +23,47 @@ use tokio_util::sync::CancellationToken;
 
 #[path = "support/oauth.rs"]
 mod oauth_support;
+#[path = "support/oracle.rs"]
+mod oracle;
+
+#[test]
+fn anthropic_provider_matches_frozen_module() {
+    let provider = anthropic_provider();
+    let mut oracle = oracle::TsOracle::spawn("provider-module-oracle.ts", "packages/ai/src/providers/anthropic.ts");
+    assert_eq!(
+        provider_descriptor(provider.as_ref()),
+        oracle.request(&json!({
+            "factory": "anthropicProvider", "operation": "describe"
+        }))
+    );
+    for env in [
+        vec![],
+        vec![("ANTHROPIC_AUTH_TOKEN", "ignored")],
+        vec![("ANTHROPIC_API_KEY", "key"), ("ANTHROPIC_OAUTH_TOKEN", "oauth")],
+    ] {
+        let expected = oracle.request(&json!({
+            "factory": "anthropicProvider", "operation": "resolve",
+            "env": env.iter().cloned().collect::<BTreeMap<_, _>>()
+        }));
+        assert_eq!(
+            serde_json::to_value(resolve_optional(provider.as_ref(), auth_context(&env, &[]), None)).unwrap(),
+            expected
+        );
+    }
+}
+
+fn provider_descriptor(provider: &dyn Provider) -> Value {
+    let auth = provider.auth();
+    let api_key = auth.api_key.as_ref().unwrap();
+    json!({
+        "id": provider.id(), "name": provider.name(), "baseUrl": provider.base_url(),
+        "apiKeyName": api_key.name(),
+        "canLogin": api_key.login(TestInteraction::new(vec![])).is_some(),
+        "oauthName": auth.oauth.as_ref().map(|auth| auth.name()),
+        "oauthSubscription": auth.oauth.as_ref().is_some_and(|auth| auth.is_subscription()),
+        "models": provider.get_models().iter().map(|model| &model.id).collect::<Vec<_>>(),
+    })
+}
 
 use oauth_support::{PromptAnswer, TestInteraction};
 
@@ -90,7 +131,7 @@ fn resolve_optional(
 }
 
 #[test]
-fn anthropic_resolves_auth_token_as_bearer_header() {
+fn anthropic_ignores_auth_token_and_resolves_oauth_key() {
     let provider = anthropic_provider();
     let result = resolve(
         provider.as_ref(),
@@ -104,22 +145,25 @@ fn anthropic_resolves_auth_token_as_bearer_header() {
         ),
         None,
     );
-    let mut headers = pi_ai::types::ProviderHeaders::new();
-    headers.insert(
-        "Authorization".to_owned(),
-        Some(("Bearer auth-token".to_owned()).into()),
-    );
     assert_eq!(
         result,
         AuthResult {
             auth: pi_ai::auth::ModelAuth {
-                api_key: None,
-                headers: Some(headers),
+                api_key: Some("oauth-token".into()),
+                headers: None,
                 base_url: None,
             },
             env: None,
-            source: Some(("ANTHROPIC_AUTH_TOKEN".to_owned()).into()),
+            source: Some("ANTHROPIC_OAUTH_TOKEN".into()),
         }
+    );
+    assert!(
+        resolve_optional(
+            provider.as_ref(),
+            auth_context(&[("ANTHROPIC_AUTH_TOKEN", "ignored")], &[]),
+            None
+        )
+        .is_none()
     );
 }
 
@@ -159,7 +203,7 @@ fn anthropic_api_key_is_last_and_stored_credential_wins() {
     );
     assert_eq!(stored.auth.api_key.as_ref(), Some(&JsString::from("stored")));
     assert_eq!(stored.source.as_ref(), Some(&JsString::from("stored credential")));
-    assert_eq!(stored.env, Some(ProviderEnv::from([("SCOPED".into(), "value".into())])));
+    assert_eq!(stored.env, None);
 }
 
 #[test]
@@ -720,7 +764,7 @@ fn github_copilot_available_models_follow_the_stored_oauth_credential() {
 #[test]
 fn builtin_models_exposes_provider_owned_auth() {
     let models = create_models(CreateModelsOptions {
-        auth_context: Some(auth_context(&[("ANTHROPIC_AUTH_TOKEN", "auth-token")], &[])),
+        auth_context: Some(auth_context(&[("ANTHROPIC_OAUTH_TOKEN", "oauth-token")], &[])),
         ..Default::default()
     });
     models.set_provider(anthropic_provider());
@@ -729,7 +773,7 @@ fn builtin_models_exposes_provider_owned_auth() {
         .block_on(models.get_auth("anthropic", Default::default()))
         .expect("auth")
         .expect("resolved");
-    let headers = auth.auth.headers.expect("headers");
-    assert_eq!(headers.get("Authorization"), Some(&Some("Bearer auth-token".into())));
-    assert_eq!(auth.source.as_ref(), Some(&JsString::from("ANTHROPIC_AUTH_TOKEN")));
+    assert_eq!(auth.auth.api_key, Some("oauth-token".into()));
+    assert_eq!(auth.auth.headers, None);
+    assert_eq!(auth.source.as_ref(), Some(&JsString::from("ANTHROPIC_OAUTH_TOKEN")));
 }

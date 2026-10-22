@@ -12,8 +12,8 @@ use super::types::{
     AuthPrompt, AuthPromptKind, AuthResult, ModelAuth, OAuthAuth, OAuthCredential,
 };
 
-/// Standard api-key auth: stored credential key wins, otherwise the first set
-/// env var resolves.
+/// A stored credential owns resolution, even when its key is empty.
+/// Without a stored credential, the first nonempty env var resolves.
 pub struct EnvApiKeyAuth {
     name: String,
     env_vars: Vec<String>,
@@ -66,17 +66,15 @@ impl ApiKeyAuth for EnvApiKeyAuth {
         let env_vars = self.env_vars.clone();
         Box::pin(async move {
             check_aborted(&input.signal)?;
-            if let Some(key) = input.credential.as_ref().and_then(|credential| credential.key.as_ref())
-                && !key.is_empty()
-            {
-                return Ok(Some(AuthResult {
+            if let Some(credential) = input.credential {
+                return Ok(credential.key.filter(|key| !key.is_empty()).map(|key| AuthResult {
                     auth: ModelAuth {
-                        api_key: Some(key.clone()),
+                        api_key: Some(key),
                         headers: None,
                         base_url: None,
                     },
-                    env: input.credential.and_then(|credential| credential.env),
-                    source: Some(("stored credential".to_owned()).into()),
+                    env: None,
+                    source: Some("stored credential".into()),
                 }));
             }
             for env_var in env_vars {
@@ -121,7 +119,7 @@ pub struct LazyOAuthInput {
 
 struct LazyOAuthInner {
     load: OAuthLoader,
-    loaded: Mutex<Option<Arc<dyn OAuthAuth>>>,
+    loaded: Mutex<Option<Result<Arc<dyn OAuthAuth>, AuthError>>>,
 }
 
 /// Wraps a dynamically loaded `OAuthAuth`, loading on first use.
@@ -149,11 +147,11 @@ impl LazyOAuth {
     async fn implementation(inner: &LazyOAuthInner) -> Result<Arc<dyn OAuthAuth>, AuthError> {
         let mut loaded = inner.loaded.lock().await;
         if let Some(implementation) = loaded.as_ref() {
-            return Ok(Arc::clone(implementation));
+            return implementation.clone();
         }
-        let implementation = (inner.load)().await?;
-        *loaded = Some(Arc::clone(&implementation));
-        Ok(implementation)
+        let implementation = (inner.load)().await;
+        *loaded = Some(implementation.clone());
+        implementation
     }
 }
 
