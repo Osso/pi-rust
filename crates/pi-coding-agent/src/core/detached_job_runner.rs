@@ -548,7 +548,7 @@ fn should_recover_dead_child(
         return false;
     };
     ownership.session_path == options.session_path
-        && ownership.agent_id == job_id
+        && &ownership.agent_id == job_id
         && ownership.owner.agent_id == options.owner_agent_id
         && ownership.owner.session_id.as_ref() == Some(&options.owner_session_id)
         && !is_process_identity_alive(process_identity)
