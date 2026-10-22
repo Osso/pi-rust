@@ -147,3 +147,9 @@ missing optional RPC field combinations, >120-unit result clipping, interval
 wall-clock precision and stderr chunk-boundary invalid UTF-8 lack dedicated
 fixtures. Process/UI cleanup and successful transport have concrete integration
 proof, not live-provider proof. No public core APIs or dependencies were added.
+
+## Q18 native fixture migration (2026-10-22)
+
+Frozen model-result initialization: `packages/coding-agent/examples/extensions/subagent/index.ts:302-310` initializes `currentResult.model` from explicit `agent.model`; line 366 fills a missing model from the assistant message. Rust now uses the same metadata initialization and retains that conditional message fallback. The prior inherited-host-model prefill prevented the actual child model from reaching result details. The existing real-child `modes_dispatch_and_streaming_match_pinned_real_extension_runtime` case was RED (`fixture/inherited` vs `child/model`) before this change.
+
+Native subagent request/result text, JSON values, rendering and UTF-16 preview slices now use `JsString`/`JsValue`. The earlier String-boundary approval recorded above is under user review for Q18; the U+FFFD assertion in `example_subagent.rs` remains unchanged and RED pending that decision. No approval is silently retired.

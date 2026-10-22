@@ -423,7 +423,7 @@ async fn run_single(
     };
     r["agentSource"] = json!(agent.source);
     let model = agent.model.as_ref().or(dispatch.model.as_ref());
-    if let Some(model) = model {
+    if let Some(model) = &agent.model {
         r["model"] = json!(model);
     }
     let mut args = vec![
