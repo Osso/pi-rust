@@ -478,37 +478,37 @@ fn build_payload(model: &Model, context: &Context, options: &PiMessagesOptions) 
     Ok(JsValue::object([
         ("model", JsValue::String(model.id.clone().into())),
         ("context", context),
-        ("options", JsValue::from(Value::Object(build_payload_options(options)))),
+        ("options", JsValue::Object(build_payload_options(options))),
     ]))
 }
 
-fn build_payload_options(options: &PiMessagesOptions) -> Map<String, Value> {
-    let mut payload_options = Map::new();
+fn build_payload_options(options: &PiMessagesOptions) -> pi_js_compat::js_json::JsObject {
+    let mut payload_options = pi_js_compat::js_json::JsObject::new();
     if let Some(temperature) = options.stream.temperature {
-        payload_options.insert("temperature".to_owned(), js_number_value(temperature));
+        payload_options.insert("temperature".into(), js_number_value(temperature).into());
     }
     if let Some(max_tokens) = options.stream.max_tokens {
-        payload_options.insert("maxTokens".to_owned(), js_number_value(max_tokens));
+        payload_options.insert("maxTokens".into(), js_number_value(max_tokens).into());
     }
     if let Some(reasoning) = options.reasoning {
         payload_options.insert(
-            "reasoning".to_owned(),
-            serde_json::to_value(reasoning).unwrap_or(Value::Null),
+            "reasoning".into(),
+            pi_js_compat::js_json::to_value(&reasoning).expect("reasoning tag serializes"),
         );
     }
     if let Some(cache_retention) =
         resolve_cache_retention(options.stream.cache_retention, options.stream.request.env.as_ref())
     {
         payload_options.insert(
-            "cacheRetention".to_owned(),
-            serde_json::to_value(cache_retention).unwrap_or(Value::Null),
+            "cacheRetention".into(),
+            pi_js_compat::js_json::to_value(&cache_retention).expect("cache retention tag serializes"),
         );
     }
     if let Some(session_id) = &options.stream.session_id {
-        payload_options.insert("sessionId".to_owned(), Value::String(session_id.clone()));
+        payload_options.insert("sessionId".into(), JsValue::String(session_id.clone()));
     }
     if let Some(tool_choice) = &options.tool_choice {
-        payload_options.insert("toolChoice".to_owned(), tool_choice_value(tool_choice));
+        payload_options.insert("toolChoice".into(), tool_choice_value(tool_choice).into());
     }
     payload_options
 }

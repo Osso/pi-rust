@@ -1,6 +1,7 @@
 //! Port of `packages/ai/src/api/openai-completions.ts` (+ `.lazy.ts`).
 
 use crate::api::openai_sdk::ingress_metadata_text;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::{JsObject, JsValue};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;

@@ -1175,7 +1175,7 @@ fn append_provider_text_delta(
     let state = citation_state
         .clone()
         .unwrap_or_else(|| create_citation_text_state(last_character));
-    let normalized = normalize_citation_text_delta(&state, delta);
+    let normalized = normalize_citation_text_delta(&state, &delta.into());
     *citation_state = Some(normalized.state);
     emit_text_delta(sender, content_index, &normalized.text, output);
 }
@@ -1928,21 +1928,21 @@ mod tests {
     #[test]
     fn normalizes_hosted_search_citations() {
         let text = "Alpha\u{e200}cite\u{e202}turn1a1\u{e201} beta.\u{e200}cite\u{e202}turn2b2\u{e201}Gamma".to_owned();
-        assert_eq!(normalize_citation_text(&text), "Alpha beta. Gamma");
+        assert_eq!(normalize_citation_text(&text.into()), "Alpha beta. Gamma");
     }
 
     #[test]
     fn keeps_non_citation_annotations() {
         let text = "A\u{e200}other\u{e201}B".to_owned();
-        assert_eq!(normalize_citation_text(&text), "A\u{e200}other\u{e201}B");
+        assert_eq!(normalize_citation_text(&text.into()), "A\u{e200}other\u{e201}B");
     }
 
     #[test]
     fn normalizes_citations_split_across_deltas() {
         let mut state = create_citation_text_state(None);
-        let mut output = String::new();
+        let mut output = JsString::default();
         for delta in ["Alpha", "\u{e200}cite", "\u{e202}turn1a1", "\u{e201}", " beta"] {
-            let normalized = normalize_citation_text_delta(&state, delta);
+            let normalized = normalize_citation_text_delta(&state, &delta.into());
             state = normalized.state;
             output.push_str(&normalized.text);
         }

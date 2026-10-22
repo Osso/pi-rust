@@ -5,6 +5,7 @@
 //! carries API-specific fields untyped through generic dispatch; Rust keeps them
 //! in [`StreamOptions::extra`] and each API module parses its typed options from it.
 
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 use std::future::Future;
 use std::pin::Pin;
