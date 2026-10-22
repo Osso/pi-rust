@@ -50,11 +50,11 @@ struct NoExtensionsLoader;
 impl ProjectTrustExtensionsLoader for NoExtensionsLoader {
     fn load<'a>(
         &'a self,
-        _cwd: &'a str,
-        _agent_dir: &'a str,
+        _cwd: &'a JsString,
+        _agent_dir: &'a JsString,
         _settings_manager: &'a Arc<Mutex<SettingsManager>>,
         _extension_factories: &'a [pi_coding_agent::core::resource_loader::InlineExtension],
-    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, String>> {
+    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, JsString>> {
         Box::pin(async { Ok(None) })
     }
 }
@@ -66,11 +66,11 @@ struct ErroringExtensionsLoader {
 impl ProjectTrustExtensionsLoader for ErroringExtensionsLoader {
     fn load<'a>(
         &'a self,
-        _cwd: &'a str,
-        _agent_dir: &'a str,
+        _cwd: &'a JsString,
+        _agent_dir: &'a JsString,
         _settings_manager: &'a Arc<Mutex<SettingsManager>>,
         _extension_factories: &'a [pi_coding_agent::core::resource_loader::InlineExtension],
-    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, String>> {
+    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, JsString>> {
         let path = self.path.clone();
         Box::pin(async move {
             Ok(Some(LoadExtensionsResult {
@@ -119,29 +119,29 @@ fn bun_binary_install_context(root: &Path) -> InstallContext {
 }
 
 struct FakeEffects {
-    cwd: String,
-    agent_dir: String,
+    cwd: JsString,
+    agent_dir: JsString,
     context: InstallContext,
-    entrypoint: Option<String>,
+    entrypoint: Option<JsString>,
     loader: Arc<dyn ProjectTrustExtensionsLoader>,
-    release: Result<LatestPiRelease, String>,
-    self_update: Result<(), String>,
+    release: Result<LatestPiRelease, JsString>,
+    self_update: Result<(), JsString>,
     refresh: Result<(), pi_js_compat::js_json::JsString>,
-    install: Result<(), String>,
-    remove: Result<bool, String>,
-    update: Result<(), String>,
+    install: Result<(), JsString>,
+    remove: Result<bool, JsString>,
+    update: Result<(), JsString>,
     packages: Vec<ConfiguredPackage>,
-    progress_messages: Vec<String>,
+    progress_messages: Vec<JsString>,
     config_requests: Mutex<Vec<(ConfigWriteScope, bool)>>,
-    calls: Mutex<Vec<String>>,
+    calls: Mutex<Vec<JsString>>,
 }
 
 impl FakeEffects {
     fn new(cwd: &Path, agent_dir: &Path, context: InstallContext) -> Self {
         Self {
-            cwd: cwd.display().to_string(),
-            agent_dir: agent_dir.display().to_string(),
-            entrypoint: context.entrypoint.clone(),
+            cwd: cwd.display().to_string().into(),
+            agent_dir: agent_dir.display().to_string().into(),
+            entrypoint: context.entrypoint.clone().map(JsString::from),
             context,
             loader: Arc::new(NoExtensionsLoader),
             release: Ok(LatestPiRelease {
@@ -161,17 +161,17 @@ impl FakeEffects {
         }
     }
 
-    fn calls(&self) -> Vec<String> {
+    fn calls(&self) -> Vec<JsString> {
         self.calls.lock().unwrap().clone()
     }
 }
 
 impl PackageCommandEffects for FakeEffects {
-    fn cwd(&self) -> String {
+    fn cwd(&self) -> JsString {
         self.cwd.clone()
     }
 
-    fn agent_dir(&self) -> String {
+    fn agent_dir(&self) -> JsString {
         self.agent_dir.clone()
     }
 
@@ -179,7 +179,7 @@ impl PackageCommandEffects for FakeEffects {
         Some(60)
     }
 
-    fn entrypoint(&self) -> Option<String> {
+    fn entrypoint(&self) -> Option<JsString> {
         self.entrypoint.clone()
     }
 
@@ -190,35 +190,35 @@ impl PackageCommandEffects for FakeEffects {
     fn create_settings<'a>(
         &'a self,
         options: CreateCommandSettingsOptions,
-    ) -> LocalBoxFuture<'a, Result<CommandSettings, String>> {
+    ) -> LocalBoxFuture<'a, Result<CommandSettings, JsString>> {
         Box::pin(async move { create_command_settings_manager(options, self.loader.as_ref()).await })
     }
 
     fn refresh_model_catalogs<'a>(
         &'a self,
-        _agent_dir: &'a str,
+        _agent_dir: &'a JsString,
     ) -> LocalBoxFuture<'a, Result<(), pi_js_compat::js_json::JsString>> {
-        self.calls.lock().unwrap().push("refresh".to_owned());
+        self.calls.lock().unwrap().push("refresh".into());
         let result = self.refresh.clone();
         Box::pin(async move { result })
     }
 
-    fn latest_release<'a>(&'a self) -> LocalBoxFuture<'a, Result<LatestPiRelease, String>> {
-        self.calls.lock().unwrap().push("latest_release".to_owned());
+    fn latest_release<'a>(&'a self) -> LocalBoxFuture<'a, Result<LatestPiRelease, JsString>> {
+        self.calls.lock().unwrap().push("latest_release".into());
         let result = self.release.clone();
         Box::pin(async move { result })
     }
 
-    fn run_self_update<'a>(&'a self, command: &'a SelfUpdateCommand) -> LocalBoxFuture<'a, Result<(), String>> {
+    fn run_self_update<'a>(&'a self, command: &'a SelfUpdateCommand) -> LocalBoxFuture<'a, Result<(), JsString>> {
         self.calls
             .lock()
             .unwrap()
-            .push(format!("self_update:{}", command.display));
+            .push(pi_js_compat::js_format!("self_update:{}", &command.display));
         let result = self.self_update.clone();
         Box::pin(async move { result })
     }
 
-    fn select_config<'a>(&'a self, request: SelectConfigRequest) -> LocalBoxFuture<'a, Result<(), String>> {
+    fn select_config<'a>(&'a self, request: SelectConfigRequest) -> LocalBoxFuture<'a, Result<(), JsString>> {
         self.config_requests
             .lock()
             .unwrap()
@@ -229,11 +229,14 @@ impl PackageCommandEffects for FakeEffects {
     fn install_packages<'a>(
         &'a self,
         _settings: &'a Arc<pi_coding_agent::core::package_manager::SettingsManagerStore>,
-        source: &'a str,
+        source: &'a JsString,
         local: bool,
         progress: PackageProgressSink,
-    ) -> LocalBoxFuture<'a, Result<(), String>> {
-        self.calls.lock().unwrap().push(format!("install:{source}:{local}"));
+    ) -> LocalBoxFuture<'a, Result<(), JsString>> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(pi_js_compat::js_format!("install:{}:{}", source, local));
         for message in &self.progress_messages {
             progress(message.clone().into());
         }
@@ -244,11 +247,14 @@ impl PackageCommandEffects for FakeEffects {
     fn remove_packages<'a>(
         &'a self,
         _settings: &'a Arc<pi_coding_agent::core::package_manager::SettingsManagerStore>,
-        source: &'a str,
+        source: &'a JsString,
         local: bool,
         progress: PackageProgressSink,
-    ) -> LocalBoxFuture<'a, Result<bool, String>> {
-        self.calls.lock().unwrap().push(format!("remove:{source}:{local}"));
+    ) -> LocalBoxFuture<'a, Result<bool, JsString>> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(pi_js_compat::js_format!("remove:{}:{}", source, local));
         for message in &self.progress_messages {
             progress(message.clone().into());
         }
@@ -266,13 +272,13 @@ impl PackageCommandEffects for FakeEffects {
     fn update_packages<'a>(
         &'a self,
         _settings: &'a Arc<pi_coding_agent::core::package_manager::SettingsManagerStore>,
-        source: Option<&'a str>,
+        source: Option<&'a JsString>,
         progress: PackageProgressSink,
-    ) -> LocalBoxFuture<'a, Result<(), String>> {
-        self.calls
-            .lock()
-            .unwrap()
-            .push(format!("update:{}", source.unwrap_or("<all>")));
+    ) -> LocalBoxFuture<'a, Result<(), JsString>> {
+        self.calls.lock().unwrap().push(pi_js_compat::js_format!(
+            "update:{}",
+            source.cloned().unwrap_or_else(|| "<all>".into())
+        ));
         for message in &self.progress_messages {
             progress(message.clone().into());
         }
@@ -943,7 +949,7 @@ fn package_config_effects_struct_exposes_the_host_values() {
         fn select<'a>(
             &'a self,
             _request: SelectConfigRequest,
-        ) -> pi_coding_agent::package_manager_cli::LocalBoxFuture<'a, Result<(), String>> {
+        ) -> pi_coding_agent::package_manager_cli::LocalBoxFuture<'a, Result<(), JsString>> {
             Box::pin(async { Ok(()) })
         }
     }

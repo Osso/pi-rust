@@ -48,7 +48,8 @@ fn compare_single_dirs(oracle: &mut oracle::TsOracle, fixtures: &Path) {
         let actual = load_skills_from_dir(&LoadSkillsFromDirOptions {
             dir: path.into(),
             source: "test".to_owned().into(),
-        });
+        })
+        .unwrap();
         assert_eq!(json!(actual.skills), response["output"]["skills"], "{dir} skills");
         assert_eq!(
             json!(actual.diagnostics),
@@ -66,7 +67,8 @@ fn compare_tree(oracle: &mut oracle::TsOracle, root: &Path) {
     let actual = load_skills_from_dir(&LoadSkillsFromDirOptions {
         dir: path.into(),
         source: "test".to_owned().into(),
-    });
+    })
+    .unwrap();
     assert_eq!(json!(actual.skills), response["output"]["skills"]);
     assert_eq!(json!(actual.diagnostics), response["output"]["diagnostics"]);
 }
@@ -165,6 +167,7 @@ fn compare_load(oracle: &mut oracle::TsOracle, root: &Path, fixtures: &Path) {
             skill_paths: skill_paths.clone(),
             include_defaults: *include_defaults,
         })
+        .unwrap()
         .expect("skills load");
         assert_eq!(json!(actual.skills), response["output"]["skills"], "case {index}");
         assert_eq!(

@@ -29,7 +29,7 @@ fn extension_runtime() -> ExtensionRuntime {
 
 async fn extension(
     runtime: &ExtensionRuntime,
-    cwd: &str,
+    cwd: &JsString,
     path: &str,
     setup: impl FnOnce(&ExtensionApi) + Send + 'static,
 ) -> Extension {
@@ -80,15 +80,15 @@ fn trust_requiring_project(name: &str) -> (PathBuf, PathBuf) {
 }
 
 struct RecordingUi {
-    labels: Mutex<Vec<String>>,
-    selection: Option<String>,
+    labels: Mutex<Vec<JsString>>,
+    selection: Option<JsString>,
 }
 
 impl RecordingUi {
     fn selecting(selection: &str) -> Arc<Self> {
         Arc::new(Self {
             labels: Mutex::new(Vec::new()),
-            selection: Some(selection.to_owned()),
+            selection: Some(selection.into()),
         })
     }
 
@@ -99,7 +99,7 @@ impl RecordingUi {
         })
     }
 
-    fn labels(&self) -> Vec<String> {
+    fn labels(&self) -> Vec<JsString> {
         self.labels.lock().unwrap().clone()
     }
 }
@@ -107,10 +107,10 @@ impl RecordingUi {
 impl ExtensionUiContext for RecordingUi {
     fn select<'a>(
         &'a self,
-        _title: &str,
-        options: &[String],
+        _title: &JsString,
+        options: &[JsString],
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         let labels = options.to_vec();
         let selection = self.selection.clone();
         Box::pin(async move {
@@ -120,7 +120,7 @@ impl ExtensionUiContext for RecordingUi {
     }
 }
 
-fn context(cwd: &str, has_ui: bool, ui: Arc<dyn ExtensionUiContext>) -> ProjectTrustContext {
+fn context(cwd: &JsString, has_ui: bool, ui: Arc<dyn ExtensionUiContext>) -> ProjectTrustContext {
     ProjectTrustContext {
         cwd: cwd.to_owned().into(),
         mode: ExtensionMode::Tui,
@@ -447,10 +447,10 @@ async fn unreadable_trust_store_errors_instead_of_silently_untrusting() {
 }
 
 struct RecordingStartupUi {
-    selections: Mutex<Vec<(String, Vec<String>)>>,
-    inputs: Mutex<Vec<(String, Option<String>)>>,
-    selection: Option<String>,
-    input: Option<String>,
+    selections: Mutex<Vec<(JsString, Vec<JsString>)>>,
+    inputs: Mutex<Vec<(JsString, Option<JsString>)>>,
+    selection: Option<JsString>,
+    input: Option<JsString>,
 }
 
 impl RecordingStartupUi {
@@ -458,14 +458,14 @@ impl RecordingStartupUi {
         Arc::new(Self {
             selections: Mutex::new(Vec::new()),
             inputs: Mutex::new(Vec::new()),
-            selection: selection.map(str::to_owned),
-            input: input.map(str::to_owned),
+            selection: selection.map(JsString::from),
+            input: input.map(JsString::from),
         })
     }
 }
 
 impl ProjectTrustStartupUi for RecordingStartupUi {
-    fn select<'a>(&'a self, title: &'a str, options: &'a [String]) -> BoxFuture<'a, Option<String>> {
+    fn select<'a>(&'a self, title: &'a JsString, options: &'a [JsString]) -> BoxFuture<'a, Option<JsString>> {
         self.selections
             .lock()
             .unwrap()
@@ -474,18 +474,18 @@ impl ProjectTrustStartupUi for RecordingStartupUi {
         Box::pin(async move { selection })
     }
 
-    fn input<'a>(&'a self, title: &'a str, placeholder: Option<&'a str>) -> BoxFuture<'a, Option<String>> {
+    fn input<'a>(&'a self, title: &'a JsString, placeholder: Option<&'a JsString>) -> BoxFuture<'a, Option<JsString>> {
         self.inputs
             .lock()
             .unwrap()
-            .push((title.to_owned(), placeholder.map(str::to_owned)));
+            .push((title.to_owned(), placeholder.cloned()));
         let value = self.input.clone();
         Box::pin(async move { value })
     }
 }
 
 fn cli_context(
-    cwd: &str,
+    cwd: &JsString,
     mode: AppMode,
     has_ui: bool,
     startup_ui: Option<Arc<RecordingStartupUi>>,

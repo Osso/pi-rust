@@ -146,7 +146,7 @@ impl Provider for TestProvider {
         &self.id
     }
 
-    fn base_url(&self) -> Option<&str> {
+    fn base_url(&self) -> Option<&JsString> {
         None
     }
 

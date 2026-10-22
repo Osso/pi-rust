@@ -42,7 +42,7 @@ impl PackageSettingsStore for FakeSettings {
         self.trusted
     }
 
-    fn get_npm_command(&self) -> Option<Vec<String>> {
+    fn get_npm_command(&self) -> Option<Vec<JsString>> {
         self.npm_command.clone()
     }
 }

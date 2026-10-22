@@ -21,7 +21,7 @@ struct FakeSettings {
     global: Mutex<PackageSettingsSnapshot>,
     project: Mutex<PackageSettingsSnapshot>,
     trusted: AtomicBool,
-    npm_command: Mutex<Option<Vec<String>>>,
+    npm_command: Mutex<Option<Vec<JsString>>>,
 }
 
 impl FakeSettings {
@@ -34,7 +34,7 @@ impl FakeSettings {
         }
     }
 
-    fn with_npm_command(self, command: Vec<String>) -> Self {
+    fn with_npm_command(self, command: Vec<JsString>) -> Self {
         *self.npm_command.lock().unwrap() = Some(command);
         self
     }
@@ -61,7 +61,7 @@ impl PackageSettingsStore for FakeSettings {
         self.trusted.load(Ordering::SeqCst)
     }
 
-    fn get_npm_command(&self) -> Option<Vec<String>> {
+    fn get_npm_command(&self) -> Option<Vec<JsString>> {
         self.npm_command.lock().unwrap().clone()
     }
 }

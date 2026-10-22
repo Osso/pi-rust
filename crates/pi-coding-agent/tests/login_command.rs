@@ -20,7 +20,7 @@ use pi_js_compat::js_json::JsString;
 use serde_json::{Map, Value};
 
 struct TestIo {
-    lines: Mutex<Vec<String>>,
+    lines: Mutex<Vec<JsString>>,
     next_line: Mutex<usize>,
     stdout: Mutex<JsString>,
     stderr: Mutex<JsString>,
@@ -29,7 +29,7 @@ struct TestIo {
 impl TestIo {
     fn new(lines: &[&str]) -> Arc<Self> {
         Arc::new(Self {
-            lines: Mutex::new(lines.iter().map(|line| (*line).to_owned()).collect()),
+            lines: Mutex::new(lines.iter().map(|line| JsString::from(*line)).collect()),
             next_line: Mutex::new(0),
             stdout: Mutex::new(JsString::default()),
             stderr: Mutex::new(JsString::default()),
@@ -54,7 +54,7 @@ impl LoginIo for TestIo {
         self.stderr.lock().unwrap().push_str(message);
     }
 
-    fn read_line<'a>(&'a self, prompt: &'a str) -> BoxFuture<'a, Result<String, JsString>> {
+    fn read_line<'a>(&'a self, prompt: &'a JsString) -> BoxFuture<'a, Result<JsString, JsString>> {
         self.stdout.lock().unwrap().push_str(prompt);
         let mut index = self.next_line.lock().unwrap();
         let line = self.lines.lock().unwrap().get(*index).cloned().unwrap_or_default();
@@ -301,7 +301,7 @@ fn opens_browser_oauth_urls_when_requested() {
             provider_id: provider_id.to_owned(),
             io: io.clone(),
             use_browser_cli: true,
-            open_browser_cli_url: Some(Arc::new(move |url: String| {
+            open_browser_cli_url: Some(Arc::new(move |url: JsString| {
                 opened_by_opener.lock().unwrap().push(url);
                 Box::pin(async { Ok(()) })
             })),
@@ -347,7 +347,7 @@ fn reports_browser_cli_open_failures_without_failing_the_login() {
             provider_id: provider_id.to_owned(),
             io: io.clone(),
             use_browser_cli: true,
-            open_browser_cli_url: Some(Arc::new(|_url: String| {
+            open_browser_cli_url: Some(Arc::new(|_url: JsString| {
                 Box::pin(async { Err("browser-cli open failed with exit code 2".to_owned()) })
             })),
         })

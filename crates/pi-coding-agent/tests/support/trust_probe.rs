@@ -45,6 +45,6 @@ pub(crate) fn run_child() {
     let mode = std::env::var(MODE_ENV).expect("trust child mode must be set");
     assert_eq!(mode, "resources", "unknown trust probe mode {mode}");
     let cwd = std::env::var(CWD_ENV).expect("trust child cwd must be set");
-    let detected = has_trust_requiring_project_resources(&JsString::from(&cwd));
+    let detected = has_trust_requiring_project_resources(&JsString::from(&cwd)).unwrap();
     println!("{OUTPUT_PREFIX}{detected}");
 }

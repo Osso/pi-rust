@@ -18,7 +18,8 @@ fn loads_a_valid_skill_with_synthetic_source_info() {
     let result = load_skills_from_dir(&LoadSkillsFromDirOptions {
         dir: dir.to_string_lossy().into_owned().into(),
         source: "test".to_owned().into(),
-    });
+    })
+    .unwrap();
 
     assert_eq!(result.diagnostics, Vec::new());
     assert_eq!(result.skills.len(), 1);
@@ -48,7 +49,8 @@ fn warns_but_keeps_skills_with_invalid_names() {
     let result = load_skills_from_dir(&LoadSkillsFromDirOptions {
         dir: dir.to_string_lossy().into_owned().into(),
         source: "test".to_owned().into(),
-    });
+    })
+    .unwrap();
 
     assert_eq!(result.skills.len(), 1);
     assert!(
@@ -69,7 +71,8 @@ fn skips_skills_without_a_description() {
     let result = load_skills_from_dir(&LoadSkillsFromDirOptions {
         dir: dir.to_string_lossy().into_owned().into(),
         source: "test".to_owned().into(),
-    });
+    })
+    .unwrap();
 
     assert!(result.skills.is_empty());
     assert!(
@@ -91,7 +94,8 @@ fn invalid_yaml_reports_one_warning_at_the_file() {
     let result = load_skills_from_dir(&LoadSkillsFromDirOptions {
         dir: dir.to_string_lossy().into_owned().into(),
         source: "test".to_owned().into(),
-    });
+    })
+    .unwrap();
 
     assert!(result.skills.is_empty());
     assert_eq!(result.diagnostics.len(), 1);
@@ -123,7 +127,8 @@ fn prefers_the_directory_root_skill_and_skips_dot_directories() {
     let result = load_skills_from_dir(&LoadSkillsFromDirOptions {
         dir: root.to_string_lossy().into_owned().into(),
         source: "test".to_owned().into(),
-    });
+    })
+    .unwrap();
 
     assert_eq!(result.skills.len(), 1);
     assert_eq!(result.skills[0].description, "Root skill should win.");
@@ -131,7 +136,8 @@ fn prefers_the_directory_root_skill_and_skips_dot_directories() {
     let tree = load_skills_from_dir(&LoadSkillsFromDirOptions {
         dir: temp.path().to_string_lossy().into_owned().into(),
         source: "test".to_owned().into(),
-    });
+    })
+    .unwrap();
     assert!(
         tree.skills
             .iter()

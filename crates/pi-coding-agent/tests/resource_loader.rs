@@ -74,6 +74,7 @@ fn loader(cwd: &Path, agent_dir: &Path, trusted: bool) -> DefaultResourceLoader 
         ..Default::default()
     })
     .unwrap()
+    .unwrap()
 }
 
 fn write_skill(dir: &Path, name: &str, description: &str) {
@@ -313,6 +314,7 @@ async fn no_context_files_skips_all_discovery() {
         no_context_files: true,
         ..Default::default()
     })
+    .unwrap()
     .unwrap();
     resource_loader.reload().await.unwrap();
     assert!(resource_loader.get_agents_files().agents_files.is_empty());
@@ -349,6 +351,7 @@ async fn rules_load_in_sorted_order_and_respect_scope() {
         rules_scope: Some(RulesScope::Child),
         ..Default::default()
     })
+    .unwrap()
     .unwrap();
     child_loader.reload().await.unwrap();
     assert_eq!(
@@ -460,6 +463,7 @@ async fn literal_prompts_are_not_exposed_as_sources() {
         ]),
         ..Default::default()
     })
+    .unwrap()
     .unwrap();
     resource_loader.reload().await.unwrap();
     assert_eq!(
@@ -479,6 +483,7 @@ async fn literal_prompts_are_not_exposed_as_sources() {
         system_prompt: Some("Literal system prompt.".to_owned().into()),
         ..Default::default()
     })
+    .unwrap()
     .unwrap();
     literal.reload().await.unwrap();
     assert_eq!(literal.get_system_prompt().as_deref(), Some("Literal system prompt."));
@@ -503,6 +508,7 @@ async fn no_skills_still_loads_additional_skill_paths() {
         additional_skill_paths: vec![custom.to_string_lossy().into_owned().into()],
         ..Default::default()
     })
+    .unwrap()
     .unwrap();
     resource_loader.reload().await.unwrap();
     let skills = resource_loader.get_skills().skills;
@@ -547,6 +553,7 @@ async fn overrides_replace_loaded_resources() {
         system_prompt_override: Some(Arc::new(|_| Some("Custom system prompt".to_owned().into()))),
         ..Default::default()
     })
+    .unwrap()
     .unwrap();
     resource_loader.reload().await.unwrap();
     assert_eq!(resource_loader.get_skills().skills.len(), 1);
@@ -691,6 +698,7 @@ async fn extension_conflicts_report_tools_and_flags() {
         ],
         ..Default::default()
     })
+    .unwrap()
     .unwrap();
     resource_loader.reload().await.unwrap();
     let result = resource_loader.get_extensions();
@@ -741,6 +749,7 @@ async fn disabled_inline_extension_factories_are_skipped() {
         ],
         ..Default::default()
     })
+    .unwrap()
     .unwrap();
     resource_loader.reload().await.unwrap();
     let paths: Vec<String> = resource_loader
@@ -768,6 +777,7 @@ async fn missing_additional_extension_path_is_reported() {
         additional_extension_paths: vec![missing.to_string_lossy().into_owned().into()],
         ..Default::default()
     })
+    .unwrap()
     .unwrap();
     resource_loader.reload().await.unwrap();
     let errors = resource_loader.get_extensions().errors;
@@ -834,6 +844,7 @@ async fn no_extensions_keeps_cli_extensions() {
         }],
         ..Default::default()
     })
+    .unwrap()
     .unwrap();
     resource_loader.reload().await.unwrap();
     assert_eq!(resource_loader.get_extensions().extensions.len(), 1);

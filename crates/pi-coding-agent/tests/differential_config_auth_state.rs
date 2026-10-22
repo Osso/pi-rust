@@ -57,6 +57,7 @@ fn decision_value(decision: ProjectTrustDecision) -> Value {
 fn options_value(cwd: &str, include_session_only: bool) -> Value {
     Value::Array(
         get_project_trust_options(&JsString::from(cwd), include_session_only)
+            .unwrap()
             .into_iter()
             .map(|option| {
                 let mut value = json!({
@@ -158,9 +159,9 @@ fn trust_store_matches_the_pinned_typescript_module() {
     results.push(decision_value(store.get(&child.display().to_string()).unwrap()));
     results.push(options_value(&child.display().to_string(), false));
     results.push(options_value(&child.display().to_string(), true));
-    results.push(json!(get_project_trust_parent_path(&JsString::from(
-        &child.display().to_string()
-    ))));
+    results.push(json!(
+        get_project_trust_parent_path(&JsString::from(&child.display().to_string())).unwrap()
+    ));
     store
         .set_many(&[
             ProjectTrustUpdate {
