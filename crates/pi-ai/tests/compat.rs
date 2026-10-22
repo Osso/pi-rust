@@ -48,7 +48,7 @@ fn model(api: &str, provider: &str, id: &str) -> Model {
         name: "Test Model".to_owned(),
         api: api.to_owned(),
         provider: provider.to_owned(),
-        base_url: "https://example.test/v1".to_owned(),
+        base_url: ("https://example.test/v1".to_owned()).into(),
         reasoning: false,
         thinking_level_map: None,
         input: vec![Modality::Text],
@@ -142,7 +142,7 @@ fn unknown_api_reports_the_registration_error_in_the_stream() {
         panic!("expected error event, got {event:?}");
     };
     assert_eq!(
-        error.error_message.as_deref(),
+        error.error_message.as_ref(),
         Some("No API provider registered for api: missing-api")
     );
     assert_eq!(error.stop_reason, StopReason::Error);
@@ -158,7 +158,7 @@ fn registered_provider_receives_the_explicit_api_key() {
     let model = model("openai-responses", "custom-openai", "test-model");
     let options = StreamOptions {
         request: ProviderRequestOptions {
-            api_key: Some("request-key".to_owned()),
+            api_key: Some(("request-key".to_owned()).into()),
             ..ProviderRequestOptions::default()
         },
         ..StreamOptions::default()
@@ -209,7 +209,7 @@ fn explicit_key_beats_the_scoped_env_key_and_blank_keys_fall_back() {
         let model = model("openai-responses", "openai", "gpt-5");
         let options = StreamOptions {
             request: ProviderRequestOptions {
-                api_key: explicit.map(str::to_owned),
+                api_key: (explicit.map(str::to_owned)).map(pi_js_compat::js_json::JsString::from),
                 env: scoped_env("OPENAI_API_KEY", "env-key"),
                 ..ProviderRequestOptions::default()
             },
@@ -328,7 +328,7 @@ fn api_mismatch_is_reported_as_the_typescript_error_message() {
         panic!("expected error event, got {event:?}");
     };
     assert_eq!(
-        error.error_message.as_deref(),
+        error.error_message.as_ref(),
         Some("Mismatched api: other-api expected openai-responses")
     );
 }
@@ -346,7 +346,7 @@ fn faux_registration_completes_and_estimates_usage() {
     let mut context = context();
     context.messages = vec![pi_ai::types::Message::User(pi_ai::types::UserMessage {
         role: pi_ai::types::UserRole::Tag,
-        content: pi_ai::types::UserContent::Text("hi there".to_owned()),
+        content: pi_ai::types::UserContent::Text(("hi there".to_owned()).into()),
         input_source: None,
         provider_native: None,
         timestamp: 0,

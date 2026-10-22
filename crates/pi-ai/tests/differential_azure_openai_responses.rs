@@ -87,11 +87,12 @@ fn stream_options(
 ) -> StreamOptions {
     let mut request = ProviderRequestOptions {
         api_key: Some(
-            stream
+            (stream
                 .get("apiKey")
                 .and_then(Value::as_str)
                 .unwrap_or("test-key")
-                .to_owned(),
+                .to_owned())
+            .into(),
         ),
         fetch: Some(fetch),
         signal,
@@ -121,7 +122,8 @@ fn stream_options(
                 "long" => CacheRetention::Long,
                 _ => CacheRetention::Short,
             }),
-        session_id: stream.get("sessionId").and_then(Value::as_str).map(str::to_owned),
+        session_id: (stream.get("sessionId").and_then(Value::as_str).map(str::to_owned))
+            .map(pi_js_compat::js_json::JsString::from),
         metadata: stream.get("metadata").and_then(Value::as_object).cloned(),
         extra: extra.as_object().cloned().unwrap_or_default(),
         ..Default::default()

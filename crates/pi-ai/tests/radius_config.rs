@@ -36,16 +36,22 @@ fn config() -> serde_json::Value {
 #[test]
 fn normalizes_gateway_urls_with_scheme_detection_and_trailing_slashes() {
     assert_eq!(DEFAULT_RADIUS_GATEWAY, "https://radius.pi.dev");
-    assert_eq!(normalize_radius_gateway_url("radius.pi.dev"), "https://radius.pi.dev");
     assert_eq!(
-        normalize_radius_gateway_url("HTTPS://radius.pi.dev///"),
+        normalize_radius_gateway_url(&pi_js_compat::js_json::JsString::from("radius.pi.dev")),
+        "https://radius.pi.dev"
+    );
+    assert_eq!(
+        normalize_radius_gateway_url(&pi_js_compat::js_json::JsString::from("HTTPS://radius.pi.dev///")),
         "HTTPS://radius.pi.dev"
     );
     assert_eq!(
-        normalize_radius_gateway_url("http://localhost:8080/"),
+        normalize_radius_gateway_url(&pi_js_compat::js_json::JsString::from("http://localhost:8080/")),
         "http://localhost:8080"
     );
-    assert_eq!(normalize_radius_gateway_url("https://"), "https:");
+    assert_eq!(
+        normalize_radius_gateway_url(&pi_js_compat::js_json::JsString::from("https://")),
+        "https:"
+    );
 }
 
 #[test]
@@ -119,8 +125,8 @@ async fn loads_gateway_config_with_bearer_auth_and_truncated_errors() {
     let fetch = RecordingFetch::new(vec![ScriptedResponse::json(200, &config().to_string())]);
     let parsed = load_radius_gateway_config(
         &(fetch.clone() as Arc<dyn pi_ai::request::Fetch>),
-        "https://radius.example",
-        Some("token"),
+        &pi_js_compat::js_json::JsString::from("https://radius.example"),
+        Some(&pi_js_compat::js_json::JsString::from("token")),
         None,
     )
     .await
@@ -142,7 +148,7 @@ async fn loads_gateway_config_with_bearer_auth_and_truncated_errors() {
     let fetch = RecordingFetch::new(vec![ScriptedResponse::json(503, &long_body)]);
     let error = load_radius_gateway_config(
         &(fetch as Arc<dyn pi_ai::request::Fetch>),
-        "https://radius.example",
+        &pi_js_compat::js_json::JsString::from("https://radius.example"),
         None,
         None,
     )
@@ -157,7 +163,7 @@ async fn loads_gateway_config_with_bearer_auth_and_truncated_errors() {
     let fetch = RecordingFetch::new(vec![ScriptedResponse::json(200, "{\"baseUrl\":1}")]);
     let error = load_radius_gateway_config(
         &(fetch as Arc<dyn pi_ai::request::Fetch>),
-        "https://radius.example",
+        &pi_js_compat::js_json::JsString::from("https://radius.example"),
         None,
         None,
     )

@@ -10,7 +10,7 @@ fn model(id: &str, provider: &str, name: &str) -> Model {
         name: name.to_owned(),
         api: "openai-completions".to_owned(),
         provider: provider.to_owned(),
-        base_url: "https://example.invalid".to_owned(),
+        base_url: ("https://example.invalid".to_owned()).into(),
         reasoning: false,
         thinking_level_map: None,
         input: vec![Modality::Text],

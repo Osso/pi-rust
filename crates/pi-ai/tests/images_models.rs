@@ -17,7 +17,7 @@ fn test_model(provider: &str, id: &str) -> ImagesModel {
         name: id.to_owned(),
         api: "test-images".to_owned(),
         provider: provider.to_owned(),
-        base_url: "https://example.test/v1".to_owned(),
+        base_url: ("https://example.test/v1".to_owned()).into(),
         thinking_level_map: None,
         input: vec![Modality::Text],
         output: vec![Modality::Image],
@@ -58,7 +58,7 @@ struct FakeAuthContext {
 impl AuthContext for FakeAuthContext {
     fn env(&self, name: &str) -> BoxFuture<'_, Option<pi_js_compat::js_json::JsString>> {
         let value = self.env.get(name).cloned();
-        Box::pin(async move { value })
+        (Box::pin(async move { value })).map(pi_js_compat::js_json::JsString::from)
     }
 
     fn file_exists(&self, _path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
@@ -198,7 +198,7 @@ async fn resolves_auth_and_merges_it_into_requests_with_explicit_options_winning
             .expect("configured")
             .auth
             .api_key
-            .as_deref(),
+            .as_ref(),
         Some("env-key")
     );
     assert_eq!(
@@ -209,11 +209,11 @@ async fn resolves_auth_and_merges_it_into_requests_with_explicit_options_winning
             .expect("configured")
             .auth
             .api_key
-            .as_deref(),
+            .as_ref(),
         Some("env-key")
     );
     let overrides = pi_ai::auth::AuthResolutionOverrides {
-        api_key: Some("explicit-key".to_owned()),
+        api_key: Some(("explicit-key".to_owned()).into()),
         ..Default::default()
     };
     assert_eq!(
@@ -224,7 +224,7 @@ async fn resolves_auth_and_merges_it_into_requests_with_explicit_options_winning
             .expect("configured")
             .auth
             .api_key
-            .as_deref(),
+            .as_ref(),
         Some("explicit-key")
     );
 
@@ -233,15 +233,15 @@ async fn resolves_auth_and_merges_it_into_requests_with_explicit_options_winning
         .await;
     assert_eq!(result.stop_reason, ImagesStopReason::Stop);
     assert_eq!(
-        calls.lock().expect("calls lock")[0].options.request.api_key.as_deref(),
+        calls.lock().expect("calls lock")[0].options.request.api_key.as_ref(),
         Some("env-key")
     );
 
     let mut explicit = ImagesOptions::default();
-    explicit.request.api_key = Some("explicit".to_owned());
+    explicit.request.api_key = Some(("explicit".to_owned()).into());
     models.generate_images(model, context(), explicit).await;
     assert_eq!(
-        calls.lock().expect("calls lock")[1].options.request.api_key.as_deref(),
+        calls.lock().expect("calls lock")[1].options.request.api_key.as_ref(),
         Some("explicit")
     );
 }
@@ -252,7 +252,7 @@ async fn merges_provider_resolved_env_into_image_options() {
     let models = create_images_models(Default::default());
     let auth = static_auth(Some(AuthResult {
         auth: ModelAuth {
-            api_key: Some("provider-key".to_owned()),
+            api_key: Some(("provider-key".to_owned()).into()),
             headers: None,
             base_url: None,
         },
@@ -276,7 +276,7 @@ async fn merges_provider_resolved_env_into_image_options() {
 
     let options = ImagesOptions {
         request: ImagesRequestOptions {
-            api_key: Some("request-key".to_owned()),
+            api_key: Some(("request-key".to_owned()).into()),
             env: Some(IndexMap::from([
                 ("alpha".to_owned(), "request".to_owned()),
                 ("SHARED".to_owned(), "request".to_owned()),
@@ -288,7 +288,7 @@ async fn merges_provider_resolved_env_into_image_options() {
     models.generate_images(model, context(), options).await;
 
     let recorded = &calls.lock().expect("calls lock")[0].options;
-    assert_eq!(recorded.request.api_key.as_deref(), Some("request-key"));
+    assert_eq!(recorded.request.api_key.as_ref(), Some("request-key"));
     let env = recorded.request.env.as_ref().expect("merged env");
     let keys: Vec<&str> = env.keys().map(String::as_str).collect();
     assert_eq!(keys, vec!["zeta", "SHARED", "alpha"]);
@@ -301,9 +301,9 @@ async fn applies_auth_base_url_and_headers_to_the_request_model() {
     let models = create_images_models(Default::default());
     let auth = static_auth(Some(AuthResult {
         auth: ModelAuth {
-            api_key: Some("key".to_owned()),
+            api_key: Some(("key".to_owned()).into()),
             headers: Some(IndexMap::from([("x-auth".to_owned(), Some("auth".to_owned()))])),
-            base_url: Some("https://auth.example/v1".to_owned()),
+            base_url: Some(("https://auth.example/v1".to_owned()).into()),
         },
         env: None,
         source: None,
@@ -356,7 +356,7 @@ async fn returns_error_results_for_unknown_providers_and_still_dispatches_unconf
     assert!(
         ghost
             .error_message
-            .as_deref()
+            .as_ref()
             .expect("error")
             .contains("Unknown provider: ghost")
     );

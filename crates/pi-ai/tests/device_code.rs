@@ -168,14 +168,17 @@ async fn surfaces_a_failed_poll_message() {
     let calls = Arc::new(AtomicUsize::new(0));
     let poll = sequence::<&str>(
         vec![OAuthDeviceCodePollResult::Failed {
-            message: "access_denied".to_owned(),
+            message: ("access_denied".to_owned()).into(),
         }],
         Arc::clone(&calls),
     );
 
     let result = poll_oauth_device_code_flow(options(Some(5.0), Some(30.0)), poll).await;
 
-    assert_eq!(result, Err(OAuthDeviceCodeError::Failed("access_denied".to_owned())));
+    assert_eq!(
+        result,
+        Err(OAuthDeviceCodeError::Failed(("access_denied".to_owned()).into()))
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -205,5 +208,8 @@ fn error_messages_match_the_source() {
         OAuthDeviceCodeError::SlowDownTimedOut.to_string(),
         "Device flow timed out after one or more slow_down responses. This is often caused by clock drift in WSL or VM environments. Please sync or restart the VM clock and try again."
     );
-    assert_eq!(OAuthDeviceCodeError::Failed("boom".to_owned()).to_string(), "boom");
+    assert_eq!(
+        OAuthDeviceCodeError::Failed(("boom".to_owned()).into()).to_string(),
+        "boom"
+    );
 }

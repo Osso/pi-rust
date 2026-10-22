@@ -32,7 +32,7 @@ fn test_model(provider: &str, id: &str) -> Model {
         name: id.to_owned(),
         api: "test-api".to_owned(),
         provider: provider.to_owned(),
-        base_url: "https://example.test/v1".to_owned(),
+        base_url: ("https://example.test/v1".to_owned()).into(),
         reasoning: false,
         thinking_level_map: None,
         input: vec![Modality::Text],
@@ -61,7 +61,7 @@ fn context() -> Context {
         system_prompt: None,
         messages: vec![Message::User(pi_ai::types::UserMessage {
             role: pi_ai::types::UserRole::Tag,
-            content: pi_ai::types::UserContent::Text("hi".to_owned()),
+            content: pi_ai::types::UserContent::Text(("hi".to_owned()).into()),
             input_source: None,
             provider_native: None,
             timestamp: 1,
@@ -110,7 +110,7 @@ fn env_key_auth(key: Option<&str>) -> Arc<dyn ApiKeyAuth> {
         fn resolve(&self, input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {
             let stored = input.credential.and_then(|credential| credential.key);
             let source = if stored.is_some() { "stored" } else { "env" };
-            let key = stored.or_else(|| self.key.clone());
+            let key = stored.or_else(|| (self.key.clone()).map(pi_js_compat::js_json::JsString::from));
             Box::pin(async move {
                 Ok(key.map(|key| AuthResult {
                     auth: ModelAuth {
@@ -119,7 +119,7 @@ fn env_key_auth(key: Option<&str>) -> Arc<dyn ApiKeyAuth> {
                         base_url: None,
                     },
                     env: None,
-                    source: Some(source.to_owned()),
+                    source: Some((source.to_owned()).into()),
                 }))
             })
         }
@@ -506,7 +506,7 @@ async fn restores_cached_models_before_waiting_for_network_auth() {
                     release.notified().await;
                     Ok(Some(AuthResult {
                         auth: ModelAuth {
-                            api_key: Some("key".to_owned()),
+                            api_key: Some(("key".to_owned()).into()),
                             headers: None,
                             base_url: None,
                         },
@@ -560,7 +560,7 @@ async fn persists_dynamic_catalogs_and_restores_them_without_network() {
             Arc::new(|_| {
                 Box::pin(async {
                     Ok(Some(Credential::ApiKey(ApiKeyCredential {
-                        key: Some("key".to_owned()),
+                        key: Some(("key".to_owned()).into()),
                         env: None,
                     })))
                 })
@@ -686,7 +686,7 @@ async fn passes_effective_api_key_and_refresh_options_and_skips_unconfigured_pro
     assert_eq!(
         credential,
         Some(Credential::ApiKey(ApiKeyCredential {
-            key: Some("ambient-key".to_owned()),
+            key: Some(("ambient-key".to_owned()).into()),
             env: None,
         }))
     );
@@ -963,7 +963,7 @@ async fn resolves_auth_stored_credential_owns_the_provider() {
             .unwrap()
             .auth
             .api_key
-            .as_deref(),
+            .as_ref(),
         Some("env-key")
     );
     assert_eq!(
@@ -974,7 +974,7 @@ async fn resolves_auth_stored_credential_owns_the_provider() {
             .unwrap()
             .auth
             .api_key
-            .as_deref(),
+            .as_ref(),
         Some("env-key")
     );
     assert_eq!(
@@ -982,7 +982,7 @@ async fn resolves_auth_stored_credential_owns_the_provider() {
             .get_auth_for_model(
                 &model,
                 pi_ai::auth::AuthResolutionOverrides {
-                    api_key: Some("explicit-key".to_owned()),
+                    api_key: Some(("explicit-key".to_owned()).into()),
                     ..Default::default()
                 }
             )
@@ -991,7 +991,7 @@ async fn resolves_auth_stored_credential_owns_the_provider() {
             .unwrap()
             .auth
             .api_key
-            .as_deref(),
+            .as_ref(),
         Some("explicit-key")
     );
 
@@ -1004,8 +1004,8 @@ async fn resolves_auth_stored_credential_owns_the_provider() {
         .await
         .unwrap();
     let resolution = models.get_auth("p1", Default::default()).await.unwrap().unwrap();
-    assert_eq!(resolution.auth.api_key.as_deref(), Some("oauth-token"));
-    assert_eq!(resolution.source.as_deref(), Some("OAuth"));
+    assert_eq!(resolution.auth.api_key.as_ref(), Some("oauth-token"));
+    assert_eq!(resolution.source.as_ref(), Some("OAuth"));
 
     credentials
         .modify(
@@ -1013,7 +1013,7 @@ async fn resolves_auth_stored_credential_owns_the_provider() {
             Arc::new(|_| {
                 Box::pin(async {
                     Ok(Some(Credential::ApiKey(ApiKeyCredential {
-                        key: Some("stored-key".to_owned()),
+                        key: Some(("stored-key".to_owned()).into()),
                         env: None,
                     })))
                 })
@@ -1023,8 +1023,8 @@ async fn resolves_auth_stored_credential_owns_the_provider() {
         .await
         .unwrap();
     let resolution = models.get_auth("p1", Default::default()).await.unwrap().unwrap();
-    assert_eq!(resolution.auth.api_key.as_deref(), Some("stored-key"));
-    assert_eq!(resolution.source.as_deref(), Some("stored"));
+    assert_eq!(resolution.auth.api_key.as_ref(), Some("stored-key"));
+    assert_eq!(resolution.source.as_ref(), Some("stored"));
 }
 
 #[tokio::test]
@@ -1061,7 +1061,7 @@ async fn checks_auth_without_refreshing_oauth_and_filters_available_models() {
     assert_eq!(
         models.check_auth("ambient", Default::default()).await.unwrap(),
         Some(AuthCheck {
-            source: Some("env".to_owned()),
+            source: Some(("env".to_owned()).into()),
             auth_type: AuthType::ApiKey,
         })
     );
@@ -1069,7 +1069,7 @@ async fn checks_auth_without_refreshing_oauth_and_filters_available_models() {
     assert_eq!(
         models.check_auth("oauth", Default::default()).await.unwrap(),
         Some(AuthCheck {
-            source: Some("OAuth".to_owned()),
+            source: Some(("OAuth".to_owned()).into()),
             auth_type: AuthType::Oauth,
         })
     );
@@ -1126,7 +1126,7 @@ async fn runs_provider_login_and_logout_through_the_credential_store() {
         ) -> Option<BoxFuture<'static, Result<ApiKeyCredential, AuthError>>> {
             Some(Box::pin(async {
                 Ok(ApiKeyCredential {
-                    key: Some("logged-in".to_owned()),
+                    key: Some(("logged-in".to_owned()).into()),
                     env: None,
                 })
             }))
@@ -1154,7 +1154,7 @@ async fn runs_provider_login_and_logout_through_the_credential_store() {
     assert_eq!(
         credential,
         Credential::ApiKey(ApiKeyCredential {
-            key: Some("logged-in".to_owned()),
+            key: Some(("logged-in".to_owned()).into()),
             env: None,
         })
     );
@@ -1274,7 +1274,7 @@ async fn valid_oauth_tokens_do_not_touch_modify_and_short_lived_tokens_refresh()
             .unwrap()
             .auth
             .api_key
-            .as_deref(),
+            .as_ref(),
         Some("valid")
     );
     assert_eq!(credentials.modifies.load(Ordering::SeqCst), 0);
@@ -1296,7 +1296,7 @@ async fn valid_oauth_tokens_do_not_touch_modify_and_short_lived_tokens_refresh()
             .unwrap()
             .auth
             .api_key
-            .as_deref(),
+            .as_ref(),
         Some("new-token")
     );
     assert_eq!(refreshes.load(Ordering::SeqCst), 1);
@@ -1324,7 +1324,7 @@ async fn valid_oauth_tokens_do_not_touch_modify_and_short_lived_tokens_refresh()
             .unwrap()
             .auth
             .api_key
-            .as_deref(),
+            .as_ref(),
         Some("new-token")
     );
     assert_eq!(refreshes.load(Ordering::SeqCst), 2);
@@ -1398,8 +1398,8 @@ async fn serializes_concurrent_oauth_refreshes() {
         models.get_auth("p1", Default::default()),
         models.get_auth("p1", Default::default())
     );
-    assert_eq!(left.unwrap().unwrap().auth.api_key.as_deref(), Some("new-1"));
-    assert_eq!(right.unwrap().unwrap().auth.api_key.as_deref(), Some("new-1"));
+    assert_eq!(left.unwrap().unwrap().auth.api_key.as_ref(), Some("new-1"));
+    assert_eq!(right.unwrap().unwrap().auth.api_key.as_ref(), Some("new-1"));
     assert_eq!(refreshes.load(Ordering::SeqCst), 1);
 }
 
@@ -1573,7 +1573,7 @@ async fn explicit_request_api_key_and_env_resolve_provider_auth() {
             SimpleStreamOptions {
                 stream: StreamOptions {
                     request: ProviderRequestOptions {
-                        api_key: Some("explicit-key".to_owned()),
+                        api_key: Some(("explicit-key".to_owned()).into()),
                         env: Some(IndexMap::from([("ACCOUNT_ID".to_owned(), "acct".to_owned())])),
                         ..Default::default()
                     },
@@ -1586,7 +1586,7 @@ async fn explicit_request_api_key_and_env_resolve_provider_auth() {
         .unwrap();
     let calls = calls.lock().unwrap();
     assert_eq!(calls[0].model.base_url, "https://example.test/acct");
-    assert_eq!(calls[0].options.request.api_key.as_deref(), Some("explicit-key"));
+    assert_eq!(calls[0].options.request.api_key.as_ref(), Some("explicit-key"));
     assert_eq!(
         calls[0].options.request.env,
         Some(IndexMap::from([("ACCOUNT_ID".to_owned(), "acct".to_owned())]))
@@ -1605,13 +1605,13 @@ async fn merges_resolved_auth_into_stream_options_and_applies_model_headers_once
             Box::pin(async {
                 Ok(Some(AuthResult {
                     auth: ModelAuth {
-                        api_key: Some("resolved-key".to_owned()),
+                        api_key: Some(("resolved-key".to_owned()).into()),
                         headers: Some(IndexMap::from([
                             ("Authorization".to_owned(), Some("Bearer resolved-key".to_owned())),
                             ("x-a".to_owned(), Some("auth".to_owned())),
                             ("x-b".to_owned(), Some("auth".to_owned())),
                         ])),
-                        base_url: Some("https://auth.test/v1".to_owned()),
+                        base_url: Some(("https://auth.test/v1".to_owned()).into()),
                     },
                     env: None,
                     source: None,
@@ -1638,7 +1638,7 @@ async fn merges_resolved_auth_into_stream_options_and_applies_model_headers_once
             SimpleStreamOptions {
                 stream: StreamOptions {
                     request: ProviderRequestOptions {
-                        api_key: Some("explicit-key".to_owned()),
+                        api_key: Some(("explicit-key".to_owned()).into()),
                         headers: Some(IndexMap::from([
                             ("authorization".to_owned(), Some("Explicit token".to_owned())),
                             ("x-b".to_owned(), Some("explicit".to_owned())),
@@ -1655,11 +1655,11 @@ async fn merges_resolved_auth_into_stream_options_and_applies_model_headers_once
     assert_eq!(result.stop_reason, StopReason::Stop);
     {
         let calls = calls.lock().unwrap();
-        assert_eq!(calls[0].options.request.api_key.as_deref(), Some("explicit-key"));
+        assert_eq!(calls[0].options.request.api_key.as_ref(), Some("explicit-key"));
         let headers = calls[0].options.request.headers.as_ref().unwrap();
-        assert_eq!(headers.get("authorization").unwrap().as_deref(), Some("Explicit token"));
-        assert_eq!(headers.get("x-a").unwrap().as_deref(), Some("auth"));
-        assert_eq!(headers.get("x-b").unwrap().as_deref(), Some("explicit"));
+        assert_eq!(headers.get("authorization").unwrap().as_ref(), Some("Explicit token"));
+        assert_eq!(headers.get("x-a").unwrap().as_ref(), Some("auth"));
+        assert_eq!(headers.get("x-b").unwrap().as_ref(), Some("explicit"));
         assert_eq!(calls[0].model.base_url, "https://auth.test/v1");
     }
 
@@ -1680,7 +1680,7 @@ async fn merges_resolved_auth_into_stream_options_and_applies_model_headers_once
                             Arc::new(move |headers| {
                                 transforms.fetch_add(1, Ordering::SeqCst);
                                 let mut headers = headers;
-                                headers.insert("x-transformed".to_owned(), Some("yes".to_owned()));
+                                headers.insert("x-transformed".to_owned(), Some(("yes".to_owned()).into()));
                                 Box::pin(async move { Ok(headers) })
                             })
                         }),
@@ -1696,10 +1696,10 @@ async fn merges_resolved_auth_into_stream_options_and_applies_model_headers_once
     assert_eq!(transforms.load(Ordering::SeqCst), 1);
     let calls = calls.lock().unwrap();
     let headers = calls[1].options.request.headers.as_ref().unwrap();
-    assert_eq!(headers.get("x-model").unwrap().as_deref(), Some("model"));
-    assert_eq!(headers.get("x-explicit").unwrap().as_deref(), Some("explicit"));
-    assert_eq!(headers.get("X-Shared").unwrap().as_deref(), Some("explicit"));
-    assert_eq!(headers.get("x-transformed").unwrap().as_deref(), Some("yes"));
+    assert_eq!(headers.get("x-model").unwrap().as_ref(), Some("model"));
+    assert_eq!(headers.get("x-explicit").unwrap().as_ref(), Some("explicit"));
+    assert_eq!(headers.get("X-Shared").unwrap().as_ref(), Some("explicit"));
+    assert_eq!(headers.get("x-transformed").unwrap().as_ref(), Some("yes"));
     assert!(calls[1].options.request.transform_headers.is_none());
 }
 
@@ -1718,7 +1718,7 @@ async fn unknown_provider_becomes_an_error_stream() {
     assert!(
         result
             .error_message
-            .as_deref()
+            .as_ref()
             .is_some_and(|message| message.contains("Unknown provider: ghost"))
     );
 }
@@ -1823,7 +1823,7 @@ async fn create_provider_dispatches_on_model_api_and_reports_missing_implementat
     assert!(
         result
             .error_message
-            .as_deref()
+            .as_ref()
             .is_some_and(|message| message.contains("no API implementation"))
     );
 }
@@ -1867,7 +1867,7 @@ async fn applies_resolved_env_to_stream_options() {
             Box::pin(async {
                 Ok(Some(AuthResult {
                     auth: ModelAuth {
-                        api_key: Some("provider-key".to_owned()),
+                        api_key: Some(("provider-key".to_owned()).into()),
                         headers: None,
                         base_url: None,
                     },
@@ -1906,7 +1906,7 @@ async fn applies_resolved_env_to_stream_options() {
             SimpleStreamOptions {
                 stream: StreamOptions {
                     request: ProviderRequestOptions {
-                        api_key: Some("request-key".to_owned()),
+                        api_key: Some(("request-key".to_owned()).into()),
                         env: Some(env),
                         ..Default::default()
                     },
@@ -1918,7 +1918,7 @@ async fn applies_resolved_env_to_stream_options() {
         .await
         .unwrap();
     let options = captured.lock().unwrap().clone().unwrap();
-    assert_eq!(options.request.api_key.as_deref(), Some("request-key"));
+    assert_eq!(options.request.api_key.as_ref(), Some("request-key"));
     assert_eq!(
         options.request.env,
         Some(IndexMap::from([
@@ -1994,12 +1994,12 @@ async fn applies_resolved_options_to_deferred_fetch_and_cancellation() {
             Box::pin(async {
                 Ok(Some(AuthResult {
                     auth: ModelAuth {
-                        api_key: Some("provider-key".to_owned()),
+                        api_key: Some(("provider-key".to_owned()).into()),
                         headers: Some(IndexMap::from([
                             ("Authorization".to_owned(), Some("Bearer provider".to_owned())),
                             ("X-Shared".to_owned(), Some("provider".to_owned())),
                         ])),
-                        base_url: Some("https://resolved.test/v1".to_owned()),
+                        base_url: Some(("https://resolved.test/v1".to_owned()).into()),
                     },
                     env: Some(IndexMap::from([
                         ("PROVIDER_ONLY".to_owned(), "provider".to_owned()),
@@ -2042,7 +2042,7 @@ async fn applies_resolved_options_to_deferred_fetch_and_cancellation() {
             handle.clone(),
             DeferredFetchOptions {
                 request: ProviderRequestOptions {
-                    api_key: Some("request-key".to_owned()),
+                    api_key: Some(("request-key".to_owned()).into()),
                     headers: Some(IndexMap::from([
                         ("X-Request".to_owned(), Some("request".to_owned())),
                         ("x-shared".to_owned(), Some("request".to_owned())),
@@ -2052,7 +2052,7 @@ async fn applies_resolved_options_to_deferred_fetch_and_cancellation() {
                         ("SHARED".to_owned(), "request".to_owned()),
                     ])),
                     transform_headers: Some(Arc::new(|mut headers| {
-                        headers.insert("X-Transformed".to_owned(), Some("yes".to_owned()));
+                        headers.insert("X-Transformed".to_owned(), Some(("yes".to_owned()).into()));
                         Box::pin(async move { Ok(headers) })
                     })),
                     ..Default::default()
@@ -2067,15 +2067,12 @@ async fn applies_resolved_options_to_deferred_fetch_and_cancellation() {
         let (fetched_model, options) = fetched.as_ref().unwrap();
         assert_eq!(fetched_model.base_url, "https://resolved.test/v1");
         assert_eq!(options.wait, Some(50.0));
-        assert_eq!(options.request.api_key.as_deref(), Some("request-key"));
+        assert_eq!(options.request.api_key.as_ref(), Some("request-key"));
         let headers = options.request.headers.as_ref().unwrap();
-        assert_eq!(
-            headers.get("Authorization").unwrap().as_deref(),
-            Some("Bearer provider")
-        );
-        assert_eq!(headers.get("X-Request").unwrap().as_deref(), Some("request"));
-        assert_eq!(headers.get("x-shared").unwrap().as_deref(), Some("request"));
-        assert_eq!(headers.get("X-Transformed").unwrap().as_deref(), Some("yes"));
+        assert_eq!(headers.get("Authorization").unwrap().as_ref(), Some("Bearer provider"));
+        assert_eq!(headers.get("X-Request").unwrap().as_ref(), Some("request"));
+        assert_eq!(headers.get("x-shared").unwrap().as_ref(), Some("request"));
+        assert_eq!(headers.get("X-Transformed").unwrap().as_ref(), Some("yes"));
         assert_eq!(
             options.request.env,
             Some(IndexMap::from([
@@ -2093,7 +2090,7 @@ async fn applies_resolved_options_to_deferred_fetch_and_cancellation() {
             ProviderRequestOptions {
                 timeout_ms: Some(200.0),
                 transform_headers: Some(Arc::new(|mut headers| {
-                    headers.insert("X-Cancel".to_owned(), Some("yes".to_owned()));
+                    headers.insert("X-Cancel".to_owned(), Some(("yes".to_owned()).into()));
                     Box::pin(async move { Ok(headers) })
                 })),
                 ..Default::default()
@@ -2104,10 +2101,10 @@ async fn applies_resolved_options_to_deferred_fetch_and_cancellation() {
     let cancelled = cancelled.lock().unwrap();
     let options = cancelled.as_ref().unwrap();
     assert_eq!(options.timeout_ms, Some(200.0));
-    assert_eq!(options.api_key.as_deref(), Some("provider-key"));
+    assert_eq!(options.api_key.as_ref(), Some("provider-key"));
     let headers = options.headers.as_ref().unwrap();
-    assert_eq!(headers.get("X-Shared").unwrap().as_deref(), Some("provider"));
-    assert_eq!(headers.get("X-Cancel").unwrap().as_deref(), Some("yes"));
+    assert_eq!(headers.get("X-Shared").unwrap().as_ref(), Some("provider"));
+    assert_eq!(headers.get("X-Cancel").unwrap().as_ref(), Some("yes"));
 }
 
 #[tokio::test]
@@ -2304,8 +2301,8 @@ fn merges_headers_case_insensitively_and_compares_models() {
         ])),
     )
     .unwrap();
-    assert_eq!(merged.get("authorization").unwrap().as_deref(), Some("Explicit"));
-    assert_eq!(merged.get("x-a").unwrap().as_deref(), Some("a"));
+    assert_eq!(merged.get("authorization").unwrap().as_ref(), Some("Explicit"));
+    assert_eq!(merged.get("x-a").unwrap().as_ref(), Some("a"));
     assert!(merged.contains_key("x-b"));
     assert!(!merged.contains_key("Authorization"));
     // Deleting a case-insensitive duplicate and re-inserting moves it to the end.

@@ -10,7 +10,7 @@ fn model(api: &str, id: &str) -> ImagesModel {
         name: id.to_owned(),
         api: api.to_owned(),
         provider: "test".to_owned(),
-        base_url: "https://example.test/v1".to_owned(),
+        base_url: ("https://example.test/v1".to_owned()).into(),
         thinking_level_map: None,
         input: vec![pi_ai::types::Modality::Text],
         output: vec![pi_ai::types::Modality::Image],

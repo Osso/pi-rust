@@ -145,7 +145,11 @@ fn compare_tools(oracle: &mut TsOracle, id: i64, tools: &Value, options: &Value)
     let parsed_options = convert_tools_options(options);
     let actual = convert_responses_tools(&parsed_tools, Some(&parsed_options))
         .unwrap_or_else(|error| json!({"error": error.message}));
-    assert_eq!(actual, expected, "convertTools scenario {id}");
+    assert_eq!(
+        actual,
+        pi_js_compat::js_json::JsValue::from(expected),
+        "convertTools scenario {id}"
+    );
 }
 
 fn compare_stream(
@@ -210,7 +214,11 @@ fn compare_stream(
     };
 
     if expected_error.is_some() {
-        assert_eq!(actual_error, expected_error, "processStream error scenario {id}");
+        assert_eq!(
+            actual_error,
+            (expected_error).map(pi_js_compat::js_json::JsString::from),
+            "processStream error scenario {id}"
+        );
         return;
     }
 
@@ -224,7 +232,11 @@ fn compare_stream(
         &expected_output,
         &format!("processStream output scenario {id}"),
     );
-    assert_eq!(actual_error, expected_error, "processStream error scenario {id}");
+    assert_eq!(
+        actual_error,
+        (expected_error).map(pi_js_compat::js_json::JsString::from),
+        "processStream error scenario {id}"
+    );
 }
 
 fn assert_json_eq(actual: &Value, expected: &Value, path: &str) {

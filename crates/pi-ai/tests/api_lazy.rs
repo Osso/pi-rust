@@ -20,7 +20,7 @@ fn model() -> Model {
         name: "m1".to_owned(),
         api: "test-api".to_owned(),
         provider: "p1".to_owned(),
-        base_url: "https://example.test/v1".to_owned(),
+        base_url: ("https://example.test/v1".to_owned()).into(),
         reasoning: false,
         thinking_level_map: None,
         input: vec![Modality::Text],
@@ -149,7 +149,7 @@ async fn lazy_stream_turns_setup_failure_into_an_error_event() {
         AssistantMessageEvent::Error { reason, error } => {
             assert_eq!(*reason, pi_ai::types::ErrorReason::Error);
             assert_eq!(error.stop_reason, StopReason::Error);
-            assert_eq!(error.error_message.as_deref(), Some("setup boom"));
+            assert_eq!(error.error_message.as_ref(), Some("setup boom"));
             assert_eq!(error.api, model.api);
             assert_eq!(error.provider, model.provider);
             assert_eq!(error.model, model.id);
@@ -158,7 +158,7 @@ async fn lazy_stream_turns_setup_failure_into_an_error_event() {
     }
     let result = stream.result().await.unwrap();
     assert_eq!(result.stop_reason, StopReason::Error);
-    assert_eq!(result.error_message.as_deref(), Some("setup boom"));
+    assert_eq!(result.error_message.as_ref(), Some("setup boom"));
 }
 
 #[tokio::test]
@@ -251,7 +251,7 @@ async fn lazy_api_fetch_deferred_without_capability_is_an_error_stream() {
         .unwrap();
     assert_eq!(result.stop_reason, StopReason::Error);
     assert_eq!(
-        result.error_message.as_deref(),
+        result.error_message.as_ref(),
         Some("API does not support deferred responses")
     );
 }
@@ -268,5 +268,5 @@ async fn lazy_api_surfaces_load_failure_as_stream_error() {
         .await
         .unwrap();
     assert_eq!(result.stop_reason, StopReason::Error);
-    assert_eq!(result.error_message.as_deref(), Some("load failed"));
+    assert_eq!(result.error_message.as_ref(), Some("load failed"));
 }

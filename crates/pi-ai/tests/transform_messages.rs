@@ -13,7 +13,7 @@ fn model(provider: &str, api: &str, id: &str, supports_images: bool) -> Model {
         name: "Test Model".to_owned(),
         api: api.to_owned(),
         provider: provider.to_owned(),
-        base_url: "https://example.invalid".to_owned(),
+        base_url: ("https://example.invalid".to_owned()).into(),
         reasoning: false,
         thinking_level_map: None,
         input: if supports_images {
@@ -52,7 +52,7 @@ fn anthropic_normalize(id: &str, _model: &Model, _source: &AssistantMessage) -> 
 fn user(timestamp: i64, content: &str) -> Message {
     Message::User(UserMessage {
         role: pi_ai::types::UserRole::Tag,
-        content: UserContent::Text(content.to_owned()),
+        content: UserContent::Text((content.to_owned()).into()),
         input_source: None,
         provider_native: None,
         timestamp,

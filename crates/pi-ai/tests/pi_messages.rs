@@ -74,7 +74,7 @@ fn model() -> Model {
         name: "Radius Auto".to_owned(),
         api: "pi-messages".to_owned(),
         provider: "radius".to_owned(),
-        base_url: BASE_URL.to_owned(),
+        base_url: (BASE_URL.to_owned()).into(),
         reasoning: false,
         thinking_level_map: None,
         input: vec![Modality::Text],
@@ -101,7 +101,7 @@ fn context() -> Context {
         system_prompt: None,
         messages: vec![pi_ai::types::Message::User(UserMessage {
             role: UserRole::Tag,
-            content: UserContent::Text("Hello".to_owned()),
+            content: UserContent::Text(("Hello".to_owned()).into()),
             input_source: None,
             provider_native: None,
             timestamp: 1,
@@ -150,7 +150,7 @@ fn fetch_failing(message: &str) -> Arc<ScriptedFetch> {
 fn options(fetch: Arc<ScriptedFetch>, api_key: &str) -> PiMessagesOptions {
     let mut options = PiMessagesOptions::default();
     options.stream.request.fetch = Some(fetch);
-    options.stream.request.api_key = Some(api_key.to_owned());
+    options.stream.request.api_key = Some((api_key.to_owned()).into());
     options
 }
 
@@ -191,7 +191,7 @@ async fn streams_text_and_tool_calls_and_resolves_the_terminal_message() {
         hang: false,
     });
     let mut stream_options = options(fetch, "test-key");
-    stream_options.stream.session_id = Some("session-1".to_owned());
+    stream_options.stream.session_id = Some(("session-1".to_owned()).into());
     stream_options.tool_choice = Some(PiMessagesToolChoice::Auto);
     stream_options.stream.max_tokens = Some(100.0);
     stream_options.stream.request.headers = Some([("x-custom".to_owned(), Some("1".to_owned()))].into_iter().collect());
@@ -284,7 +284,7 @@ async fn appends_debug_and_reports_response_headers_via_on_response() {
     let observed_clone = Arc::clone(&observed);
     let mut stream_options = SimpleStreamOptions::default();
     stream_options.stream.request.fetch = Some(fetch);
-    stream_options.stream.request.api_key = Some("test-key".to_owned());
+    stream_options.stream.request.api_key = Some(("test-key".to_owned()).into());
     stream_options.stream.request.on_response = Some(Arc::new(move |response, _model| {
         let observed = Arc::clone(&observed_clone);
         Box::pin(async move {
@@ -320,7 +320,7 @@ async fn surfaces_backend_error_responses_with_diagnostics() {
     let (_, message) = collect(stream(model(), context(), options(fetch, "stale"))).await;
 
     assert_eq!(message.stop_reason, StopReason::Error);
-    let error_message = message.error_message.as_deref().unwrap_or_default();
+    let error_message = message.error_message.as_ref().unwrap_or_default();
     assert!(error_message.contains("401"));
     assert!(error_message.contains("Token expired"));
     assert!(error_message.contains("unauthorized"));
@@ -346,7 +346,7 @@ async fn propagates_server_sent_error_events() {
     let (_, message) = collect(stream(model(), context(), options(fetch, "test-key"))).await;
 
     assert_eq!(message.stop_reason, StopReason::Error);
-    assert_eq!(message.error_message.as_deref(), Some("Upstream failed"));
+    assert_eq!(message.error_message.as_ref(), Some("Upstream failed"));
     assert_eq!(message.usage.input, 10.0);
     assert_eq!(message.usage.total_tokens, 15.0);
 }
@@ -358,7 +358,7 @@ async fn errors_when_no_api_key_is_provided() {
     assert!(
         message
             .error_message
-            .as_deref()
+            .as_ref()
             .unwrap_or_default()
             .contains("No API key provided")
     );
@@ -384,7 +384,7 @@ async fn errors_when_the_stream_ends_without_a_terminal_event() {
     assert!(
         message
             .error_message
-            .as_deref()
+            .as_ref()
             .unwrap_or_default()
             .contains("stream ended without a terminal event")
     );

@@ -20,7 +20,7 @@ fn lowercases_names_and_joins_duplicate_values_like_headers_entries() {
 #[test]
 fn provider_headers_drop_null_values_and_empty_maps() {
     let mut headers = ProviderHeaders::new();
-    headers.insert("x-keep".to_owned(), Some("value".to_owned()));
+    headers.insert("x-keep".to_owned(), Some(("value".to_owned()).into()));
     headers.insert("x-drop".to_owned(), None);
     let record = provider_headers_to_record(Some(&headers)).expect("non-empty record");
     assert_eq!(record.len(), 1);

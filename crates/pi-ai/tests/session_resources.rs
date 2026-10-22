@@ -4,7 +4,7 @@ use pi_ai::session_resources::{SessionResourceCleanup, cleanup_session_resources
 
 fn recorder(marker: &'static str, calls: Arc<Mutex<Vec<Option<String>>>>) -> SessionResourceCleanup {
     Box::new(move |session_id| {
-        if session_id == Some(marker) {
+        if session_id == Some(&pi_js_compat::js_json::JsString::from(marker)) {
             calls.lock().unwrap().push(session_id.map(str::to_owned));
         }
         Ok(())
@@ -18,7 +18,7 @@ fn invokes_registered_cleanups_with_the_session_id() {
     let _first = register_session_resource_cleanup(recorder(marker, Arc::clone(&calls)));
     let _second = register_session_resource_cleanup(recorder(marker, Arc::clone(&calls)));
 
-    cleanup_session_resources(Some(marker)).unwrap();
+    cleanup_session_resources(Some(&pi_js_compat::js_json::JsString::from(marker))).unwrap();
 
     assert_eq!(
         calls.lock().unwrap().as_slice(),
@@ -33,7 +33,7 @@ fn unregister_stops_invocations() {
     let registration = register_session_resource_cleanup(recorder(marker, Arc::clone(&calls)));
     registration.unregister();
 
-    cleanup_session_resources(Some(marker)).unwrap();
+    cleanup_session_resources(Some(&pi_js_compat::js_json::JsString::from(marker))).unwrap();
 
     assert!(calls.lock().unwrap().is_empty());
 }
@@ -59,19 +59,20 @@ fn passes_a_missing_session_id_as_none() {
 fn aggregates_cleanup_errors() {
     let marker = "session-resources-errors";
     let _first = register_session_resource_cleanup(Box::new(|session_id| {
-        if session_id == Some(marker) {
+        if session_id == Some(&pi_js_compat::js_json::JsString::from(marker)) {
             return Err("first failure".into());
         }
         Ok(())
     }));
     let _second = register_session_resource_cleanup(Box::new(|session_id| {
-        if session_id == Some(marker) {
+        if session_id == Some(&pi_js_compat::js_json::JsString::from(marker)) {
             return Err("second failure".into());
         }
         Ok(())
     }));
 
-    let error = cleanup_session_resources(Some(marker)).expect_err("errors must aggregate");
+    let error = cleanup_session_resources(Some(&pi_js_compat::js_json::JsString::from(marker)))
+        .expect_err("errors must aggregate");
 
     assert_eq!(error.to_string(), "Failed to cleanup session resources");
     assert_eq!(error.errors.len(), 2);

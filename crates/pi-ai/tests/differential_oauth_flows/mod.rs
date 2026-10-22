@@ -199,7 +199,7 @@ async fn run_flow(flow: &Flow, scenario: &Scenario) -> Value {
         Flow::Radius => std::sync::Arc::new(
             create_radius_oauth(RadiusOAuthOptions {
                 name: "Radius".to_owned(),
-                gateway: "https://radius.example".to_owned(),
+                gateway: ("https://radius.example".to_owned()).into(),
             })
             .with_runtime(runtime),
         ),
@@ -237,7 +237,7 @@ async fn run_flow(flow: &Flow, scenario: &Scenario) -> Value {
         }),
         Err(error) => json!({
             "ok": false,
-            "error": {"name": "Error", "message": error.detail().unwrap_or("The operation was aborted")},
+            "error": {"name": "Error", "message": error.detail().unwrap_or(&pi_js_compat::js_json::JsString::from("The operation was aborted"))},
             "events": events,
             "prompts": prompts,
             "requests": requests,
@@ -263,7 +263,7 @@ async fn run_refresh(flow: &Flow, credential: OAuthCredential, responses: Vec<(u
         Flow::Radius => std::sync::Arc::new(
             create_radius_oauth(RadiusOAuthOptions {
                 name: "Radius".to_owned(),
-                gateway: "https://radius.example".to_owned(),
+                gateway: ("https://radius.example".to_owned()).into(),
             })
             .with_runtime(runtime),
         ),
@@ -276,7 +276,7 @@ async fn run_refresh(flow: &Flow, credential: OAuthCredential, responses: Vec<(u
         Ok(refreshed) => json!({"ok": true, "credential": credential_json(&refreshed), "requests": requests}),
         Err(error) => json!({
             "ok": false,
-            "error": {"name": "Error", "message": error.detail().unwrap_or("The operation was aborted")},
+            "error": {"name": "Error", "message": error.detail().unwrap_or(&pi_js_compat::js_json::JsString::from("The operation was aborted"))},
             "requests": requests,
         }),
     }

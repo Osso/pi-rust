@@ -22,7 +22,7 @@ fn scoped_override_wins_over_process_env() {
     let scoped = env(&[("API_KEY", "scoped")]);
     let process = process_env(&[("API_KEY", "process")]);
     let value = resolve_provider_env_value("API_KEY", Some(&scoped), |name| process.get(name).cloned());
-    assert_eq!(value.as_deref(), Some("scoped"));
+    assert_eq!(value.as_ref(), Some("scoped"));
 }
 
 #[test]
@@ -30,7 +30,7 @@ fn empty_scoped_override_falls_through_to_process_env() {
     let scoped = env(&[("API_KEY", "")]);
     let process = process_env(&[("API_KEY", "process")]);
     let value = resolve_provider_env_value("API_KEY", Some(&scoped), |name| process.get(name).cloned());
-    assert_eq!(value.as_deref(), Some("process"));
+    assert_eq!(value.as_ref(), Some("process"));
 }
 
 #[test]

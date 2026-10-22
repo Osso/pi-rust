@@ -425,7 +425,10 @@ fn source_transaction_failures_restore_values_include_and_cleanup_at_exact_bound
                         {
                             failures.push(format!("{fault}: filesystem metadata differs {record:?}"));
                         }
-                        for (name, value) in [("path", record.path), ("dest", destination)] {
+                        for (name, value) in [
+                            ("path", record.path),
+                            ("dest", (destination).map(pi_js_compat::js_json::JsString::from)),
+                        ] {
                             if let Some(source) = expected["error"][name].as_str()
                                 && value
                                     .as_ref()

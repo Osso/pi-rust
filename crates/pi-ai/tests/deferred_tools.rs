@@ -18,7 +18,7 @@ fn tool(name: &str, description: &str) -> Tool {
 fn user(timestamp: i64) -> Message {
     Message::User(UserMessage {
         role: pi_ai::types::UserRole::Tag,
-        content: UserContent::Text("hello".to_owned()),
+        content: UserContent::Text(("hello".to_owned()).into()),
         input_source: None,
         provider_native: None,
         timestamp,

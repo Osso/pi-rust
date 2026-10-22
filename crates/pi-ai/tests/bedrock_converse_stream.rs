@@ -17,7 +17,7 @@ fn context() -> Context {
         system_prompt: None,
         messages: vec![pi_ai::types::Message::User(UserMessage {
             role: pi_ai::types::UserRole::Tag,
-            content: UserContent::Text("hi".to_owned()),
+            content: UserContent::Text(("hi".to_owned()).into()),
             input_source: None,
             provider_native: None,
             timestamp: 0,
@@ -209,7 +209,7 @@ async fn adds_long_cache_points_to_system_and_last_user_message() {
     let body = [message_start(), message_stop("end_turn")].concat();
     let fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(body, &[])]);
     let mut context = context();
-    context.system_prompt = Some("You are helpful.".to_owned());
+    context.system_prompt = Some(("You are helpful.".to_owned()).into());
     let mut stream_options = options(fetch.clone(), env());
     stream_options.cache_retention = Some(CacheRetention::Long);
     let (_, message) = drain(stream(model(), context, stream_options)).await;
@@ -312,7 +312,7 @@ async fn retries_throttling_then_reports_validation_diagnostic() {
 
     assert_eq!(message.stop_reason, StopReason::Error);
     assert_eq!(
-        message.error_message.as_deref(),
+        message.error_message.as_ref(),
         Some("Validation error: The provided model identifier is invalid.")
     );
     let diagnostic = message
@@ -385,7 +385,7 @@ async fn aborts_before_the_request() {
     let (_, message) = drain(stream(model(), context(), stream_options)).await;
 
     assert_eq!(message.stop_reason, StopReason::Aborted);
-    assert_eq!(message.error_message.as_deref(), Some(pi_ai::http::ABORT_ERROR_MESSAGE));
+    assert_eq!(message.error_message.as_ref(), Some(pi_ai::http::ABORT_ERROR_MESSAGE));
     assert_eq!(fetch.request_count(), 1);
     assert!(message.diagnostics.is_none());
 }
@@ -395,7 +395,7 @@ async fn uses_bearer_token_and_skip_auth_credentials() {
     let body = [message_start(), message_stop("end_turn")].concat();
     let bearer_fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(body.clone(), &[])]);
     let mut stream_options = options(bearer_fetch.clone(), env());
-    stream_options.request.api_key = Some("bedrock-api-key".to_owned());
+    stream_options.request.api_key = Some(("bedrock-api-key".to_owned()).into());
     drain(stream(model(), context(), stream_options)).await;
     let headers = &bearer_fetch.requests()[0].headers;
     assert!(
@@ -407,7 +407,7 @@ async fn uses_bearer_token_and_skip_auth_credentials() {
 
     let skip_fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(body, &[])]);
     let mut skip_env = env();
-    skip_env.insert("AWS_BEDROCK_SKIP_AUTH".to_owned(), "1".to_owned());
+    skip_env.insert("AWS_BEDROCK_SKIP_AUTH".to_owned(), ("1".to_owned()).into());
     drain(stream(model(), context(), options(skip_fetch.clone(), skip_env))).await;
     let headers = &skip_fetch.requests()[0].headers;
     assert!(
@@ -422,10 +422,10 @@ async fn ignores_reserved_custom_headers() {
     let body = [message_start(), message_stop("end_turn")].concat();
     let fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(body, &[])]);
     let mut headers = ProviderHeaders::new();
-    headers.insert("x-custom".to_owned(), Some("v".to_owned()));
-    headers.insert("authorization".to_owned(), Some("evil".to_owned()));
-    headers.insert("x-amz-date".to_owned(), Some("evil".to_owned()));
-    headers.insert("HOST".to_owned(), Some("evil".to_owned()));
+    headers.insert("x-custom".to_owned(), Some(("v".to_owned()).into()));
+    headers.insert("authorization".to_owned(), Some(("evil".to_owned()).into()));
+    headers.insert("x-amz-date".to_owned(), Some(("evil".to_owned()).into()));
+    headers.insert("HOST".to_owned(), Some(("evil".to_owned()).into()));
     let mut stream_options = options(fetch.clone(), env());
     stream_options.request.headers = Some(headers);
     drain(stream(model(), context(), stream_options)).await;
@@ -445,7 +445,7 @@ async fn resolves_regions_endpoints_and_inference_profile_arns() {
 
     let eu_model = pi_ai::types::Model {
         id: "eu.anthropic.claude-sonnet-4-5-20250929-v1:0".to_owned(),
-        base_url: "https://bedrock-runtime.eu-central-1.amazonaws.com".to_owned(),
+        base_url: ("https://bedrock-runtime.eu-central-1.amazonaws.com".to_owned()).into(),
         ..model()
     };
     let mut eu_env = env();
@@ -458,7 +458,7 @@ async fn resolves_regions_endpoints_and_inference_profile_arns() {
     );
 
     let mut us_env = env();
-    us_env.insert("AWS_REGION".to_owned(), "us-east-2".to_owned());
+    us_env.insert("AWS_REGION".to_owned(), ("us-east-2".to_owned()).into());
     let us_fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(body.clone(), &[])]);
     drain(stream(model(), context(), options(us_fetch.clone(), us_env))).await;
     assert_eq!(
@@ -484,7 +484,7 @@ async fn resolves_regions_endpoints_and_inference_profile_arns() {
     );
 
     let custom_model = pi_ai::types::Model {
-        base_url: "https://bedrock-vpc.example.com".to_owned(),
+        base_url: ("https://bedrock-vpc.example.com".to_owned()).into(),
         ..model()
     };
     let custom_fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(body, &[])]);
@@ -513,7 +513,7 @@ async fn reads_static_profile_credentials() {
     profile_env.shift_remove("AWS_SECRET_ACCESS_KEY");
     profile_env.insert(
         "AWS_SHARED_CREDENTIALS_FILE".to_owned(),
-        credentials_path.to_string_lossy().into_owned(),
+        (credentials_path.to_string_lossy().into_owned()).into(),
     );
     let mut stream_options = options(fetch.clone(), profile_env);
     stream_options.extra.insert("profile".to_owned(), json!("dev"));
@@ -537,7 +537,7 @@ async fn surfaces_gateway_bodies_and_stop_reason_errors() {
     )]);
     let (_, message) = drain(stream(model(), context(), options(fetch, env()))).await;
     assert_eq!(message.stop_reason, StopReason::Error);
-    assert_eq!(message.error_message.as_deref(), Some("403: blocked by gateway WAF"));
+    assert_eq!(message.error_message.as_ref(), Some("403: blocked by gateway WAF"));
 
     let body = [message_start(), message_stop("guardrail_intervened")].concat();
     let fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(body, &[])]);
@@ -545,7 +545,7 @@ async fn surfaces_gateway_bodies_and_stop_reason_errors() {
     assert_eq!(message.stop_reason, StopReason::Error);
     assert_eq!(message.raw_stop_reason.as_deref(), Some("guardrail_intervened"));
     assert_eq!(
-        message.error_message.as_deref(),
+        message.error_message.as_ref(),
         Some("Provider stopped with: guardrail_intervened")
     );
 }
@@ -561,7 +561,7 @@ async fn converts_replayed_messages_and_documents() {
             content: vec![
                 AssistantContent::Thinking(pi_ai::types::ThinkingContent {
                     r#type: pi_ai::types::ThinkingTag::Tag,
-                    thinking: "hmm".to_owned(),
+                    thinking: ("hmm".to_owned()).into(),
                     thinking_signature: Some("sig".to_owned()),
                     redacted: None,
                     index: None,
@@ -604,7 +604,7 @@ async fn converts_replayed_messages_and_documents() {
         }),
         pi_ai::types::Message::User(UserMessage {
             role: pi_ai::types::UserRole::Tag,
-            content: UserContent::Text("   ".to_owned()),
+            content: UserContent::Text(("   ".to_owned()).into()),
             input_source: None,
             provider_native: None,
             timestamp: 0,

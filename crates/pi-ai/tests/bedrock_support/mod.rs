@@ -217,7 +217,7 @@ pub fn model() -> pi_ai::types::Model {
         name: "Claude Opus 4.8".to_owned(),
         api: "bedrock-converse-stream".to_owned(),
         provider: "amazon-bedrock".to_owned(),
-        base_url: "https://bedrock-runtime.us-east-1.amazonaws.com".to_owned(),
+        base_url: ("https://bedrock-runtime.us-east-1.amazonaws.com".to_owned()).into(),
         reasoning: true,
         thinking_level_map: None,
         input: vec![pi_ai::types::Modality::Text, pi_ai::types::Modality::Image],
@@ -241,11 +241,11 @@ pub fn model() -> pi_ai::types::Model {
 
 pub fn env() -> pi_ai::types::ProviderEnv {
     let mut env = pi_ai::types::ProviderEnv::new();
-    env.insert("AWS_ACCESS_KEY_ID".to_owned(), "AKIDEXAMPLE".to_owned());
+    env.insert("AWS_ACCESS_KEY_ID".to_owned(), ("AKIDEXAMPLE".to_owned()).into());
     env.insert(
         "AWS_SECRET_ACCESS_KEY".to_owned(),
-        "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".to_owned(),
+        ("wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".to_owned()).into(),
     );
-    env.insert("AWS_REGION".to_owned(), "us-east-1".to_owned());
+    env.insert("AWS_REGION".to_owned(), ("us-east-1".to_owned()).into());
     env
 }

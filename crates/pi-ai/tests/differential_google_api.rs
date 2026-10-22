@@ -164,7 +164,8 @@ fn stream_options(
     signal: Option<CancellationToken>,
 ) -> StreamOptions {
     let mut request = ProviderRequestOptions {
-        api_key: stream.get("apiKey").and_then(Value::as_str).map(str::to_owned),
+        api_key: (stream.get("apiKey").and_then(Value::as_str).map(str::to_owned))
+            .map(pi_js_compat::js_json::JsString::from),
         fetch: Some(fetch),
         signal,
         headers: provider_headers(stream.get("headers")),

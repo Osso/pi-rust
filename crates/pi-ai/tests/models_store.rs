@@ -10,7 +10,7 @@ fn model(provider: &str, id: &str) -> Model {
         name: id.to_owned(),
         api: "test-api".to_owned(),
         provider: provider.to_owned(),
-        base_url: "https://example.test/v1".to_owned(),
+        base_url: ("https://example.test/v1".to_owned()).into(),
         reasoning: false,
         thinking_level_map: None,
         input: vec![Modality::Text],

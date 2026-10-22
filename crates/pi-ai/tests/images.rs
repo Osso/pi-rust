@@ -15,7 +15,7 @@ fn model(api: &str) -> ImagesModel {
         name: "Gemini".to_owned(),
         api: api.to_owned(),
         provider: "openrouter".to_owned(),
-        base_url: "https://openrouter.ai/api/v1".to_owned(),
+        base_url: ("https://openrouter.ai/api/v1".to_owned()).into(),
         thinking_level_map: None,
         input: vec![Modality::Text],
         output: vec![Modality::Image],
@@ -81,7 +81,7 @@ async fn dispatches_through_the_registered_builtin_api() {
     });
     let options = ImagesOptions {
         request: ImagesRequestOptions {
-            api_key: Some("test".to_owned()),
+            api_key: Some(("test".to_owned()).into()),
             fetch: Some(fetch.clone()),
             headers: Some(IndexMap::new()),
             ..Default::default()

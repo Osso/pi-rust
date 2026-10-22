@@ -143,7 +143,7 @@ fn anthropic_cache_control_is_applied_to_system_tools_and_last_message() {
         &model,
         &context,
         &StreamOptions {
-            session_id: Some("session".to_owned()),
+            session_id: Some(("session".to_owned()).into()),
             ..Default::default()
         },
         &OpenAICompletionsOptions::default(),
@@ -173,7 +173,7 @@ fn max_tokens_field_and_prompt_cache_follow_compat() {
         &context(json!({"messages": [{"role": "user", "content": "hi", "timestamp": 1}]})),
         &StreamOptions {
             max_tokens: Some(123.0),
-            session_id: Some("session".to_owned()),
+            session_id: Some(("session".to_owned()).into()),
             ..Default::default()
         },
         &OpenAICompletionsOptions::default(),

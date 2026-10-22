@@ -492,9 +492,9 @@ async fn every_catalog_api_dispatches_to_an_implementation() {
                 stream: StreamOptions {
                     request: pi_ai::request::ProviderRequestOptions {
                         api_key: Some(if codex {
-                            CODEX_TEST_TOKEN.to_owned()
+                            (CODEX_TEST_TOKEN.to_owned()).into()
                         } else {
-                            "test-key".to_owned()
+                            ("test-key".to_owned()).into()
                         }),
                         fetch: Some(fetch.clone() as Arc<dyn pi_ai::request::Fetch>),
                         ..Default::default()

@@ -20,7 +20,7 @@ fn context() -> Context {
         system_prompt: None,
         messages: vec![Message::User(UserMessage {
             role: UserRole::Tag,
-            content: UserContent::Text("hi".to_owned()),
+            content: UserContent::Text(("hi".to_owned()).into()),
             input_source: None,
             provider_native: None,
             timestamp: 1,
@@ -229,10 +229,7 @@ async fn faux_provider_consumes_queued_responses_and_errors_when_exhausted() {
     assert_eq!(first.content, vec![AssistantContent::Text(TextContent::new("first"))]);
     assert_eq!(second.content, vec![AssistantContent::Text(TextContent::new("second"))]);
     assert_eq!(exhausted.stop_reason, StopReason::Error);
-    assert_eq!(
-        exhausted.error_message.as_deref(),
-        Some("No more faux responses queued")
-    );
+    assert_eq!(exhausted.error_message.as_ref(), Some("No more faux responses queued"));
     assert_eq!(faux.get_pending_response_count(), 0);
     assert_eq!(faux.state().lock().unwrap().call_count, 3);
 }
@@ -324,7 +321,7 @@ async fn faux_provider_supports_async_factories_and_reports_factory_errors() {
     match &events[0] {
         AssistantMessageEvent::Error { error, .. } => {
             assert_eq!(error.stop_reason, StopReason::Error);
-            assert_eq!(error.error_message.as_deref(), Some("boom"));
+            assert_eq!(error.error_message.as_ref(), Some("boom"));
         }
         other => panic!("expected error, got {other:?}"),
     }
@@ -350,7 +347,7 @@ async fn faux_provider_rejects_a_pending_stop_reason() {
         AssistantMessageEvent::Error { error, .. } => {
             assert_eq!(error.stop_reason, StopReason::Error);
             assert_eq!(
-                error.error_message.as_deref(),
+                error.error_message.as_ref(),
                 Some("Faux response ended without a stop reason")
             );
         }
@@ -372,7 +369,7 @@ async fn faux_provider_estimates_prompt_and_output_tokens_from_serialized_contex
     );
     let prior = faux_assistant_message("prior", FauxAssistantMessageOptions::default());
     let context = Context {
-        system_prompt: Some("sys".to_owned()),
+        system_prompt: Some(("sys".to_owned()).into()),
         messages: vec![
             Message::User(UserMessage {
                 role: UserRole::Tag,
@@ -454,7 +451,7 @@ async fn faux_provider_caches_prompts_per_session_and_honors_cache_retention_non
             context.clone(),
             SimpleStreamOptions {
                 stream: StreamOptions {
-                    session_id: Some("session-1".to_owned()),
+                    session_id: Some(("session-1".to_owned()).into()),
                     cache_retention: Some(CacheRetention::Short),
                     ..Default::default()
                 },
@@ -469,7 +466,7 @@ async fn faux_provider_caches_prompts_per_session_and_honors_cache_retention_non
     context.messages.push(Message::Assistant(Box::new(first.clone())));
     context.messages.push(Message::User(UserMessage {
         role: UserRole::Tag,
-        content: UserContent::Text("follow up".to_owned()),
+        content: UserContent::Text(("follow up".to_owned()).into()),
         input_source: None,
         provider_native: None,
         timestamp: 2,
@@ -480,7 +477,7 @@ async fn faux_provider_caches_prompts_per_session_and_honors_cache_retention_non
             context.clone(),
             SimpleStreamOptions {
                 stream: StreamOptions {
-                    session_id: Some("session-1".to_owned()),
+                    session_id: Some(("session-1".to_owned()).into()),
                     cache_retention: Some(CacheRetention::Short),
                     ..Default::default()
                 },
@@ -496,7 +493,7 @@ async fn faux_provider_caches_prompts_per_session_and_honors_cache_retention_non
     no_cache_context.messages.push(Message::Assistant(Box::new(second)));
     no_cache_context.messages.push(Message::User(UserMessage {
         role: UserRole::Tag,
-        content: UserContent::Text("follow up".to_owned()),
+        content: UserContent::Text(("follow up".to_owned()).into()),
         input_source: None,
         provider_native: None,
         timestamp: 3,
@@ -507,7 +504,7 @@ async fn faux_provider_caches_prompts_per_session_and_honors_cache_retention_non
             no_cache_context,
             SimpleStreamOptions {
                 stream: StreamOptions {
-                    session_id: Some("session-1".to_owned()),
+                    session_id: Some(("session-1".to_owned()).into()),
                     cache_retention: Some(CacheRetention::None),
                     ..Default::default()
                 },
@@ -627,7 +624,7 @@ async fn faux_provider_streams_explicit_error_and_aborted_messages() {
             "partial",
             FauxAssistantMessageOptions {
                 stop_reason: Some(reason),
-                error_message: Some(message.to_owned()),
+                error_message: Some((message.to_owned()).into()),
                 ..Default::default()
             },
         ))]);
@@ -651,7 +648,7 @@ async fn faux_provider_streams_explicit_error_and_aborted_messages() {
                     }
                 );
                 assert_eq!(error.stop_reason, reason);
-                assert_eq!(error.error_message.as_deref(), Some(message));
+                assert_eq!(error.error_message.as_ref(), Some(message));
             }
             other => panic!("expected error, got {other:?}"),
         }
@@ -880,7 +877,7 @@ async fn faux_provider_records_cancellation_and_returns_deferred_failures_in_ban
         .await
         .unwrap();
     assert_eq!(failed.stop_reason, StopReason::Error);
-    assert_eq!(failed.error_message.as_deref(), Some("deferred failed"));
+    assert_eq!(failed.error_message.as_ref(), Some("deferred failed"));
 
     let cancelled_submission = models
         .complete_simple(
@@ -910,7 +907,7 @@ async fn faux_provider_records_cancellation_and_returns_deferred_failures_in_ban
     assert!(
         cancelled
             .error_message
-            .as_deref()
+            .as_ref()
             .is_some_and(|message| message.contains("was cancelled"))
     );
 }
