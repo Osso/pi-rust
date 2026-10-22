@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{TryRecvError, channel};
 use std::time::Duration;
 
+use pi_js_compat::JsString;
 use pi_tui::terminal::Terminal;
 use pi_tui::tui::{Component, ComponentRef, Focusable, TuiExt};
 
@@ -34,7 +35,7 @@ pub trait SessionLoader {
     fn load<'a>(
         &'a self,
         on_progress: Option<SessionListProgress<'a>>,
-    ) -> SessionListFuture<'a, Result<Vec<SessionInfo>, String>>;
+    ) -> SessionListFuture<'a, Result<Vec<SessionInfo>, JsString>>;
 }
 
 /// `loadSessions`: filter by archive flag and order named sessions first (for
@@ -43,7 +44,7 @@ pub async fn load_sessions<'a>(
     loader: &'a dyn SessionLoader,
     on_progress: Option<SessionListProgress<'a>>,
     archived: bool,
-) -> Result<Vec<SessionInfo>, String> {
+) -> Result<Vec<SessionInfo>, JsString> {
     let sessions = loader.load(on_progress).await?;
     let mut filtered_sessions: Vec<SessionInfo> = sessions
         .into_iter()
@@ -72,7 +73,7 @@ fn is_named(session: &SessionInfo) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SelectSessionOutcome {
     /// The user selected a session path.
-    Selected(String),
+    Selected(JsString),
     /// The user cancelled (`No session selected`).
     Cancelled,
     /// `onExit`: the selector asked to exit the process with status 0.
@@ -84,20 +85,20 @@ pub struct SelectSessionOptions<'a> {
     pub settings_manager: &'a SettingsManager,
     pub terminal: Rc<RefCell<dyn Terminal>>,
     pub env: &'a BTreeMap<String, String>,
-    pub control_db_path: Option<&'a str>,
+    pub control_db_path: Option<&'a JsString>,
     pub archived_sessions_loader: Option<Arc<dyn SessionLoader>>,
     pub validate_selection: Option<ValidateSelection>,
 }
 
 /// `validateSelection`: throws to keep the selector open and show the error.
-pub type ValidateSelection = Arc<dyn Fn(&str) -> Result<(), String>>;
+pub type ValidateSelection = Arc<dyn Fn(&JsString) -> Result<(), JsString>>;
 
 /// Selector events consumed by the picker loop.
 enum SelectEvent {
-    Selected(String),
+    Selected(JsString),
     Cancelled,
     Exited,
-    ValidationError(String),
+    ValidationError(JsString),
 }
 
 /// TUI child that lends the selector to the picker loop.
@@ -109,14 +110,14 @@ struct SelectorHost {
 }
 
 impl Component for SelectorHost {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.component
             .as_mut()
             .map(|component| component.render(width))
             .unwrap_or_default()
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         if let Some(component) = self.component.as_mut() {
             component.handle_input(data);
         }
@@ -140,7 +141,7 @@ pub async fn select_session(
     current_sessions_loader: Arc<dyn SessionLoader>,
     all_sessions_loader: Arc<dyn SessionLoader>,
     options: SelectSessionOptions<'_>,
-) -> Result<SelectSessionOutcome, String> {
+) -> Result<SelectSessionOutcome, JsString> {
     let ui = create_startup_tui(options.settings_manager, Rc::clone(&options.terminal), options.env).await?;
     let keybindings = KeybindingsManager::create(Some(&crate::config::get_agent_dir()));
     keybindings.clone().install();
@@ -152,7 +153,7 @@ pub async fn select_session(
         let sender = sender.clone();
         let resolved = Rc::clone(&resolved);
         let validate_selection = options.validate_selection.clone();
-        Rc::new(move |path: String| {
+        Rc::new(move |path: JsString| {
             if *resolved.borrow() {
                 return;
             }
@@ -188,7 +189,7 @@ pub async fn select_session(
         Rc::new(move || ui.request_render(false)) as Rc<dyn Fn()>
     };
 
-    let control_db_path = options.control_db_path.map(str::to_owned);
+    let control_db_path = options.control_db_path.cloned();
     let mut selector = SessionSelectorComponent::new(
         session_list_loader(current_sessions_loader, false),
         session_list_loader(all_sessions_loader, false),

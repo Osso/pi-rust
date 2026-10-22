@@ -1880,23 +1880,23 @@ pub type InputCallback = Rc<dyn Fn(String)>;
 
 /// `InteractiveModeOptions`.
 pub type SteerMultiAgent =
-    Arc<dyn Fn(String, JsString, String) -> BoxFuture<'static, Result<(), JsString>> + Send + Sync>;
-pub type CancelMultiAgent = Arc<dyn Fn(String) -> BoxFuture<'static, Result<(), JsString>> + Send + Sync>;
+    Arc<dyn Fn(JsString, JsString, JsString) -> BoxFuture<'static, Result<(), JsString>> + Send + Sync>;
+pub type CancelMultiAgent = Arc<dyn Fn(JsString) -> BoxFuture<'static, Result<(), JsString>> + Send + Sync>;
 pub type AgentViewSelectorSlot =
     Arc<std::sync::Mutex<Option<crate::bundled_extensions::agents_core::runtime::SelectAgentView>>>;
 
 #[derive(Default)]
 pub struct InteractiveModeOptions {
     pub migrated_providers: Vec<JsString>,
-    pub model_fallback_message: Option<String>,
-    pub auto_trust_on_reload_cwd: Option<String>,
+    pub model_fallback_message: Option<JsString>,
+    pub auto_trust_on_reload_cwd: Option<JsString>,
     pub initial_message: Option<JsString>,
     pub initial_images: Vec<ImageContent>,
     pub initial_messages: Vec<JsString>,
     pub control_message: Option<crate::core::session_control_db::IncomingControlMessage>,
     pub verbose: bool,
     pub tui_mode: Option<TuiMode>,
-    pub control_db_path: Option<String>,
+    pub control_db_path: Option<JsString>,
     /// Shared first-party multi-agent store for agent slot selection.
     pub multi_agent_store: Option<Arc<MultiAgentStore>>,
     /// Wake an active multi-agent wait after main-session steering is queued.
@@ -6162,7 +6162,7 @@ pub async fn run_interactive_mode(
     runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>,
     options: InteractiveModeOptions,
     terminal: Option<Rc<RefCell<dyn Terminal>>>,
-) -> Result<(), String> {
+) -> Result<(), JsString> {
     let local = tokio::task::LocalSet::new();
     local
         .run_until(async move {
@@ -6427,7 +6427,7 @@ impl InteractiveMode {
     }
 
     /// Initializes the TUI, resources, extensions, and initial messages.
-    pub async fn init(self: &Rc<Self>) -> Result<(), String> {
+    pub async fn init(self: &Rc<Self>) -> Result<(), JsString> {
         if self.is_initialized.get() {
             return Ok(());
         }
