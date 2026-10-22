@@ -178,20 +178,7 @@ async fn assert_chat_ingress(api: &str) {
 
 #[tokio::test]
 async fn responses_one_byte_sse_preserves_deltas_and_done_records() {
-    let events = [
-        r#"{"type":"response.output_item.added","output_index":9,"item":{"type":"web_search_call"}}"#,
-        r#"{"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"m"}}"#,
-        r#"{"type":"response.output_text.delta","output_index":0,"delta":"\ud800"}"#,
-        r#"{"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"m","content":[{"type":"output_text","text":"\ud800\ue200cite\ue202turn0search0\ue201"}]}}"#,
-        r#"{"type":"response.output_item.added","output_index":1,"item":{"type":"reasoning","id":"r"}}"#,
-        r#"{"type":"response.reasoning_summary_text.delta","output_index":1,"delta":"\udfff"}"#,
-        r#"{"type":"response.output_item.done","output_index":1,"item":{"type":"reasoning","id":"r","summary":[{"text":"\udfff","id":"\ud800","name":"\udfff","type":"\ud800"}]}}"#,
-        r#"{"type":"response.output_item.added","output_index":2,"item":{"type":"function_call","id":"f","call_id":"c","name":"probe","arguments":""}}"#,
-        r#"{"type":"response.function_call_arguments.delta","output_index":2,"delta":"{\"\ud800\":[{\"nested\":\""}"#,
-        r#"{"type":"response.function_call_arguments.delta","output_index":2,"delta":"\udfff\",\"id\":\"\ud800\",\"name\":\"\udfff\",\"type\":\"\ud800\"}]}"}"#,
-        r#"{"type":"response.output_item.done","output_index":2,"item":{"type":"function_call","id":"f","call_id":"c","name":"probe","arguments":"{\"\ud800\":[{\"nested\":\"\udfff\",\"id\":\"\ud800\",\"name\":\"\udfff\",\"type\":\"\ud800\"}]}"}}"#,
-        r#"{"type":"response.completed","response":{"status":"completed","output":[]}}"#,
-    ].map(|event| format!("data: {event}\n\n")).concat();
+    let events = response_sse();
     for api in ["openai-responses", "azure-openai-responses", "openai-codex-responses"] {
         let (url, server) = serve_sse(&events);
         let model: Model = serde_json::from_value(serde_json::json!({"id":"probe","name":"probe","api":api,"provider":if api == "openai-codex-responses" { "openai-codex" } else { "openai" },"baseUrl":url,"reasoning":true,"input":["text"],"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"contextWindow":10000,"maxTokens":1000})).unwrap();
@@ -369,4 +356,101 @@ async fn cancellation_after_raw_delta_retains_partial_and_aborted_status() {
     assert!(raw_delta_seen);
     assert_eq!(result.stop_reason, StopReason::Aborted);
     assert!(matches!(&result.content[0], AssistantContent::Text(text) if text.text.units() == [0xd800]));
+}
+
+fn response_sse() -> String {
+    [
+        r#"{"type":"response.output_item.added","output_index":9,"item":{"type":"web_search_call"}}"#,
+        r#"{"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"m"}}"#,
+        r#"{"type":"response.output_text.delta","output_index":0,"delta":"\ud800"}"#,
+        r#"{"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"m","content":[{"type":"output_text","text":"\ud800\ue200cite\ue202turn0search0\ue201"}]}}"#,
+        r#"{"type":"response.output_item.added","output_index":1,"item":{"type":"reasoning","id":"r"}}"#,
+        r#"{"type":"response.reasoning_summary_text.delta","output_index":1,"delta":"\udfff"}"#,
+        r#"{"type":"response.output_item.done","output_index":1,"item":{"type":"reasoning","id":"r","summary":[{"text":"\udfff","id":"\ud800","name":"\udfff","type":"\ud800"}]}}"#,
+        r#"{"type":"response.output_item.added","output_index":2,"item":{"type":"function_call","id":"f","call_id":"c","name":"probe","arguments":""}}"#,
+        r#"{"type":"response.function_call_arguments.delta","output_index":2,"delta":"{\"\ud800\":[{\"nested\":\""}"#,
+        r#"{"type":"response.function_call_arguments.delta","output_index":2,"delta":"\udfff\",\"id\":\"\ud800\",\"name\":\"\udfff\",\"type\":\"\ud800\"}]}"}"#,
+        r#"{"type":"response.output_item.done","output_index":2,"item":{"type":"function_call","id":"f","call_id":"c","name":"probe","arguments":"{\"\ud800\":[{\"nested\":\"\udfff\",\"id\":\"\ud800\",\"name\":\"\udfff\",\"type\":\"\ud800\"}]}"}}"#,
+        r#"{"type":"response.completed","response":{"status":"completed","output":[]}}"#,
+    ].map(|event| format!("data: {event}\n\n")).concat()
+}
+
+#[tokio::test]
+async fn codex_websocket_events_keep_native_text_and_argument_units() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (socket, _) = listener.accept().await.unwrap();
+        let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
+        let Message::Text(request) = socket.next().await.unwrap().unwrap() else {
+            panic!("missing create frame")
+        };
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&request).unwrap()["type"],
+            "response.create"
+        );
+        for line in response_sse().lines() {
+            if let Some(data) = line.strip_prefix("data: ") {
+                socket.send(Message::Text(data.to_owned().into())).await.unwrap();
+            }
+        }
+        // Client owns termination after the terminal event.
+        while let Some(message) = socket.next().await {
+            if matches!(message, Ok(Message::Close(_)) | Err(_)) {
+                break;
+            }
+        }
+    });
+    let mut options = pi_ai::request::StreamOptions::default();
+    options.request.api_key = Some(fake_codex_token());
+    options.request.max_retries = Some(0.0);
+    options.transport = Some(pi_ai::types::Transport::Websocket);
+    let mut stream = pi_ai::api::openai_codex_responses::stream(
+        test_model("openai-codex-responses", &format!("http://{address}/v1")),
+        Context {
+            system_prompt: None,
+            messages: vec![],
+            tools: None,
+        },
+        pi_ai::api::openai_codex_responses::OpenAICodexResponsesOptions {
+            stream: options,
+            ..Default::default()
+        },
+    );
+    let mut deltas = Vec::new();
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while let Some(event) = stream.next().await {
+            match event.unwrap() {
+                AssistantMessageEvent::TextDelta { delta, .. } => {
+                    assert_eq!(delta.units(), &[0xd800]);
+                    deltas.push("text");
+                }
+                AssistantMessageEvent::ThinkingDelta { delta, .. } => {
+                    assert_eq!(delta.units(), &[0xdfff]);
+                    deltas.push("thinking");
+                }
+                AssistantMessageEvent::ToolCallDelta { .. } => deltas.push("args"),
+                _ => {}
+            }
+        }
+    })
+    .await
+    .unwrap();
+    let result = stream.result().await.unwrap();
+    assert_eq!(result.stop_reason, StopReason::ToolUse, "{:?}", result.error_message);
+    assert_eq!(deltas, ["text", "thinking", "args", "args"]);
+    assert!(matches!(&result.content[0], AssistantContent::Text(text) if text.text.units() == [0xd800]));
+    let AssistantContent::ToolCall(call) = &result.content[2] else {
+        panic!("missing call")
+    };
+    assert_eq!(
+        pi_js_compat::js_json::JsValue::Object(call.arguments.clone()),
+        parse_lossless(r#"{"\ud800":[{"nested":"\udfff","id":"\ud800","name":"\udfff","type":"\ud800"}]}"#).unwrap()
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(5), server)
+        .await
+        .unwrap()
+        .unwrap();
 }
