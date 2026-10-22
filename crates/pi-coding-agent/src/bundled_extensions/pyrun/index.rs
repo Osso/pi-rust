@@ -865,14 +865,14 @@ pub fn install_pyrun_extension(pi: &ExtensionApi, options: PyrunExtensionOptions
             }
             super::detached_evaluation::run_durable_detachable_pyrun_evaluation(
                 super::detached_evaluation::DurablePyrunEvaluationInput {
-                    agent_id: ctx.tool_execution_agent_id.clone(),
+                    agent_id: ctx.tool_execution_agent_id.clone().map(JsString::from),
                     ctx,
                     detach_registry: detach_registry.expect("checked"),
                     dispatch_pi_request: dispatch,
                     on_update,
                     params,
                     pi_bridge_enabled: _pi_bridge,
-                    tool_call_id,
+                    tool_call_id: tool_call_id.map(JsString::from),
                     runner_options: _runner_options,
                     signal,
                     store: store.expect("checked"),
