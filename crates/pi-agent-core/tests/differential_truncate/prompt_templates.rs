@@ -65,8 +65,8 @@ fn rust_response(fixture: &Fixture) -> Value {
     let template_content = fixture.template_content.unwrap_or(fixture.content);
     let template = PromptTemplate {
         name: JsString::from(fixture.template_name.to_owned()),
-        description: fixture.template_description.map(str::to_owned),
-        content: template_content.to_owned(),
+        description: fixture.template_description.map(JsString::from),
+        content: template_content.into(),
     };
     let format_args = if fixture.omit_format_args {
         Vec::new()
@@ -83,8 +83,8 @@ fn rust_response(fixture: &Fixture) -> Value {
     )
 }
 
-fn owned_args(values: &[&str]) -> Vec<String> {
-    values.iter().map(|value| (*value).to_owned()).collect()
+fn owned_args(values: &[&str]) -> Vec<JsString> {
+    values.iter().copied().map(JsString::from).collect()
 }
 
 fn fixtures() -> Vec<Fixture> {

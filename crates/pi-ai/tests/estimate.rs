@@ -37,7 +37,7 @@ fn assistant(timestamp: i64, total_tokens: f64) -> Message {
 }
 
 #[test]
-fn ignores_stale_assistant_usage_after_a_newer_message_is_inserted_before_it() {
+fn latest_assistant_usage_ignores_timestamp_order() {
     let context = Context {
         system_prompt: Some(("system".to_owned()).into()),
         messages: vec![
@@ -48,10 +48,11 @@ fn ignores_stale_assistant_usage_after_a_newer_message_is_inserted_before_it() {
         tools: None,
     };
     let estimate = estimate_context_tokens(&context);
-    assert_eq!(estimate.tokens, 1_005.0);
-    assert_eq!(estimate.usage_tokens, 0.0);
-    assert_eq!(estimate.trailing_tokens, 1_005.0);
-    assert_eq!(estimate.last_usage_index, None);
+    // Frozen estimate.ts:63–68 selects by array position, not timestamp.
+    assert_eq!(estimate.tokens, 10_500.0);
+    assert_eq!(estimate.usage_tokens, 9_500.0);
+    assert_eq!(estimate.trailing_tokens, 1_000.0);
+    assert_eq!(estimate.last_usage_index, Some(1));
 }
 
 #[test]
@@ -160,7 +161,7 @@ fn context_prefix_adds_system_prompt_and_tool_definitions() {
 }
 
 #[test]
-fn tools_added_after_the_usage_message_are_counted() {
+fn tool_definitions_are_ignored_when_assistant_usage_exists() {
     let tool = Tool {
         name: "late_tool".to_owned(),
         description: "late".to_owned(),
@@ -188,9 +189,8 @@ fn tools_added_after_the_usage_message_are_counted() {
         tools: Some(vec![tool.clone()]),
     };
     let estimate = estimate_context_tokens(&context);
-    let tool_json = serde_json::to_string(&vec![tool]).expect("tool serializes");
-    let added = (tool_json.encode_utf16().count() as f64 / 4.0).ceil();
-    assert_eq!(estimate.tokens, 100.0 + 1.0 + added);
+    // Frozen estimate.ts:96–97 returns reported usage without added-tool adjustment.
+    assert_eq!(estimate.tokens, 101.0);
     assert_eq!(estimate.usage_tokens, 100.0);
     assert_eq!(estimate.last_usage_index, Some(1));
 }

@@ -151,3 +151,79 @@ fn channel_and_payload_keep_raw_utf16_units() {
     assert_eq!(errors[0].channel, channel);
     assert_eq!(errors[0].message.units(), [0x65, 0xdfff]);
 }
+
+#[tokio::test]
+async fn request_claims_run_every_listener_and_last_assignment_wins() {
+    use pi_coding_agent::core::event_bus::EventRequest;
+    let bus = create_event_bus();
+    let channel = JsString::from_utf16(vec![0xd800]);
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let sink = calls.clone();
+    bus.on_request(
+        &channel,
+        Arc::new(move |request| {
+            sink.lock().unwrap().push("first");
+            assert_eq!(request.data, JsValue::String(JsString::from_utf16(vec![0xdc00])));
+            request.response = Some(Box::pin(async { Ok(JsValue::String("first".into())) }));
+            Ok(())
+        }),
+    );
+    let sink = calls.clone();
+    bus.on_handler(&channel, move |_| {
+        sink.lock().unwrap().push("ordinary");
+        Err(JsString::from_utf16(vec![0xdfff]))
+    });
+    let sink = calls.clone();
+    bus.on_request(
+        &channel,
+        Arc::new(move |request| {
+            sink.lock().unwrap().push("last");
+            request.response = Some(Box::pin(async {
+                Ok(JsValue::String(JsString::from_utf16(vec![0xd801])))
+            }));
+            Err("claimed then threw".into())
+        }),
+    );
+    let sink = calls.clone();
+    bus.on_request(
+        &channel,
+        Arc::new(move |_| {
+            sink.lock().unwrap().push("unclaimed");
+            Ok(())
+        }),
+    );
+    let mut request = EventRequest::new(JsValue::String(JsString::from_utf16(vec![0xdc00])));
+    let errors = bus.emit_request(&channel, &mut request);
+    assert_eq!(*calls.lock().unwrap(), ["first", "ordinary", "last", "unclaimed"]);
+    assert_eq!(errors.len(), 2);
+    assert_eq!(errors[0].message.units(), [0xdfff]);
+    assert_eq!(errors[1].message, "claimed then threw");
+    assert_eq!(
+        request.response.unwrap().await.unwrap(),
+        JsValue::String(JsString::from_utf16(vec![0xd801]))
+    );
+}
+
+#[tokio::test]
+async fn requests_preserve_context_unclaimed_and_rejected_futures() {
+    use pi_coding_agent::core::event_bus::EventRequest;
+    let bus = create_event_bus();
+    let channel = JsString::from("request");
+    let mut request = EventRequest::new(JsValue::Null);
+    assert!(bus.emit_request(&channel, &mut request).is_empty());
+    assert!(request.response.is_none());
+    let subscription = bus.on_request(
+        &channel,
+        Arc::new(|request| {
+            assert_eq!(*request.context.as_ref().unwrap().downcast_ref::<usize>().unwrap(), 42);
+            request.response = Some(Box::pin(async { Err(JsString::from_utf16(vec![0xd800])) }));
+            Ok(())
+        }),
+    );
+    request.context = Some(Arc::new(42_usize));
+    assert!(bus.emit_request(&channel, &mut request).is_empty());
+    assert_eq!(request.response.take().unwrap().await.unwrap_err().units(), [0xd800]);
+    subscription.unsubscribe();
+    assert!(bus.emit_request(&channel, &mut request).is_empty());
+    assert!(request.response.is_none());
+}

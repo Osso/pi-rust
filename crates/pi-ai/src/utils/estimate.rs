@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
@@ -100,7 +98,7 @@ pub fn estimate_messages_tokens(messages: &[Message]) -> ContextUsageEstimate {
 pub fn estimate_context_tokens(context: &Context) -> ContextUsageEstimate {
     let estimate = estimate_messages(&context.messages);
     match estimate.last_usage_index {
-        Some(index) => add_added_tool_tokens(context, estimate, index),
+        Some(_) => estimate,
         None => add_prefix_tokens(context, estimate),
     }
 }
@@ -114,38 +112,6 @@ impl ContextUsageEstimate {
             last_usage_index: self.last_usage_index,
         }
     }
-}
-
-fn add_added_tool_tokens(
-    context: &Context,
-    estimate: ContextUsageEstimate,
-    usage_index: usize,
-) -> ContextUsageEstimate {
-    let added_names = added_tool_names(context, usage_index);
-    let added_tool_tokens = estimate_added_tools_tokens(context.tools.as_deref(), &added_names);
-    estimate.with_extra_tokens(added_tool_tokens)
-}
-
-fn added_tool_names(context: &Context, usage_index: usize) -> BTreeSet<String> {
-    context.messages[usage_index + 1..]
-        .iter()
-        .filter_map(|message| match message {
-            Message::ToolResult(result) => result.added_tool_names.clone(),
-            _ => None,
-        })
-        .flatten()
-        .collect()
-}
-
-fn estimate_added_tools_tokens(tools: Option<&[Tool]>, added_names: &BTreeSet<String>) -> f64 {
-    let added_tools: Option<Vec<Tool>> = tools.map(|tools| {
-        tools
-            .iter()
-            .filter(|tool| added_names.contains(&tool.name))
-            .cloned()
-            .collect()
-    });
-    estimate_tools_tokens(added_tools.as_deref())
 }
 
 fn add_prefix_tokens(context: &Context, estimate: ContextUsageEstimate) -> ContextUsageEstimate {
@@ -183,29 +149,13 @@ fn estimate_messages(messages: &[Message]) -> ContextUsageEstimate {
 }
 
 fn last_assistant_usage(messages: &[Message]) -> Option<(usize, &Usage)> {
-    let mut latest_prefix_timestamp = f64::NEG_INFINITY;
-    let mut usage_info = None;
-    for (index, message) in messages.iter().enumerate() {
-        if let Message::Assistant(assistant) = message {
-            let usage_applies_to_prefix = assistant.timestamp as f64 >= latest_prefix_timestamp;
-            if usage_applies_to_prefix
-                && !matches!(assistant.stop_reason, StopReason::Aborted | StopReason::Error)
-                && calculate_context_tokens(&assistant.usage) > 0.0
-            {
-                usage_info = Some((index, &assistant.usage));
-            }
-        }
-        latest_prefix_timestamp = latest_prefix_timestamp.max(message_timestamp(message) as f64);
-    }
-    usage_info
-}
-
-fn message_timestamp(message: &Message) -> i64 {
-    match message {
-        Message::User(user) => user.timestamp,
-        Message::Assistant(assistant) => assistant.timestamp,
-        Message::ToolResult(result) => result.timestamp,
-    }
+    messages.iter().enumerate().rev().find_map(|(index, message)| {
+        let Message::Assistant(assistant) = message else {
+            return None;
+        };
+        let successful = !matches!(assistant.stop_reason, StopReason::Aborted | StopReason::Error);
+        (successful && calculate_context_tokens(&assistant.usage) > 0.0).then_some((index, &assistant.usage))
+    })
 }
 
 fn estimate_tools_tokens(tools: Option<&[Tool]>) -> f64 {

@@ -195,7 +195,7 @@ async fn harness_config_roundtrip(harness: &AgentHarness) -> Value {
         prompt_templates: Some(vec![pi_agent_core::harness::PromptTemplate {
             name: JsString::from("template"),
             description: None,
-            content: "body".to_owned(),
+            content: "body".into(),
         }]),
     };
     harness.set_resources(resources.clone()).await;
