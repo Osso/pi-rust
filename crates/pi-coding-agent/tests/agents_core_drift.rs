@@ -310,11 +310,24 @@ fn public_background_completion_uses_live_ui_and_reports_async_getter_failure() 
                 Some(1),
                 "async UI failure must reach the process uncaught handler"
             );
-            assert_eq!(
-                String::from_utf8_lossy(&output.stderr).trim(),
-                format!("Error: {}", expected["failure"].as_str().unwrap())
+            let failure = expected["failure"].as_str().unwrap();
+            let expected_diagnostic = serde_json::json!(format!(
+                "MultiAgentStore lifecycle notification listener failed: {failure}"
+            ));
+            assert!(
+                expected["diagnostics"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&expected_diagnostic)
             );
+            // The actual frozen ExtensionRunner also reports a stale mirror observer
+            // (oracle diagnostics; agents-core-ui-fidelity-red.log). Preserve it;
+            // compare the terminal uncaught line, not unrelated observer formatting.
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let uncaught = format!("Error: {failure}");
+            assert_eq!(stderr.lines().last(), Some(uncaught.as_str()));
         } else {
+            assert!(expected["diagnostics"].as_array().unwrap().is_empty());
             assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         }
     }

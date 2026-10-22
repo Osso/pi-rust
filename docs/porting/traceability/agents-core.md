@@ -7,14 +7,14 @@ Actual in-crate baseline `agents_core_drift` at `27410344`: five intended behavi
 | Boundary | Implementation | Proof |
 |---|---|---|
 | Registration API errors | Helpers/top-level registration propagate the original error in source order | RED observed; focused GREEN pending |
-| Completion-time UI lookup | Resolve current UI after dispatch settles; errors reach the existing process uncaught handler | Uncaught exit/message fixed; exact-stderr assertion remains RED because of an extra stale mirror diagnostic |
+| Completion-time UI lookup | Resolve current UI after dispatch settles; errors reach the existing process uncaught handler | Source observer output confirmed with actual runner; focused GREEN pending |
 | Post-construction session lookup | Fallible lookup occurs after construction and before admission; no error-to-path fallback | RED observed; focused GREEN pending |
 | Accessed profile model / unrelated fields | Raw profile getter; model registry read precedes source-equivalent model-type error; consumers project accessed fields only | Two REDs observed; focused GREEN pending |
 | Tracked-agent DB read | Queued | Unit RED-intent remains unexecuted; public integration fixture pending |
 
-### Stale mirror diagnostic — provisional DRIFT / fixture mismatch
+### Stale-context fixture fidelity
 
-`agents-core-drift-incrate-green.log` shows an extra native `Failed to mirror lifecycle notification message_1: ...` line before the correct uncaught UI error. Existing source-only `agents-core-ui-source.log` has no mirror diagnostic. Full-stderr equality is retained as RED; the relaxed-assertion run is not acceptance proof. Native catch/report site: `mailbox_runtime.rs` lifecycle listener. Frozen listener delegates errors (`runtime.ts:2917–2934`); store catches/logs them (`multi-agent-store.ts:1173–1180`). The fixtures currently invalidate different state: native `runner.invalidate()` stales every getter, while the source case stales UI only. Frozen runner guards both UI and sessionManager (`runner.ts:813–815,833–835`). Align source lifetime fidelity and observe its stderr before classifying or changing production reporting.
+The initial source stub staled only UI while native invalidated the entire runner; that source-only result did not justify ignoring an extra native mirror diagnostic. The oracle now uses the actual frozen `ExtensionRunner.createCommandContext()` and `invalidate()`. `agents-core-ui-fidelity-red.log` (Cargo invocation) proves source also reports a stale lifecycle observer: `runner.ts:678,850` → `runtime.ts:2974,2932` → `multi-agent-store.ts:1177–1179`. Native reporting remains untouched. The regression asserts the oracle's observer diagnostic, then compares the terminal uncaught line exactly; observer formatting/stack compatibility is not claimed. The earlier relaxed-assertion run is not acceptance evidence.
 
 ## Source-backed error boundaries
 

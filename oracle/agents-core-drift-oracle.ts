@@ -29,16 +29,32 @@ async function main() {
 			notify: (message: string) => notifications.push(message),
 			setEditorText: () => {},
 		};
-		let invalidated = false;
-		const ctx = {
-			cwd: root,
-			sessionManager: manager,
-			modelRegistry: { getAll: () => [] },
-			get ui() {
-				if (invalidated)
-					throw new Error("ui getter failed after dispatch started");
-				return ui;
-			},
+		const { ExtensionRunner } = await import(
+			new URL("../../../src/core/extensions/runner.ts", runtimeUrl).href
+		);
+		const { createExtensionRuntime } = await import(
+			new URL("../../../src/core/extensions/loader.ts", runtimeUrl).href
+		);
+		const runner = new ExtensionRunner(
+			[],
+			createExtensionRuntime(),
+			root,
+			manager,
+			{ getAll: () => [] },
+		);
+		runner.setUIContext(ui, "rpc");
+		const ctx = runner.createCommandContext();
+		const diagnostics: string[] = [];
+		const originalError = console.error;
+		console.error = (...values: unknown[]) => {
+			diagnostics.push(
+				values
+					.map((value) =>
+						value instanceof Error ? value.message : String(value),
+					)
+					.join(" "),
+			);
+			originalError(...values);
 		};
 		const completion = Promise.withResolvers<void>();
 		const reported = Promise.withResolvers<unknown>();
@@ -75,7 +91,8 @@ async function main() {
 			const dispatch = handles.dispatches.values().next().value;
 			if (!dispatch)
 				throw new Error("source did not start background dispatch");
-			invalidated = invalidatedAtCompletion;
+			if (invalidatedAtCompletion)
+				runner.invalidate("ui getter failed after dispatch started");
 			completion.resolve();
 			const finalAgent = await dispatch;
 			await new Promise<void>((resolve) => setImmediate(resolve));
@@ -99,11 +116,13 @@ async function main() {
 				after: notifications.length,
 				lifecycle: finalAgent.lifecycle,
 				failure,
+				diagnostics,
 			};
 		} finally {
 			completion.resolve();
 			await Promise.all([...handles.dispatches.values()]);
 			process.off("unhandledRejection", onRejection);
+			console.error = originalError;
 			rmSync(root, { recursive: true, force: true });
 		}
 	};
