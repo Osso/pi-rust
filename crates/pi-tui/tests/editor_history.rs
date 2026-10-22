@@ -139,7 +139,7 @@ fn sets_prompt_history_from_persisted_newest_first_entries() {
     editor.set_history(vec![
         JsString::from("newest"),
         JsString::from("older"),
-        String::new(),
+        JsString::default(),
         JsString::from("   "),
     ]);
     assert_eq!(editor.get_history(), vec!["newest", "older"]);
@@ -221,7 +221,7 @@ fn shows_reverse_history_search_on_ctrl_r() {
     let (mut editor, _) = editor();
     send(&mut editor, "\x12");
     let rendered = JsString::join(render_plain(&mut editor, 40), "\n");
-    assert!(rendered.contains("0/0"), "{rendered}");
+    assert!(rendered.contains("0/0"), "{rendered:?}");
 }
 
 #[test]
@@ -235,8 +235,8 @@ fn keeps_the_search_query_in_the_editor_while_previewing_the_selected_match() {
     send(&mut editor, "o");
     assert_eq!(editor.get_text(), "co");
     let rendered = JsString::join(render_plain(&mut editor, 60), "\n");
-    assert!(rendered.contains("> open config docs"), "{rendered}");
-    assert!(rendered.contains("1/1"), "{rendered}");
+    assert!(rendered.contains("> open config docs"), "{rendered:?}");
+    assert!(rendered.contains("1/1"), "{rendered:?}");
 }
 
 #[test]
@@ -283,7 +283,7 @@ fn previews_the_matching_line_from_multiline_reverse_search_results() {
     send(&mut editor, "h");
     send(&mut editor, "e");
     let rendered = JsString::join(render_plain(&mut editor, 60), "\n");
-    assert!(rendered.contains("> say hello twice"), "{rendered}");
+    assert!(rendered.contains("> say hello twice"), "{rendered:?}");
     assert!(!rendered.contains("Goal set - starting work"));
 }
 
@@ -298,10 +298,10 @@ fn limits_reverse_search_rendering_to_20_rows_while_keeping_all_matches_navigabl
     send(&mut editor, "a");
     let rendered = JsString::join(render_plain(&mut editor, 60), "\n");
     let visible = rendered
-        .lines()
+        .split('\n')
         .filter(|line| line.as_bytes().get(1) == Some(&b' ') && line[2..].starts_with("match "))
         .count();
-    assert_eq!(visible, 20, "{rendered}");
+    assert_eq!(visible, 20, "{rendered:?}");
     assert!(rendered.contains("1/25"));
     assert!(!rendered.contains("match 5"));
 
@@ -309,7 +309,7 @@ fn limits_reverse_search_rendering_to_20_rows_while_keeping_all_matches_navigabl
         send(&mut editor, "\x12");
     }
     let stepped = JsString::join(render_plain(&mut editor, 60), "\n");
-    assert!(stepped.contains("> match 5"), "{stepped}");
+    assert!(stepped.contains("> match 5"), "{stepped:?}");
     assert!(stepped.contains("21/25"));
 }
 

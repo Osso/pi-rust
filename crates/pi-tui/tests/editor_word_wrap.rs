@@ -29,7 +29,7 @@ fn segments(_line: &str, pieces: &[&str]) -> Vec<TextSegment> {
 fn reconstruct(line: &str, width: usize, pieces: Option<&[TextSegment]>) -> JsString {
     let line = JsString::from(line);
     JsString::join(
-        word_wrap_line(&line, width, pieces)
+        word_wrap_line(&JsString::from(&line), width, pieces)
             .into_iter()
             .map(|chunk| line.slice(chunk.start_index, chunk.end_index)),
         "",
@@ -174,7 +174,7 @@ fn breaks_whitespace_spanning_full_lines() {
 #[test]
 fn force_breaks_when_wide_char_after_word_boundary_wrap_still_overflows() {
     let line = format!(" {}你", "a".repeat(186));
-    let rendered = word_wrap_line(&line, 187, None);
+    let rendered = word_wrap_line(&JsString::from(&line), 187, None);
     for chunk in &rendered {
         assert!(visible_width(&chunk.text) <= 187);
     }
@@ -186,7 +186,7 @@ fn splits_oversized_atomic_segment_across_multiple_chunks() {
     let marker = "[paste #1 +20 lines]";
     let line = format!("A{marker}B");
     let pieces = segments(&line, &["A", marker, "B"]);
-    let rendered = word_wrap_line(&line, 10, Some(&pieces));
+    let rendered = word_wrap_line(&JsString::from(&line), 10, Some(&pieces));
     for chunk in &rendered {
         assert!(visible_width(&chunk.text) <= 10);
     }
@@ -198,7 +198,7 @@ fn splits_oversized_atomic_segment_at_start_of_line() {
     let marker = "[paste #1 +20 lines]";
     let line = format!("{marker}B");
     let pieces = segments(&line, &[marker, "B"]);
-    let rendered = word_wrap_line(&line, 10, Some(&pieces));
+    let rendered = word_wrap_line(&JsString::from(&line), 10, Some(&pieces));
     for chunk in &rendered {
         assert!(visible_width(&chunk.text) <= 10);
     }
@@ -211,7 +211,7 @@ fn splits_oversized_atomic_segment_at_end_of_line() {
     let marker = "[paste #1 +20 lines]";
     let line = format!("A{marker}");
     let pieces = segments(&line, &["A", marker]);
-    let rendered = word_wrap_line(&line, 10, Some(&pieces));
+    let rendered = word_wrap_line(&JsString::from(&line), 10, Some(&pieces));
     for chunk in &rendered {
         assert!(visible_width(&chunk.text) <= 10);
     }
@@ -225,7 +225,7 @@ fn splits_consecutive_oversized_atomic_segments() {
     let m2 = "[paste #2 +30 lines]";
     let line = format!("{m1}{m2}");
     let pieces = segments(&line, &[m1, m2]);
-    let rendered = word_wrap_line(&line, 10, Some(&pieces));
+    let rendered = word_wrap_line(&JsString::from(&line), 10, Some(&pieces));
     for chunk in &rendered {
         assert!(visible_width(&chunk.text) <= 10);
     }
@@ -240,7 +240,7 @@ fn wraps_normally_after_oversized_atomic_segment() {
         &line,
         &[marker, " ", "h", "e", "l", "l", "o", " ", "w", "o", "r", "l", "d"],
     );
-    let rendered = word_wrap_line(&line, 10, Some(&pieces));
+    let rendered = word_wrap_line(&JsString::from(&line), 10, Some(&pieces));
     for chunk in &rendered {
         assert!(visible_width(&chunk.text) <= 10);
     }
