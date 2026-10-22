@@ -573,7 +573,7 @@ pub enum MailboxMessageCommandResult {
     },
     TargetNotFound {
         current: Box<AgentSnapshot>,
-        target_id: String,
+        target_id: JsString,
     },
     StaleRevision {
         current: Box<AgentSnapshot>,

@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
-use pi_js_compat::js_json::{JsString, JsValue};
+use pi_js_compat::js_json::{self, JsString, JsValue};
 use serde_json::Value;
 
 use crate::core::multi_agent_store::{
@@ -426,17 +426,15 @@ impl LifecycleCoordinator {
                     error: input
                         .error
                         .as_ref()
-                        .map(serde_json::to_value)
+                        .map(js_json::to_value)
                         .transpose()
-                        .ok()
-                        .flatten(),
+                        .map_err(|error| ControlDbError::new(error.to_string()))?,
                     result: input
                         .result
                         .as_ref()
-                        .map(serde_json::to_value)
+                        .map(js_json::to_value)
                         .transpose()
-                        .ok()
-                        .flatten(),
+                        .map_err(|error| ControlDbError::new(error.to_string()))?,
                 },
                 updated_at,
             },

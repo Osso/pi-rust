@@ -116,7 +116,7 @@ pub struct LaunchedDetachedBashJob {
 pub trait DetachedJobRunnerContract: Send + Sync {
     fn artifacts(&self) -> &DetachedJobArtifacts;
     fn identity(&self) -> &DetachedJobOwnershipIdentity;
-    fn cancel(&self, reason: Option<&str>);
+    fn cancel(&self, reason: Option<&JsString>);
 }
 
 /// Writes one launch manifest; injected by tests to force persistence failures.
@@ -300,7 +300,7 @@ impl DetachedJobLifecycleController {
     pub fn cancel(
         &self,
         ownership: &DetachedJobOwnership,
-        reason: Option<&str>,
+        reason: Option<&JsString>,
     ) -> Result<LifecycleCommandResult, DetachedJobError> {
         let cancelled = self
             .options
@@ -309,7 +309,7 @@ impl DetachedJobLifecycleController {
                 agent: ownership.agent.clone(),
                 ownership: ownership.control_ownership.clone(),
                 output_label: ownership.identity.output_label.clone(),
-                reason: reason.map(JsString::from),
+                reason: reason.cloned(),
             })?;
         if let LifecycleCommandResult::Ok { agent } = &cancelled {
             self.options.store.publish_lifecycle_coordinator_snapshot(agent)?;
