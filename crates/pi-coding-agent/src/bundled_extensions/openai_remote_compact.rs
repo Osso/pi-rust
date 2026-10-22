@@ -15,6 +15,7 @@ use pi_ai::types::{
 };
 use pi_js_compat::base64::buffer_from_base64;
 use pi_js_compat::collator::locale_compare_utf16;
+use pi_js_compat::js_format;
 use pi_js_compat::string::utf16_len;
 use pi_js_compat::{
     js_json as json,
@@ -107,7 +108,7 @@ pub async fn handle_compaction(
         crate::core::model_registry::ResolvedRequestAuth::Ok { api_key, headers, .. } => (api_key, headers),
         crate::core::model_registry::ResolvedRequestAuth::Err { error } => {
             ctx.ui()?.notify(
-                &format!("OpenAI remote compaction auth failed: {error}").into(),
+                &js_format!("OpenAI remote compaction auth failed: {}", error),
                 Some(NotifyType::Warning),
             );
             return Ok(None);
@@ -135,7 +136,7 @@ pub async fn handle_compaction(
         &instructions,
         &previous_replacement_history,
         pinned_message.into_iter().collect(),
-    );
+    )?;
     let started_at = now_millis();
     let response = post_openai_compact(
         &endpoint,
@@ -245,12 +246,12 @@ pub fn build_openai_compact_payload(
     instructions: &JsString,
     previous_replacement_history: &[Value],
     pinned_messages: HashSet<usize>,
-) -> OpenAiCompactPayload {
+) -> Result<OpenAiCompactPayload, HandlerError> {
     let converted_message_groups: Vec<(usize, Vec<Value>)> = messages
         .iter()
         .enumerate()
-        .map(|(index, message)| (index, convert_agent_message_to_openai_response_items(model, message)))
-        .collect();
+        .map(|(index, message)| Ok((index, convert_agent_message_to_openai_response_items(model, message)?)))
+        .collect::<Result<_, HandlerError>>()?;
     let mut converted_messages = Vec::new();
     let mut group_ranges = Vec::new();
     for (_, items) in &converted_message_groups {
@@ -327,13 +328,13 @@ pub fn build_openai_compact_payload(
         }
     }
     let input = limit_openai_compact_input(items, &pinned_items, &native_items);
-    OpenAiCompactPayload {
+    Ok(OpenAiCompactPayload {
         model: get_openai_compact_model_id(model),
         input,
         instructions: instructions.to_owned(),
         tools: Vec::new(),
         parallel_tool_calls: false,
-    }
+    })
 }
 
 /// `extractOpenAICompactDetails`.
@@ -632,11 +633,13 @@ fn is_openai_compaction_item(value: &Value) -> bool {
 fn convert_agent_message_to_openai_response_items(
     model: &Model,
     message: &pi_agent_core::agent::AgentMessage,
-) -> Vec<Value> {
-    convert_to_llm(std::slice::from_ref(message))
-        .into_iter()
-        .flat_map(|message| convert_message(model, &message))
-        .collect()
+) -> Result<Vec<Value>, HandlerError> {
+    let messages =
+        convert_to_llm(std::slice::from_ref(message)).map_err(|error| HandlerError::new(error.message().clone()))?;
+    Ok(messages
+        .iter()
+        .flat_map(|message| convert_message(model, message))
+        .collect())
 }
 
 fn convert_message(model: &Model, message: &Message) -> Vec<Value> {

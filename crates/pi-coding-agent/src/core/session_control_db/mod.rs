@@ -1214,8 +1214,13 @@ pub(crate) fn parse_agent_snapshot(serialized: &str, context: &JsString) -> Resu
     let validation = parse_stored_json_object(serialized, context)?;
     validate_persisted_agent_payload(&validation, context)?;
     let value = js_json::parse_lossless(serialized).map_err(|error| ControlDbError::new(error.to_string()))?;
-    js_json::from_value(&value)
-        .map_err(|error| ControlDbError::new(js_format!("Invalid persisted agent payload at {}: {}", context, error)))
+    js_json::from_value(&value).map_err(|error| {
+        ControlDbError::new(js_format!(
+            "Invalid persisted agent payload at {}: {}",
+            context,
+            error.to_string()
+        ))
+    })
 }
 
 pub(crate) fn serialize_agent(agent: &AgentSnapshot) -> Result<String, ControlDbError> {

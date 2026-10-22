@@ -8,6 +8,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use pi_agent_core::agent::ToolError;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use tokio_util::sync::CancellationToken;
 
 use crate::core::tools::bash::{BashExecOptions, BashOperations};
@@ -16,7 +17,7 @@ use crate::utils::ansi::strip_ansi;
 use crate::utils::shell::sanitize_binary_output;
 
 /// Streaming chunk callback.
-pub type BashChunkCallback = Arc<dyn Fn(&str) + Send + Sync>;
+pub type BashChunkCallback = Arc<dyn Fn(&JsString) + Send + Sync>;
 
 /// `BashExecutorOptions`.
 #[derive(Clone, Default)]
@@ -32,7 +33,7 @@ pub struct BashExecutorOptions {
 #[serde(rename_all = "camelCase")]
 pub struct BashResult {
     /// Combined stdout + stderr output (sanitized, possibly truncated).
-    pub output: pi_js_compat::js_json::JsString,
+    pub output: JsString,
     /// Process exit code; `None` when killed or cancelled.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
@@ -45,7 +46,7 @@ pub struct BashResult {
 
 /// `executeBashWithOperations`.
 pub async fn execute_bash_with_operations(
-    command: &pi_js_compat::js_json::JsString,
+    command: &JsString,
     cwd: &str,
     operations: Arc<dyn BashOperations>,
     options: &BashExecutorOptions,
@@ -87,7 +88,7 @@ struct OutputCollector {
 
 struct CollectorState {
     on_chunk: Option<BashChunkCallback>,
-    output_chunks: Vec<String>,
+    output_chunks: Vec<JsString>,
     output_bytes: usize,
     total_bytes: usize,
     temp_file_path: Option<PathBuf>,
@@ -114,18 +115,18 @@ impl OutputCollector {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.total_bytes += data.len();
         let decoded = state.decoder.decode(data);
-        let text = sanitize_binary_output(&strip_ansi(&decoded)).replace('\r', "");
+        let text = sanitize_binary_output(&strip_ansi(&JsString::from(decoded))).replace("\r", "");
         if state.total_bytes > DEFAULT_MAX_BYTES {
             state.ensure_temp_file();
         }
         if let Some(file) = state.temp_file.as_mut() {
-            let _ = file.write_all(text.as_bytes());
+            let _ = file.write_all(encode_node_utf8(&text).as_bytes());
         }
-        state.output_bytes += pi_js_compat::string::utf16_len(&text);
+        state.output_bytes += text.len();
         state.output_chunks.push(text.clone());
         while state.output_bytes > DEFAULT_MAX_BYTES * 2 && state.output_chunks.len() > 1 {
             let removed = state.output_chunks.remove(0);
-            state.output_bytes -= pi_js_compat::string::utf16_len(&removed);
+            state.output_bytes -= removed.len();
         }
         if let Some(on_chunk) = &state.on_chunk {
             on_chunk(&text);
@@ -134,8 +135,8 @@ impl OutputCollector {
 
     fn finish(&self, cancelled: bool, exit_code: Option<i32>) -> BashResult {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let full_output: String = state.output_chunks.concat();
-        let truncation = truncate_tail(&full_output, TruncationOptions::default());
+        let full_output = JsString::join(&state.output_chunks, "");
+        let truncation = truncate_tail(full_output.clone(), TruncationOptions::default());
         if truncation.truncated {
             state.ensure_temp_file();
         }
@@ -144,7 +145,7 @@ impl OutputCollector {
             output: if truncation.truncated {
                 truncation.content
             } else {
-                full_output.into()
+                full_output
             },
             exit_code: if cancelled { None } else { exit_code },
             cancelled,
@@ -166,7 +167,7 @@ impl CollectorState {
         let path = std::env::temp_dir().join(format!("pi-bash-{id}.log"));
         let mut file = File::create(&path).expect("bash output temp file");
         for chunk in &self.output_chunks {
-            let _ = file.write_all(chunk.as_bytes());
+            let _ = file.write_all(encode_node_utf8(chunk).as_bytes());
         }
         self.temp_file_path = Some(path);
         self.temp_file = Some(file);

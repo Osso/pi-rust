@@ -1,7 +1,7 @@
 //! Session health records and status derivation (`core/session-health.ts`).
 
+use pi_js_compat::js_json::{self, JsString};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 pub const SESSION_CHECK_STALE_MS: i64 = 5 * 60 * 1000;
 
@@ -113,7 +113,7 @@ pub struct SessionBroadcastResult {
     pub error: Option<String>,
 }
 
-pub fn empty_session_health(session_id: impl Into<String>, now_iso: &str) -> SessionHealthRecord {
+pub fn empty_session_health(session_id: impl Into<JsString>, now_iso: &str) -> SessionHealthRecord {
     SessionHealthRecord {
         session_id: session_id.into(),
         agent_generation: 0,
@@ -158,21 +158,22 @@ pub fn derive_live_status(
 }
 
 /// `None` is both a missing and a non-string goal value.
-pub fn parse_goal_objective(goal: Option<&Value>) -> Option<String> {
-    let trimmed = goal?.as_str()?.trim();
+pub fn parse_goal_objective(goal_json: Option<&JsString>) -> Option<JsString> {
+    let trimmed = goal_json?.trim();
     if trimmed.is_empty() {
         return None;
     }
-    if let Some(objective) = json_objective(trimmed) {
+    // `JSON.parse` failures fall through to the raw payload, as in the source `catch`.
+    if let Some(objective) = json_objective(&trimmed) {
         return Some(objective);
     }
-    Some(trimmed.to_owned())
+    Some(trimmed)
 }
 
-fn json_objective(trimmed: &str) -> Option<String> {
-    let parsed: Value = serde_json::from_str(trimmed).ok()?;
-    let objective = parsed.as_object()?.get("objective")?.as_str()?.trim();
-    (!objective.is_empty()).then(|| objective.to_owned())
+fn json_objective(trimmed: &JsString) -> Option<JsString> {
+    let parsed = js_json::parse_lossless(trimmed).ok()?;
+    let objective = parsed.get("objective")?.as_string()?.trim();
+    (!objective.is_empty()).then_some(objective)
 }
 
 pub fn end_session_health(health: &SessionHealthRecord, now_iso: &str) -> SessionHealthRecord {

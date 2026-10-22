@@ -1105,15 +1105,15 @@ impl ExtensionContext {
         self.read(|state| state.settings_manager.clone())
     }
 
-    pub fn control_db_path(&self) -> Result<Option<String>, HandlerError> {
+    pub fn control_db_path(&self) -> Result<Option<JsString>, HandlerError> {
         self.callback(|state| Arc::clone(&state.get_control_db_path_fn))
     }
 
-    pub fn multi_agent_agent_id(&self) -> Result<Option<String>, HandlerError> {
+    pub fn multi_agent_agent_id(&self) -> Result<Option<JsString>, HandlerError> {
         self.callback(|state| Arc::clone(&state.get_multi_agent_agent_id_fn))
     }
 
-    pub fn multi_agent_parent_session_id(&self) -> Result<Option<String>, HandlerError> {
+    pub fn multi_agent_parent_session_id(&self) -> Result<Option<JsString>, HandlerError> {
         self.callback(|state| Arc::clone(&state.get_multi_agent_parent_session_id_fn))
     }
 

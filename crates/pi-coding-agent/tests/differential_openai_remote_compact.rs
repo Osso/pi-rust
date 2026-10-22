@@ -275,7 +275,8 @@ fn openai_remote_compact_helpers_match_typescript() {
                     case["instructions"].as_str().unwrap(),
                     &previous,
                     pinned,
-                );
+                )
+                .expect("payload");
                 let actual = serde_json::to_value(payload).expect("payload json");
                 assert_eq!(actual, *expected, "{name}");
             }

@@ -260,13 +260,7 @@ fn to_directory_entry(metadata: &SessionMetadata, health: &SessionHealthRecord, 
         started_at: metadata.created_at.clone(),
         last_active_at: Some(last_active_at),
         name: metadata.name.clone(),
-        goal: parse_goal_objective(
-            metadata
-                .goal_json
-                .as_ref()
-                .map(|goal| JsValue::String(goal.clone()))
-                .as_ref(),
-        ),
+        goal: parse_goal_objective(metadata.goal_json.as_ref()),
         cwd: (!metadata.cwd.is_empty()).then(|| metadata.cwd.clone()),
         last_checked_at: health.last_checked_at.clone(),
         check_status: health.check_status,
