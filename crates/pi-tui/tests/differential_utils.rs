@@ -1,6 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use pi_tui::utils::{
     apply_background_to_line, extract_ansi_code, extract_segments, is_punctuation_char, is_whitespace_char,
     normalize_terminal_output, slice_with_width, truncate_to_width_with, visible_width, wrap_text_with_ansi,
@@ -113,7 +114,7 @@ fn visible_width_matches_the_pinned_typescript_source() {
     assert_eq!(results.len(), CORPUS.len());
     for (value, expected) in CORPUS.iter().zip(results) {
         assert_eq!(
-            visible_width(value),
+            visible_width(*value),
             expected.as_u64().unwrap() as usize,
             "width mismatch for {value:?}"
         );
@@ -189,7 +190,7 @@ fn normalize_terminal_output_matches_the_pinned_typescript_source() {
     let results = oracle_request(&mut oracle, "utils_normalize", "cases", json!(CORPUS));
     for (value, expected) in CORPUS.iter().zip(results) {
         assert_eq!(
-            normalize_terminal_output(value),
+            normalize_terminal_output(*value),
             expected.as_str().unwrap(),
             "normalize mismatch for {value:?}"
         );
@@ -201,7 +202,7 @@ fn scan_ansi(value: &str) -> Vec<String> {
     let mut index = 0;
     while index < value.len() {
         if let Some(ansi) = extract_ansi_code(value, index) {
-            codes.push(ansi.code.to_string());
+            codes.push(ansi.code.clone());
             index += ansi.length;
         } else {
             index += value[index..].chars().next().map_or(1, char::len_utf8);
@@ -828,7 +829,7 @@ fn background_padding_matches_the_pinned_typescript_source() {
     let results = oracle_request(&mut oracle, "utils_background", "cases", json!(request));
     for ((line, width), expected) in cases.iter().zip(results) {
         assert_eq!(
-            apply_background_to_line(line, *width, |text| format!("[{text}]")),
+            apply_background_to_line(*line, *width, |text| JsString::from("[") + text + "]"),
             expected.as_str().unwrap()
         );
     }
@@ -864,12 +865,12 @@ fn character_classes_match_the_pinned_typescript_source() {
     let results = oracle_request(&mut oracle, "utils_char_classes", "cases", json!(cases));
     for (value, expected) in cases.iter().zip(results) {
         assert_eq!(
-            is_whitespace_char(value),
+            is_whitespace_char(*value),
             expected["whitespace"].as_bool().unwrap(),
             "whitespace mismatch for {value:?}"
         );
         assert_eq!(
-            is_punctuation_char(value),
+            is_punctuation_char(*value),
             expected["punctuation"].as_bool().unwrap(),
             "punctuation mismatch for {value:?}"
         );

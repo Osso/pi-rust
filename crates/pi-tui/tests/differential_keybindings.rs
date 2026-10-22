@@ -2,6 +2,7 @@
 mod oracle;
 
 use oracle::TsOracle;
+use pi_js_compat::js_json::{JsString, JsValue, to_value};
 use pi_tui::keybindings::{KeybindingsManager, tui_keybindings};
 use serde_json::{Value, json};
 
@@ -18,22 +19,20 @@ fn rust_keybindings(user_bindings: &Value) -> Value {
                         .as_array()
                         .expect("binding keys must be an array")
                         .iter()
-                        .map(|key| key.as_str().expect("binding key must be a string").to_string())
+                        .map(|key| JsString::from(key.as_str().expect("binding key must be a string")))
                         .collect();
-                    (id.to_string(), keys)
+                    (JsString::from(id), keys)
                 })
                 .collect()
         })
         .unwrap_or_default();
     let manager = KeybindingsManager::new(tui_keybindings(), config);
-    let definitions: Vec<String> = manager.get_resolved_bindings().into_iter().map(|(id, _)| id).collect();
-    let mut keys = serde_json::Map::new();
-    let mut resolved = serde_json::Map::new();
-    for id in definitions {
-        let id_keys = manager.get_keys(&id);
-        resolved.insert(id.clone(), json!(id_keys));
-        keys.insert(id.clone(), json!(id_keys));
-    }
+    let definitions: Vec<JsString> = manager.get_resolved_bindings().into_iter().map(|(id, _)| id).collect();
+    let keys = JsValue::object(definitions.into_iter().map(|id| {
+        let value = to_value(&manager.get_keys(&id)).unwrap();
+        (id, value)
+    }));
+    let resolved = keys.clone();
     let conflicts: Vec<Value> = manager
         .get_conflicts()
         .into_iter()
