@@ -2563,7 +2563,7 @@ pub type EntryRenderer = Arc<dyn Fn(&CustomEntry, &EntryRenderOptions, &Theme) -
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CustomMessageValue {
-    pub custom_type: String,
+    pub custom_type: JsString,
     pub content: CustomMessageContent,
     pub display: bool,
     #[serde(
@@ -2794,7 +2794,7 @@ pub struct ExtensionState {
     pub approval_reviewers: Vec<ApprovalReviewerHandle>,
     pub tool_gates: Vec<ToolGateHandle>,
     pub tools: IndexMap<String, RegisteredTool>,
-    pub message_renderers: IndexMap<String, MessageRenderer>,
+    pub message_renderers: IndexMap<JsString, MessageRenderer>,
     pub markdown_transformer: Option<MarkdownTransformer>,
     pub entry_renderers: Option<IndexMap<String, EntryRenderer>>,
     pub commands: IndexMap<String, RegisteredCommand>,
@@ -2872,7 +2872,7 @@ pub type CallToolHandler = Arc<
         + Sync,
 >;
 pub type CallCommandHandler =
-    Arc<dyn Fn(String, Option<String>) -> BoxFuture<'static, Result<Value, HandlerError>> + Send + Sync>;
+    Arc<dyn Fn(String, Option<JsString>) -> BoxFuture<'static, Result<JsValue, HandlerError>> + Send + Sync>;
 pub type GetCommandsHandler = Arc<dyn Fn() -> Result<Vec<SlashCommandInfo>, HandlerError> + Send + Sync>;
 pub type SetModelHandler = Arc<dyn Fn(Model) -> BoxFuture<'static, Result<bool, HandlerError>> + Send + Sync>;
 pub type GetThinkingLevelHandler = Arc<dyn Fn() -> Result<ThinkingLevel, HandlerError> + Send + Sync>;
@@ -3343,11 +3343,15 @@ impl ExtensionApi {
         Ok(())
     }
 
-    pub fn register_message_renderer(&self, custom_type: &str, renderer: MessageRenderer) -> Result<(), String> {
+    pub fn register_message_renderer(
+        &self,
+        custom_type: impl Into<JsString>,
+        renderer: MessageRenderer,
+    ) -> Result<(), String> {
         self.runtime.assert_active()?;
         self.extension_lock()
             .message_renderers
-            .insert(custom_type.to_owned(), renderer);
+            .insert(custom_type.into(), renderer);
         Ok(())
     }
 
@@ -3471,7 +3475,11 @@ impl ExtensionApi {
         (self.runtime.actions().call_tool)(name, params, signal, tool_call_id)
     }
 
-    pub fn call_command(&self, name: String, args: Option<String>) -> BoxFuture<'static, Result<Value, HandlerError>> {
+    pub fn call_command(
+        &self,
+        name: String,
+        args: Option<JsString>,
+    ) -> BoxFuture<'static, Result<JsValue, HandlerError>> {
         if let Err(error) = self.runtime.assert_active() {
             return Box::pin(async move { Err(error.into()) });
         }

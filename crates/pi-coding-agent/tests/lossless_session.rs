@@ -4,6 +4,24 @@ use pi_coding_agent::core::session_tool_output::serialize_session_entry;
 use pi_js_compat::js_json::parse_lossless;
 
 #[test]
+fn artifact_json_lines_and_hashes_distinguish_raw_surrogates() {
+    use pi_coding_agent::core::detached_bash_runner::{append_artifact_record, hash_json, read_json_lines};
+
+    let high = parse_lossless(r#"{"params":{"\ud800":"\udfff"}}"#).unwrap();
+    let low = parse_lossless(r#"{"params":{"\udfff":"\ud800"}}"#).unwrap();
+    assert_ne!(hash_json(&high), hash_json(&low));
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("events.jsonl");
+    append_artifact_record(path.to_str().unwrap(), &high).unwrap();
+    let first = read_json_lines(path.to_str().unwrap(), 0).unwrap();
+    assert_eq!(first.values, vec![high]);
+    append_artifact_record(path.to_str().unwrap(), &low).unwrap();
+    let second = read_json_lines(path.to_str().unwrap(), first.offset).unwrap();
+    assert_eq!(second.values, vec![low]);
+    assert!(second.offset > first.offset);
+}
+
+#[test]
 fn restart_notice_stays_raw_before_process_environment_encoding() {
     use pi_coding_agent::core::self_restart::{
         ENV_SELF_RESTART_PROMPT, SelfRestartHandoff, SelfRestartRequest, build_self_restart_env,

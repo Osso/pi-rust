@@ -148,7 +148,7 @@ pub fn write_detached_bash_launch_manifest(
     data: &DetachedBashLaunchManifestData,
 ) -> Result<(), DetachedBashRunnerError> {
     let unsigned = manifest_unsigned_value(data)?;
-    let checksum = hash_json(&Value::Object(unsigned.clone()));
+    let checksum = hash_json(&pi_js_compat::js_json::JsValue::from(&Value::Object(unsigned.clone())));
     let mut manifest = unsigned;
     manifest.insert("checksum".to_owned(), Value::String(checksum));
     write_atomic_json(path, &Value::Object(manifest))
@@ -550,7 +550,9 @@ fn read_detached_bash_launch_manifest(path: &str) -> Result<DetachedBashLaunchMa
     let data = std::fs::read_to_string(path)?;
     let value = pi_js_compat::js_json::parse(&data).map_err(|error| DetachedBashRunnerError(error.to_string()))?;
     let parsed: DetachedBashLaunchManifest = serde_json::from_value(value).map_err(DetachedBashRunnerError::from)?;
-    let checksum = hash_json(&Value::Object(manifest_unsigned_value(&parsed.data)?));
+    let checksum = hash_json(&pi_js_compat::js_json::JsValue::from(&Value::Object(
+        manifest_unsigned_value(&parsed.data)?,
+    )));
     if parsed.version != DETACHED_BASH_LAUNCH_VERSION || parsed.checksum != checksum {
         return Err(DetachedBashRunnerError(format!(
             "Invalid detached Bash launch manifest: {path}"
@@ -560,8 +562,8 @@ fn read_detached_bash_launch_manifest(path: &str) -> Result<DetachedBashLaunchMa
 }
 
 /// `hashJson`.
-pub fn hash_json(value: &Value) -> String {
-    let serialized = pi_js_compat::js_json::stringify(value);
+pub fn hash_json(value: &pi_js_compat::js_json::JsValue) -> String {
+    let serialized = pi_js_compat::js_json::stringify_lossless(value);
     crate::core::detached_job_runner::sha256_hex(serialized.as_bytes())
 }
 
@@ -599,9 +601,9 @@ fn write_atomic_json(path: &str, value: &Value) -> Result<(), DetachedBashRunner
 }
 
 /// Appends one JSON line (`appendArtifactRecord`).
-pub fn append_artifact_record(path: &str, record: &Value) -> Result<(), std::io::Error> {
+pub fn append_artifact_record(path: &str, record: &pi_js_compat::js_json::JsValue) -> Result<(), std::io::Error> {
     let mut file = OpenOptions::new().create(true).append(true).mode(0o600).open(path)?;
-    let line = format!("{}\n", pi_js_compat::js_json::stringify(record));
+    let line = format!("{}\n", pi_js_compat::js_json::stringify_lossless(record));
     file.write_all(line.as_bytes())
 }
 
@@ -609,7 +611,7 @@ pub fn append_artifact_record(path: &str, record: &Value) -> Result<(), std::io:
 #[derive(Debug, Clone, PartialEq)]
 pub struct JsonLinesChunk {
     pub offset: u64,
-    pub values: Vec<Value>,
+    pub values: Vec<pi_js_compat::js_json::JsValue>,
 }
 
 /// Reads newline-delimited JSON records after `offset` (`readJsonLines`).
@@ -630,7 +632,7 @@ pub fn read_json_lines(path: &str, offset: u64) -> Result<JsonLinesChunk, std::i
     let text = String::from_utf8_lossy(&data[offset as usize..]);
     let mut values = Vec::new();
     for line in text.split('\n').filter(|line| !line.is_empty()) {
-        values.push(pi_js_compat::js_json::parse(line).map_err(std::io::Error::other)?);
+        values.push(pi_js_compat::js_json::parse_lossless(line).map_err(std::io::Error::other)?);
     }
     Ok(JsonLinesChunk {
         offset: data.len() as u64,

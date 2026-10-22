@@ -738,9 +738,10 @@ impl ExtensionRunner {
             .any(|extension| !extension.read().tool_gates.is_empty())
     }
 
-    pub fn get_message_renderer(&self, custom_type: &str) -> Option<MessageRenderer> {
+    pub fn get_message_renderer(&self, custom_type: impl Into<JsString>) -> Option<MessageRenderer> {
+        let custom_type = custom_type.into();
         for extension in &self.extensions {
-            if let Some(renderer) = extension.read().message_renderers.get(custom_type) {
+            if let Some(renderer) = extension.read().message_renderers.get(&custom_type) {
                 return Some(Arc::clone(renderer));
             }
         }

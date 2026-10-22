@@ -7893,7 +7893,7 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
     );
     let command_weak = weak.clone();
     let call_command: crate::core::extensions::types::CallCommandHandler =
-        Arc::new(move |name: String, args: Option<String>| {
+        Arc::new(move |name: String, args: Option<JsString>| {
             let Some(inner) = command_weak.upgrade() else {
                 return Box::pin(async {
                     Err(crate::core::extensions::types::HandlerError::new("Session is disposed"))
@@ -7908,9 +7908,9 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
                     )));
                 };
                 let context = session.create_command_context_for(&name);
-                (command.handler)(args.unwrap_or_default().into(), context)
+                (command.handler)(args.unwrap_or_default(), context)
                     .await
-                    .map(|()| Value::Null)
+                    .map(|()| JsValue::Null)
             })
         });
     let refresh_weak = weak.clone();
