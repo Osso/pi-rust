@@ -91,7 +91,7 @@ fn queues_a_control_message_and_signals_a_running_process() {
         claim_latest_incoming_message(&harness.control_db_path)
             .unwrap()
             .map(|message| message.content),
-        Some("finish now".to_owned())
+        Some("finish now".into())
     );
     std::fs::remove_dir_all(dir).unwrap();
 }

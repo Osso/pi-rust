@@ -22,8 +22,12 @@ pub fn claim_codex_restriction_recovery(
 }
 
 /// `enqueueIncomingMessage`.
-pub fn enqueue_incoming_message(control_db_path: impl Into<JsString>, content: &str) -> Result<i64, ControlDbError> {
+pub fn enqueue_incoming_message(
+    control_db_path: impl Into<JsString>,
+    content: impl Into<JsString>,
+) -> Result<i64, ControlDbError> {
     let control_db_path = control_db_path.into();
+    let content = content.into();
     with_control_db(&control_db_path, |db| {
         db.execute(
             "

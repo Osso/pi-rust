@@ -1,5 +1,9 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Q18 incoming content SQL boundary
+
+`enqueue_incoming_message` now accepts native content; `IncomingControlMessage.content` and the claimed/delivered DTO retain `JsString`. SQLite's native `ToSql`/`FromSql` boundary matches Node TEXT encoding, rather than pre-repairing the input. `lossless_incoming_content` reproduces actual DTO rejection at `81c32624`, then compares native producer/claim and real stored content to the frozen source for isolated high/low units, a valid pair and NUL. Completion/failure transitions remain covered. Actual Cargo GREEN58 at `6759cfaa` across incoming content/error, control command, control differential and session-control DB (`incoming-content-incrate-green-2.log`), zero warnings. The temporary ASCII-only differential adapter is removed. Status tags and internal serialized identities remain scalar, not human content.
+
 ## Q18 incoming error SQL boundary
 
 `fail_incoming_message` accepts `&JsString`; only its SQLite TEXT binding repairs unmatched units. `lossless_incoming_error` compares the same real source/native failure row, asserting source-equal stored text and unchanged native input. Actual Cargo GREEN1 at `37e55e61` (`native-control-boundaries-test.log`); this proves the incoming-error SQL boundary, not whole-module parity.
