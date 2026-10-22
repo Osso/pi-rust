@@ -86,6 +86,22 @@ async function captureDialogs(source: string, units: number[]): Promise<unknown>
 	return [snapshots, callbacks];
 }
 
+async function captureCustomEditor(source: string, units: number[], directory: string): Promise<unknown> {
+	const editorModule = await import(pathToFileURL(path.join(source, "modes/interactive/components/custom-editor.ts")).href);
+	const bindingsModule = await import(pathToFileURL(path.join(source, "core/keybindings.ts")).href);
+	const identity = (text: string): string => text;
+	const theme = { borderColor: identity, selectList: { selectedPrefix: identity, selectedText: identity, description: identity, scrollInfo: identity, noMatch: identity } };
+	const host = { terminal: { rows: 24 }, requestRender() {}, createFixedCell() { return { place() {}, clear() {}, update() { return false; } }; } };
+	const editor = new editorModule.CustomEditor(host, theme, bindingsModule.KeybindingsManager.create(directory));
+	const raw = String.fromCharCode(...units);
+	editor.setText(raw);
+	editor.addToHistoryWithoutPersistence(raw);
+	const seen: string[] = [];
+	editor.onExtensionShortcut = (data: string): boolean => { seen.push(data); return false; };
+	editor.handleInput(raw);
+	return [editor.getText(), editor.getHistory(), seen];
+}
+
 async function main(): Promise<void> {
 	const source = process.argv[2]!;
 	const module = await import(pathToFileURL(path.join(source, "core/keybindings.ts")).href);
@@ -93,7 +109,9 @@ async function main(): Promise<void> {
 		try {
 			const request = JSON.parse(line);
 			let output: unknown;
-			if (request.operation === "dialogs") {
+			if (request.operation === "custom-editor") {
+				output = await captureCustomEditor(source, request.units, request.directory);
+			} else if (request.operation === "dialogs") {
 				output = await captureDialogs(source, request.units);
 			} else if (request.operation === "summaries") {
 				output = await captureSummaries(source, request.units);
