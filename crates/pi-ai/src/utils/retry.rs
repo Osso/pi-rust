@@ -2,7 +2,7 @@ use std::future::Future;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use regex::Regex;
+use regress::Regex;
 use tokio_util::sync::CancellationToken;
 
 use crate::types::{AssistantMessage, StopReason};
@@ -240,18 +240,7 @@ fn retryable_pattern() -> &'static Regex {
 }
 
 fn build_provider_error_pattern(patterns: &[&str]) -> Regex {
-    // These source patterns contain only ASCII letters. JS /i without /u does
-    // not fold non-ASCII characters into ASCII, unlike Rust's Unicode /i.
-    // JS dot consumes one UTF-16 unit (not a supplementary scalar), and its
-    // whitespace set excludes U+0085 but includes U+FEFF.
-    const JS_WHITESPACE: &str =
-        r"\x09-\x0d\x20\u{a0}\u{1680}\u{2000}-\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}";
-    let pattern = patterns
-        .join("|")
-        .to_lowercase()
-        .replace(".?", r"[^\r\n\u{2028}\u{2029}\u{10000}-\u{10ffff}]?")
-        .replace(r"\s", &format!("[{JS_WHITESPACE}]"));
-    Regex::new(&pattern).expect("provider error patterns are valid regexes")
+    Regex::with_flags(&patterns.join("|").to_lowercase(), "").expect("provider error patterns are valid regexes")
 }
 
 /// Identifies the canonical Codex cybersecurity restriction, including suffixes.
@@ -279,16 +268,14 @@ pub fn is_retryable_assistant_error(message: &AssistantMessage) -> bool {
         return false;
     }
     let error_message = error_message.to_lowercase();
-    if regress::Regex::with_flags(non_retryable_pattern().as_str(), "")
-        .expect("retry pattern is valid")
+    if non_retryable_pattern()
         .find_from_ucs2(error_message.units(), 0)
         .next()
         .is_some()
     {
         return false;
     }
-    regress::Regex::with_flags(retryable_pattern().as_str(), "")
-        .expect("retry pattern is valid")
+    retryable_pattern()
         .find_from_ucs2(error_message.units(), 0)
         .next()
         .is_some()

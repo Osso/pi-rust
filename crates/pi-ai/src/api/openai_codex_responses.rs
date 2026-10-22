@@ -1122,7 +1122,7 @@ async fn fetch_sse_with_retries(
                         attempt + 1.0,
                         max_retries + 1.0,
                         delay_ms,
-                        &error.to_string(),
+                        error.message(),
                         model,
                     );
                     sleep_abortable(delay_ms, options.stream.request.signal.as_ref()).await?;
@@ -1184,7 +1184,7 @@ fn notify_retry(
     attempt: f64,
     max_attempts: f64,
     delay_ms: f64,
-    reason: &str,
+    reason: impl Into<JsString>,
     model: &Model,
 ) {
     if let Some(on_retry) = &options.stream.on_retry {
@@ -1193,7 +1193,7 @@ fn notify_retry(
                 attempt,
                 max_attempts: Some(max_attempts),
                 delay_ms: Some(delay_ms),
-                reason: reason.to_owned(),
+                reason: reason.into(),
                 fallback_transport: None,
             },
             model,

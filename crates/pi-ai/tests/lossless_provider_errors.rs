@@ -1,3 +1,5 @@
+#[path = "support/oracle.rs"]
+mod oracle;
 use pi_ai::types::{AssistantMessageEvent, Context, Model, StopReason};
 use pi_js_compat::js_json::{JsString, parse_lossless};
 use std::io::{Read, Write};
@@ -13,6 +15,15 @@ fn serve_http(
     events: &str,
     gate: Option<std::sync::mpsc::Receiver<()>>,
     status: u16,
+) -> (String, std::thread::JoinHandle<()>) {
+    serve_http_with_disconnect(events, gate, status, false)
+}
+
+fn serve_http_with_disconnect(
+    events: &str,
+    gate: Option<std::sync::mpsc::Receiver<()>>,
+    status: u16,
+    disconnect_expected: bool,
 ) -> (String, std::thread::JoinHandle<()>) {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
@@ -40,12 +51,31 @@ fn serve_http(
         socket.read_exact(&mut vec![0; length]).unwrap();
         socket.write_all(format!("HTTP/1.1 {status} Probe\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n").as_bytes()).unwrap();
         for byte in events.bytes() {
-            socket.write_all(&[b'1', b'\r', b'\n', byte, b'\r', b'\n']).unwrap();
+            if let Err(error) = socket.write_all(&[b'1', b'\r', b'\n', byte, b'\r', b'\n']) {
+                if disconnect_expected
+                    && matches!(
+                        error.kind(),
+                        std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+                    )
+                {
+                    return;
+                }
+                panic!("unexpected SSE write failure: {error}");
+            }
         }
         if let Some(gate) = gate {
             gate.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
         }
-        socket.write_all(b"0\r\n\r\n").unwrap();
+        if let Err(error) = socket.write_all(b"0\r\n\r\n") {
+            assert!(
+                disconnect_expected
+                    && matches!(
+                        error.kind(),
+                        std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+                    ),
+                "unexpected SSE end failure: {error}"
+            );
+        }
     });
     (format!("http://{address}/v1"), task)
 }
@@ -310,4 +340,141 @@ async fn mistral_http_body_truncation_splits_exact_utf16_unit() {
     )
     .await;
     server.join().unwrap();
+}
+
+fn human_error() -> JsString {
+    JsString::from_utf16(vec![104, 117, 109, 97, 110, 0xd800, 101, 110, 100, 0xdfff])
+}
+
+#[tokio::test]
+async fn callbacks_and_sdk_http_errors_match_frozen_provider_errors() {
+    use std::sync::Arc;
+    for api in [
+        "openai-completions",
+        "openai-responses",
+        "azure-openai-responses",
+        "openai-codex-responses",
+        "mistral-conversations",
+    ] {
+        for callback in ["payload", "response", "http"] {
+            let body = if callback == "http" {
+                r#"{"error":{"message":"human\ud800end\udfff","code":"bad_request"}}"#
+            } else {
+                "data: [DONE]\n\n"
+            };
+            let (url, server) = if callback == "payload" {
+                ("http://127.0.0.1:1/v1".into(), None)
+            } else {
+                let (url, server) = serve_http_with_disconnect(
+                    body,
+                    None,
+                    if callback == "http" { 400 } else { 200 },
+                    callback == "response",
+                );
+                (url, Some(server))
+            };
+            let mut options = options(api);
+            let key = options.request.api_key.clone().unwrap();
+            if callback == "payload" {
+                options.request.on_payload = Some(Arc::new(|_, _| {
+                    Box::pin(async { Err(pi_ai::request::CallbackError::new(human_error())) })
+                }));
+            }
+            if callback == "response" {
+                options.request.on_response = Some(Arc::new(|_, _| {
+                    Box::pin(async { Err(pi_ai::request::CallbackError::new(human_error())) })
+                }));
+            }
+            let mut source = oracle::TsOracle::spawn(
+                "lossless-provider-errors-oracle.ts",
+                &format!("packages/ai/src/api/{api}.ts"),
+            );
+            let reference = source.request(&serde_json::json!({"model":test_model(api, &url),"body":body,"status":if callback == "http" { Some(400) } else {None},"apiKey":key,"callback":callback,"units":human_error().units()}));
+            let reference = parse_lossless(reference["wire"].as_str().unwrap()).unwrap();
+            let source_message = reference.get("result").unwrap().get("errorMessage");
+            let expected = if api == "mistral-conversations" && callback == "response" {
+                // Frozen Mistral ignores onResponse; Rust already invokes it. Preserve and classify,
+                // rather than silently removing an existing callback while migrating error text.
+                assert!(source_message.is_none());
+                human_error()
+            } else {
+                source_message
+                    .unwrap_or_else(|| panic!("missing source error: {api}/{callback}: {reference:?}"))
+                    .as_string()
+                    .unwrap()
+                    .clone()
+            };
+            assert_final_error(stream_for(api, &url, options), &expected).await;
+            if let Some(server) = server {
+                server.join().unwrap();
+            }
+        }
+    }
+}
+
+#[test]
+fn retry_overflow_and_diagnostics_use_native_error_authority() {
+    let mut message = pi_ai::types::AssistantMessage::empty("openai-completions", "openai", "probe", 0);
+    message.stop_reason = StopReason::Error;
+    message.error_message = Some(JsString::join(
+        ["rate".into(), JsString::from_utf16(vec![0xd800]), "limit".into()],
+        "",
+    ));
+    assert!(pi_ai::utils::retry::is_retryable_assistant_error(&message));
+    message.error_message = Some("rate😀limit".into());
+    assert!(!pi_ai::utils::retry::is_retryable_assistant_error(&message));
+    message.error_message = Some(JsString::join(
+        [human_error(), " input token count exceeds the maximum".into()],
+        "",
+    ));
+    assert!(pi_ai::utils::overflow::is_context_overflow(&message, None));
+    let thrown = pi_ai::utils::diagnostics::ThrownValue::Error(pi_ai::utils::diagnostics::DiagnosticErrorInfo {
+        name: Some("Error".into()),
+        message: human_error(),
+        stack: None,
+        code: None,
+    });
+    assert_eq!(pi_ai::utils::diagnostics::format_thrown_value(&thrown), human_error());
+    let diagnostic = pi_ai::utils::diagnostics::create_assistant_message_diagnostic("provider_error", &thrown, None);
+    let persisted = parse_lossless(serde_json::to_string(&diagnostic).unwrap()).unwrap();
+    assert_eq!(
+        persisted.get("error").unwrap().get("message").unwrap().as_string(),
+        Some(&human_error())
+    );
+}
+
+struct FailFirstFetch(std::sync::atomic::AtomicBool);
+impl pi_ai::request::Fetch for FailFirstFetch {
+    fn fetch(
+        &self,
+        request: pi_ai::request::HttpRequest,
+        signal: Option<tokio_util::sync::CancellationToken>,
+    ) -> pi_ai::request::BoxFuture<'_, Result<pi_ai::request::HttpResponse, pi_ai::request::CallbackError>> {
+        Box::pin(async move {
+            if self.0.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                return Err(pi_ai::request::CallbackError::new(human_error()));
+            }
+            pi_ai::http::default_fetch().fetch(request, signal).await
+        })
+    }
+}
+
+#[tokio::test]
+async fn codex_retry_callback_keeps_raw_fetch_failure_message() {
+    use std::sync::{Arc, Mutex};
+    let (url, server) = serve_http(r#"{"error":{"message":"final","code":"bad_request"}}"#, None, 400);
+    let mut options = options("openai-codex-responses");
+    options.request.max_retries = Some(1.0);
+    options.request.fetch = Some(Arc::new(FailFirstFetch(std::sync::atomic::AtomicBool::new(true))));
+    let reasons = Arc::new(Mutex::new(vec![]));
+    let observed = reasons.clone();
+    options.on_retry = Some(Arc::new(move |event, _| {
+        observed.lock().unwrap().push(serde_json::to_string(&event).unwrap());
+    }));
+    assert_final_error(stream_for("openai-codex-responses", &url, options), &"final".into()).await;
+    server.join().unwrap();
+    let reasons = reasons.lock().unwrap();
+    assert_eq!(reasons.len(), 1);
+    let event = parse_lossless(reasons[0].as_str()).unwrap();
+    assert_eq!(event.get("reason").unwrap().as_string(), Some(&human_error()));
 }

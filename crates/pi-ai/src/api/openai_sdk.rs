@@ -132,7 +132,7 @@ impl SdkClient {
         let headers = response.headers.clone();
         let text = String::from_utf8_lossy(&read_success_body(response.body, signal.as_ref()).await?).into_owned();
         let data = pi_js_compat::js_json::parse(&text)
-            .map_err(|error| ProviderRequestError::Other(CallbackError::new(error.to_string())))?;
+            .map_err(|error| ProviderRequestError::Other(CallbackError::new(error.into_message())))?;
         Ok(SdkJsonResponse { status, headers, data })
     }
 
