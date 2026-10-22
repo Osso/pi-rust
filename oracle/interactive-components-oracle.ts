@@ -420,6 +420,10 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		}
 		return footer.render(request.width);
 	},
+	coordinationVisibility: (api, request) => ({
+		previews: request.previews.map((preview: any) => api.isCoordinationPreview(preview)),
+		messages: request.messages.map((message: any) => api.isCoordinationMessage(message)),
+	}),
 	configSelector: async (_api, request, sourceRoot) => {
 		const settingsModule = (await import(pathToFileURL(`${sourceRoot}/core/settings-manager.ts`).href)) as Api;
 		const selectorModule = (await import(

@@ -467,6 +467,61 @@ async fn steering_and_follow_up_messages_are_tracked_and_queued() {
 }
 
 #[tokio::test]
+async fn queued_previews_keep_input_provenance_and_are_non_consuming_snapshots() {
+    let fixture = fixture().await;
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let stream_gate = Arc::clone(&gate);
+    let stream_entered = Arc::clone(&entered);
+    fixture.faux.set_responses(vec![
+        pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(move |_, _, _, _| {
+            let gate = Arc::clone(&stream_gate);
+            let entered = Arc::clone(&stream_entered);
+            Box::pin(async move {
+                entered.notify_one();
+                gate.notified().await;
+                Ok(faux_assistant_message("done", FauxAssistantMessageOptions::default()))
+            })
+        })),
+        faux_assistant_message("queued", FauxAssistantMessageOptions::default()).into(),
+    ]);
+    let session = fixture.session.clone();
+    let prompt_task = tokio::spawn(async move { session.prompt("start", PromptOptions::default()).await });
+    entered.notified().await;
+    let raw = JsString::from("steer ") + JsString::from_utf16(vec![0xd800]);
+    fixture
+        .session
+        .prompt(
+            raw.clone(),
+            PromptOptions {
+                streaming_behavior: Some(StreamingBehavior::Steer),
+                source: Some(pi_ai::types::InputSource::Extension),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    fixture.session.follow_up("later", &[]).await.unwrap();
+    let mut snapshot = fixture.session.get_queued_message_previews();
+    let actual = pi_js_compat::js_json::to_value(&snapshot.steering).unwrap();
+    let expected = pi_js_compat::js_json!([{"text":raw,"inputSource":"extension"}]);
+    assert_eq!(actual, expected);
+    assert_eq!(snapshot.follow_up[0].text, "later");
+    assert_eq!(snapshot.follow_up[0].input_source, None);
+    snapshot.steering[0].text = "mutated snapshot".into();
+    assert_eq!(fixture.session.get_steering_messages(), vec![raw.clone()]);
+    assert_eq!(fixture.session.pending_message_count(), 2);
+    let (steering, follow_up) = fixture.session.clear_queue();
+    assert_eq!(steering, vec![raw]);
+    assert_eq!(follow_up, vec![JsString::from("later")]);
+    assert!(fixture.session.get_queued_message_previews().steering.is_empty());
+    assert!(fixture.session.get_queued_message_previews().follow_up.is_empty());
+    assert_eq!(snapshot.follow_up[0].text, "later");
+    gate.notify_one();
+    prompt_task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
 async fn prompt_while_streaming_requires_streaming_behavior() {
     let fixture = fixture().await;
     let gate = Arc::new(tokio::sync::Notify::new());
