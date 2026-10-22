@@ -22,8 +22,8 @@ pub fn emit_deprecation_with(chalk: &Chalk, writer: &mut impl Write, message: &s
     if !mark_emitted(message) {
         return false;
     }
-    let warning = chalk.yellow(&format!("Deprecation warning: {message}"));
-    let _ = writeln!(writer, "{warning}");
+    let warning = chalk.yellow(format!("Deprecation warning: {message}"));
+    let _ = writeln!(writer, "{}", pi_js_compat::js_json::encode_node_utf8(&warning));
     true
 }
 

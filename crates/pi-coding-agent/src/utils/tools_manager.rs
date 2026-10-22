@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use pi_ai::request::{Fetch, HttpRequest};
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use serde_json::Value;
 
 use crate::config::{get_bin_dir, package_config};
@@ -169,14 +170,15 @@ impl ToolsManager {
             .clone()
     }
 
-    fn log(&self, line: String) {
+    /// `console.log` line, encoded at the output boundary.
+    fn log(&self, line: JsString) {
         if self.silent {
             return;
         }
         self.output
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .push(line);
+            .push(encode_node_utf8(&line));
     }
 
     fn command_exists(&self, command: &str) -> bool {
