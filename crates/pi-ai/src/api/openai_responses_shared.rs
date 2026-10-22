@@ -13,9 +13,7 @@ use pi_js_compat::js_json::{JsObject, JsValue};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::api::constrained_sampling::{
-    GrammarToolInputJsonBuffer, append_grammar_tool_input_json_delta, get_grammar_tool_input,
-};
+use crate::api::constrained_sampling::{GrammarToolInputJsonBuffer, append_grammar_tool_input_json_delta};
 use crate::api::transform_messages::transform_messages_with;
 use crate::models::calculate_cost;
 use crate::request::BoxFuture;
@@ -499,9 +497,6 @@ pub fn convert_responses_messages(
         } else {
             normalize_id_part(item_id)
         };
-        if normalized_item_id.starts_with("ctc_") {
-            return format!("{normalized_call_id}|{normalized_item_id}");
-        }
         if !normalized_item_id.starts_with("fc_") {
             normalized_item_id = normalize_id_part(&format!("fc_{normalized_item_id}"));
         }
@@ -593,7 +588,6 @@ pub fn convert_responses_messages(
             Message::Assistant(assistant) => {
                 let mut output = Vec::new();
                 let is_same_provider_and_api = assistant.provider == model.provider && assistant.api == model.api;
-                let is_same_model = is_same_provider_and_api && assistant.model == model.id;
                 let is_different_model = is_same_provider_and_api && assistant.model != model.id;
                 let mut text_block_index = 0;
 
@@ -644,59 +638,28 @@ pub fn convert_responses_messages(
                         AssistantContent::ToolCall(tool_call) => {
                             let (call_id, item_id_raw) = split_tool_call_id(&tool_call.id);
                             emitted_tool_call_ids.insert(call_id.into());
-                            let custom_input_property = options
-                                .grammar_tool_input_properties
-                                .as_ref()
-                                .and_then(|properties| properties.get(&tool_call.name))
-                                .cloned();
                             let mut item_id = item_id_raw.map(str::to_owned);
-                            let is_fc_item = item_id.as_deref().is_some_and(|id| id.starts_with("fc_"));
-                            if (is_different_model && is_fc_item) || (custom_input_property.is_none() && !is_fc_item) {
+                            if is_different_model && item_id.as_deref().is_some_and(|id| id.starts_with("fc_")) {
                                 item_id = None;
                             }
-
-                            let can_replay_namespace = is_same_model
-                                || options
-                                    .deferred_tools
-                                    .as_ref()
-                                    .is_some_and(|tools| tools.contains_key(&tool_call.name));
-
-                            let mut entries = if let Some(property) = custom_input_property.as_deref() {
-                                let input = get_grammar_tool_input(&tool_call.name, &tool_call.arguments, property)
-                                    .map_err(|error| error.message)?;
-                                vec![
-                                    ("type", JsValue::String("custom_tool_call".into())),
-                                    (
-                                        "id",
-                                        item_id.map(|id| JsValue::String(id.into())).unwrap_or(JsValue::Null),
+                            let entries = vec![
+                                ("type", JsValue::String("function_call".into())),
+                                (
+                                    "id",
+                                    item_id.map(|id| JsValue::String(id.into())).unwrap_or(JsValue::Null),
+                                ),
+                                ("call_id", JsValue::String(call_id.into())),
+                                ("name", JsValue::String(tool_call.name.clone().into())),
+                                (
+                                    "arguments",
+                                    JsValue::String(
+                                        pi_js_compat::js_json::stringify_lossless(&JsValue::Object(
+                                            tool_call.arguments.clone(),
+                                        ))
+                                        .into(),
                                     ),
-                                    ("call_id", JsValue::String(call_id.into())),
-                                    ("name", JsValue::String(tool_call.name.clone().into())),
-                                    ("input", JsValue::String(sanitize_surrogates(&input).into())),
-                                ]
-                            } else {
-                                vec![
-                                    ("type", JsValue::String("function_call".into())),
-                                    (
-                                        "id",
-                                        item_id.map(|id| JsValue::String(id.into())).unwrap_or(JsValue::Null),
-                                    ),
-                                    ("call_id", JsValue::String(call_id.into())),
-                                    ("name", JsValue::String(tool_call.name.clone().into())),
-                                    (
-                                        "arguments",
-                                        JsValue::String(
-                                            pi_js_compat::js_json::stringify_lossless(
-                                                &pi_js_compat::js_json::JsValue::Object(tool_call.arguments.clone()),
-                                            )
-                                            .into(),
-                                        ),
-                                    ),
-                                ]
-                            };
-                            if let (true, Some(namespace)) = (can_replay_namespace, tool_call.namespace.as_ref()) {
-                                entries.push(("namespace", JsValue::String(namespace.clone().into())));
-                            }
+                                ),
+                            ];
                             let mut item = object(entries);
                             if let JsValue::Object(map) = &mut item
                                 && map.get("id") == Some(&JsValue::Null)
@@ -719,19 +682,8 @@ pub fn convert_responses_messages(
                 }
                 let output = convert_tool_result_output(model, &result.content);
 
-                let is_custom = options
-                    .grammar_tool_input_properties
-                    .as_ref()
-                    .is_some_and(|properties| properties.contains_key(&result.tool_name));
                 messages.push(object(vec![
-                    (
-                        "type",
-                        JsValue::String(if is_custom {
-                            "custom_tool_call_output".into()
-                        } else {
-                            "function_call_output".into()
-                        }),
-                    ),
+                    ("type", JsValue::String("function_call_output".into())),
                     ("call_id", JsValue::String(call_id.into())),
                     ("output", output),
                 ]));
@@ -976,7 +928,7 @@ fn create_slot(
         Some("function_call") => {
             let call_id = js_string(item.get("call_id"));
             let item_id = js_string(item.get("id"));
-            let mut block = ToolCall::new(
+            let block = ToolCall::new(
                 format!("{call_id}|{item_id}"),
                 item.get("name")
                     .and_then(ingress_metadata_text)
@@ -984,9 +936,6 @@ fn create_slot(
                     .unwrap_or(""),
                 Default::default(),
             );
-            if let Some(namespace) = item.get("namespace").and_then(ingress_metadata_text).as_deref() {
-                block.namespace = Some(namespace.to_owned());
-            }
             let partial_json = item
                 .get("arguments")
                 .and_then(JsValue::as_string)
@@ -1648,17 +1597,9 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                             .filter(|arguments| !arguments.is_empty())
                             .unwrap_or_else(|| "{}".into());
                         let parsed = parse_arguments(Some(&arguments));
-                        let namespace = item
-                            .get("namespace")
-                            .and_then(ingress_metadata_text)
-                            .as_deref()
-                            .map(str::to_owned);
                         let tool_call = match &mut output.content[content_index] {
                             AssistantContent::ToolCall(block) => {
                                 block.arguments = parsed;
-                                if namespace.is_some() {
-                                    block.namespace = namespace;
-                                }
                                 block.clone()
                             }
                             _ => continue,
