@@ -216,14 +216,14 @@ impl ModelSelectorComponent {
         if self.closed {
             return;
         }
-        self.refresh_status_message.clear();
+        self.refresh_status_message = JsString::default();
         match result {
             Ok(result) => {
                 if result.aborted && timed_out {
                     self.error_message = Some("Model refresh timed out; showing cached models.".into());
                 } else if result.errors.len() == 1 {
                     let provider = result.errors.keys().next().cloned().unwrap_or_default();
-                    self.error_message = Some(js_format!("Could not refresh {provider}; showing cached models."));
+                    self.error_message = Some(js_format!("Could not refresh {}; showing cached models.", provider));
                 } else if result.errors.len() > 1 {
                     let providers: Vec<&str> = result.errors.keys().map(String::as_str).collect();
                     self.error_message = Some(js_format!(
@@ -239,12 +239,12 @@ impl ModelSelectorComponent {
                     }
                 }
                 self.load_models_from_snapshot();
-                let query = self.search_input.get_value();
+                let query = self.search_input.get_value().clone();
                 self.filter_models(&query);
                 self.ui.request_render();
             }
             Err(error) => {
-                self.refresh_status_message.clear();
+                self.refresh_status_message = JsString::default();
                 self.error_message = Some(if timed_out {
                     "Model refresh timed out; showing cached models.".into()
                 } else {
@@ -319,7 +319,7 @@ impl ModelSelectorComponent {
             .iter()
             .position(|item| models_are_equal(self.current_model.as_ref(), Some(&item.model)));
         self.selected_index = current_index.unwrap_or(0);
-        let query = self.search_input.get_value();
+        let query = self.search_input.get_value().clone();
         self.filter_models(&query);
         let scope_text_value = self.get_scope_text();
         if let Some(scope_text) = &mut self.scope_text {
@@ -541,7 +541,7 @@ impl Component for ModelSelectorComponent {
             (self.on_cancel)();
         } else {
             self.search_input.handle_input(data);
-            let query = self.search_input.get_value();
+            let query = self.search_input.get_value().clone();
             self.filter_models(&query);
         }
     }
