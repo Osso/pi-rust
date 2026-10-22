@@ -1,6 +1,6 @@
 //! Ported from `coding-agent/src/modes/interactive/components/branch-summary-message.ts`.
 
-use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::js_json::JsString;
 use std::rc::Rc;
 
 use pi_agent_core::harness::messages::BranchSummaryMessage;
@@ -25,7 +25,7 @@ impl BranchSummaryMessageComponent {
         let container = BoxComponent::new(
             1,
             1,
-            Some(Rc::new(|text: &str| {
+            Some(Rc::new(|text: &JsString| {
                 with_theme(|theme| theme.bg(ThemeBg::CustomMessageBg, text))
             })),
         );
@@ -57,14 +57,14 @@ impl BranchSummaryMessageComponent {
         if self.expanded {
             let header = "**Branch Summary**\n\n";
             let color: StyleFn =
-                Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::CustomMessageText, text)));
+                Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::CustomMessageText, text)));
             self.container.add_child(component(Markdown::with_shared_theme(
-                encode_node_utf8(&(JsString::from(header) + &self.message.summary)),
+                JsString::from(header) + &self.message.summary,
                 0,
                 0,
                 self.markdown_theme.clone(),
                 Some(pi_tui::DefaultTextStyle {
-                    color: Some(Box::new(move |text: &str| color(text))),
+                    color: Some(Box::new(move |text: &JsString| color(text))),
                     ..Default::default()
                 }),
                 MarkdownOptions::default(),
@@ -81,7 +81,7 @@ impl BranchSummaryMessageComponent {
 }
 
 impl Component for BranchSummaryMessageComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.container.render(width)
     }
 

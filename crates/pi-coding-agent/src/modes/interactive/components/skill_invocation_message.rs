@@ -1,6 +1,7 @@
 //! Ported from `coding-agent/src/modes/interactive/components/skill-invocation-message.ts`.
 
-use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -31,7 +32,7 @@ impl SkillInvocationMessageComponent {
             1,
             Some({
                 let theme = theme.clone();
-                Rc::new(move |text: &str| theme.bg(ThemeBg::CustomMessageBg, text))
+                Rc::new(move |text: &JsString| theme.bg(ThemeBg::CustomMessageBg, text))
             }),
         );
         let mut component = Self {
@@ -64,15 +65,15 @@ impl SkillInvocationMessageComponent {
             let header = JsString::from("**") + &self.skill_block.name + "**\n\n";
             let color: StyleFn = {
                 let theme = self.theme.clone();
-                Rc::new(move |text: &str| theme.fg(ThemeColor::CustomMessageText, text))
+                Rc::new(move |text: &JsString| theme.fg(ThemeColor::CustomMessageText, text))
             };
             let markdown = Markdown::with_shared_theme(
-                encode_node_utf8(&(header + &self.skill_block.content)),
+                header + &self.skill_block.content,
                 0,
                 0,
                 self.markdown_theme.clone(),
                 Some(pi_tui::DefaultTextStyle {
-                    color: Some(Box::new(move |text: &str| color(text))),
+                    color: Some(Box::new(move |text: &JsString| color(text))),
                     ..Default::default()
                 }),
                 MarkdownOptions::default(),
@@ -82,12 +83,10 @@ impl SkillInvocationMessageComponent {
             let line = self
                 .theme
                 .fg(ThemeColor::CustomMessageLabel, "\u{1b}[1m[skill]\u{1b}[22m ")
-                + &self
-                    .theme
-                    .fg(ThemeColor::CustomMessageText, &encode_node_utf8(&self.skill_block.name))
+                + &self.theme.fg(ThemeColor::CustomMessageText, &self.skill_block.name)
                 + &self.theme.fg(
                     ThemeColor::Dim,
-                    &format!(" ({} to expand)", key_text("app.tools.expand")),
+                    &js_format!(" ({} to expand)", key_text("app.tools.expand")),
                 );
             self.container.add_child(component(Text::new(line, 0, 0)));
         }
@@ -95,7 +94,7 @@ impl SkillInvocationMessageComponent {
 }
 
 impl Component for SkillInvocationMessageComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.container.render(width)
     }
 
