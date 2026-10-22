@@ -40,6 +40,32 @@ fn chalk_styling_matches_the_pinned_chalk_package() {
 }
 
 #[test]
+fn native_chalk_styles_preserve_unmatched_units_and_reopen_lines() {
+    use pi_js_compat::js_json::{JsString, JsValue};
+    let mut oracle = oracle::TsOracle::spawn("chalk-oracle.ts", "node_modules/chalk/source/index.js");
+    for level in [Level::Plain, Level::Basic, Level::Ansi256, Level::Ansi16m] {
+        for wire in [
+            r#""\ud800""#,
+            r#""\udfff""#,
+            r#""\ud800\r\n\udfff\u001b[22m\ud800""#,
+            r#""😀\ud800\n\udfff""#,
+        ] {
+            let text = pi_js_compat::js_json::parse_lossless(wire)
+                .unwrap()
+                .as_string()
+                .unwrap()
+                .clone();
+            let expected = oracle.request_lossless(&pi_js_compat::js_json!({
+                "id":REQUEST_ID,"operation":"style","cases":[{"name":"raw","level":level.number(),"styles":["bold","red"],"text":text}]
+            }));
+            let expected = &expected["output"]["results"].as_array().unwrap()[0]["value"];
+            let actual = Chalk::new(level).paint(&[Style::Bold, Style::Red], &text);
+            assert_eq!(JsValue::String(JsString::from(actual)), *expected);
+        }
+    }
+}
+
+#[test]
 fn supports_color_detection_matches_the_pinned_supports_color_package() {
     let module = source_worktree().join("node_modules/chalk/source/vendor/supports-color/index.js");
     let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../oracle/chalk-detect-oracle.mjs");
