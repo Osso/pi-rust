@@ -9,10 +9,11 @@ use pi_coding_agent::core::tools::{
     ALL_TOOL_NAMES, DEFAULT_ACTIVE_TOOL_NAMES, ToolName, ToolsOptions, create_all_tool_definitions,
     create_coding_tool_definitions, create_read_only_tool_definitions, create_tool_definition,
 };
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 fn describe(name: ToolName, cwd: &str) -> Value {
-    let definition = create_tool_definition(name, cwd, ToolsOptions::default());
+    let definition = create_tool_definition(name, &JsString::from(cwd), ToolsOptions::default());
     json!({
         "name": definition.name,
         "label": definition.label,
@@ -99,18 +100,18 @@ fn tools_index_factories_match_the_pinned_typescript_source() {
         }
     }
 
-    let coding = create_coding_tool_definitions(cwd, ToolsOptions::default())
+    let coding = create_coding_tool_definitions(&JsString::from(cwd), ToolsOptions::default())
         .into_iter()
         .map(|definition| definition.name)
         .collect::<Vec<_>>();
     assert_eq!(json!(coding), expected["coding"]);
-    let read_only = create_read_only_tool_definitions(cwd, ToolsOptions::default())
+    let read_only = create_read_only_tool_definitions(&JsString::from(cwd), ToolsOptions::default())
         .into_iter()
         .map(|definition| definition.name)
         .collect::<Vec<_>>();
     assert_eq!(json!(read_only), expected["readOnly"]);
 
-    let all_keys = create_all_tool_definitions(cwd, ToolsOptions::default())
+    let all_keys = create_all_tool_definitions(&JsString::from(cwd), ToolsOptions::default())
         .into_iter()
         .map(|(name, definition)| {
             assert_eq!(name.as_str(), definition.name);
@@ -140,11 +141,19 @@ fn experimental_sampling_probe() {
         },
     ));
     for name in [ToolName::Read, ToolName::Bash, ToolName::Edit, ToolName::Write] {
-        let definition = create_tool_definition(name, "/tmp/pi-tools-index-differential", ToolsOptions::default());
+        let definition = create_tool_definition(
+            name,
+            &JsString::from("/tmp/pi-tools-index-differential"),
+            ToolsOptions::default(),
+        );
         assert_eq!(definition.constrained_sampling, expected, "{}", name.as_str());
     }
     for name in [ToolName::Grep, ToolName::Find, ToolName::Ls] {
-        let definition = create_tool_definition(name, "/tmp/pi-tools-index-differential", ToolsOptions::default());
+        let definition = create_tool_definition(
+            name,
+            &JsString::from("/tmp/pi-tools-index-differential"),
+            ToolsOptions::default(),
+        );
         assert_eq!(definition.constrained_sampling, None, "{}", name.as_str());
     }
 }
@@ -163,25 +172,31 @@ fn tool_factories_return_the_source_names_in_order() {
     let context_factory: pi_coding_agent::core::tools::tool_definition_wrapper::ToolContextFactory =
         std::sync::Arc::new(|| unreachable!("tool creation must not request a context"));
 
-    let coding: Vec<String> =
-        pi_coding_agent::core::tools::create_coding_tools(cwd, ToolsOptions::default(), &context_factory)
-            .into_iter()
-            .map(|tool| tool.name().to_owned())
-            .collect();
+    let coding: Vec<String> = pi_coding_agent::core::tools::create_coding_tools(
+        &JsString::from(cwd),
+        ToolsOptions::default(),
+        &context_factory,
+    )
+    .into_iter()
+    .map(|tool| tool.name().to_owned())
+    .collect();
     assert_eq!(coding, vec!["read", "bash", "edit", "write"]);
 
-    let read_only: Vec<String> =
-        pi_coding_agent::core::tools::create_read_only_tools(cwd, ToolsOptions::default(), &context_factory)
-            .into_iter()
-            .map(|tool| tool.name().to_owned())
-            .collect();
+    let read_only: Vec<String> = pi_coding_agent::core::tools::create_read_only_tools(
+        &JsString::from(cwd),
+        ToolsOptions::default(),
+        &context_factory,
+    )
+    .into_iter()
+    .map(|tool| tool.name().to_owned())
+    .collect();
     assert_eq!(
         read_only,
         vec!["read", "grep", "find", "ls", "outline", "symbol", "references"]
     );
 
     let all: Vec<String> =
-        pi_coding_agent::core::tools::create_all_tools(cwd, ToolsOptions::default(), &context_factory)
+        pi_coding_agent::core::tools::create_all_tools(&JsString::from(cwd), ToolsOptions::default(), &context_factory)
             .into_iter()
             .map(|(name, tool)| {
                 assert_eq!(name.as_str(), tool.name());

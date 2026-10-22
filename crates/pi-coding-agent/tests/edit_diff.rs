@@ -10,8 +10,8 @@ fn edits(pairs: &[(&str, &str)]) -> Vec<Edit> {
     pairs
         .iter()
         .map(|(old_text, new_text)| Edit {
-            old_text: (*old_text).to_owned(),
-            new_text: (*new_text).to_owned(),
+            old_text: (*old_text).into(),
+            new_text: (*new_text).into(),
         })
         .collect()
 }
@@ -210,7 +210,7 @@ async fn computes_a_diff_preview_for_a_crlf_file_with_a_bom() {
             assert_eq!(diff.diff, " 1 one\n-2 two\n+2 TWO");
             assert_eq!(diff.first_changed_line, Some(2));
         }
-        EditDiffOutcome::Error(error) => panic!("unexpected error: {error}"),
+        EditDiffOutcome::Error(error) => panic!("unexpected error: {error:?}"),
     }
 }
 
@@ -225,9 +225,9 @@ async fn reports_missing_unreadable_and_directory_targets() {
         .unwrap();
     assert_eq!(
         missing_outcome,
-        EditDiffOutcome::Error(format!(
+        EditDiffOutcome::Error(pi_js_compat::js_format!(
             "Could not edit file: {}. Error code: ENOENT.",
-            missing.display()
+            missing.to_str().unwrap()
         ))
     );
 
@@ -239,9 +239,9 @@ async fn reports_missing_unreadable_and_directory_targets() {
         .unwrap();
     assert_eq!(
         unreadable_outcome,
-        EditDiffOutcome::Error(format!(
+        EditDiffOutcome::Error(pi_js_compat::js_format!(
             "Could not edit file: {}. Error code: EACCES.",
-            unreadable.display()
+            unreadable.to_str().unwrap()
         ))
     );
 
@@ -250,9 +250,9 @@ async fn reports_missing_unreadable_and_directory_targets() {
         .unwrap();
     assert_eq!(
         directory_outcome,
-        EditDiffOutcome::Error(format!(
+        EditDiffOutcome::Error(pi_js_compat::js_format!(
             "EISDIR: illegal operation on a directory, read '{}'",
-            dir.path().display()
+            dir.path().to_str().unwrap()
         ))
     );
 }
@@ -270,7 +270,7 @@ async fn single_edit_diff_wraps_the_multi_edit_form() {
     assert_eq!(
         outcome,
         EditDiffOutcome::Diff(pi_coding_agent::core::tools::edit_diff::EditDiffResult {
-            diff: "-1 hello\n+1 world".to_owned(),
+            diff: "-1 hello\n+1 world".into(),
             first_changed_line: Some(1),
         })
     );

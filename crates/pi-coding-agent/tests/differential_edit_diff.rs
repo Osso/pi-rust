@@ -11,7 +11,8 @@ use pi_coding_agent::core::tools::edit_diff::{
     Edit, EditDiffOutcome, apply_edits_to_normalized_content, compute_edits_diff, fuzzy_find_text,
     generate_diff_string, generate_unified_patch, normalize_for_fuzzy_match,
 };
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsValue as Value;
 
 enum Case {
     Normalize(String),
@@ -38,7 +39,7 @@ fn coding_agent_edit_diff_matches_the_pinned_typescript_source() {
     }));
     let actual = json!({"id": 27_005, "ok": true, "output": cases.iter().map(|case| actual_case(case, &cwd)).collect::<Vec<_>>()});
 
-    assert_eq!(expected["ok"], Value::Bool(true), "{expected}");
+    assert_eq!(expected["ok"], Value::Bool(true), "{expected:?}");
     let expected_results = expected["output"].as_array().expect("oracle output array");
     let actual_results = actual["output"].as_array().expect("actual output array");
     assert_eq!(expected_results.len(), cases.len());
@@ -72,7 +73,7 @@ fn request_case(case: &Case, cwd: &str) -> Value {
 }
 
 fn number(value: f64) -> Value {
-    pi_js_compat::number::js_number_value(value)
+    pi_js_compat::number::js_number_value(value).into()
 }
 
 fn edits_json(edits: &[Edit]) -> Value {
@@ -99,7 +100,7 @@ fn actual_case(case: &Case, cwd: &str) -> Value {
         }
         Case::ApplyEdits(content, edits, path) => match apply_edits_to_normalized_content(content, edits, path) {
             Ok(applied) => json!({"ok": true, "baseContent": applied.base_content, "newContent": applied.new_content}),
-            Err(error) => json!({"ok": false, "error": error.to_string()}),
+            Err(error) => json!({"ok": false, "error": error.message}),
         },
         Case::DiffString(old_content, new_content, context) => {
             let diff = generate_diff_string(old_content, new_content, *context);
@@ -115,7 +116,7 @@ fn actual_case(case: &Case, cwd: &str) -> Value {
                     json!({"diff": diff.diff, "firstChangedLine": diff.first_changed_line})
                 }
                 Ok(EditDiffOutcome::Error(error)) => json!({"error": error}),
-                Err(error) => json!({"error": error.to_string()}),
+                Err(error) => json!({"error": error.message()}),
             }
         }
     }
@@ -192,8 +193,8 @@ fn cases(cwd: &str, dir: &std::path::Path) -> Vec<Case> {
         cases.push(Case::ApplyEdits(
             content,
             vec![Edit {
-                old_text: target.to_owned(),
-                new_text: replacement,
+                old_text: target.into(),
+                new_text: replacement.into(),
             }],
             "sample.txt".to_owned(),
         ));
@@ -208,8 +209,8 @@ fn targeted_cases(cwd: &str, dir: &std::path::Path) -> Vec<Case> {
             edits
                 .iter()
                 .map(|(old_text, new_text)| Edit {
-                    old_text: (*old_text).to_owned(),
-                    new_text: (*new_text).to_owned(),
+                    old_text: (*old_text).into(),
+                    new_text: (*new_text).into(),
                 })
                 .collect(),
             "sample.txt".to_owned(),
@@ -253,28 +254,28 @@ fn targeted_cases(cwd: &str, dir: &std::path::Path) -> Vec<Case> {
         apply("line\n".repeat(8).as_str(), &[("line", "LINE")]),
         apply("\u{1F600}\n\u{1F600}\n", &[("\u{1F600}", "star")]),
         Case::Preview(preview_file.to_string_lossy().into_owned(), vec![Edit {
-            old_text: "two".to_owned(),
-            new_text: "TWO".to_owned(),
+            old_text: "two".into(),
+            new_text: "TWO".into(),
         }]),
         Case::Preview(fuzzy_file.to_string_lossy().into_owned(), vec![Edit {
-            old_text: "say \"hi\"".to_owned(),
-            new_text: "say \"bye\"".to_owned(),
+            old_text: "say \"hi\"".into(),
+            new_text: "say \"bye\"".into(),
         }]),
         Case::Preview(missing_file.to_string_lossy().into_owned(), vec![Edit {
-            old_text: "hello".to_owned(),
-            new_text: "world".to_owned(),
+            old_text: "hello".into(),
+            new_text: "world".into(),
         }]),
         Case::Preview(unreadable_file.to_string_lossy().into_owned(), vec![Edit {
-            old_text: "hello".to_owned(),
-            new_text: "world".to_owned(),
+            old_text: "hello".into(),
+            new_text: "world".into(),
         }]),
         Case::Preview(cwd.to_owned(), vec![Edit {
-            old_text: "hello".to_owned(),
-            new_text: "world".to_owned(),
+            old_text: "hello".into(),
+            new_text: "world".into(),
         }]),
         Case::Preview(preview_file.to_string_lossy().into_owned(), vec![Edit {
-            old_text: "missing text".to_owned(),
-            new_text: "x".to_owned(),
+            old_text: "missing text".into(),
+            new_text: "x".into(),
         }]),
         Case::DiffString("a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n".to_owned(), "a\nb\nc\nd\ne\nf\nG\nh\ni\nj\n".to_owned(), 1),
         Case::DiffString("a\nb\n".to_owned(), "a\nnew\nb\n".to_owned(), 4),

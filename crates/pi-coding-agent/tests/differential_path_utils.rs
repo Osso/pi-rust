@@ -8,7 +8,8 @@ use pi_coding_agent::core::tools::path_utils::{
     expand_path, path_exists_sync, resolve_read_path, resolve_read_path_async, resolve_to_cwd,
 };
 use pi_coding_agent::utils::paths::PathError;
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsString, JsValue as Value};
 use tokio::runtime::Runtime;
 
 const FILES: [&str; 6] = [
@@ -41,7 +42,7 @@ fn coding_agent_path_utils_matches_the_pinned_typescript_source() {
     let runtime = Runtime::new().expect("tokio runtime");
     let actual = json!({"id": 27_002, "ok": true, "output": cases.iter().map(|case| case.actual(&cwd, &runtime)).collect::<Vec<_>>()});
 
-    assert_eq!(expected["ok"], Value::Bool(true), "{expected}");
+    assert_eq!(expected["ok"], Value::Bool(true), "{expected:?}");
     let expected_results = expected["output"].as_array().expect("oracle output array");
     let actual_results = actual["output"].as_array().expect("actual output array");
     assert_eq!(expected_results.len(), cases.len());
@@ -77,10 +78,10 @@ impl Case {
     }
 }
 
-fn resolve(result: Result<String, PathError>) -> Value {
+fn resolve(result: Result<JsString, PathError>) -> Value {
     match result {
         Ok(value) => json!({"ok": true, "value": value}),
-        Err(error) => json!({"ok": false, "error": format!("Error: {error}")}),
+        Err(error) => json!({"ok": false, "error": pi_js_compat::js_format!("Error: {}", error.message())}),
     }
 }
 
@@ -119,6 +120,8 @@ fn cases(cwd: &str) -> Vec<Case> {
         Case::Read("~/missing.txt".to_owned()),
         Case::Read("@relative-missing.txt".to_owned()),
     ]);
-    assert!(path_exists_sync(&Path::new(cwd).join(FILES[0]).to_string_lossy()));
+    assert!(path_exists_sync(&JsString::from(
+        Path::new(cwd).join(FILES[0]).to_str().expect("utf-8 fixture path")
+    )));
     cases
 }
