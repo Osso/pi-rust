@@ -23,14 +23,14 @@ use pi_coding_agent::core::messages::{CompactionSummaryMessage, CompactionSummar
 use pi_coding_agent::core::package_manager::{
     MetadataOrigin, PathMetadata, ResolvedPaths, ResolvedResource, SourceScope,
 };
-use pi_coding_agent::core::settings_manager::{Settings, SettingsManager, SettingsManagerCreateOptions};
+use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
 use pi_coding_agent::modes::interactive::components::assistant_message::AssistantMessageComponent;
 use pi_coding_agent::modes::interactive::components::bash_execution::{BashExecutionComponent, BashExecutionOptions};
 use pi_coding_agent::modes::interactive::components::bordered_loader::{BorderedLoader, BorderedLoaderOptions};
 use pi_coding_agent::modes::interactive::components::branch_summary_message::BranchSummaryMessageComponent;
 use pi_coding_agent::modes::interactive::components::compaction_summary_message::CompactionSummaryMessageComponent;
 use pi_coding_agent::modes::interactive::components::config_selector::{
-    ConfigSelectorComponent, ConfigSelectorOptions, ConfigWriteScope, ScopedResolvedPaths,
+    ConfigSelectorComponent, ConfigSelectorOptions,
 };
 use pi_coding_agent::modes::interactive::components::custom_entry::CustomEntryComponent;
 use pi_coding_agent::modes::interactive::components::custom_message::CustomMessageComponent;
@@ -94,6 +94,17 @@ fn custom_messages_match_the_pinned_typescript_source() {
 }
 
 #[test]
+fn config_selector_matches_the_pinned_typescript_source() {
+    install_theme();
+    let mut oracle = oracle::TsOracle::spawn("interactive-components-oracle.ts", "packages/coding-agent/src");
+    for (request, actual) in config_selector_cases() {
+        let expected = oracle.request(&request);
+        assert_eq!(expected["ok"], true, "oracle error for {request}: {expected}");
+        assert_eq!(actual, expected["output"], "mismatch for {request}");
+    }
+}
+
+#[test]
 fn interactive_leaf_helpers_match_the_pinned_typescript_source() {
     install_theme();
     let mut oracle = oracle::TsOracle::spawn("interactive-components-oracle.ts", "packages/coding-agent/src");
@@ -111,7 +122,6 @@ fn requests() -> Vec<(Value, Value)> {
     cases.extend(key_hint_cases());
     cases.extend(model_search_cases());
     cases.extend(diff_cases());
-    cases.extend(config_selector_cases());
     cases.extend(branch_summary_cases());
     cases.extend(compaction_summary_cases());
     cases.extend(assistant_message_cases());
@@ -344,74 +354,196 @@ fn diff_cases() -> Vec<(Value, Value)> {
 
 fn config_selector_cases() -> Vec<(Value, Value)> {
     let package_root = "/tmp/pi-config-oracle/package";
-    let cwd = "/tmp/pi-config-oracle/project";
-    let agent_dir = "/tmp/pi-config-oracle/agent";
-    let resolved = ResolvedPaths {
-        extensions: vec![ResolvedResource {
-            path: JsString::from(format!("{package_root}/extensions/bar.ts")),
-            enabled: true,
-            metadata: PathMetadata {
-                source: JsString::from("npm:pi-tools"),
-                scope: SourceScope::User,
-                origin: MetadataOrigin::Package,
-                base_dir: Some(JsString::from(package_root.to_string())),
-            },
-        }],
+    let resource = |path: &str, scope, origin, source: &str, base: Option<&str>| ResolvedResource {
+        path: path.into(),
+        enabled: true,
+        metadata: PathMetadata {
+            source: source.into(),
+            scope,
+            origin,
+            base_dir: base.map(JsString::from),
+        },
+    };
+    let package = ResolvedPaths {
+        extensions: vec![resource(
+            &format!("{package_root}/extensions/bar.ts"),
+            SourceScope::User,
+            MetadataOrigin::Package,
+            "npm:pi-tools",
+            Some(package_root),
+        )],
         ..Default::default()
     };
-    let mut global_settings = Settings::new();
-    global_settings.insert(JsString::from("packages"), JsValue::from(json!(["npm:pi-tools"])));
-    let manager = Rc::new(RefCell::new(SettingsManager::in_memory(
-        global_settings,
+    let mixed = ResolvedPaths {
+        extensions: vec![
+            resource(
+                "/tmp/pi-config-oracle/project/.pi/extensions/local.ts",
+                SourceScope::Project,
+                MetadataOrigin::TopLevel,
+                "auto",
+                None,
+            ),
+            resource(
+                "/tmp/pi-config-oracle/agent/extensions/user.ts",
+                SourceScope::User,
+                MetadataOrigin::TopLevel,
+                "auto",
+                None,
+            ),
+            resource(
+                "/tmp/pi-config-oracle/package/plugin/index.ts",
+                SourceScope::Project,
+                MetadataOrigin::Package,
+                "npm:project",
+                Some(package_root),
+            ),
+        ],
+        skills: vec![resource(
+            "/tmp/pi-config-oracle/agent/skills/tool/SKILL.md",
+            SourceScope::User,
+            MetadataOrigin::TopLevel,
+            "auto",
+            Some("/tmp/pi-config-oracle/agent"),
+        )],
+        prompts: vec![resource(
+            "/tmp/pi-config-oracle/project/.pi/prompts/guide.md",
+            SourceScope::Project,
+            MetadataOrigin::TopLevel,
+            "settings",
+            None,
+        )],
+        themes: vec![resource(
+            "/tmp/pi-config-oracle/agent/themes/night.json",
+            SourceScope::User,
+            MetadataOrigin::TopLevel,
+            "settings",
+            None,
+        )],
+    };
+    let missing = ResolvedPaths {
+        extensions: vec![resource(
+            "/tmp/pi-config-oracle/missing.ts",
+            SourceScope::Temporary,
+            MetadataOrigin::Package,
+            "npm:absent",
+            None,
+        )],
+        ..Default::default()
+    };
+    vec![
+        config_selector_case(
+            7,
+            package.clone(),
+            json!({"packages":["npm:pi-tools"]}),
+            json!({}),
+            &[" ", " ", " "],
+            100,
+            24,
+        ),
+        config_selector_case(
+            8,
+            package,
+            json!({"packages":[{"source":"npm:pi-tools","skills":[]}]}),
+            json!({}),
+            &[" ", "\r", "\t", "\u{1b}", "\u{3}"],
+            50,
+            10,
+        ),
+        config_selector_case(
+            9,
+            mixed.clone(),
+            json!({}),
+            json!({"packages":["npm:project"]}),
+            &[
+                " ",
+                "\u{1b}[B",
+                " ",
+                "\u{1b}[6~",
+                "\r",
+                "\u{1b}[5~",
+                "\u{1b}[A",
+                "tool",
+                "\u{15}",
+                "no-match",
+                "\r",
+            ],
+            70,
+            13,
+        ),
+        config_selector_case(
+            10,
+            mixed,
+            json!({"extensions":["!extensions/user.ts","+extensions/user.ts","other.ts"]}),
+            json!({}),
+            &["\u{1b}[6~", " ", "\u{1b}[B", " ", "\u{1b}[B", " ", "\u{1b}[B", " "],
+            100,
+            24,
+        ),
+        config_selector_case(11, missing, json!({}), json!({}), &[" ", " "], 35, 24),
+        config_selector_case(
+            12,
+            ResolvedPaths::default(),
+            json!({}),
+            json!({}),
+            &["\u{1b}[6~", "\u{1b}[5~", " ", "\u{1b}"],
+            15,
+            8,
+        ),
+    ]
+}
+
+fn config_selector_case(
+    id: u64,
+    resolved: ResolvedPaths,
+    global: Value,
+    project: Value,
+    inputs: &[&str],
+    width: usize,
+    height: usize,
+) -> (Value, Value) {
+    use pi_coding_agent::core::settings_manager::{InMemorySettingsStorage, SettingsScope};
+    let mut storage = InMemorySettingsStorage::new();
+    storage.set(SettingsScope::Global, Some(global.to_string()));
+    storage.set(SettingsScope::Project, Some(project.to_string()));
+    let manager = Rc::new(RefCell::new(SettingsManager::from_storage(
+        Box::new(storage),
         SettingsManagerCreateOptions {
             project_trusted: Some(true),
         },
     )));
-    let mut selector = ConfigSelectorComponent::new(ConfigSelectorOptions {
-        resolved_paths: ScopedResolvedPaths {
-            global: resolved.clone(),
-            project: resolved,
-        },
-        settings_manager: manager.clone(),
-        cwd: JsString::from(cwd.to_string()),
-        agent_dir: JsString::from(agent_dir.to_string()),
-        on_close: Rc::new(|| {}),
-        on_exit: Rc::new(|| {}),
-        request_render: Rc::new(|| {}),
-        terminal_height: Some(24),
-        write_scope: ConfigWriteScope::Project,
-        project_mode_available: true,
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let callback = |event: &'static str| {
+        let events = Rc::clone(&events);
+        Rc::new(move || events.borrow_mut().push(event)) as Rc<dyn Fn()>
+    };
+    let cwd = "/tmp/pi-config-oracle/project";
+    let agent_dir = "/tmp/pi-config-oracle/agent";
+    let request = json!({
+        "id":id, "module":"modes/interactive/components/config-selector.ts", "operation":"configSelector",
+        "resolved":resolved, "globalSettings":global, "projectSettings":project, "cwd":cwd, "agentDir":agent_dir,
+        "inputs":inputs, "width":width, "height":height,
     });
-    let inputs = [" ", " ", " "];
-    let mut renders = Vec::new();
+    let mut selector = ConfigSelectorComponent::new(ConfigSelectorOptions {
+        resolved_paths: resolved,
+        settings_manager: Rc::clone(&manager),
+        cwd: cwd.into(),
+        agent_dir: agent_dir.into(),
+        on_close: callback("close"),
+        on_exit: callback("exit"),
+        request_render: callback("render"),
+        terminal_height: Some(height),
+    });
+    let mut renders = vec![selector.render(width)];
     for input in inputs {
-        selector.get_resource_list_mut().handle_input(&JsString::from(input));
-        renders.push(selector.render(100));
+        selector.handle_input(&JsString::from(*input));
+        renders.push(selector.render(width));
     }
-    let project_packages = manager
-        .borrow()
-        .get_project_settings()
-        .get("packages")
-        .cloned()
-        .unwrap_or(JsValue::from(Value::Null));
-    vec![(
-        json!({
-            "id": 7,
-            "module": "modes/interactive/components/config-selector.ts",
-            "operation": "configSelector",
-            "packageRoot": package_root,
-            "cwd": cwd,
-            "agentDir": agent_dir,
-            "writeScope": "project",
-            "inputs": inputs,
-            "globalPackages": ["npm:pi-tools"],
-            "width": 100,
-        }),
-        json!({
-            "projectPackages": project_packages,
-            "renders": renders,
-        }),
-    )]
+    let actual = json!({
+        "globalSettings":JsValue::Object(manager.borrow().get_global_settings()).to_serde().expect("scalar settings fixture"),
+        "projectSettings":JsValue::Object(manager.borrow().get_project_settings()).to_serde().expect("scalar settings fixture"),
+        "events":events.borrow().clone(), "renders":renders,
+    });
+    (request, actual)
 }
 
 fn branch_summary_cases() -> Vec<(Value, Value)> {

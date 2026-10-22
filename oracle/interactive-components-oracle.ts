@@ -430,38 +430,32 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 			pathToFileURL(`${sourceRoot}/modes/interactive/components/config-selector.ts`).href
 		)) as Api;
 		const storage = new settingsModule.InMemorySettingsStorage();
-		storage.withLock("global", () => JSON.stringify({ packages: request.globalPackages }));
+		storage.withLock("global", () => JSON.stringify(request.globalSettings));
+		storage.withLock("project", () => JSON.stringify(request.projectSettings));
 		const settingsManager = settingsModule.SettingsManager.fromStorage(storage, { projectTrusted: true });
-		const metadata = {
-			source: "npm:pi-tools",
-			scope: "user",
-			origin: "package",
-			baseDir: request.packageRoot,
-		};
-		const resolved = {
-			extensions: [
-				{ path: `${request.packageRoot}/extensions/bar.ts`, enabled: true, metadata },
-			],
-			skills: [],
-			prompts: [],
-			themes: [],
-		};
+		const resolved = request.resolved;
+		const events: string[] = [];
 		const selector = new selectorModule.ConfigSelectorComponent(
 			resolved,
 			settingsManager,
 			request.cwd,
 			request.agentDir,
-			() => {},
-			() => {},
-			() => {},
-			24,
+			() => events.push("close"),
+			() => events.push("exit"),
+			() => events.push("render"),
+			request.height,
 		);
-		const renders: string[][] = [];
+		const renders: string[][] = [selector.render(request.width)];
 		for (const input of request.inputs) {
 			selector.getResourceList().handleInput(input);
 			renders.push(selector.render(request.width));
 		}
-		return { projectPackages: settingsManager.getProjectSettings().packages ?? [], renders };
+		return {
+			globalSettings: settingsManager.getGlobalSettings(),
+			projectSettings: settingsManager.getProjectSettings(),
+			events,
+			renders,
+		};
 	},
 };
 
