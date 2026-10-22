@@ -56,7 +56,7 @@ impl CustomMessageComponent {
 
         if let Some(renderer) = &self.custom_renderer {
             let theme = current_theme();
-            let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let rendered = crate::utils::uncaught::catch_panics(|| {
                 renderer(
                     &self.message,
                     &MessageRenderOptions {
@@ -64,7 +64,7 @@ impl CustomMessageComponent {
                     },
                     theme.as_ref(),
                 )
-            }));
+            });
             if let Ok(Some(rendered)) = rendered {
                 self.custom_component = Some(Rc::clone(&rendered));
                 self.container.add_child(rendered);
