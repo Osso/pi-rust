@@ -155,7 +155,8 @@ fn convert_to_llm_skips_excluded_bash_messages_and_maps_custom_roles() {
         branch,
         compaction,
         unknown,
-    ]);
+    ])
+    .expect("convert fixture messages");
 
     let json: Vec<_> = converted
         .iter()

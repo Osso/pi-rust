@@ -1,7 +1,6 @@
 pub mod support;
 
 use pi_js_compat::js_json::JsString;
-use pi_js_compat::js_json::JsValue;
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::agent::{Agent, AgentEvent, AgentMessage, AgentOptions, AgentToolResult};
@@ -144,10 +143,7 @@ async fn settles_when_active_tool_ignores_its_abort_signal() {
     let tool_use_message = tool_use(vec![AssistantContent::ToolCall(ToolCall::new(
         "call-1",
         "stuck_tool",
-        (json!({}).as_object().cloned().unwrap_or_default())
-            .into_iter()
-            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
-            .collect::<pi_js_compat::js_json::JsObject>(),
+        pi_js_compat::js_json::JsObject::new(),
     ))]);
     let agent = Agent::new(AgentOptions {
         initial_state: Some(pi_agent_core::agent::AgentInitialState {
