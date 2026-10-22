@@ -289,7 +289,7 @@ pub fn parse_authorization_input(input: &pi_js_compat::js_json::JsString) -> Aut
 }
 
 /// Decodes the payload of a three-part JWT; `None` matches `decodeJwt`'s `null`.
-pub fn decode_jwt_payload(token: &str) -> Option<Value> {
+pub fn decode_jwt_payload(token: &pi_js_compat::js_json::JsString) -> Option<pi_js_compat::js_json::JsValue> {
     let mut parts = token.split('.');
     let _header = parts.next()?;
     let payload = parts.next()?;
@@ -297,8 +297,16 @@ pub fn decode_jwt_payload(token: &str) -> Option<Value> {
     if parts.next().is_some() {
         return None;
     }
-    let bytes = pi_js_compat::base64::atob(payload).ok()?;
-    serde_json::from_slice(&bytes).ok()
+    let bytes = match pi_js_compat::base64::atob(&payload) {
+        Ok(bytes) => bytes,
+        Err(_) => return None,
+    };
+    let text = pi_js_compat::js_json::JsString::from_utf16(bytes.into_iter().map(u16::from).collect());
+    // Same source decodeJwt try/catch as OpenAI Codex; errors intentionally return null.
+    match pi_js_compat::js_json::parse_lossless(text) {
+        Ok(value) => Some(value),
+        Err(_) => None,
+    }
 }
 
 /// One HTTP request received by a loopback callback server.

@@ -223,13 +223,8 @@ async fn refresh_access_token(
 }
 
 fn credentials_from_token(token: OAuthToken, now: f64) -> Result<OAuthCredential, CallbackError> {
-    let account_id = token
-        .access
-        .to_utf8()
-        .ok()
-        .as_deref()
-        .and_then(get_account_id)
-        .ok_or_else(|| CallbackError::new("Failed to extract accountId from token"))?;
+    let account_id =
+        get_account_id(&token.access).ok_or_else(|| CallbackError::new("Failed to extract accountId from token"))?;
     let mut credential = OAuthCredential::new(token.refresh, token.access, now + token.expires);
     credential
         .extra
@@ -237,7 +232,7 @@ fn credentials_from_token(token: OAuthToken, now: f64) -> Result<OAuthCredential
     Ok(credential)
 }
 
-fn get_account_id(access_token: &str) -> Option<pi_js_compat::js_json::JsString> {
+fn get_account_id(access_token: &JsString) -> Option<pi_js_compat::js_json::JsString> {
     let mut parts = access_token.split('.');
     parts.next()?;
     let encoded = parts.next()?;
@@ -245,9 +240,16 @@ fn get_account_id(access_token: &str) -> Option<pi_js_compat::js_json::JsString>
     if parts.next().is_some() {
         return None;
     }
-    let bytes = pi_js_compat::base64::atob(encoded).ok()?;
-    let text = String::from_utf8(bytes).ok()?;
-    let payload = pi_js_compat::js_json::parse_lossless(&text).ok()?;
+    // Frozen openai-codex.ts:112-121 catches atob/JSON.parse errors and returns null.
+    let bytes = match pi_js_compat::base64::atob(&encoded) {
+        Ok(bytes) => bytes,
+        Err(_) => return None,
+    };
+    let text = JsString::from_utf16(bytes.into_iter().map(u16::from).collect());
+    let payload = match pi_js_compat::js_json::parse_lossless(text) {
+        Ok(payload) => payload,
+        Err(_) => return None,
+    };
     let account_id = payload.get(JWT_CLAIM_PATH)?.get("chatgpt_account_id")?.as_string()?;
     (!account_id.units().is_empty()).then(|| account_id.clone())
 }
