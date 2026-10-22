@@ -29,7 +29,8 @@ use pi_coding_agent::core::extensions::{ExtensionRunner, create_extension_runtim
 use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_coding_agent::core::session_manager::SessionManager;
-use serde_json::{Map, Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{self, JsObject as Map, JsString, JsValue as Value};
 use tokio_util::sync::CancellationToken;
 
 fn temp_dir(name: &str) -> String {
@@ -42,7 +43,7 @@ fn temp_dir(name: &str) -> String {
             .as_nanos()
     ));
     std::fs::create_dir_all(&dir).unwrap();
-    dir.to_string_lossy().into_owned()
+    dir.to_str().expect("utf-8 test path").to_owned()
 }
 
 fn write_runner(dir: &str, name: &str, body: &str) -> String {
@@ -53,12 +54,15 @@ fn write_runner(dir: &str, name: &str, body: &str) -> String {
 
 fn runner_for(dir: &str) -> PyrunRunnerClient {
     PyrunRunnerClient::new(PyrunRunnerOptions {
-        command: Some(format!("{dir}/fake-pyrun")),
+        command: Some(format!("{dir}/fake-pyrun").into()),
         args: Some(Vec::new()),
-        env: Some(vec![(
-            "PATH".to_owned(),
-            format!("{dir}:{}", std::env::var("PATH").unwrap_or_default()),
-        )]),
+        env: Some(
+            [(
+                "PATH".into(),
+                format!("{dir}:{}", std::env::var("PATH").unwrap_or_default()).into(),
+            )]
+            .into(),
+        ),
         inherit_env: Some(true),
         detached: Some(false),
     })
@@ -66,7 +70,7 @@ fn runner_for(dir: &str) -> PyrunRunnerClient {
 
 fn params(code: &str) -> CanonicalPyrunEvalParams {
     CanonicalPyrunEvalParams {
-        code: code.to_owned(),
+        code: code.into(),
         pi: None,
         pi_bridge: Some(false),
         session_id: None,
@@ -77,20 +81,20 @@ fn params(code: &str) -> CanonicalPyrunEvalParams {
 #[test]
 fn resolves_runner_options_from_environment() {
     let env = vec![
-        ("PI_PYRUN_RUNNER_COMMAND".to_owned(), "custom-runner".to_owned()),
-        ("PI_PYRUN_RUNNER_ARGS".to_owned(), "[\"--flag\",\"value\"]".to_owned()),
+        ("PI_PYRUN_RUNNER_COMMAND".into(), "custom-runner".into()),
+        ("PI_PYRUN_RUNNER_ARGS".into(), "[\"--flag\",\"value\"]".into()),
     ];
     let resolved = resolve_pyrun_runner_options(Some(&env)).unwrap();
     assert_eq!(resolved.command, "custom-runner");
     assert_eq!(resolved.args, vec!["--flag", "value"]);
 
-    let env = vec![("PI_PYRUN_RUNNER".to_owned(), "legacy-runner".to_owned())];
+    let env = vec![("PI_PYRUN_RUNNER".into(), "legacy-runner".into())];
     assert_eq!(
         resolve_pyrun_runner_options(Some(&env)).unwrap().command,
         "legacy-runner"
     );
 
-    let env = vec![("PI_PYRUN_RUNNER_ARGS".to_owned(), "{}".to_owned())];
+    let env = vec![("PI_PYRUN_RUNNER_ARGS".into(), "{}".into())];
     assert_eq!(
         resolve_pyrun_runner_options(Some(&env)).unwrap_err().to_string(),
         "PI_PYRUN_RUNNER_ARGS must be a JSON string array"
@@ -130,12 +134,12 @@ print(json.dumps({"type": "completed", "executed": params["code"], "console": ["
         .await
         .unwrap();
     assert_eq!(result.result_type, "completed");
-    assert_eq!(result.executed.as_deref(), Some("print(1)"));
+    assert_eq!(result.executed.as_ref(), Some(&JsString::from("print(1)")));
     assert_eq!(result.value, Some(json!({"ok": true})));
     let updates = updates.lock().unwrap();
     assert_eq!(updates.len(), 2);
-    assert_eq!(updates[0]["type"], "console");
-    assert_eq!(updates[1]["message"], "working");
+    assert_eq!(updates[0]["type"], json!("console"));
+    assert_eq!(updates[1]["message"], json!("working"));
 }
 
 #[tokio::test]
@@ -154,9 +158,9 @@ print(json.dumps({"type":"completed", "value":[request,reply]}), flush=True)
     );
     let runner = runner_for(&dir);
     let mut input = params("x");
-    input.pi = Some(serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap());
+    input.pi = Some(js_json::parse_lossless(r#"{"2":2.0,"1":1.0}"#).unwrap());
     let handler = Arc::new(|_: PiRequest| {
-        Box::pin(async { Ok(Some(serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap())) })
+        Box::pin(async { Ok(Some(js_json::parse_lossless(r#"{"2":2.0,"1":1.0}"#).unwrap())) })
             as pi_coding_agent::core::extensions::types::BoxFuture<
                 'static,
                 Result<Option<Value>, pi_coding_agent::core::extensions::types::HandlerError>,
@@ -164,8 +168,11 @@ print(json.dumps({"type":"completed", "value":[request,reply]}), flush=True)
     });
     let result = runner.evaluate(input, None, None, Some(handler)).await.unwrap();
     let wire = result.value.unwrap();
-    assert!(wire[0].as_str().unwrap().contains(r#""pi":{"1":1,"2":2}"#), "{wire}");
-    assert_eq!(wire[1], r#"{"result":{"1":1,"2":2}}"#);
+    assert!(
+        wire[0].as_string().unwrap().contains(r#""pi":{"1":1,"2":2}"#),
+        "{wire:?}"
+    );
+    assert_eq!(wire[1], json!(r#"{"result":{"1":1,"2":2}}"#));
 }
 
 #[tokio::test]
@@ -224,7 +231,7 @@ sys.exit(3)
 #[tokio::test]
 async fn reports_missing_runner_with_node_spawn_text() {
     let runner = PyrunRunnerClient::new(PyrunRunnerOptions {
-        command: Some("definitely-missing-pyrun".to_owned()),
+        command: Some("definitely-missing-pyrun".into()),
         ..Default::default()
     });
     let error = runner.evaluate(params("x"), None, None, None).await.unwrap_err();
@@ -259,17 +266,20 @@ time.sleep(30)
 
 #[test]
 fn caps_and_formats_console_output() {
-    assert_eq!(cap_console_text("hello", 10), "hello");
-    assert_eq!(cap_console_text("hello", 3), "llo");
-    assert_eq!(cap_console_text("é", 1), "");
-    assert_eq!(append_capped_console_text("a\nb\n", "c\n"), "a\nb\nc\n");
+    assert_eq!(cap_console_text(&JsString::from("hello"), 10), "hello");
+    assert_eq!(cap_console_text(&JsString::from("hello"), 3), "llo");
+    assert_eq!(cap_console_text(&JsString::from("é"), 1), "");
+    assert_eq!(
+        append_capped_console_text(&JsString::from("a\nb\n"), &JsString::from("c\n")),
+        "a\nb\nc\n"
+    );
     assert_eq!(STREAMED_CONSOLE_BYTE_LIMIT, 1_048_576);
 
     let entries = vec![
-        CanonicalPyrunConsoleEntry::Text("one".to_owned()),
+        CanonicalPyrunConsoleEntry::Text("one".into()),
         CanonicalPyrunConsoleEntry::Leveled {
-            level: "warn".to_owned(),
-            message: "two".to_owned(),
+            level: "warn".into(),
+            message: "two".into(),
         },
     ];
     assert_eq!(cap_console_history(&entries), entries);
@@ -278,27 +288,30 @@ fn caps_and_formats_console_output() {
 #[test]
 fn formats_result_values_like_the_tool_output() {
     let mut result = CanonicalPyrunEvalResult {
-        result_type: "completed".to_owned(),
+        result_type: "completed".into(),
         ..Default::default()
     };
     assert_eq!(format_result_value(&result), None);
     result.value = Some(json!("text"));
-    assert_eq!(format_result_value(&result), Some("text".to_owned()));
+    assert_eq!(format_result_value(&result), Some("text".into()));
     result.value = Some(json!("   "));
     assert_eq!(format_result_value(&result), None);
     result.value = Some(json!({"stdout": "", "stderr": "", "exit_code": 0}));
     assert_eq!(format_result_value(&result), None);
     result.value = Some(json!({"stdout": "", "stderr": "", "exit_code": 2}));
-    assert_eq!(format_result_value(&result), Some("exit code 2".to_owned()));
-    result.value = Some(serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap());
-    assert_eq!(format_result_value(&result).as_deref(), Some(r#"{"1":1,"2":2}"#));
+    assert_eq!(format_result_value(&result), Some("exit code 2".into()));
+    result.value = Some(js_json::parse_lossless(r#"{"2":2.0,"1":1.0}"#).unwrap());
+    assert_eq!(
+        format_result_value(&result).as_ref(),
+        Some(&JsString::from(r#"{"1":1,"2":2}"#))
+    );
     result.value = Some(json!({"a": 1}));
-    assert_eq!(format_result_value(&result), Some("{\"a\":1}".to_owned()));
+    assert_eq!(format_result_value(&result), Some("{\"a\":1}".into()));
 
-    result.result_type = "needs_approval".to_owned();
+    result.result_type = "needs_approval".into();
     assert_eq!(
         format_result_value(&result),
-        Some("needs approval: unknown Pyrun operation".to_owned())
+        Some("needs approval: unknown Pyrun operation".into())
     );
 }
 
@@ -330,7 +343,7 @@ fn formats_progress_updates_in_priority_order() {
         format_progress_text(&update(json!({"type": "console", "value": {"a": 1}}))),
         "{\"a\":1}"
     );
-    let numeric = serde_json::from_str(r#"{"type":"console","value":{"2":2.0,"1":1.0}}"#).unwrap();
+    let numeric = js_json::parse_lossless(r#"{"type":"console","value":{"2":2.0,"1":1.0}}"#).unwrap();
     assert_eq!(format_progress_text(&update(numeric)), r#"{"1":1,"2":2}"#);
     assert_eq!(format_progress_text(&update(json!({"type": "other"}))), "other");
 }
@@ -338,16 +351,16 @@ fn formats_progress_updates_in_priority_order() {
 #[test]
 fn formats_the_canonical_tool_result() {
     let result = CanonicalPyrunEvalResult {
-        result_type: "completed".to_owned(),
-        executed: Some("print(1)".to_owned()),
-        console: Some(vec![CanonicalPyrunConsoleEntry::Text("out".to_owned())]),
+        result_type: "completed".into(),
+        executed: Some("print(1)".into()),
+        console: Some(vec![CanonicalPyrunConsoleEntry::Text("out".into())]),
         error: None,
         value: Some(json!("done")),
         approval: None,
     };
     let formatted = format_canonical_pyrun_eval_result(
         &pi_coding_agent::bundled_extensions::pyrun::eval_tool::PyrunEvalParams {
-            code: "print(1)".to_owned(),
+            code: "print(1)".into(),
             session_id: None,
         },
         result,
@@ -365,10 +378,10 @@ fn formats_the_canonical_tool_result() {
 
 #[derive(Default)]
 struct Records {
-    entries: Vec<(String, Option<Value>)>,
+    entries: Vec<(JsString, Option<Value>)>,
     user_messages: Vec<UserMessageContent>,
-    statuses: Vec<(String, Option<String>)>,
-    notifications: Vec<(String, Option<NotifyType>)>,
+    statuses: Vec<(JsString, Option<JsString>)>,
+    notifications: Vec<(JsString, Option<NotifyType>)>,
     calls: Vec<(String, Value)>,
 }
 
@@ -377,20 +390,16 @@ struct TestUi {
 }
 
 impl ExtensionUiContext for TestUi {
-    fn notify(&self, message: &str, notify_type: Option<NotifyType>) {
+    fn notify(&self, message: &JsString, notify_type: Option<NotifyType>) {
         self.records
             .lock()
             .unwrap()
             .notifications
-            .push((message.to_owned(), notify_type));
+            .push((message.into(), notify_type));
     }
 
-    fn set_status(&self, key: &str, text: Option<&str>) {
-        self.records
-            .lock()
-            .unwrap()
-            .statuses
-            .push((key.to_owned(), text.map(str::to_owned)));
+    fn set_status(&self, key: &JsString, text: Option<&JsString>) {
+        self.records.lock().unwrap().statuses.push((key.into(), text.cloned()));
     }
 }
 
@@ -436,13 +445,13 @@ fn actions() -> ExtensionActions {
         refresh_tools: Arc::new(|| {}),
         get_commands: Arc::new(|| {
             Ok(vec![pi_coding_agent::core::slash_commands::SlashCommandInfo {
-                name: "goal".to_owned(),
-                description: Some("Goal".to_owned()),
+                name: "goal".into(),
+                description: Some("Goal".into()),
                 source: pi_coding_agent::core::slash_commands::SlashCommandSource::Extension,
                 source_info: pi_coding_agent::core::source_info::create_synthetic_source_info(
-                    "<test>",
+                    &JsString::from("<test>"),
                     &pi_coding_agent::core::source_info::SyntheticSourceInfoOptions {
-                        source: "extension".to_owned(),
+                        source: "extension".into(),
                         scope: None,
                         origin: None,
                         base_dir: None,
@@ -479,7 +488,7 @@ fn context_actions() -> ExtensionContextActions {
         get_multi_agent_store: None,
         get_tool_detach_registry: None,
         compact: Arc::new(|_| {}),
-        get_system_prompt: Arc::new(String::new),
+        get_system_prompt: Arc::new(JsString::default),
         get_system_prompt_options: None,
     }
 }
@@ -515,10 +524,18 @@ async fn harness() -> Harness {
                 Result<(), pi_coding_agent::core::extensions::types::HandlerError>,
             >
     });
-    let extension = load_extension_from_factory(factory, &cwd, event_bus(), runtime.clone(), "pyrun")
-        .await
-        .unwrap();
-    let session = Arc::new(Mutex::new(SessionManager::in_memory(Some(&cwd), None).unwrap()));
+    let extension = load_extension_from_factory(
+        factory,
+        &JsString::from(&cwd),
+        event_bus(),
+        runtime.clone(),
+        &JsString::from("pyrun"),
+    )
+    .await
+    .unwrap();
+    let session = Arc::new(Mutex::new(
+        SessionManager::in_memory(Some(&JsString::from(&cwd)), None).unwrap(),
+    ));
     let registry = model_registry().await;
     let mut runner = ExtensionRunner::new(vec![extension], runtime, cwd, session, registry, None);
     runner.set_ui_context(
@@ -534,7 +551,7 @@ async fn harness() -> Harness {
             .lock()
             .unwrap()
             .entries
-            .push((custom_type.to_owned(), data));
+            .push((custom_type.into(), data));
         Ok(())
     });
     let records_for_user = Arc::clone(&records);
@@ -584,13 +601,15 @@ async fn registers_pyrun_eval_with_the_canonical_schema() {
     assert_eq!(tool.label, "Pyrun Eval");
     assert_eq!(tool.approval_required, Some(true));
     assert_eq!(
-        tool.prompt_snippet.as_deref(),
-        Some("Evaluate Python through the canonical Pyrun JSONL runtime adapter")
+        tool.prompt_snippet.as_ref(),
+        Some(&JsString::from(
+            "Evaluate Python through the canonical Pyrun JSONL runtime adapter"
+        ))
     );
     assert_eq!(tool.prompt_guidelines.as_ref().unwrap().len(), 18);
     assert!(tool.parameters["properties"].get("code").is_some());
     assert!(tool.parameters["properties"].get("session_id").is_some());
-    assert_eq!(tool.parameters["required"], json!(["code"]));
+    assert_eq!(tool.parameters["required"], serde_json::json!(["code"]));
 }
 
 #[tokio::test]
@@ -600,25 +619,25 @@ async fn dispatches_builtin_pi_requests() {
     let ctx = harness.runner.create_context();
     let result = dispatcher(
         PiRequest {
-            method: "tools.call".to_owned(),
+            method: "tools.call".into(),
             params: json!({"name": "read", "params": {"path": "x"}}),
         },
         ctx.clone(),
         None,
-        Some("call-1".to_owned()),
+        Some("call-1".into()),
     )
     .await
     .unwrap()
     .expect("handled");
-    assert_eq!(result["content"][0]["text"], "tool-output");
+    assert_eq!(result["content"][0]["text"], json!("tool-output"));
     assert_eq!(
         harness.records.lock().unwrap().calls,
-        vec![("read".to_owned(), json!({"path": "x"}))]
+        vec![("read".into(), json!({"path": "x"}))]
     );
 
     let result = dispatcher(
         PiRequest {
-            method: "commands.run".to_owned(),
+            method: "commands.run".into(),
             params: json!({"name": "goal", "args": "status"}),
         },
         ctx.clone(),
@@ -632,7 +651,7 @@ async fn dispatches_builtin_pi_requests() {
 
     let result = dispatcher(
         PiRequest {
-            method: "commands.list".to_owned(),
+            method: "commands.list".into(),
             params: json!({}),
         },
         ctx.clone(),
@@ -642,11 +661,11 @@ async fn dispatches_builtin_pi_requests() {
     .await
     .unwrap()
     .expect("handled");
-    assert_eq!(result[0]["name"], "goal");
+    assert_eq!(result[0]["name"], json!("goal"));
 
     let result = dispatcher(
         PiRequest {
-            method: "compact".to_owned(),
+            method: "compact".into(),
             params: json!({"customInstructions": "short"}),
         },
         ctx.clone(),
@@ -661,7 +680,7 @@ async fn dispatches_builtin_pi_requests() {
 
     let result = dispatcher(
         PiRequest {
-            method: "messages.enqueue".to_owned(),
+            method: "messages.enqueue".into(),
             params: json!({"message": "hello", "deliverAs": "followUp"}),
         },
         ctx.clone(),
@@ -674,12 +693,12 @@ async fn dispatches_builtin_pi_requests() {
     assert_eq!(result, json!({"enqueued": true}));
     assert_eq!(
         harness.records.lock().unwrap().user_messages,
-        vec![UserMessageContent::Text("hello".to_owned())]
+        vec![UserMessageContent::Text("hello".into())]
     );
 
     let result = dispatcher(
         PiRequest {
-            method: "restart".to_owned(),
+            method: "restart".into(),
             params: json!("notice"),
         },
         ctx.clone(),
@@ -694,7 +713,7 @@ async fn dispatches_builtin_pi_requests() {
 
     let error = dispatcher(
         PiRequest {
-            method: "unknown.method".to_owned(),
+            method: "unknown.method".into(),
             params: json!({}),
         },
         ctx,
@@ -713,7 +732,7 @@ fn validates_dispatch_parameters_like_the_source() {
     let ctx = harness.runner.create_context();
     let error = futures_lite_block_on(dispatcher(
         PiRequest {
-            method: "tools.call".to_owned(),
+            method: "tools.call".into(),
             params: json!({"name": "  "}),
         },
         ctx.clone(),
@@ -725,7 +744,7 @@ fn validates_dispatch_parameters_like_the_source() {
 
     let error = futures_lite_block_on(dispatcher(
         PiRequest {
-            method: "models.set".to_owned(),
+            method: "models.set".into(),
             params: json!({"provider": "p", "id": "i", "thinkingLevel": "nope"}),
         },
         ctx,
@@ -761,7 +780,7 @@ fn tool_definition_prepares_a_uuidv7_agent_id() {
     });
     let tool = create_pyrun_tool_definition(evaluate);
     let prepared = futures_lite_block_on((tool.prepare_execution.as_ref().unwrap())(
-        "call".to_owned(),
+        "call".into(),
         None,
         futures_lite_block_on(harness()).runner.create_context(),
     ))
@@ -841,7 +860,7 @@ async fn custom_pi_request_handlers_treat_null_as_handled() {
     let ctx = harness.runner.create_context();
     let result = dispatcher(
         PiRequest {
-            method: "custom.method".to_owned(),
+            method: "custom.method".into(),
             params: json!({}),
         },
         ctx,

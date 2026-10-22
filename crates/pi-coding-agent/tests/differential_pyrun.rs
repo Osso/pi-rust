@@ -8,7 +8,8 @@ mod oracle;
 use pi_coding_agent::bundled_extensions::pyrun::runner::{
     CanonicalPyrunEvalParams, PyrunRunnerClient, PyrunRunnerOptions,
 };
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{self, JsString, JsValue as Value};
 
 fn oracle() -> oracle::TsOracle {
     oracle::TsOracle::spawn(
@@ -94,24 +95,24 @@ async fn matches_typescript_runner_results_against_real_pyrun_jsonl() {
     let expected = output["output"].as_array().expect("oracle output array");
 
     let runner = PyrunRunnerClient::new(PyrunRunnerOptions {
-        command: Some("pyrun-jsonl".to_owned()),
+        command: Some("pyrun-jsonl".into()),
         args: Some(Vec::new()),
         ..Default::default()
     });
     for (index, case) in cases.iter().enumerate() {
         let params = CanonicalPyrunEvalParams {
-            code: case["code"].as_str().unwrap().to_owned(),
+            code: case["code"].as_string().unwrap().into(),
             pi: None,
             pi_bridge: Some(false),
-            session_id: case["session_id"].as_str().map(str::to_owned),
+            session_id: case["session_id"].as_string().map(JsString::from),
             stream_console: Some(true),
         };
         let actual = runner
             .evaluate(params, None, None, None)
             .await
             .unwrap_or_else(|error| panic!("case {index} failed: {error}"));
-        let actual = serde_json::to_value(&actual).unwrap();
-        assert_eq!(&actual, &expected[index], "case {index}: {}", case["code"]);
+        let actual = js_json::to_value(&actual).unwrap();
+        assert_eq!(&actual, &expected[index], "case {index}: {:?}", case["code"]);
     }
     runner.dispose();
 }
