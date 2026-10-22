@@ -223,16 +223,18 @@ pub fn can_autoname_session(ctx: &ExtensionContext) -> Result<bool, HandlerError
 pub fn find_first_exchange(session_manager: &SessionManager) -> Option<FirstExchange> {
     let branch = session_manager.get_branch(None);
     let user_index = branch.iter().position(is_real_user_message_entry)?;
-    let assistant_text = branch[user_index + 1..]
-        .iter()
-        .filter_map(|entry| entry.as_message())
-        .filter(|entry| entry.message.role() == "assistant")
-        .filter_map(|entry| entry.message.as_assistant())
-        .filter(|message| is_completed_assistant_message(message))
-        .map(extract_assistant_text)
-        .filter(|text| !text.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let assistant_text = JsString::join(
+        branch[user_index + 1..]
+            .iter()
+            .filter_map(|entry| entry.as_message())
+            .filter(|entry| entry.message.role() == "assistant")
+            .filter_map(|entry| entry.message.as_assistant())
+            .filter(|message| is_completed_assistant_message(message))
+            .map(extract_assistant_text)
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>(),
+        "\n",
+    );
 
     let user_text = extract_message_text(branch[user_index].as_message()?.message.as_user()?);
     if user_text.trim().is_empty() {

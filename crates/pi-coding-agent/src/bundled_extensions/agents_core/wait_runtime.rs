@@ -304,7 +304,7 @@ pub fn consume_notifications_runtime(
     store: &Arc<MultiAgentStore>,
     wake: &WaitNotificationsWake,
     ctx: Option<&ExtensionContext>,
-    format_agent_status: &dyn Fn(&AgentSnapshot) -> String,
+    format_agent_status: &dyn Fn(&AgentSnapshot) -> pi_js_compat::js_json::JsString,
 ) -> Result<AgentToolResult, HandlerError> {
     match wake {
         WaitNotificationsWake::Agent { agent } => consume_agent_wake(store, agent, format_agent_status),
@@ -351,7 +351,7 @@ fn consume_non_agent_wake(
 fn consume_agent_wake(
     store: &Arc<MultiAgentStore>,
     agent: &AgentSnapshot,
-    format_agent_status: &dyn Fn(&AgentSnapshot) -> String,
+    format_agent_status: &dyn Fn(&AgentSnapshot) -> pi_js_compat::js_json::JsString,
 ) -> Result<AgentToolResult, HandlerError> {
     if let Some(persistence) = store.get_persistence_target()
         && let Some(pending) = consume_pending_terminal_notifications(
@@ -525,7 +525,7 @@ fn consume_pending_terminal_notifications(
     store: &MultiAgentStore,
     control_db_path: &str,
     session_path: &str,
-    format_agent_status: &dyn Fn(&AgentSnapshot) -> String,
+    format_agent_status: &dyn Fn(&AgentSnapshot) -> pi_js_compat::js_json::JsString,
 ) -> Result<Option<AgentToolResult>, HandlerError> {
     let pending = list_pending_terminal_notifications(store, control_db_path, session_path)?;
     if pending.is_empty() {
@@ -538,11 +538,19 @@ fn consume_pending_terminal_notifications(
     }
     let agents: Vec<AgentSnapshot> = pending.iter().map(|(agent, _)| agent.clone()).collect();
     let messages: Vec<AgentMailboxMessage> = pending.iter().map(|(_, message)| message.clone()).collect();
-    let text = pending
-        .iter()
-        .map(|(agent, message)| message.body.clone().unwrap_or_else(|| format_agent_status(agent)))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let text = pi_js_compat::js_json::JsString::join(
+        pending
+            .iter()
+            .map(|(agent, message)| {
+                message
+                    .body
+                    .clone()
+                    .map(pi_js_compat::js_json::JsString::from)
+                    .unwrap_or_else(|| format_agent_status(agent))
+            })
+            .collect::<Vec<_>>(),
+        "\n",
+    );
     Ok(Some(tool_result(
         text,
         json!({

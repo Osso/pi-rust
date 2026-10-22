@@ -9,7 +9,7 @@ pub fn abort_agent_handle_safely(store: &MultiAgentStore, agent_id: &str) {
 }
 
 pub fn create_failed_mailbox_message(
-    body: &str,
+    body: &pi_js_compat::js_json::JsString,
     from_agent_id: &str,
     kind: MailboxMessageKindValue,
     to_agent_id: &str,

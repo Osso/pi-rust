@@ -252,14 +252,16 @@ fn register_background_command(pi: &ExtensionApi, registration: &AgentsCoreRegis
         "bg",
         Some("Run a prompt as a background agent job.".to_owned()),
         None,
-        Arc::new(move |args: String, ctx: ExtensionCommandContext| {
-            let background = background.clone();
-            let mirror = mirror.clone();
-            Box::pin(async move {
-                mirror.bind(&ctx.context)?;
-                background_command(&background, &args, &ctx).await
-            })
-        }),
+        Arc::new(
+            move |args: pi_js_compat::js_json::JsString, ctx: ExtensionCommandContext| {
+                let background = background.clone();
+                let mirror = mirror.clone();
+                Box::pin(async move {
+                    mirror.bind(&ctx.context)?;
+                    background_command(&background, &args, &ctx).await
+                })
+            },
+        ),
     );
 }
 
@@ -269,10 +271,12 @@ fn register_jobs_command(pi: &ExtensionApi, registration: &AgentsCoreRegistratio
         "jobs",
         Some("List background agent jobs.".to_owned()),
         None,
-        Arc::new(move |_args: String, ctx: ExtensionCommandContext| {
-            let store = Arc::clone(&store);
-            Box::pin(async move { jobs_command(&store, &ctx) })
-        }),
+        Arc::new(
+            move |_args: pi_js_compat::js_json::JsString, ctx: ExtensionCommandContext| {
+                let store = Arc::clone(&store);
+                Box::pin(async move { jobs_command(&store, &ctx) })
+            },
+        ),
     );
 }
 
@@ -368,7 +372,7 @@ fn register_list_agents_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistr
             let store = Arc::clone(&store);
             Box::pin(async move {
                 let params: ListAgentsParams =
-                    serde_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()))?;
+                    pi_js_compat::js_json::from_value(&params).map_err(|error| HandlerError::new(error.to_string()))?;
                 list_agents(&store, &params)
             })
         }),
@@ -402,7 +406,7 @@ fn register_attach_session_agent_tool(pi: &ExtensionApi, registration: &AgentsCo
             Box::pin(async move {
                 mirror.bind(&ctx)?;
                 let params: AttachSessionAgentParams =
-                    serde_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()))?;
+                    pi_js_compat::js_json::from_value(&params).map_err(|error| HandlerError::new(error.to_string()))?;
                 attach_session_agent(&AttachSessionAgentRuntimeInput {
                     create_attached_session,
                     ctx,
@@ -457,7 +461,7 @@ fn register_cancel_agent_tool(pi: &ExtensionApi, registration: &AgentsCoreRegist
             let runtime_handles = runtime_handles.clone();
             Box::pin(async move {
                 let params: CancelAgentParams =
-                    serde_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()))?;
+                    pi_js_compat::js_json::from_value(&params).map_err(|error| HandlerError::new(error.to_string()))?;
                 cancel_agent(&store, &runtime_handles, &params).await
             })
         }),
@@ -478,7 +482,7 @@ fn register_steer_agent_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistr
             let runtime_handles = runtime_handles.clone();
             Box::pin(async move {
                 let params: SteerAgentParams =
-                    serde_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()))?;
+                    pi_js_compat::js_json::from_value(&params).map_err(|error| HandlerError::new(error.to_string()))?;
                 steer_agent(&store, &runtime_handles, &params, Some(&ctx))
             })
         }),
@@ -536,7 +540,7 @@ pub fn register_agents_core_tools(pi: &ExtensionApi, options: &MultiAgentExtensi
 
 async fn background_command(
     background: &BackgroundDispatchContext,
-    args: &str,
+    args: &pi_js_compat::js_json::JsString,
     ctx: &ExtensionCommandContext,
 ) -> Result<(), HandlerError> {
     let Some(prompt) = validate_and_notify_background_command(background, args, ctx)? else {
@@ -616,7 +620,7 @@ struct PreparedBackgroundRuntime {
 
 fn validate_and_notify_background_command(
     background: &BackgroundDispatchContext,
-    args: &str,
+    args: &pi_js_compat::js_json::JsString,
     ctx: &ExtensionCommandContext,
 ) -> Result<Option<String>, HandlerError> {
     if is_child_agent_runtime(&ctx.context)? {
@@ -631,7 +635,7 @@ fn validate_and_notify_background_command(
         )?;
         return Ok(None);
     };
-    let prompt = pi_js_compat::string::js_trim(args).to_owned();
+    let prompt = args.trim();
     if !is_production_child_session_factory(create_child_session) {
         return Ok(Some(prompt));
     }
@@ -646,7 +650,7 @@ fn validate_and_notify_background_command(
 async fn prepare_background_runtime(
     background: &BackgroundDispatchContext,
     coordinator: &Arc<crate::core::lifecycle_coordinator::LifecycleCoordinator>,
-    prompt: &str,
+    prompt: &pi_js_compat::js_json::JsString,
     ctx: &ExtensionCommandContext,
 ) -> Result<Option<PreparedBackgroundRuntime>, HandlerError> {
     let Some(create_child_session) = background.create_child_session.as_ref() else {
@@ -685,7 +689,7 @@ async fn prepare_background_runtime(
             agent: prepared.clone(),
             context: SpawnContext::Fresh,
             ctx: ctx.context.clone(),
-            prompt: prompt.to_owned(),
+            prompt: prompt.to_owned().into(),
             signal: Some(abort_controller.clone()),
         })
         .await
@@ -713,7 +717,9 @@ async fn prepare_background_runtime(
             }
             notify(
                 ctx,
-                &format!("Could not create background job: {error}"),
+                &pi_js_compat::js_json::encode_node_utf8(
+                    &(pi_js_compat::js_json::JsString::from("Could not create background job: ") + &error),
+                ),
                 NotifyType::Error,
             )?;
             Ok(None)
@@ -724,7 +730,7 @@ async fn prepare_background_runtime(
 fn start_background_dispatch(
     background: &BackgroundDispatchContext,
     runtime: Arc<super::control_runtime::OwnedAgentRuntime>,
-    prompt: &str,
+    prompt: &pi_js_compat::js_json::JsString,
     ctx: &ExtensionCommandContext,
     created_session: Option<Arc<dyn ChildAgentSession>>,
 ) -> AgentSnapshot {
@@ -745,7 +751,7 @@ fn start_background_dispatch(
 }
 
 fn notify_background_dispatch(
-    promise: BoxFuture<'static, Result<AgentSnapshot, String>>,
+    promise: BoxFuture<'static, Result<AgentSnapshot, pi_js_compat::js_json::JsString>>,
     handles: &BackgroundSessionHandles,
     ownerships: &Arc<Mutex<HashMap<String, Arc<super::control_runtime::OwnedAgentRuntime>>>>,
     ctx: &ExtensionCommandContext,
@@ -759,7 +765,7 @@ fn notify_background_dispatch(
             ownerships.lock().expect("ownerships").remove(&agent.id);
             if let Some(ui) = ui {
                 ui.notify(
-                    &format_agent_status(&agent),
+                    &pi_js_compat::js_json::encode_node_utf8(&format_agent_status(&agent)),
                     Some(background_notification_level(&agent)),
                 );
             }
@@ -779,10 +785,10 @@ fn track_background_agent_dispatch(
     background: &BackgroundDispatchContext,
     create_child_session: ChildAgentSessionFactory,
     runtime: Arc<super::control_runtime::OwnedAgentRuntime>,
-    prompt: &str,
+    prompt: &pi_js_compat::js_json::JsString,
     ctx: &ExtensionCommandContext,
     created_session: Option<Arc<dyn ChildAgentSession>>,
-) -> BoxFuture<'static, Result<AgentSnapshot, String>> {
+) -> BoxFuture<'static, Result<AgentSnapshot, pi_js_compat::js_json::JsString>> {
     let agent = runtime.lifecycle.agent.clone();
     super::dispatch_runtime::track_agent_dispatch(super::dispatch_runtime::TrackAgentDispatchInput {
         agent: agent.clone(),
@@ -792,7 +798,7 @@ fn track_background_agent_dispatch(
             ctx: ctx.context.clone(),
             expected_restore_generation: None,
             handles: Some(Arc::clone(&background.handles)),
-            prompt: prompt.to_owned(),
+            prompt: prompt.to_owned().into(),
             reserved_runtime: Arc::clone(&runtime),
             running_agent: agent,
             store: Arc::clone(&background.store),

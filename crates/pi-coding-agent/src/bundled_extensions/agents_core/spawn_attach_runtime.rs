@@ -6,8 +6,11 @@ use std::sync::{Arc, Mutex};
 
 use pi_agent_core::AgentToolResult;
 use pi_js_compat::string::js_trim;
+use pi_js_compat::{
+    js_json as json,
+    js_json::{JsString, JsValue as Value},
+};
 use serde::Deserialize;
-use serde_json::{Value, json};
 
 use crate::core::desktop_notification::DesktopNotifier;
 use crate::core::extensions::types::{ExtensionContext, HandlerError};
@@ -49,7 +52,7 @@ pub struct SpawnAgentParams {
     pub context: Option<String>,
     pub display_name: Option<String>,
     pub parent_id: Option<String>,
-    pub prompt: String,
+    pub prompt: JsString,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -60,12 +63,12 @@ pub struct AttachSessionAgentParams {
     pub name: Option<String>,
     pub parent_id: Option<String>,
     pub path: Option<String>,
-    pub prompt: Option<String>,
+    pub prompt: Option<JsString>,
     pub session_id: Option<String>,
 }
 
-pub fn spawn_agent_schema() -> Value {
-    json!({
+pub fn spawn_agent_schema() -> serde_json::Value {
+    serde_json::json!({
         "type": "object",
         "required": ["prompt"],
         "properties": {
@@ -83,8 +86,8 @@ pub fn spawn_agent_schema() -> Value {
     })
 }
 
-pub fn attach_session_agent_schema() -> Value {
-    json!({
+pub fn attach_session_agent_schema() -> serde_json::Value {
+    serde_json::json!({
         "type": "object",
         "properties": {
             "agentType": {"type": "string"},
@@ -219,8 +222,8 @@ fn require_spawn_agent_params(params: &Value) -> Result<SpawnAgentParams, Handle
         ));
     };
     if let Some(context) = object.get("context").filter(|context| !context.is_null())
-        && context.as_str() != Some("fresh")
-        && context.as_str() != Some("inherit")
+        && !context.as_string().is_some_and(|value| value == "fresh")
+        && !context.as_string().is_some_and(|value| value == "inherit")
     {
         return Err(HandlerError::new(
             "spawn_agent context must be \"fresh\" or \"inherit\"",
@@ -229,7 +232,7 @@ fn require_spawn_agent_params(params: &Value) -> Result<SpawnAgentParams, Handle
     if !object.get("prompt").is_some_and(Value::is_string) {
         return Err(HandlerError::new("spawn_agent prompt must be a string"));
     }
-    serde_json::from_value(params.clone()).map_err(|error| HandlerError::new(error.to_string()))
+    pi_js_compat::js_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()))
 }
 
 fn validate_spawn_availability(
@@ -384,7 +387,7 @@ async fn construct_child_session(
                 _ => spawn.prepared.clone(),
             };
             Err(Box::new(tool_result(
-                format!("spawn_agent failed to construct child session: {error}"),
+                JsString::from("spawn_agent failed to construct child session: ") + &error,
                 json!({"agent": agent, "dispatched": false, "prompt": input.params.prompt}),
             )))
         }
@@ -437,7 +440,7 @@ fn commit_running_child(
         Err(error) => {
             spawn.child_session.dispose();
             return Err(Box::new(tool_result(
-                format!("spawn_agent failed: {}", error.message),
+                JsString::from("spawn_agent failed: ") + &error.message,
                 json!({
                     "agent": spawn.prepared.prepared,
                     "dispatched": false,
@@ -449,7 +452,7 @@ fn commit_running_child(
     if let Err(error) = input.store.publish_lifecycle_coordinator_snapshot(&agent) {
         spawn.child_session.dispose();
         return Err(Box::new(tool_result(
-            format!("spawn_agent failed: {}", error.message),
+            JsString::from("spawn_agent failed: ") + &error.message,
             json!({"agent":spawn.prepared.prepared,"dispatched":false,"prompt":input.params.prompt}),
         )));
     }
@@ -488,7 +491,7 @@ fn commit_parent_journal(
     }
 }
 
-fn fail_parent_journal(input: &ValidSpawnInput, spawn: &CommittedSpawn, message: &str) -> AgentToolResult {
+fn fail_parent_journal(input: &ValidSpawnInput, spawn: &CommittedSpawn, message: &JsString) -> AgentToolResult {
     spawn.spawn.child_session.dispose();
     let failed = spawn
         .spawn
@@ -512,7 +515,7 @@ fn fail_parent_journal(input: &ValidSpawnInput, spawn: &CommittedSpawn, message:
         _ => spawn.running_agent.clone(),
     };
     tool_result(
-        format!("spawn_agent failed to persist parent journal: {message}"),
+        JsString::from("spawn_agent failed to persist parent journal: ") + message,
         json!({"agent": agent, "dispatched": false, "prompt": input.params.prompt}),
     )
 }
@@ -569,14 +572,14 @@ fn context_name(context: SpawnContext) -> &'static str {
     }
 }
 
-fn spawn_error(message: &str, prompt: &str) -> AgentToolResult {
+fn spawn_error(message: &str, prompt: &JsString) -> AgentToolResult {
     tool_result(
         message,
         json!({"agent": empty_agent("spawn_agent"), "dispatched": false, "prompt": prompt}),
     )
 }
 
-fn attach_error(message: &str, prompt: Option<&str>) -> AgentToolResult {
+fn attach_error(message: &str, prompt: Option<&JsString>) -> AgentToolResult {
     let mut details = json!({"agent": empty_agent("attach_session_agent"), "dispatched": false});
     if let Some(prompt) = prompt {
         details["prompt"] = json!(prompt);
@@ -616,8 +619,8 @@ pub async fn attach_session_agent(input: &AttachSessionAgentRuntimeInput) -> Res
     let prompt = input
         .params
         .prompt
-        .as_deref()
-        .map(js_trim)
+        .as_ref()
+        .map(JsString::trim)
         .filter(|value| !value.is_empty());
     if let Some(prompt) = prompt
         && input.create_attached_session.is_none()
@@ -648,7 +651,7 @@ pub async fn attach_session_agent(input: &AttachSessionAgentRuntimeInput) -> Res
 fn dispatch_attached_agent(
     input: &AttachSessionAgentRuntimeInput,
     agent: AgentSnapshot,
-    prompt: Option<&str>,
+    prompt: Option<&JsString>,
 ) -> AgentToolResult {
     let Some(prompt) = prompt else {
         return tool_result(
@@ -977,7 +980,7 @@ fn recover_agent(input: &RecoverAgentsInput, agent: &AgentSnapshot) -> Result<()
             dispatches: Arc::clone(&input.dispatches),
             handles: input.handles.clone(),
             ownerships: Arc::clone(&input.ownerships),
-            prompt: CRASH_RECOVERY_PROMPT.to_owned(),
+            prompt: CRASH_RECOVERY_PROMPT.to_owned().into(),
             store: Arc::clone(&input.store),
             target: agent.clone(),
             waiting_desktop_notifications: Arc::clone(&input.waiting_desktop_notifications),

@@ -3,7 +3,10 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use serde_json::{Map, Value, json};
+use pi_js_compat::{
+    js_json as json,
+    js_json::{JsObject as Map, JsValue as Value},
+};
 
 use crate::core::extensions::types::{ExtensionApi, ExtensionContext, HandlerError};
 use crate::core::multi_agent_store::{AgentLifecycle, AgentSnapshot, MultiAgentStore};
@@ -131,7 +134,8 @@ pub fn read_active_parent_agent_ids_from_session_entries(entries: &[SessionEntry
             .as_ref()
             .and_then(|data| data.as_object())
             .and_then(|data| data.get("agentId"))
-            .and_then(Value::as_str)
+            .and_then(Value::as_string)
+            .and_then(|id| id.to_utf8().ok())
         else {
             continue;
         };
@@ -234,13 +238,13 @@ pub fn restore_compacted_parent_agent_records(
 }
 
 /// Data shape shared with the dispatch-runtime journal writer.
-pub fn parent_agent_record_data(agent: &AgentSnapshot) -> Option<Map<String, Value>> {
+pub fn parent_agent_record_data(agent: &AgentSnapshot) -> Option<Map> {
     let transcript = agent.transcript.as_ref()?;
     let transcript_path = transcript.path.as_ref()?;
     let mut data = Map::new();
-    data.insert("agentId".to_owned(), json!(agent.id));
-    data.insert("childSessionId".to_owned(), json!(transcript.session_id));
-    data.insert("lifecycle".to_owned(), json!(lifecycle_name(agent.lifecycle)));
-    data.insert("transcriptPath".to_owned(), json!(transcript_path));
+    data.insert("agentId".into(), json!(agent.id));
+    data.insert("childSessionId".into(), json!(transcript.session_id));
+    data.insert("lifecycle".into(), json!(lifecycle_name(agent.lifecycle)));
+    data.insert("transcriptPath".into(), json!(transcript_path));
     Some(data)
 }

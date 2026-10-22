@@ -1037,7 +1037,7 @@ pub type LlamaUiRun = Box<dyn FnOnce(Arc<dyn LlamaUi>) -> BoxFuture<'static, Res
 
 /// `showLlamaUi`.
 pub async fn show_llama_ui(ctx: &ExtensionCommandContext, run: LlamaUiRun) -> Result<(), String> {
-    let ui_context = ctx.ui().map_err(|error| error.message)?;
+    let ui_context = ctx.ui().map_err(|error| error.to_string())?;
     show_llama_ui_with_context(ui_context, run).await
 }
 

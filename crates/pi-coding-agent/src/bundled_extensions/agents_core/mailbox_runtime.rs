@@ -729,12 +729,17 @@ fn is_detached_terminal_transport(message: &RuntimeMailboxMessage, agent: &Agent
     {
         return false;
     }
-    let Ok(body) = serde_json::from_str::<Value>(&message.body) else {
+    let Ok(body) = js_json::parse_lossless(&message.body) else {
         return false;
     };
-    body.get("type").and_then(Value::as_str) == Some("multi_agent_terminal")
-        && body.get("agentId").and_then(Value::as_str) == Some(agent.id.as_str())
-        && body.get("terminalRevision").and_then(Value::as_i64) == Some(agent.revision)
+    body.get("type")
+        .and_then(Value::as_string)
+        .is_some_and(|kind| kind == "multi_agent_terminal")
+        && body
+            .get("agentId")
+            .and_then(Value::as_string)
+            .is_some_and(|id| id == &agent.id)
+        && body.get("terminalRevision").and_then(Value::as_f64) == Some(agent.revision as f64)
 }
 
 fn is_runtime_mirrored_lifecycle(lifecycle: AgentLifecycle) -> bool {
@@ -885,11 +890,11 @@ fn format_sent_message_target(message: &AgentMailboxMessage, to_session_id: Opti
     }
 }
 
-fn empty_parent_request(agent_id: &str, body: &str) -> AgentMailboxMessage {
+fn empty_parent_request(agent_id: &str, body: &JsString) -> AgentMailboxMessage {
     create_failed_mailbox_message(body, agent_id, MailboxMessageKindValue::ParentRequest, "")
 }
 
-fn empty_direct_message(from_agent_id: &str, to_agent_id: &str, body: &str) -> AgentMailboxMessage {
+fn empty_direct_message(from_agent_id: &str, to_agent_id: &str, body: &JsString) -> AgentMailboxMessage {
     create_failed_mailbox_message(body, from_agent_id, MailboxMessageKindValue::Message, to_agent_id)
 }
 
@@ -898,7 +903,7 @@ fn model_mailbox_params(mut params: Value) -> Result<Value, HandlerError> {
         .as_object_mut()
         .ok_or_else(|| HandlerError::new("Expected mailbox arguments"))?;
     let body = object
-        .remove("body")
+        .shift_remove(&JsString::from("body"))
         .ok_or_else(|| HandlerError::new("Missing required body"))?;
     object.insert("message".into(), body);
     Ok(params)

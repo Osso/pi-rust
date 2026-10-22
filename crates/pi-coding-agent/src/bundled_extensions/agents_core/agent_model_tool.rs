@@ -143,7 +143,7 @@ pub fn register_set_agent_model_tool(
             let store = Arc::clone(&store);
             let handles = handles.clone();
             Box::pin(async move {
-                let params = serde_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()))?;
+                let params = pi_js_compat::js_json::from_value(&params).map_err(|error| HandlerError::new(error.to_string()))?;
                 set_agent_model(&store, &handles, params).await
             })
         }),
