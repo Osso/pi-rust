@@ -624,7 +624,7 @@ fn session_state(session: &AgentSession) -> RpcSessionState {
 
 async fn run_bash(
     session: &AgentSession,
-    command: &str,
+    command: &JsString,
     exclude_from_context: Option<bool>,
     id: Option<String>,
 ) -> Result<BashResult, JsString> {
@@ -1452,7 +1452,9 @@ mod bash_operation_tests {
         .await
         .expect("session");
 
-        let bash = run_bash(&result.session, "echo hi", None, None).await.expect("bash");
+        let bash = run_bash(&result.session, &"echo hi".into(), None, None)
+            .await
+            .expect("bash");
         assert_eq!(bash.output, "from extension\n");
         assert_eq!(
             commands

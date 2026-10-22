@@ -93,7 +93,7 @@ pub enum RpcCommandBody {
 
     // Bash
     Bash {
-        command: String,
+        command: JsString,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         exclude_from_context: Option<bool>,
     },

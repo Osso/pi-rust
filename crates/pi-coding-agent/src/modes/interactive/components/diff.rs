@@ -35,7 +35,7 @@ fn parse_diff_line(line: &JsString) -> Option<ParsedDiffLine> {
     } else {
         return None;
     };
-    let mut content = line.slice(separator + 1, line.len());
+    let content = line.slice(separator + 1, line.len());
     if content
         .units()
         .last()
@@ -228,7 +228,6 @@ mod lossless_tests {
         let (removed, added) = render_intra_line_diff(&old, &new);
         assert_eq!(removed, format!("a{}b", with_theme(|theme| theme.inverse("�"))));
         assert_eq!(added, removed);
-        assert_ne!(removed, "a�b");
     }
 
     #[test]

@@ -4971,11 +4971,7 @@ impl InteractiveMode {
             }
             _ => {
                 if object.get("display").and_then(JsValue::as_bool) == Some(true) {
-                    let renderer = self
-                        .session
-                        .borrow()
-                        .extension_runner()
-                        .get_message_renderer(&encode_node_utf8(&role));
+                    let renderer = self.session.borrow().extension_runner().get_message_renderer(&role);
                     let content = match object.get("content") {
                         Some(JsValue::String(text)) => {
                             crate::core::extensions::types::CustomMessageContent::Text(text.clone())
@@ -4987,7 +4983,7 @@ impl InteractiveMode {
                         _ => crate::core::extensions::types::CustomMessageContent::Text(JsString::default()),
                     };
                     let message = crate::core::extensions::types::CustomMessageValue {
-                        custom_type: encode_node_utf8(&role),
+                        custom_type: role.clone(),
                         content,
                         display: true,
                         details: object.get("details").cloned(),
@@ -8238,6 +8234,7 @@ impl InteractiveMode {
     }
 
     async fn handle_bash_command(&self, command: String, exclude_from_context: bool) {
+        let command = JsString::from(command);
         let mode = self.ui_id.get();
         let session = self.session();
         let render: Rc<dyn Fn()> = Rc::new({
@@ -15305,7 +15302,11 @@ mod ui_tests {
                         .cloned()
                         .unwrap_or_default()
                         .to_owned();
-                    Some(component(Text::new(format!("[Custom]\n{message}"), 0, 0)))
+                    Some(component(Text::new(
+                        encode_node_utf8(&(JsString::from("[Custom]\n") + message)),
+                        0,
+                        0,
+                    )))
                 }),
             )
             .expect("entry renderer");
@@ -15329,6 +15330,69 @@ mod ui_tests {
             ..Default::default()
         }) as Arc<dyn crate::core::resource_loader::ResourceLoader>;
         build_mode_with_loader(loader, None).await
+    }
+
+    async fn render_lossless_custom_role(role: JsString) -> String {
+        let runtime = crate::core::extensions::create_extension_runtime();
+        let factory: crate::core::extensions::ExtensionFactory = Arc::new(|api| {
+            api.register_message_renderer(
+                JsString::from_utf16(vec![0xd800]),
+                Arc::new(|message, _, _| {
+                    assert_eq!(message.custom_type.units(), &[0xd800]);
+                    Some(component(Text::new("surrogate-handler", 0, 0)))
+                }),
+            )
+            .unwrap();
+            api.register_message_renderer(
+                "�",
+                Arc::new(|message, _, _| {
+                    assert_eq!(message.custom_type.units(), &[0xfffd]);
+                    Some(component(Text::new("replacement-handler", 0, 0)))
+                }),
+            )
+            .unwrap();
+            Box::pin(async { Ok(()) })
+        });
+        let extension = crate::core::extensions::load_extension_from_factory(
+            factory,
+            "/tmp",
+            Arc::new(crate::core::event_bus::EventBusController::new()),
+            runtime.clone(),
+            "/tmp/raw-role-extension",
+        )
+        .await
+        .unwrap();
+        let loader = Arc::new(StaticResourceLoader {
+            extensions: Some(crate::core::extensions::LoadExtensionsResult {
+                extensions: vec![extension],
+                errors: vec![],
+                runtime,
+            }),
+            ..Default::default()
+        }) as Arc<dyn crate::core::resource_loader::ResourceLoader>;
+        let (mode, _, _, _temp) = build_mode_with_loader(loader, None).await;
+        let _events = start(&mode).await;
+        let value = pi_js_compat::js_json!({"role": role, "content": "raw-role-content", "display": true});
+        mode.add_custom_message_to_chat(value.as_object().unwrap());
+        mode.chat_container.borrow_mut().render(80).join("\n")
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn lossless_surrogate_role_selects_its_distinct_callback() {
+        let output = tokio::task::LocalSet::new()
+            .run_until(render_lossless_custom_role(JsString::from_utf16(vec![0xd800])))
+            .await;
+        assert!(output.contains("surrogate-handler"));
+        assert!(!output.contains("replacement-handler"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn lossless_replacement_role_selects_its_distinct_callback() {
+        let output = tokio::task::LocalSet::new()
+            .run_until(render_lossless_custom_role("�".into()))
+            .await;
+        assert!(output.contains("replacement-handler"));
+        assert!(!output.contains("surrogate-handler"));
     }
 
     fn custom_entry(message: &str) -> crate::core::session_manager::CustomEntry {

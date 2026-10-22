@@ -73,6 +73,26 @@ fn render_with_frozen_typescript(cases: &[JsString]) -> Vec<JsString> {
 
 #[test]
 fn raw_diff_styling_matches_frozen_utf16_then_node_terminal_encoding() {
+    // Color detection is process-scoped. Set it before either implementation loads.
+    if std::env::var_os("PI_LOSSLESS_DIFF_CHILD").is_none() {
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "raw_diff_styling_matches_frozen_utf16_then_node_terminal_encoding",
+                "--nocapture",
+            ])
+            .env("PI_LOSSLESS_DIFF_CHILD", "1")
+            .env("FORCE_COLOR", "3")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
     install_oracle_theme();
     let cases = [
         vec![45, 49, 32, 97, 0xd800, 98, 10, 43, 49, 32, 97, 0xd801, 98],

@@ -761,7 +761,7 @@ impl RpcClient {
         Ok(())
     }
 
-    pub async fn bash(&self, command: impl Into<String>) -> Result<BashResult, RpcClientError> {
+    pub async fn bash(&self, command: impl Into<JsString>) -> Result<BashResult, RpcClientError> {
         let response = self
             .send(RpcCommandBody::Bash {
                 command: command.into(),

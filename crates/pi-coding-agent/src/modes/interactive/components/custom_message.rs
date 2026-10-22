@@ -92,7 +92,7 @@ impl CustomMessageComponent {
         let label = crate::modes::interactive::theme::with_theme(|theme| {
             theme.fg(
                 ThemeColor::CustomMessageLabel,
-                &format!("\u{1b}[1m[{}]\u{1b}[22m", self.message.custom_type),
+                &format!("\u{1b}[1m[{}]\u{1b}[22m", encode_node_utf8(&self.message.custom_type)),
             )
         });
         message_box.add_child(component(Text::new(label, 0, 0)));
