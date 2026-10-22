@@ -30,3 +30,9 @@ Tests: `crates/pi-ai/tests/provider_auth.rs`,
 ## Discrepancies
 
 - None.
+
+## Q18 provider request integration (2026-10-22)
+
+Native prompt answers, stored/environment keys and bearer header values are retained until the HTTP boundary. Auth source labels promote into JsString without encoding.
+
+Compiler checkpoint `pi-ai-slice-final.log` at `0c71c960` reached seven errors, including two owned sites fixed by `7780fac1`; remaining auth-owner errors block library acceptance. `lossless_sdk_boundaries` exercises public-provider header rejection and URL conversion; authored, not yet executed at this checkpoint.

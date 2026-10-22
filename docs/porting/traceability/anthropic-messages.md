@@ -134,3 +134,9 @@ Normalizations:
    it to an integer (typed exclusion).
 
 Q18 shared UTF-16 fields, argument parser and outbound-tree migration: [boundary/proof matrix](lossless-content.md). Checkpoint evidence does not establish unchanged consumer-fixture compatibility or full workspace parity.
+
+## Q18 provider request integration (2026-10-22)
+
+The shared `anthropic_sdk::Auth` variants and `SdkRequest` URL/header values are native. `execute` performs URL and ByteString conversion at `HttpRequest` construction and propagates conversion failures through the existing provider-request error path.
+
+Compiler checkpoint `pi-ai-slice-final.log` at `0c71c960` reached seven errors, including two owned sites fixed by `7780fac1`; remaining auth-owner errors block library acceptance. `lossless_sdk_boundaries` exercises public-provider header rejection and URL conversion; authored, not yet executed at this checkpoint.

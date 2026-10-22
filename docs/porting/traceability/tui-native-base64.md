@@ -5,7 +5,7 @@ now accepts `Into<JsString>` and has one native-unit implementation; no scalar f
 Real Node Buffer.from reads each UTF-16 unit's low byte for base64. Verified before
 implementation: QQ😀QQ decodes to hex41, whereas old Rust's UTF-8 traversal yielded
 410410. Targeted RED reproduced it; raw high/low/pair/wide-low-byte/padding/alphabet
-cases now match real Node GREEN. atob and buffer_decoded_len unchanged: no TUI consumer.
+cases now match real Node GREEN. At that checkpoint atob and buffer_decoded_len were unchanged; the later native-atob checkpoint below supersedes atob.
 
 `raw_base64` (11 cases) and existing `differential_base64` ran with mandatory runner,
 jobs4. Iterator callers in differential_base64 and differential_truncate explicitly
@@ -36,3 +36,9 @@ behavior was not changed. Whole-workspace/coding acceptance remains parent's gat
 - `crates/pi-js-compat/tests/raw_base64.rs`
 - `crates/pi-tui/src/terminal_image.rs`
 - `crates/pi-tui/tests/differential_terminal_image.rs`
+
+## Native atob checkpoint (2026-10-22)
+
+Parent-authorized `atob(&JsString)` strips HTML whitespace and validates original UTF-16 units without replacement. `Base64Error` distinguishes invalid characters from incomplete encoding and exposes Node DOMException name/message. No alternate scalar API remains. Scalar fixtures promote into the same native entrypoint; Codex token splitting passes original native segments.
+
+At `45107165`, `atob-red.log` reproduced the missing native API/error surface. `atob-green.log` records **7/7 mandatory sandbox tests PASS**: five original base64 tests, pinned TS/Node differential, and one real-Node raw-unit differential over 3,911 inputs (lone high/low units, >255, HTML whitespace, alphabet/padding/invalid-character ordering). Later lane commits do not alter this module or these targets, so this proof remains valid. It does not prove pi-ai/coding-agent integration acceptance.

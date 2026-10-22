@@ -57,3 +57,9 @@ Tests: module unit tests, `crates/pi-ai/tests/openai_completions.rs` (9 behavior
 - None. `mapStopReason(null)` is represented by an absent/`null` finish reason and maps to `stop`.
 
 Q18 shared UTF-16 fields, argument parser and outbound-tree migration: [boundary/proof matrix](lossless-content.md). Checkpoint evidence does not establish unchanged consumer-fixture compatibility or full workspace parity.
+
+## Q18 provider request integration (2026-10-22)
+
+Client key selection, default/model/header merges and affinity session IDs stay native. SDK request construction owns URL/header conversion; no affinity-value UTF-8 projection remains.
+
+Compiler checkpoint `pi-ai-slice-final.log` at `0c71c960` reached seven errors, including two owned sites fixed by `7780fac1`; remaining auth-owner errors block library acceptance. `lossless_sdk_boundaries` exercises public-provider header rejection and URL conversion; authored, not yet executed at this checkpoint.

@@ -84,3 +84,9 @@ Tests: `crates/pi-ai/tests/openai_codex_responses.rs` (31 behavioral), `crates/p
 - JWT payloads are decoded with `pi_js_compat::base64::atob` (`atob` semantics: padding optional, standard alphabet); URL-safe payloads fail in both implementations (`extracts_account_id_from_unpadded_jwt_payload`).
 - Event `partial` messages are clones (see normalization above).
 - `HttpResponse::status_text` supplies the TS `response.statusText` fallback for empty error bodies.
+
+## Q18 provider request integration (2026-10-22)
+
+Codex token splitting and shared atob operate on native units. Request endpoint normalization and session/request ID headers remain native until SSE HttpRequest or WebSocket connect; URL/ByteString failures become Codex transport errors. Decoded account IDs retain the explicitly approved scalar metadata restriction.
+
+Compiler checkpoint `pi-ai-slice-final.log` at `0c71c960` reached seven errors, including two owned sites fixed by `7780fac1`; remaining auth-owner errors block library acceptance. `lossless_sdk_boundaries` exercises public-provider header rejection and URL conversion; authored, not yet executed at this checkpoint.
