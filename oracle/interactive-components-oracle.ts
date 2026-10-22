@@ -14,15 +14,6 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 	elapsed: (api, request) => request.values.map((value: number) => api.formatElapsedDuration(value)),
 	visualTruncate: (api, request) =>
 		request.cases.map((value: any) => api.truncateToVisualLines(value.text, value.maxVisualLines, value.width, value.paddingX)),
-	markdownTransform: (api, request) => {
-		const transformers = request.transformers.map((kind: any) => {
-			if (kind.kind === "upper") return (markdown: string) => markdown.toUpperCase();
-			if (kind.kind === "append") return (markdown: string) => `${markdown}${kind.text}`;
-			throw new Error(`unknown transformer ${kind.kind}`);
-		});
-		const transform = api.createMarkdownTransform(request.messageType, request.isStreaming, transformers);
-		return request.inputs.map((input: string) => transform(input, request.availableWidth));
-	},
 	keyHints: (api, request) => ({
 		formatKeyText: request.keys.map((value: any) => api.formatKeyText(value.key, value.options ?? {})),
 		keyText: request.bindings.map((binding: string) => api.keyText(binding)),

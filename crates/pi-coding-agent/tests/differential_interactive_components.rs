@@ -15,8 +15,8 @@ use pi_ai::types::{
     AssistantContent, AssistantMessage, AssistantRole, StopReason, TextContent, ThinkingContent, ToolCall, Usage,
 };
 use pi_coding_agent::core::extensions::types::{
-    CustomMessageContent, CustomMessageValue, MarkdownMessageType, MarkdownTransformContext, MarkdownTransformer,
-    MessageRenderOptions, RenderShell, ToolDefinition,
+    CustomMessageContent, CustomMessageValue, MarkdownTransformContext, MarkdownTransformer, MessageRenderOptions,
+    RenderShell, ToolDefinition,
 };
 use pi_coding_agent::core::keybindings::KeybindingsManager;
 use pi_coding_agent::core::messages::{CompactionSummaryMessage, CompactionSummaryRole};
@@ -48,7 +48,6 @@ use pi_coding_agent::modes::interactive::components::first_time_setup::{
 use pi_coding_agent::modes::interactive::components::keybinding_hints::{
     KeyTextFormatOptions, format_key_text, key_display_text, key_hint, key_text, raw_key_hint,
 };
-use pi_coding_agent::modes::interactive::components::markdown_transform::create_markdown_transform;
 use pi_coding_agent::modes::interactive::components::status_indicator::{
     BranchSummaryStatusIndicator, CompactionStatusIndicator, CompactionStatusReason, IdleStatus, RetryStatusIndicator,
     WorkingStatusIndicator,
@@ -97,7 +96,6 @@ fn requests() -> Vec<(Value, Value)> {
     let mut cases = Vec::new();
     cases.extend(elapsed_cases());
     cases.extend(visual_truncate_cases());
-    cases.extend(markdown_transform_cases());
     cases.extend(key_hint_cases());
     cases.extend(model_search_cases());
     cases.extend(diff_cases());
@@ -180,35 +178,6 @@ fn visual_truncate_cases() -> Vec<(Value, Value)> {
             "module": "modes/interactive/components/visual-truncate.ts",
             "operation": "visualTruncate",
             "cases": request_cases,
-        }),
-        json!(output),
-    )]
-}
-
-fn markdown_transform_cases() -> Vec<(Value, Value)> {
-    let transformers = json!([
-        {"kind": "upper"},
-        {"kind": "append", "text": "!"},
-        {"kind": "append", "text": "?"},
-    ]);
-    let inputs = ["hello", "", "a\nb"];
-    let rust_transformers: Vec<MarkdownTransformer> = vec![
-        Arc::new(|markdown: &str, _context| markdown.to_uppercase()),
-        Arc::new(|markdown: &str, _context| format!("{markdown}!")),
-        Arc::new(|markdown: &str, _context| format!("{markdown}?")),
-    ];
-    let transform = create_markdown_transform(MarkdownMessageType::Assistant, true, rust_transformers);
-    let output: Vec<String> = inputs.iter().map(|input| transform(input, 80)).collect();
-    vec![(
-        json!({
-            "id": 3,
-            "module": "modes/interactive/components/markdown-transform.ts",
-            "operation": "markdownTransform",
-            "messageType": "assistant",
-            "isStreaming": true,
-            "availableWidth": 80,
-            "transformers": transformers,
-            "inputs": inputs,
         }),
         json!(output),
     )]
