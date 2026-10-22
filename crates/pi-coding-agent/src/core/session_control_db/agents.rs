@@ -2556,14 +2556,14 @@ pub fn update_multi_agent_agent_activity(
     control_db_path: impl Into<JsString>,
     session_path: impl Into<JsString>,
     agent_id: &JsString,
-    last_activity: Option<&Value>,
+    last_activity: Option<&JsValue>,
     updated_at: &str,
-) -> Result<Option<Value>, ControlDbError> {
+) -> Result<Option<JsValue>, ControlDbError> {
     let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
-    let mut metadata = Map::new();
+    let mut metadata = JsObject::new();
     if let Some(last_activity) = last_activity {
-        metadata.insert("lastActivity".to_owned(), last_activity.clone());
+        metadata.insert("lastActivity".into(), last_activity.clone());
     }
     update_multi_agent_agent_metadata(&control_db_path, session_path, agent_id, &metadata, updated_at, None)
 }
@@ -2573,20 +2573,20 @@ pub fn update_multi_agent_agent_current_activity(
     control_db_path: impl Into<JsString>,
     session_path: impl Into<JsString>,
     agent_id: &JsString,
-    current_activity: Option<&Value>,
+    current_activity: Option<&JsValue>,
     updated_at: &str,
     ownership: &crate::core::multi_agent_store::AgentCurrentActivityOwner,
-    model: Option<&Value>,
-) -> Result<Option<Value>, ControlDbError> {
+    model: Option<&JsValue>,
+) -> Result<Option<JsValue>, ControlDbError> {
     let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
-    let mut metadata = Map::new();
+    let mut metadata = JsObject::new();
     if let Some(model) = model {
         metadata.insert("model".into(), model.clone());
     }
     metadata.insert(
-        "currentActivity".to_owned(),
-        current_activity.cloned().unwrap_or(Value::Null),
+        "currentActivity".into(),
+        current_activity.cloned().unwrap_or(JsValue::Null),
     );
     update_multi_agent_agent_metadata(
         &control_db_path,
@@ -2603,13 +2603,13 @@ pub fn update_multi_agent_agent_model(
     control_db_path: impl Into<JsString>,
     session_path: impl Into<JsString>,
     agent_id: &JsString,
-    model: &Value,
+    model: &JsValue,
     updated_at: &str,
     ownership: &crate::core::multi_agent_store::AgentCurrentActivityOwner,
-) -> Result<Option<Value>, ControlDbError> {
+) -> Result<Option<JsValue>, ControlDbError> {
     let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
-    let mut metadata = Map::new();
+    let mut metadata = JsObject::new();
     metadata.insert("model".into(), model.clone());
     update_multi_agent_agent_metadata(
         &control_db_path,
@@ -2626,13 +2626,13 @@ pub fn update_multi_agent_agent_slot(
     control_db_path: impl Into<JsString>,
     session_path: impl Into<JsString>,
     agent_id: &JsString,
-    slot: Option<&Value>,
+    slot: Option<&JsValue>,
     updated_at: &str,
-) -> Result<Option<Value>, ControlDbError> {
+) -> Result<Option<JsValue>, ControlDbError> {
     let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
-    let mut metadata = Map::new();
-    metadata.insert("slot".to_owned(), slot.cloned().unwrap_or(Value::Null));
+    let mut metadata = JsObject::new();
+    metadata.insert("slot".into(), slot.cloned().unwrap_or(JsValue::Null));
     update_multi_agent_agent_metadata(&control_db_path, session_path, agent_id, &metadata, updated_at, None)
 }
 
@@ -2641,13 +2641,13 @@ pub fn update_multi_agent_agent_transcript(
     control_db_path: impl Into<JsString>,
     session_path: impl Into<JsString>,
     agent_id: &JsString,
-    transcript: Option<&Value>,
+    transcript: Option<&JsValue>,
     updated_at: &str,
-) -> Result<Option<Value>, ControlDbError> {
+) -> Result<Option<JsValue>, ControlDbError> {
     let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
-    let mut metadata = Map::new();
-    metadata.insert("transcript".to_owned(), transcript.cloned().unwrap_or(Value::Null));
+    let mut metadata = JsObject::new();
+    metadata.insert("transcript".into(), transcript.cloned().unwrap_or(JsValue::Null));
     update_multi_agent_agent_metadata(&control_db_path, session_path, agent_id, &metadata, updated_at, None)
 }
 
@@ -2655,10 +2655,10 @@ fn update_multi_agent_agent_metadata(
     control_db_path: &JsString,
     session_path: &JsString,
     agent_id: &JsString,
-    metadata: &Map<String, Value>,
+    metadata: &JsObject,
     updated_at: &str,
     activity_ownership: Option<&crate::core::multi_agent_store::AgentCurrentActivityOwner>,
-) -> Result<Option<Value>, ControlDbError> {
+) -> Result<Option<JsValue>, ControlDbError> {
     with_control_db(control_db_path, |db| {
         for _ in 0..MULTI_AGENT_METADATA_UPDATE_MAX_ATTEMPTS {
             let Some((data, row_updated_at)) = read_metadata_agent_row(db, session_path, agent_id)? else {
@@ -2669,7 +2669,7 @@ fn update_multi_agent_agent_metadata(
                 return Ok(None);
             };
             apply_metadata_patch(&mut agent, metadata, updated_at);
-            let serialized = js_json::stringify(&Value::Object(agent.clone()));
+            let serialized = js_json::stringify_lossless(&JsValue::Object(agent.clone()));
             let update = MetadataUpdate {
                 data: &data,
                 row_updated_at: &row_updated_at,
@@ -2679,7 +2679,7 @@ fn update_multi_agent_agent_metadata(
             };
             let changed = persist_metadata_update(db, session_path, agent_id, &update)?;
             if changed == 1 {
-                return Ok(Some(Value::Object(agent)));
+                return Ok(Some(JsValue::Object(agent)));
             }
         }
         Err(ControlDbError::new(js_format!(
@@ -2709,11 +2709,11 @@ fn read_metadata_agent(
     session_path: &JsString,
     agent_id: &JsString,
     data: &str,
-    metadata: &Map<String, Value>,
+    metadata: &JsObject,
     activity_ownership: Option<&crate::core::multi_agent_store::AgentCurrentActivityOwner>,
-) -> Result<Option<Map<String, Value>>, ControlDbError> {
+) -> Result<Option<JsObject>, ControlDbError> {
     let context = js_format!("multi_agent_agents:{}#{}", session_path, agent_id);
-    let agent = parse_stored_json_object(data, &context)?;
+    let agent = super::parse_stored_json_object_lossless(data, &context)?;
     validate_persisted_agent_payload(&agent, &context)?;
     if let Some(ownership) = activity_ownership
         && !multi_agent_activity_ownership_matches(db, session_path, agent_id, ownership)?
@@ -2726,7 +2726,7 @@ fn read_metadata_agent(
     Ok(Some(agent))
 }
 
-fn apply_metadata_patch(agent: &mut Map<String, Value>, metadata: &Map<String, Value>, updated_at: &str) {
+fn apply_metadata_patch(agent: &mut JsObject, metadata: &JsObject, updated_at: &str) {
     for (key, value) in metadata {
         if value.is_null() {
             agent.remove(key);
@@ -2734,7 +2734,7 @@ fn apply_metadata_patch(agent: &mut Map<String, Value>, metadata: &Map<String, V
             agent.insert(key.clone(), value.clone());
         }
     }
-    agent.insert("updatedAt".to_owned(), Value::String(updated_at.to_owned()));
+    agent.insert("updatedAt".into(), JsValue::String(updated_at.into()));
 }
 
 struct MetadataUpdate<'a> {
@@ -2803,13 +2803,13 @@ fn multi_agent_activity_ownership_matches(
     }))
 }
 
-fn permits_multi_agent_current_activity(agent: &Map<String, Value>, metadata: &Map<String, Value>) -> bool {
+fn permits_multi_agent_current_activity(agent: &JsObject, metadata: &JsObject) -> bool {
     !metadata.contains_key("currentActivity")
-        || metadata.get("currentActivity") == Some(&Value::Null)
-        || matches!(
-            agent.get("lifecycle").and_then(Value::as_str),
-            Some("running" | "steering_pending")
-        )
+        || metadata.get("currentActivity") == Some(&JsValue::Null)
+        || agent
+            .get("lifecycle")
+            .and_then(JsValue::as_string)
+            .is_some_and(|lifecycle| lifecycle == "running" || lifecycle == "steering_pending")
 }
 
 // ---------------------------------------------------------------------------
