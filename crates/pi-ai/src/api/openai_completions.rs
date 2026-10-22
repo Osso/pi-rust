@@ -3,7 +3,7 @@
 use crate::api::openai_sdk::ingress_metadata_text;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::{JsObject, JsValue};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
@@ -315,35 +315,6 @@ fn has_tool_history(messages: &[Message]) -> bool {
     })
 }
 
-fn get_deferred_tool_names(messages: &[Message]) -> Vec<String> {
-    let mut names = Vec::new();
-    let mut seen = BTreeSet::new();
-    for message in messages {
-        if let Message::ToolResult(result) = message {
-            for name in result.added_tool_names.iter().flatten() {
-                if seen.insert(name.clone()) {
-                    names.push(name.clone());
-                }
-            }
-        }
-    }
-    names
-}
-
-fn get_tools_by_name(tools: Option<&[Tool]>, names: &[String]) -> Vec<Tool> {
-    let Some(tools) = tools else {
-        return Vec::new();
-    };
-    let by_name = tools
-        .iter()
-        .map(|tool| (tool.name.clone(), tool))
-        .collect::<BTreeMap<_, _>>();
-    names
-        .iter()
-        .filter_map(|name| by_name.get(name).map(|tool| (*tool).clone()))
-        .collect()
-}
-
 // =============================================================================
 // Message conversion
 // =============================================================================
@@ -634,8 +605,6 @@ pub fn convert_messages(
             }
             Message::ToolResult(_) => {
                 let mut image_blocks = Vec::new();
-                let mut deferred_tool_names = Vec::new();
-                let mut deferred_tool_name_set = BTreeSet::new();
                 let mut next = index;
                 while next < transformed_messages.len() {
                     let Message::ToolResult(tool_result) = &transformed_messages[next] else {
@@ -676,14 +645,6 @@ pub fn convert_messages(
                         tool_message.insert("name".into(), JsValue::String(tool_result.tool_name.clone().into()));
                     }
                     params.push(JsValue::Object(tool_message));
-
-                    if compat.deferred_tools_mode == Some(crate::types::DeferredToolsMode::Kimi) {
-                        for name in tool_result.added_tool_names.iter().flatten() {
-                            if deferred_tool_name_set.insert(name.clone()) {
-                                deferred_tool_names.push(name.clone());
-                            }
-                        }
-                    }
 
                     if has_images && model.input.contains(&crate::types::Modality::Image) {
                         for block in &tool_result.content {
@@ -727,15 +688,6 @@ pub fn convert_messages(
                     last_role = Some("toolResult".into());
                 }
 
-                if !deferred_tool_names.is_empty() {
-                    let deferred_tools = get_tools_by_name(context.tools.as_deref(), &deferred_tool_names);
-                    if !deferred_tools.is_empty() {
-                        params.push(lossless_object(vec![
-                            ("role", JsValue::String("system".into())),
-                            ("tools", convert_tools(&deferred_tools, compat).into()),
-                        ]));
-                    }
-                }
                 index += 1;
                 continue;
             }
@@ -1011,21 +963,8 @@ pub fn build_params(
         params.insert("temperature".into(), js_number_value(temperature).into());
     }
 
-    let deferred_tool_names = if compat.deferred_tools_mode == Some(crate::types::DeferredToolsMode::Kimi) {
-        get_deferred_tool_names(&context.messages)
-    } else {
-        Vec::new()
-    };
-    let deferred_names_set = deferred_tool_names.iter().cloned().collect::<BTreeSet<_>>();
-    let active_tools = context.tools.as_deref().map(|tools| {
-        tools
-            .iter()
-            .filter(|tool| !deferred_names_set.contains(&tool.name))
-            .cloned()
-            .collect::<Vec<_>>()
-    });
     let mut tools_value = None;
-    if let Some(active_tools) = active_tools.as_deref().filter(|tools| !tools.is_empty()) {
+    if let Some(active_tools) = context.tools.as_deref().filter(|tools| !tools.is_empty()) {
         tools_value = Some(JsValue::from(convert_tools(active_tools, compat)));
         if compat.zai_tool_stream {
             params.insert("tool_stream".into(), JsValue::Bool(true));
