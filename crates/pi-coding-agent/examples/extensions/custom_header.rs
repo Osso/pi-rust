@@ -1,6 +1,8 @@
 //! Opt-in native port of `coding-agent/examples/extensions/custom-header.ts`.
 //! Embed this source and register `custom_header_extension` in an explicit factory.
 
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
 use pi_coding_agent::core::extensions::types::{
@@ -15,7 +17,7 @@ struct CustomHeader {
 impl ExtensionUiComponent for CustomHeader {
     fn render(&self, _width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let mut lines = pi_mascot(&self.theme);
-        lines.push(format!(
+        lines.push(js_format!(
             "{}{}",
             self.theme.fg(ThemeColor::Muted, "   shitty coding agent"),
             self.theme
@@ -27,24 +29,24 @@ impl ExtensionUiComponent for CustomHeader {
     fn invalidate(&self) {}
 }
 
-fn pi_mascot(theme: &Theme) -> Vec<String> {
-    let eye = format!("█{}", theme.fg(ThemeColor::Dim, "▌"));
-    let eyes = format!("     {eye}  {eye}");
-    let bar = format!("  {}", theme.fg(ThemeColor::Accent, &"█".repeat(14)));
-    let leg = format!(
+fn pi_mascot(theme: &Theme) -> Vec<JsString> {
+    let eye = js_format!("█{}", theme.fg(ThemeColor::Dim, "▌"));
+    let eyes = js_format!("     {}  {}", eye, eye);
+    let bar = js_format!("  {}", theme.fg(ThemeColor::Accent, &"█".repeat(14)));
+    let leg = js_format!(
         "     {}    {}",
         theme.fg(ThemeColor::Accent, "██"),
         theme.fg(ThemeColor::Accent, "██")
     );
     vec![
-        String::new(),
+        JsString::default(),
         eyes,
         bar,
         leg.clone(),
         leg.clone(),
         leg.clone(),
         leg,
-        String::new(),
+        JsString::default(),
     ]
 }
 
@@ -71,7 +73,7 @@ pub fn custom_header_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             Box::pin(async move {
                 let ui = ctx.ui()?;
                 ui.set_header(None);
-                ui.notify("Built-in header restored", Some(NotifyType::Info));
+                ui.notify(&JsString::from("Built-in header restored"), Some(NotifyType::Info));
                 Ok(())
             })
         }),

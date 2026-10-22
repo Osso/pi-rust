@@ -8,6 +8,7 @@ use pi_coding_agent::{
     core::extensions::*,
     modes::interactive::theme::{ThemeColor, get_markdown_theme},
 };
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::string::js_trim;
 use pi_tui::{
     Text,
@@ -119,24 +120,27 @@ async fn run_summary(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
     let ui = ctx.ui()?;
     if js_trim(&conversation).is_empty() {
         if has_ui {
-            ui.notify("No conversation text found", Some(NotifyType::Warning));
+            ui.notify(&JsString::from("No conversation text found"), Some(NotifyType::Warning));
         }
         return Ok(());
     }
     if has_ui {
-        ui.notify("Preparing summary...", Some(NotifyType::Info));
+        ui.notify(&JsString::from("Preparing summary..."), Some(NotifyType::Info));
     }
     let registry = ctx.model_registry()?;
     let Some(model) = registry.find("openai", "gpt-5.2") else {
         if has_ui {
-            ui.notify("Model openai/gpt-5.2 not found", Some(NotifyType::Warning));
+            ui.notify(
+                &JsString::from("Model openai/gpt-5.2 not found"),
+                Some(NotifyType::Warning),
+            );
         }
         return Ok(());
     };
     if !registry.has_configured_auth(&model) {
         if has_ui {
             ui.notify(
-                "No authentication configured for openai/gpt-5.2",
+                &JsString::from("No authentication configured for openai/gpt-5.2"),
                 Some(NotifyType::Warning),
             );
         }
@@ -180,7 +184,7 @@ async fn complete_summary(
     };
     let options = StreamOptions {
         cache_retention: Some(CacheRetention::None),
-        session_id: Some(uuidv7()),
+        session_id: Some(JsString::from(uuidv7())),
         extra: serde_json::from_value(json!({"reasoningEffort":"high"})).expect("JSON object"),
         ..Default::default()
     };
@@ -188,13 +192,15 @@ async fn complete_summary(
         .complete(model, context, options)
         .await
         .map_err(|error| HandlerError::new(error.to_string()))?;
-    Ok(response
-        .content
-        .iter()
-        .filter_map(|content| match content {
-            AssistantContent::Text(text) => Some(text.text.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n"))
+    Ok(JsString::join(
+        response
+            .content
+            .iter()
+            .filter_map(|content| match content {
+                AssistantContent::Text(text) => Some(text.text.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        "\n",
+    ))
 }

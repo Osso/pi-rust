@@ -1,6 +1,8 @@
 //! Opt-in native user-message delivery commands. Input whitespace is preserved.
 use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::string::js_trim;
 use std::sync::Arc;
 
@@ -28,12 +30,15 @@ pub fn send_user_message_extension(pi: &ExtensionApi) -> Result<(), HandlerError
 async fn deliver(
     api: &ExtensionApi,
     name: &str,
-    args: String,
+    args: JsString,
     ctx: ExtensionCommandContext,
 ) -> Result<(), HandlerError> {
     let ui = ctx.ui()?;
-    if js_trim(&args).is_empty() {
-        ui.notify(&format!("Usage: /{name} <message>"), Some(NotifyType::Warning));
+    if args.trim().is_empty() {
+        ui.notify(
+            &JsString::from(format!("Usage: /{name} <message>")),
+            Some(NotifyType::Warning),
+        );
         return Ok(());
     }
     let idle = ctx.is_idle()?;
@@ -43,16 +48,16 @@ async fn deliver(
         } else {
             "Agent is busy"
         };
-        ui.notify(message, Some(NotifyType::Warning));
+        ui.notify(&JsString::from(message), Some(NotifyType::Warning));
         return Ok(());
     }
     let content = if name == "askwith" {
         UserMessageContent::Blocks(vec![
-            TextOrImageContent::Text(TextContent::new(format!("User request: {args}"))),
+            TextOrImageContent::Text(TextContent::new(js_format!("User request: {}", args))),
             TextOrImageContent::Text(TextContent::new("Please respond concisely.")),
         ])
     } else {
-        UserMessageContent::Text(args)
+        UserMessageContent::Text(JsString::from(args))
     };
     let options = if idle {
         None
@@ -68,7 +73,7 @@ async fn deliver(
     };
     api.send_user_message(content, options)?;
     if !idle && name == "followup" {
-        ui.notify("Follow-up queued", Some(NotifyType::Info));
+        ui.notify(&JsString::from("Follow-up queued"), Some(NotifyType::Info));
     }
     Ok(())
 }

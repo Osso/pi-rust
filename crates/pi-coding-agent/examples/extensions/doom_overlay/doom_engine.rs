@@ -1,6 +1,7 @@
 //! Separable Doom wrapper. A host supplies the waived external module; this
 //! file does not load/evaluate the generated Emscripten JavaScript asset.
-use std::{fmt, path::PathBuf};
+use pi_js_compat::js_json::JsString;
+use std::path::PathBuf;
 
 use pi_js_compat::node_fs::{NodeFsError, NodeReadApi, node_read_error_record};
 
@@ -10,11 +11,11 @@ pub enum DoomInitError {
     Module(String),
 }
 
-impl fmt::Display for DoomInitError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl DoomInitError {
+    pub fn message(&self) -> JsString {
         match self {
-            Self::Wad(error) => f.write_str(&error.message),
-            Self::Module(message) => f.write_str(message),
+            Self::Wad(error) => error.message.clone(),
+            Self::Module(message) => JsString::from(message),
         }
     }
 }
@@ -79,7 +80,7 @@ impl DoomEngine {
         let wad = std::fs::read(&self.wad_path).map_err(|error| {
             DoomInitError::Wad(node_read_error_record(
                 &error,
-                &self.wad_path.to_string_lossy(),
+                &JsString::from(self.wad_path.to_str().expect("filesystem path must be UTF-8")),
                 NodeReadApi::ReadFileSync,
             ))
         })?;

@@ -2,6 +2,7 @@
 use super::editor_composition::{ComposedEditor, EditorBehavior};
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::components::custom_editor::CustomEditor;
+use pi_js_compat::js_json::JsString;
 use pi_tui::{Component, EditorComponent};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -26,23 +27,26 @@ struct Rainbow {
     frame: Arc<AtomicUsize>,
     timer: Option<tokio::task::JoinHandle<()>>,
 }
-fn colorize(text: &str, shine: Option<usize>) -> String {
-    let mut result = String::new();
-    for (i, ch) in text.chars().enumerate() {
+fn colorize(text: &JsString, shine: Option<usize>) -> JsString {
+    let mut result = JsString::default();
+    for (i, unit) in text.units().iter().enumerate() {
         let factor = match shine.map(|p| i.abs_diff(p)) {
             Some(0) => 0.7,
             Some(1) => 0.35,
             _ => 0.0,
         };
         let rgb = COLORS[i % COLORS.len()].map(|c| (f64::from(c) + (255.0 - f64::from(c)) * factor).round() as u8);
-        result.push_str(&format!("\x1b[38;2;{};{};{}m{ch}", rgb[0], rgb[1], rgb[2]));
+        result.push_str(pi_js_compat::js_format!("\x1b[38;2;{};{};{}m", rgb[0], rgb[1], rgb[2]));
+        result.push_unit(*unit);
     }
     result.push_str("\x1b[0m");
     result
 }
 impl Rainbow {
-    fn update_animation(&mut self, text: &str) {
-        let has_word = text.to_ascii_lowercase().contains("ultrathink");
+    fn update_animation(&mut self, text: &JsString) {
+        let has_word = pi_js_compat::js_regex::JsRegex::with_flags("ultrathink", "i")
+            .expect("constant word pattern")
+            .is_match(text);
         if has_word && self.timer.is_none() {
             let frame = self.frame.clone();
             let tui = self.tui.clone();
@@ -61,8 +65,8 @@ impl Rainbow {
     }
 }
 impl EditorBehavior for Rainbow {
-    fn input(&mut self, editor: &mut CustomEditor, data: &str) -> Vec<Rc<dyn Fn()>> {
-        let mut callbacks = editor.handle_input_deferred(data);
+    fn input(&mut self, editor: &mut CustomEditor, data: &JsString) -> Vec<Rc<dyn Fn()>> {
+        let mut callbacks = editor.handle_input_deferred(&JsString::from(data));
         if callbacks.is_empty() {
             self.update_animation(&editor.get_text());
         } else {
@@ -78,7 +82,7 @@ impl EditorBehavior for Rainbow {
         }
         callbacks
     }
-    fn render(&mut self, editor: &mut CustomEditor, width: usize) -> Vec<String> {
+    fn render(&mut self, editor: &mut CustomEditor, width: usize) -> Vec<JsString> {
         let cycle = self.frame.load(Ordering::SeqCst) % 20;
         let shine = (cycle < 10).then_some(cycle);
         editor
@@ -86,16 +90,17 @@ impl EditorBehavior for Rainbow {
             .into_iter()
             .map(|line| {
                 // ASCII case-insensitive matching preserves original spelling and ANSI.
-                let lower = line.to_ascii_lowercase();
-                let mut result = String::new();
+                let pattern =
+                    pi_js_compat::js_regex::JsRegex::with_flags("ultrathink", "i").expect("constant word pattern");
+                let mut result = JsString::default();
                 let mut from = 0;
-                while let Some(offset) = lower[from..].find("ultrathink") {
-                    let start = from + offset;
-                    result.push_str(&line[from..start]);
+                while let Some(found) = pattern.find_from(&line, from) {
+                    let start = found.start();
+                    result.push_str(line.slice(from, start));
                     from = start + 10;
-                    result.push_str(&colorize(&line[start..from], shine));
+                    result.push_str(&colorize(&line.slice(start, from), shine));
                 }
-                result.push_str(&line[from..]);
+                result.push_str(line.slice(from, line.len()));
                 result
             })
             .collect()

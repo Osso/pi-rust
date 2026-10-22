@@ -12,8 +12,10 @@ use pi_coding_agent::core::{
     session_manager::{KnownSessionEntry, SessionEntry},
 };
 use pi_coding_agent::modes::interactive::components::bordered_loader::{BorderedLoader, BorderedLoaderOptions};
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::JsValue as Value;
 use pi_tui::tui::Component;
-use serde_json::Value;
 use std::{rc::Rc, sync::Arc};
 use tokio_util::sync::CancellationToken;
 
@@ -42,11 +44,14 @@ pub fn qna_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             Box::pin(async move {
                 let ui = ctx.ui()?;
                 if ctx.mode()? != ExtensionMode::Tui {
-                    ui.notify("qna requires interactive mode", Some(NotifyType::Error));
+                    ui.notify(
+                        &JsString::from("qna requires interactive mode"),
+                        Some(NotifyType::Error),
+                    );
                     return Ok(());
                 }
                 let Some(model) = ctx.model()? else {
-                    ui.notify("No model selected", Some(NotifyType::Error));
+                    ui.notify(&JsString::from("No model selected"), Some(NotifyType::Error));
                     return Ok(());
                 };
                 let branch = ctx.session_manager()?.lock().unwrap().get_branch(None);
@@ -54,13 +59,16 @@ pub fn qna_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     AssistantText::Text(text) => text,
                     AssistantText::Incomplete(reason) => {
                         ui.notify(
-                            &format!("Last assistant message incomplete ({reason})"),
+                            &JsString::from(pi_js_compat::js_format!(
+                                "Last assistant message incomplete ({})",
+                                reason
+                            )),
                             Some(NotifyType::Error),
                         );
                         return Ok(());
                     }
                     AssistantText::Missing => {
-                        ui.notify("No assistant messages found", Some(NotifyType::Error));
+                        ui.notify(&JsString::from("No assistant messages found"), Some(NotifyType::Error));
                         return Ok(());
                     }
                 };
@@ -100,20 +108,22 @@ pub fn qna_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                                     )
                                     .await;
                                 let value = match response {
-                                    Ok(response) if response.stop_reason != StopReason::Aborted => Value::String(
-                                        response
-                                            .content
-                                            .iter()
-                                            .filter_map(|c| match c {
-                                                AssistantContent::Text(t) => Some(t.text.as_str()),
-                                                _ => None,
-                                            })
-                                            .collect::<Vec<_>>()
-                                            .join("\n"),
-                                    ),
+                                    Ok(response) if response.stop_reason != StopReason::Aborted => {
+                                        Value::String(JsString::join(
+                                            response
+                                                .content
+                                                .iter()
+                                                .filter_map(|c| match c {
+                                                    AssistantContent::Text(t) => Some(t.text.clone()),
+                                                    _ => None,
+                                                })
+                                                .collect::<Vec<_>>(),
+                                            "\n",
+                                        ))
+                                    }
                                     Ok(_) | Err(_) => Value::Null,
                                 };
-                                done.call(Some(value));
+                                done.call(Some(JsValue::from(value)));
                             });
                             context.tui.request_render();
                             pi_coding_agent::core::extensions::ready_custom_component(Box::new(loader))
@@ -122,10 +132,13 @@ pub fn qna_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     )
                     .await?;
                 match result {
-                    Some(Value::Null) => ui.notify("Cancelled", Some(NotifyType::Info)),
+                    Some(Value::Null) => ui.notify(&JsString::from("Cancelled"), Some(NotifyType::Info)),
                     Some(Value::String(text)) => {
-                        ui.set_editor_text(&text);
-                        ui.notify("Questions loaded. Edit and submit when ready.", Some(NotifyType::Info));
+                        ui.set_editor_text(&JsString::from(&text));
+                        ui.notify(
+                            &JsString::from("Questions loaded. Edit and submit when ready."),
+                            Some(NotifyType::Info),
+                        );
                     }
                     _ => return Err(HandlerError::new("qna custom UI returned neither text nor null")),
                 }
@@ -137,8 +150,8 @@ pub fn qna_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
 }
 enum AssistantText {
     Missing,
-    Incomplete(String),
-    Text(String),
+    Incomplete(JsString),
+    Text(JsString),
 }
 fn find_assistant_text(branch: &[SessionEntry]) -> AssistantText {
     for entry in branch.iter().rev() {
@@ -149,9 +162,9 @@ fn find_assistant_text(branch: &[SessionEntry]) -> AssistantText {
             continue;
         };
         if message.stop_reason != StopReason::Stop {
-            let reason = serde_json::to_value(message.stop_reason)
+            let reason = pi_js_compat::js_json::to_value(&message.stop_reason)
                 .expect("stop reason")
-                .as_str()
+                .as_string()
                 .expect("string reason")
                 .to_owned();
             return AssistantText::Incomplete(reason);
@@ -160,12 +173,12 @@ fn find_assistant_text(branch: &[SessionEntry]) -> AssistantText {
             .content
             .iter()
             .filter_map(|c| match c {
-                AssistantContent::Text(t) => Some(t.text.as_str()),
+                AssistantContent::Text(t) => Some(t.text.clone()),
                 _ => None,
             })
             .collect::<Vec<_>>();
         if !parts.is_empty() {
-            let text = parts.join("\n");
+            let text = JsString::join(parts, "\n");
             return if text.is_empty() {
                 AssistantText::Missing
             } else {
@@ -191,7 +204,7 @@ impl QnaLoader {
         let done = self.done.clone();
         loader.set_on_abort(Some(Rc::new(move || {
             signal.cancel();
-            done.call(Some(Value::Null));
+            done.call(Some(JsValue::from(Value::Null)));
         })));
         loader
     }

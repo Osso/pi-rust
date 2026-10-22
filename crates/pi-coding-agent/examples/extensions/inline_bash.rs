@@ -1,10 +1,11 @@
 //! Opt-in native inline-bash example. Commands execute in the explicitly loaded cwd.
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::string::{js_trim, replace, utf16_slice_to_utf8};
 
 pub fn inline_bash_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     let api = pi.clone();
-    let pattern = regex::Regex::new(r"!\{([^}]+)\}").expect("constant inline pattern");
+    let pattern = pi_js_compat::js_regex::JsRegex::new(r"!\{([^}]+)\}").expect("constant inline pattern");
     pi.on_input(
         move |event: InputEvent,
               ctx: ExtensionContext|
@@ -12,15 +13,18 @@ pub fn inline_bash_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             let api = api.clone();
             let pattern = pattern.clone();
             Box::pin(async move {
-                let start = event
-                    .text
-                    .trim_start_matches(pi_js_compat::string::is_js_whitespace_char);
+                let start = event.text.trim_start();
                 if start.starts_with('!') && !start.starts_with("!{") {
                     return Ok(Some(InputEventResult::Continue));
                 }
                 let matches: Vec<_> = pattern
                     .captures_iter(&event.text)
-                    .map(|m| (m[0].to_owned(), m[1].to_owned()))
+                    .map(|m| {
+                        (
+                            m.get(0).expect("full inline match").text(),
+                            m.get(1).expect("inline command capture").text(),
+                        )
+                    })
                     .collect();
                 if matches.is_empty() {
                     return Ok(Some(InputEventResult::Continue));
@@ -31,7 +35,7 @@ pub fn inline_bash_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     let (output, error) = match api
                         .exec(
                             "bash".into(),
-                            vec!["-c".into(), command.clone()],
+                            vec!["-c".into(), pi_js_compat::js_json::encode_node_utf8(&command)],
                             Some(ExtensionExecOptions {
                                 timeout: Some(30_000),
                                 ..Default::default()
@@ -51,7 +55,7 @@ pub fn inline_bash_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                         }
                         Err(error) => {
                             result = replace(&result, &full, &format!("[error: {error}]"));
-                            summaries.push(format!("!{{{command}}} ({error}) -> \"\""));
+                            summaries.push(pi_js_compat::js_format!("!{{{}}} ({}) -> \"\"", command, error));
                             continue;
                         }
                     };
@@ -62,15 +66,20 @@ pub fn inline_bash_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                         output
                     };
                     let status = error.map(|error| format!(" ({error})")).unwrap_or_default();
-                    summaries.push(format!("!{{{command}}}{status} -> \"{preview}\""));
+                    summaries.push(pi_js_compat::js_format!(
+                        "!{{{}}}{} -> \"{}\"",
+                        command,
+                        status,
+                        preview
+                    ));
                 }
                 if ctx.has_ui()? {
                     ctx.ui()?.notify(
-                        &format!(
+                        &JsString::from(format!(
                             "Expanded {} inline command(s):\n{}",
                             summaries.len(),
-                            summaries.join("\n")
-                        ),
+                            JsString::join(summaries, "\n")
+                        )),
                         Some(NotifyType::Info),
                     );
                 }

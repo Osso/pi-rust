@@ -3,6 +3,8 @@
 #[path = "support/env_probe.rs"]
 mod env_probe;
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -39,7 +41,7 @@ impl Terminal for ScriptedTerminal {
 
     fn drain_input(&mut self, _max_ms: u64, _idle_ms: u64) {}
 
-    fn write(&mut self, _data: &str) {}
+    fn write(&mut self, _data: &JsString) {}
 
     fn columns(&self) -> usize {
         80
@@ -65,7 +67,7 @@ impl Terminal for ScriptedTerminal {
 
     fn clear_screen(&mut self) {}
 
-    fn set_title(&mut self, _title: &str) {}
+    fn set_title(&mut self, _title: &JsString) {}
 
     fn set_progress(&mut self, _active: bool) {}
 
@@ -74,7 +76,7 @@ impl Terminal for ScriptedTerminal {
         if keys.is_empty() {
             return Vec::new();
         }
-        vec![TerminalEvent::Input(keys.remove(0))]
+        vec![TerminalEvent::Input(JsString::from(keys.remove(0)))]
     }
 }
 
@@ -110,10 +112,10 @@ fn write_theme(dir: &Path, file: &str, name: &str) -> String {
 
 fn resource(path: &str, enabled: bool) -> ResolvedResource {
     ResolvedResource {
-        path: path.to_owned(),
+        path: JsString::from(path.to_owned()),
         enabled,
         metadata: pi_coding_agent::core::package_manager::PathMetadata {
-            source: "test".to_owned(),
+            source: JsString::from("test"),
             scope: pi_coding_agent::core::package_manager::SourceScope::User,
             origin: pi_coding_agent::core::package_manager::MetadataOrigin::TopLevel,
             base_dir: None,
@@ -181,7 +183,7 @@ fn load_themes_skips_disabled_and_broken_entries_and_dedupes_names() {
         resource(&first, false),
         resource(&dir.join("missing.json").display().to_string(), true),
     ]);
-    let names: Vec<&str> = themes.iter().filter_map(|theme| theme.name.as_deref()).collect();
+    let names: Vec<&JsString> = themes.iter().filter_map(|theme| theme.name.as_ref()).collect();
     assert_eq!(names, vec!["custom", "other"]);
 }
 
@@ -193,22 +195,28 @@ async fn load_startup_themes_uses_global_settings_only() {
     write_theme(&agent_dir.join("themes"), "custom.json", "startup");
 
     let settings_manager = SettingsManager::in_memory(
-        json!({ "themes": [agent_dir.join("themes/custom.json").display().to_string()] })
+        (json!({ "themes": [agent_dir.join("themes/custom.json").display().to_string()] })
             .as_object()
             .unwrap()
-            .clone(),
+            .clone())
+        .into_iter()
+        .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+        .collect::<pi_js_compat::js_json::JsObject>(),
         SettingsManagerCreateOptions {
             project_trusted: Some(false),
         },
     );
     let themes = load_startup_themes(&settings_manager).await.unwrap();
-    let names: Vec<&str> = themes.iter().filter_map(|theme| theme.name.as_deref()).collect();
-    assert!(names.contains(&"startup"), "{names:?}");
+    let names: Vec<&JsString> = themes.iter().filter_map(|theme| theme.name.as_ref()).collect();
+    assert!(names.iter().any(|name| *name == "startup"), "{names:?}");
 }
 
 fn in_memory_settings() -> SettingsManager {
     SettingsManager::in_memory(
-        serde_json::Map::new(),
+        serde_json::Map::new()
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>(),
         SettingsManagerCreateOptions {
             project_trusted: Some(false),
         },
@@ -257,8 +265,11 @@ fn startup_selector_probe_child() {
             &settings_manager,
             terminal,
             &env(&[("COLORFGBG", "0;15")]),
-            "Pick one",
-            vec![("Yes".to_owned(), "yes".to_owned()), ("No".to_owned(), "no".to_owned())],
+            &JsString::from("Pick one"),
+            vec![
+                (JsString::from("Yes"), "yes".to_owned()),
+                (JsString::from("No"), "no".to_owned()),
+            ],
         ))
         .expect("selector runs");
     fs::write(out, serde_json::to_string(&json!({ "selected": selected })).unwrap()).unwrap();
@@ -294,8 +305,8 @@ fn startup_input_probe_child() {
             &settings_manager,
             terminal,
             &env(&[("COLORFGBG", "0;15")]),
-            "Your name",
-            Some("name"),
+            &JsString::from("Your name"),
+            Some(&JsString::from("name")),
         ))
         .expect("input runs");
     fs::write(out, serde_json::to_string(&json!({ "value": value })).unwrap()).unwrap();

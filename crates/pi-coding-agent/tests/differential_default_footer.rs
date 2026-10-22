@@ -7,6 +7,7 @@ mod oracle;
 #[path = "support/extensions.rs"]
 mod support;
 
+use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
 use bundled::{Harness, HarnessOptions};
@@ -43,7 +44,7 @@ fn model(id: &str, provider: &str, context_window: f64, reasoning: bool) -> Mode
         name: id.to_owned(),
         api: "openai-responses".to_owned(),
         provider: provider.to_owned(),
-        base_url: "https://example.test".to_owned(),
+        base_url: JsString::from("https://example.test"),
         reasoning,
         thinking_level_map: None,
         input: vec![pi_ai::types::Modality::Text],
@@ -94,7 +95,7 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
     let mut results = Vec::new();
     for case in cases {
         let usage = case.get("usage").cloned().unwrap_or_else(|| json!({}));
-        let mut session = SessionManager::in_memory(Some("/tmp/project"), None).expect("session");
+        let mut session = SessionManager::in_memory(Some(&JsString::from("/tmp/project")), None).expect("session");
         session
             .append_message(assistant_message(
                 usage.get("input").and_then(Value::as_f64).unwrap_or(0.0),
@@ -103,7 +104,9 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
             ))
             .expect("assistant");
         if let Some(name) = case.get("sessionName").and_then(Value::as_str) {
-            session.set_session_name(Some(name)).expect("session name");
+            session
+                .set_session_name(Some(&JsString::from(name)))
+                .expect("session name");
         }
 
         let context_usage = case.get("contextUsage").and_then(|usage| {
@@ -133,23 +136,26 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
         options.context_usage = context_usage;
         let harness = Harness::new(Vec::new(), runtime, options).await;
 
-        let footer_data = Arc::new(FooterDataProvider::new(
-            if case.get("gitBranch").and_then(Value::as_str).is_some() {
+        let footer_data = Arc::new(FooterDataProvider::new(JsString::from(
+            (if case.get("gitBranch").and_then(Value::as_str).is_some() {
                 git_fixture_dir()
             } else {
                 non_git_dir()
-            },
-        ));
+            })
+            .to_str()
+            .expect("fixture path must be UTF-8"),
+        )));
         footer_data.set_available_provider_count(
             case.get("availableProviderCount").and_then(Value::as_u64).unwrap_or(1) as usize,
         );
         if let Some(statuses) = case.get("extensionStatuses").and_then(Value::as_object) {
             for (key, text) in statuses {
-                footer_data.set_extension_status(key, text.as_str());
+                footer_data.set_extension_status(&JsString::from(key), text.as_str().map(JsString::from).as_ref());
             }
         }
         if let Some(override_value) = case.get("override") {
-            let mut override_session = SessionManager::in_memory(Some("/tmp/child"), None).expect("child session");
+            let mut override_session =
+                SessionManager::in_memory(Some(&JsString::from("/tmp/child")), None).expect("child session");
             let override_usage = override_value.get("usage").cloned().unwrap_or_else(|| json!({}));
             override_session
                 .append_message(assistant_message(
@@ -160,7 +166,7 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
                 .expect("child assistant");
             if let Some(name) = override_value.get("sessionName").and_then(Value::as_str) {
                 override_session
-                    .set_session_name(Some(name))
+                    .set_session_name(Some(&JsString::from(name)))
                     .expect("child session name");
             }
             let override_model = override_value.get("model").and_then(|value| {
@@ -179,18 +185,22 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
                 })
             });
             footer_data.set_session_override(FooterSessionOverride {
-                cwd: override_value
-                    .get("cwd")
-                    .and_then(Value::as_str)
-                    .unwrap_or("/tmp/child")
-                    .to_owned(),
+                cwd: JsString::from(
+                    override_value
+                        .get("cwd")
+                        .and_then(Value::as_str)
+                        .unwrap_or("/tmp/child")
+                        .to_owned(),
+                ),
                 session_manager: Some(Arc::new(Mutex::new(override_session))),
                 model: override_model,
-                thinking_level: override_value
-                    .get("thinkingLevel")
-                    .and_then(Value::as_str)
-                    .unwrap_or("off")
-                    .to_owned(),
+                thinking_level: JsString::from(
+                    override_value
+                        .get("thinkingLevel")
+                        .and_then(Value::as_str)
+                        .unwrap_or("off")
+                        .to_owned(),
+                ),
                 context_usage: override_context,
             });
         }
@@ -212,7 +222,7 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
                 _ => AgentLifecycle::Aborted,
             };
             Some(DefaultFooterSelectedAgent {
-                display_name: agent.get("displayName").and_then(Value::as_str)?.to_owned(),
+                display_name: JsString::from(agent.get("displayName").and_then(Value::as_str)?.to_owned()),
                 lifecycle,
                 slot_index: agent.get("slotIndex").and_then(Value::as_i64),
             })

@@ -4,6 +4,8 @@ use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Map, Value, json};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -28,7 +30,7 @@ impl ExtensionUiContext for Ui {
         &'a self,
         factory: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<Value>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
         let item = self.item.lock().unwrap().clone();
         let calls = self.calls.clone();
         ui_thread::run(move || {
@@ -60,7 +62,7 @@ impl ExtensionUiContext for Ui {
                 let width = item["width"].as_u64().unwrap_or(40) as usize;
                 calls.lock().unwrap().push(json!(["render", component.render(width)]));
                 for key in item["keys"].as_array().into_iter().flatten() {
-                    component.handle_input(key.as_str().unwrap());
+                    component.handle_input(&JsString::from(key.as_str().unwrap()));
                     calls.lock().unwrap().push(json!(["render", component.render(width)]));
                 }
                 component.invalidate();
@@ -81,29 +83,29 @@ impl ExtensionUiContext for Ui {
             })
         })
     }
-    fn set_editor_text(&self, text: &str) {
+    fn set_editor_text(&self, text: &JsString) {
         self.calls.lock().unwrap().push(json!(["editorText", text]));
     }
-    fn notify(&self, message: &str, level: Option<NotifyType>) {
+    fn notify(&self, message: &JsString, level: Option<NotifyType>) {
         self.calls.lock().unwrap().push(json!(["notify", message, level]));
     }
     fn select<'a>(
         &'a self,
-        title: &str,
-        items: &[String],
+        title: &JsString,
+        items: &[JsString],
         _: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         self.calls.lock().unwrap().push(json!(["select", title, items]));
         let selected = self.selected.lock().unwrap().clone();
-        Box::pin(async move { Ok(selected) })
+        Box::pin(async move { Ok(selected.map(JsString::from)) })
     }
-    fn set_widget(&self, key: &str, content: Option<&[String]>, options: Option<&ExtensionWidgetOptions>) {
+    fn set_widget(&self, key: &JsString, content: Option<&[JsString]>, options: Option<&ExtensionWidgetOptions>) {
         self.calls
             .lock()
             .unwrap()
             .push(json!(["widget", key, content, options]));
     }
-    fn set_working_message(&self, message: Option<&str>) {
+    fn set_working_message(&self, message: Option<&JsString>) {
         self.calls.lock().unwrap().push(json!(["workingMessage", message]));
     }
     fn set_working_indicator(&self, options: Option<&WorkingIndicatorOptions>) {
@@ -131,7 +133,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
         .map(|bindings| {
             bindings
                 .iter()
-                .map(|(id, keys)| (id.clone(), serde_json::from_value(keys.clone()).unwrap()))
+                .map(|(id, keys)| (JsString::from(id), serde_json::from_value(keys.clone()).unwrap()))
                 .collect()
         })
         .unwrap_or_default();
@@ -144,11 +146,11 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
     let mut registry = ExtensionRegistry::new();
     registry.register(name, factory);
     let extension = load_extension_from_factory(
-        registry.get(name).unwrap().clone(),
-        cwd,
+        registry.get(&JsString::from(name)).unwrap().clone(),
+        &JsString::from(cwd),
         fixture::event_bus(),
         runtime.clone(),
-        name,
+        &JsString::from(name),
     )
     .await
     .unwrap();
@@ -245,7 +247,10 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
                     .unwrap()
                     .lock()
                     .unwrap()
-                    .append_custom_entry(case["kind"].as_str().unwrap(), case.get("data").cloned())
+                    .append_custom_entry(
+                        &JsString::from(case["kind"].as_str().unwrap()),
+                        case.get("data").cloned().map(JsValue::from),
+                    )
                     .unwrap();
                 Value::Null
             }
@@ -305,9 +310,12 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
             }
             "render_call" => {
                 let tool = runner.get_tool_definition(case["toolName"].as_str().unwrap()).unwrap();
-                let component =
-                    (tool.render_call.as_ref().unwrap())(&case["params"], &fixture_theme(), &render_context(case))
-                        .unwrap();
+                let component = (tool.render_call.as_ref().unwrap())(
+                    &JsValue::from(case["params"].clone()),
+                    &fixture_theme(),
+                    &render_context(case),
+                )
+                .unwrap();
                 let lines = component
                     .borrow_mut()
                     .render(case["width"].as_u64().unwrap_or(40) as usize);
@@ -347,7 +355,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
             "input" => json!(
                 runner
                     .emit_input(
-                        case["text"].as_str().unwrap(),
+                        &JsString::from(case["text"].as_str().unwrap()),
                         serde_json::from_value(case["images"].clone()).unwrap(),
                         serde_json::from_value(case["source"].clone()).unwrap(),
                         serde_json::from_value(case["streamingBehavior"].clone()).unwrap()
@@ -366,7 +374,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
                     .unwrap();
                 match (tool.execute)(
                     "fixture-call".into(),
-                    case["params"].clone(),
+                    JsValue::from(case["params"].clone()),
                     None,
                     None,
                     runner.create_context(),
@@ -478,13 +486,18 @@ fn fixture_theme() -> Arc<pi_coding_agent::modes::interactive::theme::Theme> {
     let colors = roles
         .into_iter()
         .enumerate()
-        .map(|(i, role)| (role.to_owned(), ColorValue::Text(format!("#{:02x}2020", 50 + i))))
+        .map(|(i, role)| {
+            (
+                role.to_owned(),
+                ColorValue::Text(JsString::from(format!("#{:02x}2020", 50 + i))),
+            )
+        })
         .collect::<Vec<_>>();
     Arc::new(Theme::new(&colors, &[], ColorMode::Truecolor, None, None).unwrap())
 }
 fn render_context(case: &Value) -> ToolRenderContext {
     ToolRenderContext {
-        args: case["params"].clone(),
+        args: JsValue::from(case["params"].clone()),
         tool_call_id: "fixture-call".into(),
         invalidate: Arc::new(|| {}),
         last_component: None,
@@ -561,9 +574,11 @@ fn configure_faux(
         let options = options.unwrap_or_default().stream;
         if let Some(session) = &options.session_id {
             assert!(
-                regex::Regex::new(r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
-                    .unwrap()
-                    .is_match(session)
+                pi_js_compat::js_regex::JsRegex::new(
+                    r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                )
+                .unwrap()
+                .is_match(session)
             );
         }
         calls.lock().unwrap().push(json!({"model":[model.provider,model.id],"context":context,"options":{"maxTokens":options.max_tokens.map(|n|n as u64),"cacheRetention":options.cache_retention,"sessionId":options.session_id.map(|_|"<uuid-v7>"),"aborted":options.request.signal.as_ref().is_some_and(|s|s.is_cancelled())}}));

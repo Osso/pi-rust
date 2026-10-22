@@ -6,6 +6,7 @@ mod extensions;
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
@@ -80,7 +81,7 @@ impl ExtensionUiContext for CaptureUi {
         calls.push(json!(["invalidate"]));
         calls.push(json!(["render", 1, component.render(1)]));
     }
-    fn notify(&self, message: &str, level: Option<NotifyType>) {
+    fn notify(&self, message: &JsString, level: Option<NotifyType>) {
         assert_eq!(level, Some(NotifyType::Info));
         self.calls.lock().unwrap().push(json!(["notify", message, "info"]));
     }
@@ -94,13 +95,13 @@ fn theme(colors: &Value) -> Arc<Theme> {
         .map(|(role, rgb)| {
             let rgb = rgb.as_array().unwrap();
             (
-                role.clone(),
-                ColorValue::Text(format!(
+                JsString::from(role.clone()),
+                ColorValue::Text(JsString::from(format!(
                     "#{:02x}{:02x}{:02x}",
                     rgb[0].as_u64().unwrap(),
                     rgb[1].as_u64().unwrap(),
                     rgb[2].as_u64().unwrap()
-                )),
+                ))),
             )
         })
         .collect::<Vec<_>>();
@@ -143,11 +144,14 @@ async fn pinned_custom_header_composition_matches_all_modes_and_colors() {
             let mut registry = ExtensionRegistry::new();
             registry.register("<example:custom-header>", factory);
             let extension = load_extension_from_factory(
-                registry.get("<example:custom-header>").unwrap().clone(),
-                "/tmp",
+                registry
+                    .get(&JsString::from("<example:custom-header>"))
+                    .unwrap()
+                    .clone(),
+                &JsString::from("/tmp"),
                 extensions::event_bus(),
                 runtime.clone(),
-                "<example:custom-header>",
+                &JsString::from("<example:custom-header>"),
             )
             .await
             .unwrap();
@@ -188,7 +192,7 @@ async fn pinned_custom_header_composition_matches_all_modes_and_colors() {
                 )
                 .await
                 .unwrap();
-            (command.handler)("ignored args".to_owned(), runner.create_command_context())
+            (command.handler)(JsString::from("ignored args"), runner.create_command_context())
                 .await
                 .unwrap();
             let actual = json!({"registrations": registrations, "calls": ui.calls.lock().unwrap().clone()});

@@ -8,6 +8,9 @@ mod support;
 mod ui_thread;
 
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use pi_tui::tui::TuiExt;
 use serde_json::{Value, json};
 use std::{
@@ -131,7 +134,7 @@ impl pi_tui::terminal::Terminal for Terminal {
     }
     fn stop(&mut self) {}
     fn drain_input(&mut self, _: u64, _: u64) {}
-    fn write(&mut self, _: &str) {}
+    fn write(&mut self, _: &JsString) {}
     fn columns(&self) -> usize {
         90
     }
@@ -147,7 +150,7 @@ impl pi_tui::terminal::Terminal for Terminal {
     fn clear_line(&mut self) {}
     fn clear_from_cursor(&mut self) {}
     fn clear_screen(&mut self) {}
-    fn set_title(&mut self, _: &str) {}
+    fn set_title(&mut self, _: &JsString) {}
     fn set_progress(&mut self, _: bool) {}
     fn poll_events(&mut self) -> Vec<pi_tui::terminal::TerminalEvent> {
         std::mem::take(&mut self.events)
@@ -155,11 +158,11 @@ impl pi_tui::terminal::Terminal for Terminal {
 }
 struct Input(Rc<dyn ExtensionUiComponent>);
 impl pi_tui::tui::Component for Input {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.0.render(width)
     }
-    fn handle_input(&mut self, data: &str) {
-        self.0.handle_input(data);
+    fn handle_input(&mut self, data: &JsString) {
+        self.0.handle_input(&JsString::from(data));
     }
     fn invalidate(&mut self) {
         self.0.invalidate();
@@ -177,20 +180,24 @@ impl ExtensionUiContext for Ui {
     fn theme(&self) -> Arc<pi_coding_agent::modes::interactive::theme::Theme> {
         Arc::new(
             pi_coding_agent::modes::interactive::theme::load_theme_from_path(
-                &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"),
+                &JsString::from(
+                    (&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"))
+                        .to_str()
+                        .expect("fixture path must be UTF-8"),
+                ),
                 Some(pi_coding_agent::modes::interactive::theme::ColorMode::Truecolor),
             )
             .unwrap(),
         )
     }
-    fn notify(&self, text: &str, kind: Option<NotifyType>) {
+    fn notify(&self, text: &JsString, kind: Option<NotifyType>) {
         self.trace.lock().unwrap().push(json!(["notify", text, kind]));
     }
     fn custom<'a>(
         &'a self,
         factory: ExtensionUiCustomFactory,
         options: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<Value>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
         let trace = self.trace.clone();
         let current = self.current.lock().unwrap().clone();
         let theme = self.theme();
@@ -209,7 +216,7 @@ impl ExtensionUiContext for Ui {
                     assert_eq!(overlay.margin.unwrap().top, Some(1));
                 }
                 if let Some(error) = current["customError"].as_str() {
-                    return Err(error.to_owned());
+                    return Err(JsString::from(error));
                 }
                 let value = Arc::new(Mutex::new(None));
                 let captured = value.clone();
@@ -233,7 +240,7 @@ impl ExtensionUiContext for Ui {
                         trace
                             .lock()
                             .unwrap()
-                            .push(json!(["constructorError", format!("Error: {error}")]));
+                            .push(json!(["constructorError", js_format!("Error: {}", error)]));
                         return Ok(None);
                     }
                 };
@@ -276,7 +283,7 @@ impl ExtensionUiContext for Ui {
                         terminal
                             .borrow_mut()
                             .events
-                            .push(pi_tui::terminal::TerminalEvent::Input(data));
+                            .push(pi_tui::terminal::TerminalEvent::Input(JsString::from(data)));
                         if let Err(error) =
                             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| host.process_events()))
                         {
@@ -306,8 +313,8 @@ impl ExtensionUiContext for Ui {
         })
     }
 }
-fn engine(path: &str, trace: Trace, current: Arc<Mutex<Value>>) -> example::doom_engine::DoomEngine {
-    let mut engine = example::doom_engine::DoomEngine::new(path.into());
+fn engine(path: &JsString, trace: Trace, current: Arc<Mutex<Value>>) -> example::doom_engine::DoomEngine {
+    let mut engine = example::doom_engine::DoomEngine::new(pi_js_compat::js_json::encode_node_utf8(path).into());
     engine.init_with_module(Box::new(Module { trace, current })).unwrap();
     assert!(engine.is_initialized());
     engine
@@ -345,12 +352,12 @@ async fn compare(mut request: Value) {
                 let current = ensure_current.clone();
                 Box::pin(async move {
                     trace.lock().unwrap().push(json!(["ensureWad"]));
-                    current.lock().unwrap()["wad"].as_str().map(str::to_owned)
-                }) as BoxFuture<'static, Option<String>>
+                    current.lock().unwrap()["wad"].as_str().map(JsString::from)
+                }) as BoxFuture<'static, Option<JsString>>
             });
             let load_trace = trace.clone();
             let load_current = current.clone();
-            let load = Arc::new(move |path: String| {
+            let load = Arc::new(move |path: JsString| {
                 let trace = load_trace.clone();
                 let current = load_current.clone();
                 Box::pin(async move {
@@ -359,17 +366,17 @@ async fn compare(mut request: Value) {
                         .unwrap()
                         .extend([json!(["new", path]), json!(["init", path])]);
                     if let Some(error) = current.lock().unwrap()["initError"].as_str() {
-                        return Err(error.to_owned());
+                        return Err(JsString::from(error));
                     }
                     Ok(engine(&path, trace, current))
-                }) as BoxFuture<'static, Result<example::doom_engine::DoomEngine, String>>
+                }) as BoxFuture<'static, Result<example::doom_engine::DoomEngine, JsString>>
             });
             let result = example::doom_overlay_extension(api, ensure, load);
             Box::pin(async move { result })
         })
     } else {
         let engine = Arc::new(Mutex::new(engine(
-            wad.to_str().unwrap(),
+            &JsString::from(wad.to_str().unwrap()),
             trace.clone(),
             current.clone(),
         )));
@@ -409,11 +416,11 @@ async fn compare(mut request: Value) {
     let mut registry = ExtensionRegistry::new();
     registry.register("<doom-fixture>", factory);
     let extension = load_extension_from_factory(
-        registry.get("<doom-fixture>").unwrap().clone(),
-        temp.path().to_str().unwrap(),
+        registry.get(&JsString::from("<doom-fixture>")).unwrap().clone(),
+        &JsString::from(temp.path().to_str().unwrap()),
         support::event_bus(),
         runtime.clone(),
-        "<doom-fixture>",
+        &JsString::from("<doom-fixture>"),
     )
     .await
     .unwrap();
@@ -448,7 +455,7 @@ async fn compare(mut request: Value) {
         };
         runner.set_ui_context(Some(ui.clone()), mode);
         (command.handler)(
-            item["args"].as_str().unwrap_or("").to_owned(),
+            JsString::from(item["args"].as_str().unwrap_or("").to_owned()),
             runner.create_command_context(),
         )
         .await

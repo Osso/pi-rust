@@ -10,7 +10,8 @@ use pi_ai::utils::event_stream::AssistantMessageEventStream;
 use pi_coding_agent::core::extensions::ExtensionApi;
 use pi_coding_agent::core::model_config::ModelConfig;
 use pi_coding_agent::core::provider_composer::{ProviderConfigInput, compose_model_provider};
-use serde_json::{Value, json};
+use pi_js_compat::js_json::JsString;
+use serde_json::json;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
@@ -25,12 +26,12 @@ const REDIRECT_URI: &str = "https://console.anthropic.com/oauth/code/callback";
 const PROVIDER: &str = "custom-anthropic";
 const API: &str = "custom-anthropic-api";
 
-pub fn custom_anthropic_extension(api: &ExtensionApi) -> Result<(), String> {
+pub fn custom_anthropic_extension(api: &ExtensionApi) -> Result<(), JsString> {
     custom_anthropic_extension_with_runtime(api, OAuthRuntime::system())
 }
 
 /// Existing OAuth runtime supplies transport, PKCE randomness and clock to embedders.
-pub fn custom_anthropic_extension_with_runtime(api: &ExtensionApi, runtime: OAuthRuntime) -> Result<(), String> {
+pub fn custom_anthropic_extension_with_runtime(api: &ExtensionApi, runtime: OAuthRuntime) -> Result<(), JsString> {
     let auth = ProviderAuth::oauth(Arc::new(CustomOAuth(runtime.clone())));
     let provider = compose_model_provider(
         PROVIDER,
@@ -68,7 +69,7 @@ impl OAuthAuth for CustomOAuth {
                 ],
             );
             interaction.notify(AuthEvent::AuthUrl {
-                url,
+                url: JsString::from(url),
                 instructions: None,
             });
             let answer = interaction
@@ -112,7 +113,7 @@ impl OAuthAuth for CustomOAuth {
     fn to_auth(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some(credential.access_utf8()?),
+                api_key: Some(credential.access.clone()),
                 ..Default::default()
             })
         })
@@ -142,10 +143,16 @@ async fn exchange_token(
     if !ok {
         return Err(CallbackError::new(format!("{failure}: {text}")));
     }
-    let data: Value = pi_js_compat::js_json::parse(&text).map_err(|e| CallbackError::new(e.to_string()))?;
+    let data = pi_js_compat::js_json::parse_lossless(&text).map_err(|e| CallbackError::new(e.into_message()))?;
     Ok(OAuthCredential::new(
-        data["refresh_token"].as_str().unwrap_or_default(),
-        data["access_token"].as_str().unwrap_or_default(),
+        data["refresh_token"]
+            .as_string()
+            .cloned()
+            .unwrap_or_else(JsString::default),
+        data["access_token"]
+            .as_string()
+            .cloned()
+            .unwrap_or_else(JsString::default),
         runtime.now() + data["expires_in"].as_f64().unwrap_or(f64::NAN) * 1000.0 - 300000.0,
     ))
 }
@@ -161,8 +168,12 @@ impl Provider for CustomAnthropic {
     fn name(&self) -> &str {
         "Custom Anthropic (Claude Pro/Max)"
     }
-    fn base_url(&self) -> Option<&str> {
-        Some("https://api.anthropic.com")
+    fn base_url(&self) -> Option<&JsString> {
+        {
+            static URL: std::sync::LazyLock<JsString> =
+                std::sync::LazyLock::new(|| JsString::from("https://api.anthropic.com"));
+            Some(&URL)
+        }
     }
     fn auth(&self) -> &ProviderAuth {
         &self.auth

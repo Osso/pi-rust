@@ -254,7 +254,7 @@ fn end_block(sender: &AssistantMessageEventSender, output: &mut Value, event: &J
         }
         Some(tag) if tag == "toolCall" => {
             parse_arguments(block)?;
-            block.as_object_mut().expect("tool").remove("partialJson");
+            block.as_object_mut().expect("tool").shift_remove("partialJson");
             json!({"type":"toolcall_end","contentIndex":index,"toolCall":block})
         }
         _ => return Ok(()),

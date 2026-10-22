@@ -11,6 +11,8 @@ use pi_coding_agent::{
     core::{extensions::*, system_prompt::BuildSystemPromptOptions, tools::bash::BashExecOptions},
     modes::interactive::theme::{ColorMode, ColorValue, Theme},
 };
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -27,10 +29,10 @@ impl ExtensionUiContext for Ui {
     fn theme(&self) -> Arc<Theme> {
         self.theme.clone()
     }
-    fn set_status(&self, key: &str, text: Option<&str>) {
+    fn set_status(&self, key: &JsString, text: Option<&JsString>) {
         self.trace.lock().unwrap().push(json!(["status", key, text]));
     }
-    fn notify(&self, text: &str, level: Option<NotifyType>) {
+    fn notify(&self, text: &JsString, level: Option<NotifyType>) {
         self.trace.lock().unwrap().push(json!(["notify", text, level]));
     }
 }
@@ -56,9 +58,15 @@ async fn native(request: &Value) -> Value {
         let result = example::ssh_extension(api);
         Box::pin(async move { result })
     });
-    let extension = load_extension_from_factory(factory, cwd, support::event_bus(), runtime.clone(), "<example:ssh>")
-        .await
-        .unwrap();
+    let extension = load_extension_from_factory(
+        factory,
+        &JsString::from(cwd),
+        support::event_bus(),
+        runtime.clone(),
+        &JsString::from("<example:ssh>"),
+    )
+    .await
+    .unwrap();
     let model_runtime = pi_coding_agent::core::model_runtime::ModelRuntime::create(
         pi_coding_agent::core::model_runtime::CreateModelRuntimeOptions {
             credentials: Some(Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
@@ -92,7 +100,7 @@ async fn native(request: &Value) -> Value {
         ),
     });
     runner.set_ui_context(Some(ui.clone()), ExtensionMode::Tui);
-    let errors = Arc::new(Mutex::new(Vec::<String>::new()));
+    let errors = Arc::new(Mutex::new(Vec::<JsString>::new()));
     let captured = errors.clone();
     runner.on_error(Arc::new(move |error| {
         captured.lock().unwrap().push(error.error.clone())
@@ -109,7 +117,7 @@ async fn native(request: &Value) -> Value {
     let read = runner.get_tool_definition("read").unwrap();
     let before = (read.execute)(
         "before".into(),
-        json!({"path":"read.txt"}),
+        JsValue::from(json!({"path":"read.txt"})),
         None,
         None,
         runner.create_context(),
@@ -131,7 +139,12 @@ async fn native(request: &Value) -> Value {
     trace.extend(ui.trace.lock().unwrap().clone());
     let prompt = format!("Current working directory: {cwd}\nCurrent working directory: {cwd}");
     let changed = runner
-        .emit_before_agent_start("prompt", None, &prompt, BuildSystemPromptOptions::default())
+        .emit_before_agent_start(
+            &JsString::from("prompt"),
+            None,
+            &JsString::from(&prompt),
+            BuildSystemPromptOptions::default(),
+        )
         .await;
     let mut results = Vec::new();
     for call in request["calls"].as_array().unwrap() {
@@ -139,7 +152,7 @@ async fn native(request: &Value) -> Value {
         results.push(
             match (tool.execute)(
                 "call".into(),
-                call["params"].clone(),
+                JsValue::from(call["params"].clone()),
                 None,
                 None,
                 runner.create_context(),
@@ -182,9 +195,11 @@ async fn run_user_operations(ops: Option<UserBashEventResult>, cwd: &str) -> Vec
             "exit" => "printf code; exit 7",
             _ => "printf 'user output'",
         };
+        let command = JsString::from(command);
+        let cwd = JsString::from(cwd);
         let execution = ops.exec(
-            command,
-            cwd,
+            &command,
+            &cwd,
             BashExecOptions {
                 on_data: Arc::new(move |bytes| {
                     data.lock().unwrap().extend_from_slice(bytes);
@@ -321,7 +336,7 @@ async fn ssh_fixture_remote_matches_pinned_example() {
         use pi_coding_agent::modes::interactive::theme::{REQUIRED_COLORS, set_theme_instance};
         let colors = REQUIRED_COLORS
             .iter()
-            .map(|key| (key.to_string(), ColorValue::Text("#abcdef".into())))
+            .map(|key| (JsString::from(*key), ColorValue::Text("#abcdef".into())))
             .collect::<Vec<_>>();
         set_theme_instance(Arc::new(
             Theme::new(&colors, &colors, ColorMode::Truecolor, None, None).unwrap(),
@@ -329,7 +344,7 @@ async fn ssh_fixture_remote_matches_pinned_example() {
         let mut execution = ToolExecutionComponent::new(
             "read",
             "call",
-            json!({"path":"fail.txt"}),
+            JsValue::from(json!({"path":"fail.txt"})),
             ToolExecutionOptions::default(),
             None,
             Arc::new(|| {}),

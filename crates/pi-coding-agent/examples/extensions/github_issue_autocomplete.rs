@@ -1,6 +1,7 @@
 //! Opt-in native GitHub issue autocomplete. Executes git/gh only when explicitly loaded.
 use futures_util::{FutureExt, future::Shared};
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::string::{is_js_whitespace_char, js_trim};
 use pi_tui::autocomplete::*;
 use serde::Deserialize;
@@ -34,7 +35,7 @@ pub fn github_issue_autocomplete_extension(pi: &ExtensionApi) -> Result<(), Hand
                     .await?;
                 if result.code != 0 {
                     ui.notify(
-                        "github-issue-autocomplete: cwd is not a git repository",
+                        &JsString::from("github-issue-autocomplete: cwd is not a git repository"),
                         Some(NotifyType::Error),
                     );
                     return Ok(None);
@@ -45,7 +46,7 @@ pub fn github_issue_autocomplete_extension(pi: &ExtensionApi) -> Result<(), Hand
                     .find_map(|line| line.split_whitespace().nth(1).and_then(parse_repo));
                 let Some(repo) = repo else {
                     ui.notify(
-                        "github-issue-autocomplete: cwd is not a GitHub repository",
+                        &JsString::from("github-issue-autocomplete: cwd is not a GitHub repository"),
                         Some(NotifyType::Error),
                     );
                     return Ok(None);
@@ -72,7 +73,7 @@ pub fn github_issue_autocomplete_extension(pi: &ExtensionApi) -> Result<(), Hand
     )
     .map_err(HandlerError::new)
 }
-fn exec_options(cwd: &str) -> ExtensionExecOptions {
+fn exec_options(cwd: &JsString) -> ExtensionExecOptions {
     ExtensionExecOptions {
         cwd: Some(cwd.into()),
         timeout: Some(5_000),
@@ -93,7 +94,7 @@ fn parse_repo(url: &str) -> Option<String> {
 }
 async fn load_issues(
     api: ExtensionApi,
-    cwd: String,
+    cwd: JsString,
     repo: String,
     ui: Arc<dyn ExtensionUiContext>,
 ) -> Result<Option<Vec<Issue>>, String> {
@@ -111,7 +112,9 @@ async fn load_issues(
     ]
     .map(str::to_owned)
     .to_vec();
-    let result = api.exec("gh".into(), args, Some(exec_options(&cwd))).await?;
+    let result = api
+        .exec("gh".into(), args, Some(exec_options(&JsString::from(&cwd))))
+        .await?;
     if result.code != 0 {
         let stderr = js_trim(&result.stderr);
         let details = if stderr.is_empty() {
@@ -120,7 +123,7 @@ async fn load_issues(
             stderr.into()
         };
         ui.notify(
-            &format!("github-issue-autocomplete: failed to load issues: {details}"),
+            &JsString::from(format!("github-issue-autocomplete: failed to load issues: {details}")),
             Some(NotifyType::Error),
         );
         return Ok(None);
@@ -133,7 +136,7 @@ async fn load_issues(
         Some(issues) => Ok(Some(issues)),
         None => {
             ui.notify(
-                "github-issue-autocomplete: failed to parse gh issue list output",
+                &JsString::from("github-issue-autocomplete: failed to parse gh issue list output"),
                 Some(NotifyType::Error),
             );
             Ok(None)
@@ -146,12 +149,16 @@ fn issue_number(issue: &Issue) -> String {
 fn format_item(issue: &Issue) -> AutocompleteItem {
     let value = format!("#{}", issue_number(issue));
     AutocompleteItem {
-        value: value.clone(),
-        label: value,
-        description: Some(format!("[{}] {}", issue.state.to_lowercase(), issue.title)),
+        value: JsString::from(value.clone()),
+        label: JsString::from(value),
+        description: Some(JsString::from(format!(
+            "[{}] {}",
+            issue.state.to_lowercase(),
+            issue.title
+        ))),
     }
 }
-fn filter(issues: &[Issue], query: &str) -> Vec<AutocompleteItem> {
+fn filter(issues: &[Issue], query: &JsString) -> Vec<AutocompleteItem> {
     if js_trim(query).is_empty() {
         return issues.iter().take(20).map(format_item).collect();
     }
@@ -174,29 +181,25 @@ fn filter(issues: &[Issue], query: &str) -> Vec<AutocompleteItem> {
     .map(|issue| format_item(&issue))
     .collect()
 }
-fn token(text: &str) -> Option<&str> {
-    let hash = text.rfind('#')?;
-    if hash != 0 && !matches!(text[..hash].chars().next_back(), Some(' ' | '\t')) {
-        return None;
-    }
-    let tail = &text[hash + 1..];
-    (!tail.chars().any(is_js_whitespace_char)).then_some(tail)
+fn token(text: &JsString) -> Option<JsString> {
+    pi_js_compat::js_regex::JsRegex::new(r"(?:^|[ \t])#([^\s#]*)$")
+        .expect("constant issue token pattern")
+        .captures(text)?
+        .get(1)
+        .map(|capture| capture.text())
 }
+
 impl AutocompleteProvider for Provider {
     fn get_suggestions(
         self: Rc<Self>,
-        lines: Vec<String>,
+        lines: Vec<JsString>,
         line: usize,
         col: usize,
         options: AutocompleteOptions,
     ) -> AutocompleteFuture {
         Box::pin(async move {
-            let text = lines.get(line).map(String::as_str).unwrap_or("");
-            let mut col = col.min(text.len());
-            while !text.is_char_boundary(col) {
-                col -= 1;
-            }
-            if let Some(query) = token(&text[..col]) {
+            let text = lines.get(line).cloned().unwrap_or_else(JsString::default);
+            if let Some(query) = token(&text.slice(0, col)) {
                 let issues = self
                     .issues
                     .clone()
@@ -205,29 +208,38 @@ impl AutocompleteProvider for Provider {
                 if !options.signal.is_cancelled()
                     && let Some(issues) = issues
                 {
-                    let items = filter(&issues, query);
+                    let items = filter(&issues, &query);
                     if !items.is_empty() {
                         return Some(AutocompleteSuggestions {
                             items,
-                            prefix: format!("#{query}"),
+                            prefix: pi_js_compat::js_format!("#{}", query),
                         });
                     }
                 }
             }
-            self.current.clone().get_suggestions(lines, line, col, options).await
+            self.current
+                .clone()
+                .get_suggestions(
+                    lines.into_iter().map(JsString::from).collect::<Vec<_>>(),
+                    line,
+                    col,
+                    options,
+                )
+                .await
         })
     }
     fn apply_completion(
         &self,
-        lines: &[String],
+        lines: &[JsString],
         line: usize,
         col: usize,
         item: &AutocompleteItem,
-        prefix: &str,
+        prefix: &JsString,
     ) -> CompletionResult {
-        self.current.apply_completion(lines, line, col, item, prefix)
+        self.current
+            .apply_completion(lines, line, col, item, &JsString::from(prefix))
     }
-    fn should_trigger_file_completion(&self, lines: &[String], line: usize, col: usize) -> Option<bool> {
+    fn should_trigger_file_completion(&self, lines: &[JsString], line: usize, col: usize) -> Option<bool> {
         Some(
             self.current
                 .should_trigger_file_completion(lines, line, col)
@@ -252,6 +264,9 @@ mod tests {
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].value, "#77");
         assert_eq!(matches[0].label, "#77");
-        assert_eq!(matches[0].description.as_deref(), Some("[open] Lone � and �"));
+        assert_eq!(
+            matches[0].description.as_ref(),
+            Some(&JsString::from("[open] Lone � and �"))
+        );
     }
 }

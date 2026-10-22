@@ -10,16 +10,17 @@ mod doom_keys;
 use doom_component::DoomOverlayComponent;
 use doom_engine::DoomEngine;
 use pi_coding_agent::core::extensions::*;
-use pi_js_compat::string::js_trim;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
-pub type EnsureWad = Arc<dyn Fn() -> BoxFuture<'static, Option<String>> + Send + Sync>;
-pub type LoadEngine = Arc<dyn Fn(String) -> BoxFuture<'static, Result<DoomEngine, String>> + Send + Sync>;
+pub type EnsureWad = Arc<dyn Fn() -> BoxFuture<'static, Option<JsString>> + Send + Sync>;
+pub type LoadEngine = Arc<dyn Fn(JsString) -> BoxFuture<'static, Result<DoomEngine, JsString>> + Send + Sync>;
 
 #[derive(Default)]
 struct Active {
     engine: Option<Arc<Mutex<DoomEngine>>>,
-    wad: Option<String>,
+    wad: Option<JsString>,
 }
 
 pub fn doom_overlay_extension(
@@ -36,13 +37,15 @@ pub fn doom_overlay_extension(
             let (active, ensure_wad, load_engine) = (active.clone(), ensure_wad.clone(), load_engine.clone());
             Box::pin(async move {
                 if ctx.mode()? != ExtensionMode::Tui {
-                    ctx.ui()?
-                        .notify("DOOM requires interactive mode", Some(NotifyType::Error));
+                    ctx.ui()?.notify(
+                        &JsString::from("DOOM requires interactive mode"),
+                        Some(NotifyType::Error),
+                    );
                     return Ok(());
                 }
                 let ui = ctx.ui()?;
-                ui.notify("Loading DOOM...", Some(NotifyType::Info));
-                let args = js_trim(&args);
+                ui.notify(&JsString::from("Loading DOOM..."), Some(NotifyType::Info));
+                let args = (&args).trim();
                 let wad = if args.is_empty() {
                     ensure_wad().await
                 } else {
@@ -50,13 +53,16 @@ pub fn doom_overlay_extension(
                 };
                 let Some(wad) = wad.filter(|wad| !wad.is_empty()) else {
                     ui.notify(
-                        "Failed to download DOOM WAD file. Check your internet connection.",
+                        &JsString::from("Failed to download DOOM WAD file. Check your internet connection."),
                         Some(NotifyType::Error),
                     );
                     return Ok(());
                 };
                 if let Err(error) = show_game(&*ui, &active, &load_engine, wad).await {
-                    ui.notify(&format!("Failed to load DOOM: Error: {error}"), Some(NotifyType::Error));
+                    ui.notify(
+                        &JsString::from(js_format!("Failed to load DOOM: Error: {}", error)),
+                        Some(NotifyType::Error),
+                    );
                     *active.lock().unwrap() = Active::default();
                 }
                 Ok(())
@@ -70,22 +76,25 @@ async fn show_game(
     ui: &dyn ExtensionUiContext,
     active: &Mutex<Active>,
     load_engine: &LoadEngine,
-    wad: String,
-) -> Result<(), String> {
+    wad: JsString,
+) -> Result<(), JsString> {
     let existing = {
         let active = active.lock().unwrap();
-        active.engine.clone().filter(|_| active.wad.as_ref() == Some(&wad))
+        active
+            .engine
+            .clone()
+            .filter(|_| active.wad.as_ref() == Some(&JsString::from(&wad)))
     };
     let resume = existing.is_some();
     let engine = if let Some(engine) = existing {
-        ui.notify("Resuming DOOM...", Some(NotifyType::Info));
+        ui.notify(&JsString::from("Resuming DOOM..."), Some(NotifyType::Info));
         engine
     } else {
-        ui.notify(&format!("Loading DOOM from {wad}..."), Some(NotifyType::Info));
-        let engine = Arc::new(Mutex::new(load_engine(wad.clone()).await?));
+        ui.notify(&js_format!("Loading DOOM from {}...", wad), Some(NotifyType::Info));
+        let engine = Arc::new(Mutex::new(load_engine(JsString::from(wad.clone())).await?));
         *active.lock().unwrap() = Active {
             engine: Some(engine.clone()),
-            wad: Some(wad),
+            wad: Some(JsString::from(wad)),
         };
         engine
     };

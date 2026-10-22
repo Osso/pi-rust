@@ -12,6 +12,8 @@ mod env_probe;
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -698,8 +700,11 @@ fn components_probe_child() {
         hyperlinks: false,
     });
     let theme_path = PathBuf::from(std::env::var("PI_PACKAGE_DIR").expect("PI_PACKAGE_DIR")).join("theme/dark.json");
-    let theme = pi_coding_agent::modes::interactive::theme::load_theme_from_path(&theme_path, None)
-        .expect("fixture theme must load");
+    let theme = pi_coding_agent::modes::interactive::theme::load_theme_from_path(
+        &JsString::from((&theme_path).to_str().expect("fixture path must be UTF-8")),
+        None,
+    )
+    .expect("fixture theme must load");
     pi_coding_agent::modes::interactive::theme::set_theme_instance(std::sync::Arc::new(theme));
 
     let results: Vec<Value> = cases_for(&component)
@@ -713,13 +718,13 @@ fn run_component_case(case: &Value) -> Value {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    let events = Rc::new(RefCell::new(Vec::<String>::new()));
+    let events = Rc::new(RefCell::new(Vec::<JsString>::new()));
     let width = case["width"].as_u64().unwrap() as usize;
     let steps = case["steps"].as_array().unwrap().clone();
     let component = case["component"].as_str().unwrap();
     let props = &case["props"];
 
-    let mut renders: Vec<Vec<String>> = Vec::new();
+    let mut renders: Vec<Vec<JsString>> = Vec::new();
     match component {
         "thinking" => {
             use pi_agent_core::ThinkingLevel;
@@ -752,8 +757,12 @@ fn run_component_case(case: &Value) -> Value {
             let mut selector = ThinkingSelectorComponent::new(
                 current,
                 &levels,
-                Rc::new(move |level| event_sink.borrow_mut().push(format!("select:{}", level.as_str()))),
-                Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned())),
+                Rc::new(move |level| {
+                    event_sink
+                        .borrow_mut()
+                        .push(format!("select:{}", level.as_str()).into())
+                }),
+                Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned().into())),
             );
             let list = selector.get_select_list();
             renders.push(selector.render(width));
@@ -771,10 +780,10 @@ fn run_component_case(case: &Value) -> Value {
             let preview_sink = Rc::clone(&events);
             let cancel_sink = Rc::clone(&events);
             let mut selector = ThemeSelectorComponent::new(
-                props["currentTheme"].as_str().unwrap(),
-                Rc::new(move |name| event_sink.borrow_mut().push(format!("select:{name}"))),
-                Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned())),
-                Rc::new(move |name| preview_sink.borrow_mut().push(format!("preview:{name}"))),
+                &JsString::from(props["currentTheme"].as_str().unwrap()),
+                Rc::new(move |name| event_sink.borrow_mut().push(js_format!("select:{}", name).into())),
+                Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned().into())),
+                Rc::new(move |name| preview_sink.borrow_mut().push(js_format!("preview:{}", name).into())),
             );
             let list = selector.get_select_list();
             renders.push(selector.render(width));
@@ -792,8 +801,8 @@ fn run_component_case(case: &Value) -> Value {
             let cancel_sink = Rc::clone(&events);
             let mut selector = ShowImagesSelectorComponent::new(
                 props["currentValue"].as_bool().unwrap(),
-                Rc::new(move |value| event_sink.borrow_mut().push(format!("select:{value}"))),
-                Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned())),
+                Rc::new(move |value| event_sink.borrow_mut().push(format!("select:{value}").into())),
+                Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned().into())),
             );
             let list = selector.get_select_list();
             renders.push(selector.render(width));
@@ -809,23 +818,24 @@ fn run_component_case(case: &Value) -> Value {
                 ExtensionSelectorComponent, ExtensionSelectorOptions,
             };
 
-            let options: Vec<String> = props["options"]
+            let options: Vec<JsString> = props["options"]
                 .as_array()
                 .unwrap()
                 .iter()
                 .map(|option| option.as_str().unwrap().to_owned())
+                .map(JsString::from)
                 .collect();
             let event_sink = Rc::clone(&events);
             let cancel_sink = Rc::clone(&events);
             let toggle_sink = Rc::clone(&events);
             let mut selector = ExtensionSelectorComponent::new(
-                props["title"].as_str().unwrap(),
-                options,
-                Rc::new(move |option| event_sink.borrow_mut().push(format!("select:{option}"))),
-                Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned())),
+                &JsString::from(props["title"].as_str().unwrap()),
+                options.into_iter().map(JsString::from).collect::<Vec<_>>(),
+                Rc::new(move |option| event_sink.borrow_mut().push(js_format!("select:{}", option).into())),
+                Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned().into())),
                 ExtensionSelectorOptions {
                     on_toggle_tools_expanded: Some(Rc::new(move || {
-                        toggle_sink.borrow_mut().push("toggle".to_owned());
+                        toggle_sink.borrow_mut().push("toggle".to_owned().into());
                     })),
                     ..ExtensionSelectorOptions::default()
                 },
@@ -850,13 +860,11 @@ fn run_component_case(case: &Value) -> Value {
             let mut selector = ApprovalSelectorComponent::new(ApprovalSelectorOptions {
                 current_preset: current,
                 on_select: Rc::new(move |selection| {
-                    event_sink.borrow_mut().push(format!(
-                        "select:{}:{}",
-                        selection.preset.as_str(),
-                        selection.scope.as_str()
-                    ));
+                    event_sink
+                        .borrow_mut()
+                        .push(format!("select:{}:{}", selection.preset.as_str(), selection.scope.as_str()).into());
                 }),
-                on_cancel: Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned())),
+                on_cancel: Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned().into())),
             });
             renders.push(selector.render(width));
             let mut current_width = width;
@@ -878,7 +886,7 @@ fn run_component_case(case: &Value) -> Value {
                 None
             } else {
                 Some(ProjectTrustStoreEntry {
-                    path: props["savedDecision"]["path"].as_str().unwrap().to_owned(),
+                    path: JsString::from(props["savedDecision"]["path"].as_str().unwrap().to_owned()),
                     decision: if props["savedDecision"]["decision"].as_bool().unwrap() {
                         ProjectTrustDecision::Trusted
                     } else {
@@ -889,7 +897,7 @@ fn run_component_case(case: &Value) -> Value {
             let event_sink = Rc::clone(&events);
             let cancel_sink = Rc::clone(&events);
             let mut selector = TrustSelectorComponent::new(TrustSelectorOptions {
-                cwd: props["cwd"].as_str().unwrap().to_owned(),
+                cwd: JsString::from(props["cwd"].as_str().unwrap().to_owned()),
                 saved_decision,
                 project_trusted: props["projectTrusted"].as_bool().unwrap(),
                 on_select: Rc::new(move |selection| {
@@ -909,10 +917,11 @@ fn run_component_case(case: &Value) -> Value {
                         .collect();
                     event_sink
                         .borrow_mut()
-                        .push(format!("select:{}:{}", selection.trusted, Value::Array(updates)));
+                        .push(format!("select:{}:{}", selection.trusted, Value::Array(updates)).into());
                 }),
-                on_cancel: Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned())),
-            });
+                on_cancel: Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned().into())),
+            })
+            .expect("fixture trust selector");
             renders.push(selector.render(width));
             let mut current_width = width;
             for step in &steps {
@@ -946,9 +955,9 @@ fn run_component_case(case: &Value) -> Value {
                             profile.map(SandboxProfileName::as_str).unwrap_or("none")
                         ),
                     };
-                    event_sink.borrow_mut().push(event);
+                    event_sink.borrow_mut().push(event.into());
                 }),
-                on_cancel: Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned())),
+                on_cancel: Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned().into())),
             });
             renders.push(selector.render(width));
             let mut current_width = width;
@@ -973,7 +982,7 @@ fn run_component_case(case: &Value) -> Value {
                     name: model["name"].as_str().unwrap().to_owned(),
                     api: "openai-completions".to_owned(),
                     provider: model["provider"].as_str().unwrap().to_owned(),
-                    base_url: String::new(),
+                    base_url: JsString::default(),
                     reasoning: false,
                     thinking_level_map: None,
                     input: vec![Modality::Text],
@@ -998,21 +1007,21 @@ fn run_component_case(case: &Value) -> Value {
             let mut selector = ScopedModelsSelectorComponent::new(
                 ModelsConfig {
                     all_models: models,
-                    enabled_model_ids,
-                    refresh_status: props["refreshStatus"].as_str().map(str::to_owned),
+                    enabled_model_ids: enabled_model_ids.map(|ids| ids.into_iter().map(JsString::from).collect()),
+                    refresh_status: props["refreshStatus"].as_str().map(str::to_owned).map(JsString::from),
                 },
                 ModelsCallbacks {
                     on_change: Rc::new(move |enabled| {
                         change_sink
                             .borrow_mut()
-                            .push(format!("change:{}", serde_json::to_string(&enabled).unwrap()));
+                            .push(format!("change:{}", serde_json::to_string(&enabled).unwrap()).into());
                     }),
                     on_persist: Rc::new(move |enabled| {
                         persist_sink
                             .borrow_mut()
-                            .push(format!("persist:{}", serde_json::to_string(&enabled).unwrap()));
+                            .push(format!("persist:{}", serde_json::to_string(&enabled).unwrap()).into());
                     }),
-                    on_cancel: Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned())),
+                    on_cancel: Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned().into())),
                 },
             );
             renders.push(selector.render(width));
@@ -1039,7 +1048,11 @@ fn run_component_case(case: &Value) -> Value {
                         _ => AuthType::ApiKey,
                     };
                     let status = provider["status"].as_object().map(|status| AuthCheck {
-                        source: status.get("source").and_then(Value::as_str).map(str::to_owned),
+                        source: status
+                            .get("source")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                            .map(JsString::from),
                         auth_type: match status.get("type").and_then(Value::as_str) {
                             Some("oauth") => AuthType::Oauth,
                             _ => AuthType::ApiKey,
@@ -1049,7 +1062,7 @@ fn run_component_case(case: &Value) -> Value {
                         id: provider["id"].as_str().unwrap().to_owned(),
                         name: provider["name"].as_str().unwrap().to_owned(),
                         auth_type,
-                        method_name: provider["methodName"].as_str().map(str::to_owned),
+                        method_name: provider["methodName"].as_str().map(str::to_owned).map(JsString::from),
                         login_supported: true,
                         status,
                     }
@@ -1065,16 +1078,19 @@ fn run_component_case(case: &Value) -> Value {
                 mode,
                 providers,
                 Rc::new(move |id, auth_type| {
-                    event_sink.borrow_mut().push(format!(
-                        "select:{id}:{}",
-                        match auth_type {
-                            AuthType::Oauth => "oauth",
-                            AuthType::ApiKey => "api_key",
-                        }
-                    ));
+                    event_sink.borrow_mut().push(
+                        format!(
+                            "select:{id}:{}",
+                            match auth_type {
+                                AuthType::Oauth => "oauth",
+                                AuthType::ApiKey => "api_key",
+                            }
+                        )
+                        .into(),
+                    );
                 }),
-                Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned())),
-                props["initialSearchInput"].as_str(),
+                Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned().into())),
+                props["initialSearchInput"].as_str().map(JsString::from).as_ref(),
             );
             renders.push(selector.render(width));
             let mut current_width = width;
@@ -1090,35 +1106,38 @@ fn run_component_case(case: &Value) -> Value {
             let event_sink = Rc::clone(&events);
             let render_sink = Rc::clone(&events);
             let mut dialog = LoginDialogComponent::new(
-                Rc::new(move || render_sink.borrow_mut().push("render".to_owned())),
+                Rc::new(move || render_sink.borrow_mut().push("render".to_owned().into())),
                 props["providerId"].as_str().unwrap(),
                 Rc::new(move |success, message| {
                     event_sink
                         .borrow_mut()
-                        .push(format!("complete:{success}:{}", message.unwrap_or_default()));
+                        .push(js_format!("complete:{}:{}", success.to_string(), message.unwrap_or_default()).into());
                 }),
                 props["providerNameOverride"].as_str(),
-                props["titleOverride"].as_str(),
+                props["titleOverride"].as_str().map(JsString::from).as_ref(),
             );
             for action in case["actions"].as_array().cloned().unwrap_or_default() {
                 match action["kind"].as_str().unwrap() {
                     "show_device_code" => {
                         let info = pi_ai::OAuthDeviceCodeInfo {
-                            user_code: action["info"]["userCode"].as_str().unwrap().to_owned(),
-                            verification_uri: action["info"]["verificationUri"].as_str().unwrap().to_owned(),
+                            user_code: JsString::from(action["info"]["userCode"].as_str().unwrap().to_owned()),
+                            verification_uri: JsString::from(
+                                action["info"]["verificationUri"].as_str().unwrap().to_owned(),
+                            ),
                             interval_seconds: action["info"]["intervalSeconds"].as_f64(),
                             expires_in_seconds: action["info"]["expiresInSeconds"].as_f64(),
                         };
                         dialog.show_device_code(&info);
                     }
                     "show_details" => {
-                        let lines: Vec<String> = action["lines"]
+                        let lines: Vec<JsString> = action["lines"]
                             .as_array()
                             .unwrap()
                             .iter()
                             .map(|line| line.as_str().unwrap().to_owned())
+                            .map(JsString::from)
                             .collect();
-                        dialog.show_details(&lines);
+                        dialog.show_details(&lines.iter().map(JsString::from).collect::<Vec<_>>());
                     }
                     "show_info" => {
                         let links: Vec<pi_ai::auth::types::AuthInfoLink> = action["links"]
@@ -1127,22 +1146,26 @@ fn run_component_case(case: &Value) -> Value {
                             .unwrap_or_default()
                             .iter()
                             .map(|link| pi_ai::auth::types::AuthInfoLink {
-                                url: link["url"].as_str().unwrap().to_owned(),
-                                label: link["label"].as_str().map(str::to_owned),
+                                url: JsString::from(link["url"].as_str().unwrap().to_owned()),
+                                label: link["label"].as_str().map(str::to_owned).map(JsString::from),
                             })
                             .collect();
                         dialog.show_info(
-                            action["message"].as_str().unwrap_or_default(),
+                            &JsString::from(action["message"].as_str().unwrap_or_default()),
                             &links,
                             action["showCloseHint"].as_bool().unwrap_or(false),
                         );
                     }
-                    "show_waiting" => dialog.show_waiting(action["message"].as_str().unwrap_or_default()),
-                    "show_progress" => dialog.show_progress(action["message"].as_str().unwrap_or_default()),
+                    "show_waiting" => {
+                        dialog.show_waiting(&JsString::from(action["message"].as_str().unwrap_or_default()))
+                    }
+                    "show_progress" => {
+                        dialog.show_progress(&JsString::from(action["message"].as_str().unwrap_or_default()))
+                    }
                     "show_prompt" => {
                         let _receiver = dialog.show_prompt(
-                            action["message"].as_str().unwrap_or_default(),
-                            action["placeholder"].as_str(),
+                            &JsString::from(action["message"].as_str().unwrap_or_default()),
+                            action["placeholder"].as_str().map(JsString::from).as_ref(),
                         );
                     }
                     other => panic!("unknown action {other}"),
@@ -1171,11 +1194,13 @@ fn run_component_case(case: &Value) -> Value {
             let cancel_sink = Rc::clone(&events);
             let mut selector = AgentSwitcherComponent::new(
                 agents,
-                props["selectedAgentId"].as_str().map(str::to_owned),
-                Rc::new(move |agent_id| event_sink.borrow_mut().push(format!("select:{agent_id}"))),
-                Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned())),
+                props["selectedAgentId"].as_str().map(str::to_owned).map(JsString::from),
+                Rc::new(move |agent_id| event_sink.borrow_mut().push(js_format!("select:{}", agent_id).into())),
+                Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned().into())),
                 Rc::new(move |agent: AgentSnapshot| {
-                    inactive_sink.borrow_mut().push(format!("inactive:{}", agent.id));
+                    inactive_sink
+                        .borrow_mut()
+                        .push(js_format!("inactive:{}", agent.id).into());
                 }),
             );
             renders.push(selector.render(width));
@@ -1196,17 +1221,17 @@ fn run_component_case(case: &Value) -> Value {
                 .unwrap()
                 .iter()
                 .map(|message| UserMessageItem {
-                    id: message["id"].as_str().unwrap().to_owned(),
-                    text: message["text"].as_str().unwrap().to_owned(),
+                    id: JsString::from(message["id"].as_str().unwrap().to_owned()),
+                    text: JsString::from(message["text"].as_str().unwrap().to_owned()),
                 })
                 .collect();
             let event_sink = Rc::clone(&events);
             let cancel_sink = Rc::clone(&events);
             let mut selector = UserMessageSelectorComponent::new(
                 messages,
-                Rc::new(move |id| event_sink.borrow_mut().push(format!("select:{id}"))),
-                Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned())),
-                props["initialSelectedId"].as_str(),
+                Rc::new(move |id| event_sink.borrow_mut().push(js_format!("select:{}", id).into())),
+                Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned().into())),
+                props["initialSelectedId"].as_str().map(JsString::from).as_ref(),
             );
             let list = selector.get_message_list();
             renders.push(selector.render(width));
@@ -1223,7 +1248,7 @@ fn run_component_case(case: &Value) -> Value {
 }
 
 fn apply_step(
-    renders: &mut Vec<Vec<String>>,
+    renders: &mut Vec<Vec<JsString>>,
     component: &mut dyn pi_tui::tui::Component,
     input_target: Option<&pi_tui::tui::ComponentRef>,
     step: &Value,
@@ -1234,8 +1259,8 @@ fn apply_step(
     }
     if let Some(key) = step["key"].as_str() {
         match input_target {
-            Some(target) => target.borrow_mut().handle_input(key),
-            None => component.handle_input(key),
+            Some(target) => target.borrow_mut().handle_input(&JsString::from(key)),
+            None => component.handle_input(&JsString::from(key)),
         }
     }
     renders.push(component.render(*width));

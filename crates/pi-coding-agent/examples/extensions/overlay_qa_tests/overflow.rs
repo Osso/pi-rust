@@ -1,9 +1,11 @@
 use super::*;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use pi_tui::utils::{truncate_to_width, truncate_to_width_with};
 use tokio::io::AsyncReadExt;
 #[derive(Default)]
 struct Output {
-    lines: Vec<String>,
+    lines: Vec<JsString>,
     scroll: usize,
     finished: bool,
     exited: bool,
@@ -74,7 +76,7 @@ impl Process {
             reader.abort();
         }
     }
-    pub(super) fn input(&self, data: &str) {
+    pub(super) fn input(&self, data: &JsString) {
         let mut state = self.output.borrow_mut();
         if matches_key(data, "up") {
             state.scroll = state.scroll.saturating_sub(1);
@@ -82,12 +84,12 @@ impl Process {
             state.scroll = (state.scroll + 1).min(state.lines.len().saturating_sub(15));
         }
     }
-    pub(super) fn render(&self, m: &Model, width: usize) -> Vec<String> {
+    pub(super) fn render(&self, m: &Model, width: usize) -> Vec<JsString> {
         let state = self.output.borrow();
         let inner = width.saturating_sub(2).max(1);
         let border = |s: &str| m.theme.fg(ThemeColor::Border, s);
         let title = truncate_to_width(&format!(" Streaming Output ({} lines) ", state.lines.len()), inner);
-        let mut result = vec![format!(
+        let mut result = vec![js_format!(
             "{}{}{}",
             border("╭"),
             m.theme.fg(ThemeColor::Accent, &title),
@@ -98,10 +100,10 @@ impl Process {
             m.theme
                 .fg(ThemeColor::Dim, &format!(" ↑{} | ↓{remaining}", state.scroll))
         } else {
-            String::new()
+            JsString::default()
         };
-        let row = |s: &str| {
-            format!(
+        let row = |s: &JsString| {
+            js_format!(
                 "{}{}{}",
                 border("│"),
                 truncate_to_width_with(s, inner, "...", true),
@@ -110,15 +112,16 @@ impl Process {
         };
         result.push(row(&scroll));
         let visible = state.lines.iter().skip(state.scroll).take(15).collect::<Vec<_>>();
-        result.extend(visible.iter().map(|line| row(&format!(" {line}"))));
-        result.extend((visible.len()..15).map(|_| row("")));
+        result.extend(visible.iter().map(|line| row(&js_format!(" {}", line))));
+        result.extend((visible.len()..15).map(|_| row(&JsString::default())));
         let status = if state.finished {
             m.theme.fg(ThemeColor::Success, "✓ Done")
         } else {
             m.theme.fg(ThemeColor::Warning, "● Running")
         };
-        result.push(row(&format!(
-            " {status} {}",
+        result.push(row(&js_format!(
+            " {} {}",
+            status,
             m.theme.fg(ThemeColor::Dim, "| ↑↓ scroll | Esc close")
         )));
         result.push(border(&format!("╰{}╯", "─".repeat(inner))));
@@ -159,7 +162,7 @@ fn read(
             } else {
                 state
                     .lines
-                    .extend(text.split('\n').filter(|line| !line.is_empty()).map(str::to_owned));
+                    .extend(text.split('\n').filter(|line| !line.is_empty()).map(JsString::from));
                 state.scroll = state.lines.len().saturating_sub(15);
             }
             drop(state);

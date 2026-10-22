@@ -1,6 +1,9 @@
 //! Opt-in native plan-mode example. Explicit registration only.
 pub mod utils;
 use pi_coding_agent::{core::extensions::*, modes::interactive::theme::ThemeColor as C};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use pi_js_compat::string::js_trim;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
@@ -48,8 +51,10 @@ pub fn plan_mode_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             Box::pin(async move {
                 let s = shared.lock().unwrap();
                 if s.todos.is_empty() {
-                    ctx.ui()?
-                        .notify("No todos. Create a plan first with /plan", Some(NotifyType::Info));
+                    ctx.ui()?.notify(
+                        &JsString::from("No todos. Create a plan first with /plan"),
+                        Some(NotifyType::Info),
+                    );
                 } else {
                     let list = s
                         .todos
@@ -65,8 +70,10 @@ pub fn plan_mode_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                         })
                         .collect::<Vec<_>>()
                         .join("\n");
-                    ctx.ui()?
-                        .notify(&format!("Plan Progress:\n{list}"), Some(NotifyType::Info));
+                    ctx.ui()?.notify(
+                        &JsString::from(format!("Plan Progress:\n{list}")),
+                        Some(NotifyType::Info),
+                    );
                 }
                 Ok(())
             })
@@ -88,8 +95,8 @@ pub fn plan_mode_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         let enabled=shared.lock().unwrap().enabled;
         Box::pin(async move {
             if !enabled || event.tool_name != ToolName::Bash { return Ok(None); }
-            let command=event.input["command"].as_str().unwrap_or("");
-            Ok((enabled&&event.tool_name==ToolName::Bash&&!is_safe_command(command)).then(||ToolCallEventResult{block:Some(true),reason:Some(format!("Plan mode: command blocked (not allowlisted). Use /plan to disable plan mode first.\nCommand: {command}")),..Default::default()}))
+            let command=event.input["command"].as_string().unwrap_or(&JsString::from(""));
+            Ok((enabled&&event.tool_name==ToolName::Bash&&!is_safe_command(command)).then(||ToolCallEventResult{block:Some(true),reason:Some(js_format!("Plan mode: command blocked (not allowlisted). Use /plan to disable plan mode first.\nCommand: {}", command)),..Default::default()}))
         })
     })?;
     let shared = state.clone();
@@ -249,11 +256,14 @@ fn toggle(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> Result<
     s.todos.clear();
     if s.enabled {
         enable(pi, &mut s)?;
-        ctx.ui()?
-            .notify("Plan mode enabled. Built-in write tools disabled.", None)
+        ctx.ui()?.notify(
+            &JsString::from("Plan mode enabled. Built-in write tools disabled."),
+            None,
+        )
     } else {
         normal(pi, &mut s)?;
-        ctx.ui()?.notify("Plan mode disabled. Full access restored.", None)
+        ctx.ui()?
+            .notify(&JsString::from("Plan mode disabled. Full access restored."), None)
     }
     update(&s, ctx)?;
     persist(pi, &s)
@@ -275,7 +285,7 @@ fn update(s: &State, ctx: &ExtensionContext) -> Result<(), HandlerError> {
     } else {
         None
     };
-    ui.set_status("plan-mode", status.as_deref());
+    ui.set_status(&JsString::from("plan-mode"), status.as_ref());
     let lines = (s.executing && !s.todos.is_empty()).then(|| {
         s.todos
             .iter()
@@ -288,7 +298,7 @@ fn update(s: &State, ctx: &ExtensionContext) -> Result<(), HandlerError> {
             })
             .collect::<Vec<_>>()
     });
-    ui.set_widget("plan-todos", lines.as_deref(), None);
+    ui.set_widget(&JsString::from("plan-todos"), lines.as_deref(), None);
     Ok(())
 }
 fn persist(pi: &ExtensionApi, s: &State) -> Result<(), HandlerError> {
@@ -301,7 +311,7 @@ fn persist(pi: &ExtensionApi, s: &State) -> Result<(), HandlerError> {
     if let Some(tools) = &s.tools {
         data["toolsBeforePlanMode"] = json!(tools)
     }
-    pi.append_entry("plan-mode", Some(data))
+    pi.append_entry(&JsString::from("plan-mode"), Some(JsValue::from(data)))
 }
 fn remaining(todos: &[TodoItem]) -> String {
     todos
@@ -360,7 +370,7 @@ async fn finish_turn(
     let choice = ctx
         .ui()?
         .select(
-            "Plan mode - what next?",
+            &JsString::from("Plan mode - what next?"),
             &[
                 "Execute the plan (track progress)".into(),
                 "Stay in plan mode".into(),
@@ -369,7 +379,7 @@ async fn finish_turn(
             None,
         )
         .await?;
-    if choice.as_deref().is_some_and(|c| c.starts_with("Execute")) {
+    if choice.as_ref().is_some_and(|c| c.starts_with("Execute")) {
         let mut s = shared.lock().unwrap();
         s.enabled = false;
         s.executing = true;
@@ -395,12 +405,12 @@ async fn finish_turn(
                 deliver_as: Some(MessageDelivery::FollowUp),
             }),
         )?;
-    } else if choice.as_deref() == Some("Refine the plan")
+    } else if choice.as_ref() == Some(&JsString::from("Refine the plan"))
         && let Some(text) = ctx
             .ui()?
-            .editor("Refine the plan:", Some(""))
+            .editor(&JsString::from("Refine the plan:"), Some(&JsString::from("")))
             .await?
-            .filter(|s| !js_trim(s).is_empty())
+            .filter(|s| !(s).trim().is_empty())
     {
         pi.send_message(
             plan_message,
@@ -410,7 +420,7 @@ async fn finish_turn(
             }),
         )?;
         pi.send_user_message(
-            UserMessageContent::Text(js_trim(&text).into()),
+            UserMessageContent::Text((&text).trim().into()),
             Some(SendUserMessageOptions {
                 deliver_as: Some(UserMessageDelivery::FollowUp),
                 ..Default::default()

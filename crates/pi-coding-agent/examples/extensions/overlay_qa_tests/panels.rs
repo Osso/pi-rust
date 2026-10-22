@@ -1,4 +1,6 @@
 use super::*;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::utils::{truncate_to_width_with, visible_width};
 use pi_tui::{Component, Focusable};
@@ -17,7 +19,7 @@ struct Panel {
     focused: Cell<bool>,
     input: RefCell<Input>,
     typed: RefCell<Vec<u16>>,
-    inputs: RefCell<Vec<String>>,
+    inputs: RefCell<Vec<JsString>>,
     handle: Rc<RefCell<Option<Rc<dyn ExtensionUiOverlayHandle>>>>,
 }
 pub(super) fn mount(model: &Rc<Model>) {
@@ -72,7 +74,7 @@ pub(super) fn mount(model: &Rc<Model>) {
     }
 }
 impl Panel {
-    fn focus_input(&self, model: &Model, data: &str) {
+    fn focus_input(&self, model: &Model, data: &JsString) {
         if matches_key(data, "tab") {
             model.focus_next(self.index, 1);
             return;
@@ -107,9 +109,9 @@ impl Panel {
                 serde_json::to_string(data).expect("input JSON")
             }
         };
-        self.inputs.borrow_mut().push(label);
+        self.inputs.borrow_mut().push(JsString::from(label));
     }
-    fn focus_render(&self, model: &Model, width: usize) -> Vec<String> {
+    fn focus_render(&self, model: &Model, width: usize) -> Vec<JsString> {
         let inner = width.saturating_sub(2).max(1);
         let theme = &model.theme;
         let focused = self.focused.get();
@@ -126,10 +128,10 @@ impl Panel {
         let recent = if keys.is_empty() {
             "(none)".into()
         } else {
-            keys[keys.len().saturating_sub(6)..].join(" ")
+            JsString::join(&keys[keys.len().saturating_sub(6)..], " ")
         };
         let content = [
-            format!(
+            js_format!(
                 " {} {}",
                 fg(COLORS[self.index], LABELS[self.index]),
                 if focused {
@@ -139,8 +141,8 @@ impl Panel {
                 }
             ),
             "".into(),
-            format!(" Input: {input_line}"),
-            format!(" Keys: {recent}"),
+            js_format!(" Input: {}", input_line),
+            js_format!(" Keys: {}", recent),
             fg(ThemeColor::Dim, " Tab/Shift+Tab focus"),
             fg(ThemeColor::Dim, " Esc/Ctrl+D dismiss"),
         ];
@@ -149,7 +151,7 @@ impl Panel {
         result.push(fg(color, &format!("╰{}╯", "─".repeat(inner))));
         result
     }
-    fn streaming_render(&self, model: &Model, width: usize) -> Vec<String> {
+    fn streaming_render(&self, model: &Model, width: usize) -> Vec<JsString> {
         let inner = width.saturating_sub(2).max(1);
         let theme = &model.theme;
         let color = COLORS[self.index];
@@ -159,11 +161,11 @@ impl Panel {
         let display = if typed.is_empty() {
             fg(ThemeColor::Dim, "(type here)")
         } else {
-            String::from_utf16_lossy(&typed)
+            JsString::from(String::from_utf16_lossy(&typed))
         };
-        let truncated = truncate_to_width_with(&format!(" > {display}"), inner, "...", true);
+        let truncated = truncate_to_width_with(&js_format!(" > {}", display), inner, "...", true);
         let content = [
-            format!(" {}", fg(ThemeColor::Accent, STREAM_LABELS[self.index])),
+            js_format!(" {}", fg(ThemeColor::Accent, STREAM_LABELS[self.index])),
             "".into(),
             if focused {
                 fg(ThemeColor::Success, " ● FOCUSED")
@@ -181,7 +183,7 @@ impl Panel {
         ];
         let mut result = vec![fg(color, &format!("╭{}╮", "─".repeat(inner)))];
         result.extend(content.iter().map(|s| {
-            format!(
+            js_format!(
                 "{}{}{}{}",
                 fg(color, "│"),
                 s,
@@ -226,10 +228,10 @@ impl ExtensionUiComponent for Panel {
         match model.demo {
             Demo::Passive => {
                 let seconds = model.state.borrow().seconds;
-                render::boxed(
+                (render::boxed(
                     &model,
                     vec![
-                        format!(
+                        js_format!(
                             " {}",
                             model
                                 .theme
@@ -239,10 +241,21 @@ impl ExtensionUiComponent for Panel {
                     ],
                     width,
                     "Timer",
-                )
+                ))
+                .into_iter()
+                .map(JsString::from)
+                .collect::<Vec<_>>()
             }
-            Demo::Focus => self.focus_render(&model, width),
-            Demo::Streaming => self.streaming_render(&model, width),
+            Demo::Focus => self
+                .focus_render(&model, width)
+                .into_iter()
+                .map(JsString::from)
+                .collect::<Vec<_>>(),
+            Demo::Streaming => self
+                .streaming_render(&model, width)
+                .into_iter()
+                .map(JsString::from)
+                .collect::<Vec<_>>(),
             _ => Vec::new(),
         }
     }
