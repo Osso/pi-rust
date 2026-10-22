@@ -2,6 +2,7 @@ use pi_agent_core::harness::PromptTemplate;
 use pi_agent_core::harness::prompt_templates::{
     format_prompt_template_invocation, parse_command_args, substitute_args,
 };
+use pi_js_compat::js_json::JsString;
 
 fn owned(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_owned()).collect()
@@ -107,14 +108,14 @@ fn substitute_args_preserves_special_argument_values() {
 #[test]
 fn format_prompt_template_uses_only_content_and_empty_args() {
     let mut template = PromptTemplate {
-        name: "ignored".to_owned(),
+        name: JsString::from("ignored"),
         description: Some("also ignored".to_owned()),
         content: "$1".to_owned(),
     };
 
     assert_eq!(format_prompt_template_invocation(&template, &[]), "");
 
-    template.name = "changed".to_owned();
+    template.name = JsString::from("changed");
     template.description = None;
     let args = owned(&["value"]);
     assert_eq!(format_prompt_template_invocation(&template, &args), "value");

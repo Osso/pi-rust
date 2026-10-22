@@ -3,6 +3,8 @@ pub mod support;
 use pi_agent_core::agent::*;
 use pi_agent_core::harness::{BeforeToolCallResult, ThinkingLevel};
 use pi_ai::types::{AssistantContent, ToolCallExecution};
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 use support::*;
@@ -63,7 +65,7 @@ async fn hooks_keep_original_tool_call_after_argument_preparation() {
         text_result("found")
     });
     tool.parameters = json!({"type":"object","properties":{"value":{"type":"string"}},"required":["value"]});
-    tool.prepare_arguments = Some(Arc::new(|_| Ok(json!({"value":"prepared"}))));
+    tool.prepare_arguments = Some(Arc::new(|_| Ok(JsValue::from(json!({"value":"prepared"})))));
     let mut cfg = AgentLoopConfig::new(model(), identity_convert());
     let observed = Arc::new(Mutex::new(Vec::new()));
     let observed_hook = observed.clone();
@@ -134,14 +136,14 @@ async fn null_after_hook_details_keep_the_executed_details() {
     cfg.after_tool_call = Some(Arc::new(|_, _| {
         Box::pin(async {
             Ok(Some(AfterToolCallResult {
-                details: Some(serde_json::Value::Null),
+                details: Some(JsValue::from(serde_json::Value::Null)),
                 ..Default::default()
             }))
         })
     }));
     let tool = TestTool::no_args("lookup", || {
         let mut result = text_result("found");
-        result.details = Some(json!({"kept": true}));
+        result.details = Some(JsValue::from(json!({"kept": true})));
         result
     });
     let response = tool_use(vec![AssistantContent::ToolCall(tool_call("call", "lookup", json!({})))]);
@@ -163,7 +165,7 @@ async fn null_after_hook_details_keep_the_executed_details() {
             .find_map(AgentMessage::as_tool_result)
             .unwrap()
             .details,
-        Some(json!({"kept": true}))
+        (Some(json!({"kept": true}))).map(JsValue::from)
     );
 }
 
@@ -174,7 +176,7 @@ async fn empty_block_reason_uses_default_text() {
         Box::pin(async {
             Ok(Some(BeforeToolCallResult {
                 block: Some(true),
-                reason: Some(String::new()),
+                reason: Some(JsString::default()),
             }))
         })
     }));

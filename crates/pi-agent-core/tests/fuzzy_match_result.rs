@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::fmt::Debug;
 
 use pi_agent_core::harness::tools::edit_diff::FuzzyMatchResult;
@@ -22,7 +23,7 @@ fn preserves_source_shaped_fields_and_debug() {
         index: 2.0,
         match_length: 5.0,
         used_fuzzy_match: false,
-        content_for_replacement: "before".to_owned(),
+        content_for_replacement: JsString::from("before"),
     };
 
     assert!(result.found);
@@ -40,14 +41,14 @@ fn preserves_empty_unicode_and_control_content() {
         index: 0.0,
         match_length: 0.0,
         used_fuzzy_match: false,
-        content_for_replacement: String::new(),
+        content_for_replacement: JsString::default(),
     };
     let content = FuzzyMatchResult {
         found: true,
         index: 1.0,
         match_length: 4.0,
         used_fuzzy_match: true,
-        content_for_replacement: "代理🙂\0\r\n".to_owned(),
+        content_for_replacement: JsString::from("代理🙂\0\r\n"),
     };
 
     assert_eq!(empty.content_for_replacement, "");
@@ -61,14 +62,14 @@ fn fields_are_independent_and_publicly_mutable() {
         index: 1.0,
         match_length: 2.0,
         used_fuzzy_match: true,
-        content_for_replacement: "before".to_owned(),
+        content_for_replacement: JsString::from("before"),
     };
 
     result.found = true;
     result.index = -3.5;
     result.match_length = 8.25;
     result.used_fuzzy_match = false;
-    result.content_for_replacement = "after".to_owned();
+    result.content_for_replacement = JsString::from("after");
 
     assert!(result.found);
     assert_eq!(result.index, -3.5);
@@ -98,7 +99,7 @@ fn preserves_unrestricted_binary64_bits_in_numeric_fields() {
             index: f64::from_bits(bits),
             match_length: f64::from_bits(bits),
             used_fuzzy_match: false,
-            content_for_replacement: "content".to_owned(),
+            content_for_replacement: JsString::from("content"),
         };
 
         assert_eq!(result.index.to_bits(), bits);

@@ -1,4 +1,5 @@
 use pi_agent_core::harness::tools::edit_diff::FuzzyMatchResult;
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 use super::{oracle::TsOracle, support::ok_response};
@@ -54,7 +55,7 @@ fn normalize_case(case: &Case) -> Value {
         index: binary64_from_bits(case.index_bits),
         match_length: binary64_from_bits(case.match_length_bits),
         used_fuzzy_match: case.used_fuzzy_match,
-        content_for_replacement: case.content_for_replacement.to_owned(),
+        content_for_replacement: JsString::from(case.content_for_replacement.to_owned()),
     };
     json!({
         "name": case.name,

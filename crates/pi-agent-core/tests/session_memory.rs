@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -261,7 +262,7 @@ async fn supports_bounded_filtered_and_cursor_based_queries() {
         .append_entry(
             EntryBody::Compaction {
                 id: "compact".to_owned(),
-                summary: "summary".to_owned(),
+                summary: JsString::from("summary"),
                 tokens_before: 10.0,
                 retained_tail: Vec::new(),
                 duration_ms: None,
@@ -732,7 +733,7 @@ async fn persists_tool_result_termination_and_rejects_non_finite_payloads() {
             EntryBody::BranchSummary {
                 id: "invalid".to_owned(),
                 from_id: "tool-result".to_owned(),
-                summary: "s".to_owned(),
+                summary: JsString::from("s"),
                 details: OptionalValue::Missing,
                 usage: Some(invalid),
             },

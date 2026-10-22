@@ -5,6 +5,8 @@ use pi_agent_core::harness::tools::edit_diff::{
     Edit, apply_edits_to_normalized_content, generate_diff_string, generate_unified_patch,
 };
 use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::encode_node_utf8;
 
 #[tokio::test]
 async fn file_edit_matches_a_low_unit_then_encodes_only_the_written_bytes() {
@@ -19,7 +21,7 @@ async fn file_edit_matches_a_low_unit_then_encodes_only_the_written_bytes() {
     let disk_path = directory.path().join(pi_js_compat::js_json::encode_node_utf8(&path));
     std::fs::write(&disk_path, "😀").unwrap();
     let env: Arc<dyn ExecutionEnv> = Arc::new(NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: directory.path().to_str().unwrap().to_owned(),
+        cwd: JsString::from(directory.path().to_str().unwrap().to_owned()),
         shell_path: None,
         shell_env: Default::default(),
     }));

@@ -1,6 +1,8 @@
 mod support;
 
 use pi_js_compat::base64::buffer_from_base64;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -128,7 +130,7 @@ fn compare_case(oracle: &mut TsOracle, runtime: &tokio::runtime::Runtime, case: 
 fn rust_context() -> (TempDir, Arc<ExecutionToolContext>) {
     let root = tempfile::tempdir().expect("temp dir");
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: root.path().to_string_lossy().into_owned(),
+        cwd: JsString::from(root.path().to_string_lossy().into_owned()),
         shell_path: None,
         shell_env: HashMap::new(),
     });
@@ -138,7 +140,7 @@ fn rust_context() -> (TempDir, Arc<ExecutionToolContext>) {
 
 fn context_at(root: &Path) -> Arc<ExecutionToolContext> {
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: root.to_string_lossy().into_owned(),
+        cwd: JsString::from(root.to_string_lossy().into_owned()),
         shell_path: None,
         shell_env: HashMap::new(),
     });
@@ -190,13 +192,19 @@ async fn run_tool(case: &Case, root: &Path) -> Value {
     };
 
     match tool
-        .execute("call".to_owned(), case.input.clone(), Some(signal), on_update, None)
+        .execute(
+            "call".to_owned(),
+            JsValue::from(case.input.clone()),
+            Some(signal),
+            on_update,
+            None,
+        )
         .await
     {
         Ok(result) => json!({
             "ok": true,
             "content": result.content,
-            "details": result.details.unwrap_or(Value::Null),
+            "details": result.details.unwrap_or(JsValue::from(Value::Null)),
             "updates": updates.lock().expect("update sink lock").clone(),
         }),
         Err(error) => json!({
@@ -238,7 +246,7 @@ impl BashPrepare for PrepareWorkspace {
         _signal: Option<&'a CancellationToken>,
     ) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
-            execution.cwd = self.workspace.clone();
+            execution.cwd = JsString::from(self.workspace.clone());
             execution.env = HashMap::from([("PI_BASH_PREPARE_EXPLICIT".to_owned(), "explicit".to_owned())]);
             execution.inherit_env = false;
             execution.command.push_str(

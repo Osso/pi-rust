@@ -1,6 +1,7 @@
 //! Behavioral port of `packages/agent/test/harness/tools.test.ts`.
 
 use pi_js_compat::base64::buffer_from_base64;
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 use std::os::unix::fs::symlink;
 use std::sync::{Arc, Mutex};
@@ -24,7 +25,7 @@ use tokio_util::sync::CancellationToken;
 fn temp_env() -> (TempDir, Arc<ExecutionToolContext>) {
     let root = tempfile::tempdir().expect("temp dir");
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: root.path().to_string_lossy().into_owned(),
+        cwd: JsString::from(root.path().to_string_lossy().into_owned()),
         shell_path: None,
         shell_env: HashMap::new(),
     });
@@ -101,8 +102,8 @@ async fn read_supports_offsets_limits_and_continuation_notices() {
     context
         .env
         .write_file(
-            "test.txt",
-            pi_agent_core::harness::types::FileContent::Text(&lines),
+            &JsString::from("test.txt"),
+            pi_agent_core::harness::types::FileContent::Text(&JsString::from(&lines)),
             None,
         )
         .await
@@ -132,8 +133,8 @@ async fn read_truncates_large_text_by_bytes_and_accepts_exact_line_limits() {
     context
         .env
         .write_file(
-            "large.txt",
-            pi_agent_core::harness::types::FileContent::Text(&lines),
+            &JsString::from("large.txt"),
+            pi_agent_core::harness::types::FileContent::Text(&JsString::from(&lines)),
             None,
         )
         .await
@@ -154,8 +155,8 @@ async fn read_truncates_large_text_by_bytes_and_accepts_exact_line_limits() {
     context
         .env
         .write_file(
-            "exact.txt",
-            pi_agent_core::harness::types::FileContent::Text(&exact),
+            &JsString::from("exact.txt"),
+            pi_agent_core::harness::types::FileContent::Text(&JsString::from(&exact)),
             None,
         )
         .await
@@ -173,8 +174,8 @@ async fn read_rejects_offsets_beyond_the_file() {
     context
         .env
         .write_file(
-            "short.txt",
-            pi_agent_core::harness::types::FileContent::Text("one\ntwo\nthree"),
+            &JsString::from("short.txt"),
+            pi_agent_core::harness::types::FileContent::Text(&JsString::from("one\ntwo\nthree")),
             None,
         )
         .await
@@ -198,7 +199,7 @@ async fn read_detects_images_and_omits_bmp_without_a_processor() {
     context
         .env
         .write_file(
-            "image.txt",
+            &JsString::from("image.txt"),
             pi_agent_core::harness::types::FileContent::Bytes(&png),
             None,
         )
@@ -217,7 +218,7 @@ async fn read_detects_images_and_omits_bmp_without_a_processor() {
     context
         .env
         .write_file(
-            "image.bmp",
+            &JsString::from("image.bmp"),
             pi_agent_core::harness::types::FileContent::Bytes(&bmp),
             None,
         )
@@ -261,7 +262,7 @@ async fn read_delegates_image_conversion_and_resizing_to_an_injected_processor()
     context
         .env
         .write_file(
-            "image.bmp",
+            &JsString::from("image.bmp"),
             pi_agent_core::harness::types::FileContent::Bytes(&bmp),
             None,
         )
@@ -307,7 +308,11 @@ async fn write_creates_parent_directories_and_reports_utf16_length() {
     );
     assert!(result.details.is_none());
     assert_eq!(
-        context.env.read_text_file("nested/dir/file.txt", None).await.unwrap(),
+        context
+            .env
+            .read_text_file(&JsString::from("nested/dir/file.txt"), None)
+            .await
+            .unwrap(),
         "hello"
     );
 
@@ -327,8 +332,8 @@ async fn edit_applies_disjoint_edits_and_returns_diff_and_patch() {
     context
         .env
         .write_file(
-            "edit.txt",
-            pi_agent_core::harness::types::FileContent::Text(original),
+            &JsString::from("edit.txt"),
+            pi_agent_core::harness::types::FileContent::Text(&JsString::from(original)),
             None,
         )
         .await
@@ -356,7 +361,11 @@ async fn edit_applies_disjoint_edits_and_returns_diff_and_patch() {
     );
     assert_eq!(details["firstChangedLine"], json!(1));
     assert_eq!(
-        context.env.read_text_file("edit.txt", None).await.unwrap(),
+        context
+            .env
+            .read_text_file(&JsString::from("edit.txt"), None)
+            .await
+            .unwrap(),
         "ALPHA\nbeta\nGAMMA\ndelta\n"
     );
 }
@@ -367,8 +376,8 @@ async fn edit_rejects_overlaps_missing_and_duplicate_targets() {
     context
         .env
         .write_file(
-            "edit.txt",
-            pi_agent_core::harness::types::FileContent::Text("one\ntwo\nthree\n"),
+            &JsString::from("edit.txt"),
+            pi_agent_core::harness::types::FileContent::Text(&JsString::from("one\ntwo\nthree\n")),
             None,
         )
         .await
@@ -388,15 +397,19 @@ async fn edit_rejects_overlaps_missing_and_duplicate_targets() {
     .unwrap_err();
     assert!(error.message.contains("overlap"));
     assert_eq!(
-        context.env.read_text_file("edit.txt", None).await.unwrap(),
+        context
+            .env
+            .read_text_file(&JsString::from("edit.txt"), None)
+            .await
+            .unwrap(),
         "one\ntwo\nthree\n"
     );
 
     context
         .env
         .write_file(
-            "dupes.txt",
-            pi_agent_core::harness::types::FileContent::Text("foo foo foo"),
+            &JsString::from("dupes.txt"),
+            pi_agent_core::harness::types::FileContent::Text(&JsString::from("foo foo foo")),
             None,
         )
         .await
@@ -423,8 +436,8 @@ async fn edit_serializes_through_canonical_and_symlink_paths() {
     context
         .env
         .write_file(
-            "target.txt",
-            pi_agent_core::harness::types::FileContent::Text("alpha\nbeta\ngamma\n"),
+            &JsString::from("target.txt"),
+            pi_agent_core::harness::types::FileContent::Text(&JsString::from("alpha\nbeta\ngamma\n")),
             None,
         )
         .await
@@ -454,7 +467,11 @@ async fn edit_serializes_through_canonical_and_symlink_paths() {
     first.await.unwrap().unwrap();
     second.await.unwrap().unwrap();
     assert_eq!(
-        context.env.read_text_file("target.txt", None).await.unwrap(),
+        context
+            .env
+            .read_text_file(&JsString::from("target.txt"), None)
+            .await
+            .unwrap(),
         "ALPHA\nBETA\ngamma\n"
     );
 }
@@ -465,8 +482,8 @@ async fn edit_preserves_bom_and_crlf_and_edits_through_symlinks() {
     context
         .env
         .write_file(
-            "edit.txt",
-            pi_agent_core::harness::types::FileContent::Text("\u{feff}one\r\ntwo\r\n"),
+            &JsString::from("edit.txt"),
+            pi_agent_core::harness::types::FileContent::Text(&JsString::from("\u{feff}one\r\ntwo\r\n")),
             None,
         )
         .await
@@ -478,15 +495,19 @@ async fn edit_preserves_bom_and_crlf_and_edits_through_symlinks() {
     .await
     .unwrap();
     assert_eq!(
-        context.env.read_text_file("edit.txt", None).await.unwrap(),
+        context
+            .env
+            .read_text_file(&JsString::from("edit.txt"), None)
+            .await
+            .unwrap(),
         "\u{feff}one\r\nTWO\r\n"
     );
 
     context
         .env
         .write_file(
-            "target.txt",
-            pi_agent_core::harness::types::FileContent::Text("before\n"),
+            &JsString::from("target.txt"),
+            pi_agent_core::harness::types::FileContent::Text(&JsString::from("before\n")),
             None,
         )
         .await
@@ -498,7 +519,14 @@ async fn edit_preserves_bom_and_crlf_and_edits_through_symlinks() {
     )
     .await
     .unwrap();
-    assert_eq!(context.env.read_text_file("target.txt", None).await.unwrap(), "after\n");
+    assert_eq!(
+        context
+            .env
+            .read_text_file(&JsString::from("target.txt"), None)
+            .await
+            .unwrap(),
+        "after\n"
+    );
 }
 
 #[tokio::test]
@@ -507,8 +535,8 @@ async fn edit_fuzzy_matches_smart_quotes_and_whitespace() {
     context
         .env
         .write_file(
-            "fuzzy.txt",
-            pi_agent_core::harness::types::FileContent::Text("keep  \nsay \u{201c}hi\u{201d}\n"),
+            &JsString::from("fuzzy.txt"),
+            pi_agent_core::harness::types::FileContent::Text(&JsString::from("keep  \nsay \u{201c}hi\u{201d}\n")),
             None,
         )
         .await
@@ -521,7 +549,11 @@ async fn edit_fuzzy_matches_smart_quotes_and_whitespace() {
     .unwrap();
     assert!(result.details.unwrap()["diff"].as_string().unwrap().contains("bye"));
     assert_eq!(
-        context.env.read_text_file("fuzzy.txt", None).await.unwrap(),
+        context
+            .env
+            .read_text_file(&JsString::from("fuzzy.txt"), None)
+            .await
+            .unwrap(),
         "keep  \nsay \"bye\"\n"
     );
 }
@@ -559,14 +591,21 @@ async fn edit_prepare_arguments_accepts_json_strings_and_legacy_fields() {
     context
         .env
         .write_file(
-            "f.txt",
-            pi_agent_core::harness::types::FileContent::Text("a\nb\n"),
+            &JsString::from("f.txt"),
+            pi_agent_core::harness::types::FileContent::Text(&JsString::from("a\nb\n")),
             None,
         )
         .await
         .unwrap();
     execute(&tool, legacy).await.unwrap();
-    assert_eq!(context.env.read_text_file("f.txt", None).await.unwrap(), "A\nB\n");
+    assert_eq!(
+        context
+            .env
+            .read_text_file(&JsString::from("f.txt"), None)
+            .await
+            .unwrap(),
+        "A\nB\n"
+    );
 }
 
 #[tokio::test]
@@ -575,8 +614,8 @@ async fn edit_and_write_report_pre_aborted_operations() {
     context
         .env
         .write_file(
-            "file.txt",
-            pi_agent_core::harness::types::FileContent::Text("a\n"),
+            &JsString::from("file.txt"),
+            pi_agent_core::harness::types::FileContent::Text(&JsString::from("a\n")),
             None,
         )
         .await
@@ -599,7 +638,7 @@ async fn edit_and_write_report_pre_aborted_operations() {
     .await
     .unwrap_err();
     assert_eq!(write.message, "Operation aborted");
-    assert!(!context.env.exists("other.txt", None).await.unwrap());
+    assert!(!context.env.exists(&JsString::from("other.txt"), None).await.unwrap());
 }
 
 #[tokio::test]
@@ -680,7 +719,11 @@ async fn bash_truncates_line_output_and_persists_the_full_output() {
         .unwrap()
         .to_utf8()
         .expect("scalar temporary path");
-    let full_output = context.env.read_text_file(&full_output_path, None).await.unwrap();
+    let full_output = context
+        .env
+        .read_text_file(&JsString::from(&full_output_path), None)
+        .await
+        .unwrap();
     assert!(full_output.contains("line-1\nline-2"));
     assert!(full_output.contains("line-2999\nline-3000"));
     let last = updates.last().expect("final update");
@@ -708,7 +751,7 @@ async fn bash_preserves_truncated_output_when_a_command_times_out() {
         .slice(start, end)
         .to_utf8()
         .expect("scalar temporary path");
-    let full_output = context.env.read_text_file(&path, None).await.unwrap();
+    let full_output = context.env.read_text_file(&JsString::from(&path), None).await.unwrap();
     assert!(full_output.contains("line-1\nline-2"));
     assert!(full_output.contains("line-3000"));
 }
@@ -718,7 +761,10 @@ async fn bash_supports_command_prefixes_and_prepare_hooks() {
     let (root, context) = temp_env();
     context
         .env
-        .create_dir("workspace", pi_agent_core::harness::types::CreateDirOptions::default())
+        .create_dir(
+            &JsString::from("workspace"),
+            pi_agent_core::harness::types::CreateDirOptions::default(),
+        )
         .await
         .unwrap();
     let workspace = root.path().join("workspace").to_string_lossy().into_owned();
@@ -767,7 +813,7 @@ impl BashPrepare for PrepareWorkspace {
         _signal: Option<&'a CancellationToken>,
     ) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
-            execution.cwd = self.workspace.clone();
+            execution.cwd = JsString::from(self.workspace.clone());
             execution.env = HashMap::from([("PI_BASH_PREPARE_EXPLICIT".to_owned(), "explicit".to_owned())]);
             execution.inherit_env = false;
             execution.command.push_str(

@@ -1,4 +1,5 @@
 use pi_agent_core::harness::tools::edit_diff::AppliedEditsResult;
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 use super::{oracle::TsOracle, support::ok_response};
@@ -44,8 +45,8 @@ fn rust_response(cases: &[Case]) -> Value {
 
 fn normalize_case(case: &Case) -> Value {
     let result = AppliedEditsResult {
-        base_content: case.base_content.to_owned(),
-        new_content: case.new_content.to_owned(),
+        base_content: JsString::from(case.base_content.to_owned()),
+        new_content: JsString::from(case.new_content.to_owned()),
     };
     json!({
         "name": case.name,

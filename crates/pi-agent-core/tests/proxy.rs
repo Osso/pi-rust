@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::agent::{ProxyStreamOptions, stream_proxy};
@@ -63,7 +64,7 @@ fn model() -> Model {
         name: "GPT-5.4".to_owned(),
         api: "openai-responses".to_owned(),
         provider: "openai".to_owned(),
-        base_url: "https://api.openai.com/v1".to_owned(),
+        base_url: JsString::from("https://api.openai.com/v1"),
         reasoning: true,
         thinking_level_map: None,
         input: vec![pi_ai::types::Modality::Text],
@@ -308,7 +309,10 @@ async fn abort_cancels_a_pending_proxy_body_read() {
         .expect("cancelled body read must settle")
         .unwrap();
     assert_eq!(message.stop_reason, StopReason::Aborted);
-    assert_eq!(message.error_message.as_deref(), Some("Request aborted by user"));
+    assert_eq!(
+        message.error_message.as_ref(),
+        Some(&JsString::from("Request aborted by user"))
+    );
 }
 
 #[tokio::test]
@@ -331,8 +335,8 @@ async fn empty_proxy_error_uses_status_message() {
     ))
     .await;
     assert_eq!(
-        message.error_message.as_deref(),
-        Some("Proxy error: 500 Internal Server Error")
+        message.error_message.as_ref(),
+        Some(&JsString::from("Proxy error: 500 Internal Server Error"))
     );
 }
 
@@ -363,8 +367,11 @@ async fn reports_proxy_error_body_message() {
     };
     assert_eq!(*reason, ErrorReason::Error);
     assert_eq!(result.stop_reason, StopReason::Error);
-    assert_eq!(result.error_message.as_deref(), Some("Proxy error: boom"));
-    assert_eq!(error.error_message.as_deref(), Some("Proxy error: boom"));
+    assert_eq!(
+        result.error_message.as_ref(),
+        Some(&JsString::from("Proxy error: boom"))
+    );
+    assert_eq!(error.error_message.as_ref(), Some(&JsString::from("Proxy error: boom")));
 }
 
 #[tokio::test]
@@ -396,7 +403,10 @@ async fn reports_aborted_when_the_local_signal_is_cancelled() {
     };
     assert_eq!(*reason, ErrorReason::Aborted);
     assert_eq!(result.stop_reason, StopReason::Aborted);
-    assert_eq!(result.error_message.as_deref(), Some("This operation was aborted"));
+    assert_eq!(
+        result.error_message.as_ref(),
+        Some(&JsString::from("This operation was aborted"))
+    );
 }
 
 #[tokio::test]
@@ -429,8 +439,8 @@ async fn rejects_text_delta_for_non_text_content() {
     };
     assert_eq!(*reason, ErrorReason::Error);
     assert_eq!(
-        result.error_message.as_deref(),
-        Some("Received text_delta for non-text content")
+        result.error_message.as_ref(),
+        Some(&JsString::from("Received text_delta for non-text content"))
     );
     assert_eq!(result.content, Vec::<pi_ai::types::AssistantContent>::new());
 }

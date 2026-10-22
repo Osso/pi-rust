@@ -2,6 +2,7 @@ use pi_agent_core::harness::PromptTemplate;
 use pi_agent_core::harness::prompt_templates::{
     format_prompt_template_invocation, parse_command_args, substitute_args,
 };
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 use super::{oracle::TsOracle, support::ok_response};
@@ -63,7 +64,7 @@ fn rust_response(fixture: &Fixture) -> Value {
     let args = owned_args(fixture.args);
     let template_content = fixture.template_content.unwrap_or(fixture.content);
     let template = PromptTemplate {
-        name: fixture.template_name.to_owned(),
+        name: JsString::from(fixture.template_name.to_owned()),
         description: fixture.template_description.map(str::to_owned),
         content: template_content.to_owned(),
     };

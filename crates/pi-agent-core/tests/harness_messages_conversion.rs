@@ -6,17 +6,27 @@ use pi_agent_core::harness::messages::{
     create_custom_message,
 };
 use pi_ai::types::{Message, TextContent, TextOrImageContent, UserContent};
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::json;
 
 fn custom(value: serde_json::Value) -> AgentMessage {
-    AgentMessage::Custom(value.as_object().unwrap().clone())
+    AgentMessage::Custom(
+        value
+            .as_object()
+            .unwrap()
+            .clone()
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>(),
+    )
 }
 
 fn bash_message(command: &str, output: &str) -> BashExecutionMessage {
     BashExecutionMessage {
         role: BashExecutionRole::BashExecution,
-        command: command.to_owned(),
-        output: output.to_owned(),
+        command: JsString::from(command.to_owned()),
+        output: JsString::from(output.to_owned()),
         exit_code: None,
         cancelled: false,
         truncated: false,
@@ -64,7 +74,7 @@ fn bash_execution_to_text_formats_command_output_and_terminal_notes() {
 
     let truncated = BashExecutionMessage {
         truncated: true,
-        full_output_path: Some("/tmp/full.log".to_owned()),
+        full_output_path: Some(JsString::from("/tmp/full.log")),
         ..bash_message("seq 100", "1\n2\n")
     };
     assert_eq!(
@@ -81,7 +91,7 @@ fn bash_execution_to_text_formats_command_output_and_terminal_notes() {
 
     let empty_path = BashExecutionMessage {
         truncated: true,
-        full_output_path: Some(String::new()),
+        full_output_path: Some(JsString::default()),
         ..bash_message("seq 100", "")
     };
     assert_eq!(bash_execution_to_text(&empty_path), "Ran `seq 100`\n(no output)");
@@ -194,7 +204,7 @@ fn convert_to_llm_skips_excluded_bash_messages_and_maps_custom_roles() {
 fn convert_to_llm_passes_typed_messages_through_unchanged() {
     let user = AgentMessage::User(pi_ai::types::UserMessage {
         role: pi_ai::types::UserRole::Tag,
-        content: UserContent::Text("hello".to_owned()),
+        content: UserContent::Text(JsString::from("hello")),
         input_source: None,
         provider_native: None,
         timestamp: 21,
@@ -213,14 +223,14 @@ fn convert_to_llm_passes_typed_messages_through_unchanged() {
 fn create_custom_message_emits_role_custom_type_and_optional_details() {
     assert_eq!(
         create_custom_message(
-            "note",
+            &JsString::from("note"),
             CustomMessageContent::Blocks(vec![TextOrImageContent::Text(TextContent::new("hello"))]),
             true,
-            Some(json!({"level": 2})),
+            Some(JsValue::from(json!({"level": 2}))),
             1234,
         ),
         AgentMessage::Custom(
-            json!({
+            (json!({
                 "role": "custom",
                 "customType": "note",
                 "content": [{"type": "text", "text": "hello"}],
@@ -230,19 +240,22 @@ fn create_custom_message_emits_role_custom_type_and_optional_details() {
             })
             .as_object()
             .unwrap()
-            .clone()
+            .clone())
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>()
         )
     );
     assert_eq!(
         create_custom_message(
-            "note",
-            CustomMessageContent::Text("plain".to_owned()),
+            &JsString::from("note"),
+            CustomMessageContent::Text(JsString::from("plain")),
             false,
             None,
             1235
         ),
         AgentMessage::Custom(
-            json!({
+            (json!({
                 "role": "custom",
                 "customType": "note",
                 "content": "plain",
@@ -251,7 +264,10 @@ fn create_custom_message_emits_role_custom_type_and_optional_details() {
             })
             .as_object()
             .unwrap()
-            .clone()
+            .clone())
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>()
         )
     );
 }

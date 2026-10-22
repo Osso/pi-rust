@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 use std::os::unix::fs::symlink;
 use std::path::Path;
@@ -238,7 +239,7 @@ fn skills_fixtures() -> Vec<Fixture> {
 
 fn env_at(root: &Path) -> NodeExecutionEnv {
     NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: root.to_string_lossy().into_owned(),
+        cwd: JsString::from(root.to_string_lossy().into_owned()),
         shell_path: None,
         shell_env: HashMap::new(),
     })

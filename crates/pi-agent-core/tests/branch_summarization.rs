@@ -1,3 +1,5 @@
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -66,7 +68,13 @@ fn tool_call_message(name: &str, id: &str, arguments: Value) -> AgentMessage {
     assistant_message_with(vec![AssistantContent::ToolCall(ToolCall::new(
         id,
         name,
-        arguments.as_object().cloned().expect("arguments must be an object"),
+        arguments
+            .as_object()
+            .cloned()
+            .expect("arguments must be an object")
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>(),
     ))])
 }
 
@@ -119,7 +127,7 @@ impl EntryFactory {
             body: EntryBody::BranchSummary {
                 id,
                 from_id: "branch".to_owned(),
-                summary: summary.to_owned(),
+                summary: JsString::from(summary.to_owned()),
                 details: details.map_or(OptionalValue::Missing, OptionalValue::Present),
                 usage: None,
             },
@@ -134,7 +142,7 @@ impl EntryFactory {
         Entry {
             body: EntryBody::Compaction {
                 id,
-                summary: summary.to_owned(),
+                summary: JsString::from(summary.to_owned()),
                 tokens_before: 123.0,
                 retained_tail: Vec::new(),
                 duration_ms,
@@ -270,11 +278,17 @@ fn carries_branch_summary_details_and_compaction_entries_into_preparation() {
     let AgentMessage::Custom(summary) = &preparation.messages[0] else {
         panic!("branch summary message must be custom");
     };
-    assert_eq!(summary.get("summary").and_then(Value::as_str), Some("earlier branch"));
+    assert_eq!(
+        summary.get("summary").and_then(JsValue::as_string),
+        Some(&JsString::from("earlier branch"))
+    );
     let AgentMessage::Custom(compaction_message) = &preparation.messages[1] else {
         panic!("compaction summary message must be custom");
     };
-    assert_eq!(compaction_message.get("durationMs").and_then(Value::as_f64), Some(12.5));
+    assert_eq!(
+        compaction_message.get("durationMs").and_then(JsValue::as_f64),
+        Some(12.5)
+    );
 }
 
 #[test]
@@ -398,7 +412,7 @@ fn scripted_failure(stop_reason: StopReason, error_message: &str) -> FauxRespons
         "",
         FauxAssistantMessageOptions {
             stop_reason: Some(stop_reason),
-            error_message: Some(error_message.to_owned()),
+            error_message: Some(JsString::from(error_message.to_owned())),
             ..Default::default()
         },
     ))
@@ -493,13 +507,13 @@ async fn appends_or_replaces_custom_instructions() {
     faux.set_responses(scripted_responses(Arc::clone(&log), vec!["first", "second"]));
 
     let mut appended = options(&models, &model);
-    appended.custom_instructions = Some("focus on files");
+    appended.custom_instructions = Some(&JsString::from("focus on files"));
     generate_branch_summary(&branch_entries(), &appended)
         .await
         .expect("summary must succeed");
 
     let mut replaced = options(&models, &model);
-    replaced.custom_instructions = Some("only this instruction");
+    replaced.custom_instructions = Some(&JsString::from("only this instruction"));
     replaced.replace_instructions = true;
     generate_branch_summary(&branch_entries(), &replaced)
         .await
@@ -573,8 +587,8 @@ async fn uses_a_retry_policy_for_transient_branch_summary_failures() {
 #[test]
 fn branch_summary_details_fields_are_publicly_mutable() {
     let mut details = BranchSummaryDetails::default();
-    details.read_files.push("a.ts".to_owned());
-    details.modified_files.push("b.ts".to_owned());
+    details.read_files.push(JsString::from("a.ts"));
+    details.modified_files.push(JsString::from("b.ts"));
     assert_eq!(details.read_files, ["a.ts"]);
     assert_eq!(details.modified_files, ["b.ts"]);
 }

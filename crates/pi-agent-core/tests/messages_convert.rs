@@ -7,6 +7,8 @@ use pi_ai::types::{
     AssistantContent, AssistantMessage, Message, StopReason, TextContent, TextOrImageContent, ToolResultMessage,
     ToolResultRole, UserContent, UserMessage, UserRole,
 };
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
 
 fn user(text: &str) -> AgentMessage {
@@ -41,7 +43,15 @@ fn tool_result(text: &str) -> AgentMessage {
 }
 
 fn custom(object: Value) -> AgentMessage {
-    AgentMessage::Custom(object.as_object().cloned().expect("custom message must be an object"))
+    AgentMessage::Custom(
+        object
+            .as_object()
+            .cloned()
+            .expect("custom message must be an object")
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>(),
+    )
 }
 
 fn message_timestamp(message: &Message) -> i64 {
@@ -279,8 +289,8 @@ fn skips_unknown_roles_and_preserves_order() {
 fn formats_bash_execution_text_from_the_typed_record() {
     let message = pi_agent_core::harness::messages::BashExecutionMessage {
         role: pi_agent_core::harness::messages::BashExecutionRole::BashExecution,
-        command: "echo hi".to_owned(),
-        output: "hi".to_owned(),
+        command: JsString::from("echo hi"),
+        output: JsString::from("hi"),
         exit_code: Some(0.0),
         cancelled: false,
         truncated: false,

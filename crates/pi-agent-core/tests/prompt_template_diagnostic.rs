@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::fmt::Debug;
 
 use pi_agent_core::harness::prompt_templates::{
@@ -38,8 +39,8 @@ fn module_export_exposes_mutable_public_diagnostic_fields() {
     let mut diagnostic = ModuleDiagnostic {
         r#type: ModuleType::Warning,
         code: ModuleCode::FileInfoFailed,
-        message: "message".to_owned(),
-        path: "/path".to_owned(),
+        message: JsString::from("message"),
+        path: JsString::from("/path"),
     };
 
     assert_eq!(diagnostic.r#type.as_str(), "warning");
@@ -49,8 +50,8 @@ fn module_export_exposes_mutable_public_diagnostic_fields() {
 
     diagnostic.r#type = ModuleType::Warning;
     diagnostic.code = ModuleCode::ParseFailed;
-    diagnostic.message = "updated message".to_owned();
-    diagnostic.path = "/updated".to_owned();
+    diagnostic.message = JsString::from("updated message");
+    diagnostic.path = JsString::from("/updated");
 
     assert_eq!(diagnostic.code, ModuleCode::ParseFailed);
     assert_eq!(diagnostic.message, "updated message");
@@ -63,13 +64,13 @@ fn root_export_exposes_mutable_public_diagnostic_fields() {
     let mut diagnostic = PromptTemplateDiagnostic {
         r#type: PromptTemplateDiagnosticType::Warning,
         code: PromptTemplateDiagnosticCode::ListFailed,
-        message: String::new(),
-        path: String::new(),
+        message: JsString::default(),
+        path: JsString::default(),
     };
 
     diagnostic.code = PromptTemplateDiagnosticCode::ReadFailed;
-    diagnostic.message = "root message".to_owned();
-    diagnostic.path = "root path".to_owned();
+    diagnostic.message = JsString::from("root message");
+    diagnostic.path = JsString::from("root path");
 
     assert_eq!(diagnostic.r#type.as_str(), "warning");
     assert_eq!(diagnostic.code.as_str(), "read_failed");
@@ -83,8 +84,8 @@ fn diagnostic_preserves_empty_and_rust_string_boundaries() {
     let empty = ModuleDiagnostic {
         r#type: ModuleType::Warning,
         code: ModuleCode::FileInfoFailed,
-        message: String::new(),
-        path: String::new(),
+        message: JsString::default(),
+        path: JsString::default(),
     };
     assert!(empty.message.is_empty());
     assert!(empty.path.is_empty());
@@ -92,8 +93,8 @@ fn diagnostic_preserves_empty_and_rust_string_boundaries() {
     let diagnostic = ModuleDiagnostic {
         r#type: ModuleType::Warning,
         code: ModuleCode::ParseFailed,
-        message: "ordinary 描述🙂e\u{301}\0\r\n<message>&\"'".to_owned(),
-        path: "paths/路径/技能🙂e\u{301}\0\r\n<path>&\"'".to_owned(),
+        message: JsString::from("ordinary 描述🙂e\u{301}\0\r\n<message>&\"'"),
+        path: JsString::from("paths/路径/技能🙂e\u{301}\0\r\n<path>&\"'"),
     };
 
     assert_eq!(diagnostic.message, "ordinary 描述🙂e\u{301}\0\r\n<message>&\"'");

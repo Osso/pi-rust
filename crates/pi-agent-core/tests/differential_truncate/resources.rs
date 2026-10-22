@@ -1,4 +1,5 @@
 use pi_agent_core::harness::{AgentHarnessResources, PromptTemplate, Skill};
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 use super::{oracle::TsOracle, support::ok_response};
@@ -178,10 +179,10 @@ fn build_skills(array: &SkillArray) -> Option<Vec<Skill>> {
 
 fn build_skill(fixture: &SkillFixture) -> Skill {
     Skill {
-        name: fixture.name.to_owned(),
+        name: JsString::from(fixture.name.to_owned()),
         description: fixture.description.to_owned(),
         content: fixture.content.to_owned(),
-        file_path: fixture.file_path.to_owned(),
+        file_path: JsString::from(fixture.file_path.to_owned()),
         disable_model_invocation: fixture.disable_model_invocation.rust_value(),
     }
 }
@@ -196,7 +197,7 @@ fn build_prompt_templates(array: &PromptTemplateArray) -> Option<Vec<PromptTempl
 
 fn build_prompt_template(fixture: &PromptTemplateFixture) -> PromptTemplate {
     PromptTemplate {
-        name: fixture.name.to_owned(),
+        name: JsString::from(fixture.name.to_owned()),
         description: fixture.description.rust_value().map(str::to_owned),
         content: fixture.content.to_owned(),
     }

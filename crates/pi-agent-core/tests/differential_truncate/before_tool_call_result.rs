@@ -1,4 +1,5 @@
 use pi_agent_core::harness::BeforeToolCallResult;
+use pi_js_compat::js_json::JsString;
 use serde_json::{Map, Value, json};
 
 use super::{oracle::TsOracle, support::ok_response};
@@ -68,7 +69,7 @@ fn rust_response(cases: &[Case]) -> Value {
 fn normalize_case(case: &Case) -> Value {
     let result = BeforeToolCallResult {
         block: optional_bool(case.block_state, case.block),
-        reason: optional_string(case.reason_state, case.reason),
+        reason: optional_string(case.reason_state, case.reason).map(JsString::from),
     };
     json!({
         "name": case.name,

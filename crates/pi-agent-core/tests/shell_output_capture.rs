@@ -1,5 +1,6 @@
 //! Behavioral coverage for the `executeShellWithCapture` port.
 
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -13,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 fn env() -> (TempDir, Arc<dyn ExecutionEnv>) {
     let root = tempfile::tempdir().expect("temp dir");
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: root.path().to_string_lossy().into_owned(),
+        cwd: JsString::from(root.path().to_string_lossy().into_owned()),
         shell_path: None,
         shell_env: HashMap::new(),
     });
@@ -23,9 +24,13 @@ fn env() -> (TempDir, Arc<dyn ExecutionEnv>) {
 #[tokio::test]
 async fn captures_large_output_to_a_full_output_file() {
     let (root, env) = env();
-    let result = execute_shell_with_capture(&env, "yes line | head -n 15000", ShellCaptureOptions::default())
-        .await
-        .unwrap();
+    let result = execute_shell_with_capture(
+        &env,
+        &JsString::from("yes line | head -n 15000"),
+        ShellCaptureOptions::default(),
+    )
+    .await
+    .unwrap();
     assert!(result.truncated);
     let full_output_path = result.full_output_path.clone().expect("full output path");
     let full_output = env.read_text_file(&full_output_path, None).await.unwrap();
@@ -39,7 +44,7 @@ async fn captures_a_single_oversized_chunk_to_a_full_output_file() {
     let (_root, env) = env();
     let result = execute_shell_with_capture(
         &env,
-        "node -e \"process.stdout.write('start' + 'x'.repeat(128 * 1024) + 'end')\"",
+        &JsString::from("node -e \"process.stdout.write('start' + 'x'.repeat(128 * 1024) + 'end')\""),
         ShellCaptureOptions::default(),
     )
     .await
@@ -60,7 +65,7 @@ async fn reports_cancelled_commands() {
     let cancellation = signal.clone();
     let execution = execute_shell_with_capture(
         &env,
-        "sleep 5",
+        &JsString::from("sleep 5"),
         ShellCaptureOptions {
             abort: Some(signal),
             ..ShellCaptureOptions::default()
@@ -77,7 +82,7 @@ async fn returns_execution_errors_when_requested() {
     let (_root, env) = env();
     let result = execute_shell_with_capture(
         &env,
-        "printf out; sleep 5",
+        &JsString::from("printf out; sleep 5"),
         ShellCaptureOptions {
             timeout: Some(0.01),
             return_execution_errors: true,
@@ -93,7 +98,7 @@ async fn returns_execution_errors_when_requested() {
 
     let error = execute_shell_with_capture(
         &env,
-        "sleep 5",
+        &JsString::from("sleep 5"),
         ShellCaptureOptions {
             timeout: Some(0.01),
             ..ShellCaptureOptions::default()
@@ -107,9 +112,13 @@ async fn returns_execution_errors_when_requested() {
 #[tokio::test]
 async fn sanitizes_chunks_and_removes_carriage_returns() {
     let (_root, env) = env();
-    let result = execute_shell_with_capture(&env, "printf 'a\\rb\\001c'", ShellCaptureOptions::default())
-        .await
-        .unwrap();
+    let result = execute_shell_with_capture(
+        &env,
+        &JsString::from("printf 'a\\rb\\001c'"),
+        ShellCaptureOptions::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!(result.output, "abc");
     assert_eq!(result.exit_code, Some(0));
 }
@@ -121,7 +130,7 @@ async fn reports_progress_to_chunk_callbacks() {
     let observed = Arc::clone(&calls);
     let result = execute_shell_with_capture(
         &env,
-        "printf 'one\\ntwo\\n'",
+        &JsString::from("printf 'one\\ntwo\\n'"),
         ShellCaptureOptions {
             on_chunk: Some(Arc::new(move |_chunk: &str, progress| {
                 observed.fetch_add(1, Ordering::SeqCst);

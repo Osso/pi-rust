@@ -1,4 +1,5 @@
 use pi_agent_core::harness::{PromptTemplateDiagnostic, PromptTemplateDiagnosticCode, PromptTemplateDiagnosticType};
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 use super::{oracle::TsOracle, support::ok_response};
@@ -331,8 +332,8 @@ fn normalize_case(case: &Case) -> Value {
     let diagnostic = PromptTemplateDiagnostic {
         r#type: PromptTemplateDiagnosticType::Warning,
         code: case.code,
-        message: case.message.to_owned(),
-        path: case.path.to_owned(),
+        message: JsString::from(case.message.to_owned()),
+        path: JsString::from(case.path.to_owned()),
     };
     json!({
         "name": case.name,

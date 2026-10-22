@@ -3,6 +3,8 @@ mod oracle;
 #[path = "../support/mod.rs"]
 mod support;
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -47,7 +49,7 @@ fn value_tool_schema() -> Value {
 
 fn context(messages: Vec<AgentMessage>, tools: Vec<Arc<dyn AgentTool>>, system_prompt: &str) -> AgentContext {
     AgentContext {
-        system_prompt: system_prompt.to_owned(),
+        system_prompt: JsString::from(system_prompt.to_owned()),
         messages,
         tools: Some(tools),
     }
@@ -356,7 +358,7 @@ async fn run_scenario(name: &str) -> Value {
                 Box::pin(async {
                     Ok(Some(BeforeToolCallResult {
                         block: Some(true),
-                        reason: Some("Blocked by policy".to_owned()),
+                        reason: Some(JsString::from("Blocked by policy")),
                     }))
                 })
             }));
@@ -388,7 +390,7 @@ async fn run_scenario(name: &str) -> Value {
             let mut cfg = config();
             cfg.before_tool_call = Some(Arc::new(|ctx, _signal| {
                 Box::pin(async move {
-                    ctx.set_args(json!({"value": 123}));
+                    ctx.set_args(JsValue::from(json!({"value": 123})));
                     Ok(None)
                 })
             }));
@@ -460,7 +462,7 @@ async fn run_scenario(name: &str) -> Value {
                 Box::pin(async {
                     Ok(Some(AfterToolCallResult {
                         content: Some(vec![TextOrImageContent::Text(TextContent::new("overridden"))]),
-                        details: Some(json!({"overridden": true})),
+                        details: Some(JsValue::from(json!({"overridden": true}))),
                         is_error: Some(true),
                         terminate: Some(true),
                     }))
@@ -608,7 +610,7 @@ async fn run_scenario(name: &str) -> Value {
                     }
                     Ok(Some(pi_agent_core::agent::AgentLoopTurnUpdate {
                         context: Some(AgentContext {
-                            system_prompt: "second prompt".to_owned(),
+                            system_prompt: JsString::from("second prompt"),
                             messages: turn_context.context.messages.clone(),
                             tools: turn_context.context.tools.clone(),
                         }),
@@ -750,10 +752,13 @@ async fn run_scenario(name: &str) -> Value {
         }
         "convert_custom" => {
             let custom = AgentMessage::Custom(
-                json!({"role": "notification", "text": "This is a notification", "timestamp": 1000})
+                (json!({"role": "notification", "text": "This is a notification", "timestamp": 1000})
                     .as_object()
                     .cloned()
-                    .unwrap(),
+                    .unwrap())
+                .into_iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect::<pi_js_compat::js_json::JsObject>(),
             );
             let mut cfg = config();
             cfg.convert_to_llm = Arc::new(|messages| {
@@ -784,7 +789,7 @@ async fn run_scenario(name: &str) -> Value {
                 let value = params["value"].as_str().unwrap_or_default().to_owned();
                 on_update(AgentToolResult {
                     content: vec![TextOrImageContent::Text(TextContent::new("partial"))],
-                    details: Some(json!({"status": "partial"})),
+                    details: Some(JsValue::from(json!({"status": "partial"}))),
                     is_error: None,
                     terminate: None,
                 });
@@ -1028,14 +1033,14 @@ async fn run_scenario(name: &str) -> Value {
                     if mode == "lines" {
                         on_update(AgentToolResult {
                             content: vec![TextOrImageContent::Text(TextContent::new(text.clone()))],
-                            details: Some(json!({"value": "z".repeat(20000)})),
+                            details: Some(JsValue::from(json!({"value": "z".repeat(20000)}))),
                             is_error: None,
                             terminate: None,
                         });
                     }
                     Ok(AgentToolResult {
                         content: vec![TextOrImageContent::Text(TextContent::new(text))],
-                        details: Some(big_details(&mode)),
+                        details: Some(JsValue::from(big_details(&mode))),
                         is_error: None,
                         terminate: None,
                     })

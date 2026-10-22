@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::fmt::Debug;
 
 use pi_agent_core::harness::{FileInfo, FileKind};
@@ -20,8 +21,8 @@ fn file_kind_preserves_all_source_literals() {
 #[test]
 fn file_info_preserves_public_fields_and_strings() {
     let mut info = FileInfo {
-        name: "名前🙂\0, punctuation!".to_owned(),
-        path: "".to_owned(),
+        name: JsString::from("名前🙂\0, punctuation!"),
+        path: JsString::from(""),
         kind: FileKind::Directory,
         size: 12.5,
         mtime_ms: -0.25,
@@ -33,8 +34,8 @@ fn file_info_preserves_public_fields_and_strings() {
     assert_eq!(info.size.to_bits(), 12.5_f64.to_bits());
     assert_eq!(info.mtime_ms.to_bits(), (-0.25_f64).to_bits());
 
-    info.name = "renamed".to_owned();
-    info.path = "/tmp/renamed".to_owned();
+    info.name = JsString::from("renamed");
+    info.path = JsString::from("/tmp/renamed");
     info.kind = FileKind::Symlink;
     info.size = 7.0;
     info.mtime_ms = 8.0;
@@ -51,22 +52,22 @@ fn file_info_preserves_public_fields_and_strings() {
 fn file_info_supports_each_kind_in_metadata() {
     let infos = [
         FileInfo {
-            name: "file".to_owned(),
-            path: "/metadata/file".to_owned(),
+            name: JsString::from("file"),
+            path: JsString::from("/metadata/file"),
             kind: FileKind::File,
             size: 1.0,
             mtime_ms: 2.0,
         },
         FileInfo {
-            name: "directory".to_owned(),
-            path: "/metadata/directory".to_owned(),
+            name: JsString::from("directory"),
+            path: JsString::from("/metadata/directory"),
             kind: FileKind::Directory,
             size: 3.0,
             mtime_ms: 4.0,
         },
         FileInfo {
-            name: "symlink".to_owned(),
-            path: "/metadata/symlink".to_owned(),
+            name: JsString::from("symlink"),
+            path: JsString::from("/metadata/symlink"),
             kind: FileKind::Symlink,
             size: 5.0,
             mtime_ms: 6.0,
@@ -115,8 +116,8 @@ fn file_info_preserves_all_selected_f64_bit_patterns() {
 
     for (size_bits, mtime_bits) in patterns {
         let info = FileInfo {
-            name: "numeric".to_owned(),
-            path: "/numeric".to_owned(),
+            name: JsString::from("numeric"),
+            path: JsString::from("/numeric"),
             kind: FileKind::File,
             size: f64::from_bits(size_bits),
             mtime_ms: f64::from_bits(mtime_bits),
