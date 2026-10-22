@@ -209,9 +209,8 @@ pub fn node_fs_error_record(error: &io::Error, syscall: &str, path: &str) -> Nod
     format_fs_error_record(error, syscall, path, NodeReadApi::ReadFileSync)
 }
 
-fn format_fs_error_record(error: &io::Error, syscall: &str, path: &str, api: NodeReadApi) -> NodeFsError {
-    let code = node_error_code(error);
-    let description = match error.kind() {
+fn node_error_description(error: &io::Error, code: &str) -> String {
+    match error.kind() {
         io::ErrorKind::NotFound => "no such file or directory".to_owned(),
         io::ErrorKind::PermissionDenied => "permission denied".to_owned(),
         io::ErrorKind::IsADirectory => "illegal operation on a directory".to_owned(),
@@ -220,9 +219,16 @@ fn format_fs_error_record(error: &io::Error, syscall: &str, path: &str, api: Nod
         io::ErrorKind::InvalidInput => "invalid argument".to_owned(),
         io::ErrorKind::DirectoryNotEmpty => "directory not empty".to_owned(),
         _ if code == "ELOOP" => "too many symbolic links encountered".to_owned(),
+        _ if code == "ENOSPC" => "no space left on device".to_owned(),
         _ => error.to_string(),
-    };
+    }
+}
+
+fn format_fs_error_record(error: &io::Error, syscall: &str, path: &str, api: NodeReadApi) -> NodeFsError {
+    let code = node_error_code(error);
+    let description = node_error_description(error, code);
     let omit_path = syscall == "uv_cwd"
+        || (syscall == "write" && path.is_empty())
         || (api == NodeReadApi::ReadFileSync
             && syscall == "read"
             && code == "EISDIR"
@@ -269,6 +275,78 @@ pub fn node_read_error(error: &io::Error, path: &str) -> String {
 /// Node `promises.readFile` message, retaining the path on EISDIR/read.
 pub fn node_promises_read_error(error: &io::Error, path: &str) -> String {
     node_read_error_record(error, path, NodeReadApi::PromisesReadFile).message
+}
+
+/// ChildProcess spawn errors: deferred launch failures include the executable;
+/// synchronous libuv failures (for example ENOTDIR) use the bare `spawn` syscall.
+pub fn node_spawn_error_record(error: &io::Error, program: &str) -> NodeFsError {
+    let code = node_error_code(error);
+    let deferred = matches!(code, "EACCES" | "EAGAIN" | "EMFILE" | "ENFILE" | "ENOENT");
+    let syscall = if deferred {
+        format!("spawn {program}")
+    } else {
+        "spawn".into()
+    };
+    NodeFsError {
+        name: "Error",
+        errno: error.raw_os_error().and_then(i32::checked_neg),
+        code,
+        message: format!("{syscall} {code}"),
+        syscall,
+        path: deferred.then(|| program.to_owned()),
+    }
+}
+
+/// Unix pipe connection errors use Node's path-bearing stream diagnostic.
+pub fn node_unix_connect_error(error: &io::Error, path: &str) -> String {
+    format!("connect {} {path}", node_error_code(error))
+}
+
+/// libuv reports an absent Unix bind parent as EACCES, not the native ENOENT.
+pub fn node_unix_listen_error(error: &io::Error, path: &str) -> String {
+    let missing_parent = io::Error::from_raw_os_error(Errno::ACCESS.raw_os_error());
+    let error = if error.kind() == io::ErrorKind::NotFound {
+        &missing_parent
+    } else {
+        error
+    };
+    let code = node_error_code(error);
+    format!("listen {code}: {} {path}", node_error_description(error, code))
+}
+
+/// A write to an already-open file reports `write` without the open path.
+pub fn node_file_write_error_record(error: &io::Error) -> NodeFsError {
+    node_fs_error_record(error, "write", "")
+}
+
+/// Writable pipe callback errors use `write EPIPE`, without a filesystem path.
+pub fn node_pipe_write_error_record(error: &io::Error) -> NodeFsError {
+    node_stream_error_record(error, "write")
+}
+
+/// Pipe/socket stream errors retain the originating read/write syscall.
+pub fn node_stream_error_record(error: &io::Error, syscall: &str) -> NodeFsError {
+    let code = node_error_code(error);
+    NodeFsError {
+        name: "Error",
+        errno: error.raw_os_error().and_then(i32::checked_neg),
+        code,
+        syscall: syscall.into(),
+        path: None,
+        message: format!("{syscall} {code}"),
+    }
+}
+
+/// `rmSync(path)` rejects directories without recursive mode using SystemError's
+/// message, unlike the ordinary `unlinkSync` EISDIR formatting.
+pub fn node_rm_error(error: &io::Error, path: &str) -> String {
+    if error.kind() == io::ErrorKind::IsADirectory {
+        return format!("Path is a directory: rm returned EISDIR (is a directory) {path}");
+    }
+    if error.kind() == io::ErrorKind::PermissionDenied {
+        return format!("{}, Permission denied: '{path}'", node_error_code(error));
+    }
+    node_fs_error(error, "unlink", path)
 }
 
 /// Node `error.code` for an `io::Error`: the raw OS errno name first, then the

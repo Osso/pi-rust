@@ -1058,18 +1058,40 @@ pub(crate) fn assert_runtime_mailbox_routing(
     message: &js_json::JsObject,
     input: &super::EnqueueRuntimeMailboxMessageInput,
 ) -> Result<(), ControlDbError> {
+    use js_json::JsValue;
+    let nullable_text =
+        |value: Option<&js_json::JsString>| value.cloned().map(JsValue::String).unwrap_or(JsValue::Null);
+    let fields = [
+        (
+            "recipientSessionId",
+            JsValue::String(input.recipient.session_id.clone()),
+        ),
+        ("recipientAgentId", nullable_text(input.recipient.agent_id.as_ref())),
+        ("senderSessionId", JsValue::String(input.sender.session_id.clone())),
+        ("senderAgentId", nullable_text(input.sender.agent_id.as_ref())),
+        ("kind", JsValue::String(kind_name(input.kind).into())),
+    ]
+    .into_iter()
+    .map(|(key, value)| (key.into(), value))
+    .collect();
+    assert_runtime_mailbox_routing_with_fields(message, input, &fields)
+}
+
+pub(crate) fn assert_runtime_mailbox_routing_with_fields(
+    message: &js_json::JsObject,
+    input: &super::EnqueueRuntimeMailboxMessageInput,
+    expected: &js_json::JsObject,
+) -> Result<(), ControlDbError> {
     use js_json::{JsString, JsValue};
     let field = |key: &str| message.get(&JsString::from(key));
     let text = |text: &str| JsValue::String(JsString::from(text));
-    let nullable_text = |value: Option<&JsString>| value.cloned().map(JsValue::String).unwrap_or(JsValue::Null);
     if !matches!(field("recipientSessionId"), Some(JsValue::String(_))) {
         return Ok(());
     }
-    let same_recipient = field("recipientSessionId") == Some(&JsValue::String(input.recipient.session_id.clone()))
-        && field("recipientAgentId") == Some(&nullable_text(input.recipient.agent_id.as_ref()));
-    let same_sender = field("senderSessionId") == Some(&JsValue::String(input.sender.session_id.clone()))
-        && field("senderAgentId") == Some(&nullable_text(input.sender.agent_id.as_ref()));
-    let same_kind = field("kind") == Some(&text(kind_name(input.kind)));
+    let same_field = |key: &str| field(key) == expected.get(&JsString::from(key));
+    let same_recipient = same_field("recipientSessionId") && same_field("recipientAgentId");
+    let same_sender = same_field("senderSessionId") && same_field("senderAgentId");
+    let same_kind = same_field("kind");
     let host = gethostname::gethostname().to_string_lossy().into_owned();
     let default_host = text(&host);
     let previous_host = match field("recipientHost") {

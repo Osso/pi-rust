@@ -23,6 +23,8 @@ All direct dependencies are exact-pinned.
 
 ### `pi-coding-agent`
 
+- Host relay reuses exact pinned `tokio`/`tokio-util`, `getrandom`, `gethostname`, `rustix`, `rusqlite` and `pi-js-compat`; no new crate dependencies. Runtime executables: `ssh` for the frozen stdio transport and Linux `setsid` (util-linux) for Node-compatible detached session launch without forbidden unsafe pre-exec code. Tests replace only `ssh` with a sandbox-private executable fake. [Relay contract](specs/host-relay.md).
+
 - `zstd = 0.14.3` (exact `=0.14.3`) — compresses archived session transcripts and supplies frame decoding for transcript reads, validation, restore and the native seekable-spool worker; completed-frame handling follows the [transcript trace](porting/traceability/session-transcript.md).
 
 - `flate2 = 1.0.34` (exact; already locked transitively) — opt-in Doom WAD helper uses `MultiGzDecoder` for Node `gunzipSync`, including concatenated gzip members.
@@ -109,13 +111,14 @@ The harness events, messages, reducer, and orchestration-type slices add no runt
 - `unicode-segmentation = 1.13.3` (exact) — Unicode 17.0 grapheme cluster segmentation for `utils`, `components::input`, and the editor; matches the Unicode tables used by Node 26 `Intl.Segmenter`.
 - `regex = 1.13.1` (exact) — compiles the Unicode-property and whitespace patterns ported verbatim from `latex` (`\p{L}`, `\p{N}`, script spacing, environment row splitting), plus the editor paste-marker and autocomplete trigger/debounce patterns.
 - `fancy-regex = 0.16.2` (exact) — executes the marked 18.0.5 grammar ported into `components::markdown::lexer`, which needs lookaround and backreferences that `regex` rejects.
-- `serde = 1.0.229` (exact, `derive`) — serializes the ported marked token model for the markdown differential oracle; the model is also the component's internal token representation.
+- `serde = 1.0.229` (exact, `derive`) — serializes marked tokens and cursor positions.
+- `serde_json = 1.0.151` (exact) — emits the frozen TUI debug-dump JSON fields and terminal output; also drives differential-oracle transport in tests.
 - `icu_segmenter = 2.3.0` (exact, default `compiled_data`/`auto`) — dictionary/LSTM word segmentation behind `word_navigation`, chosen as the pure-Rust mapping of `Intl.Segmenter` (decision 2026-10-18; dictionary-word deviations documented in the traceability doc).
 - `tokio = 1.53.3` (`process`, `rt`, `sync`, `io-util`, `macros`; dev adds `rt-multi-thread`, `time`) — spawns `fd` asynchronously, drives autocomplete cancellation/select branches, and runs editor autocomplete futures and debounce timers in tests.
 - `tokio-util = 0.7.20` (`rt`) — `CancellationToken` maps the `AbortSignal` passed to autocomplete suggestions and kills an in-flight `fd` child; the editor aborts superseded requests and `CancellableLoader` maps its abort signal.
 - `tempfile = 3.27.0` (development) — creates isolated directory trees and symlinks for autocomplete tests.
 - `pi-js-compat` (path, `=0.0.0`) — shared ECMAScript string whitespace, `Number`, `Buffer` Base64, and `localeCompare`; `terminal_image` no longer carries a crate-local Base64 implementation.
-- `rustix = 1.1.5` (exact, `termios` feature; `process` as a development feature) — safe termios raw-mode and window-size syscalls for `ProcessTerminal`, plus `process::kill_process_group` for the shared tsx oracle teardown; `unsafe_code = "forbid"` rules out `libc`/`nix` wrappers that need unsafe call sites.
+- `rustix = 1.1.5` (exact, `termios`/`event` features; `process` as a development feature) — safe termios raw-mode/window-size syscalls and cancellable stdin polling for `ProcessTerminal`, plus `process::kill_process_group` for the shared tsx oracle teardown; `unsafe_code = "forbid"` rules out `libc`/`nix` wrappers that need unsafe call sites.
 - `src/unicode_tables.rs` is generated data, not a dependency: Unicode 17.0 emoji sequences, character-property ranges, and `get-east-asian-width` 1.6.0 width ranges (see `docs/porting/traceability/utils.md`).
 - The editor adds no dependency: it reuses `unicode-segmentation`, `regex`, `tokio`, and `tokio-util`.
 
@@ -144,3 +147,9 @@ Session-name v15 slice adds no dependencies. `pi-js-compat` supplies JS whitespa
 `pi-coding-agent` enables existing exact `serde_json` dependency `raw_value` feature only to emit validated lossless JsValue receipt/summary-extra JSON tokens (including escaped UTF16 strings/keys) without projecting through serde Value.
 
 Q18: `crates/pi-js-compat/src/js_json_macros.rs` adapts the token grammar from the already-pinned serde_json 1.0.151 `src/macros.rs` under its MIT license (permission text retained inline). Needed because `serde_json::json!` eagerly projects string expressions into scalar-only Value and cannot build arbitrary UTF-16 provider bodies. No new dependency.
+
+## pi-orchestrator (Q3)
+
+All direct versions exactly match workspace pins. `pi-coding-agent` reuses RPC commands/responses/UI envelopes; `pi-ai` supplies injectable Fetch; `pi-js-compat` supplies JS JSON and date semantics. `serde`/`serde_json` serialize records, `tokio` runs Unix sockets, children and timers, `url` resolves Radius URLs, `gethostname` provides registration metadata, `getrandom` produces IDs/jitter, `indexmap` preserves live-instance order, `rustix` sends child signals. Test-only `tempfile` isolates storage and sockets. Frozen package declares no binary: library-only packaging; native children use sibling `pi --mode rpc` (parent-approved).
+
+`pi-orchestrator` test-only `tokio-util = =0.7.20` names the shared Fetch cancellation-token argument for fake transports.

@@ -1,0 +1,31 @@
+import { pathToFileURL } from "node:url";
+const [root,fake,cwd] = process.argv.slice(2);
+const load = (name) => import(pathToFileURL(`${root}/packages/orchestrator/src/${name}.ts`).href);
+delete process.env.PI_RADIUS_API_KEY;
+const NativeDate=Date;
+globalThis.Date=class extends NativeDate {constructor(...args){super(...(args.length?args:["2026-10-21T00:00:00.000Z"]));}};
+const {RpcProcessInstance}=await load("rpc-process");
+RpcProcessInstance.prototype.getSpawnCommand=()=>({command:process.execPath,args:[fake]});
+const {supervisor}=await load("supervisor");
+const {handleIpcRequest,openRpcStream}=await load("handler");
+const instance=await supervisor.spawnInstance({cwd,label:"work"});
+const id=instance.id;
+if(process.argv[5]==="listener_identity"){
+ let events=0,ui=0;const event=()=>events++,onUi=()=>ui++;
+ const first=supervisor.openRpcStream(id,event,onUi),second=supervisor.openRpcStream(id,event,onUi);
+ await first.handleRpc({type:"get_state",id:"one"});const before={events,ui};first.close();
+ await second.handleRpc({type:"get_state",id:"two"});second.close();await supervisor.stopInstance(id);
+ process.stdout.write(`${JSON.stringify({before,after:{events,ui}})}\n`);process.exit(0);
+}
+const list=await handleIpcRequest({type:"list"});
+const status=await handleIpcRequest({type:"status",instanceId:id});
+const response=await handleIpcRequest({type:"rpc",instanceId:id,command:{type:"get_state",id:"rpc"}});
+const messages=[];
+const stream=openRpcStream(id,v=>messages.push(v),v=>messages.push(v),v=>messages.push(v));
+await stream.handleRequest({type:"abort",id:"stream"});
+await stream.handleRequest({type:"extension_ui_response",id:"ui",confirmed:true});
+stream.close();
+const stop=await handleIpcRequest({type:"stop",instanceId:id});
+const unknown=await handleIpcRequest({type:"status",instanceId:"missing"});
+const final=supervisor.listInstances();
+process.stdout.write(`${JSON.stringify({instance,list,status,response,messages,stop,unknown,final}).replaceAll(id,"instance")}\n`);

@@ -22,6 +22,16 @@ use serde_json::{Value, json};
 const PACKAGE: &str = "@earendil-works/pi-coding-agent";
 
 #[test]
+fn advertised_version_matches_frozen_package() {
+    let source_package: Value =
+        serde_json::from_slice(&fs::read(source_root().join("packages/coding-agent/package.json")).unwrap()).unwrap();
+    assert_eq!(
+        pi_coding_agent::config::version(),
+        source_package["version"].as_str().unwrap()
+    );
+}
+
+#[test]
 #[ignore = "child probe entry point"]
 fn config_probe_child() {
     config_probe::run_child_probe();

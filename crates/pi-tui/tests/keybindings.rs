@@ -26,22 +26,16 @@ fn binds_ctrl_r_as_reverse_history_search() {
 }
 
 #[test]
-fn binds_modified_and_unmodified_editor_viewport_navigation() {
+fn binds_frozen_editor_viewport_navigation() {
     let keybindings = manager(Vec::new());
 
     assert_eq!(
         keybindings.get_keys("tui.editor.cursorLineStart"),
-        vec!["home", "ctrl+home", "ctrl+a"]
+        vec!["home", "ctrl+a"]
     );
-    assert_eq!(
-        keybindings.get_keys("tui.editor.cursorLineEnd"),
-        vec!["end", "ctrl+end", "ctrl+e"]
-    );
-    assert_eq!(keybindings.get_keys("tui.editor.pageUp"), vec!["pageUp", "ctrl+pageUp"]);
-    assert_eq!(
-        keybindings.get_keys("tui.editor.pageDown"),
-        vec!["pageDown", "ctrl+pageDown"]
-    );
+    assert_eq!(keybindings.get_keys("tui.editor.cursorLineEnd"), vec!["end", "ctrl+e"]);
+    assert_eq!(keybindings.get_keys("tui.editor.pageUp"), vec!["pageUp"]);
+    assert_eq!(keybindings.get_keys("tui.editor.pageDown"), vec!["pageDown"]);
 }
 
 #[test]
@@ -53,35 +47,11 @@ fn leaves_dedicated_prompt_history_navigation_unbound_by_default() {
 }
 
 #[test]
-fn binds_unmodified_terminal_shortcuts_to_alternate_screen_navigation() {
+fn frozen_defaults_exclude_later_alternate_screen_bindings() {
     let keybindings = manager(Vec::new());
-
-    assert_eq!(keybindings.get_keys("tui.altScreen.pageUp"), vec!["pageUp"]);
-    assert_eq!(keybindings.get_keys("tui.altScreen.pageDown"), vec!["pageDown"]);
-    assert!(keybindings.get_keys("tui.altScreen.halfPageUp").is_empty());
-    assert!(keybindings.get_keys("tui.altScreen.halfPageDown").is_empty());
-    assert!(keybindings.get_keys("tui.altScreen.lineUp").is_empty());
-    assert!(keybindings.get_keys("tui.altScreen.lineDown").is_empty());
-    assert_eq!(
-        keybindings.get_keys("tui.altScreen.previousPrompt"),
-        vec!["ctrl+shift+up"]
-    );
-    assert_eq!(
-        keybindings.get_keys("tui.altScreen.nextPrompt"),
-        vec!["ctrl+shift+down"]
-    );
-    assert_eq!(keybindings.get_keys("tui.altScreen.search"), vec!["ctrl+shift+f"]);
-    assert_eq!(
-        keybindings.get_keys("tui.altScreen.searchNext"),
-        vec!["enter", "ctrl+g"]
-    );
-    assert_eq!(
-        keybindings.get_keys("tui.altScreen.searchPrevious"),
-        vec!["shift+enter", "ctrl+shift+g"]
-    );
-    assert_eq!(keybindings.get_keys("tui.altScreen.searchClose"), vec!["escape"]);
-    assert_eq!(keybindings.get_keys("tui.altScreen.top"), vec!["home"]);
-    assert_eq!(keybindings.get_keys("tui.altScreen.bottom"), vec!["end"]);
+    assert!(keybindings.get_definition("tui.altScreen.pageUp").is_none());
+    assert!(keybindings.get_definition("tui.editor.historyPrevious").is_none());
+    assert!(!keybindings.matches("\x1b[5~", "tui.altScreen.pageUp"));
 }
 
 #[test]
@@ -151,7 +121,7 @@ fn resolved_bindings_include_every_definition_in_order() {
     let ids: Vec<&str> = resolved.iter().map(|(id, _)| id.as_str()).collect();
 
     assert_eq!(ids.first().copied(), Some("tui.editor.cursorUp"));
-    assert_eq!(ids.last().copied(), Some("tui.altScreen.bottom"));
+    assert_eq!(ids.last().copied(), Some("tui.select.cancel"));
     assert_eq!(
         resolved
             .iter()

@@ -395,11 +395,14 @@ fn tui_mode_and_fullscreen_settings_validate_stored_values() {
     let mut manager = workspace.manager();
     assert_eq!(manager.get_tui_mode(), pi_tui::tui::TuiMode::Regular);
     assert_eq!(manager.get_fullscreen_exit_output(), FullscreenExitOutput::Transcript);
-    assert_eq!(manager.get_fullscreen_scrollbar(), pi_tui::ScrollViewScrollbar::Auto);
+    assert_eq!(
+        manager.get_fullscreen_scrollbar(),
+        pi_tui::components::scroll_view::ScrollViewScrollbar::Auto
+    );
 
     manager.set_tui_mode(pi_tui::tui::TuiMode::Fullscreen);
     manager.set_fullscreen_exit_output(FullscreenExitOutput::ResumeHint);
-    manager.set_fullscreen_scrollbar(pi_tui::ScrollViewScrollbar::Hidden);
+    manager.set_fullscreen_scrollbar(pi_tui::components::scroll_view::ScrollViewScrollbar::Hidden);
     manager.flush();
     let saved = workspace.global();
     assert_eq!(saved["tuiMode"], "fullscreen");
@@ -412,7 +415,10 @@ fn tui_mode_and_fullscreen_settings_validate_stored_values() {
     let manager = workspace.manager();
     assert_eq!(manager.get_tui_mode(), pi_tui::tui::TuiMode::Regular);
     assert_eq!(manager.get_fullscreen_exit_output(), FullscreenExitOutput::Transcript);
-    assert_eq!(manager.get_fullscreen_scrollbar(), pi_tui::ScrollViewScrollbar::Auto);
+    assert_eq!(
+        manager.get_fullscreen_scrollbar(),
+        pi_tui::components::scroll_view::ScrollViewScrollbar::Auto
+    );
 }
 
 #[test]

@@ -12,7 +12,8 @@ use pi_coding_agent::modes::interactive::components::config_selector::{
     ConfigSelectorComponent, ConfigSelectorOptions, ConfigWriteScope, ScopedResolvedPaths,
 };
 use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, REQUIRED_COLORS, Theme, set_theme_instance};
-use pi_tui::{Component, strip_terminal_sequences};
+use pi_tui::Component;
+use pi_tui::utils::strip_terminal_sequences;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 

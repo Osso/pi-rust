@@ -1,7 +1,18 @@
 # config traceability
 
-Pinned source: `packages/coding-agent/src/config.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Historical source: `packages/coding-agent/src/config.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 Rust: `crates/pi-coding-agent/src/config.rs`.
+
+## Frozen-version checkpoint
+
+Current reference: immutable `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`.
+Embedded coding-agent package version is `0.80.3`, matching that source's package
+manifest. `differential_config::advertised_version_matches_frozen_package`
+compares the public runtime version to the actual frozen manifest (RED at
+`0.84.1`). Cargo crate version remains independent. Other embedded manifest
+fields and config behavior remain unvalidated here; this is not whole-config
+parity or a byte-identical manifest claim. Evidence below is historical unless
+explicitly revalidated.
 
 Differential proof: `oracle/config-oracle.ts` executes the pinned module with a controlled
 `process.env`, `process.execPath`, `process.argv[1]`, and `process.platform`, and

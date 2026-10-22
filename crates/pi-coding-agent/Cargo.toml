@@ -96,6 +96,14 @@ test = false
 bench = false
 doc = false
 
+[[bin]]
+# Process-boundary fixture for relay startup; tests supply only sandboxed SSH fakes.
+name = "host-relay-harness"
+path = "tests/bin/host_relay_harness.rs"
+test = false
+bench = false
+doc = false
+
 [[example]]
 name = "sdk_01_minimal"
 path = "examples/sdk/01_minimal.rs"

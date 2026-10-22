@@ -113,16 +113,13 @@ fn parses_color_scheme_reports() {
     );
     assert_eq!(
         parse_terminal_color_scheme_report("\x1b[?997;2n\x1b[?997;1n\x1b[?997;1n"),
-        Some(TerminalColorScheme::Dark)
+        None
     );
     assert_eq!(
         parse_terminal_color_scheme_report("\x1b[?997;1n\x1b[?997;2n\x1b[?997;2n"),
-        Some(TerminalColorScheme::Light)
+        None
     );
-    assert_eq!(
-        parse_terminal_color_scheme_report("\x1b[?997;1n\x1b[?997;2n"),
-        Some(TerminalColorScheme::Light)
-    );
+    assert_eq!(parse_terminal_color_scheme_report("\x1b[?997;1n\x1b[?997;2n"), None);
 }
 
 #[test]

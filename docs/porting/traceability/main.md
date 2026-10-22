@@ -1,5 +1,11 @@
 # main.ts traceability
 
+## Frozen relay delta (4f9e6f8a4)
+
+`relay serve`/`relay connect` dispatch before resident/provider startup. Normal session startup starts [ensureRelayRunning](host-relay-resident.md) in an error-logged background task using global relay settings, except `--no-supervisor`. Flag parsing, standalone persistence diagnostics and invalid resident-console rejection precede startup; `tests/host_relay.rs` proves the boundary. Store/protocol/client/resident proof is linked from the [relay spec](../../specs/host-relay.md).
+
+**Remaining Q14 main/CLI gap:** valid standalone-worker mode still uses the pre-existing orchestration/session runtime and self-restart handoff paths. Frozen additionally omits orchestration resources and restart handoff when `noSupervisor` is true. This slice does not port those unrelated main branches or claim full standalone parity. Historical whole-main done claims below are pre-repin evidence only.
+
 Source: `packages/coding-agent/src/main.ts` (1,364 lines, pinned revision).
 
 Rust: `crates/pi-coding-agent/src/main.rs` (module `main_runner`) and the `pi`

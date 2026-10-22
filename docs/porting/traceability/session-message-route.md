@@ -13,4 +13,4 @@ Frozen mailbox-tools.ts registration adapters map required body verbatim to lite
 
 Runtime remote messages bypass parent/child local edge lookup, persist recipientHost and original whitespace body in the canonical mailbox, return queued-for-relay text, and do not invoke the local session-message callback. Remote queue test uses no network/live state.
 
-Actual cross-host relay is not implemented here: frozen `core/host-relay.ts`, `host-relay-client.ts`, `host-relay-resident.ts`, `host-relay-store.ts` remain separate coverage gaps. Local canonical queue production is proved; cross-host delivery is not claimed.
+Cross-host relay now consumes this canonical queue through the separately ported [protocol](host-relay.md), [SSH client](host-relay-client.md), [resident](host-relay-resident.md), and [store](host-relay-store.md). Their sandboxed/differential proof is recorded there; no live-host delivery is claimed.

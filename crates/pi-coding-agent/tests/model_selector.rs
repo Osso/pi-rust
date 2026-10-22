@@ -15,7 +15,8 @@ use pi_coding_agent::core::settings_manager::{
 };
 use pi_coding_agent::modes::interactive::components::model_selector::{ModelSelectorComponent, ModelSelectorUi};
 use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, REQUIRED_COLORS, Theme, set_theme_instance};
-use pi_tui::{Component, KeybindingsManager, set_keybindings, strip_terminal_sequences};
+use pi_tui::utils::strip_terminal_sequences;
+use pi_tui::{Component, KeybindingsManager, set_keybindings};
 use serde_json::json;
 
 struct TestUi {

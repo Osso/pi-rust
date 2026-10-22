@@ -2,9 +2,8 @@
 mod oracle;
 
 use pi_tui::utils::{
-    GraphemeCellRange, apply_background_to_line, extract_ansi_code, extract_segments, get_grapheme_cell_range,
-    get_osc8_link_at_column, is_punctuation_char, is_whitespace_char, normalize_terminal_output, slice_with_width,
-    strip_terminal_sequences, truncate_to_width_with, visible_width, wrap_text_with_ansi,
+    apply_background_to_line, extract_ansi_code, extract_segments, is_punctuation_char, is_whitespace_char,
+    normalize_terminal_output, slice_with_width, truncate_to_width_with, visible_width, wrap_text_with_ansi,
 };
 use serde_json::{Value, json};
 
@@ -181,19 +180,6 @@ fn visible_width_matches_for_broad_codepoint_samples() {
                 "width mismatch for {sample:?}"
             );
         }
-    }
-}
-
-#[test]
-fn strip_terminal_sequences_matches_the_pinned_typescript_source() {
-    let mut oracle = oracle::TsOracle::spawn("tui-leaves-oracle.ts", SOURCE_DIRECTORY);
-    let results = oracle_request(&mut oracle, "utils_strip", "cases", json!(CORPUS));
-    for (value, expected) in CORPUS.iter().zip(results) {
-        assert_eq!(
-            strip_terminal_sequences(value),
-            expected.as_str().unwrap(),
-            "strip mismatch for {value:?}"
-        );
     }
 }
 
@@ -821,54 +807,6 @@ fn extract_segments_matches_the_pinned_typescript_source() {
             "after mismatch for {case:?}"
         );
         assert_eq!(actual.after_width, expected["afterWidth"].as_u64().unwrap() as usize);
-    }
-}
-
-#[test]
-fn grapheme_cell_ranges_match_the_pinned_typescript_source() {
-    let mut oracle = oracle::TsOracle::spawn("tui-leaves-oracle.ts", SOURCE_DIRECTORY);
-    let lines = ["abc", "a界b", "\x1b[31m界\x1b[0m", "🇨🇳x", "e\u{0301}x", "\t界"];
-    let mut cases = Vec::new();
-    for line in lines {
-        for column in 0..6 {
-            cases.push(json!({ "line": line, "column": column }));
-        }
-    }
-    let results = oracle_request(&mut oracle, "utils_cell_range", "cases", json!(cases));
-    for (case, expected) in cases.iter().zip(results) {
-        let line = case["line"].as_str().unwrap();
-        let column = case["column"].as_u64().unwrap() as usize;
-        let actual = get_grapheme_cell_range(line, column);
-        let expected = if expected.is_null() {
-            None
-        } else {
-            Some(GraphemeCellRange {
-                start: expected["start"].as_u64().unwrap() as usize,
-                end: expected["end"].as_u64().unwrap() as usize,
-            })
-        };
-        assert_eq!(actual, expected, "cell range mismatch for {line:?} column {column}");
-    }
-}
-
-#[test]
-fn osc8_links_at_columns_match_the_pinned_typescript_source() {
-    let mut oracle = oracle::TsOracle::spawn("tui-leaves-oracle.ts", SOURCE_DIRECTORY);
-    let line = "\x1b]8;;https://a.test\x07link\x1b]8;;\x07 after";
-    let mut cases = Vec::new();
-    for column in 0..12 {
-        cases.push(json!({ "line": line, "column": column }));
-    }
-    cases.push(json!({ "line": "plain", "column": 0 }));
-    let results = oracle_request(&mut oracle, "utils_osc8_link", "cases", json!(cases));
-    for (case, expected) in cases.iter().zip(results) {
-        let line = case["line"].as_str().unwrap();
-        let column = case["column"].as_u64().unwrap() as usize;
-        assert_eq!(
-            get_osc8_link_at_column(line, column),
-            expected.as_str(),
-            "osc8 mismatch for {line:?} column {column}"
-        );
     }
 }
 

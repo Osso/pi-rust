@@ -5,7 +5,6 @@ use pi_tui::stdin_buffer::{StdinBuffer, StdinBufferEvent, StdinBufferOptions};
 fn buffer() -> StdinBuffer {
     StdinBuffer::with_options(StdinBufferOptions {
         timeout: Duration::from_millis(10),
-        escape_timeout: Duration::from_millis(10),
     })
 }
 
@@ -97,10 +96,9 @@ fn flushes_a_lone_escape_after_the_escape_timeout() {
 }
 
 #[test]
-fn merges_escape_and_carriage_return_within_a_larger_escape_timeout() {
+fn merges_escape_and_carriage_return_within_a_larger_timeout() {
     let mut buffer = StdinBuffer::with_options(StdinBufferOptions {
-        timeout: Duration::from_millis(10),
-        escape_timeout: Duration::from_millis(100),
+        timeout: Duration::from_millis(100),
     });
     assert!(buffer.process("\x1b").is_empty());
     assert!(buffer.poll(Instant::now() + Duration::from_millis(20)).is_empty());
@@ -108,24 +106,23 @@ fn merges_escape_and_carriage_return_within_a_larger_escape_timeout() {
 }
 
 #[test]
-fn does_not_apply_the_sequence_timeout_to_a_lone_escape() {
+fn applies_the_sequence_timeout_to_a_lone_escape() {
     let mut buffer = StdinBuffer::with_options(StdinBufferOptions {
         timeout: Duration::from_millis(100),
-        escape_timeout: Duration::from_millis(10),
     });
     assert!(buffer.process("\x1b").is_empty());
+    assert!(buffer.poll(Instant::now() + Duration::from_millis(20)).is_empty());
     assert_eq!(
-        buffer.poll(Instant::now() + Duration::from_millis(20)),
+        buffer.poll(Instant::now() + Duration::from_millis(110)),
         vec![data("\x1b")]
     );
-    assert_eq!(buffer.process("\r"), vec![data("\r")]);
 }
 
 #[test]
 fn keeps_fragmented_mouse_sequences_buffered_with_default_timeouts() {
     let mut buffer = StdinBuffer::new();
     assert!(buffer.process("\x1b[").is_empty());
-    assert!(buffer.poll(Instant::now() + Duration::from_millis(20)).is_empty());
+    assert!(buffer.poll(Instant::now() + Duration::from_millis(5)).is_empty());
     assert_eq!(buffer.process("<65;48;39M"), vec![data("\x1b[<65;48;39M")]);
 }
 

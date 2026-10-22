@@ -76,6 +76,7 @@ pub use lifecycle::{
     DetachedJobOutcome, DetachedJobOwnershipIdentity, DetachedJobTerminalInput, DetachedJobTerminalOutput,
     FinalizeDetachedJobInput, FinalizeDetachedJobResult, finalize_detached_job, prepare_control_db_for_self_restart,
 };
+pub(crate) use mailbox::enqueue_lossless_stored_runtime_mailbox_message_in_transaction;
 pub use mailbox::{
     RuntimeMailboxListenerRecord, assert_main_session_runtime_available, claim_runtime_mailbox_messages,
     consume_runtime_mailbox_message_by_store_ref, deliver_runtime_mailbox_message, enqueue_runtime_mailbox_message,
