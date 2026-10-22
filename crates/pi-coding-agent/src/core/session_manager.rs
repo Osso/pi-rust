@@ -17,7 +17,7 @@ use pi_agent_core::harness::messages::{
 };
 use pi_ai::types::{ProviderNativeContext, TextOrImageContent, UserContent};
 use pi_ai::utils::uuid::{random_uuid, uuidv7};
-use pi_js_compat::js_json::{JsString, JsValue};
+use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use pi_js_compat::number as js_number;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};

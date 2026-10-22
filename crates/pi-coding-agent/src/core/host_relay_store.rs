@@ -298,7 +298,7 @@ pub fn import_relay_channel(path: &str, message: &RelayChannel) -> Result<(), Co
         control::notify_runtime_mailbox_recipient(
             path,
             &RuntimeMailboxAddress {
-                session_id,
+                session_id: session_id.into(),
                 agent_id: None,
             },
         )?;

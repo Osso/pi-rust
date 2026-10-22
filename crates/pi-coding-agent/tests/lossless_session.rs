@@ -3,6 +3,18 @@ use pi_coding_agent::core::session_manager::{FileEntry, SessionEntry, parse_sess
 use pi_coding_agent::core::session_tool_output::serialize_session_entry;
 use pi_js_compat::js_json::parse_lossless;
 
+#[test]
+fn steering_and_cancellation_params_keep_raw_human_content() {
+    use pi_coding_agent::bundled_extensions::agents_core::control_runtime::{CancelAgentParams, SteerAgentParams};
+    let cancel: CancelAgentParams = serde_json::from_str(r#"{"agentId":"agent_1","reason":"\ud800"}"#).unwrap();
+    assert_eq!(cancel.reason.unwrap().units(), &[0xd800]);
+    let wire =
+        r#"{"agentId":"agent_1","message":"\udfff","fileRefs":[{"path":"\ud800","label":"\udfff","\ud800":"\udfff"}]}"#;
+    let steer: SteerAgentParams = serde_json::from_str(wire).unwrap();
+    assert_eq!(steer.message.units(), &[0xdfff]);
+    assert_eq!(steer.file_refs.unwrap(), parse_lossless(wire).unwrap()["fileRefs"]);
+}
+
 #[tokio::test]
 async fn custom_find_operation_receives_original_pattern_units() {
     use pi_agent_core::agent::types::AgentTool;

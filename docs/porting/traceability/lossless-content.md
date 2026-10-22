@@ -14,6 +14,10 @@ Contract: [lossless content](../../specs/lossless-content.md). Frozen source: `4
 | Questions / mailbox / session name | raw contracts and consumers integrated; see checkpoints below | compilation and runtime acceptance pending | compiler-blocked; no end-to-end PASS |
 | Provider ingress | [SSE and Codex WebSocket](lossless-provider-ingress.md) merged at `5909f149` | human errors, scalar metadata and non-stream images remain gaps | six sandbox tests PASS at lane executable revision; not parent integration acceptance |
 
+## Steering input checkpoint
+
+Cancellation reasons and steering `fileRefs` use native `JsString`/`JsValue` through lifecycle requests; file-reference extras and unmatched keys are not projected through typed scalar vectors. New `steering_and_cancellation_params_keep_raw_human_content` is compiler-blocked (`steering-params-red.jsonl`), not a runtime PASS. Agent target IDs still use generated scalar snapshot contracts; arbitrary persisted IDs and their not-found presentation remain an explicit open boundary, not an approved restriction.
+
 ## Canonical relay integration checkpoint
 
 Canonical host-relay ingestion now constructs the shared raw mailbox address/ref/message fields directly. Literal kind classification no longer encodes text before comparing tags; the original literal remains in the routed object. Existing `host_relay_store` raw-payload and `host_relay_protocol` surrogate-address retry regressions remain required after parent compilation; merging canonical fixes is not a new runtime PASS.

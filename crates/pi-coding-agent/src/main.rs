@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 
 use pi_ai::auth::types::{AuthOperationOptions, CredentialStore};
 use pi_ai::models::models_are_equal;
+use pi_js_compat::js_json::JsString;
 use tokio_util::sync::CancellationToken;
 
 use crate::cli::args::{

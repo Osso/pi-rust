@@ -118,7 +118,10 @@ impl AgentHarnessTool<ExtensionContext> for ChannelPostTool {
                 .session_manager()
                 .map_err(|error| ToolError::new(error.message))?;
             let session_id = lock_session_manager(&session_manager).get_session_id().to_owned();
-            let sender = RuntimeMailboxAddress { agent_id, session_id };
+            let sender = RuntimeMailboxAddress {
+                agent_id: agent_id.map(Into::into),
+                session_id: session_id.into(),
+            };
             let message_id = post_shared_channel_message(
                 &control_db_path,
                 &PostSharedChannelMessageInput {
