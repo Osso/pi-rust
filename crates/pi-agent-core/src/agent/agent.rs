@@ -1061,7 +1061,7 @@ fn default_model() -> Model {
         name: "unknown".to_owned(),
         api: "unknown".to_owned(),
         provider: "unknown".to_owned(),
-        base_url: String::new(),
+        base_url: JsString::default(),
         reasoning: false,
         thinking_level_map: None,
         input: Vec::new(),

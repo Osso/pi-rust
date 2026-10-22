@@ -492,7 +492,7 @@ pub type TransformContext = Arc<
         + Sync,
 >;
 /// `getApiKey`: resolves a key for each provider request.
-pub type GetApiKey = Arc<dyn Fn(String) -> BoxFuture<'static, Option<String>> + Send + Sync>;
+pub type GetApiKey = Arc<dyn Fn(String) -> BoxFuture<'static, Option<JsString>> + Send + Sync>;
 /// `beforeToolCall` hook.
 pub type BeforeToolCallHook = Arc<
     dyn Fn(
