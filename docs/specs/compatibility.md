@@ -204,3 +204,7 @@ Keep `serde_yaml_ng`. YAML frontmatter with literal or escaped unpaired UTF-16
 units must fail explicitly in `parse_yaml_frontmatter`; no partial parse, lossy
 replacement, or silent drop. User approved recording this parity gap. Body text
 outside frontmatter remains native.
+
+## Exact native example previews (2026-10-22)
+
+- [x] Preserve frozen UTF-16 units in subagent previews (including Text padding), question/questionnaire answers and frames, and RPC OutputLog clipping. Native `JsString` components admit unmatched units; no String-boundary U+FFFD exception applies. [Differential evidence](../porting/traceability/extension-examples-n.md).

@@ -110,7 +110,7 @@ pumped on its UI thread; no Rc objects cross threads.
 
 | Source lines / behavior | Native | Proof |
 |---|---|---|
-| 72–103 bounded output lines/raw append/UTF-16 slice | OutputLog | exact ANSI-preserving screen differential at widths 20/100; native split-surrogate U+FFFD boundary assertion |
+| 72–103 bounded output lines/raw append/UTF-16 slice | OutputLog | exact ANSI-preserving screen differential at widths 20/100; raw-unit split-surrogate differential at widths 19/20/21 |
 | 109–135 loading interval/dots/start/stop | RpcExtensionUi::tick, run | explicit tick screen differential; real UI event loop |
 | 141–249 input, select/input dialogs and help/focus | RpcExtensionUi / Dialog / Focusable | real core components, exact rendered lines and JSON response frames in whole-program differential |
 | 255–305 spawn/500ms startup, stdin serialization, exit/kill | run / Invocation | private Python child startup-failure and successful dialog process-lifetime tests; real native rpc-demo harness below |
@@ -136,11 +136,7 @@ InputDialog handleInput. Whole-program oracle confirms Ctrl+D does not quit;
 ESC while idle does. Source help text still advertises Ctrl+D. Native Input
 receives Ctrl+D rather than silently correcting this pinned behavior.
 
-Approved String boundary projection: RPC OutputLog slices and subagent preview
-slices project split UTF-16 pairs to U+FFFD before passing text to native String
-core components, per the [approved String boundary](../../specs/compatibility.md#out-of-scope). Native tests assert this explicitly.
-Subagent Text padding therefore differs for this excluded lone-surrogate case;
-ordinary scalar render fixtures retain full line differential proof.
+RPC OutputLog and subagent preview slices retain exact frozen UTF-16 units through native `JsString` components, including unmatched units and Text padding. No replacement projection is permitted ([compatibility](../../specs/compatibility.md)). The October 22, 2026 decision supersedes the former String-boundary exception.
 
 Proof gaps: real terminal/raw-mode I/O faults, 1000-line eviction, all unknown/
 missing optional RPC field combinations, >120-unit result clipping, interval
@@ -152,7 +148,7 @@ proof, not live-provider proof. No public core APIs or dependencies were added.
 
 Frozen model-result initialization: `packages/coding-agent/examples/extensions/subagent/index.ts:302-310` initializes `currentResult.model` from explicit `agent.model`; line 366 fills a missing model from the assistant message. Rust now uses the same metadata initialization and retains that conditional message fallback. The prior inherited-host-model prefill prevented the actual child model from reaching result details. The existing real-child `modes_dispatch_and_streaming_match_pinned_real_extension_runtime` case was RED (`fixture/inherited` vs `child/model`) before this change.
 
-Native subagent request/result text, JSON values, rendering and UTF-16 preview slices now use `JsString`/`JsValue`. The earlier String-boundary approval recorded above is under user review for Q18; the U+FFFD assertion in `example_subagent.rs` remains unchanged and RED pending that decision. No approval is silently retired.
+Native subagent request/result text, JSON values, rendering and UTF-16 preview slices now use `JsString`/`JsValue`. All three renderer differentials now include the split-surrogate preview and compare complete raw-unit lines and padding against frozen TS; no U+FFFD assertion remains.
 
 | Remaining DRIFT | Frozen evidence | Native evidence / proof |
 |---|---|---|
@@ -174,4 +170,13 @@ Direct-access response JSON is parsed with `parse_lossless`; direct token and he
 
 RPC client actions, dialog titles/input values, command JSON, streamed text and log buffers now retain `JsString`/`JsValue`. Child argv and terminal/stdout/stderr encode only at actual I/O boundaries. `example_rpc_extension_ui` exercises the same real component/client process boundaries listed above.
 
-The earlier approved OutputLog slice projection is **not retired**: `clipped` still projects unmatched units through `String::from_utf16_lossy` at the held render-slice boundary. Native buffering and JSON transport do not silently move that projection to ingress. Its expectations remain pending the user's Q18 approval decision.
+`clipped` slices `JsString` directly. `utf16_clipping_preserves_split_surrogate_like_frozen` compares complete screens at widths 19/20/21, before/inside/after a rocket surrogate pair. RED at width 20 recorded native U+FFFD (65533) versus frozen high surrogate (55357); native input/log/JSON paths remain lossless.
+
+### Exact form oracle units (2026-10-22)
+
+`example-forms-oracle.ts` no longer normalizes input or output with `toWellFormed()`. `example_question` and `example_questionnaire` submit D800 through the actual Editor, compare complete raw-unit frames/results against frozen TS, and assert D800 in answer details. Native forms already used `JsString`; only stale projected assertions/oracle normalization required removal.
+
+| Classification | Frozen behavior | Proof |
+|---|---|---|
+| DISCREPANCY, preserved | An unfinished questionnaire custom answer leaves null; `execute` reads `cancelled` and throws TypeError (`Cannot read properties of null (reading 'cancelled')`) | Final width-1 rocket case in `example_questionnaire`; exact oracle error, replacing obsolete pre-repin RangeError expectation |
+| Re-pin correction | Width-1 rocket in question Editor no longer overflows the call stack; unfinished custom answer cancels | Final width-1 case in `example_question` now compares complete frozen output, rather than expecting obsolete RangeError |
