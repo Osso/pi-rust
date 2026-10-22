@@ -19,6 +19,14 @@ async function main() {
 			process.stdout.write(`${JSON.stringify({call:call.render(input.width),result:result.render(input.width)})}\n`);
 			continue;
 		}
+		if (input.kind === "shellMissing") {
+			try { module.getShellConfig(input.path); throw new Error("expected missing shell"); }
+			catch(error) {
+				if (!(error instanceof Error)) throw error;
+				process.stdout.write(`${JSON.stringify({error:error.message})}\n`);
+			}
+			continue;
+		}
 		if (input.kind === "cleanup") {
 			const shell = await import(pathToFileURL(process.argv[2].replace(/ansi\.ts$/, "shell.ts")).href);
 			const output = shell.sanitizeBinaryOutput(module.stripAnsi(String.fromCharCode(...input.units)));

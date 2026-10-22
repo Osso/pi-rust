@@ -102,6 +102,20 @@ fn native_tool_renderers_match_frozen_raw_path_and_error_lines() {
 }
 
 #[test]
+fn custom_shell_missing_path_retains_original_units_in_error() {
+    use pi_coding_agent::utils::shell::get_shell_config;
+    let directory = tempfile::tempdir().unwrap();
+    let path = JsString::from(directory.path().to_str().unwrap()) + "/shell-" + JsString::from_utf16(vec![0xd800]);
+    let error = get_shell_config(Some(&path)).unwrap_err();
+    let mut source = oracle::TsOracle::spawn(
+        "lossless-tool-paths-oracle.ts",
+        "packages/coding-agent/src/utils/shell.ts",
+    );
+    let expected = source.request_lossless(&pi_js_compat::js_json!({"kind":"shellMissing","path":path}));
+    assert_eq!(error.message(), expected["error"].as_string().unwrap());
+}
+
+#[test]
 fn ansi_and_binary_cleanup_keep_units_outside_removed_ranges() {
     use pi_coding_agent::utils::{ansi::strip_ansi, shell::sanitize_binary_output};
     let raw = JsString::from_utf16(vec![0xd800, 0xdfff, 0xd801, 0xfffd]);
