@@ -100,7 +100,7 @@ pub struct WritableSessionMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_subagent: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub subagent_name: Option<String>,
+    pub subagent_name: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -423,7 +423,7 @@ struct SessionMetadataWriteValues {
     name: Option<String>,
     archived_at: Option<String>,
     is_subagent: bool,
-    subagent_name: Option<String>,
+    subagent_name: Option<JsString>,
     model_provider: Option<String>,
     model_id: Option<String>,
     thinking_level: Option<String>,
@@ -520,10 +520,12 @@ fn read_session_metadata_write_values(
             .clone()
             .or_else(|| preserved.as_ref().and_then(|values| values.1.clone())),
         is_subagent: metadata.is_subagent.unwrap_or(preserved_is_subagent),
-        subagent_name: metadata
-            .subagent_name
-            .clone()
-            .or_else(|| preserved.as_ref().and_then(|values| values.4.clone())),
+        subagent_name: metadata.subagent_name.clone().or_else(|| {
+            preserved
+                .as_ref()
+                .and_then(|values| values.4.clone())
+                .map(JsString::from)
+        }),
         model_provider: metadata
             .model_provider
             .clone()
@@ -555,7 +557,7 @@ fn write_session_metadata_row(
             values.archived_at,
             Option::<String>::None,
             if values.is_subagent { 1 } else { 0 },
-            values.subagent_name,
+            values.subagent_name.as_ref().map(encode_node_utf8),
             values.model_provider,
             values.model_id,
             values.thinking_level,

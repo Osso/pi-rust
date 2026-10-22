@@ -240,7 +240,7 @@ pub struct NewSessionOptions {
     pub id: Option<String>,
     pub parent_session: Option<String>,
     pub is_subagent: bool,
-    pub subagent_name: Option<String>,
+    pub subagent_name: Option<JsString>,
 }
 
 /// JSON stored at an untyped persistence boundary, retaining UTF-16 strings/keys.
@@ -1000,7 +1000,7 @@ pub struct SessionInfo {
     pub path: String,
     pub id: String,
     pub cwd: String,
-    pub name: Option<String>,
+    pub name: Option<JsString>,
     pub is_archived: Option<bool>,
     pub parent_session_path: Option<String>,
     /// Unix milliseconds.
@@ -2517,7 +2517,7 @@ pub struct SessionManager {
     label_timestamps_by_id: Vec<(String, String)>,
     leaf_id: Option<String>,
     is_subagent: bool,
-    subagent_name: Option<String>,
+    subagent_name: Option<JsString>,
     metadata_control_db_path: Option<String>,
     index_message_text: bool,
     in_memory_goal_json: Option<String>,
@@ -3132,7 +3132,7 @@ impl SessionManager {
             return Ok(());
         }
         self.is_subagent = true;
-        self.subagent_name = metadata.subagent_name;
+        self.subagent_name = metadata.subagent_name.map(JsString::from);
         Ok(())
     }
 
@@ -3203,8 +3203,8 @@ impl SessionManager {
         self.is_subagent
     }
 
-    pub fn get_subagent_name(&self) -> Option<&str> {
-        self.subagent_name.as_deref()
+    pub fn get_subagent_name(&self) -> Option<&JsString> {
+        self.subagent_name.as_ref()
     }
 
     pub fn relocate(&mut self, target_cwd: &str, agent_dir: Option<&str>) -> Result<(), SessionManagerError> {
@@ -3781,7 +3781,7 @@ fn session_info_from_metadata(metadata: &SessionMetadata) -> SessionInfo {
         path: metadata.session_path.clone(),
         id: metadata.id.clone(),
         cwd: metadata.cwd.clone(),
-        name: metadata.name.clone(),
+        name: metadata.name.clone().map(JsString::from),
         is_archived: Some(metadata.archived_at.is_some()),
         parent_session_path: metadata.parent_session_path.clone(),
         created: pi_js_compat::date::date_parse_millis(&metadata.created_at).unwrap_or(0),

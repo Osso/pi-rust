@@ -240,7 +240,7 @@ pub struct AgentNode {
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<String>,
-    pub display_name: String,
+    pub display_name: JsString,
     pub agent_type: String,
     /// How the agent entered the store; absent means spawned as a child agent.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -293,7 +293,7 @@ pub enum AgentOrigin {
 pub struct SpawnAgent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<String>,
-    pub display_name: String,
+    pub display_name: JsString,
     pub agent_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub origin: Option<AgentOrigin>,
@@ -486,7 +486,7 @@ pub struct AgentSlotProjection {
 #[serde(rename_all = "camelCase")]
 pub struct AgentRowProjection {
     pub agent_id: String,
-    pub display_name: String,
+    pub display_name: JsString,
     pub lifecycle: AgentLifecycleState,
     pub revision: i64,
     pub active: bool,
@@ -1952,7 +1952,7 @@ impl MultiAgentStore {
             agent_type: "main".to_owned(),
             created_at: timestamp.clone(),
             cwd: String::new(),
-            display_name: "Main thread".to_owned(),
+            display_name: "Main thread".into(),
             id: MAIN_THREAD_AGENT_ID.to_owned(),
             lifecycle: AgentLifecycle::Running,
             parent_id: None,
