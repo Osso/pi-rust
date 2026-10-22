@@ -48,7 +48,7 @@ async fn extension(
         cwd,
         Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
         runtime.clone(),
-        path,
+        &JsString::from(path),
     )
     .await
     .expect("extension factory succeeds")
@@ -508,7 +508,7 @@ async fn cli_context_maps_app_modes_to_extension_modes() {
         (AppMode::Rpc, ExtensionMode::Rpc),
     ];
     for (mode, expected) in cases {
-        let ctx = cli_context("/work", mode, true, Some(startup.clone()));
+        let ctx = cli_context(&JsString::from("/work"), mode, true, Some(startup.clone()));
         assert_eq!(ctx.cwd, "/work");
         assert_eq!(ctx.mode, expected);
         assert!(ctx.has_ui);
@@ -518,7 +518,12 @@ async fn cli_context_maps_app_modes_to_extension_modes() {
 #[tokio::test]
 async fn cli_context_selects_through_the_startup_ui_in_interactive_mode() {
     let startup = RecordingStartupUi::new(Some("Yes"), Some("typed"));
-    let ctx = cli_context("/work", AppMode::Interactive, true, Some(startup.clone()));
+    let ctx = cli_context(
+        &JsString::from("/work"),
+        AppMode::Interactive,
+        true,
+        Some(startup.clone()),
+    );
 
     let selected = ctx
         .ui
@@ -529,7 +534,7 @@ async fn cli_context_selects_through_the_startup_ui_in_interactive_mode() {
         )
         .await
         .unwrap();
-    assert_eq!(selected.as_deref(), Some("Yes"));
+    assert_eq!(selected.as_ref(), Some(&JsString::from("Yes")));
     assert_eq!(
         *startup.selections.lock().unwrap(),
         vec![("Pick".to_owned(), vec!["Yes".to_owned(), "No".to_owned()])]
@@ -540,7 +545,7 @@ async fn cli_context_selects_through_the_startup_ui_in_interactive_mode() {
             .input(&JsString::from("Name"), Some(&JsString::from("placeholder")), None)
             .await
             .unwrap(),
-        Some("typed".to_owned())
+        (Some("typed".to_owned())).map(JsString::from)
     );
     assert_eq!(
         *startup.inputs.lock().unwrap(),
@@ -551,7 +556,12 @@ async fn cli_context_selects_through_the_startup_ui_in_interactive_mode() {
 #[tokio::test]
 async fn cli_context_confirm_uses_yes_no_labels() {
     let startup = RecordingStartupUi::new(Some("Yes"), None);
-    let ctx = cli_context("/work", AppMode::Interactive, true, Some(startup.clone()));
+    let ctx = cli_context(
+        &JsString::from("/work"),
+        AppMode::Interactive,
+        true,
+        Some(startup.clone()),
+    );
     assert!(ctx.ui.confirm("Title", "Body", None).await.unwrap());
     assert_eq!(
         *startup.selections.lock().unwrap(),
@@ -559,18 +569,23 @@ async fn cli_context_confirm_uses_yes_no_labels() {
     );
 
     let startup = RecordingStartupUi::new(Some("No"), None);
-    let ctx = cli_context("/work", AppMode::Interactive, true, Some(startup));
+    let ctx = cli_context(&JsString::from("/work"), AppMode::Interactive, true, Some(startup));
     assert!(!ctx.ui.confirm("Title", "Body", None).await.unwrap());
 
     let startup = RecordingStartupUi::new(None, None);
-    let ctx = cli_context("/work", AppMode::Interactive, true, Some(startup));
+    let ctx = cli_context(&JsString::from("/work"), AppMode::Interactive, true, Some(startup));
     assert!(!ctx.ui.confirm("Title", "Body", None).await.unwrap());
 }
 
 #[tokio::test]
 async fn cli_context_without_ui_never_prompts() {
     let startup = RecordingStartupUi::new(Some("Yes"), Some("typed"));
-    let ctx = cli_context("/work", AppMode::Interactive, false, Some(startup.clone()));
+    let ctx = cli_context(
+        &JsString::from("/work"),
+        AppMode::Interactive,
+        false,
+        Some(startup.clone()),
+    );
     assert_eq!(
         ctx.ui
             .select(&JsString::from("Pick"), &["Yes".to_owned().into()], None)
@@ -588,7 +603,7 @@ async fn cli_context_without_ui_never_prompts() {
 async fn cli_context_outside_interactive_mode_never_prompts() {
     for mode in [AppMode::Print, AppMode::Json, AppMode::Rpc] {
         let startup = RecordingStartupUi::new(Some("Yes"), Some("typed"));
-        let ctx = cli_context("/work", mode, true, Some(startup.clone()));
+        let ctx = cli_context(&JsString::from("/work"), mode, true, Some(startup.clone()));
         assert_eq!(
             ctx.ui
                 .select(&JsString::from("Pick"), &["Yes".to_owned().into()], None)

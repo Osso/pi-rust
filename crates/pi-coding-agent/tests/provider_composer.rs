@@ -521,7 +521,10 @@ fn compatibility_request_config_includes_static_model_headers() {
     let compatibility = resolve_compatibility_request_config(&model, None, None).unwrap();
     assert!(!compatibility.auth_header);
     let headers = compatibility.headers.unwrap();
-    assert_eq!(headers.get("X-Static-Model"), Some(&Some("static-value".to_owned())));
+    assert_eq!(
+        headers.get("X-Static-Model"),
+        Some(&Some(JsString::from("static-value".to_owned())))
+    );
 }
 
 #[test]
@@ -681,7 +684,7 @@ fn headers_map_helper_is_available_for_fixtures() {
     let mut headers = HashMap::new();
     headers.insert("x".to_owned(), "y".to_owned().into());
     let converted = pi_coding_agent::core::provider_composer::provider_headers(headers);
-    assert_eq!(converted.get("x"), Some(&Some("y".to_owned())));
+    assert_eq!(converted.get("x"), Some(&Some(JsString::from("y".to_owned()))));
     assert!(matches!(
         pi_coding_agent::core::provider_composer::modality_from_str("image"),
         Some(pi_ai::types::Modality::Image)

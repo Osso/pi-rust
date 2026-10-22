@@ -36,24 +36,24 @@ fn map(pairs: &[(&str, &str)]) -> HashMap<String, JsString> {
 fn resolves_literals_templates_and_escapes() {
     let env = map(&[("TEST_CONFIG_LEFT", "left"), ("TEST_CONFIG_RIGHT", "right")]);
     assert_eq!(
-        resolve_config_value(&JsString::from("literal-key"), None).as_deref(),
-        Some("literal-key")
+        resolve_config_value(&JsString::from("literal-key"), None).as_ref(),
+        Some(&JsString::from("literal-key"))
     );
     assert_eq!(
-        resolve_config_value(&JsString::from("$TEST_CONFIG_LEFT"), Some(&env)).as_deref(),
-        Some("left")
+        resolve_config_value(&JsString::from("$TEST_CONFIG_LEFT"), Some(&env)).as_ref(),
+        Some(&JsString::from("left"))
     );
     assert_eq!(
-        resolve_config_value(&JsString::from("${TEST_CONFIG_LEFT}_$TEST_CONFIG_RIGHT"), Some(&env)).as_deref(),
-        Some("left_right")
+        resolve_config_value(&JsString::from("${TEST_CONFIG_LEFT}_$TEST_CONFIG_RIGHT"), Some(&env)).as_ref(),
+        Some(&JsString::from("left_right"))
     );
     assert_eq!(
-        resolve_config_value(&JsString::from("$$TEST_CONFIG_LEFT"), Some(&env)).as_deref(),
-        Some("$TEST_CONFIG_LEFT")
+        resolve_config_value(&JsString::from("$$TEST_CONFIG_LEFT"), Some(&env)).as_ref(),
+        Some(&JsString::from("$TEST_CONFIG_LEFT"))
     );
     assert_eq!(
-        resolve_config_value(&JsString::from("$!literal-$TEST_CONFIG_RIGHT"), Some(&env)).as_deref(),
-        Some("!literal-right")
+        resolve_config_value(&JsString::from("$!literal-$TEST_CONFIG_RIGHT"), Some(&env)).as_ref(),
+        Some(&JsString::from("!literal-right"))
     );
     assert_eq!(
         resolve_config_value(&JsString::from("$TEST_CONFIG_MISSING"), Some(&env)),
@@ -65,8 +65,8 @@ fn resolves_literals_templates_and_escapes() {
 fn credential_scoped_environment_wins_over_the_process_environment() {
     let env = map(&[("TEST_CONFIG_SCOPED", "credential")]);
     assert_eq!(
-        resolve_config_value(&JsString::from("$TEST_CONFIG_SCOPED"), Some(&env)).as_deref(),
-        Some("credential")
+        resolve_config_value(&JsString::from("$TEST_CONFIG_SCOPED"), Some(&env)).as_ref(),
+        Some(&JsString::from("credential"))
     );
 }
 
@@ -75,16 +75,16 @@ fn executes_shell_commands_and_trims_their_output() {
     let _guard = CACHE_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     clear_config_value_cache();
     assert_eq!(
-        resolve_config_value(&JsString::from("!echo '  spaced-key  '"), None).as_deref(),
-        Some("spaced-key")
+        resolve_config_value(&JsString::from("!echo '  spaced-key  '"), None).as_ref(),
+        Some(&JsString::from("spaced-key"))
     );
     assert_eq!(
-        resolve_config_value(&JsString::from("!printf 'line1\\nline2'"), None).as_deref(),
-        Some("line1\nline2")
+        resolve_config_value(&JsString::from("!printf 'line1\\nline2'"), None).as_ref(),
+        Some(&JsString::from("line1\nline2"))
     );
     assert_eq!(
-        resolve_config_value(&JsString::from("!echo 'hello world' | tr ' ' '-'"), None).as_deref(),
-        Some("hello-world")
+        resolve_config_value(&JsString::from("!echo 'hello world' | tr ' ' '-'"), None).as_ref(),
+        Some(&JsString::from("hello-world"))
     );
 }
 
@@ -113,19 +113,19 @@ fn caches_successful_and_failed_commands_until_cleared() {
 
     clear_config_value_cache();
     assert_eq!(
-        resolve_config_value(&JsString::from(&success), None).as_deref(),
-        Some("value")
+        resolve_config_value(&JsString::from(&success), None).as_ref(),
+        Some(&JsString::from("value"))
     );
     assert_eq!(
-        resolve_config_value(&JsString::from(&success), None).as_deref(),
-        Some("value")
+        resolve_config_value(&JsString::from(&success), None).as_ref(),
+        Some(&JsString::from("value"))
     );
     assert_eq!(fs::read_to_string(&counter).unwrap().trim(), "1");
 
     clear_config_value_cache();
     assert_eq!(
-        resolve_config_value(&JsString::from(&success), None).as_deref(),
-        Some("value")
+        resolve_config_value(&JsString::from(&success), None).as_ref(),
+        Some(&JsString::from("value"))
     );
     assert_eq!(fs::read_to_string(&counter).unwrap().trim(), "2");
 
@@ -146,12 +146,12 @@ fn uncached_resolution_executes_a_command_on_every_call() {
         format!("!sh -c 'count=$(cat \"{counter_path}\"); echo $((count + 1)) > \"{counter_path}\"; echo value'");
     clear_config_value_cache();
     assert_eq!(
-        resolve_config_value_uncached(&JsString::from(&command), None).as_deref(),
-        Some("value")
+        resolve_config_value_uncached(&JsString::from(&command), None).as_ref(),
+        Some(&JsString::from("value"))
     );
     assert_eq!(
-        resolve_config_value_uncached(&JsString::from(&command), None).as_deref(),
-        Some("value")
+        resolve_config_value_uncached(&JsString::from(&command), None).as_ref(),
+        Some(&JsString::from("value"))
     );
     assert_eq!(fs::read_to_string(&counter).unwrap().trim(), "2");
 }
@@ -161,12 +161,12 @@ fn environment_values_are_never_cached() {
     let env_first = map(&[("TEST_CONFIG_DYNAMIC", "first")]);
     let env_second = map(&[("TEST_CONFIG_DYNAMIC", "second")]);
     assert_eq!(
-        resolve_config_value(&JsString::from("$TEST_CONFIG_DYNAMIC"), Some(&env_first)).as_deref(),
-        Some("first")
+        resolve_config_value(&JsString::from("$TEST_CONFIG_DYNAMIC"), Some(&env_first)).as_ref(),
+        Some(&JsString::from("first"))
     );
     assert_eq!(
-        resolve_config_value(&JsString::from("$TEST_CONFIG_DYNAMIC"), Some(&env_second)).as_deref(),
-        Some("second")
+        resolve_config_value(&JsString::from("$TEST_CONFIG_DYNAMIC"), Some(&env_second)).as_ref(),
+        Some(&JsString::from("second"))
     );
 }
 

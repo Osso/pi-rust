@@ -29,12 +29,12 @@ fn resolves_prompt_input_files_and_literals() {
     fs::write(&path, "System prompt text.\n").unwrap();
 
     assert_eq!(
-        resolve_prompt_input(Some(&JsString::from(path.to_str().unwrap())), "system prompt").as_deref(),
-        Some("System prompt text.\n")
+        resolve_prompt_input(Some(&JsString::from(path.to_str().unwrap())), "system prompt").as_ref(),
+        Some(&JsString::from("System prompt text.\n"))
     );
     assert_eq!(
-        resolve_prompt_input(Some(&JsString::from("Literal prompt text.")), "system prompt").as_deref(),
-        Some("Literal prompt text.")
+        resolve_prompt_input(Some(&JsString::from("Literal prompt text.")), "system prompt").as_ref(),
+        Some(&JsString::from("Literal prompt text."))
     );
     assert_eq!(resolve_prompt_input(None, "system prompt"), None);
 }
@@ -56,7 +56,7 @@ use serde_json::json;
 fn settings(cwd: &Path, agent_dir: &Path, trusted: bool) -> Arc<Mutex<SettingsManager>> {
     Arc::new(Mutex::new(
         SettingsManager::create(
-            &cwd.to_string_lossy(),
+            &JsString::from((&cwd.to_string_lossy()).as_ref()),
             Some(agent_dir),
             SettingsManagerCreateOptions {
                 project_trusted: Some(trusted),
@@ -73,7 +73,6 @@ fn loader(cwd: &Path, agent_dir: &Path, trusted: bool) -> DefaultResourceLoader 
         settings_manager: Some(settings(cwd, agent_dir, trusted)),
         ..Default::default()
     })
-    .unwrap()
     .unwrap()
 }
 
@@ -171,11 +170,11 @@ async fn project_resources_win_name_collisions() {
     let theme = themes
         .themes
         .iter()
-        .find(|theme| theme.name.as_deref() == Some("collision-theme"))
+        .find(|theme| theme.name.as_ref() == Some("collision-theme"))
         .unwrap();
     assert_eq!(
-        theme.source_path.as_deref(),
-        Some(cwd.join(".pi/themes/collision.json").as_path())
+        theme.source_path.as_ref(),
+        Some(&JsString::from(cwd.join(".pi/themes/collision.json").as_path()))
     );
     assert_eq!(themes.diagnostics.len(), 1);
     assert_eq!(themes.diagnostics[0].message, "name \"collision-theme\" collision");
@@ -314,7 +313,6 @@ async fn no_context_files_skips_all_discovery() {
         no_context_files: true,
         ..Default::default()
     })
-    .unwrap()
     .unwrap();
     resource_loader.reload().await.unwrap();
     assert!(resource_loader.get_agents_files().agents_files.is_empty());
@@ -339,8 +337,8 @@ async fn rules_load_in_sorted_order_and_respect_scope() {
     let main_loader = loader(&cwd, &agent_dir, true);
     main_loader.reload().await.unwrap();
     assert_eq!(
-        main_loader.get_rules_content().as_deref(),
-        Some("First rule.\n\nSecond rule.\n\nMain rule.")
+        main_loader.get_rules_content().as_ref(),
+        Some(&JsString::from("First rule.\n\nSecond rule.\n\nMain rule."))
     );
     assert_eq!(main_loader.get_rules_files().rules_files.len(), 3);
 
@@ -351,7 +349,6 @@ async fn rules_load_in_sorted_order_and_respect_scope() {
         rules_scope: Some(RulesScope::Child),
         ..Default::default()
     })
-    .unwrap()
     .unwrap();
     child_loader.reload().await.unwrap();
     assert_eq!(
@@ -372,13 +369,16 @@ async fn project_rules_load_only_when_trusted() {
 
     let untrusted = loader(&cwd, &agent_dir, false);
     untrusted.reload().await.unwrap();
-    assert_eq!(untrusted.get_rules_content().as_deref(), Some("Global rule."));
+    assert_eq!(
+        untrusted.get_rules_content().as_ref(),
+        Some(&JsString::from("Global rule."))
+    );
 
     let trusted = loader(&cwd, &agent_dir, true);
     trusted.reload().await.unwrap();
     assert_eq!(
-        trusted.get_rules_content().as_deref(),
-        Some("Global rule.\n\nProject rule.")
+        trusted.get_rules_content().as_ref(),
+        Some(&JsString::from("Global rule.\n\nProject rule."))
     );
 }
 
@@ -393,11 +393,17 @@ async fn rules_reload_from_disk() {
 
     let resource_loader = loader(&cwd, &agent_dir, true);
     resource_loader.reload().await.unwrap();
-    assert_eq!(resource_loader.get_rules_content().as_deref(), Some("First rule."));
+    assert_eq!(
+        resource_loader.get_rules_content().as_ref(),
+        Some(&JsString::from("First rule."))
+    );
 
     std::fs::write(agent_dir.join("rules/rule.md"), "Updated rule.").unwrap();
     resource_loader.reload().await.unwrap();
-    assert_eq!(resource_loader.get_rules_content().as_deref(), Some("Updated rule."));
+    assert_eq!(
+        resource_loader.get_rules_content().as_ref(),
+        Some(&JsString::from("Updated rule."))
+    );
 }
 
 #[tokio::test]
@@ -414,12 +420,12 @@ async fn system_and_append_prompt_discovery_and_sources() {
     let resource_loader = loader(&cwd, &agent_dir, true);
     resource_loader.reload().await.unwrap();
     assert_eq!(
-        resource_loader.get_system_prompt().as_deref(),
-        Some("Project system prompt.")
+        resource_loader.get_system_prompt().as_ref(),
+        Some(&JsString::from("Project system prompt."))
     );
     assert_eq!(
         resource_loader.get_system_prompt_source().map(|source| source.path),
-        Some(cwd.join(".pi/SYSTEM.md").to_string_lossy().into_owned())
+        (Some(cwd.join(".pi/SYSTEM.md").to_string_lossy().into_owned())).map(JsString::from)
     );
     assert_eq!(
         resource_loader.get_append_system_prompt(),
@@ -436,7 +442,10 @@ async fn system_and_append_prompt_discovery_and_sources() {
 
     let untrusted = loader(&cwd, &agent_dir, false);
     untrusted.reload().await.unwrap();
-    assert_eq!(untrusted.get_system_prompt().as_deref(), Some("Global system prompt."));
+    assert_eq!(
+        untrusted.get_system_prompt().as_ref(),
+        Some(&JsString::from("Global system prompt."))
+    );
     assert!(untrusted.get_append_system_prompt().is_empty());
 }
 
@@ -463,7 +472,6 @@ async fn literal_prompts_are_not_exposed_as_sources() {
         ]),
         ..Default::default()
     })
-    .unwrap()
     .unwrap();
     resource_loader.reload().await.unwrap();
     assert_eq!(
@@ -483,7 +491,6 @@ async fn literal_prompts_are_not_exposed_as_sources() {
         system_prompt: Some("Literal system prompt.".to_owned().into()),
         ..Default::default()
     })
-    .unwrap()
     .unwrap();
     literal.reload().await.unwrap();
     assert_eq!(literal.get_system_prompt().as_deref(), Some("Literal system prompt."));
@@ -508,7 +515,6 @@ async fn no_skills_still_loads_additional_skill_paths() {
         additional_skill_paths: vec![custom.to_string_lossy().into_owned().into()],
         ..Default::default()
     })
-    .unwrap()
     .unwrap();
     resource_loader.reload().await.unwrap();
     let skills = resource_loader.get_skills().skills;
@@ -553,7 +559,6 @@ async fn overrides_replace_loaded_resources() {
         system_prompt_override: Some(Arc::new(|_| Some("Custom system prompt".to_owned().into()))),
         ..Default::default()
     })
-    .unwrap()
     .unwrap();
     resource_loader.reload().await.unwrap();
     assert_eq!(resource_loader.get_skills().skills.len(), 1);
@@ -698,7 +703,6 @@ async fn extension_conflicts_report_tools_and_flags() {
         ],
         ..Default::default()
     })
-    .unwrap()
     .unwrap();
     resource_loader.reload().await.unwrap();
     let result = resource_loader.get_extensions();
@@ -749,7 +753,6 @@ async fn disabled_inline_extension_factories_are_skipped() {
         ],
         ..Default::default()
     })
-    .unwrap()
     .unwrap();
     resource_loader.reload().await.unwrap();
     let paths: Vec<String> = resource_loader
@@ -777,7 +780,6 @@ async fn missing_additional_extension_path_is_reported() {
         additional_extension_paths: vec![missing.to_string_lossy().into_owned().into()],
         ..Default::default()
     })
-    .unwrap()
     .unwrap();
     resource_loader.reload().await.unwrap();
     let errors = resource_loader.get_extensions().errors;
@@ -844,7 +846,6 @@ async fn no_extensions_keeps_cli_extensions() {
         }],
         ..Default::default()
     })
-    .unwrap()
     .unwrap();
     resource_loader.reload().await.unwrap();
     assert_eq!(resource_loader.get_extensions().extensions.len(), 1);
@@ -864,8 +865,8 @@ async fn default_project_trust_loader_forces_untrusted_and_loads_inline_factorie
     .unwrap();
     let manager = Arc::new(Mutex::new(
         SettingsManager::create(
-            &cwd.to_string_lossy(),
-            Some(&agent_dir),
+            &JsString::from((&cwd.to_string_lossy()).as_ref()),
+            Some(&JsString::from((&agent_dir).to_string_lossy().as_ref())),
             SettingsManagerCreateOptions {
                 project_trusted: Some(true),
             },

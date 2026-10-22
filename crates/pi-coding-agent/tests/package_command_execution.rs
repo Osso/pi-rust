@@ -707,7 +707,10 @@ async fn saved_project_trust_is_used_for_updates() {
     let agent = agent_dir("saved-trust");
     let store = ProjectTrustStore::new(&JsString::from(&agent.display().to_string())).unwrap();
     store
-        .set(&project.display().to_string(), ProjectTrustDecision::Trusted)
+        .set(
+            &JsString::from(&project.display().to_string()),
+            ProjectTrustDecision::Trusted,
+        )
         .unwrap();
     let mut effects = FakeEffects::new(&project, &agent, bun_install_context(&root));
     effects.release = Ok(LatestPiRelease {
@@ -819,7 +822,7 @@ fn self_update_plan_decides_between_running_and_up_to_date() {
     let (plan, line) = self_update_plan(false, &release, &JsString::from("0.0.0"));
     assert!(plan.should_run);
     assert_eq!(plan.install_spec, "@earendil-works/pi-coding-agent@9.9.9");
-    assert_eq!(plan.note.as_deref(), Some("note"));
+    assert_eq!(plan.note.as_ref(), Some(&JsString::from("note")));
     assert!(line.is_none());
 
     let (plan, line) = self_update_plan(false, &release, &JsString::from("9.9.9"));
@@ -957,7 +960,7 @@ fn package_config_effects_struct_exposes_the_host_values() {
         cwd: root.display().to_string().into(),
         agent_dir: root.join("agent").display().to_string().into(),
         install_context: context.clone(),
-        entrypoint: context.entrypoint.clone(),
+        entrypoint: (context.entrypoint.clone()).map(JsString::from),
         extensions_loader: Arc::new(NoExtensionsLoader),
         config_selector: std::rc::Rc::new(Selector),
         fetch: pi_ai::http::default_fetch(),
@@ -966,7 +969,7 @@ fn package_config_effects_struct_exposes_the_host_values() {
     assert_eq!(effects.cwd(), root.display().to_string());
     assert_eq!(effects.agent_dir(), root.join("agent").display().to_string());
     assert_eq!(effects.stdout_columns(), None);
-    assert_eq!(effects.entrypoint(), context.entrypoint.clone());
+    assert_eq!(effects.entrypoint(), (context.entrypoint.clone()).map(JsString::from));
     assert_eq!(effects.install_context().package_dir, context.package_dir);
     assert_eq!(effects.install_context().exec_path, context.exec_path);
 }

@@ -132,7 +132,7 @@ fn normalize_case(case: &Case) -> Value {
         source: case.source.to_owned().into(),
         scope: case.scope.value(),
         origin: case.origin.value(),
-        base_dir: optional_string(case.base_dir_state, case.base_dir),
+        base_dir: (optional_string(case.base_dir_state, case.base_dir)).map(JsString::from),
     };
     let result = create_synthetic_source_info(&JsString::from(case.path), &options);
     json!({
@@ -324,7 +324,7 @@ fn normalize_metadata_case(case: &MetadataCase) -> Value {
             "top-level" => pi_coding_agent::core::package_manager::MetadataOrigin::TopLevel,
             other => panic!("unknown origin {other}"),
         },
-        base_dir: optional_string(case.base_dir_state, case.base_dir),
+        base_dir: (optional_string(case.base_dir_state, case.base_dir)).map(JsString::from),
     };
     let result = pi_coding_agent::core::source_info::create_source_info(&JsString::from(case.path), &metadata);
     json!({

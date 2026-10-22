@@ -175,15 +175,18 @@ fn trust_options_describe_each_choice() {
     assert_eq!(
         get_project_trust_parent_path(&JsString::from(&s(&cwd)))
             .unwrap()
-            .as_deref(),
-        Some(parent.as_str())
+            .as_ref(),
+        Some(&JsString::from(parent.as_str()))
     );
 
     let options = get_project_trust_options(&JsString::from(&s(&cwd)), false).unwrap();
     assert_eq!(options.len(), 3);
     assert_eq!(options[0].label, "Trust");
     assert!(options[0].trusted);
-    assert_eq!(options[0].saved_path.as_deref(), Some(canonical_cwd.as_str()));
+    assert_eq!(
+        options[0].saved_path.as_ref(),
+        Some(&JsString::from(canonical_cwd.as_str()))
+    );
     assert_eq!(options[1].label, format!("Trust parent folder ({parent})"));
     assert_eq!(options[1].updates.len(), 2);
     assert_eq!(options[1].updates[1].decision, ProjectTrustDecision::Unknown);

@@ -197,7 +197,7 @@ fn reads_api_key_credentials_without_refresh() {
         )
         .await
         .unwrap();
-        assert_eq!(credential.as_deref(), Some("test-key"));
+        assert_eq!(credential.as_ref(), Some(&JsString::from("test-key")));
     });
 }
 
@@ -217,7 +217,7 @@ fn reads_stored_oauth_access_tokens_without_refreshing() {
         )
         .await
         .unwrap();
-        assert_eq!(credential.as_deref(), Some("old-token"));
+        assert_eq!(credential.as_ref(), Some(&JsString::from("old-token")));
     });
 }
 

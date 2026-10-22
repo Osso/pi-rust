@@ -128,7 +128,7 @@ fn credential_scoped_environment_takes_precedence_and_stays_inspectable() {
     let Credential::ApiKey(api_key) = credential.expect("credential") else {
         panic!("expected api key");
     };
-    assert_eq!(api_key.key.as_deref(), Some("scoped-value"));
+    assert_eq!(api_key.key.as_ref(), Some(&JsString::from("scoped-value")));
     let env: ProviderEnv = api_key.env.expect("env is preserved");
     assert_eq!(env.get("SCOPED_KEY").map(String::as_str), Some("scoped-value"));
     assert_eq!(env.get("REGION").map(String::as_str), Some("test-region"));
@@ -527,8 +527,8 @@ fn read_only_storage_resolves_templates_without_executing_commands() {
         panic!("expected api key");
     };
     assert_eq!(
-        api_key.key.as_deref(),
-        Some("!echo secret"),
+        api_key.key.as_ref(),
+        Some(&JsString::from("!echo secret")),
         "command references stay literal"
     );
 
@@ -572,7 +572,7 @@ fn stored_credentials_can_be_read_without_resolving() {
     let Credential::ApiKey(api_key) = credential.expect("credential") else {
         panic!("expected api key");
     };
-    assert_eq!(api_key.key.as_deref(), Some("$RAW"));
+    assert_eq!(api_key.key.as_ref(), Some(&JsString::from("$RAW")));
     assert_eq!(
         read_stored_credential("missing", Some(&JsString::from(&auth_path.display().to_string()))),
         None

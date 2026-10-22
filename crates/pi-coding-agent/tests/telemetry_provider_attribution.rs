@@ -5,6 +5,7 @@ use pi_ai::types::{Model, ProviderHeaders};
 use pi_coding_agent::core::provider_attribution::merge_provider_attribution_headers;
 use pi_coding_agent::core::settings_manager::{InMemorySettingsStorage, SettingsManager, SettingsManagerCreateOptions};
 use pi_coding_agent::core::telemetry::is_install_telemetry_enabled;
+use pi_js_compat::js_json::JsString;
 use serde_json::json;
 
 fn settings(telemetry_enabled: bool) -> SettingsManager {
@@ -92,11 +93,17 @@ fn adds_default_attribution_headers_for_openrouter_models() {
         &[],
     )
     .unwrap();
-    assert_eq!(headers.get("HTTP-Referer"), Some(&Some("https://pi.dev".to_owned())));
-    assert_eq!(headers.get("X-OpenRouter-Title"), Some(&Some("pi".to_owned())));
+    assert_eq!(
+        headers.get("HTTP-Referer"),
+        Some(&Some(JsString::from("https://pi.dev".to_owned())))
+    );
+    assert_eq!(
+        headers.get("X-OpenRouter-Title"),
+        Some(&Some(JsString::from("pi".to_owned())))
+    );
     assert_eq!(
         headers.get("X-OpenRouter-Categories"),
-        Some(&Some("cli-agent".to_owned()))
+        Some(&Some(JsString::from("cli-agent".to_owned())))
     );
 }
 
@@ -120,7 +127,10 @@ fn custom_providers_routed_through_openrouter_get_headers() {
         &[],
     )
     .unwrap();
-    assert_eq!(headers.get("HTTP-Referer"), Some(&Some("https://pi.dev".to_owned())));
+    assert_eq!(
+        headers.get("HTTP-Referer"),
+        Some(&Some(JsString::from("https://pi.dev".to_owned())))
+    );
 }
 
 #[test]
@@ -132,7 +142,10 @@ fn legacy_substring_matching_is_preserved() {
         &[],
     )
     .unwrap();
-    assert_eq!(headers.get("HTTP-Referer"), Some(&Some("https://pi.dev".to_owned())));
+    assert_eq!(
+        headers.get("HTTP-Referer"),
+        Some(&Some(JsString::from("https://pi.dev".to_owned())))
+    );
 }
 
 #[test]
@@ -151,15 +164,15 @@ fn provider_and_request_headers_override_defaults() {
     .unwrap();
     assert_eq!(
         merged_headers.get("HTTP-Referer"),
-        Some(&Some("https://provider.example".to_owned()))
+        Some(&Some(JsString::from("https://provider.example".to_owned())))
     );
     assert_eq!(
         merged_headers.get("X-OpenRouter-Title"),
-        Some(&Some("request-title".to_owned()))
+        Some(&Some(JsString::from("request-title".to_owned())))
     );
     assert_eq!(
         merged_headers.get("X-OpenRouter-Categories"),
-        Some(&Some("provider-category".to_owned()))
+        Some(&Some(JsString::from("provider-category".to_owned())))
     );
 }
 
@@ -170,7 +183,10 @@ fn nvidia_provider_and_host_get_billing_header() {
         model("custom-nim", "https://integrate.api.nvidia.com/v1", "custom-model"),
     ] {
         let headers = merged(&model, &settings(true), None, &[]).unwrap();
-        assert_eq!(headers.get("X-BILLING-INVOKE-ORIGIN"), Some(&Some("Pi".to_owned())));
+        assert_eq!(
+            headers.get("X-BILLING-INVOKE-ORIGIN"),
+            Some(&Some(JsString::from("Pi".to_owned())))
+        );
     }
 }
 
@@ -185,7 +201,10 @@ fn nvidia_headers_are_suppressed_when_disabled_or_routed_elsewhere() {
         "nvidia/nemotron-3-super-120b-a12b",
     );
     let headers = merged(&openrouter, &settings(true), None, &[]).unwrap();
-    assert_eq!(headers.get("HTTP-Referer"), Some(&Some("https://pi.dev".to_owned())));
+    assert_eq!(
+        headers.get("HTTP-Referer"),
+        Some(&Some(JsString::from("https://pi.dev".to_owned())))
+    );
     assert!(!headers.contains_key("X-BILLING-INVOKE-ORIGIN"));
 
     let gateway = model(
@@ -212,7 +231,10 @@ fn cloudflare_providers_and_hosts_get_a_user_agent() {
         model("custom", "https://api.cloudflare.com/client/v4", "cf-model"),
     ] {
         let headers = merged(&model, &settings(true), None, &[]).unwrap();
-        assert_eq!(headers.get("User-Agent"), Some(&Some("pi-coding-agent".to_owned())));
+        assert_eq!(
+            headers.get("User-Agent"),
+            Some(&Some(JsString::from("pi-coding-agent".to_owned())))
+        );
     }
 }
 
@@ -222,9 +244,12 @@ fn opencode_session_headers_are_added_and_overridable() {
     let default_headers = merged(&opencode, &settings(true), Some("opencode-session"), &[]).unwrap();
     assert_eq!(
         default_headers.get("x-opencode-session"),
-        Some(&Some("opencode-session".to_owned()))
+        Some(&Some(JsString::from("opencode-session".to_owned())))
     );
-    assert_eq!(default_headers.get("x-opencode-client"), Some(&Some("pi".to_owned())));
+    assert_eq!(
+        default_headers.get("x-opencode-client"),
+        Some(&Some(JsString::from("pi".to_owned())))
+    );
 
     let configured = headers(&[
         ("x-opencode-session", "configured-session"),
@@ -239,11 +264,11 @@ fn opencode_session_headers_are_added_and_overridable() {
     .unwrap();
     assert_eq!(
         headers.get("x-opencode-session"),
-        Some(&Some("configured-session".to_owned()))
+        Some(&Some(JsString::from("configured-session".to_owned())))
     );
     assert_eq!(
         headers.get("x-opencode-client"),
-        Some(&Some("configured-client".to_owned()))
+        Some(&Some(JsString::from("configured-client".to_owned())))
     );
 }
 
@@ -254,7 +279,10 @@ fn session_headers_are_limited_to_opencode_providers_and_hosts() {
 
     let custom = model("custom", "https://opencode.ai/zen/v1", "custom-model");
     let headers = merged(&custom, &settings(true), Some("session"), &[]).unwrap();
-    assert_eq!(headers.get("x-opencode-session"), Some(&Some("session".to_owned())));
+    assert_eq!(
+        headers.get("x-opencode-session"),
+        Some(&Some(JsString::from("session".to_owned())))
+    );
 
     let no_session = model("opencode", "https://opencode.ai/zen/v1", "opencode-model");
     assert_eq!(merged(&no_session, &settings(true), None, &[]), None);

@@ -38,8 +38,8 @@ fn run_scenario(oracle: &mut oracle::TsOracle, index: usize, scenario: &Scenario
     let rust_project_dir = rust_temp.path().join("project");
 
     let mut manager = SettingsManager::create(
-        &rust_project_dir.to_string_lossy(),
-        Some(&rust_agent_dir),
+        &JsString::from((&rust_project_dir.to_string_lossy()).as_ref()),
+        Some(&JsString::from((&rust_agent_dir).to_string_lossy().as_ref())),
         SettingsManagerCreateOptions::default(),
     )
     .expect("settings manager");
@@ -387,8 +387,8 @@ fn snapshot(manager: &SettingsManager) -> Value {
         "hideToolOutput": manager.get_hide_tool_output(),
         "hideCoordinationMessages": manager.get_hide_coordination_messages(),
         "idleCompaction": manager.get_idle_compaction_enabled(),
-        "shellPath": option_str(manager.get_shell_path().as_deref()),
-        "sessionDir": option_str(manager.get_session_dir().as_deref()),
+        "shellPath": option_str(manager.get_shell_path().as_ref()),
+        "sessionDir": option_str(manager.get_session_dir().as_ref()),
         "quietStartup": manager.get_quiet_startup(),
         "defaultProjectTrust": match manager.get_default_project_trust() {
             DefaultProjectTrust::Ask => "ask",
@@ -719,8 +719,8 @@ pub(crate) fn bidirectional() {
         ],
     );
     let mut rust = SettingsManager::create(
-        &project.to_string_lossy(),
-        Some(&agent),
+        &JsString::from((&project.to_string_lossy()).as_ref()),
+        Some(&JsString::from((&agent).to_string_lossy().as_ref())),
         SettingsManagerCreateOptions::default(),
     )
     .unwrap();
@@ -794,7 +794,7 @@ pub(crate) fn bidirectional() {
     let ts = ask(&mut oracle, vec![json!({"op":"reload"})]);
     rust.reload();
     assert_eq!(snapshot(&rust), ts["snapshot"]);
-    assert_eq!(rust.get_theme(), Some("TS-reverse"));
+    assert_eq!(rust.get_theme(), Some(&JsString::from("TS-reverse")));
     assert!(!rust.get_hide_tool_output());
     assert!(rust.get_show_images());
     assert!(rust.get_block_images());

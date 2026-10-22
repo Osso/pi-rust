@@ -114,7 +114,7 @@ impl Fixture {
     fn reconstructed(&self) -> SettingsManager {
         SettingsManager::create(
             &JsString::from(self.project.to_str().unwrap()),
-            Some(&self.agent),
+            Some(&JsString::from((&self.agent).to_string_lossy().as_ref())),
             Default::default(),
         )
         .unwrap()
@@ -139,7 +139,10 @@ fn shared_setter_drains_after_guard_release_without_flush_or_runtime() {
     fixture.finished.recv_timeout(COMPLETION_TIMEOUT).unwrap();
     let disk: Value = serde_json::from_str(&fs::read_to_string(fixture.agent.join("settings.json")).unwrap()).unwrap();
     assert_eq!(disk["defaultModel"], "persisted-model");
-    assert_eq!(fixture.reconstructed().get_default_model(), Some("persisted-model"));
+    assert_eq!(
+        fixture.reconstructed().get_default_model(),
+        Some(&JsString::from("persisted-model"))
+    );
 }
 
 #[test]
@@ -167,7 +170,10 @@ fn rapid_shared_snapshots_preserve_fifo_across_scopes() {
     assert_eq!(fixture.write().1["defaultModel"], "third");
     fixture.finish(manager);
     assert!(fixture.writes.try_recv().is_err());
-    assert_eq!(fixture.reconstructed().get_default_model(), Some("third"));
+    assert_eq!(
+        fixture.reconstructed().get_default_model(),
+        Some(&JsString::from("third"))
+    );
 }
 
 #[test]
@@ -219,7 +225,7 @@ fn panicking_write_is_recorded_without_dropping_later_snapshots_or_latching_drai
     fixture.finish(manager);
     assert!(fixture.writes.try_recv().is_err());
     let restored = fixture.reconstructed();
-    assert_eq!(restored.get_default_model(), Some("third"));
+    assert_eq!(restored.get_default_model(), Some(&JsString::from("third")));
     assert_eq!(restored.get_project_settings()["packages"][0], "npm:survives-panic");
 }
 

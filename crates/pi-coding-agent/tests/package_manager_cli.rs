@@ -15,7 +15,7 @@ fn args(values: &[&str]) -> Vec<JsString> {
 fn parses_install_and_remove_flags() {
     let options = parse_package_command(&args(&["install", "npm:x", "-l", "--approve"])).unwrap();
     assert_eq!(options.command, PackageCommand::Install);
-    assert_eq!(options.source.as_deref(), Some("npm:x"));
+    assert_eq!(options.source.as_ref(), Some(&JsString::from("npm:x")));
     assert!(options.local);
     assert_eq!(options.project_trust_override, Some(true));
 
@@ -69,13 +69,15 @@ fn update_target_matrix_matches_the_source() {
 fn update_conflicts_are_reported_once() {
     let options = parse_package_command(&args(&["update", "--all", "--self", "--models"])).unwrap();
     assert_eq!(
-        options.conflicting_options.as_deref(),
-        Some("--all cannot be combined with --self, --extensions, --models, or --extension")
+        options.conflicting_options.as_ref(),
+        Some(&JsString::from(
+            "--all cannot be combined with --self, --extensions, --models, or --extension"
+        ))
     );
     let options = parse_package_command(&args(&["update", "--extension", "a", "--extension", "b"])).unwrap();
     assert_eq!(
-        options.conflicting_options.as_deref(),
-        Some("--extension can only be provided once")
+        options.conflicting_options.as_ref(),
+        Some(&JsString::from("--extension can only be provided once"))
     );
 }
 

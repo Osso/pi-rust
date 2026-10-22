@@ -100,8 +100,8 @@ fn invalid_yaml_reports_one_warning_at_the_file() {
     assert!(result.skills.is_empty());
     assert_eq!(result.diagnostics.len(), 1);
     assert_eq!(
-        result.diagnostics[0].path.as_deref(),
-        Some(path.to_string_lossy().as_ref())
+        result.diagnostics[0].path.as_ref(),
+        Some(&JsString::from(path.to_string_lossy().as_ref()))
     );
     assert!(result.diagnostics[0].message.contains("line"));
 }

@@ -834,10 +834,10 @@ async fn restore_falls_back_when_auth_is_missing() {
     let model = model.unwrap();
     assert_eq!(model.id, "claude-sonnet-4-5");
     assert_eq!(
-        message.as_deref(),
-        Some(
+        message.as_ref(),
+        Some(&JsString::from(
             "Could not restore model anthropic/claude-sonnet-4-5 (no auth configured). Using anthropic/claude-sonnet-4-5."
-        )
+        ))
     );
 }
 
@@ -848,8 +848,10 @@ async fn restore_keeps_current_model_as_fallback() {
     let (model, message) = restore_model_from_session("anthropic", "missing", Some(&current), false, &runtime).await;
     assert_eq!(model.unwrap().id, "gpt-4o");
     assert_eq!(
-        message.as_deref(),
-        Some("Could not restore model anthropic/missing (model no longer exists). Using openai/gpt-4o.")
+        message.as_ref(),
+        Some(&JsString::from(
+            "Could not restore model anthropic/missing (model no longer exists). Using openai/gpt-4o."
+        ))
     );
 }
 

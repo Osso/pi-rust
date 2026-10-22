@@ -157,7 +157,7 @@ fn parses_npm_sources() {
             panic!("{source} must parse as npm");
         };
         assert_eq!(parsed.name, name, "{source}");
-        assert_eq!(parsed.version.as_deref(), version, "{source}");
+        assert_eq!(parsed.version.as_ref(), version, "{source}");
         assert_eq!(parsed.pinned, pinned, "{source}");
         assert_eq!(parsed.spec, source.trim_start_matches("npm:"), "{source}");
     }
@@ -179,7 +179,7 @@ fn parses_git_and_local_sources() {
         panic!("scp shorthand must parse as git");
     };
     assert_eq!(git.repo, "git@github.com:user/repo");
-    assert_eq!(git.reference.as_deref(), Some("v1.0.0"));
+    assert_eq!(git.reference.as_ref(), Some(&JsString::from("v1.0.0")));
     assert!(git.pinned);
 
     for source in [
@@ -630,7 +630,7 @@ fn installed_npm_packages_resolve_from_the_managed_root() {
             &JsString::from("npm:my-pkg"),
             pi_coding_agent::core::package_manager::InstalledScope::User
         ),
-        Some(fixture.agent_path("npm/node_modules/my-pkg"))
+        (Some(fixture.agent_path("npm/node_modules/my-pkg"))).map(JsString::from)
     );
 }
 
@@ -688,7 +688,10 @@ exit 0
         events[0].event_type,
         pi_coding_agent::core::package_manager::ProgressType::Start
     );
-    assert_eq!(events[0].message.as_deref(), Some("Installing npm:left-pad@1.2.3..."));
+    assert_eq!(
+        events[0].message.as_ref(),
+        Some(&JsString::from("Installing npm:left-pad@1.2.3..."))
+    );
     assert_eq!(
         events[1].event_type,
         pi_coding_agent::core::package_manager::ProgressType::Complete
@@ -906,8 +909,10 @@ fn lists_configured_packages_with_installed_paths() {
         pi_coding_agent::core::package_manager::InstalledScope::User
     );
     assert_eq!(
-        configured[0].installed_path.as_deref(),
-        Some(fixture.agent_path("npm/node_modules/user-pkg").as_str())
+        configured[0].installed_path.as_ref(),
+        Some(&JsString::from(
+            fixture.agent_path("npm/node_modules/user-pkg").as_str()
+        ))
     );
     assert_eq!(configured[1].installed_path, None);
     assert!(configured[2].filtered);

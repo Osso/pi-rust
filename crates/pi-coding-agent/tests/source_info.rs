@@ -33,7 +33,7 @@ fn source_info_exports_and_literals_are_exact() {
     assert_debug(&module_result);
     assert_debug(&root_result);
     assert_eq!(module_result.path, "module");
-    assert_eq!(root_result.base_dir.as_deref(), Some("/base"));
+    assert_eq!(root_result.base_dir.as_ref(), Some(&JsString::from("/base")));
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn synthetic_source_info_applies_defaults_and_preserves_overrides() {
     assert_eq!(explicit_result.source, "代理🙂\0\n");
     assert_eq!(explicit_result.scope, SourceScope::User);
     assert_eq!(explicit_result.origin, SourceOrigin::Package);
-    assert_eq!(explicit_result.base_dir.as_deref(), Some("C:\\base\r\n"));
+    assert_eq!(explicit_result.base_dir.as_ref(), Some(&JsString::from("C:\\base\r\n")));
 }
 
 #[test]
@@ -86,9 +86,9 @@ fn synthetic_source_info_returns_fresh_mutable_results_and_reuses_options() {
     assert_eq!(second.source, "source");
     assert_eq!(second.scope, SourceScope::Project);
     assert_eq!(second.origin, SourceOrigin::TopLevel);
-    assert_eq!(second.base_dir.as_deref(), Some("/base"));
+    assert_eq!(second.base_dir.as_ref(), Some(&JsString::from("/base")));
     assert_eq!(options.source, "source");
     assert_eq!(options.scope, Some(SourceScope::Project));
     assert_eq!(options.origin, Some(SourceOrigin::TopLevel));
-    assert_eq!(options.base_dir.as_deref(), Some("/base"));
+    assert_eq!(options.base_dir.as_ref(), Some(&JsString::from("/base")));
 }

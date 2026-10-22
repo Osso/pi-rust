@@ -91,7 +91,7 @@ async fn accepts_a_pi_ai_credential_store() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(auth.auth.api_key.as_deref(), Some("stored-key"));
+    assert_eq!(auth.auth.api_key.as_ref(), Some(&JsString::from("stored-key")));
 }
 
 #[tokio::test]
@@ -212,7 +212,7 @@ async fn resolves_configured_auth_from_request_scoped_env_overrides() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(auth.auth.api_key.as_deref(), Some("request-key"));
+    assert_eq!(auth.auth.api_key.as_ref(), Some(&JsString::from("request-key")));
     assert_eq!(
         auth.auth
             .headers
@@ -220,8 +220,8 @@ async fn resolves_configured_auth_from_request_scoped_env_overrides() {
             .and_then(|headers| headers.get("x-request-value"))
             .cloned()
             .flatten()
-            .as_deref(),
-        Some("request-header")
+            .as_ref(),
+        Some(&JsString::from("request-header"))
     );
 }
 
@@ -270,8 +270,8 @@ async fn explicit_authorization_header_overrides_auth_header_case_insensitively(
     let captured = captured.lock().unwrap().clone().unwrap();
     assert_eq!(captured.len(), 1);
     assert_eq!(
-        captured.get("authorization").cloned().flatten().as_deref(),
-        Some("Explicit token")
+        captured.get("authorization").cloned().flatten().as_ref(),
+        Some(&JsString::from("Explicit token"))
     );
     assert!(!captured.contains_key("Authorization"));
 }
@@ -296,17 +296,20 @@ async fn transforms_fully_assembled_headers_once() {
         Box::pin(async move {
             counter.fetch_add(1, Ordering::SeqCst);
             assert_eq!(
-                headers.get("Authorization").cloned().flatten().as_deref(),
-                Some("Bearer generated-key")
+                headers.get("Authorization").cloned().flatten().as_ref(),
+                Some(&JsString::from("Bearer generated-key"))
             );
             assert_eq!(
-                headers.get("x-provider").cloned().flatten().as_deref(),
-                Some("provider")
+                headers.get("x-provider").cloned().flatten().as_ref(),
+                Some(&JsString::from("provider"))
             );
-            assert_eq!(headers.get("x-model").cloned().flatten().as_deref(), Some("model"));
             assert_eq!(
-                headers.get("x-explicit").cloned().flatten().as_deref(),
-                Some("explicit")
+                headers.get("x-model").cloned().flatten().as_ref(),
+                Some(&JsString::from("model"))
+            );
+            assert_eq!(
+                headers.get("x-explicit").cloned().flatten().as_ref(),
+                Some(&JsString::from("explicit"))
             );
             let mut transformed = headers;
             transformed.insert("x-transformed".to_owned(), Some("yes".to_owned().into()));
@@ -326,7 +329,10 @@ async fn transforms_fully_assembled_headers_once() {
         .await;
     assert_eq!(transforms.load(Ordering::SeqCst), 1);
     let captured = captured.lock().unwrap().clone().unwrap();
-    assert_eq!(captured.get("x-transformed").cloned().flatten().as_deref(), Some("yes"));
+    assert_eq!(
+        captured.get("x-transformed").cloned().flatten().as_ref(),
+        Some(&JsString::from("yes"))
+    );
 }
 
 #[tokio::test]
@@ -408,7 +414,7 @@ async fn runtime_api_keys_mask_stored_credentials_and_report_status() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(auth.auth.api_key.as_deref(), Some("runtime-key"));
+    assert_eq!(auth.auth.api_key.as_ref(), Some(&JsString::from("runtime-key")));
     let status = runtime.get_provider_auth_status("anthropic");
     assert_eq!(status.source, Some(AuthStatusSource::Runtime));
 
@@ -679,8 +685,8 @@ async fn compatibility_request_config_is_exposed_for_unconfigured_models() {
             .and_then(|headers| headers.get("X-Static-Model"))
             .cloned()
             .flatten()
-            .as_deref(),
-        Some("static-value")
+            .as_ref(),
+        Some(&JsString::from("static-value"))
     );
 }
 
@@ -698,7 +704,10 @@ async fn stream_errors_for_unknown_providers_use_the_source_message() {
         StreamOptions::default(),
     );
     let message = stream.result().await.unwrap();
-    assert_eq!(message.error_message.as_deref(), Some("Unknown provider: placeholder"));
+    assert_eq!(
+        message.error_message.as_ref(),
+        Some(&JsString::from("Unknown provider: placeholder"))
+    );
     assert_eq!(message.stop_reason, pi_ai::types::StopReason::Error);
 }
 
@@ -733,8 +742,8 @@ async fn get_auth_merges_configured_headers_with_resolved_auth() {
             .and_then(|headers| headers.get("X-Configured"))
             .cloned()
             .flatten()
-            .as_deref(),
-        Some("yes")
+            .as_ref(),
+        Some(&JsString::from("yes"))
     );
     fs::remove_dir_all(dir).unwrap();
 }

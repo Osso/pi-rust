@@ -33,8 +33,8 @@ impl Workspace {
 
     fn manager(&self) -> SettingsManager {
         SettingsManager::create(
-            &self.project_dir.to_string_lossy(),
-            Some(&self.agent_dir),
+            &JsString::from((&self.project_dir.to_string_lossy()).as_ref()),
+            Some(&JsString::from((&self.agent_dir).to_string_lossy().as_ref())),
             SettingsManagerCreateOptions::default(),
         )
         .unwrap()
@@ -42,8 +42,8 @@ impl Workspace {
 
     fn untrusted(&self) -> SettingsManager {
         SettingsManager::create(
-            &self.project_dir.to_string_lossy(),
-            Some(&self.agent_dir),
+            &JsString::from((&self.project_dir.to_string_lossy()).as_ref()),
+            Some(&JsString::from((&self.agent_dir).to_string_lossy().as_ref())),
             SettingsManagerCreateOptions {
                 project_trusted: Some(false),
             },
@@ -137,7 +137,7 @@ fn project_enabled_models_override_global() {
 fn agent_profiles_use_builtin_defaults_and_overrides() {
     let manager = SettingsManager::in_memory(Settings::new(), SettingsManagerCreateOptions::default());
     let explore = manager.get_agent_profile(&JsString::from("explore")).unwrap();
-    assert_eq!(explore.model.as_deref(), Some("openai/gpt-5-mini"));
+    assert_eq!(explore.model.as_ref(), Some(&JsString::from("openai/gpt-5-mini")));
     assert_eq!(
         explore.thinking_level,
         Some(pi_coding_agent::core::settings_manager::AgentProfileThinkingLevel::Low)
@@ -152,7 +152,7 @@ fn agent_profiles_use_builtin_defaults_and_overrides() {
         SettingsManagerCreateOptions::default(),
     );
     let explore = manager.get_agent_profile(&JsString::from("explore")).unwrap();
-    assert_eq!(explore.model.as_deref(), Some("faux/explore-model"));
+    assert_eq!(explore.model.as_ref(), Some(&JsString::from("faux/explore-model")));
 }
 
 #[test]
@@ -280,13 +280,13 @@ fn reload_reads_disk_and_keeps_previous_settings_on_invalid_json() {
 
     workspace.write_global(r#"{"theme":"light","extensions":["/after.ts"],"defaultModel":"claude-sonnet"}"#);
     manager.reload();
-    assert_eq!(manager.get_theme(), Some("light"));
+    assert_eq!(manager.get_theme(), Some(&JsString::from("light")));
     assert_eq!(manager.get_extension_paths(), vec!["/after.ts"]);
-    assert_eq!(manager.get_default_model(), Some("claude-sonnet"));
+    assert_eq!(manager.get_default_model(), Some(&JsString::from("claude-sonnet")));
 
     workspace.write_global("{ invalid json");
     manager.reload();
-    assert_eq!(manager.get_theme(), Some("light"));
+    assert_eq!(manager.get_theme(), Some(&JsString::from("light")));
 }
 
 #[test]
@@ -295,7 +295,7 @@ fn slash_separated_themes_are_settings_not_fixed_themes() {
     workspace.write_global(r#"{"theme":"light/dark"}"#);
     let manager = workspace.manager();
     assert_eq!(manager.get_theme(), None);
-    assert_eq!(manager.get_theme_setting(), Some("light/dark"));
+    assert_eq!(manager.get_theme_setting(), Some(&JsString::from("light/dark")));
 }
 
 #[test]
@@ -323,7 +323,7 @@ fn untrusted_projects_skip_reads_and_reject_writes() {
     let mut manager = workspace.untrusted();
 
     assert!(!manager.is_project_trusted());
-    assert_eq!(manager.get_theme(), Some("global"));
+    assert_eq!(manager.get_theme(), Some(&JsString::from("global")));
     assert_eq!(manager.get_project_settings(), Settings::new());
     assert_eq!(manager.get_default_project_trust(), DefaultProjectTrust::Always);
 
@@ -341,7 +341,7 @@ fn untrusted_projects_skip_reads_and_reject_writes() {
 
     manager.set_project_trusted(true);
     assert!(manager.is_project_trusted());
-    assert_eq!(manager.get_theme(), Some("project"));
+    assert_eq!(manager.get_theme(), Some(&JsString::from("project")));
 }
 
 #[test]
@@ -360,7 +360,7 @@ fn reading_project_settings_does_not_create_the_config_directory() {
 
     let mut manager = workspace.manager();
     assert!(!workspace.project_dir.join(".pi").exists());
-    assert_eq!(manager.get_theme(), Some("dark"));
+    assert_eq!(manager.get_theme(), Some(&JsString::from("dark")));
 
     manager
         .set_project_packages(vec![pi_coding_agent::core::settings_manager::PackageSource::Name(
@@ -445,7 +445,10 @@ fn shell_command_prefix_loads_and_is_preserved_on_unrelated_saves() {
     let workspace = Workspace::new();
     workspace.write_global(r#"{"shellCommandPrefix":"shopt -s expand_aliases"}"#);
     let mut manager = workspace.manager();
-    assert_eq!(manager.get_shell_command_prefix(), Some("shopt -s expand_aliases"));
+    assert_eq!(
+        manager.get_shell_command_prefix(),
+        Some(&JsString::from("shopt -s expand_aliases"))
+    );
 
     manager.set_theme(&JsString::from("light"));
     manager.flush();
@@ -463,13 +466,22 @@ fn session_dir_expands_tilde_but_shell_path_is_literal() {
     workspace.write_global(r#"{"sessionDir":"~/sessions","shellPath":"~"}"#);
     let manager = workspace.manager();
     let home = std::env::var("HOME").unwrap();
-    assert_eq!(manager.get_session_dir(), Some(format!("{home}/sessions")));
-    assert_eq!(manager.get_shell_path(), Some("~".to_owned()));
+    assert_eq!(
+        manager.get_session_dir(),
+        (Some(format!("{home}/sessions"))).map(JsString::from)
+    );
+    assert_eq!(manager.get_shell_path(), (Some("~".to_owned())).map(JsString::from));
 
     workspace.write_global(r#"{"sessionDir":"/tmp/sessions","shellPath":"/bin/zsh"}"#);
     let manager = workspace.manager();
-    assert_eq!(manager.get_session_dir(), Some("/tmp/sessions".to_owned()));
-    assert_eq!(manager.get_shell_path(), Some("/bin/zsh".to_owned()));
+    assert_eq!(
+        manager.get_session_dir(),
+        (Some("/tmp/sessions".to_owned())).map(JsString::from)
+    );
+    assert_eq!(
+        manager.get_shell_path(),
+        (Some("/bin/zsh".to_owned())).map(JsString::from)
+    );
 
     let manager = SettingsManager::in_memory(Settings::new(), SettingsManagerCreateOptions::default());
     assert_eq!(manager.get_session_dir(), None);
@@ -537,7 +549,10 @@ fn shell_path_is_literal() {
         settings(json!({"shellPath":"~/bin/../shell"})),
         SettingsManagerCreateOptions::default(),
     );
-    assert_eq!(manager.get_shell_path().as_deref(), Some("~/bin/../shell"));
+    assert_eq!(
+        manager.get_shell_path().as_ref(),
+        Some(&JsString::from("~/bin/../shell"))
+    );
 }
 
 #[test]

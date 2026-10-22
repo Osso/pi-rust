@@ -436,7 +436,7 @@ async fn compare_initial(oracle: &mut oracle::TsOracle, models: &[Model]) {
         let result = find_initial_model(
             &FindInitialModelOptions {
                 cli_provider: request["cliProvider"].as_str().map(str::to_owned),
-                cli_model: request["cliModel"].as_str().map(str::to_owned),
+                cli_model: (request["cliModel"].as_str().map(str::to_owned)).map(JsString::from),
                 scoped_models,
                 is_continuing: request["isContinuing"].as_bool().unwrap_or(false),
                 default_provider: request["defaultProvider"].as_str().map(str::to_owned),

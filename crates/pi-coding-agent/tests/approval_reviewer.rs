@@ -1,5 +1,6 @@
 //! Behavioral tests for `supervisor/approval-reviewer.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
 use pi_coding_agent::core::extensions::types::ToolCallEventResult;
@@ -56,7 +57,7 @@ async fn rejects_with_the_supervisor_reason() {
     .expect("decision")
     .expect("block");
     assert_eq!(result.block, Some(true));
-    assert_eq!(result.reason.as_deref(), Some("not allowed"));
+    assert_eq!(result.reason.as_ref(), Some(&JsString::from("not allowed")));
 }
 
 #[tokio::test]
@@ -77,7 +78,7 @@ async fn escalates_rejection_to_the_human_reviewer() {
     .expect("decision")
     .expect("human result");
     assert_eq!(result.block, Some(false));
-    assert_eq!(result.reason.as_deref(), Some("uncertain:allowed"));
+    assert_eq!(result.reason.as_ref(), Some(&JsString::from("uncertain:allowed")));
 }
 
 #[tokio::test]
@@ -92,7 +93,7 @@ async fn errors_and_invalid_responses_fall_back_to_human_or_block() {
     .await
     .expect("decision")
     .expect("block");
-    assert_eq!(error.reason.as_deref(), Some("supervisor down"));
+    assert_eq!(error.reason.as_ref(), Some(&JsString::from("supervisor down")));
 
     let invalid = review_tool_call_with_supervisor(
         decision(SupervisorResponse::Complete {
@@ -105,8 +106,8 @@ async fn errors_and_invalid_responses_fall_back_to_human_or_block() {
     .expect("decision")
     .expect("block");
     assert_eq!(
-        invalid.reason.as_deref(),
-        Some("Supervisor returned an invalid approval response")
+        invalid.reason.as_ref(),
+        Some(&JsString::from("Supervisor returned an invalid approval response"))
     );
 
     let escalated = review_tool_call_with_supervisor(

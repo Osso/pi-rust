@@ -141,22 +141,39 @@ fn trust_store_matches_the_pinned_typescript_module() {
 
     let store = ProjectTrustStore::new(&JsString::from(&agent_dir.display().to_string())).unwrap();
     let mut results: Vec<Value> = Vec::new();
-    results.push(decision_value(store.get(&child.display().to_string()).unwrap()));
+    results.push(decision_value(
+        store.get(&JsString::from(&child.display().to_string())).unwrap(),
+    ));
     store
-        .set(&parent.display().to_string(), ProjectTrustDecision::Trusted)
+        .set(
+            &JsString::from(&parent.display().to_string()),
+            ProjectTrustDecision::Trusted,
+        )
         .unwrap();
     results.push(Value::Null);
-    results.push(decision_value(store.get(&child.display().to_string()).unwrap()));
+    results.push(decision_value(
+        store.get(&JsString::from(&child.display().to_string())).unwrap(),
+    ));
     store
-        .set(&child.display().to_string(), ProjectTrustDecision::Untrusted)
+        .set(
+            &JsString::from(&child.display().to_string()),
+            ProjectTrustDecision::Untrusted,
+        )
         .unwrap();
     results.push(Value::Null);
-    results.push(decision_value(store.get(&child.display().to_string()).unwrap()));
+    results.push(decision_value(
+        store.get(&JsString::from(&child.display().to_string())).unwrap(),
+    ));
     store
-        .set(&child.display().to_string(), ProjectTrustDecision::Unknown)
+        .set(
+            &JsString::from(&child.display().to_string()),
+            ProjectTrustDecision::Unknown,
+        )
         .unwrap();
     results.push(Value::Null);
-    results.push(decision_value(store.get(&child.display().to_string()).unwrap()));
+    results.push(decision_value(
+        store.get(&JsString::from(&child.display().to_string())).unwrap(),
+    ));
     results.push(options_value(&child.display().to_string(), false));
     results.push(options_value(&child.display().to_string(), true));
     results.push(json!(
