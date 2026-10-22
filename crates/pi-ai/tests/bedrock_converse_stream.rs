@@ -621,7 +621,7 @@ async fn converts_replayed_messages_and_documents() {
         json!([
             {"reasoningContent": {"reasoningText": {"text": "hmm", "signature": "sig"}}},
             {"text": "calling"},
-            {"toolUse": {"toolUseId": "tool-1", "name": "lookup", "input": {"q": "x"}}}
+            {"toolUse": {"toolUseId": "tool-1", "name": "lookup", "input": {"q": "x", "": ""}}}
         ])
     );
     assert_eq!(
