@@ -1,6 +1,6 @@
 //! Ported from `coding-agent/src/modes/interactive/components/custom-message.ts`.
 
-use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::{js_format, js_json::JsString};
 use std::rc::Rc;
 
 use pi_tui::components::r#box::BoxComponent;
@@ -84,7 +84,7 @@ impl CustomMessageComponent {
         let mut message_box = BoxComponent::new(
             1,
             1,
-            Some(Rc::new(|text: &str| {
+            Some(Rc::new(|text: &JsString| {
                 crate::modes::interactive::theme::with_theme(|theme| theme.bg(ThemeBg::CustomMessageBg, text))
             })),
         );
@@ -92,7 +92,7 @@ impl CustomMessageComponent {
         let label = crate::modes::interactive::theme::with_theme(|theme| {
             theme.fg(
                 ThemeColor::CustomMessageLabel,
-                &format!("\u{1b}[1m[{}]\u{1b}[22m", encode_node_utf8(&self.message.custom_type)),
+                &js_format!("\u{1b}[1m[{}]\u{1b}[22m", self.message.custom_type),
             )
         });
         message_box.add_child(component(Text::new(label, 0, 0)));
@@ -109,16 +109,16 @@ impl CustomMessageComponent {
             ),
         };
 
-        let color: StyleFn = Rc::new(|text: &str| {
+        let color: StyleFn = Rc::new(|text: &JsString| {
             crate::modes::interactive::theme::with_theme(|theme| theme.fg(ThemeColor::CustomMessageText, text))
         });
         message_box.add_child(component(Markdown::with_shared_theme(
-            encode_node_utf8(&text),
+            text,
             0,
             0,
             self.markdown_theme.clone(),
             Some(pi_tui::DefaultTextStyle {
-                color: Some(Box::new(move |text: &str| color(text))),
+                color: Some(Box::new(move |text: &JsString| color(text))),
                 ..Default::default()
             }),
             MarkdownOptions::default(),
@@ -129,7 +129,7 @@ impl CustomMessageComponent {
 }
 
 impl Component for CustomMessageComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.container.render(width)
     }
 

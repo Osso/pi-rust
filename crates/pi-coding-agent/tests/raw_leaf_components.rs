@@ -38,6 +38,29 @@ fn custom_entry_renderer_keeps_native_payload_when_expanded() {
     );
 }
 
+#[test]
+fn custom_message_default_renderer_keeps_raw_label_and_markdown() {
+    use pi_coding_agent::core::extensions::types::{CustomMessageContent, CustomMessageValue};
+    use pi_coding_agent::modes::interactive::components::custom_message::CustomMessageComponent;
+    init_theme();
+    let label = JsString::from_utf16(vec![0xd800]);
+    let body = JsString::from_utf16(vec![0xdc00]);
+    let message = CustomMessageValue {
+        custom_type: label.clone(),
+        content: CustomMessageContent::Text(body.clone()),
+        display: true,
+        details: None,
+        timestamp: 0.0,
+    };
+    let mut component = CustomMessageComponent::new(message, None, None, 0);
+    for expanded in [false, true] {
+        component.set_expanded(expanded);
+        let output = JsString::join(component.render(80), "\n");
+        assert!(output.contains(&label));
+        assert!(output.contains(&body));
+    }
+}
+
 fn init_theme() {
     pi_coding_agent::modes::interactive::theme::init_theme(Some(&"dark".into()), false).unwrap();
 }
