@@ -1,5 +1,6 @@
 //! Ported from `packages/coding-agent/src/modes/interactive/components/oauth-selector.ts`.
 
+use pi_js_compat::{js_format, js_json::JsString};
 use std::collections::HashSet;
 use std::rc::Rc;
 
@@ -24,7 +25,7 @@ pub struct AuthSelectorProvider {
     pub id: String,
     pub name: String,
     pub auth_type: AuthType,
-    pub method_name: Option<String>,
+    pub method_name: Option<JsString>,
     pub login_supported: bool,
     pub status: Option<AuthCheck>,
 }
@@ -42,13 +43,13 @@ impl AuthSelectorProvider {
     }
 
     pub fn with_api_key_auth(mut self, auth: &dyn ApiKeyAuth) -> Self {
-        self.method_name = Some(auth.name().to_owned());
+        self.method_name = Some(auth.name().into());
         self.login_supported = auth.supports_login();
         self
     }
 
     pub fn with_oauth_auth(mut self, auth: &dyn OAuthAuth) -> Self {
-        self.method_name = Some(auth.name().to_owned());
+        self.method_name = Some(auth.name().into());
         self
     }
 }
@@ -67,7 +68,7 @@ fn auth_type_query_value(auth_type: AuthType) -> &'static str {
     }
 }
 
-fn format_status_indicator(provider: &AuthSelectorProvider) -> String {
+fn format_status_indicator(provider: &AuthSelectorProvider) -> JsString {
     let Some(status) = &provider.status else {
         return with_theme(|theme| theme.fg(ThemeColor::Muted, " • unconfigured"));
     };
@@ -79,28 +80,33 @@ fn format_status_indicator(provider: &AuthSelectorProvider) -> String {
         return with_theme(|theme| theme.fg(ThemeColor::Muted, " • "))
             + &with_theme(|theme| theme.fg(ThemeColor::Warning, label));
     }
-    let source = status.source.as_deref();
+    let source = status.source.as_ref();
     if source.is_none_or(|source| source == "OAuth" || source == "stored credential") {
         return with_theme(|theme| theme.fg(ThemeColor::Success, " ✓ configured"));
     }
-    let source = source.unwrap_or_default();
-    let label = if is_env_source_list(source) {
-        format!("env: {source}")
+    let source = source.cloned().unwrap_or_default();
+    let label = if is_env_source_list(&source) {
+        js_format!("env: {}", source)
     } else {
-        source.to_owned()
+        source.clone()
     };
-    with_theme(|theme| theme.fg(ThemeColor::Success, &format!(" ✓ {label}")))
+    with_theme(|theme| theme.fg(ThemeColor::Success, &js_format!(" ✓ {}", label)))
 }
 
 /// `/^[A-Z][A-Z0-9_]*(?:, [A-Z][A-Z0-9_]*)*$/`
-fn is_env_source_list(source: &str) -> bool {
-    let is_name = |part: &str| {
-        let mut characters = part.chars();
-        characters.next().is_some_and(|first| first.is_ascii_uppercase())
-            && characters
-                .all(|character| character.is_ascii_uppercase() || character.is_ascii_digit() || character == '_')
+fn is_env_source_list(source: &JsString) -> bool {
+    let is_upper = |unit: u16| (u16::from(b'A')..=u16::from(b'Z')).contains(&unit);
+    let mut parts = source.units().split(|unit| *unit == u16::from(b','));
+    let is_name = |units: &[u16]| {
+        units.first().is_some_and(|unit| is_upper(*unit))
+            && units.iter().all(|unit| {
+                is_upper(*unit) || (u16::from(b'0')..=u16::from(b'9')).contains(unit) || *unit == u16::from(b'_')
+            })
     };
-    !source.is_empty() && source.split(", ").all(is_name)
+    let Some(first) = parts.next() else {
+        return false;
+    };
+    is_name(first) && parts.all(|part| part.first() == Some(&u16::from(b' ')) && is_name(&part[1..]))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -120,7 +126,7 @@ pub struct OAuthSelectorComponent {
     on_select: Rc<dyn Fn(String, AuthType)>,
     on_cancel: Rc<dyn Fn()>,
     show_auth_type_labels: bool,
-    search_value: String,
+    search_value: JsString,
     focused: bool,
     prefix_children: Vec<ComponentRef>,
     suffix_children: Vec<ComponentRef>,
@@ -132,7 +138,7 @@ impl OAuthSelectorComponent {
         providers: Vec<AuthSelectorProvider>,
         on_select: Rc<dyn Fn(String, AuthType)>,
         on_cancel: Rc<dyn Fn()>,
-        initial_search_input: Option<&str>,
+        initial_search_input: Option<&JsString>,
     ) -> Self {
         let show_auth_type_labels = providers
             .iter()
@@ -173,26 +179,26 @@ impl OAuthSelectorComponent {
             on_select,
             on_cancel,
             show_auth_type_labels,
-            search_value: initial_search_input.unwrap_or_default().to_owned(),
+            search_value: initial_search_input.cloned().unwrap_or_default(),
             focused: false,
             prefix_children,
             suffix_children,
         };
-        selector.filter_providers(initial_search_input.unwrap_or_default());
+        selector.filter_providers(&initial_search_input.cloned().unwrap_or_default());
         selector
     }
 
-    fn filter_providers(&mut self, query: &str) {
+    fn filter_providers(&mut self, query: &JsString) {
         self.filtered_providers = if query.is_empty() {
             self.all_providers.clone()
         } else {
             fuzzy_filter(&self.all_providers, query, |provider| {
-                vec![format!(
+                vec![js_format!(
                     "{} {} {} {}",
                     provider.name,
                     provider.id,
                     auth_type_query_value(provider.auth_type),
-                    provider.method_name.as_deref().unwrap_or_default()
+                    provider.method_name.clone().unwrap_or_default()
                 )]
             })
         };
@@ -219,11 +225,11 @@ impl OAuthSelectorComponent {
                 with_theme(|theme| {
                     theme.fg(
                         ThemeColor::Muted,
-                        &format!(" [{}]", format_auth_selector_provider_type(provider.auth_type)),
+                        &js_format!(" [{}]", format_auth_selector_provider_type(provider.auth_type)),
                     )
                 })
             } else {
-                String::new()
+                JsString::default()
             };
             let line = if is_selected {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, "→ "))
@@ -231,7 +237,7 @@ impl OAuthSelectorComponent {
                     + &auth_type_label
                     + &status_indicator
             } else {
-                format!("  {}", with_theme(|theme| theme.fg(ThemeColor::Text, &provider.name)))
+                js_format!("  {}", with_theme(|theme| theme.fg(ThemeColor::Text, &provider.name)))
                     + &auth_type_label
                     + &status_indicator
             };
@@ -239,8 +245,12 @@ impl OAuthSelectorComponent {
         }
 
         if start_index > 0 || end_index < length {
-            let scroll_info =
-                with_theme(|theme| theme.fg(ThemeColor::Muted, &format!("  ({}/{length})", self.selected_index + 1)));
+            let scroll_info = with_theme(|theme| {
+                theme.fg(
+                    ThemeColor::Muted,
+                    &js_format!("  ({}/{})", self.selected_index + 1, length),
+                )
+            });
             self.list_container
                 .add_child(component(TruncatedText::new(scroll_info, 1, 0)));
         }
@@ -254,7 +264,7 @@ impl OAuthSelectorComponent {
             } else {
                 "No matching providers"
             };
-            let message = with_theme(|theme| theme.fg(ThemeColor::Muted, &format!("  {message}")));
+            let message = with_theme(|theme| theme.fg(ThemeColor::Muted, &js_format!("  {}", message)));
             self.list_container
                 .add_child(component(TruncatedText::new(message, 1, 0)));
         }
@@ -277,7 +287,7 @@ impl OAuthSelectorComponent {
 }
 
 impl Component for OAuthSelectorComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
         for child in &self.prefix_children {
             lines.extend(child.borrow_mut().render(width));
@@ -292,7 +302,7 @@ impl Component for OAuthSelectorComponent {
         lines
     }
 
-    fn handle_input(&mut self, key_data: &str) {
+    fn handle_input(&mut self, key_data: &JsString) {
         let keybindings = get_keybindings();
         if keybindings.matches(key_data, "tui.select.up") {
             if self.filtered_providers.is_empty() {
