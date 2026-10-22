@@ -233,17 +233,17 @@ pub fn jobs_command(store: &MultiAgentStore, ctx: &ExtensionCommandContext) -> R
         .collect();
     let ui = ctx.ui()?;
     if agents.is_empty() {
-        ui.notify("No background jobs.", Some(NotifyType::Info));
+        ui.notify(&"No background jobs.".into(), Some(NotifyType::Info));
         return Ok(());
     }
     ui.notify(
-        &pi_js_compat::js_json::encode_node_utf8(&JsString::join(
+        &JsString::join(
             agents
                 .iter()
                 .map(|agent| JsString::from(format!("{} ", agent.id)) + format_agent_status(agent))
                 .collect::<Vec<_>>(),
             "\n",
-        )),
+        ),
         Some(NotifyType::Info),
     );
     Ok(())

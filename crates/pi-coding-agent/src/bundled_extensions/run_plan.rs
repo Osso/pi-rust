@@ -196,14 +196,14 @@ async fn submit_next_plan_item(
 
     let Some(next_item) = find_next_plan_item(&encode_node_utf8(&plan.path))? else {
         ctx.ui()?.notify(
-            &format!("No unchecked items in {}", encode_node_utf8(&plan.file)),
+            &(JsString::from("No unchecked items in ") + &plan.file),
             Some(NotifyType::Info),
         );
         return Ok(false);
     };
     if next_item.is_empty() {
         ctx.ui()?.notify(
-            &format!("No unchecked items in {}", encode_node_utf8(&plan.file)),
+            &(JsString::from("No unchecked items in ") + &plan.file),
             Some(NotifyType::Info),
         );
         return Ok(false);

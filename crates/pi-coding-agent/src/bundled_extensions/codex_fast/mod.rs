@@ -198,12 +198,15 @@ pub async fn handle_fast_command(
 ) -> Result<(), HandlerError> {
     let ui = ctx.ui()?;
     if is_child_runtime(ctx)? {
-        ui.notify("Fast mode is controlled by the main thread", Some(NotifyType::Warning));
+        ui.notify(
+            &"Fast mode is controlled by the main thread".into(),
+            Some(NotifyType::Warning),
+        );
         ui.set_editor_text("");
         return Ok(());
     }
     let Some(requested) = requested_fast_mode(args, authority.service_tier()) else {
-        ui.notify("Usage: /fast [on|off|ultra]", Some(NotifyType::Warning));
+        ui.notify(&"Usage: /fast [on|off|ultra]".into(), Some(NotifyType::Warning));
         ui.set_editor_text("");
         return Ok(());
     };
@@ -211,7 +214,7 @@ pub async fn handle_fast_command(
         && !supports_fast_mode(ctx.model()?.as_ref())
     {
         ui.notify(
-            "Fast mode requires openai-codex or openai-codex-gc",
+            &"Fast mode requires openai-codex or openai-codex-gc".into(),
             Some(NotifyType::Warning),
         );
         ui.set_editor_text("");
@@ -225,7 +228,7 @@ pub async fn handle_fast_command(
     persist_fast_mode(pi, authority)?;
     update_fast_status(ctx, authority, ctx.model()?.as_ref())?;
     ui.notify(
-        &format!("Fast mode: {}", fast_mode_label(authority.service_tier())),
+        &format!("Fast mode: {}", fast_mode_label(authority.service_tier())).into(),
         Some(NotifyType::Info),
     );
     ui.set_editor_text("");
@@ -295,7 +298,7 @@ pub fn codex_fast_extension(pi: &ExtensionApi, options: &CodexFastOptions) -> Re
                 }
                 let JsValue::Object(mut payload) = event.payload else {
                     ctx.ui()?.notify(
-                        "Fast mode skipped: provider payload is not an object",
+                        &"Fast mode skipped: provider payload is not an object".into(),
                         Some(NotifyType::Warning),
                     );
                     return Ok(None);

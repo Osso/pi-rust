@@ -48,7 +48,7 @@ async fn handle_sandbox_command(
         return Ok(());
     }
     let Some(selection) = parse_sandbox_selection(args) else {
-        ctx.ui()?.notify(SANDBOX_USAGE, Some(NotifyType::Warning));
+        ctx.ui()?.notify(&SANDBOX_USAGE.into(), Some(NotifyType::Warning));
         clear_editor(ctx)?;
         return Ok(());
     };
@@ -58,7 +58,8 @@ async fn handle_sandbox_command(
             "Sandbox profile: {} ({})",
             selection.profile.map(SandboxProfileName::as_str).unwrap_or("inherit"),
             scope_str(selection.scope)
-        ),
+        )
+        .into(),
         Some(NotifyType::Info),
     );
     clear_editor(ctx)?;
