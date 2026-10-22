@@ -6,12 +6,12 @@ use pi_coding_agent::core::session_control_db::{
 };
 use pi_js_compat::js_json::{self, JsString, JsValue};
 
-fn source_call(source: &mut oracle::TsOracle, operation: &str, args: &JsValue) -> serde_json::Value {
+fn source_call(source: &mut oracle::TsOracle, operation: &str, args: &JsValue) -> JsValue {
     let response = source.request(
         &serde_json::json!({"id":1,"steps":[{"op":"callWire","args":[operation,js_json::stringify_lossless(args)]}]}),
     );
     assert_eq!(response["output"][0]["ok"], true, "{response}");
-    response["output"][0]["value"].clone()
+    js_json::parse_lossless(response["output"][0]["value"].as_str().expect("callWire JSON")).unwrap()
 }
 
 fn normalize_claim_wire(wire: &str) -> String {
@@ -50,7 +50,7 @@ fn actual_source_and_native_claim_serialize_missing_delivery_fields_in_the_same_
         )
         .unwrap();
     let identity = source_call(&mut source, "getRuntimeProcessInstanceId", &pi_js_compat::js_json!([]));
-    let process: serde_json::Value = serde_json::from_str(identity.as_str().unwrap()).unwrap();
+    let process = js_json::parse_lossless(identity.as_string().unwrap()).unwrap();
     let source_pid = process["pid"].as_u64().unwrap();
     source_call(
         &mut source,
@@ -76,7 +76,7 @@ fn actual_source_and_native_claim_serialize_missing_delivery_fields_in_the_same_
             "retireRuntimeMailboxListener",
             &pi_js_compat::js_json!([db, recipient, source_pid])
         ),
-        true
+        pi_js_compat::js_json!(true)
     );
     connection
         .execute(
