@@ -1,5 +1,11 @@
 # footer-data-provider
 
+## Native representation checkpoint
+
+GitPaths/cwd/branch cache, GitBranchRunner arguments/results, executable resolution, and FooterSessionOverride cwd/thinking text are `JsString`. File reads, metadata/watch paths and child-process cwd encode only at actual IO. HEAD/stdout decode with Node replacement and use JS trim, retaining U+0085. Path traversal/resolution uses native Node lexical helpers, not PathBuf authority. Public constructors/set_cwd accept native text.
+
+`raw_footer_statuses` covers high/low/pair repo paths and executable names, exact branch U+0085, plus frozen branch/executable output. Existing legacy provider test fixtures still need native API adaptation. Raw reftable runner/watcher/cancellation proof remains pending; no whole provider acceptance is claimed.
+
 Source: `packages/coding-agent/src/core/footer-data-provider.ts` (450 lines).
 Rust: `crates/pi-coding-agent/src/core/footer_data_provider.rs`.
 Tests: `crates/pi-coding-agent/tests/footer_data_provider.rs` (ports

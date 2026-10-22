@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use pi_js_compat::number::to_fixed;
+use pi_js_compat::{js_format, js_json::JsString, number::to_fixed};
 use pi_tui::utils::{truncate_to_width_with, visible_width};
 
 use crate::core::extensions::types::{
@@ -66,7 +66,7 @@ fn footer_session(input: &DefaultFooterComponentInput) -> Result<FooterSessionOv
         cwd,
         session_manager: Some(session_manager),
         model: input.ctx.model()?,
-        thinking_level: input.ctx.get_thinking_level()?.as_str().to_owned(),
+        thinking_level: input.ctx.get_thinking_level()?.as_str().into(),
         context_usage: input
             .ctx
             .get_context_usage()?
@@ -78,7 +78,7 @@ fn footer_session(input: &DefaultFooterComponentInput) -> Result<FooterSessionOv
     })
 }
 
-fn format_context_usage(session: &FooterSessionOverride, theme: &Theme) -> String {
+fn format_context_usage(session: &FooterSessionOverride, theme: &Theme) -> JsString {
     let usage = session.context_usage.as_ref();
     let context_window = usage
         .map(|usage| usage.context_window)
@@ -88,7 +88,7 @@ fn format_context_usage(session: &FooterSessionOverride, theme: &Theme) -> Strin
     let Some(percent) = usage.and_then(|usage| usage.percent) else {
         return theme.fg(ThemeColor::Dim, &format!("ctx ?/{context_window_text}"));
     };
-    format!(
+    js_format!(
         "{}{}%{}",
         theme.fg(ThemeColor::Dim, "ctx "),
         to_fixed(percent, 1),
@@ -96,30 +96,32 @@ fn format_context_usage(session: &FooterSessionOverride, theme: &Theme) -> Strin
     )
 }
 
-fn format_agent_counts(counts: Option<DefaultFooterAgentLifecycleCounts>) -> Option<String> {
+fn format_agent_counts(counts: Option<DefaultFooterAgentLifecycleCounts>) -> Option<JsString> {
     let counts = counts?;
     let active_count = counts.running + counts.waiting_for_input + counts.steering_pending;
-    (active_count > 0).then(|| format!("agents {active_count}"))
+    (active_count > 0).then(|| js_format!("agents {}", active_count.to_string()))
 }
 
 fn format_agent_lifecycle(lifecycle: AgentLifecycle) -> String {
     lifecycle_name(lifecycle).replace('_', " ")
 }
 
-fn format_selected_agent(agent: Option<DefaultFooterSelectedAgent>) -> Option<String> {
+fn format_selected_agent(agent: Option<DefaultFooterSelectedAgent>) -> Option<JsString> {
     let agent = agent?;
     let slot = agent.slot_index.map(|index| format!(" #{index}")).unwrap_or_default();
-    Some(sanitize_footer_status_text(&format!(
-        "selected{slot} {} {}",
-        pi_js_compat::js_json::encode_node_utf8(&agent.display_name),
+    Some(sanitize_footer_status_text(js_format!(
+        "selected{} {} {}",
+        slot,
+        agent.display_name,
         format_agent_lifecycle(agent.lifecycle)
     )))
 }
 
-fn home_directory() -> Option<String> {
+fn home_directory() -> Option<JsString> {
     pi_js_compat::process_env::get("HOME")
         .filter(|home| !home.is_empty())
         .or_else(|| pi_js_compat::process_env::get("USERPROFILE").filter(|home| !home.is_empty()))
+        .map(Into::into)
 }
 
 fn count_matching_lifecycle(
@@ -174,23 +176,23 @@ fn session_usage(session: &FooterSessionOverride) -> SessionUsage {
     usage
 }
 
-fn format_stats(input: &DefaultFooterComponentInput) -> Result<String, HandlerError> {
+fn format_stats(input: &DefaultFooterComponentInput) -> Result<JsString, HandlerError> {
     let session = footer_session(input)?;
     let usage = session_usage(&session);
     let executable_name = input.footer_data.get_executable_name();
     let selected_agent = format_selected_agent(input.get_selected_agent.as_ref().and_then(|get| get()));
     let mut parts = vec![
-        executable_name.map(|name| input.theme.fg(ThemeColor::Dim, &format!("[{name}]"))),
+        executable_name.map(|name| input.theme.fg(ThemeColor::Dim, js_format!("[{}]", name))),
         selected_agent.map(|agent| input.theme.fg(ThemeColor::Dim, &agent)),
         format_agent_counts(input.get_agent_counts.as_ref().and_then(|get| get())),
     ];
     parts.extend(usage_parts(input, &usage));
     parts.push(Some(format_context_usage(&session, &input.theme)));
 
-    Ok(parts.into_iter().flatten().collect::<Vec<_>>().join(" "))
+    Ok(JsString::join(parts.into_iter().flatten(), " "))
 }
 
-fn usage_parts(input: &DefaultFooterComponentInput, usage: &SessionUsage) -> Vec<Option<String>> {
+fn usage_parts(input: &DefaultFooterComponentInput, usage: &SessionUsage) -> Vec<Option<JsString>> {
     let mut parts = Vec::new();
     if usage.input > 0.0 {
         parts.push(Some(
@@ -212,7 +214,7 @@ fn usage_parts(input: &DefaultFooterComponentInput, usage: &SessionUsage) -> Vec
     parts
 }
 
-fn format_right_side(input: &DefaultFooterComponentInput) -> Result<String, HandlerError> {
+fn format_right_side(input: &DefaultFooterComponentInput) -> Result<JsString, HandlerError> {
     let session = footer_session(input)?;
     let model_name = session
         .model
@@ -221,8 +223,8 @@ fn format_right_side(input: &DefaultFooterComponentInput) -> Result<String, Hand
         .filter(|id| !id.is_empty())
         .unwrap_or_else(|| "no-model".to_owned());
     let effort_suffix = match session.model.as_ref() {
-        Some(model) if model.reasoning => format!(" • effort {}", session.thinking_level),
-        _ => String::new(),
+        Some(model) if model.reasoning => js_format!(" • effort {}", session.thinking_level),
+        _ => JsString::default(),
     };
     if input.footer_data.get_available_provider_count() > 1 && session.model.is_some() {
         let provider = session
@@ -230,16 +232,16 @@ fn format_right_side(input: &DefaultFooterComponentInput) -> Result<String, Hand
             .as_ref()
             .map(|model| model.provider.as_str())
             .unwrap_or_default();
-        return Ok(format!("({provider}) {model_name}{effort_suffix}"));
+        return Ok(js_format!("({}) {}{}", provider, model_name, effort_suffix));
     }
-    Ok(format!("{model_name}{effort_suffix}"))
+    Ok(js_format!("{}{}", model_name, effort_suffix))
 }
 
-fn truncate(text: &str, width: usize, ellipsis: &str) -> String {
+fn truncate(text: &JsString, width: usize, ellipsis: &JsString) -> JsString {
     truncate_to_width_with(text, width, ellipsis, false)
 }
 
-fn format_stats_line(input: &DefaultFooterComponentInput, width: usize) -> Result<String, HandlerError> {
+fn format_stats_line(input: &DefaultFooterComponentInput, width: usize) -> Result<JsString, HandlerError> {
     let mut left = format_stats(input)?;
     let right = input.theme.fg(ThemeColor::Dim, &format_right_side(input)?);
     if visible_width(&left) + 2 + visible_width(&right) > width {
@@ -249,25 +251,25 @@ fn format_stats_line(input: &DefaultFooterComponentInput, width: usize) -> Resul
     let padding_width = width
         .saturating_sub(visible_width(&left) + visible_width(&right))
         .max(2);
-    let line = format!("{left}{}{right}", " ".repeat(padding_width));
+    let line = js_format!("{}{}{}", left, " ".repeat(padding_width), right);
     Ok(truncate(&line, width, &input.theme.fg(ThemeColor::Dim, "...")))
 }
 
-fn format_pwd_line(input: &DefaultFooterComponentInput, width: usize) -> Result<String, HandlerError> {
+fn format_pwd_line(input: &DefaultFooterComponentInput, width: usize) -> Result<JsString, HandlerError> {
     let session = footer_session(input)?;
-    let mut pwd = format_cwd_for_footer(&session.cwd, home_directory().as_deref());
+    let mut pwd = format_cwd_for_footer(&session.cwd, home_directory().as_ref());
     let branch = if input.footer_data.get_session_override().is_some() {
         None
     } else {
         input.footer_data.get_git_branch()
     };
     if let Some(branch) = branch {
-        pwd = format!("{pwd} ({branch})");
+        pwd = js_format!("{} ({})", pwd, branch);
     }
     if let Some(session_manager) = session.session_manager.as_ref()
         && let Some(session_name) = lock_session_manager(session_manager).get_session_name()
     {
-        pwd = format!("{pwd} • {}", pi_js_compat::js_json::encode_node_utf8(&session_name));
+        pwd = js_format!("{} • {}", pwd, session_name);
     }
     Ok(truncate(
         &input.theme.fg(ThemeColor::Dim, &pwd),
@@ -294,13 +296,13 @@ fn selected_agent_for_footer(store: &MultiAgentStore) -> Option<DefaultFooterSel
         return None;
     }
     Some(DefaultFooterSelectedAgent {
-        display_name: selected_agent.display_name.clone().into(),
+        display_name: selected_agent.display_name.clone(),
         lifecycle: selected_agent.lifecycle,
         slot_index: selected_agent_slot_index(store, &selected_agent),
     })
 }
 
-fn extension_status_lines(input: &DefaultFooterComponentInput, width: usize) -> Vec<String> {
+fn extension_status_lines(input: &DefaultFooterComponentInput, width: usize) -> Vec<JsString> {
     format_extension_status_text_lines(&input.footer_data.get_extension_statuses())
         .into_iter()
         .map(|line| truncate(&line, width, &input.theme.fg(ThemeColor::Dim, "...")))
@@ -328,17 +330,18 @@ impl DefaultFooterComponent {
             .push(subscription);
     }
 
-    fn render_lines(&self, width: usize) -> Vec<String> {
-        let mut lines = Vec::new();
-        lines.push(format_pwd_line(&self.input, width).expect("default footer context access"));
-        lines.push(format_stats_line(&self.input, width).expect("default footer context access"));
+    fn render_lines(&self, width: usize) -> Vec<JsString> {
+        let mut lines = vec![
+            format_pwd_line(&self.input, width).expect("default footer context access"),
+            format_stats_line(&self.input, width).expect("default footer context access"),
+        ];
         lines.extend(extension_status_lines(&self.input, width));
         lines
     }
 }
 
 impl ExtensionUiComponent for DefaultFooterComponent {
-    fn render(&self, width: usize) -> Vec<String> {
+    fn render(&self, width: usize) -> Vec<JsString> {
         self.render_lines(width)
     }
 
@@ -352,6 +355,28 @@ impl ExtensionUiComponent for DefaultFooterComponent {
 
 pub fn create_default_footer_component(input: DefaultFooterComponentInput) -> DefaultFooterComponent {
     DefaultFooterComponent::new(input)
+}
+
+#[cfg(test)]
+mod raw_text_tests {
+    use super::*;
+
+    #[test]
+    fn selected_agent_label_retains_unmatched_units() {
+        for raw in [
+            JsString::from_utf16(vec![0xd800]),
+            JsString::from_utf16(vec![0xdc00]),
+            JsString::from("😀"),
+        ] {
+            let result = format_selected_agent(Some(DefaultFooterSelectedAgent {
+                display_name: raw.clone(),
+                lifecycle: AgentLifecycle::Running,
+                slot_index: Some(2),
+            }))
+            .unwrap();
+            assert_eq!(result, JsString::from("selected #2 ") + &raw + " running");
+        }
+    }
 }
 
 fn build_footer_factory(ctx: ExtensionContext, store: Option<Arc<MultiAgentStore>>) -> ExtensionUiFooterFactory {

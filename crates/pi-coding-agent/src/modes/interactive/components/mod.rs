@@ -24,6 +24,7 @@ pub mod extension_input;
 pub mod extension_selector;
 pub mod first_time_setup;
 pub mod footer;
+pub mod footer_format;
 pub mod keybinding_hints;
 pub mod login_dialog;
 pub mod markdown_transform;

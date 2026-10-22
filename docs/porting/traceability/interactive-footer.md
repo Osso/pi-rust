@@ -1,5 +1,9 @@
 # interactive-footer.ts traceability
 
+## Native representation checkpoint
+
+Render values, pwd/session names/branch/status/model-effort composition, style/truncation and output lines use `JsString`; session-name early encoding is removed. Shared numeric/path helpers moved to `footer_format.rs`, re-exported at the original API. `format_cwd_for_footer` uses native Node path operations without CLI tilde/input normalization or fallback; source differential covers 15 raw path/home scenarios, including literal `~/` and U+0085. Parent integration tests still gate the full footer render pipeline; this checkpoint does not claim its raw whole-render acceptance.
+
 Source: `packages/coding-agent/src/modes/interactive/components/footer.ts`
 Port: `crates/pi-coding-agent/src/modes/interactive/components/footer.rs`
 
