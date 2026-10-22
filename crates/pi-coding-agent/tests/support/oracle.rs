@@ -60,7 +60,10 @@ impl TsOracle {
 
     /// One request path for scalar `Value` and native `JsValue` callers.
     pub(crate) fn request<T: OracleWire>(&mut self, request: &T) -> T {
-        let wire = pi_js_compat::js_json::stringify_lossless(&request.to_wire());
+        // Node readline splits on U+2028/U+2029; keep one request on one line.
+        let wire = pi_js_compat::js_json::stringify_lossless(&request.to_wire())
+            .replace('\u{2028}', "\\u2028")
+            .replace('\u{2029}', "\\u2029");
         self.stdin
             .write_all(wire.as_bytes())
             .expect("oracle request must serialize");
