@@ -12,12 +12,11 @@ use std::fs;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
-use serde_json::{Map, Value};
-
 use crate::config;
 use crate::core::output_guard::write_raw_stdout;
 use crate::utils::chalk::Chalk;
-use pi_js_compat::js_json;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{self, JsObject, JsString, JsValue, encode_node_utf8};
 
 pub const MIGRATION_GUIDE_URL: &str =
     "https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/CHANGELOG.md#extensions-migration";
@@ -27,40 +26,46 @@ pub const EXTENSIONS_DOC_URL: &str =
 /// Result of [`run_migrations`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MigrationResult {
-    pub migrated_auth_providers: Vec<String>,
-    pub deprecation_warnings: Vec<String>,
+    pub migrated_auth_providers: Vec<JsString>,
+    pub deprecation_warnings: Vec<JsString>,
 }
 
-/// Destination for migration progress lines.
+/// Destination for migration progress lines (`console.log`).
 pub trait MigrationOutput {
-    fn line(&self, text: &str);
+    fn line(&self, text: &JsString);
 }
 
 /// Writes progress lines through the raw stdout guard.
 pub struct StdoutOutput;
 
 impl MigrationOutput for StdoutOutput {
-    fn line(&self, text: &str) {
-        write_raw_stdout(&format!("{text}\n"));
+    fn line(&self, text: &JsString) {
+        write_console_line(text);
     }
 }
 
-fn is_record(value: &Value) -> bool {
-    value.is_object()
+/// `console.log(text)`: stdout is the UTF-8 boundary.
+fn write_console_line(text: &JsString) {
+    write_raw_stdout(&format!("{}\n", encode_node_utf8(text)));
 }
 
-fn read_json_record(path: &Path) -> Result<Map<String, Value>, String> {
-    let content = fs::read(path).map_err(|error| error.to_string())?;
-    let parsed = js_json::parse(&String::from_utf8_lossy(&content)).map_err(|error| error.to_string())?;
-    Ok(match parsed {
-        Value::Object(record) => record,
-        _ => Map::new(),
+/// `readFileSync(path, "utf-8")` followed by `JSON.parse`.
+fn read_json_file(path: &Path) -> Result<JsValue, ()> {
+    let content = fs::read(path).map_err(drop)?;
+    js_json::parse_lossless(String::from_utf8_lossy(&content).as_ref()).map_err(drop)
+}
+
+/// `readJsonRecord`: a parsed non-record becomes `{}`.
+fn read_json_record(path: &Path) -> Result<JsObject, ()> {
+    Ok(match read_json_file(path)? {
+        JsValue::Object(record) => record,
+        _ => JsObject::new(),
     })
 }
 
-fn read_auth_json(auth_path: &Path) -> Option<Map<String, Value>> {
+fn read_auth_json(auth_path: &Path) -> Option<JsObject> {
     if !auth_path.exists() {
-        return Some(Map::new());
+        return Some(JsObject::new());
     }
     read_json_record(auth_path).ok()
 }
@@ -85,11 +90,11 @@ fn write_file_with_mode(path: &Path, contents: &str, mode: Option<u32>) -> std::
 }
 
 /// Migrate legacy `oauth.json` and `settings.json` `apiKeys` to `auth.json`.
-pub fn migrate_auth_to_auth_json() -> Vec<String> {
+pub fn migrate_auth_to_auth_json() -> Vec<JsString> {
     migrate_auth_to_auth_json_in(&config::get_agent_dir())
 }
 
-pub fn migrate_auth_to_auth_json_in(agent_dir: &Path) -> Vec<String> {
+pub fn migrate_auth_to_auth_json_in(agent_dir: &Path) -> Vec<JsString> {
     let auth_path = agent_dir.join("auth.json");
     let oauth_path = agent_dir.join("oauth.json");
     let settings_path = agent_dir.join("settings.json");
@@ -103,17 +108,16 @@ pub fn migrate_auth_to_auth_json_in(agent_dir: &Path) -> Vec<String> {
         && let Ok(oauth) = read_json_record(&oauth_path)
     {
         for (provider, cred) in oauth {
-            if migrated.contains_key(&provider) || !is_record(&cred) {
+            let JsValue::Object(cred) = cred else {
+                continue;
+            };
+            if migrated.contains_key(&provider) {
                 continue;
             }
-            let mut entry = Map::new();
-            entry.insert("type".to_owned(), Value::String("oauth".to_owned()));
-            if let Value::Object(cred) = cred {
-                for (key, value) in cred {
-                    entry.insert(key, value);
-                }
-            }
-            migrated.insert(provider.clone(), Value::Object(entry));
+            let mut entry = JsObject::new();
+            entry.insert("type".into(), JsValue::String("oauth".into()));
+            entry.extend(cred);
+            migrated.insert(provider.clone(), JsValue::Object(entry));
             providers.push(provider);
         }
         let migrated_path = PathBuf::from(format!("{}.migrated", oauth_path.display()));
@@ -122,29 +126,27 @@ pub fn migrate_auth_to_auth_json_in(agent_dir: &Path) -> Vec<String> {
 
     if settings_path.exists()
         && let Ok(mut settings) = read_json_record(&settings_path)
+        && let Some(JsValue::Object(api_keys)) = settings.get("apiKeys").cloned()
     {
-        let api_keys = settings.get("apiKeys").cloned();
-        if let Some(Value::Object(api_keys)) = api_keys {
-            for (provider, key) in api_keys {
-                let Value::String(key) = key else {
-                    continue;
-                };
-                if migrated.contains_key(&provider) {
-                    continue;
-                }
-                let mut entry = Map::new();
-                entry.insert("type".to_owned(), Value::String("api_key".to_owned()));
-                entry.insert("key".to_owned(), Value::String(key));
-                migrated.insert(provider.clone(), Value::Object(entry));
-                providers.push(provider);
+        for (provider, key) in api_keys {
+            let JsValue::String(key) = key else {
+                continue;
+            };
+            if migrated.contains_key(&provider) {
+                continue;
             }
-            settings.remove("apiKeys");
-            let _ = write_file_with_mode(
-                &settings_path,
-                &js_json::stringify_pretty(&Value::Object(settings)),
-                None,
-            );
+            let mut entry = JsObject::new();
+            entry.insert("type".into(), JsValue::String("api_key".into()));
+            entry.insert("key".into(), JsValue::String(key));
+            migrated.insert(provider.clone(), JsValue::Object(entry));
+            providers.push(provider);
         }
+        settings.shift_remove("apiKeys");
+        let _ = write_file_with_mode(
+            &settings_path,
+            &js_json::stringify_lossless_pretty(&JsValue::Object(settings)),
+            None,
+        );
     }
 
     if !providers.is_empty() {
@@ -153,7 +155,7 @@ pub fn migrate_auth_to_auth_json_in(agent_dir: &Path) -> Vec<String> {
         }
         let _ = write_file_with_mode(
             &auth_path,
-            &js_json::stringify_pretty(&Value::Object(migrated)),
+            &js_json::stringify_lossless_pretty(&JsValue::Object(migrated)),
             Some(0o600),
         );
     }
@@ -161,25 +163,49 @@ pub fn migrate_auth_to_auth_json_in(agent_dir: &Path) -> Vec<String> {
     providers
 }
 
-/// Encode a session cwd the way `session-manager.ts` names session directories.
-pub fn encode_session_directory_name(cwd: &str) -> String {
-    let stripped = cwd.strip_prefix('/').or_else(|| cwd.strip_prefix('\\')).unwrap_or(cwd);
-    let replaced: String = stripped
-        .chars()
-        .map(|character| match character {
-            '/' | '\\' | ':' => '-',
+/// `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`, as `session-manager.ts` names session directories.
+pub fn encode_session_directory_name(cwd: &JsString) -> JsString {
+    let units = cwd.units();
+    let stripped = match units.first() {
+        Some(&unit) if unit == u16::from(b'/') || unit == u16::from(b'\\') => &units[1..],
+        _ => units,
+    };
+    let replaced = stripped
+        .iter()
+        .map(|&unit| match unit {
+            0x2f | 0x5c | 0x3a => u16::from(b'-'),
             other => other,
         })
         .collect();
-    format!("--{replaced}--")
+    js_format!("--{}--", JsString::from_utf16(replaced))
 }
 
-fn js_file_name(file: &str) -> String {
+/// `file.split("/").pop() || file.split("\\").pop()`.
+fn js_file_name(file: &str) -> &str {
     let first = file.rsplit('/').next().unwrap_or("");
     if !first.is_empty() {
-        return first.to_owned();
+        return first;
     }
-    file.rsplit('\\').next().unwrap_or("").to_owned()
+    file.rsplit('\\').next().unwrap_or("")
+}
+
+/// Session header `cwd` when the first line is a `session` header with a truthy string cwd.
+/// A truthy non-string cwd throws in the source (`cwd.replace`) and the file is skipped.
+fn session_header_cwd(content: &str) -> Option<JsString> {
+    let first_line = content.split('\n').next().unwrap_or("");
+    if JsString::from(first_line).trim().is_empty() {
+        return None;
+    }
+    let JsValue::Object(header) = js_json::parse_lossless(first_line).ok()? else {
+        return None;
+    };
+    if !matches!(header.get("type"), Some(JsValue::String(kind)) if kind == "session") {
+        return None;
+    }
+    match header.get("cwd") {
+        Some(JsValue::String(cwd)) if !cwd.is_empty() => Some(cwd.clone()),
+        _ => None,
+    }
 }
 
 /// Move `~/.pi/agent/*.jsonl` into the proper session directories.
@@ -196,38 +222,21 @@ pub fn migrate_sessions_from_agent_root_in(agent_dir: &Path) {
         .filter(|entry| entry.file_name().to_string_lossy().ends_with(".jsonl"))
         .map(|entry| agent_dir.join(entry.file_name()))
         .collect();
-    if files.is_empty() {
-        return;
-    }
 
     for file in files {
         let Ok(content) = fs::read(&file) else {
             continue;
         };
-        let content = String::from_utf8_lossy(&content).into_owned();
-        let first_line = content.split('\n').next().unwrap_or("");
-        if first_line.trim().is_empty() {
-            continue;
-        }
-        let Ok(header) = js_json::parse(first_line) else {
+        let Some(cwd) = session_header_cwd(&String::from_utf8_lossy(&content)) else {
             continue;
         };
-        let Value::Object(header) = header else {
-            continue;
-        };
-        if header.get("type").and_then(Value::as_str) != Some("session") {
-            continue;
-        }
-        let Some(Value::String(cwd)) = header.get("cwd") else {
-            continue;
-        };
-        if cwd.is_empty() {
-            continue;
-        }
 
-        let correct_dir = agent_dir.join("sessions").join(encode_session_directory_name(cwd));
-        if !correct_dir.exists() {
-            let _ = fs::create_dir_all(&correct_dir);
+        // Node encodes the directory name to UTF-8 at the fs boundary.
+        let correct_dir = agent_dir
+            .join("sessions")
+            .join(encode_node_utf8(&encode_session_directory_name(&cwd)));
+        if !correct_dir.exists() && fs::create_dir_all(&correct_dir).is_err() {
+            continue;
         }
 
         let file_path = file.to_string_lossy().into_owned();
@@ -248,12 +257,14 @@ fn migrate_commands_to_prompts(base_dir: &Path, label: &str, output: &dyn Migrat
     }
     match fs::rename(&commands_dir, &prompts_dir) {
         Ok(()) => {
-            output.line(&chalk.green(&format!("Migrated {label} commands/ → prompts/")));
+            output.line(&chalk.green(js_format!("Migrated {} commands/ → prompts/", label)));
             true
         }
         Err(error) => {
-            output.line(&chalk.yellow(&format!(
-                "Warning: Could not migrate {label} commands/ to prompts/: {error}"
+            output.line(&chalk.yellow(js_format!(
+                "Warning: Could not migrate {} commands/ to prompts/: {}",
+                label,
+                error.to_string()
             )));
             false
         }
@@ -265,10 +276,7 @@ fn migrate_keybindings_config_file_in(agent_dir: &Path) {
     if !config_path.exists() {
         return;
     }
-    let Ok(content) = fs::read(&config_path) else {
-        return;
-    };
-    let Ok(Value::Object(parsed)) = js_json::parse(&String::from_utf8_lossy(&content)) else {
+    let Ok(JsValue::Object(parsed)) = read_json_file(&config_path) else {
         return;
     };
     let migration = crate::core::keybindings::migrate_keybindings_config(&parsed);
@@ -277,7 +285,10 @@ fn migrate_keybindings_config_file_in(agent_dir: &Path) {
     }
     let _ = fs::write(
         &config_path,
-        format!("{}\n", js_json::stringify_pretty(&Value::Object(migration.config))),
+        format!(
+            "{}\n",
+            js_json::stringify_lossless_pretty(&JsValue::Object(migration.config))
+        ),
     );
 }
 
@@ -321,14 +332,15 @@ pub fn migrate_tools_to_bin_with(agent_dir: &Path, bin_dir: &Path, output: &dyn 
     }
 }
 
-fn check_deprecated_extension_dirs(base_dir: &Path, label: &str) -> Vec<String> {
+fn check_deprecated_extension_dirs(base_dir: &Path, label: &str) -> Vec<JsString> {
     let hooks_dir = base_dir.join("hooks");
     let tools_dir = base_dir.join("tools");
     let mut warnings = Vec::new();
 
     if hooks_dir.exists() {
-        warnings.push(format!(
-            "{label} hooks/ directory found. Hooks have been renamed to extensions."
+        warnings.push(js_format!(
+            "{} hooks/ directory found. Hooks have been renamed to extensions.",
+            label
         ));
     }
 
@@ -344,8 +356,9 @@ fn check_deprecated_extension_dirs(base_dir: &Path, label: &str) -> Vec<String> 
             })
             .count();
         if custom_tools > 0 {
-            warnings.push(format!(
-                "{label} tools/ directory contains custom tools. Custom tools have been merged into extensions."
+            warnings.push(js_format!(
+                "{} tools/ directory contains custom tools. Custom tools have been merged into extensions.",
+                label
             ));
         }
     }
@@ -353,8 +366,9 @@ fn check_deprecated_extension_dirs(base_dir: &Path, label: &str) -> Vec<String> 
     warnings
 }
 
-fn migrate_extension_system(cwd: &str, agent_dir: &Path, output: &dyn MigrationOutput) -> Vec<String> {
-    let project_dir = Path::new(cwd).join(&config::package_config().config_dir_name);
+fn migrate_extension_system(cwd: &JsString, agent_dir: &Path, output: &dyn MigrationOutput) -> Vec<JsString> {
+    // `join(cwd, CONFIG_DIR_NAME)`; Node encodes the cwd to UTF-8 at the fs boundary.
+    let project_dir = Path::new(&encode_node_utf8(cwd)).join(&config::package_config().config_dir_name);
     migrate_commands_to_prompts(agent_dir, "Global", output);
     migrate_commands_to_prompts(&project_dir, "Project", output);
 
@@ -364,26 +378,17 @@ fn migrate_extension_system(cwd: &str, agent_dir: &Path, output: &dyn MigrationO
 }
 
 /// Print deprecation warnings and wait for a keypress on a TTY.
-pub async fn show_deprecation_warnings(warnings: &[String]) {
+pub async fn show_deprecation_warnings(warnings: &[JsString]) {
     if warnings.is_empty() {
         return;
     }
     let chalk = Chalk::stdout();
     for warning in warnings {
-        write_raw_stdout(&format!("{}\n", chalk.yellow(&format!("Warning: {warning}"))));
+        write_console_line(&chalk.yellow(js_format!("Warning: {}", warning)));
     }
-    write_raw_stdout(&format!(
-        "{}\n",
-        chalk.yellow("\nMove your extensions to the extensions/ directory.")
-    ));
-    write_raw_stdout(&format!(
-        "{}\n",
-        chalk.yellow(&format!("Migration guide: {MIGRATION_GUIDE_URL}"))
-    ));
-    write_raw_stdout(&format!(
-        "{}\n",
-        chalk.yellow(&format!("Documentation: {EXTENSIONS_DOC_URL}"))
-    ));
+    write_console_line(&chalk.yellow("\nMove your extensions to the extensions/ directory."));
+    write_console_line(&chalk.yellow(js_format!("Migration guide: {}", MIGRATION_GUIDE_URL)));
+    write_console_line(&chalk.yellow(js_format!("Documentation: {}", EXTENSIONS_DOC_URL)));
 
     wait_for_deprecation_keypress().await;
     write_raw_stdout("\n");
@@ -393,24 +398,24 @@ async fn wait_for_deprecation_keypress() {
     if !std::io::stdin().is_terminal() {
         return;
     }
-    write_raw_stdout(&format!("{}\n", Chalk::stdout().dim("\nPress any key to continue...")));
+    write_console_line(&Chalk::stdout().dim("\nPress any key to continue..."));
     // Gap: raw-mode keypress read requires the interactive terminal; the startup
     // binary does not wire one into this module yet.
 }
 
 /// Run all migrations. Called once on startup.
-pub fn run_migrations(cwd: &str) -> MigrationResult {
+pub fn run_migrations(cwd: &JsString) -> MigrationResult {
     run_migrations_in(&config::get_agent_dir(), &config::get_bin_dir(), cwd)
 }
 
-pub fn run_migrations_in(agent_dir: &Path, bin_dir: &Path, cwd: &str) -> MigrationResult {
+pub fn run_migrations_in(agent_dir: &Path, bin_dir: &Path, cwd: &JsString) -> MigrationResult {
     run_migrations_with(agent_dir, bin_dir, cwd, &StdoutOutput)
 }
 
 pub fn run_migrations_with(
     agent_dir: &Path,
     bin_dir: &Path,
-    cwd: &str,
+    cwd: &JsString,
     output: &dyn MigrationOutput,
 ) -> MigrationResult {
     let migrated_auth_providers = migrate_auth_to_auth_json_in(agent_dir);

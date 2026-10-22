@@ -11,6 +11,7 @@ use oracle::TsOracle;
 use std::cell::RefCell;
 
 use pi_coding_agent::migrations::{MigrationOutput, run_migrations_with};
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
@@ -18,8 +19,8 @@ use tempfile::TempDir;
 struct RecordingOutput(RefCell<Vec<String>>);
 
 impl MigrationOutput for RecordingOutput {
-    fn line(&self, text: &str) {
-        self.0.borrow_mut().push(text.to_owned());
+    fn line(&self, text: &JsString) {
+        self.0.borrow_mut().push(text.to_utf8_lossy());
     }
 }
 
@@ -88,7 +89,7 @@ fn run_case(name: &str, files: &[(&str, &str)]) {
     let result = run_migrations_with(
         &rust_agent,
         &rust_agent.join("bin"),
-        rust_cwd.to_str().unwrap(),
+        &JsString::from(rust_cwd.to_str().unwrap()),
         &output_sink,
     );
     let output = &response["output"];

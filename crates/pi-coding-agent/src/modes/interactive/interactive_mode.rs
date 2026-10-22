@@ -1881,7 +1881,7 @@ pub type AgentViewSelectorSlot =
 
 #[derive(Default)]
 pub struct InteractiveModeOptions {
-    pub migrated_providers: Vec<String>,
+    pub migrated_providers: Vec<JsString>,
     pub model_fallback_message: Option<String>,
     pub auto_trust_on_reload_cwd: Option<String>,
     pub initial_message: Option<JsString>,
