@@ -635,18 +635,34 @@ impl From<&Value> for JsValue {
     }
 }
 
+#[cfg(test)]
+#[path = "../tests/support/js_json_error_units.rs"]
+mod error_tests;
+
 const CONTEXT_CHARACTERS: usize = 10;
 const SPECIAL_SOURCES: [&str; 4] = ["[object Object]", "undefined", "Infinity", "NaN"];
 
-/// `SyntaxError` thrown by `JSON.parse`; `Display` is the V8 message.
+/// `SyntaxError` thrown by `JSON.parse`, retaining the V8 message's UTF-16 units.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JsonParseError {
-    message: String,
+    message: JsString,
+}
+
+impl JsonParseError {
+    /// Borrow the lossless JavaScript error message.
+    pub fn message(&self) -> &JsString {
+        &self.message
+    }
+
+    /// Consume the error without projecting its message to UTF-8.
+    pub fn into_message(self) -> JsString {
+        self.message
+    }
 }
 
 impl fmt::Display for JsonParseError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&encode_node_utf8(&self.message))
     }
 }
 
@@ -979,39 +995,37 @@ impl Parser {
     /// character's token class picks the template.
     fn unexpected_token(&self) -> JsonParseError {
         let message = match self.peek() {
-            None => "Unexpected end of JSON input".to_owned(),
+            None => JsString::from("Unexpected end of JSON input"),
             Some(0x22) => return self.error_at("Unexpected string in JSON"),
             Some(0x2d | 0x30..=0x39) => return self.error_at("Unexpected number in JSON"),
             Some(_) if SPECIAL_SOURCES.iter().any(|known| self.source == *known) => {
-                format!("\"{}\" is not valid JSON", encode_node_utf8(&self.source))
+                JsString::from("\"") + &self.source + "\" is not valid JSON"
             }
             Some(token) => self.unexpected_token_with_context(token),
         };
         JsonParseError { message }
     }
 
-    fn unexpected_token_with_context(&self, token: u16) -> String {
-        let units: Vec<u16> = self.source.encode_utf16().collect();
-        // V8 reports one UTF-16 unit; a non-BMP character therefore shows as U+FFFD in UTF-8.
-        let token = char::from_u32(u32::from(token)).unwrap_or('\u{fffd}');
-        let length = units.len();
+    fn unexpected_token_with_context(&self, token: u16) -> JsString {
+        // V8 reports one UTF-16 unit, even when that splits a valid surrogate pair.
+        let token = JsString::from_utf16(vec![token]);
+        let prefix = JsString::from("Unexpected token '") + token + "', ";
+        let length = self.source.len();
         let position = self.utf16_position();
         if length <= CONTEXT_CHARACTERS * 2 {
-            return format!(
-                "Unexpected token '{token}', \"{}\" is not valid JSON",
-                encode_node_utf8(&self.source)
-            );
+            return prefix + "\"" + &self.source + "\" is not valid JSON";
         }
-        let excerpt = |start: usize, end: usize| String::from_utf16_lossy(&units[start..end.min(length)]);
         if position < CONTEXT_CHARACTERS {
-            let context = excerpt(0, position + CONTEXT_CHARACTERS);
-            format!("Unexpected token '{token}', \"{context}\"... is not valid JSON")
+            let context = self.source.slice(0, position + CONTEXT_CHARACTERS);
+            prefix + "\"" + context + "\"... is not valid JSON"
         } else if position < length - CONTEXT_CHARACTERS {
-            let context = excerpt(position - CONTEXT_CHARACTERS, position + CONTEXT_CHARACTERS);
-            format!("Unexpected token '{token}', ...\"{context}\"... is not valid JSON")
+            let context = self
+                .source
+                .slice(position - CONTEXT_CHARACTERS, position + CONTEXT_CHARACTERS);
+            prefix + "...\"" + context + "\"... is not valid JSON"
         } else {
-            let context = excerpt(position - CONTEXT_CHARACTERS, length);
-            format!("Unexpected token '{token}', ...\"{context}\" is not valid JSON")
+            let context = self.source.slice(position - CONTEXT_CHARACTERS, length);
+            prefix + "...\"" + context + "\" is not valid JSON"
         }
     }
 
@@ -1022,7 +1036,8 @@ impl Parser {
             message: format!(
                 "{message} at position {} (line {line} column {column})",
                 self.utf16_position()
-            ),
+            )
+            .into(),
         }
     }
 

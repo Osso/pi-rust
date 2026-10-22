@@ -37,7 +37,7 @@ bash manifests/completions, supervisor request rows, persisted process identity)
 
 ## Discrepancies
 
-- Legacy `parse` replaces lone surrogate escapes with U+FFFD before key insertion, preserving existing serde-facing behavior. This is a known lossy API boundary, not valid proof of raw-file validator parity: `JSON.stringify` must escape those units rather than replace them. New `parse_lossless` retains them. A non-BMP character reported as V8's single-unit error token still prints as U+FFFD at the UTF-8 diagnostic boundary; the existing mutation oracle applies `toWellFormed()` only to errors. The new bounded lossless oracle applies no normalization.
+- Legacy `parse` replaces lone surrogate escapes with U+FFFD before key insertion, preserving existing serde-facing behavior. This is a known lossy API boundary, not valid proof of raw-file validator parity: `JSON.stringify` must escape those units rather than replace them. New `parse_lossless` retains them. Error messages retain raw UTF-16, including V8's single-unit non-BMP token and split excerpt pairs. Only `Display` encodes Node UTF-8, replacing lone units with U+FFFD. The existing legacy mutation oracle applies `toWellFormed()` only to UTF-8 diagnostic errors; the dedicated error-unit oracle compares actual message units without normalization.
 - Number formatting uses the shared ECMAScript primitive; same-bit compact/pretty, coercion, serde writer and parse/write proof: [number trace](js-compat.md#number--parseint--parsefloat--numbertostring-srcnumberrs). Generic serde storage remains numeric-semantic, not byte-exact JavaScript text; [boundary contract](../../specs/js-number-format.md).
 - The shared writer converts serde numbers to binary64, matching JavaScript rounding
   above 2^53. Lossless parsing now retains overflow infinities and signed zero until
@@ -80,6 +80,18 @@ its development RED/GREEN evidence is recorded above. No full-port claim follows
 ## JS-value boundary regression (2026-10-20)
 
 Shared JS stringify/object enumeration is used at this module's audited observable boundary; values and parser errors are unchanged. Concrete counterexamples and per-boundary tests: [JS-value proof](../js-value-semantics-proof.md).
+
+## Lossless JSON error text (2026-10-21)
+
+| Export/branch | Behavioral proof |
+|---|---|
+| `JsonParseError::message() -> &JsString`, `into_message() -> JsString` | `js_json::error_tests::json_error_messages_match_node_utf16_units`: borrowed units equal actual Node SyntaxError message units; consumed clone equals borrowed message |
+| `unexpected_token`: missing token, special sources, raw token | Same test: end-of-input, `undefined`, raw high/low surrogates, emoji's offending high unit |
+| `unexpected_token_with_context`: whole source, head, middle, tail | Same test: short raw source, 10-unit cutoff through high/low pair at either excerpt edge; multiline source retained |
+| `error_at`, UTF-16 position/line/column | Same test: multiline positioned error with astral key; existing 1,617-input corpus retained |
+| `Display` | Same test compares `Buffer.from(error.message, "utf8").toString("utf8")`, while message-unit assertions remain lossless |
+
+RED/GREEN evidence: `/tmp/pi-rust-repin-json-error-text/{red,green}.log`. RED showed seven real Node unit-array mismatches despite identical UTF-8 diagnostic output. Scope is error storage/construction/accessors only; parser grammar and consumers are unchanged. Final regression/mutant ledger: `/tmp/pi-rust-repin-json-error-text/REPORT.md`.
 
 ## Q18 shared serde
 
