@@ -1,8 +1,8 @@
 //! Architect and supervisor request queues.
 
+use pi_js_compat::js_json::JsValue as Value;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use super::{ControlDbError, with_control_db, with_immediate_transaction};
 use pi_js_compat::js_json::{self, JsObject, JsString, JsValue};
@@ -443,7 +443,7 @@ pub fn renew_architect_request_claims(
     if unique_request_ids.is_empty() {
         return Ok(());
     }
-    let request_ids_json = js_json::stringify(&Value::Array(
+    let request_ids_json = js_json::stringify_lossless(&Value::Array(
         unique_request_ids.iter().copied().map(Value::from).collect(),
     ));
     let now = crate::utils::iso_time::now_iso_string();
@@ -562,7 +562,7 @@ pub fn cancel_supervisor_request(
     let control_db_path = control_db_path.into();
     with_control_db(&control_db_path, |db| {
         with_immediate_transaction(db, |db| {
-            let response = js_json::stringify(&serde_json::json!({"kind":"error","reason":reason}));
+            let response = js_json::stringify_lossless(&js_json::json!({"kind":"error","reason":reason}));
             Ok(db.execute("UPDATE supervisor_requests SET status = 'cancelled', completed_at = ?, claim_token = NULL, response_json = ?
             WHERE id = ? AND sender_session_id = ? AND status IN ('pending','claimed')",params![crate::utils::iso_time::now_iso_string(),response,request_id,sender_session_id])? == 1)
         })
@@ -719,7 +719,7 @@ pub fn recover_supervisor_requests(control_db_path: impl Into<JsString>) -> Resu
         if !has_supervisor_recovery_work(db, &now_iso)? {
             return Ok(());
         }
-        let error_response = js_json::stringify(&serde_json::json!({
+        let error_response = js_json::stringify_lossless(&js_json::json!({
             "kind": "error",
             "reason": "Supervisor request deadline expired",
         }));
@@ -837,7 +837,8 @@ pub fn complete_supervisor_request(
                 request_kind.as_str()
             )));
         }
-        let response_json = serde_json::to_string(response).map_err(|error| ControlDbError::new(error.to_string()))?;
+        let response_value = js_json::to_value(response).map_err(|error| ControlDbError::new(error.to_string()))?;
+        let response_json = js_json::stringify_lossless(&response_value);
         let changed = db.execute(
             "UPDATE supervisor_requests
 				 SET status = 'completed', completed_at = ?, response_json = ?

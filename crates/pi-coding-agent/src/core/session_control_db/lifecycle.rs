@@ -1,9 +1,9 @@
 //! Detached-job finalization and self-restart control-db preparation.
 
 use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsValue as Value;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 
 use super::agents::{
     PreparedTerminalTransport, TerminalAgentCasInput, has_active_persisted_descendant,
@@ -11,7 +11,7 @@ use super::agents::{
 };
 use super::{
     ControlDbError, MultiAgentRuntimeOwnerIdentity, MultiAgentRuntimeOwnershipIdentity, MultiAgentRuntimeOwnershipRow,
-    parse_agent_snapshot, parse_file_refs, parse_stored_json_object, read_multi_agent_runtime_ownership_row,
+    parse_agent_snapshot, parse_file_refs, parse_stored_json_object_lossless, read_multi_agent_runtime_ownership_row,
     runtime_owner_matches, serialize_process_identity, validate_persisted_agent_payload, with_control_db,
     with_immediate_transaction,
 };
@@ -283,7 +283,7 @@ fn prepare_detached_job_finalization(
         ))));
     };
     let context = js_format!("multi_agent_agents:{}#{}", session_path, terminal.job_id);
-    let agent = parse_stored_json_object(&agent_data, &context)?;
+    let agent = parse_stored_json_object_lossless(&agent_data, &context)?;
     let terminal_lifecycle = resolve_detached_job_terminal_lifecycle(&agent, terminal);
     let event_kind = format!("detached_job_{terminal_lifecycle}");
     let ownership = read_multi_agent_runtime_ownership_row(db, &session_path, &terminal.job_id)?;
@@ -301,7 +301,11 @@ fn prepare_detached_job_finalization(
             },
         ))));
     }
-    let current_lifecycle = agent.get("lifecycle").and_then(Value::as_str).unwrap_or("");
+    let current_lifecycle = agent
+        .get("lifecycle")
+        .and_then(Value::as_string)
+        .cloned()
+        .unwrap_or_default();
     if current_lifecycle == terminal_lifecycle {
         return Ok(Some(FinalizePreflight::Result(Box::new(detached_job_replay_result(
             &JsString::from(&session_path),
@@ -320,8 +324,8 @@ fn prepare_detached_job_finalization(
             },
         ))));
     }
-    let mut terminal_agent = super::parse_stored_json_object_lossless(&agent_data, &context)?;
-    for (key, value) in detached_job_agent_details(&agent, terminal, terminal_lifecycle)? {
+    let mut terminal_agent = agent.clone();
+    for (key, value) in detached_job_agent_details(&agent, terminal, &terminal_lifecycle.into())? {
         terminal_agent.insert(key, value);
     }
     terminal_agent.shift_remove("currentActivity");
@@ -359,15 +363,11 @@ fn prepare_detached_job_finalization(
     }))))
 }
 
-fn resolve_detached_job_terminal_lifecycle(
-    agent: &Map<String, Value>,
-    terminal: &DetachedJobTerminalInput,
-) -> &'static str {
-    match agent.get("lifecycle").and_then(Value::as_str) {
-        Some("completed") => "completed",
-        Some("failed") => "failed",
-        Some("aborted") => "aborted",
-        Some("cancelling") => "aborted",
+fn resolve_detached_job_terminal_lifecycle(agent: &JsObject, terminal: &DetachedJobTerminalInput) -> &'static str {
+    match agent.get("lifecycle").and_then(Value::as_string) {
+        Some(value) if value == "completed" => "completed",
+        Some(value) if value == "failed" => "failed",
+        Some(value) if value == "aborted" || value == "cancelling" => "aborted",
         _ => terminal.outcome.kind(),
     }
 }
@@ -389,18 +389,20 @@ fn detached_job_ownership_matches(
 fn detached_job_replay_result(
     session_path: &JsString,
     terminal: &DetachedJobTerminalInput,
-    terminal_agent: &Map<String, Value>,
+    terminal_agent: &JsObject,
     agent_data: &str,
     terminal_revision: i64,
 ) -> Result<FinalizeDetachedJobResult, ControlDbError> {
     let lifecycle = terminal_agent
         .get("lifecycle")
-        .and_then(Value::as_str)
-        .unwrap_or("failed");
-    let expected_details = detached_job_agent_details(terminal_agent, terminal, lifecycle)?;
-    let raw = super::parse_stored_json_object_lossless(agent_data, &JsString::from("detached job replay"))?;
+        .and_then(Value::as_string)
+        .cloned()
+        .unwrap_or_else(|| "failed".into());
+    let expected_details = detached_job_agent_details(terminal_agent, terminal, &lifecycle)?;
     for (key, value) in expected_details {
-        if js_json::stringify_lossless(raw.get(&key).unwrap_or(&JsValue::Null)) != js_json::stringify_lossless(&value) {
+        if js_json::stringify_lossless(terminal_agent.get(&key).unwrap_or(&JsValue::Null))
+            != js_json::stringify_lossless(&value)
+        {
             return Ok(FinalizeDetachedJobResult::Err {
                 error: FinalizeDetachedJobError::MutationMismatch,
             });
@@ -460,9 +462,9 @@ fn persist_detached_job_finalization(
 }
 
 fn detached_job_agent_details(
-    agent: &Map<String, Value>,
+    agent: &JsObject,
     terminal: &DetachedJobTerminalInput,
-    terminal_lifecycle: &str,
+    terminal_lifecycle: &JsString,
 ) -> Result<JsObject, ControlDbError> {
     let existing_file_refs = match agent.get("result") {
         Some(Value::Object(result)) => parse_file_refs(
