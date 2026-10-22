@@ -5,7 +5,7 @@ use pi_tui::word_navigation::{WordNavigationOptions, WordSegment, find_word_back
 fn backward_basic_words() {
     let text = "hello world";
     assert_eq!(find_word_backward(&JsString::from(text), 11, None), 6);
-    assert_eq!(find_word_backward(&JsString::from(text), 2, None), 0);
+    assert_eq!(find_word_backward(&JsString::from(text), 6, None), 0);
 }
 
 #[test]
@@ -38,7 +38,7 @@ fn backward_cjk_uses_dictionary_segments() {
         5
     );
     assert_eq!(find_word_backward(&JsString::from(text), 5, None), 2);
-    assert_eq!(find_word_backward(&JsString::from(text), 6, None), 0);
+    assert_eq!(find_word_backward(&JsString::from(text), 2, None), 0);
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn segment_map(input: &JsString) -> Vec<WordSegment> {
     ];
     let prefix = &text[..26];
     let forward = &text[6..];
-    let selected: &[(usize, usize)] = if input == text {
+    let selected: &[(usize, usize)] = if input == &text {
         &[(0, 5)]
     } else if input == prefix {
         &[(0, 4)]
