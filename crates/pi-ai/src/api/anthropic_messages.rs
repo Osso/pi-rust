@@ -877,10 +877,10 @@ fn thinking_off_is_null(model: &Model) -> bool {
 
 fn insert_metadata_param(params: &mut JsObject, options: &StreamOptions) {
     if let Some(metadata) = &options.metadata
-        && let Some(user_id) = metadata.get("user_id").and_then(Value::as_str)
+        && let Some(user_id) = metadata.get("user_id").and_then(JsValue::as_string)
     {
         let mut object = JsObject::new();
-        object.insert("user_id".into(), JsValue::String(user_id.into()));
+        object.insert("user_id".into(), JsValue::String(user_id.clone()));
         params.insert("metadata".into(), JsValue::Object(object));
     }
 }

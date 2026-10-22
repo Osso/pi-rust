@@ -153,7 +153,10 @@ async fn proxy_stream_preserves_utf16_deltas_arguments_and_request_context() {
         messages: vec![pi_ai::types::Message::User(user)],
         tools: None,
     };
-    let (_, result) = collect(stream_proxy(model(), context, options(fetch, None))).await;
+    let metadata = parse_lossless(r#"{"\ud800":{"nested":["\udfff",null,3]}}"#).unwrap();
+    let mut options = options(fetch, None);
+    options.stream_options.stream.metadata = metadata.as_object().cloned();
+    let (_, result) = collect(stream_proxy(model(), context, options)).await;
     assert_eq!(result.stop_reason, StopReason::Stop, "{:?}", result.error_message);
     let AssistantContent::Text(text) = &result.content[0] else {
         panic!("text block");
@@ -176,6 +179,7 @@ async fn proxy_stream_preserves_utf16_deltas_arguments_and_request_context() {
         body["context"]["messages"][0]["content"].as_string().unwrap().units(),
         &[0xd800]
     );
+    assert_eq!(body["options"]["metadata"], metadata);
 }
 
 #[tokio::test]

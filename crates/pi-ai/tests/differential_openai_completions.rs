@@ -157,7 +157,9 @@ fn stream_options(
             }),
         session_id: (stream.get("sessionId").and_then(Value::as_str).map(str::to_owned))
             .map(pi_js_compat::js_json::JsString::from),
-        metadata: stream.get("metadata").and_then(Value::as_object).cloned(),
+        metadata: stream
+            .get("metadata")
+            .and_then(|value| pi_js_compat::js_json::JsValue::from(value.clone()).as_object().cloned()),
         extra: extra_map,
         ..Default::default()
     }

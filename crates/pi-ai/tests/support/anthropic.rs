@@ -95,7 +95,9 @@ pub fn stream_options(options: &Value, fetch: Arc<dyn Fetch>, signal: Option<Can
         cache_retention: parse::<CacheRetention>(options.get("cacheRetention")),
         session_id: (options["sessionId"].as_str().map(str::to_owned)).map(pi_js_compat::js_json::JsString::from),
         websocket_connect_timeout_ms: options["websocketConnectTimeoutMs"].as_f64(),
-        metadata: options.get("metadata").and_then(Value::as_object).cloned(),
+        metadata: options
+            .get("metadata")
+            .and_then(|value| pi_js_compat::js_json::JsValue::from(value.clone()).as_object().cloned()),
         extra,
         ..StreamOptions::default()
     }

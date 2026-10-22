@@ -1,5 +1,9 @@
 # openai-responses-shared traceability
 
+## Q4 partial re-port
+
+Recorded Responses/Azure oracles now reach actual frozen SDK streams. Removed source-absent rawStopReason metadata; restored input_tokens-minus-cached usage with cacheWrite0 (no native cache-write subtraction/clamp), and function-only tools with unchanged parameters/explicit strict option. RED boundaries: `responses-floor-green.log` and `responses-raw-stop-green.log` in the lane proof ledger. Whole-module parity remains unproven; historical counts below are superseded where these branches differ.
+
 Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
 
 Q18 ingress representation and current bounded proof: [lossless provider ingress](lossless-provider-ingress.md). Earlier suite counts below are historical, not new-pin rerun evidence.

@@ -19,7 +19,6 @@ use pi_ai::utils::event_stream::{
 use pi_ai::utils::json_parse::parse_streaming_json;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use serde::Deserialize;
-use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
 /// Proxy event types: the server strips `partial` to reduce bandwidth.
@@ -234,10 +233,11 @@ async fn proxy_events(
     state: &mut PartialState,
 ) -> Result<(), JsString> {
     let fetch = options.fetch.clone().unwrap_or_else(default_fetch);
+    let request_options = build_proxy_request_options(&options.stream_options)?;
     let body = serde_json::to_vec(&pi_js_compat::js_json!({
         "model": model,
         "context": context,
-        "options": build_proxy_request_options(&options.stream_options),
+        "options": request_options,
     }))
     .map_err(|error| JsString::from(error.to_string()))?;
 
@@ -624,26 +624,28 @@ fn stop_reason_for_error(reason: ErrorReason) -> StopReason {
     }
 }
 
-fn build_proxy_request_options(options: &SimpleStreamOptions) -> Value {
-    let mut object = Map::new();
+fn build_proxy_request_options(options: &SimpleStreamOptions) -> Result<JsValue, JsString> {
+    let mut object = JsObject::new();
     let stream = &options.stream;
-    insert_some(&mut object, "temperature", stream.temperature);
-    insert_some(&mut object, "maxTokens", stream.max_tokens);
-    insert_some(&mut object, "reasoning", options.reasoning);
-    insert_some(&mut object, "cacheRetention", stream.cache_retention);
-    insert_some(&mut object, "sessionId", stream.session_id.clone());
-    insert_some(&mut object, "headers", stream.request.headers.clone());
-    insert_some(&mut object, "metadata", stream.metadata.clone());
-    insert_some(&mut object, "transport", stream.transport);
-    insert_some(&mut object, "thinkingBudgets", options.thinking_budgets.clone());
-    insert_some(&mut object, "maxRetryDelayMs", stream.request.max_retry_delay_ms);
-    Value::Object(object)
+    insert_some(&mut object, "temperature", stream.temperature)?;
+    insert_some(&mut object, "maxTokens", stream.max_tokens)?;
+    insert_some(&mut object, "reasoning", options.reasoning)?;
+    insert_some(&mut object, "cacheRetention", stream.cache_retention)?;
+    insert_some(&mut object, "sessionId", stream.session_id.clone())?;
+    insert_some(&mut object, "headers", stream.request.headers.clone())?;
+    if let Some(metadata) = &stream.metadata {
+        object.insert("metadata".into(), JsValue::Object(metadata.clone()));
+    }
+    insert_some(&mut object, "transport", stream.transport)?;
+    insert_some(&mut object, "thinkingBudgets", options.thinking_budgets.clone())?;
+    insert_some(&mut object, "maxRetryDelayMs", stream.request.max_retry_delay_ms)?;
+    Ok(JsValue::Object(object))
 }
 
-fn insert_some<T: serde::Serialize>(object: &mut Map<String, Value>, key: &str, value: Option<T>) {
-    if let Some(value) = value
-        && let Ok(value) = serde_json::to_value(value)
-    {
-        object.insert(key.to_owned(), value);
+fn insert_some<T: serde::Serialize>(object: &mut JsObject, key: &str, value: Option<T>) -> Result<(), JsString> {
+    if let Some(value) = value {
+        let value = pi_js_compat::js_json::to_value(&value).map_err(|error| JsString::from(error.to_string()))?;
+        object.insert(key.into(), value);
     }
+    Ok(())
 }
