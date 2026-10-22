@@ -68,7 +68,9 @@ pub enum ProxyAssistantMessageEvent {
         error_message: Option<JsString>,
         usage: Usage,
     },
-    Unknown,
+    Unknown {
+        kind: JsString,
+    },
 }
 
 impl<'de> Deserialize<'de> for ProxyAssistantMessageEvent {
@@ -96,10 +98,22 @@ fn optional_proxy_field<T: serde::de::DeserializeOwned>(
         .map(Option::flatten)
 }
 
+fn decode_content_index(value: Option<&JsValue>) -> Result<usize, serde_json::Error> {
+    let index = value.and_then(JsValue::as_f64);
+    match index {
+        Some(index) if index.is_finite() && index >= 0.0 && index.fract() == 0.0 && index < f64::from(u32::MAX) => {
+            Ok(index as usize)
+        }
+        _ => Err(<serde_json::Error as serde::de::Error>::custom(
+            "Proxy protocol error: invalid contentIndex (expected a finite, non-negative array index)",
+        )),
+    }
+}
+
 fn decode_proxy_event(value: &JsValue) -> Result<ProxyAssistantMessageEvent, serde_json::Error> {
     use ProxyAssistantMessageEvent as Event;
     let kind: JsString = proxy_field(value, "type")?;
-    let index = || proxy_field(value, "contentIndex");
+    let index = || decode_content_index(value.get("contentIndex"));
     let delta = || proxy_field(value, "delta");
     let signature = || optional_proxy_field(value, "contentSignature");
     Ok(match kind {
@@ -147,7 +161,7 @@ fn decode_proxy_event(value: &JsValue) -> Result<ProxyAssistantMessageEvent, ser
             error_message: optional_proxy_field(value, "errorMessage")?,
             usage: proxy_field(value, "usage")?,
         },
-        _ => Event::Unknown,
+        _ => Event::Unknown { kind },
     })
 }
 
@@ -337,10 +351,31 @@ fn drain_lines(
     Ok(())
 }
 
+fn proxy_content_index(event: &ProxyAssistantMessageEvent) -> Option<usize> {
+    match event {
+        ProxyAssistantMessageEvent::TextStart { content_index }
+        | ProxyAssistantMessageEvent::TextDelta { content_index, .. }
+        | ProxyAssistantMessageEvent::TextEnd { content_index, .. }
+        | ProxyAssistantMessageEvent::ThinkingStart { content_index }
+        | ProxyAssistantMessageEvent::ThinkingDelta { content_index, .. }
+        | ProxyAssistantMessageEvent::ThinkingEnd { content_index, .. }
+        | ProxyAssistantMessageEvent::ToolcallStart { content_index, .. }
+        | ProxyAssistantMessageEvent::ToolcallDelta { content_index, .. }
+        | ProxyAssistantMessageEvent::ToolcallEnd { content_index } => Some(*content_index),
+        _ => None,
+    }
+}
+
 fn process_proxy_event(
     proxy_event: ProxyAssistantMessageEvent,
     state: &mut PartialState,
 ) -> Result<Option<AssistantMessageEvent>, String> {
+    if let Some(index) = proxy_content_index(&proxy_event).filter(|index| *index > state.content.len()) {
+        return Err(format!(
+            "Proxy protocol error: non-contiguous contentIndex {index} (next index: {})",
+            state.content.len()
+        ));
+    }
     match proxy_event {
         ProxyAssistantMessageEvent::Start => Ok(Some(AssistantMessageEvent::Start {
             partial: state.message.clone(),
@@ -378,7 +413,13 @@ fn process_proxy_event(
             error_message,
             usage,
         } => process_error(state, reason, error_message, usage).map(Some),
-        ProxyAssistantMessageEvent::Unknown => Ok(None),
+        ProxyAssistantMessageEvent::Unknown { kind } => {
+            eprintln!(
+                "Unhandled proxy event type: {}",
+                pi_js_compat::js_json::encode_node_utf8(&kind)
+            );
+            Ok(None)
+        }
     }
 }
 
@@ -565,9 +606,6 @@ fn set_slot(
     index: usize,
     value: Option<AssistantContent>,
 ) -> Result<(), String> {
-    if index > content.len() {
-        return Err("Sparse proxy content index".to_owned());
-    }
     if index == content.len() {
         content.push(value);
     } else {
@@ -648,4 +686,37 @@ fn insert_some<T: serde::Serialize>(object: &mut JsObject, key: &str, value: Opt
         object.insert(key.into(), value);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod index_protocol_tests {
+    use super::*;
+    fn reject_index(index: f64) {
+        let event = pi_js_compat::js_json!({"type":"text_start","contentIndex":0});
+        let mut event = event;
+        event["contentIndex"] = JsValue::Number(index);
+        let error = decode_proxy_event(&event).unwrap_err().to_string();
+        assert!(
+            error.starts_with("Proxy protocol error: invalid contentIndex"),
+            "{error}"
+        );
+    }
+    #[test]
+    fn negative_content_index_is_protocol_error() {
+        reject_index(-1.0);
+    }
+    #[test]
+    fn fractional_content_index_is_protocol_error() {
+        reject_index(0.5);
+    }
+    #[test]
+    fn nonfinite_content_index_is_protocol_error() {
+        for index in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            reject_index(index);
+        }
+    }
+    #[test]
+    fn non_array_integer_content_index_is_protocol_error() {
+        reject_index(4294967295.0);
+    }
 }

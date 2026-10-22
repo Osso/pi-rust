@@ -1,7 +1,7 @@
 # Traceability: `packages/agent-core/src/proxy.ts`
 
 Reference: immutable `4f9e6f8a4`. Rust: `crates/pi-agent-core/src/agent/proxy.rs`.
-Proof/exclusions: [slice-1 ledger](agent-core-api-repin.md). Status todo; no whole-module differential or object-identity parity claimed.
+Proof/exclusions: [slice-1 ledger](agent-core-api-repin.md). Status todo; whole-module differential expansion in progress.
 
 | Frozen export/function | Rust | Evidence |
 |---|---|---|
@@ -16,4 +16,7 @@ Proof/exclusions: [slice-1 ledger](agent-core-api-repin.md). Status todo; no who
 | non-2xx error body/status handling | proxy_error_message | error text and empty-error status default tests; `agent_verifier_regressions::proxy_body` covers failing body reads |
 | SSE chunk/line processing | drain_lines | existing reconstruction fixtures; malformed/unterminated/chunk-boundary exhaustive matrix remains unproven |
 
-Owned partial snapshots differ from TS shared object identity; sparse indices are rejected rather than materialized as holes. Unknown event warnings are not reproduced. Shared ToolCall requires object arguments; arbitrary JSON tool argument runtime shapes are excluded. These remain explicit gaps pending classification, not new approved deviations.
+- **Approved snapshot deviation (AGENTS.md, 2026-10-22):** immutable per-event partial snapshots replace JS shared-reference mutation.
+- **Approved sparse gap (2026-10-22):** frozen proxy.ts:246,280,313 assigns sparse array slots; native non-contiguous indices reject with `Proxy protocol error: non-contiguous contentIndex N (next index: L)`. Native stream test covers all nine text/thinking/tool start/delta/end tags beyond the next slot; no pi-ai content representation change. Approved malformed/out-of-order gap also covers negative, fractional, NaN/Infinity, and integer indices outside JS's array-index range; four named native decoder tests assert explicit protocol errors, rather than scalar-deserializer errors. RED/GREEN `proxy-index-domain-{red,green}.log`.
+- Frozen proxy.ts:363 console.warn now emits exact `Unhandled proxy event type: TYPE` plus newline to stderr. Direct-module oracle verifies text; native child process verifies stderr bytes and no stdout warning. RED/GREEN: `proxy-warning-gap-{red,green}.log`; ten proxy tests GREEN.
+- Shared ToolCall requires object arguments; arbitrary JSON tool argument runtime shapes remain an explicit typed-input exclusion. Full SSE malformed/unterminated/boundary matrix is still unclaimed.
