@@ -46,7 +46,7 @@ fn append_user_rules_section(prompt: &JsString, rules_content: Option<&JsString>
     };
 
     let separator = if prompt.ends_with('\n') { "\n" } else { "\n\n" };
-    js_format!("{prompt}{separator}<user_rules>\n{rules_content}\n</user_rules>")
+    js_format!("{}{}<user_rules>\n{}\n</user_rules>", prompt, separator, rules_content)
 }
 
 fn append_context_files(prompt: &mut JsString, context_files: &[ContextFile]) {
@@ -71,7 +71,7 @@ pub fn build_system_prompt(options: &BuildSystemPromptOptions) -> JsString {
     let append_section = options
         .append_system_prompt
         .as_ref()
-        .map_or_else(JsString::default, |text| js_format!("\n\n{text}"));
+        .map_or_else(JsString::default, |text| js_format!("\n\n{}", text));
 
     let context_files = options.context_files.as_deref().unwrap_or(&[]);
     let skills = options.skills.as_deref().unwrap_or(&[]);
@@ -118,7 +118,7 @@ pub fn build_system_prompt(options: &BuildSystemPromptOptions) -> JsString {
                         .and_then(|snippets| snippets.get(*name))
                         .cloned()
                         .unwrap_or_default();
-                    js_format!("- {name}: {snippet}")
+                    js_format!("- {}: {}", name, snippet)
                 })
                 .collect::<Vec<_>>(),
             "\n",
@@ -152,8 +152,9 @@ pub fn build_system_prompt(options: &BuildSystemPromptOptions) -> JsString {
 
     if has_backgroundable_command_tool && tools.contains(&"wait_agent") {
         let auto_background_after_minutes = DEFAULT_AUTO_DETACH_AFTER_MS / MILLISECONDS_PER_MINUTE;
-        add_guideline(&js_format!(
-            "Supported long-running command tools such as bash and Pyrun are automatically backgrounded after {auto_background_after_minutes} minutes; use wait_agent to wait for any agent completion, then inspect reported background job details or attached log files instead of assuming the command stopped."
+        add_guideline(js_format!(
+            "Supported long-running command tools such as bash and Pyrun are automatically backgrounded after {} minutes; use wait_agent to wait for any agent completion, then inspect reported background job details or attached log files instead of assuming the command stopped.",
+            auto_background_after_minutes
         ));
     }
 
@@ -178,7 +179,7 @@ pub fn build_system_prompt(options: &BuildSystemPromptOptions) -> JsString {
     let guidelines = JsString::join(
         guidelines_list
             .iter()
-            .map(|guideline| js_format!("- {guideline}"))
+            .map(|guideline| js_format!("- {}", guideline))
             .collect::<Vec<_>>(),
         "\n",
     );
@@ -187,21 +188,21 @@ pub fn build_system_prompt(options: &BuildSystemPromptOptions) -> JsString {
         "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
 
 Available tools:
-{tools_list}
+{}
 
 In addition to the tools above, you may have access to other custom tools depending on the project.
 
 Guidelines:
-{guidelines}
+{}
 
 Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):
-- Main documentation: {readme_path}
-- Additional docs: {docs_path}
-- Examples: {examples_path} (extensions, custom tools, SDK)
+- Main documentation: {}
+- Additional docs: {}
+- Examples: {} (extensions, custom tools, SDK)
 - When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory
 - When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md)
 - When working on pi topics, read the docs and examples, and follow .md cross-references before implementing
-- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)"
+- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)", tools_list, guidelines, readme_path, docs_path, examples_path
     );
 
     prompt.push_str(&append_section);
