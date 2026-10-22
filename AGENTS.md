@@ -16,6 +16,8 @@
 - `packages/ai/src/cli.ts` (`pi-ai` bin) is a gap (2026-10-18).
 - Codex-usage `claude-bridge:usage-all-request`/`usage-request` (frozen index.ts:252-264, 364-373): Rust adds a claimable event-bus request API so a native listener can claim synchronously; unclaimed requests keep frozen "bridge not loaded"/"Claude bridge usage handler unavailable" (approved deviation 2026-10-22).
 - Stream events carry immutable per-event `partial` snapshots; JS shared-reference aliasing of later mutations into earlier events (e.g. faux.ts:330-336, 386-389) is not ported (approved deviation 2026-10-22).
+- pi-ai `options.request.fetch` stays as a Rust-only injection seam for tests/embedders; frozen has no such option, so unset must behave exactly like frozen default fetch (approved deviation 2026-10-22).
+- agent-core session storage getters (getMetadata/getEntry/findEntries) return owned copies; JS mutation-through-returned-reference is not ported (approved deviation 2026-10-22).
 - Frontmatter YAML parse-error message text may differ (serde_yaml_ng vs TS `yaml`); success/failure must match (approved deviation 2026-10-22).
 - Former String-boundary U+FFFD projections (RPC OutputLog clipping, subagent/question/questionnaire previews, interactive followup slices) now require exact frozen UTF-16 parity (decision 2026-10-22).
 - `coding-agent/src/core/debug-repl.ts` is an approved gap (2026-10-18).
