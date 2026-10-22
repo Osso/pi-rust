@@ -165,7 +165,7 @@ fn format_parent_request(agent_id: &JsString, request_id: &JsString, params: &As
 }
 struct Inbox {
     agent_id: JsString,
-    db: String,
+    db: JsString,
     session_id: JsString,
 }
 fn send_questions_to_parent(
@@ -208,7 +208,7 @@ fn send_questions_to_parent(
         ));
     }
     let session = ctx.session_manager()?;
-    let session_id = lock_session_manager(&session).get_session_id().to_owned();
+    let session_id = lock_session_manager(&session).get_session_id().clone();
     Ok(Inbox {
         agent_id,
         db,
@@ -379,9 +379,9 @@ fn answer_question(
     let target = store.get_agent(&params.agent_id);
     let parent_id = target
         .as_ref()
-        .and_then(|target| target.parent_id.as_deref())
-        .unwrap_or("main");
-    if caller_id.is_none() || target.is_none() || Some(parent_id) != caller_id.as_deref() {
+        .and_then(|target| target.parent_id.clone())
+        .unwrap_or_else(|| "main".into());
+    if caller_id.is_none() || target.is_none() || Some(&parent_id) != caller_id.as_ref() {
         return Err(HandlerError::new(
             JsString::from("Could not answer ") + &params.agent_id + ": not a direct child of this agent",
         ));
@@ -408,7 +408,7 @@ fn answer_question(
             JsString::from("Could not answer ") + &params.agent_id + ": runtime mailbox is unavailable",
         ));
     };
-    if Some(persistence.control_db_path.as_str()) != db.as_deref() {
+    if Some(&persistence.control_db_path) != db.as_ref() {
         return Err(HandlerError::new(
             JsString::from("Could not answer ") + &params.agent_id + ": runtime mailbox is unavailable",
         ));
@@ -439,7 +439,7 @@ pub fn register_question_relay_tools(pi: &ExtensionApi, store: Arc<MultiAgentSto
         let user_execute = user_execute.clone();
         Box::pin(async move {
             if ctx.multi_agent_agent_id()?.is_some() || ctx.multi_agent_requires_agent_id()? {
-                ask_parent(store, id, params, signal, ctx).await
+                ask_parent(store, id.into(), params, signal, ctx).await
             } else {
                 user_execute(id, params, signal, update, ctx).await
             }

@@ -169,7 +169,7 @@ impl WaitAgentsWakeWatcher {
             });
         }
         if let Some(wake_up) = wake_up.lock().expect("wait wake up").take() {
-            if let Some(agent_id) = wake_up.agent_id.as_deref()
+            if let Some(agent_id) = wake_up.agent_id.as_ref()
                 && !self.tracked_agent_ids.contains(agent_id)
             {
                 return None;
@@ -251,7 +251,7 @@ pub async fn wait_notifications_runtime(
         && is_child_agent_runtime(ctx)?
     {
         return Ok(WaitNotificationsWake::Unavailable {
-            message: CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE.to_owned(),
+            message: CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE.into(),
         });
     }
     if let Some(ctx) = ctx {
@@ -259,7 +259,7 @@ pub async fn wait_notifications_runtime(
     }
     let Some(persistence) = store.get_persistence_target() else {
         return Ok(WaitNotificationsWake::Unavailable {
-            message: "wait_agent requires a persisted supervisor session.".to_owned(),
+            message: "wait_agent requires a persisted supervisor session.".into(),
         });
     };
     let pending = list_pending_terminal_notifications(store, &persistence.control_db_path, &persistence.session_path)?;

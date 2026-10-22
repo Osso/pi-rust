@@ -10,7 +10,7 @@ pub fn is_remote_session_message(params: &SendAgentMessageParams) -> bool {
         .is_some_and(|host| host != gethostname::gethostname().to_string_lossy().as_ref())
 }
 pub fn session_message_route_error(
-    db: Option<&str>,
+    db: Option<&JsString>,
     params: &SendAgentMessageParams,
 ) -> Result<Option<JsString>, HandlerError> {
     if params.to_host.as_ref().is_some_and(|host| host.trim().is_empty()) {

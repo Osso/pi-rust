@@ -165,7 +165,7 @@ pub enum SpawnContext {
 
 #[derive(Clone)]
 pub struct ChildAgentDispatchInput {
-    pub active_tool_call_id: Option<JsString>,
+    pub active_tool_call_id: Option<String>,
     pub agent: AgentSnapshot,
     pub context: SpawnContext,
     pub ctx: ExtensionContext,
@@ -175,7 +175,7 @@ pub struct ChildAgentDispatchInput {
 
 #[derive(Clone)]
 pub struct AttachedSessionDispatchInput {
-    pub active_tool_call_id: Option<JsString>,
+    pub active_tool_call_id: Option<String>,
     pub agent: AgentSnapshot,
     pub ctx: ExtensionContext,
     pub prompt: pi_js_compat::js_json::JsString,

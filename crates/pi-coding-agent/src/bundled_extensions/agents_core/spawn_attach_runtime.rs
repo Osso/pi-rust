@@ -103,7 +103,7 @@ pub fn attach_session_agent_schema() -> serde_json::Value {
 
 #[derive(Clone)]
 pub struct SpawnAgentRuntimeInput<'a> {
-    pub active_tool_call_id: Option<JsString>,
+    pub active_tool_call_id: Option<String>,
     pub create_child_session: Option<ChildAgentSessionFactory>,
     pub ctx: ExtensionContext,
     pub desktop_notifier: Arc<dyn DesktopNotifier>,
@@ -118,7 +118,7 @@ pub struct SpawnAgentRuntimeInput<'a> {
 }
 
 struct ValidSpawnInput {
-    active_tool_call_id: Option<JsString>,
+    active_tool_call_id: Option<String>,
     create_child_session: ChildAgentSessionFactory,
     ctx: ExtensionContext,
     desktop_notifier: Arc<dyn DesktopNotifier>,
@@ -700,10 +700,10 @@ fn create_attached_agent(
         .to_owned();
     let parent = params
         .parent_id
-        .as_deref()
+        .as_ref()
         .and_then(|parent_id| store.get_agent(parent_id));
     let Some(coordinator) = create_lifecycle_coordinator(store) else {
-        return Ok(Err(("lifecycle_coordinator_unavailable".to_owned(), None)));
+        return Ok(Err(("lifecycle_coordinator_unavailable".into(), None)));
     };
     let display_name = params
         .display_name
@@ -746,7 +746,7 @@ fn create_attached_agent(
                 .map_err(|error| HandlerError::new(error.message))?;
             Ok(Ok(*agent))
         }
-        CreateMultiAgentAttachmentResult::Err { error } => Ok(Err((error.as_str().to_owned(), parent))),
+        CreateMultiAgentAttachmentResult::Err { error } => Ok(Err((error.as_str().into(), parent))),
     }
 }
 
@@ -815,12 +815,12 @@ fn load_attach_session_target(
     let session_manager = ctx.session_manager()?;
     let session_dir = lock_session_manager(&session_manager).get_session_dir().to_owned();
     if let Some(path) = selectors.1 {
-        let session = SessionManager::open(path, Some(&session_dir), None)
-            .map_err(|error| HandlerError::new(error.to_string()))?;
+        let session = SessionManager::open(&path, Some(&session_dir), None)
+            .map_err(|error| HandlerError::new(error.message().clone()))?;
         return Ok(Ok(AttachSessionTarget {
             cwd: session.get_cwd().to_owned(),
             name: session.get_session_name(),
-            path: session.get_session_file().unwrap_or(path).to_owned(),
+            path: session.get_session_file().unwrap_or(&path).clone(),
             session_id: session.get_session_id().to_owned(),
         }));
     }
@@ -833,7 +833,7 @@ fn load_attach_session_target(
     sessions.extend(all_sessions);
     let sessions = dedupe_sessions_by_path(sessions);
     Ok(
-        match find_matching_session(&sessions, selectors.0.as_ref(), selectors.2) {
+        match find_matching_session(&sessions, selectors.0.as_ref(), selectors.2.as_ref()) {
             SessionMatch::Found(session) => Ok(session_info_to_target(session)),
             SessionMatch::Ambiguous(selector) => {
                 Err(JsString::from("Could not attach session: ") + selector + " matches multiple sessions.")

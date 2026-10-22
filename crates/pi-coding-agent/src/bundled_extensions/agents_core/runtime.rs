@@ -295,7 +295,7 @@ impl MultiAgentPiRequestHandler {
         request: &Value,
         ctx: &ExtensionContext,
         signal: Option<CancellationToken>,
-        active_tool_call_id: Option<JsString>,
+        active_tool_call_id: Option<String>,
     ) -> Result<Value, HandlerError> {
         if self.disposed.load(Ordering::SeqCst) {
             return Err(HandlerError::new("Multi-agent Pi request handler is disposed"));
@@ -322,7 +322,7 @@ impl MultiAgentPiRequestHandler {
         params: Value,
         ctx: &ExtensionContext,
         signal: Option<CancellationToken>,
-        active_tool_call_id: Option<JsString>,
+        active_tool_call_id: Option<String>,
     ) -> Result<Value, HandlerError> {
         // A method name with unpaired surrogates matches no route, as in JavaScript.
         match method.to_utf8().as_deref() {

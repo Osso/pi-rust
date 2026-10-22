@@ -341,10 +341,7 @@ fn is_message_role(entry: &SessionEntry, role: &str) -> bool {
     matches!(entry, SessionEntry::Known(KnownSessionEntry::Message(message)) if message.message.role() == role)
 }
 
-fn find_active_tool_call_entry<'a>(
-    branch: &'a [SessionEntry],
-    active_tool_call_id: &JsString,
-) -> Option<&'a SessionEntry> {
+fn find_active_tool_call_entry<'a>(branch: &'a [SessionEntry], active_tool_call_id: &str) -> Option<&'a SessionEntry> {
     branch.iter().rev().find(|entry| {
         let SessionEntry::Known(KnownSessionEntry::Message(message)) = entry else {
             return false;
@@ -381,12 +378,12 @@ fn find_unresolved_turn_parent_id(branch: &[SessionEntry], active_tool_entry: &S
 
 fn resolve_inherited_leaf_selection(
     context: super::shared::SpawnContext,
-    active_tool_call_id: Option<&JsString>,
+    active_tool_call_id: Option<&str>,
     leaf_id: Option<&JsString>,
     branch: &[SessionEntry],
 ) -> Result<ForkEntrySelection, JsString> {
     if let Some(active_tool_call_id) = active_tool_call_id
-        && active_tool_call_id.trim().is_empty()
+        && pi_js_compat::string::js_trim(active_tool_call_id).is_empty()
     {
         return Err("Cannot inherit context: active tool call identity must be non-empty".into());
     }
@@ -463,7 +460,7 @@ fn create_child_session_manager(
         let parent_session_file = parent.session_file.clone().unwrap_or_default();
         let selection = resolve_inherited_leaf_selection(
             input.context,
-            input.active_tool_call_id.as_ref(),
+            input.active_tool_call_id.as_deref(),
             parent.leaf_id.as_ref(),
             &parent.branch,
         )?;

@@ -230,10 +230,7 @@ pub fn request_agent_steering(
                 agent_id: Some(current.id.clone().into()),
                 session_id: authority.target_session_id.into(),
             },
-            from_agent_id: binding
-                .actor_agent_id
-                .clone()
-                .unwrap_or_else(|| "supervisor".to_owned()),
+            from_agent_id: binding.actor_agent_id.clone().unwrap_or_else(|| "supervisor".into()),
             body: params.message.clone(),
             target_checkpoint: params.target_checkpoint,
             thread_id: None,

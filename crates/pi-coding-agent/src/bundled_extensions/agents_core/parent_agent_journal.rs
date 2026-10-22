@@ -24,7 +24,7 @@ pub trait ParentAgentJournalWriter {
 
 impl ParentAgentJournalWriter for ExtensionApi {
     fn append_entry(&self, custom_type: &str, data: Option<Value>) -> Result<(), HandlerError> {
-        ExtensionApi::append_entry(self, custom_type, data)
+        ExtensionApi::append_entry(self, &custom_type.into(), data)
     }
 }
 
@@ -54,7 +54,7 @@ impl JournalWriter {
 
 impl ParentAgentJournalWriter for JournalWriter {
     fn append_entry(&self, custom_type: &str, data: Option<Value>) -> Result<(), HandlerError> {
-        (self.append_entry)(custom_type, data)
+        (self.append_entry)(&custom_type.into(), data)
     }
 }
 

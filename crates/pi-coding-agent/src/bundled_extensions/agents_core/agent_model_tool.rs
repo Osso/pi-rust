@@ -1,5 +1,6 @@
 //! `extensions/agents-core/src/agent-model-tool.ts`.
 
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
@@ -46,10 +47,11 @@ pub fn resolve_live_agent_mutation_target(
 ) -> Result<Arc<dyn ViewedSessionMutationTarget>, HandlerError> {
     let agent = store
         .get_agent(agent_id)
-        .ok_or_else(|| HandlerError::new(format!("Agent not found: {agent_id}")))?;
+        .ok_or_else(|| HandlerError::new(js_format!("Agent not found: {}", agent_id)))?;
     if agent.agent_type == "background" {
-        return Err(HandlerError::new(format!(
-            "Agent {agent_id} is detached and not a live child session"
+        return Err(HandlerError::new(js_format!(
+            "Agent {} is detached and not a live child session",
+            agent_id
         )));
     }
     if !is_active_lifecycle(agent.lifecycle) {
@@ -61,10 +63,10 @@ pub fn resolve_live_agent_mutation_target(
         .expect("sessions")
         .get(agent_id)
         .cloned()
-        .ok_or_else(|| HandlerError::new(format!("Agent {agent_id} is not a live child session")))?;
+        .ok_or_else(|| HandlerError::new(js_format!("Agent {} is not a live child session", agent_id)))?;
     session
         .session_mutation_target()
-        .ok_or_else(|| HandlerError::new(format!("Agent {agent_id} does not support live session mutation")))
+        .ok_or_else(|| HandlerError::new(js_format!("Agent {} does not support live session mutation", agent_id)))
 }
 
 fn read_requested_model(params: &SetAgentModelParams) -> Result<Option<(&str, &str)>, HandlerError> {
@@ -121,9 +123,10 @@ pub async fn set_agent_model(
     }
     Ok(super::tool_results::tool_result(
         pi_js_compat::js_json::JsString::from(name)
-            + format!(
-                " ({}) now uses {description}, effort {}; applies from its next model request.",
+            + js_format!(
+                " ({}) now uses {}, effort {}; applies from its next model request.",
                 params.agent_id,
+                description,
                 level.as_str()
             ),
         details,
