@@ -1953,32 +1953,32 @@ impl UiShared {
 /// Requests crossing from extension threads into the TUI thread.
 enum UiRequest {
     SelectAgentView {
-        agent_id: String,
+        agent_id: JsString,
         respond: tokio::sync::oneshot::Sender<bool>,
     },
     Select {
-        title: String,
-        options: Vec<String>,
+        title: JsString,
+        options: Vec<JsString>,
         timeout: Option<f64>,
-        respond: tokio::sync::oneshot::Sender<Option<String>>,
+        respond: tokio::sync::oneshot::Sender<Option<JsString>>,
     },
     Confirm {
-        title: String,
-        message: String,
+        title: JsString,
+        message: JsString,
         timeout: Option<f64>,
         respond: tokio::sync::oneshot::Sender<bool>,
     },
     Input {
-        title: String,
-        placeholder: Option<String>,
+        title: JsString,
+        placeholder: Option<JsString>,
         timeout: Option<f64>,
         secret: bool,
-        respond: tokio::sync::oneshot::Sender<Option<String>>,
+        respond: tokio::sync::oneshot::Sender<Option<JsString>>,
     },
     Editor {
-        title: String,
-        prefill: Option<String>,
-        respond: tokio::sync::oneshot::Sender<Option<String>>,
+        title: JsString,
+        prefill: Option<JsString>,
+        respond: tokio::sync::oneshot::Sender<Option<JsString>>,
     },
     Notify {
         message: JsString,
@@ -1987,26 +1987,26 @@ enum UiRequest {
     RequestRender,
     RequestRenderForce,
     SetStatus {
-        key: String,
-        text: Option<String>,
+        key: JsString,
+        text: Option<JsString>,
     },
-    SetWorkingMessage(Option<String>),
+    SetWorkingMessage(Option<JsString>),
     SetWorkingVisible(bool),
     SetWorkingIndicator(Option<WorkingIndicatorOptions>),
-    SetHiddenThinkingLabel(Option<String>),
+    SetHiddenThinkingLabel(Option<JsString>),
     SetWidget {
-        key: String,
-        content: Option<Vec<String>>,
+        key: JsString,
+        content: Option<Vec<JsString>>,
         placement: WidgetPlacement,
     },
     SetWidgetComponent {
-        key: String,
+        key: JsString,
         content: Option<ExtensionUiComponentFactory>,
         placement: WidgetPlacement,
     },
-    SetTitle(String),
-    PasteToEditor(String),
-    SetEditorText(String),
+    SetTitle(JsString),
+    PasteToEditor(JsString),
+    SetEditorText(JsString),
     SetToolsExpanded(bool),
     SetFooter(Option<ExtensionUiFooterFactory>),
     SetDefaultFooter(Option<ExtensionUiFooterFactory>),
@@ -2014,7 +2014,7 @@ enum UiRequest {
     Custom {
         factory: ExtensionUiCustomFactory,
         options: Option<ExtensionUiCustomOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<Option<JsValue>, String>>,
+        respond: tokio::sync::oneshot::Sender<Result<Option<JsValue>, JsString>>,
     },
     AddTerminalInput {
         handler: TerminalInputHandler,
@@ -2030,17 +2030,17 @@ enum UiRequest {
         respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, JsString>>,
     },
     RuntimeFork {
-        entry_id: String,
+        entry_id: JsString,
         options: Option<crate::core::extensions::types::ForkOptions>,
         respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, JsString>>,
     },
     RuntimeNavigateTree {
-        entry_id: String,
+        entry_id: JsString,
         options: Option<crate::core::extensions::types::NavigateTreeOptions>,
         respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, JsString>>,
     },
     RuntimeSwitchSession {
-        path: String,
+        path: JsString,
         respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, JsString>>,
     },
     RuntimeReload {
@@ -2170,10 +2170,10 @@ impl InteractiveUiContext {
 impl ExtensionUiContext for InteractiveUiContext {
     fn select<'a>(
         &'a self,
-        title: &str,
-        options: &[String],
+        title: &JsString,
+        options: &[JsString],
         opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         let (respond, receiver) = tokio::sync::oneshot::channel();
         self.send(UiRequest::Select {
             title: title.to_owned(),
@@ -2181,15 +2181,15 @@ impl ExtensionUiContext for InteractiveUiContext {
             timeout: opts.and_then(|opts| opts.timeout),
             respond,
         });
-        Box::pin(async move { receiver.await.map_err(|error| error.to_string()) })
+        Box::pin(async move { receiver.await.map_err(|error| JsString::from(error.to_string())) })
     }
 
     fn confirm<'a>(
         &'a self,
-        title: &str,
-        message: &str,
+        title: &JsString,
+        message: &JsString,
         opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<bool, String>> {
+    ) -> BoxFuture<'a, Result<bool, JsString>> {
         let (respond, receiver) = tokio::sync::oneshot::channel();
         self.send(UiRequest::Confirm {
             title: title.to_owned(),
@@ -2197,24 +2197,24 @@ impl ExtensionUiContext for InteractiveUiContext {
             timeout: opts.and_then(|opts| opts.timeout),
             respond,
         });
-        Box::pin(async move { receiver.await.map_err(|error| error.to_string()) })
+        Box::pin(async move { receiver.await.map_err(|error| JsString::from(error.to_string())) })
     }
 
     fn input<'a>(
         &'a self,
-        title: &str,
-        placeholder: Option<&str>,
+        title: &JsString,
+        placeholder: Option<&JsString>,
         opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         let (respond, receiver) = tokio::sync::oneshot::channel();
         self.send(UiRequest::Input {
             title: title.to_owned(),
-            placeholder: placeholder.map(str::to_owned),
+            placeholder: placeholder.cloned(),
             timeout: opts.and_then(|opts| opts.timeout),
             secret: opts.and_then(|opts| opts.secret).unwrap_or(false),
             respond,
         });
-        Box::pin(async move { receiver.await.map_err(|error| error.to_string()) })
+        Box::pin(async move { receiver.await.map_err(|error| JsString::from(error.to_string())) })
     }
 
     fn notify(&self, message: &JsString, notify_type: Option<NotifyType>) {
@@ -2238,15 +2238,15 @@ impl ExtensionUiContext for InteractiveUiContext {
         })
     }
 
-    fn set_status(&self, key: &str, text: Option<&str>) {
+    fn set_status(&self, key: &JsString, text: Option<&JsString>) {
         self.send(UiRequest::SetStatus {
             key: key.to_owned(),
-            text: text.map(str::to_owned),
+            text: text.cloned(),
         });
     }
 
-    fn set_working_message(&self, message: Option<&str>) {
-        self.send(UiRequest::SetWorkingMessage(message.map(str::to_owned)));
+    fn set_working_message(&self, message: Option<&JsString>) {
+        self.send(UiRequest::SetWorkingMessage(message.cloned()));
     }
 
     fn set_working_visible(&self, visible: bool) {
@@ -2257,14 +2257,14 @@ impl ExtensionUiContext for InteractiveUiContext {
         self.send(UiRequest::SetWorkingIndicator(options.cloned()));
     }
 
-    fn set_hidden_thinking_label(&self, label: Option<&str>) {
-        self.send(UiRequest::SetHiddenThinkingLabel(label.map(str::to_owned)));
+    fn set_hidden_thinking_label(&self, label: Option<&JsString>) {
+        self.send(UiRequest::SetHiddenThinkingLabel(label.cloned()));
     }
 
-    fn set_widget(&self, key: &str, content: Option<&[String]>, options: Option<&ExtensionWidgetOptions>) {
+    fn set_widget(&self, key: &JsString, content: Option<&[JsString]>, options: Option<&ExtensionWidgetOptions>) {
         self.send(UiRequest::SetWidget {
             key: key.to_owned(),
-            content: content.map(<[String]>::to_vec),
+            content: content.map(<[JsString]>::to_vec),
             placement: options
                 .and_then(|options| options.placement)
                 .unwrap_or(WidgetPlacement::AboveEditor),
@@ -2273,7 +2273,7 @@ impl ExtensionUiContext for InteractiveUiContext {
 
     fn set_widget_component(
         &self,
-        key: &str,
+        key: &JsString,
         content: Option<ExtensionUiComponentFactory>,
         options: Option<&ExtensionWidgetOptions>,
     ) {
@@ -2302,29 +2302,29 @@ impl ExtensionUiContext for InteractiveUiContext {
         &'a self,
         factory: ExtensionUiCustomFactory,
         options: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsValue>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
         let (respond, receiver) = tokio::sync::oneshot::channel();
         self.send(UiRequest::Custom {
             factory,
             options,
             respond,
         });
-        Box::pin(async move { receiver.await.map_err(|error| error.to_string())? })
+        Box::pin(async move { receiver.await.map_err(|error| JsString::from(error.to_string()))? })
     }
 
-    fn set_title(&self, title: &str) {
+    fn set_title(&self, title: &JsString) {
         self.send(UiRequest::SetTitle(title.to_owned()));
     }
 
-    fn paste_to_editor(&self, text: &str) {
+    fn paste_to_editor(&self, text: &JsString) {
         self.send(UiRequest::PasteToEditor(text.to_owned()));
     }
 
-    fn set_editor_text(&self, text: &str) {
+    fn set_editor_text(&self, text: &JsString) {
         self.send(UiRequest::SetEditorText(text.to_owned()));
     }
 
-    fn get_editor_text(&self) -> String {
+    fn get_editor_text(&self) -> JsString {
         with_mode(self.id, |mode| mode.editor().borrow().get_expanded_text()).unwrap_or_default()
     }
 
@@ -2344,20 +2344,24 @@ impl ExtensionUiContext for InteractiveUiContext {
             .clone()
     }
 
-    fn editor<'a>(&'a self, title: &str, prefill: Option<&str>) -> BoxFuture<'a, Result<Option<String>, String>> {
+    fn editor<'a>(
+        &'a self,
+        title: &JsString,
+        prefill: Option<&JsString>,
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         let (respond, receiver) = tokio::sync::oneshot::channel();
         self.send(UiRequest::Editor {
             title: title.to_owned(),
-            prefill: prefill.map(str::to_owned),
+            prefill: prefill.cloned(),
             respond,
         });
-        Box::pin(async move { receiver.await.map_err(|error| error.to_string()) })
+        Box::pin(async move { receiver.await.map_err(|error| JsString::from(error.to_string())) })
     }
 
     fn get_all_themes(&self) -> Vec<ThemeInfo> {
         crate::modes::interactive::theme::get_available_themes_with_paths()
             .unwrap_or_else(|error| {
-                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string())
+                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message())
             })
             .into_iter()
             .map(|info| crate::core::extensions::types::ThemeInfo {
@@ -2471,7 +2475,7 @@ impl ExtensionUiTuiBackend for InteractiveUiTuiBackend {
 
 /// Extension widget content: string lines or a factory-built component.
 enum ExtensionWidget {
-    Lines(Vec<String>),
+    Lines(Vec<JsString>),
     Component(ComponentRef),
 }
 
@@ -2642,7 +2646,7 @@ enum WorkingLoaderView {
 }
 
 /// Sets the text of a mounted `Loader` component.
-fn set_loader_message(loader: &ComponentRef, message: impl Into<String>) {
+fn set_loader_message(loader: &ComponentRef, message: impl Into<JsString>) {
     if let Some(loader) = loader
         .borrow_mut()
         .as_any_mut()
@@ -2698,7 +2702,7 @@ pub struct InteractiveMode {
     signal_handlers: RefCell<Vec<tokio::task::JoinHandle<()>>>,
     tool_output_expanded: Cell<bool>,
     hide_thinking_block: Cell<bool>,
-    hidden_thinking_label: RefCell<String>,
+    hidden_thinking_label: RefCell<JsString>,
     is_bash_mode: Cell<bool>,
     streaming_component: RefCell<Option<ComponentRef>>,
     streaming_message: RefCell<Option<AssistantMessage>>,
@@ -2706,16 +2710,16 @@ pub struct InteractiveMode {
     executing_tool_names: RefCell<IndexMap<String, String>>,
     executing_tool_started_at: RefCell<IndexMap<String, f64>>,
     completed_tool_timings: RefCell<IndexMap<String, (f64, f64)>>,
-    extension_statuses: RefCell<IndexMap<String, String>>,
-    extension_widgets_above: RefCell<IndexMap<String, ExtensionWidget>>,
-    extension_widgets_below: RefCell<IndexMap<String, ExtensionWidget>>,
+    extension_statuses: RefCell<IndexMap<JsString, JsString>>,
+    extension_widgets_above: RefCell<IndexMap<JsString, ExtensionWidget>>,
+    extension_widgets_below: RefCell<IndexMap<JsString, ExtensionWidget>>,
     on_input_callback: RefCell<Option<InputCallback>>,
     last_status_spacer: RefCell<Option<ComponentRef>>,
     last_status_text: RefCell<Option<ComponentRef>>,
     last_sigint_time: Cell<f64>,
     last_escape_time: Cell<f64>,
-    working_message: RefCell<Option<String>>,
-    current_working_default_message: RefCell<String>,
+    working_message: RefCell<Option<JsString>>,
+    current_working_default_message: RefCell<JsString>,
     loading_animation: RefCell<Option<ComponentRef>>,
     working_loader_view: RefCell<Option<WorkingLoaderView>>,
     retry_loader: RefCell<Option<ComponentRef>>,
@@ -3012,7 +3016,7 @@ impl InteractiveMode {
             signal_handlers: RefCell::new(Vec::new()),
             tool_output_expanded: Cell::new(false),
             hide_thinking_block: Cell::new(hide_thinking_block),
-            hidden_thinking_label: RefCell::new("Thinking...".to_owned()),
+            hidden_thinking_label: RefCell::new("Thinking...".into()),
             is_bash_mode: Cell::new(false),
             streaming_component: RefCell::new(None),
             streaming_message: RefCell::new(None),
@@ -3029,7 +3033,7 @@ impl InteractiveMode {
             last_sigint_time: Cell::new(0.0),
             last_escape_time: Cell::new(0.0),
             working_message: RefCell::new(None),
-            current_working_default_message: RefCell::new("Thinking...".to_owned()),
+            current_working_default_message: RefCell::new("Thinking...".into()),
             loading_animation: RefCell::new(None),
             working_loader_view: RefCell::new(None),
             retry_loader: RefCell::new(None),
@@ -3081,7 +3085,7 @@ impl InteractiveMode {
 
         if let Some(slot) = mode.options.agent_view_selector_slot.as_ref() {
             let sender = mode.ui_sender.clone();
-            *slot.lock().expect("agent view selector") = Some(Arc::new(move |agent_id: &str| {
+            *slot.lock().expect("agent view selector") = Some(Arc::new(move |agent_id: &JsString| {
                 let sender = sender.clone();
                 let agent_id = agent_id.to_owned();
                 Box::pin(async move {
@@ -3210,7 +3214,7 @@ impl InteractiveMode {
     }
 
     /// `getWorkingLoaderMessage`.
-    fn get_working_loader_message(&self) -> String {
+    fn get_working_loader_message(&self) -> JsString {
         let Some(store) = self.multi_agent_store.as_ref() else {
             return self
                 .working_message
@@ -3229,18 +3233,19 @@ impl InteractiveMode {
             .get_agent(&selected_agent_id)
             .and_then(|agent| agent.current_activity)
         else {
-            return "Working...".to_owned();
+            return "Working...".into();
         };
         match activity {
             crate::core::multi_agent_store::AgentCurrentActivity::Thinking { started_at } => {
                 let started_at = pi_js_compat::date::date_parse(&started_at);
                 if started_at.is_nan() {
-                    return "Working...".to_owned();
+                    return "Working...".into();
                 }
                 format!(
                     "Thinking... {}",
                     format_elapsed_duration(self.now_millis() - started_at)
                 )
+                .into()
             }
             crate::core::multi_agent_store::AgentCurrentActivity::Tool {
                 started_at,
@@ -3250,7 +3255,7 @@ impl InteractiveMode {
             } => {
                 let started_at = pi_js_compat::date::date_parse(&started_at);
                 if started_at.is_nan() {
-                    return "Working...".to_owned();
+                    return "Working...".into();
                 }
                 self.get_tool_waiting_message(
                     &tool_name,
@@ -3276,11 +3281,17 @@ impl InteractiveMode {
     }
 
     /// `getToolWaitingMessage`.
-    fn get_tool_waiting_message(&self, tool_name: &str, started_at: Option<f64>, show_elapsed: bool) -> String {
+    fn get_tool_waiting_message(
+        &self,
+        tool_name: impl Into<JsString>,
+        started_at: Option<f64>,
+        show_elapsed: bool,
+    ) -> JsString {
+        let tool_name = tool_name.into();
         let base_message = if tool_name == "bash" {
-            "Waiting for command...".to_owned()
+            "Waiting for command...".into()
         } else {
-            format!("Waiting for tool: {tool_name}...")
+            pi_js_compat::js_format!("Waiting for tool: {}...", tool_name)
         };
         if !show_elapsed {
             return base_message;
@@ -3292,12 +3303,12 @@ impl InteractiveMode {
         if elapsed_ms < MIN_VISIBLE_ELAPSED_MS {
             return base_message;
         }
-        format!("{base_message} Elapsed: {}", format_elapsed_duration(elapsed_ms))
+        pi_js_compat::js_format!("{} Elapsed: {}", base_message, format_elapsed_duration(elapsed_ms))
     }
 
     /// `setDefaultWorkingMessage`.
-    fn set_default_working_message(&self, message: &str) {
-        *self.current_working_default_message.borrow_mut() = message.to_owned();
+    fn set_default_working_message(&self, message: impl Into<JsString>) {
+        *self.current_working_default_message.borrow_mut() = message.into();
         let has_loader = self.loading_animation.borrow().is_some();
         let has_override = self.working_message.borrow().is_some();
         let is_child_view = *self.working_loader_view.borrow() == Some(WorkingLoaderView::Child);
@@ -3616,12 +3627,12 @@ impl InteractiveMode {
     }
 
     /// `selectAgentViewFromBridge`.
-    pub fn select_agent_view_from_bridge(&self, agent_id: &str) -> bool {
+    pub fn select_agent_view_from_bridge(&self, agent_id: &JsString) -> bool {
         self.select_agent_view(agent_id)
     }
 
     /// `selectAgentView`.
-    fn select_agent_view(&self, agent_id: &str) -> bool {
+    fn select_agent_view(&self, agent_id: &JsString) -> bool {
         let Some(store) = self.multi_agent_store.as_ref() else {
             return false;
         };
@@ -3647,7 +3658,7 @@ impl InteractiveMode {
             return false;
         }
         if !self.open_child_agent_view(&selected) {
-            self.restore_previous_agent_selection(previous.as_deref());
+            self.restore_previous_agent_selection(previous.as_ref());
             return false;
         }
         self.loaded_resources_container.borrow_mut().clear();
@@ -3659,7 +3670,7 @@ impl InteractiveMode {
     /// `selectAgentSlot`.
     fn select_agent_slot(&self, slot_index: i64) -> bool {
         if slot_index == 0 {
-            return self.select_agent_view("main");
+            return self.select_agent_view(&"main".into());
         }
         let Some(store) = self.multi_agent_store.as_ref() else {
             return false;
@@ -3673,7 +3684,7 @@ impl InteractiveMode {
             }
             crate::core::multi_agent_store::ActiveAgentTargetSelectionResult::Ok(agent) => {
                 if !self.open_child_agent_view(&agent) {
-                    self.restore_previous_agent_selection(previous_selected_agent_id.as_deref());
+                    self.restore_previous_agent_selection(previous_selected_agent_id.as_ref());
                     return false;
                 }
                 self.loaded_resources_container.borrow_mut().clear();
@@ -3709,7 +3720,7 @@ impl InteractiveMode {
             self.ui.remove_input_listener(id);
         }
         let id = self.ui_id.get();
-        let listener_id = self.ui.add_input_listener(Rc::new(move |data: &str| {
+        let listener_id = self.ui.add_input_listener(Rc::new(move |data: &JsString| {
             let consumed = with_mode(id, |mode| {
                 AGENT_SLOT_KEYBINDINGS.into_iter().any(|(keybinding, slot_index)| {
                     mode.keybindings.matches(data, keybinding) && mode.select_agent_slot(slot_index)
@@ -3728,7 +3739,7 @@ impl InteractiveMode {
         self.agent_slot_input_listener.set(Some(listener_id));
     }
 
-    fn restore_previous_agent_selection(&self, agent_id: Option<&str>) {
+    fn restore_previous_agent_selection(&self, agent_id: Option<&JsString>) {
         let Some(store) = self.multi_agent_store.as_ref() else {
             return;
         };
@@ -4189,7 +4200,7 @@ impl InteractiveMode {
                 current.lifecycle,
                 AgentLifecycle::Completed | AgentLifecycle::Failed | AgentLifecycle::Aborted
             ) {
-                self.select_agent_view("main");
+                self.select_agent_view(&"main".into());
                 continue;
             }
             let transcript_path = current
@@ -5550,7 +5561,7 @@ impl InteractiveMode {
             ThemeColor::Border
         };
         let style: pi_tui::components::text::StyleFn =
-            Rc::new(move |text: &str| with_theme(|theme| theme.fg(color, text)));
+            Rc::new(move |text: &JsString| with_theme(|theme| theme.fg(color, text)));
         self.editor().borrow_mut().set_border_color(style);
     }
 
@@ -5582,7 +5593,7 @@ impl InteractiveMode {
     fn render_widget_container(
         &self,
         container: &Rc<RefCell<Container>>,
-        widgets: &IndexMap<String, ExtensionWidget>,
+        widgets: &IndexMap<JsString, ExtensionWidget>,
         spacer_when_empty: bool,
         leading_spacer: bool,
     ) {
@@ -5600,14 +5611,14 @@ impl InteractiveMode {
         for widget in widgets.values() {
             match widget {
                 ExtensionWidget::Lines(lines) => {
-                    container.add_child(component(Text::new(lines.join("\n"), 1, 0)));
+                    container.add_child(component(Text::new(JsString::join(lines, "\n"), 1, 0)));
                 }
                 ExtensionWidget::Component(widget) => container.add_child(Rc::clone(widget)),
             }
         }
     }
 
-    fn add_extension_widget(&self, key: &str, content: Option<ExtensionWidget>, placement: WidgetPlacement) {
+    fn add_extension_widget(&self, key: &JsString, content: Option<ExtensionWidget>, placement: WidgetPlacement) {
         self.extension_widgets_above.borrow_mut().shift_remove(key);
         self.extension_widgets_below.borrow_mut().shift_remove(key);
         let Some(content) = content else {
@@ -5624,8 +5635,8 @@ impl InteractiveMode {
         self.ui.request_render();
     }
 
-    fn string_widget_lines(content: &[String]) -> Vec<String> {
-        let mut lines: Vec<String> = content.iter().take(MAX_WIDGET_LINES).cloned().collect();
+    fn string_widget_lines(content: &[JsString]) -> Vec<JsString> {
+        let mut lines: Vec<JsString> = content.iter().take(MAX_WIDGET_LINES).cloned().collect();
         if content.len() > MAX_WIDGET_LINES {
             lines.push(with_theme(|theme| {
                 theme.fg(ThemeColor::Muted, "... (widget truncated)")
@@ -8910,7 +8921,7 @@ impl InteractiveMode {
         }
     }
 
-    async fn show_extension_selector(&self, title: &str, options: &[String]) -> Option<String> {
+    async fn show_extension_selector(&self, title: &JsString, options: &[JsString]) -> Option<JsString> {
         let (respond, receiver) = tokio::sync::oneshot::channel();
         let _ = self.ui_sender.send(UiRequest::Select {
             title: title.to_owned(),
@@ -8921,11 +8932,11 @@ impl InteractiveMode {
         receiver.await.ok().flatten()
     }
 
-    async fn show_extension_editor(&self, title: &str, prefill: Option<&str>) -> Option<String> {
+    async fn show_extension_editor(&self, title: &JsString, prefill: Option<&JsString>) -> Option<JsString> {
         let (respond, receiver) = tokio::sync::oneshot::channel();
         let _ = self.ui_sender.send(UiRequest::Editor {
             title: title.to_owned(),
-            prefill: prefill.map(str::to_owned),
+            prefill: prefill.cloned(),
             respond,
         });
         receiver.await.ok().flatten()
@@ -10177,7 +10188,7 @@ impl InteractiveMode {
                 let respond = Rc::new(RefCell::new(Some(respond)));
                 let select_respond = Rc::clone(&respond);
                 let mode = self.ui_id.get();
-                let on_select: Rc<dyn Fn(String)> = Rc::new(move |option| {
+                let on_select: Rc<dyn Fn(JsString)> = Rc::new(move |option| {
                     respond_once(&select_respond, Some(option));
                     with_mode(mode, |mode| mode.restore_editor());
                 });
@@ -10217,7 +10228,7 @@ impl InteractiveMode {
                 let respond = Rc::new(RefCell::new(Some(respond)));
                 let yes_respond = Rc::clone(&respond);
                 let mode = self.ui_id.get();
-                let on_select: Rc<dyn Fn(String)> = Rc::new(move |option| {
+                let on_select: Rc<dyn Fn(JsString)> = Rc::new(move |option| {
                     respond_once(&yes_respond, option == "Yes");
                     with_mode(mode, |mode| mode.restore_editor());
                 });
@@ -10228,8 +10239,8 @@ impl InteractiveMode {
                     with_mode(mode, |mode| mode.restore_editor());
                 });
                 let selector = ExtensionSelectorComponent::new(
-                    &format!("{title}\n{message}"),
-                    vec!["Yes".to_owned(), "No".to_owned()],
+                    &pi_js_compat::js_format!("{}\n{}", title, message),
+                    vec!["Yes".into(), "No".into()],
                     on_select,
                     on_cancel,
                     ExtensionSelectorOptions {
@@ -10253,7 +10264,7 @@ impl InteractiveMode {
                 let respond = Rc::new(RefCell::new(Some(respond)));
                 let submit_respond = Rc::clone(&respond);
                 let mode = self.ui_id.get();
-                let on_submit: Rc<dyn Fn(String)> = Rc::new(move |value| {
+                let on_submit: Rc<dyn Fn(JsString)> = Rc::new(move |value| {
                     respond_once(&submit_respond, Some(value));
                     with_mode(mode, |mode| mode.restore_editor());
                 });
@@ -10265,7 +10276,7 @@ impl InteractiveMode {
                 });
                 let input = ExtensionInputComponent::new(
                     &title,
-                    placeholder.as_deref(),
+                    placeholder.as_ref(),
                     on_submit,
                     on_cancel,
                     ExtensionInputOptions {
@@ -10287,7 +10298,7 @@ impl InteractiveMode {
                 let respond = Rc::new(RefCell::new(Some(respond)));
                 let submit_respond = Rc::clone(&respond);
                 let mode = self.ui_id.get();
-                let on_submit: Rc<dyn Fn(String)> = Rc::new(move |value| {
+                let on_submit: Rc<dyn Fn(JsString)> = Rc::new(move |value| {
                     respond_once(&submit_respond, Some(value));
                     with_mode(mode, |mode| mode.restore_editor());
                 });
@@ -10301,11 +10312,11 @@ impl InteractiveMode {
                     Rc::new(InteractiveTuiHost(Rc::clone(&self.ui))),
                     self.keybindings.clone(),
                     &title,
-                    prefill.as_deref(),
+                    prefill.as_ref(),
                     on_submit,
                     on_cancel,
                     EditorOptions::default(),
-                    Some(self.settings(|settings| settings.get_external_editor_command())),
+                    Some(self.settings(|settings| settings.get_external_editor_command()).into()),
                 );
                 self.show_selector(component(editor));
             }
@@ -10322,7 +10333,7 @@ impl InteractiveMode {
                 } else {
                     self.extension_statuses.borrow_mut().shift_remove(&key);
                 }
-                self.footer_data_provider.set_extension_status(&key, text.as_deref());
+                self.footer_data_provider.set_extension_status(&key, text.as_ref());
                 self.footer.borrow_mut().invalidate();
                 self.ui.request_render();
             }
@@ -10336,7 +10347,7 @@ impl InteractiveMode {
             UiRequest::SetWorkingVisible(visible) => self.set_working_visible(visible),
             UiRequest::SetWorkingIndicator(options) => self.set_working_indicator(options),
             UiRequest::SetHiddenThinkingLabel(label) => {
-                *self.hidden_thinking_label.borrow_mut() = label.unwrap_or_else(|| "Thinking...".to_owned());
+                *self.hidden_thinking_label.borrow_mut() = label.unwrap_or_else(|| "Thinking...".into());
                 self.ui.request_render();
             }
             UiRequest::SetWidget {
@@ -10365,7 +10376,7 @@ impl InteractiveMode {
             UiRequest::PasteToEditor(text) => {
                 self.editor()
                     .borrow_mut()
-                    .handle_input(&format!("\x1b[200~{text}\x1b[201~"));
+                    .handle_input(&pi_js_compat::js_format!("\x1b[200~{}\x1b[201~", text));
                 self.ui.request_render();
             }
             UiRequest::SetEditorText(text) => {
@@ -10635,7 +10646,7 @@ impl InteractiveMode {
         &self,
         factory: LocalExtensionUiCustomFactory,
         options: Option<ExtensionUiCustomOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<Option<JsValue>, String>>,
+        respond: tokio::sync::oneshot::Sender<Result<Option<JsValue>, JsString>>,
     ) {
         let context = self.extension_factory_context();
         let respond = Arc::new(std::sync::Mutex::new(Some(respond)));
@@ -16004,5 +16015,65 @@ mod lossless_preview_tests {
             format_follow_up_preview(&input),
             format!("Follow-up from helper: {}�…", "x".repeat(49))
         );
+    }
+}
+
+#[cfg(test)]
+mod lossless_ui_bridge_tests {
+    use super::*;
+    #[test]
+    fn native_extension_ui_bridge_roundtrips_source_units() {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let context = InteractiveUiContext {
+            id: 0,
+            sender,
+            shared: Arc::new(UiShared::new()),
+        };
+        let key = JsString::from_utf16(vec![0xd800]);
+        let text = JsString::from_utf16(vec![0xdc00]);
+        context.set_status(&key, Some(&text));
+        match receiver.recv().unwrap() {
+            UiRequest::SetStatus {
+                key: actual,
+                text: Some(value),
+            } => {
+                assert_eq!(actual, key);
+                assert_eq!(value, text);
+            }
+            _ => panic!("status not delivered"),
+        }
+        context.set_widget(&key, Some(&[text.clone()]), None);
+        match receiver.recv().unwrap() {
+            UiRequest::SetWidget {
+                key: actual,
+                content: Some(lines),
+                ..
+            } => {
+                assert_eq!(actual, key);
+                assert_eq!(lines, vec![text.clone()]);
+            }
+            _ => panic!("widget not delivered"),
+        }
+        context.set_title(&text);
+        match receiver.recv().unwrap() {
+            UiRequest::SetTitle(value) => assert_eq!(value, text),
+            _ => panic!("title not delivered"),
+        }
+        let selected = context.select(&key, &[text.clone()], None);
+        match receiver.recv().unwrap() {
+            UiRequest::Select {
+                title,
+                options,
+                respond,
+                ..
+            } => {
+                assert_eq!(title, key);
+                assert_eq!(options, vec![text.clone()]);
+                respond.send(Some(text.clone())).unwrap();
+            }
+            _ => panic!("selection not delivered"),
+        }
+        let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        assert_eq!(runtime.block_on(selected).unwrap(), Some(text));
     }
 }
