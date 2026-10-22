@@ -1,8 +1,10 @@
 //! Incrementally tracks streaming output with bounded memory.
 
+use crate::utils::paths::node_join;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::fs::File;
 use std::io::{self, Write};
-use std::path::PathBuf;
 
 use super::truncate::{
     DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, TruncationOptions, TruncationResult, truncate_tail,
@@ -16,7 +18,7 @@ const REPLACEMENT_CHARACTER: char = '\u{FFFD}';
 pub struct OutputAccumulatorOptions {
     pub max_lines: usize,
     pub max_bytes: usize,
-    pub temp_file_prefix: String,
+    pub temp_file_prefix: JsString,
 }
 
 impl Default for OutputAccumulatorOptions {
@@ -24,7 +26,7 @@ impl Default for OutputAccumulatorOptions {
         Self {
             max_lines: DEFAULT_MAX_LINES,
             max_bytes: DEFAULT_MAX_BYTES,
-            temp_file_prefix: DEFAULT_TEMP_FILE_PREFIX.to_owned(),
+            temp_file_prefix: DEFAULT_TEMP_FILE_PREFIX.into(),
         }
     }
 }
@@ -32,9 +34,9 @@ impl Default for OutputAccumulatorOptions {
 /// One display snapshot of the accumulated output.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutputSnapshot {
-    pub content: String,
+    pub content: JsString,
     pub truncation: TruncationResult,
-    pub full_output_path: Option<String>,
+    pub full_output_path: Option<JsString>,
 }
 
 /// Snapshot options.
@@ -51,7 +53,7 @@ pub struct OutputAccumulator {
     max_rolling_bytes: usize,
     decoder: Utf8StreamDecoder,
     raw_chunks: Vec<Vec<u8>>,
-    tail_text: String,
+    tail_text: JsString,
     tail_bytes: usize,
     tail_starts_at_line_boundary: bool,
     total_raw_bytes: usize,
@@ -61,8 +63,8 @@ pub struct OutputAccumulator {
     current_line_bytes: usize,
     has_open_line: bool,
     finished: bool,
-    configured_temp_file_path: PathBuf,
-    temp_file_path: Option<PathBuf>,
+    configured_temp_file_path: JsString,
+    temp_file_path: Option<JsString>,
     temp_file: Option<File>,
 }
 
@@ -74,14 +76,14 @@ impl OutputAccumulator {
     }
 
     /// Creates an accumulator that persists full output to `temp_file_path`.
-    pub fn new_with_temp_file_path(options: OutputAccumulatorOptions, temp_file_path: impl Into<PathBuf>) -> Self {
+    pub fn new_with_temp_file_path(options: OutputAccumulatorOptions, temp_file_path: impl Into<JsString>) -> Self {
         Self {
             max_lines: options.max_lines,
             max_bytes: options.max_bytes,
             max_rolling_bytes: (options.max_bytes * 2).max(1),
             decoder: Utf8StreamDecoder::new(),
             raw_chunks: Vec::new(),
-            tail_text: String::new(),
+            tail_text: JsString::default(),
             tail_bytes: 0,
             tail_starts_at_line_boundary: true,
             total_raw_bytes: 0,
@@ -107,7 +109,7 @@ impl OutputAccumulator {
 
         self.total_raw_bytes += data.len();
         let decoded = self.decoder.decode(data);
-        self.append_decoded_text(&decoded);
+        self.append_decoded_text(JsString::from(decoded));
 
         if self.temp_file.is_some() || self.should_use_temp_file() {
             self.ensure_temp_file();
@@ -124,7 +126,7 @@ impl OutputAccumulator {
         }
         self.finished = true;
         let decoded = self.decoder.finish();
-        self.append_decoded_text(&decoded);
+        self.append_decoded_text(JsString::from(decoded));
         if self.should_use_temp_file() {
             self.ensure_temp_file();
         }
@@ -164,15 +166,9 @@ impl OutputAccumulator {
         }
 
         OutputSnapshot {
-            content: truncation
-                .content
-                .to_utf8()
-                .expect("decoded process output remains UTF-8"),
+            content: truncation.content.clone(),
             truncation,
-            full_output_path: self
-                .temp_file_path
-                .as_deref()
-                .map(|path| path.to_string_lossy().into_owned()),
+            full_output_path: self.temp_file_path.clone(),
         }
     }
 
@@ -189,29 +185,29 @@ impl OutputAccumulator {
         self.current_line_bytes
     }
 
-    fn append_decoded_text(&mut self, text: &str) {
+    fn append_decoded_text(&mut self, text: JsString) {
         if text.is_empty() {
             return;
         }
 
-        let bytes = text.len();
+        let bytes = encode_node_utf8(&text).len();
         self.total_decoded_bytes += bytes;
-        self.tail_text.push_str(text);
+        self.tail_text.push_str(&text);
         self.tail_bytes += bytes;
         if self.tail_bytes > self.max_rolling_bytes * 2 {
             self.trim_tail();
         }
 
-        let newlines = text.matches('\n').count();
-        match text.rfind('\n') {
+        let newlines = text.units().iter().filter(|unit| **unit == 0x0a).count();
+        match text.units().iter().rposition(|unit| *unit == 0x0a) {
             None => {
                 self.current_line_bytes += bytes;
                 self.has_open_line = true;
             }
             Some(last_newline) => {
                 self.completed_lines += newlines;
-                let tail = &text[last_newline + 1..];
-                self.current_line_bytes = tail.len();
+                let tail = text.slice(last_newline + 1, text.len());
+                self.current_line_bytes = encode_node_utf8(&tail).len();
                 self.has_open_line = !tail.is_empty();
             }
         }
@@ -219,7 +215,8 @@ impl OutputAccumulator {
     }
 
     fn trim_tail(&mut self) {
-        let buffer = self.tail_text.as_bytes();
+        let encoded = encode_node_utf8(&self.tail_text);
+        let buffer = encoded.as_bytes();
         if buffer.len() <= self.max_rolling_bytes {
             self.tail_bytes = buffer.len();
             return;
@@ -233,17 +230,17 @@ impl OutputAccumulator {
         if start > 0 {
             self.tail_starts_at_line_boundary = buffer[start - 1] == b'\n';
         }
-        self.tail_text = String::from_utf8_lossy(&buffer[start..]).into_owned();
-        self.tail_bytes = self.tail_text.len();
+        self.tail_text = String::from_utf8_lossy(&buffer[start..]).into_owned().into();
+        self.tail_bytes = encode_node_utf8(&self.tail_text).len();
     }
 
-    fn snapshot_text(&self) -> String {
+    fn snapshot_text(&self) -> JsString {
         if self.tail_starts_at_line_boundary {
             return self.tail_text.clone();
         }
 
         match self.tail_text.find('\n') {
-            Some(first_newline) => self.tail_text[first_newline + 1..].to_owned(),
+            Some(first_newline) => self.tail_text.slice(first_newline + 1, self.tail_text.len()),
             None => self.tail_text.clone(),
         }
     }
@@ -259,7 +256,7 @@ impl OutputAccumulator {
             return;
         }
         let path = self.configured_temp_file_path.clone();
-        self.temp_file = File::create(&path).ok();
+        self.temp_file = File::create(encode_node_utf8(&path)).ok();
         self.temp_file_path = Some(path);
         let chunks = std::mem::take(&mut self.raw_chunks);
         for chunk in chunks {
@@ -274,9 +271,12 @@ impl OutputAccumulator {
     }
 }
 
-fn default_temp_file_path(prefix: &str) -> PathBuf {
+fn default_temp_file_path(prefix: &JsString) -> JsString {
     let id = unique_id();
-    std::env::temp_dir().join(format!("{prefix}-{id:016x}.log"))
+    node_join(
+        std::env::temp_dir().to_string_lossy().into_owned(),
+        js_format!("{}-{}.log", prefix, format!("{id:016x}")),
+    )
 }
 
 fn unique_id() -> u64 {
