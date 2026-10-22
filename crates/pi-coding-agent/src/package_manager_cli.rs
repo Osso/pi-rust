@@ -103,7 +103,7 @@ pub enum PackageAction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandOutcome {
     pub stdout: Vec<String>,
-    pub stderr: Vec<String>,
+    pub stderr: Vec<pi_js_compat::js_json::JsString>,
     pub exit_code: Option<i32>,
     pub action: Option<PackageAction>,
     pub project_trust_override: Option<bool>,
@@ -844,7 +844,7 @@ pub fn report_project_trust_warnings_lines(warnings: &[String]) -> Vec<String> {
 const MODEL_CATALOG_REFRESH_TIMEOUT_MS: u64 = 15_000;
 
 /// `refreshModelCatalogs`.
-pub async fn refresh_model_catalogs(agent_dir: &str) -> Result<(), String> {
+pub async fn refresh_model_catalogs(agent_dir: &str) -> Result<(), pi_js_compat::js_json::JsString> {
     let signal = CancellationToken::new();
     let timeout_signal = signal.clone();
     let timer = tokio::spawn(async move {
@@ -856,7 +856,10 @@ pub async fn refresh_model_catalogs(agent_dir: &str) -> Result<(), String> {
     result
 }
 
-async fn refresh_model_catalogs_inner(agent_dir: &str, signal: CancellationToken) -> Result<(), String> {
+async fn refresh_model_catalogs_inner(
+    agent_dir: &str,
+    signal: CancellationToken,
+) -> Result<(), pi_js_compat::js_json::JsString> {
     let agent_dir_path = std::path::Path::new(agent_dir);
     let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         auth_path: Some(agent_dir_path.join("auth.json").display().to_string()),
@@ -866,7 +869,7 @@ async fn refresh_model_catalogs_inner(agent_dir: &str, signal: CancellationToken
         ..Default::default()
     })
     .await
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| error.message())?;
     let result = model_runtime
         .refresh(pi_ai::models::ModelsRefreshOptions {
             allow_network: Some(true),
@@ -875,22 +878,27 @@ async fn refresh_model_catalogs_inner(agent_dir: &str, signal: CancellationToken
             ..Default::default()
         })
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.message())?;
     model_catalog_refresh_outcome(result)
 }
 
 /// Post-processing of a catalog refresh: timeout, provider errors, success.
-pub fn model_catalog_refresh_outcome(result: pi_ai::models::ModelsRefreshResult) -> Result<(), String> {
+pub fn model_catalog_refresh_outcome(
+    result: pi_ai::models::ModelsRefreshResult,
+) -> Result<(), pi_js_compat::js_json::JsString> {
     if result.aborted {
-        return Err("Model catalog refresh timed out.".to_owned());
+        return Err("Model catalog refresh timed out.".into());
     }
     if !result.errors.is_empty() {
-        let details: Vec<String> = result
+        let details: Vec<pi_js_compat::js_json::JsString> = result
             .errors
             .iter()
-            .map(|(provider, error)| format!("{provider}: {}", error.message))
+            .map(|(provider, error)| pi_js_compat::js_json::JsString::from(provider.as_str()) + ": " + &error.message)
             .collect();
-        return Err(format!("Could not refresh model catalogs: {}", details.join("; ")));
+        return Err(
+            pi_js_compat::js_json::JsString::from("Could not refresh model catalogs: ")
+                + pi_js_compat::js_json::JsString::join(details, "; "),
+        );
     }
     Ok(())
 }
@@ -1191,7 +1199,10 @@ pub trait PackageCommandEffects {
         &'a self,
         options: CreateCommandSettingsOptions,
     ) -> LocalBoxFuture<'a, Result<CommandSettings, String>>;
-    fn refresh_model_catalogs<'a>(&'a self, agent_dir: &'a str) -> LocalBoxFuture<'a, Result<(), String>>;
+    fn refresh_model_catalogs<'a>(
+        &'a self,
+        agent_dir: &'a str,
+    ) -> LocalBoxFuture<'a, Result<(), pi_js_compat::js_json::JsString>>;
     fn latest_release<'a>(&'a self) -> LocalBoxFuture<'a, Result<LatestPiRelease, String>>;
     fn run_self_update<'a>(&'a self, command: &'a config::SelfUpdateCommand) -> LocalBoxFuture<'a, Result<(), String>>;
     fn select_config<'a>(&'a self, request: SelectConfigRequest) -> LocalBoxFuture<'a, Result<(), String>>;
@@ -1244,7 +1255,9 @@ pub async fn execute_package_command(
         match effects.refresh_model_catalogs(&effects.agent_dir()).await {
             Ok(()) => outcome.stdout.push(chalk_out.green("Model catalogs refreshed")),
             Err(message) => {
-                outcome.stderr.push(chalk_err.red(&format!("Error: {message}")));
+                outcome
+                    .stderr
+                    .push(chalk_err.red(pi_js_compat::js_json::JsString::from("Error: ") + message));
                 outcome.exit_code = Some(1);
             }
         }
@@ -1618,7 +1631,10 @@ impl PackageCommandEffects for DefaultPackageCommandEffects {
         Box::pin(async move { create_command_settings_manager(options, self.extensions_loader.as_ref()).await })
     }
 
-    fn refresh_model_catalogs<'a>(&'a self, agent_dir: &'a str) -> LocalBoxFuture<'a, Result<(), String>> {
+    fn refresh_model_catalogs<'a>(
+        &'a self,
+        agent_dir: &'a str,
+    ) -> LocalBoxFuture<'a, Result<(), pi_js_compat::js_json::JsString>> {
         Box::pin(refresh_model_catalogs(agent_dir))
     }
 

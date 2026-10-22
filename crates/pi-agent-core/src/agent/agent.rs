@@ -528,7 +528,7 @@ impl Agent {
         self.state_lock().pending_tool_calls.clone()
     }
 
-    pub fn error_message(&self) -> Option<String> {
+    pub fn error_message(&self) -> Option<JsString> {
         self.state_lock().error_message.clone()
     }
 
@@ -801,7 +801,7 @@ impl Agent {
         } else {
             StopReason::Error
         };
-        message.error_message = Some(error.to_string());
+        message.error_message = Some(error.message().clone());
         AgentMessage::Assistant(Box::new(message))
     }
 

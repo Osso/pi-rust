@@ -41,7 +41,7 @@ impl BranchSummaryRole {
 pub struct BranchSummaryMessage {
     pub role: BranchSummaryRole,
     pub summary: JsString,
-    pub from_id: String,
+    pub from_id: JsString,
     pub timestamp: f64,
 }
 
@@ -278,7 +278,7 @@ fn timestamp_field(object: &JsObject) -> i64 {
 }
 
 /// Build the custom `branchSummary` message for a branch summary entry.
-pub fn create_branch_summary_message(summary: impl Into<JsString>, from_id: &str, timestamp: i64) -> AgentMessage {
+pub fn create_branch_summary_message(summary: impl Into<JsString>, from_id: &JsString, timestamp: i64) -> AgentMessage {
     let mut message = JsObject::new();
     message.insert("role".into(), Value::String("branchSummary".into()));
     message.insert("summary".into(), Value::String(summary.into()));
@@ -324,7 +324,7 @@ pub fn create_compaction_summary_message(
 
 /// Build the custom `custom` message for an application-defined message.
 pub fn create_custom_message(
-    custom_type: &str,
+    custom_type: &JsString,
     content: CustomMessageContent,
     display: bool,
     details: Option<Value>,
