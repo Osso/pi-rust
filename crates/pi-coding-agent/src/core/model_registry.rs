@@ -154,11 +154,12 @@ impl ModelRegistry {
             .await
     }
 
-    pub async fn get_api_key_for_provider(&self, provider: &str) -> Result<Option<JsString>, ResolveError> {
-        Ok(self
-            .get_provider_auth(provider)
-            .await?
-            .and_then(|resolution| resolution.auth.api_key))
+    pub async fn get_api_key_for_provider(&self, provider: &str) -> Option<JsString> {
+        self.get_provider_auth(provider)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|resolution| resolution.auth.api_key)
     }
 
     pub async fn resolve_provider_auth(&self, provider: &str) -> Result<Option<AuthResult>, ResolveError> {

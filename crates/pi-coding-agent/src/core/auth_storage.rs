@@ -440,7 +440,7 @@ struct SourceAuthState {
 pub struct AuthStatus {
     pub configured: bool,
     pub source: Option<String>,
-    pub label: Option<String>,
+    pub label: Option<JsString>,
 }
 #[derive(Clone)]
 pub struct AuthStorage {
@@ -535,7 +535,7 @@ impl AuthStorage {
             return AuthStatus {
                 configured: false,
                 source: Some("environment".into()),
-                label: Some(label),
+                label: Some(label.into()),
             };
         }
         AuthStatus {
