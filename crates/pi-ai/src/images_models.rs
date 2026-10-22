@@ -6,8 +6,8 @@ use tokio::sync::{Mutex as AsyncMutex, Notify};
 use tokio::task::JoinSet;
 
 use crate::auth::{
-    AuthContext, AuthResolutionOverrides, AuthResult, CredentialStore, ModelsError, ModelsErrorCode, ProviderAuth,
-    ResolveError, default_provider_auth_context, resolve_provider_auth,
+    AuthContext, AuthModel, AuthResolutionOverrides, AuthResult, CredentialStore, ModelsError, ModelsErrorCode,
+    ProviderAuth, ResolveError, default_provider_auth_context, resolve_provider_auth, resolve_provider_status_auth,
 };
 use crate::models::CreateModelsOptions;
 use crate::request::{BoxFuture, CallbackError, ImagesOptions, ProviderImages, now_millis};
@@ -184,7 +184,7 @@ impl ImagesModels for ImagesModelsCollection {
             let Some(provider) = provider else {
                 return Ok(None);
             };
-            resolve_provider_auth(provider.id(), provider.auth(), credentials, auth_context, overrides).await
+            resolve_provider_status_auth(provider.id(), provider.auth(), credentials, auth_context, overrides).await
         })
     }
 
@@ -193,7 +193,24 @@ impl ImagesModels for ImagesModelsCollection {
         model: &ImagesModel,
         overrides: AuthResolutionOverrides,
     ) -> BoxFuture<'static, Result<Option<AuthResult>, ResolveError>> {
-        self.get_auth(&model.provider, overrides)
+        let provider = self.inner.provider(&model.provider);
+        let model = model.clone();
+        let credentials = Arc::clone(&self.inner.credentials);
+        let context = Arc::clone(&self.inner.auth_context);
+        Box::pin(async move {
+            let Some(provider) = provider else {
+                return Ok(None);
+            };
+            resolve_provider_auth(
+                provider.id(),
+                provider.auth(),
+                AuthModel::Images(model),
+                credentials,
+                context,
+                overrides,
+            )
+            .await
+        })
     }
 
     fn generate_images(
@@ -209,7 +226,7 @@ impl ImagesModels for ImagesModelsCollection {
             let Some(provider) = provider else {
                 return unknown_provider_result(&model);
             };
-            let resolution = resolve_auth_for_request(&provider, credentials, auth_context, &options).await;
+            let resolution = resolve_auth_for_request(&provider, &model, credentials, auth_context, &options).await;
             let resolution = match resolution {
                 Ok(resolution) => resolution,
                 Err(error) => return error_result(&model, error.to_string()),
@@ -236,6 +253,7 @@ fn unknown_provider_result(model: &ImagesModel) -> AssistantImages {
 
 async fn resolve_auth_for_request(
     provider: &Arc<dyn ImagesProvider>,
+    model: &ImagesModel,
     credentials: Arc<dyn CredentialStore>,
     auth_context: Arc<dyn AuthContext>,
     options: &ImagesOptions,
@@ -243,6 +261,7 @@ async fn resolve_auth_for_request(
     resolve_provider_auth(
         provider.id(),
         provider.auth(),
+        AuthModel::Images(model.clone()),
         credentials,
         auth_context,
         AuthResolutionOverrides {

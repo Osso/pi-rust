@@ -1,5 +1,11 @@
 # auth types traceability
 
+## Q4 common-pin status
+
+Partial. Frozen `auth/types.ts:148–158` requires the chat/image model on every API-key resolve input. `AuthModel::{Chat,Images}` now models that union; request entrypoints supply the actual requested model (chat/image actual-import oracle tests). `ApiKeyResolveInput.model: None` is ONLY the user-approved Q15 provider-ID status/refresh gap, documented at definition; no fabricated representative model.
+
+Current proof: models request-model test1, images_models9, auth17 GREEN; revision `56d41700` + slice, ledger `/tmp/pi-rust-repin-delta-ai/ledger.md`. Remaining old-only list/check/operation-option/OAuth display flags/Info event interfaces still require deletion. The historical representation/tests below are not common-pin parity for those exports. [Contract](../../specs/auth-resolution.md).
+
 Source: `packages/ai/src/auth/types.ts` → `crates/pi-ai/src/auth/types.rs`.
 Tests: `crates/pi-ai/tests/auth.rs`.
 

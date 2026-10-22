@@ -129,7 +129,7 @@ fn api_key() -> Value {
 }
 
 #[tokio::test]
-async fn preserves_content_from_content_block_start_events() {
+async fn frozen_source_discards_initial_text_thinking_and_signature() {
     let events = vec![
         event(
             "message_start",
@@ -180,9 +180,9 @@ async fn preserves_content_from_content_block_start_events() {
     assert_eq!(
         result["content"],
         json!([
-            {"type": "text", "text": "Initial text plus delta"},
-            {"type": "thinking", "thinking": "Initial thinking plus delta",
-             "thinkingSignature": "initial signature plus delta"}
+            {"type": "text", "text": " plus delta"},
+            {"type": "thinking", "thinking": " plus delta",
+             "thinkingSignature": " plus delta"}
         ])
     );
     assert_eq!(result["stopReason"], json!("stop"));
@@ -260,7 +260,7 @@ async fn preserves_refusal_and_sensitive_stop_reasons() {
     )
     .await;
     assert_eq!(result["stopReason"], json!("error"));
-    assert_eq!(result["rawStopReason"], json!("refusal"));
+    assert!(result.get("rawStopReason").is_none());
     assert_eq!(result["errorMessage"], json!(refusal));
 
     let sensitive_events = vec![
@@ -283,7 +283,7 @@ async fn preserves_refusal_and_sensitive_stop_reasons() {
     )
     .await;
     assert_eq!(result["stopReason"], json!("error"));
-    assert_eq!(result["rawStopReason"], json!("sensitive"));
+    assert!(result.get("rawStopReason").is_none());
     assert_eq!(result["errorMessage"], json!("Provider stopped with: sensitive"));
 }
 
@@ -888,49 +888,6 @@ async fn images_are_sent_as_base64_blocks() {
 }
 
 #[tokio::test]
-async fn tool_references_default_by_model_family() {
-    let tools = json!([
-        {"name": "base_tool", "description": "base", "parameters": {"type": "object"}},
-        {"name": "late_tool", "description": "late", "parameters": {"type": "object"}}
-    ]);
-    let messages = json!([
-        user(json!("use base")),
-        {"role": "assistant", "content": [
-            {"type": "toolCall", "id": "call_1", "name": "base_tool", "arguments": {}}
-        ], "api": "anthropic-messages", "provider": "anthropic", "model": "claude-opus-4-5",
-         "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
-                   "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}},
-         "stopReason": "toolUse", "timestamp": 2},
-        {"role": "toolResult", "toolCallId": "call_1", "toolName": "base_tool",
-         "content": [{"type": "text", "text": "done"}], "isError": false, "timestamp": 3,
-         "addedToolNames": ["late_tool"]},
-        user(json!("tail"))
-    ]);
-
-    for (provider, id, expected_deferred) in [
-        ("anthropic", "claude-opus-4-5", true),
-        ("anthropic", "claude-sonnet-4-6", true),
-        ("anthropic", "claude-fable-5", true),
-        ("anthropic", "claude-haiku-4-5", false),
-        ("vendor", "claude-opus-4-5", false),
-    ] {
-        let (_events, _result, requests) = run_stream(
-            model(provider, id, None),
-            context(messages.clone(), None, Some(tools.clone())),
-            json!({"apiKey": "test-key", "cacheRetention": "none"}),
-            vec![sse_response(sse(&minimal_events(Some(json!({
-                "input_tokens": 1, "output_tokens": 1
-            })))))],
-            None,
-        )
-        .await;
-        let body: Value = serde_json::from_str(requests[0]["body"].as_str().expect("body")).expect("json");
-        let deferred = body["tools"][1]["defer_loading"].as_bool().unwrap_or(false);
-        assert_eq!(deferred, expected_deferred, "{provider}/{id}");
-    }
-}
-
-#[tokio::test]
 async fn stop_reason_mapping_covers_provider_values() {
     for (provider_reason, expected) in [
         ("end_turn", "stop"),
@@ -959,7 +916,7 @@ async fn stop_reason_mapping_covers_provider_values() {
         )
         .await;
         assert_eq!(result["stopReason"], json!(expected), "{provider_reason}");
-        assert_eq!(result["rawStopReason"], json!(provider_reason));
+        assert!(result.get("rawStopReason").is_none());
     }
 
     let events = vec![

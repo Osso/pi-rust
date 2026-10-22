@@ -52,6 +52,30 @@ fn anthropic_provider_matches_frozen_module() {
     }
 }
 
+#[test]
+fn kimi_provider_matches_frozen_without_subscription_oauth() {
+    let provider = pi_ai::providers::kimi_coding::kimi_coding_provider();
+    let mut oracle = oracle::TsOracle::spawn("provider-module-oracle.ts", "packages/ai/src/providers/kimi-coding.ts");
+    assert_eq!(
+        provider_descriptor(provider.as_ref()),
+        oracle.request(&json!({
+            "factory": "kimiCodingProvider", "operation": "describe"
+        }))
+    );
+}
+
+#[test]
+fn xai_provider_matches_frozen_without_subscription_oauth() {
+    let provider = pi_ai::providers::xai::xai_provider();
+    let mut oracle = oracle::TsOracle::spawn("provider-module-oracle.ts", "packages/ai/src/providers/xai.ts");
+    assert_eq!(
+        provider_descriptor(provider.as_ref()),
+        oracle.request(&json!({
+            "factory": "xaiProvider", "operation": "describe"
+        }))
+    );
+}
+
 fn provider_descriptor(provider: &dyn Provider) -> Value {
     let auth = provider.auth();
     let api_key = auth.api_key.as_ref().unwrap();
@@ -96,6 +120,7 @@ fn auth_context(env: &[(&str, &str)], files: &[&str]) -> Arc<dyn AuthContext> {
 
 fn resolve_input(ctx: Arc<dyn AuthContext>, credential: Option<ApiKeyCredential>) -> ApiKeyResolveInput {
     ApiKeyResolveInput {
+        model: None,
         ctx,
         credential,
         signal: CancellationToken::new(),
@@ -231,6 +256,7 @@ fn anthropic_resolve_honors_abort_before_env_reads() {
     let result = tokio::runtime::Runtime::new()
         .expect("runtime")
         .block_on(auth.resolve(ApiKeyResolveInput {
+            model: None,
             ctx: auth_context(&[("ANTHROPIC_API_KEY", "api-key")], &[]),
             credential: None,
             signal,

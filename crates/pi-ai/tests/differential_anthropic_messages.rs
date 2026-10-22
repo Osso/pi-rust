@@ -814,6 +814,10 @@ async fn anthropic_messages_matches_the_pinned_typescript_module() {
         let expected = oracle.request(&request);
         assert_eq!(expected["ok"], json!(true), "scenario {id}: {expected}");
         let observed = observe(&request, signal).await;
-        assert_eq!(observed, expected["output"], "scenario {id}");
+        assert_eq!(
+            observed, expected["output"],
+            "scenario {id}; observed={observed}; expected={}",
+            expected["output"]
+        );
     }
 }

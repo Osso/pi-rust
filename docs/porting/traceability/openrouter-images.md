@@ -1,5 +1,9 @@
 # openrouter-images traceability
 
+## Q4 common-pin status
+
+Partial. Corrected global-fetch oracle now drives frozen recorded images responses: scenarios 0–2 equal, scenario 3 RED on abort message (`Request aborted` versus frozen `Request was aborted.`). Later branches remain unported. [Audit/proof](../ai-scripted-provider-oracles.md). Historical full differential claims below are superseded. No assertion narrowed; native request.fetch remains pending interface approval.
+
 Source: `packages/ai/src/api/openrouter-images.ts`, `packages/ai/src/api/openrouter-images.lazy.ts`.
 Rust: `crates/pi-ai/src/api/openrouter_images.rs`, `crates/pi-ai/src/api/openrouter_images_lazy.rs`.
 Tests: `crates/pi-ai/tests/openrouter_images.rs` (13 behavioral), `crates/pi-ai/tests/differential_openrouter_images.rs` (10 recorded-fixture scenarios vs pinned TS; request method/URL/body/headers and `AssistantImages` compared).

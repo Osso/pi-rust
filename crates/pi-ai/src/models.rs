@@ -13,11 +13,13 @@ use tokio_util::sync::CancellationToken;
 use crate::api::lazy::lazy_stream;
 use crate::auth::context::default_provider_auth_context;
 use crate::auth::credential_store::InMemoryCredentialStore;
-use crate::auth::resolve::{AuthResolutionOverrides, ResolveError, resolve_provider_auth};
+use crate::auth::resolve::{
+    AuthResolutionOverrides, ResolveError, resolve_provider_auth, resolve_provider_status_auth,
+};
 pub use crate::auth::resolve::{ModelsError, ModelsErrorCode};
 use crate::auth::types::{
     ApiKeyCheckInput, ApiKeyCredential, ApiKeyResolveInput, AuthCheck, AuthContext, AuthError, AuthInteraction,
-    AuthOperationOptions, AuthResult, AuthType, Credential, CredentialStore, ProviderAuth,
+    AuthModel, AuthOperationOptions, AuthResult, AuthType, Credential, CredentialStore, ProviderAuth,
 };
 use crate::models_store::{InMemoryModelsStore, ModelsStore, ModelsStoreEntry, ModelsStoreOperationOptions};
 use crate::request::{
@@ -512,7 +514,7 @@ impl ModelsCollection {
                 )),
             };
         }
-        let resolution = resolve_provider_auth(
+        let resolution = resolve_provider_status_auth(
             provider.id(),
             provider.auth(),
             Arc::clone(&self.inner.credentials),
@@ -532,6 +534,7 @@ impl ModelsCollection {
     async fn get_auth_inner(
         &self,
         provider_id: &str,
+        model: Option<AuthModel>,
         overrides: AuthResolutionOverrides,
     ) -> Result<Option<AuthResult>, ResolveError> {
         let signal = operation_signal(overrides.signal.as_ref());
@@ -541,17 +544,18 @@ impl ModelsCollection {
         let Some(provider) = self.provider(provider_id) else {
             return Ok(None);
         };
-        resolve_provider_auth(
-            provider.id(),
-            provider.auth(),
-            Arc::clone(&self.inner.credentials),
-            Arc::clone(&self.inner.auth_context),
-            AuthResolutionOverrides {
-                signal: Some(signal),
-                ..overrides
-            },
-        )
-        .await
+        let credentials = Arc::clone(&self.inner.credentials);
+        let context = Arc::clone(&self.inner.auth_context);
+        let overrides = AuthResolutionOverrides {
+            signal: Some(signal),
+            ..overrides
+        };
+        match model {
+            Some(model) => {
+                resolve_provider_auth(provider.id(), provider.auth(), model, credentials, context, overrides).await
+            }
+            None => resolve_provider_status_auth(provider.id(), provider.auth(), credentials, context, overrides).await,
+        }
     }
 
     async fn check_auth_inner(
@@ -627,7 +631,9 @@ impl ModelsCollection {
         model: &Model,
         overrides: AuthResolutionOverrides,
     ) -> Result<Option<AuthResult>, ResolveError> {
-        let result = self.get_auth_inner(&model.provider, overrides).await?;
+        let result = self
+            .get_auth_inner(&model.provider, Some(AuthModel::Chat(model.clone())), overrides)
+            .await?;
         let Some(mut result) = result else {
             return Ok(None);
         };
@@ -701,6 +707,7 @@ impl ModelsCollection {
         });
         let result = api_key
             .resolve(ApiKeyResolveInput {
+                model: None, // Q15 provider-ID-only refresh/status gap; no fabricated request model.
                 ctx: Arc::clone(&self.inner.auth_context),
                 credential,
                 signal,
@@ -1018,6 +1025,7 @@ impl Models for ModelsCollection {
         Box::pin(async move {
             let operation = collection.get_auth_inner(
                 &provider_id,
+                None, // Q15 provider-ID-only status gap.
                 AuthResolutionOverrides {
                     signal: Some(signal.clone()),
                     ..overrides

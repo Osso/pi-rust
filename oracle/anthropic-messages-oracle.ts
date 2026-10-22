@@ -1,5 +1,10 @@
 import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
+import {
+	clearFetchScript,
+	installScriptedFetch,
+	setFetchScript,
+} from "./scripted-fetch.ts";
 
 type RequestId = number;
 
@@ -28,26 +33,46 @@ type RecordedRequest = {
 };
 
 type AnthropicApi = {
-	stream(model: unknown, context: unknown, options?: Record<string, unknown>): AsyncIterable<unknown> & {
+	stream(
+		model: unknown,
+		context: unknown,
+		options?: Record<string, unknown>,
+	): AsyncIterable<unknown> & {
 		result(): Promise<unknown>;
 	};
-	streamSimple(model: unknown, context: unknown, options?: Record<string, unknown>): AsyncIterable<unknown> & {
+	streamSimple(
+		model: unknown,
+		context: unknown,
+		options?: Record<string, unknown>,
+	): AsyncIterable<unknown> & {
 		result(): Promise<unknown>;
 	};
 };
 
-type Response =
-	| { id: RequestId; ok: true; output: { requests: RecordedRequest[]; events: unknown[]; result: unknown } }
+type OracleResponse =
+	| {
+			id: RequestId;
+			ok: true;
+			output: {
+				requests: RecordedRequest[];
+				events: unknown[];
+				result: unknown;
+			};
+	  }
 	| { id: RequestId; ok: false; error: { name: string; message: string } };
 
 function normalizeError(error: unknown): { name: string; message: string } {
-	if (error instanceof Error) return { name: error.name, message: error.message };
+	if (error instanceof Error)
+		return { name: error.name, message: error.message };
 	return { name: "UnknownError", message: String(error) };
 }
 
 function normalizeMessage(message: unknown): unknown {
 	if (!message || typeof message !== "object") return message;
-	const copy: Record<string, unknown> = { ...(message as Record<string, unknown>), timestamp: 0 };
+	const copy: Record<string, unknown> = {
+		...(message as Record<string, unknown>),
+		timestamp: 0,
+	};
 	return copy;
 }
 
@@ -69,10 +94,19 @@ function getUrl(input: unknown): string {
 	throw new Error(`Unsupported fetch input: ${String(input)}`);
 }
 
-function createScriptedFetch(script: ScriptedResponse[], controller: AbortController, recorded: RecordedRequest[]) {
+function createScriptedFetch(
+	script: ScriptedResponse[],
+	controller: AbortController,
+	recorded: RecordedRequest[],
+) {
 	return async (input: unknown, init?: RequestInit): Promise<Response> => {
 		const headers = new Headers(init?.headers);
-		const body = typeof init?.body === "string" ? init.body : init?.body == null ? null : String(init.body);
+		const body =
+			typeof init?.body === "string"
+				? init.body
+				: init?.body == null
+					? null
+					: String(init.body);
 		recorded.push({
 			method: (init?.method ?? "GET").toUpperCase(),
 			url: getUrl(input),
@@ -101,19 +135,25 @@ function createScriptedFetch(script: ScriptedResponse[], controller: AbortContro
 				index += 1;
 			},
 		});
-		return new globalThis.Response(stream, { status: step.status, headers: step.headers });
+		return new globalThis.Response(stream, {
+			status: step.status,
+			headers: step.headers,
+		});
 	};
 }
 
-async function execute(request: Request, api: AnthropicApi): Promise<Response> {
+async function execute(
+	request: Request,
+	api: AnthropicApi,
+): Promise<OracleResponse> {
 	const controller = new AbortController();
 	const recorded: RecordedRequest[] = [];
 	const options: Record<string, unknown> = {
 		...request.options,
-		fetch: createScriptedFetch(request.script, controller, recorded),
 		signal: controller.signal,
 	};
 
+	setFetchScript(createScriptedFetch(request.script, controller, recorded));
 	try {
 		const stream =
 			request.kind === "streamSimple"
@@ -124,9 +164,15 @@ async function execute(request: Request, api: AnthropicApi): Promise<Response> {
 			events.push(normalizeEvent(event));
 		}
 		const result = normalizeMessage(await stream.result());
-		return { id: request.id, ok: true, output: { requests: recorded, events, result } };
+		return {
+			id: request.id,
+			ok: true,
+			output: { requests: recorded, events, result },
+		};
 	} catch (error) {
 		return { id: request.id, ok: false, error: normalizeError(error) };
+	} finally {
+		clearFetchScript();
 	}
 }
 
@@ -145,9 +191,13 @@ function serve(api: AnthropicApi): void {
 				try {
 					const request = JSON.parse(line) as Request;
 					id = request.id;
-					process.stdout.write(`${JSON.stringify(await execute(request, api))}\n`);
+					process.stdout.write(
+						`${JSON.stringify(await execute(request, api))}\n`,
+					);
 				} catch (error) {
-					process.stdout.write(`${JSON.stringify({ id, ok: false, error: normalizeError(error) })}\n`);
+					process.stdout.write(
+						`${JSON.stringify({ id, ok: false, error: normalizeError(error) })}\n`,
+					);
 				}
 			})();
 		}
@@ -156,12 +206,16 @@ function serve(api: AnthropicApi): void {
 
 async function main(): Promise<void> {
 	const modulePath = process.argv[2];
-	if (modulePath === undefined) throw new Error("anthropic messages oracle requires a source module path");
+	if (modulePath === undefined)
+		throw new Error("anthropic messages oracle requires a source module path");
+	installScriptedFetch();
 	const api = (await import(pathToFileURL(modulePath).href)) as AnthropicApi;
 	serve(api);
 }
 
 void main().catch((error: unknown) => {
-	process.stderr.write(`anthropic messages oracle startup failed: ${normalizeError(error).message}\n`);
+	process.stderr.write(
+		`anthropic messages oracle startup failed: ${normalizeError(error).message}\n`,
+	);
 	process.exitCode = 1;
 });

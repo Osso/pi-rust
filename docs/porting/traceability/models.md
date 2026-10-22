@@ -1,5 +1,11 @@
 # models runtime traceability
 
+## Q4 common-pin request auth
+
+Partial. Frozen `models.ts` forwards the actual chat model to `resolveProviderAuth`; Rust `get_auth_for_model` and stream/complete request paths now do too, including model-aware provider composition. Behavioral actual-import test `request_auth_receives_the_actual_model_not_provider_status_context`: requested-2, not catalog first-1, reaches custom auth. GREEN 1, revision `56d41700` + slice, ledger `/tmp/pi-rust-repin-delta-ai/ledger.md`.
+
+Provider-ID `get_auth` and status/refresh helpers explicitly pass no model; this is the approved Q15 status-only gap, never a fabricated-model fallback. Old publication/store/check/login/logout/deferred interfaces and current runtime-oracle removed imports remain unported; historical tables below are deletion inventory, not new-pin parity. [Auth contract](../../specs/auth-resolution.md).
+
 Source: `packages/ai/src/models.ts` → `crates/pi-ai/src/models.rs`.
 Tests: `crates/pi-ai/tests/models.rs`; differential `tests/differential_ai_runtime` (`cost`, `thinking`, `refresh`, `apply_auth`).
 

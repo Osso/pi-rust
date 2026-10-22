@@ -7,7 +7,6 @@
 //! typed Rust contract.
 
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
@@ -16,7 +15,6 @@ use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::api::anthropic_sdk::{self, Auth, SdkRequest};
-use crate::api::constrained_sampling::{get_json_schema_tool_parameters, resolve_json_schema_strict_sampling};
 use crate::api::github_copilot_headers::{build_copilot_dynamic_headers, has_copilot_vision_input};
 use crate::api::simple_options::{
     adjust_max_tokens_for_thinking, build_base_options, clamp_max_tokens_to_context, model_thinking_level,
@@ -31,7 +29,6 @@ use crate::types::{
     ProviderResponse, StopReason, TextContent, TextOrImageContent, ThinkingContent, ThinkingLevel, Tool, ToolCall,
     ToolResultMessage, UserContent,
 };
-use crate::utils::deferred_tools::{SplitDeferredTools, split_deferred_tools_with};
 use crate::utils::event_stream::{
     AssistantMessageEventSender, AssistantMessageEventStream, create_assistant_message_event_stream,
 };
@@ -154,8 +151,6 @@ struct AnthropicCompat {
     supports_cache_control_on_tools: bool,
     supports_temperature: bool,
     allow_empty_signature: bool,
-    supports_strict_tools: bool,
-    supports_tool_references: bool,
 }
 
 fn anthropic_compat(model: &Model) -> AnthropicCompat {
@@ -171,10 +166,6 @@ fn anthropic_compat(model: &Model) -> AnthropicCompat {
         supports_cache_control_on_tools: compat.supports_cache_control_on_tools.unwrap_or(true),
         supports_temperature: compat.supports_temperature.unwrap_or(true),
         allow_empty_signature: compat.allow_empty_signature.unwrap_or(false),
-        supports_strict_tools: compat.supports_strict_tools.unwrap_or(false),
-        supports_tool_references: compat
-            .supports_tool_references
-            .unwrap_or_else(|| default_supports_tool_references(model)),
     }
 }
 
@@ -183,42 +174,6 @@ fn raw_compat(model: &Model) -> AnthropicMessagesCompat {
         Some(ModelCompat::AnthropicMessages(compat)) => compat.clone(),
         _ => AnthropicMessagesCompat::default(),
     }
-}
-
-fn default_supports_tool_references(model: &Model) -> bool {
-    if model.provider != "anthropic" || model.id.contains("haiku") {
-        return false;
-    }
-    let Some(rest) = model.id.strip_prefix("claude-") else {
-        return false;
-    };
-    let Some(rest) = ["opus-", "sonnet-", "fable-"]
-        .iter()
-        .find_map(|prefix| rest.strip_prefix(prefix))
-    else {
-        return false;
-    };
-    let digits = |text: &str| text.chars().take_while(char::is_ascii_digit).count();
-    let major_len = digits(rest);
-    if major_len == 0 {
-        return false;
-    }
-    let Ok(major) = rest[..major_len].parse::<u32>() else {
-        return false;
-    };
-    let mut minor = 0;
-    let after_major = &rest[major_len..];
-    if let Some(after_dash) = after_major.strip_prefix('-') {
-        let minor_len = digits(after_dash);
-        let minor_text = &after_dash[..minor_len];
-        let valid_tail = after_dash.len() == minor_len || after_dash[minor_len..].starts_with('-');
-        if minor_len > 0 && minor_len < 8 && valid_tail {
-            minor = minor_text.parse::<u32>().unwrap_or(0);
-        }
-    } else if !after_major.is_empty() {
-        return false;
-    }
-    major > 4 || (major == 4 && minor >= 5)
 }
 
 fn to_claude_code_name(name: &str) -> String {
@@ -482,81 +437,16 @@ fn convert_content_blocks(content: &[TextOrImageContent]) -> JsValue {
     JsValue::Array(blocks)
 }
 
-fn collect_deferred_tool_references(
-    message: &ToolResultMessage,
-    is_oauth: bool,
-    deferred_tool_names: &BTreeSet<String>,
-    loaded_tool_names: &mut BTreeSet<String>,
-    normalize_tool_name: fn(&str) -> String,
-) -> Vec<JsValue> {
-    let mut references = Vec::new();
-    for name in message.added_tool_names.iter().flatten() {
-        let normalized = normalize_tool_name(name);
-        if !deferred_tool_names.contains(&normalized) || loaded_tool_names.contains(&normalized) {
-            continue;
-        }
-        loaded_tool_names.insert(normalized);
-        let mut reference = JsObject::new();
-        reference.insert("type".into(), JsValue::String("tool_reference".into()));
-        reference.insert(
-            "tool_name".into(),
-            JsValue::String(if is_oauth {
-                to_claude_code_name(name).into()
-            } else {
-                name.clone().into()
-            }),
-        );
-        references.push(JsValue::Object(reference));
-    }
-    references
-}
-
-fn convert_tool_result(
-    message: &ToolResultMessage,
-    is_oauth: bool,
-    deferred_tool_names: &BTreeSet<String>,
-    loaded_tool_names: &mut BTreeSet<String>,
-    normalize_tool_name: fn(&str) -> String,
-) -> (JsValue, Vec<JsValue>) {
-    let references = collect_deferred_tool_references(
-        message,
-        is_oauth,
-        deferred_tool_names,
-        loaded_tool_names,
-        normalize_tool_name,
-    );
-    let converted = convert_content_blocks(&message.content);
-    let has_references = !references.is_empty();
-    let sibling = if has_references {
-        match &converted {
-            JsValue::String(text) => {
-                let mut block = JsObject::new();
-                block.insert("type".into(), JsValue::String("text".into()));
-                block.insert("text".into(), JsValue::String(text.clone()));
-                vec![JsValue::Object(block)]
-            }
-            JsValue::Array(blocks) => blocks.clone(),
-            _ => Vec::new(),
-        }
-    } else {
-        Vec::new()
-    };
-    let mut tool_result = JsObject::new();
-    tool_result.insert("type".into(), JsValue::String("tool_result".into()));
-    tool_result.insert(
+fn convert_tool_result(message: &ToolResultMessage) -> JsValue {
+    let mut result = JsObject::new();
+    result.insert("type".into(), JsValue::String("tool_result".into()));
+    result.insert(
         "tool_use_id".into(),
         JsValue::String(normalize_tool_call_id_value(&message.tool_call_id).into()),
     );
-    tool_result.insert(
-        "content".into(),
-        if has_references {
-            JsValue::Array(references)
-        } else {
-            converted
-        },
-    );
-    tool_result.insert("is_error".into(), JsValue::Bool(message.is_error));
-    (JsValue::Object(tool_result), sibling)
+    result.insert("content".into(), convert_content_blocks(&message.content));
+    result.insert("is_error".into(), JsValue::Bool(message.is_error));
+    JsValue::Object(result)
 }
 
 fn convert_messages(
@@ -564,11 +454,8 @@ fn convert_messages(
     is_oauth: bool,
     cache_control: Option<&JsValue>,
     allow_empty_signature: bool,
-    deferred_tool_names: &BTreeSet<String>,
-    normalize_tool_name: fn(&str) -> String,
 ) -> Vec<JsValue> {
     let mut params = Vec::new();
-    let mut loaded_tool_names = BTreeSet::new();
     let mut index = 0;
     while index < messages.len() {
         match &messages[index] {
@@ -585,27 +472,16 @@ fn convert_messages(
             }
             Message::ToolResult(_) => {
                 let mut tool_results = Vec::new();
-                let mut sibling_content = Vec::new();
                 while index < messages.len() {
                     let Message::ToolResult(message) = &messages[index] else {
                         break;
                     };
-                    let (tool_result, sibling) = convert_tool_result(
-                        message,
-                        is_oauth,
-                        deferred_tool_names,
-                        &mut loaded_tool_names,
-                        normalize_tool_name,
-                    );
-                    tool_results.push(tool_result);
-                    sibling_content.extend(sibling);
+                    tool_results.push(convert_tool_result(message));
                     index += 1;
                 }
-                let mut content = tool_results;
-                content.extend(sibling_content);
                 let mut object = JsObject::new();
                 object.insert("role".into(), JsValue::String("user".into()));
-                object.insert("content".into(), JsValue::Array(content));
+                object.insert("content".into(), JsValue::Array(tool_results));
                 params.push(JsValue::Object(object));
                 continue;
             }
@@ -774,66 +650,47 @@ fn convert_tools(
     tools: &[Tool],
     is_oauth: bool,
     supports_eager_tool_input_streaming: bool,
-    supports_strict_tools: bool,
     cache_control: Option<&JsValue>,
-    defer_loading: bool,
-) -> Result<Vec<JsValue>, String> {
-    let mut converted = Vec::new();
-    for (index, tool) in tools.iter().enumerate() {
-        let strict =
-            resolve_json_schema_strict_sampling(tool, supports_strict_tools).map_err(|error| error.message.clone())?;
-        let parameters =
-            JsValue::from(get_json_schema_tool_parameters(tool, strict).map_err(|error| error.message.clone())?);
-        let properties = parameters
-            .get("properties")
-            .cloned()
-            .unwrap_or_else(|| JsValue::Object(JsObject::new()));
-        let required = parameters
-            .get("required")
-            .cloned()
-            .unwrap_or_else(|| JsValue::Array(Vec::new()));
-        let input_schema = if strict == Some(true) {
-            let mut schema = parameters.as_object().cloned().unwrap_or_default();
+) -> Vec<JsValue> {
+    tools
+        .iter()
+        .enumerate()
+        .map(|(index, tool)| {
+            let parameters = JsValue::from(&tool.parameters);
+            let properties = parameters
+                .get("properties")
+                .filter(|value| !value.is_null())
+                .cloned()
+                .unwrap_or_else(|| JsValue::Object(JsObject::new()));
+            let required = parameters
+                .get("required")
+                .filter(|value| !value.is_null())
+                .cloned()
+                .unwrap_or_else(|| JsValue::Array(Vec::new()));
+            let mut schema = JsObject::new();
             schema.insert("type".into(), JsValue::String("object".into()));
             schema.insert("properties".into(), properties);
             schema.insert("required".into(), required);
-            JsValue::Object(schema)
-        } else {
-            let mut schema = JsObject::new();
-            schema.insert("type".into(), JsValue::String("object".into()));
-            schema.insert("properties".into(), properties.into());
-            schema.insert("required".into(), required.into());
-            JsValue::Object(schema)
-        };
-
-        let mut object = JsObject::new();
-        object.insert(
-            "name".into(),
-            JsValue::String(if is_oauth {
-                to_claude_code_name(&tool.name).into()
+            let mut object = JsObject::new();
+            let name = if is_oauth {
+                to_claude_code_name(&tool.name)
             } else {
-                tool.name.clone().into()
-            }),
-        );
-        object.insert("description".into(), JsValue::String(tool.description.clone().into()));
-        if supports_eager_tool_input_streaming {
-            object.insert("eager_input_streaming".into(), JsValue::Bool(true));
-        }
-        if strict == Some(true) {
-            object.insert("strict".into(), JsValue::Bool(true));
-        }
-        object.insert("input_schema".into(), input_schema);
-        if defer_loading {
-            object.insert("defer_loading".into(), JsValue::Bool(true));
-        }
-        if let Some(cache_control) = cache_control
-            && index == tools.len() - 1
-        {
-            object.insert("cache_control".into(), cache_control.clone());
-        }
-        converted.push(JsValue::Object(object));
-    }
-    Ok(converted)
+                tool.name.clone()
+            };
+            object.insert("name".into(), JsValue::String(name.into()));
+            object.insert("description".into(), JsValue::String(tool.description.clone().into()));
+            if supports_eager_tool_input_streaming {
+                object.insert("eager_input_streaming".into(), JsValue::Bool(true));
+            }
+            object.insert("input_schema".into(), JsValue::Object(schema));
+            if let Some(cache_control) = cache_control
+                && index == tools.len() - 1
+            {
+                object.insert("cache_control".into(), cache_control.clone());
+            }
+            JsValue::Object(object)
+        })
+        .collect()
 }
 
 fn map_stop_reason(reason: &str, stop_details: Option<&JsValue>) -> Result<(StopReason, Option<String>), String> {
@@ -868,17 +725,6 @@ fn build_params(
         get_cache_control(model, options.cache_retention, options.request.env.as_ref()).map(JsValue::from);
     let compat = anthropic_compat(model);
     let transformed = transform_messages_with(&context.messages, model, Some(&normalize_tool_call_id), now_millis());
-    let normalize_tool_name: fn(&str) -> String = if is_oauth {
-        to_claude_code_name
-    } else {
-        |name: &str| name.into()
-    };
-    let (immediate, deferred_tools, deferred_tool_names) = split_tools(
-        context,
-        &transformed,
-        compat.supports_tool_references,
-        normalize_tool_name,
-    );
 
     let mut params = JsObject::new();
     params.insert("model".into(), JsValue::String(model.id.clone().into()));
@@ -889,8 +735,6 @@ fn build_params(
             is_oauth,
             cache_control.as_ref(),
             compat.allow_empty_signature,
-            &deferred_tool_names,
-            normalize_tool_name,
         )),
     );
     params.insert(
@@ -903,43 +747,16 @@ fn build_params(
     insert_temperature_param(&mut params, options, anthropic, compat.supports_temperature);
     insert_tools_param(
         &mut params,
-        &immediate,
-        &deferred_tools,
+        context.tools.as_deref().unwrap_or_default(),
         is_oauth,
         compat,
         cache_control.as_ref(),
-    )?;
+    );
     insert_thinking_param(&mut params, model, anthropic);
     insert_metadata_param(&mut params, options);
     insert_tool_choice_param(&mut params, anthropic);
 
     Ok(JsValue::Object(params))
-}
-
-fn split_tools(
-    context: &Context,
-    transformed: &[Message],
-    supports_tool_references: bool,
-    normalize_tool_name: fn(&str) -> String,
-) -> (Vec<Tool>, Vec<Tool>, BTreeSet<String>) {
-    let transformed_context = Context {
-        system_prompt: context.system_prompt.clone(),
-        messages: transformed.to_vec(),
-        tools: context.tools.clone(),
-    };
-    let SplitDeferredTools {
-        mut immediate,
-        deferred,
-    } = split_deferred_tools_with(&transformed_context, supports_tool_references, normalize_tool_name);
-    let mut deferred_tools: Vec<Tool> = deferred.into_iter().map(|(_, tool)| tool).collect();
-    if immediate.is_empty() && !deferred_tools.is_empty() {
-        immediate = std::mem::take(&mut deferred_tools);
-    }
-    let deferred_tool_names = deferred_tools
-        .iter()
-        .map(|tool| normalize_tool_name(&tool.name))
-        .collect();
-    (immediate, deferred_tools, deferred_tool_names)
 }
 
 fn insert_system_param(params: &mut JsObject, context: &Context, is_oauth: bool, cache_control: Option<&JsValue>) {
@@ -981,37 +798,25 @@ fn insert_temperature_param(
 
 fn insert_tools_param(
     params: &mut JsObject,
-    immediate: &[Tool],
-    deferred: &[Tool],
+    tools: &[Tool],
     is_oauth: bool,
     compat: AnthropicCompat,
     cache_control: Option<&JsValue>,
-) -> Result<(), pi_js_compat::js_json::JsString> {
-    if immediate.is_empty() && deferred.is_empty() {
-        return Ok(());
+) {
+    if tools.is_empty() {
+        return;
     }
     let tool_cache_control = compat
         .supports_cache_control_on_tools
         .then_some(cache_control)
         .flatten();
-    let mut tools = convert_tools(
-        immediate,
+    let tools = convert_tools(
+        tools,
         is_oauth,
         compat.supports_eager_tool_input_streaming,
-        compat.supports_strict_tools,
         tool_cache_control,
-        false,
-    )?;
-    tools.extend(convert_tools(
-        deferred,
-        is_oauth,
-        compat.supports_eager_tool_input_streaming,
-        compat.supports_strict_tools,
-        None,
-        true,
-    )?);
+    );
     params.insert("tools".into(), JsValue::Array(tools));
-    Ok(())
 }
 
 fn insert_thinking_param(params: &mut JsObject, model: &Model, anthropic: &AnthropicOptions) {
@@ -1162,8 +967,19 @@ async fn drive_stream(
         signal: options.request.signal.clone(),
     };
     let signal = options.request.signal.clone();
+    let retry_header_overridden = client
+        .headers
+        .keys()
+        .any(|name| name.eq_ignore_ascii_case("x-stainless-retry-count"));
+    let mut retry_count = 0;
     let response = retry_provider_request(
-        || anthropic_sdk::execute(&request, Arc::clone(&fetch), signal.clone()),
+        || {
+            let request = sdk_request_for_attempt(&request, retry_count, retry_header_overridden);
+            retry_count += 1;
+            let fetch = Arc::clone(&fetch);
+            let signal = signal.clone();
+            async move { anthropic_sdk::execute(&request, fetch, signal).await }
+        },
         retry_options,
     )
     .await
@@ -1217,6 +1033,19 @@ async fn drive_stream(
     });
     sender.end(Some(output.clone()));
     Ok(())
+}
+
+fn sdk_request_for_attempt(request: &SdkRequest, retry_count: usize, retry_header_overridden: bool) -> SdkRequest {
+    let mut request = request.clone();
+    if !retry_header_overridden {
+        let (_, value) = request
+            .headers
+            .iter_mut()
+            .find(|(name, _)| name.eq_ignore_ascii_case("x-stainless-retry-count"))
+            .expect("SDK request includes its default retry header");
+        *value = retry_count.to_string().into();
+    }
+    request
 }
 
 fn max_retries(value: Option<f64>) -> usize {
@@ -1284,8 +1113,7 @@ fn apply_content_block_start(
     let content_block = &event["content_block"];
     match metadata_text(&content_block["type"], "content_block.type")?.as_deref() {
         Some("text") => {
-            let text = content_block["text"].as_string().cloned().unwrap_or_default();
-            let mut block = TextContent::new(text);
+            let mut block = TextContent::new("");
             block.index = Some(index);
             output.content.push(AssistantContent::Text(block));
             let content_index = output.content.len() - 1;
@@ -1295,9 +1123,8 @@ fn apply_content_block_start(
             });
         }
         Some("thinking") => {
-            let mut thinking = ThinkingContent::new(content_block["thinking"].as_string().cloned().unwrap_or_default());
-            thinking.thinking_signature =
-                Some(metadata_text(&content_block["signature"], "signature")?.unwrap_or_default());
+            let mut thinking = ThinkingContent::new("");
+            thinking.thinking_signature = Some(String::new());
             thinking.index = Some(index);
             output.content.push(AssistantContent::Thinking(thinking));
             let content_index = output.content.len() - 1;
@@ -1453,7 +1280,6 @@ fn apply_message_delta(
 ) -> Result<(), pi_js_compat::js_json::JsString> {
     let delta = &event["delta"];
     if let Some(stop_reason) = metadata_text(&delta["stop_reason"], "stop reason")? {
-        output.raw_stop_reason = Some(stop_reason.to_owned());
         let (mapped, error_message) = map_stop_reason(&stop_reason, delta.get("stop_details"))?;
         output.stop_reason = mapped;
         if let Some(error_message) = error_message {

@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use pi_ai::auth::{
     ApiKeyAuth, ApiKeyResolveInput, AuthContext, AuthError, AuthOperationOptions, Credential, CredentialStore,
     InMemoryCredentialStore, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuth, ResolveError, env_api_key_auth,
-    resolve_provider_auth,
+    resolve_provider_status_auth,
 };
 use pi_ai::models::{
     CreateModelsOptions, CreateProviderOptions, Models, MutableModels, ProviderApi, RefreshModelsContext,
@@ -268,7 +268,7 @@ async fn resolve_auth_case(case: &Value) -> Value {
         api_key: (case["overrides"]["apiKey"].as_str().map(str::to_owned)).map(pi_js_compat::js_json::JsString::from),
         ..Default::default()
     };
-    let result = resolve_provider_auth(
+    let result = resolve_provider_status_auth(
         provider_id,
         &provider_auth,
         Arc::clone(&credentials) as Arc<dyn CredentialStore>,
