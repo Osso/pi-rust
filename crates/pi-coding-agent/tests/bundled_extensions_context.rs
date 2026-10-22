@@ -1,5 +1,6 @@
 //! Differential coverage for docs-tree-context, claude-memory-enrich, and claude-memory-session-end.
 
+use pi_js_compat::js_json::JsString;
 #[path = "support/executable_script.rs"]
 mod executable_script;
 #[path = "support/oracle.rs"]
@@ -27,13 +28,13 @@ use pi_coding_agent::core::extensions::{ExtensionRunner, create_extension_runtim
 use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_coding_agent::core::session_manager::SessionManager;
+use pi_js_compat::js_json as json;
 use pi_js_compat::process_env;
-use serde_json::json;
 use tempfile::TempDir;
 
 async fn model_registry() -> Arc<ModelRegistry> {
     let storage = Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
-        serde_json::Map::new(),
+        pi_js_compat::js_json::JsObject::new(),
     ));
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(storage as Arc<dyn pi_ai::auth::types::CredentialStore>),
@@ -62,9 +63,15 @@ async fn load(
         Box::pin(async move { result })
     });
     let bus: Arc<dyn EventBus> = Arc::new(EventBusController::new());
-    let extension = load_extension_from_factory(factory, cwd, bus, runtime.clone(), "<test>")
-        .await
-        .expect("extension factory succeeds");
+    let extension = load_extension_from_factory(
+        factory,
+        &JsString::from(cwd),
+        bus,
+        runtime.clone(),
+        &JsString::from("<test>"),
+    )
+    .await
+    .expect("extension factory succeeds");
     let runner = ExtensionRunner::new(
         vec![extension.clone()],
         runtime,
@@ -86,8 +93,8 @@ impl Harness {
         self.runner.create_context()
     }
 
-    fn registrations(&self) -> serde_json::Value {
-        let tools: Vec<serde_json::Value> = self
+    fn registrations(&self) -> pi_js_compat::js_json::JsValue {
+        let tools: Vec<pi_js_compat::js_json::JsValue> = self
             .extension
             .read()
             .tools
@@ -105,7 +112,7 @@ impl Harness {
                 })
             })
             .collect();
-        let commands: Vec<serde_json::Value> = self
+        let commands: Vec<pi_js_compat::js_json::JsValue> = self
             .extension
             .read()
             .commands
@@ -176,14 +183,14 @@ async fn start_docs(harness: &Harness) {
 
 fn before_agent_event(system_prompt: &str, prompt: &str) -> BeforeAgentStartEvent {
     BeforeAgentStartEvent {
-        prompt: prompt.to_owned(),
+        prompt: prompt.to_owned().into(),
         images: None,
-        system_prompt: system_prompt.to_owned(),
+        system_prompt: system_prompt.to_owned().into(),
         system_prompt_options: Default::default(),
     }
 }
 
-async fn run_before_agent(harness: &Harness, system_prompt: &str, prompt: &str) -> serde_json::Value {
+async fn run_before_agent(harness: &Harness, system_prompt: &str, prompt: &str) -> pi_js_compat::js_json::JsValue {
     let handler = harness.extension.read().handlers.before_agent_start[0].clone();
     let result = handler
         .call(before_agent_event(system_prompt, prompt), harness.context())
@@ -191,7 +198,7 @@ async fn run_before_agent(harness: &Harness, system_prompt: &str, prompt: &str) 
         .unwrap();
     match result {
         Some(result) => json!(result),
-        None => serde_json::Value::Null,
+        None => pi_js_compat::js_json::JsValue::Null,
     }
 }
 
@@ -199,7 +206,7 @@ async fn run_before_agent(harness: &Harness, system_prompt: &str, prompt: &str) 
 async fn docs_tree_context_matches_typescript() {
     let temp = TempDir::new().unwrap();
     write_docs_tree(temp.path());
-    let cwd = temp.path().to_string_lossy().into_owned();
+    let cwd = temp.path().to_str().expect("utf-8 test path").to_owned();
 
     let mut oracle = oracle_for("packages/coding-agent/extensions/docs-tree-context/src/index.ts");
     let response = oracle.request(&json!({
@@ -213,13 +220,17 @@ async fn docs_tree_context_matches_typescript() {
             {"op": "event", "name": "before_agent_start", "event": {"prompt": "hi", "systemPrompt": "BASE\n<repo_docs_files>\nold\n</repo_docs_files>"}, "cwd": cwd}
         ]
     }));
-    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "{response:?}"
+    );
     let steps = response["output"]["steps"].as_array().unwrap();
 
     let harness = load(
         &cwd,
         Arc::new(std::sync::Mutex::new(
-            SessionManager::in_memory(Some(&cwd), None).unwrap(),
+            SessionManager::in_memory(Some(&JsString::from(&cwd)), None).unwrap(),
         )),
         pi_coding_agent::bundled_extensions::docs_tree_context::docs_tree_context_extension,
     )
@@ -237,7 +248,7 @@ async fn docs_tree_context_matches_typescript() {
     );
 
     let empty = TempDir::new().unwrap();
-    let empty_cwd = empty.path().to_string_lossy().into_owned();
+    let empty_cwd = empty.path().to_str().expect("utf-8 test path").to_owned();
     let response = oracle.request(&json!({
         "id": 2,
         "extension": "docs-tree-context",
@@ -246,12 +257,16 @@ async fn docs_tree_context_matches_typescript() {
             {"op": "event", "name": "before_agent_start", "event": {"prompt": "hi", "systemPrompt": "BASE"}, "cwd": empty_cwd}
         ]
     }));
-    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "{response:?}"
+    );
     let steps = response["output"]["steps"].as_array().unwrap();
     let harness = load(
         &empty_cwd,
         Arc::new(std::sync::Mutex::new(
-            SessionManager::in_memory(Some(&empty_cwd), None).unwrap(),
+            SessionManager::in_memory(Some(&JsString::from(&empty_cwd)), None).unwrap(),
         )),
         pi_coding_agent::bundled_extensions::docs_tree_context::docs_tree_context_extension,
     )
@@ -263,7 +278,7 @@ async fn docs_tree_context_matches_typescript() {
 fn write_enrich_script(root: &Path, name: &str, body: &str) -> String {
     let path = root.join(name);
     executable_script::write_executable_script(&path, body);
-    path.to_string_lossy().into_owned()
+    path.to_str().expect("utf-8 test path").to_owned()
 }
 
 #[tokio::test]
@@ -305,13 +320,17 @@ async fn claude_memory_enrich_matches_typescript() {
             {"op": "event", "name": "before_agent_start", "event": {"prompt": "hello", "systemPrompt": "BASE\n<claude_memory_enrich>\nold\n</claude_memory_enrich>"}, "env": {"PI_CLAUDE_MEMORY": ok}}
         ]
     }));
-    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "{response:?}"
+    );
     let steps = response["output"]["steps"].as_array().unwrap();
 
     let harness = load(
         "/tmp",
         Arc::new(std::sync::Mutex::new(
-            SessionManager::in_memory(Some("/tmp"), None).unwrap(),
+            SessionManager::in_memory(Some(&JsString::from("/tmp")), None).unwrap(),
         )),
         pi_coding_agent::bundled_extensions::claude_memory_enrich::claude_memory_enrich_extension,
     )
@@ -347,11 +366,11 @@ async fn claude_memory_enrich_matches_typescript() {
 async fn claude_memory_session_end_skips_ephemeral_sessions() {
     let _env = lock_env().await;
     let temp = TempDir::new().unwrap();
-    process_env::set("XDG_CACHE_HOME", &temp.path().to_string_lossy());
+    process_env::set("XDG_CACHE_HOME", &temp.path().to_str().expect("utf-8 test path"));
     let harness = load(
         "/tmp",
         Arc::new(std::sync::Mutex::new(
-            SessionManager::in_memory(Some("/tmp"), None).unwrap(),
+            SessionManager::in_memory(Some(&JsString::from("/tmp")), None).unwrap(),
         )),
         pi_coding_agent::bundled_extensions::claude_memory_session_end::claude_memory_session_end_extension,
     )
@@ -363,7 +382,11 @@ async fn claude_memory_session_end_skips_ephemeral_sessions() {
         "extension": "claude-memory-session-end",
         "steps": [{"op": "registrations"}]
     }));
-    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "{response:?}"
+    );
     assert_eq!(harness.registrations(), response["output"]["steps"][0]["result"]);
 
     let event = pi_coding_agent::core::extensions::types::SessionShutdownEvent {

@@ -1,5 +1,6 @@
 //! Differential coverage for the `safe` and `approval-controls` bundled extensions.
 
+use pi_js_compat::js_json::JsString;
 #[path = "support/bundled_extension_commands.rs"]
 mod command_support;
 #[path = "support/bundled_extension_load.rs"]
@@ -12,7 +13,8 @@ mod support;
 use std::sync::Arc;
 
 use pi_coding_agent::core::extensions::types::{ExtensionContext, ToolCallEvent, ToolName};
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsValue as Value;
 use support::{Harness, RecordingUi, calls_json};
 
 fn oracle_for(module: &str) -> oracle::TsOracle {
@@ -24,7 +26,7 @@ fn tool_call(tool_name: &str) -> ToolCallEvent {
         tool_name: ToolName::parse(tool_name),
         tool_call_id: format!("{tool_name}-call"),
         bypass_permissions: false,
-        input: serde_json::Map::new(),
+        input: pi_js_compat::js_json::JsObject::new(),
     }
 }
 
@@ -62,7 +64,11 @@ async fn safe_matches_typescript() {
             {"op": "command", "name": "safe", "args": "bogus"}
         ]
     }));
-    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "{response:?}"
+    );
     let steps = response["output"]["steps"].as_array().unwrap();
 
     let harness = Harness::load("/tmp", Arc::new(RecordingUi::default()), |api| {
@@ -76,8 +82,8 @@ async fn safe_matches_typescript() {
         .get_argument_completions
         .expect("safe completions");
     for (index, prefix) in ["o", "s", "x"].iter().enumerate() {
-        let actual = serde_json::json!(completions(&pi_js_compat::js_json::JsString::from(*prefix)).unwrap());
-        assert_eq!(actual, steps[index + 1]["result"], "completions {prefix}");
+        let actual = pi_js_compat::js_json!(completions(&pi_js_compat::js_json::JsString::from(*prefix)).unwrap());
+        assert_eq!(actual, steps[index + 1]["result"], json!("completions {prefix}"));
     }
 
     harness.run_command("safe", "on").await.unwrap();
@@ -135,7 +141,11 @@ async fn approval_controls_matches_typescript() {
         "extension": "approval-controls",
         "steps": steps
     }));
-    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "{response:?}"
+    );
     let steps = response["output"]["steps"].as_array().unwrap();
 
     let harness = Harness::load("/tmp", Arc::new(RecordingUi::default()), |api| {
