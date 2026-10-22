@@ -324,6 +324,108 @@ async fn env_api_key_auth_prefers_stored_key_then_env_order() {
     );
 }
 
+#[path = "support/oracle.rs"]
+mod oracle;
+
+#[tokio::test]
+async fn helpers_match_frozen_stored_credential_and_loader_semantics() {
+    let mut oracle = oracle::TsOracle::spawn("auth-helpers-oracle.ts", "packages/ai/src/auth/helpers.ts");
+    let auth = env_api_key_auth("Test key", &["KEY"]);
+    for credential in [
+        None,
+        Some(pi_ai::auth::ApiKeyCredential::default()),
+        Some(pi_ai::auth::ApiKeyCredential {
+            key: Some("".into()),
+            env: None,
+        }),
+        Some(pi_ai::auth::ApiKeyCredential {
+            key: Some("stored".into()),
+            env: Some(pi_ai::types::ProviderEnv::from_iter([("KEY".into(), "ignored".into())])),
+        }),
+    ] {
+        let expected =
+            oracle.request(&json!({"operation": "resolve", "env": {"KEY": "ambient"}, "credential": credential}));
+        let result = auth
+            .resolve(pi_ai::auth::ApiKeyResolveInput {
+                ctx: auth_context(&[("KEY", "ambient")], &[]),
+                credential,
+                signal: CancellationToken::new(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(serde_json::to_value(result).unwrap(), expected);
+    }
+    assert_eq!(
+        oracle.request(&json!({"operation": "failedLoad"})),
+        json!({"loads": 1, "errors": ["module unavailable", "module unavailable"]})
+    );
+}
+
+#[tokio::test]
+async fn stored_empty_key_owns_provider_without_ambient_resolution() {
+    let auth = env_api_key_auth("Test key", &["FIRST_KEY"]);
+    for key in [None, Some(JsString::from(""))] {
+        let result = auth
+            .resolve(pi_ai::auth::ApiKeyResolveInput {
+                ctx: auth_context(&[("FIRST_KEY", "ambient")], &[]),
+                credential: Some(pi_ai::auth::ApiKeyCredential { key, env: None }),
+                signal: CancellationToken::new(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(result, None);
+    }
+}
+
+#[tokio::test]
+async fn stored_key_does_not_publish_credential_environment() {
+    let auth = env_api_key_auth("Test key", &["KEY"]);
+    let result = auth
+        .resolve(pi_ai::auth::ApiKeyResolveInput {
+            ctx: auth_context(&[], &[]),
+            credential: Some(pi_ai::auth::ApiKeyCredential {
+                key: Some("stored".into()),
+                env: Some(pi_ai::types::ProviderEnv::from_iter([(
+                    "KEY".into(),
+                    "credential-env".into(),
+                )])),
+            }),
+            signal: CancellationToken::new(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(result.env, None);
+}
+
+#[tokio::test]
+async fn lazy_oauth_retains_rejected_load_for_later_calls() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let count = Arc::clone(&calls);
+    let lazy = lazy_oauth(LazyOAuthInput {
+        name: "Failed loader".into(),
+        is_subscription: None,
+        login_label: None,
+        load: Arc::new(move || {
+            count.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async {
+                Err(AuthError::Failed(pi_ai::request::CallbackError::new(
+                    "module unavailable",
+                )))
+            })
+        }),
+    });
+    for _ in 0..2 {
+        assert_eq!(
+            lazy.to_auth(OAuthCredential::new("refresh", "token", 10.0)).await,
+            Err(AuthError::Failed(pi_ai::request::CallbackError::new(
+                "module unavailable"
+            )))
+        );
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
 #[tokio::test]
 async fn env_api_key_login_prompts_for_a_secret() {
     let auth = env_api_key_auth("Test key", &["TEST_KEY"]);
