@@ -133,9 +133,9 @@ pub fn has_pending_runtime_coordination_message(
 
 /// `isRuntimeCoordinationMailboxMessage`.
 pub fn is_runtime_coordination_mailbox_message(message: &super::RuntimeMailboxMessage) -> bool {
-    let value = serde_json::to_value(message).unwrap_or(serde_json::Value::Null);
+    let value = pi_js_compat::js_json::to_value(message).expect("runtime mailbox message must serialize");
     match value {
-        serde_json::Value::Object(object) => !is_lifecycle_notification_payload(&object),
+        pi_js_compat::js_json::JsValue::Object(object) => !is_lifecycle_notification_payload(&object),
         _ => true,
     }
 }
