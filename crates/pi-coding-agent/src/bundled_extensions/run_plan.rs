@@ -268,13 +268,17 @@ mod lossless_tests {
     #[test]
     fn raw_plan_directory_survives_read_and_missing_file_error() {
         let temporary = tempfile::tempdir().unwrap();
-        let cwd = JsString::from(temporary.path().to_str().unwrap()) + "/" + JsString::from_utf16(vec![0xd800]);
+        let cwd = JsString::from(temporary.path().to_str().expect("utf-8 test path"))
+            + "/"
+            + JsString::from_utf16(vec![0xd800]);
         std::fs::create_dir_all(encode_node_utf8(&cwd)).unwrap();
         let plan = resolve_plan_file(&cwd, &"PLAN.md".into());
         std::fs::write(encode_node_utf8(&plan.path), "- [ ] 🛠 native item\n").unwrap();
         assert_eq!(find_next_plan_item(&plan.path).unwrap(), Some("🛠 native item".into()));
         let missing = cwd + "/missing.md";
-        assert!(find_next_plan_item(&missing).unwrap_err().message.contains(&missing));
+        // Node fs errors report the UTF-8-repaired path (pi_js_compat::node_fs format_fs_error_record).
+        let error = find_next_plan_item(&missing).unwrap_err();
+        assert!(error.message.contains(&JsString::from(encode_node_utf8(&missing))));
     }
 
     #[test]

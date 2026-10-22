@@ -521,10 +521,13 @@ mod lossless_tests {
     #[test]
     fn html_write_error_keeps_original_raw_output_path() {
         let temporary = tempfile::tempdir().unwrap();
-        let path = JsString::from(temporary.path().to_str().unwrap()) + "/" + JsString::from_utf16(vec![0xd800]);
+        let path = JsString::from(temporary.path().to_str().expect("utf-8 test path"))
+            + "/"
+            + JsString::from_utf16(vec![0xd800]);
         std::fs::create_dir_all(encode_node_utf8(&path)).unwrap();
         let error = write_html(&path, "content".into()).unwrap_err();
-        assert!(error.message().contains(&path));
+        // Node fs errors report the UTF-8-repaired path (pi_js_compat::node_fs format_fs_error_record).
+        assert!(error.message().contains(&JsString::from(encode_node_utf8(&path))));
     }
 
     #[test]

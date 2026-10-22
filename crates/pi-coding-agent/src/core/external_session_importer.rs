@@ -499,8 +499,11 @@ mod native_error_tests {
     #[test]
     fn missing_import_file_error_keeps_original_raw_path() {
         let directory = tempfile::tempdir().unwrap();
-        let path = JsString::from(directory.path().to_str().unwrap()) + "/" + JsString::from_utf16(vec![0xd800]);
+        let path = JsString::from(directory.path().to_str().expect("utf-8 test path"))
+            + "/"
+            + JsString::from_utf16(vec![0xd800]);
         let error = read_json_lines(&path).unwrap_err();
-        assert!(error.message().contains(&path));
+        // Node fs errors report the UTF-8-repaired path (pi_js_compat::node_fs format_fs_error_record).
+        assert!(error.message().contains(&JsString::from(encode_node_utf8(&path))));
     }
 }
