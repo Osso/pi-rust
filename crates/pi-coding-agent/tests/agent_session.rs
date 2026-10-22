@@ -825,7 +825,7 @@ fn running_agent(id: &str) -> pi_coding_agent::core::multi_agent_store::AgentSna
         id: id.to_owned(),
         parent_id: None,
         display_name: "Child".to_owned(),
-        agent_type: "worker".to_owned(),
+        agent_type: "worker".into(),
         origin: None,
         lifecycle: AgentLifecycle::Running,
         revision: 1,
@@ -836,7 +836,7 @@ fn running_agent(id: &str) -> pi_coding_agent::core::multi_agent_store::AgentSna
         model: None,
         account: None,
         permission: AgentPermission {
-            policy: "on-request".to_owned(),
+            policy: "on-request".into(),
             inherited_from: None,
             narrowed: true,
         },
@@ -849,7 +849,7 @@ fn running_agent(id: &str) -> pi_coding_agent::core::multi_agent_store::AgentSna
         last_activity: None,
         result: None,
         error: None,
-        extra: serde_json::Map::new(),
+        extra: pi_js_compat::js_json::JsObject::new(),
     }
 }
 

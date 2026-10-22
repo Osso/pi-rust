@@ -27,7 +27,7 @@ fn scout_input(parent: Option<&str>) -> AgentSnapshot {
         id: String::new(),
         parent_id: parent.map(str::to_owned),
         display_name: "Scout".to_owned(),
-        agent_type: "scout".to_owned(),
+        agent_type: "scout".into(),
         origin: None,
         lifecycle: AgentLifecycle::Running,
         revision: 1,
@@ -38,7 +38,7 @@ fn scout_input(parent: Option<&str>) -> AgentSnapshot {
         model: None,
         account: None,
         permission: AgentPermission {
-            policy: "on-request".to_owned(),
+            policy: "on-request".into(),
             inherited_from: None,
             narrowed: true,
         },
@@ -51,7 +51,7 @@ fn scout_input(parent: Option<&str>) -> AgentSnapshot {
         last_activity: None,
         result: None,
         error: None,
-        extra: serde_json::Map::new(),
+        extra: pi_js_compat::js_json::JsObject::new(),
     }
 }
 

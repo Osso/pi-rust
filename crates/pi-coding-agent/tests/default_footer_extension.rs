@@ -380,7 +380,7 @@ fn spawn_agent(store: &MultiAgentStore, name: &str, slot: Option<i64>) -> String
         id: store.allocate_agent_id_for_lifecycle_coordinator("agent").unwrap(),
         parent_id: None,
         display_name: name.to_owned(),
-        agent_type: "worker".to_owned(),
+        agent_type: "worker".into(),
         origin: None,
         lifecycle: AgentLifecycle::Running,
         revision: 1,
@@ -391,7 +391,7 @@ fn spawn_agent(store: &MultiAgentStore, name: &str, slot: Option<i64>) -> String
         model: None,
         account: None,
         permission: AgentPermission {
-            policy: "on-request".to_owned(),
+            policy: "on-request".into(),
             inherited_from: None,
             narrowed: true,
         },
@@ -404,7 +404,7 @@ fn spawn_agent(store: &MultiAgentStore, name: &str, slot: Option<i64>) -> String
         last_activity: None,
         result: None,
         error: None,
-        extra: serde_json::Map::new(),
+        extra: pi_js_compat::js_json::JsObject::new(),
     };
     let id = agent.id.clone();
     store.publish_lifecycle_coordinator_snapshot(&agent).unwrap();

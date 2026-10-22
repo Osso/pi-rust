@@ -258,11 +258,11 @@ fn seed_child(store: &Arc<MultiAgentStore>, test: &TestDir, id: &str, transcript
                 spawn: pi_coding_agent::core::multi_agent_store::SpawnAgent {
                     parent_id: Some("main".to_owned()),
                     display_name: "Child".to_owned(),
-                    agent_type: "explore".to_owned(),
+                    agent_type: "explore".into(),
                     origin: None,
                     cwd: test.cwd.clone(),
                     permission: pi_coding_agent::core::multi_agent_store::AgentPermission {
-                        policy: "on-request".to_owned(),
+                        policy: "on-request".into(),
                         inherited_from: None,
                         narrowed: true,
                     },
