@@ -1,6 +1,8 @@
 //! Base64 helpers with the two distinct Node semantics: `atob`/`btoa` and
 //! `Buffer.from(value, "base64")`/`Buffer#toString("base64")`.
 
+use crate::js_json::JsString;
+
 const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 /// Decode standard base64 with `atob` leniency: ASCII whitespace is ignored and
@@ -51,11 +53,13 @@ pub fn btoa(bytes: &[u8]) -> String {
 }
 
 /// Decode Base64 with `Buffer.from(value, "base64")` semantics: the standard
-/// and URL-safe alphabets are accepted, other characters are ignored, and
-/// decoding stops at the first `=`.
-pub fn buffer_from_base64(value: &str) -> Vec<u8> {
+/// and URL-safe alphabets are accepted. Node reads each native UTF-16 unit's
+/// low byte; other low bytes are ignored and the first `=` stops decoding.
+pub fn buffer_from_base64(value: impl Into<JsString>) -> Vec<u8> {
+    let value = value.into();
     let mut values = Vec::new();
-    for byte in value.bytes() {
+    for unit in value.units() {
+        let byte = *unit as u8;
         if byte == b'=' {
             break;
         }

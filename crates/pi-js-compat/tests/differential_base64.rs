@@ -92,7 +92,7 @@ fn matches_node_base64_semantics() {
         .iter()
         .map(|value| value.as_str().expect("string").to_owned())
         .collect();
-    let actual_buffer: Vec<String> = VALUES.iter().map(|value| hex(&buffer_from_base64(value))).collect();
+    let actual_buffer: Vec<String> = VALUES.iter().map(|value| hex(&buffer_from_base64(*value))).collect();
     assert_eq!(actual_buffer, expected_buffer, "Buffer.from(value, 'base64')");
 
     let expected_btoa: Vec<String> = response["output"]["btoa"]

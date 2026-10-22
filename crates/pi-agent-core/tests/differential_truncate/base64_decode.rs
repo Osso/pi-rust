@@ -47,7 +47,7 @@ fn request() -> Value {
 fn response() -> Value {
     let results = VALUES
         .iter()
-        .map(|value| hex(&buffer_from_base64(value)))
+        .map(|value| hex(&buffer_from_base64(*value)))
         .collect::<Vec<_>>();
     ok_response(REQUEST_ID, json!({"results": results}))
 }
