@@ -15,7 +15,7 @@ const [{ default: factory }, loader, runnerModule, session, auth, utils, events,
  import(moduleUrl("coding-agent/src/core/extensions/runner.ts")),
  import(moduleUrl("coding-agent/src/core/session-manager.ts")),
  import(moduleUrl("coding-agent/src/core/auth-storage.ts")),
- import(moduleUrl("coding-agent/test/model-runtime-test-utils.ts")),
+ import(moduleUrl("coding-agent/src/core/model-registry.ts")),
  import(moduleUrl("coding-agent/src/core/event-bus.ts")),
  import(moduleUrl("coding-agent/src/modes/interactive/theme/theme.ts")),
  import(moduleUrl("ai/src/providers/faux.ts")),
@@ -27,7 +27,7 @@ async function run(request: any) {
  if (request.home) { process.env.HOME = request.home; process.chdir(cwd); }
  const runtime = loader.createExtensionRuntime();
  const extension = await loader.loadExtensionFromFactory(factory, cwd, events.createEventBus(), runtime, source);
- const registry = await utils.createInMemoryModelRegistry(auth.AuthStorage.inMemory());
+ const registry = utils.ModelRegistry.inMemory(auth.AuthStorage.inMemory());
  const modelCalls:any[]=[];
  let model:any;
  if(request.modelFixture) {
