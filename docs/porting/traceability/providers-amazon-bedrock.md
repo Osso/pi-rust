@@ -1,43 +1,16 @@
-# providers/amazon-bedrock traceability
+# Amazon Bedrock provider — common pin
 
-Pinned source: `packages/ai/src/providers/amazon-bedrock.ts` at
-`532f7d12cd19235081bd4d6e425bde185652d86f`.
-Rust: `crates/pi-ai/src/providers/amazon_bedrock.rs`.
-Tests: `crates/pi-ai/tests/provider_auth.rs`,
-`crates/pi-ai/tests/differential_providers.rs` (`auth_resolution_matches_ts`,
-`provider_login_flows_match_ts`).
+Frozen `packages/ai/src/providers/amazon-bedrock.ts`, `4f9e6f8a4` (35 lines). Rust `providers/amazon_bedrock.rs`.
 
-| TypeScript | Rust | Proof |
+| Frozen symbol / branch | Lines | Proof |
 |---|---|---|
-| `bedrockAuth.name` | `BedrockAuth::name` | `provider_metadata_matches_the_ts_factories` |
-| `login` select (`bearer-token`, `aws-profile`, `credential-chain`) | `login` with `AuthPromptKind::Select` | `bedrock_login_covers_bearer_profile_and_chain_flows`, differential login |
-| bearer branch → secret prompt → `{type:"api_key", key}` | `ApiKeyCredential { key: Some(key), env: None }` | same |
-| profile branch → `info` event with credential-chain link → text prompt → `env.AWS_PROFILE` | `AuthEvent::Info` + `ApiKeyCredential { env: AWS_PROFILE }` | same |
-| chain branch → text prompt → `{type:"api_key"}` | `ApiKeyCredential { key: None, env: None }` | same |
-| unknown method → `Unknown Amazon Bedrock auth method: <method>` | `AuthError::failed` same message | same, differential login |
-| `resolve` order: stored key → `AWS_BEARER_TOKEN_BEDROCK` → stored/ambient `AWS_PROFILE` → access keys → ECS relative/full URI → web identity → `undefined` | `resolve` | `bedrock_resolve_detects_stored_and_ambient_credentials`, differential auth (13 env matrices) |
-| `amazonBedrockProvider()` metadata/catalog/bedrock api | `amazon_bedrock_provider` | provider metadata test; dispatch parity is covered by `differential_bedrock_converse_stream` because the TS path uses the AWS SDK |
+| `bedrockAuth.name` / no login | 11–13 | `provider_auth::bedrock_provider_matches_frozen_module_without_login`: actual frozen descriptor oracle |
+| stored truthy key → bearer apiKey, no credential env publication | 14 | `bedrock_resolve_detects_stored_and_ambient_credentials` |
+| ambient bearer/profile/access-pair/ECS-relative/ECS-full/web-identity, priority order, none | 15–23 | `bedrock_resolve_detects_stored_and_ambient_credentials`; actual frozen auth oracle 5 scenarios |
+| `amazonBedrockProvider`: id/name/catalog/API, no baseUrl | 27–35 | actual frozen descriptor including full ordered model IDs |
 
-## Branch notes
+Deleted old-only interactive bearer/profile/chain login and its tests; added exact no-login descriptor assertion. Deleted credential-env profile merging and env publication. Stored keys now surface as `auth.apiKey` rather than empty auth, matching frozen line 14. JsString stays native.
 
-- Env reads are abort-checked before and after each `ctx.env`.
-- Truthiness: empty env values are treated as unset (`env_value` filters empty
-  strings), matching JS.
-- A stored `AWS_PROFILE` in `credential.env` short-circuits the ambient lookup
-  (`??` semantics) and reports `source: "stored credential"`.
+RED 2 tests before production rewrite. GREEN 2 tests, including frozen descriptor + 5 actual-import auth cases, revision `4032dd49` + Bedrock slice; `/tmp/pi-rust-repin-delta-ai/ledger.md`, `bedrock-provider-{red,green}.log`.
 
-## Gaps
-
-- Dispatch request parity is not part of `provider_dispatch_matches_ts_requests`
-  (the AWS SDK bypasses `globalThis.fetch`); the bedrock adapter has its own
-  differential suite.
-
-## Discrepancies
-
-- None.
-
-## Q18 provider request integration (2026-10-22)
-
-Auth prompts, selected method, stored bearer and credential environment values remain native. Unknown-method errors interpolate raw units with js_format.
-
-[Focused public-provider runtime proof](lossless-sdk-boundaries.md) records exact covered cases, revisions and remaining acceptance limits.
+No module-specific gaps or source bugs identified. API transport implementation tracked separately under [bedrock-converse-stream](bedrock-converse-stream.md).

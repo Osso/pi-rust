@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use pi_ai::auth::{
-    ApiKeyCredential, ApiKeyResolveInput, AuthContext, AuthEvent, AuthInfoLink, AuthOperationOptions, AuthPromptKind,
-    AuthResult, Credential, CredentialStore, InMemoryCredentialStore, OAuthCredential,
+    ApiKeyCredential, ApiKeyResolveInput, AuthContext, AuthEvent, AuthOperationOptions, AuthPromptKind, AuthResult,
+    Credential, CredentialStore, InMemoryCredentialStore, OAuthCredential,
 };
 use pi_ai::models::{CreateModelsOptions, Models, MutableModels, Provider, create_models};
 use pi_ai::providers::amazon_bedrock::amazon_bedrock_provider;
@@ -238,76 +238,35 @@ fn anthropic_resolve_honors_abort_before_env_reads() {
     assert!(matches!(result, Err(pi_ai::auth::AuthError::Aborted)));
 }
 
-fn bedrock_login(answers: Vec<PromptAnswer>) -> (ApiKeyCredential, Arc<TestInteraction>) {
-    let provider = amazon_bedrock_provider();
-    let auth = provider.auth().api_key.clone().expect("api key auth");
-    let interaction = TestInteraction::new(answers);
-    let credential = tokio::runtime::Runtime::new()
-        .expect("runtime")
-        .block_on(auth.login(interaction.clone()).expect("login"))
-        .expect("credential");
-    (credential, interaction)
-}
-
 #[test]
-fn bedrock_login_covers_bearer_profile_and_chain_flows() {
-    let (bearer, bearer_interaction) = bedrock_login(vec![
-        PromptAnswer::Text("bearer-token".to_owned()),
-        PromptAnswer::Text("bedrock-token".to_owned()),
-    ]);
-    assert_eq!(bearer, api_key_credential("bedrock-token"));
-    assert!(matches!(
-        bearer_interaction.prompts()[0].kind,
-        AuthPromptKind::Select { .. }
-    ));
-    assert!(bearer_interaction.events().is_empty());
-
-    let (profile, profile_interaction) = bedrock_login(vec![
-        PromptAnswer::Text("aws-profile".to_owned()),
-        PromptAnswer::Text("work".to_owned()),
-    ]);
-    assert_eq!(
-        profile,
-        ApiKeyCredential {
-            key: None,
-            env: Some(ProviderEnv::from([("AWS_PROFILE".into(), "work".into())])),
-        }
-    );
-    assert_eq!(
-        profile_interaction.events(),
-        vec![AuthEvent::Info {
-            message: ("Amazon Bedrock supports AWS profiles, IAM credentials, and role-based credentials.".to_owned())
-                .into(),
-            links: Some(vec![AuthInfoLink {
-                url: ("https://docs.aws.amazon.com/sdkref/latest/guide/standardized-credentials.html".to_owned())
-                    .into(),
-                label: Some(("AWS credential provider chain".to_owned()).into()),
-            }]),
-        }]
-    );
-
-    let (chain, chain_interaction) = bedrock_login(vec![
-        PromptAnswer::Text("credential-chain".to_owned()),
-        PromptAnswer::Text(String::new()),
-    ]);
-    assert_eq!(chain, ApiKeyCredential { key: None, env: None });
-    assert!(matches!(
-        chain_interaction.prompts()[1].kind,
-        AuthPromptKind::Text { ref message, .. }
-            if message == "Configure AWS credentials, then press Enter to continue"
-    ));
-
+fn bedrock_provider_matches_frozen_module_without_login() {
     let provider = amazon_bedrock_provider();
-    let auth = provider.auth().api_key.clone().expect("api key auth");
-    let interaction = TestInteraction::new(vec![PromptAnswer::Text("unknown".to_owned())]);
-    let error = tokio::runtime::Runtime::new()
-        .expect("runtime")
-        .block_on(auth.login(interaction).expect("login"))
-        .expect_err("unknown method");
-    assert_eq!(
-        error.detail(),
-        Some(&JsString::from("Unknown Amazon Bedrock auth method: unknown"))
+    let mut oracle = oracle::TsOracle::spawn(
+        "provider-module-oracle.ts",
+        "packages/ai/src/providers/amazon-bedrock.ts",
     );
+    assert_eq!(
+        provider_descriptor(provider.as_ref()),
+        oracle.request(&json!({
+            "factory": "amazonBedrockProvider", "operation": "describe"
+        }))
+    );
+    for env in [
+        vec![],
+        vec![("AWS_PROFILE", "dev")],
+        vec![("AWS_BEARER_TOKEN_BEDROCK", "token")],
+        vec![("AWS_ACCESS_KEY_ID", "id"), ("AWS_SECRET_ACCESS_KEY", "secret")],
+        vec![("AWS_CONTAINER_CREDENTIALS_FULL_URI", "http://unused")],
+    ] {
+        let expected = oracle.request(&json!({
+            "factory": "amazonBedrockProvider", "operation": "resolve",
+            "env": env.iter().cloned().collect::<BTreeMap<_, _>>()
+        }));
+        assert_eq!(
+            serde_json::to_value(resolve_optional(provider.as_ref(), auth_context(&env, &[]), None)).unwrap(),
+            expected
+        );
+    }
 }
 
 #[test]
@@ -319,7 +278,8 @@ fn bedrock_resolve_detects_stored_and_ambient_credentials() {
         auth_context(&[], &[]),
         Some(api_key_credential("token")),
     );
-    assert_eq!(stored.auth, pi_ai::auth::ModelAuth::default());
+    assert_eq!(stored.auth.api_key, Some("token".into()));
+    assert_eq!(stored.env, None);
     assert_eq!(stored.source.as_ref(), Some(&JsString::from("stored credential")));
 
     let bearer = resolve(
@@ -336,7 +296,7 @@ fn bedrock_resolve_detects_stored_and_ambient_credentials() {
     assert_eq!(profile.auth, pi_ai::auth::ModelAuth::default());
     assert_eq!(profile.source.as_ref(), Some(&JsString::from("AWS_PROFILE")));
 
-    let stored_profile = resolve(
+    let stored_profile = resolve_optional(
         provider.as_ref(),
         auth_context(&[], &[]),
         Some(ApiKeyCredential {
@@ -344,14 +304,7 @@ fn bedrock_resolve_detects_stored_and_ambient_credentials() {
             env: Some(ProviderEnv::from([("AWS_PROFILE".into(), "work".into())])),
         }),
     );
-    assert_eq!(
-        stored_profile.source.as_ref(),
-        Some(&JsString::from("stored credential"))
-    );
-    assert_eq!(
-        stored_profile.env,
-        Some(ProviderEnv::from([("AWS_PROFILE".into(), "work".into())]))
-    );
+    assert_eq!(stored_profile, None);
 
     let keys = resolve(
         provider.as_ref(),
