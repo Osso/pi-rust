@@ -7,8 +7,8 @@ Match frozen `4f9e6f8a4` `coding-agent/src/modes/interactive/components/config-s
 - [x] Accept one flat resolved resource set; display Resource Configuration, filter hint, binary checkboxes and grouped resource categories.
 - [x] Match frozen frames, navigation, search, paging, cancellation and toggle-render callbacks.
 - [x] Write relative +/- resource patterns to each resource's metadata scope; package filters preserve unrelated resource arrays.
-- [ ] Preserve unmatched UTF-16 units in native paths, search, display and persisted patterns.
-- [ ] CLI resolves resources once using command settings; legacy local flag does not select a separate view or impose a trust gate.
+- [x] Preserve unmatched UTF-16 units in native paths, search, display and persisted patterns.
+- [x] CLI resolves resources once using command settings; legacy local flag does not select a separate view or impose a trust gate.
 
 ## How it works
 
@@ -30,7 +30,7 @@ Match frozen `4f9e6f8a4` `coding-agent/src/modes/interactive/components/config-s
 
 ## Known gaps (current cycle)
 
-- [ ] Native/CLI integration tests pending post-commit execution.
+- [x] Native4, CLI4 (+1 ignored probe), package execution31 and package CLI8 pass at `13e744ba` (see traceability).
 
 ## Out of scope
 

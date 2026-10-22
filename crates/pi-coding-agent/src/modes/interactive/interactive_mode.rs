@@ -4497,7 +4497,6 @@ impl InteractiveMode {
                                 user_message,
                                 Some(self.markdown_theme()),
                                 self.output_pad(),
-                                self.markdown_transformers(),
                             )));
                     }
                 } else {
@@ -4507,7 +4506,6 @@ impl InteractiveMode {
                             text.clone(),
                             Some(self.markdown_theme()),
                             self.output_pad(),
-                            self.markdown_transformers(),
                         )));
                 }
                 if populate_history

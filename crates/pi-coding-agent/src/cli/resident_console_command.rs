@@ -378,7 +378,6 @@ impl ResidentConsoleUi {
                     read_user_content(&user.content),
                     None,
                     1,
-                    Vec::new(),
                 )));
             }
             AgentMessage::ToolResult(result) if result.tool_name == SUPERVISOR_RESPONSE_TOOL_NAME => {
@@ -435,7 +434,6 @@ impl ResidentConsoleUi {
                         read_user_content(&user.content),
                         None,
                         1,
-                        Vec::new(),
                     )));
                 }
                 AgentMessage::ToolResult(result) => {

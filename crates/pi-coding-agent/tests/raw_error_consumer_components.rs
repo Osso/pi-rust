@@ -48,9 +48,10 @@ fn user_message_keeps_raw_units_across_padding_and_invalidation() {
     use pi_coding_agent::modes::interactive::components::user_message::UserMessageComponent;
     init_theme();
     let text = JsString::from("raw ") + JsString::from_utf16(vec![0xd800, 0x20, 0xdc00]);
-    let mut message = UserMessageComponent::new(text.clone(), None, 1, vec![]);
-    for padding in [1, 2] {
+    let mut message = UserMessageComponent::new(text.clone(), None, 1);
+    for (padding, in_transit) in [(1, false), (2, true), (1, false)] {
         message.set_output_pad(padding);
+        message.set_in_transit(in_transit);
         message.invalidate();
         let output = JsString::join(message.render(80), "\n");
         assert!(output.contains(&text));
