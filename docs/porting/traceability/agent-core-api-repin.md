@@ -5,6 +5,10 @@ Initial implementation revision: `f6ff6d9f`; callback-setter assertions strength
 
 Module-by-module comparison: [loop](agent-loop.md), [Agent](agent.md), [types](agent-types.md), [proxy](agent-proxy.md), [node](agent-node.md), [index](agent-index.md). Requirements: [core API spec](../../specs/agent-core-api.md).
 
+## Native public prompt input (2026-10-22)
+
+Frozen `agent.ts` prompt string path now maps to `PromptInput::Text(JsString)`, accepting owned or borrowed JsString without scalar projection. RED `agent-text-input-red.log` exposed the old String-only public boundary; GREEN `agent-text-input-green.log` proves two public prompt calls retain exact unpaired units in provider context and transcript wire. Ergonomic String/&str conversions remain direct lossless subset conversions, not alternate authorities.
+
 ## Rejectable queue callbacks (2026-10-22)
 
 `MessageQueueHook` now returns `Result<Vec<AgentMessage>, AgentError>`; each low-level steering/follow-up poll propagates rejection without changing the error. Required by frozen harness queue drain rollback. API RED: `queue-rejection-red.log`; native-unit rejection and exact event-boundary GREEN: `queue-rejection-green.log`; 31 Agent +42 loop +4 verifier tests GREEN in `queue-rejection-callers.log`. Frozen differential: 35 retained scenarios +2 queue-rejection scenarios GREEN in `queue-rejection-differential.log`. Artifacts: `/tmp/pi-rust-repin-delta-agent-core/`.
