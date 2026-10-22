@@ -54,6 +54,12 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
             .is_none()
     );
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
+    // main.ts:1127-1128 binds the control DB and restores the store before the session exists.
+    let mut manager = manager;
+    manager
+        .set_metadata_control_db_path(Some(&(cwd.clone() + "/control.db")), Default::default())
+        .unwrap();
+    store.restore_from_session_manager(&manager).unwrap();
     let session = AgentSession::new(AgentSessionConfig {
         agent: Agent::new(AgentOptions::default()).unwrap(),
         session_manager: Arc::new(Mutex::new(manager)),

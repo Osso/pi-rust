@@ -1,4 +1,5 @@
 use pi_agent_core::agent::AgentMessage;
+use pi_ai::types::TextOrImageContent;
 use pi_coding_agent::core::session_manager::{FileEntry, SessionEntry, parse_session_entries};
 use pi_coding_agent::core::session_tool_output::serialize_session_entry;
 use pi_js_compat::js_json::JsString;
@@ -378,10 +379,20 @@ fn session_jsonl_retains_message_summary_and_custom_units_on_reload() {
                 _ => None,
             })
             .expect("valid record must not be discarded");
-        assert!(
-            matches!(entry, SessionEntry::Known(_)),
-            "known record must remain typed"
-        );
+        // Loaded records keep the raw object authority; typed views are projections.
+        if entry.entry_type() == "message" {
+            let view = entry.as_message().expect("typed message view");
+            let AgentMessage::ToolResult(result) = view.message.as_ref() else {
+                panic!("toolResult record must project to ToolResult");
+            };
+            assert!(matches!(&result.content[0], TextOrImageContent::Text(text) if text.text.units() == [0xd800]));
+        }
+        if entry.entry_type() == "compaction" {
+            assert_eq!(
+                entry.as_compaction().expect("typed compaction view").summary.units(),
+                [0xd800]
+            );
+        }
         let wire = serialize_session_entry(entry);
         assert_eq!(parse_lossless(&wire).unwrap(), parse_lossless(record).unwrap());
         let reloaded: SessionEntry = serde_json::from_str(&wire).unwrap();
