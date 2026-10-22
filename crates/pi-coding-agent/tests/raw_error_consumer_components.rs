@@ -394,7 +394,7 @@ fn oauth_selector_native_query_matches_raw_method_name() {
 
 #[test]
 fn config_values_preserve_raw_literals_and_native_environment_values() {
-    use pi_coding_agent::core::config_value::{get_config_value_env_var_names, resolve_config_value};
+    use pi_coding_agent::core::{get_config_value_env_var_names, resolve_config_value};
     let raw = JsString::from_utf16(vec![0xd800]);
     let env = std::collections::HashMap::from([("SECRET".to_string(), raw.clone())]);
     assert_eq!(
@@ -462,7 +462,7 @@ fn model_config_keeps_raw_provider_credentials_and_url() {
 #[test]
 fn auth_command_extracts_native_api_key_and_bearer_units() {
     use pi_ai::auth::types::{AuthResult, ModelAuth};
-    use pi_coding_agent::cli::auth_command::get_auth_credential;
+    use pi_coding_agent::cli::get_auth_credential;
     let raw = JsString::from_utf16(vec![0xd800]);
     let mut auth = AuthResult {
         auth: ModelAuth {
