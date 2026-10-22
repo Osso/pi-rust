@@ -1659,7 +1659,7 @@ impl MultiAgentStore {
         let Some(target) = target else {
             return Ok(MailboxMessageCommandResult::TargetNotFound {
                 current: Box::new(main_thread),
-                target_id: input.to_agent_id.clone().into(),
+                target_id: input.to_agent_id.clone(),
             });
         };
         if !is_main_thread_child(&target) {
@@ -1725,7 +1725,7 @@ impl MultiAgentStore {
         let Some(target) = target else {
             return Ok(MailboxMessageCommandResult::TargetNotFound {
                 current: Box::new(copy_agent(&current)),
-                target_id: input.to_agent_id.clone().into(),
+                target_id: input.to_agent_id.clone(),
             });
         };
         if !self.can_send_direct_message(&current.id, &target.id) {
@@ -1784,7 +1784,7 @@ impl MultiAgentStore {
             kind: MailboxMessageKindValue::Message,
             status: MailboxMessageStatusValue::Pending,
             thread_id: input.thread_id.clone(),
-            to_agent_id: input.to_agent_id.clone().into(),
+            to_agent_id: input.to_agent_id.clone(),
             updated_at: Some(timestamp.into()),
             target_checkpoint: None,
             error: None,

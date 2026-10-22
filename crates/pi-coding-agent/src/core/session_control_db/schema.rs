@@ -1023,7 +1023,7 @@ pub(crate) fn add_runtime_mailbox_routing(
     assert_runtime_mailbox_routing(message, input)?;
     let mut routed = message.clone();
     if let Some(host) = input.recipient_host.as_ref().filter(|host| !host.is_empty()) {
-        routed.insert("recipientHost".into(), JsValue::String(host.clone().into()));
+        routed.insert("recipientHost".into(), JsValue::String(host.clone()));
     }
     routed.insert(
         "recipientSessionId".into(),
