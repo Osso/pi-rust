@@ -1,5 +1,6 @@
 //! Behavioral tests for the shared control database (`core/session-control-db.ts`).
 
+use pi_js_compat::js_json::{self, JsObject, JsString};
 use rusqlite::OptionalExtension;
 use std::path::PathBuf;
 
@@ -58,17 +59,17 @@ fn identity(pid: u32, start: u64) -> ProcessIdentity {
 
 fn owner(session: &str) -> MultiAgentRuntimeOwnerIdentity {
     MultiAgentRuntimeOwnerIdentity {
-        session_id: session.to_owned(),
+        session_id: session.into(),
         agent_id: None,
     }
 }
 
 fn metadata(session_path: &str, id: &str, name: Option<&str>) -> WritableSessionMetadata {
     WritableSessionMetadata {
-        session_path: session_path.to_owned(),
-        id: id.to_owned(),
-        cwd: "/repo".to_owned(),
-        name: name.map(str::to_owned),
+        session_path: session_path.into(),
+        id: id.into(),
+        cwd: "/repo".into(),
+        name: name.map(JsString::from),
         parent_session_path: None,
         archived_at: None,
         is_archived: None,
@@ -77,25 +78,25 @@ fn metadata(session_path: &str, id: &str, name: Option<&str>) -> WritableSession
         model_provider: None,
         model_id: None,
         thinking_level: None,
-        created_at: "2026-06-21T00:00:00.000Z".to_owned(),
-        modified_at: "2026-06-21T00:00:00.000Z".to_owned(),
+        created_at: "2026-06-21T00:00:00.000Z".into(),
+        modified_at: "2026-06-21T00:00:00.000Z".into(),
         message_count: 1,
-        first_message: "hello".to_owned(),
+        first_message: "hello".into(),
     }
 }
 
 fn agent_node(id: &str, parent: Option<&str>, lifecycle: AgentLifecycle) -> AgentNode {
     AgentNode {
-        id: id.to_owned(),
-        parent_id: parent.map(str::to_owned),
-        display_name: "Scout".to_owned(),
+        id: id.into(),
+        parent_id: parent.map(JsString::from),
+        display_name: "Scout".into(),
         agent_type: "scout".into(),
         origin: None,
         lifecycle,
         revision: 1,
-        created_at: "2026-06-21T00:00:00.000Z".to_owned(),
-        updated_at: "2026-06-21T00:00:00.000Z".to_owned(),
-        cwd: "/repo".to_owned(),
+        created_at: "2026-06-21T00:00:00.000Z".into(),
+        updated_at: "2026-06-21T00:00:00.000Z".into(),
+        cwd: "/repo".into(),
         worktree: None,
         model: None,
         account: None,
@@ -131,15 +132,15 @@ fn stored_message(
     body: &str,
 ) -> i64 {
     register_listener(db, recipient);
-    let message = serde_json::json!({
+    let message = pi_js_compat::js_json!({
         "body": body,
         // Frozen session-control-db.ts:2331 compares birth against Date.now().
         "createdAt": pi_coding_agent::utils::iso_time::now_iso_string(),
-        "fromAgentId": sender.agent_id.clone().unwrap_or_else(|| "main".to_owned()),
+        "fromAgentId": sender.agent_id.clone().unwrap_or_else(|| "main".into()),
         "id": message_id,
         "kind": "message",
         "status": "pending",
-        "toAgentId": recipient.agent_id.clone().unwrap_or_else(|| "main".to_owned()),
+        "toAgentId": recipient.agent_id.clone().unwrap_or_else(|| "main".into()),
         "updatedAt": "2026-06-21T00:00:00.000Z",
     });
     enqueue_stored_runtime_mailbox_message(
@@ -150,11 +151,11 @@ fn stored_message(
             sender: sender.clone(),
             kind: RuntimeMailboxMessageKind::Message,
             store_ref: RuntimeMailboxStoreRef {
-                session_path: session_path.to_owned(),
-                message_id: message_id.to_owned(),
+                session_path: session_path.into(),
+                message_id: message_id.into(),
             },
             message,
-            updated_at: Some("2026-06-21T00:00:00.000Z".to_owned()),
+            updated_at: Some("2026-06-21T00:00:00.000Z".into()),
         },
     )
     .expect("enqueue stored message")
@@ -233,23 +234,23 @@ fn incoming_messages_claim_supersedes_pending_rows() {
     assert_eq!(claimed.content, "second");
     assert_eq!(
         read_incoming_message_status(&db, first).expect("status"),
-        Some("superseded".to_owned())
+        Some("superseded".into())
     );
     assert_eq!(
         read_incoming_message_status(&db, second).expect("status"),
-        Some("claimed".to_owned())
+        Some("claimed".into())
     );
     complete_incoming_message(&db, second).expect("complete");
     assert_eq!(
         read_incoming_message_status(&db, second).expect("status"),
-        Some("completed".to_owned())
+        Some("completed".into())
     );
 
     let third = enqueue_incoming_message(&db, "third").expect("enqueue third");
-    fail_incoming_message(&db, third, "boom").expect("fail");
+    fail_incoming_message(&db, third, &JsString::from("boom")).expect("fail");
     assert_eq!(
         read_incoming_message_status(&db, third).expect("status"),
-        Some("failed".to_owned())
+        Some("failed".into())
     );
 }
 
@@ -277,12 +278,15 @@ fn session_metadata_round_trips_and_archives() {
     assert_eq!(read.model_id.as_deref(), Some("claude"));
     assert_eq!(read.thinking_level.as_deref(), Some("high"));
 
-    write_session_goal(&db, "/sessions/a.jsonl", Some("{\"objective\":\"ship\"}")).expect("goal");
+    write_session_goal(
+        &db,
+        "/sessions/a.jsonl",
+        Some(&JsString::from("{\"objective\":\"ship\"}")),
+    )
+    .expect("goal");
     assert_eq!(
-        read_session_goal(&db, "/sessions/a.jsonl")
-            .expect("read goal")
-            .as_deref(),
-        Some("{\"objective\":\"ship\"}")
+        read_session_goal(&db, "/sessions/a.jsonl").expect("read goal").clone(),
+        Some("{\"objective\":\"ship\"}".into())
     );
     write_session_goal(&db, "/sessions/a.jsonl", None).expect("clear goal");
     assert_eq!(read_session_goal(&db, "/sessions/a.jsonl").expect("read goal"), None);
@@ -303,11 +307,11 @@ fn session_names_live_only_in_session_metadata() {
     let (_dir, db) = temp_db();
     for (id, name) in [("session-a", "Alpha"), ("session-b", "Beta")] {
         write_session_metadata(&db, &metadata(&format!("/tmp/{id}.jsonl"), id, None)).expect("metadata");
-        write_session_name(&db, &format!("/tmp/{id}.jsonl"), Some(name)).expect("name");
+        write_session_name(&db, &format!("/tmp/{id}.jsonl"), Some(&JsString::from(name))).expect("name");
     }
-    write_session_name(&db, "/tmp/session-a.jsonl", Some("Alpha renamed")).expect("rename");
+    write_session_name(&db, "/tmp/session-a.jsonl", Some(&JsString::from("Alpha renamed"))).expect("rename");
 
-    let mut names: Vec<(String, Option<String>)> = list_session_metadata(&db)
+    let mut names: Vec<(JsString, Option<JsString>)> = list_session_metadata(&db)
         .expect("list")
         .into_iter()
         .map(|session| (session.session_path, session.name))
@@ -316,8 +320,8 @@ fn session_names_live_only_in_session_metadata() {
     assert_eq!(
         names,
         vec![
-            ("/tmp/session-a.jsonl".to_owned(), Some("Alpha renamed".to_owned())),
-            ("/tmp/session-b.jsonl".to_owned(), Some("Beta".to_owned())),
+            ("/tmp/session-a.jsonl".into(), Some("Alpha renamed".into())),
+            ("/tmp/session-b.jsonl".into(), Some("Beta".into())),
         ]
     );
 
@@ -337,27 +341,31 @@ fn session_names_live_only_in_session_metadata() {
             .expect("read")
             .expect("metadata")
             .name
-            .as_deref(),
-        Some("Beta")
+            .clone(),
+        Some("Beta".into())
     );
 }
 
 #[test]
 fn session_name_normalization_matches_the_typescript_helper() {
     assert_eq!(
-        normalize_session_name(Some("  Legacy\r\nPreferred\nName ")),
-        Some("Legacy Preferred Name".to_owned())
+        normalize_session_name(Some(&JsString::from("  Legacy\r\nPreferred\nName "))),
+        Some("Legacy Preferred Name".into())
     );
-    assert_eq!(normalize_session_name(Some("\n\r\n")), None);
-    assert_eq!(normalize_session_name(Some("   ")), None);
+    assert_eq!(normalize_session_name(Some(&JsString::from("\n\r\n"))), None);
+    assert_eq!(normalize_session_name(Some(&JsString::from("   "))), None);
     assert_eq!(normalize_session_name(None), None);
-    assert_eq!(normalize_session_name(Some("Kept")), Some("Kept".to_owned()));
+    assert_eq!(
+        normalize_session_name(Some(&JsString::from("Kept"))),
+        Some("Kept".into())
+    );
 }
 
 #[test]
 fn write_session_name_requires_a_metadata_row() {
     let (_dir, db) = temp_db();
-    let error = write_session_name(&db, "/sessions/missing.jsonl", Some("Name")).expect_err("missing metadata");
+    let error = write_session_name(&db, "/sessions/missing.jsonl", Some(&JsString::from("Name")))
+        .expect_err("missing metadata");
     assert_eq!(
         error.message(),
         "Cannot update session name without metadata for /sessions/missing.jsonl"
@@ -371,7 +379,7 @@ fn write_session_name_requires_a_metadata_row() {
 fn generic_metadata_snapshots_preserve_dedicated_session_names() {
     let (_dir, db) = temp_db();
     write_session_metadata(&db, &metadata("/tmp/session-a.jsonl", "session-a", None)).expect("metadata");
-    write_session_name(&db, "/tmp/session-a.jsonl", Some("Alpha")).expect("name");
+    write_session_name(&db, "/tmp/session-a.jsonl", Some(&JsString::from("Alpha"))).expect("name");
     let mut updated = metadata("/tmp/session-a.jsonl", "session-a", None);
     updated.message_count = 2;
     write_session_metadata(&db, &updated).expect("snapshot");
@@ -380,8 +388,8 @@ fn generic_metadata_snapshots_preserve_dedicated_session_names() {
             .expect("read")
             .expect("metadata")
             .name
-            .as_deref(),
-        Some("Alpha")
+            .clone(),
+        Some("Alpha".into())
     );
 
     write_session_name(&db, "/tmp/session-a.jsonl", None).expect("clear");
@@ -406,32 +414,32 @@ fn updates_existing_session_metadata_without_changing_its_session_path_or_name()
     let (_dir, db) = temp_db();
     write_session_metadata(&db, &metadata("/tmp/session-a.jsonl", "session-a", Some("Original"))).expect("metadata");
     let mut updated = metadata("/tmp/session-a.jsonl", "session-a-renamed", None);
-    updated.cwd = "/repo/a2".to_owned();
-    updated.parent_session_path = Some("/tmp/parent.jsonl".to_owned());
+    updated.cwd = "/repo/a2".into();
+    updated.parent_session_path = Some("/tmp/parent.jsonl".into());
     updated.message_count = 3;
-    updated.first_message = "updated first".to_owned();
+    updated.first_message = "updated first".into();
     write_session_metadata(&db, &updated).expect("update");
     let read = read_session_metadata(&db, "/tmp/session-a.jsonl")
         .expect("read")
         .expect("metadata");
     assert_eq!(read.id, "session-a-renamed");
     assert_eq!(read.cwd, "/repo/a2");
-    assert_eq!(read.name.as_deref(), Some("Original"));
-    assert_eq!(read.parent_session_path.as_deref(), Some("/tmp/parent.jsonl"));
+    assert_eq!(read.name.clone(), Some("Original".into()));
+    assert_eq!(read.parent_session_path.clone(), Some("/tmp/parent.jsonl".into()));
 }
 
 #[test]
 fn named_sessions_and_relocation_move_all_control_rows() {
     let (_dir, db) = temp_db();
     write_session_metadata(&db, &metadata("/sessions/old.jsonl", "id", None)).expect("metadata");
-    write_session_name(&db, "/sessions/old.jsonl", Some("Named")).expect("name");
+    write_session_name(&db, "/sessions/old.jsonl", Some(&JsString::from("Named"))).expect("name");
     assert_eq!(
         read_session_metadata(&db, "/sessions/old.jsonl")
             .expect("read")
             .expect("metadata")
             .name
-            .as_deref(),
-        Some("Named")
+            .clone(),
+        Some("Named".into())
     );
 
     write_session_sandbox_profile(
@@ -451,7 +459,7 @@ fn named_sessions_and_relocation_move_all_control_rows() {
         .expect("read")
         .expect("metadata");
     assert_eq!(moved.id, "id");
-    assert_eq!(moved.name.as_deref(), Some("Named"), "the name moves with the row");
+    assert_eq!(moved.name.clone(), Some("Named".into()), "the name moves with the row");
     assert_eq!(
         read_session_sandbox_profile(&db, "/sessions/new.jsonl", "id").expect("profile"),
         Some(pi_coding_agent::core::permissions::presets::SandboxProfileName::WorkspaceWrite)
@@ -471,22 +479,16 @@ fn prompt_history_deduplicates_and_migrates_legacy_entries() {
     record_prompt_history_entry(&db, "  first  ").expect("first");
     record_prompt_history_entry(&db, "first").expect("duplicate");
     record_prompt_history_entry(&db, "second").expect("second");
-    assert_eq!(
-        read_prompt_history(&db, 10).expect("history"),
-        vec!["second".to_owned(), "first".to_owned()]
-    );
+    assert_eq!(read_prompt_history(&db, 10).expect("history"), vec!["second", "first"]);
 
     let (_dir2, db2) = temp_db();
-    let migrated = read_or_migrate_prompt_history(
-        &db2,
-        &["one".to_owned(), "two".to_owned(), "two".to_owned(), "three".to_owned()],
-        10,
-    )
-    .expect("migrate");
+    let migrated =
+        read_or_migrate_prompt_history(&db2, &["one".into(), "two".into(), "two".into(), "three".into()], 10)
+            .expect("migrate");
     assert_eq!(migrated, vec!["one", "two", "two", "three"]);
     assert_eq!(
         read_prompt_history(&db2, 10).expect("history"),
-        vec!["one".to_owned(), "two".to_owned(), "three".to_owned()]
+        vec!["one", "two", "three"]
     );
 }
 
@@ -506,18 +508,22 @@ fn last_message_only_returns_assistant_roles() {
 fn session_health_and_listener_registration_track_generations() {
     let (_dir, db) = temp_db();
     let recipient = RuntimeMailboxAddress {
-        session_id: "session-1".to_owned(),
+        session_id: "session-1".into(),
         agent_id: None,
     };
     register_listener(&db, &recipient);
-    let health = read_session_health(&db, "session-1").expect("read").expect("health");
+    let health = read_session_health(&db, &JsString::from("session-1"))
+        .expect("read")
+        .expect("health");
     assert_eq!(health.pid, Some(std::process::id()));
     assert_eq!(health.agent_generation, 1);
     assert_eq!(health.check_status, SessionCheckStatus::Ok);
     assert_eq!(health.checked_generation, Some(1));
 
     register_listener(&db, &recipient);
-    let health = read_session_health(&db, "session-1").expect("read").expect("health");
+    let health = read_session_health(&db, &JsString::from("session-1"))
+        .expect("read")
+        .expect("health");
     assert_eq!(health.agent_generation, 1);
 
     let listener = read_runtime_mailbox_listener(&db, &recipient)
@@ -527,7 +533,9 @@ fn session_health_and_listener_registration_track_generations() {
     assert_eq!(list_runtime_mailbox_listeners(&db).expect("listeners").len(), 1);
 
     assert!(retire_runtime_mailbox_listener(&db, &recipient, std::process::id()).expect("retire"));
-    let health = read_session_health(&db, "session-1").expect("read").expect("health");
+    let health = read_session_health(&db, &JsString::from("session-1"))
+        .expect("read")
+        .expect("health");
     assert_eq!(health.check_status, SessionCheckStatus::Dead);
     assert_eq!(list_session_health(&db).expect("list").len(), 1);
 }
@@ -536,11 +544,11 @@ fn session_health_and_listener_registration_track_generations() {
 fn runtime_mailbox_claim_deliver_and_consume() {
     let (_dir, db) = temp_db();
     let recipient = RuntimeMailboxAddress {
-        session_id: "recipient".to_owned(),
+        session_id: "recipient".into(),
         agent_id: None,
     };
     let sender = RuntimeMailboxAddress {
-        session_id: "sender".to_owned(),
+        session_id: "sender".into(),
         agent_id: None,
     };
     let id = stored_message(&db, "/sessions/sender.jsonl", "message_1", &recipient, &sender, "hello");
@@ -564,7 +572,7 @@ fn runtime_mailbox_claim_deliver_and_consume() {
         .expect("read")
         .expect("message");
     assert_eq!(message.status, RuntimeMailboxMessageStatus::Failed);
-    assert_eq!(message.error.as_deref(), Some("boom"));
+    assert_eq!(message.error.clone(), Some("boom".into()));
 
     let third = stored_message(&db, "/sessions/sender.jsonl", "message_3", &recipient, &sender, "again");
     let _ = claim_runtime_mailbox_messages(&db, &recipient, 20).expect("claim");
@@ -577,22 +585,22 @@ fn runtime_mailbox_claim_deliver_and_consume() {
 fn runtime_mailbox_routing_preserves_payload_order_and_identity() {
     let (_dir, db) = temp_db();
     let recipient = RuntimeMailboxAddress {
-        session_id: "recipient".to_owned(),
+        session_id: "recipient".into(),
         agent_id: None,
     };
     let sender = RuntimeMailboxAddress {
-        session_id: "sender".to_owned(),
+        session_id: "sender".into(),
         agent_id: None,
     };
     let store_ref = RuntimeMailboxStoreRef {
-        session_path: "/sessions/sender.jsonl".to_owned(),
-        message_id: "message_1".to_owned(),
+        session_path: "/sessions/sender.jsonl".into(),
+        message_id: "message_1".into(),
     };
     upsert_multi_agent_mailbox_message(
         &db,
         &store_ref.session_path,
         &store_ref.message_id,
-        &serde_json::json!({
+        &pi_js_compat::js_json!({
             "body": "hello",
             "fromAgentId": "main",
             "id": "message_1",
@@ -625,13 +633,14 @@ fn runtime_mailbox_routing_preserves_payload_order_and_identity() {
         )
         .expect("row");
     // Frozen session-control-db.ts defaults omitted creation time before routing.
-    let payload: serde_json::Value = serde_json::from_str(&data).expect("payload");
+    let payload = js_json::parse_lossless(&data).expect("payload");
     let birth = &payload["createdAt"];
-    assert!(pi_js_compat::date::date_parse(birth.as_str().expect("birth string")).is_finite());
+    let birth_json = js_json::stringify_lossless(birth);
+    assert!(pi_js_compat::date::date_parse_utf16(birth.as_string().expect("birth string").units()).is_finite());
     assert_eq!(
         data,
         format!(
-            "{{\"body\":\"hello\",\"fromAgentId\":\"main\",\"id\":\"message_1\",\"kind\":\"message\",\"status\":\"pending\",\"toAgentId\":\"main\",\"createdAt\":{birth},\"recipientSessionId\":\"recipient\",\"recipientAgentId\":null,\"senderSessionId\":\"sender\",\"senderAgentId\":null}}"
+            "{{\"body\":\"hello\",\"fromAgentId\":\"main\",\"id\":\"message_1\",\"kind\":\"message\",\"status\":\"pending\",\"toAgentId\":\"main\",\"createdAt\":{birth_json},\"recipientSessionId\":\"recipient\",\"recipientAgentId\":null,\"senderSessionId\":\"sender\",\"senderAgentId\":null}}"
         )
     );
 
@@ -657,10 +666,10 @@ fn shared_channel_posts_and_cursors() {
         &db,
         &PostSharedChannelMessageInput {
             sender: RuntimeMailboxAddress {
-                session_id: "one".to_owned(),
+                session_id: "one".into(),
                 agent_id: None,
             },
-            body: "  hello  ".to_owned(),
+            body: "  hello  ".into(),
         },
     )
     .expect("post");
@@ -668,10 +677,10 @@ fn shared_channel_posts_and_cursors() {
         &db,
         &PostSharedChannelMessageInput {
             sender: RuntimeMailboxAddress {
-                session_id: "two".to_owned(),
-                agent_id: Some("agent".to_owned()),
+                session_id: "two".into(),
+                agent_id: Some("agent".into()),
             },
-            body: "world".to_owned(),
+            body: "world".into(),
         },
     )
     .expect("post");
@@ -681,10 +690,10 @@ fn shared_channel_posts_and_cursors() {
     let messages = list_shared_channel_messages_after(&db, 0, 20, i64::MAX).expect("messages");
     assert_eq!(messages.len(), 2);
     assert_eq!(messages[0].body, "hello");
-    assert_eq!(messages[1].sender.agent_id.as_deref(), Some("agent"));
+    assert_eq!(messages[1].sender.agent_id.clone(), Some("agent".into()));
 
     let recipient = RuntimeMailboxAddress {
-        session_id: "reader".to_owned(),
+        session_id: "reader".into(),
         agent_id: None,
     };
     assert_eq!(
@@ -701,7 +710,7 @@ fn shared_channel_posts_and_cursors() {
         &db,
         &PostSharedChannelMessageInput {
             sender: recipient.clone(),
-            body: "   ".to_owned(),
+            body: "   ".into(),
         },
     )
     .expect_err("empty body");
@@ -714,9 +723,9 @@ fn architect_requests_claim_renew_and_complete() {
     let error = post_architect_request(
         &db,
         &PostArchitectRequestInput {
-            sender_session_id: "sender".to_owned(),
-            project_cwd: "/repo".to_owned(),
-            body: "  ".to_owned(),
+            sender_session_id: "sender".into(),
+            project_cwd: "/repo".into(),
+            body: "  ".into(),
         },
     )
     .expect_err("empty");
@@ -725,14 +734,14 @@ fn architect_requests_claim_renew_and_complete() {
     let id = post_architect_request(
         &db,
         &PostArchitectRequestInput {
-            sender_session_id: "sender".to_owned(),
-            project_cwd: "/repo".to_owned(),
-            body: "  question  ".to_owned(),
+            sender_session_id: "sender".into(),
+            project_cwd: "/repo".into(),
+            body: "  question  ".into(),
         },
     )
     .expect("post");
     assert_eq!(list_pending_architect_requests(&db, 20).expect("pending").len(), 1);
-    let claimed = claim_pending_architect_requests(&db, "token", 20).expect("claim");
+    let claimed = claim_pending_architect_requests(&db, &JsString::from("token"), 20).expect("claim");
     assert_eq!(claimed.len(), 1);
     assert_eq!(claimed[0].id, id);
     assert_eq!(
@@ -740,11 +749,11 @@ fn architect_requests_claim_renew_and_complete() {
         pi_coding_agent::core::session_control_db::ArchitectRequestStatus::Claimed
     );
 
-    renew_architect_request_claims(&db, &[id], "token").expect("renew");
-    let lost = renew_architect_request_claims(&db, &[id], "other").expect_err("lost");
-    assert_eq!(lost.message(), format!("Architect request claim lost: {id}"));
+    renew_architect_request_claims(&db, &[id], &JsString::from("token")).expect("renew");
+    let lost = renew_architect_request_claims(&db, &[id], &JsString::from("other")).expect_err("lost");
+    assert_eq!(*lost.message(), format!("Architect request claim lost: {id}"));
 
-    complete_architect_request(&db, id, "token", Some("sender")).expect("complete");
+    complete_architect_request(&db, id, &JsString::from("token"), Some(&JsString::from("sender"))).expect("complete");
     assert!(list_pending_architect_requests(&db, 20).expect("pending").is_empty());
 }
 
@@ -754,28 +763,28 @@ fn supervisor_requests_prioritize_approvals_and_validate_responses() {
     let advisory = post_supervisor_request(
         &db,
         &PostSupervisorRequestInput {
-            sender_session_id: "sender".to_owned(),
-            project_id: "project".to_owned(),
+            sender_session_id: "sender".into(),
+            project_id: "project".into(),
             kind: SupervisorRequestKind::SupervisorAdvisory,
-            payload: serde_json::Map::new(),
-            deadline_at: "2099-01-01T00:00:00.000Z".to_owned(),
+            payload: JsObject::new(),
+            deadline_at: "2099-01-01T00:00:00.000Z".into(),
         },
     )
     .expect("post advisory");
     let approval = post_supervisor_request(
         &db,
         &PostSupervisorRequestInput {
-            sender_session_id: "sender".to_owned(),
-            project_id: "project".to_owned(),
+            sender_session_id: "sender".into(),
+            project_id: "project".into(),
             kind: SupervisorRequestKind::ApprovalReview,
-            payload: serde_json::Map::new(),
-            deadline_at: "2099-01-01T00:00:00.000Z".to_owned(),
+            payload: JsObject::new(),
+            deadline_at: "2099-01-01T00:00:00.000Z".into(),
         },
     )
     .expect("post approval");
     assert!(has_pending_supervisor_approval_request(&db).expect("pending"));
 
-    let claimed = claim_next_supervisor_request(&db, "claim")
+    let claimed = claim_next_supervisor_request(&db, &JsString::from("claim"))
         .expect("claim")
         .expect("request");
     assert_eq!(claimed.id, approval);
@@ -783,15 +792,17 @@ fn supervisor_requests_prioritize_approvals_and_validate_responses() {
         claimed.status,
         pi_coding_agent::core::session_control_db::SupervisorRequestStatus::Claimed
     );
-    assert!(claim_next_supervisor_request(&db, "other").expect("claim").is_none());
+    assert!(
+        claim_next_supervisor_request(&db, &JsString::from("other"))
+            .expect("claim")
+            .is_none()
+    );
 
     let invalid = complete_supervisor_request(
         &db,
         approval,
-        "claim",
-        &SupervisorResponse::Complete {
-            reason: "done".to_owned(),
-        },
+        &JsString::from("claim"),
+        &SupervisorResponse::Complete { reason: "done".into() },
     )
     .expect_err("invalid");
     assert_eq!(
@@ -801,26 +812,19 @@ fn supervisor_requests_prioritize_approvals_and_validate_responses() {
     complete_supervisor_request(
         &db,
         approval,
-        "claim",
-        &SupervisorResponse::Approve {
-            reason: "ok".to_owned(),
-        },
+        &JsString::from("claim"),
+        &SupervisorResponse::Approve { reason: "ok".into() },
     )
     .expect("complete");
     let read = read_supervisor_request(&db, approval).expect("read").expect("request");
-    assert_eq!(
-        read.response,
-        Some(SupervisorResponse::Approve {
-            reason: "ok".to_owned()
-        })
-    );
+    assert_eq!(read.response, Some(SupervisorResponse::Approve { reason: "ok".into() }));
 
-    let next = claim_next_supervisor_request(&db, "claim-2")
+    let next = claim_next_supervisor_request(&db, &JsString::from("claim-2"))
         .expect("claim")
         .expect("request");
     assert_eq!(next.id, advisory);
-    requeue_supervisor_request(&db, advisory, "claim-2").expect("requeue");
-    assert!(requeue_supervisor_request(&db, advisory, "claim-2").is_err());
+    requeue_supervisor_request(&db, advisory, &JsString::from("claim-2")).expect("requeue");
+    assert!(requeue_supervisor_request(&db, advisory, &JsString::from("claim-2")).is_err());
 }
 
 #[test]
@@ -829,11 +833,11 @@ fn supervisor_recovery_completes_expired_requests() {
     let expired = post_supervisor_request(
         &db,
         &PostSupervisorRequestInput {
-            sender_session_id: "sender".to_owned(),
-            project_id: "project".to_owned(),
+            sender_session_id: "sender".into(),
+            project_id: "project".into(),
             kind: SupervisorRequestKind::GoalCompletionReview,
-            payload: serde_json::Map::new(),
-            deadline_at: "2000-01-01T00:00:00.000Z".to_owned(),
+            payload: JsObject::new(),
+            deadline_at: "2000-01-01T00:00:00.000Z".into(),
         },
     )
     .expect("post");
@@ -842,7 +846,7 @@ fn supervisor_recovery_completes_expired_requests() {
     assert_eq!(
         read.response,
         Some(SupervisorResponse::Error {
-            reason: "Supervisor request deadline expired".to_owned()
+            reason: "Supervisor request deadline expired".into()
         })
     );
 }
@@ -890,11 +894,11 @@ fn child_creation_requires_active_parent_and_running_revision_one() {
     let result = create_multi_agent_child_with_runtime_ownership(
         &db,
         &CreateMultiAgentChildWithRuntimeOwnershipInput {
-            session_path: "/sessions/main.jsonl".to_owned(),
-            agent_id: "child".to_owned(),
+            session_path: "/sessions/main.jsonl".into(),
+            agent_id: "child".into(),
             process_identity: process_identity.clone(),
             owner: owner("owner"),
-            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            now_iso: "2026-06-21T00:00:00.000Z".into(),
             agent: child.clone(),
         },
     )
@@ -907,11 +911,11 @@ fn child_creation_requires_active_parent_and_running_revision_one() {
     let duplicate = create_multi_agent_child_with_runtime_ownership(
         &db,
         &CreateMultiAgentChildWithRuntimeOwnershipInput {
-            session_path: "/sessions/main.jsonl".to_owned(),
-            agent_id: "child".to_owned(),
+            session_path: "/sessions/main.jsonl".into(),
+            agent_id: "child".into(),
             process_identity,
             owner: owner("owner"),
-            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            now_iso: "2026-06-21T00:00:00.000Z".into(),
             agent: child,
         },
     )
@@ -928,11 +932,11 @@ fn child_creation_requires_active_parent_and_running_revision_one() {
     let error = create_multi_agent_child_with_runtime_ownership(
         &db,
         &CreateMultiAgentChildWithRuntimeOwnershipInput {
-            session_path: "/sessions/main.jsonl".to_owned(),
-            agent_id: "bad".to_owned(),
+            session_path: "/sessions/main.jsonl".into(),
+            agent_id: "bad".into(),
             process_identity: identity(std::process::id(), 1),
             owner: owner("owner"),
-            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            now_iso: "2026-06-21T00:00:00.000Z".into(),
             agent: invalid,
         },
     )
@@ -949,11 +953,11 @@ fn lifecycle_and_terminal_mutations_write_the_outbox() {
     create_multi_agent_child_with_runtime_ownership(
         &db,
         &CreateMultiAgentChildWithRuntimeOwnershipInput {
-            session_path: session_path.to_owned(),
-            agent_id: "child".to_owned(),
+            session_path: session_path.into(),
+            agent_id: "child".into(),
             process_identity: process_identity.clone(),
             owner: owner("owner"),
-            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            now_iso: "2026-06-21T00:00:00.000Z".into(),
             agent: child.clone(),
         },
     )
@@ -962,12 +966,12 @@ fn lifecycle_and_terminal_mutations_write_the_outbox() {
     let waiting = commit_multi_agent_lifecycle_mutation(
         &db,
         &CommitMultiAgentLifecycleMutationInput {
-            session_path: session_path.to_owned(),
-            agent_id: "child".to_owned(),
+            session_path: session_path.into(),
+            agent_id: "child".into(),
             process_identity: process_identity.clone(),
             owner: owner("owner"),
-            requested_lifecycle: "waiting_for_input".to_owned(),
-            updated_at: "2026-06-21T00:00:01.000Z".to_owned(),
+            requested_lifecycle: "waiting_for_input".into(),
+            updated_at: "2026-06-21T00:00:01.000Z".into(),
             detached_cancellation: None,
         },
     )
@@ -985,20 +989,20 @@ fn lifecycle_and_terminal_mutations_write_the_outbox() {
     let terminal = commit_multi_agent_terminal_mutation(
         &db,
         &CommitMultiAgentTerminalMutationInput {
-            session_path: session_path.to_owned(),
-            agent_id: "child".to_owned(),
+            session_path: session_path.into(),
+            agent_id: "child".into(),
             process_identity: process_identity.clone(),
             owner: owner("owner"),
-            terminal_lifecycle: "completed".to_owned(),
-            event_kind: "completed".to_owned(),
+            terminal_lifecycle: "completed".into(),
+            event_kind: "completed".into(),
             agent_details: pi_coding_agent::core::session_control_db::AgentDetails {
                 error: None,
                 result: Some(
-                    serde_json::to_value(AgentResult {
-                        summary: Some("done".to_owned()),
+                    js_json::to_value(&AgentResult {
+                        summary: Some("done".into()),
                         file_refs: Some(vec![AgentFileReference {
-                            path: "/tmp/out".to_owned(),
-                            label: Some("Output".to_owned()),
+                            path: "/tmp/out".into(),
+                            label: Some("Output".into()),
                         }]),
                         duration_ms: Some(12),
                         tool_call_id: None,
@@ -1006,7 +1010,7 @@ fn lifecycle_and_terminal_mutations_write_the_outbox() {
                     .expect("result"),
                 ),
             },
-            updated_at: "2026-06-21T00:00:02.000Z".to_owned(),
+            updated_at: "2026-06-21T00:00:02.000Z".into(),
         },
     )
     .expect("terminal");
@@ -1015,9 +1019,14 @@ fn lifecycle_and_terminal_mutations_write_the_outbox() {
         pi_coding_agent::core::session_control_db::CommitMultiAgentTerminalMutationResult::Ok { terminal_revision: 3 }
     );
 
-    let record = claim_multi_agent_terminal_outbox(&db, "claim", "2026-06-21T00:00:03.000Z", &Default::default())
-        .expect("claim")
-        .expect("record");
+    let record = claim_multi_agent_terminal_outbox(
+        &db,
+        &JsString::from("claim"),
+        "2026-06-21T00:00:03.000Z",
+        &Default::default(),
+    )
+    .expect("claim")
+    .expect("record");
     assert_eq!(record.terminal_revision, 3);
     assert_eq!(record.attempt_count, 1);
     assert!(deliver_multi_agent_terminal_outbox(&db, &record).expect("deliver"));
@@ -1036,34 +1045,34 @@ fn steering_mutations_require_registered_authority() {
     let session_path = "/sessions/main.jsonl";
     let mut child = agent_node("child", Some("main"), AgentLifecycle::Running);
     child.transcript = Some(pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata {
-        session_id: "child-session".to_owned(),
+        session_id: "child-session".into(),
         path: None,
     });
     create_multi_agent_child_with_runtime_ownership(
         &db,
         &CreateMultiAgentChildWithRuntimeOwnershipInput {
-            session_path: session_path.to_owned(),
-            agent_id: "child".to_owned(),
+            session_path: session_path.into(),
+            agent_id: "child".into(),
             process_identity: process_identity.clone(),
             owner: owner("supervisor"),
-            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            now_iso: "2026-06-21T00:00:00.000Z".into(),
             agent: child,
         },
     )
     .expect("create");
     let recipient = RuntimeMailboxAddress {
-        session_id: "child-session".to_owned(),
-        agent_id: Some("child".to_owned()),
+        session_id: "child-session".into(),
+        agent_id: Some("child".into()),
     };
     register_listener(&db, &recipient);
     register_runtime_mailbox_listener(
         &db,
         &RuntimeMailboxAddress {
-            session_id: "supervisor".to_owned(),
+            session_id: "supervisor".into(),
             agent_id: None,
         },
         std::process::id(),
-        Some(session_path),
+        Some(&JsString::from(session_path)),
         Default::default(),
     )
     .expect("register supervisor listener");
@@ -1071,15 +1080,15 @@ fn steering_mutations_require_registered_authority() {
     let result = commit_multi_agent_steering_mutation(
         &db,
         &CommitMultiAgentSteeringMutationInput {
-            session_path: session_path.to_owned(),
-            agent_id: "child".to_owned(),
+            session_path: session_path.into(),
+            agent_id: "child".into(),
             process_identity: process_identity.clone(),
             owner: owner("supervisor"),
-            requested_lifecycle: "steering_pending".to_owned(),
+            requested_lifecycle: "steering_pending".into(),
             updated_at: pi_coding_agent::utils::iso_time::now_iso_string(),
-            body: "steer".to_owned(),
+            body: "steer".into(),
             file_refs: None,
-            from_agent_id: "supervisor".to_owned(),
+            from_agent_id: "supervisor".into(),
             recipient: recipient.clone(),
             target_checkpoint: None,
             thread_id: None,
@@ -1093,18 +1102,18 @@ fn steering_mutations_require_registered_authority() {
     };
     assert_eq!(agent.lifecycle, AgentLifecycle::SteeringPending);
     assert_eq!(message.id, "message_1");
-    assert_eq!(message.body.as_deref(), Some("steer"));
+    assert_eq!(message.body.clone(), Some("steer".into()));
 
     let delivery = commit_multi_agent_steering_delivery(
         &db,
         &pi_coding_agent::core::session_control_db::CommitMultiAgentSteeringDeliveryInput {
-            session_path: session_path.to_owned(),
-            agent_id: "child".to_owned(),
+            session_path: session_path.into(),
+            agent_id: "child".into(),
             process_identity,
             owner: owner("supervisor"),
-            requested_lifecycle: "running".to_owned(),
-            updated_at: "2026-06-21T00:00:02.000Z".to_owned(),
-            message_id: "message_1".to_owned(),
+            requested_lifecycle: "running".into(),
+            updated_at: "2026-06-21T00:00:02.000Z".into(),
+            message_id: "message_1".into(),
         },
     )
     .expect("deliver");
@@ -1115,7 +1124,7 @@ fn steering_mutations_require_registered_authority() {
     let message = pi_coding_agent::core::session_control_db::get_multi_agent_mailbox_message_status(
         &db,
         session_path,
-        "message_1",
+        &JsString::from("message_1"),
     )
     .expect("status");
     // Frozen session-control-db.ts steering delivery deletes the row.
@@ -1131,22 +1140,22 @@ fn detach_mark_is_idempotent_and_fenced_by_ownership() {
     create_multi_agent_child_with_runtime_ownership(
         &db,
         &CreateMultiAgentChildWithRuntimeOwnershipInput {
-            session_path: session_path.to_owned(),
-            agent_id: "child".to_owned(),
+            session_path: session_path.into(),
+            agent_id: "child".into(),
             process_identity: process_identity.clone(),
             owner: owner("owner"),
-            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            now_iso: "2026-06-21T00:00:00.000Z".into(),
             agent: child,
         },
     )
     .expect("create");
 
     let input = pi_coding_agent::core::session_control_db::CommitMultiAgentDetachMarkInput {
-        agent_id: "child".to_owned(),
+        agent_id: "child".into(),
         owner: owner("owner"),
         process_identity: process_identity.clone(),
-        session_path: session_path.to_owned(),
-        updated_at: "2026-06-21T00:00:01.000Z".to_owned(),
+        session_path: session_path.into(),
+        updated_at: "2026-06-21T00:00:01.000Z".into(),
     };
     let first = commit_multi_agent_detach_mark(&db, &input).expect("detach");
     let pi_coding_agent::core::session_control_db::CommitMultiAgentDetachMarkResult::Ok { agent } = first else {
@@ -1184,18 +1193,18 @@ fn finalize_detached_job_records_terminal_transport_and_artifacts() {
     child.detached = Some(true);
     child.worker = Some(pi_coding_agent::core::multi_agent_store::AgentWorkerAdapter {
         adapter: pi_coding_agent::core::multi_agent_store::AgentWorkerAdapterKind::Runtime,
-        handle_id: std::process::id().to_string(),
+        handle_id: std::process::id().to_string().into(),
         cwd: None,
-        tool_call_id: Some("tool-1".to_owned()),
+        tool_call_id: Some("tool-1".into()),
     });
     create_multi_agent_child_with_runtime_ownership(
         &db,
         &CreateMultiAgentChildWithRuntimeOwnershipInput {
-            session_path: session_path.to_owned(),
-            agent_id: "bash_1".to_owned(),
+            session_path: session_path.into(),
+            agent_id: "bash_1".into(),
             process_identity: process_identity.clone(),
             owner: owner("owner"),
-            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            now_iso: "2026-06-21T00:00:00.000Z".into(),
             agent: child,
         },
     )
@@ -1204,24 +1213,24 @@ fn finalize_detached_job_records_terminal_transport_and_artifacts() {
     let result = finalize_detached_job(
         &db,
         &FinalizeDetachedJobInput {
-            session_path: session_path.to_owned(),
+            session_path: session_path.into(),
             terminal: DetachedJobTerminalInput {
-                job_id: "bash_1".to_owned(),
+                job_id: "bash_1".into(),
                 owner: owner("owner"),
                 process_identity,
                 output_label: "Bash output".into(),
-                terminal_at: pi_coding_agent::utils::iso_time::now_iso_string(),
-                tool_call_id: Some("tool-1".to_owned()),
+                terminal_at: pi_coding_agent::utils::iso_time::now_iso_string().into(),
+                tool_call_id: Some("tool-1".into()),
                 duration_ms: Some(42),
                 outcome: DetachedJobOutcome::Completed {
                     exit_code: Some(0),
-                    summary: Some("ok".to_owned()),
+                    summary: Some("ok".into()),
                 },
                 output: DetachedJobTerminalOutput {
-                    label: "Bash output".to_owned(),
-                    path: "/tmp/output.log".to_owned(),
+                    label: "Bash output".into(),
+                    path: "/tmp/output.log".into(),
                     size: 3,
-                    sha256: "abc".to_owned(),
+                    sha256: "abc".into(),
                 },
             },
         },
@@ -1238,9 +1247,9 @@ fn finalize_detached_job_records_terminal_transport_and_artifacts() {
     assert_eq!(terminal_agent.lifecycle, AgentLifecycle::Completed);
     assert_eq!(terminal_agent.worker, None);
     let result = terminal_agent.result.expect("result");
-    assert_eq!(result.summary.as_deref(), Some("ok"));
+    assert_eq!(result.summary.clone(), Some("ok".into()));
     assert_eq!(result.duration_ms, Some(42));
-    assert_eq!(result.tool_call_id.as_deref(), Some("tool-1"));
+    assert_eq!(result.tool_call_id.clone(), Some("tool-1".into()));
     let file_refs = result.file_refs.expect("file refs");
     assert_eq!(file_refs[0].path, "/tmp/output.log");
 
@@ -1263,19 +1272,19 @@ fn bootstrap_refuses_to_mutate_owned_rows() {
     create_multi_agent_child_with_runtime_ownership(
         &db,
         &CreateMultiAgentChildWithRuntimeOwnershipInput {
-            session_path: session_path.to_owned(),
-            agent_id: "child".to_owned(),
+            session_path: session_path.into(),
+            agent_id: "child".into(),
             process_identity,
             owner: owner("owner"),
-            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            now_iso: "2026-06-21T00:00:00.000Z".into(),
             agent: child.clone(),
         },
     )
     .expect("create");
-    let value = serde_json::to_value(&child).expect("value");
-    let error = bootstrap_multi_agent_agent(&db, session_path, "child", &value).expect_err("owned");
+    let value = js_json::to_value(&child).expect("value");
+    let error = bootstrap_multi_agent_agent(&db, session_path, &JsString::from("child"), &value).expect_err("owned");
     assert_eq!(
-        error.message(),
+        *error.message(),
         format!("Generic agent upsert cannot mutate process-owned lifecycle row {session_path}#child")
     );
 
@@ -1283,8 +1292,8 @@ fn bootstrap_refuses_to_mutate_owned_rows() {
     bootstrap_multi_agent_agent(
         &db,
         session_path,
-        "plain",
-        &serde_json::to_value(&unowned).expect("value"),
+        &JsString::from("plain"),
+        &js_json::to_value(&unowned).expect("value"),
     )
     .expect("bootstrap");
     let state = read_multi_agent_state(&db, session_path)
@@ -1340,7 +1349,7 @@ fn legacy_database_migrates_to_schema_fifteen() {
         .expect("legacy schema");
     drop(connection);
 
-    let _ = read_session_health(&path, "missing").expect("initializes");
+    let _ = read_session_health(&path, &JsString::from("missing")).expect("initializes");
     let connection = rusqlite::Connection::open(&path).expect("open migrated");
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
@@ -1468,10 +1477,7 @@ fn version_fourteen_session_names_migrate_into_metadata_and_drop_the_legacy_tabl
     );
     assert_eq!(
         first_initialization,
-        (
-            Some("Legacy Preferred Name".to_owned()),
-            Some("Metadata Only".to_owned())
-        ),
+        (Some("Legacy Preferred Name".into()), Some("Metadata Only".into())),
         "legacy rows win for matching metadata and normalization applies"
     );
     assert_eq!(second_initialization, first_initialization, "migration is idempotent");
@@ -1501,13 +1507,10 @@ fn version_fourteen_session_names_migrate_into_metadata_and_drop_the_legacy_tabl
         stored,
         vec![
             (
-                "/sessions/legacy-name.jsonl".to_owned(),
-                Some("Legacy Preferred Name".to_owned())
+                "/sessions/legacy-name.jsonl".into(),
+                Some("Legacy Preferred Name".into())
             ),
-            (
-                "/sessions/metadata-only.jsonl".to_owned(),
-                Some("Metadata Only".to_owned())
-            ),
+            ("/sessions/metadata-only.jsonl".into(), Some("Metadata Only".into())),
         ],
         "orphan legacy rows are discarded and metadata-only rows are untouched"
     );
@@ -1544,10 +1547,10 @@ fn session_name_migration_requires_runtime_quiescence() {
     drop(connection);
 
     let error = read_session_metadata(&db, "/sessions/legacy-name.jsonl").expect_err("quiescence blocks");
-    let message = error.message().to_owned();
+    let message = error.message();
     assert!(
         message.contains("Cannot activate session name schema version 15 while lifecycle owners are active"),
-        "unexpected message: {message}"
+        "unexpected message: {message:?}"
     );
     assert!(
         message.contains(&std::process::id().to_string()),
@@ -1581,8 +1584,8 @@ fn session_name_migration_requires_runtime_quiescence() {
             .expect("read after quiescence")
             .expect("metadata")
             .name
-            .as_deref(),
-        Some("Legacy Preferred Name")
+            .clone(),
+        Some("Legacy Preferred Name".into())
     );
 }
 
@@ -1592,7 +1595,7 @@ fn unsupported_future_schema_is_rejected() {
     let connection = rusqlite::Connection::open(&path).expect("open");
     connection.execute_batch("PRAGMA user_version = 99").expect("version");
     drop(connection);
-    let error = read_session_health(&path, "missing").expect_err("future schema");
+    let error = read_session_health(&path, &JsString::from("missing")).expect_err("future schema");
     assert_eq!(
         error.message(),
         "Unsupported control database schema version 99; this Pi runtime supports up to version 15"
@@ -1623,10 +1626,10 @@ fn concurrent_writers_share_the_database_without_loss() {
                     &path,
                     &PostSharedChannelMessageInput {
                         sender: RuntimeMailboxAddress {
-                            session_id: format!("session-{thread}"),
+                            session_id: format!("session-{thread}").into(),
                             agent_id: None,
                         },
-                        body: format!("message-{thread}-{index}"),
+                        body: format!("message-{thread}-{index}").into(),
                     },
                 )
                 .expect("post");
@@ -1649,12 +1652,12 @@ fn detached_artifact_listing_filters_by_label_and_lifecycle() {
     let (_dir, db) = temp_db();
     let session_path = "/sessions/main.jsonl";
     let mut completed = agent_node("bash_1", Some("main"), AgentLifecycle::Completed);
-    completed.updated_at = "2026-06-21T00:00:01.000Z".to_owned();
+    completed.updated_at = "2026-06-21T00:00:01.000Z".into();
     completed.result = Some(AgentResult {
         summary: None,
         file_refs: Some(vec![AgentFileReference {
-            path: "/tmp/output.log".to_owned(),
-            label: Some("Bash output".to_owned()),
+            path: "/tmp/output.log".into(),
+            label: Some("Bash output".into()),
         }]),
         duration_ms: None,
         tool_call_id: None,
@@ -1662,16 +1665,16 @@ fn detached_artifact_listing_filters_by_label_and_lifecycle() {
     bootstrap_multi_agent_agent(
         &db,
         session_path,
-        "bash_1",
-        &serde_json::to_value(&completed).expect("value"),
+        &JsString::from("bash_1"),
+        &js_json::to_value(&completed).expect("value"),
     )
     .expect("bootstrap");
     let mut other = agent_node("other", Some("main"), AgentLifecycle::Completed);
     other.result = Some(AgentResult {
         summary: None,
         file_refs: Some(vec![AgentFileReference {
-            path: "/tmp/other.log".to_owned(),
-            label: Some("Other".to_owned()),
+            path: "/tmp/other.log".into(),
+            label: Some("Other".into()),
         }]),
         duration_ms: None,
         tool_call_id: None,
@@ -1679,8 +1682,8 @@ fn detached_artifact_listing_filters_by_label_and_lifecycle() {
     bootstrap_multi_agent_agent(
         &db,
         session_path,
-        "other",
-        &serde_json::to_value(&other).expect("value"),
+        &JsString::from("other"),
+        &js_json::to_value(&other).expect("value"),
     )
     .expect("bootstrap");
 
@@ -1702,11 +1705,11 @@ fn agent_error_type_is_persisted_through_terminal_mutation() {
     create_multi_agent_child_with_runtime_ownership(
         &db,
         &CreateMultiAgentChildWithRuntimeOwnershipInput {
-            session_path: session_path.to_owned(),
-            agent_id: "child".to_owned(),
+            session_path: session_path.into(),
+            agent_id: "child".into(),
             process_identity: process_identity.clone(),
             owner: owner("owner"),
-            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            now_iso: "2026-06-21T00:00:00.000Z".into(),
             agent: child,
         },
     )
@@ -1714,23 +1717,23 @@ fn agent_error_type_is_persisted_through_terminal_mutation() {
     commit_multi_agent_terminal_mutation(
         &db,
         &CommitMultiAgentTerminalMutationInput {
-            session_path: session_path.to_owned(),
-            agent_id: "child".to_owned(),
+            session_path: session_path.into(),
+            agent_id: "child".into(),
             process_identity,
             owner: owner("owner"),
-            terminal_lifecycle: "failed".to_owned(),
-            event_kind: "failed".to_owned(),
+            terminal_lifecycle: "failed".into(),
+            event_kind: "failed".into(),
             agent_details: pi_coding_agent::core::session_control_db::AgentDetails {
                 error: Some(
-                    serde_json::to_value(AgentError {
-                        message: "boom".to_owned(),
-                        code: Some("E".to_owned()),
+                    js_json::to_value(&AgentError {
+                        message: "boom".into(),
+                        code: Some("E".into()),
                     })
                     .expect("error"),
                 ),
                 result: None,
             },
-            updated_at: "2026-06-21T00:00:01.000Z".to_owned(),
+            updated_at: "2026-06-21T00:00:01.000Z".into(),
         },
     )
     .expect("terminal");
@@ -1749,18 +1752,18 @@ fn read_multi_agent_state_orders_rows_by_rowid() {
         bootstrap_multi_agent_agent(
             &db,
             session_path,
-            id,
-            &serde_json::to_value(agent_node(id, Some("main"), AgentLifecycle::Running)).expect("value"),
+            &JsString::from(id),
+            &js_json::to_value(&agent_node(id, Some("main"), AgentLifecycle::Running)).expect("value"),
         )
         .expect("bootstrap");
     }
     let state = read_multi_agent_state(&db, session_path)
         .expect("state")
         .expect("persisted");
-    let ids: Vec<&str> = state
+    let ids: Vec<&JsString> = state
         .agents
         .iter()
-        .map(|agent| agent.get("id").and_then(|value| value.as_str()).expect("id"))
+        .map(|agent| agent.get("id").and_then(|value| value.as_string()).expect("id"))
         .collect();
     assert_eq!(ids, vec!["first", "second", "third"]);
 }
@@ -1799,13 +1802,15 @@ fn health_record_round_trips_all_statuses() {
     let mut health = empty_session_health("session", "2026-06-21T00:00:00.000Z");
     health.pid = Some(42);
     health.agent_generation = 3;
-    health.last_active_at = Some("2026-06-21T00:00:00.000Z".to_owned());
-    health.last_checked_at = Some("2026-06-21T00:00:01.000Z".to_owned());
+    health.last_active_at = Some("2026-06-21T00:00:00.000Z".into());
+    health.last_checked_at = Some("2026-06-21T00:00:01.000Z".into());
     health.check_status = SessionCheckStatus::Timeout;
     health.checked_generation = Some(2);
     health.check_latency_ms = Some(1234);
     write_session_health(&db, &health).expect("write");
-    let read = read_session_health(&db, "session").expect("read").expect("health");
+    let read = read_session_health(&db, &JsString::from("session"))
+        .expect("read")
+        .expect("health");
     assert_eq!(read, health);
 }
 
@@ -1829,24 +1834,24 @@ fn supervisor_advisory_claim_requires_matching_response_kind() {
     let id = post_supervisor_request(
         &db,
         &PostSupervisorRequestInput {
-            sender_session_id: "sender".to_owned(),
-            project_id: "project".to_owned(),
+            sender_session_id: "sender".into(),
+            project_id: "project".into(),
             kind: SupervisorRequestKind::SupervisorAdvisory,
-            payload: serde_json::Map::new(),
-            deadline_at: "2099-01-01T00:00:00.000Z".to_owned(),
+            payload: JsObject::new(),
+            deadline_at: "2099-01-01T00:00:00.000Z".into(),
         },
     )
     .expect("post");
-    let claimed = claim_next_supervisor_request(&db, "token")
+    let claimed = claim_next_supervisor_request(&db, &JsString::from("token"))
         .expect("claim")
         .expect("request");
     assert_eq!(claimed.id, id);
     complete_supervisor_request(
         &db,
         id,
-        "token",
+        &JsString::from("token"),
         &SupervisorResponse::Advisory {
-            answer: "answer".to_owned(),
+            answer: "answer".into(),
         },
     )
     .expect("complete");
@@ -1861,11 +1866,11 @@ fn outbox_claim_recovers_stale_claims_and_poisons_after_max_attempts() {
     create_multi_agent_child_with_runtime_ownership(
         &db,
         &CreateMultiAgentChildWithRuntimeOwnershipInput {
-            session_path: session_path.to_owned(),
-            agent_id: "child".to_owned(),
+            session_path: session_path.into(),
+            agent_id: "child".into(),
             process_identity: process_identity.clone(),
             owner: owner("owner"),
-            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            now_iso: "2026-06-21T00:00:00.000Z".into(),
             agent: child,
         },
     )
@@ -1873,47 +1878,62 @@ fn outbox_claim_recovers_stale_claims_and_poisons_after_max_attempts() {
     commit_multi_agent_terminal_mutation(
         &db,
         &CommitMultiAgentTerminalMutationInput {
-            session_path: session_path.to_owned(),
-            agent_id: "child".to_owned(),
+            session_path: session_path.into(),
+            agent_id: "child".into(),
             process_identity,
             owner: owner("owner"),
-            terminal_lifecycle: "completed".to_owned(),
-            event_kind: "completed".to_owned(),
+            terminal_lifecycle: "completed".into(),
+            event_kind: "completed".into(),
             agent_details: Default::default(),
-            updated_at: "2026-06-21T00:00:01.000Z".to_owned(),
+            updated_at: "2026-06-21T00:00:01.000Z".into(),
         },
     )
     .expect("terminal");
 
-    let first = claim_multi_agent_terminal_outbox(&db, "claim-1", "2026-06-21T00:00:02.000Z", &Default::default())
-        .expect("claim")
-        .expect("record");
+    let first = claim_multi_agent_terminal_outbox(
+        &db,
+        &JsString::from("claim-1"),
+        "2026-06-21T00:00:02.000Z",
+        &Default::default(),
+    )
+    .expect("claim")
+    .expect("record");
     assert_eq!(first.attempt_count, 1);
     pi_coding_agent::core::session_control_db::fail_multi_agent_terminal_outbox(
         &db,
         &first,
-        "transient",
+        &JsString::from("transient"),
         "2026-06-21T00:00:03.000Z",
         2,
     )
     .expect("fail");
 
-    let second = claim_multi_agent_terminal_outbox(&db, "claim-2", "2026-06-21T00:00:04.000Z", &Default::default())
-        .expect("claim")
-        .expect("record");
+    let second = claim_multi_agent_terminal_outbox(
+        &db,
+        &JsString::from("claim-2"),
+        "2026-06-21T00:00:04.000Z",
+        &Default::default(),
+    )
+    .expect("claim")
+    .expect("record");
     assert_eq!(second.attempt_count, 2);
     pi_coding_agent::core::session_control_db::fail_multi_agent_terminal_outbox(
         &db,
         &second,
-        "permanent",
+        &JsString::from("permanent"),
         "2026-06-21T00:00:05.000Z",
         2,
     )
     .expect("fail");
     assert!(
-        claim_multi_agent_terminal_outbox(&db, "claim-3", "2026-06-21T00:00:06.000Z", &Default::default())
-            .expect("claim")
-            .is_none()
+        claim_multi_agent_terminal_outbox(
+            &db,
+            &JsString::from("claim-3"),
+            "2026-06-21T00:00:06.000Z",
+            &Default::default()
+        )
+        .expect("claim")
+        .is_none()
     );
 }
 
@@ -1921,11 +1941,11 @@ fn outbox_claim_recovers_stale_claims_and_poisons_after_max_attempts() {
 fn runtime_mailbox_claim_respects_registered_listener_pid() {
     let (_dir, db) = temp_db();
     let recipient = RuntimeMailboxAddress {
-        session_id: "recipient".to_owned(),
+        session_id: "recipient".into(),
         agent_id: None,
     };
     let sender = RuntimeMailboxAddress {
-        session_id: "sender".to_owned(),
+        session_id: "sender".into(),
         agent_id: None,
     };
     stored_message(&db, "/sessions/sender.jsonl", "message_1", &recipient, &sender, "hello");
@@ -1943,7 +1963,7 @@ fn mailbox_consumption_removes_even_a_legacy_delivered_row() {
         &db,
         session_path,
         "message_1",
-        &serde_json::json!({
+        &pi_js_compat::js_json!({
             "fromAgentId": "main",
             "id": "message_1",
             "kind": "message",
@@ -1957,12 +1977,12 @@ fn mailbox_consumption_removes_even_a_legacy_delivered_row() {
         pi_coding_agent::core::session_control_db::mark_multi_agent_mailbox_message_delivered(
             &db,
             session_path,
-            "message_1"
+            &JsString::from("message_1")
         )
         .expect("mark")
     );
     assert_eq!(
-        get_multi_agent_mailbox_message_status(&db, session_path, "message_1").expect("status"),
+        get_multi_agent_mailbox_message_status(&db, session_path, &JsString::from("message_1")).expect("status"),
         None
     );
 }
@@ -1976,24 +1996,24 @@ fn terminal_outbox_replay_is_idempotent() {
     create_multi_agent_child_with_runtime_ownership(
         &db,
         &CreateMultiAgentChildWithRuntimeOwnershipInput {
-            session_path: session_path.to_owned(),
-            agent_id: "child".to_owned(),
+            session_path: session_path.into(),
+            agent_id: "child".into(),
             process_identity: process_identity.clone(),
             owner: owner("owner"),
-            now_iso: "2026-06-21T00:00:00.000Z".to_owned(),
+            now_iso: "2026-06-21T00:00:00.000Z".into(),
             agent: child,
         },
     )
     .expect("create");
     let input = CommitMultiAgentTerminalMutationInput {
-        session_path: session_path.to_owned(),
-        agent_id: "child".to_owned(),
+        session_path: session_path.into(),
+        agent_id: "child".into(),
         process_identity,
         owner: owner("owner"),
-        terminal_lifecycle: "completed".to_owned(),
-        event_kind: "completed".to_owned(),
+        terminal_lifecycle: "completed".into(),
+        event_kind: "completed".into(),
         agent_details: Default::default(),
-        updated_at: "2026-06-21T00:00:01.000Z".to_owned(),
+        updated_at: "2026-06-21T00:00:01.000Z".into(),
     };
     commit_multi_agent_terminal_mutation(&db, &input).expect("terminal");
     let replay = commit_multi_agent_terminal_mutation(&db, &input).expect("replay");
@@ -2057,7 +2077,7 @@ fn name_migration_errors_preserve_owner_pid_encounter_order() {
     drop(raw);
     let failure = read_session_metadata(&db, "/sessions/legacy-name.jsonl").expect_err("live owners");
     assert_eq!(
-        failure.message(),
+        *failure.message(),
         format!(
             "Cannot activate session name schema version 15 while lifecycle owners are active (PIDs: {}, {parent}). Stop all Pi and detached runner processes, then retry",
             std::process::id()
@@ -2083,13 +2103,13 @@ fn existing_v15_names_update_without_reentering_lifecycle_migrations() {
         [payload],
     )
     .expect("agent");
-    write_session_name(&db, "/existing", Some("Existing v15 Name")).expect("no migration required");
+    write_session_name(&db, "/existing", Some(&JsString::from("Existing v15 Name"))).expect("no migration required");
     assert_eq!(
         read_session_name_state(&db, "/existing")
             .expect("name state")
             .name
-            .as_deref(),
-        Some("Existing v15 Name")
+            .clone(),
+        Some("Existing v15 Name".into())
     );
     let retained: String = raw
         .query_row(
