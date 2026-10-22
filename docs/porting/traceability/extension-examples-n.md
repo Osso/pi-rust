@@ -157,3 +157,11 @@ Native subagent request/result text, JSON values, rendering and UTF-16 preview s
 | Remaining DRIFT | Frozen evidence | Native evidence / proof |
 |---|---|---|
 | Inherited model/thinking child invocation flags | Frozen subagent `index.ts:295-298` adds `--model` only for explicit `agent.model`, with no inherited `--thinking` injection | Native `run_single` still adds host defaults; real Python child journal compares native/frozen `model` and `thinking` in `modes_dispatch_and_streaming_match_pinned_real_extension_runtime` (RED). Result-model metadata is independently fixed above. |
+
+### GitLab direct-token native JSON boundary (2026-10-22)
+
+Direct-access response JSON is parsed with `parse_lossless`; direct token and header values retain raw `JsString` units. `native_direct_token_tests` uses actual injected HTTP body bytes to prove unmatched token/value retention and rejection of unmatched header-name units before caching (both RED before migration).
+
+| Approved gap | Frozen reference | Native boundary |
+|---|---|---|
+| Header-name error occurs earlier | Frozen custom-provider-gitlab-duo `index.ts:205,323` would fail during later request header construction | `ProviderHeaders` names remain `String`; `key.to_utf8()` explicitly rejects unpaired units while parsing direct-token response and propagates the conversion error. Values stay native. Header names classified as protocol tokens under opaque-name approval (2026-10-22 parent decision); no replacement or shared adapter added. |

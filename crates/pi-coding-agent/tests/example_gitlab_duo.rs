@@ -16,6 +16,7 @@ use pi_ai::{
     utils::event_stream::*,
 };
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
@@ -99,7 +100,7 @@ impl AuthInteraction for Interaction {
             self.calls.lock().unwrap().push(json!({"type":"auth","url":url}));
         }
     }
-    fn prompt(&self, p: AuthPrompt) -> BoxFuture<'_, Result<String, CallbackError>> {
+    fn prompt(&self, p: AuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>> {
         Box::pin(async move {
             let AuthPromptKind::Text { message, .. } = p.kind else {
                 panic!()
@@ -108,7 +109,7 @@ impl AuthInteraction for Interaction {
                 .lock()
                 .unwrap()
                 .push(json!({"type":"prompt","message":message}));
-            Ok(self.code.clone())
+            Ok(JsString::from(&self.code))
         })
     }
 }
@@ -139,11 +140,11 @@ async fn provider(input: Value, calls: Arc<Mutex<Vec<Value>>>, clock: Arc<Mutex<
     );
     let runtime = support::runtime();
     let extension = load_extension_from_factory(
-        registry.get("<example:gitlab>").unwrap().clone(),
-        "/fixture",
+        registry.get(&JsString::from("<example:gitlab>")).unwrap().clone(),
+        &JsString::from("/fixture"),
         support::event_bus(),
         runtime.clone(),
-        "<example:gitlab>",
+        &JsString::from("<example:gitlab>"),
     )
     .await
     .unwrap();
@@ -265,7 +266,7 @@ async fn backend_dispatch_errors_cache_expiry_and_oauth_invalidation() {
                 o.stream.request.api_key = Some("FAKE-gitlab".into());
             }
             o.stream.request.headers = Some(
-                [(String::from("ignored"), Some(String::from("caller")))]
+                [(String::from("ignored"), Some(JsString::from("caller")))]
                     .into_iter()
                     .collect(),
             );

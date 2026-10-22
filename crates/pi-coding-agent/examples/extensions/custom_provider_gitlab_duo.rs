@@ -19,6 +19,8 @@ use pi_coding_agent::core::{
     model_config::ModelConfig,
     provider_composer::{ProviderConfigInput, compose_model_provider},
 };
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
@@ -33,7 +35,7 @@ pub struct Backends {
 }
 #[derive(Clone)]
 struct DirectToken {
-    token: String,
+    token: JsString,
     headers: pi_ai::types::ProviderHeaders,
     expires: f64,
 }
@@ -42,7 +44,7 @@ struct State {
     cache: Mutex<Option<DirectToken>>,
 }
 impl State {
-    async fn direct_token(&self, access: &str) -> Result<DirectToken, CallbackError> {
+    async fn direct_token(&self, access: &JsString) -> Result<DirectToken, CallbackError> {
         let now = self.runtime.now();
         if let Some(token) = self.cache.lock().unwrap().as_ref().filter(|t| t.expires > now) {
             return Ok(token.clone());
@@ -55,7 +57,10 @@ impl State {
                     method: "POST".into(),
                     url: "https://gitlab.com/api/v4/ai/third_party_agents/direct_access".into(),
                     headers: vec![
-                        ("Authorization".into(), format!("Bearer {access}")),
+                        (
+                            "Authorization".into(),
+                            pi_ai::request::header_value(&js_format!("Bearer {}", access))?,
+                        ),
                         ("Content-Type".into(), "application/json".into()),
                     ],
                     body: Some(br#"{"feature_flags":{"DuoAgentPlatformNext":true}}"#.to_vec()),
@@ -72,15 +77,19 @@ impl State {
                 format!("Failed to get direct access token: {status} {body}")
             }));
         }
-        let data: Value = pi_js_compat::js_json::parse(&body).map_err(|e| CallbackError::new(e.to_string()))?;
+        let data = pi_js_compat::js_json::parse_lossless(&body).map_err(|e| CallbackError::new(e.to_string()))?;
         let headers = data["headers"]
             .as_object()
             .into_iter()
             .flatten()
-            .map(|(key, v)| (key.clone(), v.as_str().map(str::to_owned)))
-            .collect();
+            .map(|(key, value)| {
+                key.to_utf8()
+                    .map(|name| (name, value.as_string().cloned()))
+                    .map_err(|error| CallbackError::new(error.to_string()))
+            })
+            .collect::<Result<_, _>>()?;
         let token = DirectToken {
-            token: data["token"].as_str().unwrap_or_default().into(),
+            token: data["token"].as_string().cloned().unwrap_or_else(JsString::default),
             headers,
             expires: now + 25.0 * 60.0 * 1000.0,
         };
@@ -111,11 +120,17 @@ impl State {
         if !ok {
             return Err(CallbackError::new(format!("{failure}: {body}")));
         }
-        let data: Value = pi_js_compat::js_json::parse(&body).map_err(|e| CallbackError::new(e.to_string()))?;
+        let data = pi_js_compat::js_json::parse_lossless(&body).map_err(|e| CallbackError::new(e.to_string()))?;
         *self.cache.lock().unwrap() = None;
         Ok(OAuthCredential::new(
-            data["refresh_token"].as_str().unwrap_or_default(),
-            data["access_token"].as_str().unwrap_or_default(),
+            data["refresh_token"]
+                .as_string()
+                .cloned()
+                .unwrap_or_else(JsString::default),
+            data["access_token"]
+                .as_string()
+                .cloned()
+                .unwrap_or_else(JsString::default),
             (data["created_at"].as_f64().unwrap_or(f64::NAN) + data["expires_in"].as_f64().unwrap_or(f64::NAN))
                 * 1000.0
                 - 300000.0,
@@ -145,7 +160,7 @@ impl OAuthAuth for GitlabOAuth {
                 ],
             );
             interaction.notify(AuthEvent::AuthUrl {
-                url,
+                url: JsString::from(url),
                 instructions: None,
             });
             let callback = interaction
@@ -157,7 +172,8 @@ impl OAuthAuth for GitlabOAuth {
                     },
                 })
                 .await?;
-            let parsed = url::Url::parse(&callback).map_err(|_| CallbackError::new("Invalid URL"))?;
+            let callback = pi_ai::request::request_url(&callback).map_err(|_| CallbackError::new("Invalid URL"))?;
+            let parsed = url::Url::parse(&callback).expect("callback URL already validated");
             let code = parsed
                 .query_pairs()
                 .find(|(k, _)| k == "code")
@@ -207,13 +223,13 @@ impl OAuthAuth for GitlabOAuth {
     fn to_auth(&self, c: OAuthCredential) -> BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some(c.access_utf8()?),
+                api_key: Some(c.access.clone()),
                 ..Default::default()
             })
         })
     }
 }
-pub fn gitlab_duo_extension(api: &ExtensionApi) -> Result<(), String> {
+pub fn gitlab_duo_extension(api: &ExtensionApi) -> Result<(), JsString> {
     gitlab_duo_extension_with_backends(
         api,
         OAuthRuntime::system(),
@@ -227,7 +243,7 @@ pub fn gitlab_duo_extension_with_backends(
     api: &ExtensionApi,
     runtime: OAuthRuntime,
     backends: Backends,
-) -> Result<(), String> {
+) -> Result<(), JsString> {
     let state = Arc::new(State {
         runtime,
         cache: Mutex::new(None),
@@ -258,8 +274,11 @@ impl Provider for GitlabDuo {
     fn name(&self) -> &str {
         "GitLab Duo"
     }
-    fn base_url(&self) -> Option<&str> {
-        Some(GATEWAY)
+    fn base_url(&self) -> Option<&JsString> {
+        {
+            static URL: std::sync::LazyLock<JsString> = std::sync::LazyLock::new(|| JsString::from(GATEWAY));
+            Some(&URL)
+        }
     }
     fn auth(&self) -> &ProviderAuth {
         &self.auth
@@ -303,7 +322,7 @@ impl Provider for GitlabDuo {
                     .stream
                     .request
                     .api_key
-                    .as_deref()
+                    .as_ref()
                     .filter(|s| !s.is_empty())
                     .ok_or_else(|| {
                         CallbackError::new("No GitLab access token. Run /login gitlab-duo or set GITLAB_TOKEN")
@@ -314,7 +333,7 @@ impl Provider for GitlabDuo {
                     .ok_or_else(|| CallbackError::new(format!("Unknown model: {}", model.id)))?;
                 let direct = state.direct_token(key).await?;
                 let mut headers = direct.headers;
-                headers.insert("Authorization".into(), Some(format!("Bearer {}", direct.token)));
+                headers.insert("Authorization".into(), Some(js_format!("Bearer {}", direct.token)));
                 let mut inner_model = model.clone();
                 let anthropic = index < 5;
                 inner_model.base_url = if anthropic {
@@ -353,5 +372,70 @@ impl Provider for GitlabDuo {
             tx.end(None);
         });
         rx
+    }
+}
+
+#[cfg(test)]
+mod native_direct_token_tests {
+    use super::*;
+    use pi_ai::request::{BoxFuture, Fetch, HttpBody, HttpRequest, HttpResponse};
+
+    struct Body(Option<Vec<u8>>);
+    impl HttpBody for Body {
+        fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
+            Box::pin(async { self.0.take().map(Ok) })
+        }
+    }
+    struct Reply(&'static str);
+    impl Fetch for Reply {
+        fn fetch(
+            &self,
+            _: HttpRequest,
+            _: Option<CancellationToken>,
+        ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+            Box::pin(async move {
+                Ok(HttpResponse {
+                    status: 200,
+                    status_text: "OK".into(),
+                    headers: vec![],
+                    body: Box::new(Body(Some(self.0.as_bytes().to_vec()))),
+                })
+            })
+        }
+    }
+    fn state(body: &'static str) -> State {
+        State {
+            runtime: OAuthRuntime::new(
+                Arc::new(Reply(body)),
+                Arc::new(|| 0.0),
+                pi_ai::auth::oauth::support::os_random(),
+            ),
+            cache: Mutex::new(None),
+        }
+    }
+
+    #[tokio::test]
+    async fn direct_token_and_header_values_preserve_unpaired_units() {
+        let state = state(r#"{"token":"\ud800","headers":{"X-Raw":"\udc00"}}"#);
+        let token = state
+            .direct_token(&JsString::from("access"))
+            .await
+            .expect("direct token");
+        assert_eq!(JsString::from(token.token).units(), &[0xd800]);
+        assert_eq!(
+            token.headers["X-Raw"].as_ref().expect("header value").units(),
+            &[0xdc00]
+        );
+    }
+
+    #[tokio::test]
+    async fn unpaired_header_name_is_rejected_before_caching() {
+        let state = state(r#"{"token":"ok","headers":{"\ud800":"value"}}"#);
+        let result = state.direct_token(&JsString::from("access")).await;
+        match result {
+            Ok(_) => panic!("unpaired HTTP header name must be rejected"),
+            Err(error) => assert_eq!(error.message, "invalid utf-16: lone surrogate found"),
+        }
+        assert!(state.cache.lock().unwrap().is_none());
     }
 }
