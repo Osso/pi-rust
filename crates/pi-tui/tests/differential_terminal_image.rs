@@ -5,11 +5,10 @@ use std::sync::Mutex;
 
 use pi_tui::terminal_image::{
     CellDimensions, ImageDimensions, ImageProtocol, ImageRenderOptions, Iterm2Options, Iterm2Size, KittyEncodeOptions,
-    TerminalCapabilities, TerminalEnvironment, calculate_image_cell_size, crop_kitty_image_line,
-    delete_all_kitty_images, delete_all_kitty_placements, delete_kitty_image, detect_capabilities_in, encode_iterm2,
-    encode_kitty, get_gif_dimensions, get_image_dimensions, get_jpeg_dimensions, get_kitty_image_metadata,
-    get_kitty_image_placement, get_png_dimensions, get_webp_dimensions, hyperlink, image_fallback, is_image_line,
-    register_kitty_image_metadata, render_image, reset_capabilities_cache, set_capabilities, set_cell_dimensions,
+    TerminalCapabilities, TerminalEnvironment, calculate_image_cell_size, delete_all_kitty_images, delete_kitty_image,
+    detect_capabilities_in, encode_iterm2, encode_kitty, get_gif_dimensions, get_image_dimensions, get_jpeg_dimensions,
+    get_png_dimensions, get_webp_dimensions, hyperlink, image_fallback, is_image_line, render_image,
+    reset_capabilities_cache, set_capabilities, set_cell_dimensions,
 };
 use serde_json::{Value, json};
 
@@ -45,7 +44,6 @@ fn environment(values: &[(&str, &str)]) -> TerminalEnvironment {
         warp_terminal_session_uuid: has("WARP_TERMINAL_SESSION_UUID"),
         iterm_session_id: has("ITERM_SESSION_ID"),
         wt_session: has("WT_SESSION"),
-        is_windows_console: false,
     }
 }
 
@@ -99,6 +97,7 @@ fn terminal_image_matches_the_pinned_typescript_source() {
         json!({ "kind": "iterm2", "data": "AAAA", "options": { "width": 2, "height": "auto" } }),
         json!({ "kind": "iterm2", "data": "AAAA", "options": { "inline": false, "name": "shot.png", "preserveAspectRatio": false } }),
         json!({ "kind": "iterm2", "data": "AAAA", "options": { "width": "50%", "height": 10 } }),
+        json!({ "kind": "iterm2", "data": "AAAA", "options": { "width": 1e21, "height": -0.0 } }),
     ];
     let response = oracle.request(&json!({
         "id": "image-encode",
@@ -161,6 +160,14 @@ fn terminal_image_matches_the_pinned_typescript_source() {
                 ..Default::default()
             },
         ),
+        encode_iterm2(
+            "AAAA",
+            &Iterm2Options {
+                width: Some(Iterm2Size::Number(1e21)),
+                height: Some(Iterm2Size::Number(-0.0)),
+                ..Default::default()
+            },
+        ),
     ];
     for (expected, actual) in results.iter().zip(expected_encoded) {
         assert_eq!(actual, expected.as_str().unwrap());
@@ -214,6 +221,20 @@ fn terminal_image_matches_the_pinned_typescript_source() {
         bytes.extend_from_slice(&200u16.to_le_bytes());
         pi_js_compat::base64::btoa(&bytes)
     };
+    let gif_high = {
+        let mut bytes = pi_js_compat::base64::buffer_from_base64(&gif);
+        for byte in &mut bytes[..6] {
+            *byte |= 0x80;
+        }
+        pi_js_compat::base64::btoa(&bytes)
+    };
+    let webp_high = {
+        let mut bytes = pi_js_compat::base64::buffer_from_base64(&vp8x);
+        for index in (0..4).chain(8..16) {
+            bytes[index] |= 0x80;
+        }
+        pi_js_compat::base64::btoa(&bytes)
+    };
     let dimension_cases = vec![
         json!({ "data": png, "mimeType": "image/png" }),
         json!({ "data": "AAAA", "mimeType": "image/png" }),
@@ -225,6 +246,8 @@ fn terminal_image_matches_the_pinned_typescript_source() {
         json!({ "data": vp8, "mimeType": "image/webp" }),
         json!({ "data": "AAAA", "mimeType": "image/webp" }),
         json!({ "data": png, "mimeType": "image/unknown" }),
+        json!({ "data": gif_high, "mimeType": "image/gif" }),
+        json!({ "data": webp_high, "mimeType": "image/webp" }),
     ];
     let response = oracle.request(&json!({
         "id": "image-dimensions",
@@ -244,6 +267,8 @@ fn terminal_image_matches_the_pinned_typescript_source() {
         (&vp8, "image/webp"),
         (&"AAAA".to_string(), "image/webp"),
         (&png, "image/unknown"),
+        (&gif_high, "image/gif"),
+        (&webp_high, "image/webp"),
     ]
     .iter()
     .map(|(data, mime)| {
@@ -419,60 +444,6 @@ fn terminal_image_matches_the_pinned_typescript_source() {
         assert_eq!(actual, *expected, "detect mismatch for {values:?}");
     }
 
-    let response = oracle.request(&json!({
-        "id": "image-placement",
-        "operation": "terminal_image_placement",
-    }));
-    assert_eq!(response["ok"], true, "oracle failed: {response}");
-    let expected = &response["output"]["results"];
-    register_kitty_image_metadata(pi_tui::terminal_image::KittyImageMetadata {
-        image_id: 42,
-        columns: 3,
-        rows: 3,
-        width_px: 100,
-        height_px: 100,
-    });
-    let transmission = encode_kitty(
-        &"A".repeat(8192),
-        &KittyEncodeOptions {
-            columns: Some(3),
-            rows: Some(3),
-            image_id: Some(42),
-            move_cursor: Some(false),
-        },
-    );
-    let cropped = crop_kitty_image_line(&transmission, 2, 1);
-    assert_eq!(cropped, expected["cropped"].as_str().unwrap());
-    assert_eq!(
-        get_kitty_image_metadata(&transmission).map(|metadata| json!({
-            "imageId": metadata.image_id,
-            "columns": metadata.columns,
-            "rows": metadata.rows,
-            "widthPx": metadata.width_px,
-            "heightPx": metadata.height_px,
-        })),
-        Some(expected["metadata"].clone())
-    );
-    let line = format!("left {cropped} right");
-    let placement = get_kitty_image_placement(&line).expect("placement");
-    assert_eq!(
-        placement.image_id,
-        expected["placement"]["imageId"].as_u64().unwrap() as u32
-    );
-    assert_eq!(
-        placement.transmission_bytes,
-        expected["placement"]["transmissionBytes"].as_u64().unwrap() as usize
-    );
-    assert_eq!(
-        placement.estimated_decoded_bytes,
-        expected["placement"]["estimatedDecodedBytes"].as_u64().unwrap()
-    );
-    assert_eq!(placement.sequence, expected["placement"]["sequence"].as_str().unwrap());
-    assert_eq!(
-        placement.replacement_line,
-        expected["placement"]["replacementLine"].as_str().unwrap()
-    );
-
     let render_cases = [
         (
             caps(Some(ImageProtocol::Kitty), true, true),
@@ -598,7 +569,6 @@ fn terminal_image_matches_the_pinned_typescript_source() {
             (None, Value::Null) => {}
             (Some(actual), expected) => {
                 assert_eq!(actual.sequence, expected["sequence"].as_str().unwrap());
-                assert_eq!(actual.columns, expected["columns"].as_u64().unwrap() as u32);
                 assert_eq!(actual.rows, expected["rows"].as_u64().unwrap() as u32);
                 assert_eq!(
                     actual.image_id.map(Value::from).unwrap_or(Value::Null),
@@ -699,5 +669,4 @@ fn terminal_image_matches_the_pinned_typescript_source() {
     let expected = &response["output"]["results"];
     assert_eq!(delete_kitty_image(42), expected["one"].as_str().unwrap());
     assert_eq!(delete_all_kitty_images(), expected["all"].as_str().unwrap());
-    assert_eq!(delete_all_kitty_placements(), expected["placements"].as_str().unwrap());
 }

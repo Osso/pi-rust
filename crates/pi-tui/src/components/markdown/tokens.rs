@@ -45,10 +45,6 @@ pub enum ListItemType {
     ListItem,
 }
 
-fn is_false(value: &bool) -> bool {
-    !*value
-}
-
 /// A token from the ported `marked` lexer.
 ///
 /// `inline_source` holds deferred inline input; it is resolved after the block
@@ -178,18 +174,6 @@ pub enum Token {
         text: String,
         tokens: Vec<Token>,
     },
-    Latex {
-        raw: String,
-        text: String,
-        #[serde(skip_serializing_if = "is_false")]
-        pending: bool,
-    },
-    LatexBlock {
-        raw: String,
-        text: String,
-        #[serde(skip_serializing_if = "is_false")]
-        pending: bool,
-    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -221,9 +205,7 @@ impl Token {
             | Token::Strong { text, .. }
             | Token::Del { text, .. }
             | Token::Link { text, .. }
-            | Token::Image { text, .. }
-            | Token::Latex { text, .. }
-            | Token::LatexBlock { text, .. } => Some(text),
+            | Token::Image { text, .. } => Some(text),
             _ => None,
         }
     }

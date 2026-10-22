@@ -22,26 +22,20 @@ use pi_ai::request::{CallbackError, Fetch, HttpRequest};
 use pi_ai::types::{AssistantMessage, ImageContent, Model};
 use pi_js_compat::date::js_now_millis;
 use pi_tui::EditorComponent;
+use pi_tui::TUI;
 use pi_tui::autocomplete::{
     AutocompleteItem, AutocompleteProvider, CombinedAutocompleteProvider, CommandEntry, SlashCommand,
 };
 use pi_tui::components::editor::EditorOptions;
 use pi_tui::components::loader::Loader;
-use pi_tui::components::scroll_view::{ScrollFollow, ScrollOverscroll, ScrollView, ScrollViewOptions};
 use pi_tui::components::spacer::Spacer;
-use pi_tui::components::stack::StackOptions;
 use pi_tui::components::text::Text;
-use pi_tui::components::v_stack::VStack;
 use pi_tui::fuzzy::fuzzy_filter;
-use pi_tui::layout_node::StackLayoutEntry;
 use pi_tui::terminal::Terminal;
 use pi_tui::tui::{
     Component, ComponentRef, Container, FlowRenderRegion, Focusable, OverlayHandle, OverlayOptions, RenderRegion,
-    TuiExt, TuiInputListenerResult, TuiMode, ViewportTui, component,
+    TuiExt, TuiInputListenerResult, TuiMode, component,
 };
-use pi_tui::tui_alt_screen::TuiAltScreen;
-use pi_tui::tui_alt_screen::TuiAltScreenOptions;
-use pi_tui::tui_main_screen::TuiMainScreen;
 use pi_tui::{ProcessTerminal, TerminalRawModeError};
 use regex::Regex;
 
@@ -120,7 +114,7 @@ use crate::modes::interactive::login_options::{
     get_login_provider_search_text,
 };
 use crate::modes::interactive::model_search::{ModelSearchItem, get_model_search_candidates};
-use crate::modes::interactive::theme::{Theme, ThemeBg, ThemeColor, with_theme};
+use crate::modes::interactive::theme::{Theme, ThemeColor, with_theme};
 use crate::utils::fs_watch::{FS_WATCH_RETRY_DELAY_MS, WatchEventKind, watch_with_error_handler};
 use crate::utils::git::parse_git_url;
 use crate::utils::paths::{PathInputOptions, get_cwd_relative_path, relative_path, resolve_path};
@@ -1246,8 +1240,7 @@ impl pi_tui::tui::Component for ExpandableText {
 
 /// Active terminal renderer (`createInteractiveTui`).
 pub enum Renderer {
-    Main(Rc<TuiMainScreen>),
-    Fullscreen(Rc<TuiAltScreen>),
+    Main(Rc<TUI>),
 }
 
 impl Renderer {
@@ -1257,35 +1250,30 @@ impl Renderer {
     fn clone_ref(&self) -> Self {
         match self {
             Self::Main(tui) => Self::Main(Rc::clone(tui)),
-            Self::Fullscreen(tui) => Self::Fullscreen(Rc::clone(tui)),
         }
     }
 
     pub fn mode(&self) -> TuiMode {
         match self {
             Self::Main(_) => TuiMode::Regular,
-            Self::Fullscreen(_) => TuiMode::Fullscreen,
         }
     }
 
     pub fn terminal(&self) -> Rc<RefCell<dyn Terminal>> {
         match self {
             Self::Main(tui) => TuiExt::terminal(tui.as_ref()),
-            Self::Fullscreen(tui) => TuiExt::terminal(tui.as_ref()),
         }
     }
 
     pub fn start(&self) -> Result<(), TerminalRawModeError> {
         match self {
             Self::Main(tui) => TuiExt::start(tui.as_ref()),
-            Self::Fullscreen(tui) => TuiExt::start(tui.as_ref()),
         }
     }
 
     pub fn stop(&self) {
         match self {
             Self::Main(tui) => TuiExt::stop(tui.as_ref()),
-            Self::Fullscreen(tui) => TuiExt::stop(tui.as_ref()),
         }
     }
 }
@@ -1304,32 +1292,7 @@ pub fn create_interactive_tui(options: InteractiveTuiOptions) -> Renderer {
     let terminal = options
         .terminal
         .unwrap_or_else(|| Rc::new(RefCell::new(ProcessTerminal::new())));
-    if options.tui_mode == TuiMode::Fullscreen {
-        let style_search_match = Rc::new(|text: &str| {
-            with_theme(|theme| theme.bg(ThemeBg::SearchMatchBg, &theme.fg(ThemeColor::SearchMatchText, text)))
-        });
-        let underline_style = Rc::clone(&style_search_match);
-        let current_style = Rc::clone(&style_search_match);
-        return Renderer::Fullscreen(TuiAltScreen::with_options(
-            terminal,
-            Some(options.show_hardware_cursor),
-            Some(PathBuf::from(&options.log_directory)),
-            TuiAltScreenOptions {
-                search_match_style: Some(Rc::new(move |text: &str| {
-                    with_theme(|theme| theme.underline(&underline_style(text)))
-                })),
-                search_current_match_style: Some(Rc::new(move |text: &str| {
-                    with_theme(|theme| theme.bold(&theme.inverse(&current_style(text))))
-                })),
-                open_url: Some(Rc::new(|url: &str| {
-                    crate::utils::open_browser::open_browser(url);
-                })),
-                on_right_click_paste: options.on_right_click_paste,
-                ..TuiAltScreenOptions::default()
-            },
-        ));
-    }
-    Renderer::Main(TuiMainScreen::with_options(
+    Renderer::Main(TUI::with_options(
         terminal,
         Some(options.show_hardware_cursor),
         Some(PathBuf::from(&options.log_directory)),
@@ -1347,7 +1310,6 @@ impl InteractiveTuiHandle {
     fn renderer(&self) -> Renderer {
         match &*self.renderer.borrow() {
             Renderer::Main(tui) => Renderer::Main(Rc::clone(tui)),
-            Renderer::Fullscreen(tui) => Renderer::Fullscreen(Rc::clone(tui)),
         }
     }
 
@@ -1372,49 +1334,42 @@ impl InteractiveTuiHandle {
     pub fn add_child(&self, child: ComponentRef) {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::add_child(tui.as_ref(), child),
-            Renderer::Fullscreen(tui) => TuiExt::add_child(tui.as_ref(), child),
         }
     }
 
     pub fn clear(&self) {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::clear(tui.as_ref()),
-            Renderer::Fullscreen(tui) => TuiExt::clear(tui.as_ref()),
         }
     }
 
     pub fn set_focus(&self, component: Option<ComponentRef>) {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::set_focus(tui.as_ref(), component),
-            Renderer::Fullscreen(tui) => TuiExt::set_focus(tui.as_ref(), component),
         }
     }
 
     pub fn get_focused_component(&self) -> Option<ComponentRef> {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::get_focused_component(tui.as_ref()),
-            Renderer::Fullscreen(tui) => TuiExt::get_focused_component(tui.as_ref()),
         }
     }
 
     pub fn request_render(&self) {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::request_render(tui.as_ref(), false),
-            Renderer::Fullscreen(tui) => TuiExt::request_render(tui.as_ref(), false),
         }
     }
 
     pub fn render_now(&self) {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::render_now(tui.as_ref(), true),
-            Renderer::Fullscreen(tui) => TuiExt::render_now(tui.as_ref(), true),
         }
     }
 
     pub fn invalidate(&self) {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::invalidate(tui.as_ref()),
-            Renderer::Fullscreen(tui) => TuiExt::invalidate(tui.as_ref()),
         }
     }
 
@@ -1430,35 +1385,30 @@ impl InteractiveTuiHandle {
         let renderer = self.renderer.borrow().clone_ref();
         match &renderer {
             Renderer::Main(tui) => TuiExt::stop_with(tui.as_ref(), options),
-            Renderer::Fullscreen(tui) => TuiExt::stop_with(tui.as_ref(), options),
         }
     }
 
     pub fn flush_pending(&self) {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::flush_pending(tui.as_ref()),
-            Renderer::Fullscreen(tui) => TuiExt::flush_pending(tui.as_ref()),
         }
     }
 
     pub fn process_events(&self) {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::process_events(tui.as_ref()),
-            Renderer::Fullscreen(tui) => TuiExt::process_events(tui.as_ref()),
         }
     }
 
     pub fn get_show_hardware_cursor(&self) -> bool {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::get_show_hardware_cursor(tui.as_ref()),
-            Renderer::Fullscreen(tui) => TuiExt::get_show_hardware_cursor(tui.as_ref()),
         }
     }
 
     pub fn get_clear_on_shrink(&self) -> bool {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::get_clear_on_shrink(tui.as_ref()),
-            Renderer::Fullscreen(tui) => TuiExt::get_clear_on_shrink(tui.as_ref()),
         }
     }
 
@@ -1466,14 +1416,12 @@ impl InteractiveTuiHandle {
         let renderer = self.renderer.borrow().clone_ref();
         match &renderer {
             Renderer::Main(tui) => TuiExt::set_show_hardware_cursor(tui.as_ref(), enabled),
-            Renderer::Fullscreen(tui) => TuiExt::set_show_hardware_cursor(tui.as_ref(), enabled),
         }
     }
 
     pub fn set_clear_on_shrink(&self, enabled: bool) {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::set_clear_on_shrink(tui.as_ref(), enabled),
-            Renderer::Fullscreen(tui) => TuiExt::set_clear_on_shrink(tui.as_ref(), enabled),
         }
     }
 
@@ -1481,7 +1429,6 @@ impl InteractiveTuiHandle {
         let renderer = self.renderer.borrow().clone_ref();
         match &renderer {
             Renderer::Main(tui) => TuiExt::request_render(tui.as_ref(), true),
-            Renderer::Fullscreen(tui) => TuiExt::request_render(tui.as_ref(), true),
         }
     }
 
@@ -1489,7 +1436,6 @@ impl InteractiveTuiHandle {
         let renderer = self.renderer.borrow().clone_ref();
         match &renderer {
             Renderer::Main(tui) => TuiExt::set_terminal_color_scheme_notifications(tui.as_ref(), enabled),
-            Renderer::Fullscreen(tui) => TuiExt::set_terminal_color_scheme_notifications(tui.as_ref(), enabled),
         }
     }
 
@@ -1500,7 +1446,6 @@ impl InteractiveTuiHandle {
         let renderer = self.renderer.borrow().clone_ref();
         match &renderer {
             Renderer::Main(tui) => TuiExt::on_terminal_color_scheme_change(tui.as_ref(), listener),
-            Renderer::Fullscreen(tui) => TuiExt::on_terminal_color_scheme_change(tui.as_ref(), listener),
         }
     }
 
@@ -1508,7 +1453,6 @@ impl InteractiveTuiHandle {
         let renderer = self.renderer.borrow().clone_ref();
         match &renderer {
             Renderer::Main(tui) => tui.base().remove_terminal_color_scheme_listener(id),
-            Renderer::Fullscreen(tui) => tui.base().remove_terminal_color_scheme_listener(id),
         }
     }
 
@@ -1519,7 +1463,6 @@ impl InteractiveTuiHandle {
         let renderer = self.renderer.borrow().clone_ref();
         let query = match &renderer {
             Renderer::Main(tui) => TuiExt::query_terminal_background_color(tui.as_ref(), timeout),
-            Renderer::Fullscreen(tui) => TuiExt::query_terminal_background_color(tui.as_ref(), timeout),
         };
         self.wait_for_terminal_query(|| query.result())
     }
@@ -1531,7 +1474,6 @@ impl InteractiveTuiHandle {
         let renderer = self.renderer.borrow().clone_ref();
         let query = match &renderer {
             Renderer::Main(tui) => TuiExt::query_terminal_color_scheme(tui.as_ref(), timeout),
-            Renderer::Fullscreen(tui) => TuiExt::query_terminal_color_scheme(tui.as_ref(), timeout),
         };
         self.wait_for_terminal_query(|| query.result())
     }
@@ -1549,62 +1491,48 @@ impl InteractiveTuiHandle {
     pub fn show_overlay(&self, component: ComponentRef, options: Option<OverlayOptions>) -> OverlayHandle {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::show_overlay(tui.as_ref(), component, options),
-            Renderer::Fullscreen(tui) => TuiExt::show_overlay(tui.as_ref(), component, options),
         }
     }
 
     pub fn hide_overlay(&self) {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::hide_overlay(tui.as_ref()),
-            Renderer::Fullscreen(tui) => TuiExt::hide_overlay(tui.as_ref()),
         }
     }
 
     pub fn has_overlay_entries(&self) -> bool {
         match self.renderer() {
             Renderer::Main(tui) => tui.base().has_overlay_entries(),
-            Renderer::Fullscreen(tui) => tui.base().has_overlay_entries(),
         }
     }
 
     pub fn add_input_listener(&self, listener: Rc<dyn Fn(&str) -> TuiInputListenerResult>) -> usize {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::add_input_listener(tui.as_ref(), listener),
-            Renderer::Fullscreen(tui) => TuiExt::add_input_listener(tui.as_ref(), listener),
         }
     }
 
     pub fn remove_input_listener(&self, id: usize) {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::remove_input_listener(tui.as_ref(), id),
-            Renderer::Fullscreen(tui) => TuiExt::remove_input_listener(tui.as_ref(), id),
         }
     }
 
     pub fn set_on_debug(&self, handler: Rc<dyn Fn()>) {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::set_on_debug(tui.as_ref(), handler),
-            Renderer::Fullscreen(tui) => TuiExt::set_on_debug(tui.as_ref(), handler),
-        }
-    }
-
-    pub fn set_layout_root(&self, component: Option<ComponentRef>) {
-        if let Renderer::Fullscreen(tui) = self.renderer() {
-            ViewportTui::set_layout_root(tui.as_ref(), component);
         }
     }
 
     pub fn create_flow_render_region(&self, component: ComponentRef) -> Option<FlowRenderRegion> {
         match self.renderer() {
-            Renderer::Main(tui) => Some(TuiMainScreen::create_flow_render_region(&tui, component)),
-            Renderer::Fullscreen(_) => None,
+            Renderer::Main(tui) => Some(TUI::create_flow_render_region(&tui, component)),
         }
     }
 
     pub fn create_render_region(&self, component: ComponentRef) -> Option<RenderRegion> {
         match self.renderer() {
-            Renderer::Main(tui) => Some(TuiMainScreen::create_render_region(&tui, component)),
-            Renderer::Fullscreen(_) => None,
+            Renderer::Main(tui) => Some(TUI::create_render_region(&tui, component)),
         }
     }
 }
@@ -1623,8 +1551,7 @@ impl pi_tui::components::editor::EditorHost for InteractiveTuiHost {
 
     fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell> {
         match &*self.0.renderer.borrow() {
-            Renderer::Main(tui) => Rc::new(TuiMainScreen::create_fixed_cell(tui)),
-            Renderer::Fullscreen(tui) => Rc::new(TuiAltScreen::create_fixed_cell(tui)),
+            Renderer::Main(tui) => Rc::new(TUI::create_fixed_cell(tui)),
         }
     }
 }
@@ -1641,7 +1568,6 @@ impl ExtensionEditorHost for InteractiveTuiHost {
     fn request_forced_render(&self) {
         match &*self.0.renderer.borrow() {
             Renderer::Main(tui) => TuiExt::request_render(tui.as_ref(), true),
-            Renderer::Fullscreen(tui) => TuiExt::request_render(tui.as_ref(), true),
         }
     }
 }
@@ -1734,19 +1660,6 @@ impl Component for SharedContainer {
 
     fn invalidate(&mut self) {
         self.0.borrow_mut().invalidate();
-    }
-}
-
-/// Component adapter so the mode can hold the fullscreen transcript scroll view.
-pub struct SharedScrollView(pub Rc<RefCell<ScrollView>>);
-
-impl Component for SharedScrollView {
-    fn render(&mut self, width: usize) -> Vec<String> {
-        self.0.borrow_mut().render(width)
-    }
-
-    fn wants_input(&self) -> bool {
-        false
     }
 }
 
@@ -2763,7 +2676,6 @@ pub struct InteractiveMode {
     editor_container: Rc<RefCell<Container>>,
     footer_container: Rc<RefCell<Container>>,
     root_compositor: RefCell<Option<ComponentRef>>,
-    fullscreen_layout_root: RefCell<Option<ComponentRef>>,
     transcript_tail_region: RefCell<Option<Rc<FlowRenderRegion>>>,
     status_render_region: RefCell<Option<Rc<RenderRegion>>>,
     editor: RefCell<Rc<RefCell<dyn EditorComponent>>>,
@@ -2833,7 +2745,6 @@ pub struct InteractiveMode {
     anthropic_subscription_warning_shown: Cell<bool>,
     terminal_current_directory: RefCell<Option<String>>,
     theme_controller: RefCell<crate::modes::interactive::theme::InteractiveThemeController>,
-    transcript_scroll_view: RefCell<Option<Rc<RefCell<ScrollView>>>>,
     debug_handler: RefCell<Option<Rc<dyn Fn()>>>,
     terminal_input_listeners: RefCell<Vec<(usize, TerminalInputHandler)>>,
     autocomplete_provider: RefCell<Option<Rc<dyn pi_tui::autocomplete::AutocompleteProvider>>>,
@@ -3079,7 +2990,6 @@ impl InteractiveMode {
             editor_container,
             footer_container,
             root_compositor: RefCell::new(None),
-            fullscreen_layout_root: RefCell::new(None),
             transcript_tail_region: RefCell::new(None),
             status_render_region: RefCell::new(None),
             editor: RefCell::new(editor),
@@ -3148,7 +3058,6 @@ impl InteractiveMode {
             anthropic_subscription_warning_shown: Cell::new(false),
             terminal_current_directory: RefCell::new(None),
             theme_controller: RefCell::new(theme_controller),
-            transcript_scroll_view: RefCell::new(None),
             debug_handler: RefCell::new(None),
             terminal_input_listeners: RefCell::new(Vec::new()),
             autocomplete_provider: RefCell::new(None),
@@ -4448,199 +4357,16 @@ impl InteractiveMode {
         *self.root_compositor.borrow_mut() = Some(component(root));
     }
 
-    /// `switchTuiMode`: swaps the regular/fullscreen renderer on the shared handle.
-    fn switch_tui_mode(&self, mode: TuiMode, restore_progress: bool, start_renderer: bool) -> bool {
-        if mode == self.ui.mode() {
-            return true;
-        }
-        if self.ui.has_overlay_entries() {
-            return false;
-        }
-        if mode == TuiMode::Fullscreen {
-            crate::modes::interactive::working_editor::clear_working_editor_position(&mut *self.editor().borrow_mut());
-        }
-
-        let focus = self.ui.get_focused_component();
-        let terminal = self.ui.terminal();
-        let show_hardware_cursor = self.ui.get_show_hardware_cursor();
-        let clear_on_shrink = self.ui.get_clear_on_shrink();
-
-        self.ui.stop_with(pi_tui::tui::TuiStopOptions { preserve_screen: true });
-        self.ui.set_focus(None);
-        self.ui.clear();
-        self.ui.set_layout_root(None);
-
-        let renderer = create_interactive_tui(InteractiveTuiOptions {
-            tui_mode: mode,
-            show_hardware_cursor,
-            log_directory: self.session().agent_dir().to_owned(),
-            terminal: Some(terminal),
-            on_right_click_paste: None,
-        });
-        self.ui.replace_renderer(renderer);
-        self.ui.set_clear_on_shrink(clear_on_shrink);
-        if let Some(handler) = self.debug_handler.borrow().clone() {
-            self.ui.set_on_debug(handler);
-        }
-        if mode == TuiMode::Fullscreen {
-            self.build_fullscreen_layout();
-        }
-        self.mount_interactive_tui();
-        self.ui.invalidate();
-        self.ui.set_focus(focus);
-        if !start_renderer {
-            return true;
-        }
-        let _ = self.ui.start();
-        self.theme_controller.borrow_mut().rebind_tui();
-        self.rebind_extension_terminal_input_listeners();
-        if restore_progress
-            && self.settings(|settings| settings.get_show_terminal_progress())
-            && (self.session().is_streaming() || self.session().is_compacting())
-        {
-            let terminal = self.ui.terminal();
-            terminal.borrow_mut().set_progress(true);
-        }
-        true
-    }
-
-    fn rebind_extension_terminal_input_listeners(&self) {
-        let listeners = self.terminal_input_listeners.borrow().clone();
-        let mut rebound = Vec::with_capacity(listeners.len());
-        for (_, handler) in listeners {
-            let handler = Arc::clone(&handler);
-            let listener_handler = Arc::clone(&handler);
-            let id = self
-                .ui
-                .add_input_listener(Rc::new(move |data: &str| match listener_handler(data) {
-                    Some(result) => TuiInputListenerResult {
-                        consume: result.consume.unwrap_or(false),
-                        data: result.data,
-                    },
-                    None => TuiInputListenerResult::default(),
-                }));
-            rebound.push((id, handler));
-        }
-        *self.terminal_input_listeners.borrow_mut() = rebound;
-    }
-
-    fn apply_fullscreen_scrollbar_setting(&self) {
-        let scrollbar = self.settings(|settings| settings.get_fullscreen_scrollbar());
-        if let Some(scroll_view) = self.transcript_scroll_view.borrow().clone() {
-            scroll_view.borrow_mut().set_scrollbar(scrollbar);
-        }
+    // Legacy settings callback retained until Q13; frozen TUI has one renderer.
+    fn switch_tui_mode(&self, mode: TuiMode, _restore_progress: bool, _start_renderer: bool) -> bool {
+        mode == TuiMode::Regular
     }
 
     fn mount_interactive_tui(&self) {
-        if self.ui.mode() == TuiMode::Fullscreen {
-            for child in [
-                component(SharedContainer(Rc::clone(&self.header_container))),
-                component(SharedContainer(Rc::clone(&self.loaded_resources_container))),
-                component(SharedContainer(Rc::clone(&self.chat_container))),
-                component(SharedContainer(Rc::clone(&self.pending_messages_container))),
-                component(SharedContainer(Rc::clone(&self.status_container))),
-                component(SharedContainer(Rc::clone(&self.widget_container_above))),
-                component(SharedContainer(Rc::clone(&self.editor_container))),
-                component(SharedContainer(Rc::clone(&self.widget_container_below))),
-                component(SharedContainer(Rc::clone(&self.footer_container))),
-            ] {
-                self.ui.add_child(child);
-            }
-            if let Some(layout_root) = self.fullscreen_layout_root.borrow().clone() {
-                self.ui.set_layout_root(Some(layout_root));
-            }
-        } else {
-            self.rebuild_root_compositor();
-            if let Some(root) = self.root_compositor.borrow().clone() {
-                self.ui.add_child(root);
-            }
+        self.rebuild_root_compositor();
+        if let Some(root) = self.root_compositor.borrow().clone() {
+            self.ui.add_child(root);
         }
-    }
-
-    fn build_fullscreen_layout(&self) {
-        let scrollbar = self.settings(|settings| settings.get_fullscreen_scrollbar());
-        let scroll_view = Rc::new(RefCell::new(ScrollView::new(
-            component(SharedContainer(Rc::clone(&self.chat_container))),
-            ScrollViewOptions {
-                follow: Some(ScrollFollow::End),
-                primary: true,
-                overscroll: Some(ScrollOverscroll::Chain),
-                scrollbar: Some(scrollbar),
-                scrollbar_style: Some(Rc::new(|text: &str| {
-                    with_theme(|theme| theme.bg(ThemeBg::ScrollbarThumb, text))
-                })),
-                scrollbar_hide_delay_ms: None,
-            },
-        )));
-        *self.transcript_scroll_view.borrow_mut() = Some(Rc::clone(&scroll_view));
-        let scroll_view = component(SharedScrollView(scroll_view));
-        let dock = VStack::new(
-            vec![
-                stack_entry(
-                    component(SharedContainer(Rc::clone(&self.pending_messages_container))),
-                    None,
-                    None,
-                    Some(1),
-                    Some(0),
-                ),
-                stack_entry(
-                    component(SharedContainer(Rc::clone(&self.status_container))),
-                    None,
-                    None,
-                    Some(1),
-                    Some(0),
-                ),
-                stack_entry(
-                    component(SharedContainer(Rc::clone(&self.widget_container_above))),
-                    None,
-                    None,
-                    Some(1),
-                    Some(0),
-                ),
-                stack_entry(
-                    component(SharedContainer(Rc::clone(&self.editor_container))),
-                    None,
-                    None,
-                    Some(1),
-                    Some(3),
-                ),
-                stack_entry(
-                    component(SharedContainer(Rc::clone(&self.widget_container_below))),
-                    None,
-                    None,
-                    Some(1),
-                    Some(0),
-                ),
-                stack_entry(
-                    component(SharedContainer(Rc::clone(&self.footer_container))),
-                    None,
-                    None,
-                    Some(1),
-                    Some(1),
-                ),
-            ],
-            StackOptions::default(),
-        );
-        let root = VStack::new(
-            vec![
-                stack_entry(
-                    scroll_view,
-                    Some(pi_tui::layout_node::StackBasis::Cells(0)),
-                    Some(1),
-                    Some(1),
-                    Some(1),
-                ),
-                stack_entry(
-                    component(dock),
-                    Some(pi_tui::layout_node::StackBasis::Auto),
-                    Some(0),
-                    Some(1),
-                    Some(1),
-                ),
-            ],
-            StackOptions::default(),
-        );
-        *self.fullscreen_layout_root.borrow_mut() = Some(component(root));
     }
 
     fn update_terminal_current_directory(&self) {
@@ -6314,24 +6040,6 @@ impl Component for FooterHandle {
     }
 }
 
-fn stack_entry(
-    component: ComponentRef,
-    basis: Option<pi_tui::layout_node::StackBasis>,
-    grow: Option<usize>,
-    shrink: Option<usize>,
-    min_size: Option<usize>,
-) -> StackLayoutEntry {
-    StackLayoutEntry {
-        component,
-        basis,
-        grow,
-        shrink,
-        min_size,
-        max_size: None,
-        visible: None,
-    }
-}
-
 /// `MarkdownTheme` wrapper applying the configured code-block indent.
 struct SettingsMarkdownTheme {
     inner: Rc<dyn pi_tui::components::markdown::MarkdownTheme>,
@@ -6711,7 +6419,6 @@ impl InteractiveMode {
         let mut rg_manager = crate::utils::tools_manager::ToolsManager::for_process(fetch);
         let (fd_path, _rg_path) = tokio::join!(fd_manager.ensure_tool("fd"), rg_manager.ensure_tool("rg"));
         *self.fd_path.borrow_mut() = fd_path;
-        self.build_fullscreen_layout();
         self.render_widgets();
         self.mount_interactive_tui();
         let editor_ref = Rc::clone(&self.editor_handle.borrow());
@@ -7684,9 +7391,8 @@ impl InteractiveMode {
                 }
             ),
             on_fullscreen_scrollbar_change: callback!(
-                |mode: Rc<InteractiveMode>, scrollbar: pi_tui::components::scroll_view::ScrollViewScrollbar| {
+                |mode: Rc<InteractiveMode>, scrollbar: crate::core::settings_manager::ScrollViewScrollbar| {
                     mode.settings_mut(|settings| settings.set_fullscreen_scrollbar(scrollbar));
-                    mode.apply_fullscreen_scrollbar_setting();
                 }
             ),
             on_warnings_change: callback!(
@@ -13385,27 +13091,6 @@ mod ui_tests {
                 assert!(!working(&mode), "hidden working state must not animate");
                 mode.working_visible.set(true);
                 mode.set_prompt_activity(PromptActivitySource::Compaction, false);
-            })
-            .await;
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn fullscreen_scroll_view_uses_the_scrollbar_thumb_background() {
-        let local = tokio::task::LocalSet::new();
-        local
-            .run_until(async {
-                let (mode, _terminal, _faux, _temp) = build_mode().await;
-                mode.build_fullscreen_layout();
-                let scroll_view = mode
-                    .transcript_scroll_view
-                    .borrow()
-                    .clone()
-                    .expect("fullscreen scroll view");
-                let style = scroll_view.borrow().state().borrow().scrollbar_style().clone();
-                assert_eq!(
-                    style("block"),
-                    with_theme(|theme| theme.bg(ThemeBg::ScrollbarThumb, "block"))
-                );
             })
             .await;
     }

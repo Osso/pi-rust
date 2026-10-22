@@ -12,7 +12,6 @@ use crate::utils::{apply_background_to_line, visible_width, wrap_text_with_ansi}
 /// Terminal styling callback (`(text) => text`).
 pub type StyleFn = Rc<dyn Fn(&str) -> String>;
 
-#[derive(Default)]
 pub struct Text {
     text: String,
     padding_x: usize,
@@ -21,6 +20,12 @@ pub struct Text {
     cached_text: Option<String>,
     cached_width: Option<usize>,
     cached_lines: Option<Vec<String>>,
+}
+
+impl Default for Text {
+    fn default() -> Self {
+        Self::new("", 1, 1)
+    }
 }
 
 impl Text {
@@ -49,6 +54,15 @@ impl Text {
 
     pub fn set_text(&mut self, text: impl Into<String>) {
         self.text = text.into();
+        self.invalidate();
+    }
+
+    pub fn set_padding(&mut self, padding_x: usize, padding_y: usize) {
+        if self.padding_x == padding_x && self.padding_y == padding_y {
+            return;
+        }
+        self.padding_x = padding_x;
+        self.padding_y = padding_y;
         self.invalidate();
     }
 
@@ -101,7 +115,7 @@ impl Component for Text {
             return lines.clone();
         }
 
-        if self.text.trim().is_empty() {
+        if pi_js_compat::string::js_trim(&self.text).is_empty() {
             self.cached_text = Some(self.text.clone());
             self.cached_width = Some(width);
             self.cached_lines = Some(Vec::new());

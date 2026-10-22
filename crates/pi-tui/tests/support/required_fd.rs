@@ -17,6 +17,10 @@ pub fn require_fd(candidate: Option<String>) -> String {
 }
 
 pub fn assert_unusable_fd_fails(test_name: &str) {
+    let installed_fd = std::env::split_paths(&std::env::var_os("PATH").expect("PATH"))
+        .map(|directory| directory.join("fd"))
+        .find(|path| path.is_file())
+        .expect("installed fd is required for the working-executable fixture");
     let directory = tempfile::tempdir().unwrap();
     let fd = directory.path().join("fd");
     // Keep oracle prerequisites available: failures must concern fd, not git/Node.
@@ -37,7 +41,7 @@ pub fn assert_unusable_fd_fails(test_name: &str) {
         assert!(!output.status.success(), "{mode} fd silently passed: {output:?}");
     }
     std::fs::remove_file(&fd).unwrap();
-    std::os::unix::fs::symlink("/usr/bin/fd", &fd).unwrap();
+    std::os::unix::fs::symlink(installed_fd, &fd).unwrap();
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["--exact", test_name, "--nocapture"])
         .env("PATH", directory.path())

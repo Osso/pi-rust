@@ -17,13 +17,18 @@ struct RenderCache {
     lines: Vec<String>,
 }
 
-#[derive(Default)]
 pub struct BoxComponent {
     children: Vec<ComponentRef>,
     padding_x: usize,
     padding_y: usize,
     bg_fn: Option<StyleFn>,
     cache: Option<RenderCache>,
+}
+
+impl Default for BoxComponent {
+    fn default() -> Self {
+        Self::new(1, 1, None)
+    }
 }
 
 impl BoxComponent {

@@ -1,5 +1,10 @@
 # components/input.ts traceability
 
+## Q2 frozen revalidation
+
+Frozen input.ts (465 lines) audited whole. Input/options/callbacks/focus; get/setValue, input routing, paste state, submit/cancel/undo/delete/kill/yank/movement/Kitty/control rejection, masking/window/cursor rendering map to input.rs and existing native/differential input matrix. Width<=2 returns only `> `; added width2 native/frozen lifecycle regression, killed off-by-one mutant. Rust-only cursor restoration hook supports reconstructed extension widgets. UTF8 byte cursor and grapheme positions remain typed representation boundaries, not arbitrary JS UTF16 split-string parity. [Q2 proof](../q2-tui-components-proof.md).
+
+
 Source: `packages/tui/src/components/input.ts` (465 lines). Rust:
 `crates/pi-tui/src/components/input.rs`.
 
@@ -50,8 +55,9 @@ against the pinned TypeScript component).
 ## Behavioral notes
 
 - The TypeScript cursor is a UTF-16 code-unit index; Rust uses byte indices.
-  All movements are grapheme-cluster aligned, so rendered lines and edit
-  boundaries match. Differential cases include astral/CJK text.
+  Ordinary movement tests cover astral/CJK graphemes, but `setValue` can preserve
+  an offset inside a replacement scalar or grapheme; this is not covered by
+  those movement tests. Independent F1 reproduces an invalid UTF8 cursor.
 - The masked display maps each grapheme to `•` (3 UTF-8 bytes) but cursor
   columns are recomputed through `slice_by_column`, matching the source's
   one-cell-per-bullet behavior.
@@ -64,5 +70,11 @@ against the pinned TypeScript component).
 
 ## Discrepancies
 
-None found. All 34 ported behavioral tests and the differential scenario matrix
-pass unchanged against the pinned source.
+F1 remains open: `handle_input("é"); set_value("界"); render(10)` panics because
+replacement retains a byte offset instead of the frozen UTF16 offset. Source
+also permits `a` → `😀`, leaving cursor UTF16 index1 inside a surrogate pair;
+render separates the halves with ANSI bytes, and inserting `!` yields a value
+with lone surrogates. Current Rust String API cannot express those strings.
+User decision is pending, not an approved gap or approximation. Production is
+unchanged; mixed BMP/astral/combining regression patch and exact frozen outputs
+are saved under `/tmp/pi-rust-repin-tui-components-fix/` (see REPORT.md).

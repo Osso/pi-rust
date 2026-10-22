@@ -13,7 +13,13 @@ use pi_agent_core::harness::ThinkingLevel;
 use pi_ai::types::Transport;
 use pi_ai::utils::uuid::random_uuid;
 use pi_js_compat::number as js_number;
-use pi_tui::components::scroll_view::ScrollViewScrollbar;
+/// Legacy settings value retained for Q13 consumer cleanup; not a TUI renderer API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollViewScrollbar {
+    Auto,
+    Always,
+    Hidden,
+}
 use pi_tui::tui::TuiMode;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};

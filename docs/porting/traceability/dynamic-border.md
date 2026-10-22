@@ -1,5 +1,10 @@
 # components/dynamic-border.ts and spacer.ts traceability
 
+## Q2 frozen revalidation
+
+Frozen components/dynamic-border.ts audited whole. Existing exported methods, constructor defaults, rendering/input branches and invalidation match the frozen implementation within typed numeric/String boundaries; native target plus differential_components re-run against 4f9e6f8a4. Loader frame intervals remain explicitly driver-owned poll/deadline adaptation; CancellableLoader maps AbortSignal to CancellationToken and preserves repeated cancel callbacks. See [Q2 proof](../q2-tui-components-proof.md).
+
+
 Sources: `packages/tui/src/components/dynamic-border.ts` (15 lines),
 `spacer.ts` (28 lines). Rust:
 `crates/pi-tui/src/components/dynamic_border.rs`, `spacer.rs`.

@@ -7,12 +7,12 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use components::{render_count, set_lines, set_lines_owned, test_component};
+use pi_tui::TUI;
 use pi_tui::terminal_image::{
     CellDimensions, ImageProtocol, KittyEncodeOptions, TerminalCapabilities, delete_kitty_image, encode_kitty,
     reset_capabilities_cache, set_capabilities, set_cell_dimensions,
 };
 use pi_tui::tui::{TuiExt, TuiRenderer};
-use pi_tui::tui_main_screen::TuiMainScreen;
 use virtual_terminal::{VirtualTerminal, concrete};
 
 static CAPS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -60,7 +60,7 @@ fn wait<T: TuiExt>(tui: &Rc<T>, terminal: &Rc<RefCell<VirtualTerminal>>) {
 #[test]
 fn first_render_writes_all_lines() {
     let (terminal, handle) = concrete(20, 5);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (child, _state) = test_component(&["one", "two"]);
     tui.add_child(child);
     tui.start().unwrap();
@@ -98,7 +98,7 @@ fn changing_middle_line_redraws_only_that_line() {
 #[test]
 fn spinner_frames_update_only_the_middle_line() {
     let (terminal, handle) = concrete(40, 10);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (child, state) = test_component(&["Header", "Working...", "Footer"]);
     tui.add_child(child);
     tui.start().unwrap();
@@ -119,7 +119,7 @@ fn spinner_frames_update_only_the_middle_line() {
 #[test]
 fn resets_styles_after_each_rendered_line() {
     let (terminal, handle) = concrete(20, 6);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (child, _state) = test_component(&["\x1b[3mItalic", "Plain"]);
     tui.add_child(child);
     tui.start().unwrap();
@@ -132,7 +132,7 @@ fn resets_styles_after_each_rendered_line() {
 #[test]
 fn renders_first_line_change_and_keeps_rest() {
     let (terminal, handle) = concrete(40, 10);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (child, state) = test_component(&["Line 0", "Line 1", "Line 2", "Line 3"]);
     tui.add_child(child);
     tui.start().unwrap();
@@ -152,7 +152,7 @@ fn renders_first_line_change_and_keeps_rest() {
 #[test]
 fn renders_last_line_change_and_keeps_rest() {
     let (terminal, handle) = concrete(40, 10);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (child, state) = test_component(&["Line 0", "Line 1", "Line 2", "Line 3"]);
     tui.add_child(child);
     tui.start().unwrap();
@@ -172,7 +172,7 @@ fn renders_last_line_change_and_keeps_rest() {
 #[test]
 fn renders_non_adjacent_line_changes() {
     let (terminal, handle) = concrete(40, 10);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (child, state) = test_component(&["Line 0", "Line 1", "Line 2", "Line 3", "Line 4"]);
     tui.add_child(child);
     tui.start().unwrap();
@@ -192,7 +192,7 @@ fn renders_non_adjacent_line_changes() {
 #[test]
 fn handles_transition_to_empty_and_back() {
     let (terminal, handle) = concrete(40, 10);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (child, state) = test_component(&["Line 0", "Line 1", "Line 2"]);
     tui.add_child(child);
     tui.start().unwrap();
@@ -212,9 +212,9 @@ fn handles_transition_to_empty_and_back() {
 }
 
 #[test]
-fn full_rerenders_when_deleted_lines_move_viewport_upward() {
+fn repaints_only_the_viewport_when_deleted_lines_move_it_upward() {
     let (terminal, handle) = concrete(20, 5);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let initial: Vec<String> = (0..12).map(|index| format!("Line {index}")).collect();
     let (child, state) = test_component(&[]);
     set_lines_owned(&state, initial);
@@ -227,7 +227,7 @@ fn full_rerenders_when_deleted_lines_move_viewport_upward() {
     tui.request_render(false);
     wait(&tui, &terminal);
 
-    assert!(tui.full_redraws() > initial_redraws);
+    assert_eq!(tui.full_redraws(), initial_redraws);
     assert_eq!(
         terminal.borrow().viewport(),
         vec!["Line 2", "Line 3", "Line 4", "Line 5", "Line 6"]
@@ -238,7 +238,7 @@ fn full_rerenders_when_deleted_lines_move_viewport_upward() {
 #[test]
 fn renders_keyboard_input_without_waiting_for_a_throttled_frame() {
     let (terminal, handle) = concrete(40, 10);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (child, state) = test_component(&["initial"]);
     tui.add_child(child.clone());
     tui.set_focus(Some(child));
@@ -266,7 +266,7 @@ fn renders_keyboard_input_without_waiting_for_a_throttled_frame() {
 #[test]
 fn renders_chat_growth_before_the_editor_without_clearing_scrollback() {
     let (terminal, handle) = concrete(20, 5);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (chat, chat_state) = test_component(&["history 0", "history 1", "history 2", "history 3"]);
     let (editor, _editor_state) = test_component(&["editor", "footer"]);
     tui.add_child(chat);
@@ -298,7 +298,7 @@ fn renders_chat_growth_before_the_editor_without_clearing_scrollback() {
 fn clears_reserved_kitty_image_rows_before_drawing_appended_placements() {
     with_kitty_caps(|| {
         let (terminal, handle) = concrete(40, 10);
-        let tui = TuiMainScreen::new(handle);
+        let tui = TUI::new(handle);
         let (child, state) = test_component(&["before"]);
         tui.add_child(child);
         tui.start().unwrap();
@@ -327,7 +327,7 @@ fn clears_reserved_kitty_image_rows_before_drawing_appended_placements() {
 fn falls_back_to_full_redraw_when_kitty_image_pre_clear_would_scroll() {
     with_kitty_caps(|| {
         let (terminal, handle) = concrete(40, 2);
-        let tui = TuiMainScreen::new(handle);
+        let tui = TUI::new(handle);
         let (child, state) = test_component(&["before"]);
         tui.add_child(child);
         tui.start().unwrap();
@@ -359,7 +359,7 @@ fn falls_back_to_full_redraw_when_kitty_image_pre_clear_would_scroll() {
 fn reserves_kitty_image_rows_before_drawing_during_full_redraw_fallbacks() {
     with_kitty_caps(|| {
         let (terminal, handle) = concrete(40, 5);
-        let tui = TuiMainScreen::new(handle);
+        let tui = TUI::new(handle);
         let (child, state) = test_component(&["l0", "l1", "l2", "l3", "l4"]);
         tui.add_child(child);
         tui.start().unwrap();
@@ -400,7 +400,7 @@ fn reserves_kitty_image_rows_before_drawing_during_full_redraw_fallbacks() {
 fn does_not_use_cursor_up_placement_for_kitty_images_taller_than_the_viewport() {
     with_kitty_caps(|| {
         let (terminal, handle) = concrete(40, 5);
-        let tui = TuiMainScreen::new(handle);
+        let tui = TUI::new(handle);
         let (child, state) = test_component(&["before"]);
         tui.add_child(child);
         tui.start().unwrap();
@@ -425,7 +425,7 @@ fn does_not_use_cursor_up_placement_for_kitty_images_taller_than_the_viewport() 
 #[test]
 fn deletes_changed_image_ids_before_drawing_moved_placements() {
     let (terminal, handle) = concrete(40, 10);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (child, state) = test_component(&["top"]);
     tui.add_child(child);
     let old_image = kitty(2, 2, Some(42));
@@ -450,7 +450,7 @@ fn deletes_changed_image_ids_before_drawing_moved_placements() {
 #[test]
 fn redraws_image_lines_when_an_earlier_reserved_image_row_changes() {
     let (terminal, handle) = concrete(40, 10);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (child, state) = test_component(&[""]);
     tui.add_child(child);
     let image = kitty(2, 2, Some(88));
@@ -475,7 +475,7 @@ fn redraws_image_lines_when_an_earlier_reserved_image_row_changes() {
 #[test]
 fn deletes_previously_rendered_image_ids_during_full_redraws() {
     let (terminal, handle) = concrete(40, 10);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (child, state) = test_component(&[]);
     tui.add_child(child);
     set_lines_owned(&state, vec![kitty(2, 2, Some(77))]);
@@ -498,7 +498,7 @@ fn deletes_previously_rendered_image_ids_during_full_redraws() {
 #[test]
 fn triggers_full_render_when_terminal_height_changes() {
     let (terminal, handle) = concrete(40, 10);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.set_termux_session(false);
     let (child, _state) = test_component(&["Line 0", "Line 1", "Line 2"]);
     tui.add_child(child);
@@ -517,7 +517,7 @@ fn triggers_full_render_when_terminal_height_changes() {
 #[test]
 fn skips_full_rerender_on_height_changes_in_termux() {
     let (terminal, handle) = concrete(40, 10);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.set_termux_session(true);
     let lines: Vec<String> = (0..20).map(|index| format!("Line {index}")).collect();
     let (child, state) = test_component(&[]);
@@ -547,7 +547,7 @@ fn skips_full_rerender_on_height_changes_in_termux() {
 #[test]
 fn triggers_full_render_when_terminal_width_changes() {
     let (terminal, handle) = concrete(40, 10);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (child, _state) = test_component(&["Line 0", "Line 1", "Line 2"]);
     tui.add_child(child);
     tui.start().unwrap();
@@ -564,7 +564,7 @@ fn triggers_full_render_when_terminal_width_changes() {
 #[test]
 fn clears_empty_rows_when_content_shrinks_significantly() {
     let (terminal, handle) = concrete(40, 10);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.set_clear_on_shrink(true);
     let (child, state) = test_component(&["Line 0", "Line 1", "Line 2", "Line 3", "Line 4", "Line 5"]);
     tui.add_child(child);
@@ -588,7 +588,7 @@ fn clears_empty_rows_when_content_shrinks_significantly() {
 #[test]
 fn handles_shrink_to_single_line_and_empty() {
     let (terminal, handle) = concrete(40, 10);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.set_clear_on_shrink(true);
     let (child, state) = test_component(&["Line 0", "Line 1", "Line 2", "Line 3"]);
     tui.add_child(child);
@@ -614,7 +614,7 @@ fn handles_shrink_to_single_line_and_empty() {
 #[test]
 fn tracks_cursor_when_content_shrinks_with_unchanged_remaining_lines() {
     let (terminal, handle) = concrete(40, 10);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (child, state) = test_component(&["Line 0", "Line 1", "Line 2", "Line 3", "Line 4"]);
     tui.add_child(child);
     tui.start().unwrap();
@@ -635,7 +635,7 @@ fn tracks_cursor_when_content_shrinks_with_unchanged_remaining_lines() {
 #[test]
 fn appends_after_a_shrink_without_another_full_redraw() {
     let (terminal, handle) = concrete(20, 5);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (child, state) = test_component(&[]);
     set_lines_owned(&state, (0..8).map(|index| format!("Line {index}")).collect());
     tui.add_child(child);
@@ -646,7 +646,7 @@ fn appends_after_a_shrink_without_another_full_redraw() {
     set_lines(&state, &["Line 0", "Line 1"]);
     tui.request_render(false);
     wait(&tui, &terminal);
-    assert!(tui.full_redraws() > initial_redraws);
+    assert_eq!(tui.full_redraws(), initial_redraws);
     let redraws_after_shrink = tui.full_redraws();
 
     set_lines(&state, &["Line 0", "Line 1", "Line 2"]);
@@ -661,7 +661,7 @@ fn appends_after_a_shrink_without_another_full_redraw() {
 #[test]
 fn clears_stale_content_when_max_lines_rendered_was_inflated() {
     let (terminal, handle) = concrete(40, 10);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (chat, chat_state) = test_component(&[]);
     let (editor, editor_state) = test_component(&[]);
     tui.add_child(chat);
@@ -690,7 +690,7 @@ fn clears_stale_content_when_max_lines_rendered_was_inflated() {
     tui.request_render(false);
     wait(&tui, &terminal);
 
-    assert!(tui.full_redraws() > redraws_before_switch);
+    assert_eq!(tui.full_redraws(), redraws_before_switch);
     assert_eq!(
         terminal.borrow().viewport(),
         vec![
@@ -713,7 +713,7 @@ fn writes_redraw_logs_to_the_provided_directory() {
     std::fs::create_dir_all(&log_dir).unwrap();
     {
         let (terminal, handle) = concrete(40, 10);
-        let tui = TuiMainScreen::with_options(handle, None, Some(log_dir.clone()));
+        let tui = TUI::with_options(handle, None, Some(log_dir.clone()));
         tui.set_debug_redraw(true);
         let (child, _state) = test_component(&["test"]);
         tui.add_child(child);
@@ -744,7 +744,7 @@ fn crash_logs_use_iso_timestamps() {
     std::fs::create_dir_all(&log_dir).unwrap();
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let (terminal, handle) = concrete(10, 5);
-        let tui = TuiMainScreen::with_options(handle, None, Some(log_dir.clone()));
+        let tui = TUI::with_options(handle, None, Some(log_dir.clone()));
         let (child, state) = test_component(&["short"]);
         tui.add_child(child);
         tui.start().unwrap();

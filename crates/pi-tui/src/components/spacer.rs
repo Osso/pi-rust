@@ -2,9 +2,14 @@
 
 use crate::tui::Component;
 
-#[derive(Default)]
 pub struct Spacer {
     lines: usize,
+}
+
+impl Default for Spacer {
+    fn default() -> Self {
+        Self::new(1)
+    }
 }
 
 impl Spacer {

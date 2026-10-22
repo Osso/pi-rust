@@ -6,7 +6,6 @@ use pi_tui::tui::Component;
 mod editor_host;
 
 use editor_host::{cursor, editor, render_plain, send};
-use pi_tui::keybindings::{KeybindingsConfig, KeybindingsManager, set_keybindings, tui_keybindings};
 
 #[test]
 fn does_nothing_on_up_arrow_when_history_is_empty() {
@@ -322,33 +321,4 @@ fn accepts_the_selected_reverse_search_match_on_enter() {
     send(&mut editor, "o");
     send(&mut editor, "\r");
     assert_eq!(editor.get_text(), "open config docs");
-}
-
-#[test]
-fn browses_history_directly_with_custom_keybindings() {
-    set_keybindings(KeybindingsManager::new(
-        tui_keybindings(),
-        KeybindingsConfig::from([
-            ("tui.editor.historyPrevious".to_string(), vec!["ctrl+p".to_string()]),
-            ("tui.editor.historyNext".to_string(), vec!["ctrl+n".to_string()]),
-        ]),
-    ));
-    let (mut editor, _) = editor();
-    editor.add_to_history("older prompt");
-    editor.add_to_history("newer\nmultiline prompt");
-    editor.set_text("draft");
-    send(&mut editor, "\x1b[D");
-    send(&mut editor, "\x1b[D");
-    send(&mut editor, "\x10");
-    assert_eq!(editor.get_text(), "newer\nmultiline prompt");
-    assert_eq!(cursor(&editor), (0, 0));
-    send(&mut editor, "\x10");
-    assert_eq!(editor.get_text(), "older prompt");
-    send(&mut editor, "\x0e");
-    assert_eq!(editor.get_text(), "newer\nmultiline prompt");
-    assert_eq!(cursor(&editor), (1, 16));
-    send(&mut editor, "\x0e");
-    assert_eq!(editor.get_text(), "draft");
-    assert_eq!(cursor(&editor), (0, 3));
-    set_keybindings(KeybindingsManager::new(tui_keybindings(), KeybindingsConfig::default()));
 }

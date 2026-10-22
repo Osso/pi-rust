@@ -6,8 +6,9 @@ use std::rc::Rc;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::time::Duration;
 
+use pi_tui::TUI;
 use pi_tui::terminal::Terminal;
-use pi_tui::tui::{ComponentRef, TuiExt, TuiMainScreen};
+use pi_tui::tui::{ComponentRef, TuiExt};
 
 use crate::core::settings_manager::SettingsManager;
 use crate::modes::interactive::components::config_selector::{
@@ -38,7 +39,7 @@ const POLL_INTERVAL: Duration = Duration::from_millis(5);
 
 /// `selectConfig`: show the TUI and return when it closes.
 ///
-/// The TypeScript TUI owns its event loop; Rust's `TuiMainScreen` is driven by
+/// The TypeScript TUI owns its event loop; Rust's `TUI` is driven by
 /// the caller, so this function polls events until a close/exit callback fires.
 pub fn select_config(
     options: ConfigSelectorOptions,
@@ -48,7 +49,7 @@ pub fn select_config(
     init_theme(theme.as_deref(), true).map_err(|error| error.to_string())?;
 
     let agent_dir = options.agent_dir.clone();
-    let ui = TuiMainScreen::with_options(terminal, None, Some(PathBuf::from(&agent_dir)));
+    let ui = TUI::with_options(terminal, None, Some(PathBuf::from(&agent_dir)));
     let (sender, receiver) = channel::<SelectConfigOutcome>();
     let close_sender = sender.clone();
     let exit_sender = sender.clone();
@@ -135,7 +136,7 @@ impl crate::package_manager_cli::ConfigSelector for TuiConfigSelector {
     }
 }
 
-fn wait_for_close(ui: &TuiMainScreen, receiver: &Receiver<SelectConfigOutcome>) -> SelectConfigOutcome {
+fn wait_for_close(ui: &TUI, receiver: &Receiver<SelectConfigOutcome>) -> SelectConfigOutcome {
     loop {
         ui.process_events();
         ui.flush_pending();

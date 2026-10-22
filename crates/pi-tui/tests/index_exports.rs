@@ -6,8 +6,6 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use pi_tui::components::markdown::tokens::Token;
-use pi_tui::components::markdown::{Marked, Tokens};
 use pi_tui::keys::Key;
 use serde_json::{Value, json};
 
@@ -138,15 +136,6 @@ fn key_map_matches_the_pinned_typescript_object() {
             "Key::{source_name} must match"
         );
     }
-}
-
-#[test]
-fn marked_facade_exposes_the_ported_lexer() {
-    let tokens: Tokens = Marked::lex("# Title\n\n- item\n");
-    assert!(matches!(tokens.first(), Some(Token::Heading { .. })));
-    let serialized = serde_json::to_value(&tokens).expect("tokens serialize");
-    assert_eq!(serialized[0]["type"], "heading");
-    assert_eq!(serialized[0]["depth"], 1);
 }
 
 #[path = "support/virtual_terminal.rs"]

@@ -1,5 +1,10 @@
 # components/settings-list.ts traceability
 
+## Q2 frozen revalidation
+
+Frozen settings-list.ts (250 lines) audited whole. SettingItem/SettingsListTheme/options; constructor/updateValue/invalidate/render; scrolling/alignment/description/hints; navigation/cancel; values cycling/submenu callback/selection restoration/filter map to settings_list.rs. A single Space always activates, including during search. Multi-character search input strips spaces. `differential_settings_list` compares render/callback/submenu/search matrix against frozen; native settings_list tests prove both Space and sanitized query behavior. Coding-agent row-order fixture explicitly enables Kitty capability, and search fixtures strip spaces. Space/sanitization mutants are killed. [Q2 proof](../q2-tui-components-proof.md).
+
+
 Source: `packages/tui/src/components/settings-list.ts` (249 lines). Rust:
 `crates/pi-tui/src/components/settings_list.rs`.
 
@@ -61,3 +66,7 @@ no-match, empty list).
 None found. The differential caught an ellipsis mismatch in hint/item
 truncation during implementation; fixed to use the default `"..."` like the
 source.
+
+## Q2 findings correction
+
+Empty selected descriptions skip the description block; whitespace-only descriptions remain truthy. `empty_description_skips_block_but_whitespace_does_not` compares absent/empty/space/nonempty rendered callback markers to frozen TS.

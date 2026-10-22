@@ -101,10 +101,10 @@ fn allows_overriding_primary_truncation_while_preserving_alignment() {
         min_primary_column_width: Some(12),
         max_primary_column_width: Some(12),
         truncate_primary: Some(Rc::new(|context: &SelectListTruncatePrimaryContext<'_>| {
-            if context.text.len() <= context.max_width {
+            if (context.text.len() as i64) <= context.max_width {
                 return context.text.to_string();
             }
-            let keep = context.max_width.saturating_sub(1);
+            let keep = context.max_width.saturating_sub(1).max(0) as usize;
             format!("{}…", &context.text[..keep.min(context.text.len())])
         })),
     };

@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::types::Transport;
+use pi_coding_agent::core::settings_manager::ScrollViewScrollbar;
 use pi_coding_agent::core::settings_manager::{
     DefaultProjectTrust, DoubleEscapeAction, FullscreenExitOutput, MermaidRenderingMode, TreeFilterMode,
     WarningSettings,
@@ -16,7 +17,6 @@ use pi_coding_agent::modes::interactive::components::settings_selector::{
 use pi_coding_agent::modes::interactive::theme::{
     ColorMode, ColorValue, REQUIRED_COLORS, TerminalTheme, Theme, set_theme_instance,
 };
-use pi_tui::components::scroll_view::ScrollViewScrollbar;
 use pi_tui::tui::TuiMode;
 use pi_tui::utils::strip_terminal_sequences;
 use pi_tui::{Component, KeybindingsManager, set_keybindings};
@@ -157,9 +157,8 @@ fn selector(config: SettingsConfig, recorder: Rc<Recorder>) -> SettingsSelectorC
 }
 
 fn type_label(component: &mut SettingsSelectorComponent, label: &str) {
-    for character in label.chars() {
-        component.handle_input(&character.to_string());
-    }
+    // Frozen SettingsList reserves a single Space for activation.
+    component.handle_input(&label.replace(' ', ""));
 }
 
 fn plain(component: &mut SettingsSelectorComponent) -> String {
@@ -200,6 +199,11 @@ fn cycles_through_fullscreen_settings() {
 
 #[test]
 fn renders_the_settings_rows_in_source_order() {
+    pi_tui::set_capabilities(pi_tui::TerminalCapabilities {
+        images: Some(pi_tui::ImageProtocol::Kitty),
+        true_color: true,
+        hyperlinks: true,
+    });
     let recorder = Rc::new(Recorder::default());
     let mut component = selector(config(), recorder);
     let output = plain(&mut component);

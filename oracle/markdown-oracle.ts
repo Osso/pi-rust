@@ -27,115 +27,6 @@ function requireArray<T>(request: Request, key: string): T[] {
 
 const STRICT_STRIKETHROUGH_REGEX = /^(~~)(?=[^\s~])((?:\\.|[^\\])*?(?:\\.|[^\s~\\]))\1(?=[^~]|$)/;
 
-function isEscaped(source: string, index: number): boolean {
-	let backslashes = 0;
-	for (let position = index - 1; position >= 0 && source[position] === "\\"; position--) {
-		backslashes++;
-	}
-	return backslashes % 2 === 1;
-}
-
-function findClosingDelimiter(source: string, closing: string, start: number): number {
-	let index = source.indexOf(closing, start);
-	while (index >= 0 && isEscaped(source, index)) {
-		index = source.indexOf(closing, index + closing.length);
-	}
-	return index;
-}
-
-function looksLikePendingDollarMath(source: string): boolean {
-	return /\\[A-Za-z]+|[_^=+*/<>()[\]|±≤≥≠≈∈→⇒∞∫∑√-]/.test(source);
-}
-
-function tokenizeInlineLatex(source: string): Record<string, unknown> | undefined {
-	let opening = "";
-	let closing = "";
-	if (source.startsWith("$$")) {
-		opening = "$$";
-		closing = "$$";
-	} else if (source.startsWith("\\(")) {
-		opening = "\\(";
-		closing = "\\)";
-	} else if (source.startsWith("\\[")) {
-		opening = "\\[";
-		closing = "\\]";
-	} else if (source.startsWith("$") && !/^\$\s/.test(source)) {
-		opening = "$";
-		closing = "$";
-	} else {
-		return undefined;
-	}
-
-	const closingIndex = findClosingDelimiter(source, closing, opening.length);
-	if (
-		closingIndex >= 0 &&
-		opening === "$" &&
-		(/\s$/.test(source.slice(opening.length, closingIndex)) ||
-			/^\d/.test(source.slice(closingIndex + 1)) ||
-			(/^[A-Z_][A-Z0-9_]*(?:[^A-Za-z0-9_\s])?$/.test(source.slice(opening.length, closingIndex)) &&
-				/^[A-Za-z_][A-Za-z0-9_]*/.test(source.slice(closingIndex + 1))) ||
-			source.slice(opening.length, closingIndex).includes("`"))
-	) {
-		return undefined;
-	}
-
-	if (closingIndex < 0) {
-		const pendingSource = source.slice(opening.length);
-		if (opening.startsWith("\\") || looksLikePendingDollarMath(pendingSource)) {
-			return { type: "latex", raw: source, text: pendingSource, pending: true };
-		}
-		return undefined;
-	}
-
-	const text = source.slice(opening.length, closingIndex);
-	if (!text || text.includes("\n")) return undefined;
-	const raw = source.slice(0, closingIndex + closing.length);
-	return { type: "latex", raw, text };
-}
-
-function tokenizeBlockLatex(source: string): Record<string, unknown> | undefined {
-	const dollarMatch = /^ {0,3}\$\$[ \t]*(?:\n)?([\s\S]*?)\$\$[ \t]*(?:\n|$)/.exec(source);
-	if (dollarMatch?.[1]) {
-		return { type: "latexBlock", raw: dollarMatch[0], text: dollarMatch[1].trim() };
-	}
-	const bracketMatch = /^ {0,3}\\\[[ \t]*(?:\n)?([\s\S]*?)\\\][ \t]*(?:\n|$)/.exec(source);
-	if (bracketMatch?.[1]) {
-		return { type: "latexBlock", raw: bracketMatch[0], text: bracketMatch[1].trim() };
-	}
-	const pendingBracket = /^ {0,3}\\\[[ \t]*(?:\n)?([\s\S]*)$/.exec(source);
-	if (pendingBracket) {
-		return { type: "latexBlock", raw: pendingBracket[0], text: pendingBracket[1], pending: true };
-	}
-	const pendingDollar = /^ {0,3}\$\$[ \t]*(?:\n)?([\s\S]*)$/.exec(source);
-	if (pendingDollar?.[1] && looksLikePendingDollarMath(pendingDollar[1])) {
-		return { type: "latexBlock", raw: pendingDollar[0], text: pendingDollar[1], pending: true };
-	}
-	return undefined;
-}
-
-const LATEX_MARKDOWN_EXTENSIONS = [
-	{
-		name: "latexBlock",
-		level: "block",
-		start(source: string) {
-			const match = /(?:^|\n) {0,3}(?:\$\$|\\\[)/.exec(source);
-			return match ? match.index + (match[0].startsWith("\n") ? 1 : 0) : undefined;
-		},
-		tokenizer: tokenizeBlockLatex,
-	},
-	{
-		name: "latex",
-		level: "inline",
-		start(source: string) {
-			const indices = [source.indexOf("$"), source.indexOf("\\("), source.indexOf("\\[")].filter(
-				(index) => index >= 0,
-			);
-			return indices.length > 0 ? Math.min(...indices) : undefined;
-		},
-		tokenizer: tokenizeInlineLatex,
-	},
-];
-
 function trimPartialClosingFences(tokens: readonly any[]): void {
 	const token = tokens[tokens.length - 1];
 	if (token?.type === "list") {
@@ -178,7 +69,6 @@ async function getParser(sourceDirectory: string): Promise<any> {
 	}
 	const instance = new Marked();
 	instance.setOptions({ tokenizer: new StrictStrikethroughTokenizer() });
-	instance.use({ extensions: [...LATEX_MARKDOWN_EXTENSIONS] });
 	parser = instance;
 	return parser;
 }
@@ -189,6 +79,38 @@ async function loadApi(sourceDirectory: string, moduleName: string): Promise<unk
 
 async function execute(request: Request, sourceDirectory: string): Promise<unknown> {
 	switch (request.operation) {
+
+        case "markdown_lifecycle": {
+            const { Markdown } = (await loadApi(sourceDirectory, "components/markdown.ts")) as any;
+            const { Text } = (await loadApi(sourceDirectory, "components/text.ts")) as any;
+            const { Box } = (await loadApi(sourceDirectory, "components/box.ts")) as any;
+            const identity = (text: string) => text;
+            const makeTheme = (initial: number) => {
+                let highlights = initial;
+                return Object.fromEntries([
+                    ...["heading", "link", "linkUrl", "code", "codeBlock", "codeBlockBorder", "quote", "quoteBorder", "hr", "listBullet", "bold", "italic", "strikethrough", "underline"].map(name => [name, identity]),
+                    ["highlightCode", (code: string) => [`highlight ${++highlights}: ${code}`]],
+                ]);
+            };
+            const theme = makeTheme(0);
+            const md = new Markdown("```rs\nx\n```\n\nend", 0, 0, theme);
+            const snapshots = [md.render(40)];
+            md.setText("```rs\nx\n```\n\nend grows"); snapshots.push(md.render(40));
+            md.setPadding(0, 0); md.setTheme(theme); snapshots.push(md.render(40));
+            md.setPadding(1, 0); snapshots.push(md.render(40));
+            md.setTheme(makeTheme(9)); snapshots.push(md.render(40));
+            md.invalidate(); snapshots.push(md.render(40));
+            let colorCalls = 0;
+            const heading = new Markdown("# heading", 0, 0, theme, { color: (text: string) => { colorCalls++; return text; } }).render(10);
+            const text = new Text(); text.setText("hi");
+            const box = new Box(); box.addChild(new Text("hi", 0, 0));
+            const { Input } = (await loadApi(sourceDirectory, "components/input.ts")) as any;
+            const { SelectList } = (await loadApi(sourceDirectory, "components/select-list.ts")) as any;
+            const input = new Input(); input.setValue("hello");
+            const selectionTheme = { selectedPrefix: identity, selectedText: identity, description: identity, scrollInfo: identity, noMatch: identity };
+            const selection = new SelectList([{ value: "alpha", label: "alpha", description: " \r\n\ufeff " }], 5, selectionTheme);
+            return { snapshots, heading, colorCalls, defaultText: text.render(4), defaultBox: box.render(4), narrowInput: input.render(2), emptyDescription: selection.render(80) };
+        }
 		case "markdown_lex": {
 			const instance = await getParser(sourceDirectory);
 			const cases = requireArray<{ name: string; markdown: string }>(request, "cases");

@@ -8,10 +8,10 @@ mod virtual_terminal;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use pi_tui::TUI;
 use pi_tui::components::markdown::{DefaultTextStyle, Markdown, MarkdownOptions, MarkdownTheme};
 use pi_tui::terminal_image::{TerminalCapabilities, reset_capabilities_cache, set_capabilities};
 use pi_tui::tui::{Component, TuiExt, component};
-use pi_tui::tui_main_screen::TuiMainScreen;
 
 use self::markdown_theme::{CYAN, ChalkTheme, GRAY, MAGENTA, YELLOW, apply as apply_chalk};
 use self::virtual_terminal::concrete;
@@ -111,61 +111,6 @@ fn renders_non_comment_html_as_plain_text() {
     let _guard = lock();
     let mut markdown = markdown("<span>visible</span>");
     assert_eq!(plain(&mut markdown, 80), vec!["<span>visible</span>"]);
-}
-
-#[test]
-fn caches_transformed_markdown_by_source_and_available_width() {
-    let _guard = lock();
-    let calls: Rc<RefCell<Vec<(String, usize)>>> = Rc::new(RefCell::new(Vec::new()));
-    let recorded = calls.clone();
-    let mut markdown = markdown_with(
-        "source",
-        2,
-        0,
-        None,
-        MarkdownOptions {
-            transform: Some(Box::new(move |source, width| {
-                recorded.borrow_mut().push((source.to_string(), width));
-                format!("{source} {width}")
-            })),
-            ..Default::default()
-        },
-    );
-
-    assert_eq!(
-        render(&mut markdown, 80)
-            .into_iter()
-            .map(|line| strip_sgr(&line).trim().to_string())
-            .collect::<Vec<_>>(),
-        vec!["source 76"]
-    );
-    render(&mut markdown, 80);
-    assert_eq!(
-        render(&mut markdown, 60)
-            .into_iter()
-            .map(|line| strip_sgr(&line).trim().to_string())
-            .collect::<Vec<_>>(),
-        vec!["source 56"]
-    );
-    assert_eq!(
-        *calls.borrow(),
-        vec![("source".to_string(), 76), ("source".to_string(), 56)]
-    );
-
-    markdown.set_text("updated");
-    assert_eq!(
-        render(&mut markdown, 60)
-            .into_iter()
-            .map(|line| strip_sgr(&line).trim().to_string())
-            .collect::<Vec<_>>(),
-        vec!["updated 56"]
-    );
-    assert_eq!(calls.borrow().last(), Some(&("updated".to_string(), 56)));
-
-    markdown.invalidate();
-    render(&mut markdown, 60);
-    assert_eq!(calls.borrow().last(), Some(&("updated".to_string(), 56)));
-    assert_eq!(calls.borrow().len(), 4);
 }
 
 #[test]
@@ -574,139 +519,6 @@ fn renders_lists_and_tables_together() {
 }
 
 #[test]
-fn renders_inline_dollar_and_parenthesis_delimiters() {
-    let _guard = lock();
-    let mut markdown =
-        markdown(r"A map $\mathbb{C}^3 \to \mathbb{C}^3$, $xy$, $x-y$, $-x$, $\frac{1}{2}$, and \(s \to \infty\).");
-    assert_eq!(
-        plain(&mut markdown, 80),
-        vec!["A map ℂ³ → ℂ³, xy, x-y, -x, 1/2, and s → ∞."]
-    );
-}
-
-#[test]
-fn renders_display_dollar_delimiters_without_escape_corruption() {
-    let _guard = lock();
-    let mut markdown = markdown("Before\n\n$$\\{3x+2y,\\; x \\in \\{0, \\pm 1\\}\\}$$\n\nafter");
-    assert_eq!(
-        plain(&mut markdown, 80),
-        vec!["Before", "", "{3x+2y, x ∈ {0, ± 1}}", "", "after"]
-    );
-}
-
-#[test]
-fn renders_display_bracket_delimiters() {
-    let _guard = lock();
-    let mut markdown =
-        markdown("Before\n\n\\[\nE \\approx \\frac{0.1\\ \\text{lux}}{100\\ \\text{lm/W}}\n\\]\n\nafter");
-    assert_eq!(
-        plain(&mut markdown, 80),
-        vec!["Before", "", "    0.1 lux", "E ≈ ────────", "    100 lm/W", "", "after"]
-    );
-}
-
-#[test]
-fn aligns_matrix_rows_with_the_opening_delimiter() {
-    let _guard = lock();
-    let mut markdown = markdown(
-        "Consider the matrix\n\n\\[\nA=\n\\begin{pmatrix}\n\\pi & 0\\\\\n0 & \\frac{1}{\\pi}\n\\end{pmatrix}.\n\\]",
-    );
-    assert_eq!(
-        plain(&mut markdown, 80),
-        vec!["Consider the matrix", "", "A = ⎛ π │ 0   ⎞", "    ⎝ 0 │ 1/π ⎠."]
-    );
-}
-
-#[test]
-fn renders_lower_limits_beneath_display_operators() {
-    let _guard = lock();
-    let mut markdown = markdown("\\[\n\\lim_{x\\to 0}\\frac{\\frac{\\sin x}{x}-1}{\\frac{e^x-1}{x}-1}=0\n\\]");
-    assert_eq!(
-        plain(&mut markdown, 80),
-        vec!["     (sin x)/x-1", "lim  ─────────── = 0", "x→0  (eˣ-1)/x-1"]
-    );
-}
-
-#[test]
-fn renders_math_inside_lists_and_tables() {
-    let _guard = lock();
-    let mut markdown = markdown("- Formula: $F_1 = u^2$\n\n| Value |\n| --- |\n| $\\mathbb{C}^3$ |");
-    let output = plain(&mut markdown, 80).join("\n");
-    assert!(output.contains("- Formula: F₁ = u²"));
-    assert!(output.contains("│ ℂ³"));
-}
-
-#[test]
-fn does_not_treat_currency_shell_variables_or_code_spans_as_math() {
-    let _guard = lock();
-    let source = "Costs $5 and $10 or $8k–$12k; use `$x$`, $HOME, and ${PATH}.";
-    let mut source_markdown = markdown(source);
-    assert_eq!(
-        plain(&mut source_markdown, 80),
-        vec!["Costs $5 and $10 or $8k–$12k; use $x$, $HOME, and ${PATH}."]
-    );
-
-    let shell_variables = "Paths: $HOME/$USER and $XDG_CONFIG_HOME/$APP_CONFIG";
-    let mut shell_markdown = markdown(shell_variables);
-    assert_eq!(plain(&mut shell_markdown, 80), vec![shell_variables]);
-}
-
-#[test]
-fn preserves_unsupported_and_incomplete_latex_exactly() {
-    let _guard = lock();
-    for source in [r"Unknown $x + \unknown{y}$ after", r"Streaming $\mathbb{C}^3"] {
-        let mut markdown = markdown(source);
-        assert_eq!(plain(&mut markdown, 80), vec![source]);
-    }
-}
-
-#[test]
-fn preserves_incomplete_backslash_delimiters_while_streaming() {
-    let _guard = lock();
-    let mut inline = markdown(r"Map \(\mathbb{C}^3");
-    assert_eq!(plain(&mut inline, 80), vec![r"Map \(\mathbb{C}^3"]);
-
-    let mut display = markdown("\\[\nx^2");
-    assert_eq!(plain(&mut display, 80), vec!["\\[", "x^2"]);
-}
-
-#[test]
-fn does_not_render_latex_inside_escaped_delimiters_or_code_fences() {
-    let _guard = lock();
-    let source = "Escaped \\$x-y\\$.\n\n```text\n$\\mathbb{C}^3$\n```";
-    let mut markdown = markdown(source);
-    assert_eq!(
-        plain(&mut markdown, 80),
-        vec!["Escaped $x-y$.", "", "```text", "  $\\mathbb{C}^3$", "```"]
-    );
-}
-
-#[test]
-fn allows_latex_rendering_to_be_disabled() {
-    let _guard = lock();
-    let mut markdown = markdown_with(
-        r"Map $\mathbb{C}^3 \to \mathbb{C}^3$",
-        0,
-        0,
-        None,
-        MarkdownOptions {
-            render_latex: false,
-            ..Default::default()
-        },
-    );
-    assert_eq!(plain(&mut markdown, 80), vec![r"Map $\mathbb{C}^3 \to \mathbb{C}^3$"]);
-}
-
-#[test]
-fn switches_from_raw_to_rendered_math_when_streamed_delimiter_closes() {
-    let _guard = lock();
-    let mut markdown = markdown(r"Map $\mathbb{C}^3");
-    assert_eq!(plain(&mut markdown, 80), vec![r"Map $\mathbb{C}^3"]);
-    markdown.set_text(r"Map $\mathbb{C}^3$");
-    assert_eq!(plain(&mut markdown, 80), vec!["Map ℂ³"]);
-}
-
-#[test]
 fn normalizes_escaped_punctuation_by_default() {
     let _guard = lock();
     let mut markdown = markdown("\"\\\"");
@@ -810,7 +622,7 @@ fn does_not_leak_styles_into_following_lines_in_tui() {
     };
 
     let (terminal, handle) = concrete(80, 6);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(component(wrapper));
     tui.start().expect("tui starts");
     tui.flush_pending();
@@ -1078,7 +890,7 @@ fn does_not_leak_h1_underline_into_padding() {
     let _guard = lock();
     let markdown = markdown("# Important distinction from `open()`");
     let (terminal, handle) = concrete(80, 4);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(component(markdown));
     tui.start().expect("tui starts");
     tui.flush_pending();

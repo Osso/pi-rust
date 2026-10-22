@@ -6,7 +6,7 @@ use pi_tui::components::editor::{Editor, EditorHost, EditorOptions};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
 use pi_tui::keybindings::get_keybindings;
-use pi_tui::tui::{Component, ComponentRef, Container, Focusable, TuiExt, TuiMainScreen, TuiRenderer, component};
+use pi_tui::tui::{Component, ComponentRef, Container, Focusable, TuiExt, TuiRenderer, component};
 
 use super::dynamic_border::dynamic_border;
 use crate::core::keybindings::KeybindingsManager as AppKeybindingsManager;
@@ -21,20 +21,6 @@ pub trait ExtensionEditorHost: EditorHost {
     fn suspend(&self);
     fn resume(&self);
     fn request_forced_render(&self);
-}
-
-impl ExtensionEditorHost for Rc<TuiMainScreen> {
-    fn suspend(&self) {
-        TuiExt::stop(self.as_ref());
-    }
-
-    fn resume(&self) {
-        let _ = TuiExt::start(self.as_ref());
-    }
-
-    fn request_forced_render(&self) {
-        TuiExt::request_render(self.as_ref(), true);
-    }
 }
 
 impl ExtensionEditorHost for Rc<TuiRenderer> {

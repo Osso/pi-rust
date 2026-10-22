@@ -9,7 +9,6 @@ use pi_tui::tui::component;
 use pi_tui::{Component, Container, Markdown, MarkdownOptions, MarkdownTheme, Spacer, Text};
 
 use crate::core::extensions::types::MarkdownTransformer;
-use crate::modes::interactive::components::markdown_transform::create_markdown_transform;
 use crate::modes::interactive::theme::{ThemeColor, get_markdown_theme, with_theme};
 
 const OSC133_ZONE_START: &str = "\u{1b}]133;A\u{7}";
@@ -23,7 +22,6 @@ pub struct AssistantMessageComponent {
     markdown_theme: Rc<dyn MarkdownTheme>,
     hidden_thinking_label: String,
     output_pad: usize,
-    markdown_transformers: Vec<MarkdownTransformer>,
     last_message: Option<AssistantMessage>,
     has_tool_calls: bool,
     is_streaming: bool,
@@ -36,7 +34,7 @@ impl AssistantMessageComponent {
         markdown_theme: Option<Rc<dyn MarkdownTheme>>,
         hidden_thinking_label: Option<String>,
         output_pad: usize,
-        markdown_transformers: Vec<MarkdownTransformer>,
+        _markdown_transformers: Vec<MarkdownTransformer>,
     ) -> Self {
         let mut component = Self {
             content_container: Container::new(),
@@ -44,7 +42,6 @@ impl AssistantMessageComponent {
             markdown_theme: markdown_theme.unwrap_or_else(|| Rc::from(get_markdown_theme())),
             hidden_thinking_label: hidden_thinking_label.unwrap_or_else(|| "Thinking...".to_owned()),
             output_pad,
-            markdown_transformers,
             last_message: None,
             has_tool_calls: false,
             is_streaming: false,
@@ -96,17 +93,7 @@ impl AssistantMessageComponent {
                         0,
                         self.markdown_theme.clone(),
                         None,
-                        MarkdownOptions {
-                            transform: Some({
-                                let transform = create_markdown_transform(
-                                    crate::core::extensions::types::MarkdownMessageType::Assistant,
-                                    self.is_streaming,
-                                    self.markdown_transformers.clone(),
-                                );
-                                Box::new(move |markdown: &str, width: usize| transform(markdown, width))
-                            }),
-                            ..Default::default()
-                        },
+                        MarkdownOptions { ..Default::default() },
                     )));
                     index += 1;
                 }
@@ -148,17 +135,7 @@ impl AssistantMessageComponent {
                                 italic: true,
                                 ..Default::default()
                             }),
-                            MarkdownOptions {
-                                transform: Some({
-                                    let transform = create_markdown_transform(
-                                        crate::core::extensions::types::MarkdownMessageType::AssistantThinking,
-                                        self.is_streaming,
-                                        self.markdown_transformers.clone(),
-                                    );
-                                    Box::new(move |markdown: &str, width: usize| transform(markdown, width))
-                                }),
-                                ..Default::default()
-                            },
+                            MarkdownOptions { ..Default::default() },
                         )));
                     }
                     if has_visible_content_after {

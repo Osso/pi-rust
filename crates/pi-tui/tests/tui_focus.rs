@@ -7,8 +7,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use components::{focusable_component, inputs, render_count, set_lines, test_component};
+use pi_tui::TUI;
 use pi_tui::tui::{TuiExt, TuiInputListenerResult};
-use pi_tui::tui_main_screen::TuiMainScreen;
 use virtual_terminal::{VirtualTerminal, concrete};
 
 const FOCUS_IN: &str = "\x1b[I";
@@ -27,7 +27,7 @@ fn send<T: TuiExt>(tui: &Rc<T>, terminal: &Rc<RefCell<VirtualTerminal>>, data: &
 #[test]
 fn enables_focus_reporting_once_while_running_and_disables_it_once_on_stop() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
 
     tui.start().unwrap();
     tui.start().unwrap();
@@ -43,7 +43,7 @@ fn enables_focus_reporting_once_while_running_and_disables_it_once_on_stop() {
 #[test]
 fn defers_rendering_while_unfocused_and_renders_latest_state_on_focus() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (component, state) = test_component(&["initial"]);
     tui.add_child(component);
     tui.start().unwrap();
@@ -73,7 +73,7 @@ fn defers_rendering_while_unfocused_and_renders_latest_state_on_focus() {
 #[test]
 fn cancels_a_queued_forced_render_when_focus_is_lost() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (component, state) = test_component(&["initial"]);
     tui.add_child(component);
     tui.start().unwrap();
@@ -99,7 +99,7 @@ fn cancels_a_queued_forced_render_when_focus_is_lost() {
 #[test]
 fn renders_pending_unfocused_state_after_stop_and_restart() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (component, state) = test_component(&["initial"]);
     tui.add_child(component);
     tui.start().unwrap();
@@ -124,7 +124,7 @@ fn renders_pending_unfocused_state_after_stop_and_restart() {
 #[test]
 fn renders_state_requested_while_stopped_after_restart() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (component, state) = test_component(&["initial"]);
     tui.add_child(component);
     tui.start().unwrap();
@@ -148,7 +148,7 @@ fn renders_state_requested_while_stopped_after_restart() {
 #[test]
 fn consumes_focus_events_instead_of_forwarding_them_to_the_focused_component() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (component, state, _focus) = focusable_component(&["initial"]);
     tui.add_child(component.clone());
     tui.set_focus(Some(component));

@@ -926,8 +926,6 @@ fn render_matches_typescript_markdown_component() {
         let options = MarkdownOptions {
             preserve_ordered_list_markers: options_json["preserveOrderedListMarkers"].as_bool().unwrap_or(false),
             preserve_backslash_escapes: options_json["preserveBackslashEscapes"].as_bool().unwrap_or(false),
-            transform: None,
-            render_latex: options_json["renderLatex"].as_bool().unwrap_or(true),
         };
         let style_json = &case["defaultTextStyle"];
         let default_style = (!style_json.is_null()).then(|| DefaultTextStyle {

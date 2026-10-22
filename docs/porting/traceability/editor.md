@@ -1,5 +1,10 @@
 # `tui/src/components/editor.ts` traceability
 
+## Q2 frozen revalidation (supersedes historical pin claims below)
+
+Frozen `4f9e6f8a4` editor.ts (2630 lines). Editor/EditorTheme/EditorOptions/TextChunk/wordWrapLine remain mapped below; whole editor targets and direct frozen scenario corpus are re-run. Oracle instantiates frozen tui.ts/TUI, not absent TuiMainScreen. Removed historyPrevious/historyNext handling and its old-only test. Top scroll indicator uses frozen truncateToWidth reset bytes; bottom indicator is untruncated (frozen editor.ts:883-889), a classified source bug pending a separately approved delta. Native exact bytes and frozen-narrow-top-and-bottom-indicators scenario cover it. Existing frozen editor-wide-wrap.test.ts is authoritative; the historical note calling the wide-wrap fix post-pin is obsolete for the current common pin. Poll-driven animation/autocomplete and UTF8 byte cursor adaptation remain explicit driver/type boundaries. See [Q2 proof](../q2-tui-components-proof.md).
+
+
 Rust: `crates/pi-tui/src/components/editor.rs`.
 
 Tests:

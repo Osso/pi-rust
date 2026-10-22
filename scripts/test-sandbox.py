@@ -81,10 +81,13 @@ def pyrun_inputs():
 
 
 def find_required_test_tools():
-    executable = shutil.which("rg")
-    if not executable:
-        raise RuntimeError("test isolation requires installed rg on the host PATH")
-    return [Path(executable).absolute()]
+    tools = []
+    for name in ["rg", "fd"]:
+        executable = shutil.which(name)
+        if not executable:
+            raise RuntimeError(f"test isolation requires installed {name} on the host PATH")
+        tools.append(Path(executable).absolute())
+    return tools
 
 
 def private_environment(state, test_tools):

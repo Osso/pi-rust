@@ -2,13 +2,13 @@
 //! No child is spawned until `run`; no real Pi process is required by fixtures.
 use pi_js_compat::string::js_trim;
 use pi_tui::{
-    Input,
+    Input, TUI,
     components::{
         input::InputOptions,
         select_list::{SelectItem, SelectList, SelectListTheme},
     },
     terminal::Terminal,
-    tui::{Component, Focusable, TuiExt, TuiMainScreen},
+    tui::{Component, Focusable, TuiExt},
 };
 use serde_json::{Value, json};
 use std::{cell::RefCell, collections::VecDeque, path::PathBuf, rc::Rc};
@@ -453,7 +453,7 @@ pub struct RunOutcome {
     pub stdout: String,
     pub stderr: String,
 }
-/// Drives the real TuiMainScreen and real child pipes on the caller's UI thread.
+/// Drives the real TUI and real child pipes on the caller's UI thread.
 pub async fn run(invocation: Invocation, terminal: Rc<RefCell<dyn Terminal>>) -> Result<RunOutcome, String> {
     let mut child = tokio::process::Command::new(invocation.program)
         .args(invocation.prefix)
@@ -493,7 +493,7 @@ pub async fn run(invocation: Invocation, terminal: Rc<RefCell<dyn Terminal>>) ->
             stderr: format!("Agent exited immediately. Stderr:\n{stderr}\n"),
         });
     }
-    let tui = TuiMainScreen::new(terminal);
+    let tui = TUI::new(terminal);
     let app = Rc::new(RefCell::new(RpcExtensionUi::new()));
     let component: pi_tui::tui::ComponentRef = app.clone();
     tui.add_child(component.clone());

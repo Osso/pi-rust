@@ -212,7 +212,7 @@ impl SettingsList {
         if let Some(selected_item) = display_indices
             .get(state.selected_index)
             .map(|index| &state.items[*index])
-            && let Some(description) = &selected_item.description
+            && let Some(description) = selected_item.description.as_ref().filter(|text| !text.is_empty())
         {
             lines.push(String::new());
             for line in wrap_text_with_ansi(description, width.saturating_sub(4)) {
@@ -254,21 +254,18 @@ impl SettingsList {
             } else {
                 state.selected_index + 1
             };
-        } else if keybindings.matches(data, "tui.select.confirm")
-            || (data == " "
-                && (!self.search_enabled
-                    || self
-                        .search_input
-                        .as_ref()
-                        .is_none_or(|input| input.get_value().is_empty())))
-        {
+        } else if keybindings.matches(data, "tui.select.confirm") || data == " " {
             self.activate_item();
         } else if keybindings.matches(data, "tui.select.cancel") {
             (self.on_cancel)();
         } else if self.search_enabled
             && let Some(search_input) = &mut self.search_input
         {
-            search_input.handle_input(data);
+            let sanitized = data.replace(' ', "");
+            if sanitized.is_empty() {
+                return;
+            }
+            search_input.handle_input(&sanitized);
             let query = search_input.get_value().to_string();
             self.apply_filter(&query);
         }

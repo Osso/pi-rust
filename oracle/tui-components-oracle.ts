@@ -342,31 +342,6 @@ type FlashStep =
 	| { kind: "render"; width: number }
 	| { kind: "dispose" };
 
-async function altScreenFlashOperation(request: Request, sourceDirectory: string): Promise<unknown> {
-	const api = (await loadApi(sourceDirectory, "components/alt-screen-flash.ts")) as {
-		AltScreenFlashContainer: new (requestRender: () => void) => LeafComponent & {
-			flash(message: string, durationMs?: number): void;
-			dispose(): void;
-		};
-	};
-	const cases = requireArray<{ steps: FlashStep[] }>(request, "cases");
-	return {
-		results: cases.map((testCase) => {
-			let renderCount = 0;
-			const container = new api.AltScreenFlashContainer(() => {
-				renderCount++;
-			});
-			const snapshots: string[][] = [];
-			for (const step of testCase.steps) {
-				if (step.kind === "flash") container.flash(step.message, step.durationMs);
-				else if (step.kind === "render") snapshots.push(container.render(step.width));
-				else container.dispose();
-			}
-			return { snapshots, renderCount };
-		}),
-	};
-}
-
 async function cancellableLoaderOperation(request: Request, sourceDirectory: string): Promise<unknown> {
 	const api = (await loadApi(sourceDirectory, "components/cancellable-loader.ts")) as {
 		CancellableLoader: new (
@@ -560,157 +535,19 @@ type LayoutOp =
 	| { kind: "setText"; target: string; text: string }
 	| { kind: "setScrollbar"; target: string; scrollbar: "hidden" | "auto" | "always" };
 
-async function layoutOperation(request: Request, sourceDirectory: string): Promise<unknown> {
-	const components = (await loadApi(sourceDirectory, "components/v-stack.ts")) as { VStack: new (children: unknown[], options?: unknown) => unknown };
-	const hstackApi = (await loadApi(sourceDirectory, "components/h-stack.ts")) as { HStack: new (children: unknown[], options?: unknown) => unknown };
-	const scrollApi = (await loadApi(sourceDirectory, "components/scroll-view.ts")) as { ScrollView: new (component: unknown, options?: unknown) => unknown };
-	const textApi = (await loadApi(sourceDirectory, "components/text.ts")) as {
-		Text: new (text: string, paddingX?: number, paddingY?: number, bgFn?: (text: string) => string) => unknown;
-	};
-	const layoutApi = (await loadApi(sourceDirectory, "layout.ts")) as {
-		renderLayoutFrame(root: unknown, width: number, height: number, requestRender: () => void): unknown;
-	};
-	const terminalImage = (await loadApi(sourceDirectory, "terminal-image.ts")) as {
-		registerKittyImageMetadata(metadata: Record<string, unknown>): void;
-	};
-
-	const byPath = new Map<string, Record<string, unknown>>();
-
-	function buildNode(spec: NodeSpec, pathKey: string): Record<string, unknown> {
-		let component: Record<string, unknown>;
-		if (spec.kind === "text") {
-			const background = spec.background === true;
-			component = new textApi.Text(
-				String(spec.text),
-				Number(spec.paddingX),
-				Number(spec.paddingY),
-				background ? (text: string) => `[${text}]` : undefined,
-			) as unknown as Record<string, unknown>;
-		} else if (spec.kind === "lines") {
-			if (spec.registerKitty) {
-				terminalImage.registerKittyImageMetadata(spec.registerKitty as Record<string, unknown>);
-			}
-			component = linesComponent(spec.lines as string[]) as unknown as Record<string, unknown>;
-		} else if (spec.kind === "vstack" || spec.kind === "hstack") {
-			const childSpecs = spec.entries as Array<{ component: NodeSpec; [key: string]: unknown }>;
-			const entries = childSpecs.map((entry, index) => {
-				const child = buildNode(entry.component, `${pathKey}.${index}`);
-				const built: Record<string, unknown> = { component: child };
-				if (entry.basis !== undefined && entry.basis !== null) built.basis = entry.basis;
-				if (entry.grow !== undefined && entry.grow !== null) built.grow = entry.grow;
-				if (entry.shrink !== undefined && entry.shrink !== null) built.shrink = entry.shrink;
-				if (entry.minSize !== undefined && entry.minSize !== null) built.minSize = entry.minSize;
-				if (entry.maxSize !== undefined && entry.maxSize !== null) built.maxSize = entry.maxSize;
-				if (entry.visible === false) built.visible = () => false;
-				else if (entry.visible && typeof entry.visible === "object") {
-					const minWidth = Number((entry.visible as { minWidth: number }).minWidth);
-					built.visible = (viewport: { width: number }) => viewport.width >= minWidth;
-				}
-				return built;
-			});
-			const options: Record<string, unknown> = {};
-			if (spec.gap !== undefined && spec.gap !== null) options.gap = spec.gap;
-			if (spec.align !== undefined && spec.align !== null) options.align = spec.align;
-			component =
-				spec.kind === "vstack"
-					? (new components.VStack(entries, options) as unknown as Record<string, unknown>)
-					: (new hstackApi.HStack(entries, options) as unknown as Record<string, unknown>);
-		} else if (spec.kind === "scroll") {
-			const child = buildNode(spec.component as NodeSpec, `${pathKey}.0`);
-			const options: Record<string, unknown> = {};
-			if (spec.follow !== undefined && spec.follow !== null) options.follow = spec.follow;
-			if (spec.primary !== undefined) options.primary = spec.primary;
-			if (spec.overscroll !== undefined && spec.overscroll !== null) options.overscroll = spec.overscroll;
-			if (spec.scrollbar !== undefined && spec.scrollbar !== null) options.scrollbar = spec.scrollbar;
-			if (spec.scrollbarStyle === "red") {
-				options.scrollbarStyle = (text: string) => `\x1b[48;5;1m${text}\x1b[49m`;
-			}
-			if (spec.scrollbarHideDelayMs !== undefined && spec.scrollbarHideDelayMs !== null) {
-				options.scrollbarHideDelayMs = spec.scrollbarHideDelayMs;
-			}
-			component = new scrollApi.ScrollView(child, options) as unknown as Record<string, unknown>;
-		} else {
-			throw new Error(`unsupported layout node: ${spec.kind}`);
-		}
-		byPath.set(pathKey, component);
-		return component;
-	}
-
-	function serializeFrame(frame: Record<string, unknown>): unknown {
-		const boxes: unknown[] = [];
-		const scrollViews: unknown[] = [];
-		const visit = (box: Record<string, unknown>, pathKey: string): void => {
-			const rect = box.rect as { x: number; y: number; width: number; height: number };
-			const clip = box.clip as { x: number; y: number; width: number; height: number };
-			boxes.push({
-				path: pathKey,
-				x: rect.x,
-				y: rect.y,
-				width: rect.width,
-				height: rect.height,
-				clip: { x: clip.x, y: clip.y, width: clip.width, height: clip.height },
-			});
-			const scrollView = box.scrollView as
-				| {
-						scrollTop: number;
-						isFollowingEnd: boolean;
-						viewportHeight: number;
-						isScrollbarVisible: boolean;
-						getContentWidth(width: number): number;
-				  }
-				| undefined;
-			if (scrollView) {
-				scrollViews.push({
-					path: pathKey,
-					scrollTop: scrollView.scrollTop,
-					followingEnd: scrollView.isFollowingEnd,
-					viewportHeight: scrollView.viewportHeight,
-					scrollbarVisible: scrollView.isScrollbarVisible,
-					contentWidth: scrollView.getContentWidth(rect.width),
-				});
-			}
-			(box.children as Array<Record<string, unknown>>).forEach((child, index) =>
-				visit(child, `${pathKey}.${index}`),
-			);
-		};
-		visit(frame.root as Record<string, unknown>, "0");
-		return { lines: frame.lines, boxes, scrollViews };
-	}
-
-	const cases = requireArray<{ root: NodeSpec; operations: LayoutOp[] }>(request, "cases");
-	return {
-		results: cases.map((testCase) => {
-			byPath.clear();
-			const root = buildNode(testCase.root, "0");
-			let renderRequests = 0;
-			const snapshots: unknown[] = [];
-			for (const op of testCase.operations) {
-				if (op.kind === "frame") {
-					const frame = layoutApi.renderLayoutFrame(root, op.width, op.height, () => {
-						renderRequests++;
-					});
-					snapshots.push(serializeFrame(frame as Record<string, unknown>));
-					continue;
-				}
-				const target = byPath.get(op.target);
-				if (!target) throw new Error(`unknown layout target: ${op.target}`);
-				if (op.kind === "scrollBy") (target.scrollBy as (lines: number) => number)(op.lines);
-				else if (op.kind === "scrollTo") {
-					(target.scrollTo as (top: number, options?: unknown) => void)(op.top, {
-						disableFollow: op.disableFollow,
-					});
-				} else if (op.kind === "scrollToEnd") (target.scrollToEnd as () => void)();
-				else if (op.kind === "scrollToStart") (target.scrollToStart as () => void)();
-				else if (op.kind === "setText") (target.setText as (text: string) => void)(op.text);
-				else if (op.kind === "setScrollbar") (target.setScrollbar as (value: string) => void)(op.scrollbar);
-			}
-			return { snapshots, renderRequests };
-		}),
-	};
-}
-
 async function execute(request: Request, sourceDirectory: string): Promise<unknown> {
 	switch (request.operation) {
+        case "select_list_signed": {
+            const { SelectList } = await loadApi(sourceDirectory, "components/select-list.ts") as { SelectList: any };
+            const calls: Array<[number, number]> = [];
+            const list = new SelectList([{ value: "alpha", label: "alpha" }], 5,
+                { selectedPrefix: identity, selectedText: identity, description: identity, scrollInfo: identity, noMatch: identity },
+                { truncatePrimary: (context: { maxWidth: number; columnWidth: number; text: string }) => {
+                    calls.push([context.maxWidth, context.columnWidth]);
+                    return context.text;
+                } });
+            return { lines: [0, 1, 2, 3, 4].map(width => list.render(width)), calls };
+        }
 		case "text":
 			return textOperation(request, sourceDirectory);
 		case "loader":
@@ -721,8 +558,6 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
 			return inputOperation(request, sourceDirectory);
 		case "settings_list":
 			return settingsListOperation(request, sourceDirectory);
-		case "alt_screen_flash":
-			return altScreenFlashOperation(request, sourceDirectory);
 		case "cancellable_loader":
 			return cancellableLoaderOperation(request, sourceDirectory);
 		case "image":
@@ -735,8 +570,6 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
 			return dynamicBorderOperation(request, sourceDirectory);
 		case "truncated_text":
 			return truncatedTextOperation(request, sourceDirectory);
-		case "layout":
-			return layoutOperation(request, sourceDirectory);
 		default:
 			throw new Error(`unsupported operation: ${request.operation}`);
 	}

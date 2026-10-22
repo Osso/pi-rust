@@ -140,16 +140,6 @@ struct Rules {
     carriage_return: Regex,
     output_link_replace: Regex,
     // LaTeX extensions.
-    latex_block_start: Regex,
-    latex_inline_pending: Regex,
-    latex_block_dollar: Regex,
-    latex_block_bracket: Regex,
-    latex_block_pending_bracket: Regex,
-    latex_block_pending_dollar: Regex,
-    latex_inline_dollar_space: Regex,
-    latex_inline_after_digit: Regex,
-    latex_inline_symbol_name: Regex,
-    latex_inline_after_symbol: Regex,
 }
 
 fn gfm_paragraph_pattern() -> String {
@@ -296,16 +286,6 @@ fn build_rules() -> Rules {
         slash_pipe: rx(r"\\\|"),
         carriage_return: rx(r"\r\n|\r"),
         output_link_replace: rx(r"\\([\[\]])"),
-        latex_block_start: rx(r"(?:^|\n) {0,3}(?:\$\$|\\\[)"),
-        latex_inline_pending: rx(r"\\[A-Za-z]+|[_^=+*/<>()\[\]|±≤≥≠≈∈→⇒∞∫∑√-]"),
-        latex_block_dollar: rx(r"^ {0,3}\$\$[ \t]*(?:\n)?([\s\S]*?)\$\$[ \t]*(?:\n|$)"),
-        latex_block_bracket: rx(r"^ {0,3}\\\[[ \t]*(?:\n)?([\s\S]*?)\\\][ \t]*(?:\n|$)"),
-        latex_block_pending_bracket: rx(r"^ {0,3}\\\[[ \t]*(?:\n)?([\s\S]*)$"),
-        latex_block_pending_dollar: rx(r"^ {0,3}\$\$[ \t]*(?:\n)?([\s\S]*)$"),
-        latex_inline_dollar_space: rx(r"^\$\s"),
-        latex_inline_after_digit: rx(r"^\d"),
-        latex_inline_symbol_name: rx(r"^[A-Z_][A-Z0-9_]*(?:[^A-Za-z0-9_\s])?$"),
-        latex_inline_after_symbol: rx(r"^[A-Za-z_][A-Za-z0-9_]*"),
     }
 }
 
@@ -492,8 +472,6 @@ pub(super) fn type_name(token: &Token) -> &'static str {
         Token::Del { .. } => "del",
         Token::Link { .. } => "link",
         Token::Image { .. } => "image",
-        Token::Latex { .. } => "latex",
-        Token::LatexBlock { .. } => "latexBlock",
     }
 }
 
@@ -582,12 +560,6 @@ impl Lexer {
                 source_length = source.len();
             } else {
                 panic!("Infinite loop on byte: {}", source.as_bytes()[0]);
-            }
-
-            if let Some(token) = tokenize_block_latex(&source) {
-                source = source[token.raw().len()..].to_string();
-                tokens.push(token);
-                continue;
             }
 
             if let Some(token) = self.space(&source) {
@@ -694,7 +666,7 @@ impl Lexer {
                 continue;
             }
 
-            let cut_source = self.clip_block_paragraph(&source);
+            let cut_source = source.clone();
             if self.top
                 && let Some(token) = self.paragraph(&cut_source)
             {
@@ -734,19 +706,6 @@ impl Lexer {
         }
 
         self.top = true;
-    }
-
-    fn clip_block_paragraph(&self, source: &str) -> String {
-        let temp = slice_utf16(source, 1, None);
-        let Some(caps) = self.rules.latex_block_start.captures(temp).ok().flatten() else {
-            return source.to_string();
-        };
-        let Some(matched) = caps.get(0) else {
-            return source.to_string();
-        };
-        let index = utf16_len(&temp[..matched.start()]);
-        let start = index + usize::from(matched.as_str().starts_with('\n'));
-        slice_utf16(source, 0, Some(start as isize + 1)).to_string()
     }
 
     fn space(&self, source: &str) -> Option<Token> {
@@ -1348,12 +1307,6 @@ impl Lexer {
             }
             keep_prev_char = false;
 
-            if let Some(token) = tokenize_inline_latex(&source) {
-                source = source[token.raw().len()..].to_string();
-                tokens.push(token);
-                continue;
-            }
-
             if let Some(token) = self.escape(&source) {
                 source = source[token.raw().len()..].to_string();
                 tokens.push(token);
@@ -1859,125 +1812,6 @@ fn replace_last_inline_task(tokens: &mut [Token], task_regex: &Regex) {
     }
 }
 
-fn tokenize_inline_latex(source: &str) -> Option<Token> {
-    let rules = rules();
-    let (opening, closing) = if source.starts_with("$$") {
-        ("$$", "$$")
-    } else if source.starts_with("\\(") {
-        ("\\(", "\\)")
-    } else if source.starts_with("\\[") {
-        ("\\[", "\\]")
-    } else if source.starts_with('$') && !is_match(&rules.latex_inline_dollar_space, source) {
-        ("$", "$")
-    } else {
-        return None;
-    };
-
-    let closing_index = find_closing_delimiter(source, closing, opening.len());
-    if let Some(closing_index) = closing_index {
-        let between = &source[opening.len()..closing_index];
-        let after = &source[closing_index + closing.len()..];
-        if opening == "$"
-            && (between.chars().last().is_some_and(char::is_whitespace)
-                || is_match(&rules.latex_inline_after_digit, after)
-                || (is_match(&rules.latex_inline_symbol_name, between)
-                    && is_match(&rules.latex_inline_after_symbol, after))
-                || between.contains('`'))
-        {
-            return None;
-        }
-    }
-
-    let Some(closing_index) = closing_index else {
-        let pending_source = &source[opening.len()..];
-        if opening.starts_with('\\') || is_match(&rules.latex_inline_pending, pending_source) {
-            return Some(Token::Latex {
-                raw: source.to_string(),
-                text: pending_source.to_string(),
-                pending: true,
-            });
-        }
-        return None;
-    };
-
-    let text = &source[opening.len()..closing_index];
-    if text.is_empty() || text.contains('\n') {
-        return None;
-    }
-
-    Some(Token::Latex {
-        raw: source[..closing_index + closing.len()].to_string(),
-        text: text.to_string(),
-        pending: false,
-    })
-}
-
-fn find_closing_delimiter(source: &str, closing: &str, start: usize) -> Option<usize> {
-    let mut index = source[start..].find(closing).map(|offset| offset + start);
-    while let Some(current) = index {
-        if !is_escaped(source, current) {
-            return Some(current);
-        }
-        index = source[current + closing.len()..]
-            .find(closing)
-            .map(|offset| offset + current + closing.len());
-    }
-    None
-}
-
-fn is_escaped(source: &str, index: usize) -> bool {
-    let bytes = source.as_bytes();
-    let mut backslashes = 0;
-    let mut position = index;
-    while position > 0 && bytes[position - 1] == b'\\' {
-        backslashes += 1;
-        position -= 1;
-    }
-    backslashes % 2 == 1
-}
-
-fn tokenize_block_latex(source: &str) -> Option<Token> {
-    let rules = rules();
-    if let Some(caps) = rules.latex_block_dollar.captures(source).ok().flatten() {
-        let text = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-        if !text.is_empty() {
-            return Some(Token::LatexBlock {
-                raw: caps.get(0)?.as_str().to_string(),
-                text: js_trim(text).to_string(),
-                pending: false,
-            });
-        }
-    }
-    if let Some(caps) = rules.latex_block_bracket.captures(source).ok().flatten() {
-        let text = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-        if !text.is_empty() {
-            return Some(Token::LatexBlock {
-                raw: caps.get(0)?.as_str().to_string(),
-                text: js_trim(text).to_string(),
-                pending: false,
-            });
-        }
-    }
-    if let Some(caps) = rules.latex_block_pending_bracket.captures(source).ok().flatten() {
-        return Some(Token::LatexBlock {
-            raw: caps.get(0)?.as_str().to_string(),
-            text: caps.get(1).map(|m| m.as_str()).unwrap_or("").to_string(),
-            pending: true,
-        });
-    }
-    if let Some(caps) = rules.latex_block_pending_dollar.captures(source).ok().flatten() {
-        let text = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-        if !text.is_empty() && is_match(&rules.latex_inline_pending, text) {
-            return Some(Token::LatexBlock {
-                raw: caps.get(0)?.as_str().to_string(),
-                text: text.to_string(),
-                pending: true,
-            });
-        }
-    }
-    None
-}
-
 impl Token {
     fn raw(&self) -> &str {
         match self {
@@ -2000,9 +1834,7 @@ impl Token {
             | Token::Strong { raw, .. }
             | Token::Del { raw, .. }
             | Token::Link { raw, .. }
-            | Token::Image { raw, .. }
-            | Token::Latex { raw, .. }
-            | Token::LatexBlock { raw, .. } => raw,
+            | Token::Image { raw, .. } => raw,
         }
     }
 
@@ -2031,9 +1863,7 @@ impl Token {
             | Token::Strong { raw, .. }
             | Token::Del { raw, .. }
             | Token::Link { raw, .. }
-            | Token::Image { raw, .. }
-            | Token::Latex { raw, .. }
-            | Token::LatexBlock { raw, .. } => raw.push_str(suffix),
+            | Token::Image { raw, .. } => raw.push_str(suffix),
         }
     }
 

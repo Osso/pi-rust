@@ -59,15 +59,15 @@ function byteIndexForUtf16(text: string, utf16Index: number): number {
 	return Buffer.byteLength(text.slice(0, utf16Index), "utf8");
 }
 
-async function loadApi(sourceDirectory: string): Promise<{ Editor: any; TuiMainScreen: any; VirtualTerminal: any }> {
+async function loadApi(sourceDirectory: string): Promise<{ Editor: any; TUI: any; VirtualTerminal: any }> {
 	const editor = await import(pathToFileURL(path.join(sourceDirectory, "components/editor.ts")).href);
-	const mainScreen = await import(pathToFileURL(path.join(sourceDirectory, "tui-main-screen.ts")).href);
+	const mainScreen = await import(pathToFileURL(path.join(sourceDirectory, "tui.ts")).href);
 	const virtualTerminal = await import(
 		pathToFileURL(path.join(sourceDirectory, "../test/virtual-terminal.ts")).href
 	);
 	return {
 		Editor: editor.Editor,
-		TuiMainScreen: mainScreen.TuiMainScreen,
+		TUI: mainScreen.TUI,
 		VirtualTerminal: virtualTerminal.VirtualTerminal,
 	};
 }
@@ -123,9 +123,9 @@ async function flushAutocomplete(): Promise<void> {
 }
 
 async function execute(request: Request, sourceDirectory: string): Promise<unknown> {
-	const { Editor, TuiMainScreen, VirtualTerminal } = await loadApi(sourceDirectory);
+	const { Editor, TUI, VirtualTerminal } = await loadApi(sourceDirectory);
 	const terminal = new VirtualTerminal(80, 24);
-	const tui = new TuiMainScreen(terminal);
+	const tui = new TUI(terminal);
 	const theme: any = {
 		borderColor: request.theme?.borderColor ? (text: string) => text : (text: string) => text,
 		selectList: {

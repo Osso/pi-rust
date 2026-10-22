@@ -1,5 +1,10 @@
 # components/cancellable-loader.ts traceability
 
+## Q2 frozen revalidation
+
+Frozen components/cancellable-loader.ts audited whole. Existing exported methods, constructor defaults, rendering/input branches and invalidation match the frozen implementation within typed numeric/String boundaries; native target plus differential_components re-run against 4f9e6f8a4. Loader frame intervals remain explicitly driver-owned poll/deadline adaptation; CancellableLoader maps AbortSignal to CancellationToken and preserves repeated cancel callbacks. See [Q2 proof](../q2-tui-components-proof.md).
+
+
 Source: `packages/tui/src/components/cancellable-loader.ts` (40 lines). Rust:
 `crates/pi-tui/src/components/cancellable_loader.rs`.
 

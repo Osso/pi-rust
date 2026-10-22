@@ -7,8 +7,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use components::{TestState, container, focusable_component, inputs, test_component};
+use pi_tui::TUI;
 use pi_tui::tui::{ComponentRef, OverlayOptions, SizeValue, TuiExt};
-use pi_tui::tui_main_screen::TuiMainScreen;
 use virtual_terminal::{VirtualTerminal, concrete};
 
 fn wait<T: TuiExt>(tui: &Rc<T>, terminal: &Rc<RefCell<VirtualTerminal>>) {
@@ -44,7 +44,7 @@ fn set_input_handler(state: &Rc<RefCell<TestState>>, handler: impl Fn(&str) + 's
 
 struct Fixture {
     terminal: Rc<RefCell<VirtualTerminal>>,
-    tui: Rc<TuiMainScreen>,
+    tui: Rc<TUI>,
     editor: ComponentRef,
     editor_state: Rc<RefCell<TestState>>,
     editor_focus: Rc<std::cell::Cell<bool>>,
@@ -52,7 +52,7 @@ struct Fixture {
 
 fn fixture() -> Fixture {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (editor, editor_state, editor_focus) = focusable_component(&["EDITOR"]);
     tui.add_child(test_component(&[]).0);
     tui.set_focus(Some(editor.clone()));
@@ -558,7 +558,7 @@ fn unfocus_prevents_a_visible_overlay_from_regaining_input() {
 #[test]
 fn set_focus_null_explicitly_clears_visible_overlay_restore() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (overlay, overlay_state, overlay_focus) = overlay_component(&["OVERLAY"]);
     tui.add_child(test_component(&[]).0);
     tui.start().unwrap();
@@ -574,7 +574,7 @@ fn set_focus_null_explicitly_clears_visible_overlay_restore() {
 #[test]
 fn blocked_replacement_set_focus_null_resumes_the_visible_overlay() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (replacement, replacement_state, _replacement_focus) = overlay_component(&["REPLACEMENT"]);
     let (overlay, overlay_state, _overlay_focus) = overlay_component(&["OVERLAY"]);
     {
@@ -637,7 +637,7 @@ fn temporarily_invisible_focused_overlay_falls_back_without_losing_restore_eligi
 #[test]
 fn temporarily_invisible_focused_overlay_with_null_pre_focus_restores_when_visible_again() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (overlay, overlay_state, _overlay_focus) = overlay_component(&["OVERLAY"]);
     let visible = Rc::new(std::cell::Cell::new(true));
     let visibility = Rc::clone(&visible);
@@ -782,7 +782,7 @@ fn unfocus_when_overlay_does_not_have_focus_is_a_no_op() {
 #[test]
 fn unfocus_with_null_pre_focus_clears_focus_and_does_not_route_input_back_to_overlay() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (overlay, overlay_state, _overlay_focus) = overlay_component(&["OVERLAY"]);
     tui.add_child(test_component(&[]).0);
     tui.start().unwrap();
@@ -855,7 +855,7 @@ fn explicit_unfocus_target_supports_cycling_between_three_overlays_and_editor() 
 #[test]
 fn explicit_null_unfocus_target_clears_focus_without_restoring_overlays() {
     let (terminal, handle) = concrete(80, 24);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     let (overlay, overlay_state, _overlay_focus) = overlay_component(&["OVERLAY"]);
     tui.add_child(test_component(&[]).0);
     tui.start().unwrap();
@@ -891,7 +891,7 @@ fn hiding_focused_overlay_falls_back_to_next_visual_frontmost_overlay() {
 #[test]
 fn focus_on_already_focused_overlay_bumps_visual_order() {
     let (terminal, handle) = concrete(20, 6);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     tui.start().unwrap();
     let (a, _a_state) = test_component(&["A"]);
@@ -915,7 +915,7 @@ fn focus_on_already_focused_overlay_bumps_visual_order() {
 #[test]
 fn default_rendering_order_for_overlapping_overlays_follows_creation_order() {
     let (terminal, handle) = concrete(20, 6);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     tui.start().unwrap();
     let (a, _a_state) = test_component(&["A"]);
@@ -931,7 +931,7 @@ fn default_rendering_order_for_overlapping_overlays_follows_creation_order() {
 #[test]
 fn focus_on_lower_overlay_renders_it_on_top() {
     let (terminal, handle) = concrete(20, 6);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     tui.start().unwrap();
     let (a, _a_state) = test_component(&["A"]);
@@ -951,7 +951,7 @@ fn focus_on_lower_overlay_renders_it_on_top() {
 #[test]
 fn focusing_middle_overlay_places_it_on_top_while_preserving_others_relative_order() {
     let (terminal, handle) = concrete(20, 6);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     tui.start().unwrap();
     let (a, _a_state) = test_component(&["A"]);
@@ -981,7 +981,7 @@ fn focusing_middle_overlay_places_it_on_top_while_preserving_others_relative_ord
 #[test]
 fn capturing_overlay_hidden_and_shown_again_renders_on_top_after_unhide() {
     let (terminal, handle) = concrete(20, 6);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     tui.start().unwrap();
     let (a, _a_state) = test_component(&["A"]);
@@ -1015,7 +1015,7 @@ fn capturing_overlay_hidden_and_shown_again_renders_on_top_after_unhide() {
 #[test]
 fn unfocus_does_not_change_visual_order_until_another_overlay_is_focused() {
     let (terminal, handle) = concrete(20, 6);
-    let tui = TuiMainScreen::new(handle);
+    let tui = TUI::new(handle);
     tui.add_child(test_component(&[]).0);
     tui.start().unwrap();
     let (a, _a_state) = test_component(&["A"]);

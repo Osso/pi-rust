@@ -8,8 +8,7 @@ use pi_tui::components::text::StyleFn;
 use pi_tui::tui::component;
 use pi_tui::{Component, Container, Markdown, MarkdownOptions, MarkdownTheme};
 
-use crate::core::extensions::types::{MarkdownMessageType, MarkdownTransformer};
-use crate::modes::interactive::components::markdown_transform::create_markdown_transform;
+use crate::core::extensions::types::MarkdownTransformer;
 use crate::modes::interactive::theme::{ThemeBg, ThemeColor, get_markdown_theme, with_theme};
 
 const OSC133_ZONE_START: &str = "\u{1b}]133;A\u{7}";
@@ -21,7 +20,6 @@ pub struct UserMessageComponent {
     text: JsString,
     markdown_theme: Rc<dyn MarkdownTheme>,
     output_pad: usize,
-    markdown_transformers: Vec<MarkdownTransformer>,
     container: Container,
 }
 
@@ -30,13 +28,12 @@ impl UserMessageComponent {
         text: impl Into<JsString>,
         markdown_theme: Option<Rc<dyn MarkdownTheme>>,
         output_pad: usize,
-        markdown_transformers: Vec<MarkdownTransformer>,
+        _markdown_transformers: Vec<MarkdownTransformer>,
     ) -> Self {
         let mut component = Self {
             text: text.into(),
             markdown_theme: markdown_theme.unwrap_or_else(|| Rc::from(get_markdown_theme())),
             output_pad,
-            markdown_transformers,
             container: Container::new(),
         };
         component.rebuild();
@@ -71,11 +68,7 @@ impl UserMessageComponent {
             MarkdownOptions {
                 preserve_ordered_list_markers: true,
                 preserve_backslash_escapes: true,
-                transform: Some({
-                    let transform =
-                        create_markdown_transform(MarkdownMessageType::User, false, self.markdown_transformers.clone());
-                    Box::new(move |markdown: &str, width: usize| transform(markdown, width))
-                }),
+
                 ..Default::default()
             },
         )));

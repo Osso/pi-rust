@@ -26,10 +26,10 @@ use crate::components::text::StyleFn;
 use crate::keybindings::{KeybindingsManager, get_keybindings};
 use crate::keys::{decode_printable_key, matches_key};
 use crate::kill_ring::KillRing;
-use crate::tui::{CURSOR_MARKER, Component, FixedCell, Focusable, TuiMainScreen, TuiRenderer};
+use crate::tui::{CURSOR_MARKER, Component, FixedCell, Focusable, TuiRenderer};
 use crate::undo_stack::UndoStack;
 use crate::unicode_tables::is_cjk_break;
-use crate::utils::{is_whitespace_char, slice_by_column, truncate_to_width, truncate_to_width_with, visible_width};
+use crate::utils::{is_whitespace_char, truncate_to_width, truncate_to_width_with, visible_width};
 use crate::word_navigation::{WordNavigationOptions, WordSegment, find_word_backward, find_word_forward};
 
 static PASTE_MARKER_REGEX: LazyLock<Regex> =
@@ -121,20 +121,6 @@ pub trait EditorHost {
     fn terminal_rows(&self) -> usize;
     fn request_render(&self);
     fn create_fixed_cell(&self) -> Rc<dyn EditorFixedCell>;
-}
-
-impl EditorHost for Rc<TuiMainScreen> {
-    fn terminal_rows(&self) -> usize {
-        crate::tui::TuiExt::terminal(self.as_ref()).borrow().rows()
-    }
-
-    fn request_render(&self) {
-        crate::tui::TuiExt::request_render(self.as_ref(), false);
-    }
-
-    fn create_fixed_cell(&self) -> Rc<dyn EditorFixedCell> {
-        Rc::new(TuiMainScreen::create_fixed_cell(self))
-    }
 }
 
 impl EditorHost for Rc<TuiRenderer> {
@@ -2405,16 +2391,6 @@ impl Component for Editor {
             self.yank_pop();
             return;
         }
-        if keybindings.matches(&data, "tui.editor.historyPrevious") {
-            self.cancel_autocomplete();
-            self.navigate_history(-1);
-            return;
-        }
-        if keybindings.matches(&data, "tui.editor.historyNext") {
-            self.cancel_autocomplete();
-            self.navigate_history(1);
-            return;
-        }
         if keybindings.matches(&data, "tui.editor.cursorLineStart") {
             self.move_to_line_start();
             return;
@@ -2608,15 +2584,12 @@ fn renumber_paste_markers(line: &str, target_id: i64) -> String {
 }
 
 fn create_scroll_border(direction: &str, hidden_line_count: usize, width: usize) -> String {
-    let available_width = width;
     let indicator = format!("─── {direction} {hidden_line_count} more ");
-    let remaining = available_width.saturating_sub(visible_width(&indicator));
-    if available_width >= visible_width(&indicator) {
-        return indicator + &"─".repeat(remaining);
+    let indicator_width = visible_width(&indicator);
+    if direction == "↑" && indicator_width > width {
+        return truncate_to_width(&indicator, width);
     }
-    let ellipsis: String = "...".chars().take(available_width).collect();
-    let indicator_width = available_width.saturating_sub(visible_width(&ellipsis));
-    slice_by_column(&indicator, 0, indicator_width, true) + &ellipsis
+    indicator + &"─".repeat(width.saturating_sub(indicator_width))
 }
 
 fn merge_paste_markers(text: &str, base: Vec<TextSegment>, valid_ids: &BTreeSet<i64>) -> Vec<TextSegment> {

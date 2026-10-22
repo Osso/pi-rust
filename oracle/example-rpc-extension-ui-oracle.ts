@@ -106,7 +106,7 @@ async function main() {
 				if (name === "@earendil-works/pi-tui")
 					return {
 						...tui,
-						TuiMainScreen: Screen,
+						TUI: Screen,
 						ProcessTerminal: class {
 							constructor() {
 								if (req.terminalStartupError)

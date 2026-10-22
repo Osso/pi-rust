@@ -687,19 +687,19 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `tui/native/darwin/src/darwin-modifiers.c` | 70 | — | gap | — | Existing 2026-10-19 macOS/Windows addon approval; actual exports mapped, not native parity. [Traceability](traceability/native-modifiers.md#native-addon-implementation-rows).; re-run vs 4f9e6f8a4 pending |
 | `tui/native/win32/src/win32-console-mode.c` | 53 | — | gap | — | Q1 re-inspected 53-line frozen helper: enableVirtualTerminalInput only; Windows/N-API unavailable on Linux, no native parity claimed; [trace](traceability/native-modifiers.md#native-addon-implementation-rows). |
 | `tui/src/autocomplete.ts` | 793 | 1 | done | `crates/pi-tui/src/autocomplete.rs` | TS test port + real-fd differential; async argument-completion callback and locale collation documented as gaps; re-run vs 4f9e6f8a4 pending |
-| `tui/src/components/box.ts` | 137 | 3 | done | `crates/pi-tui/src/components/box.rs` | differential padding/background/cache-sample matrix; re-run vs 4f9e6f8a4 pending |
-| `tui/src/components/cancellable-loader.ts` | 40 | 5 | done | `crates/pi-tui/src/components/cancellable_loader.rs` | differential escape abort + render; AbortSignal mapped to CancellationToken; re-run vs 4f9e6f8a4 pending |
-| `tui/src/components/dynamic-border.ts` | 15 | 3 | done | `crates/pi-tui/src/components/dynamic_border.rs` | TS tests ported + differential; re-run vs 4f9e6f8a4 pending |
-| `tui/src/components/editor.ts` | 2630 | — | todo | `crates/pi-tui/src/components/editor.rs` | re-pin delta; old status: done; old Rust: `crates/pi-tui/src/components/editor.rs`; Full TS test port (202 cases) + 28-scenario differential against real TS editor; timer/async requests driver-owned ([traceability](traceability/editor.md)). Guard cursor-offset subtraction by cursor-in-chunk, matching TS; narrow modal-editor key/render differential reproduces prior Rust underflow. |
-| `tui/src/components/image.ts` | 126 | 3 | todo | `crates/pi-tui/src/components/image.rs` | re-pin delta; old status: done; old Rust: `crates/pi-tui/src/components/image.rs`; differential kitty/iterm2/fallback renders; kitty ids explicit |
-| `tui/src/components/input.ts` | 465 | 3 | done | `crates/pi-tui/src/components/input.rs` | TS tests ported + scripted differential edits/renders; re-run vs 4f9e6f8a4 pending |
-| `tui/src/components/loader.ts` | 94 | 4 | done | `crates/pi-tui/src/components/loader.rs` | TS test port + differential; frame timer is driver-owned (`poll`); re-run vs 4f9e6f8a4 pending |
-| `tui/src/components/markdown.ts` | 937 | 3 | todo | `crates/pi-tui/src/components/markdown/` | re-pin delta; old status: done; old Rust: `crates/pi-tui/src/components/markdown/`; marked 18.0.5 lexer port (fancy-regex) + component; token-stream and ANSI render differential; all TS tests ported |
-| `tui/src/components/select-list.ts` | 229 | 3 | done | `crates/pi-tui/src/components/select_list.rs` | TS tests ported; differential render/callback matrix; re-run vs 4f9e6f8a4 pending |
-| `tui/src/components/settings-list.ts` | 250 | 4 | todo | `crates/pi-tui/src/components/settings_list.rs` | re-pin delta; old status: done; old Rust: `crates/pi-tui/src/components/settings_list.rs`; TS tests ported + differential search/cycle/submenu/scroll matrix |
-| `tui/src/components/spacer.ts` | 28 | 3 | done | `crates/pi-tui/src/components/spacer.rs` | differential line counts + setLines; re-run vs 4f9e6f8a4 pending |
-| `tui/src/components/text.ts` | 118 | 3 | todo | `crates/pi-tui/src/components/text.rs` | re-pin delta; old status: done; old Rust: `crates/pi-tui/src/components/text.rs`; TS differential wrapping/padding/background/cache |
-| `tui/src/components/truncated-text.ts` | 65 | 3 | done | `crates/pi-tui/src/components/truncated_text.rs` | all TS tests ported + differential; re-run vs 4f9e6f8a4 pending |
+| `tui/src/components/box.ts` | 137 | 3 | done | `crates/pi-tui/src/components/box.rs` | Q2 frozen revalidation: defaults/padding/background/cache and child operations; native/frozen component lifecycle; [proof](q2-tui-components-proof.md), per-module traceability. Typed numeric/String and driver-owned boundaries explicit. |
+| `tui/src/components/cancellable-loader.ts` | 40 | 5 | done | `crates/pi-tui/src/components/cancellable_loader.rs` | Q2 frozen revalidation: cancel/abort/repeated callback/dispose and render; native/frozen component corpus; [proof](q2-tui-components-proof.md), per-module traceability. Typed numeric/String and driver-owned boundaries explicit. |
+| `tui/src/components/dynamic-border.ts` | 15 | 3 | done | `crates/pi-tui/src/components/dynamic_border.rs` | Q2 frozen revalidation: width clamp/format callback; native/frozen component corpus; [proof](q2-tui-components-proof.md), per-module traceability. Typed numeric/String and driver-owned boundaries explicit. |
+| `tui/src/components/editor.ts` | 2630 | — | done | `crates/pi-tui/src/components/editor.rs` | Q2 frozen revalidation: whole editor targets, word wrap/render/input/history/autocomplete/animation; frozen editor oracle plus narrow-indicator bytes; [proof](q2-tui-components-proof.md), per-module traceability. Typed numeric/String and driver-owned boundaries explicit. |
+| `tui/src/components/image.ts` | 126 | 3 | done | `crates/pi-tui/src/components/image.rs` | Q2 frozen revalidation: Kitty/iTerm2/fallback/cache/id/dimension bounds; native/frozen render corpus; [proof](q2-tui-components-proof.md), per-module traceability. Typed numeric/String and driver-owned boundaries explicit. |
+| `tui/src/components/input.ts` | 465 | 3 | done | `crates/pi-tui/src/components/input.rs` | Q2 frozen revalidation: editing/paste/masking/undo/kill/movement/focus/narrow-width render; native/frozen input corpus; [proof](q2-tui-components-proof.md), per-module traceability. Typed numeric/String and driver-owned boundaries explicit. |
+| `tui/src/components/loader.ts` | 94 | 4 | done | `crates/pi-tui/src/components/loader.rs` | Q2 frozen revalidation: frames/indicators/message/start/stop/poll/deadline/render; native/frozen component corpus; [proof](q2-tui-components-proof.md), per-module traceability. Typed numeric/String and driver-owned boundaries explicit. |
+| `tui/src/components/markdown.ts` | 937 | 3 | done | `crates/pi-tui/src/components/markdown/` | Q2 frozen revalidation: whole lexer/render corpus and streaming token cache/style callback lifecycle; native/frozen differential; [proof](q2-tui-components-proof.md), per-module traceability. Typed numeric/String and driver-owned boundaries explicit. |
+| `tui/src/components/select-list.ts` | 229 | 3 | done | `crates/pi-tui/src/components/select_list.rs` | Q2 frozen revalidation: layout/filter/input/callback matrix, JS trim and signed custom widths0..4; native/frozen differential; [proof](q2-tui-components-proof.md), per-module traceability. Typed numeric/String and driver-owned boundaries explicit. |
+| `tui/src/components/settings-list.ts` | 250 | 4 | done | `crates/pi-tui/src/components/settings_list.rs` | Q2 frozen revalidation: search/single-Space activation/sanitization/cycle/submenus/scroll/render; native/frozen differential; [proof](q2-tui-components-proof.md), per-module traceability. Typed numeric/String and driver-owned boundaries explicit. |
+| `tui/src/components/spacer.ts` | 28 | 3 | done | `crates/pi-tui/src/components/spacer.rs` | Q2 frozen revalidation: default/setLines/blank counts; native/frozen component corpus; [proof](q2-tui-components-proof.md), per-module traceability. Typed numeric/String and driver-owned boundaries explicit. |
+| `tui/src/components/text.ts` | 118 | 3 | done | `crates/pi-tui/src/components/text.rs` | Q2 frozen revalidation: default1/1/setText/setPadding/background/cache/JS whitespace/wrapping; native/frozen lifecycle; [proof](q2-tui-components-proof.md), per-module traceability. Typed numeric/String and driver-owned boundaries explicit. |
+| `tui/src/components/truncated-text.ts` | 65 | 3 | done | `crates/pi-tui/src/components/truncated_text.rs` | Q2 frozen revalidation: first-line/ANSI truncation/padding; native/frozen component corpus; [proof](q2-tui-components-proof.md), per-module traceability. Typed numeric/String and driver-owned boundaries explicit. |
 | `tui/src/editor-component.ts` | 74 | 3 | done | `crates/pi-tui/src/editor_component.rs` | Optional members mapped to default trait methods; typed callback fields ([traceability](traceability/editor-component.md)).; re-run vs 4f9e6f8a4 pending |
 | `tui/src/fuzzy.ts` | 161 | 0 | done | `crates/pi-tui/src/fuzzy.rs` | exact score-bit differential; re-run vs 4f9e6f8a4 pending |
 | `tui/src/index.ts` | 128 | 7 | done | `crates/pi-tui/src/lib.rs` | Q1 frozen root export mapping, concrete TUI constructor/render, removed later exports and migrated consumers; [proof](q1-tui-core-proof.md), [trace](traceability/tui-index.md). |
@@ -710,7 +710,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `tui/src/root-compositor.ts` | 91 | 3 | done | `crates/pi-tui/src/root_compositor.rs` | flow/bottom layout callbacks covered by render-region tests; re-run vs 4f9e6f8a4 pending |
 | `tui/src/stdin-buffer.ts` | 434 | 0 | done | `crates/pi-tui/src/stdin_buffer.rs` | Q1 frozen one-timeout/default-10ms behavior, chunk/paste/dedup/flush matrix and real timer differential; typed String/event representation explicit; [proof](q1-tui-core-proof.md). |
 | `tui/src/terminal-colors.ts` | 73 | 0 | done | `crates/pi-tui/src/terminal_colors.rs` | Q1 strict framing/report and finite long-channel proof pass; NaN RGB restriction user-approved 2026-10-21; [proof](q1-tui-core-proof.md). |
-| `tui/src/terminal-image.ts` | 488 | 0 | todo | `crates/pi-tui/src/terminal_image.rs` + `pi-js-compat` Base64 | re-pin delta; old status: done; old Rust: `crates/pi-tui/src/terminal_image.rs` + `pi-js-compat` Base64; differential encode/detect/render/placement/dimensions; WebP <30 source bug preserved |
+| `tui/src/terminal-image.ts` | 488 | 0 | done | `crates/pi-tui/src/terminal_image.rs` + `pi-js-compat` Base64 | Q2 frozen encode/detect/render/dimensions/fallback/subprocess probe proof; removed old-only registry/placement/crop; approved numeric-domain restrictions; [trace](traceability/terminal-image.md), [proof](q2-tui-components-proof.md). |
 | `tui/src/terminal.ts` | 567 | 1 | done | `crates/pi-tui/src/terminal.rs` | Q1 helper/log-date and real PTY/pipe lifecycle proof pass; non-finite flags and negative/fractional/non-finite env dimension restrictions user-approved 2026-10-21; [proof](q1-tui-core-proof.md). |
 | `tui/src/tui.ts` | 2388 | — | done | `crates/pi-tui/src/tui.rs` | Q1 frozen renderer plus F1–F5 cleanup/try-render/first-child/live callback Set/dynamic Termux proof; F4b old/repeated unsubscribe after re-registration matches frozen in both registries ([trace](traceability/tui.md)); >u32 cell-size restriction user-approved 2026-10-21; [proof](q1-tui-core-proof.md). |
 | `tui/src/undo-stack.ts` | 28 | 0 | done | `crates/pi-tui/src/undo_stack.rs` | clone-on-push; differential N/A (structuredClone); re-run vs 4f9e6f8a4 pending |
@@ -926,14 +926,14 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `telemetry/src/testing/types.ts` | gap | — |
 | `tui/native/darwin/build.sh` | gap | — |
 | `tui/native/win32/build.mjs` | gap | — |
-| `tui/src/alt-screen-search.ts` | done | `crates/pi-tui/src/alt_screen_search.rs` |
-| `tui/src/components/alt-screen-flash.ts` | done | `crates/pi-tui/src/components/alt_screen_flash.rs` |
-| `tui/src/components/h-stack.ts` | done | `crates/pi-tui/src/components/h_stack.rs` |
-| `tui/src/components/scroll-view.ts` | done | `crates/pi-tui/src/components/scroll_view.rs` |
-| `tui/src/components/stack.ts` | done | `crates/pi-tui/src/components/stack.rs` |
-| `tui/src/components/v-stack.ts` | done | `crates/pi-tui/src/components/v_stack.rs` |
-| `tui/src/latex.ts` | done | `crates/pi-tui/src/latex.rs` |
-| `tui/src/layout-node.ts` | done | `crates/pi-tui/src/layout_node.rs` |
-| `tui/src/layout.ts` | done | `crates/pi-tui/src/layout.rs` |
-| `tui/src/tui-alt-screen.ts` | done | `crates/pi-tui/src/tui_alt_screen.rs` |
-| `tui/src/tui-main-screen.ts` | done | `crates/pi-tui/src/tui_main_screen.rs` |
+| `tui/src/alt-screen-search.ts` | done | Removed Q2: no frozen counterpart; [proof](q2-tui-components-proof.md) |
+| `tui/src/components/alt-screen-flash.ts` | done | Removed Q2: no frozen counterpart; [proof](q2-tui-components-proof.md) |
+| `tui/src/components/h-stack.ts` | done | Removed Q2: no frozen counterpart; [proof](q2-tui-components-proof.md) |
+| `tui/src/components/scroll-view.ts` | done | Removed Q2: no frozen counterpart; [proof](q2-tui-components-proof.md) |
+| `tui/src/components/stack.ts` | done | Removed Q2: no frozen counterpart; [proof](q2-tui-components-proof.md) |
+| `tui/src/components/v-stack.ts` | done | Removed Q2: no frozen counterpart; [proof](q2-tui-components-proof.md) |
+| `tui/src/latex.ts` | done | Removed Q2: no frozen counterpart; [proof](q2-tui-components-proof.md) |
+| `tui/src/layout-node.ts` | done | Removed Q2: no frozen counterpart; [proof](q2-tui-components-proof.md) |
+| `tui/src/layout.ts` | done | Removed Q2: no frozen counterpart; [proof](q2-tui-components-proof.md) |
+| `tui/src/tui-alt-screen.ts` | done | Removed Q2: no frozen counterpart; [proof](q2-tui-components-proof.md) |
+| `tui/src/tui-main-screen.ts` | done | Removed Q2: no frozen counterpart; [proof](q2-tui-components-proof.md) |

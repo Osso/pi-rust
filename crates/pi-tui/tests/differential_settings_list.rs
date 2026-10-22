@@ -111,6 +111,27 @@ fn execute_case(case: &Value) -> Value {
 }
 
 #[test]
+fn empty_description_skips_block_but_whitespace_does_not() {
+    let cases = Value::Array(
+        [None, Some(""), Some(" "), Some("description")]
+            .into_iter()
+            .map(|description| {
+                json!({
+                    "items": [{"id": "x", "label": "X", "currentValue": "on", "description": description}],
+                    "maxVisible": 5, "enableSearch": false, "markers": true,
+                    "steps": [{"kind": "render", "width": 80}]
+                })
+            })
+            .collect(),
+    );
+    let mut oracle = TsOracle::spawn("tui-components-oracle.ts", SOURCE_DIRECTORY);
+    let response = oracle.request(&json!({"id": 1, "operation": "settings_list", "cases": cases}));
+    assert_eq!(response["ok"], true, "{response}");
+    let actual: Vec<Value> = cases.as_array().unwrap().iter().map(execute_case).collect();
+    assert_eq!(response["output"]["results"], json!(actual));
+}
+
+#[test]
 fn settings_list_rendering_and_callbacks_match_typescript() {
     let cases = json!([
         {

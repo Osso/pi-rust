@@ -1,5 +1,10 @@
 # components/truncated-text.ts traceability
 
+## Q2 frozen revalidation
+
+Frozen truncated-text.ts (65 lines) audited whole: constructor text/padding, no-op invalidate and render first-LF line, available-width clamp, ANSI truncation, horizontal padding/full-width pad, top/bottom blank rows. Native truncated_text and differential_components render matrices pass against 4f9e6f8a4. [Q2 proof](../q2-tui-components-proof.md).
+
+
 Source: `packages/tui/src/components/truncated-text.ts` (65 lines). Rust:
 `crates/pi-tui/src/components/truncated_text.rs`.
 

@@ -267,8 +267,8 @@ fn blocking_pool_panic_restores_the_terminal() {
 }
 
 #[test]
-fn tokio_worker_panic_restores_the_fullscreen_terminal() {
-    assert_worker_crash("task", true);
+fn tokio_worker_panic_restores_the_frozen_terminal() {
+    assert_worker_crash("task", false);
 }
 
 #[test]

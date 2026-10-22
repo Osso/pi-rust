@@ -8,7 +8,6 @@ use crate::terminal_image::{
     get_image_dimensions, image_fallback, render_image,
 };
 use crate::tui::Component;
-use crate::utils::truncate_to_width;
 
 const DEFAULT_MAX_WIDTH_CELLS: usize = 60;
 
@@ -68,9 +67,9 @@ impl Image {
         self.image_id
     }
 
-    fn fallback_line(&self, width: usize) -> String {
+    fn fallback_line(&self) -> String {
         let fallback = image_fallback(&self.mime_type, Some(self.dimensions), self.options.filename.as_deref());
-        truncate_to_width(&(self.theme.fallback_color)(&fallback), width)
+        (self.theme.fallback_color)(&fallback)
     }
 }
 
@@ -112,7 +111,7 @@ impl Component for Image {
                 );
                 match rendered {
                     Some(result) => {
-                        if result.image_id.is_some() {
+                        if result.image_id.is_some_and(|id| id != 0) {
                             self.image_id = result.image_id;
                         }
                         if protocol == crate::terminal_image::ImageProtocol::Kitty {
@@ -136,10 +135,10 @@ impl Component for Image {
                             lines
                         }
                     }
-                    None => vec![self.fallback_line(width)],
+                    None => vec![self.fallback_line()],
                 }
             }
-            None => vec![self.fallback_line(width)],
+            None => vec![self.fallback_line()],
         };
 
         self.cached_lines = Some(lines.clone());
