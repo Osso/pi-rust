@@ -648,8 +648,8 @@ async fn extend_resources_loads_skills_and_prompts_with_metadata() {
 fn tool_definition(name: &str, description: &str) -> ToolDefinition {
     ToolDefinition {
         name: name.to_owned(),
-        label: name.to_owned(),
-        description: description.to_owned(),
+        label: name.into(),
+        description: description.into(),
         prompt_snippet: None,
         prompt_guidelines: None,
         approval_required: None,

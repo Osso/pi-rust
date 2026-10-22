@@ -137,16 +137,16 @@ impl AgentTool for GrepTool {
         "grep"
     }
 
-    fn description(&self) -> &str {
-        DESCRIPTION.as_str()
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        DESCRIPTION.as_str().into()
     }
 
     fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
-    fn label(&self) -> &str {
-        "grep"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        "grep".into()
     }
 
     fn execute(

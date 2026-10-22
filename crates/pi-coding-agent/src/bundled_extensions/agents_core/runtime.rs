@@ -630,8 +630,8 @@ pub fn register_agent_viewer_tools(
     let store = resolve_multi_agent_store(options);
     pi.register_tool(ToolDefinition {
         name: "agent_viewer".to_owned(),
-        label: "Agent Viewer".to_owned(),
-        description: "Inspect one agent by ID, with status, transcript, child IDs, command descriptors, and optional historical lifecycle and descendant trace.".to_owned(),
+        label: "Agent Viewer".into(),
+        description: "Inspect one agent by ID, with status, transcript, child IDs, command descriptors, and optional historical lifecycle and descendant trace.".into(),
         prompt_snippet: None,
         prompt_guidelines: None,
         approval_required: Some(false),

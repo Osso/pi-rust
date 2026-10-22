@@ -47,8 +47,8 @@ where
     let prepare_tool = Arc::clone(&tool);
     ToolDefinition {
         name: tool.name().to_owned(),
-        label: tool.label().to_owned(),
-        description: tool.description().to_owned(),
+        label: tool.label().into(),
+        description: tool.description().into(),
         prompt_snippet: None,
         prompt_guidelines: None,
         approval_required: None,

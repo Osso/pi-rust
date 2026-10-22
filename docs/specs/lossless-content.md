@@ -13,6 +13,7 @@ Approved 2026-10-21: shared JS message text and arbitrary JSON properties retain
 - [x] User and thinking text use the same UTF-16 authority.
 - [x] Core custom-message text uses the same UTF-16 authority; coding-agent consumers remain pending.
 - [x] Tool-call arguments and complete/partial JSON argument parsing use lossless object/value authorities.
+- [x] Core `AgentTool` and coding extension/context definitions retain native UTF-16 label/description through provider context and definition conversion.
 - [x] Human `Tool.description` preserves unmatched UTF-16 units through all nine chat API request bodies, whole-Tool serialization and token estimators; it is not opaque scalar metadata.
 - [x] Anthropic SSE retains text/thinking and native UTF-16 JSON fragments through ordered block/delta/stop handling.
 - [x] User classification (2026-10-21): “Approve scalar metadata gap” for opaque provider IDs/names, type/stop tags and signatures. Unpaired units must cause explicit errors, never replacement; arbitrary argument keys named `id`/`name`/`type` and human text/errors are not covered.

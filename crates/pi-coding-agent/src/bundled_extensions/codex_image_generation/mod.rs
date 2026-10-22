@@ -249,8 +249,8 @@ pub fn create_image_generation_tool_definition(options: &ImageGenerationToolOpti
     let timeout_ms = options.timeout_ms.unwrap_or(DEFAULT_IMAGE_GENERATION_TIMEOUT_MS);
     ToolDefinition {
         name: "image_gen".to_owned(),
-        label: "Image Generation".to_owned(),
-        description: "Generate an image using the OpenAI Responses hosted image generation tool.".to_owned(),
+        label: "Image Generation".into(),
+        description: "Generate an image using the OpenAI Responses hosted image generation tool.".into(),
         prompt_snippet: Some("Generate an image from a detailed prompt.".into()),
         prompt_guidelines: Some(vec![
             "Use image_gen when the user asks to create a new image.".into(),

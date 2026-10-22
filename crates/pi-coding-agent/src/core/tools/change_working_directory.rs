@@ -201,16 +201,16 @@ impl ContextTool<ExtensionContext> for ChangeWorkingDirectoryTool {
         NAME
     }
 
-    fn description(&self) -> &str {
-        DESCRIPTION
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        DESCRIPTION.into()
     }
 
     fn parameters(&self) -> &SchemaValue {
         parameters()
     }
 
-    fn label(&self) -> &str {
-        LABEL
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        LABEL.into()
     }
 
     fn execution_mode(&self) -> Option<ToolExecutionMode> {

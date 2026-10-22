@@ -377,6 +377,24 @@ async fn differential_old_tool_metadata_does_not_reject_before_fetch() {
 }
 
 #[tokio::test]
+async fn differential_open_tool_error_cleans_scratch_after_delta_snapshots() {
+    let events = vec![
+        json!({"type":"response.output_item.added","output_index":0,"item":{
+            "type":"function_call","id":"fc_open","call_id":"call_open","name":"lookup","arguments":""}}),
+        json!({"type":"response.function_call_arguments.delta","output_index":0,"delta":"{\"n\":1"}),
+        json!({"type":"error","code":"probe","message":"open tool failed"}),
+    ];
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let expected = oracle.request(&json!({"id":"open-tool-error","operation":"sse","events":events,"maxRetries":0}));
+    assert_eq!(expected["ok"], true);
+    let mut opts = options(sse_fetch(&events), Transport::Sse, Some(SESSION_ID), None);
+    opts.stream.request.max_retries = Some(0.0);
+    let (events, result) = collect(stream(model("https://chatgpt.com/backend-api"), context(), opts)).await;
+    assert_events(&events, &expected["output"]["events"], "open-tool-error");
+    assert_eq!(result, expected["output"]["result"]);
+}
+
+#[tokio::test]
 async fn differential_sse_scenarios() {
     for scenario in scenarios() {
         let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);

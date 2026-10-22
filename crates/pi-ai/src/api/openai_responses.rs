@@ -468,6 +468,16 @@ fn run_and_emit(
         let mut output = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis() as f64);
         let result = run_stream(&model, &context, &stream_options, &options, &mut output, &sender).await;
         if let Err(failure) = result {
+            for block in &mut output.content {
+                match block {
+                    crate::types::AssistantContent::Text(block) => block.index = None,
+                    crate::types::AssistantContent::Thinking(block) => block.index = None,
+                    crate::types::AssistantContent::ToolCall(block) => {
+                        block.index = None;
+                        block.partial_json = None;
+                    }
+                }
+            }
             output.stop_reason = if stream_options
                 .request
                 .signal

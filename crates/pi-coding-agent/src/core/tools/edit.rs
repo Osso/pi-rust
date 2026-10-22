@@ -153,16 +153,16 @@ impl AgentTool for EditTool {
         "edit"
     }
 
-    fn description(&self) -> &str {
-        DESCRIPTION
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        DESCRIPTION.into()
     }
 
     fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
-    fn label(&self) -> &str {
-        "edit"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        "edit".into()
     }
 
     fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {

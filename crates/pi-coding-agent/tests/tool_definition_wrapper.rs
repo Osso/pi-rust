@@ -21,16 +21,16 @@ impl AgentTool for StubTool {
         "stub"
     }
 
-    fn description(&self) -> &str {
-        "stub description"
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        "stub description".into()
     }
 
     fn parameters(&self) -> &Value {
         &self.parameters
     }
 
-    fn label(&self) -> &str {
-        "stub label"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        "stub label".into()
     }
 
     fn execute(
@@ -77,16 +77,16 @@ impl AgentTool for PrepareTool {
         "prepare"
     }
 
-    fn description(&self) -> &str {
-        "prepare description"
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        JsString::from_utf16(vec![0xd800, 0x61])
     }
 
     fn parameters(&self) -> &Value {
         &self.parameters
     }
 
-    fn label(&self) -> &str {
-        "prepare"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        JsString::from_utf16(vec![0xdc00, 0x62])
     }
 
     fn prepare_arguments(&self, args: JsValue) -> Result<JsValue, ToolError> {
@@ -110,6 +110,8 @@ fn definitions_from_agent_tools_forward_prepare_arguments() {
     let definition = create_tool_definition_from_agent_tool(Arc::new(PrepareTool {
         parameters: serde_json::json!({"type": "object"}),
     }));
+    assert_eq!(definition.description.units(), &[0xd800, 0x61]);
+    assert_eq!(definition.label.units(), &[0xdc00, 0x62]);
     let prepare = definition.prepare_arguments.expect("prepare arguments forwarded");
     assert_eq!(
         prepare(&json!({"value": 1})).expect("prepare arguments"),

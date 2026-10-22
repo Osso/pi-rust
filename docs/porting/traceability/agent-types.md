@@ -25,3 +25,7 @@ Evidence/exclusions: [slice-1 ledger](agent-core-api-repin.md). Status todo: sha
 | AgentEvent | tagged enum, camelCase payload fields | agent_types.rs wire fixtures and exact differential event streams |
 
 Rust helper aliases express callback types, overloads and structural interfaces; no global stream registry remains. ToolResultMessage is a separate shared pi-ai type: its representation was not changed by this slice. TextContent and Option<Value> details representation remain unchanged; nullish after-hook selection was corrected without a representation change.
+
+## Native tool text (2026-10-22)
+
+Frozen `types.ts:383–385` inherits the human `Tool.description` and adds `label: string`. `AgentTool` getters now return owned `JsString`; coding definition/context adapters and tool-info records retain that authority. `lossless_agent::agent_loop_keeps_tool_text_details_and_arguments_through_message_wire_reload` asserts unmatched description/label units in actual provider context; `tool_definition_wrapper::definitions_from_agent_tools_forward_prepare_arguments` asserts the same units survive conversion to extension definitions. RED: `tool-native-red.log`; GREEN: `tool-native-green.log` (4 native + 3 frozen matrix groups), `tool-coding-green2.log` (7 adapter tests). Logs in `/tmp/pi-rust-repin-delta-agent-core/`. This closes text carriers, not the remaining whole-module branch audit.

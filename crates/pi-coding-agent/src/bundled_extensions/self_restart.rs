@@ -26,8 +26,8 @@ pub fn self_restart_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
 
     pi.register_tool(ToolDefinition {
         name: "restart_self".to_owned(),
-        label: "Restart Self".to_owned(),
-        description: "Restart the current Pi agent runtime and resume the same session.".to_owned(),
+        label: "Restart Self".into(),
+        description: "Restart the current Pi agent runtime and resume the same session.".into(),
         prompt_snippet: None,
         prompt_guidelines: Some(vec![
             "Use this tool only when restarting Pi itself is necessary to pick up runtime or extension changes.".into(),

@@ -898,8 +898,8 @@ impl pi_agent_core::agent::types::AgentTool for EchoTool {
         "echo"
     }
 
-    fn description(&self) -> &str {
-        "Echo text"
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        "Echo text".into()
     }
 
     fn parameters(&self) -> &serde_json::Value {
@@ -907,8 +907,8 @@ impl pi_agent_core::agent::types::AgentTool for EchoTool {
         PARAMETERS.get_or_init(|| json!({"type": "object", "properties": {"text": {"type": "string"}}}))
     }
 
-    fn label(&self) -> &str {
-        "echo"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        "echo".into()
     }
 
     fn execute(
@@ -1545,8 +1545,8 @@ impl pi_agent_core::agent::types::AgentTool for ScreenshotTool {
         "screenshot"
     }
 
-    fn description(&self) -> &str {
-        "Return an oversized screenshot"
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        "Return an oversized screenshot".into()
     }
 
     fn parameters(&self) -> &serde_json::Value {
@@ -1554,8 +1554,8 @@ impl pi_agent_core::agent::types::AgentTool for ScreenshotTool {
         PARAMETERS.get_or_init(|| serde_json::json!({"type": "object", "properties": {}}))
     }
 
-    fn label(&self) -> &str {
-        "Screenshot"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        "Screenshot".into()
     }
 
     fn execute(
@@ -1588,8 +1588,8 @@ impl pi_agent_core::agent::types::AgentTool for PermissionEchoTool {
         "echo"
     }
 
-    fn description(&self) -> &str {
-        "Echo text back"
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        "Echo text back".into()
     }
 
     fn parameters(&self) -> &serde_json::Value {
@@ -1597,8 +1597,8 @@ impl pi_agent_core::agent::types::AgentTool for PermissionEchoTool {
         PARAMETERS.get_or_init(|| json!({"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}))
     }
 
-    fn label(&self) -> &str {
-        "Echo"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        "Echo".into()
     }
 
     fn execute(
@@ -1633,8 +1633,8 @@ impl pi_agent_core::agent::types::AgentTool for ApprovalPromptTool {
         &self.name
     }
 
-    fn description(&self) -> &str {
-        "Approve tool calls"
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        "Approve tool calls".into()
     }
 
     fn parameters(&self) -> &serde_json::Value {
@@ -1653,8 +1653,8 @@ impl pi_agent_core::agent::types::AgentTool for ApprovalPromptTool {
         })
     }
 
-    fn label(&self) -> &str {
-        "Approval"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        "Approval".into()
     }
 
     fn execute(
@@ -2231,8 +2231,8 @@ impl pi_agent_core::agent::types::AgentTool for SpawnRecorderTool {
         "spawn_agent"
     }
 
-    fn description(&self) -> &str {
-        "Spawn a background agent"
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        "Spawn a background agent".into()
     }
 
     fn parameters(&self) -> &serde_json::Value {
@@ -2250,8 +2250,8 @@ impl pi_agent_core::agent::types::AgentTool for SpawnRecorderTool {
         })
     }
 
-    fn label(&self) -> &str {
-        "Spawn Agent"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        "Spawn Agent".into()
     }
 
     fn execute(
@@ -2457,8 +2457,8 @@ fn custom_grep_definition(
 ) -> pi_coding_agent::core::extensions::types::ToolDefinition {
     pi_coding_agent::core::extensions::types::ToolDefinition {
         name: "grep".to_owned(),
-        label: "Custom Grep".to_owned(),
-        description: "Custom tool using a built-in name".to_owned(),
+        label: "Custom Grep".into(),
+        description: "Custom tool using a built-in name".into(),
         prompt_snippet: None,
         prompt_guidelines: None,
         approval_required: None,
@@ -2549,8 +2549,8 @@ impl pi_agent_core::agent::types::AgentTool for GatedTool {
         "slow"
     }
 
-    fn description(&self) -> &str {
-        "Slow tool"
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        "Slow tool".into()
     }
 
     fn parameters(&self) -> &serde_json::Value {
@@ -2558,8 +2558,8 @@ impl pi_agent_core::agent::types::AgentTool for GatedTool {
         PARAMETERS.get_or_init(|| json!({"type": "object", "properties": {}}))
     }
 
-    fn label(&self) -> &str {
-        "Slow"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        "Slow".into()
     }
 
     fn execute(

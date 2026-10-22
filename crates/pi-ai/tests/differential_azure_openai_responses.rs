@@ -442,6 +442,18 @@ async fn differential_azure_openai_responses() {
     )
     .await;
 
+    let open_tool_error = vec![
+        json!({"type":"response.output_item.added","output_index":0,"item":{
+            "type":"function_call","id":"fc_open","call_id":"call_open","name":"lookup","arguments":""}}),
+        json!({"type":"response.function_call_arguments.delta","output_index":0,"delta":"{\"n\":1"}),
+        json!({"type":"error","code":"probe","message":"open tool failed"}),
+    ];
+    run_scenario(
+        &mut oracle,
+        Scenario::new(11, model("https://example.openai.azure.com"), &open_tool_error),
+    )
+    .await;
+
     let abort_chunks = sse_chunks(&text, 6);
     run_scenario(
         &mut oracle,

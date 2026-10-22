@@ -1326,8 +1326,8 @@ use tokio_util::sync::CancellationToken;
 fn tool_definition(name: &str, description: &str) -> ToolDefinition {
     ToolDefinition {
         name: name.to_owned(),
-        label: name.to_owned(),
-        description: description.to_owned(),
+        label: name.into(),
+        description: description.into(),
         prompt_snippet: None,
         prompt_guidelines: None,
         approval_required: None,
@@ -2176,8 +2176,8 @@ fn text_definition(
 ) -> pi_coding_agent::core::extensions::ToolDefinition {
     pi_coding_agent::core::extensions::ToolDefinition {
         name: "wrapped".to_owned(),
-        label: "Wrapped".to_owned(),
-        description: "Wrapped tool".to_owned(),
+        label: "Wrapped".into(),
+        description: "Wrapped tool".into(),
         prompt_snippet: None,
         prompt_guidelines: None,
         approval_required: None,

@@ -563,16 +563,16 @@ impl AgentTool for BashTool {
         "bash"
     }
 
-    fn description(&self) -> &str {
-        DESCRIPTION.as_str()
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        DESCRIPTION.as_str().into()
     }
 
     fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
-    fn label(&self) -> &str {
-        "bash"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        "bash".into()
     }
 
     fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {

@@ -17,11 +17,11 @@ impl AgentTool for FixtureTool {
     fn name(&self) -> &str {
         &self.name
     }
-    fn label(&self) -> &str {
-        &self.name
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        self.name.clone().into()
     }
-    fn description(&self) -> &str {
-        "fixture"
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        "fixture".into()
     }
     fn parameters(&self) -> &serde_json::Value {
         &self.schema

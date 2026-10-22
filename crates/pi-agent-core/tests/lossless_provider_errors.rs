@@ -175,11 +175,11 @@ async fn tool_hook_failures_keep_native_units_in_result_messages() {
         fn name(&self) -> &str {
             "probe"
         }
-        fn description(&self) -> &str {
-            "probe"
+        fn description(&self) -> pi_js_compat::js_json::JsString {
+            "probe".into()
         }
-        fn label(&self) -> &str {
-            "probe"
+        fn label(&self) -> pi_js_compat::js_json::JsString {
+            "probe".into()
         }
         fn parameters(&self) -> &serde_json::Value {
             &self.schema
