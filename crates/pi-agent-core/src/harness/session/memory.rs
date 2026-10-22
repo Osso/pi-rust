@@ -115,18 +115,31 @@ impl<M: SessionMetadataValue> SessionStorage<M> for InMemorySessionStorage<M> {
     }
 }
 
-#[derive(Default)]
 pub struct InMemorySessionRepo {
     sessions: Mutex<IndexMap<JsString, Session<SessionMetadata>>>,
+    clock: Clock,
+    ids: IdGenerator,
+}
+impl Default for InMemorySessionRepo {
+    fn default() -> Self {
+        Self::with_runtime(system_clock(), uuid_generator())
+    }
 }
 impl InMemorySessionRepo {
     pub fn new() -> Self {
         Self::default()
     }
+    pub fn with_runtime(clock: Clock, ids: IdGenerator) -> Self {
+        Self {
+            sessions: Mutex::new(IndexMap::new()),
+            clock,
+            ids,
+        }
+    }
     pub async fn create(&self, options: SessionCreateOptions) -> Result<Session<SessionMetadata>, SessionError> {
         let metadata = SessionMetadata {
-            id: options.id.unwrap_or_else(create_session_id),
-            created_at: create_timestamp(),
+            id: options.id.unwrap_or_else(|| (self.ids)()),
+            created_at: (self.clock)(),
         };
         self.persist_new_session(metadata, Vec::new()).await
     }
@@ -136,8 +149,9 @@ impl InMemorySessionRepo {
         entries: Vec<SessionTreeEntry>,
     ) -> Result<Session<SessionMetadata>, SessionError> {
         let id = metadata.id.clone();
-        let storage = InMemorySessionStorage::with_metadata(metadata, entries)?;
-        let session = Session::new(Arc::new(storage));
+        let storage =
+            InMemorySessionStorage::with_runtime(metadata, entries, Arc::clone(&self.clock), Arc::clone(&self.ids))?;
+        let session = Session::with_clock(Arc::new(storage), Arc::clone(&self.clock));
         self.sessions.lock().await.insert(id, session.clone());
         Ok(session)
     }
@@ -169,8 +183,8 @@ impl InMemorySessionRepo {
         let source = self.open(metadata).await?;
         let entries = get_entries_to_fork(source.get_storage(), &options).await?;
         let metadata = SessionMetadata {
-            id: options.id.unwrap_or_else(create_session_id),
-            created_at: create_timestamp(),
+            id: options.id.unwrap_or_else(|| (self.ids)()),
+            created_at: (self.clock)(),
         };
         self.persist_new_session(metadata, entries).await
     }

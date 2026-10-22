@@ -78,10 +78,10 @@ fn conversion_messages() -> Vec<Value> {
 
 fn custom_messages() -> Vec<Value> {
     vec![
-        json!({"customType": "note", "content": "plain", "display": true, "details": {"level": 2}, "timestamp": 1}),
-        json!({"customType": "note", "content": [{"type": "text", "text": "hello"}], "display": false, "timestamp": 2}),
-        json!({"customType": "note", "content": [{"type": "image", "data": "aGk=", "mimeType": "image/png"}], "display": true, "details": null, "timestamp": 3}),
-        json!({"customType": "unicode-😀", "content": "ünïcode\u{0}\r\n", "display": true, "details": [1, "two", null], "timestamp": 1_700_000_000_000_i64}),
+        json!({"customType": "note", "content": "plain", "display": true, "details": {"level": 2}, "timestamp": "1970-01-01T00:00:00.001Z"}),
+        json!({"customType": "note", "content": [{"type": "text", "text": "hello"}], "display": false, "timestamp": "1970-01-01T00:00:00.002Z"}),
+        json!({"customType": "note", "content": [{"type": "image", "data": "aGk=", "mimeType": "image/png"}], "display": true, "details": null, "timestamp": "1970-01-01T00:00:00.003Z"}),
+        json!({"customType": "unicode-😀", "content": "ünïcode\u{0}\r\n", "display": true, "details": [1, "two", null], "timestamp": "2023-11-14T22:13:20.000Z"}),
     ]
 }
 
@@ -127,7 +127,7 @@ pub(crate) fn compare_all_fixtures(oracle: &mut TsOracle) {
             custom_content(&message["content"]),
             message["display"].as_bool().unwrap(),
             message.get("details").cloned().map(JsValue::from),
-            message["timestamp"].as_i64().unwrap(),
+            message["timestamp"].as_str().unwrap(),
         );
         let rust_value = serde_json::to_value(rust_message).expect("custom message must serialize");
         assert_eq!(rust_value, *expected, "create_custom_message fixture {id}");

@@ -38,7 +38,7 @@ fn assert_paths_exist() {
     let _ = render_diff;
     let _ = session_entry_to_context_messages;
     let _: fn(JsString, _) -> _ = truncate_head;
-    let _ = compact::<pi_agent_core::harness::compaction::NoRetryCallbacks>;
+    let _ = compact::<pi_coding_agent::core::compaction::NoRetryCallbacks>;
     let _ = create_agent_session;
     let _ = create_coding_tools;
     let _ = create_read_only_tools;

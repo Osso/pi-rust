@@ -10,7 +10,8 @@ use pi_agent_core::harness::compaction::branch_summarization::{
     generate_branch_summary, prepare_branch_entries,
 };
 use pi_agent_core::harness::session::{
-    Entry, EntryBody, IdGenerator, InMemorySessionStorage, OptionalValue, Session, SessionMetadata,
+    InMemorySessionStorage, KnownSessionEntry, Session, SessionMetadata, SessionTreeEntry as Entry,
+    SessionTreeEntryBase,
 };
 use pi_ai::models::{CreateModelsOptions, MutableModels, create_models};
 use pi_ai::providers::faux::{
@@ -22,7 +23,6 @@ use pi_ai::types::{
     TextOrImageContent, ToolCall, ToolResultMessage, ToolResultRole, Usage, UsageCost, UserContent, UserMessage,
     UserRole,
 };
-use pi_ai::utils::retry::RetryPolicy;
 use serde_json::{Value, json};
 
 // ---------------------------------------------------------------------------
@@ -93,98 +93,49 @@ fn tool_result_message(tool_call_id: &str, text: &str) -> AgentMessage {
 }
 
 struct EntryFactory {
-    next_id: i64,
+    next_id: usize,
 }
-
 impl EntryFactory {
     fn new() -> Self {
         Self { next_id: 0 }
     }
-
-    fn identity(&mut self) -> (String, i64) {
-        let id = format!("entry-{}", self.next_id);
+    fn base(&mut self) -> SessionTreeEntryBase {
         self.next_id += 1;
-        (id, self.next_id)
+        SessionTreeEntryBase {
+            id: format!("entry-{}", self.next_id).into(),
+            parent_id: None,
+            timestamp: "2026-10-22T00:00:00.000Z".into(),
+        }
     }
-
     fn message(&mut self, message: AgentMessage) -> Entry {
-        let (id, seq) = self.identity();
-        Entry {
-            body: EntryBody::Message {
-                id,
-                message,
-                terminate: None,
-            },
-            parent_id: None,
-            seq,
-            timestamp: seq,
-        }
+        Entry::from_known(KnownSessionEntry::Message {
+            base: self.base(),
+            message,
+        })
     }
-
     fn branch_summary(&mut self, summary: &str, details: Option<Value>) -> Entry {
-        let (id, seq) = self.identity();
-        Entry {
-            body: EntryBody::BranchSummary {
-                id,
-                from_id: "branch".to_owned(),
-                summary: JsString::from(summary.to_owned()),
-                details: details
-                    .map(JsValue::from)
-                    .map_or(OptionalValue::Missing, OptionalValue::Present),
-                usage: None,
-            },
-            parent_id: None,
-            seq,
-            timestamp: seq,
-        }
+        Entry::from_known(KnownSessionEntry::BranchSummary {
+            base: self.base(),
+            from_id: "branch".into(),
+            summary: summary.into(),
+            details: details.map(JsValue::from),
+            from_hook: None,
+        })
     }
-
     fn compaction(&mut self, summary: &str, duration_ms: Option<f64>) -> Entry {
-        let (id, seq) = self.identity();
-        Entry {
-            body: EntryBody::Compaction {
-                id,
-                summary: JsString::from(summary.to_owned()),
-                tokens_before: 123.0,
-                retained_tail: Vec::new(),
-                duration_ms,
-                details: OptionalValue::Missing,
-                usage: None,
-            },
-            parent_id: None,
-            seq,
-            timestamp: seq,
-        }
+        Entry::from_known(KnownSessionEntry::Compaction {
+            base: self.base(),
+            summary: summary.into(),
+            first_kept_entry_id: "missing".into(),
+            tokens_before: 123.0,
+            duration_ms,
+            details: None,
+            from_hook: None,
+        })
     }
 }
-
-struct CountingIdGenerator {
-    next: Mutex<i64>,
-}
-
-impl CountingIdGenerator {
-    fn new() -> Self {
-        Self { next: Mutex::new(0) }
-    }
-}
-
-impl IdGenerator for CountingIdGenerator {
-    fn next(&self) -> String {
-        let mut next = self.next.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        *next += 1;
-        format!("entry-{next}")
-    }
-}
-
 fn session() -> Session<SessionMetadata> {
-    Session::with_id_generator(
-        Arc::new(InMemorySessionStorage::new(SessionMetadata {
-            id: "session".to_owned(),
-            created_at: 1,
-            parent_session_id: None,
-        })),
-        Arc::new(CountingIdGenerator::new()),
-    )
+    Session::new(Arc::new(InMemorySessionStorage::new(Default::default()).unwrap()))
 }
 
 // ---------------------------------------------------------------------------
@@ -200,15 +151,8 @@ async fn collects_the_abandoned_side_of_a_branch_in_chronological_order() {
         session.append_message(message("abandoned 1")).await.expect("append 1"),
         session.append_message(message("abandoned 2")).await.expect("append 2"),
     ];
-    session
-        .create_lane("target", Some(&common_id))
-        .await
-        .expect("create lane");
-    let target_id = session
-        .view("target")
-        .append_message(message("target"))
-        .await
-        .expect("append target");
+    session.move_to(Some(&common_id), None).await.expect("move leaf");
+    let target_id = session.append_message(message("target")).await.expect("append target");
 
     let result = collect_entries_for_branch_summary(&session, Some(&abandoned_ids[1]), &target_id)
         .await
@@ -217,9 +161,9 @@ async fn collects_the_abandoned_side_of_a_branch_in_chronological_order() {
     assert_eq!(result.common_ancestor_id, Some(common_id));
     assert_eq!(
         result.entries.iter().map(|entry| entry.id()).collect::<Vec<_>>(),
-        abandoned_ids.iter().map(String::as_str).collect::<Vec<_>>()
+        abandoned_ids.iter().collect::<Vec<_>>()
     );
-    assert!(!result.entries.iter().any(|entry| entry.id() == root_id));
+    assert!(!result.entries.iter().any(|entry| entry.id() == &root_id));
 }
 
 #[tokio::test]
@@ -250,7 +194,7 @@ fn prepares_all_branch_messages_without_a_budget() {
     let tool_result = factory.message(tool_result_message("call-1", "contents"));
     let entries = vec![user, assistant, tool_result];
 
-    let preparation = prepare_branch_entries(&entries, 0.0);
+    let preparation = prepare_branch_entries(&entries, Some(0.0));
     assert_eq!(
         preparation.messages.iter().map(AgentMessage::role).collect::<Vec<_>>(),
         ["user", "assistant"]
@@ -269,7 +213,7 @@ fn carries_branch_summary_details_and_compaction_entries_into_preparation() {
     let compaction = factory.compaction("compacted", Some(12.5));
     let entries = vec![branch, compaction];
 
-    let preparation = prepare_branch_entries(&entries, 0.0);
+    let preparation = prepare_branch_entries(&entries, Some(0.0));
     assert_eq!(
         preparation.messages.iter().map(AgentMessage::role).collect::<Vec<_>>(),
         ["branchSummary", "compactionSummary"]
@@ -304,7 +248,7 @@ fn respects_the_token_budget_when_selecting_branch_messages() {
         factory.message(message("latest user")),
     ];
 
-    let preparation = prepare_branch_entries(&entries, 20_000.0);
+    let preparation = prepare_branch_entries(&entries, Some(20_000.0));
     assert_eq!(preparation.messages.len(), 2);
     assert_eq!(preparation.messages[0].role(), "assistant");
     assert_eq!(preparation.messages[1].role(), "user");
@@ -319,7 +263,7 @@ fn keeps_a_summary_entry_when_it_fits_below_ninety_percent_of_the_budget() {
         factory.message(message("a")),
     ];
 
-    let preparation = prepare_branch_entries(&entries, 10.0);
+    let preparation = prepare_branch_entries(&entries, Some(10.0));
     assert_eq!(
         preparation.messages.iter().map(AgentMessage::role).collect::<Vec<_>>(),
         ["branchSummary", "user"]
@@ -428,7 +372,6 @@ fn options<'a>(models: &'a dyn pi_ai::models::Models, model: &'a Model) -> Gener
         custom_instructions: None,
         replace_instructions: false,
         reserve_tokens: None,
-        retry: None,
     }
 }
 
@@ -454,7 +397,6 @@ async fn returns_no_content_when_the_branch_has_no_summarizable_entries() {
         .await
         .expect("summary must succeed");
     assert_eq!(result.summary, "No content to summarize");
-    assert_eq!(result.usage, None);
     assert!(result.read_files.is_empty());
     assert!(result.modified_files.is_empty());
     assert_eq!(faux.get_pending_response_count(), 1);
@@ -474,7 +416,7 @@ async fn generates_a_branch_summary_with_the_exact_prompt_and_file_sections() {
     let calls = log.lock().unwrap().clone();
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].max_tokens, Some(2048.0));
-    assert_eq!(calls[0].cache_retention, Some(CacheRetention::None));
+    assert_eq!(calls[0].cache_retention, None);
     assert!(
         calls[0]
             .prompt
@@ -498,7 +440,6 @@ async fn generates_a_branch_summary_with_the_exact_prompt_and_file_sections() {
     assert!(result.summary.contains("<read-files>\nsrc/a.ts\n</read-files>"));
     assert_eq!(result.read_files, ["src/a.ts"]);
     assert!(result.modified_files.is_empty());
-    assert!(result.usage.is_some_and(|usage| usage.total_tokens > 0.0));
 }
 
 #[tokio::test]
@@ -566,26 +507,18 @@ async fn returns_branch_summary_errors_for_failed_or_aborted_generations() {
 }
 
 #[tokio::test]
-async fn uses_a_retry_policy_for_transient_branch_summary_failures() {
+async fn returns_transient_branch_summary_failures_without_retrying() {
     let (faux, model) = create_faux_model(false, 200000.0, 8192.0);
     let models = registered_models(&faux);
     faux.set_responses(vec![
         scripted_failure(StopReason::Error, "overloaded"),
         scripted_message("recovered"),
     ]);
-    let retry = RetryPolicy {
-        enabled: true,
-        max_retries: 1,
-        base_delay_ms: 0.0,
-    };
-    let mut configured = options(&models, &model);
-    configured.retry = Some(&retry);
-
-    let result = generate_branch_summary(&branch_entries(), &configured)
+    let error = generate_branch_summary(&branch_entries(), &options(&models, &model))
         .await
-        .expect("summary must succeed");
-    assert!(result.summary.contains("recovered"));
-    assert_eq!(faux.get_pending_response_count(), 0);
+        .unwrap_err();
+    assert_eq!(error.message, "Branch summary failed: overloaded");
+    assert_eq!(faux.get_pending_response_count(), 1);
 }
 
 #[test]

@@ -1,37 +1,28 @@
-//! Port of `packages/agent/src/harness/compaction/compaction.ts`.
+//! Frozen agent-core/harness/compaction/compaction.ts.
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use crate::uuidv7;
+use self::utils::{compute_file_lists, create_file_ops, extract_file_ops_from_message, format_file_operations};
+use crate::agent::AgentMessage;
+use crate::harness::messages::{
+    CompactionSummaryOptions, convert_to_llm, create_branch_summary_message, create_compaction_summary_message,
+    create_custom_message,
+};
+use crate::harness::session::{KnownSessionEntry, SessionTreeEntry as Entry, build_session_context};
+use crate::harness::types::{CompactionError, CompactionErrorCode, ThinkingLevel};
 use pi_ai::models::Models;
 use pi_ai::request::{ProviderRequestOptions, SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{
-    AssistantMessage, CacheRetention, Context, Message, Model, StopReason, TextContent, TextOrImageContent, Usage,
-    UsageCost, UserContent, UserMessage, UserRole,
+    AssistantContent, AssistantMessage, Context, Message, Model, StopReason, TextContent, TextOrImageContent, Usage,
+    UserContent, UserMessage, UserRole,
 };
 use pi_ai::utils::estimate::{
     TextOrImageInput, estimate_assistant_message_tokens, estimate_text_and_image_content_tokens,
 };
-use pi_ai::utils::retry::{RetryCallbacks, RetryPolicy, retry_assistant_call};
-use pi_ai::utils::text::{ContentText, content_text};
 use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use crate::agent::AgentMessage;
-use crate::agent::types::reasoning_for;
-use crate::harness::messages::{
-    CompactionSummaryOptions, convert_to_llm, create_branch_summary_message, create_compaction_summary_message,
-};
-use crate::harness::session::context::{SessionContextBuildOptions, build_session_context};
-use crate::harness::session::types::{Entry, EntryBody, EntryType};
-use crate::harness::types::{CompactionError, CompactionErrorCode, ThinkingLevel};
-
-use self::utils::{compute_file_lists, create_file_ops, extract_file_ops_from_message, format_file_operations};
-
 pub mod branch_summarization;
 pub mod utils;
-
 pub use branch_summarization::{
     BranchPreparation, BranchSummaryDetails, BranchSummaryResult, CollectEntriesResult, GenerateBranchSummaryOptions,
     collect_entries_for_branch_summary, generate_branch_summary, prepare_branch_entries,
@@ -259,12 +250,13 @@ fn get_assistant_usage(message: &AgentMessage) -> Option<&Usage> {
     (calculate_context_tokens(&assistant.usage) > 0.0).then_some(&assistant.usage)
 }
 
-/// Return usage from the last valid assistant message in session entries.
+/// Return usage from the last valid assistant message in tree entries.
 pub fn get_last_assistant_usage(entries: &[Entry]) -> Option<&Usage> {
-    entries.iter().rev().find_map(|entry| match &entry.body {
-        EntryBody::Message { message, .. } => get_assistant_usage(message),
-        _ => None,
-    })
+    entries
+        .iter()
+        .rev()
+        .filter_map(Entry::message)
+        .find_map(get_assistant_usage)
 }
 
 fn get_last_assistant_usage_info(messages: &[AgentMessage]) -> Option<(usize, &Usage)> {
@@ -298,15 +290,26 @@ pub fn estimate_context_tokens(messages: &[AgentMessage]) -> ContextUsageEstimat
     }
 }
 
-fn get_message_from_entry(entry: &Entry) -> Option<AgentMessage> {
-    match &entry.body {
-        EntryBody::Message { message, .. } => Some(message.clone()),
-        EntryBody::BranchSummary { summary, from_id, .. } => Some(create_branch_summary_message(
-            summary,
-            &JsString::from(from_id.as_str()),
-            entry.timestamp,
+pub(super) fn get_message_from_entry(entry: &Entry) -> Option<AgentMessage> {
+    match entry.known()? {
+        KnownSessionEntry::Message { message, .. } => Some(message.clone()),
+        KnownSessionEntry::CustomMessage {
+            custom_type,
+            content,
+            display,
+            details,
+            ..
+        } => Some(create_custom_message(
+            custom_type,
+            content.clone(),
+            *display,
+            details.clone(),
+            entry.timestamp(),
         )),
-        EntryBody::Compaction {
+        KnownSessionEntry::BranchSummary { summary, from_id, .. } => {
+            Some(create_branch_summary_message(summary, from_id, entry.timestamp()))
+        }
+        KnownSessionEntry::Compaction {
             summary,
             tokens_before,
             duration_ms,
@@ -314,7 +317,7 @@ fn get_message_from_entry(entry: &Entry) -> Option<AgentMessage> {
         } => Some(create_compaction_summary_message(
             summary,
             *tokens_before,
-            entry.timestamp,
+            entry.timestamp(),
             &CompactionSummaryOptions {
                 duration_ms: *duration_ms,
                 ..Default::default()
@@ -323,35 +326,29 @@ fn get_message_from_entry(entry: &Entry) -> Option<AgentMessage> {
         _ => None,
     }
 }
-
 fn get_message_from_entry_for_compaction(entry: &Entry) -> Option<AgentMessage> {
-    if entry.entry_type() == EntryType::Compaction {
-        return None;
+    if entry.kind() == "compaction" {
+        None
+    } else {
+        get_message_from_entry(entry)
     }
-    get_message_from_entry(entry)
 }
-
 fn estimate_entry_tokens(entry: &Entry) -> Option<f64> {
     get_message_from_entry(entry).map(|message| estimate_tokens(&message))
 }
-
 fn is_turn_start_entry(entry: &Entry) -> bool {
-    if entry.entry_type() == EntryType::BranchSummary {
-        return true;
-    }
-    match &entry.body {
-        EntryBody::Message { message, .. } => ["user", "bashExecution", "custom"]
-            .iter()
-            .any(|role| message.has_role(role)),
-        _ => false,
-    }
+    entry.kind() == "branch_summary"
+        || entry.kind() == "custom_message"
+        || entry.message().is_some_and(|message| {
+            ["user", "bashExecution", "custom"]
+                .iter()
+                .any(|role| message.has_role(role))
+        })
 }
-
 fn is_active_turn_continuation_entry(entry: &Entry) -> bool {
-    match &entry.body {
-        EntryBody::Message { message, .. } => ["assistant", "toolResult"].iter().any(|role| message.has_role(role)),
-        _ => false,
-    }
+    entry
+        .message()
+        .is_some_and(|message| message.has_role("assistant") || message.has_role("toolResult"))
 }
 
 fn find_context_message_count_cut_index(entries: &[Entry], start_index: usize, end_index: usize) -> usize {
@@ -399,7 +396,7 @@ fn find_nearest_cut_point_at_or_after(cut_points: &[usize], index: usize) -> usi
 
 fn find_protected_suffix_start_index(entries: &[Entry], start_index: usize, end_index: usize) -> usize {
     for index in (start_index..end_index).rev() {
-        if entries[index].entry_type() == EntryType::Compaction {
+        if entries[index].kind() == "compaction" {
             return index + 1;
         }
     }
@@ -444,7 +441,7 @@ fn find_protected_suffix_cut_index(
 fn find_valid_cut_points(entries: &[Entry], start_index: usize, end_index: usize) -> Vec<usize> {
     let mut cut_points = Vec::new();
     for (index, entry) in entries.iter().enumerate().take(end_index).skip(start_index) {
-        if let EntryBody::Message { message, .. } = &entry.body
+        if let Some(message) = entry.message()
             && [
                 "bashExecution",
                 "custom",
@@ -458,7 +455,7 @@ fn find_valid_cut_points(entries: &[Entry], start_index: usize, end_index: usize
         {
             cut_points.push(index);
         }
-        if entry.entry_type() == EntryType::BranchSummary {
+        if entry.kind() == "branch_summary" || entry.kind() == "custom_message" {
             cut_points.push(index);
         }
     }
@@ -499,18 +496,17 @@ pub fn find_cut_point(
     let mut cut_index = find_protected_suffix_cut_index(entries, start_index, end_index, &cut_points);
     while cut_index > start_index {
         let previous = &entries[cut_index - 1];
-        if matches!(
-            previous.entry_type(),
-            EntryType::Compaction | EntryType::Message | EntryType::BranchSummary
-        ) {
+        if ["compaction", "message", "branch_summary", "custom_message"]
+            .iter()
+            .any(|kind| previous.kind() == *kind)
+        {
             break;
         }
         cut_index -= 1;
     }
 
     let cut_entry = &entries[cut_index];
-    let is_user_message = cut_entry.entry_type() == EntryType::Message
-        && cut_entry.body.message().is_some_and(|message| message.role() == "user");
+    let is_user_message = cut_entry.message().is_some_and(|message| message.has_role("user"));
     let turn_start_index = if is_user_message {
         None
     } else {
@@ -524,12 +520,11 @@ pub fn find_cut_point(
     }
 }
 
-/// Prepared inputs for a compaction run.
 #[derive(Debug, Clone)]
 pub struct CompactionPreparation {
+    pub first_kept_entry_id: JsString,
     pub messages_to_summarize: Vec<AgentMessage>,
     pub turn_prefix_messages: Vec<AgentMessage>,
-    pub retained_tail: Vec<AgentMessage>,
     pub is_split_turn: bool,
     pub tokens_before: f64,
     pub previous_summary: Option<JsString>,
@@ -537,178 +532,131 @@ pub struct CompactionPreparation {
     pub settings: CompactionSettings,
 }
 
-fn virtual_retained_entries(compaction: &Entry) -> Vec<Entry> {
-    let EntryBody::Compaction { retained_tail, .. } = &compaction.body else {
-        return Vec::new();
-    };
-    retained_tail
-        .iter()
-        .enumerate()
-        .map(|(index, message)| Entry {
-            body: EntryBody::Message {
-                id: format!("{}:retained:{}", compaction.id(), index),
-                message: message.clone(),
-                terminate: None,
-            },
-            parent_id: Some(if index == 0 {
-                compaction.id().to_owned()
-            } else {
-                format!("{}:retained:{}", compaction.id(), index - 1)
-            }),
-            seq: compaction.seq,
-            timestamp: message.timestamp().unwrap_or(0),
-        })
-        .collect()
-}
-
-fn extract_file_operations(
-    messages: &[AgentMessage],
-    entries: &[Entry],
-    previous_compaction_index: Option<usize>,
-) -> FileOperations {
+fn extract_file_operations(messages: &[AgentMessage], entries: &[Entry], previous: Option<usize>) -> FileOperations {
     let mut file_ops = create_file_ops();
-    if let Some(index) = previous_compaction_index
-        && let EntryBody::Compaction {
-            details: crate::harness::session::types::OptionalValue::Present(details),
+    if let Some(index) = previous
+        && let Some(KnownSessionEntry::Compaction {
+            details: Some(details),
+            from_hook,
             ..
-        } = &entries[index].body
-        && let Some(details) = details.as_object()
+        }) = entries[index].known()
+        && *from_hook != Some(true)
     {
-        if let Some(read_files) = details.get("readFiles").and_then(Value::as_array) {
-            for file in read_files.iter().filter_map(Value::as_string) {
-                file_ops.read.insert(file.to_owned());
-            }
-        }
-        if let Some(modified_files) = details.get("modifiedFiles").and_then(Value::as_array) {
-            for file in modified_files.iter().filter_map(Value::as_string) {
-                file_ops.edited.insert(file.to_owned());
-            }
-        }
+        merge_file_details(&mut file_ops, details);
     }
     for message in messages {
         extract_file_ops_from_message(message, &mut file_ops);
     }
     file_ops
 }
+pub(super) fn merge_file_details(file_ops: &mut FileOperations, details: &Value) {
+    if let Some(read) = details.get("readFiles").and_then(Value::as_array) {
+        file_ops.read.extend(read.iter().filter_map(Value::as_string).cloned());
+    }
+    if let Some(modified) = details.get("modifiedFiles").and_then(Value::as_array) {
+        file_ops
+            .edited
+            .extend(modified.iter().filter_map(Value::as_string).cloned());
+    }
+}
 
-/// Prepare session entries for compaction, or return `None` when compaction is not applicable.
 pub fn prepare_compaction(
     path_entries: &[Entry],
     settings: &CompactionSettings,
 ) -> Result<Option<CompactionPreparation>, CompactionError> {
-    if !is_compactable(path_entries) {
+    if path_entries.is_empty() || path_entries.last().is_some_and(|entry| entry.kind() == "compaction") {
         return Ok(None);
     }
-
-    let previous_compaction_index = previous_compaction_index(path_entries);
-    let previous_summary = previous_summary(path_entries, previous_compaction_index);
-    let compactable_entries = compactable_entries(path_entries, previous_compaction_index);
-    let boundary_end = compactable_entries.len();
-
-    let tokens_before =
-        estimate_context_tokens(&build_session_context(path_entries, &SessionContextBuildOptions::default()).messages)
-            .tokens;
-    let cut_point = find_cut_point(&compactable_entries, 0, boundary_end, settings.keep_recent_tokens);
-    let (messages_to_summarize, turn_prefix_messages, retained_tail) =
-        split_at_cut_point(&compactable_entries, &cut_point, boundary_end);
-
-    if messages_to_summarize.is_empty() && turn_prefix_messages.is_empty() {
-        return Ok(None);
-    }
-
-    Ok(Some(CompactionPreparation {
-        file_ops: collect_file_operations(
-            &messages_to_summarize,
-            &turn_prefix_messages,
-            path_entries,
-            previous_compaction_index,
-            cut_point.is_split_turn,
-        ),
-        messages_to_summarize,
-        turn_prefix_messages,
-        retained_tail,
-        is_split_turn: cut_point.is_split_turn,
-        tokens_before,
-        previous_summary,
-        settings: *settings,
-    }))
-}
-
-fn is_compactable(path_entries: &[Entry]) -> bool {
-    path_entries
-        .last()
-        .is_some_and(|entry| entry.entry_type() != EntryType::Compaction)
-}
-
-fn previous_compaction_index(path_entries: &[Entry]) -> Option<usize> {
-    path_entries
-        .iter()
-        .rposition(|entry| entry.entry_type() == EntryType::Compaction)
-}
-
-fn previous_summary(path_entries: &[Entry], previous_compaction_index: Option<usize>) -> Option<JsString> {
-    let index = previous_compaction_index?;
-    match &path_entries[index].body {
-        EntryBody::Compaction { summary, .. } => Some(summary.clone()),
-        _ => None,
-    }
-}
-
-fn compactable_entries(path_entries: &[Entry], previous_compaction_index: Option<usize>) -> Vec<Entry> {
-    let Some(index) = previous_compaction_index else {
-        return path_entries.to_vec();
-    };
-    let mut entries = virtual_retained_entries(&path_entries[index]);
-    entries.extend_from_slice(&path_entries[index + 1..]);
-    entries
-}
-
-fn split_at_cut_point(
-    entries: &[Entry],
-    cut_point: &CutPointResult,
-    boundary_end: usize,
-) -> (Vec<AgentMessage>, Vec<AgentMessage>, Vec<AgentMessage>) {
-    let first_kept_entry_index = cut_point.first_kept_entry_index as usize;
-    let history_end = if cut_point.is_split_turn {
-        cut_point.turn_start_index as usize
+    let previous = path_entries.iter().rposition(|entry| entry.kind() == "compaction");
+    let (previous_summary, boundary_start) = if let Some(index) = previous {
+        let Some(KnownSessionEntry::Compaction {
+            summary,
+            first_kept_entry_id,
+            ..
+        }) = path_entries[index].known()
+        else {
+            return Err(CompactionError::new(
+                CompactionErrorCode::InvalidSession,
+                "Invalid compaction entry payload",
+                None,
+            ));
+        };
+        (
+            Some(summary.clone()),
+            path_entries
+                .iter()
+                .position(|entry| entry.id() == first_kept_entry_id)
+                .unwrap_or(index + 1),
+        )
     } else {
-        first_kept_entry_index
+        (None, 0)
     };
-
-    let messages_to_summarize = collect_messages(&entries[..history_end]);
-    let turn_prefix_messages = if cut_point.is_split_turn {
-        collect_messages(&entries[history_end..first_kept_entry_index])
+    let context = build_session_context(path_entries).map_err(|error| {
+        CompactionError::new(
+            CompactionErrorCode::InvalidSession,
+            error.message.clone(),
+            Some(Box::new(error)),
+        )
+    })?;
+    let tokens_before = estimate_context_tokens(&context.messages).tokens;
+    let cut = find_cut_point(
+        path_entries,
+        boundary_start,
+        path_entries.len(),
+        settings.keep_recent_tokens,
+    );
+    let kept_index = cut.first_kept_entry_index as usize;
+    let first_kept_entry_id = path_entries
+        .get(kept_index)
+        .map(Entry::id)
+        .filter(|id| !id.is_empty())
+        .cloned()
+        .ok_or_else(missing_kept_entry)?;
+    let history_end = if cut.is_split_turn {
+        cut.turn_start_index as usize
+    } else {
+        kept_index
+    };
+    let messages_to_summarize = path_entries[boundary_start..history_end]
+        .iter()
+        .filter_map(get_message_from_entry_for_compaction)
+        .collect::<Vec<_>>();
+    let turn_prefix_messages = if cut.is_split_turn {
+        path_entries[history_end..kept_index]
+            .iter()
+            .filter_map(get_message_from_entry_for_compaction)
+            .collect()
     } else {
         Vec::new()
     };
-    let retained_tail = collect_messages(&entries[first_kept_entry_index..boundary_end]);
-    (messages_to_summarize, turn_prefix_messages, retained_tail)
-}
-
-fn collect_file_operations(
-    messages_to_summarize: &[AgentMessage],
-    turn_prefix_messages: &[AgentMessage],
-    path_entries: &[Entry],
-    previous_compaction_index: Option<usize>,
-    is_split_turn: bool,
-) -> FileOperations {
-    let mut file_ops = extract_file_operations(messages_to_summarize, path_entries, previous_compaction_index);
-    if is_split_turn {
-        for message in turn_prefix_messages {
+    if messages_to_summarize.is_empty() && turn_prefix_messages.is_empty() {
+        return Ok(None);
+    }
+    let mut file_ops = extract_file_operations(&messages_to_summarize, path_entries, previous);
+    if cut.is_split_turn {
+        for message in &turn_prefix_messages {
             extract_file_ops_from_message(message, &mut file_ops);
         }
     }
-    file_ops
+    Ok(Some(CompactionPreparation {
+        first_kept_entry_id,
+        messages_to_summarize,
+        turn_prefix_messages,
+        is_split_turn: cut.is_split_turn,
+        tokens_before,
+        previous_summary,
+        file_ops,
+        settings: *settings,
+    }))
+}
+fn missing_kept_entry() -> CompactionError {
+    CompactionError::new(
+        CompactionErrorCode::InvalidSession,
+        "First kept entry has no UUID - session may need migration",
+        None,
+    )
 }
 
-fn collect_messages(entries: &[Entry]) -> Vec<AgentMessage> {
-    entries
-        .iter()
-        .filter_map(get_message_from_entry_for_compaction)
-        .collect()
-}
-
-/// Options for generating or updating a conversation summary.
 #[derive(Clone, Copy)]
 pub struct GenerateSummaryOptions<'a> {
     pub current_messages: &'a [AgentMessage],
@@ -719,304 +667,152 @@ pub struct GenerateSummaryOptions<'a> {
     pub custom_instructions: Option<&'a JsString>,
     pub previous_summary: Option<&'a JsString>,
     pub thinking_level: Option<ThinkingLevel>,
-    pub retry: Option<&'a RetryPolicy>,
 }
-
-/// Generated summary text with the provider usage that produced it.
-#[derive(Debug, Clone, PartialEq)]
-pub struct SummaryWithUsage {
-    pub text: JsString,
-    pub usage: Usage,
-}
-
-/// Generated compaction data ready to be persisted as a compaction entry.
 #[derive(Debug, Clone)]
 pub struct CompactResult {
     pub summary: JsString,
+    pub first_kept_entry_id: JsString,
     pub tokens_before: f64,
     pub duration_ms: Option<f64>,
-    pub usage: Option<Usage>,
-    pub retained_tail: Vec<AgentMessage>,
     pub details: Option<CompactionDetails>,
 }
-
-/// Options for a compaction run.
 #[derive(Clone, Copy, Default)]
 pub struct CompactOptions<'a> {
     pub custom_instructions: Option<&'a JsString>,
     pub signal: Option<&'a CancellationToken>,
     pub thinking_level: Option<ThinkingLevel>,
-    pub retry: Option<&'a RetryPolicy>,
 }
 
-/// Retry callbacks that ignore every event.
-pub struct NoRetryCallbacks;
-
-impl RetryCallbacks for NoRetryCallbacks {}
-
-pub(super) fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as i64)
-        .unwrap_or(0)
+pub(super) fn now_ms() -> f64 {
+    pi_js_compat::date::js_now_millis()
 }
-
 fn build_summary_prompt(options: &GenerateSummaryOptions<'_>) -> Result<JsString, CompactionError> {
-    let summary_prompt = if options.previous_summary.is_some() {
-        UPDATE_SUMMARIZATION_PROMPT
+    let previous = options.previous_summary.filter(|summary| !summary.is_empty());
+    let mut prompt = if previous.is_some() {
+        JsString::from(UPDATE_SUMMARIZATION_PROMPT)
     } else {
-        SUMMARIZATION_PROMPT
+        SUMMARIZATION_PROMPT.into()
     };
-    let focused = match options.custom_instructions {
-        Some(instructions) => JsString::from(summary_prompt) + "\n\nAdditional focus: " + instructions,
-        None => summary_prompt.into(),
-    };
-    let conversation = truncate_utf16(
-        &serialize_conversation(&convert_to_llm(options.current_messages).map_err(message_conversion_failure)?),
-        MAX_COMPACTION_CONTEXT_CHARS,
-    );
-    let previous = match options.previous_summary {
-        Some(summary) => JsString::from("<previous-summary>\n") + summary + "\n</previous-summary>\n\n",
-        None => JsString::default(),
-    };
-    Ok(JsString::from("<conversation>\n") + conversation + "\n</conversation>\n\n" + previous + focused)
+    if let Some(instructions) = options.custom_instructions.filter(|text| !text.is_empty()) {
+        prompt = prompt + "\n\nAdditional focus: " + instructions;
+    }
+    let text = serialize_conversation(&convert_to_llm(options.current_messages).map_err(message_conversion_failure)?)
+        .slice(0, MAX_COMPACTION_CONTEXT_CHARS);
+    let mut result = JsString::from("<conversation>\n") + text + "\n</conversation>\n\n";
+    if let Some(previous) = previous {
+        result = result + "<previous-summary>\n" + previous + "\n</previous-summary>\n\n";
+    }
+    Ok(result + prompt)
 }
-
-fn truncate_utf16(text: &JsString, max_chars: usize) -> JsString {
-    JsString::from_utf16(text.units()[..text.len().min(max_chars)].to_vec())
-}
-
-fn output_token_cap(model: &Model, fraction: f64, reserve_tokens: f64) -> f64 {
-    let requested = (fraction * reserve_tokens).floor();
-    let model_cap = if model.max_tokens > 0.0 {
+fn output_token_cap(model: &Model, fraction: f64, reserve: f64) -> f64 {
+    let requested = (fraction * reserve).floor();
+    let cap = if model.max_tokens > 0.0 {
         model.max_tokens
     } else {
         f64::INFINITY
     };
-    requested.min(model_cap)
-}
-
-fn reasoning_option(model: &Model, thinking_level: Option<ThinkingLevel>) -> Option<pi_ai::types::ThinkingLevel> {
-    match thinking_level {
-        Some(level) if model.reasoning && level != ThinkingLevel::Off => reasoning_for(level),
-        _ => None,
+    if requested.is_nan() {
+        f64::NAN
+    } else {
+        requested.min(cap)
     }
 }
-
-fn build_summary_request(
-    options: &GenerateSummaryOptions<'_>,
-) -> Result<(Context, SimpleStreamOptions), CompactionError> {
-    let max_tokens = output_token_cap(options.model, 0.8, options.reserve_tokens);
-    let message = Message::User(UserMessage {
-        role: UserRole::Tag,
-        content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(build_summary_prompt(
-            options,
-        )?))]),
-        input_source: None,
-        provider_native: None,
-        timestamp: now_ms(),
-    });
-    let completion_options = SimpleStreamOptions {
+pub(super) async fn complete_summary(
+    models: &dyn Models,
+    model: &Model,
+    prompt: JsString,
+    max_tokens: f64,
+    signal: Option<&CancellationToken>,
+) -> Result<AssistantMessage, CompactionError> {
+    let context = Context {
+        system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.into()),
+        messages: vec![Message::User(UserMessage {
+            role: UserRole::Tag,
+            content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(prompt))]),
+            input_source: None,
+            provider_native: None,
+            timestamp: crate::harness::messages::checked_provider_timestamp(now_ms())
+                .map_err(message_conversion_failure)?,
+        })],
+        tools: None,
+    };
+    let options = SimpleStreamOptions {
         stream: StreamOptions {
             request: ProviderRequestOptions {
-                signal: options.signal.cloned(),
+                signal: signal.cloned(),
                 ..Default::default()
             },
             max_tokens: Some(max_tokens),
             ..Default::default()
         },
-        reasoning: reasoning_option(options.model, options.thinking_level),
         ..Default::default()
     };
-    Ok((
-        Context {
-            system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.into()),
-            messages: vec![message],
-            tools: None,
-        },
-        completion_options,
-    ))
+    models
+        .complete_simple(model.clone(), context, options)
+        .await
+        .map_err(|error| {
+            CompactionError::new(
+                CompactionErrorCode::Unknown,
+                error.message().clone(),
+                Some(Box::new(error)),
+            )
+        })
 }
-
-fn stream_failure_message(model: &Model, failure: pi_ai::utils::event_stream::StreamFailure) -> AssistantMessage {
-    let mut message = AssistantMessage::empty(model.api.clone(), model.provider.clone(), model.id.clone(), now_ms());
-    message.stop_reason = StopReason::Error;
-    message.error_message = Some(failure.message().to_owned());
-    message
+pub(super) fn response_text(response: &AssistantMessage) -> JsString {
+    JsString::join(
+        response.content.iter().filter_map(|block| match block {
+            AssistantContent::Text(text) => Some(text.text.clone()),
+            _ => None,
+        }),
+        "\n",
+    )
 }
-
-pub async fn complete_simple_with_retries<C: RetryCallbacks + ?Sized>(
-    models: &dyn Models,
-    model: &Model,
-    context: Context,
-    options: SimpleStreamOptions,
-    retry: Option<&RetryPolicy>,
-    callbacks: Option<&mut C>,
-) -> AssistantMessage {
-    // Summaries are standalone requests, so isolate routing and avoid cache writes that cannot be reused.
-    let mut request_options = options;
-    request_options.stream.cache_retention = Some(CacheRetention::None);
-    request_options.stream.session_id = Some(uuidv7().into());
-    let signal = request_options.stream.request.signal.clone();
-
-    let produce = || {
-        let context = context.clone();
-        let options = request_options.clone();
-        let model = model.clone();
-        async move {
-            models
-                .complete_simple(model.clone(), context, options)
-                .await
-                .unwrap_or_else(|failure| stream_failure_message(&model, failure))
-        }
-    };
-    retry_assistant_call(produce, retry, signal.as_ref(), callbacks).await
-}
-
-fn summarize_response(
-    response: &AssistantMessage,
-    aborted_message: &str,
-    failed_prefix: &str,
-) -> Result<(JsString, Usage), CompactionError> {
+fn summarize_response(response: AssistantMessage, aborted: &str, prefix: &str) -> Result<JsString, CompactionError> {
     if response.stop_reason == StopReason::Aborted {
         return Err(CompactionError::new(
             CompactionErrorCode::Aborted,
-            response.error_message.clone().unwrap_or_else(|| aborted_message.into()),
+            response
+                .error_message
+                .filter(|text| !text.is_empty())
+                .unwrap_or_else(|| aborted.into()),
             None,
         ));
     }
     if response.stop_reason == StopReason::Error {
-        let detail = response.error_message.clone().unwrap_or_else(|| "Unknown error".into());
         return Err(CompactionError::new(
             CompactionErrorCode::SummarizationFailed,
-            JsString::from(failed_prefix) + detail,
+            JsString::from(prefix)
+                + response
+                    .error_message
+                    .filter(|text| !text.is_empty())
+                    .unwrap_or_else(|| "Unknown error".into()),
             None,
         ));
     }
-    Ok((
-        content_text(ContentText::Assistant(&response.content), ""),
-        response.usage.clone(),
-    ))
+    Ok(response_text(&response))
 }
-
-async fn generate_summary_with_options<C: RetryCallbacks + ?Sized>(
-    options: &GenerateSummaryOptions<'_>,
-    callbacks: Option<&mut C>,
-) -> Result<SummaryWithUsage, CompactionError> {
-    let (context, completion_options) = build_summary_request(options)?;
-    let response = complete_simple_with_retries(
+pub async fn generate_summary(options: &GenerateSummaryOptions<'_>) -> Result<JsString, CompactionError> {
+    let response = complete_summary(
         options.models,
         options.model,
-        context,
-        completion_options,
-        options.retry,
-        callbacks,
+        build_summary_prompt(options)?,
+        output_token_cap(options.model, 0.8, options.reserve_tokens),
+        options.signal,
     )
-    .await;
-    let (text, usage) = summarize_response(&response, "Summarization aborted", "Summarization failed: ")?;
-    Ok(SummaryWithUsage { text, usage })
+    .await?;
+    summarize_response(response, "Summarization aborted", "Summarization failed: ")
 }
-
-/// Generate or update a conversation summary for compaction.
-pub async fn generate_summary(options: &GenerateSummaryOptions<'_>) -> Result<JsString, CompactionError> {
-    generate_summary_with_callbacks(options, None::<&mut NoRetryCallbacks>)
-        .await
-        .map(|summary| summary.text)
-}
-
-/// [`generate_summary`] with retry callbacks.
-pub async fn generate_summary_with_callbacks<C: RetryCallbacks + ?Sized>(
-    options: &GenerateSummaryOptions<'_>,
-    callbacks: Option<&mut C>,
-) -> Result<SummaryWithUsage, CompactionError> {
-    generate_summary_with_options(options, callbacks).await
-}
-
-/// Generate or update a conversation summary and return its provider usage.
-pub async fn generate_summary_with_usage(
-    options: &GenerateSummaryOptions<'_>,
-) -> Result<SummaryWithUsage, CompactionError> {
-    generate_summary_with_options(options, None::<&mut NoRetryCallbacks>).await
-}
-
-/// [`generate_summary_with_usage`] with retry callbacks.
-pub async fn generate_summary_with_usage_with_callbacks<C: RetryCallbacks + ?Sized>(
-    options: &GenerateSummaryOptions<'_>,
-    callbacks: Option<&mut C>,
-) -> Result<SummaryWithUsage, CompactionError> {
-    generate_summary_with_options(options, callbacks).await
-}
-
-fn combine_usage(first: &Usage, second: &Usage) -> Usage {
-    Usage {
-        input: first.input + second.input,
-        output: first.output + second.output,
-        cache_read: first.cache_read + second.cache_read,
-        cache_write: first.cache_write + second.cache_write,
-        cache_write_1h: combine_optional(first.cache_write_1h, second.cache_write_1h),
-        reasoning: combine_optional(first.reasoning, second.reasoning),
-        total_tokens: first.total_tokens + second.total_tokens,
-        cost: UsageCost {
-            input: first.cost.input + second.cost.input,
-            output: first.cost.output + second.cost.output,
-            cache_read: first.cost.cache_read + second.cost.cache_read,
-            cache_write: first.cost.cache_write + second.cost.cache_write,
-            total: first.cost.total + second.cost.total,
-        },
-    }
-}
-
-fn combine_optional(first: Option<f64>, second: Option<f64>) -> Option<f64> {
-    (first.is_some() || second.is_some()).then(|| first.unwrap_or(0.0) + second.unwrap_or(0.0))
-}
-
-/// Generate compaction summary data from prepared session history.
 pub async fn compact(
     preparation: &CompactionPreparation,
     models: &dyn Models,
     model: &Model,
     options: &CompactOptions<'_>,
 ) -> Result<CompactResult, CompactionError> {
-    compact_with_callbacks(preparation, models, model, options, None::<&mut NoRetryCallbacks>).await
-}
-
-/// [`compact`] with retry callbacks.
-pub async fn compact_with_callbacks<C: RetryCallbacks + ?Sized>(
-    preparation: &CompactionPreparation,
-    models: &dyn Models,
-    model: &Model,
-    options: &CompactOptions<'_>,
-    callbacks: Option<&mut C>,
-) -> Result<CompactResult, CompactionError> {
-    let started_at = now_ms();
-    let (summary, summary_usage) = summarize_preparation(preparation, models, model, options, callbacks).await?;
-
-    let FileLists {
-        read_files,
-        modified_files,
-    } = compute_file_lists(&preparation.file_ops);
-    let summary = summary + format_file_operations(&read_files, &modified_files);
-
-    Ok(CompactResult {
-        summary,
-        tokens_before: preparation.tokens_before,
-        duration_ms: Some((now_ms() - started_at) as f64),
-        usage: Some(summary_usage),
-        retained_tail: preparation.retained_tail.clone(),
-        details: Some(CompactionDetails {
-            read_files,
-            modified_files,
-        }),
-    })
-}
-
-fn preparation_summary_options<'a>(
-    preparation: &'a CompactionPreparation,
-    models: &'a dyn Models,
-    model: &'a Model,
-    options: &'a CompactOptions<'a>,
-) -> GenerateSummaryOptions<'a> {
-    GenerateSummaryOptions {
+    let started = now_ms();
+    if preparation.first_kept_entry_id.is_empty() {
+        return Err(missing_kept_entry());
+    }
+    let history_options = GenerateSummaryOptions {
         current_messages: &preparation.messages_to_summarize,
         models,
         model,
@@ -1025,107 +821,55 @@ fn preparation_summary_options<'a>(
         custom_instructions: options.custom_instructions,
         previous_summary: preparation.previous_summary.as_ref(),
         thinking_level: options.thinking_level,
-        retry: options.retry,
-    }
-}
-
-async fn summarize_preparation<C: RetryCallbacks + ?Sized>(
-    preparation: &CompactionPreparation,
-    models: &dyn Models,
-    model: &Model,
-    options: &CompactOptions<'_>,
-    callbacks: Option<&mut C>,
-) -> Result<(JsString, Usage), CompactionError> {
-    if preparation.is_split_turn && !preparation.turn_prefix_messages.is_empty() {
-        return split_turn_summary(preparation, models, model, options, callbacks).await;
-    }
-    let history_options = preparation_summary_options(preparation, models, model, options);
-    let summary = generate_summary_with_options(&history_options, callbacks).await?;
-    Ok((summary.text, summary.usage))
-}
-
-async fn split_turn_summary<C: RetryCallbacks + ?Sized>(
-    preparation: &CompactionPreparation,
-    models: &dyn Models,
-    model: &Model,
-    options: &CompactOptions<'_>,
-    mut callbacks: Option<&mut C>,
-) -> Result<(JsString, Usage), CompactionError> {
-    let mut history_text = JsString::from("No prior history.");
-    let mut history_usage = None;
-    if !preparation.messages_to_summarize.is_empty() {
-        let history_options = preparation_summary_options(preparation, models, model, options);
-        let summary = generate_summary_with_options(&history_options, callbacks.as_deref_mut()).await?;
-        history_text = summary.text;
-        history_usage = Some(summary.usage);
-    }
-    let (turn_prefix_text, turn_prefix_usage) = generate_turn_prefix_summary(
-        &preparation.turn_prefix_messages,
-        models,
-        model,
-        preparation.settings.reserve_tokens,
-        options,
-        callbacks,
-    )
-    .await?;
-    let summary = history_text + "\n\n---\n\n**Turn Context (split turn):**\n\n" + turn_prefix_text;
-    let usage = match history_usage {
-        Some(history_usage) => combine_usage(&history_usage, &turn_prefix_usage),
-        None => turn_prefix_usage,
     };
-    Ok((summary, usage))
-}
-
-async fn generate_turn_prefix_summary<C: RetryCallbacks + ?Sized>(
-    messages: &[AgentMessage],
-    models: &dyn Models,
-    model: &Model,
-    reserve_tokens: f64,
-    options: &CompactOptions<'_>,
-    callbacks: Option<&mut C>,
-) -> Result<(JsString, Usage), CompactionError> {
-    let max_tokens = output_token_cap(model, 0.5, reserve_tokens);
-    let conversation_text = serialize_conversation(&convert_to_llm(messages).map_err(message_conversion_failure)?);
-    let prompt_text = JsString::from("<conversation>\n")
-        + conversation_text
-        + "\n</conversation>\n\n"
-        + TURN_PREFIX_SUMMARIZATION_PROMPT;
-    let summarization_message = Message::User(UserMessage {
-        role: UserRole::Tag,
-        content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(prompt_text))]),
-        input_source: None,
-        provider_native: None,
-        timestamp: now_ms(),
-    });
-    let completion_options = SimpleStreamOptions {
-        stream: StreamOptions {
-            request: ProviderRequestOptions {
-                signal: options.signal.cloned(),
-                ..Default::default()
-            },
-            max_tokens: Some(max_tokens),
-            ..Default::default()
-        },
-        reasoning: reasoning_option(model, options.thinking_level),
-        ..Default::default()
+    let summary = if preparation.is_split_turn && !preparation.turn_prefix_messages.is_empty() {
+        let history = if preparation.messages_to_summarize.is_empty() {
+            JsString::from("No prior history.")
+        } else {
+            generate_summary(&history_options).await?
+        };
+        let text = serialize_conversation(
+            &convert_to_llm(&preparation.turn_prefix_messages).map_err(message_conversion_failure)?,
+        )
+        .slice(0, MAX_COMPACTION_CONTEXT_CHARS);
+        let prompt =
+            JsString::from("<conversation>\n") + text + "\n</conversation>\n\n" + TURN_PREFIX_SUMMARIZATION_PROMPT;
+        let response = complete_summary(
+            models,
+            model,
+            prompt,
+            output_token_cap(model, 0.5, preparation.settings.reserve_tokens),
+            options.signal,
+        )
+        .await?;
+        history
+            + "\n\n---\n\n**Turn Context (split turn):**\n\n"
+            + summarize_response(
+                response,
+                "Turn prefix summarization aborted",
+                "Turn prefix summarization failed: ",
+            )?
+    } else {
+        generate_summary(&history_options).await?
     };
-    let context = Context {
-        system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.into()),
-        messages: vec![summarization_message],
-        tools: None,
-    };
-    let response =
-        complete_simple_with_retries(models, model, context, completion_options, options.retry, callbacks).await;
-    summarize_response(
-        &response,
-        "Turn prefix summarization aborted",
-        "Turn prefix summarization failed: ",
-    )
+    let FileLists {
+        read_files,
+        modified_files,
+    } = compute_file_lists(&preparation.file_ops);
+    Ok(CompactResult {
+        summary: summary + format_file_operations(&read_files, &modified_files),
+        first_kept_entry_id: preparation.first_kept_entry_id.clone(),
+        tokens_before: preparation.tokens_before,
+        duration_ms: Some(now_ms() - started),
+        details: Some(CompactionDetails {
+            read_files,
+            modified_files,
+        }),
+    })
 }
-
 fn message_conversion_failure(error: crate::agent::AgentError) -> CompactionError {
     CompactionError::new(
-        CompactionErrorCode::SummarizationFailed,
+        CompactionErrorCode::Unknown,
         error.message().clone(),
         Some(Box::new(error)),
     )

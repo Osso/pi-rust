@@ -8,8 +8,8 @@ pub use compaction::{
     CompactionDetails, CompactionPreparation, CompactionSettings, ContextUsageEstimate, CutPointResult,
     DEFAULT_COMPACTION_SETTINGS, FileLists, FileOperations, GenerateBranchSummaryOptions, GenerateSummaryOptions,
     calculate_context_tokens, collect_entries_for_branch_summary, compact, estimate_context_tokens, estimate_tokens,
-    find_cut_point, find_turn_start_index, generate_branch_summary, generate_summary, generate_summary_with_usage,
-    get_last_assistant_usage, prepare_branch_entries, prepare_compaction, serialize_conversation, should_compact,
+    find_cut_point, find_turn_start_index, generate_branch_summary, generate_summary, get_last_assistant_usage,
+    prepare_branch_entries, prepare_compaction, serialize_conversation, should_compact,
 };
 pub mod prompt_templates;
 pub mod session;

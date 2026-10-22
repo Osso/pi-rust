@@ -22,7 +22,9 @@ type Call = {
 	cacheRetention: string | null;
 };
 
-type CaseResult = { name: string; ok: true; output: unknown } | { name: string; ok: false; error: unknown };
+type CaseResult =
+	| { name: string; ok: true; output: unknown }
+	| { name: string; ok: false; error: unknown };
 
 type Response =
 	| { id: RequestId; ok: true; output: { results: CaseResult[] } }
@@ -34,7 +36,11 @@ let messagesApi: Api;
 let sessionApi: Api;
 let utilsApi: Api;
 
-function normalizeError(error: unknown): { name: string; message: string; code?: string } {
+function normalizeError(error: unknown): {
+	name: string;
+	message: string;
+	code?: string;
+} {
 	const normalized: { name: string; message: string; code?: string } = {
 		name: error instanceof Error ? error.name : "UnknownError",
 		message: error instanceof Error ? error.message : String(error),
@@ -49,7 +55,11 @@ function ordered(values: Set<string>): string[] {
 }
 
 function fileOpsJson(fileOps: any): unknown {
-	return { read: ordered(fileOps.read), written: ordered(fileOps.written), edited: ordered(fileOps.edited) };
+	return {
+		read: ordered(fileOps.read),
+		written: ordered(fileOps.written),
+		edited: ordered(fileOps.edited),
+	};
 }
 
 function fileOpsFromJson(value: any): any {
@@ -65,13 +75,14 @@ function preparationJson(preparation: any): unknown {
 	const value: any = {
 		messagesToSummarize: preparation.messagesToSummarize,
 		turnPrefixMessages: preparation.turnPrefixMessages,
-		retainedTail: preparation.retainedTail,
+		firstKeptEntryId: preparation.firstKeptEntryId,
 		isSplitTurn: preparation.isSplitTurn,
 		tokensBefore: preparation.tokensBefore,
 		fileOps: fileOpsJson(preparation.fileOps),
 		settings: preparation.settings,
 	};
-	if (preparation.previousSummary !== undefined) value.previousSummary = preparation.previousSummary;
+	if (preparation.previousSummary !== undefined)
+		value.previousSummary = preparation.previousSummary;
 	return value;
 }
 
@@ -87,7 +98,11 @@ function firstUserText(context: any): string {
 
 let fauxCount = 0;
 
-function createModel(spec: any): { faux: FauxProviderHandle; models: Models; model: Model<any> } {
+function createModel(spec: any): {
+	faux: FauxProviderHandle;
+	models: Models;
+	model: Model<any>;
+} {
 	const faux = fauxProvider({
 		provider: `faux-oracle-${++fauxCount}`,
 		models: [
@@ -104,7 +119,11 @@ function createModel(spec: any): { faux: FauxProviderHandle; models: Models; mod
 	return { faux, models, model: faux.getModel() as Model<any> };
 }
 
-function queueResponses(faux: FauxProviderHandle, responses: any[], calls: Call[]): void {
+function queueResponses(
+	faux: FauxProviderHandle,
+	responses: any[],
+	calls: Call[],
+): void {
 	faux.setResponses(
 		responses.map((response) => (context: any, options: any) => {
 			calls.push({
@@ -140,15 +159,33 @@ function executeSyncCase(operation: string, item: any): unknown {
 		case "estimate_context_tokens":
 			return compactionApi.estimateContextTokens(item.messages);
 		case "find_cut_point":
-			return compactionApi.findCutPoint(item.entries, item.startIndex, item.endIndex, item.keepRecentTokens);
+			return compactionApi.findCutPoint(
+				item.entries,
+				item.startIndex,
+				item.endIndex,
+				item.keepRecentTokens,
+			);
 		case "find_turn_start_index":
-			return compactionApi.findTurnStartIndex(item.entries, item.entryIndex, item.startIndex);
+			return compactionApi.findTurnStartIndex(
+				item.entries,
+				item.entryIndex,
+				item.startIndex,
+			);
 		case "prepare_compaction":
-			return preparationJson(unwrap(compactionApi.prepareCompaction(item.pathEntries, item.settings)));
+			return preparationJson(
+				unwrap(
+					compactionApi.prepareCompaction(item.pathEntries, item.settings),
+				),
+			);
 		case "serialize_conversation":
-			return compactionApi.serializeConversation(messagesApi.convertToLlm(item.messages));
+			return compactionApi.serializeConversation(
+				messagesApi.convertToLlm(item.messages),
+			);
 		case "prepare_branch_entries": {
-			const preparation = branchApi.prepareBranchEntries(item.entries, item.tokenBudget);
+			const preparation = branchApi.prepareBranchEntries(
+				item.entries,
+				item.tokenBudget,
+			);
 			return {
 				messages: preparation.messages,
 				fileOps: fileOpsJson(preparation.fileOps),
@@ -164,7 +201,10 @@ function executeSyncCase(operation: string, item: any): unknown {
 	}
 }
 
-async function executeAsyncCase(operation: string, item: any): Promise<unknown> {
+async function executeAsyncCase(
+	operation: string,
+	item: any,
+): Promise<unknown> {
 	switch (operation) {
 		case "generate_summary": {
 			const { faux, models, model } = createModel(item.model);
@@ -176,11 +216,25 @@ async function executeAsyncCase(operation: string, item: any): Promise<unknown> 
 				model,
 				reserveTokens: item.reserveTokens,
 			};
-			if (item.customInstructions !== undefined) options.customInstructions = item.customInstructions;
-			if (item.previousSummary !== undefined) options.previousSummary = item.previousSummary;
-			if (item.thinkingLevel !== undefined) options.thinkingLevel = item.thinkingLevel;
-			const result = unwrap(await compactionApi.generateSummaryWithUsage(options));
-			return { text: result.text, usage: result.usage, calls };
+			if (item.customInstructions !== undefined)
+				options.customInstructions = item.customInstructions;
+			if (item.previousSummary !== undefined)
+				options.previousSummary = item.previousSummary;
+			if (item.thinkingLevel !== undefined)
+				options.thinkingLevel = item.thinkingLevel;
+			const result = unwrap(
+				await compactionApi.generateSummary(
+					item.messages,
+					models,
+					model,
+					item.reserveTokens,
+					undefined,
+					item.customInstructions,
+					item.previousSummary,
+					item.thinkingLevel,
+				),
+			);
+			return { text: result, calls };
 		}
 		case "compact": {
 			const { faux, models, model } = createModel(item.model);
@@ -203,8 +257,7 @@ async function executeAsyncCase(operation: string, item: any): Promise<unknown> 
 			return {
 				summary: result.summary,
 				tokensBefore: result.tokensBefore,
-				usage: result.usage ?? null,
-				retainedTail: result.retainedTail,
+				firstKeptEntryId: result.firstKeptEntryId,
 				details: result.details ?? null,
 				calls,
 			};
@@ -225,31 +278,24 @@ async function executeAsyncCase(operation: string, item: any): Promise<unknown> 
 			);
 			return {
 				summary: result.summary,
-				usage: result.usage ?? null,
 				readFiles: result.readFiles,
 				modifiedFiles: result.modifiedFiles,
 				calls,
 			};
 		}
 		case "collect_entries_for_branch_summary": {
-			let nextId = 0;
-			const storage = new sessionApi.InMemorySessionStorage({ id: "session", createdAt: 1 });
-			const session = new sessionApi.Session(storage, {
-				idGenerator: { next: () => `entry-${++nextId}` },
-			});
-			for (const operationItem of item.operations) {
-				if (operationItem.op === "lane") {
-					await session.createLane(operationItem.name, operationItem.at ?? null);
-				} else {
-					const view = operationItem.lane ? session.view(operationItem.lane) : session;
-					await view.appendMessage({
-						role: "user",
-						content: [{ type: "text", text: operationItem.text }],
-						timestamp: 1,
-					});
-				}
-			}
-			const result = await branchApi.collectEntriesForBranchSummary(session, item.oldLeafId, item.targetId);
+			const { InMemorySessionStorage } = await importApi(
+				join(dirname(process.argv[5]), "memory-storage.ts"),
+			);
+			const storage = new InMemorySessionStorage({ entries: item.entries });
+			const session = new sessionApi.Session(storage);
+			const result = unwrap(
+				await branchApi.collectEntriesForBranchSummary(
+					session,
+					item.oldLeafId,
+					item.targetId,
+				),
+			);
 			return {
 				entryIds: result.entries.map((entry: any) => entry.id),
 				commonAncestorId: result.commonAncestorId,
@@ -260,7 +306,11 @@ async function executeAsyncCase(operation: string, item: any): Promise<unknown> 
 	}
 }
 
-async function executeCase(operation: string, item: any, asyncOperation: boolean): Promise<CaseResult> {
+async function executeCase(
+	operation: string,
+	item: any,
+	asyncOperation: boolean,
+): Promise<CaseResult> {
 	try {
 		const output = asyncOperation
 			? await executeAsyncCase(operation, item)
@@ -293,9 +343,12 @@ async function importApi(modulePath: string): Promise<Api> {
 }
 
 async function main(): Promise<void> {
-	const [compactionPath, branchPath, messagesPath, sessionPath] = process.argv.slice(2);
+	const [compactionPath, branchPath, messagesPath, sessionPath] =
+		process.argv.slice(2);
 	if (!compactionPath || !branchPath || !messagesPath || !sessionPath) {
-		throw new Error("compaction oracle requires compaction, branch, messages, and session module paths");
+		throw new Error(
+			"compaction oracle requires compaction, branch, messages, and session module paths",
+		);
 	}
 	compactionApi = await importApi(compactionPath);
 	branchApi = await importApi(branchPath);
@@ -317,6 +370,8 @@ async function main(): Promise<void> {
 }
 
 void main().catch((error: unknown) => {
-	process.stderr.write(`compaction oracle startup failed: ${normalizeError(error).message}\n`);
+	process.stderr.write(
+		`compaction oracle startup failed: ${normalizeError(error).message}\n`,
+	);
 	process.exitCode = 1;
 });

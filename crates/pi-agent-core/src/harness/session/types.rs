@@ -20,7 +20,7 @@ pub struct SessionTreeEntryBase {
     pub timestamp: JsString,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
 pub enum KnownSessionEntry {
     Message {
@@ -52,11 +52,7 @@ pub enum KnownSessionEntry {
         tokens_before: f64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         duration_ms: Option<f64>,
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "deserialize_present"
-        )]
+        #[serde(skip_serializing_if = "Option::is_none")]
         details: Option<JsValue>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         from_hook: Option<bool>,
@@ -66,11 +62,7 @@ pub enum KnownSessionEntry {
         base: SessionTreeEntryBase,
         from_id: JsString,
         summary: JsString,
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "deserialize_present"
-        )]
+        #[serde(skip_serializing_if = "Option::is_none")]
         details: Option<JsValue>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         from_hook: Option<bool>,
@@ -79,11 +71,7 @@ pub enum KnownSessionEntry {
         #[serde(flatten)]
         base: SessionTreeEntryBase,
         custom_type: JsString,
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "deserialize_present"
-        )]
+        #[serde(skip_serializing_if = "Option::is_none")]
         data: Option<JsValue>,
     },
     CustomMessage {
@@ -91,11 +79,7 @@ pub enum KnownSessionEntry {
         base: SessionTreeEntryBase,
         custom_type: JsString,
         content: CustomMessageContent,
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "deserialize_present"
-        )]
+        #[serde(skip_serializing_if = "Option::is_none")]
         details: Option<JsValue>,
         display: bool,
     },
@@ -119,8 +103,103 @@ pub enum KnownSessionEntry {
     },
 }
 
-fn deserialize_present<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<JsValue>, D::Error> {
-    JsValue::deserialize(deserializer).map(Some)
+impl<'de> Deserialize<'de> for KnownSessionEntry {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = JsValue::deserialize(deserializer)?;
+        value
+            .as_object()
+            .and_then(project_known_entry)
+            .ok_or_else(|| serde::de::Error::custom("invalid known session entry"))
+    }
+}
+
+// Select on the native AST: Serde's internally-tagged buffering rejects lone UTF-16 units.
+fn project_known_entry(raw: &JsObject) -> Option<KnownSessionEntry> {
+    let text = |key: &str| raw.get(key).and_then(JsValue::as_string).cloned();
+    let base = SessionTreeEntryBase {
+        id: text("id")?,
+        parent_id: text("parentId"),
+        timestamp: text("timestamp")?,
+    };
+    let kind = text("type")?;
+    Some(if kind == "message" {
+        KnownSessionEntry::Message {
+            base,
+            message: from_value(raw.get("message")?).ok()?,
+        }
+    } else if kind == "thinking_level_change" {
+        KnownSessionEntry::ThinkingLevelChange {
+            base,
+            thinking_level: text("thinkingLevel")?,
+        }
+    } else if kind == "model_change" {
+        KnownSessionEntry::ModelChange {
+            base,
+            provider: text("provider")?,
+            model_id: text("modelId")?,
+        }
+    } else if kind == "active_tools_change" {
+        let active_tool_names = raw
+            .get("activeToolNames")?
+            .as_array()?
+            .iter()
+            .map(|name| name.as_string().cloned())
+            .collect::<Option<Vec<_>>>()?;
+        KnownSessionEntry::ActiveToolsChange {
+            base,
+            active_tool_names,
+        }
+    } else if kind == "compaction" {
+        KnownSessionEntry::Compaction {
+            base,
+            summary: text("summary")?,
+            first_kept_entry_id: text("firstKeptEntryId")?,
+            tokens_before: raw.get("tokensBefore")?.as_f64()?,
+            duration_ms: raw.get("durationMs").and_then(JsValue::as_f64),
+            details: raw.get("details").cloned(),
+            from_hook: raw.get("fromHook").and_then(JsValue::as_bool),
+        }
+    } else if kind == "branch_summary" {
+        KnownSessionEntry::BranchSummary {
+            base,
+            from_id: text("fromId")?,
+            summary: text("summary")?,
+            details: raw.get("details").cloned(),
+            from_hook: raw.get("fromHook").and_then(JsValue::as_bool),
+        }
+    } else if kind == "custom" {
+        KnownSessionEntry::Custom {
+            base,
+            custom_type: text("customType")?,
+            data: raw.get("data").cloned(),
+        }
+    } else if kind == "custom_message" {
+        KnownSessionEntry::CustomMessage {
+            base,
+            custom_type: text("customType")?,
+            content: from_value(raw.get("content")?).ok()?,
+            display: raw.get("display")?.as_bool()?,
+            details: raw.get("details").cloned(),
+        }
+    } else if kind == "label" {
+        KnownSessionEntry::Label {
+            base,
+            target_id: text("targetId")?,
+            label: text("label"),
+        }
+    } else if kind == "session_info" {
+        KnownSessionEntry::SessionInfo {
+            base,
+            name: text("name"),
+        }
+    } else if kind == "leaf" {
+        KnownSessionEntry::Leaf {
+            base,
+            target_id: text("targetId"),
+        }
+    } else {
+        return None;
+    })
 }
 
 /// Raw JSON stays authoritative: unknown types, fields and payloads survive storage round trips.
@@ -137,7 +216,7 @@ impl SessionTreeEntry {
         let JsValue::Object(raw) = value else {
             unreachable!("entry validation requires object");
         };
-        let known = from_value(&JsValue::Object(raw.clone())).ok();
+        let known = project_known_entry(&raw);
         Ok(Self { raw, known })
     }
 
