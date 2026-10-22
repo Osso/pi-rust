@@ -25,4 +25,4 @@ Frozen `mistral-conversations.ts` does not call `onResponse`; Rust already does.
 
 `ProviderRetryEvent.reason` is now `JsString`; Codex retry notifications use error message data, never Display. Native retry/overflow classification executes the existing patterns against UTF16 units with the existing regress dependency; public scalar overflow-pattern enumeration remains available for callers.
 
-Retry classification retains frozen non-Unicode `/i` behavior (no Unicode lowercasing projection): `retry::frozen_regex_uses_javascript_characters` rejected the initial Kelvin-sign fold; native regress patterns use `i` directly.
+Retry classification retains frozen non-Unicode `/i` behavior (no Unicode lowercasing projection): `retry::frozen_regex_uses_javascript_characters` rejected the initial Kelvin-sign fold; regress `i` also folded long-s unlike frozen non-Unicode JS. The matcher now folds ASCII code units only and uses native UCS2 regex without flags. Unmatched units and all non-ASCII units remain unchanged.

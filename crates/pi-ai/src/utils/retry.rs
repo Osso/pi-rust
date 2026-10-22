@@ -240,7 +240,7 @@ fn retryable_pattern() -> &'static Regex {
 }
 
 fn build_provider_error_pattern(patterns: &[&str]) -> Regex {
-    Regex::with_flags(&patterns.join("|"), "i").expect("provider error patterns are valid regexes")
+    Regex::with_flags(&patterns.join("|").to_ascii_lowercase(), "").expect("provider error patterns are valid regexes")
 }
 
 /// Identifies the canonical Codex cybersecurity restriction, including suffixes.
@@ -267,6 +267,7 @@ pub fn is_retryable_assistant_error(message: &AssistantMessage) -> bool {
     if error_message.is_empty() || is_codex_cybersecurity_restriction(message) {
         return false;
     }
+    let error_message = super::error_body::fold_ascii_error_text(error_message);
     if non_retryable_pattern()
         .find_from_ucs2(error_message.units(), 0)
         .next()

@@ -155,3 +155,20 @@ pub fn truncate_error_text(text: &JsString, max_chars: usize) -> JsString {
 pub fn safe_json_stringify(value: &Value) -> JsString {
     js_json::stringify_lossless(value).into()
 }
+
+/// These provider patterns contain ASCII letters only. JS non-Unicode `/i`
+/// never folds a non-ASCII code unit into an ASCII letter.
+pub(crate) fn fold_ascii_error_text(text: &JsString) -> JsString {
+    let units = text
+        .units()
+        .iter()
+        .map(|&unit| {
+            if (u16::from(b'A')..=u16::from(b'Z')).contains(&unit) {
+                unit + u16::from(b'a' - b'A')
+            } else {
+                unit
+            }
+        })
+        .collect();
+    JsString::from_utf16(units)
+}

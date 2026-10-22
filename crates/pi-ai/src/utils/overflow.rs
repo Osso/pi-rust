@@ -55,12 +55,13 @@ fn non_overflow_regexes() -> &'static Vec<regress::Regex> {
 }
 
 fn compile(pattern: &str) -> regress::Regex {
-    regress::Regex::with_flags(pattern, "i").expect("overflow patterns are valid regexes")
+    regress::Regex::with_flags(&pattern.to_ascii_lowercase(), "").expect("overflow patterns are valid regexes")
 }
 
 /// Check if an assistant message represents a context overflow error.
 pub fn is_context_overflow(message: &AssistantMessage, context_window: Option<f64>) -> bool {
     if let (StopReason::Error, Some(error_message)) = (message.stop_reason, &message.error_message) {
+        let error_message = super::error_body::fold_ascii_error_text(error_message);
         let is_non_overflow = non_overflow_regexes()
             .iter()
             .any(|pattern| pattern.find_from_ucs2(error_message.units(), 0).next().is_some());
