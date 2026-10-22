@@ -286,7 +286,7 @@ pub(super) fn tool_definition(
     name: &str,
     label: &str,
     description: &str,
-    prompt_guidelines: Option<Vec<String>>,
+    prompt_guidelines: Option<Vec<JsString>>,
     parameters: Value,
     execute: crate::core::extensions::types::ToolExecute,
 ) -> ToolDefinition {
@@ -325,9 +325,9 @@ fn register_spawn_agent_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistr
         "Spawn Agent",
         "Create a child agent record and optionally dispatch it through the multi-agent runtime.",
         Some(vec![
-            "For read-only codebase research or exploration, prefer spawn_agent with agentType \"explore\".".to_owned(),
-            "Context defaults to \"inherit\"; choose \"fresh\" explicitly for isolated work, verification, or falsification. Reviewer profiles default to fresh context.".to_owned(),
-            "For scoped code changes, use agentType \"implement\"; for proof commands before completion, use agentType \"verifier\"; for final code review or second opinions, use agentType \"reviewer\".".to_owned(),
+            "For read-only codebase research or exploration, prefer spawn_agent with agentType \"explore\".".into(),
+            "Context defaults to \"inherit\"; choose \"fresh\" explicitly for isolated work, verification, or falsification. Reviewer profiles default to fresh context.".into(),
+            "For scoped code changes, use agentType \"implement\"; for proof commands before completion, use agentType \"verifier\"; for final code review or second opinions, use agentType \"reviewer\".".into(),
         ]),
         spawn_agent_schema(),
         Arc::new(move |tool_call_id, params, _signal, _on_update, ctx| {

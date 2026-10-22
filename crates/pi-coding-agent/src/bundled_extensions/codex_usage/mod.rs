@@ -391,7 +391,7 @@ pub fn format_reset_response(response: &ConsumeResetCreditResponse) -> String {
 fn send_codex_usage_message(pi: &ExtensionApi, content: String) -> Result<(), HandlerError> {
     pi.send_message(
         CustomMessagePayload {
-            custom_type: "codex-usage".to_owned(),
+            custom_type: "codex-usage".into(),
             content: CustomMessageContent::Text(content.into()),
             display: true,
             details: None,
@@ -540,11 +540,12 @@ async fn reset_codex_usage_and_send_result(
     let reset_confirmed = ctx
         .ui()?
         .confirm(
-            "Are you sure you want to reset OpenAI Codex usage?",
+            &"Are you sure you want to reset OpenAI Codex usage?".into(),
             &format!(
                 "This will consume 1 of {} available reset credits.",
                 js_number_to_string(usage_before_reset.reset_credits_available)
-            ),
+            )
+            .into(),
             None,
         )
         .await

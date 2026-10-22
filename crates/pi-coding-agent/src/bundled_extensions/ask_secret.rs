@@ -79,7 +79,7 @@ pub fn create_ask_secret_tool_definition(options: AskSecretToolOptions) -> ToolD
         description: "Prompt for browser credentials and provision them directly into the Secrets Broker without returning secret values.".to_owned(),
         prompt_snippet: Some(
             "Provision browser credentials through a hidden interactive prompt and the typed Secrets Broker path."
-                .to_owned(),
+                .into(),
         ),
         prompt_guidelines: None,
         approval_required: Some(true),

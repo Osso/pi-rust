@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::core::extensions::types::{ExtensionApi, ExtensionCommandContext, HandlerError, NotifyType};
 use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope, is_sandbox_profile_name};
+use pi_js_compat::js_json::JsString;
 
 const SANDBOX_USAGE: &str = "Usage: /sandbox [read-only|workspace-write|full-access|inherit] [session|project|global]";
 
@@ -67,7 +68,7 @@ async fn handle_sandbox_command(
 }
 
 fn clear_editor(ctx: &ExtensionCommandContext) -> Result<(), HandlerError> {
-    ctx.ui()?.set_editor_text("");
+    ctx.ui()?.set_editor_text(&JsString::default());
     Ok(())
 }
 

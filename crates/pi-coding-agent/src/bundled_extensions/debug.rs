@@ -1,5 +1,7 @@
 //! Bundled `debug` extension (`extensions/debug/src/index.ts`).
 
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
 use crate::core::extensions::types::{BoxFuture, ExtensionApi, HandlerError, NotifyType};
@@ -7,7 +9,7 @@ use crate::core::session_manager::lock_session_manager;
 
 /// `DebugReplController` from the extension source.
 pub trait DebugReplController: Send + Sync {
-    fn enable(&self, session_id: &str) -> BoxFuture<'static, Result<String, HandlerError>>;
+    fn enable(&self, session_id: &JsString) -> BoxFuture<'static, Result<JsString, HandlerError>>;
     fn disable(&self) -> BoxFuture<'static, Result<(), HandlerError>>;
 }
 
@@ -39,7 +41,7 @@ pub fn debug_extension(pi: &ExtensionApi, get_controller: DebugReplControllerPro
                     .to_owned();
                 debug_repl.enable(&session_id).await?;
                 ctx.ui()?.notify(
-                    &format!("Debug REPL enabled: pi debug attach {session_id}").into(),
+                    &js_format!("Debug REPL enabled: pi debug attach {}", session_id),
                     Some(NotifyType::Warning),
                 );
                 Ok(())

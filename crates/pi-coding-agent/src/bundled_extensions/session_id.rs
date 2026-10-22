@@ -1,5 +1,6 @@
 //! Bundled `session-id` extension (`extensions/session-id/src/index.ts`).
 
+use pi_js_compat::js_format;
 use std::sync::Arc;
 
 use crate::core::extensions::types::{ExtensionApi, HandlerError, NotifyType};
@@ -16,7 +17,7 @@ pub fn session_id_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     .get_session_id()
                     .to_owned();
                 ctx.ui()?
-                    .notify(&format!("Session ID: {session_id}").into(), Some(NotifyType::Info));
+                    .notify(&js_format!("Session ID: {}", session_id), Some(NotifyType::Info));
                 Ok(())
             })
         }),

@@ -152,7 +152,7 @@ fn parse_hook_specific_output(stdout: &str) -> Option<Map> {
 
 pub async fn review_tool_with_claude_bash_hook(
     event: &ToolCallEvent,
-    cwd: &str,
+    cwd: &JsString,
     options: &ClaudeBashHookOptions,
 ) -> Result<ClaudeBashHookReviewResult, HandlerError> {
     let tool_name = event.tool_name.as_str();
@@ -167,7 +167,7 @@ pub async fn review_tool_with_claude_bash_hook(
     };
 
     let mut tool_input = event.input.clone();
-    tool_input.insert("cwd".into(), Value::String(cwd.to_owned().into()).into());
+    tool_input.insert("cwd".into(), Value::String(cwd.clone()).into());
     let hook_input = json!({
         "access_mode": "supervised",
         "approval_policy": "on-request",

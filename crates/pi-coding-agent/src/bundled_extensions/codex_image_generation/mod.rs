@@ -1,7 +1,6 @@
 //! Bundled `codex-image-generation` extension
 //! (`packages/coding-agent/extensions/codex-image-generation/src/index.ts`).
 
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,15 +11,19 @@ use pi_ai::types::{
     Context, ImageContent, Model, ProviderEnv, ProviderHeaders, TextContent, TextOrImageContent, UserContent,
     UserMessage, UserRole,
 };
+use pi_js_compat::js_format;
+use pi_js_compat::node_fs::node_file_write_error_record;
 use pi_js_compat::{
     js_json,
-    js_json::{JsString, JsValue as Value},
+    js_json::{JsString, JsValue as Value, encode_node_utf8},
 };
 use serde_json::json as schema_json;
 use tokio_util::sync::CancellationToken;
 
 use crate::core::extensions::types::{ExtensionApi, ExtensionContext, HandlerError, ToolDefinition};
 use crate::core::model_registry::ResolvedRequestAuth;
+use crate::core::tools::node_fs::node_fs_error;
+use crate::utils::paths::node_join;
 
 const DEFAULT_IMAGE_GENERATION_TIMEOUT_MS: u64 = 300_000;
 
@@ -35,7 +38,9 @@ pub struct ImageGenerationRequest {
 }
 
 pub type RunImageGeneration = Arc<
-    dyn Fn(ImageGenerationRequest, ExtensionContext) -> BoxFuture<'static, Result<ImageContent, String>> + Send + Sync,
+    dyn Fn(ImageGenerationRequest, ExtensionContext) -> BoxFuture<'static, Result<ImageContent, JsString>>
+        + Send
+        + Sync,
 >;
 
 #[derive(Clone, Default)]
@@ -173,22 +178,23 @@ async fn execute_image_generation(
     result.map_err(HandlerError::new)
 }
 
-fn save_generated_image(image: &ImageContent, cwd: &str) -> Result<String, HandlerError> {
+fn save_generated_image(image: &ImageContent, cwd: &JsString) -> Result<JsString, HandlerError> {
     let mut random = [0u8; 8];
     getrandom::fill(&mut random).expect("OS random source must be available");
     let name = random.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
-    let output_path = Path::new(cwd).join(format!("image-gen-{name}.png"));
+    let output_path = node_join(cwd.clone(), js_format!("image-gen-{}.png", name));
     let bytes = pi_js_compat::base64::buffer_from_base64(&image.data);
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(&output_path)
-        .map_err(|error| HandlerError::new(error.to_string()))?;
-    std::io::Write::write_all(&mut file, &bytes).map_err(|error| HandlerError::new(error.to_string()))?;
-    Ok(output_path.display().to_string())
+        .open(encode_node_utf8(&output_path))
+        .map_err(|error| HandlerError::new(node_fs_error(&error, "open", &output_path)))?;
+    std::io::Write::write_all(&mut file, &bytes)
+        .map_err(|error| HandlerError::new(node_file_write_error_record(&error).message))?;
+    Ok(output_path)
 }
 
-async fn run_hosted_image_generation(request: ImageGenerationRequest) -> Result<ImageContent, String> {
+async fn run_hosted_image_generation(request: ImageGenerationRequest) -> Result<ImageContent, JsString> {
     let context = Context {
         system_prompt: Some(
             "Generate the requested image. Use the hosted image generation tool and return the generated image."
@@ -228,11 +234,11 @@ async fn run_hosted_image_generation(request: ImageGenerationRequest) -> Result<
     ) {
         return Err(message
             .error_message
-            .unwrap_or_else(|| "OpenAI hosted image generation failed".to_owned()));
+            .unwrap_or_else(|| "OpenAI hosted image generation failed".into()));
     }
     message
         .image_generation_result
-        .ok_or_else(|| "OpenAI hosted image generation returned no image".to_owned())
+        .ok_or_else(|| "OpenAI hosted image generation returned no image".into())
 }
 
 pub fn create_image_generation_tool_definition(options: &ImageGenerationToolOptions) -> ToolDefinition {
@@ -245,10 +251,10 @@ pub fn create_image_generation_tool_definition(options: &ImageGenerationToolOpti
         name: "image_gen".to_owned(),
         label: "Image Generation".to_owned(),
         description: "Generate an image using the OpenAI Responses hosted image generation tool.".to_owned(),
-        prompt_snippet: Some("Generate an image from a detailed prompt.".to_owned()),
+        prompt_snippet: Some("Generate an image from a detailed prompt.".into()),
         prompt_guidelines: Some(vec![
-            "Use image_gen when the user asks to create a new image.".to_owned(),
-            "Describe composition, subject, style, lighting, palette, and constraints in the prompt.".to_owned(),
+            "Use image_gen when the user asks to create a new image.".into(),
+            "Describe composition, subject, style, lighting, palette, and constraints in the prompt.".into(),
         ]),
         approval_required: Some(true),
         approval_kind: None,
@@ -274,7 +280,7 @@ pub fn create_image_generation_tool_definition(options: &ImageGenerationToolOpti
                 let output_path = save_generated_image(&image, &ctx.cwd()?)?;
                 Ok(AgentToolResult {
                     content: vec![
-                        TextOrImageContent::Text(TextContent::new(format!("Generated image: {output_path}"))),
+                        TextOrImageContent::Text(TextContent::new(js_format!("Generated image: {}", output_path))),
                         TextOrImageContent::Image(image),
                     ],
                     details: None,

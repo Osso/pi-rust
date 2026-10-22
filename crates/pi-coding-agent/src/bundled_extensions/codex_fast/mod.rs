@@ -4,7 +4,6 @@ use std::sync::{Arc, Mutex};
 
 use pi_ai::types::Model;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
-use serde_json::Value;
 
 use crate::core::extensions::types::{
     BeforeProviderRequestEvent, BoxFuture, ExtensionApi, ExtensionCommandContext, ExtensionContext, HandlerError,
@@ -170,10 +169,10 @@ pub fn read_configured_fast_mode(ctx: &ExtensionContext) -> Result<Option<FastSe
     Ok(configured_service_tier(&merged))
 }
 
-fn configured_service_tier(settings: &serde_json::Map<String, Value>) -> Option<FastServiceTier> {
+fn configured_service_tier(settings: &JsObject) -> Option<FastServiceTier> {
     match settings.get("defaultCodexFastMode") {
-        Some(Value::String(value)) if value == PRIORITY_SERVICE_TIER => Some(FastServiceTier::Priority),
-        Some(Value::String(value)) if value == ULTRAFAST_SERVICE_TIER => Some(FastServiceTier::Ultrafast),
+        Some(JsValue::String(value)) if value == PRIORITY_SERVICE_TIER => Some(FastServiceTier::Priority),
+        Some(JsValue::String(value)) if value == ULTRAFAST_SERVICE_TIER => Some(FastServiceTier::Ultrafast),
         _ => None,
     }
 }

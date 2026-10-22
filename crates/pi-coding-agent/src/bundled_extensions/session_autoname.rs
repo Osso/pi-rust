@@ -228,9 +228,10 @@ pub fn find_first_exchange(session_manager: &SessionManager) -> Option<FirstExch
             .iter()
             .filter_map(|entry| entry.as_message())
             .filter(|entry| entry.message.role() == "assistant")
-            .filter_map(|entry| entry.message.as_assistant())
-            .filter(|message| is_completed_assistant_message(message))
-            .map(extract_assistant_text)
+            .filter_map(|entry| {
+                let message = entry.message.as_assistant()?;
+                is_completed_assistant_message(message).then(|| extract_assistant_text(message))
+            })
             .filter(|text| !text.is_empty())
             .collect::<Vec<_>>(),
         "\n",
@@ -334,7 +335,7 @@ pub fn read_generated_title(response: &AssistantMessage) -> Result<Option<JsStri
                 response
                     .error_message
                     .clone()
-                    .unwrap_or_else(|| "title request failed".to_owned()),
+                    .unwrap_or_else(|| "title request failed".into()),
             ));
         }
         StopReason::Length => {

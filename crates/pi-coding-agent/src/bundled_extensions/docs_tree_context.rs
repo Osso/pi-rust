@@ -55,9 +55,8 @@ pub fn docs_tree_context_extension(pi: &ExtensionApi) -> Result<(), HandlerError
     .map_err(HandlerError::new)
 }
 
-/// Node's fs error formatting repairs unpaired units in the path, as the fs boundary does.
 fn fs_error(error: &std::io::Error, syscall: &str, path: &JsString) -> HandlerError {
-    HandlerError::new(node_fs_error(error, syscall, &encode_node_utf8(path)))
+    HandlerError::new(node_fs_error(error, syscall, path))
 }
 
 fn path_exists(path: &JsString) -> Result<bool, HandlerError> {

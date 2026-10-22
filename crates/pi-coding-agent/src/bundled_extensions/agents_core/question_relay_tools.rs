@@ -430,7 +430,7 @@ pub fn register_question_relay_tools(pi: &ExtensionApi, store: Arc<MultiAgentSto
     let mut ask = ask_questions::create_ask_questions_tool_definition();
     ask.prompt_guidelines.as_mut().unwrap().push(
         "In a child agent, ask_questions sends the questions to your parent agent, which answers or asks the user."
-            .to_owned(),
+            .into(),
     );
     let user_execute = ask.execute.clone();
     let ask_store = store.clone();

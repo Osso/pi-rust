@@ -9,6 +9,7 @@ use crate::core::extensions::types::{
     ArgumentCompletions, BoxFuture, ExtensionApi, ExtensionCommandContext, ExtensionContext, HandlerError, NotifyType,
     ToolCallEvent, ToolCallEventResult, ToolGate,
 };
+use pi_js_compat::js_json::JsString;
 
 const SAFE_STATUS_KEY: &str = "safe";
 const SAFE_STATUS_TEXT: &str = "safe:on";
@@ -83,7 +84,7 @@ pub fn safe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                         },
                         Some(NotifyType::Info),
                     );
-                    ctx.ui()?.set_editor_text("");
+                    ctx.ui()?.set_editor_text(&JsString::default());
                     Ok(())
                 })
             },
@@ -97,8 +98,8 @@ fn safe_mode_status(enabled: bool) -> &'static str {
 }
 
 fn update_safe_status(ctx: &ExtensionContext, enabled: bool) -> Result<(), HandlerError> {
-    ctx.ui()?
-        .set_status(SAFE_STATUS_KEY, if enabled { Some(SAFE_STATUS_TEXT) } else { None });
+    let text = enabled.then(|| JsString::from(SAFE_STATUS_TEXT));
+    ctx.ui()?.set_status(&SAFE_STATUS_KEY.into(), text.as_ref());
     Ok(())
 }
 

@@ -36,7 +36,7 @@ pub struct WebSearchRequest {
 }
 
 pub type RunWebSearch =
-    Arc<dyn Fn(WebSearchRequest, ExtensionContext) -> BoxFuture<'static, Result<JsString, String>> + Send + Sync>;
+    Arc<dyn Fn(WebSearchRequest, ExtensionContext) -> BoxFuture<'static, Result<JsString, JsString>> + Send + Sync>;
 
 #[derive(Clone, Default)]
 pub struct WebSearchToolOptions {
@@ -207,7 +207,7 @@ async fn run_search_with_timeout(
     }
 }
 
-async fn run_hosted_web_search(request: WebSearchRequest) -> Result<JsString, String> {
+async fn run_hosted_web_search(request: WebSearchRequest) -> Result<JsString, JsString> {
     let context = Context {
         system_prompt: Some(
             "You are a web search tool. Search the web and return concise, source-backed findings for the query."
@@ -247,12 +247,12 @@ async fn run_hosted_web_search(request: WebSearchRequest) -> Result<JsString, St
     ) {
         return Err(message
             .error_message
-            .unwrap_or_else(|| "OpenAI hosted web search failed".to_owned()));
+            .unwrap_or_else(|| "OpenAI hosted web search failed".into()));
     }
     extract_text(&message)
 }
 
-fn extract_text(message: &pi_ai::types::AssistantMessage) -> Result<JsString, String> {
+fn extract_text(message: &pi_ai::types::AssistantMessage) -> Result<JsString, JsString> {
     let joined = JsString::join(
         message
             .content
@@ -266,7 +266,7 @@ fn extract_text(message: &pi_ai::types::AssistantMessage) -> Result<JsString, St
     );
     let text = joined.trim();
     if text.is_empty() {
-        return Err("OpenAI hosted web search returned no text".to_owned());
+        return Err("OpenAI hosted web search returned no text".into());
     }
     Ok(text.to_owned())
 }
@@ -282,10 +282,10 @@ pub fn create_web_search_tool_definition(options: &WebSearchToolOptions) -> Tool
         label: "Web Search".to_owned(),
         description: "Search the web using OpenAI Responses hosted web search and return a concise result summary."
             .to_owned(),
-        prompt_snippet: Some("Search the web for current or external information.".to_owned()),
+        prompt_snippet: Some("Search the web for current or external information.".into()),
         prompt_guidelines: Some(vec![
-            "Use web_search when the user asks for current, external, or source-backed information that is not available in the repo or local context.".to_owned(),
-            "Do not use web_search for codebase investigation; use local file/search tools first.".to_owned(),
+            "Use web_search when the user asks for current, external, or source-backed information that is not available in the repo or local context.".into(),
+            "Do not use web_search for codebase investigation; use local file/search tools first.".into(),
         ]),
         approval_required: Some(true),
         approval_kind: None,

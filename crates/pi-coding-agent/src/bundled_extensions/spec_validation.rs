@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use crate::core::extensions::types::{ExtensionApi, HandlerError, UserMessageContent};
+use pi_js_compat::js_json::JsString;
 
 const SPEC_VALIDATION_PROMPT: &str = "Use the `spec-format` skill to validate every project spec separately.
 
@@ -37,7 +38,7 @@ pub fn spec_validation_extension(pi: &ExtensionApi) -> Result<(), HandlerError> 
                 }
 
                 api.send_user_message(UserMessageContent::Text(SPEC_VALIDATION_PROMPT.to_owned().into()), None)?;
-                ctx.ui()?.set_editor_text("");
+                ctx.ui()?.set_editor_text(&JsString::default());
                 Ok(())
             })
         }),

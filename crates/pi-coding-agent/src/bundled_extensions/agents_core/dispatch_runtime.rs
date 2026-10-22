@@ -822,14 +822,12 @@ fn notify_waiting_agent(
         return None;
     }
     desktop_notifier.notify(&DesktopNotification {
-        body: pi_js_compat::js_json::encode_node_utf8(
-            &message
-                .body
-                .clone()
-                .unwrap_or_else(|| message.from_agent_id.clone() + " is waiting for input."),
-        ),
+        body: message
+            .body
+            .clone()
+            .unwrap_or_else(|| message.from_agent_id.clone() + " is waiting for input."),
         expire_time_ms: Some(PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS),
-        title: "Pi agent needs input".to_owned(),
+        title: "Pi agent needs input".into(),
         urgency: None,
     })
 }

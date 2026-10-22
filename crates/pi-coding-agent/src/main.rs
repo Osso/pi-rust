@@ -273,9 +273,11 @@ struct DebugReplGapController;
 impl crate::bundled_extensions::debug::DebugReplController for DebugReplGapController {
     fn enable(
         &self,
-        _session_id: &str,
-    ) -> crate::core::extensions::types::BoxFuture<'static, Result<String, crate::core::extensions::types::HandlerError>>
-    {
+        _session_id: &pi_js_compat::js_json::JsString,
+    ) -> crate::core::extensions::types::BoxFuture<
+        'static,
+        Result<pi_js_compat::js_json::JsString, crate::core::extensions::types::HandlerError>,
+    > {
         Box::pin(async { Err(crate::core::extensions::types::HandlerError::new(DEBUG_REPL_GAP)) })
     }
 

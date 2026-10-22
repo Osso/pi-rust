@@ -290,13 +290,12 @@ fn loop_tool_definition(controller: LoopController) -> ToolDefinition {
         label: "Loop".to_owned(),
         description: "Start, stop, or inspect a recurring prompt injected into this Pi session.".to_owned(),
         prompt_snippet: Some(
-            "Schedule recurring user prompts at a fixed interval, or stop/status the active loop.".to_owned(),
+            "Schedule recurring user prompts at a fixed interval, or stop/status the active loop.".into(),
         ),
         prompt_guidelines: Some(vec![
-            "Use loop only when the user wants recurring follow-up prompts injected into the current session."
-                .to_owned(),
-            "Prefer action=status before changing an existing loop when unsure.".to_owned(),
-            "Use action=stop when the recurring prompts are no longer needed.".to_owned(),
+            "Use loop only when the user wants recurring follow-up prompts injected into the current session.".into(),
+            "Prefer action=status before changing an existing loop when unsure.".into(),
+            "Use action=stop when the recurring prompts are no longer needed.".into(),
         ]),
         approval_required: Some(true),
         approval_kind: None,
@@ -452,7 +451,7 @@ async fn handle_loop_command(
                 &format!("Loop started every {}", format_interval(active.interval_ms)).into(),
                 Some(NotifyType::Info),
             );
-            ui.set_editor_text("");
+            ui.set_editor_text(&JsString::default());
         }
     }
     Ok(())

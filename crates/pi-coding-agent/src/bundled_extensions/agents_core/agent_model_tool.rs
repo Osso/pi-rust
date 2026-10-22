@@ -142,7 +142,7 @@ pub fn register_set_agent_model_tool(
         "set_agent_model",
         "Set Agent Model",
         "Change a running child agent's model and/or reasoning effort by agent ID. The current model request is not interrupted; the change applies from the child's next model request.",
-        Some(vec!["Use set_agent_model only when the user asks to change a running sub-agent's model or effort.".to_owned()]),
+        Some(vec!["Use set_agent_model only when the user asks to change a running sub-agent's model or effort.".into()]),
         set_agent_model_schema(),
         Arc::new(move |_tool_call_id, params, _signal, _on_update, _ctx| {
             let store = Arc::clone(&store);
