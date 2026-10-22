@@ -6,7 +6,8 @@ use std::sync::Arc;
 use pi_agent_core::agent::AgentTool;
 use pi_coding_agent::core::tools::edit::EditTool;
 use pi_coding_agent::core::tools::write::WriteTool;
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{JsString, JsValue as Value};
 
 struct Case {
     kind: &'static str,
@@ -45,12 +46,12 @@ fn coding_agent_edit_prepare_arguments_match_the_pinned_typescript_source() {
             .map(|params| json!({"kind": "prepare", "cwd": cwd, "params": params}))
             .collect::<Vec<_>>(),
     }));
-    assert_eq!(expected["ok"], Value::Bool(true), "{expected}");
+    assert_eq!(expected["ok"], Value::Bool(true), "{expected:?}");
     let expected_results = expected["output"].as_array().expect("oracle output array");
     assert_eq!(expected_results.len(), cases.len());
 
     let definition = pi_coding_agent::core::tools::edit::create_edit_tool_definition(
-        cwd,
+        &JsString::from(cwd),
         pi_coding_agent::core::tools::edit::EditToolOptions::default(),
     );
     let prepare = definition.prepare_arguments.expect("prepare arguments forwarded");
@@ -126,7 +127,7 @@ fn coding_agent_edit_and_write_tools_match_the_pinned_typescript_source() {
             .map(|case| json!({"kind": case.kind, "cwd": cwd, "params": case.params}))
             .collect::<Vec<_>>(),
     }));
-    assert_eq!(expected["ok"], Value::Bool(true), "{expected}");
+    assert_eq!(expected["ok"], Value::Bool(true), "{expected:?}");
     let expected_results = expected["output"].as_array().expect("oracle output array");
     assert_eq!(expected_results.len(), cases.len());
     let expected_files = cases

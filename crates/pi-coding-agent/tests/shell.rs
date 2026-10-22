@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -8,22 +9,28 @@ use pi_coding_agent::utils::shell::{
 
 #[test]
 fn sanitize_binary_output_drops_control_and_format_characters() {
-    assert_eq!(sanitize_binary_output("plain text"), "plain text");
+    assert_eq!(sanitize_binary_output(&JsString::from("plain text")), "plain text");
     assert_eq!(
-        sanitize_binary_output("tab\tnewline\nreturn\r"),
+        sanitize_binary_output(&JsString::from("tab\tnewline\nreturn\r")),
         "tab\tnewline\nreturn\r"
     );
-    assert_eq!(sanitize_binary_output("bell\u{7}null\u{0}esc\u{1b}"), "bellnullesc");
     assert_eq!(
-        sanitize_binary_output("\u{fff9}interlinear\u{fffa}object\u{fffb}"),
+        sanitize_binary_output(&JsString::from("bell\u{7}null\u{0}esc\u{1b}")),
+        "bellnullesc"
+    );
+    assert_eq!(
+        sanitize_binary_output(&JsString::from("\u{fff9}interlinear\u{fffa}object\u{fffb}")),
         "interlinearobject"
     );
     assert_eq!(
-        sanitize_binary_output("\u{fffc}replacement\u{fffd}"),
+        sanitize_binary_output(&JsString::from("\u{fffc}replacement\u{fffd}")),
         "\u{fffc}replacement\u{fffd}"
     );
-    assert_eq!(sanitize_binary_output("emoji 😀 and é"), "emoji 😀 and é");
-    assert_eq!(sanitize_binary_output("\u{7f}del"), "\u{7f}del");
+    assert_eq!(
+        sanitize_binary_output(&JsString::from("emoji 😀 and é")),
+        "emoji 😀 and é"
+    );
+    assert_eq!(sanitize_binary_output(&JsString::from("\u{7f}del")), "\u{7f}del");
 }
 
 #[test]
@@ -33,14 +40,15 @@ fn shell_config_prefers_bin_bash_then_the_custom_path() {
     assert_eq!(config.args, ["-c"]);
     assert_eq!(config.command_transport, CommandTransport::Argv);
 
-    let config = get_shell_config(Some("/bin/bash")).expect("explicit shell");
+    let config = get_shell_config(Some(&JsString::from("/bin/bash"))).expect("explicit shell");
     assert_eq!(config.shell, "/bin/bash");
     assert_eq!(config.args, ["-c"]);
 }
 
 #[test]
 fn shell_config_rejects_a_missing_custom_shell() {
-    let error = get_shell_config(Some("/nonexistent-shell-path-xyz123")).expect_err("missing custom shell");
+    let error =
+        get_shell_config(Some(&JsString::from("/nonexistent-shell-path-xyz123"))).expect_err("missing custom shell");
     assert_eq!(
         error.to_string(),
         "Custom shell path not found: /nonexistent-shell-path-xyz123"

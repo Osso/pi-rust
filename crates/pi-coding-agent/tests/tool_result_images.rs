@@ -69,7 +69,7 @@ async fn resizes_oversized_images_and_reports_the_original_dimensions() {
     let ToolResultContent::Text(note) = &normalized[1] else {
         panic!("expected a text block");
     };
-    assert!(note.text.contains("original 2400x4800"), "{}", note.text);
+    assert!(note.text.contains("original 2400x4800"), "{:?}", note.text);
 }
 
 #[tokio::test]

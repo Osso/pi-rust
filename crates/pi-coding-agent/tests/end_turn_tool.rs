@@ -6,6 +6,7 @@ mod tool_context;
 use pi_agent_core::AgentHarnessTool;
 use pi_coding_agent::core::extensions::ExtensionContext;
 use pi_coding_agent::core::tools::end_turn::{EndTurnTool, parameters};
+use pi_js_compat::js_json;
 use serde_json::json;
 
 async fn context() -> ExtensionContext {
@@ -24,7 +25,7 @@ async fn rejects_a_blank_reason() {
     let error = EndTurnTool::new()
         .execute(
             "end-blank".to_owned(),
-            json!({ "reason": "  " }),
+            pi_js_compat::js_json!({ "reason": "  " }),
             None,
             None,
             context().await,
@@ -32,7 +33,7 @@ async fn rejects_a_blank_reason() {
         )
         .await
         .expect_err("blank reason must fail");
-    assert_eq!(error.to_string(), "end_turn reason must be a non-empty string");
+    assert_eq!(error.message, "end_turn reason must be a non-empty string");
 }
 
 #[tokio::test]
@@ -40,7 +41,7 @@ async fn terminates_with_its_required_reason() {
     let result = EndTurnTool::new()
         .execute(
             "end-valid".to_owned(),
-            json!({ "reason": "Finished requested work" }),
+            pi_js_compat::js_json!({ "reason": "Finished requested work" }),
             None,
             None,
             context().await,
@@ -51,10 +52,13 @@ async fn terminates_with_its_required_reason() {
 
     assert_eq!(result.content.len(), 1);
     assert_eq!(
-        serde_json::to_value(&result.content).expect("content serializes"),
-        json!([{ "type": "text", "text": "Turn ended: Finished requested work" }])
+        js_json::to_value(&result.content).expect("content serializes"),
+        pi_js_compat::js_json!([{ "type": "text", "text": "Turn ended: Finished requested work" }])
     );
-    assert_eq!(result.details, Some(json!({ "reason": "Finished requested work" })));
+    assert_eq!(
+        result.details,
+        Some(pi_js_compat::js_json!({ "reason": "Finished requested work" }))
+    );
     assert_eq!(result.terminate, Some(true));
     assert_eq!(result.is_error, None);
 }
