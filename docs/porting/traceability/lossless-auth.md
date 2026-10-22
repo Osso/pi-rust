@@ -8,7 +8,7 @@ Scope: native login answers, auth payload text, credentials, configured keys/env
 | Native prompt answer to stored key / Cloudflare env | implemented | actual login callback tests PASS at 45b00bd2 |
 | Native manual code parsing and to_auth handoff | implemented | parser/form and to_auth tests PASS at 45b00bd2 |
 | Node ByteString/URL request boundary | helper implemented; main owns routing | exact high/low/Euro/Latin-1 and URL tests PASS at 45b00bd2; Node probe confirmed expected strings/bytes |
-| Native coding UI/config/composition/storage | integrated, acceptance pending | `raw_error_consumer_components` tests unexecuted |
+| Native coding UI/config/composition/storage | focused proof passed; broader drift remains | `raw_error_consumer_components` 21/21; registry native rejection 1/1; [fixture sweep](lossless-fixture-sweep.md) records broader RED cases |
 
 Frozen reference: source lock in `../source-lock.json`. These checkpoints do not prove complete auth-module parity or end-to-end login. Source Copilot policy-enable catches request construction/fetch failures (`packages/ai/src/utils/oauth/github-copilot.ts:307-321`); native construction failures follow that same catch branch. No scalar token conversion is used for presentation or to_auth.
 
@@ -22,4 +22,5 @@ Legacy OAuthLoginCallbacks prompt/manual/select methods now return explicit `Res
 
 - `cargo test -j4 -p pi-ai --test lossless_auth_interaction --test lossless_oauth_callbacks`, 45b00bd2: mandatory sandbox, **9+3 PASS**, zero warnings; `/tmp/pi-rust-repin-lossless-leaf/auth-native-green-2.log`. Does not prove OAuth response ingress or coding-agent composition.
 - `cargo test -j4 -p pi-ai --test lossless_auth_interaction resolve_error_exposes_native_message_without_display_projection`, 810b198d: mandatory sandbox, **1 PASS**, zero warnings; `/tmp/pi-rust-repin-lossless-leaf/resolve-message-green.log`. Display unchanged; native accessor preserves unmatched units.
-- All coding-agent leaf/config/storage/CLI tests remain explicitly unexecuted until shared compilation is available. No clippy, workspace acceptance or independent verification claim.
+- `cargo test -j4 -p pi-coding-agent --test model_registry_auth_drift --test raw_error_consumer_components`, 05b40ae0: mandatory sandbox, **1+21 PASS**, zero warnings; `/tmp/pi-rust-repin-lossless-leaf/coding-native-green-2.log`. Registry callback rejection preserves native public auth errors.
+- [Coding fixture sweep](lossless-fixture-sweep.md): initial 57 targets at 4176e071 yielded 471 PASS, 16 FAIL, 8 ignored. Four stale native-fixture failures cleared at 42d40c10; remaining DRIFT/oracle-ingress cases stay RED. No clippy, workspace acceptance or independent verification claim.
