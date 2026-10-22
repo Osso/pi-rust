@@ -420,6 +420,32 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		}
 		return footer.render(request.width);
 	},
+	editorRestore: async (api, request, sourceRoot) => {
+		const tui = await import(pathToFileURL(`${sourceRoot}/../../tui/src/index.ts`).href);
+		const children = request.texts.map((text: string) => new tui.Text(text, 0, 0));
+		const container = new tui.Container();
+		for (const child of children) container.addChild(child);
+		let focused = children[request.focusIndex];
+		const ui = {
+			getFocusedComponent: () => focused,
+			setFocus: (component: any) => { focused = component; },
+			requestRender: () => {},
+		};
+		const restore = api.captureEditorDialogRestore(container, ui);
+		const dialog = new tui.Text("dialog", 0, 0);
+		container.clear();
+		container.addChild(dialog);
+		focused = dialog;
+		children[0].setText(request.changedText);
+		restore();
+		const frames = [container.render(request.width)];
+		const focus = container.children.indexOf(focused);
+		container.clear();
+		focused = undefined;
+		restore();
+		frames.push(container.render(request.width));
+		return { frames, focus, focusAgain: container.children.indexOf(focused) };
+	},
 	coordinationComponent: async (api, request, sourceRoot) => {
 		const tui = await import(pathToFileURL(`${sourceRoot}/../../tui/src/index.ts`).href);
 		const custom = await import(pathToFileURL(`${sourceRoot}/modes/interactive/components/custom-message.ts`).href);
