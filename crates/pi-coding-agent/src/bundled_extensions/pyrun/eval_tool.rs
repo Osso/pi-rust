@@ -24,7 +24,7 @@ pub const STREAMED_CONSOLE_BYTE_LIMIT: usize = 1_048_576;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PyrunEvalParams {
     pub code: JsString,
-    pub session_id: Option<String>,
+    pub session_id: Option<JsString>,
 }
 
 pub type PyrunPiRequestDispatcher = Arc<
@@ -221,7 +221,7 @@ pub fn format_progress_text(update: &CanonicalPyrunProgressUpdate) -> JsString {
     if update.message_type() == "pi_request"
         && let Some(method) = update.method()
     {
-        return format!("Pi request: {method}").into();
+        return pi_js_compat::js_format!("Pi request: {}", method);
     }
     if let Some(message) = update.message() {
         return message.to_owned();
@@ -241,14 +241,14 @@ pub fn format_progress_text(update: &CanonicalPyrunProgressUpdate) -> JsString {
             other => js_json::stringify_lossless(other).into(),
         };
     }
-    update.message_type().into()
+    update.message_type()
 }
 
 pub struct PyrunEvalContext {
     pub footer_data: Option<Arc<crate::core::footer_data_provider::FooterDataProvider>>,
     pub context_usage: Option<crate::core::extensions::types::ContextUsage>,
     pub model: Option<pi_ai::types::Model>,
-    pub cwd: String,
+    pub cwd: JsString,
     pub session_name: Option<JsString>,
 }
 

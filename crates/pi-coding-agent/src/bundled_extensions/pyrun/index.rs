@@ -1,6 +1,7 @@
 //! Port of `packages/coding-agent/extensions/pyrun/src/index.ts` (non-detached
 //! paths plus the shared dispatcher and tool definition).
 
+use pi_js_compat::js_format;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -59,7 +60,7 @@ pub const PYRUN_PROMPT_GUIDELINE_COUNT: usize = PYRUN_PROMPT_GUIDELINES.len();
 #[derive(Clone, Default)]
 pub struct PyrunExtensionOptions {
     pub background_jobs_store: Option<Arc<crate::core::multi_agent_store::MultiAgentStore>>,
-    pub bwrap_command: Option<String>,
+    pub bwrap_command: Option<JsString>,
     pub detach_registry: Option<Arc<crate::core::tool_detach_registry::ToolDetachRegistry>>,
     pub pi_request_handlers: Vec<PyrunPiRequestDispatcher>,
 }
@@ -78,7 +79,7 @@ pub type PyrunEvaluate = Arc<
 
 struct ExecutorState {
     evaluate: PyrunEvaluate,
-    key: String,
+    key: JsString,
     pi_bridge_enabled: bool,
     runner: PyrunRunnerClient,
     runner_options: PyrunRunnerOptions,
@@ -109,22 +110,26 @@ fn settings_profile(ctx: &ExtensionContext) -> SandboxProfileName {
         .unwrap_or(SandboxProfileName::FullAccess)
 }
 
-fn process_env() -> indexmap::IndexMap<String, String> {
-    pi_js_compat::process_env::vars().into_iter().collect()
+fn process_env() -> indexmap::IndexMap<JsString, JsString> {
+    pi_js_compat::process_env::vars()
+        .into_iter()
+        .map(|(key, value)| (key.into(), value.into()))
+        .collect()
 }
 
 fn create_executor_state(
     ctx: &ExtensionContext,
     dispatch_pi_request: &PyrunPiRequestDispatcher,
-    bwrap_command: &str,
+    bwrap_command: &JsString,
 ) -> Result<ExecutorState, HandlerError> {
     let cwd = ctx.cwd()?;
     let profile = resolve_bwrap_sandbox_profile(settings_profile(ctx));
-    let key = format!(
-        "{}\0{cwd}",
-        profile.map(|profile| profile.as_str()).unwrap_or("full-access")
+    let key = js_format!(
+        "{}\0{}",
+        profile.map(|profile| profile.as_str()).unwrap_or("full-access"),
+        cwd
     );
-    let resolved = resolve_pyrun_runner_options(None).map_err(|error| HandlerError::new(error.to_string()))?;
+    let resolved = resolve_pyrun_runner_options(None).map_err(|error| HandlerError::new(error.message()))?;
     let Some(profile) = profile else {
         let runner_options = PyrunRunnerOptions::default();
         let runner = PyrunRunnerClient::new(runner_options.clone());
@@ -148,7 +153,7 @@ fn create_executor_state(
             .env
             .iter()
             .find(|(key, _)| key == "PYTHONPATH")
-            .map(|(_, value)| value.as_str()),
+            .map(|(_, value)| value),
     );
     let wrapped = create_bwrap_runner_command(BwrapRunnerCommandOptions {
         bwrap_command: bwrap_command.to_owned(),
@@ -188,13 +193,14 @@ fn executor_for(
     slot: &ExecutorSlot,
     ctx: &ExtensionContext,
     dispatch_pi_request: &PyrunPiRequestDispatcher,
-    bwrap_command: &str,
+    bwrap_command: &JsString,
 ) -> Result<(PyrunEvaluate, bool, PyrunRunnerOptions), HandlerError> {
     let cwd = ctx.cwd()?;
     let profile = resolve_bwrap_sandbox_profile(settings_profile(ctx));
-    let key = format!(
-        "{}\0{cwd}",
-        profile.map(|profile| profile.as_str()).unwrap_or("full-access")
+    let key = js_format!(
+        "{}\0{}",
+        profile.map(|profile| profile.as_str()).unwrap_or("full-access"),
+        cwd
     );
     let mut state = slot.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if state.as_ref().is_some_and(|state| state.key == key) {
@@ -233,7 +239,7 @@ fn read_string_arg(args: &Value, key: &str) -> Option<JsString> {
     args.get(key).and_then(Value::as_string).cloned()
 }
 
-fn format_pyrun_result(text: &str, executed: Option<&str>, is_error: bool, theme: &Theme) -> String {
+fn format_pyrun_result(text: &JsString, executed: Option<&JsString>, is_error: bool, theme: &Theme) -> JsString {
     let Some(executed) = executed else {
         return theme.fg(ThemeColor::ToolOutput, text);
     };
@@ -243,10 +249,16 @@ fn format_pyrun_result(text: &str, executed: Option<&str>, is_error: bool, theme
         } else {
             ""
         };
-        return theme.fg(ThemeColor::ToolOutput, &format!("{prefix}{text}"));
+        return theme.fg(ThemeColor::ToolOutput, js_format!("{}{}", prefix, text));
     }
-    let remainder = text[executed.len()..].trim_start_matches('\n');
-    theme.fg(ThemeColor::ToolOutput, remainder)
+    let newlines = text.units()[executed.len()..]
+        .iter()
+        .take_while(|unit| **unit == u16::from(b'\n'))
+        .count();
+    theme.fg(
+        ThemeColor::ToolOutput,
+        text.slice(executed.len() + newlines, text.len()),
+    )
 }
 
 fn get_executed_code(details: Option<&Value>) -> Option<JsString> {
@@ -348,6 +360,20 @@ fn read_non_empty_string(record: &Map, key: &str) -> Result<Option<JsString>, Ha
 mod lossless_tests {
     use super::*;
     #[test]
+    fn result_renderer_strips_executed_units_without_repairing_remaining_output() {
+        let theme_path = JsString::from(env!("CARGO_MANIFEST_DIR")) + "/theme/dark.json";
+        let theme = crate::modes::interactive::theme::load_theme_from_path(
+            &theme_path,
+            Some(crate::modes::interactive::theme::ColorMode::Truecolor),
+        )
+        .unwrap();
+        let executed = JsString::from("code-") + JsString::from_utf16(vec![0xd800]);
+        let output = JsString::from("output-") + JsString::from_utf16(vec![0xdfff]);
+        let rendered = format_pyrun_result(&(executed.clone() + "\n\n" + &output), Some(&executed), false, &theme);
+        assert_eq!(crate::utils::ansi::strip_ansi(&rendered), output);
+    }
+
+    #[test]
     fn resume_name_remains_a_utf16_lookup_value() {
         let params = js_json::parse_lossless(r#"{"name":"session-\ud800"}"#).unwrap();
         let normalized = normalize_resume_session_params(Some(&params)).unwrap();
@@ -378,12 +404,15 @@ fn normalize_resume_session_params(params: Option<&Value>) -> Result<ResumeSessi
     Ok(target)
 }
 
-fn assert_resume_session_path(path: &str) -> Result<String, HandlerError> {
-    if !Path::new(path).is_file() {
-        return Err(HandlerError::new(format!("Session file does not exist: {path}")));
+fn assert_resume_session_path(path: &JsString) -> Result<JsString, HandlerError> {
+    if !Path::new(&encode_node_utf8(path)).is_file() {
+        return Err(HandlerError::new(js_format!("Session file does not exist: {}", path)));
     }
     if !path.ends_with(".jsonl") {
-        return Err(HandlerError::new(format!("Session file must be a .jsonl file: {path}")));
+        return Err(HandlerError::new(js_format!(
+            "Session file must be a .jsonl file: {}",
+            path
+        )));
     }
     Ok(path.to_owned())
 }
@@ -410,27 +439,27 @@ fn list_resolvable_sessions(ctx: &ExtensionContext) -> Result<Vec<SessionInfo>, 
         (manager.get_cwd().to_owned(), manager.get_session_dir().to_owned())
     };
     let local = SessionManager::list(&cwd, Some(&session_dir), None, None)
-        .map_err(|error| HandlerError::new(error.to_string()))?;
-    let all = SessionManager::list_all(None, None, None).map_err(|error| HandlerError::new(error.to_string()))?;
-    let mut merged: indexmap::IndexMap<String, SessionInfo> = indexmap::IndexMap::new();
+        .map_err(|error| HandlerError::new(error.message()))?;
+    let all = SessionManager::list_all(None, None, None).map_err(|error| HandlerError::new(error.message()))?;
+    let mut merged: indexmap::IndexMap<JsString, SessionInfo> = indexmap::IndexMap::new();
     for session in local.into_iter().chain(all) {
         merged.insert(session.path.clone(), session);
     }
     Ok(merged.into_values().collect())
 }
 
-fn resolve_resume_session_file(params: &ResumeSessionParams, ctx: &ExtensionContext) -> Result<String, HandlerError> {
+fn resolve_resume_session_file(params: &ResumeSessionParams, ctx: &ExtensionContext) -> Result<JsString, HandlerError> {
     if let Some(path) = &params.path {
         let cwd = ctx.cwd()?;
-        let resolved = crate::utils::paths::resolve_path(&encode_node_utf8(path), &cwd, &Default::default())
-            .map_err(|error| HandlerError::new(error.to_string()))?;
+        let resolved = crate::utils::paths::resolve_path(path, &cwd, &Default::default())
+            .map_err(|error| HandlerError::new(error.message()))?;
         return assert_resume_session_path(&resolved);
     }
     let sessions = list_resolvable_sessions(ctx)?;
     if let Some(name) = &params.name {
         return Ok(
             find_unique_session_match(&sessions, &(JsString::from("name '") + name + "'"), |session| {
-                session.name.as_ref().map(JsString::from).as_ref() == Some(name)
+                session.name.as_ref() == Some(name)
             })?
             .path,
         );
@@ -451,16 +480,14 @@ fn resolve_resume_session_file(params: &ResumeSessionParams, ctx: &ExtensionCont
     }
     Ok(
         find_unique_session_match(&sessions, &(JsString::from("id '") + id + "'"), |session| {
-            JsString::from(&session.id).starts_with(id)
+            session.id.starts_with(id)
         })?
         .path,
     )
 }
 
 fn list_scoped_models(ctx: &ExtensionContext) -> Result<Value, HandlerError> {
-    let scoped = ctx
-        .scoped_models()
-        .map_err(|error| HandlerError::new(error.to_string()))?;
+    let scoped = ctx.scoped_models()?;
     let models: Vec<Value> = scoped
         .into_iter()
         .map(|scoped| {
@@ -485,16 +512,16 @@ fn list_scoped_models(ctx: &ExtensionContext) -> Result<Value, HandlerError> {
     Ok(Value::Array(models))
 }
 
-fn parse_thinking_level(value: &str) -> Option<ThinkingLevel> {
-    match value {
-        "off" => Some(ThinkingLevel::Off),
-        "minimal" => Some(ThinkingLevel::Minimal),
-        "low" => Some(ThinkingLevel::Low),
-        "medium" => Some(ThinkingLevel::Medium),
-        "high" => Some(ThinkingLevel::High),
-        "xhigh" => Some(ThinkingLevel::XHigh),
-        "max" => Some(ThinkingLevel::Max),
-        "ultra" => Some(ThinkingLevel::Ultra),
+fn parse_thinking_level(value: &JsString) -> Option<ThinkingLevel> {
+    match value.to_utf8().as_deref() {
+        Ok("off") => Some(ThinkingLevel::Off),
+        Ok("minimal") => Some(ThinkingLevel::Minimal),
+        Ok("low") => Some(ThinkingLevel::Low),
+        Ok("medium") => Some(ThinkingLevel::Medium),
+        Ok("high") => Some(ThinkingLevel::High),
+        Ok("xhigh") => Some(ThinkingLevel::XHigh),
+        Ok("max") => Some(ThinkingLevel::Max),
+        Ok("ultra") => Some(ThinkingLevel::Ultra),
         _ => None,
     }
 }
@@ -522,13 +549,11 @@ async fn set_session_model(
         return Err(HandlerError::new("pi.models.set requires a non-empty id"));
     }
     let thinking_level = match record.get("thinkingLevel") {
-        Some(Value::String(value)) => Some(parse_thinking_level(&value.to_utf8().unwrap_or_default()).ok_or_else(
-            || {
-                HandlerError::new(
-                    "pi.models.set thinkingLevel must be off, minimal, low, medium, high, xhigh, max, or ultra",
-                )
-            },
-        )?),
+        Some(Value::String(value)) => Some(parse_thinking_level(value).ok_or_else(|| {
+            HandlerError::new(
+                "pi.models.set thinkingLevel must be off, minimal, low, medium, high, xhigh, max, or ultra",
+            )
+        })?),
         Some(_) => {
             return Err(HandlerError::new(
                 "pi.models.set thinkingLevel must be off, minimal, low, medium, high, xhigh, max, or ultra",
@@ -546,18 +571,13 @@ async fn set_session_model(
         .ok_or_else(|| {
             HandlerError::new(JsString::from("Model not found or not authenticated: ") + &provider + "/" + &id)
         })?;
-    if !pi
-        .set_model(model.clone())
-        .await
-        .map_err(|error| HandlerError::new(error.to_string()))?
-    {
+    if !pi.set_model(model.clone()).await? {
         return Err(HandlerError::new(
             JsString::from("No API key for ") + &provider + "/" + &id,
         ));
     }
     if let Some(level) = thinking_level {
-        pi.set_thinking_level(level)
-            .map_err(|error| HandlerError::new(error.to_string()))?;
+        pi.set_thinking_level(level)?;
     }
     let mut result = Map::new();
     result.insert("model".into(), js_json::to_value(&model).unwrap_or(Value::Null));
@@ -732,7 +752,7 @@ fn pyrun_parameters() -> serde_json::Value {
     })
 }
 
-fn update_existing_text(context: &ToolRenderContext, text: String) -> Option<ComponentRef> {
+fn update_existing_text(context: &ToolRenderContext, text: JsString) -> Option<ComponentRef> {
     let component = context.last_component.clone()?;
     {
         let mut borrowed = component.try_borrow_mut().ok()?;
@@ -745,15 +765,15 @@ fn update_existing_text(context: &ToolRenderContext, text: String) -> Option<Com
 fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
     let session_id = read_string_arg(args, "session_id");
     let label = match session_id {
-        Some(session_id) if session_id != "default" => format!("pyrun_eval({})", encode_node_utf8(&session_id)),
+        Some(session_id) if session_id != "default" => js_format!("pyrun_eval({})", session_id),
         _ => "pyrun_eval".into(),
     };
     let code = read_string_arg(args, "code");
     let highlighted = code
         .as_ref()
-        .map(|code| highlight_code(&encode_node_utf8(code), Some("python")).join("\n"));
+        .map(|code| JsString::join(highlight_code(code, Some(&"python".into())), "\n"));
     let text = match highlighted {
-        Some(highlighted) => format!("{}\n{highlighted}", theme.bold(&label)),
+        Some(highlighted) => js_format!("{}\n{}", theme.bold(&label), highlighted),
         None => theme.bold(&label),
     };
     if let Some(component) = update_existing_text(context, text.clone()) {
@@ -780,8 +800,7 @@ fn render_result(
         "\n",
     );
     let executed = get_executed_code(result.details.as_ref()).or_else(|| read_string_arg(&context.args, "code"));
-    let executed = executed.as_ref().map(encode_node_utf8);
-    let text = format_pyrun_result(&encode_node_utf8(&output), executed.as_deref(), context.is_error, theme);
+    let text = format_pyrun_result(&output, executed.as_ref(), context.is_error, theme);
     if let Some(component) = update_existing_text(context, text.clone()) {
         return component;
     }
@@ -800,10 +819,7 @@ pub fn create_pyrun_tool_definition(evaluate: PyrunEvaluate) -> ToolDefinition {
                         .and_then(Value::as_string)
                         .cloned()
                         .unwrap_or_default(),
-                    session_id: params
-                        .get("session_id")
-                        .and_then(Value::as_string)
-                        .and_then(|id| id.to_utf8().ok()),
+                    session_id: params.get("session_id").and_then(Value::as_string).cloned(),
                 };
                 evaluate(params, ctx, on_update, signal, Some(_tool_call_id)).await
             }) as BoxFuture<'static, Result<AgentToolResult, HandlerError>>
@@ -840,7 +856,7 @@ pub fn install_pyrun_extension(pi: &ExtensionApi, options: PyrunExtensionOptions
         .bwrap_command
         .clone()
         .or_else(|| pi_js_compat::process_env::get("PI_BWRAP_COMMAND"))
-        .unwrap_or_else(|| "bwrap".to_owned());
+        .unwrap_or_else(|| "bwrap".into());
     let slot = Arc::new(ExecutorSlot::new());
     let slot_for_evaluate = Arc::clone(&slot);
     let dispatch_for_evaluate = Arc::clone(&dispatch_pi_request);
