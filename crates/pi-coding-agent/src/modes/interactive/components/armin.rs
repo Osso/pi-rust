@@ -3,6 +3,7 @@
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use pi_js_compat::{js_format, js_json::JsString};
 use pi_tui::tui::Component;
 
 use crate::modes::interactive::theme::{ThemeColor, with_theme};
@@ -82,14 +83,14 @@ fn get_char(x: usize, row: usize) -> &'static str {
     }
 }
 
-fn build_final_grid() -> Vec<Vec<String>> {
+fn build_final_grid() -> Vec<Vec<JsString>> {
     (0..DISPLAY_HEIGHT)
-        .map(|row| (0..WIDTH).map(|x| get_char(x, row).to_owned()).collect())
+        .map(|row| (0..WIDTH).map(|x| get_char(x, row).into()).collect())
         .collect()
 }
 
-fn empty_grid() -> Vec<Vec<String>> {
-    vec![vec![" ".to_owned(); WIDTH]; DISPLAY_HEIGHT]
+fn empty_grid() -> Vec<Vec<JsString>> {
+    vec![vec![JsString::from(" "); WIDTH]; DISPLAY_HEIGHT]
 }
 
 fn shuffled_positions() -> Vec<(usize, usize)> {
@@ -107,10 +108,10 @@ fn shuffled_positions() -> Vec<(usize, usize)> {
 pub struct ArminComponent {
     request_render: Rc<dyn Fn()>,
     effect: Effect,
-    final_grid: Vec<Vec<String>>,
-    current_grid: Vec<Vec<String>>,
+    final_grid: Vec<Vec<JsString>>,
+    current_grid: Vec<Vec<JsString>>,
     effect_state: EffectState,
-    cached_lines: Vec<String>,
+    cached_lines: Vec<JsString>,
     cached_width: Option<usize>,
     grid_version: usize,
     cached_version: Option<usize>,
@@ -157,7 +158,7 @@ impl ArminComponent {
         self.next_tick.is_some()
     }
 
-    pub fn current_grid(&self) -> &[Vec<String>] {
+    pub fn current_grid(&self) -> &[Vec<JsString>] {
         &self.current_grid
     }
 
@@ -374,32 +375,32 @@ impl ArminComponent {
         self.grid_version += 1;
     }
 
-    fn clip_row(row: &[String], available_width: isize) -> String {
+    fn clip_row(row: &[JsString], available_width: isize) -> JsString {
         let length = row.len() as isize;
         let end = if available_width < 0 {
             (length + available_width).max(0)
         } else {
             available_width.min(length)
         };
-        row[..end as usize].concat()
+        JsString::join(&row[..end as usize], "")
     }
 }
 
 impl Component for ArminComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         if self.cached_width == Some(width) && self.cached_version == Some(self.grid_version) {
             return self.cached_lines.clone();
         }
 
         let padding = 1;
         let available_width = width as isize - padding as isize;
-        let mut lines: Vec<String> = self
+        let mut lines: Vec<JsString> = self
             .current_grid
             .iter()
             .map(|row| {
                 let clipped = Self::clip_row(row, available_width);
-                let pad_right = (width as isize - padding as isize - clipped.chars().count() as isize).max(0) as usize;
-                format!(
+                let pad_right = (width as isize - padding as isize - clipped.len() as isize).max(0) as usize;
+                js_format!(
                     " {}{}",
                     with_theme(|theme| theme.fg(ThemeColor::Accent, &clipped)),
                     " ".repeat(pad_right)
@@ -409,7 +410,7 @@ impl Component for ArminComponent {
 
         let message = "ARMIN SAYS HI";
         let message_pad_right = (width as isize - padding as isize - message.len() as isize).max(0) as usize;
-        lines.push(format!(
+        lines.push(js_format!(
             " {}{}",
             with_theme(|theme| theme.fg(ThemeColor::Accent, message)),
             " ".repeat(message_pad_right)

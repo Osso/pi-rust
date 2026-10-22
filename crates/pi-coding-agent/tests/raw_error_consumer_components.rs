@@ -174,3 +174,22 @@ fn compaction_expanded_summary_keeps_raw_units() {
     message.set_expanded(false);
     assert!(!JsString::join(message.render(80), "\n").contains(&raw));
 }
+
+#[test]
+fn animation_leaf_caches_native_render_output() {
+    use pi_coding_agent::modes::interactive::components::{armin::ArminComponent, daxnuts::DaxnutsComponent};
+    init_theme();
+    let mut armin = ArminComponent::new(Rc::new(|| {}));
+    let first = armin.render(80);
+    assert!(JsString::join(first.clone(), "\n").contains("ARMIN SAYS HI"));
+    assert_eq!(armin.render(80), first);
+    armin.invalidate();
+    assert_eq!(armin.render(80), first);
+    armin.dispose();
+    let mut daxnuts = DaxnutsComponent::new(Rc::new(|| {}));
+    let first = daxnuts.render(80);
+    assert_eq!(daxnuts.render(80), first);
+    daxnuts.invalidate();
+    assert_eq!(daxnuts.render(80), first);
+    daxnuts.dispose();
+}
