@@ -190,3 +190,15 @@ All 70 frozen getters/is methods are observed in `snapshot`; all 53 setters have
 - Frozen `enqueueWrite` lines 709–720 catch each task failure and continue; Rust `flush` now catches unwinds at that same per-snapshot boundary, records the original scoped panic, and continues without rollback/retry. `panicking_write_is_recorded_without_dropping_later_snapshots_or_latching_drain` injects a one-shot panic inside real file storage's lock, observes later project/global snapshots, drains one error, then persists/reconstructs another burst. RED at `dc0aea52` times out on the later project snapshot.
 - `SettingsDrainGuard::drop` clears scheduling under the worker-held mutex, both normally and during unwind. `spawn_settings_drain` uses `Builder::spawn`; OS failure clears the reservation and records an explicit error against the first queued scope without taking snapshots. Thread creation failure is source-proven only: no spawner seam or host resource exhaustion. Queue remains available to a later shared guard release or explicit flush.
 - Raw mutation audit: package-manager CLI trust setters and resource-loader trust changes only update/reload trust state, never queue saves. SDK session sandbox override is session-only. Resource-loader/AgentSession reload synchronously flushes earlier snapshots. SDK settings example's persistent setter immediately calls explicit flush under its raw guard. No audited caller needs rerouting. Shared persistent callers without an explicit barrier must still use the helper.
+
+## Q18 package contract boundary (2026-10-22)
+
+`PackageSource`, `PackageFilter` resource arrays/source, `get_npm_command`, and
+package-owned settings snapshots now use `JsString`. `get_disabled_extensions`
+was widened in the resource-loader slice. The settings JSON authority is still
+scalar serde_json by explicit parent scope; a separately queued native-authority
+slice must fix persisted raw-unit ingress. No parallel native cache is added.
+`lossless_package_contracts` proves the intended in-memory source/pattern contract
+when executable; currently written but coding-library compilation blocks runtime
+proof. Snapshot arrays refuse malformed mixed-type fields wholesale; invalid JS
+runtime types remain excluded, not partial-filter parity.
