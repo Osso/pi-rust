@@ -10388,7 +10388,7 @@ impl InteractiveMode {
             UiRequest::AddTerminalInput { handler, respond } => {
                 let handler = Arc::new(handler);
                 let registered: TerminalInputHandler = Arc::clone(&handler);
-                let id = self.ui.add_input_listener(Rc::new(move |data: &str| {
+                let id = self.ui.add_input_listener(Rc::new(move |data: &JsString| {
                     let result = handler(data);
                     match result {
                         Some(result) => TuiInputListenerResult {

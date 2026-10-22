@@ -253,7 +253,7 @@ pub struct ExtensionWidgetOptions {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalInputResult {
     pub consume: Option<bool>,
-    pub data: Option<String>,
+    pub data: Option<JsString>,
 }
 
 /// UI-thread component returned by a thread-safe extension factory.
@@ -523,13 +523,13 @@ pub struct ExtensionUiCustomOptions {
 /// `onHandle` callback receiving the overlay handle.
 pub type ExtensionUiOnHandle = Arc<dyn Fn(Rc<dyn ExtensionUiOverlayHandle>) + Send + Sync>;
 
-pub type TerminalInputHandler = Arc<dyn Fn(&str) -> Option<TerminalInputResult> + Send + Sync>;
+pub type TerminalInputHandler = Arc<dyn Fn(&JsString) -> Option<TerminalInputResult> + Send + Sync>;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkingIndicatorOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub frames: Option<Vec<String>>,
+    pub frames: Option<Vec<JsString>>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "pi_js_compat::number::serialize_option"
