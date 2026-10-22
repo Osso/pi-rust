@@ -58,3 +58,24 @@ wrapped/padded lines and cached rendered lines are native, with no scalar copies
 horizontal/vertical padding, background off/on); each compares two cached renders.
 Representation RED was the pre-migration scalar Text failing the native trait/test
 interface; GREEN uses actual Text in the same isolated harness as Input.
+
+## Renderer / Terminal write boundary
+
+All `tui.rs` line/frame/cache/overlay/region/fixed-cell buffers use native strings.
+`FixedCell::update` accepts native input. `Terminal::write(&JsString)` receives the
+original assembled buffer. `ProcessTerminal::write(Into<JsString>)` encodes Node UTF-8
+at `output.write_all`; panic-restore buffers likewise remain raw until stdout write.
+Diagnostic JSON serializes native units; crash logs encode only at actual fs write.
+`terminal_image::is_image_line` recognizes native string sequences without conversion.
+
+`raw_frame` compares original native mock write arrays through initial full frame,
+line diff, overlay composition, overlay removal, and fixed-cell update, including
+unpaired high/low and pairs. Stop compares concatenated native content: pre-existing
+Rust stop groups ASCII move+CRLF into one write where frozen source emits two. This
+write-call grouping discrepancy is recorded, not fixed/approved by this slice.
+A separate test compares actual Node `process.stdout.write` bytes with ProcessTerminal
+for high, low, pair, mixed raw strings. Mock captures are never terminal-encoded.
+
+Proof now imports the actual production renderer and ProcessTerminal into the
+module-isolated harness; the earlier unused-interface shim is no longer needed.
+No whole-crate compilation acceptance: remaining component/editor consumers pending.

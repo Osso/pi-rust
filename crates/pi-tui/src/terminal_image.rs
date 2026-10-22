@@ -323,7 +323,8 @@ pub fn set_capabilities(capabilities: TerminalCapabilities) {
 const KITTY_PREFIX: &str = "\x1b_G";
 const ITERM2_PREFIX: &str = "\x1b]1337;File=";
 
-pub fn is_image_line(line: &str) -> bool {
+pub fn is_image_line(line: impl Into<pi_js_compat::js_json::JsString>) -> bool {
+    let line = line.into();
     line.starts_with(KITTY_PREFIX)
         || line.starts_with(ITERM2_PREFIX)
         || line.contains(KITTY_PREFIX)

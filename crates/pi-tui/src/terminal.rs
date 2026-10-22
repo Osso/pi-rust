@@ -6,6 +6,8 @@
 //! on a worker thread that forwards bytes over a channel. Callers drive the queue
 //! with [`Terminal::poll_events`].
 
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
+
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
@@ -48,7 +50,7 @@ pub trait Terminal {
         None
     }
     fn drain_input(&mut self, max_ms: u64, idle_ms: u64);
-    fn write(&mut self, data: &str);
+    fn write(&mut self, data: &JsString);
     fn columns(&self) -> usize;
     fn rows(&self) -> usize;
     fn kitty_protocol_active(&self) -> bool;
@@ -326,17 +328,17 @@ pub struct TerminalRestore {
 #[derive(Default)]
 struct TerminalRestoreState {
     termios: Option<Termios>,
-    terminal_bytes: String,
-    before: String,
-    after: String,
+    terminal_bytes: JsString,
+    before: JsString,
+    after: JsString,
 }
 
 impl TerminalRestore {
     /// Publish the renderer's exact stop output on the owning UI thread.
-    pub fn publish_tui(&self, before: String, after: String) {
+    pub fn publish_tui(&self, before: impl Into<JsString>, after: impl Into<JsString>) {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        state.before = before;
-        state.after = after;
+        state.before = before.into();
+        state.after = after.into();
     }
 
     /// Keep terminal writes excluded through the caller's final report/exit.
@@ -349,13 +351,13 @@ impl TerminalRestore {
 
 fn restore_process_terminal(state: &TerminalRestoreState) -> std::io::Result<()> {
     let mut stdout = std::io::stdout().lock();
-    stdout.write_all(state.before.as_bytes())?;
-    stdout.write_all(state.terminal_bytes.as_bytes())?;
+    stdout.write_all(encode_node_utf8(&state.before).as_bytes())?;
+    stdout.write_all(encode_node_utf8(&state.terminal_bytes).as_bytes())?;
     stdout.flush()?;
     if let Some(termios) = &state.termios {
         tcsetattr(std::io::stdin(), OptionalActions::Now, termios)?;
     }
-    stdout.write_all(state.after.as_bytes())?;
+    stdout.write_all(encode_node_utf8(&state.after).as_bytes())?;
     stdout.flush()
 }
 
@@ -423,7 +425,7 @@ impl ProcessTerminal {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         state.termios = self.was_raw.clone();
-        state.terminal_bytes = self.stop_sequences();
+        state.terminal_bytes = self.stop_sequences().into();
     }
 
     fn stop_sequences(&self) -> String {
@@ -808,22 +810,8 @@ impl Terminal for ProcessTerminal {
         }
     }
 
-    fn write(&mut self, data: &str) {
-        let recovery = self.crash_restore.clone();
-        let _writing = recovery.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Err(error) = self.output.write_all(data.as_bytes()) {
-            self.pending_errors.push(TerminalIoError {
-                syscall: "write",
-                error,
-            });
-        }
-        if let Err(error) = self.output.flush() {
-            self.pending_errors.push(TerminalIoError {
-                syscall: "write",
-                error,
-            });
-        }
-        self.append_write_log(data);
+    fn write(&mut self, data: &JsString) {
+        ProcessTerminal::write(self, data);
     }
 
     fn columns(&self) -> usize {
@@ -897,5 +885,26 @@ impl Terminal for ProcessTerminal {
 
     fn take_errors(&mut self) -> Vec<TerminalIoError> {
         std::mem::take(&mut self.pending_errors)
+    }
+}
+
+impl ProcessTerminal {
+    pub fn write(&mut self, data: impl Into<JsString>) {
+        let data = encode_node_utf8(&data.into());
+        let recovery = self.crash_restore.clone();
+        let _writing = recovery.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Err(error) = self.output.write_all(data.as_bytes()) {
+            self.pending_errors.push(TerminalIoError {
+                syscall: "write",
+                error,
+            });
+        }
+        if let Err(error) = self.output.flush() {
+            self.pending_errors.push(TerminalIoError {
+                syscall: "write",
+                error,
+            });
+        }
+        self.append_write_log(&data);
     }
 }

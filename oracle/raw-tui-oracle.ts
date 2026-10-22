@@ -1,6 +1,7 @@
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 async function main(): Promise<void> {
 	const source = process.argv[2]!;
@@ -35,10 +36,16 @@ async function main(): Promise<void> {
 				for (const action of request.actions) {
 					if (action.set) input.setValue(native(action.set));
 					if (action.key) input.handleInput(native(action.key));
-					states.push({ value: input.getValue(), cursor: (input as any).cursor, lines: input.render(request.width) });
+					states.push({ value: input.getValue(), cursor: (input as unknown as { cursor: number }).cursor, lines: input.render(request.width) });
 				}
 				output = { states, submitted };
-			} else {
+			} else if (request.operation === "frame") {
+                output = await captureFrame(source, native(request.units));
+            } else if (request.operation === "terminal_bytes") {
+                const child = spawnSync(process.execPath, ["-e", "process.stdout.write(JSON.parse(process.argv[1]))", JSON.stringify(native(request.units))]);
+                if (child.status !== 0) throw new Error(child.stderr.toString());
+                output = child.stdout.toString("hex");
+            } else {
 				throw new Error(`Unknown operation: ${request.operation}`);
 			}
 			// Preserve the source's native string serialization; no scalar conversion.
@@ -49,3 +56,58 @@ async function main(): Promise<void> {
 	}
 }
 void main();
+
+class RawTerminal {
+    columns = 12;
+    rows = 5;
+    kittyProtocolActive = true;
+    writes: string[] = [];
+    start(): void { this.write("\x1b[?2004h"); }
+    stop(): void { this.write("\x1b[?2004l"); }
+    async drainInput(): Promise<void> {}
+    write(value: string): void { this.writes.push(value); }
+    moveBy(lines: number): void {
+        if (lines > 0) this.write(`\x1b[${lines}B`);
+        else if (lines < 0) this.write(`\x1b[${-lines}A`);
+    }
+    hideCursor(): void { this.write("\x1b[?25l"); }
+    showCursor(): void { this.write("\x1b[?25h"); }
+    clearLine(): void { this.write("\x1b[K"); }
+    clearFromCursor(): void { this.write("\x1b[J"); }
+    clearScreen(): void { this.write("\x1b[2J\x1b[H"); }
+    setTitle(): void {}
+    setProgress(): void {}
+    takeWrites(): string[] { return this.writes.splice(0); }
+}
+
+async function captureFrame(source: string, raw: string): Promise<unknown> {
+    const module = await import(pathToFileURL(path.join(source, "tui.ts")).href);
+    const images = await import(pathToFileURL(path.join(source, "terminal-image.ts")).href);
+    images.setCapabilities({ images: null, trueColor: false, hyperlinks: false });
+    const terminal = new RawTerminal();
+    const tui = new module.TUI(terminal);
+    const lines = [`x${raw}`, "tail"];
+    const frames: string[][] = [];
+    tui.addChild({ render: () => lines, invalidate() {} });
+    const flush = (): void => {
+        tui.renderPendingState();
+        frames.push(terminal.takeWrites());
+    };
+    tui.start();
+    flush();
+    lines[0] = `y${raw}`;
+    tui.requestRender();
+    flush();
+    const handle = tui.showOverlay({ render: () => [raw], invalidate() {} }, { width: 4, row: 0, col: 2 });
+    flush();
+    handle.hide();
+    flush();
+    const cell = tui.createFixedCell();
+    cell.place(0, 1);
+    const updated = cell.update("\ud800z\udc00");
+    frames.push(terminal.takeWrites());
+    tui.stop();
+    frames.push(terminal.takeWrites());
+    const stop = frames.pop()!.join("");
+    return [frames, stop, updated];
+}
