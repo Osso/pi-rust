@@ -159,6 +159,35 @@ fn fork_unknown_record_adds_parent_link_without_inventing_identity() {
 }
 
 #[test]
+fn tree_sort_does_not_replace_invalid_raw_timestamps_with_epoch_zero() {
+    let sandbox = tempfile::tempdir().unwrap();
+    let dir: JsString = sandbox.path().display().to_string().into();
+    let path = dir.clone() + "/tree.jsonl";
+    let initial = fixture();
+    let mut lines: Vec<_> = initial.lines().take(2).collect();
+    lines.push(r#"{"type":"custom","id":"first","parentId":"root\ud800","timestamp":"2026-10-21T00:00:01.000Z","customType":"x"}"#);
+    lines.push(
+        r#"{"type":"custom","id":"second","parentId":"root\ud800","timestamp":"invalid\udfff","customType":"x"}"#,
+    );
+    let mut source = oracle::TsOracle::spawn(
+        "lossless-session-records-oracle.mjs",
+        "packages/coding-agent/src/core/session-manager.ts",
+    );
+    request(&mut source, "write", &path, Some(&(lines.join("\n") + "\n")));
+    let expected = request(&mut source, "read", &path, None);
+    let manager = SessionManager::open(&path, Some(&dir), None).unwrap();
+    assert_eq!(
+        serde_json::to_string(&manager.get_tree()).unwrap(),
+        expected
+            .get("tree")
+            .and_then(JsValue::as_string)
+            .unwrap()
+            .to_utf8()
+            .unwrap()
+    );
+}
+
+#[test]
 fn compressed_transcript_load_preserves_raw_records() {
     let sandbox = tempfile::tempdir().unwrap();
     let path: JsString = sandbox.path().join("source.jsonl.zst").display().to_string().into();

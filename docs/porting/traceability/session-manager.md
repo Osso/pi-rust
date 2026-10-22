@@ -193,3 +193,10 @@ manifest `/tmp/pi-rust-repin-lossless-session-records/full/crates/pi-coding-agen
 Target only the three new dedicated integration tests and `record_identity_tests`;
 worker location comes from `Q18_HARNESS_PACKAGE_DIR`. Metadata, resident listing and
 default live configuration are intentionally excluded via panic-on-use collaborators.
+
+Native parser input accepts `impl Into<JsString>` and splits/trims UTF-16 directly;
+no UTF-8 conversion is needed for literal unpaired units inside JSON strings/keys.
+The new differential proves this source-valid API input (the previous scalar API
+rejected it at compile time). Tree timestamp comparison now keeps JavaScript's NaN
+comparator equality instead of replacing invalid raw timestamps with epoch zero;
+a two-sibling pinned differential reproduced and covers the ordering correction.

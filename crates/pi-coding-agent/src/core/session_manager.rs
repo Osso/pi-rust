@@ -1123,8 +1123,9 @@ pub fn migrate_session_entries(entries: &mut [FileEntry]) {
 }
 
 /// Parse JSONL content, skipping malformed lines.
-pub fn parse_session_entries(content: &str) -> Vec<FileEntry> {
+pub fn parse_session_entries(content: impl Into<JsString>) -> Vec<FileEntry> {
     content
+        .into()
         .trim()
         .split('\n')
         .filter(|line| !line.trim().is_empty())
@@ -1537,7 +1538,7 @@ fn parse_session_entry_line(line: &str) -> Option<FileEntry> {
 }
 
 /// Parse JSONL without projecting message content through scalar-only JSON.
-pub(crate) fn parse_session_file_entry(line: &str) -> Result<FileEntry, SessionManagerError> {
+pub(crate) fn parse_session_file_entry(line: impl Into<JsString>) -> Result<FileEntry, SessionManagerError> {
     pi_js_compat::js_json::parse_lossless(line)
         .map_err(|cause| error(cause.into_message()))
         .and_then(|value| pi_js_compat::js_json::from_value(&value).map_err(control_db_error))
@@ -2325,7 +2326,15 @@ fn attach_children_in_bottom_up_order(
             .iter()
             .filter_map(|child| nodes[*child].take())
             .collect();
-        children.sort_by_key(|node| node.entry.timestamp().and_then(record_timestamp_millis).unwrap_or(0));
+        children.sort_by(|left, right| {
+            let left = left.entry.timestamp().and_then(record_timestamp_millis);
+            let right = right.entry.timestamp().and_then(record_timestamp_millis);
+            match (left, right) {
+                (Some(left), Some(right)) => left.cmp(&right),
+                // JS sort treats a NaN comparator result as equality, not epoch zero.
+                _ => std::cmp::Ordering::Equal,
+            }
+        });
         if let Some(mut node) = nodes[*position].take() {
             node.children = children;
             nodes[*position] = Some(node);

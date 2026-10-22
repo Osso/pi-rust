@@ -5,6 +5,30 @@ use pi_coding_agent::core::session_manager::{migrate_session_entries, parse_sess
 use pi_js_compat::js_json::{JsString, JsValue, parse_lossless};
 
 #[test]
+fn native_parser_accepts_literal_unpaired_units_without_a_utf8_boundary() {
+    use pi_js_compat::js_json::JsObject;
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let content = JsString::from("{\"type\":\"custom\",\"id\":\"") + &raw + "\",\"" + &raw + "\":\"literal\"}";
+    let mut input = JsObject::new();
+    input.insert("id".into(), JsValue::Number(91030.0));
+    input.insert("operation".into(), JsValue::String("parse".into()));
+    input.insert("content".into(), JsValue::String(content.clone()));
+    let mut source = oracle::TsOracle::spawn(
+        "lossless-session-records-oracle.mjs",
+        "packages/coding-agent/src/core/session-manager.ts",
+    );
+    let expected = source.request_lossless(&JsValue::Object(input));
+    assert_eq!(expected.get("ok"), Some(&JsValue::Bool(true)), "{expected:?}");
+    let entries = parse_session_entries(&content);
+    assert_eq!(entries.len(), 1);
+    let actual = serde_json::to_string(&entries[0]).unwrap();
+    assert_eq!(
+        expected.get("output").unwrap().as_array().unwrap()[0].as_string(),
+        Some(&JsString::from(actual))
+    );
+}
+
+#[test]
 fn pinned_parse_migrate_and_persistence_match_raw_record_lines() {
     use pi_coding_agent::core::session_tool_output::serialize_session_entry_for_persistence;
     let mut source = oracle::TsOracle::spawn(
