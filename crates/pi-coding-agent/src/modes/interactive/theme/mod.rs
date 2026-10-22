@@ -22,9 +22,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use pi_agent_core::ThinkingLevel;
-use pi_js_compat::compare_in_locale;
+use pi_js_compat::collator::locale_compare_utf16;
 use pi_js_compat::js_format;
-use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value, encode_node_utf8, parse_lossless};
 use pi_js_compat::number::parse_int;
 use pi_tui::components::editor::EditorTheme;
 use pi_tui::components::markdown::MarkdownTheme;
@@ -33,7 +33,6 @@ use pi_tui::components::settings_list::SettingsListTheme;
 use pi_tui::components::text::StyleFn;
 use pi_tui::terminal_colors::RgbColor;
 use pi_tui::terminal_image::get_capabilities;
-use serde_json::{Map, Value};
 
 use crate::config::{embedded_builtin_theme, get_custom_themes_dir, get_themes_dir, package_dir_override};
 use crate::core::source_info::SourceInfo;
@@ -51,7 +50,7 @@ use crate::utils::syntax_highlight::{
 /// A theme color token: a hex string, a variable reference, or a 256-color index.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ColorValue {
-    Text(String),
+    Text(JsString),
     Index(i64),
 }
 
@@ -224,7 +223,8 @@ pub enum ThemeColor {
 }
 
 impl ThemeColor {
-    fn from_key(key: &str) -> Option<Self> {
+    fn from_key(key: &JsString) -> Option<Self> {
+        let key = COLOR_KEYS.iter().find(|candidate| key == **candidate).copied()?;
         let color = match key {
             "accent" => Self::Accent,
             "border" => Self::Border,
@@ -345,7 +345,8 @@ pub enum ThemeBg {
 }
 
 impl ThemeBg {
-    fn from_key(key: &str) -> Option<Self> {
+    fn from_key(key: &JsString) -> Option<Self> {
+        let key = COLOR_KEYS.iter().find(|candidate| key == **candidate).copied()?;
         let background = match key {
             "selectedBg" => Self::SelectedBg,
             "scrollbarThumb" => Self::ScrollbarThumb,
@@ -384,22 +385,33 @@ pub enum ColorMode {
 /// Validated (or built-in raw) theme JSON.
 #[derive(Clone, Debug)]
 pub struct ThemeJson {
-    pub name: String,
-    pub vars: Map<String, Value>,
-    pub colors: Map<String, Value>,
-    pub export: Option<Map<String, Value>>,
+    pub name: JsString,
+    pub vars: JsObject,
+    pub colors: JsObject,
+    pub export: Option<JsObject>,
 }
 
 // ============================================================================
 // Color Utilities
 // ============================================================================
 
-fn hex_to_rgb(hex: &str) -> Result<RgbColor, ThemeError> {
-    let cleaned = hex.replacen('#', "", 1);
+fn hex_to_rgb(hex: &JsString) -> Result<RgbColor, ThemeError> {
+    let mut cleaned = hex.clone();
+    if let Some(index) = cleaned.find('#') {
+        cleaned.replace_range(index..index + 1, "");
+    }
     if cleaned.len() != 6 {
         return Err(ThemeError::InvalidHexColor(hex.into()));
     }
-    let channel = |start: usize| parse_int(&cleaned[start..start + 2], 16);
+    let channel = |start: usize| {
+        // A surrogate terminates parseInt's numeric grammar, like any non-digit.
+        let prefix: String = cleaned.units()[start..start + 2]
+            .iter()
+            .take_while(|unit| !(0xd800..=0xdfff).contains(*unit))
+            .map(|unit| char::from_u32(u32::from(*unit)).expect("non-surrogate BMP unit"))
+            .collect();
+        parse_int(&prefix, 16)
+    };
     let (r, g, b) = (channel(0), channel(2), channel(4));
     if r.is_nan() || g.is_nan() || b.is_nan() {
         return Err(ThemeError::InvalidHexColor(hex.into()));
@@ -472,7 +484,7 @@ fn rgb_to_256(r: i64, g: i64, b: i64) -> i64 {
     cube_index
 }
 
-fn hex_to_256(hex: &str) -> Result<i64, ThemeError> {
+fn hex_to_256(hex: &JsString) -> Result<i64, ThemeError> {
     let rgb = hex_to_rgb(hex)?;
     Ok(rgb_to_256(i64::from(rgb.r), i64::from(rgb.g), i64::from(rgb.b)))
 }
@@ -509,17 +521,13 @@ fn bg_ansi(color: &ColorValue, mode: ColorMode) -> Result<String, ThemeError> {
 
 fn color_value_from_json(value: &Value) -> ColorValue {
     match value {
-        Value::Number(number) => ColorValue::Index(number.as_i64().unwrap_or_default()),
+        Value::Number(number) => ColorValue::Index(*number as i64),
         Value::String(text) => ColorValue::Text(text.clone()),
-        _ => ColorValue::Text(String::new()),
+        _ => ColorValue::Text(JsString::default()),
     }
 }
 
-fn resolve_var_refs(
-    value: &Value,
-    vars: &Map<String, Value>,
-    visited: &mut HashSet<String>,
-) -> Result<ColorValue, ThemeError> {
+fn resolve_var_refs(value: &Value, vars: &JsObject, visited: &mut HashSet<JsString>) -> Result<ColorValue, ThemeError> {
     let resolved = color_value_from_json(value);
     let reference = match &resolved {
         ColorValue::Text(text) if !text.is_empty() && !text.starts_with('#') => text.clone(),
@@ -535,10 +543,7 @@ fn resolve_var_refs(
     resolve_var_refs(target, vars, visited)
 }
 
-fn resolve_theme_colors(
-    colors: &Map<String, Value>,
-    vars: &Map<String, Value>,
-) -> Result<Vec<(String, ColorValue)>, ThemeError> {
+fn resolve_theme_colors(colors: &JsObject, vars: &JsObject) -> Result<Vec<(JsString, ColorValue)>, ThemeError> {
     colors
         .iter()
         .map(|(key, value)| {
@@ -548,7 +553,7 @@ fn resolve_theme_colors(
         .collect()
 }
 
-fn with_theme_color_fallbacks(colors: &Map<String, Value>) -> Map<String, Value> {
+fn with_theme_color_fallbacks(colors: &JsObject) -> JsObject {
     let mut merged = colors.clone();
     let fallbacks = [
         ("thinkingMax", "thinkingXhigh"),
@@ -560,7 +565,7 @@ fn with_theme_color_fallbacks(colors: &Map<String, Value>) -> Map<String, Value>
         if !merged.contains_key(key)
             && let Some(fallback) = colors.get(fallback_key)
         {
-            merged.insert(key.to_owned(), fallback.clone());
+            merged.insert(key.into(), fallback.clone());
         }
     }
     merged
@@ -573,8 +578,8 @@ fn with_theme_color_fallbacks(colors: &Map<String, Value>) -> Map<String, Value>
 /// A resolved theme: ANSI-wrapped color lookups plus text styles.
 #[derive(Clone, Debug)]
 pub struct Theme {
-    pub name: Option<String>,
-    pub source_path: Option<PathBuf>,
+    pub name: Option<JsString>,
+    pub source_path: Option<JsString>,
     pub source_info: Option<SourceInfo>,
     fg_colors: HashMap<ThemeColor, String>,
     bg_colors: HashMap<ThemeBg, String>,
@@ -584,11 +589,11 @@ pub struct Theme {
 
 impl Theme {
     pub fn new(
-        fg_colors: &[(String, ColorValue)],
-        bg_colors: &[(String, ColorValue)],
+        fg_colors: &[(JsString, ColorValue)],
+        bg_colors: &[(JsString, ColorValue)],
         mode: ColorMode,
-        name: Option<String>,
-        source_path: Option<PathBuf>,
+        name: Option<JsString>,
+        source_path: Option<JsString>,
     ) -> Result<Self, ThemeError> {
         let mut resolved_fg = HashMap::new();
         for (key, value) in fg_colors {
@@ -698,9 +703,9 @@ impl Theme {
 
 #[derive(Default)]
 struct ThemeState {
-    builtin: Option<Map<String, Value>>,
-    registered: HashMap<String, Arc<Theme>>,
-    current_theme_name: Option<String>,
+    builtin: Option<JsObject>,
+    registered: HashMap<JsString, Arc<Theme>>,
+    current_theme_name: Option<JsString>,
     global_theme: Option<Arc<Theme>>,
     on_theme_change: Option<Rc<dyn Fn()>>,
     watcher: Option<notify::RecommendedWatcher>,
@@ -715,11 +720,11 @@ fn with_state<R>(f: impl FnOnce(&mut ThemeState) -> R) -> R {
 }
 
 /// Reload parsed by the file-watcher thread, applied on the next theme access.
-static PENDING_RELOAD: Mutex<Option<(String, Arc<Theme>)>> = Mutex::new(None);
+static PENDING_RELOAD: Mutex<Option<(JsString, Arc<Theme>)>> = Mutex::new(None);
 
 struct WatchControl {
     generation: u64,
-    watched_name: Option<String>,
+    watched_name: Option<JsString>,
 }
 
 static WATCH_CONTROL: Mutex<WatchControl> = Mutex::new(WatchControl {
@@ -727,36 +732,39 @@ static WATCH_CONTROL: Mutex<WatchControl> = Mutex::new(WatchControl {
     watched_name: None,
 });
 
-fn read_theme_file(path: &Path) -> Result<String, ThemeError> {
-    fs::read_to_string(path).map_err(|error| ThemeError::Io {
-        message: node_read_error(&error, &path.display().to_string()).into(),
-    })
+fn read_theme_file(path: &JsString) -> Result<JsString, ThemeError> {
+    let encoded_path = encode_node_utf8(path);
+    fs::read(&encoded_path)
+        .map(|bytes| JsString::from(String::from_utf8_lossy(&bytes).as_ref()))
+        .map_err(|error| ThemeError::Io {
+            message: node_read_error(&error, &encoded_path).into(),
+        })
 }
 
-fn get_builtin_themes() -> Result<Map<String, Value>, ThemeError> {
+fn get_builtin_themes() -> Result<JsObject, ThemeError> {
     if let Some(builtin) = with_state(|state| state.builtin.clone()) {
         return Ok(builtin);
     }
     let themes_dir = get_themes_dir();
     let read_from_disk = package_dir_override().is_some();
-    let mut builtin = Map::new();
+    let mut builtin = JsObject::new();
     for name in ["dark", "light"] {
         let path = themes_dir.join(format!("{name}.json"));
         let content = match embedded_builtin_theme(name) {
-            Some(embedded) if !read_from_disk => embedded.to_owned(),
-            _ => read_theme_file(&path)?,
+            Some(embedded) if !read_from_disk => embedded.into(),
+            _ => read_theme_file(&path.display().to_string().into())?,
         };
-        let value: Value = pi_js_compat::js_json::parse(&content).map_err(|error| ThemeError::Syntax {
+        let value: Value = parse_lossless(&content).map_err(|error| ThemeError::Syntax {
             message: error.message().clone(),
         })?;
-        builtin.insert(name.to_owned(), value);
+        builtin.insert(name.into(), value);
     }
     with_state(|state| state.builtin = Some(builtin.clone()));
     Ok(builtin)
 }
 
 /// Names of all built-in, custom, and registered themes, sorted by name.
-pub fn get_available_themes() -> Result<Vec<String>, ThemeError> {
+pub fn get_available_themes() -> Result<Vec<JsString>, ThemeError> {
     Ok(get_available_themes_with_paths()?
         .into_iter()
         .map(|info| info.name)
@@ -766,14 +774,14 @@ pub fn get_available_themes() -> Result<Vec<String>, ThemeError> {
 /// Theme name/path pairs; built-in themes first, then custom and registered.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ThemeInfo {
-    pub name: String,
-    pub path: Option<PathBuf>,
+    pub name: JsString,
+    pub path: Option<JsString>,
 }
 
 pub fn get_available_themes_with_paths() -> Result<Vec<ThemeInfo>, ThemeError> {
     let themes_dir = get_themes_dir();
     let mut result: Vec<ThemeInfo> = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
+    let mut seen: HashSet<JsString> = HashSet::new();
     let mut add_theme = |theme_info: ThemeInfo| {
         if seen.contains(&theme_info.name) {
             return;
@@ -785,7 +793,7 @@ pub fn get_available_themes_with_paths() -> Result<Vec<ThemeInfo>, ThemeError> {
     for name in get_builtin_themes()?.keys() {
         add_theme(ThemeInfo {
             name: name.clone(),
-            path: Some(themes_dir.join(format!("{name}.json"))),
+            path: Some(JsString::from(themes_dir.display().to_string()) + "/" + name + ".json"),
         });
     }
 
@@ -793,7 +801,7 @@ pub fn get_available_themes_with_paths() -> Result<Vec<ThemeInfo>, ThemeError> {
         add_theme(theme_info);
     }
 
-    let registered: Vec<(String, Option<PathBuf>)> = with_state(|state| {
+    let registered: Vec<(JsString, Option<JsString>)> = with_state(|state| {
         state
             .registered
             .iter()
@@ -804,8 +812,7 @@ pub fn get_available_themes_with_paths() -> Result<Vec<ThemeInfo>, ThemeError> {
         add_theme(ThemeInfo { name, path });
     }
 
-    let locale = pi_js_compat::host_locale();
-    result.sort_by(|left, right| compare_in_locale(&left.name, &right.name, &locale));
+    result.sort_by(|left, right| locale_compare_utf16(left.name.units(), right.name.units()));
     Ok(result)
 }
 
@@ -826,7 +833,7 @@ fn get_custom_theme_infos() -> Result<Vec<ThemeInfo>, ThemeError> {
         if !file.ends_with(".json") {
             continue;
         }
-        let theme_path = custom_themes_dir.join(&file);
+        let theme_path = JsString::from(custom_themes_dir.join(&file).display().to_string());
         if let Ok(custom_theme) = load_theme_from_path(&theme_path, None)
             && let Some(name) = custom_theme.name.clone()
         {
@@ -839,38 +846,38 @@ fn get_custom_theme_infos() -> Result<Vec<ThemeInfo>, ThemeError> {
     Ok(result)
 }
 
-fn assert_theme_name_is_valid(name: &str) -> Result<(), ThemeError> {
+fn assert_theme_name_is_valid(name: &JsString) -> Result<(), ThemeError> {
     if name.contains('/') {
         return Err(ThemeError::NameWithSlash(name.into()));
     }
     Ok(())
 }
 
-fn json_type_errors(path: &str, value: &Value) -> Vec<String> {
+fn json_type_errors(path: &JsString, value: &Value) -> Vec<JsString> {
     match value {
         Value::String(_) => Vec::new(),
-        Value::Number(number) if number.as_i64().is_some() => {
-            let index = number.as_i64().unwrap_or_default();
-            if index < 0 {
+        Value::Number(number) if number.fract() == 0.0 => {
+            let index = *number;
+            if index < 0.0 {
                 vec![
-                    format!("  - {path}: must be string"),
-                    format!("  - {path}: must be >= 0"),
-                    format!("  - {path}: must match a schema in anyOf"),
+                    js_format!("  - {}: must be string", path),
+                    js_format!("  - {}: must be >= 0", path),
+                    js_format!("  - {}: must match a schema in anyOf", path),
                 ]
-            } else if index > 255 {
+            } else if index > 255.0 {
                 vec![
-                    format!("  - {path}: must be string"),
-                    format!("  - {path}: must be <= 255"),
-                    format!("  - {path}: must match a schema in anyOf"),
+                    js_format!("  - {}: must be string", path),
+                    js_format!("  - {}: must be <= 255", path),
+                    js_format!("  - {}: must match a schema in anyOf", path),
                 ]
             } else {
                 Vec::new()
             }
         }
         _ => vec![
-            format!("  - {path}: must be string"),
-            format!("  - {path}: must be integer"),
-            format!("  - {path}: must match a schema in anyOf"),
+            js_format!("  - {}: must be string", path),
+            js_format!("  - {}: must be integer", path),
+            js_format!("  - {}: must match a schema in anyOf", path),
         ],
     }
 }
@@ -880,10 +887,10 @@ const MAX_VALIDATION_ERRORS: usize = 8;
 
 enum ThemeValidationError {
     MissingColors(Vec<String>),
-    Other(String),
+    Other(JsString),
 }
 
-fn validate_theme_json(label: &str, json: &Value) -> Result<(), ThemeError> {
+fn validate_theme_json(label: &JsString, json: &Value) -> Result<(), ThemeError> {
     let Value::Object(root) = json else {
         return Err(invalid_theme(label, "/", "must be object"));
     };
@@ -898,7 +905,7 @@ fn validate_theme_json(label: &str, json: &Value) -> Result<(), ThemeError> {
         required.push("colors");
     }
     if !required.is_empty() {
-        errors.push(ThemeValidationError::Other(format!(
+        errors.push(ThemeValidationError::Other(js_format!(
             "  - /: must have required properties {}",
             required.join(", ")
         )));
@@ -907,13 +914,13 @@ fn validate_theme_json(label: &str, json: &Value) -> Result<(), ThemeError> {
     if let Some(schema) = root.get("$schema")
         && !schema.is_string()
     {
-        errors.push(ThemeValidationError::Other("  - /$schema: must be string".to_owned()));
+        errors.push(ThemeValidationError::Other("  - /$schema: must be string".into()));
     }
 
     if let Some(name) = root.get("name")
         && !name.is_string()
     {
-        errors.push(ThemeValidationError::Other("  - /name: must be string".to_owned()));
+        errors.push(ThemeValidationError::Other("  - /name: must be string".into()));
     }
 
     if let Some(vars) = root.get("vars") {
@@ -921,13 +928,13 @@ fn validate_theme_json(label: &str, json: &Value) -> Result<(), ThemeError> {
             Value::Object(vars) => {
                 for (key, value) in vars {
                     errors.extend(
-                        json_type_errors(&format!("/vars/{key}"), value)
+                        json_type_errors(&js_format!("/vars/{}", key), value)
                             .into_iter()
                             .map(ThemeValidationError::Other),
                     );
                 }
             }
-            _ => errors.push(ThemeValidationError::Other("  - /vars: must be object".to_owned())),
+            _ => errors.push(ThemeValidationError::Other("  - /vars: must be object".into())),
         }
     }
 
@@ -945,14 +952,14 @@ fn validate_theme_json(label: &str, json: &Value) -> Result<(), ThemeError> {
                 for key in COLOR_KEYS {
                     if let Some(value) = colors.get(*key) {
                         errors.extend(
-                            json_type_errors(&format!("/colors/{key}"), value)
+                            json_type_errors(&js_format!("/colors/{}", key), value)
                                 .into_iter()
                                 .map(ThemeValidationError::Other),
                         );
                     }
                 }
             }
-            _ => errors.push(ThemeValidationError::Other("  - /colors: must be object".to_owned())),
+            _ => errors.push(ThemeValidationError::Other("  - /colors: must be object".into())),
         }
     }
 
@@ -962,20 +969,20 @@ fn validate_theme_json(label: &str, json: &Value) -> Result<(), ThemeError> {
                 for key in EXPORT_KEYS {
                     if let Some(value) = export.get(*key) {
                         errors.extend(
-                            json_type_errors(&format!("/export/{key}"), value)
+                            json_type_errors(&js_format!("/export/{}", key), value)
                                 .into_iter()
                                 .map(ThemeValidationError::Other),
                         );
                     }
                 }
             }
-            _ => errors.push(ThemeValidationError::Other("  - /export: must be object".to_owned())),
+            _ => errors.push(ThemeValidationError::Other("  - /export: must be object".into())),
         }
     }
 
     errors.truncate(MAX_VALIDATION_ERRORS);
     let mut missing_colors: Vec<String> = Vec::new();
-    let mut other_errors: Vec<String> = Vec::new();
+    let mut other_errors: Vec<JsString> = Vec::new();
     for error in errors {
         match error {
             ThemeValidationError::MissingColors(missing) => missing_colors.extend(missing),
@@ -987,7 +994,7 @@ fn validate_theme_json(label: &str, json: &Value) -> Result<(), ThemeError> {
         return Ok(());
     }
 
-    let mut message = format!("Invalid theme \"{label}\":\n");
+    let mut message = js_format!("Invalid theme \"{}\":\n", label);
     if !missing_colors.is_empty() {
         missing_colors.sort();
         message.push_str("\nMissing required color tokens:\n");
@@ -1003,7 +1010,7 @@ fn validate_theme_json(label: &str, json: &Value) -> Result<(), ThemeError> {
     }
     if !other_errors.is_empty() {
         message.push_str("\n\nOther errors:\n");
-        message.push_str(&other_errors.join("\n"));
+        message.push_str(JsString::join(&other_errors, "\n"));
     }
     Err(ThemeError::Invalid {
         label: label.into(),
@@ -1011,10 +1018,15 @@ fn validate_theme_json(label: &str, json: &Value) -> Result<(), ThemeError> {
     })
 }
 
-fn invalid_theme(label: &str, path: &str, message: &str) -> ThemeError {
+fn invalid_theme(label: &JsString, path: &str, message: &str) -> ThemeError {
     ThemeError::Invalid {
         label: label.into(),
-        message: format!("Invalid theme \"{label}\":\n\n\nOther errors:\n  - {path}: {message}").into(),
+        message: js_format!(
+            "Invalid theme \"{}\":\n\n\nOther errors:\n  - {}: {}",
+            label,
+            path,
+            message
+        ),
     }
 }
 
@@ -1023,9 +1035,9 @@ fn theme_json_from_value(value: &Value) -> ThemeJson {
     ThemeJson {
         name: object
             .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_owned(),
+            .and_then(Value::as_string)
+            .cloned()
+            .unwrap_or_default(),
         vars: object
             .get("vars")
             .and_then(Value::as_object)
@@ -1040,22 +1052,22 @@ fn theme_json_from_value(value: &Value) -> ThemeJson {
     }
 }
 
-fn parse_theme_json(label: &str, json: &Value) -> Result<ThemeJson, ThemeError> {
+fn parse_theme_json(label: &JsString, json: &Value) -> Result<ThemeJson, ThemeError> {
     validate_theme_json(label, json)?;
     let theme_json = theme_json_from_value(json);
     assert_theme_name_is_valid(&theme_json.name)?;
     Ok(theme_json)
 }
 
-fn parse_theme_json_content(label: &str, content: &str) -> Result<ThemeJson, ThemeError> {
-    let json: Value = pi_js_compat::js_json::parse(content).map_err(|error| ThemeError::Parse {
+fn parse_theme_json_content(label: &JsString, content: &JsString) -> Result<ThemeJson, ThemeError> {
+    let json: Value = parse_lossless(content).map_err(|error| ThemeError::Parse {
         label: label.into(),
         message: js_format!("SyntaxError: {}", error.message()),
     })?;
     parse_theme_json(label, &json)
 }
 
-fn load_theme_json(name: &str) -> Result<ThemeJson, ThemeError> {
+fn load_theme_json(name: &JsString) -> Result<ThemeJson, ThemeError> {
     let builtin_themes = get_builtin_themes()?;
     if let Some(builtin) = builtin_themes.get(name) {
         return Ok(theme_json_from_value(builtin));
@@ -1066,10 +1078,10 @@ fn load_theme_json(name: &str) -> Result<ThemeJson, ThemeError> {
             return Err(ThemeError::NoSourcePath(name.into()));
         };
         let content = read_theme_file(&source_path)?;
-        return parse_theme_json_content(&source_path.display().to_string(), &content);
+        return parse_theme_json_content(&source_path, &content);
     }
-    let theme_path = get_custom_themes_dir().join(format!("{name}.json"));
-    if !theme_path.exists() {
+    let theme_path = JsString::from(get_custom_themes_dir().display().to_string()) + "/" + name + ".json";
+    if !Path::new(&encode_node_utf8(&theme_path)).exists() {
         return Err(ThemeError::NotFound(name.into()));
     }
     let content = read_theme_file(&theme_path)?;
@@ -1079,7 +1091,7 @@ fn load_theme_json(name: &str) -> Result<ThemeJson, ThemeError> {
 fn create_theme(
     theme_json: &ThemeJson,
     mode: Option<ColorMode>,
-    source_path: Option<PathBuf>,
+    source_path: Option<JsString>,
 ) -> Result<Theme, ThemeError> {
     let color_mode = mode.unwrap_or(if get_capabilities().true_color {
         ColorMode::Truecolor
@@ -1107,14 +1119,13 @@ fn create_theme(
 }
 
 /// Load and validate a theme from an explicit file path.
-pub fn load_theme_from_path(theme_path: &Path, mode: Option<ColorMode>) -> Result<Theme, ThemeError> {
+pub fn load_theme_from_path(theme_path: &JsString, mode: Option<ColorMode>) -> Result<Theme, ThemeError> {
     let content = read_theme_file(theme_path)?;
-    let label = theme_path.display().to_string();
-    let theme_json = parse_theme_json_content(&label, &content)?;
-    create_theme(&theme_json, mode, Some(theme_path.to_path_buf()))
+    let theme_json = parse_theme_json_content(theme_path, &content)?;
+    create_theme(&theme_json, mode, Some(theme_path.clone()))
 }
 
-fn load_theme(name: &str, mode: Option<ColorMode>) -> Result<Arc<Theme>, ThemeError> {
+fn load_theme(name: &JsString, mode: Option<ColorMode>) -> Result<Arc<Theme>, ThemeError> {
     if let Some(registered) = with_state(|state| state.registered.get(name).cloned()) {
         return Ok(registered);
     }
@@ -1123,7 +1134,7 @@ fn load_theme(name: &str, mode: Option<ColorMode>) -> Result<Arc<Theme>, ThemeEr
 }
 
 /// Load a theme by name, returning `None` when loading fails.
-pub fn get_theme_by_name(name: &str) -> Option<Arc<Theme>> {
+pub fn get_theme_by_name(name: &JsString) -> Option<Arc<Theme>> {
     load_theme(name, None).ok()
 }
 
@@ -1150,21 +1161,21 @@ impl TerminalTheme {
 /// Parsed `<light>/<dark>` automatic theme setting.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AutoThemeSetting {
-    pub light_theme: String,
-    pub dark_theme: String,
+    pub light_theme: JsString,
+    pub dark_theme: JsString,
 }
 
-pub fn parse_auto_theme_setting(theme_setting: Option<&str>) -> Option<AutoThemeSetting> {
+pub fn parse_auto_theme_setting(theme_setting: Option<&JsString>) -> Option<AutoThemeSetting> {
     let theme_setting = theme_setting?;
     if theme_setting.is_empty() {
         return None;
     }
     let slash_index = theme_setting.find('/')?;
-    if theme_setting[slash_index + 1..].contains('/') {
+    if theme_setting.slice(slash_index + 1, theme_setting.len()).contains('/') {
         return None;
     }
-    let light_theme = theme_setting[..slash_index].trim().to_owned();
-    let dark_theme = theme_setting[slash_index + 1..].trim().to_owned();
+    let light_theme = theme_setting.slice(0, slash_index).trim();
+    let dark_theme = theme_setting.slice(slash_index + 1, theme_setting.len()).trim();
     if light_theme.is_empty() || dark_theme.is_empty() {
         return None;
     }
@@ -1174,7 +1185,7 @@ pub fn parse_auto_theme_setting(theme_setting: Option<&str>) -> Option<AutoTheme
     })
 }
 
-pub fn resolve_theme_setting(theme_setting: Option<&str>, terminal_theme: TerminalTheme) -> Option<String> {
+pub fn resolve_theme_setting(theme_setting: Option<&JsString>, terminal_theme: TerminalTheme) -> Option<JsString> {
     if let Some(auto_theme) = parse_auto_theme_setting(theme_setting) {
         return Some(match terminal_theme {
             TerminalTheme::Light => auto_theme.light_theme,
@@ -1284,7 +1295,7 @@ fn get_rgb_color_luminance(rgb: RgbColor) -> f64 {
 }
 
 fn get_ansi_color_luminance(index: i64) -> f64 {
-    get_rgb_color_luminance(hex_to_rgb(&ansi256_to_hex(index)).expect("ansi256 colors are valid hex"))
+    get_rgb_color_luminance(hex_to_rgb(&ansi256_to_hex(index).into()).expect("ansi256 colors are valid hex"))
 }
 
 pub fn get_theme_for_rgb_color(rgb: RgbColor) -> TerminalTheme {
@@ -1422,10 +1433,10 @@ fn set_global_theme(theme: Arc<Theme>) {
 ///
 /// The fallback can fail too (missing built-in themes); TypeScript lets that
 /// second throw escape `initTheme`, so the error is returned to the caller.
-pub fn init_theme(theme_name: Option<&str>, enable_watcher: bool) -> Result<(), ThemeError> {
+pub fn init_theme(theme_name: Option<&JsString>, enable_watcher: bool) -> Result<(), ThemeError> {
     let name = theme_name
-        .map(str::to_owned)
-        .unwrap_or_else(|| get_default_theme().as_str().to_owned());
+        .cloned()
+        .unwrap_or_else(|| get_default_theme().as_str().into());
     with_state(|state| state.current_theme_name = Some(name.clone()));
     match load_theme(&name, None) {
         Ok(theme) => {
@@ -1435,8 +1446,8 @@ pub fn init_theme(theme_name: Option<&str>, enable_watcher: bool) -> Result<(), 
             }
         }
         Err(_) => {
-            with_state(|state| state.current_theme_name = Some("dark".to_owned()));
-            let dark = load_theme("dark", None)?;
+            with_state(|state| state.current_theme_name = Some("dark".into()));
+            let dark = load_theme(&"dark".into(), None)?;
             set_global_theme(dark);
         }
     }
@@ -1454,7 +1465,7 @@ pub struct SetThemeResult {
 ///
 /// The dark fallback is loaded outside the `try` in TypeScript, so its failure
 /// escapes `setTheme` and is returned here.
-pub fn set_theme(name: &str, enable_watcher: bool) -> Result<SetThemeResult, ThemeError> {
+pub fn set_theme(name: &JsString, enable_watcher: bool) -> Result<SetThemeResult, ThemeError> {
     with_state(|state| state.current_theme_name = Some(name.to_owned()));
     match load_theme(name, None) {
         Ok(theme) => {
@@ -1472,8 +1483,8 @@ pub fn set_theme(name: &str, enable_watcher: bool) -> Result<SetThemeResult, The
             })
         }
         Err(error) => {
-            with_state(|state| state.current_theme_name = Some("dark".to_owned()));
-            let dark = load_theme("dark", None)?;
+            with_state(|state| state.current_theme_name = Some("dark".into()));
+            let dark = load_theme(&"dark".into(), None)?;
             set_global_theme(dark);
             Ok(SetThemeResult {
                 success: false,
@@ -1486,7 +1497,7 @@ pub fn set_theme(name: &str, enable_watcher: bool) -> Result<SetThemeResult, The
 /// Use an in-memory theme instance; stops the file watcher.
 pub fn set_theme_instance(theme: Arc<Theme>) {
     set_global_theme(theme);
-    with_state(|state| state.current_theme_name = Some("<in-memory>".to_owned()));
+    with_state(|state| state.current_theme_name = Some("<in-memory>".into()));
     stop_theme_watcher();
     let callback = with_state(|state| state.on_theme_change.clone());
     if let Some(callback) = callback {
@@ -1509,9 +1520,9 @@ fn start_theme_watcher() {
     }
 
     let custom_themes_dir = get_custom_themes_dir();
-    let watched_file_name = format!("{watched_theme_name}.json");
-    let theme_file = custom_themes_dir.join(&watched_file_name);
-    if !theme_file.exists() {
+    let watched_file_name = watched_theme_name.clone() + ".json";
+    let theme_file = JsString::from(custom_themes_dir.display().to_string()) + "/" + &watched_file_name;
+    if !Path::new(&encode_node_utf8(&theme_file)).exists() {
         return;
     }
 
@@ -1526,13 +1537,13 @@ fn start_theme_watcher() {
     let listener = move |_event: WatchEventKind, filename: Option<PathBuf>| {
         let should_reload = match filename {
             None => true,
-            Some(filename) => filename.to_string_lossy() == listener_file,
+            Some(filename) => JsString::from(filename.to_string_lossy().as_ref()) == listener_file,
         };
         if !should_reload {
             return;
         }
         let control = WATCH_CONTROL.lock().unwrap_or_else(PoisonError::into_inner);
-        if control.generation != generation || control.watched_name.as_deref() != Some(watched_theme_name.as_str()) {
+        if control.generation != generation || control.watched_name.as_ref() != Some(&watched_theme_name) {
             return;
         }
         drop(control);
@@ -1544,8 +1555,8 @@ fn start_theme_watcher() {
     with_state(|state| state.watcher = watcher);
 }
 
-fn schedule_theme_reload(generation: u64, theme_file: &Path) {
-    let theme_file = theme_file.to_path_buf();
+fn schedule_theme_reload(generation: u64, theme_file: &JsString) {
+    let theme_file = theme_file.clone();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(100));
         {
@@ -1554,7 +1565,7 @@ fn schedule_theme_reload(generation: u64, theme_file: &Path) {
                 return;
             }
         }
-        if !theme_file.exists() {
+        if !Path::new(&encode_node_utf8(&theme_file)).exists() {
             return;
         }
         let Ok(reloaded_theme) = load_theme_from_path(&theme_file, None) else {
@@ -1608,11 +1619,12 @@ fn ansi256_to_hex(index: i64) -> String {
 }
 
 /// Resolved theme colors as CSS-compatible hex strings, in theme key order.
-pub fn get_resolved_theme_colors(theme_name: Option<&str>) -> Result<Vec<(String, String)>, ThemeError> {
+pub fn get_resolved_theme_colors(theme_name: Option<&JsString>) -> Result<Vec<(JsString, JsString)>, ThemeError> {
     let name = match theme_name {
         Some(name) => name.to_owned(),
-        None => with_state(|state| state.current_theme_name.clone())
-            .unwrap_or_else(|| get_default_theme().as_str().to_owned()),
+        None => {
+            with_state(|state| state.current_theme_name.clone()).unwrap_or_else(|| get_default_theme().as_str().into())
+        }
     };
     let is_light = name == "light";
     let theme_json = load_theme_json(&name)?;
@@ -1623,8 +1635,8 @@ pub fn get_resolved_theme_colors(theme_name: Option<&str>) -> Result<Vec<(String
         .into_iter()
         .map(|(key, value)| {
             let css = match value {
-                ColorValue::Index(index) => ansi256_to_hex(index),
-                ColorValue::Text(text) if text.is_empty() => default_text.to_owned(),
+                ColorValue::Index(index) => ansi256_to_hex(index).into(),
+                ColorValue::Text(text) if text.is_empty() => default_text.into(),
                 ColorValue::Text(text) => text,
             };
             (key, css)
@@ -1632,23 +1644,24 @@ pub fn get_resolved_theme_colors(theme_name: Option<&str>) -> Result<Vec<(String
         .collect())
 }
 
-pub fn is_light_theme(theme_name: Option<&str>) -> bool {
-    theme_name == Some("light")
+pub fn is_light_theme(theme_name: Option<&JsString>) -> bool {
+    theme_name.is_some_and(|name| name == "light")
 }
 
 /// Explicit HTML export colors from the theme JSON.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ThemeExportColors {
-    pub page_bg: Option<String>,
-    pub card_bg: Option<String>,
-    pub info_bg: Option<String>,
+    pub page_bg: Option<JsString>,
+    pub card_bg: Option<JsString>,
+    pub info_bg: Option<JsString>,
 }
 
-pub fn get_theme_export_colors(theme_name: Option<&str>) -> ThemeExportColors {
+pub fn get_theme_export_colors(theme_name: Option<&JsString>) -> ThemeExportColors {
     let name = match theme_name {
         Some(name) => name.to_owned(),
-        None => with_state(|state| state.current_theme_name.clone())
-            .unwrap_or_else(|| get_default_theme().as_str().to_owned()),
+        None => {
+            with_state(|state| state.current_theme_name.clone()).unwrap_or_else(|| get_default_theme().as_str().into())
+        }
     };
     let Ok(theme_json) = load_theme_json(&name) else {
         return ThemeExportColors::default();
@@ -1656,10 +1669,10 @@ pub fn get_theme_export_colors(theme_name: Option<&str>) -> ThemeExportColors {
     let Some(export_section) = theme_json.export else {
         return ThemeExportColors::default();
     };
-    let resolve = |key: &str| -> Option<String> {
+    let resolve = |key: &str| -> Option<JsString> {
         let value = export_section.get(key)?;
         match resolve_var_refs(value, &theme_json.vars, &mut HashSet::new()) {
-            Ok(ColorValue::Index(index)) => Some(ansi256_to_hex(index)),
+            Ok(ColorValue::Index(index)) => Some(ansi256_to_hex(index).into()),
             Ok(ColorValue::Text(text)) if text.is_empty() => None,
             Ok(ColorValue::Text(text)) => Some(text),
             Err(_) => None,

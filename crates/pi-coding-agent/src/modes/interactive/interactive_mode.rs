@@ -2366,26 +2366,26 @@ impl ExtensionUiContext for InteractiveUiContext {
             .into_iter()
             .map(|info| crate::core::extensions::types::ThemeInfo {
                 name: info.name,
-                path: info.path.map(|path| path.display().to_string()),
+                path: info.path,
             })
             .collect()
     }
 
-    fn get_theme(&self, name: &str) -> Option<Arc<Theme>> {
+    fn get_theme(&self, name: &JsString) -> Option<Arc<Theme>> {
         crate::modes::interactive::theme::get_theme_by_name(name)
     }
 
-    fn set_theme(&self, name: &str) -> ThemeSetResult {
+    fn set_theme(&self, name: &JsString) -> ThemeSetResult {
         with_mode(self.id, |mode| mode.set_theme_name(name)).unwrap_or(ThemeSetResult {
             success: false,
-            error: Some("UI not available".to_owned()),
+            error: Some("UI not available".into()),
         })
     }
 
     fn set_theme_object(&self, theme: Arc<Theme>) -> ThemeSetResult {
         with_mode(self.id, |mode| mode.set_theme_instance(theme)).unwrap_or(ThemeSetResult {
             success: false,
-            error: Some("UI not available".to_owned()),
+            error: Some("UI not available".into()),
         })
     }
 
@@ -4986,7 +4986,7 @@ impl InteractiveMode {
         let extension_runner = session.extension_runner();
         drop(session);
 
-        let mut source_infos: HashMap<String, SourceInfo> = HashMap::new();
+        let mut source_infos: HashMap<JsString, SourceInfo> = HashMap::new();
         for extension in &extensions.extensions {
             let registration = extension.read();
             source_infos.insert(registration.path.clone(), registration.source_info.clone());
@@ -4999,7 +4999,7 @@ impl InteractiveMode {
         }
         for theme in &themes.themes {
             if let (Some(source_path), Some(source_info)) = (&theme.source_path, &theme.source_info) {
-                source_infos.insert(source_path.display().to_string(), source_info.clone());
+                source_infos.insert(source_path.clone(), source_info.clone());
             }
         }
 
@@ -5167,13 +5167,13 @@ impl InteractiveMode {
                     expanded,
                 );
             }
-            let custom_themes: Vec<(String, Option<SourceInfo>, String)> = themes
+            let custom_themes: Vec<(JsString, Option<SourceInfo>, JsString)> = themes
                 .themes
                 .iter()
                 .filter_map(|theme| {
                     let source_path = theme.source_path.as_ref()?;
                     Some((
-                        source_path.display().to_string(),
+                        source_path.clone(),
                         theme.source_info.clone(),
                         theme.name.clone().unwrap_or_default(),
                     ))
@@ -5302,7 +5302,7 @@ impl InteractiveMode {
         }
     }
 
-    fn set_theme_name(&self, name: &str) -> ThemeSetResult {
+    fn set_theme_name(&self, name: &JsString) -> ThemeSetResult {
         let result = self.theme_controller.borrow_mut().set_theme_name(name, false);
         if result.success {
             self.settings_mut(|settings| {

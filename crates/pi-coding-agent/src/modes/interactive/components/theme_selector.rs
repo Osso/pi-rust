@@ -1,5 +1,6 @@
 //! Ported from `packages/coding-agent/src/modes/interactive/components/theme-selector.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::rc::Rc;
 
 use pi_tui::components::select_list::{SelectItem, SelectList, SelectListLayoutOptions};
@@ -22,13 +23,13 @@ pub struct ThemeSelectorComponent {
 
 impl ThemeSelectorComponent {
     pub fn new(
-        current_theme: &str,
-        on_select: Rc<dyn Fn(String)>,
+        current_theme: &JsString,
+        on_select: Rc<dyn Fn(JsString)>,
         on_cancel: Rc<dyn Fn()>,
-        on_preview: Rc<dyn Fn(String)>,
+        on_preview: Rc<dyn Fn(JsString)>,
     ) -> Self {
         let themes = get_available_themes()
-            .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught(error.label(), error.to_string()));
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught(error.label(), error.message()));
         let theme_items: Vec<SelectItem> = themes
             .iter()
             .map(|name| {
@@ -65,7 +66,7 @@ impl ThemeSelectorComponent {
 }
 
 impl Component for ThemeSelectorComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.container.render(width)
     }
 

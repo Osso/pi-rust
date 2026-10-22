@@ -6,6 +6,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
+use pi_js_compat::{js_format, js_json::JsString};
 use pi_tui::terminal_colors::RgbColor;
 
 use super::{
@@ -50,10 +51,10 @@ impl super::TerminalAutoThemeDetector for BackgroundDetector {
 struct ControllerCore {
     ui: Rc<dyn ThemeUi>,
     settings_manager: SharedSettingsManager,
-    show_error: Rc<dyn Fn(&str)>,
+    show_error: Rc<dyn Fn(&JsString)>,
     on_changed: Rc<dyn Fn()>,
     terminal_theme: TerminalTheme,
-    active_theme_name: Option<String>,
+    active_theme_name: Option<JsString>,
     auto_sync_enabled: bool,
 }
 
@@ -71,21 +72,22 @@ impl ControllerCore {
         self.ui.set_terminal_color_scheme_notifications(enabled);
     }
 
-    fn apply_theme_name(&mut self, theme_name: &str, show_error: bool) -> super::SetThemeResult {
-        let result =
-            set_theme(theme_name, true).unwrap_or_else(|error| throw_uncaught(error.label(), error.to_string()));
+    fn apply_theme_name(&mut self, theme_name: &JsString, show_error: bool) -> super::SetThemeResult {
+        let result = set_theme(theme_name, true).unwrap_or_else(|error| throw_uncaught(error.label(), error.message()));
         self.active_theme_name = Some(if result.success {
             theme_name.to_owned()
         } else {
-            "dark".to_owned()
+            "dark".into()
         });
         self.notify_changed();
         if !result.success
             && show_error
             && let Some(error) = &result.error
         {
-            (self.show_error)(&format!(
-                "Failed to load theme \"{theme_name}\": {error}\nFell back to dark theme."
+            (self.show_error)(&js_format!(
+                "Failed to load theme \"{}\": {}\nFell back to dark theme.",
+                theme_name,
+                error
             ));
         }
         result
@@ -96,7 +98,10 @@ impl ControllerCore {
             return;
         }
         self.terminal_theme = terminal_theme;
-        let auto_theme = parse_auto_theme_setting(lock_settings_manager(&self.settings_manager).get_theme_setting());
+        let setting = lock_settings_manager(&self.settings_manager)
+            .get_theme_setting()
+            .map(JsString::from);
+        let auto_theme = parse_auto_theme_setting(setting.as_ref());
         let Some(auto_theme) = auto_theme else {
             self.set_auto_sync(false);
             return;
@@ -105,7 +110,7 @@ impl ControllerCore {
             TerminalTheme::Light => auto_theme.light_theme,
             TerminalTheme::Dark => auto_theme.dark_theme,
         };
-        if Some(theme_name.as_str()) != self.active_theme_name.as_deref() {
+        if Some(&theme_name) != self.active_theme_name.as_ref() {
             self.apply_theme_name(&theme_name, false);
         }
     }
@@ -121,15 +126,18 @@ impl InteractiveThemeController {
     pub fn new(
         ui: Rc<dyn ThemeUi>,
         settings_manager: SharedSettingsManager,
-        show_error: Rc<dyn Fn(&str)>,
+        show_error: Rc<dyn Fn(&JsString)>,
         on_changed: Rc<dyn Fn()>,
     ) -> Result<Self, ThemeError> {
         let terminal_theme = detect_terminal_background_from_env(&process_env()).theme;
         let active_theme_name = resolve_theme_setting(
-            lock_settings_manager(&settings_manager).get_theme_setting(),
+            lock_settings_manager(&settings_manager)
+                .get_theme_setting()
+                .map(JsString::from)
+                .as_ref(),
             terminal_theme,
         );
-        init_theme(active_theme_name.as_deref(), true)?;
+        init_theme(active_theme_name.as_ref(), true)?;
         let core = Rc::new(RefCell::new(ControllerCore {
             ui,
             settings_manager,
@@ -157,10 +165,10 @@ impl InteractiveThemeController {
     pub fn apply_from_settings(&mut self) {
         let theme_setting = lock_settings_manager(&self.core.borrow().settings_manager)
             .get_theme_setting()
-            .map(str::to_owned);
+            .map(JsString::from);
         let env = process_env();
         let ui = Rc::clone(&self.core.borrow().ui);
-        if let Some(auto_theme) = parse_auto_theme_setting(theme_setting.as_deref()) {
+        if let Some(auto_theme) = parse_auto_theme_setting(theme_setting.as_ref()) {
             let detector = BackgroundDetector(ui);
             let terminal_theme = detect_terminal_theme_for_auto(&detector, Duration::from_millis(100), &env);
             {
@@ -187,19 +195,19 @@ impl InteractiveThemeController {
         {
             let mut core = self.core.borrow_mut();
             core.terminal_theme = detection.theme;
-            if !core.apply_theme_name(detection.theme.as_str(), false).success {
+            if !core.apply_theme_name(&detection.theme.as_str().into(), false).success {
                 return;
             }
         }
         if detection.confidence == super::ThemeDetectionConfidence::High {
             let settings = Arc::clone(&self.core.borrow().settings_manager);
             let mut settings = lock_settings_manager(&settings);
-            settings.set_theme(detection.theme.as_str());
+            settings.set_theme(&detection.theme.as_str().into());
             settings.flush();
         }
     }
 
-    pub fn set_theme_name(&mut self, theme_name: &str, show_error: bool) -> super::SetThemeResult {
+    pub fn set_theme_name(&mut self, theme_name: &JsString, show_error: bool) -> super::SetThemeResult {
         let mut core = self.core.borrow_mut();
         core.set_auto_sync(false);
         core.apply_theme_name(theme_name, show_error)
@@ -210,7 +218,7 @@ impl InteractiveThemeController {
             let mut core = self.core.borrow_mut();
             core.set_auto_sync(false);
             set_theme_instance(theme_instance);
-            core.active_theme_name = Some("<in-memory>".to_owned());
+            core.active_theme_name = Some("<in-memory>".into());
             core.notify_changed();
         }
         super::SetThemeResult {
@@ -219,7 +227,7 @@ impl InteractiveThemeController {
         }
     }
 
-    pub fn preview(&mut self, theme_setting_or_name: &str) {
+    pub fn preview(&mut self, theme_setting_or_name: &JsString) {
         let (terminal_theme, active_theme_name) = {
             let core = self.core.borrow();
             (core.terminal_theme, core.active_theme_name.clone())
@@ -229,7 +237,7 @@ impl InteractiveThemeController {
             return;
         };
         if set_theme(&theme_name, true)
-            .unwrap_or_else(|error| throw_uncaught(error.label(), error.to_string()))
+            .unwrap_or_else(|error| throw_uncaught(error.label(), error.message()))
             .success
         {
             let ui = Rc::clone(&self.core.borrow().ui);
