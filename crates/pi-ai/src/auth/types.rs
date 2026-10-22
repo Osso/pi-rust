@@ -186,7 +186,7 @@ impl<'de> Deserialize<'de> for Credential {
             let key = object.get(&JsString::from("key")).and_then(JsValue::as_string).cloned();
             let env = object
                 .get(&JsString::from("env"))
-                .map(pi_js_compat::js_json::from_value::<Option<Vec<AuthInfoLink>>>)
+                .map(pi_js_compat::js_json::from_value::<Option<ProviderEnv>>)
                 .transpose()
                 .map_err(D::Error::custom)?
                 .flatten();
