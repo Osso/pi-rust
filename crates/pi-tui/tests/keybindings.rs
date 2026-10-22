@@ -119,7 +119,7 @@ fn ignores_user_bindings_for_unknown_ids_and_resolves_definitions() {
 fn resolved_bindings_include_every_definition_in_order() {
     let keybindings = manager(Vec::new());
     let resolved = keybindings.get_resolved_bindings();
-    let ids: Vec<&str> = resolved.iter().map(|(id, _)| id.as_str()).collect();
+    let ids: Vec<JsString> = resolved.iter().map(|(id, _)| id.clone()).collect();
 
     assert_eq!(ids.first().copied(), Some("tui.editor.cursorUp"));
     assert_eq!(ids.last().copied(), Some("tui.select.cancel"));
