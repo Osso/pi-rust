@@ -2,21 +2,21 @@
 
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
-use serde_json::Value;
+use pi_js_compat::js_json::{JsString, JsValue};
 
-pub type Handler = dyn Fn(&Value) -> Result<(), String> + Send + Sync;
+pub type Handler = dyn Fn(&JsValue) -> Result<(), JsString> + Send + Sync;
 
 /// A handler failure. The source logs it to stderr and keeps dispatching;
 /// callers that need the diagnosis receive it from [`EventBus::emit`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandlerError {
-    pub channel: String,
-    pub message: String,
+    pub channel: JsString,
+    pub message: JsString,
 }
 
 pub trait EventBus: Send + Sync {
-    fn emit(&self, channel: &str, data: Value) -> Vec<HandlerError>;
-    fn on(&self, channel: &str, handler: Arc<Handler>) -> Subscription;
+    fn emit(&self, channel: &JsString, data: JsValue) -> Vec<HandlerError>;
+    fn on(&self, channel: &JsString, handler: Arc<Handler>) -> Subscription;
 }
 
 pub struct EventBusController {
@@ -25,7 +25,7 @@ pub struct EventBusController {
 
 struct Listener {
     id: u64,
-    channel: String,
+    channel: JsString,
     handler: Arc<Handler>,
 }
 
@@ -37,9 +37,9 @@ impl EventBusController {
     }
 
     /// Register a `Send + Sync` closure without wrapping it in an `Arc` at the call site.
-    pub fn on_handler<H>(&self, channel: &str, handler: H) -> Subscription
+    pub fn on_handler<H>(&self, channel: &JsString, handler: H) -> Subscription
     where
-        H: Fn(&Value) -> Result<(), String> + Send + Sync + 'static,
+        H: Fn(&JsValue) -> Result<(), JsString> + Send + Sync + 'static,
     {
         self.on(channel, Arc::new(handler))
     }
@@ -60,14 +60,14 @@ impl Default for EventBusController {
 }
 
 impl EventBus for EventBusController {
-    fn emit(&self, channel: &str, data: Value) -> Vec<HandlerError> {
+    fn emit(&self, channel: &JsString, data: JsValue) -> Vec<HandlerError> {
         // Snapshot under the lock, then deliver without it: a handler may emit
         // recursively or unsubscribe, exactly like the source's EventEmitter.
         let handlers: Vec<Arc<Handler>> = {
             let listeners = self.listeners();
             listeners
                 .iter()
-                .filter(|listener| listener.channel == channel)
+                .filter(|listener| &listener.channel == channel)
                 .map(|listener| Arc::clone(&listener.handler))
                 .collect()
         };
@@ -75,19 +75,19 @@ impl EventBus for EventBusController {
             .iter()
             .filter_map(|handler| {
                 handler(&data).err().map(|message| HandlerError {
-                    channel: channel.to_owned(),
+                    channel: channel.clone(),
                     message,
                 })
             })
             .collect()
     }
 
-    fn on(&self, channel: &str, handler: Arc<Handler>) -> Subscription {
+    fn on(&self, channel: &JsString, handler: Arc<Handler>) -> Subscription {
         let mut listeners = self.listeners();
         let id = listeners.iter().map(|listener| listener.id).max().unwrap_or(0) + 1;
         listeners.push(Listener {
             id,
-            channel: channel.to_owned(),
+            channel: channel.clone(),
             handler,
         });
         Subscription {

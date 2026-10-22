@@ -2986,17 +2986,21 @@ impl ExtensionEventBus {
         Self { bus, runtime }
     }
 
-    pub fn emit(&self, channel: &str, data: Value) -> Result<Vec<crate::core::event_bus::HandlerError>, String> {
-        self.runtime.assert_active()?;
+    pub fn emit(
+        &self,
+        channel: &JsString,
+        data: JsValue,
+    ) -> Result<Vec<crate::core::event_bus::HandlerError>, JsString> {
+        self.runtime.assert_active().map_err(JsString::from)?;
         Ok(self.bus.emit(channel, data))
     }
 
     pub fn on(
         &self,
-        channel: &str,
+        channel: &JsString,
         handler: Arc<crate::core::event_bus::Handler>,
-    ) -> Result<Arc<dyn Fn() + Send + Sync>, String> {
-        self.runtime.assert_active()?;
+    ) -> Result<Arc<dyn Fn() + Send + Sync>, JsString> {
+        self.runtime.assert_active().map_err(JsString::from)?;
         let subscription = self.bus.on(channel, handler);
         Ok(self.runtime.track_event_bus_subscription(subscription))
     }

@@ -1,15 +1,16 @@
 use std::sync::{Arc, Mutex};
 
 use pi_coding_agent::core::event_bus::{EventBus, EventBusController, create_event_bus};
+use pi_js_compat::js_json::{JsString, JsValue};
 
-type Handler = Box<dyn Fn(&serde_json::Value) -> Result<(), String> + Send + Sync>;
+type Handler = Box<dyn Fn(&JsValue) -> Result<(), JsString> + Send + Sync>;
 
 fn recorder() -> (Arc<Mutex<Vec<String>>>, impl Fn(&'static str) -> Handler) {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let captured = Arc::clone(&calls);
     let handler = move |name: &'static str| {
         let calls = Arc::clone(&captured);
-        Box::new(move |_data: &serde_json::Value| {
+        Box::new(move |_data: &JsValue| {
             calls.lock().unwrap().push(name.to_owned());
             Ok(())
         }) as Handler
@@ -22,18 +23,27 @@ fn delivers_emitted_data_to_channel_listeners() {
     let bus = create_event_bus();
     let received = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&received);
-    let _subscription = bus.on_handler("reload:test", move |data| {
+    let _subscription = bus.on_handler(&JsString::from("reload:test"), move |data| {
         sink.lock().unwrap().push(data.clone());
         Ok(())
     });
 
-    assert!(bus.emit("reload:test", serde_json::json!({"count": 2})).is_empty());
-    assert!(bus.emit("other", serde_json::json!(1)).is_empty());
-    assert!(bus.emit("reload:test", serde_json::Value::Null).is_empty());
+    assert!(
+        bus.emit(
+            &JsString::from("reload:test"),
+            JsValue::from(serde_json::json!({"count": 2}))
+        )
+        .is_empty()
+    );
+    assert!(
+        bus.emit(&JsString::from("other"), JsValue::from(serde_json::json!(1)))
+            .is_empty()
+    );
+    assert!(bus.emit(&JsString::from("reload:test"), JsValue::Null).is_empty());
 
     assert_eq!(
         *received.lock().unwrap(),
-        vec![serde_json::json!({"count": 2}), serde_json::Value::Null]
+        vec![JsValue::from(serde_json::json!({"count": 2})), JsValue::Null]
     );
 }
 
@@ -41,12 +51,12 @@ fn delivers_emitted_data_to_channel_listeners() {
 fn unsubscribe_removes_only_that_listener() {
     let bus = create_event_bus();
     let (calls, handler) = recorder();
-    let first = bus.on_handler("reload:test", handler("first"));
-    let _second = bus.on_handler("reload:test", handler("second"));
+    let first = bus.on_handler(&JsString::from("reload:test"), handler("first"));
+    let _second = bus.on_handler(&JsString::from("reload:test"), handler("second"));
 
-    bus.emit("reload:test", serde_json::Value::Null);
+    bus.emit(&JsString::from("reload:test"), JsValue::Null);
     first.unsubscribe();
-    bus.emit("reload:test", serde_json::Value::Null);
+    bus.emit(&JsString::from("reload:test"), JsValue::Null);
 
     assert_eq!(*calls.lock().unwrap(), vec!["first", "second", "second"]);
 }
@@ -55,12 +65,12 @@ fn unsubscribe_removes_only_that_listener() {
 fn clear_drops_every_listener() {
     let bus = create_event_bus();
     let (calls, handler) = recorder();
-    let _first = bus.on_handler("a", handler("a"));
-    let _second = bus.on_handler("b", handler("b"));
+    let _first = bus.on_handler(&JsString::from("a"), handler("a"));
+    let _second = bus.on_handler(&JsString::from("b"), handler("b"));
 
     bus.clear();
-    bus.emit("a", serde_json::Value::Null);
-    bus.emit("b", serde_json::Value::Null);
+    bus.emit(&JsString::from("a"), JsValue::Null);
+    bus.emit(&JsString::from("b"), JsValue::Null);
 
     assert!(calls.lock().unwrap().is_empty());
 }
@@ -69,11 +79,13 @@ fn clear_drops_every_listener() {
 fn one_failing_listener_does_not_stop_the_others() {
     let bus = create_event_bus();
     let (calls, handler) = recorder();
-    let _before = bus.on_handler("reload:test", handler("before"));
-    let _failing = bus.on_handler("reload:test", |_| Err("handler exploded".to_owned()));
-    let _after = bus.on_handler("reload:test", handler("after"));
+    let _before = bus.on_handler(&JsString::from("reload:test"), handler("before"));
+    let _failing = bus.on_handler(&JsString::from("reload:test"), |_| {
+        Err(JsString::from("handler exploded"))
+    });
+    let _after = bus.on_handler(&JsString::from("reload:test"), handler("after"));
 
-    let errors = bus.emit("reload:test", serde_json::Value::Null);
+    let errors = bus.emit(&JsString::from("reload:test"), JsValue::Null);
 
     assert_eq!(*calls.lock().unwrap(), vec!["before", "after"]);
     assert_eq!(errors.len(), 1);
@@ -85,21 +97,23 @@ fn one_failing_listener_does_not_stop_the_others() {
 fn listeners_can_unsubscribe_from_inside_a_delivery() {
     let bus = Arc::new(create_event_bus());
     let (calls, handler) = recorder();
-    let other = Arc::new(Mutex::new(Some(bus.on_handler("reload:test", handler("other")))));
+    let other = Arc::new(Mutex::new(Some(
+        bus.on_handler(&JsString::from("reload:test"), handler("other")),
+    )));
     let weak_bus = Arc::downgrade(&bus);
-    let subscription = bus.on_handler("reload:test", move |_| {
+    let subscription = bus.on_handler(&JsString::from("reload:test"), move |_| {
         let unsubscribed = other.lock().unwrap().take().is_some();
         if let Some(bus) = weak_bus.upgrade()
             && !unsubscribed
         {
-            let _ = bus.emit("reload:test", serde_json::Value::Null);
+            let _ = bus.emit(&JsString::from("reload:test"), JsValue::Null);
         }
         Ok(())
     });
 
-    bus.emit("reload:test", serde_json::Value::Null);
+    bus.emit(&JsString::from("reload:test"), JsValue::Null);
     subscription.unsubscribe();
-    bus.emit("reload:test", serde_json::Value::Null);
+    bus.emit(&JsString::from("reload:test"), JsValue::Null);
 
     assert_eq!(*calls.lock().unwrap(), vec!["other", "other"]);
 }
@@ -114,7 +128,6 @@ fn event_bus_controller_is_an_event_bus() {
 /// `emitter.emit(channel, data)` passes JS strings through unchanged, including lone surrogates.
 #[test]
 fn channel_and_payload_keep_raw_utf16_units() {
-    use pi_js_compat::js_json::{JsString, JsValue};
     let bus = create_event_bus();
     let channel = JsString::from("raw:") + JsString::from_utf16(vec![0xd800]);
     let received = Arc::new(Mutex::new(Vec::new()));
