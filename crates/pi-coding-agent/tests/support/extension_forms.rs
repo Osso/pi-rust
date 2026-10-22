@@ -124,7 +124,7 @@ impl ExtensionUiContext for Ui {
             }
             if let Some(units) = step["inputUnits"].as_array() {
                 let units = units.iter().map(|u| u.as_u64().unwrap() as u16).collect::<Vec<_>>();
-                component.handle_input(&JsString::from(&String::from_utf16_lossy(&units)));
+                component.handle_input(&JsString::from_utf16(units));
             }
             self.renders.lock().unwrap().push(record());
         }
