@@ -13,9 +13,9 @@ use pi_agent_core::agent::types::AgentEvent;
 use pi_ai::request::BoxFuture;
 use pi_ai::types::InputSource;
 use pi_ai::utils::uuid::random_uuid;
+use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use pi_js_compat::string::js_trim;
 use serde::Serialize;
-use serde_json::{Value, json};
 use tokio::sync::oneshot;
 use tokio::task::{JoinHandle, LocalSet};
 use tokio_util::sync::CancellationToken;
@@ -108,12 +108,12 @@ impl RpcState {
         }
     }
 
-    fn output(&self, value: &Value) {
+    fn output(&self, value: &JsValue) {
         write_json_line(value);
     }
 
     fn output_response(&self, response: &RpcResponse) {
-        self.output(&serde_json::to_value(response).expect("rpc responses must serialize"));
+        self.output(&js_json::to_value(response).expect("rpc responses must serialize"));
     }
 }
 
@@ -173,13 +173,16 @@ fn resume_interrupted_session(state: &Arc<RpcState>) {
     }
     tokio::task::spawn_local(async move {
         if let Err(error) = session.continue_run().await {
-            eprintln!("Failed to continue restored session: {}", error.message());
+            eprintln!(
+                "Failed to continue restored session: {}",
+                encode_node_utf8(error.message())
+            );
         }
     });
 }
 
 async fn handle_input_line(state: &Arc<RpcState>, line: String) {
-    let parsed = match js_json::parse(&line) {
+    let parsed = match js_json::parse_lossless(&line) {
         Ok(value) => value,
         Err(error) => {
             state.output_response(&RpcResponse::error(
@@ -192,7 +195,7 @@ async fn handle_input_line(state: &Arc<RpcState>, line: String) {
         }
     };
 
-    if parsed.get("type").and_then(Value::as_str) == Some("extension_ui_response") {
+    if parsed.get("type").and_then(JsValue::as_string) == Some(&"extension_ui_response".into()) {
         route_extension_ui_response(state, parsed);
         return;
     }
@@ -227,10 +230,17 @@ async fn handle_input_line(state: &Arc<RpcState>, line: String) {
 
 /// Parses a command line, emitting the source's unknown-command error when the
 /// discriminator is not part of the RPC command union.
-fn deserialize_command(state: &RpcState, parsed: &Value) -> Option<RpcCommand> {
-    let type_name = parsed.get("type").and_then(Value::as_str);
+fn deserialize_command(state: &RpcState, parsed: &JsValue) -> Option<RpcCommand> {
+    let type_name = parsed
+        .get("type")
+        .and_then(JsValue::as_string)
+        .and_then(|text| text.to_utf8().ok());
+    let type_name = type_name.as_deref();
     if type_name.is_none_or(|name| !crate::modes::rpc::rpc_types::is_known_command_type(name)) {
-        let id = parsed.get("id").and_then(Value::as_str).map(str::to_owned);
+        let id = parsed
+            .get("id")
+            .and_then(JsValue::as_string)
+            .and_then(|text| text.to_utf8().ok());
         let label = type_name.unwrap_or("undefined");
         state.output_response(&RpcResponse::error_optional(
             id,
@@ -240,10 +250,13 @@ fn deserialize_command(state: &RpcState, parsed: &Value) -> Option<RpcCommand> {
         return None;
     }
 
-    match serde_json::from_value::<RpcCommand>(parsed.clone()) {
+    match js_json::from_value::<RpcCommand>(parsed) {
         Ok(command) => Some(command),
         Err(error) => {
-            let id = parsed.get("id").and_then(Value::as_str).map(str::to_owned);
+            let id = parsed
+                .get("id")
+                .and_then(JsValue::as_string)
+                .and_then(|text| text.to_utf8().ok());
             state.output_response(&RpcResponse::error(
                 id,
                 type_name.unwrap_or("undefined"),
@@ -254,14 +267,14 @@ fn deserialize_command(state: &RpcState, parsed: &Value) -> Option<RpcCommand> {
     }
 }
 
-fn route_extension_ui_response(state: &RpcState, parsed: Value) {
-    let Ok(response) = serde_json::from_value::<RpcExtensionUiResponse>(parsed) else {
+fn route_extension_ui_response(state: &RpcState, parsed: JsValue) {
+    let Ok(response) = js_json::from_value::<RpcExtensionUiResponse>(&parsed) else {
         return;
     };
     state.dialogs.resolve(response);
 }
 
-async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<Option<RpcResponse>, String> {
+async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<Option<RpcResponse>, JsString> {
     let id = command.id.clone();
     let session = state.current_session();
     match &command.body {
@@ -299,11 +312,11 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
         }
         RpcCommandBody::Interrupt => {
             let (steering, follow_up) = session.clear_queue();
-            let message = steering.into_iter().chain(follow_up).collect::<Vec<_>>().join("\n\n");
+            let message = JsString::join(steering.into_iter().chain(follow_up), "\n\n");
             let session = session.clone();
             tokio::task::spawn_local(async move {
                 if let Err(error) = session.interrupt(&message, InputSource::Rpc).await {
-                    eprintln!("RPC interrupt failed: {}", error.message());
+                    eprintln!("RPC interrupt failed: {}", encode_node_utf8(error.message()));
                 }
             });
             Ok(Some(RpcResponse::success(id, "interrupt")))
@@ -325,13 +338,13 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             Ok(Some(RpcResponse::success_with_data(
                 id,
                 "new_session",
-                json!({"cancelled": result.cancelled}),
+                pi_js_compat::js_json!({"cancelled": result.cancelled}),
             )))
         }
         RpcCommandBody::GetState => Ok(Some(RpcResponse::success_with_data(
             id,
             "get_state",
-            serde_json::to_value(session_state(&session)).expect("state must serialize"),
+            js_json::to_value(session_state(&session)).expect("state must serialize"),
         ))),
         RpcCommandBody::SetModel { provider, model_id } => {
             let model = session
@@ -347,7 +360,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             Ok(Some(RpcResponse::success_with_data(
                 id,
                 "set_model",
-                serde_json::to_value(&model).expect("model must serialize"),
+                js_json::to_value(&model).expect("model must serialize"),
             )))
         }
         RpcCommandBody::CycleModel => {
@@ -356,8 +369,8 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
                 .await
                 .map_err(|error| error.message().to_owned())?;
             let data = match result {
-                Some(result) => serde_json::to_value(&result).expect("cycle result must serialize"),
-                None => Value::Null,
+                Some(result) => js_json::to_value(&result).expect("cycle result must serialize"),
+                None => JsValue::Null,
             };
             Ok(Some(RpcResponse::success_with_data(id, "cycle_model", data)))
         }
@@ -366,7 +379,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             Ok(Some(RpcResponse::success_with_data(
                 id,
                 "get_available_models",
-                json!({"models": models}),
+                pi_js_compat::js_json!({"models": models}),
             )))
         }
         RpcCommandBody::SetThinkingLevel { level } => {
@@ -380,8 +393,8 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
                 .cycle_thinking_level()
                 .map_err(|error| error.message().to_owned())?
             {
-                Some(level) => json!({"level": level}),
-                None => Value::Null,
+                Some(level) => pi_js_compat::js_json!({"level": level}),
+                None => JsValue::Null,
             };
             Ok(Some(RpcResponse::success_with_data(id, "cycle_thinking_level", data)))
         }
@@ -403,13 +416,13 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
         }
         RpcCommandBody::Compact { custom_instructions } => {
             let result: CompactionResult = session
-                .compact(custom_instructions.as_deref())
+                .compact(custom_instructions.as_ref())
                 .await
                 .map_err(|error| error.message().to_owned())?;
             Ok(Some(RpcResponse::success_with_data(
                 id,
                 "compact",
-                serde_json::to_value(&result).expect("compaction result must serialize"),
+                js_json::to_value(&result).expect("compaction result must serialize"),
             )))
         }
         RpcCommandBody::SetAutoCompaction { enabled } => {
@@ -432,7 +445,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             Ok(Some(RpcResponse::success_with_data(
                 id,
                 "bash",
-                serde_json::to_value(&result).expect("bash result must serialize"),
+                js_json::to_value(&result).expect("bash result must serialize"),
             )))
         }
         RpcCommandBody::AbortBash => {
@@ -444,7 +457,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             Ok(Some(RpcResponse::success_with_data(
                 id,
                 "get_session_stats",
-                serde_json::to_value(&stats).expect("session stats must serialize"),
+                js_json::to_value(&stats).expect("session stats must serialize"),
             )))
         }
         RpcCommandBody::ExportHtml { output_path } => {
@@ -455,7 +468,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             Ok(Some(RpcResponse::success_with_data(
                 id,
                 "export_html",
-                json!({"path": path}),
+                pi_js_compat::js_json!({"path": path}),
             )))
         }
         RpcCommandBody::SwitchSession { session_path } => {
@@ -469,7 +482,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             Ok(Some(RpcResponse::success_with_data(
                 id,
                 "switch_session",
-                json!({"cancelled": result.cancelled}),
+                pi_js_compat::js_json!({"cancelled": result.cancelled}),
             )))
         }
         RpcCommandBody::Fork { entry_id } => {
@@ -487,13 +500,13 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             Ok(Some(RpcResponse::success_with_data(
                 id,
                 "fork",
-                serde_json::to_value(&data).expect("fork data must serialize"),
+                js_json::to_value(&data).expect("fork data must serialize"),
             )))
         }
         RpcCommandBody::Clone => {
             let leaf_id = session.session_manager().get_leaf_id().map(str::to_owned);
             let Some(leaf_id) = leaf_id else {
-                return Err("Cannot clone session: no current entry selected".to_owned());
+                return Err("Cannot clone session: no current entry selected".into());
             };
             let result = {
                 let mut runtime = state.runtime.lock().await;
@@ -505,7 +518,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             Ok(Some(RpcResponse::success_with_data(
                 id,
                 "clone",
-                json!({"cancelled": result.cancelled}),
+                pi_js_compat::js_json!({"cancelled": result.cancelled}),
             )))
         }
         RpcCommandBody::GetForkMessages => {
@@ -520,7 +533,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             Ok(Some(RpcResponse::success_with_data(
                 id,
                 "get_fork_messages",
-                json!({"messages": messages}),
+                pi_js_compat::js_json!({"messages": messages}),
             )))
         }
         RpcCommandBody::GetEntries { since } => {
@@ -528,7 +541,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             let mut entries = manager.get_entries();
             if let Some(since) = since {
                 let Some(index) = entries.iter().position(|entry| entry.id() == Some(since.as_str())) else {
-                    return Err(format!("Entry not found: {since}"));
+                    return Err(format!("Entry not found: {since}").into());
                 };
                 entries = entries.into_iter().skip(index + 1).collect();
             }
@@ -537,7 +550,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             Ok(Some(RpcResponse::success_with_data(
                 id,
                 "get_entries",
-                serde_json::to_value(&data).expect("entries must serialize"),
+                js_json::to_value(&data).expect("entries must serialize"),
             )))
         }
         RpcCommandBody::GetTree => {
@@ -549,7 +562,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             Ok(Some(RpcResponse::success_with_data(
                 id,
                 "get_tree",
-                serde_json::to_value(&data).expect("tree must serialize"),
+                js_json::to_value(&data).expect("tree must serialize"),
             )))
         }
         RpcCommandBody::GetLastAssistantText => {
@@ -557,13 +570,13 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             Ok(Some(RpcResponse::success_with_data(
                 id,
                 "get_last_assistant_text",
-                serde_json::to_value(LastAssistantTextData { text }).expect("text must serialize"),
+                js_json::to_value(LastAssistantTextData { text }).expect("text must serialize"),
             )))
         }
         RpcCommandBody::SetSessionName { name } => {
             let name = js_trim(name);
             if name.is_empty() {
-                return Err("Session name cannot be empty".to_owned());
+                return Err("Session name cannot be empty".into());
             }
             session
                 .set_session_name(name)
@@ -573,14 +586,14 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
         RpcCommandBody::GetMessages => Ok(Some(RpcResponse::success_with_data(
             id,
             "get_messages",
-            json!({"messages": session.messages()}),
+            pi_js_compat::js_json!({"messages": session.messages()}),
         ))),
         RpcCommandBody::GetCommands => {
             let commands = collect_commands(&session);
             Ok(Some(RpcResponse::success_with_data(
                 id,
                 "get_commands",
-                json!({"commands": commands}),
+                pi_js_compat::js_json!({"commands": commands}),
             )))
         }
     }
@@ -615,7 +628,7 @@ async fn run_bash(
     command: &str,
     exclude_from_context: Option<bool>,
     id: Option<String>,
-) -> Result<BashResult, String> {
+) -> Result<BashResult, JsString> {
     let cwd = session.session_manager().get_cwd().to_owned();
     let event_result: Option<UserBashEventResult> = session
         .extension_runner()
@@ -628,7 +641,7 @@ async fn run_bash(
 
     if let Some(result) = event_result.as_ref().and_then(|result| result.result.clone()) {
         let result: BashResult =
-            serde_json::from_value(result).map_err(|error| format!("Invalid user_bash result: {error}"))?;
+            js_json::from_value(&result).map_err(|error| format!("Invalid user_bash result: {error}"))?;
         session.record_bash_result(command, &result, exclude_from_context);
         return Ok(result);
     }
@@ -756,7 +769,7 @@ async fn rebind_session(state: &Arc<RpcState>) {
             })),
             on_error: Some(Arc::new(move |error: &ExtensionError| {
                 if let Some(state) = error_state.upgrade() {
-                    state.output(&json!({
+                    state.output(&pi_js_compat::js_json!({
                         "type": "extension_error",
                         "extensionPath": error.extension_path,
                         "event": error.event,
@@ -853,7 +866,7 @@ fn spawn_signal_handler(
     })
 }
 
-fn write_json_line(value: &Value) {
+fn write_json_line(value: &JsValue) {
     let line = serialize_json_line(value).expect("rpc values must serialize");
     write_raw_stdout(&line);
 }
@@ -866,7 +879,7 @@ fn lock<T>(value: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 #[serde(rename_all = "camelCase")]
 struct ForkResponseData {
     #[serde(skip_serializing_if = "Option::is_none")]
-    text: Option<String>,
+    text: Option<JsString>,
     cancelled: bool,
 }
 
@@ -874,7 +887,7 @@ struct ForkResponseData {
 #[serde(rename_all = "camelCase")]
 struct ForkMessageData {
     entry_id: String,
-    text: String,
+    text: JsString,
 }
 
 #[derive(Serialize)]
@@ -896,7 +909,7 @@ struct TreeResponseData {
 #[derive(Serialize)]
 struct LastAssistantTextData {
     #[serde(skip_serializing_if = "Option::is_none")]
-    text: Option<String>,
+    text: Option<JsString>,
 }
 
 /// RPC-backed extension UI context.
@@ -1127,7 +1140,7 @@ fn output_ui_request(state: &RpcState, payload: RpcExtensionUiRequestPayload) {
         id: random_uuid(),
         payload,
     };
-    state.output(&serde_json::to_value(&request).expect("extension UI request must serialize"));
+    state.output(&js_json::to_value(&request).expect("extension UI request must serialize"));
 }
 
 async fn create_dialog_promise<T, P, F>(
@@ -1140,7 +1153,7 @@ async fn create_dialog_promise<T, P, F>(
 ) -> T
 where
     P: FnOnce(&RpcExtensionUiResponse) -> T,
-    F: Fn(&Value),
+    F: Fn(&JsValue),
 {
     let (signal, timeout) = match opts {
         Some(opts) => (opts.signal, opts.timeout),
@@ -1158,7 +1171,7 @@ where
         id: id.clone(),
         payload: request,
     };
-    emit(&serde_json::to_value(&request).expect("extension UI request must serialize"));
+    emit(&js_json::to_value(&request).expect("extension UI request must serialize"));
 
     let response = await_dialog(receiver, signal, timeout).await;
     dialogs.remove(&id);
@@ -1221,7 +1234,7 @@ mod tests {
     async fn dialog_resolves_the_parsed_client_response() {
         let broker = DialogBroker::default();
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        let emit = move |value: &Value| {
+        let emit = move |value: &JsValue| {
             let _ = sender.send(value.clone());
         };
         let promise = create_dialog_promise(&broker, emit, None, None, select_request(), |response| match &response
@@ -1235,7 +1248,7 @@ mod tests {
             assert_eq!(request["type"], "extension_ui_request");
             assert_eq!(request["method"], "select");
             assert_eq!(request["title"], "Pick");
-            assert_eq!(request["options"], json!(["one", "two"]));
+            assert_eq!(request["options"], pi_js_compat::js_json!(["one", "two"]));
             let id = request["id"].as_str().expect("request id").to_owned();
             assert!(broker.resolve(value_response(&id, "two")));
         };
@@ -1247,7 +1260,7 @@ mod tests {
     async fn dialog_times_out_to_the_default_value() {
         let broker = DialogBroker::default();
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        let emit = move |value: &Value| {
+        let emit = move |value: &JsValue| {
             let _ = sender.send(value.clone());
         };
         let options = ExtensionUiDialogOptions {
@@ -1275,7 +1288,7 @@ mod tests {
     async fn pre_cancelled_dialogs_resolve_without_emitting_a_request() {
         let broker = DialogBroker::default();
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        let emit = move |value: &Value| {
+        let emit = move |value: &JsValue| {
             let _ = sender.send(value.clone());
         };
         let signal = CancellationToken::new();
@@ -1294,7 +1307,7 @@ mod tests {
     async fn cancelled_dialogs_resolve_with_the_default_value() {
         let broker = DialogBroker::default();
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        let emit = move |value: &Value| {
+        let emit = move |value: &JsValue| {
             let _ = sender.send(value.clone());
         };
         let signal = CancellationToken::new();

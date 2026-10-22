@@ -433,7 +433,7 @@ pub async fn export_session_to_html(
         header: sm.get_header().cloned(),
         entries,
         leaf_id: sm.get_leaf_id().map(str::to_owned),
-        system_prompt: state.map(|state| state.system_prompt.clone()),
+        system_prompt: state.map(|state| state.system_prompt.clone().into()),
         tools: state.map(|state| {
             state
                 .tools

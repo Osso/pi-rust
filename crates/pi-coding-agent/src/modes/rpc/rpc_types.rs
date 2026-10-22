@@ -7,8 +7,8 @@
 pub use pi_agent_core::harness::QueueMode;
 use pi_agent_core::harness::ThinkingLevel;
 use pi_ai::types::{ImageContent, Model};
+use pi_js_compat::js_json::{JsString, JsValue};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 pub use crate::core::extensions::types::{NotifyType, StreamingBehavior, WidgetPlacement};
 use crate::core::slash_commands::{SlashCommandInfo, SlashCommandSource};
@@ -27,19 +27,19 @@ pub type RpcSlashCommandSource = SlashCommandSource;
 pub enum RpcCommandBody {
     // Prompting
     Prompt {
-        message: String,
+        message: JsString,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         images: Option<Vec<ImageContent>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         streaming_behavior: Option<StreamingBehavior>,
     },
     Steer {
-        message: String,
+        message: JsString,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         images: Option<Vec<ImageContent>>,
     },
     FollowUp {
-        message: String,
+        message: JsString,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         images: Option<Vec<ImageContent>>,
     },
@@ -79,7 +79,7 @@ pub enum RpcCommandBody {
     // Compaction
     Compact {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        custom_instructions: Option<String>,
+        custom_instructions: Option<JsString>,
     },
     SetAutoCompaction {
         enabled: bool,
@@ -235,9 +235,9 @@ pub struct RpcResponse {
     pub command: Option<String>,
     pub success: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub data: Option<Value>,
+    pub data: Option<JsValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
+    pub error: Option<JsString>,
 }
 
 impl RpcResponse {
@@ -254,7 +254,7 @@ impl RpcResponse {
     }
 
     /// `success(id, command, data)`; `data` may be `Value::Null` to emit an explicit `null`.
-    pub fn success_with_data(id: Option<String>, command: impl Into<String>, data: Value) -> Self {
+    pub fn success_with_data(id: Option<String>, command: impl Into<String>, data: JsValue) -> Self {
         Self {
             id,
             kind: RpcResponseTag::Response,
@@ -266,13 +266,13 @@ impl RpcResponse {
     }
 
     /// `error(id, command, message)`.
-    pub fn error(id: Option<String>, command: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn error(id: Option<String>, command: impl Into<String>, message: impl Into<JsString>) -> Self {
         Self::error_optional(id, Some(command.into()), message)
     }
 
     /// `error(id, command, message)` with an absent `command` (unknown or
     /// non-string `type`), which `JSON.stringify` omits.
-    pub fn error_optional(id: Option<String>, command: Option<String>, message: impl Into<String>) -> Self {
+    pub fn error_optional(id: Option<String>, command: Option<String>, message: impl Into<JsString>) -> Self {
         Self {
             id,
             kind: RpcResponseTag::Response,
@@ -437,4 +437,21 @@ pub struct RpcExtensionUiResponse {
     pub id: String,
     #[serde(flatten)]
     pub payload: RpcExtensionUiResponsePayload,
+}
+
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    #[test]
+    fn rpc_prompt_and_error_keep_unpaired_utf16_on_wire() {
+        let raw = pi_js_compat::js_json::parse_lossless(r#"{"type":"prompt","message":"\ud800"}"#).unwrap();
+        let command: RpcCommand = pi_js_compat::js_json::from_value(&raw).unwrap();
+        let RpcCommandBody::Prompt { message, .. } = command.body else {
+            panic!("prompt")
+        };
+        assert_eq!(message.units(), &[0xd800]);
+        let response = RpcResponse::error(None, "prompt", message);
+        let wire = crate::modes::rpc::serialize_json_line(&response).unwrap();
+        assert!(wire.contains(r#""error":"\ud800""#));
+    }
 }

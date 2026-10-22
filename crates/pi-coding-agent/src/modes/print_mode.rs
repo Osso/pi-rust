@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use pi_agent_core::agent::types::{AgentEvent, AgentMessage};
 use pi_ai::types::{AssistantContent, AssistantMessage, ImageContent, StopReason};
-use pi_js_compat::string::js_trim;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -36,9 +36,9 @@ pub struct PrintModeOptions {
     /// Output mode.
     pub mode: PrintMode,
     /// Additional prompts sent after `initial_message`.
-    pub messages: Vec<String>,
+    pub messages: Vec<JsString>,
     /// First message to send (may contain `@file` content).
-    pub initial_message: Option<String>,
+    pub initial_message: Option<JsString>,
     /// Images attached to the initial message.
     pub initial_images: Vec<ImageContent>,
 }
@@ -54,7 +54,7 @@ struct PrintState {
     session: Mutex<AgentSession>,
     runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>,
     last_completed_assistant_message: Mutex<Option<AssistantMessage>>,
-    last_completed_end_turn_reason: Mutex<Option<String>>,
+    last_completed_end_turn_reason: Mutex<Option<JsString>>,
     subscriptions: Mutex<Subscriptions>,
     disposed: AtomicBool,
 }
@@ -110,7 +110,7 @@ pub async fn run_print_mode(runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>
         Ok(()) if state.mode == PrintMode::Text => write_text_result(&state),
         Ok(()) => 0,
         Err(message) => {
-            eprintln!("{message}");
+            eprintln!("{}", encode_node_utf8(&message));
             1
         }
     };
@@ -123,7 +123,7 @@ pub async fn run_print_mode(runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>
     exit_code
 }
 
-async fn run_prompts(state: &Arc<PrintState>, options: &PrintModeOptions) -> Result<(), String> {
+async fn run_prompts(state: &Arc<PrintState>, options: &PrintModeOptions) -> Result<(), JsString> {
     rebind_session(state).await;
     if let Some(message) = &options.initial_message {
         state
@@ -162,7 +162,7 @@ fn write_text_result(state: &PrintState) -> i32 {
         Some(message) => {
             for content in &message.content {
                 if let AssistantContent::Text(text) = content {
-                    write_raw_stdout(&format!("{}\n", text.text));
+                    write_raw_stdout(&format!("{}\n", encode_node_utf8(&text.text)));
                 }
             }
             0
@@ -172,7 +172,7 @@ fn write_text_result(state: &PrintState) -> i32 {
                 .clone()
                 .or_else(|| find_last_end_turn_reason(&session.state().messages));
             if let Some(reason) = end_turn_reason {
-                write_raw_stdout(&format!("{reason}\n"));
+                write_raw_stdout(&format!("{}\n", encode_node_utf8(&reason)));
             }
             0
         }
@@ -207,7 +207,7 @@ fn is_printable_assistant_message(message: &AssistantMessage) -> bool {
             .any(|content| matches!(content, AssistantContent::Text(text) if !text.text.is_empty()))
 }
 
-fn get_end_turn_reason(message: &AssistantMessage) -> Option<String> {
+fn get_end_turn_reason(message: &AssistantMessage) -> Option<JsString> {
     message.content.iter().find_map(|content| {
         let AssistantContent::ToolCall(call) = content else {
             return None;
@@ -215,8 +215,8 @@ fn get_end_turn_reason(message: &AssistantMessage) -> Option<String> {
         if call.name != "end_turn" {
             return None;
         }
-        let reason = call.arguments.get("reason")?.as_str()?;
-        (!js_trim(reason).is_empty()).then(|| reason.to_owned())
+        let reason = call.arguments.get("reason")?.as_string()?;
+        (!reason.trim().is_empty()).then(|| reason.to_owned())
     })
 }
 
@@ -229,7 +229,7 @@ fn find_last_printable_assistant_message(messages: &[AgentMessage]) -> Option<As
     })
 }
 
-fn find_last_end_turn_reason(messages: &[AgentMessage]) -> Option<String> {
+fn find_last_end_turn_reason(messages: &[AgentMessage]) -> Option<JsString> {
     messages.iter().rev().find_map(|message| match message {
         AgentMessage::Assistant(assistant) => get_end_turn_reason(assistant),
         _ => None,
@@ -271,7 +271,11 @@ async fn rebind_session(state: &Arc<PrintState>) {
                 Arc::clone(&state.runtime),
             )),
             on_error: Some(Arc::new(|error: &ExtensionError| {
-                eprintln!("Extension error ({}): {}", error.extension_path, error.error);
+                eprintln!(
+                    "Extension error ({}): {}",
+                    error.extension_path,
+                    encode_node_utf8(&error.error)
+                );
             })),
             ..ExtensionBindings::default()
         })
