@@ -3,7 +3,7 @@ import {pathToFileURL} from 'node:url';
 async function main(){
  const source=process.argv[2],base=resolve(dirname(source),'../../src');
  const load=(p:string)=>import(pathToFileURL(resolve(base,p)).href);
- const [{default:factory},loader,runnerModule,events,session,auth,utils]=await Promise.all([import(pathToFileURL(source).href),load('core/extensions/loader.ts'),load('core/extensions/runner.ts'),load('core/event-bus.ts'),load('core/session-manager.ts'),load('core/auth-storage.ts'),load('../test/model-runtime-test-utils.ts')]);
+ const [{default:factory},loader,runnerModule,events,session,auth,utils]=await Promise.all([import(pathToFileURL(source).href),load('core/extensions/loader.ts'),load('core/extensions/runner.ts'),load('core/event-bus.ts'),load('core/session-manager.ts'),load('core/auth-storage.ts'),load('core/model-registry.ts')]);
  async function run(request:any){
   if(request.projectUnits){const projected=String.fromCharCode(...request.projectUnits).toWellFormed();request.commands=[projected];request.env.INTERACTIVE_COMMANDS=projected;}
   const keys=['INTERACTIVE_COMMANDS','INTERACTIVE_EXCLUDE','SHELL'],previous=keys.map(k=>process.env[k]);
@@ -12,7 +12,7 @@ async function main(){
    const runtime=loader.createExtensionRuntime();
    const extension=await loader.loadExtensionFromFactory(factory,'/fixture',events.createEventBus(),runtime,'<example:interactive-shell>');
    const manager=session.SessionManager.inMemory('/fixture');
-   const registry=await utils.createInMemoryModelRegistry(auth.AuthStorage.inMemory());
+   const registry=utils.ModelRegistry.inMemory(auth.AuthStorage.inMemory());
    const runner=new runnerModule.ExtensionRunner([extension],runtime,'/fixture',manager,registry);
    runner.bindCore({} as any,{getModel:()=>undefined,getSystemPrompt:()=>'',getSignal:()=>undefined} as any);
    let trace:any[]=[];

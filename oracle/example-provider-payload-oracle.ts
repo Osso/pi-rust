@@ -14,7 +14,7 @@ async function run(request: any) {
         load("coding-agent/src/core/extensions/runner.ts"),
         load("coding-agent/src/core/session-manager.ts"),
         load("coding-agent/src/core/auth-storage.ts"),
-        load("coding-agent/test/model-runtime-test-utils.ts"),
+        load("coding-agent/src/core/model-registry.ts"),
         load("coding-agent/src/config.ts"),
         load("coding-agent/src/core/event-bus.ts"),
     ]);
@@ -25,7 +25,7 @@ async function run(request: any) {
         if (request.initial !== null) writeFileSync(logFile, request.initial);
         const runtime = loader.createExtensionRuntime();
         const extension = await loader.loadExtensionFromFactory(register, cwd, events.createEventBus(), runtime);
-        const registry = await utils.createInMemoryModelRegistry(auth.AuthStorage.inMemory());
+        const registry = utils.ModelRegistry.inMemory(auth.AuthStorage.inMemory());
         const runner = new runnerModule.ExtensionRunner([extension], runtime, cwd, sessions.SessionManager.inMemory(), registry);
         const errors: string[] = [];
         runner.onError((error: any) => errors.push(error.event));
