@@ -1084,14 +1084,16 @@ async fn compare_generate_summary(oracle: &mut TsOracle) {
         let (faux, models, model) = create_model(model);
         let log: CallLog = Arc::default();
         faux.set_responses(scripted_responses(&log, std::slice::from_ref(scripted)));
+        let native_custom = (*custom).map(JsString::from);
+        let native_previous = (*previous).map(JsString::from);
         let mut options = GenerateSummaryOptions {
             current_messages: &messages,
             models: &models,
             model: &model,
             reserve_tokens: *reserve,
             signal: None,
-            custom_instructions: (*custom).map(JsString::from).as_ref(),
-            previous_summary: (*previous).map(JsString::from).as_ref(),
+            custom_instructions: native_custom.as_ref(),
+            previous_summary: native_previous.as_ref(),
             thinking_level: (*thinking).map(parse_thinking_level),
             retry: None,
         };

@@ -499,7 +499,6 @@ async fn returns_aborted_results_for_pre_aborted_cancellable_operations() {
 async fn executes_commands_in_cwd_with_environment_overrides() {
     let root = temp_dir();
     let env = env_at(root.path());
-    let sleep_command = JsString::from("sleep 5");
     let result = env
         .exec(
             &JsString::from("printf '%s:%s' \"$PWD\" \"$NODE_ENV_TEST\""),
@@ -636,6 +635,7 @@ async fn reports_a_missing_working_directory_before_spawning() {
 
 #[tokio::test]
 async fn returns_non_zero_exit_codes_and_timeout_errors() {
+    let sleep_command = JsString::from("sleep 5");
     let root = temp_dir();
     let env = env_at(root.path());
     let result = env
@@ -730,10 +730,10 @@ async fn returns_shell_unavailable_and_spawn_errors() {
 
 #[tokio::test]
 async fn returns_an_aborted_result_for_aborted_commands() {
+    let sleep_command = JsString::from("sleep 5");
     let root = temp_dir();
     let env = env_at(root.path());
     let signal = CancellationToken::new();
-    let sleep_command = JsString::from("sleep 5");
     let execution = env.exec(
         &sleep_command,
         ShellExecOptions {

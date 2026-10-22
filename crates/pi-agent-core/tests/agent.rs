@@ -1055,7 +1055,7 @@ async fn pending_tool_calls_preserve_insertion_order() {
         ..Default::default()
     })
     .unwrap();
-    let observed = Arc::new(Mutex::new(Vec::<Vec<JsString>>::new()));
+    let observed = Arc::new(Mutex::new(Vec::<Vec<String>>::new()));
     let observed_hook = Arc::clone(&observed);
     let agent_hook = agent.clone();
     agent.subscribe(Arc::new(move |event, _signal| {
@@ -1153,14 +1153,14 @@ async fn forwards_session_id_to_stream_function_options() {
     agent.prompt("hello").await.unwrap();
     assert_eq!(
         received.lock().unwrap().last().cloned().flatten().as_ref(),
-        Some("session-abc")
+        Some(&JsString::from("session-abc"))
     );
     agent.set_session_id(Some(JsString::from("session-def")));
     assert_eq!(agent.session_id().as_ref(), Some(&JsString::from("session-def")));
     agent.prompt("hello again").await.unwrap();
     assert_eq!(
         received.lock().unwrap().last().cloned().flatten().as_ref(),
-        Some("session-def")
+        Some(&JsString::from("session-def"))
     );
 }
 

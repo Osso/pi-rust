@@ -24,7 +24,6 @@ fn env() -> (TempDir, Arc<dyn ExecutionEnv>) {
 #[tokio::test]
 async fn captures_large_output_to_a_full_output_file() {
     let (root, env) = env();
-    let sleep_command = JsString::from("sleep 5");
     let result = execute_shell_with_capture(
         &env,
         &JsString::from("yes line | head -n 15000"),
@@ -61,6 +60,7 @@ async fn captures_a_single_oversized_chunk_to_a_full_output_file() {
 
 #[tokio::test]
 async fn reports_cancelled_commands() {
+    let sleep_command = JsString::from("sleep 5");
     let (_root, env) = env();
     let signal = CancellationToken::new();
     let cancellation = signal.clone();
@@ -73,7 +73,6 @@ async fn reports_cancelled_commands() {
         },
     );
     cancellation.cancel();
-    let sleep_command = JsString::from("sleep 5");
     let result = execution.await.unwrap();
     assert!(result.cancelled);
     assert_eq!(result.exit_code, None);
@@ -81,6 +80,7 @@ async fn reports_cancelled_commands() {
 
 #[tokio::test]
 async fn returns_execution_errors_when_requested() {
+    let sleep_command = JsString::from("sleep 5");
     let (_root, env) = env();
     let result = execute_shell_with_capture(
         &env,

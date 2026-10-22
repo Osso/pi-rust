@@ -266,9 +266,13 @@ fn ignores_image_blocks_in_user_content() {
 
 #[test]
 fn serializes_numeric_keys_and_nested_values_in_js_order() {
-    let arguments: pi_js_compat::js_json::JsObject =
-        pi_js_compat::js_json::from_str(r#"{"nested":{"2":2.0,"1":1.0,"01":3},"2":2.0,"1":1.0,"4294967295":4,"01":5}"#)
-            .unwrap();
+    let arguments: pi_js_compat::js_json::JsObject = pi_js_compat::js_json::parse_lossless(
+        r#"{"nested":{"2":2.0,"1":1.0,"01":3},"2":2.0,"1":1.0,"4294967295":4,"01":5}"#,
+    )
+    .expect("JSON tool arguments")
+    .as_object()
+    .expect("object tool arguments")
+    .clone();
     let messages = [assistant(vec![AssistantContent::ToolCall(ToolCall::new(
         "id",
         "inspect",

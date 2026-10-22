@@ -568,7 +568,7 @@ async fn prepare_execution_errors_abort_the_run() {
         ]))])),
     );
     let (_, failure) = collect_events_allowing_failure(stream).await;
-    assert_eq!(failure.as_ref(), Some("prepareExecution exploded"));
+    assert_eq!(failure.as_ref(), Some(&JsString::from("prepareExecution exploded")));
 }
 
 #[tokio::test]
@@ -700,7 +700,7 @@ async fn emits_tool_execution_end_in_completion_order_and_results_in_source_orde
         Some(stream_fn),
     );
     let (events, _) = collect_events(stream).await;
-    let execution_end_ids: Vec<JsString> = events
+    let execution_end_ids: Vec<&str> = events
         .iter()
         .filter_map(|event| match event {
             AgentEvent::ToolExecutionEnd { tool_call_id, .. } => Some(tool_call_id.as_str()),
@@ -1119,7 +1119,7 @@ async fn uses_prepare_next_turn_snapshot_before_continuing() {
     collect_events(stream).await.1.unwrap();
     let prompts = system_prompts.lock().unwrap();
     assert_eq!(prompts.len(), 2);
-    assert_eq!(prompts[1].as_ref(), Some("second prompt"));
+    assert_eq!(prompts[1].as_ref(), Some(&JsString::from("second prompt")));
 }
 
 #[tokio::test]

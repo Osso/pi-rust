@@ -7,7 +7,7 @@ use pi_agent_core::harness::session::{
     BranchBounds, BranchQuery, Entry, EntryCursor, EntryOrder, EntryQuery, EntryType, JsonlSessionMetadata, LaneRecord,
     RecordQuery, RecordType, SessionError, SessionMetadata,
 };
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 const SOURCE_LOCK: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
