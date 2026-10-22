@@ -4,6 +4,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::utils::shell::{CommandTransport, get_shell_config};
+use pi_js_compat::js_json::encode_node_utf8;
 
 enum TemplatePart<'a> {
     Literal(String),
@@ -391,8 +392,9 @@ fn execute_with_configured_shell(command: &str) -> (bool, Option<String>) {
     let Ok(config) = get_shell_config(None) else {
         return (false, None);
     };
-    let mut process = std::process::Command::new(&config.shell);
-    process.args(&config.args);
+    // Node encodes the shell path and argv to UTF-8 at the spawn boundary.
+    let mut process = std::process::Command::new(encode_node_utf8(&config.shell));
+    process.args(config.args.iter().map(encode_node_utf8));
     let command_from_stdin = config.command_transport == CommandTransport::Stdin;
     if !command_from_stdin {
         process.arg(command);

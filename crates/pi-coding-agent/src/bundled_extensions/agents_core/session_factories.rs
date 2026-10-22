@@ -8,7 +8,7 @@ use pi_agent_core::agent::types::AgentMessage;
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::request::BoxFuture;
 use pi_js_compat::js_format;
-use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -333,7 +333,11 @@ fn resolve_child_extension_factories(extension_factories: Option<&ChildExtension
     };
     factories
         .into_iter()
-        .filter(|factory| factory.explicit_extension_path() != Some(GOAL_EXTENSION_PATH))
+        .filter(|factory| {
+            !factory
+                .explicit_extension_path()
+                .is_some_and(|path| *path == *GOAL_EXTENSION_PATH)
+        })
         .collect()
 }
 
@@ -515,11 +519,24 @@ fn resolve_child_agent_profile(agent: &AgentSnapshot, ctx: &ExtensionContext) ->
         .settings_manager()
         .map_err(|error| error.message)?
         .and_then(|settings| settings.lock().expect("settings").get_agent_profile(&agent.agent_type))
-        .and_then(|profile| profile.tools);
+        .and_then(|profile| profile.tools)
+        .map(|tools| tools.iter().map(provider_tool_name).collect::<Result<Vec<_>, _>>())
+        .transpose()?;
     Ok(ChildAgentProfile {
         model: configured_model,
         thinking_level,
         tools,
+    })
+}
+
+/// Tool names are provider-opaque names (approved scalar metadata, 2026-10-21): a profile tool
+/// name with an unpaired surrogate is rejected explicitly instead of replaced.
+fn provider_tool_name(name: &JsString) -> Result<String, JsString> {
+    name.to_utf8().map_err(|_| {
+        js_format!(
+            "Agent profile tool name contains an unpaired UTF-16 surrogate: {}",
+            name
+        )
     })
 }
 
@@ -743,12 +760,12 @@ fn create_attached_settings_manager(
     let approval_policy = normalize_approval_policy(Some(&agent.permission.policy));
     let mut overrides = Settings::new();
     overrides.insert(
-        "approvalPolicy".to_owned(),
-        Value::String(approval_policy.as_str().to_owned()),
+        "approvalPolicy".into(),
+        JsValue::String(approval_policy.as_str().into()),
     );
     overrides.insert(
-        "approvalPreset".to_owned(),
-        Value::String(approval_preset_for_policy(approval_policy).as_str().to_owned()),
+        "approvalPreset".into(),
+        JsValue::String(approval_preset_for_policy(approval_policy).as_str().into()),
     );
     settings_manager.apply_overrides(&overrides);
     Ok(settings_manager)

@@ -14,7 +14,6 @@ pub mod migrations;
 pub mod modes;
 pub mod package_manager_cli;
 pub mod rpc_entry;
-pub mod server;
 pub mod supervisor;
 pub mod utils;
 

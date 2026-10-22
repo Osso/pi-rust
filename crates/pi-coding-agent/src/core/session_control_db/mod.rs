@@ -34,7 +34,7 @@ use crate::core::session_health::SessionHealthRecord;
 use crate::core::sqlite::{
     DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS, configure_shared_sqlite_database, create_sqlite_database,
 };
-use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
+use pi_js_compat::js_json::{self, JsObject, JsString, JsValue, encode_node_utf8};
 
 pub use agents::{
     AcquireAttachedError, AcquireAttachedRuntimeOwnershipInput, AcquireAttachedRuntimeOwnershipResult,
@@ -827,7 +827,7 @@ pub(crate) fn optional_string_field(
 
 /// `getRuntimeProcessInstanceId`: throws when the process identity cannot be read.
 pub fn get_runtime_process_instance_id() -> Result<&'static str, ControlDbError> {
-    static INSTANCE: OnceLock<Result<String, String>> = OnceLock::new();
+    static INSTANCE: OnceLock<Result<String, JsString>> = OnceLock::new();
     INSTANCE
         .get_or_init(|| process_instance_id_from(read_process_identity(std::process::id())))
         .as_deref()
@@ -836,7 +836,7 @@ pub fn get_runtime_process_instance_id() -> Result<&'static str, ControlDbError>
 
 fn process_instance_id_from(
     identity: Result<ProcessIdentity, crate::core::runtime_process::ProcessIdentityError>,
-) -> Result<String, String> {
+) -> Result<String, JsString> {
     let identity = identity.map_err(|error| error.message)?;
     let value = serde_json::json!({
         "pid": identity.pid,
@@ -846,44 +846,45 @@ fn process_instance_id_from(
     Ok(js_json::stringify(&value))
 }
 
+/// `JSON.stringify` of a process identity. Lone surrogates in the incarnation are written as
+/// `\uXXXX` escapes, so the JSON text itself is well-formed.
 pub fn serialize_process_identity(identity: &ProcessIdentity) -> String {
-    let mut object = Map::new();
-    object.insert("pid".to_owned(), Value::from(identity.pid));
-    object.insert("startTimeTicks".to_owned(), Value::from(identity.start_time_ticks));
+    let mut object = JsObject::new();
+    object.insert("pid".into(), JsValue::Number(f64::from(identity.pid)));
+    object.insert(
+        "startTimeTicks".into(),
+        JsValue::Number(identity.start_time_ticks as f64),
+    );
     if let Some(incarnation) = &identity.incarnation {
-        object.insert("incarnation".to_owned(), Value::String(incarnation.clone()));
+        object.insert("incarnation".into(), JsValue::String(incarnation.clone()));
     }
-    js_json::stringify(&Value::Object(object))
+    js_json::stringify_lossless(&JsValue::Object(object))
 }
 
 pub(crate) fn parse_process_identity(value: &str) -> Result<ProcessIdentity, ControlDbError> {
-    let parsed = js_json::parse(value).map_err(|error| ControlDbError::new(error.to_string()))?;
-    let Value::Object(parsed) = parsed else {
+    let parsed = js_json::parse_lossless(value).map_err(|error| ControlDbError::new(error.to_string()))?;
+    let JsValue::Object(parsed) = parsed else {
         return Err(ControlDbError::new("Persisted process identity is invalid"));
     };
-    let pid = parsed
-        .get("pid")
-        .and_then(Value::as_f64)
-        .filter(|value| value.fract() == 0.0 && *value >= 0.0 && *value <= 9_007_199_254_740_991.0)
-        .map(|value| value as u32);
-    let start_time_ticks = parsed
-        .get("startTimeTicks")
-        .and_then(Value::as_f64)
-        .filter(|value| value.fract() == 0.0 && *value >= 0.0 && *value <= 9_007_199_254_740_991.0)
-        .map(|value| value as u64);
-    let (Some(pid), Some(start_time_ticks)) = (pid, start_time_ticks) else {
+    let safe_integer = |name: &str| match parsed.get(name) {
+        Some(JsValue::Number(value)) if value.fract() == 0.0 && *value >= 0.0 && *value <= 9_007_199_254_740_991.0 => {
+            Some(*value)
+        }
+        _ => None,
+    };
+    let (Some(pid), Some(start_time_ticks)) = (safe_integer("pid"), safe_integer("startTimeTicks")) else {
         return Err(ControlDbError::new("Persisted process identity is invalid"));
     };
     let incarnation = match parsed.get("incarnation") {
         None => None,
-        Some(Value::String(value)) => Some(value.clone()),
+        Some(JsValue::String(value)) => Some(value.clone()),
         Some(_) => {
             return Err(ControlDbError::new("Persisted process incarnation is invalid"));
         }
     };
     Ok(ProcessIdentity {
-        pid,
-        start_time_ticks,
+        pid: pid as u32,
+        start_time_ticks: start_time_ticks as u64,
         incarnation,
     })
 }

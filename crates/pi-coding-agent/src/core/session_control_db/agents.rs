@@ -3397,8 +3397,8 @@ pub fn list_detached_artifact_agents_updated_at_or_before(
         let rows = statement
             .query_map(params![updated_at_cutoff], |row| {
                 Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
+                    row.get::<_, JsString>(0)?,
+                    row.get::<_, JsString>(1)?,
                     row.get::<_, String>(2)?,
                 ))
             })?

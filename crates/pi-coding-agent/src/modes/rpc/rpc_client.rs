@@ -137,7 +137,7 @@ pub enum RpcClientError {
         stderr: String,
     },
     ProcessError {
-        message: String,
+        message: JsString,
         stderr: String,
     },
     StdinError {
@@ -198,9 +198,11 @@ impl fmt::Display for RpcClientError {
                 optional_code(*code),
                 optional_signal(*signal)
             ),
-            Self::ProcessError { message, stderr } => {
-                write!(formatter, "Agent process error: {message}. Stderr: {stderr}")
-            }
+            Self::ProcessError { message, stderr } => write!(
+                formatter,
+                "Agent process error: {}. Stderr: {stderr}",
+                pi_js_compat::js_json::encode_node_utf8(message)
+            ),
             Self::StdinError { message, stderr } => {
                 write!(formatter, "Agent process stdin error: {message}. Stderr: {stderr}")
             }
@@ -1082,8 +1084,8 @@ fn install_process(inner: &Arc<ClientInner>, generation: u64, spawned: SpawnedPr
     inner.sync.lock().expect("sync state poisoned").active_generation = Some(generation);
 }
 
-fn spawn_error_message(error: &std::io::Error) -> pi_js_compat::js_json::JsString {
-    node_spawn_error_message("spawn", &pi_js_compat::js_json::JsString::from("node"), error)
+fn spawn_error_message(error: &std::io::Error) -> JsString {
+    node_spawn_error_message("spawn", &JsString::from("node"), error)
 }
 
 async fn read_stderr(inner: Arc<ClientInner>, mut reader: impl AsyncRead + Unpin) {

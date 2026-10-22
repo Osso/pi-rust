@@ -13,7 +13,7 @@ use crate::utils::iso_time::format_iso_millis;
 
 #[derive(Debug, Clone)]
 pub struct RequestSupervisorDecisionInput {
-    pub control_db_path: String,
+    pub control_db_path: JsString,
     pub kind: SupervisorRequestKind,
     pub payload: JsObject,
     pub project_id: JsString,

@@ -22,7 +22,7 @@ pub type SupervisorEvaluator =
 /// Inputs for one Supervisor request evaluation.
 #[derive(Clone)]
 pub struct RunSupervisorRequestInput {
-    pub control_db_path: String,
+    pub control_db_path: JsString,
     pub evaluate: SupervisorEvaluator,
     pub request: SupervisorRequest,
     pub poll_interval_ms: Option<u64>,
