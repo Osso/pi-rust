@@ -153,7 +153,7 @@ pub const FIRST_PARTY_EXTENSION_NAMES: &[&str] = &[
 /// `firstPartyExtensionFactory`.
 pub fn first_party_extension_factory(name: &str, factory: ExtensionFactory) -> InlineExtension {
     InlineExtension::Factory {
-        extension_path: Some(format!("<first-party:{name}>")),
+        extension_path: Some(format!("<first-party:{name}>").into()),
         factory,
     }
 }
@@ -240,7 +240,7 @@ pub fn create_first_party_extension_factories(
         .iter()
         .filter_map(|name| {
             registry
-                .get(&format!("<first-party:{name}>"))
+                .get(&JsString::from(format!("<first-party:{name}>")))
                 .map(|factory| first_party_extension_factory(name, Arc::clone(factory)))
         })
         .collect()
@@ -797,7 +797,7 @@ pub fn refresh_rpc_model_catalogs(model_runtime: &ModelRuntime, offline_mode: bo
         if let Err(error) = runtime.refresh(Default::default()).await {
             report_diagnostics(&[AgentSessionRuntimeDiagnostic {
                 diagnostic_type: "warning".to_owned(),
-                message: format!("Failed to refresh model catalogs: {error}"),
+                message: JsString::from("Failed to refresh model catalogs: ") + error.message(),
             }]);
         }
     });

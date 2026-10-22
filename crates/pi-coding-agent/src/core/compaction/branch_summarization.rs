@@ -72,7 +72,7 @@ pub struct CollectEntriesResult {
 /// Options for [`generate_branch_summary`].
 pub struct GenerateBranchSummaryOptions<'a> {
     pub model: &'a Model,
-    pub api_key: Option<String>,
+    pub api_key: Option<JsString>,
     pub headers: Option<ProviderHeaders>,
     pub env: Option<ProviderEnv>,
     pub signal: Option<CancellationToken>,

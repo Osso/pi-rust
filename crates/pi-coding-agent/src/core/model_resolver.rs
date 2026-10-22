@@ -463,9 +463,10 @@ pub fn resolve_cli_model(
     if options.cli_provider.is_some() && provider.is_none() {
         let requested = options.cli_provider.as_deref().unwrap_or_default();
         return ResolveCliModelResult {
-            error: Some(format!(
-                "Unknown provider \"{requested}\". Use --list-models to see available providers/models."
-            )),
+            error: Some(
+                format!("Unknown provider \"{requested}\". Use --list-models to see available providers/models.")
+                    .into(),
+            ),
             ..Default::default()
         };
     }

@@ -31,7 +31,7 @@ const DEFAULT_IMAGE_GENERATION_TIMEOUT_MS: u64 = 300_000;
 pub struct ImageGenerationRequest {
     pub prompt: JsString,
     pub model: Model,
-    pub api_key: Option<String>,
+    pub api_key: Option<JsString>,
     pub headers: Option<ProviderHeaders>,
     pub env: Option<ProviderEnv>,
     pub signal: Option<CancellationToken>,

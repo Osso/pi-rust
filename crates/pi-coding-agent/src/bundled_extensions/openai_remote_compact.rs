@@ -57,7 +57,7 @@ pub struct OpenAiRemoteCompactionDetails {
     pub provider: String,
     pub api: String,
     pub model: String,
-    pub endpoint: String,
+    pub endpoint: JsString,
     pub replacement_history: Vec<Value>,
     #[serde(serialize_with = "pi_js_compat::number::serialize")]
     pub replacement_history_bytes: f64,
@@ -142,7 +142,7 @@ pub async fn handle_compaction(
         &endpoint,
         &payload,
         &model,
-        api_key.as_deref(),
+        api_key.as_ref(),
         headers.as_ref(),
         event.signal.clone(),
     )
@@ -341,7 +341,7 @@ pub fn build_openai_compact_payload(
 pub fn extract_openai_compact_details(
     model: &Model,
     response: &Value,
-    endpoint: &str,
+    endpoint: &JsString,
 ) -> Result<OpenAiRemoteCompactionDetails, HandlerError> {
     let Some(output) = response.get("output").and_then(Value::as_array) else {
         return Err(HandlerError::new(
@@ -363,7 +363,7 @@ pub fn extract_openai_compact_details(
         provider: model.provider.clone(),
         api: model.api.clone(),
         model: get_openai_compact_model_id(model),
-        endpoint: endpoint.to_owned(),
+        endpoint: endpoint.clone(),
         replacement_history,
         replacement_history_bytes,
         replacement_history_tokens: (replacement_history_bytes / 4.0).ceil(),
@@ -371,14 +371,15 @@ pub fn extract_openai_compact_details(
 }
 
 async fn post_openai_compact(
-    endpoint: &str,
+    endpoint: &JsString,
     payload: &OpenAiCompactPayload,
     model: &Model,
-    api_key: Option<&str>,
+    api_key: Option<&JsString>,
     headers: Option<&ProviderHeaders>,
     signal: Option<tokio_util::sync::CancellationToken>,
 ) -> Result<Value, HandlerError> {
     let request_headers = build_openai_request_headers(model, api_key, headers)?;
+    let url = pi_ai::request::request_url(endpoint).map_err(|error| HandlerError::new(error.message))?;
     let value = js_json::to_value(payload).map_err(|error| HandlerError::new(error.to_string()))?;
     let body = js_json::stringify_lossless(&value).into_bytes();
     let fetch = pi_ai::http::default_fetch();
@@ -386,7 +387,7 @@ async fn post_openai_compact(
         .fetch(
             HttpRequest {
                 method: "POST".into(),
-                url: endpoint.to_owned(),
+                url,
                 headers: request_headers,
                 body: Some(body),
             },
@@ -427,20 +428,29 @@ fn format_openai_error(body: &Value) -> JsString {
 }
 
 /// `buildCompactEndpoint`.
-pub fn build_compact_endpoint(model: &Model) -> String {
+pub fn build_compact_endpoint(model: &Model) -> JsString {
     if model.api == "openai-codex-responses" {
-        return format!("{}/compact", resolve_codex_responses_endpoint(&model.base_url));
+        return resolve_codex_responses_endpoint(&model.base_url) + "/compact";
     }
-    format!("{}/responses/compact", model.base_url.trim_end_matches('/'))
+    trim_trailing_slashes(&model.base_url) + "/responses/compact"
+}
+
+/// `value.replace(/\/+$/, "")`.
+fn trim_trailing_slashes(value: &JsString) -> JsString {
+    let mut trimmed = value.clone();
+    while let Some(head) = trimmed.strip_suffix('/') {
+        trimmed = head;
+    }
+    trimmed
 }
 
 /// `buildOpenAIRequestHeaders`.
 pub fn build_openai_request_headers(
     model: &Model,
-    api_key: Option<&str>,
+    api_key: Option<&JsString>,
     headers: Option<&ProviderHeaders>,
 ) -> Result<Vec<(String, String)>, HandlerError> {
-    let mut request_headers: Vec<(String, String)> = vec![("content-type".to_owned(), "application/json".to_owned())];
+    let mut request_headers: Vec<(String, JsString)> = vec![("content-type".to_owned(), "application/json".into())];
     if let Some(headers) = headers {
         for (name, value) in headers {
             if let Some(value) = value {
@@ -454,39 +464,43 @@ pub fn build_openai_request_headers(
     if let Some(api_key) = api_key
         && !has_authorization
     {
-        request_headers.push(("Authorization".into(), format!("Bearer {api_key}")));
+        request_headers.push(("Authorization".into(), JsString::from("Bearer ") + api_key));
     }
     if let Some(api_key) = api_key
         && model.api == "openai-codex-responses"
     {
-        request_headers.push((
-            "chatgpt-account-id".to_owned(),
-            js_json::encode_node_utf8(&extract_codex_account_id(api_key)?),
-        ));
-        request_headers.push(("originator".into(), "pi".to_owned()));
-        request_headers.push(("OpenAI-Beta".to_owned(), "responses=experimental".to_owned()));
+        request_headers.push(("chatgpt-account-id".to_owned(), extract_codex_account_id(api_key)?));
+        request_headers.push(("originator".into(), "pi".into()));
+        request_headers.push(("OpenAI-Beta".to_owned(), "responses=experimental".into()));
     }
-    Ok(request_headers)
+    // `fetch` converts each value to a ByteString when building `Headers`.
+    request_headers
+        .into_iter()
+        .map(|(name, value)| {
+            let value = pi_ai::request::header_value(&value).map_err(|error| HandlerError::new(error.message))?;
+            Ok((name, value))
+        })
+        .collect()
 }
 
-fn resolve_codex_responses_endpoint(base_url: &str) -> String {
-    let normalized = base_url.trim_end_matches('/');
+fn resolve_codex_responses_endpoint(base_url: &JsString) -> JsString {
+    let normalized = trim_trailing_slashes(base_url);
     if normalized.ends_with("/codex/responses") {
-        normalized.to_owned()
+        normalized
     } else if normalized.ends_with("/codex") {
-        format!("{normalized}/responses")
+        normalized + "/responses"
     } else {
-        format!("{normalized}/codex/responses")
+        normalized + "/codex/responses"
     }
 }
 
-fn extract_codex_account_id(token: &str) -> Result<JsString, HandlerError> {
+fn extract_codex_account_id(token: &JsString) -> Result<JsString, HandlerError> {
     let failure = || HandlerError::new("Failed to extract accountId from Codex token");
-    let parts: Vec<&str> = token.split('.').collect();
+    let parts: Vec<JsString> = token.split('.').collect();
     if parts.len() != 3 {
         return Err(failure());
     }
-    let payload_bytes = buffer_from_base64(parts[1]);
+    let payload_bytes = buffer_from_base64(&parts[1]);
     let payload = String::from_utf8_lossy(&payload_bytes);
     let payload = js_json::parse_lossless(payload.into_owned()).map_err(|_| failure())?;
     let auth = payload.get("https://api.openai.com/auth");
@@ -537,7 +551,7 @@ fn is_openai_remote_compaction_details(value: &Value) -> Option<OpenAiRemoteComp
         return None;
     }
     let model = value.get("model")?.as_string()?.to_utf8().ok()?;
-    let endpoint = value.get("endpoint")?.as_string()?.to_utf8().ok()?;
+    let endpoint = value.get("endpoint")?.as_string()?;
     let replacement_history = value.get("replacementHistory")?.as_array()?;
     if !replacement_history.iter().all(is_record) {
         return None;
@@ -562,7 +576,7 @@ fn is_openai_remote_compaction_details(value: &Value) -> Option<OpenAiRemoteComp
         provider: provider.to_owned(),
         api: api.to_owned(),
         model: model.to_owned(),
-        endpoint: endpoint.to_owned(),
+        endpoint: endpoint.clone(),
         replacement_history: replacement_history.clone(),
         replacement_history_bytes: value
             .get("replacementHistoryBytes")
@@ -1095,7 +1109,7 @@ mod js_value_tests {
     async fn http_body_uses_javascript_json() {
         use std::io::{Read, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let endpoint = format!("http://{}/compact", listener.local_addr().unwrap());
+        let endpoint = JsString::from(format!("http://{}/compact", listener.local_addr().unwrap()));
         let server = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
             socket

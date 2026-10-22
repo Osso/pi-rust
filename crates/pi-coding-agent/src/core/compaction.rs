@@ -64,7 +64,7 @@ pub struct CompactionSourceInfo {
     pub provider: String,
     pub model: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub endpoint: Option<String>,
+    pub endpoint: Option<JsString>,
 }
 
 /// Result from [`compact`] — the session manager adds uuid/parentUuid when saving.
@@ -688,7 +688,7 @@ pub struct GenerateSummaryWithUsageOptions<'a> {
     pub current_messages: &'a [AgentMessage],
     pub model: &'a Model,
     pub reserve_tokens: f64,
-    pub api_key: Option<String>,
+    pub api_key: Option<JsString>,
     pub headers: Option<ProviderHeaders>,
     pub signal: Option<CancellationToken>,
     pub custom_instructions: Option<&'a JsString>,
@@ -709,7 +709,7 @@ pub enum MaterializeCompactionSummaryResult {
 /// Options for [`materialize_compaction_summary`].
 pub struct MaterializeCompactionSummaryOptions<'a> {
     pub reserve_tokens: f64,
-    pub api_key: Option<String>,
+    pub api_key: Option<JsString>,
     pub headers: Option<ProviderHeaders>,
     pub env: Option<pi_ai::types::ProviderEnv>,
     pub signal: Option<CancellationToken>,
@@ -1049,7 +1049,7 @@ fn combine_optional(first: Option<f64>, second: Option<f64>) -> Option<f64> {
 /// Options shared by the summary calls inside [`compact`].
 pub struct CompactionSummaryOptions<'a> {
     pub model: &'a Model,
-    pub api_key: Option<String>,
+    pub api_key: Option<JsString>,
     pub headers: Option<ProviderHeaders>,
     pub custom_instructions: Option<&'a JsString>,
     pub signal: Option<CancellationToken>,

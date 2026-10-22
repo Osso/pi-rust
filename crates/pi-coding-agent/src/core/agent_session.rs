@@ -220,7 +220,7 @@ fn build_allow_always_agent_prompt(cwd: &JsString, input: &JsObject, tool_name: 
 
 fn builtin_source_info(name: &str) -> crate::core::source_info::SourceInfo {
     create_synthetic_source_info(
-        &format!("<builtin:{name}>"),
+        &JsString::from(format!("<builtin:{name}>")),
         &SyntheticSourceInfoOptions {
             source: "builtin".into(),
             scope: None,
@@ -1730,7 +1730,7 @@ impl AgentSession {
             .map(|definition| ToolDefinitionEntry {
                 definition: definition.clone(),
                 source_info: create_synthetic_source_info(
-                    &format!("<sdk:{}>", definition.name),
+                    &JsString::from(format!("<sdk:{}>", definition.name)),
                     &SyntheticSourceInfoOptions {
                         source: "sdk".into(),
                         scope: None,
@@ -1768,7 +1768,7 @@ impl AgentSession {
                     tool: wrap_definition_tool(definition.clone(), &runner),
                 },
                 source_info: create_synthetic_source_info(
-                    &format!("<sdk:{}>", definition.name),
+                    &JsString::from(format!("<sdk:{}>", definition.name)),
                     &SyntheticSourceInfoOptions {
                         source: "sdk".into(),
                         scope: None,

@@ -7,6 +7,7 @@
 
 use clipboard_rs::common::RustImage;
 use clipboard_rs::{Clipboard, ClipboardContext, ContentFormat};
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 
 /// A native clipboard implementation.
 pub trait ClipboardModule: Send + Sync {
@@ -18,20 +19,25 @@ pub trait ClipboardModule: Send + Sync {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClipboardError {
-    message: String,
+    message: JsString,
 }
 
 impl ClipboardError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
         }
+    }
+
+    /// `error.message`.
+    pub fn message(&self) -> &JsString {
+        &self.message
     }
 }
 
 impl std::fmt::Display for ClipboardError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&encode_node_utf8(&self.message))
     }
 }
 
