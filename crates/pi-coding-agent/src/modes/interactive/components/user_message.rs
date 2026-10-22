@@ -1,6 +1,6 @@
 //! Ported from `coding-agent/src/modes/interactive/components/user-message.ts`.
 
-use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::{js_format, js_json::JsString};
 use std::rc::Rc;
 
 use pi_tui::components::r#box::BoxComponent;
@@ -50,19 +50,19 @@ impl UserMessageComponent {
         let mut content_box = BoxComponent::new(
             self.output_pad,
             1,
-            Some(Rc::new(|content: &str| {
+            Some(Rc::new(|content: &JsString| {
                 with_theme(|theme| theme.bg(ThemeBg::UserMessageBg, content))
             })),
         );
         let color: StyleFn =
-            Rc::new(|content: &str| with_theme(|theme| theme.fg(ThemeColor::UserMessageText, content)));
+            Rc::new(|content: &JsString| with_theme(|theme| theme.fg(ThemeColor::UserMessageText, content)));
         content_box.add_child(component(Markdown::with_shared_theme(
-            encode_node_utf8(&self.text),
+            self.text.clone(),
             0,
             0,
             self.markdown_theme.clone(),
             Some(pi_tui::DefaultTextStyle {
-                color: Some(Box::new(move |content: &str| color(content))),
+                color: Some(Box::new(move |content: &JsString| color(content))),
                 ..Default::default()
             }),
             MarkdownOptions {
@@ -77,15 +77,15 @@ impl UserMessageComponent {
 }
 
 impl Component for UserMessageComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = self.container.render(width);
         if lines.is_empty() {
             return lines;
         }
 
-        lines[0] = format!("{OSC133_ZONE_START}{}", lines[0]);
+        lines[0] = js_format!("{}{}", OSC133_ZONE_START, &lines[0]);
         let last = lines.len() - 1;
-        lines[last] = format!("{OSC133_ZONE_END}{OSC133_ZONE_FINAL}{}", lines[last]);
+        lines[last] = js_format!("{}{}{}", OSC133_ZONE_END, OSC133_ZONE_FINAL, &lines[last]);
         lines
     }
 

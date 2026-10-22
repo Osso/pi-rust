@@ -25,3 +25,7 @@ differential `userMessage` cases.
 ## Discrepancies
 
 None found.
+
+## Q18 native UTF-16
+
+Markdown text, style callbacks, OSC composition and render lines retain `JsString`. `raw_error_consumer_components::user_message_keeps_raw_units_across_padding_and_invalidation` is written, **unexecuted** (coding-agent compiler-blocked). Re-pin gaps: frozen `user-message.ts:29-33,45-51` has in-transit dim styling and sending indicator absent in Rust; Rust retains an old-only ignored transformer argument, while frozen constructor at lines 17-24 has no transformer argument. These are not new-pin parity evidence.
