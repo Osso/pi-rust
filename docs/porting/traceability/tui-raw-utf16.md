@@ -192,3 +192,10 @@ behavioral RED observed baseline X😀tail/cursor1 versus frozen high-X-low-tail
 actual native implementation GREEN. Whole module source representation migrated;
 expanded command/path/filesystem/callback differential proof pending. Existing typed
 numeric gaps are not broadened or silently accepted as source behavior.
+
+Autocomplete follow-up proof covers 168 native apply cases: four raw strings, every
+unit cursor (including inside pairs), empty/attachment/overlong prefixes, file/directory
+items with trailing quotes. Source behavioral RED exposed negative internal
+`cursorCol - prefix.length`: native JS slice counts from the line end, whereas old
+Rust saturated to zero. The raw implementation now retains that exact source behavior,
+including duplicated-prefix text; no TS fix/delta or new numeric gap. Matrix GREEN.

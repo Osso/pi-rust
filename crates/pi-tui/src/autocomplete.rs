@@ -277,7 +277,8 @@ impl CombinedAutocompleteProvider {
         prefix: &JsString,
     ) -> CompletionResult {
         let current_line = lines.get(cursor_line).cloned().unwrap_or_default();
-        let before_end = clamp_boundary(&current_line, cursor_col.saturating_sub(prefix.len()));
+        let prefix_end = cursor_col as i128 - prefix.len() as i128;
+        let before_end = normalize_slice_index(current_line.len(), prefix_end);
         let before_prefix = current_line.slice(0, before_end);
         let after_cursor = current_line.slice(clamp_boundary(&current_line, cursor_col), current_line.len());
 
@@ -805,6 +806,11 @@ fn compare_suggestions(left: &AutocompleteItem, right: &AutocompleteItem) -> std
 
 fn clamp_boundary(text: &JsString, index: usize) -> usize {
     index.min(text.len())
+}
+
+fn normalize_slice_index(length: usize, index: i128) -> usize {
+    let offset = if index < 0 { length as i128 + index } else { index };
+    offset.clamp(0, length as i128) as usize
 }
 
 fn home_dir() -> JsString {
