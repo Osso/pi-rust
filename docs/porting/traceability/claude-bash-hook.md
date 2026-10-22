@@ -17,6 +17,10 @@ Source: `packages/coding-agent/extensions/claude-bash-hook/src/index.ts`. Rust:
 | `formatHookReason` (trimmed string or default) | `format_hook_reason` | differential `block-default` |
 | Reviewer mapping to `allow`/`ask`/`deny`/`undefined` | `to_reviewer_result` | behavioral reviewer test |
 
+## Q18 native input object boundary
+
+Actual sandboxed Cargo RED at `4fe83515`: `hook_process_preserves_native_input_keys_and_output_reason` panics constructing the payload (`key must be a string`) before spawning the fixture process. The cloned `tool_input` must remain a `JsValue::Object`, not a bare map passed through serde's scalar key serializer. This single-authority correction preserves native CWD, command and distinct lone-unit keys through stdin JSON; the fixture process returns a lone-unit reason. GREEN pending in `hook-native-incrate-green.log`.
+
 ## Discrepancies / gaps
 
 - `ClaudeBashHookOptions::{command, timeout_ms}` are test seams. Production
