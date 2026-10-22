@@ -305,7 +305,7 @@ pub type UserMessagePreparedCallback = Arc<dyn Fn(&AgentMessage) + Send + Sync>;
 pub type PromptPreflightCallback = Arc<dyn Fn(bool) + Send + Sync>;
 /// Provider registration action types.
 pub type RegisterProviderAction =
-    Arc<dyn Fn(&str, &crate::core::provider_composer::ProviderConfigInput) -> Result<(), String> + Send + Sync>;
+    Arc<dyn Fn(&str, &crate::core::provider_composer::ProviderConfigInput) -> Result<(), JsString> + Send + Sync>;
 pub type RegisterNativeProviderAction = Arc<dyn Fn(Arc<dyn pi_ai::models::Provider>) + Send + Sync>;
 pub type UnregisterProviderAction = Arc<dyn Fn(&str) + Send + Sync>;
 
@@ -2545,7 +2545,7 @@ impl AgentSession {
         }
         let recipient = self.runtime_mailbox_recipient();
         let listener = crate::core::session_control_db::read_runtime_mailbox_listener(control_db_path, &recipient)
-            .map_err(|cause| AgentSessionError::new(cause.message))?;
+            .map_err(|cause| AgentSessionError::new(cause.message()))?;
         if listener
             .as_ref()
             .is_none_or(|listener| listener.pid != std::process::id())
@@ -2558,7 +2558,7 @@ impl AgentSession {
             |message| is_runtime_mailbox_message_due(message, options),
             i64::MAX as usize,
         )
-        .map_err(|cause| AgentSessionError::new(cause.message))?;
+        .map_err(|cause| AgentSessionError::new(cause.message()))?;
         if options.include_next_model_call {
             messages.sort_by_key(runtime_mailbox_checkpoint_priority);
         }
@@ -2574,7 +2574,7 @@ impl AgentSession {
             control_db_path,
             &refs,
         )
-        .map_err(|cause| error(cause.message))?;
+        .map_err(|cause| error(cause.message()))?;
         result
     }
 
@@ -2721,7 +2721,7 @@ impl AgentSession {
             let mut manager = lock(&self.inner.session_manager);
             lock(&self.inner.runtime_mailbox_acceptance)
                 .accept_messages(&mut manager, &control_db_path, &refs, accepted)
-                .map_err(|cause| error(cause.message))?;
+                .map_err(|cause| error(cause.message()))?;
         }
         for message in messages {
             self.mark_store_mailbox_message_delivered(message)?;
@@ -2766,7 +2766,7 @@ impl AgentSession {
             &persistence.session_path,
             agent_id,
         )
-        .map_err(|cause| error(cause.message))?;
+        .map_err(|cause| error(cause.message()))?;
         let Some(agent) = agent else {
             return Ok(());
         };
@@ -3175,16 +3175,16 @@ impl AgentSession {
         let recipient = self.runtime_mailbox_recipient();
         let cursor =
             crate::core::session_control_db::initialize_shared_channel_cursor_at_tail(&control_db_path, &recipient)
-                .map_err(|cause| AgentSessionError::new(cause.message))?;
+                .map_err(|cause| AgentSessionError::new(cause.message()))?;
         let last_message_id = crate::core::session_control_db::read_shared_channel_tail(&control_db_path)
-            .map_err(|cause| AgentSessionError::new(cause.message))?;
+            .map_err(|cause| AgentSessionError::new(cause.message()))?;
         let messages = crate::core::session_control_db::list_shared_channel_messages_after(
             &control_db_path,
             cursor,
             i64::MAX,
             last_message_id,
         )
-        .map_err(|cause| AgentSessionError::new(cause.message))?;
+        .map_err(|cause| AgentSessionError::new(cause.message()))?;
         let deliverable: Vec<_> = messages
             .into_iter()
             .filter(|message| !is_own_shared_channel_message(message, &recipient))
@@ -3196,14 +3196,14 @@ impl AgentSession {
                 &recipient,
                 last_message_id,
             )
-            .map_err(|cause| AgentSessionError::new(cause.message))?;
+            .map_err(|cause| AgentSessionError::new(cause.message()))?;
             return Ok(false);
         }
         let prompt =
             crate::core::runtime_coordination_format::format_shared_channel_prompt(&deliverable, &recipient.session_id);
         let queued = self.send_shared_channel_prompt(&prompt, options).await?;
         crate::core::session_control_db::advance_shared_channel_cursor(&control_db_path, &recipient, last_message_id)
-            .map_err(|cause| AgentSessionError::new(cause.message))?;
+            .map_err(|cause| AgentSessionError::new(cause.message()))?;
         if let Some(handler) = self.on_shared_channel_message_delivered() {
             handler(prompt);
         }
@@ -3338,7 +3338,7 @@ impl AgentSession {
     async fn handle_agent_event(&self, mut event: AgentEvent) -> Result<(), AgentError> {
         let mailbox_delivery = if let AgentEvent::MessageEnd { message } = &event {
             crate::core::runtime_mailbox_acceptance::read_runtime_mailbox_tool_delivery(message)
-                .map_err(|error| AgentError::new(error.message))?
+                .map_err(|error| AgentError::new(error.message()))?
         } else {
             None
         };
@@ -4005,7 +4005,7 @@ impl AgentSession {
                     released
                         .and(accepted)
                         .map(|()| None)
-                        .map_err(|error| crate::core::session_manager::SessionManagerError::new(error.message))
+                        .map_err(|error| crate::core::session_manager::SessionManagerError::new(error.message()))
                 } else if lock(&self.inner.runtime_mailbox_acceptance).consume_persisted_message(message) {
                     Ok(None)
                 } else {
