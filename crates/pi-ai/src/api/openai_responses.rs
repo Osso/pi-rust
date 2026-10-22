@@ -226,7 +226,7 @@ pub fn build_params(
     params.insert("input".into(), JsValue::Array(messages));
     params.insert("stream".into(), JsValue::Bool(true));
     if cache_retention != CacheRetention::None
-        && let Some(key) = clamp_openai_prompt_cache_key(stream_options.session_id.as_deref())
+        && let Some(key) = clamp_openai_prompt_cache_key(stream_options.session_id.as_ref())
     {
         params.insert("prompt_cache_key".into(), JsValue::String(key.into()));
     }
@@ -361,7 +361,7 @@ fn create_client(
     context: &Context,
     api_key: &str,
     options: &StreamOptions,
-    session_id: Option<&str>,
+    session_id: Option<&JsString>,
     compat: &ResolvedCompat,
 ) -> SdkClient {
     let dynamic = (model.provider == "github-copilot").then(|| {
@@ -372,13 +372,22 @@ fn create_client(
     if let Some(session_id) = session_id {
         match compat.session_affinity_format {
             SessionAffinityFormat::Openrouter => {
-                headers.insert("x-session-id".to_owned(), Some(session_id.to_owned()));
+                headers.insert(
+                    "x-session-id".to_owned(),
+                    Some(pi_js_compat::js_json::encode_node_utf8(session_id)),
+                );
             }
             format => {
                 if format == SessionAffinityFormat::Openai {
-                    headers.insert("session_id".to_owned(), Some(session_id.to_owned()));
+                    headers.insert(
+                        "session_id".to_owned(),
+                        Some(pi_js_compat::js_json::encode_node_utf8(session_id)),
+                    );
                 }
-                headers.insert("x-client-request-id".to_owned(), Some(session_id.to_owned()));
+                headers.insert(
+                    "x-client-request-id".to_owned(),
+                    Some(pi_js_compat::js_json::encode_node_utf8(session_id)),
+                );
             }
         }
     }
@@ -436,7 +445,7 @@ async fn run_stream(
     .map_err(|error| Failure::Message(error.into()))?;
     let cache_retention = resolve_cache_retention(stream_options.cache_retention, stream_options.request.env.as_ref());
     let cache_session_id = (cache_retention != CacheRetention::None)
-        .then_some(stream_options.session_id.as_deref())
+        .then_some(stream_options.session_id.as_ref())
         .flatten();
     let compat = get_compat(model);
     let grammar_tool_input_properties =

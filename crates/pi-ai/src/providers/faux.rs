@@ -218,7 +218,7 @@ pub struct FauxCore {
     tokens_per_second: Option<f64>,
     pending_responses: Arc<Mutex<Vec<FauxResponseStep>>>,
     state: Arc<Mutex<FauxProviderState>>,
-    prompt_cache: Arc<Mutex<HashMap<String, JsString>>>,
+    prompt_cache: Arc<Mutex<HashMap<JsString, JsString>>>,
     deferred_responses: Arc<Mutex<HashMap<String, DeferredEntry>>>,
     deferred: FauxDeferredOptions,
 }
@@ -575,7 +575,7 @@ impl FauxCore {
 
 struct FauxResolver {
     deferred_responses: Arc<Mutex<HashMap<String, DeferredEntry>>>,
-    prompt_cache: Arc<Mutex<HashMap<String, JsString>>>,
+    prompt_cache: Arc<Mutex<HashMap<JsString, JsString>>>,
     state: Arc<Mutex<FauxProviderState>>,
     api: String,
     provider: String,
@@ -1093,7 +1093,7 @@ fn with_usage_estimate(
     mut message: AssistantMessage,
     context: &Context,
     options: Option<&StreamOptions>,
-    prompt_cache: &Mutex<HashMap<String, JsString>>,
+    prompt_cache: &Mutex<HashMap<JsString, JsString>>,
 ) -> AssistantMessage {
     let prompt_text = serialize_context(context);
     let prompt_tokens = estimate_tokens(&prompt_text);

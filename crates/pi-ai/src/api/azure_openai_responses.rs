@@ -215,7 +215,7 @@ pub fn build_params(
     params.insert("model".into(), JsValue::String(deployment_name.into()));
     params.insert("input".into(), JsValue::Array(messages));
     params.insert("stream".into(), JsValue::Bool(true));
-    if let Some(key) = clamp_openai_prompt_cache_key(stream_options.session_id.as_deref()) {
+    if let Some(key) = clamp_openai_prompt_cache_key(stream_options.session_id.as_ref()) {
         params.insert("prompt_cache_key".into(), JsValue::String(key.into()));
     }
     params.insert("store".into(), JsValue::Bool(false));

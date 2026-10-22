@@ -337,7 +337,7 @@ fn create_client_headers(
     anthropic: &AnthropicOptions,
     api_key: Option<&str>,
     is_oauth: bool,
-    session_id: Option<&str>,
+    session_id: Option<&JsString>,
 ) -> ClientHeaders {
     let compat = anthropic_compat(model);
     let force_adaptive = raw_compat(model).force_adaptive_thinking == Some(true);
@@ -406,7 +406,10 @@ fn create_client_headers(
         base.insert("anthropic-beta".to_owned(), Some(beta));
     }
     if let (Some(session_id), true) = (session_id, compat.send_session_affinity_headers) {
-        base.insert("x-session-affinity".to_owned(), Some(session_id.to_owned()));
+        base.insert(
+            "x-session-affinity".to_owned(),
+            Some(pi_js_compat::js_json::encode_node_utf8(session_id)),
+        );
     }
     let model_headers = model.headers.as_ref().map(provider_headers).unwrap_or_default();
     ClientHeaders {
@@ -1140,7 +1143,7 @@ async fn drive_stream(
     let is_oauth = api_key.is_some_and(is_oauth_token);
     let retention = resolve_cache_retention(options.cache_retention, options.request.env.as_ref());
     let session_id = (retention != CacheRetention::None)
-        .then_some(options.session_id.as_deref())
+        .then_some(options.session_id.as_ref())
         .flatten();
     let client = create_client_headers(model, context, options, &anthropic, api_key, is_oauth, session_id);
     let params = JsValue::from(build_params(model, context, is_oauth, &anthropic, options)?);

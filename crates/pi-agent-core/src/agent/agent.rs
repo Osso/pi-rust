@@ -99,7 +99,7 @@ pub struct AgentOptions {
     pub prepare_next_turn_with_context: Option<PrepareNextTurnContextHook>,
     pub steering_mode: Option<QueueMode>,
     pub follow_up_mode: Option<QueueMode>,
-    pub session_id: Option<String>,
+    pub session_id: Option<JsString>,
     pub thinking_budgets: Option<ThinkingBudgets>,
     pub transport: Option<Transport>,
     pub max_retry_delay_ms: Option<f64>,
@@ -207,7 +207,7 @@ struct AgentInner {
     should_stop_after_turn: Mutex<Option<ShouldStopAfterTurnHook>>,
     prepare_next_turn: Mutex<Option<PrepareNextTurnSignalHook>>,
     prepare_next_turn_with_context: Mutex<Option<PrepareNextTurnContextHook>>,
-    session_id: Mutex<Option<String>>,
+    session_id: Mutex<Option<JsString>>,
     thinking_budgets: Mutex<Option<ThinkingBudgets>>,
     transport: Mutex<Transport>,
     max_retry_delay_ms: Mutex<Option<f64>>,
@@ -564,7 +564,7 @@ impl Agent {
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = mode;
     }
 
-    pub fn session_id(&self) -> Option<String> {
+    pub fn session_id(&self) -> Option<JsString> {
         self.inner
             .session_id
             .lock()
@@ -572,7 +572,7 @@ impl Agent {
             .clone()
     }
 
-    pub fn set_session_id(&self, session_id: Option<String>) {
+    pub fn set_session_id(&self, session_id: Option<JsString>) {
         *self
             .inner
             .session_id

@@ -1014,7 +1014,7 @@ pub fn build_params(
     params.insert("stream".into(), JsValue::Bool(true));
     if ((model.base_url.contains("api.openai.com") && cache_retention != CacheRetention::None)
         || (cache_retention == CacheRetention::Long && compat.supports_long_cache_retention))
-        && let Some(key) = clamp_openai_prompt_cache_key(stream_options.session_id.as_deref())
+        && let Some(key) = clamp_openai_prompt_cache_key(stream_options.session_id.as_ref())
     {
         params.insert("prompt_cache_key".into(), JsValue::String(key.into()));
     }
@@ -1310,7 +1310,7 @@ fn create_client(
     context: &Context,
     api_key: &str,
     stream_options: &StreamOptions,
-    session_id: Option<&str>,
+    session_id: Option<&JsString>,
     compat: &ResolvedOpenAICompletionsCompat,
 ) -> SdkClient {
     let dynamic = (model.provider == "github-copilot").then(|| {
@@ -1322,13 +1322,25 @@ fn create_client(
         && compat.send_session_affinity_headers
     {
         if compat.session_affinity_format == crate::types::SessionAffinityFormat::Openrouter {
-            headers.insert("x-session-id".to_owned(), Some(session_id.to_owned()));
+            headers.insert(
+                "x-session-id".to_owned(),
+                Some(pi_js_compat::js_json::encode_node_utf8(session_id)),
+            );
         } else {
             if compat.session_affinity_format == crate::types::SessionAffinityFormat::Openai {
-                headers.insert("session_id".to_owned(), Some(session_id.to_owned()));
+                headers.insert(
+                    "session_id".to_owned(),
+                    Some(pi_js_compat::js_json::encode_node_utf8(session_id)),
+                );
             }
-            headers.insert("x-client-request-id".to_owned(), Some(session_id.to_owned()));
-            headers.insert("x-session-affinity".to_owned(), Some(session_id.to_owned()));
+            headers.insert(
+                "x-client-request-id".to_owned(),
+                Some(pi_js_compat::js_json::encode_node_utf8(session_id)),
+            );
+            headers.insert(
+                "x-session-affinity".to_owned(),
+                Some(pi_js_compat::js_json::encode_node_utf8(session_id)),
+            );
         }
     }
     SdkClient::new(SdkClientConfig {
@@ -1941,7 +1953,7 @@ async fn run_stream(
             .map_err(|error| CompletionsFailure::Message(error.message.into()))?;
     let cache_retention = resolve_cache_retention(stream_options.cache_retention, stream_options.request.env.as_ref());
     let cache_session_id = (cache_retention != CacheRetention::None)
-        .then_some(stream_options.session_id.as_deref())
+        .then_some(stream_options.session_id.as_ref())
         .flatten();
     let client = create_client(model, context, &api_key, stream_options, cache_session_id, &compat);
     let params = build_params(
