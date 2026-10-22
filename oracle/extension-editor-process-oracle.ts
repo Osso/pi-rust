@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 type Request = {
@@ -8,6 +8,10 @@ type Request = {
 	report: string;
 	explicit: boolean;
 	prefill: number[];
+	environment: Record<string, string | null>;
+	bindings: Record<string, string[]>;
+	input: number[];
+	skipWait: boolean;
 };
 
 async function main(): Promise<void> {
@@ -77,7 +81,7 @@ async function main(): Promise<void> {
 		process.env.VISUAL = request.command;
 		const editor = new ExtensionEditorComponent(
 			host,
-			new KeybindingsManager(),
+			new KeybindingsManager(request.bindings),
 			"Compose",
 			String.fromCharCode(...request.prefill),
 			(value: string) => submissions.push(units(value)),
@@ -86,29 +90,56 @@ async function main(): Promise<void> {
 			request.explicit ? request.command : undefined,
 		);
 		editor.focused = true;
+		const snapshot = (): number[][] =>
+			editor
+				.render(40)
+				.map((line: string) => units(line.replace(/\x1b\[[0-9;]*m/g, "")));
+		const before = snapshot();
 		if (request.nextCommand !== undefined)
 			process.env.VISUAL = request.nextCommand;
+		for (const [name, value] of Object.entries(request.environment)) {
+			if (value === null) delete process.env[name];
+			else process.env[name] = value;
+		}
 		const write = process.stdout.write;
 		process.stdout.write = function (chunk: string | Uint8Array): boolean {
 			if (String(chunk).startsWith("Launching external editor:")) return true;
 			return write.call(process.stdout, chunk);
 		};
 		try {
-			editor.handleInput("\x07");
+			editor.handleInput(String.fromCharCode(...request.input));
 			events.push("input-returned");
-			await Promise.race([
-				complete,
-				new Promise((_, reject) =>
-					setTimeout(() => reject(new Error("external editor timeout")), 3000),
-				),
-			]);
+			if (!request.skipWait)
+				await Promise.race([
+					complete,
+					new Promise((_, reject) =>
+						setTimeout(
+							() => reject(new Error("external editor timeout")),
+							3000,
+						),
+					),
+				]);
 		} finally {
 			process.stdout.write = write;
 		}
+		const after = snapshot();
 		editor.handleInput("\r");
-		const report = JSON.parse(readFileSync(request.report, "utf8"));
-		delete report.path;
-		return { events, submissions, report, focused: editor.focused };
+		const report: Record<string, unknown> | null = existsSync(request.report)
+			? JSON.parse(readFileSync(request.report, "utf8"))
+			: null;
+		if (report) {
+			if (typeof report.path === "string" && existsSync(report.path))
+				throw new Error("temporary edit file was not removed");
+			delete report.path;
+		}
+		return {
+			events,
+			submissions,
+			report,
+			focused: editor.focused,
+			before,
+			after,
+		};
 	}
 }
 void main();

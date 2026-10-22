@@ -1,32 +1,49 @@
 # `components/extension-editor.ts`
 
-Authority: whole [common-pin](../source-lock.json) module. [Contract](../../specs/extension-editor.md).
+Authority: whole 167-line [common-pin](../source-lock.json) module. [Contract](../../specs/extension-editor.md).
 Rust: `crates/pi-coding-agent/src/modes/interactive/components/extension_editor.rs`.
 
-## Current process/representation checkpoint
+## Representation and dispatch
 
-The prior ComponentRef→Editor downcasts always failed because Editor has no `as_any_mut` hook. This silently emptied child input, ignored saved output and dropped inner focus. One typed `Rc<RefCell<Editor>>` now supplies both native methods and the erased Container child. [Crate-wide audit](component-downcast-audit.md) found no second missing-hook target; all three silent Editor sites are removed, not replaced by fallback behavior.
+One typed `Rc<RefCell<Editor>>` supplies native methods and the erased Container child. The old ComponentRef→Editor downcasts always failed because Editor has no `as_any_mut`: child input became empty, saved output disappeared, and inner focus was never updated. [Crate-wide audit](component-downcast-audit.md) lists all three fixed sites and the other supported target groups; no generic downcast hook or fallback is added.
 
-The component now owns its frozen extension-editor lifecycle instead of invoking the old main-editor helper: literal filename, live command resolution, write-before-stop, asynchronous child wait, one-final-LF removal, finally unlink/restart/forced render. Host restart returns typed `TerminalRawModeError`; concrete TUI adapters no longer ignore it. Container APIs are exposed through native composition and the focus capability is explicit.
+`Deref`/`DerefMut`, delegated rendering/invalidation and `as_container` expose inherited Container operations. `as_focusable_mut` and the typed editor propagate source focus. The constructor preserves native title/prefill/options, submission and cancel callbacks. Existing constructor-render cases now run in a dedicated test, rather than also remaining in the broad leaf-helper list; their requests/assertions are unchanged and theme initialization still precedes fixture construction.
 
-| Capability | Current proof |
-|---|---|
-| title/prefill/options/hints, Enter/cancel and delegated rendering | existing interactive component differential and native tests; final checkpoint rerun pending |
-| raw native prefill/submission | existing `raw_extension_dialogs`; final checkpoint rerun pending |
-| actual process, exact prefill bytes including lone unit/pair, literal empty argv, filename, saved text submission | `differential_extension_editor_process::extension_editor_real_process_order_focus_and_live_command_match_frozen`, 2 scenarios |
-| explicit command wins vs live VISUAL changed after construction | same actual frozen/native process differential |
-| input returns before restart/forced-render; component exposes focus capability | same differential; no timing-only assertion |
-| read/write/stop/restart errors; empty/NUL executable and NUL argv | 7 actual frozen/native subprocess scenarios, installed production crash hook, exit1, exact equal diagnostic line and finally/input-return trace; finally error overrides body error |
-| spawn/exit/signal failure, dynamic EDITOR/default resolution and focus cursor propagation | OPEN: source branches not yet fully proved; not approved deviations |
+## Whole-module capability matrix
+
+| Export / source branch | Rust item / behavior | Proof |
+|---|---|---|
+| `ExtensionEditorComponent extends Container implements Focusable` | composed Container and typed Editor; focus capability and setter delegation | complete before/after rendered UTF-16 frames, including cursor marker; constructor rendering differential; raw prefill/submission |
+| constructor title, spacing, theme, hints, prefill truthiness, EditorOptions; Enter callback | `new`; inherited Editor delegates options; source default command always makes external-editor hint present | dedicated frozen constructor differential 1 test / 2 cases, existing native submit and raw tests, process frames |
+| global cancel binding before app external binding | `handle_input` | real frozen scenario maps external action to Escape but receives cancel only; native cancel test |
+| remaining keys forwarded to Editor | same | Enter/submission and complete frame comparisons |
+| explicit nonempty command → live VISUAL → live EDITOR → platform default | `get_external_editor_command` at invocation | explicit vs changed VISUAL, empty explicit/VISUAL with EDITOR, controlled default executable on PATH |
+| `getExternalEditorCommand` undefined guard | source cannot reach it: platform default is nonempty | literal source audit; controlled default launch confirms behavior |
+| `currentText`, `Date.now` filename, `os.tmpdir`, write before stop | typed editor read; `extension_editor_temp_file`; Node UTF-8 at file boundary | real child compares exact prefill bytes incl lone high and astral pair, normalized timestamp basename, actual parent directory, literal empty argv |
+| live TMPDIR → TMP → TEMP → Unix /tmp | shared process.env overlay, existing Node POSIX join | four real source/native directory scenarios RED→GREEN; no host-only std::env lookup as an alternate authority |
+| asynchronous spawn with inherited stdio and literal-space split | synchronous prelude/spawn, Tokio-local async completion | stop/input-return/start/render event ordering; exact child argv and process environment |
+| child error / nonzero exit / signal | ordinary failure leaves Editor untouched | missing executable, actual exit17, actual SIGTERM; unchanged full rendered state and raw submitted units |
+| exit0 read, Node UTF-8 decode, remove exactly one final LF | `await_external_editor` | two-LF and no-final-LF saved files; invalid UTF-8 + CRLF; full rendered state before Enter so submission trimming cannot hide newline differences |
+| read/write/stop errors and restart error overriding body failure | captured prelude, async rejection, finally result precedence | 7 actual frozen/native subprocess scenarios, installed production uncaught hook, exit1, exact error line and event order |
+| empty executable, NUL executable / argv | `validate_external_editor_arguments`; shared Node ERR_INVALID_ARG_VALUE inspection/truncation | actual process comparison of precise TypeError code/message; ordinary spawn error remains distinct |
+| finally unlink errors ignored; start then force full render | `finish_external_editor -> Result`; typed host restart | edited files no longer exist; child-deleted file still restores; restart failure suppresses forced render and overrides read error |
+
+## Runtime and boundary details
+
+The source's own extension-file/process path replaces the old main-editor helper. The UI runs the native completion on its Tokio LocalSet, matching the source event loop; no synchronous alternate path is retained. Native host restart returns `TerminalRawModeError` instead of silently discarding it.
+
+Pre-await write/stop failure runs finally before input returns, but reports rejection later. Argument validation rejects the awaited child promise, so finally follows input-return. A finally failure overrides the body failure. Source/native subprocess traces prove these distinct orders, not elapsed-time estimates.
+
+The inspector is extracted from the existing shared Node filesystem formatter; its existing 13 Node filesystem tests remain GREEN. Text stays `JsString` until actual file/stdout/process boundaries. Temporary filenames normalize only independent Date.now digits in the oracle; complete bytes, parent directory, arguments, frames and diagnostics remain assertions. Runtime process proof is on the current Linux host; the platform command/temp-directory branches remain explicit in code.
 
 ## Proof ledger
 
 Artifacts `/tmp/pi-rust-repin-lossless-interactive/`:
 
-- `test-extension-editor-process-red-2.log`: real child receives empty file; wrong basename; original text submitted after edit; absent focus hook; input blocks; changed VISUAL ignored.
-- `test-extension-editor-finally-red.log`: actual read-error native subprocess exits with only stop recorded; frozen restores/render first.
-- `test-extension-editor-process-green-1.log`: 2 tests pass after typed handle/lifecycle port (normal explicit/live-command cases plus real crash boundary).
+- RED: `test-extension-editor-process-red-2.log` (empty file, lost update/focus, wrong name, blocking input, stale VISUAL); `test-extension-editor-finally-red.log` (read failure skips restore); `test-extension-editor-failures-red-1.log` (stop/write timing and three validation errors); `test-extension-editor-temp-env-red.log` (four wrong temporary directories).
+- GREEN: `test-extension-editor-branches-green-2.log`: 2 tests, 14 handled scenarios plus 7 uncaught subprocess scenarios. Before/after full frames prove focus and final-LF semantics.
+- Constructor rendering: `test-extension-editor-constructor-green-2.log` 1/1 (2 source cases). Native submit/cancel: `test-extension-editor-native-green.log` 2/2. Raw prefill/submission: `test-extension-editor-raw-green.log` 1/1.
+- Shared Node formatting regression: `test-extension-editor-shared-node-fs-green.log` 13/13.
+- Historical interim checkpoints: 549fca1c, 46db7864; each required coding-agent all-target check passed with zero warnings. Final checkpoint check recorded by SHA separately. Parent owns final independent/readability/clippy gates.
 
-`test-extension-editor-failures-red-1.log` reproduces missing stop-finally, early fatal write handling, and three lost argument-validation failures. The failure refinement captures native throws until finally completes, preserves async rejection timing for pre-await failures, and distinguishes argument rejection from ordinary child error. ERR_INVALID_ARG_VALUE received-value inspection/truncation is extracted from the existing shared Node filesystem formatter, not implemented with a second encoder. `test-extension-editor-failures-green-3.log` records the refined proof (2 tests: 2 normal scenarios and 7 process failures). Existing shared Node filesystem regressions pass 13/13 (`test-extension-editor-shared-node-fs-green.log`); the earlier GREEN1 fixture incorrectly read its unused report before a synchronously completed pre-await rejection had a chance to run. The fixture now flushes the input-return event and yields before normal post-edit observation; assertions are unchanged.
-
-This checkpoint is not whole-module acceptance. Pending branches above remain active; generic ExtensionUiTuiBackend and parent-owned crates are unchanged.
+No new semantic deviation is claimed. Inherited Editor internals retain their own traceability; this does not claim whole interactive-mode or Q13 completion. Generic ExtensionUiTuiBackend and parent-owned ai/agent-core are unchanged.

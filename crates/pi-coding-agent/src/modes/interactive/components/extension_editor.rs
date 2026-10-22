@@ -146,7 +146,8 @@ impl ExtensionEditorComponent {
             Ok(duration) => duration.as_millis() as i128,
             Err(error) => -(error.duration().as_millis() as i128),
         };
-        let file = std::env::temp_dir().join(format!("pi-extension-editor-{millis}.md"));
+        let name = format!("pi-extension-editor-{millis}.md");
+        let file = extension_editor_temp_file(&name);
         if let Err(error) = capture_editor_step(|| begin_external_editor(self.tui.as_ref(), &file, &content, &command))
         {
             let error = match capture_editor_step(|| finish_external_editor(self.tui.as_ref(), &file)) {
@@ -163,6 +164,25 @@ impl ExtensionEditorComponent {
         let editor = Rc::clone(&self.editor);
         let tui = Rc::clone(&self.tui);
         tokio::task::spawn_local(complete_external_editor(child, file, editor, tui));
+    }
+}
+
+fn extension_editor_temp_file(name: &str) -> PathBuf {
+    let nonempty_env = |key| pi_js_compat::process_env::get(key).filter(|value| !value.is_empty());
+    if cfg!(target_os = "windows") {
+        let directory = nonempty_env("TEMP").or_else(|| nonempty_env("TMP")).unwrap_or_else(|| {
+            let root = nonempty_env("SystemRoot").or_else(|| nonempty_env("windir"));
+            // This is Node's literal undefined + '\\temp' result when both are absent.
+            format!("{}\\temp", root.as_deref().unwrap_or("undefined"))
+        });
+        PathBuf::from(directory).join(name)
+    } else {
+        let directory = nonempty_env("TMPDIR")
+            .or_else(|| nonempty_env("TMP"))
+            .or_else(|| nonempty_env("TEMP"))
+            .unwrap_or_else(|| "/tmp".into());
+        let path = crate::utils::paths::node_join(directory, name);
+        PathBuf::from(encode_node_utf8(&path))
     }
 }
 

@@ -8,7 +8,7 @@ Parent-requested audit, 2026-10-22. Scope: every `downcast_mut`/`downcast_ref` i
 |---|---|---|
 | ExtensionEditor `editor_text` | `ComponentRef → Editor`; absent Editor hook yields `unwrap_or_default`, so child receives an empty file | Retain `Rc<RefCell<Editor>>`; actual frozen/native child reads Node-encoded prefill bytes in `differential_extension_editor_process` |
 | ExtensionEditor `set_editor_text` | same missing hook; `if let` discards saved content | Same typed handle; real child writes saved content and subsequent Enter submits it, source/native equal |
-| ExtensionEditor `set_focused` | same missing hook; inner focus update silently absent; outer component also lacked the focus capability hook | Typed editor focus and explicit `as_focusable_mut`; actual component capability and frozen focus property exercised in the real-process differential |
+| ExtensionEditor `set_focused` | same missing hook; inner focus update silently absent; outer component also lacked the focus capability hook | Typed editor focus and explicit `as_focusable_mut`; actual component capability, frozen focus property and full rendered cursor frames exercised in the real-process differential |
 
 No fallback or added generic Editor downcast hook is needed. The typed handle and erased Container child refer to the same Editor allocation. Container operations remain exposed through the composed component.
 
@@ -34,4 +34,4 @@ All targets below implement `as_any_mut -> Some(self)` at this checkpoint; no ad
 | custom_editor input continuation | CustomEditor | expected concrete/composed base is checked with `expect`, not silently ignored |
 | example editor composition and test wiring | CustomEditor | native composed adapter exposes its base explicitly |
 
-Error payload downcasts (custom-entry errors, uncaught errors) and typed event/context payload downcasts are not ComponentRef casts. The original Editor was the only referenced ComponentRef target without a concrete hook. No blanket `expect` conversion was applied to unrelated optional casts.
+Error payload downcasts (custom-entry errors, uncaught errors) and typed event/context payload downcasts are not ComponentRef casts. Constructor graphs were checked for the loader/status/dialog/tree groups: Loader, Input, Text, LabelInput, BoxComponent and Container handles point at those concrete children; cancellable/plain loader and Box/Container pairs intentionally discriminate two supported types. The original Editor was the only referenced ComponentRef target without a concrete hook. No blanket `expect` conversion was applied to unrelated optional casts.
