@@ -236,7 +236,7 @@ impl PackageCommandEffects for FakeEffects {
         self.calls
             .lock()
             .unwrap()
-            .push(pi_js_compat::js_format!("install:{}:{}", source, local));
+            .push(pi_js_compat::js_format!("install:{}:{}", source, local.to_string()));
         for message in &self.progress_messages {
             progress(message.clone().into());
         }
@@ -254,7 +254,7 @@ impl PackageCommandEffects for FakeEffects {
         self.calls
             .lock()
             .unwrap()
-            .push(pi_js_compat::js_format!("remove:{}:{}", source, local));
+            .push(pi_js_compat::js_format!("remove:{}:{}", source, local.to_string()));
         for message in &self.progress_messages {
             progress(message.clone().into());
         }
