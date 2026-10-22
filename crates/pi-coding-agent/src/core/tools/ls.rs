@@ -201,21 +201,20 @@ async fn list_with_operations(
     if !operations
         .exists(&dir_path)
         .await
-        .map_err(|error| ToolError::new(error.to_string()))?
+        .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?
     {
         return Err(ToolError::new(format!("Path not found: {dir_path}")));
     }
     let is_directory = operations
         .is_directory(&dir_path)
         .await
-        .map_err(|error| ToolError::new(error.to_string()))?;
+        .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
     if !is_directory {
         return Err(ToolError::new(format!("Not a directory: {dir_path}")));
     }
-    let mut entries = operations
-        .readdir(&dir_path)
-        .await
-        .map_err(|error| ToolError::new(format!("Cannot read directory: {}", error)))?;
+    let mut entries = operations.readdir(&dir_path).await.map_err(|error| {
+        ToolError::new(JsString::from("Cannot read directory: ") + super::node_fs::operation_error_message(&error))
+    })?;
     entries.sort_by(|left, right| locale_compare(&left.to_lowercase(), &right.to_lowercase()));
     check_aborted(signal)?;
 

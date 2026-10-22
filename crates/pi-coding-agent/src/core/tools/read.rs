@@ -247,13 +247,13 @@ async fn execute_read(
     operations
         .access(&absolute_path)
         .await
-        .map_err(|error| ToolError::new(error.to_string()))?;
+        .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
     check_aborted(signal.as_ref())?;
 
     let mime_type = operations
         .detect_image_mime_type(&absolute_path)
         .await
-        .map_err(|error| ToolError::new(error.to_string()))?;
+        .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
 
     let (content, details) = match mime_type {
         Some(mime_type) => read_image(operations.as_ref(), &absolute_path, &mime_type, auto_resize_images).await?,
@@ -306,7 +306,7 @@ async fn read_image(
     let buffer = operations
         .read_file(absolute_path)
         .await
-        .map_err(|error| ToolError::new(error.to_string()))?;
+        .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
     let processed = process_image(
         &buffer,
         mime_type,
@@ -348,18 +348,18 @@ async fn read_text(
     let file_stat = operations
         .stat(absolute_path)
         .await
-        .map_err(|error| ToolError::new(error.to_string()))?;
+        .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
     let range_limited = can_use_head_range_read(file_stat, operations, input.offset, input.limit);
     let buffer = if range_limited {
         operations
             .read_range(absolute_path, 0, DEFAULT_MAX_BYTES as u64)
             .await
-            .map_err(|error| ToolError::new(error.to_string()))?
+            .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?
     } else {
         operations
             .read_file(absolute_path)
             .await
-            .map_err(|error| ToolError::new(error.to_string()))?
+            .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?
     };
     let text_content = String::from_utf8_lossy(&buffer);
     let all_lines = text_content.split('\n').collect::<Vec<_>>();

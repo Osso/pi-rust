@@ -200,7 +200,7 @@ async fn execute_find(
         if !custom
             .exists(&search_path)
             .await
-            .map_err(|error| ToolError::new(error.to_string()))?
+            .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?
         {
             return Err(ToolError::new(format!("Path not found: {search_path}")));
         }
@@ -213,7 +213,7 @@ async fn execute_find(
                 effective_limit,
             )
             .await
-            .map_err(|error| ToolError::new(error.to_string()))?;
+            .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
         check_aborted(signal.as_ref())?;
         if results.is_empty() {
             return Ok(text_result("No files found matching pattern".to_owned(), None));
@@ -396,7 +396,10 @@ async fn run_fd(fd_path: &str, args: &[String], signal: Option<&CancellationToke
             }
         }
     }
-    let status = child.wait().await.map_err(|error| ToolError::new(error.to_string()))?;
+    let status = child
+        .wait()
+        .await
+        .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
     let stderr = stderr_task.await.unwrap_or_default();
     let failure = if status.code() != Some(0) {
         let message = stderr.trim();

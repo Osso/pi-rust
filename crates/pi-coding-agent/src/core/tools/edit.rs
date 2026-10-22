@@ -260,7 +260,7 @@ async fn execute_edit(
         if let Err(error) = operations.access(&absolute_path).await {
             check_aborted(signal.as_ref())?;
             return Err(ToolError::new(
-                JsString::from("Could not edit file: ") + &path + format!(". {}.", edit_access_error_message(&error)),
+                JsString::from("Could not edit file: ") + &path + ". " + edit_access_error_message(&error) + ".",
             ));
         }
         check_aborted(signal.as_ref())?;
@@ -268,7 +268,7 @@ async fn execute_edit(
         let buffer = operations
             .read_file(&absolute_path)
             .await
-            .map_err(|error| ToolError::new(error.to_string()))?;
+            .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
         check_aborted(signal.as_ref())?;
 
         let raw_content = String::from_utf8_lossy(&buffer);
@@ -284,7 +284,7 @@ async fn execute_edit(
         operations
             .write_file(&absolute_path, &encoded_content)
             .await
-            .map_err(|error| ToolError::new(error.to_string()))?;
+            .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
         check_aborted(signal.as_ref())?;
 
         let diff_result = generate_diff_string(&applied.base_content, &applied.new_content, DIFF_CONTEXT_LINES);
@@ -305,7 +305,7 @@ async fn execute_edit(
         })
     })
     .await
-    .map_err(|error| ToolError::new(error.to_string()))?
+    .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?
 }
 
 fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
@@ -318,11 +318,11 @@ fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
 /// `error instanceof Error && "code" in error ? Error code: <code> : String(error)`.
 ///
 /// Custom operations surface plain messages; filesystem errors carry an errno.
-fn edit_access_error_message(error: &io::Error) -> String {
+fn edit_access_error_message(error: &io::Error) -> JsString {
     if error.raw_os_error().is_some() || error.kind() != io::ErrorKind::Other {
-        return format!("Error code: {}", node_error_code(error));
+        return format!("Error code: {}", node_error_code(error)).into();
     }
-    format!("Error: {error}")
+    JsString::from("Error: ") + super::node_fs::operation_error_message(error)
 }
 
 // ============================================================================

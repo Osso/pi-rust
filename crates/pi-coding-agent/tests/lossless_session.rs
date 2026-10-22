@@ -3,6 +3,46 @@ use pi_coding_agent::core::session_manager::{FileEntry, SessionEntry, parse_sess
 use pi_coding_agent::core::session_tool_output::serialize_session_entry;
 use pi_js_compat::js_json::parse_lossless;
 
+#[tokio::test]
+async fn custom_write_operation_error_keeps_raw_units() {
+    use pi_agent_core::agent::types::AgentTool;
+    use pi_ai::request::BoxFuture;
+    use pi_coding_agent::core::extensions::types::HandlerError;
+    use pi_coding_agent::core::tools::write::{WriteOperations, WriteTool, WriteToolOptions};
+    use pi_js_compat::js_json::JsString;
+    use std::{io, sync::Arc};
+
+    struct FailingWrite;
+    impl WriteOperations for FailingWrite {
+        fn mkdir<'a>(&'a self, _path: &'a str) -> BoxFuture<'a, io::Result<()>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn write_file<'a>(&'a self, _path: &'a str, _content: &'a str) -> BoxFuture<'a, io::Result<()>> {
+            Box::pin(async {
+                Err(io::Error::other(HandlerError::new(JsString::from_utf16(vec![
+                    0xd800, 0x78, 0xdfff,
+                ]))))
+            })
+        }
+    }
+    let tool = WriteTool::with_options(
+        "/tmp",
+        WriteToolOptions {
+            operations: Some(Arc::new(FailingWrite)),
+        },
+    );
+    let result = tool
+        .execute(
+            "raw-error".into(),
+            parse_lossless(r#"{"path":"raw.txt","content":"x"}"#).unwrap(),
+            None,
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(result.unwrap_err().message.units(), &[0xd800, 0x78, 0xdfff]);
+}
+
 #[test]
 fn extension_notification_callback_receives_original_units() {
     use pi_coding_agent::core::extensions::types::{ExtensionUiContext, NotifyType};

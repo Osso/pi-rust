@@ -252,7 +252,7 @@ fn default_supervisor_decision_requester() -> SupervisorDecisionRequester {
         Box::pin(async move {
             crate::supervisor::client::request_supervisor_decision(&input)
                 .await
-                .map_err(|error| error.message().clone())
+                .map_err(|error| JsString::from(error.message()))
         })
     })
 }

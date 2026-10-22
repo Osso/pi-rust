@@ -13,6 +13,10 @@ Contract: [lossless content](../../specs/lossless-content.md). Frozen source: `4
 | Agent loop / core custom messages and summaries | lossless execution/hook arguments, result/details, custom AST and summary strings | coding-agent consumers and persisted JSONL integration pending | `lossless_agent`: two sandbox cases, including pinned TS JSON reread |
 | Questions / mailbox / session name | downstream migration pending | no end-to-end claim | not yet proven |
 
+## Custom IO error checkpoint
+
+Sandbox operation traits retain raw `HandlerError` inside `io::Error`; filesystem tools extract that original message rather than using its terminal Display conversion. Edit/ls prefixes concatenate native units. `custom_write_operation_error_keeps_raw_units` exercises the actual tool/operation boundary; `raw-io-red.jsonl` is compiler-blocked, not a behavioral RED or PASS. Shared native OS error formatting remains unchanged.
+
 ## Session callback integration checkpoint
 
 Session-info extension events and notification callbacks use `JsString`; interactive notification queues and RPC payloads preserve it until actual terminal output. Detached completion errors retain the same raw authority as their agent snapshot. New `lossless_session` regressions cover raw names and callback units, but remain compiler-blocked; `parent-integration-red.log` records 423 errors before bundled integration. No runtime PASS claimed.

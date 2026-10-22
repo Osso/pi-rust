@@ -247,10 +247,11 @@ fn capture_inbox(context: &ExtensionContext) -> Result<InboxTarget, ToolError> {
         db,
         path: path.to_owned(),
         recipient: RuntimeMailboxAddress {
-            session_id: manager.get_session_id().to_owned(),
+            session_id: manager.get_session_id().into(),
             agent_id: context
                 .multi_agent_agent_id()
-                .map_err(|error| ToolError::new(error.message))?,
+                .map_err(|error| ToolError::new(error.message))?
+                .map(JsString::from),
         },
     })
 }
@@ -275,7 +276,7 @@ async fn deliver_queued(
             JsString::from(title) + "\n" + format_answers(&result.answers)
         }
         Err(error) => {
-            let body = format!("Questions failed (request {request}): {error}");
+            let body = JsString::from(format!("Questions failed (request {request}): {error}"));
             ui.notify(&body, Some(NotifyType::Error));
             body.into()
         }
@@ -290,16 +291,16 @@ async fn deliver_queued(
         },
         kind: RuntimeMailboxMessageKind::Reply,
         store_ref: RuntimeMailboxStoreRef {
-            message_id: message_id.clone(),
-            session_path: target.path,
+            message_id: message_id.clone().into(),
+            session_path: target.path.into(),
         },
         updated_at: None,
-        message: json!({"body":body,"id":message_id,"kind":"reply","status":"pending","fromAgentId":"main","toAgentId":target.recipient.agent_id.as_deref().unwrap_or("main")}),
+        message: json!({"body":body,"id":message_id,"kind":"reply","status":"pending","fromAgentId":"main","toAgentId":target.recipient.agent_id.as_ref().cloned().unwrap_or_else(|| "main".into())}),
     };
     if let Err(error) = enqueue_stored_runtime_mailbox_message(&target.db, &input) {
         let message = format!("Failed to deliver question answer (request {request}): {error}");
         eprintln!("{message}");
-        ui.notify(&message, Some(NotifyType::Error));
+        ui.notify(&message.into(), Some(NotifyType::Error));
     }
 }
 #[derive(Debug, Default, Clone, Copy)]

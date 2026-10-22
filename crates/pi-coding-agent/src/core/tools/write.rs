@@ -169,12 +169,12 @@ async fn execute_write(
         operations
             .mkdir(&directory)
             .await
-            .map_err(|error| ToolError::new(error.to_string()))?;
+            .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
         check_aborted(signal.as_ref())?;
         operations
             .write_file(&absolute_path, &encode_node_utf8(&content))
             .await
-            .map_err(|error| ToolError::new(error.to_string()))?;
+            .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
         check_aborted(signal.as_ref())?;
         Ok(AgentToolResult {
             content: vec![TextOrImageContent::Text(TextContent::new(
@@ -186,7 +186,7 @@ async fn execute_write(
         })
     })
     .await
-    .map_err(|error| ToolError::new(error.to_string()))?
+    .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?
 }
 
 fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
