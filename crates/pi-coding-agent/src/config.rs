@@ -21,9 +21,11 @@ use serde_json::Value;
 
 use crate::core::tools::node_fs::node_read_error;
 use crate::utils::child_process::node_spawn_error_message;
-use crate::utils::paths::{PathInputOptions, normalize_path};
+use crate::utils::paths::{PathInputOptions, node_dirname, node_join, node_resolve, normalize_path, process_cwd};
 use crate::utils::uncaught::{ERROR, throw_uncaught};
-use pi_js_compat::js_json;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{self, JsString, encode_node_utf8};
+use pi_js_compat::string::is_js_whitespace_unit;
 
 const DEFAULT_PACKAGE_NAME: &str = "@earendil-works/pi-coding-agent";
 const DEFAULT_VERSION: &str = "0.0.0";
@@ -39,18 +41,18 @@ const EMBEDDED_LIGHT_THEME: &str = include_str!("../theme/light.json");
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigError {
     label: &'static str,
-    message: pi_js_compat::js_json::JsString,
+    message: JsString,
 }
 
 impl ConfigError {
-    fn new(message: impl Into<pi_js_compat::js_json::JsString>) -> Self {
+    fn new(message: impl Into<JsString>) -> Self {
         Self {
             label: ERROR,
             message: message.into(),
         }
     }
 
-    fn syntax(message: impl Into<pi_js_compat::js_json::JsString>) -> Self {
+    fn syntax(message: impl Into<JsString>) -> Self {
         Self {
             label: "SyntaxError",
             message: message.into(),
@@ -182,8 +184,13 @@ fn default_path_options() -> PathInputOptions {
     PathInputOptions::default()
 }
 
+/// `normalizePath` for configuration paths that are only used as filesystem paths; its
+/// `fileURLToPath` failure is thrown, not replaced by the raw input.
 fn normalize(input: &str) -> String {
-    normalize_path(input, &default_path_options()).unwrap_or_else(|_| input.to_owned())
+    match normalize_path(input, &default_path_options()) {
+        Ok(path) => encode_node_utf8(&path),
+        Err(error) => throw_uncaught(ERROR, error.message().clone()),
+    }
 }
 
 fn home_directory() -> PathBuf {
@@ -403,47 +410,45 @@ impl InstallMethod {
 /// One command of a self-update (an uninstall followed by an install when the package was renamed).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelfUpdateCommandStep {
-    pub command: String,
-    pub args: Vec<String>,
-    pub display: String,
+    pub command: JsString,
+    pub args: Vec<JsString>,
+    pub display: JsString,
 }
 
 /// A self-update command, with `steps` when the package name changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelfUpdateCommand {
-    pub command: String,
-    pub args: Vec<String>,
-    pub display: String,
+    pub command: JsString,
+    pub args: Vec<JsString>,
+    pub display: JsString,
     pub steps: Option<Vec<SelfUpdateCommandStep>>,
 }
 
 /// `SelfUpdatePackageTarget`: a package name, optionally with an exact install spec.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelfUpdatePackageTarget {
-    pub package_name: String,
-    pub install_spec: Option<String>,
+    pub package_name: JsString,
+    pub install_spec: Option<JsString>,
 }
 
 impl SelfUpdatePackageTarget {
-    pub fn new(package_name: impl Into<String>) -> Self {
+    pub fn new(package_name: impl Into<JsString>) -> Self {
         Self {
             package_name: package_name.into(),
             install_spec: None,
         }
     }
 
-    pub fn with_install_spec(package_name: impl Into<String>, install_spec: impl Into<String>) -> Self {
+    pub fn with_install_spec(package_name: impl Into<JsString>, install_spec: impl Into<JsString>) -> Self {
         Self {
             package_name: package_name.into(),
             install_spec: Some(install_spec.into()),
         }
     }
 
-    fn resolved(&self) -> (String, String) {
-        (
-            self.package_name.clone(),
-            self.install_spec.clone().unwrap_or_else(|| self.package_name.clone()),
-        )
+    /// `installSpec ?? packageName`.
+    fn install_spec(&self) -> &JsString {
+        self.install_spec.as_ref().unwrap_or(&self.package_name)
     }
 }
 
@@ -531,11 +536,11 @@ pub fn detect_install_method(context: &InstallContext) -> InstallMethod {
 }
 
 /// `getUpdateInstruction`: the command when one can be built, otherwise the unavailable instruction.
-pub fn get_update_instruction(context: &InstallContext, package_name: &str) -> String {
+pub fn get_update_instruction(context: &InstallContext, package_name: &JsString) -> Result<JsString, ConfigError> {
     let method = detect_install_method(context);
-    let target = SelfUpdatePackageTarget::new(package_name);
+    let target = SelfUpdatePackageTarget::new(package_name.clone());
     match get_self_update_command_for_method(context, method, package_name, &target, None) {
-        Some(command) => format!("Run: {}", command.display),
+        Some(command) => Ok(js_format!("Run: {}", command.display)),
         None => get_self_update_unavailable_instruction(context, package_name, None, None),
     }
 }
@@ -543,191 +548,165 @@ pub fn get_update_instruction(context: &InstallContext, package_name: &str) -> S
 /// `getSelfUpdateUnavailableInstruction`.
 pub fn get_self_update_unavailable_instruction(
     context: &InstallContext,
-    package_name: &str,
-    npm_command: Option<&[String]>,
+    package_name: &JsString,
+    npm_command: Option<&[JsString]>,
     target: Option<&SelfUpdatePackageTarget>,
-) -> String {
+) -> Result<JsString, ConfigError> {
     let method = detect_install_method(context);
     let target = target
         .cloned()
-        .unwrap_or_else(|| SelfUpdatePackageTarget::new(package_name));
-    let (_, install_spec) = target.resolved();
+        .unwrap_or_else(|| SelfUpdatePackageTarget::new(package_name.clone()));
     if method == InstallMethod::BunBinary {
-        return format!("Download from: {RELEASES_URL}");
+        return Ok(js_format!("Download from: {}", RELEASES_URL));
     }
-    match get_self_update_command_for_method(context, method, package_name, &target, npm_command) {
-        Some(command) => {
-            if is_managed_by_global_package_manager(context, method, npm_command)
-                && !is_self_update_path_writable(context)
-            {
-                format!(
-                    "This installation is managed by a global {} install, but the install path is not writable. Update it yourself with: {}",
-                    method.as_str(),
-                    command.display
-                )
-            } else {
-                format!(
-                    "This installation is not managed by a global {} install. Update it with the package manager, wrapper, or source checkout that provides it.",
-                    method.as_str()
-                )
-            }
-        }
-        None => format!(
-            "Update {install_spec} using the package manager, wrapper, or source checkout that provides this installation."
-        ),
-    }
+    let Some(command) = get_self_update_command_for_method(context, method, package_name, &target, npm_command) else {
+        return Ok(js_format!(
+            "Update {} using the package manager, wrapper, or source checkout that provides this installation.",
+            target.install_spec()
+        ));
+    };
+    Ok(
+        if is_managed_by_global_package_manager(context, method, npm_command)? && !is_self_update_path_writable(context)
+        {
+            js_format!(
+                "This installation is managed by a global {} install, but the install path is not writable. Update it yourself with: {}",
+                method.as_str(),
+                command.display
+            )
+        } else {
+            js_format!(
+                "This installation is not managed by a global {} install. Update it with the package manager, wrapper, or source checkout that provides it.",
+                method.as_str()
+            )
+        },
+    )
 }
 
 /// `getSelfUpdateCommand`: a command only when the install is managed by a global package manager and writable.
 pub fn get_self_update_command(
     context: &InstallContext,
-    package_name: &str,
-    npm_command: Option<&[String]>,
+    package_name: &JsString,
+    npm_command: Option<&[JsString]>,
     target: Option<&SelfUpdatePackageTarget>,
-) -> Option<SelfUpdateCommand> {
+) -> Result<Option<SelfUpdateCommand>, ConfigError> {
     let method = detect_install_method(context);
     let target = target
         .cloned()
-        .unwrap_or_else(|| SelfUpdatePackageTarget::new(package_name));
-    let command = get_self_update_command_for_method(context, method, package_name, &target, npm_command)?;
-    if !is_managed_by_global_package_manager(context, method, npm_command) || !is_self_update_path_writable(context) {
-        return None;
+        .unwrap_or_else(|| SelfUpdatePackageTarget::new(package_name.clone()));
+    let Some(command) = get_self_update_command_for_method(context, method, package_name, &target, npm_command) else {
+        return Ok(None);
+    };
+    if !is_managed_by_global_package_manager(context, method, npm_command)? || !is_self_update_path_writable(context) {
+        return Ok(None);
     }
-    Some(command)
+    Ok(Some(command))
 }
 
 fn get_self_update_command_for_method(
     context: &InstallContext,
     method: InstallMethod,
-    installed_package_name: &str,
+    installed_package_name: &JsString,
     target: &SelfUpdatePackageTarget,
-    npm_command: Option<&[String]>,
+    npm_command: Option<&[JsString]>,
 ) -> Option<SelfUpdateCommand> {
-    match method {
-        InstallMethod::BunBinary | InstallMethod::Unknown => None,
-        InstallMethod::Pnpm => pnpm_self_update_command(context, installed_package_name, target),
-        InstallMethod::Yarn => yarn_self_update_command(installed_package_name, target),
-        InstallMethod::Bun => bun_self_update_command(installed_package_name, target),
-        InstallMethod::Npm => npm_self_update_command(context, installed_package_name, target, npm_command),
-    }
-}
-
-fn pnpm_self_update_command(
-    context: &InstallContext,
-    installed_package_name: &str,
-    target: &SelfUpdatePackageTarget,
-) -> Option<SelfUpdateCommand> {
-    let (package_name, install_spec) = target.resolved();
-    let renamed = package_name != installed_package_name;
-    let resolved_root = read_command_output(context, "pnpm", &["root".to_owned(), "-g".to_owned()], false)
-        .ok()
-        .flatten();
-    let match_path = if resolved_root.is_some() {
-        None
-    } else {
-        pnpm_global_path(&context.package_dir_string())
-    };
-    let bin_dir_args = match match_path {
-        Some(path) => {
-            let home = context
-                .environment("PNPM_HOME")
-                .map(str::to_owned)
-                .unwrap_or_else(|| host_dirname(&host_dirname(&path)));
-            vec![format!("--config.global-bin-dir={home}")]
+    let renamed = target.package_name != *installed_package_name;
+    let install_spec = target.install_spec().clone();
+    let installed = installed_package_name.clone();
+    let (install_step, uninstall_step) = match method {
+        InstallMethod::BunBinary | InstallMethod::Unknown => return None,
+        InstallMethod::Pnpm => {
+            let bin_dir_args = pnpm_bin_dir_args(context);
+            let install_args = [
+                js_strings(&["install", "-g", "--ignore-scripts", "--config.minimumReleaseAge=0"]),
+                bin_dir_args.clone(),
+                vec![install_spec],
+            ];
+            let uninstall_args = [js_strings(&["remove", "-g"]), bin_dir_args, vec![installed]];
+            (
+                make_step("pnpm".into(), install_args.concat()),
+                renamed.then(|| make_step("pnpm".into(), uninstall_args.concat())),
+            )
         }
-        None => Vec::new(),
+        InstallMethod::Yarn => (
+            make_step(
+                "yarn".into(),
+                [js_strings(&["global", "add", "--ignore-scripts"]), vec![install_spec]].concat(),
+            ),
+            renamed.then(|| {
+                make_step(
+                    "yarn".into(),
+                    [js_strings(&["global", "remove"]), vec![installed]].concat(),
+                )
+            }),
+        ),
+        InstallMethod::Bun => (
+            make_step(
+                "bun".into(),
+                [
+                    js_strings(&["install", "-g", "--ignore-scripts", "--minimum-release-age=0"]),
+                    vec![install_spec],
+                ]
+                .concat(),
+            ),
+            renamed.then(|| {
+                make_step(
+                    "bun".into(),
+                    [js_strings(&["uninstall", "-g"]), vec![installed]].concat(),
+                )
+            }),
+        ),
+        InstallMethod::Npm => {
+            let (command, npm_args) = split_npm_command(npm_command);
+            let inferred = if npm_command.is_some_and(|args| !args.is_empty()) {
+                None
+            } else {
+                get_inferred_npm_install(context)
+            };
+            let mut prefix_args = npm_args;
+            if let Some((_, prefix)) = inferred {
+                prefix_args.extend(["--prefix".into(), JsString::from(prefix)]);
+            }
+            let install_args = [
+                prefix_args.clone(),
+                js_strings(&["install", "-g", "--ignore-scripts", "--min-release-age=0"]),
+                vec![install_spec],
+            ];
+            let uninstall_args = [prefix_args, js_strings(&["uninstall", "-g"]), vec![installed]];
+            (
+                make_step(command.clone(), install_args.concat()),
+                renamed.then(|| make_step(command, uninstall_args.concat())),
+            )
+        }
     };
-    let mut install_args = vec![
-        "install".to_owned(),
-        "-g".to_owned(),
-        "--ignore-scripts".to_owned(),
-        "--config.minimumReleaseAge=0".to_owned(),
-    ];
-    install_args.extend(bin_dir_args.iter().cloned());
-    install_args.push(install_spec.clone());
-    let install_step = make_step_owned("pnpm", install_args);
-    let uninstall_step = renamed.then(|| {
-        let mut uninstall_args = vec!["remove".to_owned(), "-g".to_owned()];
-        uninstall_args.extend(bin_dir_args.iter().cloned());
-        uninstall_args.push(installed_package_name.to_owned());
-        make_step_owned("pnpm", uninstall_args)
-    });
     Some(make_command(install_step, uninstall_step))
 }
 
-fn yarn_self_update_command(
-    installed_package_name: &str,
-    target: &SelfUpdatePackageTarget,
-) -> Option<SelfUpdateCommand> {
-    let (package_name, install_spec) = target.resolved();
-    let renamed = package_name != installed_package_name;
-    let install_step = make_step("yarn", vec!["global", "add", "--ignore-scripts", install_spec.as_str()]);
-    let uninstall_step = renamed.then(|| make_step("yarn", vec!["global", "remove", installed_package_name]));
-    Some(make_command(install_step, uninstall_step))
+fn js_strings(values: &[&str]) -> Vec<JsString> {
+    values.iter().map(|value| JsString::from(*value)).collect()
 }
 
-fn bun_self_update_command(
-    installed_package_name: &str,
-    target: &SelfUpdatePackageTarget,
-) -> Option<SelfUpdateCommand> {
-    let (package_name, install_spec) = target.resolved();
-    let renamed = package_name != installed_package_name;
-    let install_step = make_step(
-        "bun",
-        vec![
-            "install",
-            "-g",
-            "--ignore-scripts",
-            "--minimum-release-age=0",
-            install_spec.as_str(),
-        ],
-    );
-    let uninstall_step = renamed.then(|| make_step("bun", vec!["uninstall", "-g", installed_package_name]));
-    Some(make_command(install_step, uninstall_step))
-}
-
-fn npm_self_update_command(
-    context: &InstallContext,
-    installed_package_name: &str,
-    target: &SelfUpdatePackageTarget,
-    npm_command: Option<&[String]>,
-) -> Option<SelfUpdateCommand> {
-    let (package_name, install_spec) = target.resolved();
-    let renamed = package_name != installed_package_name;
-    let configured = npm_command.is_some_and(|args| !args.is_empty());
-    let (command, npm_args) = match npm_command.and_then(|args| args.split_first()) {
+/// `const [command = "npm", ...npmArgs] = npmCommand ?? []`.
+fn split_npm_command(npm_command: Option<&[JsString]>) -> (JsString, Vec<JsString>) {
+    match npm_command.and_then(|args| args.split_first()) {
         Some((command, rest)) => (command.clone(), rest.to_vec()),
-        None => ("npm".to_owned(), Vec::new()),
-    };
-    let inferred = if configured {
-        None
-    } else {
-        get_inferred_npm_install(context)
-    };
-    let mut prefix_args = npm_args;
-    if let Some((_, prefix)) = inferred {
-        prefix_args.push("--prefix".to_owned());
-        prefix_args.push(prefix);
+        None => ("npm".into(), Vec::new()),
     }
-    let mut install_args = prefix_args.clone();
-    install_args.extend([
-        "install".to_owned(),
-        "-g".to_owned(),
-        "--ignore-scripts".to_owned(),
-        "--min-release-age=0".to_owned(),
-        install_spec.clone(),
-    ]);
-    let install_step = make_step_owned(&command, install_args);
-    let uninstall_step = renamed.then(|| {
-        let mut uninstall_args = prefix_args.clone();
-        uninstall_args.extend([
-            "uninstall".to_owned(),
-            "-g".to_owned(),
-            installed_package_name.to_owned(),
-        ]);
-        make_step_owned(&command, uninstall_args)
-    });
-    Some(make_command(install_step, uninstall_step))
+}
+
+/// `--config.global-bin-dir=...` when `pnpm root -g` fails and the package sits under a pnpm global store.
+fn pnpm_bin_dir_args(context: &InstallContext) -> Vec<JsString> {
+    let pnpm_root = read_command_output(context, &"pnpm".into(), &js_strings(&["root", "-g"]), false);
+    if matches!(pnpm_root, Ok(Some(_))) {
+        return Vec::new();
+    }
+    let Some(path) = pnpm_global_path(&context.package_dir_string()) else {
+        return Vec::new();
+    };
+    let home = match context.environment("PNPM_HOME") {
+        Some(home) => JsString::from(home),
+        None => node_dirname(node_dirname(path)),
+    };
+    vec![js_format!("--config.global-bin-dir={}", home)]
 }
 
 fn make_command(
@@ -742,7 +721,7 @@ fn make_command(
             steps: None,
         },
         Some(uninstall) => SelfUpdateCommand {
-            display: format!("{} && {}", uninstall.display, install_step.display),
+            display: js_format!("{} && {}", uninstall.display, install_step.display),
             command: install_step.command.clone(),
             args: install_step.args.clone(),
             steps: Some(vec![uninstall, install_step]),
@@ -750,93 +729,71 @@ fn make_command(
     }
 }
 
-fn make_step(command: &str, args: Vec<&str>) -> SelfUpdateCommandStep {
-    make_step_owned(command, args.into_iter().map(str::to_owned).collect())
-}
-
-fn make_step_owned(command: &str, args: Vec<String>) -> SelfUpdateCommandStep {
-    let display = std::iter::once(command)
-        .chain(args.iter().map(String::as_str))
+/// `[command, ...args].map((arg) => (/\s/.test(arg) ? `"${arg}"` : arg)).join(" ")`.
+fn make_step(command: JsString, args: Vec<JsString>) -> SelfUpdateCommandStep {
+    let display = std::iter::once(&command)
+        .chain(&args)
         .map(|argument| {
-            if argument.contains(char::is_whitespace) {
-                format!("\"{argument}\"")
+            if argument.units().iter().copied().any(is_js_whitespace_unit) {
+                js_format!("\"{}\"", argument)
             } else {
-                argument.to_owned()
+                argument.clone()
             }
         })
-        .collect::<Vec<_>>()
-        .join(" ");
+        .collect::<Vec<_>>();
     SelfUpdateCommandStep {
-        command: command.to_owned(),
+        command,
         args,
-        display,
+        display: JsString::join(&display, " "),
     }
 }
 
 /// `readCommandOutput`: package-manager probes inherit the install context's `PATH`.
+/// Node encodes argv to UTF-8 at the spawn boundary and decodes stdout as UTF-8.
 fn read_command_output(
     context: &InstallContext,
-    command: &str,
-    args: &[String],
+    command: &JsString,
+    args: &[JsString],
     require_success: bool,
-) -> Result<Option<String>, ConfigError> {
-    let mut builder = std::process::Command::new(command);
-    builder.args(args).stdin(std::process::Stdio::null());
+) -> Result<Option<JsString>, ConfigError> {
+    let mut builder = std::process::Command::new(encode_node_utf8(command));
+    builder
+        .args(args.iter().map(encode_node_utf8))
+        .stdin(std::process::Stdio::null());
     if let Some(path) = &context.path_env {
         builder.env("PATH", path);
     }
     let output = match builder.output() {
         Ok(output) => output,
-        Err(error) => return spawn_failure(command, args, error, require_success),
+        Err(error) if require_success => {
+            let reason = node_spawn_error_message("spawnSync", command, &error);
+            return Err(command_failure(command, args, reason));
+        }
+        Err(_) => return Ok(None),
     };
     if output.status.success() {
-        return Ok(non_empty_stdout(&output.stdout));
+        let stdout = JsString::from(String::from_utf8_lossy(&output.stdout).as_ref()).trim();
+        return Ok((!stdout.is_empty()).then_some(stdout));
     }
-    if require_success {
-        return Err(exit_failure(command, args, &output));
-    }
-    Ok(None)
-}
-
-fn spawn_failure(
-    command: &str,
-    args: &[String],
-    error: std::io::Error,
-    require_success: bool,
-) -> Result<Option<String>, ConfigError> {
     if !require_success {
         return Ok(None);
     }
-    let reason = node_spawn_error_message("spawnSync", &pi_js_compat::js_json::JsString::from(command), &error);
-    Err(ConfigError::new(format!(
-        "Failed to run {}: {reason}",
-        display_command(command, args)
-    )))
-}
-
-fn non_empty_stdout(stdout: &[u8]) -> Option<String> {
-    let stdout = String::from_utf8_lossy(stdout).trim().to_owned();
-    (!stdout.is_empty()).then_some(stdout)
-}
-
-fn exit_failure(command: &str, args: &[String], output: &std::process::Output) -> ConfigError {
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-    let reason = if stderr.is_empty() {
-        match output.status.code() {
-            Some(code) => format!("exit code {code}"),
-            None => "exit code unknown".to_owned(),
-        }
-    } else {
+    let stderr = JsString::from(String::from_utf8_lossy(&output.stderr).as_ref()).trim();
+    let reason = if !stderr.is_empty() {
         stderr
+    } else {
+        match output.status.code() {
+            Some(code) => js_format!("exit code {}", code),
+            None => "exit code unknown".into(),
+        }
     };
-    ConfigError::new(format!("Failed to run {}: {reason}", display_command(command, args)))
+    Err(command_failure(command, args, reason))
 }
 
-fn display_command(command: &str, args: &[String]) -> String {
-    std::iter::once(command)
-        .chain(args.iter().map(String::as_str))
-        .collect::<Vec<_>>()
-        .join(" ")
+/// ``Failed to run ${[command, ...args].join(" ")}: ${reason}``.
+fn command_failure(command: &JsString, args: &[JsString], reason: JsString) -> ConfigError {
+    let words = [std::slice::from_ref(command), args].concat();
+    ConfigError::new(js_format!("Failed to run {}: {}", JsString::join(&words, " "), reason))
 }
 
 /// `getInferredNpmInstall`: `<prefix>/lib/node_modules/<package>` implies `--prefix <prefix>`.
@@ -860,22 +817,42 @@ fn get_inferred_npm_install(context: &InstallContext) -> Option<(String, String)
     Some((root, flavor.dirname(&root_parent)))
 }
 
+/// `join(homedir(), ".bun", "install", "global", "node_modules")` plus the root beside `bun pm bin -g`.
+fn bun_global_package_roots(
+    context: &InstallContext,
+    command: &JsString,
+    npm_args: Vec<JsString>,
+    require_success: bool,
+) -> Result<Vec<JsString>, ConfigError> {
+    let bun_bin = read_command_output(
+        context,
+        command,
+        &[npm_args, js_strings(&["pm", "bin", "-g"])].concat(),
+        require_success,
+    )?;
+    let mut roots = vec![node_join(
+        context.home.display().to_string(),
+        ".bun/install/global/node_modules",
+    )];
+    if let Some(bun_bin) = bun_bin {
+        roots.push(node_join(node_dirname(bun_bin), "install/global/node_modules"));
+    }
+    Ok(roots)
+}
+
 fn npm_global_package_roots(
     context: &InstallContext,
-    npm_command: Option<&[String]>,
-) -> Result<Vec<String>, ConfigError> {
+    npm_command: Option<&[JsString]>,
+) -> Result<Vec<JsString>, ConfigError> {
     let configured = npm_command.is_some_and(|args| !args.is_empty());
-    let (command, npm_args) = match npm_command.and_then(|args| args.split_first()) {
-        Some((command, rest)) => (command.clone(), rest.to_vec()),
-        None => ("npm".to_owned(), Vec::new()),
-    };
+    let (command, npm_args) = split_npm_command(npm_command);
     if configured && command == "bun" {
-        return bun_global_package_roots(context, &command, npm_args);
+        return bun_global_package_roots(context, &command, npm_args, true);
     }
     let root = read_command_output(
         context,
         &command,
-        &[npm_args, vec!["root".to_owned(), "-g".to_owned()]].concat(),
+        &[npm_args, js_strings(&["root", "-g"])].concat(),
         configured,
     )?;
     let inferred = if configured {
@@ -883,137 +860,105 @@ fn npm_global_package_roots(
     } else {
         get_inferred_npm_install(context)
     };
-    Ok([root, inferred.map(|(root, _)| root)].into_iter().flatten().collect())
-}
-
-fn bun_global_package_roots(
-    context: &InstallContext,
-    command: &str,
-    npm_args: Vec<String>,
-) -> Result<Vec<String>, ConfigError> {
-    let bun_bin = read_command_output(
-        context,
-        command,
-        &[npm_args, vec!["pm".to_owned(), "bin".to_owned(), "-g".to_owned()]].concat(),
-        true,
-    )?;
-    let mut roots = vec![join(
-        &context.home.display().to_string(),
-        ".bun/install/global/node_modules",
-    )];
-    if let Some(bun_bin) = bun_bin {
-        roots.push(join(&host_dirname(&bun_bin), "install/global/node_modules"));
-    }
-    Ok(roots)
+    Ok([root, inferred.map(|(root, _)| JsString::from(root))]
+        .into_iter()
+        .flatten()
+        .collect())
 }
 
 fn get_global_package_roots(
     context: &InstallContext,
     method: InstallMethod,
-    npm_command: Option<&[String]>,
-) -> Result<Vec<String>, ConfigError> {
+    npm_command: Option<&[JsString]>,
+) -> Result<Vec<JsString>, ConfigError> {
     match method {
         InstallMethod::Npm => npm_global_package_roots(context, npm_command),
         InstallMethod::Pnpm => {
-            let root = read_command_output(context, "pnpm", &["root".to_owned(), "-g".to_owned()], false)?;
-            if let Some(root) = root {
-                return Ok(vec![root.clone(), host_dirname(&root)]);
+            if let Some(root) = read_command_output(context, &"pnpm".into(), &js_strings(&["root", "-g"]), false)? {
+                return Ok(vec![root.clone(), node_dirname(root)]);
             }
-            Ok(pnpm_global_path(&context.package_dir_string()).into_iter().collect())
+            Ok(pnpm_global_path(&context.package_dir_string())
+                .map(JsString::from)
+                .into_iter()
+                .collect())
         }
         InstallMethod::Yarn => {
-            let directory = read_command_output(context, "yarn", &["global".to_owned(), "dir".to_owned()], false)?;
+            let directory = read_command_output(context, &"yarn".into(), &js_strings(&["global", "dir"]), false)?;
             Ok(directory
-                .map(|directory| vec![directory.clone(), join(&directory, "node_modules")])
+                .map(|directory| vec![directory.clone(), node_join(directory, "node_modules")])
                 .unwrap_or_default())
         }
-        InstallMethod::Bun => {
-            let bun_bin = read_command_output(
-                context,
-                "bun",
-                &["pm".to_owned(), "bin".to_owned(), "-g".to_owned()],
-                false,
-            )?;
-            let mut roots = vec![join(
-                &context.home.display().to_string(),
-                ".bun/install/global/node_modules",
-            )];
-            if let Some(bun_bin) = bun_bin {
-                roots.push(join(&host_dirname(&bun_bin), "install/global/node_modules"));
-            }
-            Ok(roots)
-        }
+        InstallMethod::Bun => bun_global_package_roots(context, &"bun".into(), Vec::new(), false),
         InstallMethod::BunBinary | InstallMethod::Unknown => Ok(Vec::new()),
     }
 }
 
 /// `isManagedByGlobalPackageManager`: the package directory lives under a global package root.
+/// A required package-manager probe failure throws, as in the source.
 fn is_managed_by_global_package_manager(
     context: &InstallContext,
     method: InstallMethod,
-    npm_command: Option<&[String]>,
-) -> bool {
-    let package_dirs: Vec<String> = [Some(context.package_dir_string()), get_entrypoint_package_dir(context)]
-        .into_iter()
-        .flatten()
-        .collect();
-    let package_dir_candidates: Vec<String> = package_dirs
-        .iter()
-        .flat_map(|directory| path_comparison_candidates(directory))
-        .collect();
-    let separator = std::path::MAIN_SEPARATOR;
-    get_global_package_roots(context, method, npm_command)
-        .unwrap_or_default()
-        .into_iter()
-        .any(|root| {
-            path_comparison_candidates(&root).into_iter().any(|normalized_root| {
-                let root_prefix = if normalized_root.ends_with(separator) {
-                    normalized_root
-                } else {
-                    format!("{normalized_root}{separator}")
-                };
-                package_dir_candidates
-                    .iter()
-                    .any(|package_dir| package_dir.starts_with(&root_prefix))
-            })
-        })
+    npm_command: Option<&[JsString]>,
+) -> Result<bool, ConfigError> {
+    let package_dirs = [Some(context.package_dir_string()), get_entrypoint_package_dir(context)];
+    let mut package_dir_candidates = Vec::new();
+    for directory in package_dirs.into_iter().flatten() {
+        package_dir_candidates.extend(path_comparison_candidates(&JsString::from(directory))?);
+    }
+    let separator = JsString::from(std::path::MAIN_SEPARATOR);
+    for root in get_global_package_roots(context, method, npm_command)? {
+        for normalized_root in path_comparison_candidates(&root)? {
+            let root_prefix = if normalized_root.ends_with(separator.clone()) {
+                normalized_root
+            } else {
+                normalized_root + separator.clone()
+            };
+            if package_dir_candidates
+                .iter()
+                .any(|package_dir| package_dir.starts_with(root_prefix.clone()))
+            {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
 }
 
-fn path_comparison_candidates(path: &str) -> Vec<String> {
+fn path_comparison_candidates(path: &JsString) -> Result<Vec<JsString>, ConfigError> {
     let mut candidates = Vec::new();
     for resolve_symlinks in [false, true] {
-        if let Some(candidate) = normalize_existing_path_for_comparison(path, resolve_symlinks)
+        if let Some(candidate) = normalize_existing_path_for_comparison(path, resolve_symlinks)?
             && !candidates.contains(&candidate)
         {
             candidates.push(candidate);
         }
     }
-    candidates
+    Ok(candidates)
 }
 
-fn normalize_existing_path_for_comparison(path: &str, resolve_symlinks: bool) -> Option<String> {
-    let resolved = host_resolve(path);
-    if !Path::new(&resolved).exists() {
-        return None;
+/// `resolve(path)` (which reads `process.cwd()` and throws when it is gone), then `realpathSync`.
+fn normalize_existing_path_for_comparison(
+    path: &JsString,
+    resolve_symlinks: bool,
+) -> Result<Option<JsString>, ConfigError> {
+    let resolved = process_cwd()
+        .and_then(|cwd| node_resolve(cwd, path.clone()))
+        .map_err(|error| ConfigError::new(error.message().clone()))?;
+    let fs_path = encode_node_utf8(&resolved);
+    if !Path::new(&fs_path).exists() {
+        return Ok(None);
     }
     let mut normalized = resolved;
     if resolve_symlinks {
-        normalized = std::fs::canonicalize(&normalized).ok()?.display().to_string();
+        let Ok(real) = std::fs::canonicalize(&fs_path) else {
+            return Ok(None);
+        };
+        normalized = JsString::from(real.to_string_lossy().as_ref());
     }
     if cfg!(windows) {
         normalized = normalized.to_lowercase();
     }
-    Some(normalized)
-}
-
-fn host_resolve(path: &str) -> String {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    crate::utils::paths::resolve_path(path, &cwd.display().to_string(), &default_path_options())
-        .unwrap_or_else(|_| path.to_owned())
-}
-
-fn host_dirname(path: &str) -> String {
-    PathFlavor { windows: false }.dirname(path)
+    Ok(Some(normalized))
 }
 
 /// `getEntrypointPackageDir`: walk up from `process.argv[1]` to the nearest `package.json`.

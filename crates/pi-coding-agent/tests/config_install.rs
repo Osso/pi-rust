@@ -9,12 +9,81 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use pi_coding_agent::config::{
-    InstallContext, InstallMethod, SelfUpdatePackageTarget, detect_install_method, get_self_update_command,
-    get_self_update_unavailable_instruction, get_update_instruction,
-};
+use pi_coding_agent::config::{self, InstallContext, InstallMethod, SelfUpdatePackageTarget, detect_install_method};
+use pi_js_compat::js_json::JsString;
 
 const PACKAGE: &str = "@earendil-works/pi-coding-agent";
+
+/// Text view of a native self-update command step; every fixture here is well-formed text.
+#[derive(Debug, PartialEq)]
+struct TextStep {
+    command: String,
+    args: Vec<String>,
+    display: String,
+}
+
+#[derive(Debug, PartialEq)]
+struct TextCommand {
+    command: String,
+    args: Vec<String>,
+    display: String,
+    steps: Option<Vec<TextStep>>,
+}
+
+fn text(value: &JsString) -> String {
+    value.to_utf8().expect("well-formed fixture text")
+}
+
+fn texts(values: &[JsString]) -> Vec<String> {
+    values.iter().map(text).collect()
+}
+
+fn native_npm_command(npm_command: Option<&[String]>) -> Option<Vec<JsString>> {
+    npm_command.map(|args| args.iter().map(JsString::from).collect())
+}
+
+fn get_self_update_command(
+    context: &InstallContext,
+    package_name: &str,
+    npm_command: Option<&[String]>,
+    target: Option<&SelfUpdatePackageTarget>,
+) -> Option<TextCommand> {
+    let npm_command = native_npm_command(npm_command);
+    let command =
+        config::get_self_update_command(context, &package_name.into(), npm_command.as_deref(), target).unwrap()?;
+    Some(TextCommand {
+        command: text(&command.command),
+        args: texts(&command.args),
+        display: text(&command.display),
+        steps: command.steps.map(|steps| {
+            steps
+                .iter()
+                .map(|step| TextStep {
+                    command: text(&step.command),
+                    args: texts(&step.args),
+                    display: text(&step.display),
+                })
+                .collect()
+        }),
+    })
+}
+
+fn get_update_instruction(context: &InstallContext, package_name: &str) -> String {
+    text(&config::get_update_instruction(context, &package_name.into()).unwrap())
+}
+
+fn get_self_update_unavailable_instruction(
+    context: &InstallContext,
+    package_name: &str,
+    npm_command: Option<&[String]>,
+    target: Option<&SelfUpdatePackageTarget>,
+) -> String {
+    let npm_command = native_npm_command(npm_command);
+    text(
+        &config::get_self_update_unavailable_instruction(context, &package_name.into(), npm_command.as_deref(), target)
+            .unwrap(),
+    )
+}
 
 fn temp_dir(name: &str) -> PathBuf {
     let unique = std::time::SystemTime::now()

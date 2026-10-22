@@ -17,6 +17,7 @@ use pi_coding_agent::config::{
     InstallContext, SelfUpdatePackageTarget, detect_install_method, get_self_update_command,
     get_self_update_unavailable_instruction, get_update_instruction,
 };
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 const PACKAGE: &str = "@earendil-works/pi-coding-agent";
@@ -197,27 +198,39 @@ fn context(
     }
 }
 
+/// Fixture text is well-formed, so the oracle's JSON strings compare against UTF-8 text.
+fn text(value: &JsString) -> String {
+    value.to_utf8().expect("well-formed fixture text")
+}
+
+fn texts(values: &[JsString]) -> Vec<String> {
+    values.iter().map(text).collect()
+}
+
 fn install_payload(
     context: &InstallContext,
     package_name: &str,
     npm_command: Option<&[String]>,
     target: Option<&SelfUpdatePackageTarget>,
 ) -> Value {
-    let command = get_self_update_command(context, package_name, npm_command, target);
+    let package_name = JsString::from(package_name);
+    let npm_command: Option<Vec<JsString>> = npm_command.map(|args| args.iter().map(JsString::from).collect());
+    let npm_command = npm_command.as_deref();
+    let command = get_self_update_command(context, &package_name, npm_command, target).unwrap();
     json!({
         "method": detect_install_method(context).as_str(),
         "command": command.map(|command| json!({
-            "command": command.command,
-            "args": command.args,
-            "display": command.display,
-            "steps": command.steps.map(|steps| steps.into_iter().map(|step| json!({
-                "command": step.command,
-                "args": step.args,
-                "display": step.display,
+            "command": text(&command.command),
+            "args": texts(&command.args),
+            "display": text(&command.display),
+            "steps": command.steps.map(|steps| steps.iter().map(|step| json!({
+                "command": text(&step.command),
+                "args": texts(&step.args),
+                "display": text(&step.display),
             })).collect::<Vec<_>>()),
         })),
-        "updateInstruction": get_update_instruction(context, package_name),
-        "unavailableInstruction": get_self_update_unavailable_instruction(context, package_name, npm_command, target),
+        "updateInstruction": text(&get_update_instruction(context, &package_name).unwrap()),
+        "unavailableInstruction": text(&get_self_update_unavailable_instruction(context, &package_name, npm_command, target).unwrap()),
     })
 }
 
@@ -243,8 +256,8 @@ fn install_request(
         "packageName": package_name,
         "npmCommand": npm_command,
         "target": target.map(|target| json!({
-            "packageName": target.package_name,
-            "installSpec": target.install_spec,
+            "packageName": text(&target.package_name),
+            "installSpec": target.install_spec.as_ref().map(text),
         })),
     })
 }
