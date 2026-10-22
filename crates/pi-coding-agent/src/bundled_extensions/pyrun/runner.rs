@@ -35,11 +35,35 @@ pub struct CanonicalPyrunEvalParams {
     pub stream_console: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum CanonicalPyrunConsoleEntry {
     Text(JsString),
     Leveled { level: JsString, message: JsString },
+}
+
+impl<'de> Deserialize<'de> for CanonicalPyrunConsoleEntry {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        match Value::deserialize(deserializer)? {
+            Value::String(text) => Ok(Self::Text(text)),
+            Value::Object(entries) => {
+                let level = entries
+                    .get("level")
+                    .and_then(Value::as_string)
+                    .cloned()
+                    .ok_or_else(|| serde::de::Error::custom("console level must be a string"))?;
+                let message = entries
+                    .get("message")
+                    .and_then(Value::as_string)
+                    .cloned()
+                    .ok_or_else(|| serde::de::Error::custom("console message must be a string"))?;
+                Ok(Self::Leveled { level, message })
+            }
+            _ => Err(serde::de::Error::custom(
+                "console entry must be text or a leveled message",
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
