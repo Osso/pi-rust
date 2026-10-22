@@ -19,11 +19,11 @@ async fn empty_options_down_enter_are_no_ops_and_escape_cancels() {
     .await;
     assert_eq!(
         actual["result"]["details"],
-        json!({"questions":[{"id":"none","prompt":"No choices","options":[],"allowOther":false,"label":"Q1"}],"answers":[],"cancelled":true})
+        pi_js_compat::js_json!({"questions":[{"id":"none","prompt":"No choices","options":[],"allowOther":false,"label":"Q1"}],"answers":[],"cancelled":true})
     );
     assert_eq!(
         actual["result"]["content"],
-        json!([{"type":"text","text":"User cancelled the questionnaire"}])
+        pi_js_compat::js_json!([{"type":"text","text":"User cancelled the questionnaire"}])
     );
     let frames = actual["renders"].as_array().unwrap();
     assert_eq!(frames.len(), 4);
@@ -67,7 +67,10 @@ async fn questionnaire_single_multi_answers_tabs_cancel_rendering_and_defaults_m
     )
     .await;
     let result=harness::compare("questionnaire",example::questionnaire_extension,json!({"params":{"questions":[one]},"widths":[30],"steps":[{"input":"\x1b[B"},{"input":"\r"},{"inputUnits":[55296]},{"invalidate":true},{"input":"\r"}]})).await;
-    assert_eq!(result["result"]["details"]["answers"][0]["label"], "\u{fffd}");
+    assert_eq!(
+        result["result"]["details"]["answers"][0]["label"],
+        pi_js_compat::js_json!("\u{fffd}")
+    );
     harness::compare("questionnaire", example::questionnaire_extension, json!({"params":{"questions":[one]},"widths":[24],"steps":[{"input":"\r"}],"renderCases":[{"content":[],"details":{"questions":[],"answers":[{"id":"manual","value":"v","label":"No index","wasCustom":false}],"cancelled":false}}]})).await;
     harness::compare("questionnaire", example::questionnaire_extension, json!({"params":{"questions":[one]},"widths":[1],"steps":[{"input":"\x1b[B"},{"input":"\r"},{"input":"🚀"}],"sourceError":{"name":"RangeError","message":"Maximum call stack size exceeded"}})).await;
 }

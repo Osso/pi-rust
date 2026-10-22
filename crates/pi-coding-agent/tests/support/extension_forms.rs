@@ -75,7 +75,7 @@ impl ExtensionUiTuiBackend for Backend {
 struct Ui {
     theme: Arc<Theme>,
     request: Value,
-    renders: Mutex<Vec<Value>>,
+    renders: Mutex<Vec<JsValue>>,
     render_requests: Arc<std::sync::atomic::AtomicUsize>,
 }
 impl ExtensionUiContext for Ui {
@@ -102,7 +102,7 @@ impl ExtensionUiContext for Ui {
         .expect("fixture factory must resolve immediately")
         .expect("custom component fixture factory");
         let record = || {
-            json!(
+            pi_js_compat::js_json!(
                 self.request["widths"]
                     .as_array()
                     .unwrap()
@@ -124,7 +124,7 @@ impl ExtensionUiContext for Ui {
             }
             if let Some(units) = step["inputUnits"].as_array() {
                 let units = units.iter().map(|u| u.as_u64().unwrap() as u16).collect::<Vec<_>>();
-                component.handle_input(&JsString::from(&String::from_utf16_lossy(&units)));
+                component.handle_input(&JsString::from_utf16(units));
             }
             self.renders.lock().unwrap().push(record());
         }
@@ -133,7 +133,11 @@ impl ExtensionUiContext for Ui {
         Box::pin(async move { Ok(value) })
     }
 }
-pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), HandlerError>, mut request: Value) -> Value {
+pub async fn compare(
+    name: &str,
+    register: fn(&ExtensionApi) -> Result<(), HandlerError>,
+    mut request: Value,
+) -> JsValue {
     let colors: Vec<_> = REQUIRED_COLORS
         .iter()
         .enumerate()
@@ -167,7 +171,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
         let response = oracle.request(&request);
         assert_eq!(response["ok"], false, "{response}");
         assert_eq!(&response["error"], expected_error);
-        return response;
+        return JsValue::from(response);
     }
     let theme = Arc::new(Theme::new(&colors, &colors, ColorMode::Truecolor, None, None).unwrap());
     let runtime = create_extension_runtime();
@@ -258,7 +262,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
         .flatten()
         .map(|case| render_tool_result(&serde_json::from_value(case.clone()).unwrap()))
         .collect::<Vec<_>>();
-    let actual = json!({"metadata":{"name":tool.name,"label":tool.label,"description":tool.description,"parameters":tool.parameters,"executionMode":tool.execution_mode.map(|mode| mode.as_str())},"result":result,"renders":*ui.renders.lock().unwrap(),"renderRequests":ui.render_requests.load(std::sync::atomic::Ordering::SeqCst),"renderCall":render_call,"renderResult":render_result,"fallback":fallback,"extraResults":extra_results});
+    let actual = pi_js_compat::js_json!({"metadata":{"name":tool.name,"label":tool.label,"description":tool.description,"parameters":tool.parameters,"executionMode":tool.execution_mode.map(|mode| mode.as_str())},"result":result,"renders":*ui.renders.lock().unwrap(),"renderRequests":ui.render_requests.load(std::sync::atomic::Ordering::SeqCst),"renderCall":render_call,"renderResult":render_result,"fallback":fallback,"extraResults":extra_results});
     if request["postPin"] == true {
         return actual;
     }
@@ -266,19 +270,19 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
         "example-forms-oracle.ts",
         &format!("packages/coding-agent/examples/extensions/{name}.ts"),
     );
-    let expected = oracle.request(&request);
-    assert_eq!(expected["ok"], true, "{expected}");
+    let expected: JsValue = oracle.request(&JsValue::from(request));
+    assert_eq!(expected["ok"].as_bool(), Some(true), "{expected:?}");
     assert_equal(&actual, &expected["output"], name);
     actual
 }
-fn assert_equal(actual: &Value, expected: &Value, path: &str) {
+fn assert_equal(actual: &JsValue, expected: &JsValue, path: &str) {
     match (actual, expected) {
-        (Value::Object(a), Value::Object(b)) if a.keys().eq(b.keys()) => {
+        (JsValue::Object(a), JsValue::Object(b)) if a.keys().eq(b.keys()) => {
             for (k, v) in a {
-                assert_equal(v, &b[k], &format!("{path}/{k}"));
+                assert_equal(v, &b[k], &format!("{path}/{k:?}"));
             }
         }
-        (Value::Array(a), Value::Array(b)) if a.len() == b.len() => {
+        (JsValue::Array(a), JsValue::Array(b)) if a.len() == b.len() => {
             for (i, (a, b)) in a.iter().zip(b).enumerate() {
                 assert_equal(a, b, &format!("{path}/{i}"));
             }
