@@ -139,6 +139,10 @@ impl DaxnutsComponent {
 }
 
 impl Component for DaxnutsComponent {
+    fn dispose(&mut self) {
+        DaxnutsComponent::dispose(self);
+    }
+
     fn render(&mut self, width: usize) -> Vec<JsString> {
         if let Some(lines) = self.cached(width) {
             return lines;
