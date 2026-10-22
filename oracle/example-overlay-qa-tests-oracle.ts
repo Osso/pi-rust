@@ -13,7 +13,7 @@ const [loader,runnerModule,session,auth,utils,events,tui]=await Promise.all([
  import(moduleUrl('coding-agent/src/core/extensions/runner.ts')),
  import(moduleUrl('coding-agent/src/core/session-manager.ts')),
  import(moduleUrl('coding-agent/src/core/auth-storage.ts')),
- import(moduleUrl('coding-agent/test/model-runtime-test-utils.ts')),
+ import(moduleUrl('coding-agent/src/core/model-registry.ts')),
  import(moduleUrl('coding-agent/src/core/event-bus.ts')),
  import(moduleUrl('tui/src/index.ts')),
 ]);
@@ -35,7 +35,7 @@ async function run(request:any) {
  vm.runInContext(javascript,context);
  const runtime=loader.createExtensionRuntime();
  const extension=await loader.loadExtensionFromFactory(context.exports.default,'/fixture',events.createEventBus(),runtime,source);
- const registry=await utils.createInMemoryModelRegistry(auth.AuthStorage.inMemory());
+ const registry=utils.ModelRegistry.inMemory(auth.AuthStorage.inMemory());
  const runner=new runnerModule.ExtensionRunner([extension],runtime,'/fixture',session.SessionManager.inMemory('/fixture'),registry);
  const calls:any[]=[];
  runner.bindCore({sendMessage(){},sendUserMessage(){},appendEntry(){},requestResumeContinuation(){},setSessionName(){},getSessionName(){},setLabel(){},getActiveTools:()=>[],getAllTools:()=>[],setActiveTools(){},callTool:async()=>({content:[]}),callCommand:async()=>{},refreshTools(){},getCommands:()=>[],setModel:async()=>false,getThinkingLevel:()=> 'off',setThinkingLevel(){}},{getModel(){},isIdle:()=>true,hasActiveRetry:()=>false,isProjectTrusted:()=>true,getSignal(){},abort(){},hasPendingMessages:()=>false,shutdown(){},restart:async()=>{},getContextUsage(){},compact(){},getSystemPrompt:()=>'',getScopedModels:()=>[]});
