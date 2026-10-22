@@ -1412,13 +1412,13 @@ fn build_capped_kept_messages(entries: &[&SessionEntry]) -> Vec<AgentMessage> {
 
 fn collect_kept_entries<'a>(
     path: &[&'a SessionEntry],
-    compaction: &CompactionEntry,
+    first_kept_entry_id: &JsString,
     compaction_index: usize,
 ) -> Vec<&'a SessionEntry> {
     let mut kept = Vec::new();
     let mut found_first = false;
     for entry in path.iter().take(compaction_index) {
-        if entry.id() == Some(&compaction.first_kept_entry_id) {
+        if entry.id() == Some(first_kept_entry_id) {
             found_first = true;
         }
         if found_first {
@@ -1431,8 +1431,8 @@ fn collect_kept_entries<'a>(
 fn build_compacted_context_messages(path: &[&SessionEntry], compaction: &SessionEntry) -> Vec<AgentMessage> {
     let mut messages = session_entry_to_context_messages(compaction);
     let compaction_index = path.iter().position(|entry| entry.id() == compaction.id()).unwrap_or(0);
-    if let SessionEntry::Known(KnownSessionEntry::Compaction(data)) = compaction {
-        let kept = collect_kept_entries(path, data, compaction_index);
+    if let Some(first_kept) = compaction.object().get("firstKeptEntryId").and_then(JsValue::as_string) {
+        let kept = collect_kept_entries(path, first_kept, compaction_index);
         messages.extend(build_capped_kept_messages(&kept));
     }
     for entry in path.iter().skip(compaction_index + 1) {
@@ -1453,7 +1453,11 @@ pub fn build_context_entries(entries: &[SessionEntry], leaf: LeafSelection<'_>) 
     };
 
     let mut context_entries = vec![(*compaction).clone()];
-    let first_kept = compaction.as_compaction().map(|data| data.first_kept_entry_id.clone());
+    let first_kept = compaction
+        .object()
+        .get("firstKeptEntryId")
+        .and_then(JsValue::as_string)
+        .cloned();
     let mut found_first = false;
     for entry in path.iter().take(compaction_index) {
         if entry.id() == first_kept.as_ref() {
@@ -1765,9 +1769,9 @@ fn scan_session_entry_reverse(scan: &mut ReverseSessionScan, entry: SessionEntry
     scan.required_parent_id = parent_id;
     if scan.latest_compaction.is_none()
         && entry.entry_type() == "compaction"
-        && let Some(compaction) = entry.as_compaction()
+        && let Some(first_kept) = entry.object().get("firstKeptEntryId").and_then(JsValue::as_string)
     {
-        scan.latest_compaction = Some((compaction.id.clone(), compaction.first_kept_entry_id.clone()));
+        scan.latest_compaction = Some((entry_id.clone(), first_kept.clone()));
     }
     if !scan.found_first_kept_entry
         && scan
