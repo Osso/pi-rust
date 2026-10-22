@@ -1,10 +1,10 @@
 //! Port of `packages/ai/src/auth/oauth/openrouter.ts`.
 
-use pi_js_compat::{js_format, js_json::JsString};
+use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde_json::{Value, json};
+use serde_json::Value;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
@@ -82,7 +82,7 @@ impl OAuthAuth for OpenRouterOAuth {
     fn to_auth(&self, credential: OAuthCredential) -> crate::request::BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some((credential.access_utf8()?).into()),
+                api_key: Some(credential.access.clone()),
                 ..ModelAuth::default()
             })
         })
@@ -283,7 +283,7 @@ async fn start_callback(
                 );
             };
             state.lock().expect("callback state mutex").claimed = true;
-            match exchange_authorization_code(&runtime, &code, &verifier, signal).await {
+            match exchange_authorization_code(&runtime, &code.into(), &verifier, signal).await {
                 Ok(credential) => {
                     finish(&settle, &state, Ok(Some(credential)));
                     CallbackReply::no_store(

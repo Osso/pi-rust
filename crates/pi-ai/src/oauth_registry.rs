@@ -185,18 +185,11 @@ impl OAuthProviderInterface for Builtin {
             .extra
             .get(&pi_js_compat::js_json::JsString::from("enterpriseUrl"))
             .and_then(JsValue::as_string)
-            .and_then(|v| v.to_utf8().ok())
-            .and_then(|v| normalize_domain(&v));
-        let base_url = credentials
-            .access
-            .to_utf8()
-            .ok()
-            .as_deref()
-            .and_then(get_base_url_from_token)
-            .unwrap_or_else(|| match domain {
-                Some(domain) => format!("https://copilot-api.{domain}"),
-                None => "https://api.individual.githubcopilot.com".to_owned(),
-            });
+            .and_then(normalize_domain);
+        let base_url = get_base_url_from_token(&credentials.access).unwrap_or_else(|| match domain {
+            Some(domain) => pi_js_compat::js_format!("https://copilot-api.{}", domain),
+            None => "https://api.individual.githubcopilot.com".into(),
+        });
         let available = credentials
             .extra
             .get(&pi_js_compat::js_json::JsString::from("availableModelIds"))

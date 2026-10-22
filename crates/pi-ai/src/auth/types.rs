@@ -57,29 +57,6 @@ impl OAuthCredential {
         }
     }
 
-    /// Checked handoff to scalar-string-only request providers and HTTP builders.
-    pub fn access_utf8(&self) -> Result<String, AuthError> {
-        self.access
-            .to_utf8()
-            .map_err(|e| AuthError::failed(format!("Cannot hand OAuth access token to request provider: {e}")))
-    }
-
-    /// Node HTTP header validation: tab, printable ASCII and Latin-1 only.
-    pub fn refresh_header_value(&self, header: &str) -> Result<String, AuthError> {
-        let invalid = self
-            .refresh
-            .units()
-            .iter()
-            .any(|unit| !matches!(*unit, 9 | 32..=126 | 128..=255));
-        if invalid {
-            let mut error = CallbackError::new(format!("Invalid character in header content [\"{header}\"]"));
-            error.name = "TypeError".into();
-            error.code = Some("ERR_INVALID_CHAR".into());
-            return Err(AuthError::Failed(error));
-        }
-        Ok(self.refresh.to_utf8().expect("validated header units are scalar"))
-    }
-
     pub fn to_js_value(&self) -> JsValue {
         let mut object = JsObject::new();
         object.insert("type".into(), JsValue::String("oauth".into()));

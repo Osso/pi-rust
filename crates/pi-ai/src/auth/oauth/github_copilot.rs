@@ -1,5 +1,9 @@
 //! Port of `packages/ai/src/auth/oauth/github-copilot.ts`.
 
+use pi_js_compat::{
+    js_format,
+    js_json::{JsString, encode_node_utf8},
+};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -76,13 +80,7 @@ impl OAuthAuth for GitHubCopilotOAuth {
         let runtime = self.runtime.clone();
         Box::pin(async move {
             let enterprise_domain = copilot_enterprise_domain(&credential);
-            refresh_token(
-                &runtime,
-                &credential.refresh_header_value("Authorization")?,
-                enterprise_domain.as_deref(),
-                signal,
-            )
-            .await
+            refresh_token(&runtime, &credential.refresh, enterprise_domain.as_deref(), signal).await
         })
     }
 
@@ -90,19 +88,19 @@ impl OAuthAuth for GitHubCopilotOAuth {
         Box::pin(async move {
             let enterprise_domain = copilot_enterprise_domain(&credential);
             Ok(ModelAuth {
-                api_key: Some((credential.access_utf8()?).into()),
+                api_key: Some(credential.access.clone()),
                 headers: None,
-                base_url: Some(
-                    (get_github_copilot_base_url(Some(&credential.access_utf8()?), enterprise_domain.as_deref()))
-                        .into(),
-                ),
+                base_url: Some(get_github_copilot_base_url(
+                    Some(&credential.access),
+                    enterprise_domain.as_deref(),
+                )),
             })
         })
     }
 }
 
 /// `normalizeDomain`: accepts a bare domain or a URL and returns its hostname.
-pub fn normalize_domain(input: &str) -> Option<String> {
+pub fn normalize_domain(input: &JsString) -> Option<String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return None;
@@ -110,9 +108,9 @@ pub fn normalize_domain(input: &str) -> Option<String> {
     let candidate = if trimmed.contains("://") {
         trimmed.to_owned()
     } else {
-        format!("https://{trimmed}")
+        js_format!("https://{}", trimmed)
     };
-    let url = url::Url::parse(&candidate).ok()?;
+    let url = url::Url::parse(&encode_node_utf8(&candidate)).ok()?;
     Some(url.host_str()?.to_owned())
 }
 
@@ -131,27 +129,28 @@ fn get_urls(domain: &str) -> Urls {
 }
 
 /// `getBaseUrlFromToken`: derives the API host from the token's `proxy-ep`.
-pub fn get_base_url_from_token(token: &str) -> Option<String> {
+pub fn get_base_url_from_token(token: &JsString) -> Option<JsString> {
     let start = token.find("proxy-ep=")? + "proxy-ep=".len();
-    let rest = &token[start..];
-    let end = rest.find(';').unwrap_or(rest.len());
-    let proxy_host = &rest[..end];
-    let api_host = match proxy_host.strip_prefix("proxy.") {
-        Some(host) => format!("api.{host}"),
-        None => proxy_host.to_owned(),
+    let rest = token.slice(start, token.len());
+    let end = rest.find(";").unwrap_or(rest.len());
+    let proxy_host = rest.slice(0, end);
+    let api_host = if proxy_host.starts_with("proxy.") {
+        js_format!("api.{}", proxy_host.slice(6, proxy_host.len()))
+    } else {
+        proxy_host
     };
-    Some(format!("https://{api_host}"))
+    Some(js_format!("https://{}", api_host))
 }
 
-fn get_github_copilot_base_url(token: Option<&str>, enterprise_domain: Option<&str>) -> String {
+fn get_github_copilot_base_url(token: Option<&JsString>, enterprise_domain: Option<&str>) -> JsString {
     if let Some(token) = token
         && let Some(url) = get_base_url_from_token(token)
     {
         return url;
     }
     match enterprise_domain {
-        Some(domain) => format!("https://copilot-api.{domain}"),
-        None => DEFAULT_BASE_URL.to_owned(),
+        Some(domain) => js_format!("https://copilot-api.{}", domain),
+        None => DEFAULT_BASE_URL.into(),
     }
 }
 
@@ -378,7 +377,7 @@ async fn poll_for_github_access_token(
 
 async fn refresh_access_token(
     runtime: &OAuthRuntime,
-    refresh_token: &str,
+    refresh_token: &JsString,
     enterprise_domain: Option<&str>,
     signal: &CancellationToken,
 ) -> Result<OAuthCredential, CallbackError> {
@@ -421,14 +420,14 @@ async fn refresh_access_token(
 
 async fn refresh_token(
     runtime: &OAuthRuntime,
-    refresh_token: &str,
+    refresh_token: &JsString,
     enterprise_domain: Option<&str>,
     signal: CancellationToken,
 ) -> Result<OAuthCredential, AuthError> {
     let mut credentials = refresh_access_token(runtime, refresh_token, enterprise_domain, &signal)
         .await
         .map_err(to_auth_error)?;
-    let available = fetch_available_model_ids(runtime, &credentials.access_utf8()?, enterprise_domain, &signal)
+    let available = fetch_available_model_ids(runtime, &credentials.access, enterprise_domain, &signal)
         .await
         .map_err(to_auth_error)?;
     credentials.extra.insert(
@@ -445,7 +444,7 @@ async fn refresh_token(
 
 async fn fetch_available_model_ids(
     runtime: &OAuthRuntime,
-    copilot_token: &str,
+    copilot_token: &JsString,
     enterprise_domain: Option<&str>,
     signal: &CancellationToken,
 ) -> Result<Vec<String>, CallbackError> {
@@ -464,7 +463,7 @@ async fn fetch_available_model_ids(
 
 async fn enable_github_copilot_model(
     runtime: &OAuthRuntime,
-    token: &str,
+    token: &JsString,
     model_id: &str,
     enterprise_domain: Option<&str>,
     signal: &CancellationToken,
@@ -489,7 +488,7 @@ async fn enable_github_copilot_model(
 
 async fn enable_all_models(
     runtime: &OAuthRuntime,
-    token: &str,
+    token: &JsString,
     enterprise_domain: Option<&str>,
     signal: &CancellationToken,
 ) {
@@ -566,22 +565,11 @@ async fn login(runtime: &OAuthRuntime, interaction: &Arc<dyn AuthInteraction>) -
     interaction.notify(AuthEvent::Progress {
         message: ("Enabling models...".to_owned()).into(),
     });
-    enable_all_models(
-        runtime,
-        &credentials.access_utf8()?,
-        enterprise_domain.as_deref(),
-        &signal,
-    )
-    .await;
+    enable_all_models(runtime, &credentials.access, enterprise_domain.as_deref(), &signal).await;
 
-    let available = fetch_available_model_ids(
-        runtime,
-        &credentials.access_utf8()?,
-        enterprise_domain.as_deref(),
-        &signal,
-    )
-    .await
-    .map_err(to_auth_error)?;
+    let available = fetch_available_model_ids(runtime, &credentials.access, enterprise_domain.as_deref(), &signal)
+        .await
+        .map_err(to_auth_error)?;
     credentials.extra.insert(
         "availableModelIds".into(),
         pi_js_compat::js_json::JsValue::Array(
