@@ -28,8 +28,8 @@ fn full_search_surface_matches_frozen_with_raw_utf16() {
         name: None,
         is_archived: None,
         parent_session_path: None,
-        created: 0,
-        modified,
+        created: 0.0,
+        modified: modified as f64,
         message_count: usize::from(id != "empty"),
         first_message: text.into(),
     })

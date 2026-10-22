@@ -48,14 +48,20 @@ const HEADER_READ_BUFFER_SIZE: usize = 4096;
 /// Failure raised by session loading, mutation and persistence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionManagerError {
+    name: &'static str,
     message: JsString,
 }
 
 impl SessionManagerError {
     pub fn new(message: impl Into<JsString>) -> Self {
         Self {
+            name: "Error",
             message: message.into(),
         }
+    }
+
+    pub fn name(&self) -> &'static str {
+        self.name
     }
 
     pub fn message(&self) -> &JsString {
@@ -70,6 +76,15 @@ impl std::fmt::Display for SessionManagerError {
 }
 
 impl std::error::Error for SessionManagerError {}
+
+impl From<pi_js_compat::date::InvalidTimeValue> for SessionManagerError {
+    fn from(cause: pi_js_compat::date::InvalidTimeValue) -> Self {
+        Self {
+            name: cause.name(),
+            message: cause.to_string().into(),
+        }
+    }
+}
 
 fn control_db_error(cause: impl std::fmt::Display) -> SessionManagerError {
     error(cause.to_string())
@@ -972,7 +987,7 @@ pub struct SessionTreeNode {
     pub label_timestamp: Option<JsString>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SessionInfo {
     pub path: JsString,
     pub id: JsString,
@@ -980,10 +995,10 @@ pub struct SessionInfo {
     pub name: Option<JsString>,
     pub is_archived: Option<bool>,
     pub parent_session_path: Option<JsString>,
-    /// Unix milliseconds.
-    pub created: i64,
-    /// Unix milliseconds.
-    pub modified: i64,
+    /// JavaScript Date time value: integral milliseconds or NaN for Invalid Date.
+    pub created: f64,
+    /// JavaScript Date time value: integral milliseconds or NaN for Invalid Date.
+    pub modified: f64,
     pub message_count: usize,
     pub first_message: JsString,
 }
@@ -2077,27 +2092,41 @@ fn apply_session_info_entry(accumulator: &mut SessionInfoAccumulator, entry: &Se
     accumulator.first_message = text;
 }
 
+fn new_date_value(value: Option<&JsValue>) -> Result<f64, SessionManagerError> {
+    match value {
+        None => Ok(f64::NAN),
+        Some(JsValue::Null) => Ok(0.0),
+        Some(JsValue::Bool(value)) => Ok(if *value { 1.0 } else { 0.0 }),
+        Some(JsValue::Number(value)) => Ok(pi_js_compat::date::time_clip(*value)),
+        Some(value) => {
+            let text = pi_js_compat::js_json::to_js_string(value).map_err(|message| SessionManagerError {
+                name: "TypeError",
+                message: message.into(),
+            })?;
+            Ok(pi_js_compat::date::date_parse_utf16(text.units()))
+        }
+    }
+}
+
+fn system_time_date(value: std::time::SystemTime) -> f64 {
+    let millis = match value.duration_since(std::time::UNIX_EPOCH) {
+        Ok(duration) => duration.as_secs_f64() * 1000.0,
+        Err(error) => -error.duration().as_secs_f64() * 1000.0,
+    };
+    pi_js_compat::date::time_clip(millis)
+}
+
 fn finish_session_info(
     file_path: &JsString,
     header: &SessionHeader,
     accumulator: SessionInfoAccumulator,
-    fallback_modified: i64,
+    fallback_modified: f64,
 ) -> Result<SessionInfo, SessionManagerError> {
     let cwd = header.cwd().cloned().unwrap_or_default();
     let header_time = record_timestamp_millis(header.timestamp());
-    // Temporary boundary until SessionInfo represents Invalid Date (owned by the Date migration).
-    // Keep message/accumulator numbers intact; TimeClip only at frozen new Date(number).
     let modified = match accumulator.last_activity_time {
-        Some(time) => {
-            let clipped = pi_js_compat::date::time_clip_millis(time)
-                .ok_or_else(|| SessionManagerError::new("SessionInfo Date migration pending: Invalid time value"))?;
-            if time > 0.0 {
-                clipped
-            } else {
-                header_time.unwrap_or(fallback_modified)
-            }
-        }
-        None => header_time.unwrap_or(fallback_modified),
+        Some(time) if time > 0.0 => pi_js_compat::date::time_clip(time),
+        _ => header_time.map_or(fallback_modified, |time| time as f64),
     };
     Ok(SessionInfo {
         path: file_path.to_owned(),
@@ -2106,7 +2135,7 @@ fn finish_session_info(
         name: None,
         is_archived: None,
         parent_session_path: header.parent_session().cloned(),
-        created: header_time.unwrap_or(0),
+        created: new_date_value(header.fields.get("timestamp"))?,
         modified,
         message_count: accumulator.message_count,
         first_message: if accumulator.first_message.is_empty() {
@@ -2119,12 +2148,7 @@ fn finish_session_info(
 
 pub fn build_session_info(file_path: &JsString) -> Option<SessionInfo> {
     let metadata = fs::metadata(encode_node_utf8(file_path)).ok()?;
-    let fallback_modified = metadata
-        .modified()
-        .ok()
-        .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|elapsed| elapsed.as_millis() as i64)
-        .unwrap_or(0);
+    let fallback_modified = system_time_date(metadata.modified().ok()?);
     let content = BufReader::new(create_session_transcript_read_stream(file_path).ok()?);
     let mut header: Option<SessionHeader> = None;
     let mut accumulator = SessionInfoAccumulator::default();
@@ -2183,7 +2207,12 @@ fn list_sessions_from_dir(
             sessions.push(info);
         }
     }
+    sort_session_infos(&mut sessions);
     sessions
+}
+
+fn sort_session_infos(sessions: &mut [SessionInfo]) {
+    pi_js_compat::array_sort::js_array_sort(sessions, |left, right| right.modified - left.modified);
 }
 
 fn list_default_session_root(progress: Option<&mut dyn FnMut(usize, usize)>) -> Vec<SessionInfo> {
@@ -2221,7 +2250,7 @@ fn list_default_session_root(progress: Option<&mut dyn FnMut(usize, usize)>) -> 
             sessions.push(info);
         }
     }
-    sessions.sort_by_key(|session| std::cmp::Reverse(session.modified));
+    sort_session_infos(&mut sessions);
     sessions
 }
 
@@ -3147,7 +3176,12 @@ impl SessionManager {
                 apply_session_info_entry(&mut accumulator, entry);
             }
         }
-        let info = finish_session_info(session_file, header, accumulator, pi_ai::request::now_millis())?;
+        let info = finish_session_info(
+            session_file,
+            header,
+            accumulator,
+            pi_js_compat::date::time_clip(pi_js_compat::date::js_now_millis()),
+        )?;
         let metadata = WritableSessionMetadata {
             session_path: info.path.clone(),
             id: info.id.clone(),
@@ -3161,8 +3195,8 @@ impl SessionManager {
             model_provider: None,
             model_id: None,
             thinking_level: None,
-            created_at: iso_time::format_iso_millis(info.created).into(),
-            modified_at: iso_time::format_iso_millis(info.modified).into(),
+            created_at: pi_js_compat::date::to_iso_string_value(info.created)?.into(),
+            modified_at: pi_js_compat::date::to_iso_string_value(info.modified)?.into(),
             message_count: i64::try_from(info.message_count).unwrap_or(i64::MAX),
             first_message: info.first_message.clone(),
         };
@@ -3681,7 +3715,7 @@ impl SessionManager {
         }
         cache_session_metadata(control_db_path, &sessions)?;
         let mut sessions = exclude_known_subagent_sessions(control_db_path, sessions)?;
-        sessions.sort_by_key(|session| std::cmp::Reverse(session.modified));
+        sort_session_infos(&mut sessions);
         Ok(sessions)
     }
 
@@ -3729,7 +3763,7 @@ impl SessionManager {
             let sessions = list_sessions_from_dir(&dir, progress, 0, None);
             cache_session_metadata(control_db_path, &sessions)?;
             let mut sessions = exclude_known_subagent_sessions(control_db_path, sessions)?;
-            sessions.sort_by_key(|session| std::cmp::Reverse(session.modified));
+            sort_session_infos(&mut sessions);
             return Ok(sessions);
         }
         if let Some(sessions) = list_metadata_sessions(
@@ -3763,8 +3797,8 @@ fn session_info_from_metadata(metadata: &SessionMetadata) -> SessionInfo {
         name: metadata.name.clone().map(JsString::from),
         is_archived: Some(metadata.archived_at.is_some()),
         parent_session_path: metadata.parent_session_path.clone().map(Into::into),
-        created: pi_js_compat::date::date_parse_millis(&metadata.created_at).unwrap_or(0),
-        modified: pi_js_compat::date::date_parse_millis(&metadata.modified_at).unwrap_or(0),
+        created: pi_js_compat::date::date_parse(&metadata.created_at),
+        modified: pi_js_compat::date::date_parse(&metadata.modified_at),
         message_count: usize::try_from(metadata.message_count).unwrap_or(0),
         first_message: metadata.first_message.clone().into(),
     }
@@ -3857,8 +3891,8 @@ fn cache_session_metadata(
                 model_provider: None,
                 model_id: None,
                 thinking_level: None,
-                created_at: iso_time::format_iso_millis(session.created).into(),
-                modified_at: iso_time::format_iso_millis(session.modified).into(),
+                created_at: pi_js_compat::date::to_iso_string_value(session.created)?.into(),
+                modified_at: pi_js_compat::date::to_iso_string_value(session.modified)?.into(),
                 message_count: i64::try_from(session.message_count).unwrap_or(i64::MAX),
                 first_message: session.first_message.clone(),
             },

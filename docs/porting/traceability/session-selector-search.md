@@ -16,6 +16,6 @@ All 219 source lines compared. Removed former fancy-regex error-text claim: nati
 
 GREEN `/tmp/pi-rust-repin-lossless-interactive/test-session-search-surface-green-2.log`1/1 (15 complete parse/match/sort scenarios), `test-session-search-filter-green.log`1/1 (23 filtered-ID cases). Surface test compares error presence and exact prefix units while excluding only the approved reason text; all other outputs remain exact.
 
-## Active Date follow-up
+## Date comparator completion
 
-SessionInfo still carries i64 milliseconds at this checkpoint. Parent authorized the queued f64/TimeClip/Invalid Date migration, including this consumer, after219 integration. Date-comparator Invalid Date behavior is not yet proved; row remains partial until that test and carrier migration land.
+[SessionInfo Date migration](session-info-dates.md) completes the f64/NaN carrier and comparator proof. `search_date_ties_match_frozen_with_invalid_dates` covers7,17,32,70,129 rows across all three modes. A real seven-row RED showed that Rust stable sort plus NaN→Equal is not pinned V8 ordering; relevance/threaded now use the exact shared V8 numeric-comparator helper. Literal and score priorities are unchanged. All219 source lines now map to proof or the explicit approved regex reason/limit contract.

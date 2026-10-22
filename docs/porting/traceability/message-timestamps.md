@@ -16,11 +16,11 @@ Three message fields, AssistantMessage::empty and Faux timestamp options retain 
 
 `pi_js_compat::date::time_clip_millis` models the actual Date boundary: reject nonfinite/out-of-range as Invalid Date, otherwise truncate toward zero. It must not be used to narrow message timestamps.
 
-## Temporary SessionInfo dependency
+## SessionInfo Date boundary
 
-Parent approved a bounded intermediate boundary on2026-10-22: SessionInfo.created/modified remain i64 until the separate Date-representation slice. The accumulator retains f64; finish_session_info applies TimeClip only at frozen new Date(number), returning SessionManagerError for invalid dates instead of clamping. build_session_info's existing Option interface returns None for this error; metadata refresh propagates it. This explicit temporary rejection is **not parity** with frozen Invalid Date rendering/sorting. Remove it when SessionInfo can retain Invalid Date; do not expand it into a fallback.
+The bounded intermediate Invalid Date rejection has been removed. [SessionInfo Date traceability](session-info-dates.md) is the authority for the f64 carrier, real construction/metadata/append/persistence/render/sort boundaries and pinned proof. Raw message/accumulator numbers remain unchanged; Date TimeClip is applied only where frozen constructs a Date.
 
-Actual-source buildSessionInfo differential covers0.75,12.75,-12.75 and the maximum valid Date. Protected interactive SessionInfo consumers were not edited. Parent221 owns Date representation/render/sort and invalid-date behavior.
+The existing actual-source buildSessionInfo regression (0.75,12.75,-12.75,maximum valid Date) now serializes f64 Date values through shared numeric-semantic JSON rather than comparing serde integer-vs-double storage shapes.
 
 ## Proof scope
 
