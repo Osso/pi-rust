@@ -444,13 +444,6 @@ async fn run_stream(
     {
         return Err(Failure::Message("Request was aborted".to_owned().into()));
     }
-    if output.stop_reason == StopReason::Pending {
-        return Err(Failure::Message(
-            "Azure OpenAI Responses stream ended without a stop reason"
-                .to_owned()
-                .into(),
-        ));
-    }
     if matches!(output.stop_reason, StopReason::Aborted | StopReason::Error) {
         return Err(Failure::Message(
             output

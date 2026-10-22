@@ -39,6 +39,14 @@ fn assistant_wire() -> Value {
 }
 
 #[test]
+fn frozen_stop_reason_types_exclude_old_pending_and_deferred_variants() {
+    for tag in ["pending", "deferred"] {
+        assert!(serde_json::from_value::<StopReason>(json!(tag)).is_err(), "{tag}");
+        assert!(serde_json::from_value::<DoneReason>(json!(tag)).is_err(), "{tag}");
+    }
+}
+
+#[test]
 fn empty_stream_message_starts_with_frozen_stop_reason() {
     let message = AssistantMessage::empty("anthropic-messages", "anthropic", "test", 0);
     assert_eq!(message.stop_reason, StopReason::Stop);

@@ -1204,9 +1204,6 @@ async fn drive_stream(
     {
         return Err("Request was aborted".to_owned().into());
     }
-    if output.stop_reason == StopReason::Pending {
-        return Err("Anthropic stream ended without a stop reason".to_owned().into());
-    }
     if matches!(output.stop_reason, StopReason::Aborted | StopReason::Error) {
         return Err(output
             .error_message
@@ -1242,8 +1239,7 @@ fn done_reason(reason: StopReason) -> DoneReason {
     match reason {
         StopReason::Length => DoneReason::Length,
         StopReason::ToolUse => DoneReason::ToolUse,
-        StopReason::Deferred => DoneReason::Deferred,
-        StopReason::Stop | StopReason::Pending | StopReason::Error | StopReason::Aborted => DoneReason::Stop,
+        StopReason::Stop | StopReason::Error | StopReason::Aborted => DoneReason::Stop,
     }
 }
 

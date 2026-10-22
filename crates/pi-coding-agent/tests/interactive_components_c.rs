@@ -158,7 +158,6 @@ fn assistant_message(content: Vec<AssistantContent>, stop_reason: StopReason) ->
         response_id: None,
         image_generation_result: None,
         diagnostics: None,
-        deferred: None,
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,

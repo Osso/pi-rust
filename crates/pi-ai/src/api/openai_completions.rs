@@ -1901,8 +1901,7 @@ fn done_reason(stop_reason: StopReason) -> Option<DoneReason> {
         StopReason::Stop => Some(DoneReason::Stop),
         StopReason::Length => Some(DoneReason::Length),
         StopReason::ToolUse => Some(DoneReason::ToolUse),
-        StopReason::Deferred => Some(DoneReason::Deferred),
-        StopReason::Pending | StopReason::Error | StopReason::Aborted => None,
+        StopReason::Error | StopReason::Aborted => None,
     }
 }
 
@@ -2021,7 +2020,7 @@ async fn run_stream(
                 .unwrap_or_else(|| "Provider returned an error stop reason".to_owned().into()),
         ));
     }
-    if (compat.supports_finish_reason && !has_finish_reason) || output.stop_reason == StopReason::Pending {
+    if compat.supports_finish_reason && !has_finish_reason {
         return Err(CompletionsFailure::Message(
             "Stream ended without finish_reason".to_owned().into(),
         ));

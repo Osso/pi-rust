@@ -516,13 +516,11 @@ fn terminal_message_calls_end_turn(message: &pi_ai::types::AssistantMessage) -> 
 
 fn stop_reason_name(stop_reason: StopReason) -> &'static str {
     match stop_reason {
-        StopReason::Pending => "pending",
         StopReason::Stop => "stop",
         StopReason::Length => "length",
         StopReason::ToolUse => "toolUse",
         StopReason::Error => "error",
         StopReason::Aborted => "aborted",
-        StopReason::Deferred => "deferred",
     }
 }
 

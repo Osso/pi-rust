@@ -529,23 +529,20 @@ pub struct Usage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum StopReason {
-    Pending,
     Stop,
     Length,
     ToolUse,
     Error,
     Aborted,
-    Deferred,
 }
 
-/// `Extract<StopReason, "stop" | "length" | "toolUse" | "deferred">`.
+/// `Extract<StopReason, "stop" | "length" | "toolUse">`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DoneReason {
     Stop,
     Length,
     ToolUse,
-    Deferred,
 }
 
 /// `Extract<StopReason, "aborted" | "error">`.
@@ -629,8 +626,6 @@ pub struct AssistantMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diagnostics: Option<Vec<AssistantMessageDiagnostic>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub deferred: Option<DeferredHandle>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<pi_js_compat::js_json::JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_stop_reason: Option<String>,
@@ -658,7 +653,6 @@ impl AssistantMessage {
             diagnostics: None,
             usage: Usage::default(),
             stop_reason: StopReason::Stop,
-            deferred: None,
             error_message: None,
             raw_stop_reason: None,
             end_turn: None,

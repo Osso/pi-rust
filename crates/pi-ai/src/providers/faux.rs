@@ -730,7 +730,6 @@ async fn stream_with_deltas(
     }
 
     match message.stop_reason {
-        StopReason::Pending => Err(CallbackError::new("Faux response ended without a stop reason")),
         StopReason::Error => {
             sender.push(AssistantMessageEvent::Error {
                 reason: ErrorReason::Error,
@@ -752,8 +751,7 @@ async fn stream_with_deltas(
                 StopReason::Stop => DoneReason::Stop,
                 StopReason::Length => DoneReason::Length,
                 StopReason::ToolUse => DoneReason::ToolUse,
-                StopReason::Deferred => DoneReason::Deferred,
-                StopReason::Pending | StopReason::Error | StopReason::Aborted => unreachable!(),
+                StopReason::Error | StopReason::Aborted => unreachable!(),
             };
             sender.push(AssistantMessageEvent::Done {
                 reason: done_reason,

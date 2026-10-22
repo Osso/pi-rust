@@ -190,13 +190,11 @@ fn error_message_or_request(message: &AssistantMessage) -> JsString {
 
 fn stop_reason_name(reason: StopReason) -> &'static str {
     match reason {
-        StopReason::Pending => "pending",
         StopReason::Stop => "stop",
         StopReason::Length => "length",
         StopReason::ToolUse => "toolUse",
         StopReason::Error => "error",
         StopReason::Aborted => "aborted",
-        StopReason::Deferred => "deferred",
     }
 }
 
