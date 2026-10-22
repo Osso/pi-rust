@@ -7,6 +7,7 @@ use std::sync::Arc;
 use pi_coding_agent::utils::syntax_highlight::{
     HighlightFormatter, HighlightOptions, HighlightTheme, highlight, render_highlighted_html, supports_language,
 };
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 const THEME: &[(&str, &str)] = &[
@@ -115,7 +116,8 @@ fn theme() -> HighlightTheme {
         .iter()
         .map(|(scope, label)| {
             let label = (*label).to_owned();
-            let formatter: HighlightFormatter = Arc::new(move |text: &str| format!("<{label}>{text}</{label}>"));
+            let formatter: HighlightFormatter =
+                Arc::new(move |text: &JsString| JsString::from(format!("<{label}>")) + text + format!("</{label}>"));
             ((*scope).to_owned(), formatter)
         })
         .collect::<HashMap<_, _>>()
@@ -131,18 +133,19 @@ fn actual_case(case: &Case) -> Value {
             subset,
         } => {
             let rendered = highlight(
-                code,
+                &code.into(),
                 &HighlightOptions {
-                    language: language.clone(),
+                    language: language.as_ref().map(JsString::from),
                     ignore_illegals: Some(*ignore_illegals),
-                    language_subset: subset.clone(),
+                    language_subset: subset.as_ref().map(|items| items.iter().map(JsString::from).collect()),
                     theme: theme(),
                 },
-            );
+            )
+            .unwrap();
             json!({"name": name, "value": rendered})
         }
-        Case::Render { name, html } => json!({"name": name, "value": render_highlighted_html(html, &theme())}),
-        Case::Supports { name, language } => json!({"name": name, "value": supports_language(language)}),
+        Case::Render { name, html } => json!({"name": name, "value": render_highlighted_html(&html.into(), &theme())}),
+        Case::Supports { name, language } => json!({"name": name, "value": supports_language(&language.into())}),
     }
 }
 

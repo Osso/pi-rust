@@ -3,83 +3,18 @@
 //! Grammars are generated from the pinned package into `grammars.json` by
 //! `oracle/hljs-grammar-gen.mjs`; this module compiles and interprets them.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
-use fancy_regex::Regex;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_regex::JsRegex;
 
-/// A compiled grammar pattern.
-///
-/// Patterns without lookaround/backreference features compile with the much
-/// faster `regex` engine; the Swift grammar's large Unicode identifier classes
-/// otherwise spend minutes in fancy-regex construction.
-enum LangRegex {
-    Plain(regex::Regex),
-    Fancy(Regex),
-}
-
-type LangRegexCache = Mutex<HashMap<(String, bool), Option<Arc<LangRegex>>>>;
-type CompiledKeywords = HashMap<String, (String, i64)>;
-
-struct RegexMatch {
-    start: usize,
-    text: String,
-    groups: Vec<Option<String>>,
-}
-
-impl LangRegex {
-    fn captures_from_pos(&self, code: &str, position: usize) -> Option<RegexMatch> {
-        if position > code.len() {
-            return None;
-        }
-        match self {
-            Self::Plain(regex) => {
-                let captures = regex.captures_at(code, position)?;
-                let whole = captures.get(0)?;
-                Some(RegexMatch {
-                    start: whole.start(),
-                    text: whole.as_str().to_owned(),
-                    groups: (1..captures.len())
-                        .map(|index| captures.get(index).map(|group| group.as_str().to_owned()))
-                        .collect(),
-                })
-            }
-            Self::Fancy(regex) => {
-                let captures = regex.captures_from_pos(code, position).ok().flatten()?;
-                let whole = captures.get(0)?;
-                Some(RegexMatch {
-                    start: whole.start(),
-                    text: whole.as_str().to_owned(),
-                    groups: (1..captures.len())
-                        .map(|index| captures.get(index).map(|group| group.as_str().to_owned()))
-                        .collect(),
-                })
-            }
-        }
-    }
-
-    fn matches_at_start(&self, text: &str) -> bool {
-        self.captures_from_pos(text, 0).is_some_and(|found| found.start == 0)
-    }
-
-    fn find_all(&self, text: &str) -> Vec<(usize, usize, String)> {
-        match self {
-            Self::Plain(regex) => regex
-                .find_iter(text)
-                .map(|found| (found.start(), found.end(), found.as_str().to_owned()))
-                .collect(),
-            Self::Fancy(regex) => regex
-                .find_iter(text)
-                .filter_map(Result::ok)
-                .map(|found| (found.start(), found.end(), found.as_str().to_owned()))
-                .collect(),
-        }
-    }
-}
+type GrammarRegexCache = Mutex<BTreeMap<(JsString, bool), Arc<JsRegex>>>;
+type CompiledKeywords = BTreeMap<JsString, (String, i64)>;
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 
-use super::js_regex::translate_pattern;
+use super::escape_html;
 
 const CLASS_PREFIX: &str = "hljs-";
 const COMMON_KEYWORDS: [&str; 12] = [
@@ -91,7 +26,7 @@ const GRAMMARS: &str = include_str!("grammars.json");
 /// Result of highlighting one snippet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HighlightResult {
-    pub value: String,
+    pub value: JsString,
     pub relevance: i64,
     pub language: String,
     pub illegal: bool,
@@ -242,15 +177,15 @@ struct CompiledLanguage {
 struct CompiledMode {
     class_name: Option<String>,
     first_parent: Option<usize>,
-    begin: Option<Arc<LangRegex>>,
-    begin_source: String,
-    end: Option<Arc<LangRegex>>,
-    end_source: String,
-    illegal: Option<Arc<LangRegex>>,
-    illegal_source: String,
-    terminator_end: String,
+    begin: Option<Arc<JsRegex>>,
+    begin_source: JsString,
+    end: Option<Arc<JsRegex>>,
+    end_source: JsString,
+    illegal: Option<Arc<JsRegex>>,
+    illegal_source: JsString,
+    terminator_end: JsString,
     keywords: CompiledKeywords,
-    keyword_pattern: Option<Arc<LangRegex>>,
+    keyword_pattern: Option<Arc<JsRegex>>,
     contains: Vec<usize>,
     relevance: i64,
     exclude_begin: bool,
@@ -279,13 +214,13 @@ enum RuleKind {
 struct Rule {
     kind: RuleKind,
     mode: Option<usize>,
-    pattern: String,
+    pattern: JsString,
 }
 
 struct MatchInfo {
     index: usize,
-    text: String,
-    groups: Vec<Option<String>>,
+    text: JsString,
+    groups: Vec<Option<JsString>>,
     kind: RuleKind,
     mode: Option<usize>,
     position: usize,
@@ -325,24 +260,22 @@ fn compiled(key: &str) -> Option<Arc<CompiledLanguage>> {
 /// Resolves a language key or alias to the canonical registered key.
 ///
 /// Mirrors highlight.js `getLanguage(name)`: lowercase key, then alias.
-pub(crate) fn resolve_language(name: &str) -> Option<String> {
-    let lower = name.to_ascii_lowercase();
+pub(crate) fn resolve_language(name: &JsString) -> Option<String> {
+    let lower = name.to_lowercase();
     grammar_file()
         .languages
         .iter()
-        .find(|language| {
-            language.key == lower || language.aliases.iter().any(|alias| alias.eq_ignore_ascii_case(&lower))
-        })
+        .find(|language| lower == language.key || language.aliases.iter().any(|alias| lower == *alias))
         .map(|language| language.key.clone())
 }
 
 /// True when highlight.js would find the language.
-pub(crate) fn supports_language(name: &str) -> bool {
+pub(crate) fn supports_language(name: &JsString) -> bool {
     resolve_language(name).is_some()
 }
 
 /// Highlights `code` as `language`, mirroring `hljs.highlight(code, {language, ignoreIllegals})`.
-pub(crate) fn highlight(language: &str, code: &str, ignore_illegals: bool) -> Option<HighlightResult> {
+pub(crate) fn highlight(language: &JsString, code: &JsString, ignore_illegals: bool) -> Option<HighlightResult> {
     let key = resolve_language(language)?;
     let compiled = compiled(&key)?;
     let mut continuations = HashMap::new();
@@ -356,17 +289,17 @@ pub(crate) fn highlight(language: &str, code: &str, ignore_illegals: bool) -> Op
 }
 
 /// Mirrors `hljs.highlightAuto(code, languageSubset)`.
-pub(crate) fn highlight_auto(code: &str, subset: Option<&[String]>) -> HighlightResult {
+pub(crate) fn highlight_auto(code: &JsString, subset: Option<&[JsString]>) -> HighlightResult {
     highlight_auto_internal(code, subset).0
 }
 
-fn highlight_auto_internal(code: &str, subset: Option<&[String]>) -> (HighlightResult, Emitter) {
-    let candidates: Vec<String> = match subset {
+fn highlight_auto_internal(code: &JsString, subset: Option<&[JsString]>) -> (HighlightResult, Emitter) {
+    let candidates: Vec<JsString> = match subset {
         Some(subset) => subset.to_vec(),
         None => grammar_file()
             .languages
             .iter()
-            .map(|language| language.key.clone())
+            .map(|language| JsString::from(&language.key))
             .collect(),
     };
     let mut plaintext_emitter = Emitter::new();
@@ -381,7 +314,7 @@ fn highlight_auto_internal(code: &str, subset: Option<&[String]>) -> (HighlightR
         plaintext_emitter,
     )];
     for name in candidates {
-        let Some(key) = resolve_language(&name) else {
+        let Some(key) = resolve_language(&JsString::from(&name)) else {
             continue;
         };
         let Some(language) = compiled(&key) else {
@@ -541,25 +474,25 @@ fn resolve_mode_begin(
     (begin, keywords)
 }
 
-fn parent_terminator<'a>(def: &ModeDef, parent: Option<usize>, language: &'a CompiledLanguage) -> Option<&'a str> {
+fn parent_terminator<'a>(def: &ModeDef, parent: Option<usize>, language: &'a CompiledLanguage) -> Option<&'a JsString> {
     if !def.ends_with_parent {
         return None;
     }
     parent
         .and_then(|parent| language.modes.get(parent))
-        .map(|mode| mode.terminator_end.as_str())
+        .map(|mode| &mode.terminator_end)
 }
 
 fn compile_mode_bounds(
     entry: &LanguageEntry,
     def: &ModeDef,
     begin: Option<Pattern>,
-    parent_terminator: Option<&str>,
+    parent_terminator: Option<&JsString>,
     mode: &mut CompiledMode,
 ) {
     let begin = begin.unwrap_or(Pattern::Literal("\\B|\\b".to_owned()));
-    mode.begin_source = begin.source().to_owned();
-    mode.begin = lang_re(begin.source(), entry.case_insensitive);
+    mode.begin_source = begin.source().into();
+    mode.begin = Some(compile_cached_regex(&mode.begin_source, entry.case_insensitive));
     let end = if def.end_same_as_begin {
         Some(begin)
     } else if let Some(end) = &def.end {
@@ -570,13 +503,13 @@ fn compile_mode_bounds(
         Some(Pattern::Literal("\\B|\\b".to_owned()))
     };
     if let Some(end) = end {
-        mode.end_source = end.source().to_owned();
-        mode.end = lang_re(end.source(), entry.case_insensitive);
-        mode.terminator_end = end.source().to_owned();
+        mode.end_source = end.source().into();
+        mode.end = Some(compile_cached_regex(&mode.end_source, entry.case_insensitive));
+        mode.terminator_end = end.source().into();
     }
     if let Some(parent_terminator) = parent_terminator.filter(|terminator| !terminator.is_empty()) {
         if !mode.terminator_end.is_empty() {
-            mode.terminator_end.push('|');
+            mode.terminator_end.push_unit(u16::from(b'|'));
         }
         mode.terminator_end.push_str(parent_terminator);
     }
@@ -587,13 +520,14 @@ fn compile_mode_illegal(entry: &LanguageEntry, def: &ModeDef, mode: &mut Compile
         return;
     };
     mode.illegal_source = match illegal {
-        Illegal::One(pattern) => pattern.source().to_owned(),
+        Illegal::One(pattern) => pattern.source().into(),
         Illegal::Many(patterns) => format!(
             "({})",
             patterns.iter().map(Pattern::source).collect::<Vec<_>>().join("|")
-        ),
+        )
+        .into(),
     };
-    mode.illegal = lang_re(&mode.illegal_source, entry.case_insensitive);
+    mode.illegal = Some(compile_cached_regex(&mode.illegal_source, entry.case_insensitive));
 }
 
 fn compile_mode_keywords(entry: &LanguageEntry, def: &ModeDef, keywords: Option<Value>, mode: &mut CompiledMode) {
@@ -728,37 +662,25 @@ fn synthetic_id() -> u32 {
     NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
-fn lang_re(source: &str, case_insensitive: bool) -> Option<Arc<LangRegex>> {
-    static CACHE: LazyLock<LangRegexCache> = LazyLock::new(|| Mutex::new(HashMap::new()));
-    let key = (source.to_owned(), case_insensitive);
+fn compile_cached_regex(source: &JsString, case_insensitive: bool) -> Arc<JsRegex> {
+    static CACHE: LazyLock<GrammarRegexCache> = LazyLock::new(|| Mutex::new(BTreeMap::new()));
+    let key = (source.clone(), case_insensitive);
     let mut cache = CACHE.lock().unwrap_or_else(PoisonError::into_inner);
-    if let Some(entry) = cache.get(&key) {
-        return entry.clone();
-    }
-    let translated = translate_pattern(source);
-    let pattern = if case_insensitive {
-        format!("(?im){translated}")
-    } else {
-        format!("(?m){translated}")
-    };
-    let compiled = match regex::Regex::new(&pattern) {
-        Ok(regex) => Some(Arc::new(LangRegex::Plain(regex))),
-        Err(_) => fancy_regex::RegexBuilder::new(&pattern)
-            .backtrack_limit(10_000_000)
-            .build()
-            .ok()
-            .map(|regex| Arc::new(LangRegex::Fancy(regex))),
-    };
-    cache.insert(key, compiled.clone());
-    compiled
+    cache
+        .entry(key)
+        .or_insert_with(|| {
+            let flags = if case_insensitive { "mi" } else { "m" };
+            Arc::new(JsRegex::with_flags(source, flags).expect("frozen highlight grammar regex must compile"))
+        })
+        .clone()
 }
 
 fn compile_keywords(
     raw: Option<&Value>,
     lexemes: Option<&Pattern>,
     case_insensitive: bool,
-) -> (CompiledKeywords, Option<Arc<LangRegex>>) {
-    let mut compiled = HashMap::new();
+) -> (CompiledKeywords, Option<Arc<JsRegex>>) {
+    let mut compiled = BTreeMap::new();
     let mut pattern = lexemes.map(|pattern| pattern.source().to_owned());
     if let Some(raw) = raw {
         compile_keyword_value(
@@ -770,7 +692,7 @@ fn compile_keywords(
         );
     }
     let pattern = pattern.unwrap_or_else(|| "\\w+".to_owned());
-    (compiled, lang_re(&pattern, case_insensitive))
+    (compiled, Some(compile_cached_regex(&pattern.into(), case_insensitive)))
 }
 
 fn compile_keyword_value(
@@ -826,7 +748,7 @@ fn compile_keyword_list(words: &[&str], case_insensitive: bool, class_name: &str
             Some(provided) => provided.parse::<i64>().unwrap_or(0),
             None => i64::from(!COMMON_KEYWORDS.contains(&keyword.to_lowercase().as_str())),
         };
-        compiled.insert(keyword.to_owned(), (class_name.to_owned(), score));
+        compiled.insert(keyword.into(), (class_name.to_owned(), score));
     }
 }
 
@@ -867,14 +789,14 @@ fn build_rules(language: &CompiledLanguage, index: usize, mode: &CompiledMode) -
 
 #[derive(Default)]
 struct MatcherState {
-    regexes: Vec<Option<Arc<LangRegex>>>,
+    regexes: Vec<Option<Arc<JsRegex>>>,
     regex_index: usize,
 }
 
 fn exec_matcher(
     mode: &CompiledMode,
     state: &mut MatcherState,
-    code: &str,
+    code: &JsString,
     last_index: usize,
     case_insensitive: bool,
 ) -> Option<MatchInfo> {
@@ -900,7 +822,7 @@ fn exec_matcher(
 fn exec_from(
     mode: &CompiledMode,
     state: &mut MatcherState,
-    code: &str,
+    code: &JsString,
     last_index: usize,
     regex_index: usize,
     case_insensitive: bool,
@@ -916,15 +838,16 @@ fn exec_from(
         let rule_index = regex_index + offset;
         let rule = &mode.rules[rule_index];
         if state.regexes[rule_index].is_none() {
-            state.regexes[rule_index] = lang_re(&rule.pattern, case_insensitive);
+            state.regexes[rule_index] = Some(compile_cached_regex(&rule.pattern, case_insensitive));
         }
         let Some(regex) = state.regexes[rule_index].as_ref() else {
             continue;
         };
-        let Some(found) = regex.captures_from_pos(code, last_index) else {
+        let Some(found) = regex.captures_from(code, last_index) else {
             continue;
         };
-        let start = found.start;
+        let whole = found.get(0).expect("whole regex match");
+        let start = whole.start();
         if best.as_ref().is_some_and(|(best_index, _, _)| start >= *best_index) {
             continue;
         }
@@ -933,8 +856,10 @@ fn exec_from(
             offset,
             MatchInfo {
                 index: start,
-                text: found.text,
-                groups: found.groups,
+                text: whole.text(),
+                groups: (1..found.len())
+                    .map(|index| found.get(index).map(|group| group.text()))
+                    .collect(),
                 kind: rule.kind,
                 mode: rule.mode,
                 position: offset,
@@ -948,7 +873,7 @@ fn exec_from(
 }
 
 enum Child {
-    Text(String),
+    Text(JsString),
     Node(usize),
 }
 
@@ -981,7 +906,7 @@ impl Emitter {
         }
     }
 
-    fn add_text(&mut self, text: &str) {
+    fn add_text(&mut self, text: &JsString) {
         if text.is_empty() {
             return;
         }
@@ -1005,7 +930,7 @@ impl Emitter {
         }
     }
 
-    fn add_keyword(&mut self, text: &str, kind: &str) {
+    fn add_keyword(&mut self, text: &JsString, kind: &str) {
         if text.is_empty() {
             return;
         }
@@ -1035,14 +960,14 @@ impl Emitter {
         &mut self.nodes[top].children
     }
 
-    fn to_html(&self) -> String {
-        let mut output = String::new();
+    fn to_html(&self) -> JsString {
+        let mut output = JsString::default();
         render_node(&self.nodes, 0, &mut output);
         output
     }
 }
 
-fn render_node(nodes: &[EmitNode], index: usize, output: &mut String) {
+fn render_node(nodes: &[EmitNode], index: usize, output: &mut JsString) {
     let node = &nodes[index];
     if let Some(kind) = &node.kind {
         if node.sublanguage {
@@ -1062,23 +987,8 @@ fn render_node(nodes: &[EmitNode], index: usize, output: &mut String) {
     }
 }
 
-fn escape_html(text: &str) -> String {
-    let mut output = String::with_capacity(text.len());
-    for character in text.chars() {
-        match character {
-            '&' => output.push_str("&amp;"),
-            '<' => output.push_str("&lt;"),
-            '>' => output.push_str("&gt;"),
-            '"' => output.push_str("&quot;"),
-            '\'' => output.push_str("&#x27;"),
-            other => output.push(other),
-        }
-    }
-    output
-}
-
 struct Highlighted {
-    value: String,
+    value: JsString,
     relevance: i64,
     illegal: bool,
     language: String,
@@ -1099,25 +1009,25 @@ enum Lexeme {
 
 struct Highlighter<'a> {
     language: &'a CompiledLanguage,
-    code: &'a str,
+    code: &'a JsString,
     ignore_illegals: bool,
     states: HashMap<usize, MatcherState>,
     continuations: HashMap<String, usize>,
     emitter: Emitter,
     entries: Vec<Entry>,
-    mode_buffer: String,
+    mode_buffer: JsString,
     relevance: i64,
     index: usize,
     iterations: u64,
     resume_scan: bool,
-    last_match: Option<(RuleKind, usize, String)>,
-    end_overrides: HashMap<usize, Arc<LangRegex>>,
-    begin_data: HashMap<usize, String>,
+    last_match: Option<(RuleKind, usize, JsString)>,
+    end_overrides: HashMap<usize, Arc<JsRegex>>,
+    begin_data: HashMap<usize, JsString>,
 }
 
 fn highlight_compiled(
     language: &CompiledLanguage,
-    code: &str,
+    code: &JsString,
     ignore_illegals: bool,
     continuation: Option<usize>,
     continuations: &mut HashMap<String, usize>,
@@ -1131,7 +1041,7 @@ fn highlight_compiled(
         continuations: std::mem::take(continuations),
         emitter: Emitter::new(),
         entries: vec![Entry { mode: top, parent: top }],
-        mode_buffer: String::new(),
+        mode_buffer: JsString::default(),
         relevance: 0,
         index: 0,
         iterations: 0,
@@ -1166,7 +1076,7 @@ impl Highlighter<'_> {
             let Some(found) = found else {
                 break;
             };
-            let before = self.code[self.index..found.index].to_owned();
+            let before = self.code.slice(self.index, found.index);
             let found_index = found.index;
             let advance = match self.process_lexeme(&before, Some(found)) {
                 Lexeme::Advance(advance) => advance,
@@ -1177,7 +1087,7 @@ impl Highlighter<'_> {
                 return self.safe_mode_result();
             }
         }
-        let remainder = self.code[self.index.min(self.code.len())..].to_owned();
+        let remainder = self.code.slice(self.index, self.code.len());
         if let Lexeme::Illegal = self.process_lexeme(&remainder, None) {
             return self.illegal_result();
         }
@@ -1222,7 +1132,7 @@ impl Highlighter<'_> {
         self.states.entry(top).or_default()
     }
 
-    fn process_lexeme(&mut self, text_before: &str, matched: Option<MatchInfo>) -> Lexeme {
+    fn process_lexeme(&mut self, text_before: &JsString, matched: Option<MatchInfo>) -> Lexeme {
         self.mode_buffer.push_str(text_before);
         let Some(matched) = matched else {
             self.process_buffer();
@@ -1235,10 +1145,9 @@ impl Highlighter<'_> {
             && lexeme.is_empty()
             && previous.is_empty()
         {
-            let length = self.char_length(matched.index).max(1);
-            if let Some(text) = self.code.get(matched.index..matched.index + length) {
-                self.mode_buffer.push_str(text);
-            }
+            let length = self.unit_length(matched.index).max(1);
+            self.mode_buffer
+                .push_str(self.code.slice(matched.index, matched.index + length));
             return Lexeme::Advance(length);
         }
         self.last_match = Some((matched.kind, matched.index, lexeme.clone()));
@@ -1248,7 +1157,7 @@ impl Highlighter<'_> {
             RuleKind::End => self.do_end_match(matched),
             RuleKind::Illegal => {
                 if lexeme.is_empty() {
-                    Lexeme::Advance(self.char_length(matched.index).max(1))
+                    Lexeme::Advance(self.unit_length(matched.index).max(1))
                 } else {
                     self.mode_buffer.push_str(&lexeme);
                     Lexeme::Advance(lexeme.len())
@@ -1257,11 +1166,8 @@ impl Highlighter<'_> {
         }
     }
 
-    fn char_length(&self, index: usize) -> usize {
-        self.code
-            .get(index..)
-            .and_then(|rest| rest.chars().next())
-            .map_or(0, char::len_utf8)
+    fn unit_length(&self, index: usize) -> usize {
+        usize::from(index < self.code.len())
     }
 
     fn do_begin_match(&mut self, matched: MatchInfo) -> Lexeme {
@@ -1275,9 +1181,8 @@ impl Highlighter<'_> {
         }
         if self.language.modes[new_mode].end_same_as_begin {
             let escaped = escape_regex(&lexeme);
-            if let Some(regex) = lang_re(&escaped, self.language.case_insensitive) {
-                self.end_overrides.insert(new_mode, regex);
-            }
+            let regex = compile_cached_regex(&escaped, self.language.case_insensitive);
+            self.end_overrides.insert(new_mode, regex);
         }
         if self.language.modes[new_mode].skip {
             self.mode_buffer.push_str(&lexeme);
@@ -1317,7 +1222,9 @@ impl Highlighter<'_> {
                 let expected = self.begin_data.get(&mode).cloned();
                 !matches!((group, expected), (Some(group), Some(expected)) if group == expected)
             }
-            Some("skip_if_preceding_dot") => self.code[..matched.index].ends_with('.'),
+            Some("skip_if_preceding_dot") => {
+                matched.index > 0 && self.code.units()[matched.index - 1] == u16::from(b'.')
+            }
             Some("jsx_truly_opening_tag") => self.jsx_ignores(matched),
             _ => false,
         }
@@ -1325,20 +1232,20 @@ impl Highlighter<'_> {
 
     fn jsx_ignores(&self, matched: &MatchInfo) -> bool {
         let after = matched.index + matched.text.len();
-        match self.code[after..].chars().next() {
-            Some('<') => true,
-            Some('>') => {
-                let tag = format!("</{}", &matched.text[1..]);
-                !self.code[after..].contains(&tag)
+        match self.code.units().get(after) {
+            Some(60) => true,
+            Some(62) => {
+                let tag = JsString::from("</") + matched.text.slice(1, matched.text.len());
+                self.code.find_from(tag, after).is_none()
             }
             _ => false,
         }
     }
 
-    fn do_ignore(&mut self, lexeme: &str) -> usize {
+    fn do_ignore(&mut self, lexeme: &JsString) -> usize {
         if self.state().regex_index == 0 {
-            let length = lexeme.chars().next().map_or(1, char::len_utf8);
-            self.mode_buffer.push_str(&lexeme[..length]);
+            let length = 1;
+            self.mode_buffer.push_str(lexeme.slice(0, length));
             length
         } else {
             self.resume_scan = true;
@@ -1363,7 +1270,7 @@ impl Highlighter<'_> {
         }
     }
 
-    fn buffer_end_lexeme(&mut self, origin: usize, lexeme: &str) {
+    fn buffer_end_lexeme(&mut self, origin: usize, lexeme: &JsString) {
         if self.language.modes[origin].skip {
             self.mode_buffer.push_str(lexeme);
             return;
@@ -1409,9 +1316,9 @@ impl Highlighter<'_> {
 
     fn end_of_mode(&self, entry: usize, matched: &MatchInfo) -> Option<(usize, usize)> {
         let mode = self.entries[entry].mode;
-        let remainder = &self.code[matched.index..];
+        let remainder = self.code.slice(matched.index, self.code.len());
         let end = self.end_overrides.get(&mode).or(self.language.modes[mode].end.as_ref());
-        let starts_with_end = end.is_some_and(|end| end.matches_at_start(remainder));
+        let starts_with_end = end.is_some_and(|end| end.find(&remainder).is_some_and(|found| found.start() == 0));
         if starts_with_end {
             if self.language.modes[mode].on_end.is_some() && self.callback_ignores_for(mode, matched) {
                 return None;
@@ -1462,7 +1369,7 @@ impl Highlighter<'_> {
         } else {
             self.process_keywords();
         }
-        self.mode_buffer.clear();
+        self.mode_buffer = JsString::default();
     }
 
     fn process_keywords(&mut self) {
@@ -1479,9 +1386,10 @@ impl Highlighter<'_> {
         };
         let case_insensitive = self.language.case_insensitive;
         let mut last = 0;
-        let mut pending = String::new();
-        for (start, end, text) in pattern.find_all(&buffer) {
-            pending.push_str(&buffer[last..start]);
+        let mut pending = JsString::default();
+        for matched in pattern.find_iter(&buffer) {
+            let (start, end, text) = (matched.start(), matched.end(), matched.text());
+            pending.push_str(buffer.slice(last, start));
             let key = if case_insensitive {
                 text.to_lowercase()
             } else {
@@ -1490,7 +1398,7 @@ impl Highlighter<'_> {
             match mode.keywords.get(&key) {
                 Some((kind, score)) => {
                     self.emitter.add_text(&pending);
-                    pending.clear();
+                    pending = JsString::default();
                     self.relevance += score;
                     if kind.starts_with('_') {
                         pending.push_str(&text);
@@ -1507,7 +1415,7 @@ impl Highlighter<'_> {
             }
             last = end;
         }
-        pending.push_str(&buffer[last..]);
+        pending.push_str(buffer.slice(last, buffer.len()));
         self.emitter.add_text(&pending);
     }
 
@@ -1519,7 +1427,7 @@ impl Highlighter<'_> {
         let sub_language = self.language.modes[self.top_mode()].sub_language.clone();
         let result = match sub_language {
             Some(SubLanguage::One(name)) => {
-                let Some(key) = resolve_language(&name) else {
+                let Some(key) = resolve_language(&JsString::from(&name)) else {
                     self.emitter.add_text(&buffer);
                     return;
                 };
@@ -1538,7 +1446,10 @@ impl Highlighter<'_> {
                 }
             }
             Some(SubLanguage::Many(subset)) => {
-                let (auto, emitter) = highlight_auto_internal(&buffer, Some(&subset));
+                let (auto, emitter) = highlight_auto_internal(
+                    &buffer,
+                    Some(&subset.into_iter().map(JsString::from).collect::<Vec<_>>()),
+                );
                 Highlighted {
                     value: auto.value,
                     relevance: auto.relevance,
@@ -1581,13 +1492,7 @@ impl Highlighter<'_> {
     }
 }
 
-fn escape_regex(value: &str) -> String {
-    let mut output = String::with_capacity(value.len());
-    for character in value.chars() {
-        if "-/\\^$*+?.()|[]{}".contains(character) {
-            output.push('\\');
-        }
-        output.push(character);
-    }
-    output
+fn escape_regex(value: &JsString) -> JsString {
+    static SPECIAL: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new(r"[-/\\^$*+?.()|\[\]{}]").expect("escape regex"));
+    SPECIAL.replace_all(value, r"\$&")
 }

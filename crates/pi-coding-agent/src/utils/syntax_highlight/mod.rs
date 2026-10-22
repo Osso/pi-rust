@@ -1,115 +1,108 @@
 //! Syntax highlighting for tool output and markdown code blocks.
 
 mod hljs;
-mod js_regex;
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
+
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_regex::JsRegex;
 
 use crate::utils::html::decode_html_entity_at;
 
-/// Callback that styles one text run.
-pub type HighlightFormatter = Arc<dyn Fn(&str) -> String + Send + Sync>;
+/// Callback that styles one UTF-16 text run.
+pub type HighlightFormatter = Arc<dyn Fn(&JsString) -> JsString + Send + Sync>;
 
 /// Scope name to formatter mapping.
 pub type HighlightTheme = HashMap<String, HighlightFormatter>;
 
-/// Highlight options mirroring the source `HighlightOptions`.
 #[derive(Clone, Default)]
 pub struct HighlightOptions {
-    pub language: Option<String>,
+    pub language: Option<JsString>,
     pub ignore_illegals: Option<bool>,
-    pub language_subset: Option<Vec<String>>,
+    pub language_subset: Option<Vec<JsString>>,
     pub theme: HighlightTheme,
 }
 
-const SPAN_CLOSE: &str = "</span>";
+/// Exact message of the frozen highlighter's thrown Error.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HighlightError {
+    pub message: JsString,
+}
+
+// ASCII tag delimiters, compared directly against borrowed UTF-16 slices.
+const SPAN_OPEN: &[u16] = &[60, 115, 112, 97, 110]; // <span
+const SPAN_CLOSE: &[u16] = &[60, 47, 115, 112, 97, 110, 62]; // </span>
 const HIGHLIGHT_CLASS_PREFIX: &str = "hljs-";
 
-/// Applies theme formatters to the HTML produced by highlight.js.
-pub fn render_highlighted_html(html: &str, theme: &HighlightTheme) -> String {
-    let mut output = String::new();
-    let mut text_buffer = String::new();
-    let mut scopes: Vec<Option<String>> = Vec::new();
-
-    let flush_text = |output: &mut String, text_buffer: &mut String, scopes: &[Option<String>]| {
-        if text_buffer.is_empty() {
-            return;
-        }
-        match active_formatter(scopes, theme) {
-            Some(formatter) => output.push_str(&formatter(text_buffer)),
-            None => output.push_str(text_buffer),
-        }
-        text_buffer.clear();
-    };
-
+/// Applies theme formatters to highlight.js HTML without encoding its text.
+pub fn render_highlighted_html(html: &JsString, theme: &HighlightTheme) -> JsString {
+    let mut output = JsString::default();
+    let mut text_buffer = JsString::default();
+    let mut scopes = Vec::new();
     let mut index = 0;
     while index < html.len() {
         if is_span_open_tag_start(html, index)
-            && let Some(relative_end) = html[index + 5..].find('>')
+            && let Some(tag_end) = html.find_from(">", index + 5)
         {
-            let tag_end = index + 5 + relative_end;
-            flush_text(&mut output, &mut text_buffer, &scopes);
-            let scope = scope_from_span_tag(&html[index..=tag_end]);
-            scopes.push(scope);
+            flush_text(&mut output, &mut text_buffer, &scopes, theme);
+            scopes.push(scope_from_span_tag(&html.slice(index, tag_end + 1)));
             index = tag_end + 1;
             continue;
         }
-
-        if html[index..].starts_with(SPAN_CLOSE) {
-            flush_text(&mut output, &mut text_buffer, &scopes);
+        if html.units()[index..].starts_with(SPAN_CLOSE) {
+            flush_text(&mut output, &mut text_buffer, &scopes, theme);
             scopes.pop();
             index += SPAN_CLOSE.len();
             continue;
         }
-
-        if html[index..].starts_with('&')
+        if html.units()[index] == u16::from(b'&')
             && let Some(decoded) = decode_html_entity_at(html, index)
         {
-            text_buffer.push_str(&decoded.text);
+            text_buffer.push_str(decoded.text);
             index += decoded.length;
             continue;
         }
-
-        let character = html[index..].chars().next().expect("index is on a character boundary");
-        text_buffer.push(character);
-        index += character.len_utf8();
+        text_buffer.push_unit(html.units()[index]);
+        index += 1;
     }
-
-    flush_text(&mut output, &mut text_buffer, &scopes);
+    flush_text(&mut output, &mut text_buffer, &scopes, theme);
     output
 }
 
-/// Highlights `code` and returns the raw highlight.js HTML before theming.
-pub fn highlight_html(code: &str, options: &HighlightOptions) -> String {
-    match &options.language {
+fn flush_text(output: &mut JsString, buffer: &mut JsString, scopes: &[Option<JsString>], theme: &HighlightTheme) {
+    if buffer.is_empty() {
+        return;
+    }
+    let text = std::mem::take(buffer);
+    output.push_str(match active_formatter(scopes, theme) {
+        Some(formatter) => formatter(&text),
+        None => text,
+    });
+}
+
+/// Returns raw highlight.js HTML, preserving the frozen unknown-language error.
+pub fn highlight_html(code: &JsString, options: &HighlightOptions) -> Result<JsString, HighlightError> {
+    match options.language.as_ref().filter(|language| !language.is_empty()) {
         Some(language) => hljs::highlight(language, code, options.ignore_illegals.unwrap_or(false))
-            .map_or_else(|| escape_html(code), |result| result.value),
-        None => hljs::highlight_auto(code, options.language_subset.as_deref()).value,
+            .map(|result| result.value)
+            .ok_or_else(|| HighlightError {
+                message: JsString::from("Unknown language: \"") + language + "\"",
+            }),
+        None => Ok(hljs::highlight_auto(code, options.language_subset.as_deref()).value),
     }
 }
 
-/// Highlights `code` and renders it through the theme.
-///
-/// When `options.language` is absent, auto-detection runs over the registered
-/// languages (or `options.language_subset`).
-pub fn highlight(code: &str, options: &HighlightOptions) -> String {
-    render_highlighted_html(&highlight_html(code, options), &options.theme)
+pub fn highlight(code: &JsString, options: &HighlightOptions) -> Result<JsString, HighlightError> {
+    Ok(render_highlighted_html(&highlight_html(code, options)?, &options.theme))
 }
 
-/// True when highlight.js registers the language name or alias.
-pub fn supports_language(name: &str) -> bool {
+pub fn supports_language(name: &JsString) -> bool {
     hljs::supports_language(name)
 }
 
-fn active_formatter(scopes: &[Option<String>], theme: &HighlightTheme) -> Option<HighlightFormatter> {
-    for scope in scopes.iter().rev() {
-        let Some(scope) = scope else {
-            continue;
-        };
-        if scope.is_empty() {
-            continue;
-        }
+fn active_formatter(scopes: &[Option<JsString>], theme: &HighlightTheme) -> Option<HighlightFormatter> {
+    for scope in scopes.iter().rev().flatten().filter(|scope| !scope.is_empty()) {
         if let Some(formatter) = scope_formatter(scope, theme) {
             return Some(formatter);
         }
@@ -117,99 +110,53 @@ fn active_formatter(scopes: &[Option<String>], theme: &HighlightTheme) -> Option
     theme.get("default").cloned()
 }
 
-fn scope_formatter(scope: &str, theme: &HighlightTheme) -> Option<HighlightFormatter> {
+fn scope_formatter(scope: &JsString, theme: &HighlightTheme) -> Option<HighlightFormatter> {
     if let Some(formatter) = theme_formatter(scope, theme) {
         return Some(formatter);
     }
-    if let Some(dot) = scope.find('.')
-        && let Some(formatter) = theme_formatter(&scope[..dot], theme)
-    {
-        return Some(formatter);
-    }
-    if let Some(dash) = scope.find('-')
-        && let Some(formatter) = theme_formatter(&scope[..dash], theme)
-    {
-        return Some(formatter);
+    for separator in [".", "-"] {
+        if let Some(index) = scope.find(separator)
+            && let Some(formatter) = theme_formatter(&scope.slice(0, index), theme)
+        {
+            return Some(formatter);
+        }
     }
     None
 }
 
-/// Mirrors the TypeScript theme lookup, which reads properties from a plain
-/// object. A scope named `constructor` therefore resolves to `Object` rather
-/// than `undefined`; calling it with a string returns that string unchanged.
-fn theme_formatter(scope: &str, theme: &HighlightTheme) -> Option<HighlightFormatter> {
-    if let Some(formatter) = theme.get(scope) {
+fn theme_formatter(scope: &JsString, theme: &HighlightTheme) -> Option<HighlightFormatter> {
+    if let Some((_, formatter)) = theme.iter().find(|(key, _)| scope == *key) {
         return Some(formatter.clone());
     }
-    (scope == "constructor").then(|| Arc::new(|text: &str| text.to_owned()) as HighlightFormatter)
+    // The frozen plain object inherits Object.prototype.constructor.
+    (scope == "constructor").then(|| Arc::new(JsString::clone) as HighlightFormatter)
 }
 
-fn is_span_open_tag_start(html: &str, index: usize) -> bool {
-    if !html[index..].starts_with("<span") {
-        return false;
-    }
-    matches!(
-        html[index + "<span".len()..].chars().next(),
-        Some('>' | ' ' | '\t' | '\n' | '\r')
-    )
+fn is_span_open_tag_start(html: &JsString, index: usize) -> bool {
+    html.units()[index..].starts_with(SPAN_OPEN)
+        && matches!(html.units().get(index + SPAN_OPEN.len()), Some(62 | 32 | 9 | 10 | 13))
 }
 
-/// Extracts the first `hljs-` scope from a span tag's `class` attribute.
-fn scope_from_span_tag(tag: &str) -> Option<String> {
-    let class_value = class_attribute(tag)?;
-    class_value
-        .split_whitespace()
-        .find_map(|class_name| class_name.strip_prefix(HIGHLIGHT_CLASS_PREFIX))
-        .map(str::to_owned)
+fn scope_from_span_tag(tag: &JsString) -> Option<JsString> {
+    static CLASS: LazyLock<JsRegex> =
+        LazyLock::new(|| JsRegex::new(r#"\sclass\s*=\s*(?:"([^"]*)"|'([^']*)')"#).expect("class attribute regex"));
+    static WORD: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new(r"\S+").expect("class word regex"));
+    let captures = CLASS.captures(tag)?;
+    let class_value = captures.get(1).or_else(|| captures.get(2))?.text();
+    WORD.find_iter(class_value)
+        .find_map(|word| word.text().strip_prefix(HIGHLIGHT_CLASS_PREFIX))
 }
 
-/// Mirrors `/\sclass\s*=\s*(?:"([^"]*)"|'([^']*)')/` on one tag.
-fn class_attribute(tag: &str) -> Option<String> {
-    let bytes = tag.as_bytes();
-    let mut index = 0;
-    while index + "class".len() <= bytes.len() {
-        if &bytes[index..index + "class".len()] != b"class" {
-            index += 1;
-            continue;
-        }
-        let preceded_by_space = index > 0 && tag[..index].chars().next_back().is_some_and(char::is_whitespace);
-        if !preceded_by_space {
-            index += "class".len();
-            continue;
-        }
-        let mut cursor = index + "class".len();
-        while tag[cursor..].chars().next().is_some_and(char::is_whitespace) {
-            cursor += tag[cursor..].chars().next().expect("checked").len_utf8();
-        }
-        if !tag[cursor..].starts_with('=') {
-            index += "class".len();
-            continue;
-        }
-        cursor += 1;
-        while tag[cursor..].chars().next().is_some_and(char::is_whitespace) {
-            cursor += tag[cursor..].chars().next().expect("checked").len_utf8();
-        }
-        let quote = tag[cursor..].chars().next()?;
-        if quote != '"' && quote != '\'' {
-            return None;
-        }
-        cursor += quote.len_utf8();
-        let end = tag[cursor..].find(quote)?;
-        return Some(tag[cursor..cursor + end].to_owned());
-    }
-    None
-}
-
-fn escape_html(text: &str) -> String {
-    let mut output = String::with_capacity(text.len());
-    for character in text.chars() {
-        match character {
-            '&' => output.push_str("&amp;"),
-            '<' => output.push_str("&lt;"),
-            '>' => output.push_str("&gt;"),
-            '"' => output.push_str("&quot;"),
-            '\'' => output.push_str("&#x27;"),
-            other => output.push(other),
+fn escape_html(text: &JsString) -> JsString {
+    let mut output = JsString::default();
+    for unit in text.units() {
+        match unit {
+            38 => output.push_str("&amp;"),
+            60 => output.push_str("&lt;"),
+            62 => output.push_str("&gt;"),
+            34 => output.push_str("&quot;"),
+            39 => output.push_str("&#x27;"),
+            other => output.push_unit(*other),
         }
     }
     output

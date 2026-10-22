@@ -81,8 +81,8 @@ fn response() -> Value {
         .enumerate()
         .map(|(index, case)| {
             let value = match case {
-                Case::Entity(input) => decode_html_entity(input).map_or(Value::Null, Value::String),
-                Case::At(input, position) => decode_html_entity_at(input, *position).map_or(
+                Case::Entity(input) => decode_html_entity(&(*input).into()).map_or(Value::Null, |text| json!(text)),
+                Case::At(input, position) => decode_html_entity_at(&(*input).into(), *position).map_or(
                     Value::Null,
                     |decoded| json!({"text": decoded.text, "length": decoded.length}),
                 ),

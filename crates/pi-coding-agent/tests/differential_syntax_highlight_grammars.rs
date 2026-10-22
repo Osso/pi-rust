@@ -52,13 +52,14 @@ fn request_cases(keys: &[String]) -> Vec<Value> {
 
 fn actual_case(key: &str) -> Value {
     let html = highlight_html(
-        GENERIC_SNIPPET,
+        &GENERIC_SNIPPET.into(),
         &HighlightOptions {
-            language: Some(key.to_owned()),
+            language: Some(key.into()),
             ignore_illegals: Some(false),
             ..HighlightOptions::default()
         },
-    );
+    )
+    .unwrap();
     json!({"name": key, "value": html})
 }
 
@@ -79,14 +80,21 @@ fn every_generated_grammar_matches_the_pinned_highlight_js() {
     assert_eq!(expected_results.len(), keys.len());
 
     let mut failures = Vec::new();
+    let mut timings = Vec::new();
     for (key, expected) in keys.iter().zip(expected_results) {
+        let started = std::time::Instant::now();
         let actual = actual_case(key);
+        timings.push((started.elapsed(), key));
         if actual != *expected {
             failures.push(format!(
                 "{key}\n  rust:   {}\n  oracle: {}",
                 actual["value"], expected["value"]
             ));
         }
+    }
+    timings.sort_by(|left, right| right.0.cmp(&left.0));
+    for (duration, key) in timings.iter().take(5) {
+        eprintln!("grammar wall time {key}: {duration:?}");
     }
     assert!(
         failures.is_empty(),
