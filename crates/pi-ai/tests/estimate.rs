@@ -16,7 +16,7 @@ fn usage(total_tokens: f64) -> Usage {
     }
 }
 
-fn user(timestamp: i64, content: &str) -> Message {
+fn user(timestamp: f64, content: &str) -> Message {
     Message::User(UserMessage {
         role: pi_ai::types::UserRole::Tag,
         content: UserContent::Text((content.to_owned()).into()),
@@ -26,7 +26,7 @@ fn user(timestamp: i64, content: &str) -> Message {
     })
 }
 
-fn assistant(timestamp: i64, total_tokens: f64) -> Message {
+fn assistant(timestamp: f64, total_tokens: f64) -> Message {
     Message::Assistant(Box::new(AssistantMessage {
         content: vec![AssistantContent::Text(TextContent::new("kept"))],
         usage: usage(total_tokens),
@@ -133,7 +133,7 @@ fn tool_call_tokens_include_name_and_json_arguments() {
             .unwrap()
             .clone(),
         ))],
-        ..AssistantMessage::empty("anthropic-messages", "anthropic", "test", 1)
+        ..AssistantMessage::empty("anthropic-messages", "anthropic", "test", 1.0)
     }));
     // `read` (4) + `{"path":"a.txt"}` (16) = 20 characters.
     assert_eq!(estimate_message_tokens(&message), 5.0);
@@ -183,7 +183,7 @@ fn tool_definitions_are_ignored_when_assistant_usage_exists() {
                 usage: None,
                 added_tool_names: Some(vec!["late_tool".to_owned()]),
                 is_error: false,
-                timestamp: 3,
+                timestamp: 3.0,
             }),
         ],
         tools: Some(vec![tool.clone()]),

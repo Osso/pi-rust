@@ -38,7 +38,7 @@ fn context() -> Context {
             content: UserContent::Text(("hi there".to_owned()).into()),
             input_source: None,
             provider_native: None,
-            timestamp: 0,
+            timestamp: 0.0,
         })],
         tools: None,
     }
@@ -68,7 +68,7 @@ fn model(api: &str, provider: &str, id: &str) -> Model {
 }
 
 fn ok_message(model: &Model) -> AssistantMessage {
-    let mut message = AssistantMessage::empty(&model.api, &model.provider, &model.id, 0);
+    let mut message = AssistantMessage::empty(&model.api, &model.provider, &model.id, 0.0);
     message.content = vec![AssistantContent::Text(TextContent::new("ok"))];
     message.stop_reason = StopReason::Stop;
     message

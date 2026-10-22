@@ -574,7 +574,7 @@ impl ProviderStreams for CapturingStreams {
             "hasTransform": options.request.transform_headers.is_some(),
         }));
         let (sender, stream) = create_assistant_message_event_stream();
-        let mut message = pi_ai::types::AssistantMessage::empty(&model.api, &model.provider, &model.id, 1);
+        let mut message = pi_ai::types::AssistantMessage::empty(&model.api, &model.provider, &model.id, 1.0);
         message.content = vec![AssistantContent::Text(pi_ai::types::TextContent::new("ok"))];
         message.stop_reason = StopReason::Stop;
         sender.push(AssistantMessageEvent::Start {

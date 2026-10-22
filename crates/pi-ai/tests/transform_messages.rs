@@ -5,7 +5,7 @@ use pi_ai::types::{
 };
 use serde_json::json;
 
-const NOW: i64 = 1_700_000_000_000;
+const NOW: f64 = 1_700_000_000_000.0;
 
 fn model(provider: &str, api: &str, id: &str, supports_images: bool) -> Model {
     Model {
@@ -49,7 +49,7 @@ fn anthropic_normalize(id: &str, _model: &Model, _source: &AssistantMessage) -> 
     normalized.chars().take(64).collect()
 }
 
-fn user(timestamp: i64, content: &str) -> Message {
+fn user(timestamp: f64, content: &str) -> Message {
     Message::User(UserMessage {
         role: pi_ai::types::UserRole::Tag,
         content: UserContent::Text((content.to_owned()).into()),
@@ -66,12 +66,12 @@ fn assistant(content: Vec<AssistantContent>, provider: &str, api: &str, id: &str
         provider: provider.to_owned(),
         model: id.to_owned(),
         stop_reason: StopReason::ToolUse,
-        timestamp: 2,
-        ..AssistantMessage::empty(api, provider, id, 2)
+        timestamp: 2.0,
+        ..AssistantMessage::empty(api, provider, id, 2.0)
     }))
 }
 
-fn tool_result(tool_call_id: &str, tool_name: &str, timestamp: i64) -> Message {
+fn tool_result(tool_call_id: &str, tool_name: &str, timestamp: f64) -> Message {
     Message::ToolResult(ToolResultMessage {
         role: pi_ai::types::ToolResultRole::Tag,
         tool_call_id: tool_call_id.to_owned(),
@@ -254,7 +254,7 @@ fn downgrades_images_for_text_only_models_and_collapses_consecutive_images() {
             ]),
             input_source: None,
             provider_native: None,
-            timestamp: 1,
+            timestamp: 1.0,
         }),
         Message::ToolResult(ToolResultMessage {
             role: pi_ai::types::ToolResultRole::Tag,
@@ -265,7 +265,7 @@ fn downgrades_images_for_text_only_models_and_collapses_consecutive_images() {
             usage: None,
             added_tool_names: None,
             is_error: false,
-            timestamp: 2,
+            timestamp: 2.0,
         }),
     ];
     let result = transform_messages(
@@ -305,7 +305,7 @@ fn keeps_images_for_vision_models() {
         content: UserContent::Blocks(vec![TextOrImageContent::Image(ImageContent::new("AAAA", "image/png"))]),
         input_source: None,
         provider_native: None,
-        timestamp: 1,
+        timestamp: 1.0,
     })];
     let result = transform_messages(&messages, &anthropic_model(), NOW);
     assert_eq!(result, messages);
@@ -361,7 +361,7 @@ fn keeps_redacted_thinking_only_for_the_same_model_and_drops_empty_thinking() {
 
 #[test]
 fn skips_errored_and_aborted_assistant_messages_after_flushing_pending_calls() {
-    let mut errored = AssistantMessage::empty("openai-responses", "github-copilot", "gpt-5", 3);
+    let mut errored = AssistantMessage::empty("openai-responses", "github-copilot", "gpt-5", 3.0);
     errored.stop_reason = StopReason::Error;
     let messages = vec![
         user(1, "run"),
