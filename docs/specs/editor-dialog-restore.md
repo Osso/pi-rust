@@ -4,9 +4,9 @@ Match frozen `4f9e6f8a4` `editor-dialog-restore.ts`; [traceability](../porting/t
 
 ## What it must do
 
-- [ ] Capture editor-container children and focus; restore those exact references/order and focus, including absent focus, then request rendering.
-- [ ] Repeated restoration retains changes to original child objects, including unmatched UTF-16 content.
-- [ ] Extension dialogs restore the pre-dialog slot before resolving; non-overlay custom components restore saved editor text and slot on close/asynchronous failure.
+- [x] Capture editor-container children and focus; restore those exact references/order and focus, including absent focus, then request rendering.
+- [x] Repeated restoration retains changes to original child objects, including unmatched UTF-16 content.
+- [x] Extension dialogs restore the pre-dialog slot before resolving; non-overlay custom components restore saved editor text and slot on close/asynchronous failure.
 
 ## How it works
 
@@ -25,7 +25,7 @@ Match frozen `4f9e6f8a4` `editor-dialog-restore.ts`; [traceability](../porting/t
 
 ## Known gaps (current cycle)
 
-- [ ] Post-commit focused execution pending.
+- [x] Post-commit focused proofs pass; see traceability.
 
 ## Out of scope
 

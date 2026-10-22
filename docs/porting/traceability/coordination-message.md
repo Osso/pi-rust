@@ -15,6 +15,6 @@ Interactive integration follows frozen `interactive-mode.ts:4801–4900`: classi
 Artifacts `/tmp/pi-rust-repin-lossless-interactive/`:
 - RED `q13-coordination-component-red.log`: prior plain Container renders a hidden child.
 - RED `q13-coordination-transcript-red.log`: actual native chat exposes extension coordination while hide setting is enabled.
-- Post-commit component/native-chat GREEN pending.
+- Post-commit1a2e612a: `q13-coordination-component-green.log`2/2 (plain/rich differential +raw identity); `q13-coordination-transcript-green.log`1/1 actual chat consumer.
 
 Custom/User `as_any_mut` hooks only expose their actual concrete type for source instanceof dispatch. No alternate message representation, scalar text conversion, or hidden-child disposal.

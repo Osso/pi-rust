@@ -4,9 +4,9 @@ Match frozen `4f9e6f8a4` `coordination-message.ts`; [traceability](../porting/tr
 
 ## What it must do
 
-- [ ] Hide only rendered lines; retain ordered child identities and raw text through hide/reveal/invalidation.
-- [ ] Forward expansion to immediate custom-message children and in-transit state to immediate user-message children; leave other component types untouched.
-- [ ] Wrap exactly new chat components for source-classified coordination, reading the current hide setting on render.
+- [x] Hide only rendered lines; retain ordered child identities and raw text through hide/reveal/invalidation.
+- [x] Forward expansion to immediate custom-message children and in-transit state to immediate user-message children; leave other component types untouched.
+- [x] Wrap exactly new chat components for source-classified coordination, reading the current hide setting on render.
 
 ## How it works
 
@@ -24,7 +24,7 @@ Match frozen `4f9e6f8a4` `coordination-message.ts`; [traceability](../porting/tr
 
 ## Known gaps (current cycle)
 
-- [ ] Targeted post-commit execution pending.
+- [x] Targeted post-commit proofs pass; see traceability.
 
 ## Out of scope
 
