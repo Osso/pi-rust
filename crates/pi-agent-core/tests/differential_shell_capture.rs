@@ -176,10 +176,10 @@ fn capture_json(result: Result<pi_agent_core::harness::utils::ShellCaptureResult
         Ok(result) => {
             let mut value = pi_js_compat::js_json!({"output":result.output,"cancelled":result.cancelled,"truncated":result.truncated});
             if let Some(code) = result.exit_code {
-                value["exitCode"] = JsValue::from(code);
+                value["exitCode"] = JsValue::Number(f64::from(code));
             }
             if let Some(path) = result.full_output_path {
-                value["fullOutputPath"] = path.into();
+                value["fullOutputPath"] = JsValue::String(path);
             }
             pi_js_compat::js_json!({"ok":true,"value":value})
         }
