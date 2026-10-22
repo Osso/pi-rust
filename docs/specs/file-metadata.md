@@ -1,6 +1,6 @@
 # Agent-core filesystem metadata values
 
-The agent-core port exposes the dependency-free `FileKind` and `FileInfo` value contracts from `packages/agent/src/harness/types.ts`; adapter behavior remains deferred. See the [filesystem metadata traceability](../porting/traceability/file-metadata.md) for source mappings.
+The agent-core port exposes the native UTF16 `FileKind` and `FileInfo` value contracts from `packages/agent/src/harness/types.ts`; adapter behavior remains deferred. See the [filesystem metadata traceability](../porting/traceability/file-metadata.md) for source mappings.
 
 ## What it must do
 
@@ -12,7 +12,7 @@ The agent-core port exposes the dependency-free `FileKind` and `FileInfo` value 
 ### File metadata
 
 - [x] Expose mutable public `name`, `path`, `kind`, `size`, and `mtime_ms` fields in source order.
-- [x] Preserve empty, Unicode, supplementary, embedded-NUL, and punctuation strings.
+- [x] Preserve empty, Unicode, supplementary, embedded-NUL, punctuation and unmatched UTF16 units in JsString `name`/`path` fields. FileSystem path APIs and FileError path/human messages remain native until actual FS/OS encoding.
 - [x] Preserve all selected JavaScript `number` bit patterns in `f64` `size` and `mtime_ms` fields.
 - [x] Expose `FileInfo` from `pi_agent_core::harness` with `Debug` support.
 - [x] Compare the public TypeScript type contract and binary64 values against the pinned source: strict generated type proof plus 10 runtime record fixtures (`13014..=13023`).

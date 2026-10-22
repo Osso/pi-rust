@@ -4,9 +4,10 @@ use std::time::Instant;
 
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
-use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use pi_js_compat::number::js_number_to_string;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 use crate::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use crate::harness::tools::tool_context::ExecutionToolContext;
@@ -25,7 +26,7 @@ const DESCRIPTION: &str = "Execute a bash command in the current working directo
 #[derive(Debug, Clone)]
 pub struct BashExecution {
     pub command: JsString,
-    pub cwd: String,
+    pub cwd: JsString,
     pub env: HashMap<String, String>,
     pub inherit_env: bool,
 }
@@ -158,19 +159,19 @@ impl UpdateThrottle {
 }
 
 fn progress_result(progress: &ShellCaptureProgress) -> AgentToolResult {
-    let mut details = Map::new();
+    let mut details = JsObject::new();
     if progress.truncation.truncated {
         details.insert(
-            "truncation".to_owned(),
-            serde_json::to_value(&progress.truncation).expect("truncation metadata must serialize"),
+            "truncation".into(),
+            pi_js_compat::js_json::to_value(&progress.truncation).expect("truncation metadata must serialize"),
         );
     }
     if let Some(path) = &progress.full_output_path {
-        details.insert("fullOutputPath".to_owned(), Value::String(path.clone()));
+        details.insert("fullOutputPath".into(), JsValue::String(path.clone()));
     }
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(progress.output.clone()))],
-        details: Some(JsValue::from(Value::Object(details))),
+        details: Some(JsValue::Object(details)),
         is_error: None,
         terminate: None,
     }
@@ -191,18 +192,18 @@ async fn execute_bash(
     let capture = capture_shell(&context, &execution, timeout, signal, Arc::clone(&throttle)).await?;
     (throttle.on_update)(capture_update_result(&capture));
 
-    let mut output_text = capture.output.clone();
+    let mut output_text = JsString::from(capture.output.clone());
     let details = append_truncation(&mut output_text, &capture);
     if let Some(error) = capture_failure(&capture, timeout, &output_text) {
         return Err(error);
     }
     Ok(AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(if output_text.is_empty() {
-            "(no output)".to_owned()
+            "(no output)".into()
         } else {
             output_text
         }))],
-        details: details.map(JsValue::from),
+        details,
         is_error: None,
         terminate: None,
     })
@@ -252,7 +253,7 @@ async fn capture_shell(
 ) -> Result<ShellCaptureResult, ToolError> {
     execute_shell_with_capture(
         &context.env,
-        &encode_node_utf8(&execution.command),
+        &execution.command,
         ShellCaptureOptions {
             cwd: Some(execution.cwd.clone()),
             env: Some(execution.env.clone()),
@@ -269,52 +270,55 @@ async fn capture_shell(
     .map_err(|error| ToolError::new(error.message))
 }
 
-fn append_truncation(output_text: &mut String, capture: &ShellCaptureResult) -> Option<Value> {
+fn append_truncation(output_text: &mut JsString, capture: &ShellCaptureResult) -> Option<JsValue> {
     if !capture.truncation.truncated {
         return None;
     }
-    output_text.push_str(&truncation_notice(capture));
-    let mut details = Map::new();
+    output_text.push_str(truncation_notice(capture));
+    let mut details = JsObject::new();
     details.insert(
-        "truncation".to_owned(),
-        serde_json::to_value(&capture.truncation).expect("truncation metadata must serialize"),
+        "truncation".into(),
+        pi_js_compat::js_json::to_value(&capture.truncation).expect("truncation metadata must serialize"),
     );
     if let Some(path) = &capture.full_output_path {
-        details.insert("fullOutputPath".to_owned(), Value::String(path.clone()));
+        details.insert("fullOutputPath".into(), JsValue::String(path.clone()));
     }
-    Some(Value::Object(details))
+    Some(JsValue::Object(details))
 }
 
-fn truncation_notice(capture: &ShellCaptureResult) -> String {
+fn truncation_notice(capture: &ShellCaptureResult) -> JsString {
     let start_line = capture.truncation.total_lines - capture.truncation.output_lines + 1;
     let end_line = capture.truncation.total_lines;
     let full_output_path = capture.full_output_path.clone().unwrap_or_default();
     if capture.truncation.last_line_partial {
-        return format!(
+        return js_format!(
             "\n\n[Showing last {} of line {} (line is {}). Full output: {}]",
             format_size(capture.truncation.output_bytes),
-            end_line,
+            end_line.to_string(),
             format_size(capture.last_line_bytes),
             full_output_path
         );
     }
     if capture.truncation.truncated_by == Some(crate::harness::utils::TruncatedBy::Lines) {
-        return format!(
+        return js_format!(
             "\n\n[Showing lines {}-{} of {}. Full output: {}]",
-            start_line, end_line, capture.truncation.total_lines, full_output_path
+            start_line.to_string(),
+            end_line.to_string(),
+            capture.truncation.total_lines.to_string(),
+            full_output_path
         );
     }
-    format!(
+    js_format!(
         "\n\n[Showing lines {}-{} of {} ({} limit). Full output: {}]",
-        start_line,
-        end_line,
-        capture.truncation.total_lines,
+        start_line.to_string(),
+        end_line.to_string(),
+        capture.truncation.total_lines.to_string(),
         format_size(DEFAULT_MAX_BYTES),
         full_output_path
     )
 }
 
-fn capture_failure(capture: &ShellCaptureResult, timeout: Option<f64>, output_text: &str) -> Option<ToolError> {
+fn capture_failure(capture: &ShellCaptureResult, timeout: Option<f64>, output_text: &JsString) -> Option<ToolError> {
     if capture.cancelled {
         return Some(ToolError::new(append_status(output_text, "Command aborted")));
     }
@@ -337,11 +341,11 @@ fn capture_failure(capture: &ShellCaptureResult, timeout: Option<f64>, output_te
     }
 }
 
-fn append_status(output_text: &str, status: &str) -> String {
+fn append_status(output_text: &JsString, status: &str) -> JsString {
     if output_text.is_empty() {
-        status.to_owned()
+        status.into()
     } else {
-        format!("{output_text}\n\n{status}")
+        js_format!("{}\n\n{}", output_text, status)
     }
 }
 
@@ -362,19 +366,19 @@ fn validate_timeout(timeout: Option<f64>) -> Result<(), ToolError> {
 }
 
 fn capture_update_result(capture: &ShellCaptureResult) -> AgentToolResult {
-    let mut details = Map::new();
+    let mut details = JsObject::new();
     if capture.truncation.truncated {
         details.insert(
-            "truncation".to_owned(),
-            serde_json::to_value(&capture.truncation).expect("truncation metadata must serialize"),
+            "truncation".into(),
+            pi_js_compat::js_json::to_value(&capture.truncation).expect("truncation metadata must serialize"),
         );
     }
     if let Some(path) = &capture.full_output_path {
-        details.insert("fullOutputPath".to_owned(), Value::String(path.clone()));
+        details.insert("fullOutputPath".into(), JsValue::String(path.clone()));
     }
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(capture.output.clone()))],
-        details: Some(JsValue::from(Value::Object(details))),
+        details: Some(JsValue::Object(details)),
         is_error: None,
         terminate: None,
     }

@@ -1,7 +1,7 @@
 //! Port of `packages/agent/src/harness/session/jsonl/codec.ts`.
 
 use pi_ai::types::JsonObject;
-use pi_js_compat::js_json::{JsObject, JsValue as Value};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
 
 use crate::harness::session::jsonl::types::{HeaderKind, JsonlSessionMetadata, JsonlV4Header};
 use crate::harness::session::types::{
@@ -82,7 +82,7 @@ fn decode_header(line: &str) -> Result<JsonlV4Header, JsonlDecodeError> {
     }
     let parent_session_id = decode_optional_string(&value, "parentSessionId", "has invalid parentSessionId")?;
     let legacy_parent_session_path =
-        decode_optional_string(&value, "legacyParentSessionPath", "has invalid legacyParentSessionPath")?;
+        decode_optional_native_string(&value, "legacyParentSessionPath", "has invalid legacyParentSessionPath")?;
     if parent_session_id.is_some() && legacy_parent_session_path.is_some() {
         return Err(schema_error("has both parentSessionId and legacyParentSessionPath"));
     }
@@ -91,7 +91,7 @@ fn decode_header(line: &str) -> Result<JsonlV4Header, JsonlDecodeError> {
         version: 4,
         id: require_string(value.get("id"), "id")?,
         created_at: require_timestamp(value.get("createdAt"))?,
-        cwd: require_string(value.get("cwd"), "cwd")?,
+        cwd: decode_field(&value, "cwd")?,
         parent_session_id,
         legacy_parent_session_path,
         metadata: decode_metadata(&value)?,
@@ -102,6 +102,18 @@ fn decode_optional_string(value: &JsObject, key: &str, message: &str) -> Result<
     match value.get(key) {
         None => Ok(None),
         Some(Value::String(text)) => text.to_utf8().map(Some).map_err(|_| schema_error(message)),
+        Some(_) => Err(schema_error(message)),
+    }
+}
+
+fn decode_optional_native_string(
+    value: &JsObject,
+    key: &str,
+    message: &str,
+) -> Result<Option<JsString>, JsonlDecodeError> {
+    match value.get(key) {
+        None => Ok(None),
+        Some(Value::String(text)) => Ok(Some(text.clone())),
         Some(_) => Err(schema_error(message)),
     }
 }
@@ -133,7 +145,7 @@ pub fn encode_header(header: &JsonlV4Header) -> String {
 }
 
 /// Project a header and filesystem fields into session metadata.
-pub fn metadata_from_header(header: &JsonlV4Header, path: String, modified_at: f64) -> JsonlSessionMetadata {
+pub fn metadata_from_header(header: &JsonlV4Header, path: JsString, modified_at: f64) -> JsonlSessionMetadata {
     JsonlSessionMetadata {
         id: header.id.clone(),
         created_at: header.created_at,

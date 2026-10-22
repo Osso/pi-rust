@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{ImageContent, TextContent, TextOrImageContent};
-use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
+use pi_js_compat::js_json::{JsString, JsValue};
 use serde_json::{Value, json};
 
 use crate::agent::{AgentTool, AgentToolResult, ToolError};
@@ -124,7 +124,7 @@ async fn execute_read(
     signal: Option<CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
     let (path, offset, limit) = parse_read_input(&params)?;
-    let absolute_path = resolve_read_tool_path(context.env.as_ref(), &encode_node_utf8(&path), signal.as_ref())
+    let absolute_path = resolve_read_tool_path(context.env.as_ref(), &path, signal.as_ref())
         .await
         .map_err(|error| ToolError::new(error.message))?;
     let bytes = context

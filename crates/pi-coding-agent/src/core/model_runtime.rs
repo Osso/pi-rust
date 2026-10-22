@@ -41,7 +41,6 @@ use crate::core::provider_composer::{
 };
 use crate::core::remote_catalog_provider::with_remote_catalog;
 use crate::core::runtime_credentials::RuntimeCredentials;
-use crate::utils::paths::normalize_path;
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -1434,11 +1433,6 @@ pub fn typed_provider_config(config: &ModelConfig, provider_id: &ProviderId) -> 
     crate::core::provider_composer::models_json_provider(config, provider_id)
         .ok()
         .flatten()
-}
-
-/// Normalizes a models path the same way `ModelConfig` does.
-pub fn normalize_models_path(path: &str) -> String {
-    normalize_path(path, &Default::default()).unwrap_or_else(|_| path.to_owned())
 }
 
 /// Empty JSON object helper for callers that build `models.json` fixtures.

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_js_compat::js_json as json;
-use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use pi_js_compat::js_json::{JsObject as Map, JsValue as Value};
 use serde_json::Value as SchemaValue;
 
@@ -184,7 +184,7 @@ async fn execute_edit(
     signal: Option<CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
     let (path, edits) = parse_edit_input(&params)?;
-    let absolute_path = resolve_tool_path(context.env.as_ref(), &encode_node_utf8(&path), signal.as_ref())
+    let absolute_path = resolve_tool_path(context.env.as_ref(), &path, signal.as_ref())
         .await
         .map_err(|error| ToolError::new(error.message))?;
     let env = Arc::clone(&context.env);
@@ -200,7 +200,7 @@ async fn apply_edit_operation(
     env: &dyn ExecutionEnv,
     path: &JsString,
     edits: &[Edit],
-    absolute_path: &str,
+    absolute_path: &JsString,
     signal: Option<&CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
     ensure_not_aborted(signal)?;
@@ -210,10 +210,9 @@ async fn apply_edit_operation(
     ensure_not_aborted(signal)?;
 
     let final_content = content.bom + restore_line_endings(&applied.new_content, content.line_ending);
-    let encoded_content = encode_node_utf8(&final_content);
     env.write_file(
         absolute_path,
-        crate::harness::types::FileContent::Text(&encoded_content),
+        crate::harness::types::FileContent::Text(&final_content),
         signal,
     )
     .await
@@ -231,7 +230,7 @@ struct EditableContent {
 async fn read_editable_file(
     env: &dyn ExecutionEnv,
     path: &JsString,
-    absolute_path: &str,
+    absolute_path: &JsString,
     signal: Option<&CancellationToken>,
 ) -> Result<EditableContent, ToolError> {
     let info = env

@@ -1,5 +1,8 @@
 //! Port of `packages/agent/src/harness/session/jsonl/storage.ts`.
 
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
+
 use std::sync::Arc;
 
 use pi_ai::request::BoxFuture;
@@ -42,17 +45,17 @@ impl JsonlSessionStorage {
     /// Create a new session file from its header.
     pub async fn create(
         fs: Arc<dyn JsonlSessionRepoFileSystem>,
-        path: &str,
+        path: &JsString,
         header: &JsonlV4Header,
         clock: Clock,
     ) -> Result<Self, SessionError> {
         file_result(
             fs.write_file(path, &encode_header(header)).await,
-            &format!("Failed to initialize session {path}"),
+            &js_format!("Failed to initialize session {}", path),
         )?;
         let file_info = file_result(
             fs.file_info(path).await,
-            &format!("Failed to read session metadata {path}"),
+            &js_format!("Failed to read session metadata {}", path),
         )?;
         Ok(Self::with_clock(
             fs,
@@ -62,8 +65,15 @@ impl JsonlSessionStorage {
     }
 
     /// Load and replay a session file, repairing a torn final append.
-    pub async fn load(fs: Arc<dyn JsonlSessionRepoFileSystem>, path: &str, clock: Clock) -> Result<Self, SessionError> {
-        let content = file_result(fs.read_text_file(path).await, &format!("Failed to read session {path}"))?;
+    pub async fn load(
+        fs: Arc<dyn JsonlSessionRepoFileSystem>,
+        path: &JsString,
+        clock: Clock,
+    ) -> Result<Self, SessionError> {
+        let content = file_result(
+            fs.read_text_file(path).await,
+            &js_format!("Failed to read session {}", path),
+        )?;
         let physical_lines = split_physical_lines(&content);
         let storage = load_storage_from_lines(Arc::clone(&fs), path, clock, &physical_lines).await?;
         if replay_mutations(&storage, path, &physical_lines).await? {
@@ -72,16 +82,21 @@ impl JsonlSessionStorage {
         if !content.ends_with('\n') {
             file_result(
                 fs.append_file(path, "\n").await,
-                &format!("Failed to repair unterminated session tail {path}"),
+                &js_format!("Failed to repair unterminated session tail {}", path),
             )?;
         }
         Ok(storage)
     }
 
     /// Fork this storage into `path`, copying entries, lanes, and facts.
-    pub async fn fork(&self, path: &str, header: &JsonlV4Header, options: &ForkOptions) -> Result<Self, SessionError> {
+    pub async fn fork(
+        &self,
+        path: &JsString,
+        header: &JsonlV4Header,
+        options: &ForkOptions,
+    ) -> Result<Self, SessionError> {
         let mutations = self.state.lock().await.create_fork_mutations(options)?;
-        let temp_path = format!("{path}.tmp");
+        let temp_path = js_format!("{}.tmp", path);
         let populate_result = async {
             let target = Self::create(Arc::clone(&self.fs), &temp_path, header, Arc::clone(&self.clock)).await?;
             for mutation in &mutations {
@@ -90,7 +105,7 @@ impl JsonlSessionStorage {
             }
             file_result(
                 self.fs.rename_file(&temp_path, path).await,
-                &format!("Failed to publish staged file {path}"),
+                &js_format!("Failed to publish staged file {}", path),
             )
         }
         .await;
@@ -108,26 +123,26 @@ impl JsonlSessionStorage {
         let line = encode_mutation(mutation)?;
         file_result(
             self.fs.append_file(&self.metadata.path, &line).await,
-            &format!("Failed to append session {}", self.metadata.path),
+            &js_format!("Failed to append session {}", &self.metadata.path),
         )
     }
 }
 
 async fn publish_file_atomically(
     fs: &Arc<dyn JsonlSessionRepoFileSystem>,
-    destination: &str,
+    destination: &JsString,
     content: &str,
     label: &str,
 ) -> Result<(), SessionError> {
-    let temp_path = format!("{destination}.tmp");
+    let temp_path = js_format!("{}.tmp", destination);
     let result = async {
         file_result(
             fs.write_file(&temp_path, content).await,
-            &format!("Failed to stage {label} {destination}"),
+            &js_format!("Failed to stage {} {}", label, destination),
         )?;
         file_result(
             fs.rename_file(&temp_path, destination).await,
-            &format!("Failed to publish staged file {destination}"),
+            &js_format!("Failed to publish staged file {}", destination),
         )
     }
     .await;
@@ -147,7 +162,7 @@ fn split_physical_lines(content: &str) -> Vec<String> {
 
 async fn load_storage_from_lines(
     fs: Arc<dyn JsonlSessionRepoFileSystem>,
-    path: &str,
+    path: &JsString,
     clock: Clock,
     physical_lines: &[String],
 ) -> Result<JsonlSessionStorage, SessionError> {
@@ -161,7 +176,7 @@ async fn load_storage_from_lines(
     let header = parse_header(first_line).map_err(|error| invalid_file(path, 1, &error))?;
     let file_info = file_result(
         fs.file_info(path).await,
-        &format!("Failed to read session metadata {path}"),
+        &js_format!("Failed to read session metadata {}", path),
     )?;
     Ok(JsonlSessionStorage::with_clock(
         fs,
@@ -172,7 +187,7 @@ async fn load_storage_from_lines(
 
 async fn replay_mutations(
     storage: &JsonlSessionStorage,
-    path: &str,
+    path: &JsString,
     physical_lines: &[String],
 ) -> Result<bool, SessionError> {
     for (index, line) in physical_lines.iter().enumerate().skip(1) {
