@@ -2735,8 +2735,8 @@ pub struct InteractiveMode {
     streaming_component: RefCell<Option<ComponentRef>>,
     streaming_message: RefCell<Option<AssistantMessage>>,
     pending_tools: RefCell<IndexMap<JsString, ComponentRef>>,
-    executing_tool_names: RefCell<IndexMap<String, String>>,
-    executing_tool_started_at: RefCell<IndexMap<String, f64>>,
+    executing_tool_names: RefCell<IndexMap<JsString, String>>,
+    executing_tool_started_at: RefCell<IndexMap<JsString, f64>>,
     completed_tool_timings: RefCell<IndexMap<JsString, (f64, f64)>>,
     extension_statuses: RefCell<IndexMap<JsString, JsString>>,
     extension_widgets_above: RefCell<IndexMap<JsString, ExtensionWidget>>,
@@ -3359,7 +3359,7 @@ impl InteractiveMode {
             .pending_tools
             .borrow()
             .iter()
-            .find(|(id, _)| tool_call_id == id.as_str())
+            .find(|(id, _)| &tool_call_id == *id)
             .map(|(_, component)| component.clone());
         component.is_some_and(|component| {
             component
@@ -4956,11 +4956,12 @@ impl InteractiveMode {
 
     /// `getPendingToolStartedAt`.
     fn get_pending_tool_started_at(&self, tool_call_id: impl Into<JsString>) -> Option<f64> {
+        let tool_call_id = tool_call_id.into();
         let Some(store) = self.multi_agent_store.as_ref() else {
-            return self.executing_tool_started_at.borrow().get(tool_call_id).copied();
+            return self.executing_tool_started_at.borrow().get(&tool_call_id).copied();
         };
         let Some(selected_agent_id) = store.get_selected_agent_id() else {
-            return self.executing_tool_started_at.borrow().get(tool_call_id).copied();
+            return self.executing_tool_started_at.borrow().get(&tool_call_id).copied();
         };
         let activity = store.get_agent(&selected_agent_id)?.current_activity?;
         match activity {
@@ -5809,7 +5810,7 @@ impl InteractiveMode {
                 self.update_editor_border_color();
                 self.show_status(&js_format!("Thinking level: {}", level.as_str()));
             }
-            Err(error) => self.show_error(&error.to_string()),
+            Err(error) => self.show_error(error.message()),
         }
         self.ui.request_render();
     }
@@ -7110,7 +7111,7 @@ impl InteractiveMode {
                         mode.footer.borrow_mut().invalidate();
                         mode.update_editor_border_color();
                     }
-                    Err(error) => mode.show_error(&error.to_string()),
+                    Err(error) => mode.show_error(error.message()),
                 }
                 mode.restore_editor();
             });
@@ -7194,7 +7195,7 @@ impl InteractiveMode {
             available_themes: match crate::modes::interactive::theme::get_available_themes() {
                 Ok(themes) => themes,
                 Err(error) => {
-                    self.show_error(&error.to_string());
+                    self.show_error(error.message());
                     return;
                 }
             },
@@ -7292,7 +7293,7 @@ impl InteractiveMode {
             }),
             on_http_idle_timeout_ms_change: callback!(|mode: Rc<InteractiveMode>, timeout_ms: u64| {
                 if let Err(error) = mode.settings_mut(|settings| settings.set_http_idle_timeout_ms(timeout_ms as f64)) {
-                    mode.show_error(&error.to_string());
+                    mode.show_error(error.message());
                     return;
                 }
                 let _ = crate::core::http_dispatcher::configure_http_dispatcher(timeout_ms as f64);
@@ -7308,7 +7309,7 @@ impl InteractiveMode {
                             mode.footer.borrow_mut().invalidate();
                             mode.update_editor_border_color();
                         }
-                        Err(error) => mode.show_error(&error.to_string()),
+                        Err(error) => mode.show_error(error.message()),
                     }
                 }
             ),
@@ -7585,7 +7586,7 @@ impl InteractiveMode {
         let (patterns, scope) =
             resolve_enabled_models_persist_target(project_enabled_models.as_ref(), enabled_patterns);
         if let Err(error) = self.settings_mut(|settings| settings.set_enabled_models(patterns.as_deref(), scope)) {
-            self.show_error(&error.to_string());
+            self.show_error(error.message());
             return;
         }
         self.show_status("Model selection saved to settings");
@@ -7595,7 +7596,7 @@ impl InteractiveMode {
         let session = self.session();
         let runtime = session.model_runtime().clone();
         if let Err(error) = runtime.reload_config().await {
-            self.show_error(&error.to_string());
+            self.show_error(error.message());
             return;
         }
         let available_models = match runtime
@@ -7604,7 +7605,7 @@ impl InteractiveMode {
         {
             Ok(models) => models,
             Err(error) => {
-                self.show_error(&error.to_string());
+                self.show_error(error.message());
                 return;
             }
         };
@@ -8483,9 +8484,9 @@ impl InteractiveMode {
                 timeout.cancel();
             });
             let request = HttpRequest {
-                method: JsString::from("GET"),
-                url,
-                headers: vec![(JsString::from("User-Agent"), user_agent)],
+                method: "GET".into(),
+                url: encode_node_utf8(&url),
+                headers: vec![("User-Agent".into(), encode_node_utf8(&user_agent))],
                 body: None,
             };
             let _ = fetch.fetch(request, Some(abort)).await;
@@ -8512,10 +8513,10 @@ impl InteractiveMode {
                 border_color.clone(),
             )));
         if self.settings(|settings| settings.get_collapse_changelog()) {
-            let version_match = regex::Regex::new(r"##\s+\[?(\d+\.\d+\.\d+)\]?")
+            let version_match = Regex::new(r"##\s+\[?(\d+\.\d+\.\d+)\]?")
                 .expect("changelog version regex")
                 .captures(&markdown)
-                .and_then(|captures| captures.get(1).map(|value| value.as_str().to_owned()));
+                .and_then(|captures| captures.get(1).map(|value| value.text()));
             let latest_version = version_match.unwrap_or_else(|| self.version.clone());
             let condensed = js_format!(
                 "Updated to v{}. Use {} to view full changelog.",
@@ -8705,7 +8706,7 @@ impl InteractiveMode {
             Rc::new(move |entry_id: &JsString, label: Option<&JsString>| {
                 with_mode(mode_id, |mode| {
                     if let Err(error) = mode.session().session_manager().append_label_change(entry_id, label) {
-                        mode.show_error(&error.to_string());
+                        mode.show_error(error.message());
                     }
                     mode.ui.request_render();
                 });
@@ -8743,7 +8744,7 @@ impl InteractiveMode {
         .await
         {
             Ok(()) => self.show_status("Copied selected message to clipboard"),
-            Err(error) => self.show_error(&error.to_string()),
+            Err(error) => self.show_error(error.message()),
         }
     }
 
@@ -9054,7 +9055,7 @@ impl InteractiveMode {
                         .map(|callback| callback as &mut dyn FnMut(usize, usize)),
                     control_db_path.as_ref(),
                 )
-                .map_err(|error| JsString::from(error.to_string()));
+                .map_err(|error| error.message().clone());
                 let applied = result.map(|sessions| apply(sessions));
                 Box::pin(async move { applied })
             })
@@ -9074,7 +9075,7 @@ impl InteractiveMode {
                         .map(|callback| callback as &mut dyn FnMut(usize, usize)),
                     control_db_path.as_ref(),
                 )
-                .map_err(|error| JsString::from(error.to_string()));
+                .map_err(|error| error.message().clone());
                 let applied = result.map(|sessions| apply(sessions));
                 Box::pin(async move { applied })
             })
@@ -9087,7 +9088,7 @@ impl InteractiveMode {
                 let dir = (!uses_default_dir).then(|| session_dir.clone());
                 let result =
                     crate::core::session_manager::SessionManager::list_archived(dir.as_ref(), control_db_path.as_ref())
-                        .map_err(|error| JsString::from(error.to_string()));
+                        .map_err(|error| error.message().clone());
                 let applied = result.map(|sessions| apply(sessions));
                 Box::pin(async move { applied })
             })
@@ -9129,7 +9130,7 @@ impl InteractiveMode {
                         return Ok(());
                     };
                     crate::core::session_control_db::write_session_name(&control_db_path, &path, next_name.as_ref())
-                        .map_err(|error| JsString::from(error.to_string()))?;
+                        .map_err(|error| error.message().clone())?;
                     Ok(())
                 })
             })
@@ -9303,7 +9304,7 @@ impl InteractiveMode {
                     interval_seconds,
                     expires_in_seconds,
                 });
-                dialog.show_waiting("Waiting for authentication...");
+                dialog.show_waiting(&"Waiting for authentication...".into());
             }
             AuthEvent::Info { message, links } => {
                 dialog.show_info(&message, links.as_deref().unwrap_or(&[]), false);
@@ -9606,7 +9607,7 @@ impl InteractiveMode {
                             mode.show_status(&message);
                         }
                         Err(error) => {
-                            let message = error.to_string();
+                            let message = error.message();
                             if matches!(error, crate::core::model_runtime::ModelRuntimeError::CredentialSync(_)) {
                                 mode.show_error(&js_format!(
                                     "Credentials removed for {}, but local model state could not be synchronized: {}",
@@ -9657,7 +9658,7 @@ impl InteractiveMode {
             .run_provider_login(provider_id, provider_name, AuthType::Oauth)
             .await
         {
-            let message = error.to_string();
+            let message = error.message();
             if matches!(error, crate::core::model_runtime::ModelRuntimeError::CredentialSync(_)) {
                 self.show_error(&js_format!(
                     "Logged in to {}, but local model state could not be synchronized: {}",
@@ -9675,7 +9676,7 @@ impl InteractiveMode {
             .run_provider_login(provider_id, provider_name, AuthType::ApiKey)
             .await
         {
-            let message = error.to_string();
+            let message = error.message();
             if matches!(error, crate::core::model_runtime::ModelRuntimeError::CredentialSync(_)) {
                 self.show_error(&js_format!(
                     "Logged in to {}, but local model state could not be synchronized: {}",
@@ -9835,7 +9836,10 @@ impl InteractiveMode {
         dialog.borrow().show_info(
             &js_format!(
                 "{} is configured outside pi.",
-                provider_option.method_name.as_ref().unwrap_or("Authentication")
+                provider_option
+                    .method_name
+                    .clone()
+                    .unwrap_or_else(|| "Authentication".into())
             ),
             &[],
             true,
@@ -9992,7 +9996,7 @@ impl InteractiveMode {
         let saved_decision = match trust_store.get_entry(&cwd) {
             Ok(decision) => decision,
             Err(error) => {
-                self.show_error(&error.to_string());
+                self.show_error(error.message());
                 return;
             }
         };
@@ -10006,7 +10010,7 @@ impl InteractiveMode {
                     let trust_store = ProjectTrustStore::new(mode.session().agent_dir())
                         .unwrap_or_else(|error| throw_uncaught(ERROR, error.message().clone()));
                     if let Err(error) = trust_store.set_many(&selection.updates) {
-                        mode.show_error(&error.to_string());
+                        mode.show_error(error.message());
                         return;
                     }
                     mode.restore_editor();
@@ -10040,7 +10044,7 @@ impl InteractiveMode {
                     if let Err(error) =
                         mode.settings_mut(|settings| settings.set_approval_preset(selection.preset, scope))
                     {
-                        mode.show_error(&error.to_string());
+                        mode.show_error(error.message());
                         return;
                     }
                     mode.restore_editor();
@@ -10099,7 +10103,7 @@ impl InteractiveMode {
                         SandboxSelectorSelection::Session { profile } => (profile, SandboxProfileScope::Session),
                     };
                     if let Err(error) = mode.session().set_sandbox_profile(profile, scope) {
-                        mode.show_error(&error.to_string());
+                        mode.show_error(error.message());
                         return;
                     }
                     mode.restore_editor();
@@ -10256,7 +10260,7 @@ impl InteractiveMode {
         let result = self.runtime.lock().await.restart(None, true).await;
         // `void this.restartProcess(...)`: a rejection is an uncaught exception.
         if let Err(error) = result {
-            throw_uncaught(ERROR, error.to_string());
+            throw_uncaught(ERROR, error);
         }
     }
 
@@ -10896,7 +10900,7 @@ impl InteractiveMode {
             }) => {
                 self.executing_tool_names
                     .borrow_mut()
-                    .insert(tool_call_id.clone(), tool_name.clone());
+                    .insert(tool_call_id.clone().into(), tool_name.clone());
                 self.executing_tool_started_at
                     .borrow_mut()
                     .insert((tool_call_id.clone()).into(), *started_at);
@@ -11156,7 +11160,7 @@ impl InteractiveMode {
             }) => {
                 self.executing_tool_names
                     .borrow_mut()
-                    .insert(tool_call_id.clone(), tool_name.clone());
+                    .insert(tool_call_id.clone().into(), tool_name.clone());
                 self.executing_tool_started_at
                     .borrow_mut()
                     .insert((tool_call_id.clone()).into(), started_at);
