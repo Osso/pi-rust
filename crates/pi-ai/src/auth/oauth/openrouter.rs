@@ -201,7 +201,7 @@ type CallbackSettle = Arc<Mutex<Option<oneshot::Sender<CallbackResult>>>>;
 
 struct CallbackServerInfo {
     server: CallbackServer,
-    callback_url: String,
+    callback_url: JsString,
     receiver: oneshot::Receiver<CallbackResult>,
     settle: CallbackSettle,
     state: Arc<Mutex<CallbackState>>,
@@ -308,7 +308,7 @@ async fn start_callback(
     let server = start_callback_server(host, 0, handler)
         .await
         .map_err(|error| CallbackError::new(error.to_string()))?;
-    let callback_url = format!("http://{host}:{}{callback_path}", server.port());
+    let callback_url = pi_js_compat::js_format!("http://{}:{}{}", host, server.port(), callback_path);
     Ok(CallbackServerInfo {
         server,
         callback_url,
@@ -338,7 +338,10 @@ async fn login_openrouter(
     let authorize_url = crate::auth::oauth::support::url_with_query(
         AUTHORIZE_URL,
         &[
-            ("callback_url", callback.callback_url.as_str()),
+            (
+                "callback_url",
+                &crate::auth::oauth::support::to_form_usv_string(&callback.callback_url),
+            ),
             ("code_challenge", pkce.challenge.as_str()),
             ("code_challenge_method", "S256"),
         ],
