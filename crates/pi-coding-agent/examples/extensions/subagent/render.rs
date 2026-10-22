@@ -8,7 +8,6 @@ use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 use pi_js_compat::js_json::JsValue as Value;
-use pi_js_compat::string::js_trim;
 use pi_tui::{
     Markdown, Spacer, Text,
     tui::{ComponentRef, Container, component},
@@ -135,12 +134,14 @@ fn tool(p: &Value, th: &Theme) -> JsString {
         .as_string()
         .filter(|s| !s.is_empty())
         .or_else(|| a["path"].as_string().filter(|s| !s.is_empty()))
-        .unwrap_or(if name == "find" || name == "grep" || name == "ls" {
-            &JsString::from(".")
-        } else {
-            &JsString::from("...")
-        })
-        .to_owned();
+        .cloned()
+        .unwrap_or_else(|| {
+            JsString::from(if name == "find" || name == "grep" || name == "ls" {
+                "."
+            } else {
+                "..."
+            })
+        });
     if let Some(home) = std::env::var_os("HOME") {
         let home = JsString::from(home.to_str().expect("home directory must be UTF-8"));
         if path.starts_with(&home) {

@@ -11,7 +11,6 @@ use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 use pi_js_compat::js_json::JsValue as Value;
 use pi_js_compat::js_json::encode_node_utf8;
-use pi_js_compat::string::js_trim;
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},

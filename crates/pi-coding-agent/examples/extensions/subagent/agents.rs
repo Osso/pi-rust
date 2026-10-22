@@ -4,7 +4,6 @@ use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue as Value;
-use pi_js_compat::string::js_trim;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
