@@ -76,7 +76,7 @@ impl ApiKeyAuth for EnvApiKeyAuth {
                         base_url: None,
                     },
                     env: input.credential.and_then(|credential| credential.env),
-                    source: Some("stored credential".to_owned()),
+                    source: Some(("stored credential".to_owned()).into()),
                 }));
             }
             for env_var in env_vars {
@@ -87,12 +87,12 @@ impl ApiKeyAuth for EnvApiKeyAuth {
                 {
                     return Ok(Some(AuthResult {
                         auth: ModelAuth {
-                            api_key: Some(value),
+                            api_key: Some((value).into()),
                             headers: None,
                             base_url: None,
                         },
                         env: None,
-                        source: Some(env_var),
+                        source: Some((env_var).into()),
                     }));
                 }
             }

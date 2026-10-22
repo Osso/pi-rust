@@ -1,5 +1,6 @@
 //! Port of `packages/ai/src/auth/oauth/openai-codex.ts`.
 
+use pi_js_compat::{js_format, js_json::JsString};
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
@@ -102,7 +103,7 @@ impl OAuthAuth for OpenAICodexOAuth {
     fn to_auth(&self, credential: OAuthCredential) -> crate::request::BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some(credential.access_utf8()?),
+                api_key: Some((credential.access_utf8()?).into()),
                 ..ModelAuth::default()
             })
         })
@@ -180,7 +181,7 @@ fn read_token_response(response: OAuthHttpResponse, operation: &str) -> Result<O
 
 async fn exchange_authorization_code(
     runtime: &OAuthRuntime,
-    code: &str,
+    code: &JsString,
     verifier: &str,
     redirect_uri: &str,
     signal: CancellationToken,
@@ -189,7 +190,7 @@ async fn exchange_authorization_code(
     let body = crate::auth::oauth::support::form_encode(&[
         ("grant_type", "authorization_code"),
         ("client_id", CLIENT_ID),
-        ("code", code),
+        ("code", &crate::auth::oauth::support::to_form_usv_string(code)),
         ("code_verifier", verifier),
         ("redirect_uri", redirect_uri),
     ]);
@@ -396,8 +397,8 @@ async fn login_device_code(
         .await
         .map_err(|error| AuthError::failed(error.message))?;
     interaction.notify(AuthEvent::DeviceCode {
-        user_code: device.user_code.clone(),
-        verification_uri: DEVICE_VERIFICATION_URI.to_owned(),
+        user_code: (device.user_code.clone()).into(),
+        verification_uri: (DEVICE_VERIFICATION_URI.to_owned()).into(),
         interval_seconds: Some(device.interval_seconds),
         expires_in_seconds: Some(DEVICE_CODE_TIMEOUT_SECONDS),
     });
@@ -494,17 +495,21 @@ async fn login_browser(
     let server = start_local_server(callback_host, state.clone()).await;
     let manual_abort = CancellationToken::new();
     interaction.notify(AuthEvent::AuthUrl {
-        url,
-        instructions: Some("A browser window should open. Complete login to finish.".to_owned()),
+        url: url.into(),
+        instructions: Some(("A browser window should open. Complete login to finish.".to_owned()).into()),
     });
 
-    let mut prompt = Box::pin(interaction.prompt(AuthPrompt {
-        signal: Some(manual_abort.clone()),
-        kind: AuthPromptKind::ManualCode {
-            message: "Complete login in your browser, or paste the authorization code / redirect URL here:".to_owned(),
-            placeholder: Some(REDIRECT_URI.to_owned()),
-        },
-    }));
+    let mut prompt = Box::pin(
+        interaction.prompt(AuthPrompt {
+            signal: Some(manual_abort.clone()),
+            kind: AuthPromptKind::ManualCode {
+                message: ("Complete login in your browser, or paste the authorization code / redirect URL here:"
+                    .to_owned())
+                .into(),
+                placeholder: Some((REDIRECT_URI.to_owned()).into()),
+            },
+        }),
+    );
     let LocalServer {
         server: callback_server,
         receiver,
@@ -512,7 +517,7 @@ async fn login_browser(
     } = server;
     let mut receiver = Box::pin(receiver);
     let interaction_signal = interaction.signal();
-    let mut manual: Option<Result<String, CallbackError>> = None;
+    let mut manual: Option<Result<JsString, CallbackError>> = None;
     let result = loop {
         tokio::select! {
             biased;
@@ -574,7 +579,7 @@ fn close_server(server: Option<CallbackServer>) {
     }
 }
 
-fn resolve_manual_code(input: &str, expected_state: &str) -> Result<Option<String>, &'static str> {
+fn resolve_manual_code(input: &JsString, expected_state: &str) -> Result<Option<JsString>, &'static str> {
     let AuthorizationInput { code, state } = parse_authorization_input(input);
     if state.as_deref().is_some_and(|state| state != expected_state) {
         return Err("State mismatch");
@@ -591,16 +596,16 @@ async fn login_openai_codex(
         .prompt(AuthPrompt {
             signal: None,
             kind: AuthPromptKind::Select {
-                message: "Select OpenAI Codex login method:".to_owned(),
+                message: ("Select OpenAI Codex login method:".to_owned()).into(),
                 options: vec![
                     AuthSelectOption {
-                        id: BROWSER_LOGIN_METHOD.to_owned(),
-                        label: "Browser login (default)".to_owned(),
+                        id: (BROWSER_LOGIN_METHOD.to_owned()).into(),
+                        label: ("Browser login (default)".to_owned()).into(),
                         description: None,
                     },
                     AuthSelectOption {
-                        id: DEVICE_CODE_LOGIN_METHOD.to_owned(),
-                        label: "Device code login (headless)".to_owned(),
+                        id: (DEVICE_CODE_LOGIN_METHOD.to_owned()).into(),
+                        label: ("Device code login (headless)".to_owned()).into(),
                         description: None,
                     },
                 ],
@@ -609,10 +614,15 @@ async fn login_openai_codex(
         .await
         .map_err(|error| AuthError::failed(error.message))?;
 
-    match method.as_str() {
-        DEVICE_CODE_LOGIN_METHOD => login_device_code(runtime, interaction).await,
-        BROWSER_LOGIN_METHOD => login_browser(runtime, callback_host, interaction).await,
-        other => Err(AuthError::failed(format!("Unknown OpenAI Codex login method: {other}"))),
+    if method == DEVICE_CODE_LOGIN_METHOD {
+        login_device_code(runtime, interaction).await
+    } else if method == BROWSER_LOGIN_METHOD {
+        login_browser(runtime, callback_host, interaction).await
+    } else {
+        Err(AuthError::failed(js_format!(
+            "Unknown OpenAI Codex login method: {}",
+            method
+        )))
     }
 }
 

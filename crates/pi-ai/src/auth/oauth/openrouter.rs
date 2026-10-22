@@ -1,5 +1,6 @@
 //! Port of `packages/ai/src/auth/oauth/openrouter.ts`.
 
+use pi_js_compat::{js_format, js_json::JsString};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -81,28 +82,28 @@ impl OAuthAuth for OpenRouterOAuth {
     fn to_auth(&self, credential: OAuthCredential) -> crate::request::BoxFuture<'static, Result<ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(ModelAuth {
-                api_key: Some(credential.access_utf8()?),
+                api_key: Some((credential.access_utf8()?).into()),
                 ..ModelAuth::default()
             })
         })
     }
 }
 
-fn parse_authorization_input(input: &str) -> Option<String> {
+fn parse_authorization_input(input: &JsString) -> Option<JsString> {
     let value = input.trim();
     if value.is_empty() {
         return None;
     }
-    if let Ok(url) = url::Url::parse(value) {
+    if let Ok(url) = url::Url::parse(&pi_js_compat::js_json::encode_node_utf8(&value)) {
         return url
             .query_pairs()
             .find(|(name, _)| name == "code")
-            .map(|(_, value)| value.into_owned());
+            .map(|(_, value)| JsString::from(value.into_owned()));
     }
     if value.contains("code=") {
-        return url::form_urlencoded::parse(value.as_bytes())
+        return url::form_urlencoded::parse(pi_js_compat::js_json::encode_node_utf8(&value).as_bytes())
             .find(|(name, _)| name == "code")
-            .map(|(_, value)| value.into_owned());
+            .map(|(_, value)| JsString::from(value.into_owned()));
     }
     Some(value.to_owned())
 }
@@ -126,14 +127,14 @@ fn error_detail(body: &Value) -> Option<String> {
 
 async fn exchange_authorization_code(
     runtime: &OAuthRuntime,
-    code: &str,
+    code: &JsString,
     verifier: &str,
     signal: CancellationToken,
 ) -> Result<OAuthCredential, CallbackError> {
     if signal.is_cancelled() {
         return Err(CallbackError::new("Login cancelled"));
     }
-    let body = json!({
+    let body = pi_js_compat::js_json!({
         "code": code,
         "code_verifier": verifier,
         "code_challenge_method": "S256",
@@ -145,7 +146,7 @@ async fn exchange_authorization_code(
             ("accept".to_owned(), "application/json".to_owned()),
             ("content-type".to_owned(), "application/json".to_owned()),
         ],
-        body: Some(body.to_string().into_bytes()),
+        body: Some(pi_js_compat::js_json::stringify_lossless(&body).into_bytes()),
     };
     let result = tokio::time::timeout(
         TOKEN_EXCHANGE_TIMEOUT,
@@ -346,21 +347,24 @@ async fn login_openrouter(
         message: format!("Listening for OpenRouter OAuth callback on {}", callback.callback_url),
     });
     interaction.notify(AuthEvent::AuthUrl {
-        url: authorize_url,
+        url: (authorize_url).into(),
         instructions: Some(
-            "Complete sign-in in your browser. If the browser is on another machine, paste the final redirect URL here."
-                .to_owned(),
+            ("Complete sign-in in your browser. If the browser is on another machine, paste the final redirect URL here."
+                .to_owned()).into(),
         ),
     });
 
-    let mut prompt = Box::pin(interaction.prompt(AuthPrompt {
-        signal: Some(manual_abort.clone()),
-        kind: AuthPromptKind::ManualCode {
-            message:
-                "Complete sign-in in your browser, or paste the authorization code / redirect URL here:".to_owned(),
-            placeholder: Some(callback.callback_url.clone()),
-        },
-    }));
+    let mut prompt = Box::pin(
+        interaction.prompt(AuthPrompt {
+            signal: Some(manual_abort.clone()),
+            kind: AuthPromptKind::ManualCode {
+                message: ("Complete sign-in in your browser, or paste the authorization code / redirect URL here:"
+                    .to_owned())
+                .into(),
+                placeholder: Some((callback.callback_url.clone()).into()),
+            },
+        }),
+    );
     let CallbackServerInfo {
         server,
         receiver,
@@ -370,7 +374,7 @@ async fn login_openrouter(
     } = callback;
     let mut receiver = Box::pin(receiver);
     let interaction_signal = interaction.signal();
-    let mut manual: Option<Result<String, CallbackError>> = None;
+    let mut manual: Option<Result<JsString, CallbackError>> = None;
     let deadline = tokio::time::sleep(LOGIN_TIMEOUT);
     tokio::pin!(deadline);
     let result: Result<Option<OAuthCredential>, CallbackError> = loop {
@@ -419,7 +423,7 @@ async fn login_openrouter(
         return Err(AuthError::failed("Missing authorization code"));
     };
     interaction.notify(AuthEvent::Progress {
-        message: "Exchanging authorization code for an API key...".to_owned(),
+        message: ("Exchanging authorization code for an API key...".to_owned()).into(),
     });
     let credential = exchange_authorization_code(runtime, &code, &pkce.verifier, interaction.signal()).await;
     server.close();

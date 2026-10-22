@@ -239,43 +239,43 @@ pub fn form_request(url: &str, body: String, accept: bool) -> HttpRequest {
 /// Shared `parseAuthorizationInput` used by Anthropic and OpenAI Codex.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AuthorizationInput {
-    pub code: Option<String>,
-    pub state: Option<String>,
+    pub code: Option<pi_js_compat::js_json::JsString>,
+    pub state: Option<pi_js_compat::js_json::JsString>,
 }
 
-pub fn parse_authorization_input(input: &str) -> AuthorizationInput {
+pub fn parse_authorization_input(input: &pi_js_compat::js_json::JsString) -> AuthorizationInput {
     let value = input.trim();
     if value.is_empty() {
         return AuthorizationInput::default();
     }
 
-    if let Ok(url) = Url::parse(value) {
+    if let Ok(url) = Url::parse(&pi_js_compat::js_json::encode_node_utf8(&value)) {
         let mut code = None;
         let mut state = None;
         for (name, value) in url.query_pairs() {
             match name.as_ref() {
-                "code" => code = Some(value.into_owned()),
-                "state" => state = Some(value.into_owned()),
+                "code" => code = Some(value.into_owned().into()),
+                "state" => state = Some(value.into_owned().into()),
                 _ => {}
             }
         }
         return AuthorizationInput { code, state };
     }
 
-    if let Some((code, state)) = value.split_once('#') {
+    if let Some(index) = value.find("#") {
         return AuthorizationInput {
-            code: Some(code.to_owned()),
-            state: Some(state.to_owned()),
+            code: Some(value.slice(0, index)),
+            state: Some(value.slice(index + 1, value.len())),
         };
     }
 
     if value.contains("code=") {
         let mut code = None;
         let mut state = None;
-        for (name, value) in url::form_urlencoded::parse(value.as_bytes()) {
+        for (name, value) in url::form_urlencoded::parse(pi_js_compat::js_json::encode_node_utf8(&value).as_bytes()) {
             match name.as_ref() {
-                "code" => code = Some(value.into_owned()),
-                "state" => state = Some(value.into_owned()),
+                "code" => code = Some(value.into_owned().into()),
+                "state" => state = Some(value.into_owned().into()),
                 _ => {}
             }
         }

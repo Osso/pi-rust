@@ -1,5 +1,6 @@
 //! Port of `packages/ai/src/providers/cloudflare-auth.ts`.
 
+use pi_js_compat::{js_format, js_json::JsString};
 use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
@@ -22,9 +23,9 @@ enum CloudflareAuthKind {
 }
 
 struct ResolvedCloudflareEnv {
-    api_key: String,
+    api_key: JsString,
     env: ProviderEnv,
-    source: String,
+    source: JsString,
 }
 
 /// Per-field merge: prefer the credential value, fall back to ambient env.
@@ -33,7 +34,7 @@ async fn resolve_value(
     ctx: &Arc<dyn AuthContext>,
     credential: Option<&ApiKeyCredential>,
     signal: &CancellationToken,
-) -> Result<Option<String>, AuthError> {
+) -> Result<Option<JsString>, AuthError> {
     let from_credential = credential.and_then(|credential| {
         if name == CLOUDFLARE_API_KEY {
             credential.key.clone()
@@ -47,7 +48,7 @@ async fn resolve_value(
     check_aborted(signal)?;
     let value = ctx.env(name).await;
     check_aborted(signal)?;
-    Ok(value)
+    Ok(value.map(JsString::from))
 }
 
 async fn resolve_cloudflare_env(
@@ -77,9 +78,9 @@ async fn resolve_cloudflare_env(
         api_key,
         env,
         source: if credential.is_some() {
-            "stored credential".to_owned()
+            "stored credential".into()
         } else {
-            CLOUDFLARE_API_KEY.to_owned()
+            CLOUDFLARE_API_KEY.into()
         },
     }))
 }
@@ -92,7 +93,7 @@ fn check_aborted(signal: &CancellationToken) -> Result<(), AuthError> {
     }
 }
 
-async fn prompt(interaction: &Arc<dyn AuthInteraction>, kind: AuthPromptKind) -> Result<String, AuthError> {
+async fn prompt(interaction: &Arc<dyn AuthInteraction>, kind: AuthPromptKind) -> Result<JsString, AuthError> {
     interaction
         .prompt(AuthPrompt { signal: None, kind })
         .await
@@ -101,14 +102,14 @@ async fn prompt(interaction: &Arc<dyn AuthInteraction>, kind: AuthPromptKind) ->
 
 fn secret(message: &str) -> AuthPromptKind {
     AuthPromptKind::Secret {
-        message: message.to_owned(),
+        message: (message.to_owned()).into(),
         placeholder: None,
     }
 }
 
 fn text(message: &str) -> AuthPromptKind {
     AuthPromptKind::Text {
-        message: message.to_owned(),
+        message: (message.to_owned()).into(),
         placeholder: None,
     }
 }
@@ -129,7 +130,7 @@ impl ApiKeyAuth for CloudflareWorkersAiAuth {
             let key = prompt(&interaction, secret("Enter Cloudflare API key")).await?;
             let account_id = prompt(&interaction, text("Enter Cloudflare account ID")).await?;
             Ok(ApiKeyCredential {
-                key: Some(key),
+                key: Some((key).into()),
                 env: Some(ProviderEnv::from([(CLOUDFLARE_ACCOUNT_ID.to_owned(), account_id)])),
             })
         }))
@@ -146,12 +147,12 @@ impl ApiKeyAuth for CloudflareWorkersAiAuth {
             .await?;
             Ok(resolved.map(|resolved| AuthResult {
                 auth: ModelAuth {
-                    api_key: Some(resolved.api_key),
+                    api_key: Some((resolved.api_key).into()),
                     headers: None,
                     base_url: None,
                 },
                 env: Some(resolved.env),
-                source: Some(resolved.source),
+                source: Some((resolved.source).into()),
             }))
         })
     }
@@ -174,7 +175,7 @@ impl ApiKeyAuth for CloudflareAiGatewayAuth {
             let account_id = prompt(&interaction, text("Enter Cloudflare account ID")).await?;
             let gateway_id = prompt(&interaction, text("Enter Cloudflare AI Gateway ID")).await?;
             Ok(ApiKeyCredential {
-                key: Some(key),
+                key: Some((key).into()),
                 env: Some(ProviderEnv::from([
                     (CLOUDFLARE_ACCOUNT_ID.to_owned(), account_id),
                     (CLOUDFLARE_GATEWAY_ID.to_owned(), gateway_id),
@@ -196,7 +197,7 @@ impl ApiKeyAuth for CloudflareAiGatewayAuth {
                 let mut headers = ProviderHeaders::new();
                 headers.insert(
                     "cf-aig-authorization".to_owned(),
-                    Some(format!("Bearer {}", resolved.api_key)),
+                    Some(js_format!("Bearer {}", resolved.api_key)),
                 );
                 headers.insert("Authorization".to_owned(), None);
                 headers.insert("x-api-key".to_owned(), None);
@@ -207,7 +208,7 @@ impl ApiKeyAuth for CloudflareAiGatewayAuth {
                         base_url: None,
                     },
                     env: Some(resolved.env),
-                    source: Some(resolved.source),
+                    source: Some((resolved.source).into()),
                 }
             }))
         })
