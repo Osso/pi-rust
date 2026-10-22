@@ -638,7 +638,6 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
                     &message,
                     &MessageRenderOptions {
                         expanded: step["expanded"].as_bool().unwrap(),
-                        output_pad: step["pad"].as_f64().unwrap(),
                     },
                     &theme,
                 )

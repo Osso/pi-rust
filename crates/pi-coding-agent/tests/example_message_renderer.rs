@@ -28,9 +28,7 @@ async fn status_command_and_expanded_level_rendering_match() {
         json!({"level":"custom","timestamp":0}),
     ] {
         for expanded in [false, true] {
-            for pad in [0, 2] {
-                steps.push(json!({"op":"renderMessage","message":{"customType":"status-update","content":"A wrapping status 🚀𐀀 line","display":true,"details":details,"timestamp":0},"expanded":expanded,"pad":pad,"width":32}));
-            }
+            steps.push(json!({"op":"renderMessage","message":{"customType":"status-update","content":"A wrapping status 🚀𐀀 line","display":true,"details":details,"timestamp":0},"expanded":expanded,"width":32}));
         }
     }
     let actual = harness::compare(

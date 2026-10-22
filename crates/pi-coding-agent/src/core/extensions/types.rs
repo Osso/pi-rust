@@ -2545,8 +2545,6 @@ fn deserialize_optional_js_object<'de, D: serde::Deserializer<'de>>(
 #[serde(rename_all = "camelCase")]
 pub struct MessageRenderOptions {
     pub expanded: bool,
-    #[serde(serialize_with = "pi_js_compat::number::serialize")]
-    pub output_pad: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

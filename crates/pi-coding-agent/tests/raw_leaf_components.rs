@@ -52,7 +52,7 @@ fn custom_message_default_renderer_keeps_raw_label_and_markdown() {
         details: None,
         timestamp: 0.0,
     };
-    let mut component = CustomMessageComponent::new(message, None, None, 0);
+    let mut component = CustomMessageComponent::new(message, None, None);
     for expanded in [false, true] {
         component.set_expanded(expanded);
         let output = JsString::join(component.render(80), "\n");

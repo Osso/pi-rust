@@ -20,7 +20,6 @@ pub struct CustomMessageComponent {
     custom_component: Option<ComponentRef>,
     markdown_theme: Rc<dyn MarkdownTheme>,
     expanded: bool,
-    output_pad: usize,
     container: Container,
 }
 
@@ -29,7 +28,6 @@ impl CustomMessageComponent {
         message: CustomMessageValue,
         custom_renderer: Option<MessageRenderer>,
         markdown_theme: Option<Rc<dyn MarkdownTheme>>,
-        output_pad: usize,
     ) -> Self {
         let mut message_component = Self {
             message,
@@ -37,7 +35,6 @@ impl CustomMessageComponent {
             custom_component: None,
             markdown_theme: markdown_theme.unwrap_or_else(|| Rc::from(get_markdown_theme())),
             expanded: false,
-            output_pad,
             container: Container::new(),
         };
         message_component.container.add_child(component(Spacer::new(1)));
@@ -52,13 +49,6 @@ impl CustomMessageComponent {
         }
     }
 
-    pub fn set_output_pad(&mut self, output_pad: usize) {
-        if self.output_pad != output_pad {
-            self.output_pad = output_pad;
-            self.rebuild();
-        }
-    }
-
     fn rebuild(&mut self) {
         self.container.clear();
         self.custom_component = None;
@@ -66,15 +56,16 @@ impl CustomMessageComponent {
 
         if let Some(renderer) = &self.custom_renderer {
             let theme = current_theme();
-            let rendered = renderer(
-                &self.message,
-                &MessageRenderOptions {
-                    expanded: self.expanded,
-                    output_pad: self.output_pad as f64,
-                },
-                theme.as_ref(),
-            );
-            if let Some(rendered) = rendered {
+            let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                renderer(
+                    &self.message,
+                    &MessageRenderOptions {
+                        expanded: self.expanded,
+                    },
+                    theme.as_ref(),
+                )
+            }));
+            if let Ok(Some(rendered)) = rendered {
                 self.custom_component = Some(Rc::clone(&rendered));
                 self.container.add_child(rendered);
                 return;

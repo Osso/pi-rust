@@ -4759,8 +4759,7 @@ impl InteractiveMode {
                         details: object.get("details").cloned(),
                         timestamp: object.get("timestamp").and_then(JsValue::as_f64).unwrap_or_default(),
                     };
-                    let mut custom =
-                        CustomMessageComponent::new(message, renderer, Some(self.markdown_theme()), self.output_pad());
+                    let mut custom = CustomMessageComponent::new(message, renderer, Some(self.markdown_theme()));
                     custom.set_expanded(self.tool_output_expanded.get());
                     self.chat_container.borrow_mut().add_child(component(custom));
                 }
@@ -7405,14 +7404,6 @@ impl InteractiveMode {
                             .borrow_mut()
                             .as_any_mut()
                             .and_then(|any| any.downcast_mut::<AssistantMessageComponent>())
-                        {
-                            component.set_output_pad(padding as usize);
-                            continue;
-                        }
-                        if let Some(component) = child
-                            .borrow_mut()
-                            .as_any_mut()
-                            .and_then(|any| any.downcast_mut::<CustomMessageComponent>())
                         {
                             component.set_output_pad(padding as usize);
                             continue;

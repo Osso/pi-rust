@@ -848,7 +848,6 @@ fn custom_message_default_rendering_uses_label_and_markdown() {
         custom_message(CustomMessageContent::Text(JsString::from("hello **world**"))),
         None,
         Some(markdown_theme()),
-        1,
     );
     let rendered = plain(&component.render(40));
     assert!(rendered.contains("[test]"), "{rendered:?}");
@@ -856,7 +855,24 @@ fn custom_message_default_rendering_uses_label_and_markdown() {
 }
 
 #[test]
-fn custom_message_renderer_receives_output_padding_and_updates() {
+fn custom_message_renderer_throw_uses_default_on_each_rebuild() {
+    theme();
+    let message = custom_message(CustomMessageContent::Text(JsString::from("hello **world**")));
+    let mut default = CustomMessageComponent::new(message.clone(), None, Some(markdown_theme()));
+    let renderer: pi_coding_agent::core::extensions::types::MessageRenderer =
+        Arc::new(|_, _, _| panic!("fixture renderer throw"));
+    let mut throwing = CustomMessageComponent::new(message, Some(renderer), Some(markdown_theme()));
+    assert_eq!(throwing.render(40), default.render(40));
+    throwing.set_expanded(true);
+    default.set_expanded(true);
+    assert_eq!(throwing.render(40), default.render(40));
+    throwing.invalidate();
+    default.invalidate();
+    assert_eq!(throwing.render(40), default.render(40));
+}
+
+#[test]
+fn custom_message_renderer_receives_expansion_updates() {
     use std::sync::Mutex;
 
     theme();
@@ -865,34 +881,29 @@ fn custom_message_renderer_receives_output_padding_and_updates() {
     let renderer: pi_coding_agent::core::extensions::types::MessageRenderer =
         Arc::new(move |_message, options, _theme| {
             record.lock().unwrap().push(*options);
-            Some(std::rc::Rc::new(std::cell::RefCell::new(Text::new(
-                "custom",
-                options.output_pad as usize,
-                0,
-            ))))
+            Some(std::rc::Rc::new(std::cell::RefCell::new(Text::new("custom", 0, 0))))
         });
     let mut component = CustomMessageComponent::new(
         custom_message(CustomMessageContent::Text(JsString::from("custom"))),
         Some(renderer),
         Some(markdown_theme()),
-        1,
     );
     let rendered: Vec<JsString> = component
         .render(40)
         .iter()
         .map(|line| strip_terminal_sequences(line))
         .collect();
-    assert!(rendered.iter().any(|line| line.starts_with(" custom")), "{rendered:?}");
-    assert_eq!(options_seen.lock().unwrap()[0].output_pad, 1.0);
+    assert!(rendered.iter().any(|line| line.starts_with("custom")), "{rendered:?}");
+    assert!(!options_seen.lock().unwrap()[0].expanded);
 
-    component.set_output_pad(0);
+    component.set_expanded(true);
     let rendered: Vec<JsString> = component
         .render(40)
         .iter()
         .map(|line| strip_terminal_sequences(line))
         .collect();
     assert!(rendered.iter().any(|line| line.starts_with("custom")), "{rendered:?}");
-    assert_eq!(options_seen.lock().unwrap().last().unwrap().output_pad, 0.0);
+    assert!(options_seen.lock().unwrap().last().unwrap().expanded);
 }
 
 #[test]
