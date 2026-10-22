@@ -837,11 +837,10 @@ fn claim_runtime_mailbox_candidate(
 ) -> Result<Option<RuntimeMailboxMessage>, ControlDbError> {
     let process_identity = get_runtime_process_instance_id()?;
     let mut claimed = candidate.data.clone();
-    // Preserve current persistence order; source-order drift has a separate RED gate.
     claimed.insert("claimedAt".into(), Value::String(now_iso.into()));
-    claimed.insert("updatedAt".into(), Value::String(now_iso.into()));
     claimed.insert("claimantProcessIdentity".into(), Value::String(process_identity.into()));
     claimed.insert("status".into(), Value::String("claimed".into()));
+    claimed.insert("updatedAt".into(), Value::String(now_iso.into()));
     let serialized = js_json::stringify_lossless(&Value::Object(claimed.clone()));
     let updated = with_immediate_transaction(db, |db| {
         let current_authority =

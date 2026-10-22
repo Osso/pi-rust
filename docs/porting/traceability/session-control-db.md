@@ -10,9 +10,9 @@ Stored agent/mailbox/request/schema JSON must use one `JsObject`/`JsValue` parse
 
 Main decision (2026-10-22): process identity JSON is internal ASCII; not part of the lossless text authority. Preserve its existing serialized `String` carrier and SQL bindings; its escaped JSON representation is distinct from parsed human text/IDs. Main approved widening only the parser input to `impl Into<JsString>` so a claimant value read from native canonical JSON need not be scalarized; serializer/instance-ID/SQL carriers remain unchanged.
 
-### Parked claim-order drift
+### Ordinary claim insertion order
 
-Ordinary claim persistence currently appends missing fields in `claimedAt, updatedAt, claimantProcessIdentity, status` order; frozen source appends `claimedAt, claimantProcessIdentity, status, updatedAt`. Native-authority migration preserves existing persistence order. `lossless_control_claim_order` claims the same source-created raw row with real source/native runtime listeners, restores the exact original row between claims, then compares canonical bytes after normalizing only volatile claim values. Test unexecuted; correction requires its in-crate behavioral RED. Existing scalar projection previously constructed another order; that duplicate write authority is removed.
+Actual Cargo RED (`claim-order-incrate-red-2.log`, test fixture corrected in `c1f1f098`) showed missing `updatedAt` appended before `claimantProcessIdentity`. Frozen source `session-control-db.ts:916–922` appends `claimedAt, claimantProcessIdentity, status, updatedAt`; ordinary claims now follow that order while retaining existing key positions. `lossless_control_claim_order` claims the same source-created raw row with real source/native runtime listeners, restores the exact original row between claims, then compares canonical bytes after normalizing only volatile claim values. GREEN pending. The earlier `callWire` double-decoding fixture failure is not production RED evidence.
 
 ## Blocking canonical JSON counterexample — current group is not accepted
 
