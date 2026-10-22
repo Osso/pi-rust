@@ -104,7 +104,7 @@ pub fn write_detached_pyrun_launch_manifest(
     );
     let checksum = hash_json(&Value::Object(object.clone()));
     object.insert("checksum".into(), Value::String(checksum.into()));
-    let temporary_path = js_format!("{path}.tmp");
+    let temporary_path = js_format!("{}.tmp", path);
     let serialized = format!("{}\n", js_json::stringify_lossless(&unsigned));
     write_private(&temporary_path, &serialized)?;
     fsync_file(&temporary_path)?;
@@ -135,7 +135,7 @@ pub fn write_detached_pyrun_activation(
     path: &JsString,
     identity: &DetachedJobOwnershipIdentity,
 ) -> Result<(), JsString> {
-    let temporary_path = js_format!("{path}.tmp");
+    let temporary_path = js_format!("{}.tmp", path);
     let serialized = format!(
         "{}\n",
         js_json::stringify_lossless(&js_json::to_value(identity).map_err(|error| JsString::from(error.to_string()))?)
@@ -169,7 +169,7 @@ pub fn read_detached_pyrun_launch_manifest(path: &JsString) -> Result<DetachedPy
     let original = parsed.clone();
     let mut unsigned = parsed;
     let Some(object) = unsigned.as_object_mut() else {
-        return Err(js_format!("Invalid detached Pyrun launch manifest: {path}").into());
+        return Err(js_format!("Invalid detached Pyrun launch manifest: {}", path).into());
     };
     let checksum = object
         .shift_remove(&JsString::from("checksum"))
@@ -180,7 +180,7 @@ pub fn read_detached_pyrun_launch_manifest(path: &JsString) -> Result<DetachedPy
         && started_at.is_some_and(f64::is_finite)
         && checksum.as_ref() == Some(&JsString::from(hash_json(&unsigned)));
     if !valid {
-        return Err(js_format!("Invalid detached Pyrun launch manifest: {path}").into());
+        return Err(js_format!("Invalid detached Pyrun launch manifest: {}", path).into());
     }
     js_json::from_value(&original).map_err(|error| JsString::from(error.to_string()))
 }
@@ -323,7 +323,7 @@ async fn wait_for_detached_pyrun_launch_manifest(path: &JsString) -> Result<Deta
     let deadline = std::time::Instant::now() + Duration::from_millis(LAUNCH_MANIFEST_TIMEOUT_MS);
     while !Path::new(&encode_node_utf8(path)).exists() {
         if std::time::Instant::now() >= deadline {
-            return Err(js_format!("Timed out waiting for detached Pyrun launch manifest: {path}").into());
+            return Err(js_format!("Timed out waiting for detached Pyrun launch manifest: {}", path).into());
         }
         tokio::time::sleep(Duration::from_millis(LAUNCH_MANIFEST_POLL_MS)).await;
     }
@@ -549,7 +549,7 @@ async fn dispatch_foreground_pyrun_bridge_request(
 
 /// `claimForegroundBridgeRequest` (identical in both TypeScript modules).
 pub(crate) fn claim_foreground_bridge_request(directory: &JsString, request_id: &JsString) -> Result<bool, JsString> {
-    let path = node_join(directory, js_format!("bridge-claim-{request_id}"));
+    let path = node_join(directory, js_format!("bridge-claim-{}", request_id));
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]

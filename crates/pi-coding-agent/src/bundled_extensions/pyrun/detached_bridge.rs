@@ -57,7 +57,7 @@ pub fn enqueue_detached_pyrun_bridge_request(
         body: js_json::to_value(&body).map_err(|error| error.to_string())?,
         control_db_path: input.control_db_path,
         from_agent_id: input.identity.job_id.clone(),
-        message_id: pi_js_compat::js_format!("pyrun-request:{}:{request_id}", input.identity.job_id),
+        message_id: pi_js_compat::js_format!("pyrun-request:{}:{}", input.identity.job_id, request_id),
         recipient: input.supervisor_address,
         sender: input.runner_address,
         session_path: input.session_path,
