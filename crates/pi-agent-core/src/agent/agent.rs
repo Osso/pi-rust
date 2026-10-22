@@ -45,20 +45,30 @@ pub type AgentListener =
 /// Prompt input accepted by [`Agent::prompt`].
 #[derive(Debug, Clone)]
 pub enum PromptInput {
-    Text(String),
+    Text(JsString),
     Message(Box<AgentMessage>),
     Messages(Vec<AgentMessage>),
 }
 
 impl From<&str> for PromptInput {
     fn from(value: &str) -> Self {
-        Self::Text(value.to_owned())
+        Self::Text(value.into())
     }
 }
 
 impl From<String> for PromptInput {
     fn from(value: String) -> Self {
+        Self::Text(value.into())
+    }
+}
+impl From<JsString> for PromptInput {
+    fn from(value: JsString) -> Self {
         Self::Text(value)
+    }
+}
+impl From<&JsString> for PromptInput {
+    fn from(value: &JsString) -> Self {
+        Self::Text(value.clone())
     }
 }
 

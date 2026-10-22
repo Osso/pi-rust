@@ -165,3 +165,45 @@ fn result_details_distinguish_missing_from_explicit_null() {
         );
     }
 }
+
+#[tokio::test]
+async fn agent_text_prompt_preserves_unpaired_units_through_public_input_and_transcript() {
+    use pi_agent_core::{Agent, AgentOptions};
+    use pi_js_compat::js_json::JsString;
+    let raw = JsString::from_utf16(vec![0xd800, 0x61, 0xdc00]);
+    let captured = Arc::new(Mutex::new(Vec::new()));
+    let observed = captured.clone();
+    let agent = Agent::new(AgentOptions {
+        stream_fn: Some(Arc::new(move |_, context, _| {
+            *observed.lock().unwrap() = context.messages.clone();
+            Box::pin(async move {
+                let (sender, stream) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
+                let message = AssistantMessage::empty("fixture", "fixture", "fixture", 0.0);
+                sender.push(AssistantMessageEvent::Done {
+                    reason: DoneReason::Stop,
+                    message,
+                });
+                Ok(stream)
+            })
+        })),
+        ..Default::default()
+    })
+    .unwrap();
+    agent.prompt(raw.clone()).await.unwrap();
+    agent.prompt(&raw).await.unwrap();
+    let requests = captured.lock().unwrap();
+    for message in requests.iter().filter_map(|message| match message {
+        Message::User(user) => Some(user),
+        _ => None,
+    }) {
+        let UserContent::Blocks(blocks) = &message.content else {
+            panic!("text block")
+        };
+        let pi_ai::types::TextOrImageContent::Text(text) = &blocks[0] else {
+            panic!("text")
+        };
+        assert_eq!(text.text, raw);
+    }
+    let wire = pi_js_compat::js_json::to_value(&agent.messages()).unwrap();
+    assert_eq!(wire[0]["content"][0]["text"], JsValue::String(raw));
+}
