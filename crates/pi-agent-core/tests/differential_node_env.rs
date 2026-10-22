@@ -310,3 +310,90 @@ async fn node_filesystem_metadata_and_failure_matrix_matches_frozen() {
         pi_js_compat::js_json::stringify_lossless(&expected)
     );
 }
+
+fn normalize_root(value: JsValue, root: &str) -> JsValue {
+    match value {
+        JsValue::String(text) => JsValue::String(text.replace(root, "<root>")),
+        JsValue::Array(items) => JsValue::Array(items.into_iter().map(|item| normalize_root(item, root)).collect()),
+        JsValue::Object(items) => JsValue::Object(
+            items
+                .into_iter()
+                .map(|(key, value)| (key, normalize_root(value, root)))
+                .collect(),
+        ),
+        other => other,
+    }
+}
+async fn mutation_operation(env: &NodeExecutionEnv, args: &[JsValue]) -> JsValue {
+    let path = args[1].as_string().unwrap();
+    let content = JsString::from_utf16(vec![0xd800, 0x61]);
+    let result = match args[0].as_string().unwrap().to_utf8().unwrap().as_str() {
+        "writeFile" => env.write_file(path, FileContent::Text(&content), None).await,
+        "appendFile" => env.append_file(path, FileContent::Text(&content), None).await,
+        "createDir" => {
+            env.create_dir(
+                path,
+                CreateDirOptions {
+                    recursive: args.get(2).and_then(|value| value["recursive"].as_bool()),
+                },
+            )
+            .await
+        }
+        "remove" => {
+            env.remove(
+                path,
+                RemoveOptions {
+                    recursive: args.get(2).and_then(|value| value["recursive"].as_bool()),
+                    force: args.get(2).and_then(|value| value["force"].as_bool()),
+                },
+            )
+            .await
+        }
+        other => panic!("unknown operation {other}"),
+    };
+    match result {
+        Ok(()) => json!({"ok":true}),
+        Err(error) => file_error_value(error),
+    }
+}
+#[tokio::test]
+async fn node_filesystem_mutation_failures_and_state_match_frozen() {
+    let native = tempfile::tempdir().unwrap();
+    let reference = tempfile::tempdir().unwrap();
+    for root in [native.path(), reference.path()] {
+        std::fs::write(root.join("file"), "data").unwrap();
+        std::fs::create_dir(root.join("dir")).unwrap();
+        std::os::unix::fs::symlink("missing", root.join("link")).unwrap();
+    }
+    let content = JsString::from_utf16(vec![0xd800, 0x61]);
+    let operations = json!([
+        ["writeFile","file/child",content],["appendFile","file/child",content],
+        ["writeFile","dir",content],["appendFile","dir",content],
+        ["createDir","file"],["createDir","parent/child",{"recursive":false}],
+        ["remove","missing"],["remove","dir"],["remove","link"],
+        ["writeFile","nested/new",content],["appendFile","nested/new",content],
+        ["remove","missing",{"force":true}], ["remove","dir",{"recursive":true}]
+    ]);
+    let expected = oracle().request(&json!({"kind":"fs","root":reference.path(),"operations":operations}));
+    let env = env(native.path().to_str().unwrap());
+    let mut actual = Vec::new();
+    for args in operations.as_array().unwrap() {
+        actual.push(mutation_operation(&env, args.as_array().unwrap()).await);
+    }
+    let actual = normalize_root(JsValue::Array(actual), native.path().to_str().unwrap());
+    let expected = normalize_root(expected, reference.path().to_str().unwrap());
+    assert!(
+        actual == expected,
+        "actual={}\nexpected={}",
+        pi_js_compat::js_json::stringify_lossless(&actual),
+        pi_js_compat::js_json::stringify_lossless(&expected)
+    );
+    assert_eq!(
+        std::fs::read(native.path().join("nested/new")).unwrap(),
+        std::fs::read(reference.path().join("nested/new")).unwrap()
+    );
+    for root in [native.path(), reference.path()] {
+        assert!(!root.join("dir").exists());
+        assert!(!root.join("link").is_symlink());
+    }
+}

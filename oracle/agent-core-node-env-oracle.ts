@@ -11,8 +11,8 @@ async function main(): Promise<void> {
 		let result: unknown;
 		if (input.kind === "fs") {
 			result = [];
-			for (const [method, path] of input.operations) {
-				(result as unknown[]).push(await env[method](path));
+			for (const [method, ...args] of input.operations) {
+				(result as unknown[]).push(await env[method](...args));
 			}
 		} else if (input.kind === "paths") {
 			result = [];

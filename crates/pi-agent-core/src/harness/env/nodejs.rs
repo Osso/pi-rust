@@ -786,15 +786,14 @@ fn kill_process_tree(pid: u32) {
 }
 
 async fn create_parent_dir(resolved: &JsString) -> Result<(), FileError> {
-    let parent = resolved
-        .units()
-        .iter()
-        .rposition(|unit| *unit == 0x2f)
-        .map(|index| resolved.slice(0, index.max(1)))
-        .unwrap_or_else(|| resolved.clone());
+    let parent = resolve_path(resolved, &"..".into());
     tokio::fs::create_dir_all(encode_node_utf8(&parent))
         .await
-        .map_err(|error| file_error(&error, "mkdir", &parent))
+        .map_err(|error| {
+            let mut error = file_error(&error, "mkdir", &parent);
+            error.path = Some(resolved.clone());
+            error
+        })
 }
 
 async fn remove_path(resolved: &JsString, options: RemoveOptions) -> Result<(), FileError> {
