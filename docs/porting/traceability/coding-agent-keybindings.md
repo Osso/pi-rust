@@ -49,3 +49,9 @@ The TUI registry itself is `packages/tui/src/keybindings.ts` → `crates/pi-tui/
 `app_keybindings`, combined definitions, migration/config ordering, registry IDs/keys/descriptions, stored file path and match/get lookups retain `JsString`; file JSON uses `JsObject`/`JsValue` and `parse_lossless`. Raw user key overrides are not discarded by serde scalar-string parsing. Source object ordering still uses JS array-index ordering and native UTF16 comparison for extra keys. Path encoding occurs only in `reload` immediately at the real filesystem call.
 
 `raw_app_keybindings` loads actual JSON files with high/low/pair overrides and compares frozen `KeybindingsManager.create` getKeys/getUserBindings. The proof-only standalone harness imports the actual production module; its ambient `get_agent_dir` dependency deliberately panics (tests provide explicit directories). Whole coding-agent library remains blocked by independently owned consumers; native module compilation RED is recorded separately from behavioral acceptance.
+
+## Q18 native UTF-16 integration (2026-10-22)
+
+Owned interactive APIs, selector state and frames now retain `JsString`; session search uses unit-based whitespace/token/phrase matching and shared `JsRegex`. Paths remain native through lexical operations and encode at filesystem/argv writes. Theme load errors use the original raw path. No terminal-display projection is used for lookup or stored text.
+
+`lossless_interactive_selectors` covers raw picker selection/validation and unmatched-unit token/regex input. Tests are **unexecuted**: coding-agent library compilation is blocked. `/tmp/pi-rust-repin-lossless-interactive/interactive4.{json,log}` records compiler-only evidence (178 total errors, 77 in interactive_mode; other owned files zero primary errors), not behavioral parity or acceptance. Whole-mode migration and integration remain open; historical module “done” labels do not apply to this gate.
