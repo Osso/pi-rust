@@ -857,7 +857,7 @@ pub struct ExtensionContextState {
     pub(super) ui_context: Arc<dyn ExtensionUiContext>,
     pub(super) has_ui: bool,
     pub(super) mode: ExtensionMode,
-    pub(super) cwd: String,
+    pub(super) cwd: JsString,
     pub(super) session_manager: SharedSessionManager,
     pub(super) model_registry: Arc<ModelRegistry>,
     pub(super) settings_manager: Option<Arc<Mutex<SettingsManager>>>,
@@ -890,7 +890,7 @@ pub struct ExtensionContextState {
     pub(super) relocate_handler: RelocateCallback,
     pub(super) prepare_tool_result_relocation_handler: RelocateCallback,
     pub(super) activate_tool_result_relocation_handler: ActivateToolResultRelocationHandler,
-    pub(super) pending_tool_result_relocations: IndexMap<String, String>,
+    pub(super) pending_tool_result_relocations: IndexMap<String, JsString>,
     pub(super) show_approval_selector_handler: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
     pub(super) show_sandbox_selector_handler: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
     pub(super) set_sandbox_profile_handler: SetSandboxProfileCallback,
@@ -904,7 +904,7 @@ pub struct ExtensionContextState {
 
 impl ExtensionContextState {
     pub(super) fn new(
-        cwd: impl Into<String>,
+        cwd: impl Into<JsString>,
         session_manager: SharedSessionManager,
         model_registry: Arc<ModelRegistry>,
         settings_manager: Option<Arc<Mutex<SettingsManager>>>,
@@ -988,7 +988,11 @@ impl ExtensionContextState {
         }
     }
 
-    fn schedule_tool_result_relocation(&mut self, tool_call_id: &str, target_cwd: &str) -> Result<(), HandlerError> {
+    fn schedule_tool_result_relocation(
+        &mut self,
+        tool_call_id: &str,
+        target_cwd: &JsString,
+    ) -> Result<(), HandlerError> {
         if self.pending_tool_result_relocations.contains_key(tool_call_id) {
             return Err(HandlerError::new(format!(
                 "Working-directory relocation already scheduled for tool call {tool_call_id}"
@@ -1084,7 +1088,7 @@ impl ExtensionContext {
         self.read(|state| state.has_ui)
     }
 
-    pub fn cwd(&self) -> Result<String, HandlerError> {
+    pub fn cwd(&self) -> Result<JsString, HandlerError> {
         self.read(|state| state.cwd.clone())
     }
 
@@ -1239,12 +1243,15 @@ impl ExtensionContext {
         self.callback(|state| Arc::clone(&state.get_system_prompt_fn))
     }
 
-    pub fn relocate(&self, target_cwd: &str) -> Result<BoxFuture<'static, Result<(), HandlerError>>, HandlerError> {
+    pub fn relocate(
+        &self,
+        target_cwd: &JsString,
+    ) -> Result<BoxFuture<'static, Result<(), HandlerError>>, HandlerError> {
         let handler = self.read(|state| Arc::clone(&state.relocate_handler))?;
         Ok(handler(target_cwd))
     }
 
-    pub fn relocate_after_tool_result(&self, tool_call_id: &str, target_cwd: &str) -> Result<(), HandlerError> {
+    pub fn relocate_after_tool_result(&self, tool_call_id: &str, target_cwd: &JsString) -> Result<(), HandlerError> {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.assert_active()?;
         state.schedule_tool_result_relocation(tool_call_id, target_cwd)
@@ -1606,7 +1613,7 @@ pub type ProjectTrustHandlerHandle = Arc<dyn ProjectTrustHandler + Send + Sync>;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourcesDiscoverEvent {
-    pub cwd: String,
+    pub cwd: JsString,
     pub reason: ResourcesDiscoverReason,
 }
 
