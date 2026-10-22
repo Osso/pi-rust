@@ -806,14 +806,26 @@ impl From<crate::core::sqlite::ControlDbError> for MultiAgentStoreError {
 
 /// Session-manager surface the store persists through.
 pub trait SessionPersistence {
-    fn metadata_control_db_path(&self) -> Option<String>;
-    fn session_file(&self) -> Option<String>;
+    fn metadata_control_db_path(&self) -> Option<JsString>;
+    fn session_file(&self) -> Option<JsString>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PersistenceTarget {
-    pub control_db_path: String,
-    pub session_path: String,
+    pub control_db_path: JsString,
+    pub session_path: JsString,
+}
+
+impl PersistenceTarget {
+    /// The control DB file name as `DatabaseSync` opens it.
+    fn bound_control_db_path(&self) -> String {
+        js_json::encode_node_utf8(&self.control_db_path)
+    }
+
+    /// The session path as node:sqlite binds it to a TEXT parameter.
+    fn bound_session_path(&self) -> String {
+        js_json::encode_node_utf8(&self.session_path)
+    }
 }
 
 #[derive(Clone, Default)]
@@ -1279,8 +1291,8 @@ impl MultiAgentStore {
                 false
             } else if let Some(target) = &persistence {
                 crate::core::session_control_db::get_multi_agent_mailbox_message_status(
-                    &target.control_db_path,
-                    &target.session_path,
+                    &target.bound_control_db_path(),
+                    &target.bound_session_path(),
                     &message.id.to_utf8_lossy(),
                 )?
                 .is_none()
@@ -1337,9 +1349,9 @@ impl MultiAgentStore {
         }
         if let Some(target) = self.get_persistence_target() {
             crate::core::session_control_db::consume_runtime_mailbox_message_by_store_ref(
-                &target.control_db_path,
+                &target.bound_control_db_path(),
                 &crate::core::session_control_db::RuntimeMailboxStoreRef {
-                    session_path: target.session_path.into(),
+                    session_path: target.session_path,
                     message_id: message_id.to_owned().into(),
                 },
             )?;
@@ -1362,8 +1374,8 @@ impl MultiAgentStore {
         }
         if let Some(target) = self.get_persistence_target()
             && !crate::core::session_control_db::mark_multi_agent_mailbox_message_failed(
-                &target.control_db_path,
-                &target.session_path,
+                &target.bound_control_db_path(),
+                &target.bound_session_path(),
                 &message_id.to_utf8_lossy(),
                 &error,
             )?
@@ -1821,7 +1833,7 @@ impl MultiAgentStore {
         self.set_persistence_session_manager(Some(session));
         self.lock().restore_generation += 1;
         let state = match self.get_persistence_target() {
-            Some(target) => read_multi_agent_state(&target.control_db_path, &target.session_path)?,
+            Some(target) => read_multi_agent_state(&target.bound_control_db_path(), &target.bound_session_path())?,
             None => None,
         };
         self.restore_state(state)
@@ -1886,7 +1898,12 @@ impl MultiAgentStore {
         };
         if let Some(target) = persistence {
             let value = js_json::to_value(&message).map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
-            upsert_multi_agent_mailbox_message(&target.control_db_path, &target.session_path, &message.id, &value)?;
+            upsert_multi_agent_mailbox_message(
+                &target.bound_control_db_path(),
+                &target.bound_session_path(),
+                &message.id,
+                &value,
+            )?;
         }
         Ok(())
     }
@@ -2014,8 +2031,8 @@ impl MultiAgentStore {
             })?;
             let value = serde_json::to_value(activity).map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
             update_multi_agent_agent_current_activity(
-                &target.control_db_path,
-                &target.session_path,
+                &target.bound_control_db_path(),
+                &target.bound_session_path(),
                 &current.id,
                 Some(&value),
                 updated_at,
@@ -2030,8 +2047,8 @@ impl MultiAgentStore {
                 ))
             })?;
             crate::core::session_control_db::update_multi_agent_agent_model(
-                &target.control_db_path,
-                &target.session_path,
+                &target.bound_control_db_path(),
+                &target.bound_session_path(),
                 &current.id,
                 model,
                 updated_at,
@@ -2041,8 +2058,8 @@ impl MultiAgentStore {
             let value =
                 serde_json::to_value(transcript).map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
             update_multi_agent_agent_transcript(
-                &target.control_db_path,
-                &target.session_path,
+                &target.bound_control_db_path(),
+                &target.bound_session_path(),
                 &current.id,
                 Some(&value),
                 updated_at,
@@ -2050,8 +2067,8 @@ impl MultiAgentStore {
         } else if let Some(slot) = &updates.slot {
             let value = serde_json::to_value(slot).map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
             update_multi_agent_agent_slot(
-                &target.control_db_path,
-                &target.session_path,
+                &target.bound_control_db_path(),
+                &target.bound_session_path(),
                 &current.id,
                 Some(&value),
                 updated_at,
@@ -2059,8 +2076,8 @@ impl MultiAgentStore {
         } else {
             let value = encode(&updates.last_activity)?;
             update_multi_agent_agent_activity(
-                &target.control_db_path,
-                &target.session_path,
+                &target.bound_control_db_path(),
+                &target.bound_session_path(),
                 &current.id,
                 Some(&value),
                 updated_at,
@@ -2249,8 +2266,11 @@ impl MultiAgentStore {
     fn allocate_counter(&self, counter_name: CounterName) -> Result<i64, MultiAgentStoreError> {
         let persistence = self.lock().persistence.clone();
         if let Some(target) = persistence {
-            let allocated =
-                allocate_multi_agent_counter(&target.control_db_path, &target.session_path, counter_name.into())?;
+            let allocated = allocate_multi_agent_counter(
+                &target.bound_control_db_path(),
+                &target.bound_session_path(),
+                counter_name.into(),
+            )?;
             let mut state = self.lock();
             state.update_counter(counter_name, allocated + 1);
             return Ok(allocated);

@@ -2577,12 +2577,12 @@ async fn thinking_phase_deadline_skips_observer_sessions() {
 struct FakePersistence;
 
 impl pi_coding_agent::core::multi_agent_store::SessionPersistence for FakePersistence {
-    fn metadata_control_db_path(&self) -> Option<String> {
-        Some("/tmp/pi-session-final/control.db".to_owned())
+    fn metadata_control_db_path(&self) -> Option<pi_js_compat::js_json::JsString> {
+        Some("/tmp/pi-session-final/control.db".into())
     }
 
-    fn session_file(&self) -> Option<String> {
-        Some("/tmp/pi-session-final/session.jsonl".to_owned())
+    fn session_file(&self) -> Option<pi_js_compat::js_json::JsString> {
+        Some("/tmp/pi-session-final/session.jsonl".into())
     }
 }
 

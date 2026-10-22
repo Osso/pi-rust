@@ -365,10 +365,11 @@ fn spool_callback_and_corruption_failures_cleanup_private_files() {
     let archived = call(&mut ts, json!({"op":"archive","db":db,"path":path}));
     let archived = archived.as_str().unwrap();
     let mut transient = None;
-    let result: Result<(), _> = with_seekable_session_transcript(path, |plain| {
-        transient = Some(std::path::PathBuf::from(plain));
-        assert_eq!(std::fs::metadata(plain).unwrap().permissions().mode() & 0o777, 0o600);
-        assert_eq!(std::fs::read(plain).unwrap(), bytes);
+    let result: Result<(), _> = with_seekable_session_transcript(&path.into(), |plain| {
+        let plain = plain.to_utf8_lossy();
+        transient = Some(std::path::PathBuf::from(&plain));
+        assert_eq!(std::fs::metadata(&plain).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(std::fs::read(&plain).unwrap(), bytes);
         Err(SessionManagerError::new("callback failed"))
     });
     assert_eq!(result.unwrap_err().to_string(), "callback failed");
@@ -378,7 +379,7 @@ fn spool_callback_and_corruption_failures_cleanup_private_files() {
     for corrupt in [vec![0, 1, 2, 3], compressed[..compressed.len() / 2].to_vec()] {
         std::fs::write(archived, &corrupt).unwrap();
         let before = transcript_temporaries();
-        assert!(with_seekable_session_transcript(archived, |_| Ok(())).is_err());
+        assert!(with_seekable_session_transcript(&archived.into(), |_| Ok(())).is_err());
         assert!(transcript_temporaries().is_subset(&before));
         assert!(!std::path::Path::new(path).exists());
     }
@@ -399,7 +400,7 @@ fn storage_worker_hard90second_timeout_kills_and_reaps_before_cleanup() {
     );
     let before = transcript_temporaries();
     let start = std::time::Instant::now();
-    let result = with_seekable_session_transcript(fifo.to_str().unwrap(), |_| Ok(()));
+    let result = with_seekable_session_transcript(&fifo.to_str().unwrap().into(), |_| Ok(()));
     assert!(
         result
             .unwrap_err()

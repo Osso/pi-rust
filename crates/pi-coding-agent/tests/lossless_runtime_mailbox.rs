@@ -20,10 +20,10 @@ fn enqueue_retry_restore_retains_raw_payload_and_rejects_replacement_collision()
     assert_eq!(state.mailbox_messages[0].get("body"), input.message.get("body"));
     struct Persistence(String);
     impl pi_coding_agent::core::multi_agent_store::SessionPersistence for Persistence {
-        fn metadata_control_db_path(&self) -> Option<String> {
-            Some(self.0.clone())
+        fn metadata_control_db_path(&self) -> Option<pi_js_compat::js_json::JsString> {
+            Some(self.0.as_str().into())
         }
-        fn session_file(&self) -> Option<String> {
+        fn session_file(&self) -> Option<pi_js_compat::js_json::JsString> {
             Some("/fixture/s".into())
         }
     }
