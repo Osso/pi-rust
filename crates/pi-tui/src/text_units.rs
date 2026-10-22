@@ -47,3 +47,27 @@ pub fn ascii_protocol(data: &JsString) -> Option<String> {
         .map(|unit| u8::try_from(*unit).ok().filter(u8::is_ascii).map(char::from))
         .collect()
 }
+
+/// Repeat native units, including pairs formed across repetition boundaries.
+pub fn repeat(text: &JsString, count: usize) -> JsString {
+    JsString::from_utf16(text.units().repeat(count))
+}
+
+/// Reverse units (not scalars) to reuse the shared linear-time substring search.
+pub fn rfind(text: &JsString, needle: &JsString) -> Option<usize> {
+    if needle.len() > text.len() {
+        return None;
+    }
+    let reversed = JsString::from_utf16(text.units().iter().rev().copied().collect());
+    let pattern = JsString::from_utf16(needle.units().iter().rev().copied().collect());
+    reversed.find(pattern).map(|index| text.len() - index - needle.len())
+}
+
+/// Remove one literal marker, preserving every unmatched native unit.
+pub fn remove_first(text: &JsString, pattern: impl Into<JsString>) -> JsString {
+    let pattern = pattern.into();
+    let Some(index) = text.find(&pattern) else {
+        return text.clone();
+    };
+    text.slice(0, index) + text.slice(index + pattern.len(), text.len())
+}

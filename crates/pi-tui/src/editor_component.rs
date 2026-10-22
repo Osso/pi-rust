@@ -3,6 +3,8 @@
 //! The source interface exposes optional capabilities through optional methods.
 //! Rust models them as default-implemented trait methods.
 
+use pi_js_compat::js_json::JsString;
+
 use std::rc::Rc;
 
 use crate::autocomplete::AutocompleteProvider;
@@ -12,24 +14,24 @@ use crate::tui::Component;
 
 /// Custom editor implementation accepted by the core application.
 pub trait EditorComponent: Component {
-    fn get_text(&self) -> String;
+    fn get_text(&self) -> JsString;
 
-    fn set_text(&mut self, text: &str);
+    fn set_text(&mut self, text: &JsString);
 
     /// Rust-only: handles `data` and returns the app callbacks it triggered,
     /// for hosts that hold the editor in a `RefCell` and must run callbacks that
     /// re-enter the editor after releasing the borrow. Editors without
     /// re-entrant callbacks handle the input directly.
-    fn handle_input_deferred(&mut self, data: &str) -> Vec<Rc<dyn Fn()>> {
+    fn handle_input_deferred(&mut self, data: &JsString) -> Vec<Rc<dyn Fn()>> {
         self.handle_input(data);
         Vec::new()
     }
 
-    fn add_to_history(&mut self, _text: &str) {}
+    fn add_to_history(&mut self, _text: &JsString) {}
 
-    fn insert_text_at_cursor(&mut self, _text: &str) {}
+    fn insert_text_at_cursor(&mut self, _text: &JsString) {}
 
-    fn get_expanded_text(&self) -> String {
+    fn get_expanded_text(&self) -> JsString {
         self.get_text()
     }
 
@@ -58,23 +60,23 @@ pub trait EditorComponent: Component {
 }
 
 impl EditorComponent for crate::components::editor::Editor {
-    fn get_text(&self) -> String {
+    fn get_text(&self) -> JsString {
         crate::components::editor::Editor::get_text(self)
     }
 
-    fn set_text(&mut self, text: &str) {
+    fn set_text(&mut self, text: &JsString) {
         crate::components::editor::Editor::set_text(self, text);
     }
 
-    fn add_to_history(&mut self, text: &str) {
+    fn add_to_history(&mut self, text: &JsString) {
         crate::components::editor::Editor::add_to_history(self, text);
     }
 
-    fn insert_text_at_cursor(&mut self, text: &str) {
+    fn insert_text_at_cursor(&mut self, text: &JsString) {
         crate::components::editor::Editor::insert_text_at_cursor(self, text);
     }
 
-    fn get_expanded_text(&self) -> String {
+    fn get_expanded_text(&self) -> JsString {
         crate::components::editor::Editor::get_expanded_text(self)
     }
 

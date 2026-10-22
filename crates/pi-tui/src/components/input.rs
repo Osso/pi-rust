@@ -6,7 +6,7 @@
 
 use std::rc::Rc;
 
-use crate::text_units::{clear, grapheme_indices, graphemes, insert, truncate};
+use crate::text_units::{clear, grapheme_indices, graphemes, insert, remove_first, truncate};
 use pi_js_compat::js_json::JsString;
 
 use crate::keybindings::get_keybindings;
@@ -271,7 +271,7 @@ impl Input {
             self.is_in_paste = true;
             clear(&mut self.paste_buffer);
         }
-        let data = replace_first(data, PASTE_START);
+        let data = remove_first(data, PASTE_START);
         if !self.is_in_paste {
             return;
         }
@@ -409,13 +409,6 @@ fn clean_pasted_text(pasted_text: &JsString) -> JsString {
         .replace("\r", "")
         .replace("\n", "")
         .replace("\t", "    ")
-}
-
-fn replace_first(data: &JsString, pattern: &str) -> JsString {
-    let Some(index) = data.find(pattern) else {
-        return data.clone();
-    };
-    data.slice(0, index) + data.slice(index + pattern.len(), data.len())
 }
 
 impl Component for Input {

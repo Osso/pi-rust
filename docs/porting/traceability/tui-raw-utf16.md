@@ -217,3 +217,21 @@ unpaired first unit during scalar mark classification merged `abc` + high-surrog
 combining-mark into one word. Classification now inspects the actual first decoded
 unit (an unpaired unit is not a mark); native segments, inside-pair positions and raw
 callbacks match frozen source GREEN. Dictionary segmentation gap unchanged.
+
+## Editor / EditorComponent (staged native representation)
+
+Editor state lines/cursors, history/search drafts, paste registry/buffers, undo/yank,
+working/prompt strings, autocomplete snapshots, TextSegment/TextChunk values and all
+render/layout lines now retain native units. Public textual callbacks and EditorComponent
+inputs/outputs are native; EditorFixedCell::update receives native content. Whole editor
+regex matching/replacement uses the single shared JsRegex authority. No scalar render
+cache, constructor encoding, scalar-boundary snap, or compatibility rendering path.
+Native helpers implement repeat, literal marker removal and linear-time reverse unit
+search; Input shares the marker-removal helper (126 source cases still GREEN).
+
+Before production changes, an isolated read-only Rust `797efcee` snapshot ran the new
+`raw_editor` test against frozen TS: setText😀 returned byte cursor4 versus source unit
+cursor2 (behavioral RED). The actual current Editor/EditorComponent plus production
+renderer/dependencies compile in the module-isolated harness, and native cursor/render
+source JSON is GREEN. Expanded raw high/low/history/paste/inside-pair/editor narrow-scroll
+proof remains pending; this is not whole-module acceptance. No TS fixes/deltas applied.

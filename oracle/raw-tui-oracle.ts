@@ -39,7 +39,9 @@ async function main(): Promise<void> {
 					states.push({ value: input.getValue(), cursor: (input as unknown as { cursor: number }).cursor, lines: input.render(request.width) });
 				}
 				output = { states, submitted };
-			} else if (request.operation === "word_navigation") {
+			} else if (request.operation === "editor_set") {
+                output = await captureEditorSet(source,native(request.units),request.width);
+            } else if (request.operation === "word_navigation") {
                 output = await captureWordNavigation(source,native(request.units),utils);
             } else if (request.operation === "autocomplete_commands") {
                 output = await captureAutocompleteCommands(source,native(request.units));
@@ -284,4 +286,19 @@ async function captureWordNavigation(source: string, raw: string, utils: { getWo
     const backward = module.findWordBackward(raw,1,options);
     const forward = module.findWordForward(raw,1,options);
     return [segments,positions,[backward,forward,seen,atomic]];
+}
+
+async function captureEditorSet(source: string, raw: string, width: number): Promise<unknown> {
+    const editorApi = await import(pathToFileURL(path.join(source, "components/editor.ts")).href);
+    const tuiApi = await import(pathToFileURL(path.join(source, "tui.ts")).href);
+    const terminal = new RawTerminal();
+    terminal.rows = 24;
+    terminal.columns = 80;
+    const tui = new tuiApi.TUI(terminal);
+    const identity = (value: string): string => value;
+    const theme = { borderColor: identity, selectList: { selectedPrefix: identity, selectedText: identity, description: identity, scrollInfo: identity, noMatch: identity } };
+    const editor = new editorApi.Editor(tui,theme);
+    editor.setText(raw);
+    const cursor = editor.getCursor();
+    return [editor.getText(),editor.getExpandedText(),cursor.line,cursor.col,editor.render(width)];
 }

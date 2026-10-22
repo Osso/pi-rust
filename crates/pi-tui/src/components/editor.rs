@@ -14,8 +14,9 @@ use std::rc::Rc;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
-use regex::Regex;
-use unicode_segmentation::UnicodeSegmentation;
+use crate::text_units::{clear, grapheme_indices, graphemes, remove_first, repeat, rfind};
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_regex::{JsCaptures, JsRegex as Regex};
 
 use crate::autocomplete::{AutocompleteItem, AutocompleteOptions, AutocompleteProvider, AutocompleteSuggestions};
 use crate::components::loader::{
@@ -41,17 +42,17 @@ const ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS: u64 = 20;
 const DEFAULT_AUTOCOMPLETE_TRIGGER_CHARACTERS: [&str; 2] = ["@", "#"];
 const HISTORY_SEARCH_MAX_RENDERED_ROWS: usize = 20;
 
-/// One grapheme or word segment with its byte offset in the source line.
+/// One grapheme or word segment with its UTF-16 unit offset in the source line.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TextSegment {
-    pub text: String,
+    pub text: JsString,
     pub index: usize,
 }
 
-/// One word-wrap chunk with byte offsets into the original line.
+/// One word-wrap chunk with UTF-16 unit offsets into the original line.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TextChunk {
-    pub text: String,
+    pub text: JsString,
     pub start_index: usize,
     pub end_index: usize,
 }
@@ -67,7 +68,7 @@ pub struct EditorTheme {
 impl EditorTheme {
     /// Identity theme used by tests and unstyled callers.
     pub fn plain() -> Self {
-        let identity: StyleFn = Rc::new(|text: &str| text.to_string());
+        let identity: StyleFn = Rc::new(|text: &JsString| text.clone());
         Self {
             border_color: identity,
             prompt_prefix: None,
@@ -99,7 +100,7 @@ impl std::error::Error for EditorError {}
 pub trait EditorFixedCell {
     fn place(&self, row: i64, col: i64);
     fn clear(&self);
-    fn update(&self, value: &str) -> bool;
+    fn update(&self, value: &JsString) -> bool;
 }
 
 impl EditorFixedCell for FixedCell {
@@ -111,7 +112,7 @@ impl EditorFixedCell for FixedCell {
         FixedCell::clear(self);
     }
 
-    fn update(&self, value: &str) -> bool {
+    fn update(&self, value: &JsString) -> bool {
         FixedCell::update(self, value)
     }
 }
@@ -139,7 +140,7 @@ impl EditorHost for Rc<TuiRenderer> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct EditorState {
-    lines: Vec<String>,
+    lines: Vec<JsString>,
     cursor_line: usize,
     cursor_col: usize,
 }
@@ -147,7 +148,7 @@ struct EditorState {
 impl EditorState {
     fn empty() -> Self {
         Self {
-            lines: vec![String::new()],
+            lines: vec![JsString::default()],
             cursor_line: 0,
             cursor_col: 0,
         }
@@ -157,13 +158,13 @@ impl EditorState {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct EditorSnapshot {
     state: EditorState,
-    pastes: BTreeMap<i64, String>,
+    pastes: BTreeMap<i64, JsString>,
     paste_counter: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct LayoutLine {
-    text: String,
+    text: JsString,
     has_cursor: bool,
     cursor_pos: Option<usize>,
 }
@@ -203,7 +204,7 @@ enum CursorPlacement {
 struct PendingAutocomplete {
     request_id: u64,
     controller: tokio_util::sync::CancellationToken,
-    snapshot_text: String,
+    snapshot_text: JsString,
     snapshot_line: usize,
     snapshot_col: usize,
     options: AutocompleteOptions,
@@ -225,7 +226,7 @@ struct AutocompleteRequestOptions {
 }
 
 /// Editor text callback.
-pub type EditorCallback = Rc<dyn Fn(&str)>;
+pub type EditorCallback = Rc<dyn Fn(&JsString)>;
 
 /// The prompt editor.
 pub struct Editor {
@@ -234,11 +235,11 @@ pub struct Editor {
     tui: Rc<dyn EditorHost>,
     theme: EditorTheme,
     padding_x: usize,
-    prompt_prefix: String,
+    prompt_prefix: JsString,
     prompt_prefix_fn: StyleFn,
     prompt_cell: Rc<dyn EditorFixedCell>,
     working: bool,
-    working_frames: Vec<String>,
+    working_frames: Vec<JsString>,
     working_interval_ms: u64,
     working_frame: usize,
     working_next_frame_at: Option<Instant>,
@@ -248,12 +249,12 @@ pub struct Editor {
     scroll_offset: usize,
     border_color: StyleFn,
     autocomplete_provider: Option<Rc<dyn AutocompleteProvider>>,
-    autocomplete_trigger_characters: Vec<String>,
+    autocomplete_trigger_characters: Vec<JsString>,
     autocomplete_trigger_pattern: Regex,
     autocomplete_debounce_pattern: Regex,
     autocomplete_list: Option<SelectList>,
     autocomplete_state: Option<AutocompleteState>,
-    autocomplete_prefix: String,
+    autocomplete_prefix: JsString,
     autocomplete_max_visible: usize,
     autocomplete_abort: Option<tokio_util::sync::CancellationToken>,
     autocomplete_start_token: u64,
@@ -261,14 +262,14 @@ pub struct Editor {
     autocomplete_pending: Option<PendingAutocomplete>,
     autocomplete_cancelled: Vec<PendingAutocomplete>,
     autocomplete_deferred: Option<DeferredAutocomplete>,
-    pastes: BTreeMap<i64, String>,
+    pastes: BTreeMap<i64, JsString>,
     paste_counter: i64,
-    paste_buffer: String,
+    paste_buffer: JsString,
     is_in_paste: bool,
-    history: Vec<String>,
+    history: Vec<JsString>,
     history_index: i64,
     history_draft: Option<EditorState>,
-    history_search_query: String,
+    history_search_query: JsString,
     history_search_index: i64,
     history_search_draft: Option<EditorState>,
     kill_ring: KillRing,
@@ -287,11 +288,11 @@ impl Editor {
         let prompt_prefix_fn = theme
             .prompt_prefix
             .clone()
-            .unwrap_or_else(|| Rc::new(|_| String::new()));
+            .unwrap_or_else(|| Rc::new(|_| JsString::default()));
         let prompt_prefix = theme
             .prompt_prefix
             .as_ref()
-            .map(|prefix| prefix("›"))
+            .map(|prefix| prefix(&JsString::from("›")))
             .unwrap_or_default();
         let prompt_cell = tui.create_fixed_cell();
         let padding_x = options.padding_x.filter(|padding| *padding != usize::MAX).unwrap_or(0);
@@ -317,27 +318,27 @@ impl Editor {
             screen_origin: None,
             last_width: 80,
             scroll_offset: 0,
-            border_color: Rc::new(|text: &str| text.to_string()),
+            border_color: Rc::new(|text: &JsString| text.clone()),
             autocomplete_provider: None,
             autocomplete_trigger_characters: DEFAULT_AUTOCOMPLETE_TRIGGER_CHARACTERS
                 .iter()
-                .map(|value| (*value).to_string())
+                .map(|value| JsString::from(*value))
                 .collect(),
             autocomplete_trigger_pattern: build_trigger_pattern(
                 &DEFAULT_AUTOCOMPLETE_TRIGGER_CHARACTERS
                     .iter()
-                    .map(|value| (*value).to_string())
+                    .map(|value| JsString::from(*value))
                     .collect::<Vec<_>>(),
             ),
             autocomplete_debounce_pattern: build_debounce_pattern(
                 &DEFAULT_AUTOCOMPLETE_TRIGGER_CHARACTERS
                     .iter()
-                    .map(|value| (*value).to_string())
+                    .map(|value| JsString::from(*value))
                     .collect::<Vec<_>>(),
             ),
             autocomplete_list: None,
             autocomplete_state: None,
-            autocomplete_prefix: String::new(),
+            autocomplete_prefix: JsString::default(),
             autocomplete_max_visible,
             autocomplete_abort: None,
             autocomplete_start_token: 0,
@@ -347,12 +348,12 @@ impl Editor {
             autocomplete_deferred: None,
             pastes: BTreeMap::new(),
             paste_counter: 0,
-            paste_buffer: String::new(),
+            paste_buffer: JsString::default(),
             is_in_paste: false,
             history: Vec::new(),
             history_index: -1,
             history_draft: None,
-            history_search_query: String::new(),
+            history_search_query: JsString::default(),
             history_search_index: -1,
             history_search_draft: None,
             kill_ring: KillRing::new(),
@@ -428,14 +429,14 @@ impl Editor {
             .is_some_and(|frames| frames.iter().any(|frame| visible_width(frame) != 1))
         {
             return Err(EditorError(
-                "Editor working indicator frames must occupy exactly one terminal cell".to_string(),
+                "Editor working indicator frames must occupy exactly one terminal cell".to_owned(),
             ));
         }
         self.working_frames = match frames {
             Some(frames) => frames,
             None => DEFAULT_PROMPT_FRAMES
                 .iter()
-                .map(|frame| (self.prompt_prefix_fn)(frame))
+                .map(|frame| (self.prompt_prefix_fn)(&JsString::from(*frame)))
                 .collect(),
         };
         self.working_interval_ms = options
@@ -493,13 +494,16 @@ impl Editor {
         self.working_next_frame_at = Some(Instant::now() + Duration::from_millis(self.working_interval_ms));
     }
 
-    fn get_working_prompt_frame(&self) -> &str {
-        self.working_frames.get(self.working_frame).map_or(" ", String::as_str)
+    fn get_working_prompt_frame(&self) -> JsString {
+        self.working_frames
+            .get(self.working_frame)
+            .cloned()
+            .unwrap_or_else(|| JsString::from(" "))
     }
 
-    fn get_prompt_text(&self) -> String {
+    fn get_prompt_text(&self) -> JsString {
         if self.working {
-            self.get_working_prompt_frame().to_string()
+            self.get_working_prompt_frame().clone()
         } else {
             self.prompt_prefix.clone()
         }
@@ -511,10 +515,10 @@ impl Editor {
         padding_x: usize,
         visible_line_index: usize,
         row: usize,
-    ) -> (String, Option<(i64, i64)>) {
+    ) -> (JsString, Option<(i64, i64)>) {
         let has_prompt = prompt_prefix_width > 0 && self.scroll_offset + visible_line_index == 0;
         if !has_prompt {
-            return (" ".repeat(prompt_prefix_width), None);
+            return (JsString::from(" ".repeat(prompt_prefix_width)), None);
         }
         let prompt_text = self.get_prompt_text();
         let text = prompt_text.clone() + &" ".repeat(prompt_prefix_width.saturating_sub(visible_width(&prompt_text)));
@@ -537,28 +541,29 @@ impl Editor {
         self.prompt_cell.update(&self.get_prompt_text());
     }
 
-    pub fn add_to_history(&mut self, text: &str) {
+    pub fn add_to_history(&mut self, text: impl Into<JsString>) {
+        let text = &text.into();
         let trimmed = text.trim();
         if trimmed.is_empty() {
             return;
         }
-        if self.history.first().is_some_and(|first| first == trimmed) {
+        if self.history.first().is_some_and(|first| *first == trimmed) {
             return;
         }
-        self.history.insert(0, trimmed.to_string());
+        self.history.insert(0, trimmed.clone());
         if self.history.len() > 100 {
             self.history.pop();
         }
     }
 
-    pub fn get_history(&self) -> Vec<String> {
+    pub fn get_history(&self) -> Vec<JsString> {
         self.history.clone()
     }
 
-    pub fn set_history(&mut self, history: Vec<String>) {
+    pub fn set_history(&mut self, history: Vec<JsString>) {
         self.history = history
             .into_iter()
-            .map(|entry| entry.trim().to_string())
+            .map(|entry| entry.trim().clone())
             .filter(|entry| !entry.is_empty())
             .take(100)
             .collect();
@@ -603,7 +608,7 @@ impl Editor {
                 self.scroll_offset = 0;
                 self.emit_change();
             } else {
-                self.set_text_internal("", CursorPlacement::End);
+                self.set_text_internal(&JsString::default(), CursorPlacement::End);
             }
         } else {
             let entry = self
@@ -690,7 +695,7 @@ impl Editor {
         } else {
             None
         };
-        self.history_search_query.clear();
+        clear(&mut self.history_search_query);
         self.history_search_index = -1;
         self.history_search_draft = None;
         if let Some(selected) = selected {
@@ -715,12 +720,12 @@ impl Editor {
         if self.history_search_draft.is_none() {
             return;
         }
-        self.history_search_query.clear();
+        clear(&mut self.history_search_query);
         self.history_search_index = -1;
         self.history_search_draft = None;
     }
 
-    fn handle_history_search_input(&mut self, data: &str, keybindings: &KeybindingsManager) -> bool {
+    fn handle_history_search_input(&mut self, data: &JsString, keybindings: &KeybindingsManager) -> bool {
         if keybindings.matches(data, "tui.editor.historySearch") {
             self.start_or_step_history_search();
             return true;
@@ -737,13 +742,14 @@ impl Editor {
             return true;
         }
         if keybindings.matches(data, "tui.editor.deleteCharBackward") {
-            self.history_search_query.pop();
+            let end = self.history_search_query.len().saturating_sub(1);
+            self.history_search_query = self.history_search_query.slice(0, end);
             self.update_history_search(0);
             return true;
         }
         let printable = decode_printable_key(data).or_else(|| {
-            if data.chars().next().is_some_and(|character| character >= ' ') {
-                Some(data.to_string())
+            if data.units().first().is_some_and(|unit| *unit >= 32) {
+                Some(data.clone())
             } else {
                 None
             }
@@ -757,9 +763,9 @@ impl Editor {
         false
     }
 
-    fn history_search_preview_line(&self, entry: &str) -> String {
-        let lines: Vec<&str> = entry.split('\n').map(|line| line.trim_end_matches('\r')).collect();
-        let displayable: Vec<&str> = lines
+    fn history_search_preview_line(&self, entry: &JsString) -> JsString {
+        let lines: Vec<JsString> = entry.replace("\r\n", "\n").split('\n').collect();
+        let displayable: Vec<JsString> = lines
             .into_iter()
             .filter(|line| self.is_history_search_preview_line(line))
             .collect();
@@ -767,56 +773,45 @@ impl Editor {
         let preview = displayable
             .iter()
             .find(|line| line.to_lowercase().contains(&query))
-            .copied()
-            .or_else(|| displayable.first().copied())
-            .unwrap_or("");
-        preview.trim_start().to_string()
+            .cloned()
+            .or_else(|| displayable.first().cloned())
+            .unwrap_or_default();
+        preview.trim_start().clone()
     }
 
-    fn is_history_search_preview_line(&self, line: &str) -> bool {
+    fn is_history_search_preview_line(&self, line: &JsString) -> bool {
         let trimmed = line.trim();
         !trimmed.is_empty() && trimmed != "```"
     }
 
-    fn highlight_history_search_match(&self, text: &str) -> String {
+    fn highlight_history_search_match(&self, text: &JsString) -> JsString {
         let query = &self.history_search_query;
         if query.is_empty() {
-            return text.to_string();
+            return text.clone();
         }
         let lower = text.to_lowercase();
         let Some(match_index) = lower.find(&query.to_lowercase()) else {
-            return text.to_string();
+            return text.clone();
         };
-        if !text.is_char_boundary(match_index) {
-            return text.to_string();
-        }
         let end = match_index + query.len();
-        if end > text.len() || !text.is_char_boundary(end) {
-            return text.to_string();
-        }
-        format!(
-            "{}\x1b[7m{}\x1b[27m{}",
-            &text[..match_index],
-            &text[match_index..end],
-            &text[end..]
-        )
+        text.slice(0, match_index) + "\x1b[7m" + text.slice(match_index, end) + "\x1b[27m" + text.slice(end, text.len())
     }
 
-    fn render_history_search_lines(&self, width: usize) -> Vec<String> {
+    fn render_history_search_lines(&self, width: usize) -> Vec<JsString> {
         let matches = self.get_history_search_matches();
         let match_position = matches
             .iter()
             .position(|index| *index as i64 == self.history_search_index)
             .map(|index| index as i64)
             .unwrap_or(-1);
-        let counter = format!(
+        let counter = JsString::from(format!(
             "{}/{}",
             if match_position < 0 { 0 } else { match_position + 1 },
             matches.len()
-        );
+        ));
         if matches.is_empty() {
             let available = width.saturating_sub(counter.len() + 1);
-            let line = format!("{} {}", truncate_to_width_with("> ", available, "...", true), counter);
+            let line = truncate_to_width_with("> ", available, "...", true) + " " + &counter;
             return vec![truncate_to_width(&line, width)];
         }
         let start = 0.max(match_position.min(matches.len() as i64 - HISTORY_SEARCH_MAX_RENDERED_ROWS as i64)) as usize;
@@ -833,27 +828,27 @@ impl Editor {
             let suffix = if index as i64 == match_position {
                 counter.clone()
             } else {
-                String::new()
+                JsString::default()
             };
             let available = width.saturating_sub(suffix.len() + usize::from(!suffix.is_empty()));
             let first_line =
-                self.history_search_preview_line(self.history.get(history_index).map_or("", String::as_str));
-            let preview = format!("{marker} {}", self.highlight_history_search_match(&first_line));
+                self.history_search_preview_line(&self.history.get(history_index).cloned().unwrap_or_default());
+            let preview = JsString::from(marker) + " " + self.highlight_history_search_match(&first_line);
             let preview_cell = truncate_to_width_with(&preview, available, "...", true);
             let line = if suffix.is_empty() {
                 truncate_to_width_with(&preview, width, "...", true)
             } else {
-                format!("{preview_cell} {suffix}")
+                preview_cell + " " + &suffix
             };
             lines.push(truncate_to_width(&line, width));
         }
         lines
     }
 
-    fn set_text_internal(&mut self, text: &str, placement: CursorPlacement) {
-        self.state.lines = text.split('\n').map(str::to_string).collect();
+    fn set_text_internal(&mut self, text: &JsString, placement: CursorPlacement) {
+        self.state.lines = text.split('\n').collect();
         if self.state.lines.is_empty() {
-            self.state.lines.push(String::new());
+            self.state.lines.push(JsString::default());
         }
         self.state.cursor_line = if placement == CursorPlacement::Start {
             0
@@ -876,11 +871,11 @@ impl Editor {
         }
     }
 
-    pub fn get_text(&self) -> String {
-        self.state.lines.join("\n")
+    pub fn get_text(&self) -> JsString {
+        JsString::join(self.state.lines.iter(), "\n")
     }
 
-    pub fn get_lines(&self) -> Vec<String> {
+    pub fn get_lines(&self) -> Vec<JsString> {
         self.state.lines.clone()
     }
 
@@ -888,29 +883,23 @@ impl Editor {
         (self.state.cursor_line, self.state.cursor_col)
     }
 
-    pub fn get_expanded_text(&self) -> String {
-        self.expand_paste_markers(&self.state.lines.join("\n"))
+    pub fn get_expanded_text(&self) -> JsString {
+        self.expand_paste_markers(&JsString::join(self.state.lines.iter(), "\n"))
     }
 
-    fn expand_paste_markers(&self, text: &str) -> String {
-        let mut result = text.to_string();
+    fn expand_paste_markers(&self, text: &JsString) -> JsString {
+        let mut result = text.clone();
         for (paste_id, content) in &self.pastes {
-            let pattern = format!(
-                r"\[paste #{}( (\+\d+ lines|\d+ chars))?\]",
-                regex::escape(&paste_id.to_string())
-            );
-            let Ok(regex) = Regex::new(&pattern) else {
-                continue;
-            };
+            let pattern = format!(r"\[paste #{}( (\+\d+ lines|\d+ chars))?\]", paste_id.to_string());
+            let regex = Regex::new(&pattern).expect("paste expansion pattern");
             let content = content.clone();
-            result = regex
-                .replace_all(&result, move |_: &regex::Captures<'_>| content.clone())
-                .into_owned();
+            result = regex.replace_all_with(&result, move |_: &JsCaptures| content.clone());
         }
         result
     }
 
-    pub fn set_text(&mut self, text: &str) {
+    pub fn set_text(&mut self, text: impl Into<JsString>) {
+        let text = &text.into();
         self.cancel_autocomplete();
         self.last_action = None;
         self.exit_history_browsing();
@@ -924,7 +913,8 @@ impl Editor {
         self.set_text_internal(&normalized, CursorPlacement::End);
     }
 
-    pub fn insert_text_at_cursor(&mut self, text: &str) {
+    pub fn insert_text_at_cursor(&mut self, text: impl Into<JsString>) {
+        let text = &text.into();
         if text.is_empty() {
             return;
         }
@@ -936,29 +926,29 @@ impl Editor {
         self.insert_text_at_cursor_internal(text);
     }
 
-    fn insert_text_at_cursor_internal(&mut self, text: &str) {
+    fn insert_text_at_cursor_internal(&mut self, text: &JsString) {
         if text.is_empty() {
             return;
         }
         let normalized = normalize_text(text);
-        let inserted_lines: Vec<&str> = normalized.split('\n').collect();
+        let inserted_lines: Vec<JsString> = normalized.split('\n').collect();
         let current_line = self.state.lines[self.state.cursor_line].clone();
-        let before = &current_line[..self.state.cursor_col];
-        let after = &current_line[self.state.cursor_col..];
+        let before = current_line.slice(0, self.state.cursor_col);
+        let after = current_line.slice(self.state.cursor_col, current_line.len());
         if inserted_lines.len() == 1 {
-            self.state.lines[self.state.cursor_line] = format!("{before}{normalized}{after}");
+            self.state.lines[self.state.cursor_line] = before.clone() + &normalized + &after;
             let col = self.state.cursor_col + normalized.len();
             self.set_cursor_col(col);
         } else {
-            let mut lines: Vec<String> = self.state.lines[..self.state.cursor_line].to_vec();
-            lines.push(format!("{before}{}", inserted_lines[0]));
+            let mut lines: Vec<JsString> = self.state.lines[..self.state.cursor_line].to_vec();
+            lines.push(before.clone() + &inserted_lines[0]);
             lines.extend(
                 inserted_lines[1..inserted_lines.len() - 1]
                     .iter()
-                    .map(|line| (*line).to_string()),
+                    .map(|line| (*line).clone()),
             );
-            let last = inserted_lines[inserted_lines.len() - 1];
-            lines.push(format!("{last}{after}"));
+            let last = &inserted_lines[inserted_lines.len() - 1];
+            lines.push(last.clone() + &after);
             lines.extend_from_slice(&self.state.lines[self.state.cursor_line + 1..]);
             self.state.lines = lines;
             self.state.cursor_line += inserted_lines.len() - 1;
@@ -967,7 +957,7 @@ impl Editor {
         self.emit_change();
     }
 
-    fn insert_character(&mut self, character: &str, skip_undo_coalescing: bool) {
+    fn insert_character(&mut self, character: &JsString, skip_undo_coalescing: bool) {
         self.exit_history_browsing();
         if !skip_undo_coalescing {
             if is_whitespace_char(character) || self.last_action != Some(LastAction::TypeWord) {
@@ -976,16 +966,16 @@ impl Editor {
             self.last_action = Some(LastAction::TypeWord);
         }
         let line = self.state.lines[self.state.cursor_line].clone();
-        let before = &line[..self.state.cursor_col];
-        let after = &line[self.state.cursor_col..];
-        self.state.lines[self.state.cursor_line] = format!("{before}{character}{after}");
+        let before = line.slice(0, self.state.cursor_col);
+        let after = line.slice(self.state.cursor_col, line.len());
+        self.state.lines[self.state.cursor_line] = before.clone() + character + &after;
         let col = self.state.cursor_col + character.len();
         self.set_cursor_col(col);
         self.emit_change();
         self.update_autocomplete_after_insert(character);
     }
 
-    fn update_autocomplete_after_insert(&mut self, character: &str) {
+    fn update_autocomplete_after_insert(&mut self, character: &JsString) {
         if self.autocomplete_state.is_none() {
             if character == "/" && self.is_at_start_of_message() {
                 self.try_trigger_autocomplete(false);
@@ -995,16 +985,15 @@ impl Editor {
                 .any(|trigger| trigger == character)
             {
                 let current_line = &self.state.lines[self.state.cursor_line];
-                let before = &current_line[..self.state.cursor_col];
-                let chars: Vec<char> = before.chars().collect();
-                let before_symbol = chars.get(chars.len().saturating_sub(2)).copied();
-                if chars.len() == 1 || before_symbol == Some(' ') || before_symbol == Some('\t') {
+                let before = current_line.slice(0, self.state.cursor_col);
+                let before_symbol = before.units().get(before.len().saturating_sub(2)).copied();
+                if before.len() == 1 || matches!(before_symbol, Some(32 | 9)) {
                     self.try_trigger_autocomplete(false);
                 }
             } else if is_word_character(character) {
                 let current_line = &self.state.lines[self.state.cursor_line];
-                let before = &current_line[..self.state.cursor_col];
-                if self.is_in_slash_command_context(before) || self.autocomplete_trigger_pattern.is_match(before) {
+                let before = current_line.slice(0, self.state.cursor_col);
+                if self.is_in_slash_command_context(&before) || self.autocomplete_trigger_pattern.is_match(&before) {
                     self.try_trigger_autocomplete(false);
                 }
             }
@@ -1013,7 +1002,7 @@ impl Editor {
         }
     }
 
-    fn handle_paste(&mut self, pasted_text: &str) {
+    fn handle_paste(&mut self, pasted_text: &JsString) {
         self.cancel_autocomplete();
         self.exit_history_browsing();
         self.last_action = None;
@@ -1021,24 +1010,30 @@ impl Editor {
 
         let decoded = decode_csi_u_ctrl_letters(pasted_text);
         let clean_text = normalize_text(&decoded);
-        let mut filtered: String = clean_text
-            .chars()
-            .filter(|character| *character == '\n' || *character as u32 >= 32)
-            .collect();
-
-        if filtered.starts_with(['/', '~', '.']) {
+        let mut filtered = JsString::from_utf16(
+            clean_text
+                .units()
+                .iter()
+                .copied()
+                .filter(|unit| *unit == 10 || *unit >= 32)
+                .collect(),
+        );
+        if filtered
+            .units()
+            .first()
+            .is_some_and(|unit| matches!(unit, 47 | 126 | 46))
+        {
             let current_line = &self.state.lines[self.state.cursor_line];
-            let before = if self.state.cursor_col > 0 {
-                current_line[..self.state.cursor_col].chars().next_back()
-            } else {
-                None
-            };
-            if before.is_some_and(|character| character.is_ascii_alphanumeric() || character == '_') {
-                filtered.insert(0, ' ');
+            let before = self
+                .state
+                .cursor_col
+                .checked_sub(1)
+                .and_then(|index| current_line.units().get(index));
+            if before.is_some_and(|unit| matches!(unit,48..=57|65..=90|97..=122|95)) {
+                filtered = JsString::from(" ") + filtered;
             }
         }
-
-        let pasted_lines: Vec<&str> = filtered.split('\n').collect();
+        let pasted_lines: Vec<JsString> = filtered.split('\n').collect();
         let total_chars = filtered.encode_utf16().count();
         if pasted_lines.len() > 10 || total_chars > 1000 {
             self.paste_counter += 1;
@@ -1049,7 +1044,7 @@ impl Editor {
             } else {
                 format!("[paste #{paste_id} {total_chars} chars]")
             };
-            self.insert_text_at_cursor_internal(&marker);
+            self.insert_text_at_cursor_internal(&JsString::from(marker));
             return;
         }
         self.insert_text_at_cursor_internal(&filtered);
@@ -1061,8 +1056,8 @@ impl Editor {
         self.last_action = None;
         self.push_undo_snapshot();
         let current_line = self.state.lines[self.state.cursor_line].clone();
-        let before = current_line[..self.state.cursor_col].to_string();
-        let after = current_line[self.state.cursor_col..].to_string();
+        let before = current_line.slice(0, self.state.cursor_col).clone();
+        let after = current_line.slice(self.state.cursor_col, current_line.len()).clone();
         self.state.lines[self.state.cursor_line] = before;
         self.state.lines.insert(self.state.cursor_line + 1, after);
         self.state.cursor_line += 1;
@@ -1070,7 +1065,7 @@ impl Editor {
         self.emit_change();
     }
 
-    fn should_submit_on_backslash_enter(&self, data: &str, keybindings: &KeybindingsManager) -> bool {
+    fn should_submit_on_backslash_enter(&self, data: &JsString, keybindings: &KeybindingsManager) -> bool {
         if self.disable_submit {
             return false;
         }
@@ -1085,15 +1080,15 @@ impl Editor {
             return false;
         }
         let current_line = &self.state.lines[self.state.cursor_line];
-        self.state.cursor_col > 0 && current_line[..self.state.cursor_col].ends_with('\\')
+        self.state.cursor_col > 0 && current_line.slice(0, self.state.cursor_col).ends_with('\\')
     }
 
     fn submit_value(&mut self) {
         self.cancel_autocomplete();
         let result = self
-            .expand_paste_markers(&self.state.lines.join("\n"))
+            .expand_paste_markers(&JsString::join(self.state.lines.iter(), "\n"))
             .trim()
-            .to_string();
+            .clone();
         self.state = EditorState::empty();
         self.pastes.clear();
         self.paste_counter = 0;
@@ -1102,7 +1097,7 @@ impl Editor {
         self.undo_stack.clear();
         self.last_action = None;
         if let Some(on_change) = &self.on_change {
-            on_change("");
+            on_change(&JsString::default());
         }
         if let Some(on_submit) = &self.on_submit {
             on_submit(&result);
@@ -1115,13 +1110,13 @@ impl Editor {
         if self.state.cursor_col > 0 {
             self.push_undo_snapshot();
             let mut line = self.state.lines[self.state.cursor_line].clone();
-            let before_cursor = &line[..self.state.cursor_col];
-            let graphemes = self.segment_graphemes(before_cursor);
-            let (grapheme_text, grapheme_length) = graphemes
-                .last()
-                .map_or((String::new(), 1), |segment| (segment.text.clone(), segment.text.len()));
+            let before_cursor = line.slice(0, self.state.cursor_col);
+            let graphemes = self.segment_graphemes(&before_cursor);
+            let (grapheme_text, grapheme_length) = graphemes.last().map_or((JsString::default(), 1), |segment| {
+                (segment.text.clone(), segment.text.len())
+            });
             if let Some(captures) = PASTE_MARKER_SINGLE.captures(&grapheme_text) {
-                let target_id: i64 = captures[1].parse().unwrap_or(0);
+                let target_id: i64 = parse_capture_number(&captures, 1).unwrap_or(0);
                 self.pastes.remove(&target_id);
                 self.paste_counter -= 1;
                 let higher_ids: Vec<i64> = self.pastes.keys().copied().filter(|id| *id > target_id).collect();
@@ -1138,16 +1133,16 @@ impl Editor {
                     .collect();
             }
             line = self.state.lines[self.state.cursor_line].clone();
-            let before = &line[..self.state.cursor_col - grapheme_length];
-            let after = &line[self.state.cursor_col..];
-            self.state.lines[self.state.cursor_line] = format!("{before}{after}");
+            let before = line.slice(0, self.state.cursor_col - grapheme_length);
+            let after = line.slice(self.state.cursor_col, line.len());
+            self.state.lines[self.state.cursor_line] = before.clone() + &after;
             let col = self.state.cursor_col - grapheme_length;
             self.set_cursor_col(col);
         } else if self.state.cursor_line > 0 {
             self.push_undo_snapshot();
             let current_line = self.state.lines[self.state.cursor_line].clone();
             let previous_line = self.state.lines[self.state.cursor_line - 1].clone();
-            self.state.lines[self.state.cursor_line - 1] = format!("{previous_line}{current_line}");
+            self.state.lines[self.state.cursor_line - 1] = previous_line.clone() + &current_line;
             self.state.lines.remove(self.state.cursor_line);
             self.state.cursor_line -= 1;
             self.set_cursor_col(previous_line.len());
@@ -1201,7 +1196,12 @@ impl Editor {
 
         self.state.cursor_line = target_vl.logical_line;
         let target_col = target_vl.start_col + move_to_visual_col;
-        let logical_line = self.state.lines.get(target_vl.logical_line).map_or("", String::as_str);
+        let logical_line = self
+            .state
+            .lines
+            .get(target_vl.logical_line)
+            .cloned()
+            .unwrap_or_default();
         self.state.cursor_col = target_col.min(logical_line.len());
 
         let logical_line = self.state.lines[target_vl.logical_line].clone();
@@ -1282,19 +1282,20 @@ impl Editor {
         let current_line = self.state.lines[self.state.cursor_line].clone();
         if self.state.cursor_col > 0 {
             self.push_undo_snapshot();
-            let deleted = current_line[..self.state.cursor_col].to_string();
+            let deleted = current_line.slice(0, self.state.cursor_col).clone();
             self.kill_ring
                 .push(&deleted, true, self.last_action == Some(LastAction::Kill));
             self.last_action = Some(LastAction::Kill);
-            self.state.lines[self.state.cursor_line] = current_line[self.state.cursor_col..].to_string();
+            self.state.lines[self.state.cursor_line] =
+                current_line.slice(self.state.cursor_col, current_line.len()).clone();
             self.set_cursor_col(0);
         } else if self.state.cursor_line > 0 {
             self.push_undo_snapshot();
             self.kill_ring
-                .push("\n", true, self.last_action == Some(LastAction::Kill));
+                .push(&JsString::from("\n"), true, self.last_action == Some(LastAction::Kill));
             self.last_action = Some(LastAction::Kill);
             let previous_line = self.state.lines[self.state.cursor_line - 1].clone();
-            self.state.lines[self.state.cursor_line - 1] = format!("{previous_line}{current_line}");
+            self.state.lines[self.state.cursor_line - 1] = previous_line.clone() + &current_line;
             self.state.lines.remove(self.state.cursor_line);
             self.state.cursor_line -= 1;
             self.set_cursor_col(previous_line.len());
@@ -1307,18 +1308,18 @@ impl Editor {
         let current_line = self.state.lines[self.state.cursor_line].clone();
         if self.state.cursor_col < current_line.len() {
             self.push_undo_snapshot();
-            let deleted = current_line[self.state.cursor_col..].to_string();
+            let deleted = current_line.slice(self.state.cursor_col, current_line.len()).clone();
             self.kill_ring
                 .push(&deleted, false, self.last_action == Some(LastAction::Kill));
             self.last_action = Some(LastAction::Kill);
-            self.state.lines[self.state.cursor_line] = current_line[..self.state.cursor_col].to_string();
+            self.state.lines[self.state.cursor_line] = current_line.slice(0, self.state.cursor_col).clone();
         } else if self.state.cursor_line + 1 < self.state.lines.len() {
             self.push_undo_snapshot();
             self.kill_ring
-                .push("\n", false, self.last_action == Some(LastAction::Kill));
+                .push(&JsString::from("\n"), false, self.last_action == Some(LastAction::Kill));
             self.last_action = Some(LastAction::Kill);
             let next_line = self.state.lines[self.state.cursor_line + 1].clone();
-            self.state.lines[self.state.cursor_line] = format!("{current_line}{next_line}");
+            self.state.lines[self.state.cursor_line] = current_line.clone() + &next_line;
             self.state.lines.remove(self.state.cursor_line + 1);
         }
         self.emit_change();
@@ -1331,10 +1332,10 @@ impl Editor {
             if self.state.cursor_line > 0 {
                 self.push_undo_snapshot();
                 self.kill_ring
-                    .push("\n", true, self.last_action == Some(LastAction::Kill));
+                    .push(&JsString::from("\n"), true, self.last_action == Some(LastAction::Kill));
                 self.last_action = Some(LastAction::Kill);
                 let previous_line = self.state.lines[self.state.cursor_line - 1].clone();
-                self.state.lines[self.state.cursor_line - 1] = format!("{previous_line}{current_line}");
+                self.state.lines[self.state.cursor_line - 1] = previous_line.clone() + &current_line;
                 self.state.lines.remove(self.state.cursor_line);
                 self.state.cursor_line -= 1;
                 self.set_cursor_col(previous_line.len());
@@ -1346,14 +1347,11 @@ impl Editor {
             self.move_word_backwards();
             let delete_from = self.state.cursor_col;
             self.set_cursor_col(old_cursor_col);
-            let deleted = current_line[delete_from..self.state.cursor_col].to_string();
+            let deleted = current_line.slice(delete_from, self.state.cursor_col).clone();
             self.kill_ring.push(&deleted, true, was_kill);
             self.last_action = Some(LastAction::Kill);
-            self.state.lines[self.state.cursor_line] = format!(
-                "{}{}",
-                &current_line[..delete_from],
-                &current_line[self.state.cursor_col..]
-            );
+            self.state.lines[self.state.cursor_line] =
+                current_line.slice(0, delete_from) + current_line.slice(self.state.cursor_col, current_line.len());
             self.set_cursor_col(delete_from);
         }
         self.emit_change();
@@ -1366,10 +1364,10 @@ impl Editor {
             if self.state.cursor_line + 1 < self.state.lines.len() {
                 self.push_undo_snapshot();
                 self.kill_ring
-                    .push("\n", false, self.last_action == Some(LastAction::Kill));
+                    .push(&JsString::from("\n"), false, self.last_action == Some(LastAction::Kill));
                 self.last_action = Some(LastAction::Kill);
                 let next_line = self.state.lines[self.state.cursor_line + 1].clone();
-                self.state.lines[self.state.cursor_line] = format!("{current_line}{next_line}");
+                self.state.lines[self.state.cursor_line] = current_line.clone() + &next_line;
                 self.state.lines.remove(self.state.cursor_line + 1);
             }
         } else {
@@ -1379,14 +1377,11 @@ impl Editor {
             self.move_word_forwards();
             let delete_to = self.state.cursor_col;
             self.set_cursor_col(old_cursor_col);
-            let deleted = current_line[self.state.cursor_col..delete_to].to_string();
+            let deleted = current_line.slice(self.state.cursor_col, delete_to).clone();
             self.kill_ring.push(&deleted, false, was_kill);
             self.last_action = Some(LastAction::Kill);
-            self.state.lines[self.state.cursor_line] = format!(
-                "{}{}",
-                &current_line[..self.state.cursor_col],
-                &current_line[delete_to..]
-            );
+            self.state.lines[self.state.cursor_line] =
+                current_line.slice(0, self.state.cursor_col) + current_line.slice(delete_to, current_line.len());
         }
         self.emit_change();
     }
@@ -1397,16 +1392,16 @@ impl Editor {
         let current_line = self.state.lines[self.state.cursor_line].clone();
         if self.state.cursor_col < current_line.len() {
             self.push_undo_snapshot();
-            let after_cursor = &current_line[self.state.cursor_col..];
-            let graphemes = self.segment_graphemes(after_cursor);
+            let after_cursor = current_line.slice(self.state.cursor_col, current_line.len());
+            let graphemes = self.segment_graphemes(&after_cursor);
             let grapheme_length = graphemes.first().map_or(1, |segment| segment.text.len());
-            let before = &current_line[..self.state.cursor_col];
-            let after = &current_line[self.state.cursor_col + grapheme_length..];
-            self.state.lines[self.state.cursor_line] = format!("{before}{after}");
+            let before = current_line.slice(0, self.state.cursor_col);
+            let after = current_line.slice(self.state.cursor_col + grapheme_length, current_line.len());
+            self.state.lines[self.state.cursor_line] = before.clone() + &after;
         } else if self.state.cursor_line + 1 < self.state.lines.len() {
             self.push_undo_snapshot();
             let next_line = self.state.lines[self.state.cursor_line + 1].clone();
-            self.state.lines[self.state.cursor_line] = format!("{current_line}{next_line}");
+            self.state.lines[self.state.cursor_line] = current_line.clone() + &next_line;
             self.state.lines.remove(self.state.cursor_line + 1);
         }
         self.emit_change();
@@ -1480,8 +1475,8 @@ impl Editor {
             let current_line = self.state.lines[self.state.cursor_line].clone();
             if delta_col > 0 {
                 if self.state.cursor_col < current_line.len() {
-                    let after = &current_line[self.state.cursor_col..];
-                    let graphemes = self.segment_graphemes(after);
+                    let after = current_line.slice(self.state.cursor_col, current_line.len());
+                    let graphemes = self.segment_graphemes(&after);
                     let length = graphemes.first().map_or(1, |segment| segment.text.len());
                     let col = self.state.cursor_col + length;
                     self.set_cursor_col(col);
@@ -1492,8 +1487,8 @@ impl Editor {
                     self.preferred_visual_col = Some(self.state.cursor_col - current_vl.start_col);
                 }
             } else if self.state.cursor_col > 0 {
-                let before = &current_line[..self.state.cursor_col];
-                let graphemes = self.segment_graphemes(before);
+                let before = current_line.slice(0, self.state.cursor_col);
+                let graphemes = self.segment_graphemes(&before);
                 let length = graphemes.last().map_or(1, |segment| segment.text.len());
                 let col = self.state.cursor_col - length;
                 self.set_cursor_col(col);
@@ -1532,7 +1527,7 @@ impl Editor {
         }
         let cursor = self.state.cursor_col;
         let col = {
-            let segment = |text: &str| self.word_segments(text);
+            let segment = |text: &JsString| self.word_segments(text);
             let options = WordNavigationOptions {
                 segment: Some(&segment),
                 is_atomic_segment: Some(&is_paste_marker),
@@ -1554,7 +1549,7 @@ impl Editor {
         }
         let cursor = self.state.cursor_col;
         let col = {
-            let segment = |text: &str| self.word_segments(text);
+            let segment = |text: &JsString| self.word_segments(text);
             let options = WordNavigationOptions {
                 segment: Some(&segment),
                 is_atomic_segment: Some(&is_paste_marker),
@@ -1569,7 +1564,7 @@ impl Editor {
             return;
         }
         self.push_undo_snapshot();
-        let text = self.kill_ring.peek().unwrap_or("").to_string();
+        let text = self.kill_ring.peek().cloned().unwrap_or_default();
         self.insert_yanked_text(&text);
         self.last_action = Some(LastAction::Yank);
     }
@@ -1581,34 +1576,34 @@ impl Editor {
         self.push_undo_snapshot();
         self.delete_yanked_text();
         self.kill_ring.rotate();
-        let text = self.kill_ring.peek().unwrap_or("").to_string();
+        let text = self.kill_ring.peek().cloned().unwrap_or_default();
         self.insert_yanked_text(&text);
         self.last_action = Some(LastAction::Yank);
     }
 
-    fn insert_yanked_text(&mut self, text: &str) {
+    fn insert_yanked_text(&mut self, text: &JsString) {
         self.exit_history_browsing();
-        let lines: Vec<&str> = text.split('\n').collect();
+        let lines: Vec<JsString> = text.split('\n').collect();
         if lines.len() == 1 {
             let current_line = self.state.lines[self.state.cursor_line].clone();
-            let before = &current_line[..self.state.cursor_col];
-            let after = &current_line[self.state.cursor_col..];
-            self.state.lines[self.state.cursor_line] = format!("{before}{text}{after}");
+            let before = current_line.slice(0, self.state.cursor_col);
+            let after = current_line.slice(self.state.cursor_col, current_line.len());
+            self.state.lines[self.state.cursor_line] = before.clone() + text + &after;
             let col = self.state.cursor_col + text.len();
             self.set_cursor_col(col);
         } else {
             let current_line = self.state.lines[self.state.cursor_line].clone();
-            let before = &current_line[..self.state.cursor_col];
-            let after = &current_line[self.state.cursor_col..];
-            self.state.lines[self.state.cursor_line] = format!("{before}{}", lines[0]);
+            let before = current_line.slice(0, self.state.cursor_col);
+            let after = current_line.slice(self.state.cursor_col, current_line.len());
+            self.state.lines[self.state.cursor_line] = before.clone() + &lines[0];
             for (offset, line) in lines[1..lines.len() - 1].iter().enumerate() {
                 self.state
                     .lines
-                    .insert(self.state.cursor_line + 1 + offset, (*line).to_string());
+                    .insert(self.state.cursor_line + 1 + offset, (*line).clone());
             }
             let last_line_index = self.state.cursor_line + lines.len() - 1;
-            let last = lines[lines.len() - 1];
-            self.state.lines.insert(last_line_index, format!("{last}{after}"));
+            let last = &lines[lines.len() - 1];
+            self.state.lines.insert(last_line_index, last.clone() + &after);
             self.state.cursor_line = last_line_index;
             self.set_cursor_col(last.len());
         }
@@ -1616,26 +1611,27 @@ impl Editor {
     }
 
     fn delete_yanked_text(&mut self) {
-        let Some(yanked_text) = self.kill_ring.peek().map(str::to_string) else {
+        let Some(yanked_text) = self.kill_ring.peek().cloned() else {
             return;
         };
-        let yank_lines: Vec<&str> = yanked_text.split('\n').collect();
+        let yank_lines: Vec<JsString> = yanked_text.split('\n').collect();
         if yank_lines.len() == 1 {
             let current_line = self.state.lines[self.state.cursor_line].clone();
             let delete_length = yanked_text.len();
-            let before = &current_line[..self.state.cursor_col - delete_length];
-            let after = &current_line[self.state.cursor_col..];
-            self.state.lines[self.state.cursor_line] = format!("{before}{after}");
+            let before = current_line.slice(0, self.state.cursor_col - delete_length);
+            let after = current_line.slice(self.state.cursor_col, current_line.len());
+            self.state.lines[self.state.cursor_line] = before.clone() + &after;
             let col = self.state.cursor_col - delete_length;
             self.set_cursor_col(col);
         } else {
             let start_line = self.state.cursor_line - (yank_lines.len() - 1);
             let start_col = self.state.lines[start_line].len() - yank_lines[0].len();
-            let after_cursor = self.state.lines[self.state.cursor_line][self.state.cursor_col..].to_string();
-            let before_yank = self.state.lines[start_line][..start_col].to_string();
+            let after_cursor = self.state.lines[self.state.cursor_line]
+                .slice(self.state.cursor_col, self.state.lines[self.state.cursor_line].len());
+            let before_yank = self.state.lines[start_line].slice(0, start_col);
             self.state.lines.splice(
                 start_line..start_line + yank_lines.len(),
-                [format!("{before_yank}{after_cursor}")],
+                [before_yank.clone() + &after_cursor],
             );
             self.state.cursor_line = start_line;
             self.set_cursor_col(start_col);
@@ -1664,7 +1660,7 @@ impl Editor {
         self.emit_change();
     }
 
-    fn jump_to_char(&mut self, character: &str, mode: JumpMode) {
+    fn jump_to_char(&mut self, character: &JsString, mode: JumpMode) {
         self.last_action = None;
         let forward = mode == JumpMode::Forward;
         let lines = self.state.lines.clone();
@@ -1675,28 +1671,16 @@ impl Editor {
             let line = &lines[line_index as usize];
             let is_current = line_index as usize == self.state.cursor_line;
             let index = if forward {
-                let mut start = if is_current {
-                    (self.state.cursor_col + 1).min(line.len())
-                } else {
-                    0
-                };
-                while start < line.len() && !line.is_char_boundary(start) {
-                    start += 1;
-                }
-                line.get(start..)
-                    .and_then(|rest| rest.find(character))
-                    .map(|found| start + found)
+                let start = if is_current { self.state.cursor_col + 1 } else { 0 };
+                line.find_from(character, start)
             } else {
                 let start = if is_current {
                     self.state.cursor_col.saturating_sub(1)
                 } else {
                     line.len()
                 };
-                if line.get(start..).is_some_and(|rest| rest.starts_with(character)) {
-                    Some(start)
-                } else {
-                    line.get(..start).and_then(|rest| rest.rfind(character))
-                }
+                let end = start.saturating_add(character.len()).min(line.len());
+                rfind(&line.slice(0, end), character)
             };
             if let Some(index) = index {
                 self.state.cursor_line = line_index as usize;
@@ -1716,22 +1700,22 @@ impl Editor {
             return false;
         }
         let current_line = &self.state.lines[self.state.cursor_line];
-        let before = &current_line[..self.state.cursor_col];
+        let before = current_line.slice(0, self.state.cursor_col);
         let trimmed = before.trim();
         trimmed.is_empty() || trimmed == "/"
     }
 
-    fn is_in_slash_command_context(&self, text_before_cursor: &str) -> bool {
+    fn is_in_slash_command_context(&self, text_before_cursor: &JsString) -> bool {
         self.is_slash_menu_allowed() && text_before_cursor.trim_start().starts_with('/')
     }
 
-    fn get_best_autocomplete_match_index(&self, items: &[AutocompleteItem], prefix: &str) -> isize {
+    fn get_best_autocomplete_match_index(&self, items: &[AutocompleteItem], prefix: &JsString) -> isize {
         if prefix.is_empty() {
             return -1;
         }
         let mut first_prefix_index = -1;
         for (index, item) in items.iter().enumerate() {
-            if item.value == prefix {
+            if item.value == *prefix {
                 return index as isize;
             }
             if first_prefix_index == -1 && item.value.starts_with(prefix) {
@@ -1741,7 +1725,7 @@ impl Editor {
         first_prefix_index
     }
 
-    fn create_autocomplete_list(&self, prefix: &str, items: &[AutocompleteItem]) -> SelectList {
+    fn create_autocomplete_list(&self, prefix: &JsString, items: &[AutocompleteItem]) -> SelectList {
         let layout = if prefix.starts_with('/') {
             SelectListLayoutOptions {
                 min_primary_column_width: Some(12),
@@ -1781,8 +1765,8 @@ impl Editor {
             return;
         }
         let current_line = &self.state.lines[self.state.cursor_line];
-        let before = &current_line[..self.state.cursor_col];
-        if self.is_in_slash_command_context(before) && !before.trim_start().contains(' ') {
+        let before = current_line.slice(0, self.state.cursor_col);
+        if self.is_in_slash_command_context(&before) && !before.trim_start().contains(' ') {
             self.handle_slash_command_completion();
         } else {
             self.force_file_autocomplete(true);
@@ -1934,10 +1918,10 @@ impl Editor {
         self.tui.request_render();
     }
 
-    fn set_autocomplete_trigger_characters(&mut self, trigger_characters: Vec<String>) {
-        let mut next: Vec<String> = DEFAULT_AUTOCOMPLETE_TRIGGER_CHARACTERS
+    fn set_autocomplete_trigger_characters(&mut self, trigger_characters: Vec<JsString>) {
+        let mut next: Vec<JsString> = DEFAULT_AUTOCOMPLETE_TRIGGER_CHARACTERS
             .iter()
-            .map(|value| (*value).to_string())
+            .map(|value| JsString::from(*value))
             .collect();
         for character in trigger_characters {
             if character.encode_utf16().count() != 1
@@ -1959,7 +1943,7 @@ impl Editor {
             return 0;
         }
         let current_line = &self.state.lines[self.state.cursor_line];
-        let before = &current_line[..self.state.cursor_col];
+        let before = current_line.slice(0, self.state.cursor_col);
         if self.autocomplete_debounce_pattern.is_match(before) {
             ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS
         } else {
@@ -1997,7 +1981,7 @@ impl Editor {
     fn clear_autocomplete_ui(&mut self) {
         self.autocomplete_state = None;
         self.autocomplete_list = None;
-        self.autocomplete_prefix.clear();
+        clear(&mut self.autocomplete_prefix);
     }
 
     fn cancel_autocomplete(&mut self) {
@@ -2020,25 +2004,24 @@ impl Editor {
             self.update_autocomplete();
         } else if self.autocomplete_provider.is_some() {
             let current_line = &self.state.lines[self.state.cursor_line];
-            let before = &current_line[..self.state.cursor_col];
-            if self.is_in_slash_command_context(before) || self.autocomplete_trigger_pattern.is_match(before) {
+            let before = current_line.slice(0, self.state.cursor_col);
+            if self.is_in_slash_command_context(&before) || self.autocomplete_trigger_pattern.is_match(&before) {
                 self.try_trigger_autocomplete(false);
             }
         }
     }
 
-    fn segment_graphemes(&self, text: &str) -> Vec<TextSegment> {
-        let base: Vec<TextSegment> = text
-            .grapheme_indices(true)
+    fn segment_graphemes(&self, text: &JsString) -> Vec<TextSegment> {
+        let base: Vec<TextSegment> = grapheme_indices(text)
             .map(|(index, grapheme)| TextSegment {
-                text: grapheme.to_string(),
+                text: grapheme.clone(),
                 index,
             })
             .collect();
         merge_paste_markers(text, base, &self.valid_paste_ids())
     }
 
-    fn word_segments(&self, text: &str) -> Vec<WordSegment> {
+    fn word_segments(&self, text: &JsString) -> Vec<WordSegment> {
         let base = crate::word_navigation::word_segments(text);
         merge_word_paste_markers(text, base, &self.valid_paste_ids())
     }
@@ -2051,7 +2034,7 @@ impl Editor {
         let mut layout_lines = Vec::new();
         if self.state.lines.is_empty() || (self.state.lines.len() == 1 && self.state.lines[0].is_empty()) {
             layout_lines.push(LayoutLine {
-                text: String::new(),
+                text: JsString::default(),
                 has_cursor: true,
                 cursor_pos: Some(0),
             });
@@ -2102,7 +2085,7 @@ impl Editor {
 }
 
 impl Component for Editor {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let max_padding = width.saturating_sub(1) / 2;
         let padding_x = self.padding_x.min(max_padding);
         let content_width = 1.max(width.saturating_sub(padding_x * 2));
@@ -2112,7 +2095,7 @@ impl Component for Editor {
         let layout_width = 1.max(editor_content_width - usize::from(padding_x == 0));
         self.last_width = layout_width;
 
-        let horizontal = (self.border_color)("─");
+        let horizontal = (self.border_color)(&JsString::from("─"));
         let layout_lines = self.layout_text(layout_width);
 
         let terminal_rows = self.tui.terminal_rows();
@@ -2151,7 +2134,7 @@ impl Component for Editor {
                 width,
             )));
         } else {
-            result.push(horizontal.repeat(width));
+            result.push(repeat(&horizontal, width));
         }
 
         let emit_cursor_marker = self.focused;
@@ -2162,18 +2145,21 @@ impl Component for Editor {
             if layout_line.has_cursor
                 && let Some(cursor_pos) = layout_line.cursor_pos
             {
-                let before = &display_text[..cursor_pos];
-                let after = &display_text[cursor_pos..];
+                let before = display_text.slice(0, cursor_pos);
+                let after = display_text.slice(cursor_pos, display_text.len());
                 let marker = if emit_cursor_marker { CURSOR_MARKER } else { "" };
                 if !after.is_empty() {
-                    let graphemes = self.segment_graphemes(after);
-                    let first = graphemes.first().map_or("", |segment| segment.text.as_str());
-                    let rest = &after[first.len()..];
-                    let cursor = format!("\x1b[7m{first}\x1b[0m");
-                    display_text = format!("{before}{marker}{cursor}{rest}");
+                    let graphemes = self.segment_graphemes(&after);
+                    let first = graphemes
+                        .first()
+                        .map(|segment| segment.text.clone())
+                        .unwrap_or_default();
+                    let rest = after.slice(first.len(), after.len());
+                    let cursor = JsString::from("\x1b[7m") + &first + "\x1b[0m";
+                    display_text = before.clone() + marker + cursor + &rest;
                 } else {
                     let cursor = "\x1b[7m \x1b[0m";
-                    display_text = format!("{before}{marker}{cursor}");
+                    display_text = before.clone() + marker + cursor;
                     line_visible_width += 1;
                     if line_visible_width > editor_content_width && padding_x > 0 {
                         cursor_in_padding = true;
@@ -2191,9 +2177,7 @@ impl Component for Editor {
             if position.is_some() {
                 prompt_position = position;
             }
-            result.push(format!(
-                "{left_padding}{prompt_text}{display_text}{padding}{line_right_padding}"
-            ));
+            result.push(JsString::from(&left_padding) + prompt_text + display_text + &padding + line_right_padding);
         }
 
         let lines_below = layout_lines
@@ -2202,7 +2186,7 @@ impl Component for Editor {
         if lines_below > 0 {
             result.push((self.border_color)(&create_scroll_border("↓", lines_below, width)));
         } else {
-            result.push(horizontal.repeat(width));
+            result.push(repeat(&horizontal, width));
         }
 
         if let (Some(_), Some(list)) = (self.autocomplete_state, self.autocomplete_list.as_mut()) {
@@ -2210,9 +2194,9 @@ impl Component for Editor {
                 let line_width = visible_width(&line);
                 let prompt_prefix_padding = " ".repeat(prompt_prefix_width);
                 let line_padding = " ".repeat(editor_content_width.saturating_sub(line_width));
-                result.push(format!(
-                    "{left_padding}{prompt_prefix_padding}{line}{line_padding}{right_padding}"
-                ));
+                result.push(
+                    JsString::from(&left_padding) + &prompt_prefix_padding + line + &line_padding + &right_padding,
+                );
             }
         }
 
@@ -2221,7 +2205,7 @@ impl Component for Editor {
         result
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         let keybindings = get_keybindings();
         if self.handle_history_search_input(data, &keybindings) {
             return;
@@ -2235,8 +2219,8 @@ impl Component for Editor {
                 return;
             }
             let printable = decode_printable_key(data).or_else(|| {
-                if data.chars().next().is_some_and(|character| character >= ' ') {
-                    Some(data.to_string())
+                if data.units().first().is_some_and(|unit| *unit >= 32) {
+                    Some(data.clone())
                 } else {
                     None
                 }
@@ -2249,22 +2233,22 @@ impl Component for Editor {
             self.jump_mode = None;
         }
 
-        let mut data = data.to_string();
+        let mut data = data.clone();
         if data.contains("\x1b[200~") {
             self.is_in_paste = true;
-            self.paste_buffer.clear();
-            data = data.replacen("\x1b[200~", "", 1);
+            clear(&mut self.paste_buffer);
+            data = remove_first(&data, "\x1b[200~");
         }
         if self.is_in_paste {
             self.paste_buffer.push_str(&data);
             if let Some(end_index) = self.paste_buffer.find("\x1b[201~") {
-                let paste_content = self.paste_buffer[..end_index].to_string();
+                let paste_content = self.paste_buffer.slice(0, end_index).clone();
                 if !paste_content.is_empty() {
                     self.handle_paste(&paste_content);
                 }
                 self.is_in_paste = false;
-                let remaining = self.paste_buffer[end_index + 6..].to_string();
-                self.paste_buffer.clear();
+                let remaining = self.paste_buffer.slice(end_index + 6, self.paste_buffer.len()).clone();
+                clear(&mut self.paste_buffer);
                 if !remaining.is_empty() {
                     self.handle_input(&remaining);
                 }
@@ -2429,7 +2413,7 @@ impl Component for Editor {
                 return;
             }
             let current_line = &self.state.lines[self.state.cursor_line];
-            if self.state.cursor_col > 0 && current_line[..self.state.cursor_col].ends_with('\\') {
+            if self.state.cursor_col > 0 && current_line.slice(0, self.state.cursor_col).ends_with('\\') {
                 self.handle_backspace();
                 self.add_new_line();
                 return;
@@ -2485,14 +2469,14 @@ impl Component for Editor {
             return;
         }
         if matches_key(&data, "shift+space") {
-            self.insert_character(" ", false);
+            self.insert_character(&JsString::from(" "), false);
             return;
         }
         if let Some(printable) = decode_printable_key(&data) {
             self.insert_character(&printable, false);
             return;
         }
-        if data.chars().next().is_some_and(|character| character >= ' ') {
+        if data.units().first().is_some_and(|unit| *unit >= 32) {
             self.insert_character(&data, false);
         }
     }
@@ -2514,77 +2498,81 @@ impl Focusable for Editor {
     }
 }
 
-fn normalize_text(text: &str) -> String {
+fn normalize_text(text: &JsString) -> JsString {
     text.replace("\r\n", "\n").replace('\r', "\n").replace('\t', "    ")
 }
 
-fn escape_character_class(value: &str) -> String {
-    regex::escape(value)
+fn escape_character_class(value: &JsString) -> JsString {
+    let special = JsString::from("\\^$.*+?()[]{}|-");
+    let mut result = JsString::default();
+    for unit in value.units() {
+        if special.units().contains(unit) {
+            result.push_str("\\");
+        }
+        result.push_unit(*unit);
+    }
+    result
 }
 
-fn build_trigger_pattern(trigger_characters: &[String]) -> Regex {
-    let class = trigger_characters
-        .iter()
-        .map(|character| escape_character_class(character))
-        .collect::<String>();
-    Regex::new(&format!(r"(?:^|[\s])[{class}][^\s]*$")).expect("autocomplete trigger pattern")
+fn build_trigger_pattern(trigger_characters: &[JsString]) -> Regex {
+    let class = JsString::join(trigger_characters.iter().map(escape_character_class), "");
+    Regex::new(JsString::from(r"(?:^|[\s])[") + class + r"][^\s]*$").expect("autocomplete trigger pattern")
 }
 
-fn build_debounce_pattern(trigger_characters: &[String]) -> Regex {
-    let class = trigger_characters
-        .iter()
-        .filter(|character| character.as_str() != "@")
-        .map(|character| escape_character_class(character))
-        .collect::<String>();
-    Regex::new(&format!(r#"(?:^|[ \t])(?:@(?:"[^"]*|[^\s]*)|[{class}][^\s]*)$"#))
+fn build_debounce_pattern(trigger_characters: &[JsString]) -> Regex {
+    let class = JsString::join(
+        trigger_characters
+            .iter()
+            .filter(|character| *character != "@")
+            .map(escape_character_class),
+        "",
+    );
+    Regex::new(JsString::from(r#"(?:^|[ \t])(?:@(?:"[^"]*|[^\s]*)|["#) + class + r"][^\s]*)$")
         .expect("autocomplete debounce pattern")
 }
 
-fn is_word_character(character: &str) -> bool {
+fn is_word_character(character: &JsString) -> bool {
     character
-        .chars()
-        .any(|value| value.is_ascii_alphanumeric() || matches!(value, '.' | '-' | '_'))
+        .units()
+        .iter()
+        .any(|unit| matches!(unit,48..=57|65..=90|97..=122|46|45|95))
 }
 
-fn is_paste_marker(segment: &str) -> bool {
+fn is_paste_marker(segment: &JsString) -> bool {
     segment.len() >= 10 && PASTE_MARKER_SINGLE.is_match(segment)
 }
 
-fn decode_csi_u_ctrl_letters(text: &str) -> String {
+fn decode_csi_u_ctrl_letters(text: &JsString) -> JsString {
     static REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\x1b\[(\d+);5u").expect("CSI-u ctrl-letter regex"));
-    REGEX
-        .replace_all(text, |captures: &regex::Captures<'_>| {
-            let code: u32 = captures[1].parse().unwrap_or(0);
-            if (97..=122).contains(&code) {
-                return char::from_u32(code - 96).unwrap_or('\0').to_string();
-            }
-            if (65..=90).contains(&code) {
-                return char::from_u32(code - 64).unwrap_or('\0').to_string();
-            }
-            captures[0].to_string()
-        })
-        .into_owned()
+    REGEX.replace_all_with(text, |captures: &JsCaptures| {
+        let code: u32 = parse_capture_number(captures, 1).unwrap_or(0);
+        if (97..=122).contains(&code) {
+            return JsString::from(char::from_u32(code - 96).unwrap_or('\0'));
+        }
+        if (65..=90).contains(&code) {
+            return JsString::from(char::from_u32(code - 64).unwrap_or('\0'));
+        }
+        captures.get(0).expect("whole capture").text()
+    })
 }
 
-fn renumber_paste_markers(line: &str, target_id: i64) -> String {
-    PASTE_MARKER_REGEX
-        .replace_all(line, |captures: &regex::Captures<'_>| {
-            let id: i64 = captures[1].parse().unwrap_or(0);
-            if id <= target_id {
-                return captures[0].to_string();
-            }
-            let suffix = captures.get(2).map_or("", |value| value.as_str());
-            if suffix.is_empty() {
-                format!("[paste #{}]", id - 1)
-            } else {
-                format!("[paste #{} {}]", id - 1, suffix.trim_start())
-            }
-        })
-        .into_owned()
+fn renumber_paste_markers(line: &JsString, target_id: i64) -> JsString {
+    PASTE_MARKER_REGEX.replace_all_with(line, |captures: &JsCaptures| {
+        let id: i64 = parse_capture_number(captures, 1).unwrap_or(0);
+        if id <= target_id {
+            return captures.get(0).expect("whole capture").text();
+        }
+        let suffix = captures.get(2).map(|value| value.text()).unwrap_or_default();
+        if suffix.is_empty() {
+            JsString::from(format!("[paste #{}]", id - 1))
+        } else {
+            JsString::from(format!("[paste #{} ", id - 1)) + suffix.trim_start() + "]"
+        }
+    })
 }
 
-fn create_scroll_border(direction: &str, hidden_line_count: usize, width: usize) -> String {
-    let indicator = format!("─── {direction} {hidden_line_count} more ");
+fn create_scroll_border(direction: &str, hidden_line_count: usize, width: usize) -> JsString {
+    let indicator = JsString::from("─── ") + direction + " " + hidden_line_count.to_string() + " more ";
     let indicator_width = visible_width(&indicator);
     if direction == "↑" && indicator_width > width {
         return truncate_to_width(&indicator, width);
@@ -2592,7 +2580,7 @@ fn create_scroll_border(direction: &str, hidden_line_count: usize, width: usize)
     indicator + &"─".repeat(width.saturating_sub(indicator_width))
 }
 
-fn merge_paste_markers(text: &str, base: Vec<TextSegment>, valid_ids: &BTreeSet<i64>) -> Vec<TextSegment> {
+fn merge_paste_markers(text: &JsString, base: Vec<TextSegment>, valid_ids: &BTreeSet<i64>) -> Vec<TextSegment> {
     if valid_ids.is_empty() || !text.contains("[paste #") {
         return base;
     }
@@ -2613,7 +2601,7 @@ fn merge_paste_markers(text: &str, base: Vec<TextSegment>, valid_ids: &BTreeSet<
         {
             if segment.index == start {
                 result.push(TextSegment {
-                    text: text[start..end].to_string(),
+                    text: text.slice(start, end).clone(),
                     index: start,
                 });
             }
@@ -2624,7 +2612,7 @@ fn merge_paste_markers(text: &str, base: Vec<TextSegment>, valid_ids: &BTreeSet<
     result
 }
 
-fn merge_word_paste_markers(text: &str, base: Vec<WordSegment>, valid_ids: &BTreeSet<i64>) -> Vec<WordSegment> {
+fn merge_word_paste_markers(text: &JsString, base: Vec<WordSegment>, valid_ids: &BTreeSet<i64>) -> Vec<WordSegment> {
     if valid_ids.is_empty() || !text.contains("[paste #") {
         return base;
     }
@@ -2648,7 +2636,7 @@ fn merge_word_paste_markers(text: &str, base: Vec<WordSegment>, valid_ids: &BTre
         {
             if start == marker_start {
                 result.push(WordSegment {
-                    segment: text[marker_start..marker_end].to_string(),
+                    segment: text.slice(marker_start, marker_end).clone(),
                     is_word_like: false,
                 });
             }
@@ -2659,11 +2647,11 @@ fn merge_word_paste_markers(text: &str, base: Vec<WordSegment>, valid_ids: &BTre
     result
 }
 
-fn paste_marker_spans(text: &str, valid_ids: &BTreeSet<i64>) -> Vec<(usize, usize)> {
+fn paste_marker_spans(text: &JsString, valid_ids: &BTreeSet<i64>) -> Vec<(usize, usize)> {
     PASTE_MARKER_REGEX
         .captures_iter(text)
         .filter_map(|captures| {
-            let id: i64 = captures[1].parse().ok()?;
+            let id: i64 = parse_capture_number(&captures, 1)?;
             if !valid_ids.contains(&id) {
                 return None;
             }
@@ -2674,26 +2662,26 @@ fn paste_marker_spans(text: &str, valid_ids: &BTreeSet<i64>) -> Vec<(usize, usiz
 }
 
 /// Split a line into word-wrapped chunks.
-pub fn word_wrap_line(line: &str, max_width: usize, pre_segmented: Option<&[TextSegment]>) -> Vec<TextChunk> {
+pub fn word_wrap_line(line: &JsString, max_width: usize, pre_segmented: Option<&[TextSegment]>) -> Vec<TextChunk> {
     if line.is_empty() || max_width == 0 {
         return vec![TextChunk {
-            text: String::new(),
+            text: JsString::default(),
             start_index: 0,
             end_index: 0,
         }];
     }
     if visible_width(line) <= max_width {
         return vec![TextChunk {
-            text: line.to_string(),
+            text: line.clone(),
             start_index: 0,
             end_index: line.len(),
         }];
     }
     let segments: Vec<TextSegment> = pre_segmented.map_or_else(
         || {
-            line.grapheme_indices(true)
+            grapheme_indices(line)
                 .map(|(index, grapheme)| TextSegment {
-                    text: grapheme.to_string(),
+                    text: grapheme.clone(),
                     index,
                 })
                 .collect()
@@ -2717,7 +2705,7 @@ pub fn word_wrap_line(line: &str, max_width: usize, pre_segmented: Option<&[Text
                 && current_width - opportunity_width + grapheme_width <= max_width
             {
                 chunks.push(TextChunk {
-                    text: line[chunk_start..opportunity_index].to_string(),
+                    text: line.slice(chunk_start, opportunity_index).clone(),
                     start_index: chunk_start,
                     end_index: opportunity_index,
                 });
@@ -2725,7 +2713,7 @@ pub fn word_wrap_line(line: &str, max_width: usize, pre_segmented: Option<&[Text
                 current_width -= opportunity_width;
             } else if chunk_start < char_index {
                 chunks.push(TextChunk {
-                    text: line[chunk_start..char_index].to_string(),
+                    text: line.slice(chunk_start, char_index).clone(),
                     start_index: chunk_start,
                     end_index: char_index,
                 });
@@ -2737,7 +2725,7 @@ pub fn word_wrap_line(line: &str, max_width: usize, pre_segmented: Option<&[Text
 
         // Only merged segments can be split further. An indivisible grapheme
         // overflows alone rather than recursing without progress.
-        if grapheme_width > max_width && grapheme.graphemes(true).nth(1).is_some() {
+        if grapheme_width > max_width && graphemes(grapheme).nth(1).is_some() {
             let sub_chunks = word_wrap_line(grapheme, max_width, None);
             for sub_chunk in &sub_chunks[..sub_chunks.len() - 1] {
                 chunks.push(TextChunk {
@@ -2760,8 +2748,8 @@ pub fn word_wrap_line(line: &str, max_width: usize, pre_segmented: Option<&[Text
             if is_whitespace && (is_paste_marker(&next.text) || !next_is_whitespace) {
                 wrap_opportunity = Some((next.index, current_width));
             } else if !is_whitespace && !next_is_whitespace {
-                let is_cjk = !is_paste_marker(grapheme) && grapheme.chars().next().is_some_and(is_cjk_break);
-                let next_is_cjk = !is_paste_marker(&next.text) && next.text.chars().next().is_some_and(is_cjk_break);
+                let is_cjk = !is_paste_marker(grapheme) && first_scalar(grapheme).is_some_and(is_cjk_break);
+                let next_is_cjk = !is_paste_marker(&next.text) && first_scalar(&next.text).is_some_and(is_cjk_break);
                 if is_cjk || next_is_cjk {
                     wrap_opportunity = Some((next.index, current_width));
                 }
@@ -2770,7 +2758,7 @@ pub fn word_wrap_line(line: &str, max_width: usize, pre_segmented: Option<&[Text
     }
 
     chunks.push(TextChunk {
-        text: line[chunk_start..].to_string(),
+        text: line.slice(chunk_start, line.len()).clone(),
         start_index: chunk_start,
         end_index: line.len(),
     });
@@ -2781,4 +2769,13 @@ impl Default for EditorState {
     fn default() -> Self {
         Self::empty()
     }
+}
+
+fn parse_capture_number<T: std::str::FromStr>(captures: &JsCaptures, index: usize) -> Option<T> {
+    let digits = captures.get(index)?.text();
+    crate::text_units::ascii_protocol(&digits)?.parse().ok()
+}
+
+fn first_scalar(text: &JsString) -> Option<char> {
+    char::decode_utf16(text.units().iter().copied()).next()?.ok()
 }
