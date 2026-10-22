@@ -8,6 +8,7 @@ members = [
     "crates/pi-js-compat",
     "crates/pi-orchestrator",
 ]
+exclude = ["crates/pi-js-compat/vendor/regress"]
 # `cargo run` at the workspace root builds the `pi` executable.
 default-members = ["crates/pi-coding-agent"]
 resolver = "3"
@@ -27,3 +28,7 @@ debug = "line-tables-only"
 debug = false
 [workspace.lints.rust]
 unsafe_code = "forbid"
+
+[patch.crates-io]
+# Native ECMAScript legacy canonicalization; see vendor/regress/UPSTREAM.json.
+regress = { path = "crates/pi-js-compat/vendor/regress" }

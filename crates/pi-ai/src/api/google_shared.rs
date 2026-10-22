@@ -613,12 +613,12 @@ pub(crate) fn build_generate_content_params(
 /// Failure raised by a Google request or by its retry wrapper.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GoogleRequestError {
-    pub message: String,
+    pub message: pi_js_compat::js_json::JsString,
     pub status: Option<f64>,
 }
 
 impl GoogleRequestError {
-    pub fn new(message: impl Into<String>, status: Option<f64>) -> Self {
+    pub fn new(message: impl Into<pi_js_compat::js_json::JsString>, status: Option<f64>) -> Self {
         Self {
             message: message.into(),
             status,
@@ -628,7 +628,7 @@ impl GoogleRequestError {
 
 impl std::fmt::Display for GoogleRequestError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message))
     }
 }
 

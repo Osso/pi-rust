@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use std::io::IsTerminal;
 use std::sync::OnceLock;
 
+use pi_js_compat::js_json::JsString;
 use regex::Regex;
 
 /// Output stream whose TTY status selects the detected color level.
@@ -169,69 +170,70 @@ impl Chalk {
     }
 
     /// Apply a style chain (outermost first) to `text`.
-    pub fn paint(&self, styles: &[Style], text: &str) -> String {
+    pub fn paint(&self, styles: &[Style], text: impl Into<JsString>) -> JsString {
+        let text = text.into();
         if self.level == Level::Plain || text.is_empty() {
-            return text.to_owned();
+            return text;
         }
 
         let open = styles.iter().map(|style| style.open()).collect::<String>();
         let close = styles.iter().rev().map(|style| style.close()).collect::<String>();
-        let mut body = reopen_embedded_closes(text, styles);
+        let mut body = reopen_embedded_closes(&text, styles);
         if body.contains('\n') {
             body = encase_lines(&body, &close, &open);
         }
-        format!("{open}{body}{close}")
+        JsString::from(open) + body + close
     }
 
-    pub fn red(&self, text: &str) -> String {
+    pub fn red(&self, text: impl Into<JsString>) -> JsString {
         self.paint(&[Style::Red], text)
     }
 
-    pub fn dim(&self, text: &str) -> String {
+    pub fn dim(&self, text: impl Into<JsString>) -> JsString {
         self.paint(&[Style::Dim], text)
     }
 
-    pub fn yellow(&self, text: &str) -> String {
+    pub fn yellow(&self, text: impl Into<JsString>) -> JsString {
         self.paint(&[Style::Yellow], text)
     }
 
-    pub fn bold(&self, text: &str) -> String {
+    pub fn bold(&self, text: impl Into<JsString>) -> JsString {
         self.paint(&[Style::Bold], text)
     }
 
-    pub fn green(&self, text: &str) -> String {
+    pub fn green(&self, text: impl Into<JsString>) -> JsString {
         self.paint(&[Style::Green], text)
     }
 
-    pub fn cyan(&self, text: &str) -> String {
+    pub fn cyan(&self, text: impl Into<JsString>) -> JsString {
         self.paint(&[Style::Cyan], text)
     }
 
-    pub fn italic(&self, text: &str) -> String {
+    pub fn italic(&self, text: impl Into<JsString>) -> JsString {
         self.paint(&[Style::Italic], text)
     }
 
-    pub fn strikethrough(&self, text: &str) -> String {
+    pub fn strikethrough(&self, text: impl Into<JsString>) -> JsString {
         self.paint(&[Style::Strikethrough], text)
     }
 
-    pub fn blue(&self, text: &str) -> String {
+    pub fn blue(&self, text: impl Into<JsString>) -> JsString {
         self.paint(&[Style::Blue], text)
     }
 
-    pub fn underline(&self, text: &str) -> String {
+    pub fn underline(&self, text: impl Into<JsString>) -> JsString {
         self.paint(&[Style::Underline], text)
     }
 
-    pub fn gray(&self, text: &str) -> String {
+    pub fn gray(&self, text: impl Into<JsString>) -> JsString {
         self.paint(&[Style::Gray], text)
     }
 
-    pub fn magenta(&self, text: &str) -> String {
+    pub fn magenta(&self, text: impl Into<JsString>) -> JsString {
         self.paint(&[Style::Magenta], text)
     }
 
-    pub fn inverse(&self, text: &str) -> String {
+    pub fn inverse(&self, text: impl Into<JsString>) -> JsString {
         self.paint(&[Style::Inverse], text)
     }
 }
@@ -465,7 +467,7 @@ fn has_flag(argv: &[String], flag: &str) -> bool {
     }
 }
 
-fn reopen_embedded_closes(text: &str, styles: &[Style]) -> String {
+fn reopen_embedded_closes(text: &JsString, styles: &[Style]) -> JsString {
     if !text.contains('\u{1b}') {
         return text.to_owned();
     }
@@ -474,20 +476,19 @@ fn reopen_embedded_closes(text: &str, styles: &[Style]) -> String {
     })
 }
 
-fn encase_lines(text: &str, prefix: &str, postfix: &str) -> String {
-    let mut result = String::with_capacity(text.len() + prefix.len() + postfix.len());
+fn encase_lines(text: &JsString, prefix: &str, postfix: &str) -> JsString {
+    let mut result = JsString::default();
     let mut line_start = 0;
-    while let Some(offset) = text[line_start..].find('\n') {
-        let index = line_start + offset;
-        let has_carriage_return = index > 0 && text.as_bytes()[index - 1] == b'\r';
+    while let Some(index) = text.find_from('\n', line_start) {
+        let has_carriage_return = index > 0 && text.units()[index - 1] == u16::from(b'\r');
         let line_end = if has_carriage_return { index - 1 } else { index };
-        result.push_str(&text[line_start..line_end]);
+        result.push_str(text.slice(line_start, line_end));
         result.push_str(prefix);
         result.push_str(if has_carriage_return { "\r\n" } else { "\n" });
         result.push_str(postfix);
         line_start = index + 1;
     }
-    result.push_str(&text[line_start..]);
+    result.push_str(text.slice(line_start, text.len()));
     result
 }
 

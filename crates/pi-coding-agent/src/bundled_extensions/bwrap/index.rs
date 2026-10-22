@@ -406,7 +406,7 @@ impl FindOperations for SandboxFindOperations {
 
     fn glob<'a>(
         &'a self,
-        pattern: &'a str,
+        pattern: &'a JsString,
         cwd: &'a str,
         _ignore: &'a [String],
         limit: usize,

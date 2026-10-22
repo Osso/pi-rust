@@ -73,7 +73,11 @@ async fn run_generate_images(model: ImagesModel, context: ImagesContext, options
     }
 }
 
-fn fail(output: &mut AssistantImages, options: &ImagesOptions, message: String) -> AssistantImages {
+fn fail(
+    output: &mut AssistantImages,
+    options: &ImagesOptions,
+    message: pi_js_compat::js_json::JsString,
+) -> AssistantImages {
     output.stop_reason = if options
         .request
         .signal
@@ -92,7 +96,7 @@ async fn request_images(
     model: &ImagesModel,
     context: &ImagesContext,
     options: &ImagesOptions,
-) -> Result<(Value, ProviderResponse), String> {
+) -> Result<(Value, ProviderResponse), pi_js_compat::js_json::JsString> {
     let api_key = options
         .request
         .api_key
@@ -108,7 +112,7 @@ async fn build_effective_params(
     model: &ImagesModel,
     context: &ImagesContext,
     options: &ImagesOptions,
-) -> Result<Value, String> {
+) -> Result<Value, pi_js_compat::js_json::JsString> {
     let params = build_params(model, context);
     let Some(on_payload) = &options.request.on_payload else {
         return Ok(params);
@@ -134,7 +138,7 @@ async fn send_with_retries(
     client: &SdkClient,
     params: Value,
     options: &ImagesOptions,
-) -> Result<SdkJsonResponse, String> {
+) -> Result<SdkJsonResponse, pi_js_compat::js_json::JsString> {
     let signal = options.request.signal.clone();
     let timeout = timeout_duration(options.request.timeout_ms);
     let retry_options = ProviderRetryOptions {
@@ -189,7 +193,7 @@ fn timeout_duration(timeout_ms: Option<f64>) -> Option<std::time::Duration> {
 
 fn timeout_error() -> ProviderRequestError<CallbackError> {
     ProviderRequestError::Provider(ProviderError {
-        message: "Request timed out.".to_owned(),
+        message: "Request timed out.".to_owned().into(),
         status: None,
         headers: ProviderErrorHeaders::new(),
         body: None,

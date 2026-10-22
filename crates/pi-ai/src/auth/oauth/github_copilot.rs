@@ -342,7 +342,7 @@ async fn poll_for_github_access_token(
                 Some(object) => object,
                 None => {
                     return OAuthDeviceCodePollResult::Failed {
-                        message: "Invalid device token response".to_owned(),
+                        message: "Invalid device token response".to_owned().into(),
                     };
                 }
             };
@@ -351,7 +351,7 @@ async fn poll_for_github_access_token(
             }
             let Some(error) = object.get("error").and_then(Value::as_str) else {
                 return OAuthDeviceCodePollResult::Failed {
-                    message: "Invalid device token response".to_owned(),
+                    message: "Invalid device token response".to_owned().into(),
                 };
             };
             if error == "authorization_pending" {
@@ -368,7 +368,7 @@ async fn poll_for_github_access_token(
                 .map(|description| format!(": {description}"))
                 .unwrap_or_default();
             OAuthDeviceCodePollResult::Failed {
-                message: format!("Device flow failed: {error}{description}"),
+                message: format!("Device flow failed: {error}{description}").into(),
             }
         }
     })

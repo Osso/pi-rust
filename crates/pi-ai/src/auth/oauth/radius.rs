@@ -112,7 +112,7 @@ impl OAuthAuth for RadiusOAuth {
 
 struct OAuthResponseError {
     oauth_error: Option<String>,
-    message: String,
+    message: pi_js_compat::js_json::JsString,
 }
 
 impl OAuthResponseError {
@@ -127,7 +127,7 @@ enum RadiusRequestError {
 }
 
 impl RadiusRequestError {
-    fn message(&self) -> &str {
+    fn message(&self) -> &pi_js_compat::js_json::JsString {
         match self {
             Self::OAuth(error) => &error.message,
             Self::Other(error) => &error.message,
@@ -160,7 +160,7 @@ fn read_oauth_response_error(response: &OAuthHttpResponse, message: &str) -> OAu
     };
     OAuthResponseError {
         oauth_error,
-        message: format!("{message}: {detail}"),
+        message: format!("{message}: {detail}").into(),
     }
 }
 
@@ -473,10 +473,10 @@ async fn login_with_device_code(
                     Some("authorization_pending") => OAuthDeviceCodePollResult::Pending,
                     Some("slow_down") => OAuthDeviceCodePollResult::SlowDown { interval_seconds: None },
                     Some("expired_token") => OAuthDeviceCodePollResult::Failed {
-                        message: "Device authorization expired.".to_owned(),
+                        message: "Device authorization expired.".to_owned().into(),
                     },
                     Some("access_denied") => OAuthDeviceCodePollResult::Failed {
-                        message: "Device authorization was denied.".to_owned(),
+                        message: "Device authorization was denied.".to_owned().into(),
                     },
                     _ => OAuthDeviceCodePollResult::Failed { message: error.message },
                 },

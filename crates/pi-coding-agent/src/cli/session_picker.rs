@@ -65,10 +65,7 @@ pub async fn load_sessions<'a>(
 }
 
 fn is_named(session: &SessionInfo) -> bool {
-    session
-        .name
-        .as_deref()
-        .is_some_and(|name| !pi_js_compat::string::js_trim(name).is_empty())
+    session.name.as_ref().is_some_and(|name| !name.trim().is_empty())
 }
 
 /// Outcome of [`select_session`].

@@ -6,7 +6,7 @@ use serde_json::json;
 
 fn provider_error(message: &str) -> ProviderError {
     ProviderError {
-        message: message.to_owned(),
+        message: message.to_owned().into(),
         status_code: None,
         status: None,
         body: None,
@@ -21,13 +21,15 @@ fn provider_error(message: &str) -> ProviderError {
 fn extracts_status_and_body_from_a_mistral_shaped_error() {
     let mut error = provider_error("Mistral request failed");
     error.status_code = Some(403.0);
-    error.body = Some(ErrorBody::Text("{\"error\":\"blocked by gateway WAF\"}".to_owned()));
+    error.body = Some(ErrorBody::Text(
+        "{\"error\":\"blocked by gateway WAF\"}".to_owned().into(),
+    ));
 
     let normalized = normalize_provider_error(&ProviderErrorInput::Error(Box::new(error)));
 
     assert_eq!(normalized.status, Some(403.0));
     assert_eq!(
-        normalized.body.as_deref(),
+        normalized.body.as_ref().map(|text| text.to_utf8().unwrap()).as_deref(),
         Some("{\"error\":\"blocked by gateway WAF\"}")
     );
     assert!(!normalized.message_carries_body);
@@ -37,13 +39,13 @@ fn extracts_status_and_body_from_a_mistral_shaped_error() {
 fn reads_the_parsed_body_off_an_openai_shaped_error() {
     let mut error = provider_error("403 status code (no body)");
     error.status = Some(403.0);
-    error.error = Some(json!({"error": "blocked by gateway WAF"}));
+    error.error = Some(json!({"error": "blocked by gateway WAF"}).into());
 
     let normalized = normalize_provider_error(&ProviderErrorInput::Error(Box::new(error)));
 
     assert_eq!(normalized.status, Some(403.0));
     assert_eq!(
-        normalized.body.as_deref(),
+        normalized.body.as_ref().map(|text| text.to_utf8().unwrap()).as_deref(),
         Some("{\"error\":\"blocked by gateway WAF\"}")
     );
     assert!(!normalized.message_carries_body);
@@ -54,14 +56,14 @@ fn preserves_a_message_that_already_carries_the_body() {
     let body = json!({"error": {"code": 403, "message": "Permission denied"}});
     let mut error = provider_error(&serde_json::to_string(&body).unwrap());
     error.status = Some(403.0);
-    error.error = Some(body);
+    error.error = Some(body.into());
 
     let normalized = normalize_provider_error(&ProviderErrorInput::Error(Box::new(error)));
 
     assert_eq!(normalized.status, Some(403.0));
     assert!(normalized.message_carries_body);
     assert_eq!(
-        normalized.body.as_deref(),
+        normalized.body.as_ref().map(|text| text.to_utf8().unwrap()).as_deref(),
         Some("{\"error\":{\"code\":403,\"message\":\"Permission denied\"}}")
     );
 }
@@ -71,13 +73,15 @@ fn extracts_status_and_body_from_a_bedrock_shaped_error() {
     let mut error = provider_error("UnknownError");
     error.metadata_http_status_code = Some(403.0);
     error.response_status_code = Some(403.0);
-    error.response_body = Some(ErrorBody::Text("{\"message\":\"blocked by gateway WAF\"}".to_owned()));
+    error.response_body = Some(ErrorBody::Text(
+        "{\"message\":\"blocked by gateway WAF\"}".to_owned().into(),
+    ));
 
     let normalized = normalize_provider_error(&ProviderErrorInput::Error(Box::new(error)));
 
     assert_eq!(normalized.status, Some(403.0));
     assert_eq!(
-        normalized.body.as_deref(),
+        normalized.body.as_ref().map(|text| text.to_utf8().unwrap()).as_deref(),
         Some("{\"message\":\"blocked by gateway WAF\"}")
     );
     assert!(!normalized.message_carries_body);
@@ -87,12 +91,15 @@ fn extracts_status_and_body_from_a_bedrock_shaped_error() {
 fn accepts_nonempty_array_response_bodies() {
     let mut error = provider_error("Invocation of model ID is not supported.");
     error.metadata_http_status_code = Some(400.0);
-    error.response_body = Some(ErrorBody::Json(json!(["stream", "internals"])));
+    error.response_body = Some(ErrorBody::Json(json!(["stream", "internals"]).into()));
 
     let normalized = normalize_provider_error(&ProviderErrorInput::Error(Box::new(error)));
 
     assert_eq!(normalized.status, Some(400.0));
-    assert_eq!(normalized.body.as_deref(), Some("[\"stream\",\"internals\"]"));
+    assert_eq!(
+        normalized.body.as_ref().map(|text| text.to_utf8().unwrap()).as_deref(),
+        Some("[\"stream\",\"internals\"]")
+    );
     assert!(!normalized.message_carries_body);
 }
 
@@ -100,14 +107,14 @@ fn accepts_nonempty_array_response_bodies() {
 fn ignores_empty_arrays_and_objects() {
     let mut error = provider_error("TLS handshake failed");
     error.status = Some(502.0);
-    error.error = Some(json!([]));
+    error.error = Some(json!([]).into());
     let normalized = normalize_provider_error(&ProviderErrorInput::Error(Box::new(error)));
     assert_eq!(normalized.body, None);
     assert!(normalized.message_carries_body);
 
     let mut empty = provider_error("403 status code (no body)");
     empty.status = Some(403.0);
-    empty.error = Some(json!({}));
+    empty.error = Some(json!({}).into());
     let normalized = normalize_provider_error(&ProviderErrorInput::Error(Box::new(empty)));
     assert_eq!(normalized.body, None);
     assert!(normalized.message_carries_body);
@@ -117,12 +124,12 @@ fn ignores_empty_arrays_and_objects() {
 fn still_surfaces_a_plain_parsed_json_body_object() {
     let mut error = provider_error("400 status code (no body)");
     error.status = Some(400.0);
-    error.error = Some(json!({"message": "schema validation failed", "field": "tools[0]"}));
+    error.error = Some(json!({"message": "schema validation failed", "field": "tools[0]"}).into());
 
     let normalized = normalize_provider_error(&ProviderErrorInput::Error(Box::new(error)));
 
     assert_eq!(
-        normalized.body.as_deref(),
+        normalized.body.as_ref().map(|text| text.to_utf8().unwrap()).as_deref(),
         Some("{\"message\":\"schema validation failed\",\"field\":\"tools[0]\"}")
     );
     assert!(!normalized.message_carries_body);
@@ -130,7 +137,7 @@ fn still_surfaces_a_plain_parsed_json_body_object() {
 
 #[test]
 fn json_stringifies_a_non_error_thrown_value() {
-    let normalized = normalize_provider_error(&ProviderErrorInput::Value(json!({"reason": "boom"})));
+    let normalized = normalize_provider_error(&ProviderErrorInput::Value(json!({"reason": "boom"}).into()));
 
     assert_eq!(normalized.status, None);
     assert_eq!(normalized.body, None);
@@ -143,44 +150,64 @@ fn truncates_the_body_at_the_cap() {
     let long_body = "x".repeat(MAX_PROVIDER_ERROR_BODY_CHARS + 50);
     let mut error = provider_error("failed");
     error.status_code = Some(500.0);
-    error.body = Some(ErrorBody::Text(long_body.clone()));
+    error.body = Some(ErrorBody::Text(long_body.clone().into()));
 
     let normalized = normalize_provider_error(&ProviderErrorInput::Error(Box::new(error)));
 
-    assert!(normalized.body.as_deref().unwrap().contains("... [truncated 50 chars]"));
-    assert!(normalized.body.as_deref().unwrap().len() < long_body.len());
+    assert!(
+        normalized
+            .body
+            .as_ref()
+            .map(|text| text.to_utf8().unwrap())
+            .as_deref()
+            .unwrap()
+            .contains("... [truncated 50 chars]")
+    );
+    assert!(
+        normalized
+            .body
+            .as_ref()
+            .map(|text| text.to_utf8().unwrap())
+            .as_deref()
+            .unwrap()
+            .len()
+            < long_body.len()
+    );
 }
 
 #[test]
 fn sets_message_carries_body_when_the_message_contains_the_extracted_body() {
     let mut error = provider_error("500: upstream exploded");
     error.status_code = Some(500.0);
-    error.body = Some(ErrorBody::Text("upstream exploded".to_owned()));
+    error.body = Some(ErrorBody::Text("upstream exploded".to_owned().into()));
 
     assert!(normalize_provider_error(&ProviderErrorInput::Error(Box::new(error))).message_carries_body);
 }
 
 #[test]
 fn truncates_by_utf16_length_and_reports_the_removed_count() {
-    assert_eq!(truncate_error_text("abc", 3), "abc");
-    assert_eq!(truncate_error_text("abcd", 3), "abc... [truncated 1 chars]");
-    assert_eq!(truncate_error_text("🙈🙈🙈", 4), "🙈🙈... [truncated 2 chars]");
+    assert_eq!(truncate_error_text(&"abc".into(), 3), "abc");
+    assert_eq!(truncate_error_text(&"abcd".into(), 3), "abc... [truncated 1 chars]");
+    assert_eq!(truncate_error_text(&"🙈🙈🙈".into(), 4), "🙈🙈... [truncated 2 chars]");
 }
 
 #[test]
 fn safe_json_stringify_matches_javascript_output() {
-    assert_eq!(safe_json_stringify(&json!({"reason": "boom"})), "{\"reason\":\"boom\"}");
-    assert_eq!(safe_json_stringify(&json!("text")), "\"text\"");
-    assert_eq!(safe_json_stringify(&json!(null)), "null");
-    assert_eq!(safe_json_stringify(&json!([1, true, null])), "[1,true,null]");
+    assert_eq!(
+        safe_json_stringify(&json!({"reason": "boom"}).into()),
+        "{\"reason\":\"boom\"}"
+    );
+    assert_eq!(safe_json_stringify(&json!("text").into()), "\"text\"");
+    assert_eq!(safe_json_stringify(&json!(null).into()), "null");
+    assert_eq!(safe_json_stringify(&json!([1, true, null]).into()), "[1,true,null]");
 }
 
 #[test]
 fn formats_status_and_body_with_and_without_a_prefix() {
     let normalized = NormalizedProviderError {
         status: Some(403.0),
-        body: Some("{\"error\":\"blocked\"}".to_owned()),
-        message: "403 status code (no body)".to_owned(),
+        body: Some("{\"error\":\"blocked\"}".to_owned().into()),
+        message: "403 status code (no body)".to_owned().into(),
         message_carries_body: false,
     };
 
@@ -196,8 +223,8 @@ fn formats_a_message_that_carries_the_body_with_prefix_and_status() {
     let body = "{\"error\":{\"message\":\"Permission denied\"}}";
     let normalized = NormalizedProviderError {
         status: Some(403.0),
-        body: Some(body.to_owned()),
-        message: body.to_owned(),
+        body: Some(body.to_owned().into()),
+        message: body.to_owned().into(),
         message_carries_body: true,
     };
 
@@ -212,9 +239,9 @@ fn formats_a_message_that_carries_the_body_with_prefix_and_status() {
 fn body_selection_preserves_first_hit_even_when_empty() {
     for text in ["", " \t\r\n", "\u{feff}\u{a0}"] {
         let error = ProviderError {
-            body: Some(ErrorBody::Text(text.to_owned())),
-            error: Some(json!(["parsed"])),
-            response_body: Some(ErrorBody::Text("response".to_owned())),
+            body: Some(ErrorBody::Text(text.to_owned().into())),
+            error: Some(json!(["parsed"]).into()),
+            response_body: Some(ErrorBody::Text("response".to_owned().into())),
             ..provider_error("failed")
         };
         assert_eq!(
@@ -223,13 +250,15 @@ fn body_selection_preserves_first_hit_even_when_empty() {
         );
     }
     let error = ProviderError {
-        error: Some(json!(["parsed"])),
-        response_body: Some(ErrorBody::Text("response".to_owned())),
+        error: Some(json!(["parsed"]).into()),
+        response_body: Some(ErrorBody::Text("response".to_owned().into())),
         ..provider_error("failed")
     };
     assert_eq!(
         normalize_provider_error(&ProviderErrorInput::Error(Box::new(error)))
             .body
+            .as_ref()
+            .map(|text| text.to_utf8().unwrap())
             .as_deref(),
         Some("[\"parsed\"]")
     );
@@ -242,12 +271,14 @@ fn trims_only_ecmascript_whitespace() {
         ("\u{85}body\u{85}", "\u{85}body\u{85}"),
     ] {
         let error = ProviderError {
-            body: Some(ErrorBody::Text(text.to_owned())),
+            body: Some(ErrorBody::Text(text.to_owned().into())),
             ..provider_error("failed")
         };
         assert_eq!(
             normalize_provider_error(&ProviderErrorInput::Error(Box::new(error)))
                 .body
+                .as_ref()
+                .map(|text| text.to_utf8().unwrap())
                 .as_deref(),
             Some(expected)
         );
@@ -258,7 +289,7 @@ fn trims_only_ecmascript_whitespace() {
 fn json_string_bodies_are_raw_text_in_both_sdk_fields() {
     for response in [false, true] {
         let mut error = provider_error("failed");
-        let body = Some(ErrorBody::Json(json!("  raw body  ")));
+        let body = Some(ErrorBody::Json(json!("  raw body  ").into()));
         if response {
             error.response_body = body;
         } else {
@@ -267,6 +298,8 @@ fn json_string_bodies_are_raw_text_in_both_sdk_fields() {
         assert_eq!(
             normalize_provider_error(&ProviderErrorInput::Error(Box::new(error)))
                 .body
+                .as_ref()
+                .map(|text| text.to_utf8().unwrap())
                 .as_deref(),
             Some("raw body")
         );
@@ -279,7 +312,7 @@ fn stringify_uses_javascript_key_order_and_binary64_numbers() {
         serde_json::from_str(r#"{"z":1.0,"10":1e-7,"2":1e20,"01":-0.0,"nested":{"9":9007199254740993,"1":1e21}}"#)
             .unwrap();
     assert_eq!(
-        safe_json_stringify(&value),
+        safe_json_stringify(&value.into()),
         r#"{"2":100000000000000000000,"10":1e-7,"z":1,"01":0,"nested":{"1":1e+21,"9":9007199254740992}}"#
     );
 }
@@ -317,8 +350,8 @@ fn formatting_covers_independent_optional_fields_and_empty_prefix() {
                 for prefix in [None, Some(""), Some("Provider")] {
                     let normalized = NormalizedProviderError {
                         status,
-                        body: body.clone(),
-                        message: "message".to_owned(),
+                        body: body.clone().map(Into::into),
+                        message: "message".to_owned().into(),
                         message_carries_body: carries,
                     };
                     let detail = if !carries && status.is_some() && body.is_some() {
@@ -349,6 +382,6 @@ fn formatting_covers_independent_optional_fields_and_empty_prefix() {
 
 #[test]
 fn returns_the_bare_message_for_a_non_error_value() {
-    let normalized = normalize_provider_error(&ProviderErrorInput::Value(json!({"reason": "boom"})));
+    let normalized = normalize_provider_error(&ProviderErrorInput::Value(json!({"reason": "boom"}).into()));
     assert_eq!(format_provider_error(&normalized, None), "{\"reason\":\"boom\"}");
 }

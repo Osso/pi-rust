@@ -123,7 +123,7 @@ pub fn faux_tool_call(
 pub struct FauxAssistantMessageOptions {
     pub stop_reason: Option<StopReason>,
     pub deferred: Option<DeferredHandle>,
-    pub error_message: Option<String>,
+    pub error_message: Option<pi_js_compat::js_json::JsString>,
     pub response_id: Option<String>,
     pub timestamp: Option<i64>,
 }
@@ -826,18 +826,23 @@ fn create_deferred_message(model: &Model, handle: DeferredHandle) -> AssistantMe
     message
 }
 
-fn create_error_message(error: &str, api: &str, provider: &str, model_id: &str) -> AssistantMessage {
+fn create_error_message(
+    error: impl Into<pi_js_compat::js_json::JsString>,
+    api: &str,
+    provider: &str,
+    model_id: &str,
+) -> AssistantMessage {
     let mut message = AssistantMessage::empty(api, provider, model_id, now_millis());
     message.usage = default_usage();
     message.stop_reason = StopReason::Error;
-    message.error_message = Some(error.to_owned());
+    message.error_message = Some(error.into());
     message
 }
 
 fn create_aborted_message(partial: &AssistantMessage) -> AssistantMessage {
     let mut message = partial.clone();
     message.stop_reason = StopReason::Aborted;
-    message.error_message = Some("Request was aborted".to_owned());
+    message.error_message = Some("Request was aborted".to_owned().into());
     message.timestamp = now_millis();
     message
 }

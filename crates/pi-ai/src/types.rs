@@ -223,7 +223,7 @@ pub struct ProviderRetryEvent {
         serialize_with = "js_number::serialize_option"
     )]
     pub delay_ms: Option<f64>,
-    pub reason: String,
+    pub reason: pi_js_compat::js_json::JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fallback_transport: Option<Transport>,
 }
@@ -629,7 +629,7 @@ pub struct AssistantMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deferred: Option<DeferredHandle>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
+    pub error_message: Option<pi_js_compat::js_json::JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_stop_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -724,7 +724,7 @@ pub struct AssistantImages {
     pub usage: Option<Usage>,
     pub stop_reason: ImagesStopReason,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
+    pub error_message: Option<pi_js_compat::js_json::JsString>,
     /// Unix timestamp in milliseconds.
     pub timestamp: i64,
 }

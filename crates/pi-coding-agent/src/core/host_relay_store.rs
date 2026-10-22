@@ -51,7 +51,7 @@ impl RelayChannel {
 pub fn require_text(value: Option<&JsValue>, field: &str) -> Result<JsString, ControlDbError> {
     value
         .and_then(JsValue::as_string)
-        .filter(|text| !pi_js_compat::string::js_trim(&text.to_utf8_lossy()).is_empty())
+        .filter(|text| !text.trim().is_empty())
         .cloned()
         .ok_or_else(|| ControlDbError::new(format!("Invalid relay {field}")))
 }
@@ -193,12 +193,12 @@ pub fn import_relay_mailbox(
     data.insert("senderHost".into(), JsValue::String(peer.clone()));
     let data = JsValue::Object(data);
     let recipient = RuntimeMailboxAddress {
-        session_id: require_text(data.get("recipientSessionId"), "recipientSessionId")?.to_utf8_lossy(),
-        agent_id: nullable_text(data.get("recipientAgentId"), "recipientAgentId")?.map(|text| text.to_utf8_lossy()),
+        session_id: require_text(data.get("recipientSessionId"), "recipientSessionId")?,
+        agent_id: nullable_text(data.get("recipientAgentId"), "recipientAgentId")?,
     };
     let sender = RuntimeMailboxAddress {
-        session_id: require_text(data.get("senderSessionId"), "senderSessionId")?.to_utf8_lossy(),
-        agent_id: nullable_text(data.get("senderAgentId"), "senderAgentId")?.map(|text| text.to_utf8_lossy()),
+        session_id: require_text(data.get("senderSessionId"), "senderSessionId")?,
+        agent_id: nullable_text(data.get("senderAgentId"), "senderAgentId")?,
     };
     let applied = control::with_control_db(path, |db| {
         control::with_immediate_transaction(db, |db| {
@@ -212,12 +212,12 @@ pub fn import_relay_mailbox(
                 recipient_host: None,
                 recipient: recipient.clone(),
                 sender,
-                kind: control::to_runtime_mailbox_message_kind(&kind.to_utf8_lossy()),
+                kind: control::to_runtime_mailbox_message_kind(&kind),
                 store_ref: control::RuntimeMailboxStoreRef {
-                    session_path: message.session_path.to_utf8_lossy(),
-                    message_id: message.message_id.to_utf8_lossy(),
+                    session_path: message.session_path.clone(),
+                    message_id: message.message_id.clone(),
                 },
-                message: data.clone().into_serde_lossy(),
+                message: data.clone(),
                 updated_at: None,
             };
             control::enqueue_lossless_stored_runtime_mailbox_message_in_transaction(db, &input, &data)?;
@@ -298,7 +298,7 @@ pub fn import_relay_channel(path: &str, message: &RelayChannel) -> Result<(), Co
         control::notify_runtime_mailbox_recipient(
             path,
             &RuntimeMailboxAddress {
-                session_id,
+                session_id: session_id.into(),
                 agent_id: None,
             },
         )?;

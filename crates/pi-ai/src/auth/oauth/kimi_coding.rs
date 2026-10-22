@@ -13,7 +13,7 @@ use crate::auth::oauth::support::{OAuthHttpResponse, OAuthRuntime, form_encode, 
 use crate::auth::{AuthError, AuthEvent, AuthInteraction, ModelAuth, OAuthAuth, OAuthCredential};
 use crate::http::ABORT_ERROR_MESSAGE;
 use crate::request::CallbackError;
-use crate::utils::error_body::safe_json_stringify;
+
 use crate::utils::provider_env::get_provider_env_value;
 
 const CLIENT_ID: &str = "17e5f671-d194-4dfb-9706-5516cb48c098";
@@ -179,7 +179,7 @@ async fn start_device_authorization(
     else {
         return Err(CallbackError::new(format!(
             "Invalid Kimi Code device authorization response: {}",
-            safe_json_stringify(&json)
+            pi_js_compat::js_json::stringify(&json)
         )));
     };
     let interval = json.get("interval").and_then(Value::as_f64);
@@ -213,7 +213,7 @@ fn parse_token_response(json: &Value, operation: &str, now: f64) -> Result<Token
     let (Some(access), Some(refresh), Some(expires_in)) = (access, refresh, expires_in) else {
         return Err(CallbackError::new(format!(
             "Kimi Code token {operation} response missing fields: {}",
-            safe_json_stringify(json)
+            pi_js_compat::js_json::stringify(json)
         )));
     };
     Ok(TokenResponse {
@@ -267,7 +267,8 @@ async fn poll_for_token(
                     message: format!(
                         "Kimi Code device token request failed with status {}{suffix}",
                         response.status
-                    ),
+                    )
+                    .into(),
                 };
             }
             let json = response.json.clone().unwrap_or(Value::Null);
@@ -292,10 +293,12 @@ async fn poll_for_token(
                         .filter(|value| *value > 0.0),
                 },
                 Some("expired_token") => OAuthDeviceCodePollResult::Failed {
-                    message: "Kimi Code device authorization expired. Please restart login.".to_owned(),
+                    message: "Kimi Code device authorization expired. Please restart login."
+                        .to_owned()
+                        .into(),
                 },
                 Some("access_denied") => OAuthDeviceCodePollResult::Failed {
-                    message: "Kimi Code login was denied.".to_owned(),
+                    message: "Kimi Code login was denied.".to_owned().into(),
                 },
                 _ => OAuthDeviceCodePollResult::Failed {
                     message: format!(
@@ -303,7 +306,8 @@ async fn poll_for_token(
                         response.status,
                         error.map(|error| format!(": {error}")).unwrap_or_default(),
                         description
-                    ),
+                    )
+                    .into(),
                 },
             }
         }
@@ -408,7 +412,7 @@ async fn refresh_token(
         return Err(CallbackError::new(format!(
             "Kimi Code token refresh failed with status {}: {}",
             response.status,
-            safe_json_stringify(&json)
+            pi_js_compat::js_json::stringify(&json)
         )));
     }
 

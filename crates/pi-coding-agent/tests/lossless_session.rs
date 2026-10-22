@@ -4,6 +4,125 @@ use pi_coding_agent::core::session_tool_output::serialize_session_entry;
 use pi_js_compat::js_json::parse_lossless;
 
 #[test]
+fn metadata_name_lookup_encodes_only_at_sql_binding() {
+    use pi_coding_agent::core::session_control_db::find_active_session_metadata_by_name;
+    use pi_coding_agent::core::session_manager::{SessionManager, SetMetadataControlDbPathOptions};
+    use pi_js_compat::js_json::JsString;
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().to_str().unwrap();
+    let db = directory.path().join("control.sqlite");
+    let db = db.to_str().unwrap();
+    for unit in [0xd800, 0xdfff] {
+        let mut manager = SessionManager::create(root, Some(root), None).unwrap();
+        manager
+            .set_metadata_control_db_path(Some(db), SetMetadataControlDbPathOptions::default())
+            .unwrap();
+        manager
+            .set_session_name(Some(&JsString::from_utf16(vec![unit])))
+            .unwrap();
+    }
+    let name = JsString::from_utf16(vec![0xd800]);
+    let rows = find_active_session_metadata_by_name(db, &name).unwrap();
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().all(|row| row.name.as_deref() == Some("�")));
+    assert_eq!(name.units(), &[0xd800]);
+}
+
+#[test]
+fn shared_channel_encodes_raw_body_only_at_sql_binding() {
+    use pi_coding_agent::core::session_control_db::{
+        PostSharedChannelMessageInput, RuntimeMailboxAddress, list_shared_channel_messages_after,
+        post_shared_channel_message,
+    };
+    use pi_js_compat::js_json::JsString;
+    let directory = tempfile::tempdir().unwrap();
+    let db = directory.path().join("control.sqlite");
+    let db = db.to_str().unwrap();
+    let body = JsString::from_utf16(vec![0x20, 0xd800, 0x78, 0xdfff, 0x20]);
+    let input = PostSharedChannelMessageInput {
+        body: body.clone(),
+        sender: RuntimeMailboxAddress {
+            session_id: "session".into(),
+            agent_id: None,
+        },
+    };
+    let id = post_shared_channel_message(db, &input).unwrap();
+    assert_eq!(input.body, body);
+    let rows = list_shared_channel_messages_after(db, 0, 10, id).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].body, "�x�");
+}
+
+#[test]
+fn steering_and_cancellation_params_keep_raw_human_content() {
+    use pi_coding_agent::bundled_extensions::agents_core::control_runtime::{CancelAgentParams, SteerAgentParams};
+    let cancel: CancelAgentParams = serde_json::from_str(r#"{"agentId":"agent_1","reason":"\ud800"}"#).unwrap();
+    assert_eq!(cancel.reason.unwrap().units(), &[0xd800]);
+    let wire =
+        r#"{"agentId":"agent_1","message":"\udfff","fileRefs":[{"path":"\ud800","label":"\udfff","\ud800":"\udfff"}]}"#;
+    let steer: SteerAgentParams = serde_json::from_str(wire).unwrap();
+    assert_eq!(steer.message.units(), &[0xdfff]);
+    assert_eq!(steer.file_refs.unwrap(), parse_lossless(wire).unwrap()["fileRefs"]);
+}
+
+#[tokio::test]
+async fn custom_find_operation_receives_original_pattern_units() {
+    use pi_agent_core::agent::types::AgentTool;
+    use pi_ai::request::BoxFuture;
+    use pi_coding_agent::core::tools::find::{FindOperations, FindTool, FindToolOptions};
+    use pi_js_compat::js_json::JsString;
+    use std::{
+        io,
+        sync::{Arc, Mutex},
+    };
+
+    struct FindPattern(Mutex<Option<JsString>>);
+    impl FindOperations for FindPattern {
+        fn exists<'a>(&'a self, _path: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+            Box::pin(async { Ok(true) })
+        }
+        fn supports_glob(&self) -> bool {
+            true
+        }
+        fn glob<'a>(
+            &'a self,
+            pattern: &'a JsString,
+            _cwd: &'a str,
+            _ignore: &'a [String],
+            _limit: usize,
+        ) -> BoxFuture<'a, io::Result<Vec<String>>> {
+            *self.0.lock().unwrap() = Some(pattern.clone());
+            Box::pin(async { Ok(vec!["hit.txt".into()]) })
+        }
+    }
+    let operations = Arc::new(FindPattern(Mutex::new(None)));
+    let tool = FindTool::with_options(
+        "/tmp",
+        FindToolOptions {
+            operations: Some(operations.clone()),
+        },
+    );
+    let result = tool
+        .execute(
+            "raw-pattern".into(),
+            parse_lossless(r#"{"pattern":"*\ud800\udfff\ud800"}"#).unwrap(),
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        operations.0.lock().unwrap().as_ref().unwrap().units(),
+        &[0x2a, 0xd800, 0xdfff, 0xd800]
+    );
+    assert_eq!(
+        result.content[0],
+        pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new("hit.txt"))
+    );
+}
+
+#[test]
 fn session_manager_error_retains_native_message_before_display() {
     use pi_coding_agent::core::session_manager::SessionManagerError;
     use pi_js_compat::js_json::JsString;

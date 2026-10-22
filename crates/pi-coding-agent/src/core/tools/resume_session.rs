@@ -42,7 +42,7 @@ pub const PROMPT_GUIDELINES: [&str; 2] = [
 #[derive(Debug, Clone, Default)]
 struct ResumeSessionParams {
     id: Option<String>,
-    name: Option<String>,
+    name: Option<JsString>,
     path: Option<String>,
     starter_prompt: Option<JsString>,
 }
@@ -50,7 +50,7 @@ struct ResumeSessionParams {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ResolvableSession {
     id: String,
-    name: Option<String>,
+    name: Option<JsString>,
     path: String,
 }
 
@@ -116,7 +116,7 @@ fn normalize_resume_session_params(params: &JsValue) -> Result<ResumeSessionPara
         return Err(ToolError::new("resume_session requires { path }, { id }, or { name }"));
     };
     let id = read_non_empty_string(record, "id")?.as_ref().map(encode_node_utf8);
-    let name = read_non_empty_string(record, "name")?.as_ref().map(encode_node_utf8);
+    let name = read_non_empty_string(record, "name")?;
     let path = read_non_empty_string(record, "path")?.as_ref().map(encode_node_utf8);
     let target_count = [id.is_some(), name.is_some(), path.is_some()]
         .into_iter()
@@ -148,12 +148,12 @@ fn assert_resume_session_path(path: &str) -> Result<String, ToolError> {
 
 fn find_unique_session_match<'a>(
     matched: Vec<&'a ResolvableSession>,
-    label: &str,
+    label: &JsString,
 ) -> Result<&'a ResolvableSession, ToolError> {
     match matched.len() {
-        0 => Err(ToolError::new(format!("No session found matching {label}"))),
+        0 => Err(ToolError::new(JsString::from("No session found matching ") + label)),
         1 => Ok(matched[0]),
-        _ => Err(ToolError::new(format!("Ambiguous session match for {label}"))),
+        _ => Err(ToolError::new(JsString::from("Ambiguous session match for ") + label)),
     }
 }
 
@@ -220,7 +220,7 @@ fn resolvable_sessions(sessions: Vec<SessionInfo>) -> Vec<ResolvableSession> {
 fn resolvable_session_from_metadata(metadata: &SessionMetadata) -> ResolvableSession {
     ResolvableSession {
         id: metadata.id.clone(),
-        name: metadata.name.clone(),
+        name: metadata.name.as_ref().map(JsString::from),
         path: metadata.session_path.clone(),
     }
 }
@@ -267,7 +267,7 @@ fn find_resume_session_by_id(sessions: &[ResolvableSession], id: &str) -> Result
     }
 }
 
-fn unique_name_match(sessions: Vec<&ResolvableSession>, label: &str) -> Result<ResolvableSession, ToolError> {
+fn unique_name_match(sessions: Vec<&ResolvableSession>, label: &JsString) -> Result<ResolvableSession, ToolError> {
     find_unique_session_match(sessions, label).cloned()
 }
 
@@ -284,7 +284,7 @@ fn resolve_resume_session_file(
     }
 
     if let Some(name) = &params.name {
-        let label = format!("name '{name}'");
+        let label = JsString::from("name '") + name + "'";
         let metadata_sessions = find_metadata_sessions(params, control_db_path)?;
         let scoped_metadata = sessions_in_current_directory(metadata_sessions.clone(), session);
         if !scoped_metadata.is_empty() {
@@ -296,7 +296,7 @@ fn resolve_resume_session_file(
         let scoped_matches: Vec<ResolvableSession> =
             resolvable_sessions(list_local_and_session_dir_sessions(session, control_db_path)?)
                 .into_iter()
-                .filter(|session| session.name.as_deref() == Some(name.as_str()))
+                .filter(|session| session.name.as_ref() == Some(name))
                 .collect();
         if !scoped_matches.is_empty() {
             return assert_resume_session_path(&unique_name_match(scoped_matches.iter().collect(), &label)?.path);
@@ -304,7 +304,7 @@ fn resolve_resume_session_file(
         let all_matches: Vec<ResolvableSession> =
             resolvable_sessions(list_all_resolvable_sessions(session, control_db_path)?)
                 .into_iter()
-                .filter(|session| session.name.as_deref() == Some(name.as_str()))
+                .filter(|session| session.name.as_ref() == Some(name))
                 .collect();
         return assert_resume_session_path(&unique_name_match(all_matches.iter().collect(), &label)?.path);
     }
@@ -507,4 +507,19 @@ pub fn create_resume_session_tool_definition() -> ToolDefinition {
     definition.render_call = Some(infallible_render_call(render_call));
     definition.render_result = Some(infallible_render_result(render_result));
     definition
+}
+
+#[cfg(test)]
+mod lossless_name_tests {
+    use super::*;
+
+    #[test]
+    fn name_lookup_and_not_found_message_keep_original_units() {
+        let input = json::parse_lossless(r#"{"name":" \ud800\udfff\ud800 "}"#).unwrap();
+        let params = normalize_resume_session_params(&input).unwrap();
+        assert_eq!(params.name.as_ref().unwrap().units(), &[0xd800, 0xdfff, 0xd800]);
+        let session = SessionManager::in_memory(None, None).unwrap();
+        let error = resolve_resume_session_file(&params, "/tmp", &session, None).unwrap_err();
+        assert!(error.message.contains(params.name.unwrap()));
+    }
 }

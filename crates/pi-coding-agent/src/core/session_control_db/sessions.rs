@@ -953,7 +953,7 @@ fn list_session_metadata_by_archive_state(
 /// `findActiveSessionMetadataById`.
 pub fn find_active_session_metadata_by_id(
     control_db_path: &str,
-    id: &str,
+    id: impl Into<JsString>,
 ) -> Result<Vec<SessionMetadata>, ControlDbError> {
     find_active_session_metadata(control_db_path, "id", id)
 }
@@ -961,7 +961,7 @@ pub fn find_active_session_metadata_by_id(
 /// `findActiveSessionMetadataByName`.
 pub fn find_active_session_metadata_by_name(
     control_db_path: &str,
-    name: &str,
+    name: impl Into<JsString>,
 ) -> Result<Vec<SessionMetadata>, ControlDbError> {
     find_active_session_metadata(control_db_path, "name", name)
 }
@@ -969,13 +969,14 @@ pub fn find_active_session_metadata_by_name(
 fn find_active_session_metadata(
     control_db_path: &str,
     field: &str,
-    value: &str,
+    value: impl Into<JsString>,
 ) -> Result<Vec<SessionMetadata>, ControlDbError> {
+    let value = value.into();
     with_control_db(control_db_path, |db| {
-        let (match_clause, values): (&str, Vec<String>) = if field == "id" {
-            ("id >= ? AND id < ?", vec![value.to_owned(), format!("{value}\u{ffff}")])
+        let (match_clause, values): (&str, Vec<JsString>) = if field == "id" {
+            ("id >= ? AND id < ?", vec![value.clone(), value.clone() + "\u{ffff}"])
         } else {
-            ("name = ?", vec![value.to_owned()])
+            ("name = ?", vec![value.clone()])
         };
         let mut statement = db.prepare(&format!(
             "{SESSION_METADATA_SELECT}
@@ -983,7 +984,10 @@ fn find_active_session_metadata(
 				ORDER BY modified_at DESC, updated_at DESC, session_path DESC"
         ))?;
         let rows = statement
-            .query_map(rusqlite::params_from_iter(values.iter()), query_session_metadata_row)?
+            .query_map(
+                rusqlite::params_from_iter(values.iter().map(encode_node_utf8)),
+                query_session_metadata_row,
+            )?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows.into_iter().map(session_metadata_from_row).collect())
     })

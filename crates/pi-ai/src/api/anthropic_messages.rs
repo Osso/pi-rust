@@ -287,7 +287,11 @@ fn has_header(headers: Option<&ProviderHeaders>, name: &str) -> bool {
     })
 }
 
-fn assert_request_auth(provider: &str, api_key: Option<&str>, headers: Option<&ProviderHeaders>) -> Result<(), String> {
+fn assert_request_auth(
+    provider: &str,
+    api_key: Option<&str>,
+    headers: Option<&ProviderHeaders>,
+) -> Result<(), pi_js_compat::js_json::JsString> {
     if api_key.is_some_and(|api_key| !api_key.is_empty()) {
         return Ok(());
     }
@@ -297,7 +301,7 @@ fn assert_request_auth(provider: &str, api_key: Option<&str>, headers: Option<&P
     {
         return Ok(());
     }
-    Err(format!("No API key for provider: {provider}"))
+    Err(format!("No API key for provider: {provider}").into())
 }
 
 fn provider_headers(headers: &IndexMap<String, String>) -> ProviderHeaders {
@@ -859,7 +863,7 @@ fn build_params(
     is_oauth: bool,
     anthropic: &AnthropicOptions,
     options: &StreamOptions,
-) -> Result<JsValue, String> {
+) -> Result<JsValue, pi_js_compat::js_json::JsString> {
     let cache_control =
         get_cache_control(model, options.cache_retention, options.request.env.as_ref()).map(JsValue::from);
     let compat = anthropic_compat(model);
@@ -982,7 +986,7 @@ fn insert_tools_param(
     is_oauth: bool,
     compat: AnthropicCompat,
     cache_control: Option<&JsValue>,
-) -> Result<(), String> {
+) -> Result<(), pi_js_compat::js_json::JsString> {
     if immediate.is_empty() && deferred.is_empty() {
         return Ok(());
     }
@@ -1129,7 +1133,7 @@ async fn drive_stream(
     context: &Context,
     options: &StreamOptions,
     output: &mut AssistantMessage,
-) -> Result<(), String> {
+) -> Result<(), pi_js_compat::js_json::JsString> {
     let anthropic = AnthropicOptions::from_stream_options(options)?;
     let api_key = options.request.api_key.as_deref().filter(|key| !key.is_empty());
     assert_request_auth(&model.provider, api_key, options.request.headers.as_ref())?;
@@ -1198,16 +1202,16 @@ async fn drive_stream(
         .as_ref()
         .is_some_and(CancellationToken::is_cancelled)
     {
-        return Err("Request was aborted".to_owned());
+        return Err("Request was aborted".to_owned().into());
     }
     if output.stop_reason == StopReason::Pending {
-        return Err("Anthropic stream ended without a stop reason".to_owned());
+        return Err("Anthropic stream ended without a stop reason".to_owned().into());
     }
     if matches!(output.stop_reason, StopReason::Aborted | StopReason::Error) {
         return Err(output
             .error_message
             .clone()
-            .unwrap_or_else(|| "An unknown error occurred".to_owned()));
+            .unwrap_or_else(|| "An unknown error occurred".to_owned().into()));
     }
     let reason = done_reason(output.stop_reason);
     sender.push(AssistantMessageEvent::Done {
@@ -1225,12 +1229,12 @@ fn max_retries(value: Option<f64>) -> usize {
         .unwrap_or(0)
 }
 
-fn provider_request_error_message(error: ProviderRequestError<CallbackError>) -> String {
+fn provider_request_error_message(error: ProviderRequestError<CallbackError>) -> pi_js_compat::js_json::JsString {
     match error {
         ProviderRequestError::Provider(error) => error.message,
         ProviderRequestError::Other(error) => error.message,
-        ProviderRequestError::Abort(_) => "Request aborted".to_owned(),
-        ProviderRequestError::RetryDelayLimit(error) => error.to_string(),
+        ProviderRequestError::Abort(_) => "Request aborted".into(),
+        ProviderRequestError::RetryDelayLimit(error) => error.message(),
     }
 }
 
@@ -1243,7 +1247,11 @@ fn done_reason(reason: StopReason) -> DoneReason {
     }
 }
 
-fn apply_message_start(model: &Model, output: &mut AssistantMessage, event: &JsValue) -> Result<(), String> {
+fn apply_message_start(
+    model: &Model,
+    output: &mut AssistantMessage,
+    event: &JsValue,
+) -> Result<(), pi_js_compat::js_json::JsString> {
     let message = &event["message"];
     output.response_id = metadata_text(&message["id"], "message.id")?;
     let usage = &message["usage"];
@@ -1273,7 +1281,7 @@ fn apply_content_block_start(
     output: &mut AssistantMessage,
     event: &JsValue,
     is_oauth: bool,
-) -> Result<(), String> {
+) -> Result<(), pi_js_compat::js_json::JsString> {
     let Some(index) = event_index(event) else {
         return Ok(());
     };
@@ -1343,7 +1351,7 @@ fn apply_content_block_delta(
     sender: &AssistantMessageEventSender,
     output: &mut AssistantMessage,
     event: &JsValue,
-) -> Result<(), String> {
+) -> Result<(), pi_js_compat::js_json::JsString> {
     let Some(index) = event_index(event) else {
         return Ok(());
     };
@@ -1442,14 +1450,18 @@ fn apply_content_block_stop(sender: &AssistantMessageEventSender, output: &mut A
     }
 }
 
-fn apply_message_delta(model: &Model, output: &mut AssistantMessage, event: &JsValue) -> Result<(), String> {
+fn apply_message_delta(
+    model: &Model,
+    output: &mut AssistantMessage,
+    event: &JsValue,
+) -> Result<(), pi_js_compat::js_json::JsString> {
     let delta = &event["delta"];
     if let Some(stop_reason) = metadata_text(&delta["stop_reason"], "stop reason")? {
         output.raw_stop_reason = Some(stop_reason.to_owned());
         let (mapped, error_message) = map_stop_reason(&stop_reason, delta.get("stop_details"))?;
         output.stop_reason = mapped;
         if let Some(error_message) = error_message {
-            output.error_message = Some(error_message);
+            output.error_message = Some(error_message.into());
         }
     }
     if let Some(usage) = event.get("usage").filter(|usage| usage.is_object()) {
@@ -1543,7 +1555,7 @@ impl AnthropicEventReader {
         }
     }
 
-    pub async fn next_event(&mut self) -> Result<Option<JsValue>, String> {
+    pub async fn next_event(&mut self) -> Result<Option<JsValue>, pi_js_compat::js_json::JsString> {
         loop {
             if let Some(event) = self.queue.pop_front() {
                 if let Some(event) = self.decode_event(event)? {
@@ -1555,7 +1567,7 @@ impl AnthropicEventReader {
                 return Ok(None);
             }
             if self.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
-                return Err("Request was aborted".to_owned());
+                return Err("Request was aborted".to_owned().into());
             }
             match self.body.next_chunk().await {
                 None => {
@@ -1574,7 +1586,7 @@ impl AnthropicEventReader {
                 }
                 Some(Err(error)) => {
                     if self.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
-                        return Err("Request was aborted".to_owned());
+                        return Err("Request was aborted".to_owned().into());
                     }
                     return Err(error.message);
                 }
@@ -1625,9 +1637,9 @@ impl AnthropicEventReader {
         Ok(Some(event))
     }
 
-    fn check_complete(&self) -> Result<(), String> {
+    fn check_complete(&self) -> Result<(), pi_js_compat::js_json::JsString> {
         if self.saw_message_start && !self.saw_message_stop {
-            return Err("Anthropic stream ended before message_stop".to_owned());
+            return Err("Anthropic stream ended before message_stop".to_owned().into());
         }
         Ok(())
     }
@@ -1727,7 +1739,7 @@ async fn run_stream(sender: AssistantMessageEventSender, model: Model, context: 
         } else {
             StopReason::Error
         };
-        output.error_message = Some(message);
+        output.error_message = Some(message.into());
         sender.push(AssistantMessageEvent::Error {
             reason: if aborted {
                 ErrorReason::Aborted

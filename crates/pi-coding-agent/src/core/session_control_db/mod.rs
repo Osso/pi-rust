@@ -200,7 +200,7 @@ pub struct SharedChannelMessage {
 #[serde(rename_all = "camelCase")]
 pub struct PostSharedChannelMessageInput {
     pub sender: RuntimeMailboxAddress,
-    pub body: String,
+    pub body: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -733,16 +733,19 @@ pub(crate) fn parse_steering_checkpoint(
     }
 }
 
-pub(crate) fn to_runtime_mailbox_message_kind(value: &str) -> RuntimeMailboxMessageKind {
-    match value {
-        "message" => RuntimeMailboxMessageKind::Message,
-        "ask" => RuntimeMailboxMessageKind::Ask,
-        "reply" => RuntimeMailboxMessageKind::Reply,
-        "steer" => RuntimeMailboxMessageKind::Steer,
-        "parent_request" => RuntimeMailboxMessageKind::ParentRequest,
-        "system" => RuntimeMailboxMessageKind::System,
-        _ => RuntimeMailboxMessageKind::Message,
-    }
+pub(crate) fn to_runtime_mailbox_message_kind(value: impl Into<JsString>) -> RuntimeMailboxMessageKind {
+    let value = value.into();
+    [
+        ("message", RuntimeMailboxMessageKind::Message),
+        ("ask", RuntimeMailboxMessageKind::Ask),
+        ("reply", RuntimeMailboxMessageKind::Reply),
+        ("steer", RuntimeMailboxMessageKind::Steer),
+        ("parent_request", RuntimeMailboxMessageKind::ParentRequest),
+        ("system", RuntimeMailboxMessageKind::System),
+    ]
+    .into_iter()
+    .find(|(name, _)| value == *name)
+    .map_or(RuntimeMailboxMessageKind::Message, |(_, kind)| kind)
 }
 
 pub(crate) fn to_runtime_mailbox_message_status(value: &str) -> RuntimeMailboxMessageStatus {

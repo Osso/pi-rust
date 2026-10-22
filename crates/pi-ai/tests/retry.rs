@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 fn message(stop_reason: StopReason, error_message: Option<&str>) -> AssistantMessage {
     AssistantMessage {
         stop_reason,
-        error_message: error_message.map(str::to_owned),
+        error_message: error_message.map(Into::into),
         ..AssistantMessage::empty("openai-completions", "test", "model", 1)
     }
 }
@@ -36,9 +36,10 @@ impl RetryCallbacks for Recorder {
         attempt: u32,
         max_attempts: u32,
         delay_ms: f64,
-        error_message: &'a str,
+        error_message: &'a pi_js_compat::js_json::JsString,
     ) -> impl Future<Output = ()> + Send + 'a {
         let events = Arc::clone(&self.events);
+        let error_message = error_message.to_utf8().unwrap();
         async move {
             events
                 .lock()
@@ -58,10 +59,10 @@ impl RetryCallbacks for Recorder {
         &mut self,
         success: bool,
         attempt: u32,
-        final_error: Option<&str>,
+        final_error: Option<&pi_js_compat::js_json::JsString>,
     ) -> impl Future<Output = ()> + Send {
         let events = Arc::clone(&self.events);
-        let final_error = final_error.map(str::to_owned);
+        let final_error = final_error.map(|text| text.to_utf8().unwrap());
         async move {
             events.lock().unwrap().push(format!(
                 "finished:{success}/{attempt}/{}",

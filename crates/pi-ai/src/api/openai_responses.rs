@@ -395,11 +395,11 @@ fn create_client(
 enum Failure {
     Sdk(SdkError),
     Request(Box<ProviderRequestError<CallbackError>>),
-    Message(String),
+    Message(pi_js_compat::js_json::JsString),
 }
 
 impl Failure {
-    fn format(self) -> String {
+    fn format(self) -> pi_js_compat::js_json::JsString {
         match self {
             Self::Sdk(error) => format_sdk_error(&error, Some("OpenAI API error")),
             Self::Request(error) => format_request_error(&error, Some("OpenAI API error")),
@@ -433,7 +433,7 @@ async fn run_stream(
         stream_options.request.api_key.as_deref(),
         stream_options.request.headers.as_ref(),
     )
-    .map_err(Failure::Message)?;
+    .map_err(|error| Failure::Message(error.into()))?;
     let cache_retention = resolve_cache_retention(stream_options.cache_retention, stream_options.request.env.as_ref());
     let cache_session_id = (cache_retention != CacheRetention::None)
         .then_some(stream_options.session_id.as_deref())
@@ -441,7 +441,7 @@ async fn run_stream(
     let compat = get_compat(model);
     let grammar_tool_input_properties =
         create_grammar_tool_input_properties(context.tools.as_deref(), compat.supports_openai_grammar_tools)
-            .map_err(|error| Failure::Message(error.message))?;
+            .map_err(|error| Failure::Message(error.message.into()))?;
     let client = create_client(model, context, &api_key, stream_options, cache_session_id, &compat);
     let params = build_params(
         model,
@@ -451,7 +451,7 @@ async fn run_stream(
         &compat,
         &grammar_tool_input_properties,
     )
-    .map_err(Failure::Message)?;
+    .map_err(|error| Failure::Message(error.into()))?;
 
     let mut params = JsValue::from(params);
     if let Some(on_payload) = &stream_options.request.on_payload
@@ -510,11 +510,11 @@ async fn run_stream(
         .as_ref()
         .is_some_and(CancellationToken::is_cancelled)
     {
-        return Err(Failure::Message("Request was aborted".to_owned()));
+        return Err(Failure::Message("Request was aborted".to_owned().into()));
     }
     if output.stop_reason == crate::types::StopReason::Pending {
         return Err(Failure::Message(
-            "OpenAI Responses stream ended without a stop reason".to_owned(),
+            "OpenAI Responses stream ended without a stop reason".to_owned().into(),
         ));
     }
     if matches!(
@@ -525,10 +525,10 @@ async fn run_stream(
             output
                 .error_message
                 .clone()
-                .unwrap_or_else(|| "An unknown error occurred".to_owned()),
+                .unwrap_or_else(|| "An unknown error occurred".to_owned().into()),
         ));
     }
-    push_responses_done(sender, output).map_err(Failure::Message)?;
+    push_responses_done(sender, output).map_err(|error| Failure::Message(error.into()))?;
     Ok(())
 }
 

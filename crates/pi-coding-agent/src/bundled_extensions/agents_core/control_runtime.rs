@@ -4,15 +4,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use pi_agent_core::AgentToolResult;
-use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::{JsString, JsValue};
 
 use crate::core::extensions::types::{ExtensionContext, HandlerError};
 use crate::core::lifecycle_coordinator::{
     DetachedCancellationCommandInput, OwnedLifecycleCommandInput, SteeringCommandInput, SteeringCommandResult,
 };
 use crate::core::multi_agent_store::{
-    AgentFileReference, AgentLifecycle, AgentMailboxMessage, AgentSnapshot, MultiAgentStore, SteeringCheckpoint,
-    is_active_lifecycle,
+    AgentLifecycle, AgentMailboxMessage, AgentSnapshot, MultiAgentStore, SteeringCheckpoint, is_active_lifecycle,
 };
 use crate::core::runtime_process::is_process_identity_alive;
 use crate::core::session_control_db::{MultiAgentRuntimeOwnership, read_multi_agent_runtime_ownership};
@@ -39,14 +38,14 @@ pub struct OwnedAgentRuntime {
 #[serde(rename_all = "camelCase")]
 pub struct CancelAgentParams {
     pub agent_id: String,
-    pub reason: Option<String>,
+    pub reason: Option<JsString>,
 }
 
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SteerAgentParams {
     pub agent_id: String,
-    pub file_refs: Option<Vec<AgentFileReference>>,
+    pub file_refs: Option<JsValue>,
     pub from_agent_id: Option<String>,
     pub message: JsString,
     pub target_checkpoint: Option<SteeringCheckpoint>,
@@ -91,7 +90,7 @@ pub struct AgentSteeringRuntimeBinding {
 pub struct AgentSteeringRequest {
     pub agent_id: String,
     pub message: JsString,
-    pub file_refs: Option<Vec<AgentFileReference>>,
+    pub file_refs: Option<JsValue>,
     pub target_checkpoint: Option<SteeringCheckpoint>,
 }
 
@@ -124,7 +123,7 @@ pub async fn cancel_owned_agent_runtime(
     store: &Arc<MultiAgentStore>,
     runtime_handles: &MultiAgentRuntimeHandles,
     agent_id: &str,
-    reason: Option<&str>,
+    reason: Option<&JsString>,
 ) -> Result<CancelReservedAgentResult, HandlerError> {
     let mut descendants: Vec<String> = store
         .list_descendants(agent_id)
@@ -148,7 +147,7 @@ pub async fn cancel_agent(
     params: &CancelAgentParams,
 ) -> Result<AgentToolResult, HandlerError> {
     let cancelled =
-        cancel_owned_agent_runtime(store, runtime_handles, &params.agent_id, params.reason.as_deref()).await?;
+        cancel_owned_agent_runtime(store, runtime_handles, &params.agent_id, params.reason.as_ref()).await?;
     match cancelled {
         CancelReservedAgentResult::Ok { agent } => Ok(tool_result(
             if agent.lifecycle == AgentLifecycle::Aborted {
@@ -332,7 +331,7 @@ async fn cancel_one_owned_agent_runtime(
     store: &Arc<MultiAgentStore>,
     runtime_handles: &MultiAgentRuntimeHandles,
     agent_id: &str,
-    reason: Option<&str>,
+    reason: Option<&JsString>,
 ) -> Result<CancelReservedAgentResult, HandlerError> {
     let Some(current) = store.get_agent(agent_id) else {
         return Ok(CancelReservedAgentResult::Err {
@@ -386,7 +385,7 @@ async fn cancel_one_owned_agent_runtime(
 fn cancel_persisted_detached_runtime(
     store: &Arc<MultiAgentStore>,
     agent: &AgentSnapshot,
-    reason: Option<&str>,
+    reason: Option<&JsString>,
 ) -> Result<CancelReservedAgentResult, HandlerError> {
     let Some(authority) = read_detached_cancellation_authority(store, agent)? else {
         return Ok(CancelReservedAgentResult::Err {
@@ -400,7 +399,7 @@ fn cancel_persisted_detached_runtime(
             agent: agent.clone(),
             ownership: authority.ownership,
             output_label: authority.output_label,
-            reason: reason.map(str::to_owned),
+            reason: reason.cloned(),
         })
         .map_err(|error| HandlerError::new(error.message()))?;
     match cancelled {

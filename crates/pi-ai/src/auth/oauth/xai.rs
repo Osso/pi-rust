@@ -273,10 +273,10 @@ async fn poll_for_tokens(
                     interval_seconds: body.get("interval").and_then(Value::as_f64),
                 },
                 Some("access_denied" | "authorization_denied") => OAuthDeviceCodePollResult::Failed {
-                    message: "xAI device authorization was denied".to_owned(),
+                    message: "xAI device authorization was denied".to_owned().into(),
                 },
                 Some("expired_token") => OAuthDeviceCodePollResult::Failed {
-                    message: "xAI device code expired".to_owned(),
+                    message: "xAI device code expired".to_owned().into(),
                 },
                 _ => OAuthDeviceCodePollResult::Failed {
                     message: request_failure("device token polling", &response).message,

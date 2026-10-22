@@ -2,7 +2,7 @@ use std::future::Future;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use regex::Regex;
+use regress::Regex;
 use tokio_util::sync::CancellationToken;
 
 use crate::types::{AssistantMessage, StopReason};
@@ -82,7 +82,7 @@ pub trait RetryCallbacks {
         _attempt: u32,
         _max_attempts: u32,
         _delay_ms: f64,
-        _error_message: &'a str,
+        _error_message: &'a pi_js_compat::js_json::JsString,
     ) -> impl Future<Output = ()> + Send + 'a {
         async {}
     }
@@ -97,7 +97,7 @@ pub trait RetryCallbacks {
         &mut self,
         _success: bool,
         _attempt: u32,
-        _final_error: Option<&str>,
+        _final_error: Option<&pi_js_compat::js_json::JsString>,
     ) -> impl Future<Output = ()> + Send {
         async {}
     }
@@ -106,7 +106,7 @@ pub trait RetryCallbacks {
 #[derive(Debug, Clone)]
 struct LastRetry {
     attempt: u32,
-    error_message: String,
+    error_message: pi_js_compat::js_json::JsString,
 }
 
 /// Run a single assistant-producing call with bounded retry on transient errors.
@@ -138,7 +138,7 @@ where
                 .error_message
                 .clone()
                 .filter(|message| !message.is_empty())
-                .unwrap_or_else(|| "Unknown error".to_owned()),
+                .unwrap_or_else(|| "Unknown error".to_owned().into()),
         };
         let policy = retry_policy.expect("retries are only scheduled with an enabled policy");
         let delay_ms = retry_delay_ms(policy, attempt);
@@ -184,7 +184,7 @@ where
 
     let succeeded = !matches!(response.stop_reason, StopReason::Error | StopReason::Aborted);
     let final_error = if response.stop_reason == StopReason::Error {
-        response.error_message.as_deref()
+        response.error_message.as_ref()
     } else {
         None
     };
@@ -240,18 +240,7 @@ fn retryable_pattern() -> &'static Regex {
 }
 
 fn build_provider_error_pattern(patterns: &[&str]) -> Regex {
-    // These source patterns contain only ASCII letters. JS /i without /u does
-    // not fold non-ASCII characters into ASCII, unlike Rust's Unicode /i.
-    // JS dot consumes one UTF-16 unit (not a supplementary scalar), and its
-    // whitespace set excludes U+0085 but includes U+FEFF.
-    const JS_WHITESPACE: &str =
-        r"\x09-\x0d\x20\u{a0}\u{1680}\u{2000}-\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}";
-    let pattern = patterns
-        .join("|")
-        .to_ascii_lowercase()
-        .replace(".?", r"[^\r\n\u{2028}\u{2029}\u{10000}-\u{10ffff}]?")
-        .replace(r"\s", &format!("[{JS_WHITESPACE}]"));
-    Regex::new(&pattern).expect("provider error patterns are valid regexes")
+    Regex::with_flags(&patterns.join("|").to_ascii_lowercase(), "").expect("provider error patterns are valid regexes")
 }
 
 /// Identifies the canonical Codex cybersecurity restriction, including suffixes.
@@ -278,9 +267,16 @@ pub fn is_retryable_assistant_error(message: &AssistantMessage) -> bool {
     if error_message.is_empty() || is_codex_cybersecurity_restriction(message) {
         return false;
     }
-    let error_message = error_message.to_ascii_lowercase();
-    if non_retryable_pattern().is_match(&error_message) {
+    let error_message = super::error_body::fold_ascii_error_text(error_message);
+    if non_retryable_pattern()
+        .find_from_ucs2(error_message.units(), 0)
+        .next()
+        .is_some()
+    {
         return false;
     }
-    retryable_pattern().is_match(&error_message)
+    retryable_pattern()
+        .find_from_ucs2(error_message.units(), 0)
+        .next()
+        .is_some()
 }
