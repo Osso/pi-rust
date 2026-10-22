@@ -21,7 +21,7 @@ const SOURCE: &str = "packages/coding-agent/extensions/claude-bash-hook/src/inde
 fn result_value(result: ClaudeBashHookReviewResult) -> Value {
     match result {
         ClaudeBashHookReviewResult::Allow { updated_input } => match updated_input {
-            Some(updated_input) => json!({"action": "allow", "updatedInput": updated_input}),
+            Some(updated_input) => json!({"action": "allow", "updatedInput": Value::Object(updated_input)}),
             None => json!({"action": "allow"}),
         },
         ClaudeBashHookReviewResult::Ask { reason } => json!({"action": "ask", "reason": reason}),

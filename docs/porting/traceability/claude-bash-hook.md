@@ -19,7 +19,7 @@ Source: `packages/coding-agent/extensions/claude-bash-hook/src/index.ts`. Rust:
 
 ## Q18 native input object boundary
 
-Actual sandboxed Cargo RED at `4fe83515`: `hook_process_preserves_native_input_keys_and_output_reason` panics constructing the payload (`key must be a string`) before spawning the fixture process. The cloned `tool_input` must remain a `JsValue::Object`, not a bare map passed through serde's scalar key serializer. This single-authority correction preserves native CWD, command and distinct lone-unit keys through stdin JSON; the fixture process returns a lone-unit reason. GREEN pending in `hook-native-incrate-green.log`.
+Actual sandboxed Cargo RED at `4fe83515`: `hook_process_preserves_native_input_keys_and_output_reason` panics constructing the payload (`key must be a string`) before spawning the fixture process. The cloned `tool_input` must remain a `JsValue::Object`, not a bare map passed through serde's scalar key serializer. This single-authority correction preserves native CWD, command and distinct lone-unit keys through stdin JSON; the fixture process returns a lone-unit reason. Production correction `29bce163`: full behavioral Cargo GREEN8, zero warnings, including raw real-process regression (`hook-native-incrate-green.log`). Frozen differential's result adapter also requires wrapping its returned native updated-input map; that fixture correction has its own focused rerun.
 
 ## Discrepancies / gaps
 
