@@ -33,7 +33,7 @@ fn context() -> Context {
 }
 
 struct CapturingStreams {
-    captured: Arc<Mutex<Vec<String>>>,
+    captured: Arc<Mutex<Vec<pi_js_compat::js_json::JsString>>>,
 }
 
 impl ProviderStreams for CapturingStreams {

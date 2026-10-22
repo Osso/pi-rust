@@ -1,6 +1,5 @@
 use pi_ai::types::{AssistantContent, TextContent, TextOrImageContent, ToolCall};
 use pi_ai::utils::text::{ContentText, content_text};
-use serde_json::json;
 
 fn assistant_blocks() -> Vec<AssistantContent> {
     vec![

@@ -112,11 +112,17 @@ fn stream_options(scenario: &Value, fetch: Arc<RecordingFetch>) -> StreamOptions
             Box::pin(async move {
                 let mut payload = payload;
                 let object = payload.as_object_mut().expect("payload object");
-                object.insert("topP".to_owned(), json!(0.9));
-                object.insert("randomSeed".to_owned(), json!(42));
                 object.insert(
-                    "responseFormat".to_owned(),
-                    json!({
+                    ("topP".to_owned()).into(),
+                    pi_js_compat::js_json::JsValue::from(json!(0.9)),
+                );
+                object.insert(
+                    ("randomSeed".to_owned()).into(),
+                    pi_js_compat::js_json::JsValue::from(json!(42)),
+                );
+                object.insert(
+                    ("responseFormat".to_owned()).into(),
+                    pi_js_compat::js_json::JsValue::from(json!({
                         "type": "json_schema",
                         "jsonSchema": {
                             "name": "result",
@@ -125,12 +131,24 @@ fn stream_options(scenario: &Value, fetch: Arc<RecordingFetch>) -> StreamOptions
                                 "properties": {"maxTokens": {"type": "number"}},
                             },
                         },
-                    }),
+                    })),
                 );
-                object.insert("presencePenalty".to_owned(), json!(0.1));
-                object.insert("frequencyPenalty".to_owned(), json!(0.2));
-                object.insert("parallelToolCalls".to_owned(), json!(true));
-                object.insert("safePrompt".to_owned(), json!(true));
+                object.insert(
+                    ("presencePenalty".to_owned()).into(),
+                    pi_js_compat::js_json::JsValue::from(json!(0.1)),
+                );
+                object.insert(
+                    ("frequencyPenalty".to_owned()).into(),
+                    pi_js_compat::js_json::JsValue::from(json!(0.2)),
+                );
+                object.insert(
+                    ("parallelToolCalls".to_owned()).into(),
+                    pi_js_compat::js_json::JsValue::from(json!(true)),
+                );
+                object.insert(
+                    ("safePrompt".to_owned()).into(),
+                    pi_js_compat::js_json::JsValue::from(json!(true)),
+                );
                 Ok(Some(payload))
             })
         }));

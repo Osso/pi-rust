@@ -230,11 +230,17 @@ async fn serializes_sdk_style_payloads_to_the_mistral_wire_format() {
                 *captured.lock().unwrap() = Some(payload.clone());
                 let mut augmented = payload;
                 let object = augmented.as_object_mut().unwrap();
-                object.insert("topP".to_owned(), json!(0.9));
-                object.insert("randomSeed".to_owned(), json!(42));
                 object.insert(
-                    "responseFormat".to_owned(),
-                    json!({
+                    ("topP".to_owned()).into(),
+                    pi_js_compat::js_json::JsValue::from(json!(0.9)),
+                );
+                object.insert(
+                    ("randomSeed".to_owned()).into(),
+                    pi_js_compat::js_json::JsValue::from(json!(42)),
+                );
+                object.insert(
+                    ("responseFormat".to_owned()).into(),
+                    pi_js_compat::js_json::JsValue::from(json!({
                         "type": "json_schema",
                         "jsonSchema": {
                             "name": "result",
@@ -243,12 +249,24 @@ async fn serializes_sdk_style_payloads_to_the_mistral_wire_format() {
                                 "properties": {"maxTokens": {"type": "number"}},
                             },
                         },
-                    }),
+                    })),
                 );
-                object.insert("presencePenalty".to_owned(), json!(0.1));
-                object.insert("frequencyPenalty".to_owned(), json!(0.2));
-                object.insert("parallelToolCalls".to_owned(), json!(true));
-                object.insert("safePrompt".to_owned(), json!(true));
+                object.insert(
+                    ("presencePenalty".to_owned()).into(),
+                    pi_js_compat::js_json::JsValue::from(json!(0.1)),
+                );
+                object.insert(
+                    ("frequencyPenalty".to_owned()).into(),
+                    pi_js_compat::js_json::JsValue::from(json!(0.2)),
+                );
+                object.insert(
+                    ("parallelToolCalls".to_owned()).into(),
+                    pi_js_compat::js_json::JsValue::from(json!(true)),
+                );
+                object.insert(
+                    ("safePrompt".to_owned()).into(),
+                    pi_js_compat::js_json::JsValue::from(json!(true)),
+                );
                 Ok(Some(augmented))
             })
         },
@@ -267,10 +285,16 @@ async fn serializes_sdk_style_payloads_to_the_mistral_wire_format() {
     let (_, message) = collect(stream(model("mistral-large-latest", false), context, options)).await;
     assert_eq!(message.stop_reason, StopReason::Stop);
 
-    let payload = captured.lock().unwrap().clone().expect("payload captured");
-    assert_eq!(payload["maxTokens"], json!(123));
-    assert_eq!(payload["promptMode"], json!("reasoning"));
-    assert_eq!(payload["promptCacheKey"], json!("session-1"));
+    let payload = json!(captured.lock().unwrap().clone().expect("payload captured"));
+    assert_eq!(payload["maxTokens"], pi_js_compat::js_json::JsValue::from(json!(123)));
+    assert_eq!(
+        payload["promptMode"],
+        pi_js_compat::js_json::JsValue::from(json!("reasoning"))
+    );
+    assert_eq!(
+        payload["promptCacheKey"],
+        pi_js_compat::js_json::JsValue::from(json!("session-1"))
+    );
 
     let observed = observed.lock().unwrap().clone().expect("response observed");
     assert_eq!(observed.status, 200.0);
@@ -772,7 +796,7 @@ async fn capture_reasoning_payload(model_id: &str, reasoning: Option<pi_ai::type
     let event_stream = stream_simple(model(model_id, true), context(), stream_options);
     let (_, message) = collect(event_stream).await;
     assert_eq!(message.stop_reason, StopReason::Error);
-    captured.lock().unwrap().clone().expect("payload captured")
+    json!(captured.lock().unwrap().clone().expect("payload captured"))
 }
 #[tokio::test]
 async fn selects_reasoning_controls_per_mistral_model() {

@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 fn process_environment(overrides: &[(&str, &str)]) -> BTreeMap<String, String> {
     let mut environment: BTreeMap<String, String> = std::env::vars().collect();
     for (name, value) in overrides {
-        environment.insert((*name).to_owned(), pi_js_compat::js_json::JsString::from(*value));
+        environment.insert((*name).to_owned(), (*value).to_owned());
     }
     environment
 }

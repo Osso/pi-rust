@@ -761,7 +761,7 @@ fn ws_options(
     }
 }
 
-fn text_of(result: &AssistantMessage) -> Option<&str> {
+fn text_of(result: &AssistantMessage) -> Option<&pi_js_compat::js_json::JsString> {
     result.content.iter().find_map(|block| match block {
         pi_ai::types::AssistantContent::Text(text) => Some(&text.text),
         _ => None,
@@ -1170,7 +1170,7 @@ async fn streams_function_call_arguments() {
         .expect("tool call");
     assert_eq!(call.id, "call_1|fc_1");
     assert_eq!(call.name, "lookup");
-    assert_eq!(call.arguments["x"], 1.into());
+    assert_eq!(call.arguments["x"], pi_js_compat::js_json::JsValue::Number(1.0));
 }
 
 #[tokio::test]

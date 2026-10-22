@@ -168,11 +168,7 @@ async fn observe(scenario: &Value) -> Value {
         .map(|headers| {
             headers
                 .iter()
-                .filter_map(|(name, value)| {
-                    value
-                        .as_str()
-                        .map(|value| (name.clone(), pi_js_compat::js_json::JsString::from(value)))
-                })
+                .filter_map(|(name, value)| value.as_str().map(|value| (name.clone(), value.to_owned())))
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();

@@ -338,7 +338,12 @@ fn provider_metadata_matches_the_ts_factories() {
         let provider = provider(entry.id);
         assert_eq!(provider.id(), entry.id);
         assert_eq!(provider.name(), entry.name, "{} name", entry.id);
-        assert_eq!(provider.base_url(), entry.base_url, "{} baseUrl", entry.id);
+        assert_eq!(
+            provider.base_url(),
+            entry.base_url.map(pi_js_compat::js_json::JsString::from).as_ref(),
+            "{} baseUrl",
+            entry.id
+        );
         assert_eq!(api_key_name(provider.as_ref()), entry.api_key_auth, "{} auth", entry.id);
         assert_eq!(
             oauth_name(provider.as_ref()).as_deref(),
@@ -439,11 +444,8 @@ fn catalog_readers_preserve_optional_metadata() {
 
     let kimi = get_builtin_model("kimi-coding", "k2p7").expect("Kimi Coding");
     assert_eq!(
-        kimi.headers
-            .as_ref()
-            .and_then(|headers| headers.get("User-Agent"))
-            .map(String::as_str),
-        Some("KimiCLI/1.5")
+        kimi.headers.as_ref().and_then(|headers| headers.get("User-Agent")),
+        Some(&pi_js_compat::js_json::JsString::from("KimiCLI/1.5"))
     );
 }
 
@@ -522,14 +524,14 @@ async fn every_catalog_api_dispatches_to_an_implementation() {
             if unimplemented {
                 assert!(
                     message.contains("has no API implementation"),
-                    "opencode-go ({api}) source behavior: {message}"
+                    "opencode-go ({api}) source behavior: {message:?}"
                 );
                 assert!(fetch.requests().is_empty());
                 continue;
             }
             assert!(
                 !message.contains("no API implementation"),
-                "{} ({api}): {message}",
+                "{} ({api}): {message:?}",
                 provider.id()
             );
             assert_eq!(

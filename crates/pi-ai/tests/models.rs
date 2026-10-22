@@ -1569,7 +1569,7 @@ async fn explicit_request_api_key_and_env_resolve_provider_auth() {
                     auth: ModelAuth {
                         api_key: Some(key),
                         headers: None,
-                        base_url: Some((format!("https://example.test/{account}")).into()),
+                        base_url: Some((pi_js_compat::js_format!("https://example.test/{}", account)).into()),
                     },
                     env: Some(IndexMap::from([("ACCOUNT_ID".to_owned(), account)])),
                     source: None,
@@ -1941,8 +1941,11 @@ async fn applies_resolved_env_to_stream_options() {
     let models = models();
     models.set_provider(provider);
     let env = IndexMap::from([
-        ("REQUEST_ONLY".to_owned(), "request".to_owned()),
-        ("SHARED".to_owned(), "request".to_owned()),
+        (
+            "REQUEST_ONLY".to_owned(),
+            pi_js_compat::js_json::JsString::from("request"),
+        ),
+        ("SHARED".to_owned(), pi_js_compat::js_json::JsString::from("request")),
     ]);
     models
         .complete_simple(

@@ -519,8 +519,8 @@ async fn differential_websocket_cached_continuation() {
     assert_eq!(first.1, expected["first"], "first result mismatch");
     assert_events(&second.0, &expected["secondEvents"], "second");
     assert_eq!(second.1, expected["second"], "second result mismatch");
-    close_openai_codex_websocket_sessions(Some("diff-ws-cached"));
-    reset_openai_codex_websocket_debug_stats(Some("diff-ws-cached"));
+    close_openai_codex_websocket_sessions(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
+    reset_openai_codex_websocket_debug_stats(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
 }
 
 fn snapshot(connections: &[ws_server::ServerConnection]) -> Value {

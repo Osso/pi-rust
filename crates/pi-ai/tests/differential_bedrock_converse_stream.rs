@@ -893,7 +893,7 @@ async fn run_rust(
         fetch.requests(),
         events,
         message,
-        json!(captured.lock().expect("capture").clone()),
+        captured.lock().expect("capture").clone().map(|value| json!(value)),
     )
 }
 

@@ -170,7 +170,10 @@ fn registered_provider_receives_the_explicit_api_key() {
         .block_on(complete(model, context(), options))
         .expect("complete");
     assert_eq!(message.content, vec![AssistantContent::Text(TextContent::new("ok"))]);
-    assert_eq!(*captured.lock().unwrap(), vec![Some("request-key".to_owned())]);
+    assert_eq!(
+        *captured.lock().unwrap(),
+        vec![Some(pi_js_compat::js_json::JsString::from("request-key"))]
+    );
 }
 
 #[test]

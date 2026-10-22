@@ -196,7 +196,13 @@ async fn streams_tool_use_with_partial_json() {
     };
     assert_eq!(tool_call.id, "tool-1");
     assert_eq!(tool_call.name, "lookup");
-    assert_eq!(tool_call.arguments, json!({"q": "x"}).as_object().unwrap().clone());
+    assert_eq!(
+        tool_call.arguments,
+        pi_js_compat::js_json::JsValue::from(json!({"q": "x"}))
+            .as_object()
+            .unwrap()
+            .clone()
+    );
     assert_eq!(message.stop_reason, StopReason::ToolUse);
     assert_eq!(
         serde_json::to_value(&message).expect("message")["content"][0].get("partialJson"),

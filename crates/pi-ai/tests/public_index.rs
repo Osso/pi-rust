@@ -90,7 +90,10 @@ fn crate_root_reexports_are_usable() {
         "x"
     );
     assert_eq!(
-        pi_ai::schema_error_lines(&json!({"type": "string"}), &json!(1)),
+        pi_ai::schema_error_lines(
+            &pi_js_compat::js_json::JsValue::from(json!({"type": "string"})),
+            &pi_js_compat::js_json::JsValue::Number(1.0)
+        ),
         vec!["  - root: must be string".to_owned()]
     );
 
