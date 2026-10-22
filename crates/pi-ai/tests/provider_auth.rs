@@ -52,6 +52,18 @@ fn anthropic_provider_matches_frozen_module() {
     }
 }
 
+#[test]
+fn kimi_provider_matches_frozen_without_subscription_oauth() {
+    let provider = pi_ai::providers::kimi_coding::kimi_coding_provider();
+    let mut oracle = oracle::TsOracle::spawn("provider-module-oracle.ts", "packages/ai/src/providers/kimi-coding.ts");
+    assert_eq!(
+        provider_descriptor(provider.as_ref()),
+        oracle.request(&json!({
+            "factory": "kimiCodingProvider", "operation": "describe"
+        }))
+    );
+}
+
 fn provider_descriptor(provider: &dyn Provider) -> Value {
     let auth = provider.auth();
     let api_key = auth.api_key.as_ref().unwrap();
