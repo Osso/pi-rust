@@ -280,18 +280,18 @@ fn stops_at_fullwidth_chinese_punctuation() {
     editor.set_text("你好，世界");
 
     send(&mut editor, "\x1b[1;5D");
-    assert_eq!(cursor(&editor), (0, 9));
+    assert_eq!(cursor(&editor), (0, 3));
     send(&mut editor, "\x1b[1;5D");
-    assert_eq!(cursor(&editor), (0, 6));
+    assert_eq!(cursor(&editor), (0, 2));
     send(&mut editor, "\x1b[1;5D");
     assert_eq!(cursor(&editor), (0, 0));
 
     send(&mut editor, "\x1b[1;5C");
-    assert_eq!(cursor(&editor), (0, 6));
+    assert_eq!(cursor(&editor), (0, 2));
     send(&mut editor, "\x1b[1;5C");
-    assert_eq!(cursor(&editor), (0, 9));
+    assert_eq!(cursor(&editor), (0, 3));
     send(&mut editor, "\x1b[1;5C");
-    assert_eq!(cursor(&editor), (0, 15));
+    assert_eq!(cursor(&editor), (0, 5));
 }
 
 #[test]
@@ -300,11 +300,11 @@ fn handles_mixed_cjk_and_ascii_word_movement() {
     editor.set_text("hello你好，world世界");
 
     send(&mut editor, "\x1b[1;5D");
-    assert_eq!(cursor(&editor), (0, 19));
+    assert_eq!(cursor(&editor), (0, 13));
     send(&mut editor, "\x1b[1;5D");
-    assert_eq!(cursor(&editor), (0, 14));
+    assert_eq!(cursor(&editor), (0, 8));
     send(&mut editor, "\x1b[1;5D");
-    assert_eq!(cursor(&editor), (0, 11));
+    assert_eq!(cursor(&editor), (0, 7));
     send(&mut editor, "\x1b[1;5D");
     assert_eq!(cursor(&editor), (0, 5));
     send(&mut editor, "\x1b[1;5D");
@@ -313,13 +313,13 @@ fn handles_mixed_cjk_and_ascii_word_movement() {
     send(&mut editor, "\x1b[1;5C");
     assert_eq!(cursor(&editor), (0, 5));
     send(&mut editor, "\x1b[1;5C");
-    assert_eq!(cursor(&editor), (0, 11));
+    assert_eq!(cursor(&editor), (0, 7));
     send(&mut editor, "\x1b[1;5C");
-    assert_eq!(cursor(&editor), (0, 14));
+    assert_eq!(cursor(&editor), (0, 8));
     send(&mut editor, "\x1b[1;5C");
-    assert_eq!(cursor(&editor), (0, 19));
+    assert_eq!(cursor(&editor), (0, 13));
     send(&mut editor, "\x1b[1;5C");
-    assert_eq!(cursor(&editor), (0, 25));
+    assert_eq!(cursor(&editor), (0, 15));
 }
 
 #[test]
