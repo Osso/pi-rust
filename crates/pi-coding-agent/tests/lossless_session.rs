@@ -302,8 +302,8 @@ fn tool_truncation_keeps_units_until_the_source_utf8_suffix_boundary() {
     let tail = truncate_tail(
         &text,
         TruncationOptions {
-            max_lines: 1,
-            max_bytes: 10,
+            max_lines: 1.0,
+            max_bytes: 10.0,
         },
     );
     assert_eq!(tail.content.units(), &[0xdfff]);
@@ -313,8 +313,8 @@ fn tool_truncation_keeps_units_until_the_source_utf8_suffix_boundary() {
     let suffix = truncate_tail(
         &JsString::from_utf16(vec![0x78, 0xdfff]),
         TruncationOptions {
-            max_lines: 2,
-            max_bytes: 3,
+            max_lines: 2.0,
+            max_bytes: 3.0,
         },
     );
     assert_eq!(suffix.content.units(), &[0xfffd]);
