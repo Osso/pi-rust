@@ -1,5 +1,6 @@
 //! Differential: architect system/observation prompts against the pinned TypeScript module.
 
+use pi_js_compat::js_json::JsString;
 #[path = "support/oracle.rs"]
 mod oracle;
 
@@ -8,26 +9,27 @@ use pi_coding_agent::architect::observer::{
 };
 use pi_coding_agent::architect::prompt::{ARCHITECT_SYSTEM_PROMPT, build_architect_prompt};
 use pi_coding_agent::core::session_control_db::{ArchitectRequest, ArchitectRequestStatus};
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsValue as Value;
 
 const SOURCE_MODULE: &str = "packages/coding-agent/src/architect/prompt.ts";
 
 fn session(id: &str, cwd: &str, name: Option<&str>, goal: Option<&str>) -> ArchitectSessionSnapshot {
     ArchitectSessionSnapshot {
-        cwd: cwd.to_owned(),
-        goal_json: goal.map(str::to_owned),
-        id: id.to_owned(),
+        cwd: cwd.to_owned().into(),
+        goal_json: goal.map(JsString::from),
+        id: id.to_owned().into(),
         is_subagent: false,
-        name: name.map(str::to_owned),
+        name: name.map(JsString::from),
     }
 }
 
 fn request(id: i64) -> ArchitectRequest {
     ArchitectRequest {
         id,
-        sender_session_id: "main".to_owned(),
-        project_cwd: Some("/repo".to_owned()),
-        body: "Architect: assess goal drift".to_owned(),
+        sender_session_id: "main".to_owned().into(),
+        project_cwd: Some("/repo".to_owned().into()),
+        body: "Architect: assess goal drift".to_owned().into(),
         status: ArchitectRequestStatus::Pending,
         created_at: "2026-07-10T00:00:00.000Z".to_owned(),
         claimed_at: None,
@@ -78,19 +80,30 @@ fn architect_prompts_match_the_typescript_module() {
             "kind": "observation",
             "name": name,
             "reason": reason,
-            "requests": serde_json::to_value(&observation.requests).expect("requests serialize"),
-            "sessions": serde_json::to_value(&observation.sessions).expect("sessions serialize"),
+            "requests": pi_js_compat::js_json::to_value(&observation.requests).expect("requests serialize"),
+            "sessions": pi_js_compat::js_json::to_value(&observation.sessions).expect("sessions serialize"),
         }));
     }
     let mut ts = oracle::TsOracle::spawn("coding-agent-architect-prompt-oracle.ts", SOURCE_MODULE);
     let response = ts.request(&json!({"id": 1, "operation": "architect", "cases": cases}));
-    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "{response:?}"
+    );
     let ts_results: &Vec<Value> = response["output"]["results"].as_array().expect("results");
 
-    assert_eq!(ARCHITECT_SYSTEM_PROMPT, ts_results[0]["value"].as_str().unwrap());
+    assert_eq!(
+        JsString::from(ARCHITECT_SYSTEM_PROMPT),
+        *ts_results[0]["value"].as_string().unwrap()
+    );
     for (index, (name, observation)) in observations.iter().enumerate() {
         let prompt = build_architect_prompt(observation);
-        assert_eq!(ts_results[index + 1]["name"], *name);
-        assert_eq!(prompt, ts_results[index + 1]["value"].as_str().unwrap(), "{name}");
+        assert_eq!(ts_results[index + 1]["name"], json!(*name));
+        assert_eq!(
+            JsString::from(prompt),
+            *ts_results[index + 1]["value"].as_string().unwrap(),
+            "{name}"
+        );
     }
 }

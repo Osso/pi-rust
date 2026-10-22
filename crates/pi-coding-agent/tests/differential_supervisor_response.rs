@@ -8,7 +8,8 @@ use pi_coding_agent::supervisor::response_tool::{
     SUPERVISOR_RESPONSE_TOOL_NAME, create_supervisor_response_tool, supervisor_response_parameters,
     supervisor_response_text,
 };
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsValue as Value;
 
 fn marker_name(marker: Option<RuntimeMessageMarker>) -> Option<&'static str> {
     marker.map(RuntimeMessageMarker::as_str)
@@ -122,9 +123,9 @@ fn supervisor_response_text_and_result_shape_match_the_pinned_typescript_source(
     for (id, params) in cases {
         let expected = oracle.request(&json!({"id": id, "operation": "execute", "params": params}));
         let output = &expected["output"];
-        let text = output["content"][0]["text"].as_str().expect("oracle text content");
-        assert_eq!(text, supervisor_response_text(&params), "params: {params}");
-        assert_eq!(output["details"], params, "details: {params}");
+        let text = output["content"][0]["text"].as_string().expect("oracle text content");
+        assert_eq!(*text, supervisor_response_text(&params), "params: {params:?}");
+        assert_eq!(output["details"], params, "details: {params:?}");
         assert_eq!(output["terminate"], json!(true));
         assert_eq!(expected["ok"], json!(true));
     }

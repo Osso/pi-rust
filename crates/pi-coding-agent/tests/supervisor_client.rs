@@ -5,20 +5,23 @@ use pi_coding_agent::core::session_control_db::{
     get_control_db_path, read_supervisor_request, recover_supervisor_requests,
 };
 use pi_coding_agent::supervisor::client::{RequestSupervisorDecisionInput, request_supervisor_decision};
-use serde_json::{Map, Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsObject as Map;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue as Value;
 use tempfile::TempDir;
 
-fn payload(value: Value) -> Map<String, Value> {
+fn payload(value: Value) -> Map {
     value.as_object().expect("payload object").clone()
 }
 
 fn input(control_db_path: &str, kind: SupervisorRequestKind) -> RequestSupervisorDecisionInput {
     RequestSupervisorDecisionInput {
-        control_db_path: control_db_path.to_owned(),
+        control_db_path: control_db_path.to_owned().into(),
         kind,
         payload: payload(json!({ "objective": "finish" })),
-        project_id: "pi".to_owned(),
-        sender_session_id: "main".to_owned(),
+        project_id: "pi".to_owned().into(),
+        sender_session_id: "main".to_owned().into(),
         timeout_ms: 1_000,
         max_attempts: None,
         poll_interval_ms: Some(1),
@@ -37,15 +40,15 @@ async fn waits_for_and_returns_the_durable_supervisor_response() {
     let responder_path = control_db_path.clone();
     let responder = tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        let request = claim_next_supervisor_request(&responder_path, "runtime")
+        let request = claim_next_supervisor_request(&responder_path, &JsString::from("runtime"))
             .expect("claim request")
             .expect("request record");
         complete_supervisor_request(
             &responder_path,
             request.id,
-            "runtime",
+            &JsString::from("runtime"),
             &SupervisorResponse::Approve {
-                reason: "bounded".to_owned(),
+                reason: "bounded".to_owned().into(),
             },
         )
         .expect("complete request");
@@ -56,7 +59,7 @@ async fn waits_for_and_returns_the_durable_supervisor_response() {
     assert_eq!(
         decision,
         SupervisorResponse::Approve {
-            reason: "bounded".to_owned()
+            reason: "bounded".to_owned().into()
         }
     );
 }
@@ -84,17 +87,18 @@ async fn retries_a_timed_out_request_before_returning_a_later_durable_response()
                 continue;
             }
             recover_supervisor_requests(&responder_path).expect("recover requests");
-            let Some(request) = claim_next_supervisor_request(&responder_path, "runtime").expect("claim request")
+            let Some(request) =
+                claim_next_supervisor_request(&responder_path, &JsString::from("runtime")).expect("claim request")
             else {
                 continue;
             };
             complete_supervisor_request(
                 &responder_path,
                 request.id,
-                "runtime",
+                &JsString::from("runtime"),
                 &SupervisorResponse::Continue {
-                    instructions: "Continue the goal.".to_owned(),
-                    reason: "recovered".to_owned(),
+                    instructions: "Continue the goal.".to_owned().into(),
+                    reason: "recovered".to_owned().into(),
                 },
             )
             .expect("complete request");
@@ -108,8 +112,8 @@ async fn retries_a_timed_out_request_before_returning_a_later_durable_response()
     assert_eq!(
         decision,
         SupervisorResponse::Continue {
-            instructions: "Continue the goal.".to_owned(),
-            reason: "recovered".to_owned(),
+            instructions: "Continue the goal.".to_owned().into(),
+            reason: "recovered".to_owned().into(),
         }
     );
 }
@@ -128,7 +132,7 @@ async fn returns_error_when_all_request_attempts_expire_without_a_service_respon
     assert_eq!(
         decision,
         SupervisorResponse::Error {
-            reason: "Supervisor request timed out after 2 attempts".to_owned()
+            reason: "Supervisor request timed out after 2 attempts".to_owned().into()
         }
     );
 }
