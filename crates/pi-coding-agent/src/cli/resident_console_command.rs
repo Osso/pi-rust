@@ -14,8 +14,8 @@ use std::time::Duration;
 
 use pi_agent_core::agent::types::AgentMessage;
 use pi_ai::types::{TextOrImageContent, UserContent};
-use pi_js_compat::js_json::{JsValue, encode_node_utf8};
-use pi_js_compat::string::js_trim;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{JsString, JsValue};
 use pi_tui::TUI;
 use pi_tui::components::input::InputOptions;
 use pi_tui::tui::{ComponentRef, TuiExt, component};
@@ -35,6 +35,7 @@ use crate::modes::interactive::components::assistant_message::AssistantMessageCo
 use crate::modes::interactive::components::user_message::UserMessageComponent;
 use crate::modes::interactive::theme::{ThemeColor, with_theme};
 use crate::supervisor::response_tool::SUPERVISOR_RESPONSE_TOOL_NAME;
+use crate::utils::paths::process_cwd;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(5);
 
@@ -88,7 +89,7 @@ impl ResidentConsoleService {
 ///
 /// `Ok(None)` when the first argument is not `--supervisor`/`--architect`;
 /// `Err` is the thrown flag-conflict error.
-pub fn parse_resident_console_args(args: &[String]) -> Result<Option<ResidentConsoleCommand>, String> {
+pub fn parse_resident_console_args(args: &[String]) -> Result<Option<ResidentConsoleCommand>, JsString> {
     let Some(raw_service) = args.first() else {
         return Ok(None);
     };
@@ -99,14 +100,14 @@ pub fn parse_resident_console_args(args: &[String]) -> Result<Option<ResidentCon
     };
     let prompt_parts = &args[1..];
     if prompt_parts.iter().any(|part| part.starts_with('-')) {
-        return Err(format!(
+        return Err(js_format!(
             "--{} cannot be combined with normal Pi CLI flags",
             service.as_str()
         ));
     }
     let initial_prompt = {
         let joined = prompt_parts.join(" ");
-        let trimmed = joined.trim();
+        let trimmed = pi_js_compat::string::js_trim(&joined);
         (!trimmed.is_empty()).then(|| trimmed.to_owned())
     };
     Ok(Some(ResidentConsoleCommand {
@@ -116,25 +117,22 @@ pub fn parse_resident_console_args(args: &[String]) -> Result<Option<ResidentCon
 }
 
 /// `runResidentConsoleCommand`.
-pub async fn run_resident_console_command(command: ResidentConsoleCommand) -> Result<(), String> {
+pub async fn run_resident_console_command(command: ResidentConsoleCommand) -> Result<(), JsString> {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
-        return Err(format!(
+        return Err(js_format!(
             "--{} requires an interactive terminal",
             command.service.as_str()
         ));
     }
-    let agent_dir = get_agent_dir();
-    let socket_path = format!(
+    let agent_dir = JsString::from(get_agent_dir().display().to_string());
+    let socket_path = js_format!(
         "{}.{}-console.sock",
         get_control_db_path(&get_user_state_root()),
         command.service.as_str()
     );
     let client =
-        ResidentConsoleClient::<SessionEntry, ResidentConsoleEvent>::connect(&socket_path, command.service).await?;
-    let cwd = std::env::current_dir()
-        .map_err(|error| error.to_string())?
-        .display()
-        .to_string();
+        ResidentConsoleClient::<SessionEntry, ResidentConsoleEvent>::connect(socket_path, command.service).await?;
+    let cwd = process_cwd().map_err(|error| error.message().clone())?;
     let settings_manager = SettingsManager::create(
         &cwd,
         Some(&agent_dir),
@@ -142,17 +140,19 @@ pub async fn run_resident_console_command(command: ResidentConsoleCommand) -> Re
             project_trusted: Some(false),
         },
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| error.message().clone())?;
     let env: BTreeMap<String, String> = pi_js_compat::process_env::vars().into_iter().collect();
     let terminal = Rc::new(RefCell::new(pi_tui::terminal::ProcessTerminal::new()));
-    let ui = create_startup_tui(&settings_manager, terminal, &env).await?;
+    let ui = create_startup_tui(&settings_manager, terminal, &env)
+        .await
+        .map_err(JsString::from)?;
     let console = ResidentConsoleUi::new(command.service, client.snapshot());
     let console_component = component(ConsoleComponent {
         ui: Rc::clone(&console),
     });
     ui.add_child(Rc::clone(&console_component));
     ui.set_focus(Some(console_component));
-    start_startup_tui(&ui, &settings_manager, &env)?;
+    start_startup_tui(&ui, &settings_manager, &env).map_err(JsString::from)?;
 
     let (event_sender, event_receiver) = channel();
     let _event_subscription = client.on_event(std::sync::Arc::new(move |event| {
@@ -162,16 +162,16 @@ pub async fn run_resident_console_command(command: ResidentConsoleCommand) -> Re
     let _disconnect_subscription = client.on_disconnect(std::sync::Arc::new(move |error| {
         let _ = disconnect_sender.send(error);
     }));
-    let (submit_sender, submit_receiver) = channel::<String>();
-    console.set_on_submit(Rc::new(move |value: &str| {
-        let _ = submit_sender.send(value.to_owned());
+    let (submit_sender, submit_receiver) = channel::<JsString>();
+    console.set_on_submit(Rc::new(move |value: &JsString| {
+        let _ = submit_sender.send(value.clone());
     }));
 
     pump_console(
         &ui,
         &console,
         &client,
-        command.initial_prompt.as_deref(),
+        command.initial_prompt.map(JsString::from).as_ref(),
         &event_receiver,
         &disconnect_receiver,
         &submit_receiver,
@@ -187,10 +187,10 @@ async fn pump_console(
     ui: &TUI,
     console: &ResidentConsoleUi,
     client: &ResidentConsoleClient<SessionEntry, ResidentConsoleEvent>,
-    initial_prompt: Option<&str>,
+    initial_prompt: Option<&JsString>,
     events: &Receiver<ResidentConsoleEvent>,
-    disconnects: &Receiver<Option<String>>,
-    submissions: &Receiver<String>,
+    disconnects: &Receiver<Option<JsString>>,
+    submissions: &Receiver<JsString>,
 ) {
     if let Some(prompt) = initial_prompt {
         submit(ui, console, client, prompt).await;
@@ -207,7 +207,7 @@ async fn pump_console(
         }
         match disconnects.try_recv() {
             Ok(error) => {
-                console.set_status(&error.unwrap_or_else(|| "Resident service disconnected".to_owned()));
+                console.set_status(error.unwrap_or_else(|| "Resident service disconnected".into()));
                 console.close();
             }
             Err(TryRecvError::Empty) => {}
@@ -224,18 +224,18 @@ async fn submit(
     ui: &TUI,
     console: &ResidentConsoleUi,
     client: &ResidentConsoleClient<SessionEntry, ResidentConsoleEvent>,
-    value: &str,
+    value: &JsString,
 ) {
-    let text = js_trim(value).to_owned();
+    let text = value.trim();
     if text.is_empty() {
         return;
     }
     console.clear_input();
-    console.set_status(&with_theme(|theme| theme.fg(ThemeColor::Muted, "Queued…")));
+    console.set_status(with_theme(|theme| theme.fg(ThemeColor::Muted, "Queued…")));
     ui.request_render(false);
-    match client.prompt(&pi_ai::utils::uuid::random_uuid(), &text).await {
-        Ok(()) => console.set_status(&with_theme(|theme| theme.fg(ThemeColor::Muted, "Working…"))),
-        Err(error) => console.set_status(&with_theme(|theme| theme.fg(ThemeColor::Error, &error))),
+    match client.prompt(pi_ai::utils::uuid::random_uuid(), text).await {
+        Ok(()) => console.set_status(with_theme(|theme| theme.fg(ThemeColor::Muted, "Working…"))),
+        Err(error) => console.set_status(with_theme(|theme| theme.fg(ThemeColor::Error, error))),
     }
     ui.request_render(false);
 }
@@ -263,7 +263,7 @@ impl ResidentConsoleUi {
         {
             let mut root = root.borrow_mut();
             root.add_child(component(Text::new(
-                with_theme(|theme| theme.fg(ThemeColor::Accent, &format!("{} resident console", service.as_str()))),
+                with_theme(|theme| theme.fg(ThemeColor::Accent, js_format!("{} resident console", service.as_str()))),
                 1,
                 0,
             )));
@@ -271,7 +271,7 @@ impl ResidentConsoleUi {
                 with_theme(|theme| {
                     theme.fg(
                         ThemeColor::Dim,
-                        &format!("{} · pid {}", snapshot.cwd, snapshot.generation),
+                        js_format!("{} · pid {}", snapshot.cwd, snapshot.generation),
                     )
                 }),
                 1,
@@ -298,12 +298,12 @@ impl ResidentConsoleUi {
         console
     }
 
-    pub fn set_on_submit(&self, on_submit: Rc<dyn Fn(&str)>) {
+    pub fn set_on_submit(&self, on_submit: Rc<dyn Fn(&JsString)>) {
         self.input.borrow_mut().on_submit = Some(on_submit);
     }
 
     /// Renders the console root at `width`.
-    pub fn render(&self, width: usize) -> Vec<String> {
+    pub fn render(&self, width: usize) -> Vec<JsString> {
         self.root.borrow_mut().render(width)
     }
 
@@ -319,12 +319,14 @@ impl ResidentConsoleUi {
         self.input.borrow_mut().set_value("");
     }
 
-    fn set_status(&self, text: &str) {
-        self.status.borrow_mut().set_text(text.to_owned());
+    fn set_status(&self, text: impl Into<JsString>) {
+        self.status.borrow_mut().set_text(text);
     }
 
-    fn handle_input(&self, data: &str) {
-        if pi_tui::matches_key(data, &pi_tui::Key::ctrl("c")) || pi_tui::matches_key(data, &pi_tui::Key::ctrl("d")) {
+    fn handle_input(&self, data: &JsString) {
+        if pi_tui::matches_key(data.clone(), pi_tui::Key::ctrl("c"))
+            || pi_tui::matches_key(data.clone(), pi_tui::Key::ctrl("d"))
+        {
             self.close();
             return;
         }
@@ -337,7 +339,7 @@ impl ResidentConsoleUi {
         match event {
             ResidentConsoleEvent::EntryAppended { entry } => self.append_entry(&entry),
             ResidentConsoleEvent::AgentStart => {
-                self.set_status(&with_theme(|theme| theme.fg(ThemeColor::Muted, "Working…")));
+                self.set_status(with_theme(|theme| theme.fg(ThemeColor::Muted, "Working…")));
             }
             ResidentConsoleEvent::AgentEnd => self.set_status(""),
             ResidentConsoleEvent::MessageStart {
@@ -450,39 +452,35 @@ impl ResidentConsoleUi {
     }
 }
 
-fn read_user_content(content: &UserContent) -> String {
+fn read_user_content(content: &UserContent) -> JsString {
     match content {
-        UserContent::Text(text) => encode_node_utf8(text),
+        UserContent::Text(text) => text.clone(),
         UserContent::Blocks(blocks) => read_blocks(blocks),
     }
 }
 
-fn read_blocks(blocks: &[TextOrImageContent]) -> String {
-    blocks
-        .iter()
-        .filter_map(|block| match block {
-            TextOrImageContent::Text(text) => Some(encode_node_utf8(&text.text)),
-            TextOrImageContent::Image(_) => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+fn read_blocks(blocks: &[TextOrImageContent]) -> JsString {
+    let texts = blocks.iter().filter_map(|block| match block {
+        TextOrImageContent::Text(text) => Some(text.text.clone()),
+        TextOrImageContent::Image(_) => None,
+    });
+    JsString::join(texts, "\n")
 }
 
-fn read_value_content(content: &JsValue) -> String {
+fn read_value_content(content: &JsValue) -> JsString {
     match content {
-        JsValue::String(text) => encode_node_utf8(text),
-        JsValue::Array(parts) => parts
-            .iter()
-            .filter_map(|part| {
+        JsValue::String(text) => text.clone(),
+        JsValue::Array(parts) => JsString::join(
+            parts.iter().filter_map(|part| {
                 let object = part.as_object()?;
-                if object.get("type")?.as_string()? != "text" {
+                if *object.get("type")?.as_string()? != *"text" {
                     return None;
                 }
-                object.get("text")?.as_string().map(encode_node_utf8)
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
-        _ => String::new(),
+                object.get("text")?.as_string().cloned()
+            }),
+            "\n",
+        ),
+        _ => JsString::default(),
     }
 }
 
@@ -491,11 +489,11 @@ struct ConsoleComponent {
 }
 
 impl Component for ConsoleComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.ui.root.borrow_mut().render(width)
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         self.ui.handle_input(data);
     }
 
@@ -515,7 +513,7 @@ impl SharedContainer {
 }
 
 impl Component for SharedContainer {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.0.borrow_mut().render(width)
     }
 
@@ -531,7 +529,7 @@ impl Component for SharedContainer {
 struct SharedText(Rc<RefCell<Text>>);
 
 impl Component for SharedText {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.0.borrow_mut().render(width)
     }
 
@@ -547,11 +545,11 @@ impl Component for SharedText {
 struct SharedInput(Rc<RefCell<Input>>);
 
 impl Component for SharedInput {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.0.borrow_mut().render(width)
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         self.0.borrow_mut().handle_input(data);
     }
 
@@ -567,11 +565,11 @@ impl Component for SharedInput {
 struct SharedAssistant(Rc<RefCell<AssistantMessageComponent>>);
 
 impl Component for SharedAssistant {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.0.borrow_mut().render(width)
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         self.0.borrow_mut().handle_input(data);
     }
 

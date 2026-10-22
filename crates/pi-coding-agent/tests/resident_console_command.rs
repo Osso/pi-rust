@@ -5,6 +5,7 @@ use pi_coding_agent::cli::resident_console_command::{
 };
 use pi_coding_agent::core::resident_console_transport::{ResidentConsoleService, ResidentConsoleSnapshot};
 use pi_coding_agent::core::session_manager::SessionEntry;
+use pi_js_compat::js_json::JsString;
 use serde_json::json;
 
 fn args(values: &[&str]) -> Vec<String> {
@@ -58,19 +59,19 @@ fn prompt_parts_are_joined_and_trimmed() {
 fn normal_cli_flags_are_rejected_with_the_service_name() {
     assert_eq!(
         parse_resident_console_args(&args(&["--supervisor", "prompt", "--model", "x"])),
-        Err("--supervisor cannot be combined with normal Pi CLI flags".to_owned())
+        Err("--supervisor cannot be combined with normal Pi CLI flags".into())
     );
     assert_eq!(
         parse_resident_console_args(&args(&["--architect", "-l"])),
-        Err("--architect cannot be combined with normal Pi CLI flags".to_owned())
+        Err("--architect cannot be combined with normal Pi CLI flags".into())
     );
 }
 
 fn snapshot(cwd: &str, branch: Vec<SessionEntry>) -> ResidentConsoleSnapshot<SessionEntry> {
     ResidentConsoleSnapshot {
         service: ResidentConsoleService::Supervisor,
-        session_id: "session-1".to_owned(),
-        cwd: cwd.to_owned(),
+        session_id: "session-1".into(),
+        cwd: cwd.into(),
         generation: 7,
         branch,
     }
@@ -96,7 +97,7 @@ fn init_theme_once() {
 }
 
 fn rendered(console: &ResidentConsoleUi) -> String {
-    console.render(80).join("\n")
+    JsString::join(console.render(80), "\n").to_utf8_lossy()
 }
 
 #[test]
@@ -230,4 +231,17 @@ fn console_wire_events_parse_the_session_stream() {
     let event: ResidentConsoleEvent =
         serde_json::from_value(json!({"type": "queue_update", "steering": [], "followUp": []})).expect("queue_update");
     assert!(matches!(event, ResidentConsoleEvent::Other));
+}
+
+#[test]
+fn console_header_keeps_lone_surrogates_from_the_snapshot_cwd() {
+    init_theme_once();
+    let mut lone = snapshot("/tmp/", Vec::new());
+    lone.cwd = JsString::from_utf16(vec![0x2f, 0x77, 0xd800]);
+    let console = ResidentConsoleUi::new(ResidentConsoleService::Supervisor, &lone);
+    let header = console
+        .render(80)
+        .into_iter()
+        .find(|line| line.units().windows(3).any(|window| window == [0x2f, 0x77, 0xd800]));
+    assert!(header.is_some(), "header line must contain the raw cwd units");
 }
