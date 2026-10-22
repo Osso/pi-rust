@@ -2,11 +2,11 @@
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use super::{ControlDbError, with_control_db, with_immediate_transaction};
 use crate::core::permissions::presets::SandboxProfileName;
-use pi_js_compat::js_json::{self, JsString, encode_node_utf8};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,12 +20,12 @@ pub struct LastControlMessage {
 #[serde(rename_all = "camelCase")]
 pub struct SessionNameState {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    pub name: Option<JsString>,
     pub has_stored_value: bool,
 }
 
 /// `normalizeSessionName`: collapse CR/LF runs, JS-trim, and treat empty as unset.
-pub fn normalize_session_name_utf16(name: Option<&JsString>) -> Option<JsString> {
+pub fn normalize_session_name(name: Option<&JsString>) -> Option<JsString> {
     let mut normalized = JsString::default();
     let mut line_break_run = false;
     for unit in name?.units() {
@@ -43,33 +43,26 @@ pub fn normalize_session_name_utf16(name: Option<&JsString>) -> Option<JsString>
     (!trimmed.is_empty()).then_some(trimmed)
 }
 
-/// Scalar SQL metadata callers share the raw normalizer; scalar input remains scalar.
-pub fn normalize_session_name(name: Option<&str>) -> Option<String> {
-    let input = name.map(JsString::from);
-    normalize_session_name_utf16(input.as_ref())
-        .map(|value| value.to_utf8().expect("scalar session name remains scalar"))
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMetadata {
-    pub session_path: String,
-    pub id: String,
-    pub cwd: String,
+    pub session_path: JsString,
+    pub id: JsString,
+    pub cwd: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    pub name: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent_session_path: Option<String>,
+    pub parent_session_path: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_archived: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub goal_json: Option<String>,
+    pub goal_json: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_subagent: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub subagent_name: Option<String>,
+    pub subagent_name: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -79,20 +72,20 @@ pub struct SessionMetadata {
     pub created_at: String,
     pub modified_at: String,
     pub message_count: i64,
-    pub first_message: String,
+    pub first_message: JsString,
     pub updated_at: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WritableSessionMetadata {
-    pub session_path: String,
-    pub id: String,
-    pub cwd: String,
+    pub session_path: JsString,
+    pub id: JsString,
+    pub cwd: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent_session_path: Option<String>,
+    pub parent_session_path: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -107,10 +100,10 @@ pub struct WritableSessionMetadata {
     pub model_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_level: Option<String>,
-    pub created_at: String,
-    pub modified_at: String,
+    pub created_at: JsString,
+    pub modified_at: JsString,
     pub message_count: i64,
-    pub first_message: String,
+    pub first_message: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,49 +111,54 @@ pub struct WritableSessionMetadata {
 pub struct ResumeSessionMetadataOptions {
     pub archived: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cwd: Option<String>,
+    pub cwd: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_path_prefix: Option<String>,
+    pub session_path_prefix: Option<JsString>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EmptyMainSessionCandidate {
-    pub id: String,
-    pub session_path: String,
+    pub id: JsString,
+    pub session_path: JsString,
 }
 
 /// `writeSessionName`.
 pub fn write_session_name(
-    control_db_path: &str,
-    session_path: &str,
+    control_db_path: impl Into<JsString>,
+    session_path: impl Into<JsString>,
     name: Option<&JsString>,
 ) -> Result<(), ControlDbError> {
-    let stored_name = normalize_session_name_utf16(name).unwrap_or_default();
-    with_control_db(control_db_path, |db| {
+    let session_path = session_path.into();
+    let stored_name = normalize_session_name(name).unwrap_or_default();
+    with_control_db(&control_db_path.into(), |db| {
         let changed = db.execute(
             "UPDATE session_metadata SET name = ?, updated_at = ? WHERE session_path = ?",
             params![
-                stored_name.to_utf8_lossy(),
+                encode_node_utf8(&stored_name),
                 crate::utils::iso_time::now_iso_string(),
-                session_path
+                encode_node_utf8(&session_path)
             ],
         )?;
         if changed != 1 {
-            return Err(ControlDbError::new(format!(
-                "Cannot update session name without metadata for {session_path}"
-            )));
+            return Err(ControlDbError::new(
+                JsString::from("Cannot update session name without metadata for ") + &session_path,
+            ));
         }
         Ok(())
     })
 }
 
 /// `readSessionNameState`.
-pub fn read_session_name_state(control_db_path: &str, session_path: &str) -> Result<SessionNameState, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+pub fn read_session_name_state(
+    control_db_path: impl Into<JsString>,
+    session_path: impl Into<JsString>,
+) -> Result<SessionNameState, ControlDbError> {
+    let session_path = session_path.into();
+    with_control_db(&control_db_path.into(), |db| {
         let row: Option<Option<String>> = db
             .query_row(
                 "SELECT name FROM session_metadata WHERE session_path = ?",
-                params![session_path],
+                params![encode_node_utf8(&session_path)],
                 |row| row.get::<_, Option<String>>(0),
             )
             .optional()?;
@@ -170,33 +168,47 @@ pub fn read_session_name_state(control_db_path: &str, session_path: &str) -> Res
                 has_stored_value: false,
             }),
             Some(Some(stored)) => Ok(SessionNameState {
-                name: normalize_session_name(Some(&stored)),
+                name: normalize_session_name(Some(&stored.into())),
                 has_stored_value: true,
             }),
         }
     })
 }
 
+/// The plain and `.zst` aliases of a session path, as bind values.
+fn session_path_aliases(session_path: &JsString) -> (String, String) {
+    let plain = session_path
+        .strip_suffix(".zst")
+        .unwrap_or_else(|| session_path.clone());
+    let archived = plain.clone() + ".zst";
+    (encode_node_utf8(&plain), encode_node_utf8(&archived))
+}
+
 /// `listSubagentSessionPaths`: both archive aliases address the same parent.
 pub fn list_subagent_session_paths(
-    control_db_path: &str,
-    parent_session_path: &str,
-) -> Result<Vec<String>, ControlDbError> {
-    let plain = parent_session_path.strip_suffix(".zst").unwrap_or(parent_session_path);
-    with_control_db(control_db_path, |db| {
+    control_db_path: impl Into<JsString>,
+    parent_session_path: impl Into<JsString>,
+) -> Result<Vec<JsString>, ControlDbError> {
+    let (plain, archived) = session_path_aliases(&parent_session_path.into());
+    with_control_db(&control_db_path.into(), |db| {
         let mut statement = db.prepare(
             "SELECT session_path FROM session_metadata WHERE is_subagent = 1 AND parent_session_path IN (?, ?)",
         )?;
         Ok(statement
-            .query_map(params![plain, format!("{plain}.zst")], |row| row.get(0))?
+            .query_map(params![plain, archived], |row| {
+                row.get::<_, String>(0).map(JsString::from)
+            })?
             .collect::<Result<Vec<_>, _>>()?)
     })
 }
 
 /// `listDescendantSessionPaths`: recursive UNION also terminates parent cycles.
-pub fn list_descendant_session_paths(control_db_path: &str, parent_path: &str) -> Result<Vec<String>, ControlDbError> {
-    let plain = parent_path.strip_suffix(".zst").unwrap_or(parent_path);
-    with_control_db(control_db_path, |db| {
+pub fn list_descendant_session_paths(
+    control_db_path: impl Into<JsString>,
+    parent_path: impl Into<JsString>,
+) -> Result<Vec<JsString>, ControlDbError> {
+    let (plain, archived) = session_path_aliases(&parent_path.into());
+    with_control_db(&control_db_path.into(), |db| {
         let mut statement=db.prepare("WITH RECURSIVE descendants(session_path) AS (
             SELECT session_path FROM session_metadata WHERE is_subagent = 1 AND parent_session_path IN (?, ?)
             UNION
@@ -206,26 +218,33 @@ pub fn list_descendant_session_paths(control_db_path: &str, parent_path: &str) -
                 CASE WHEN substr(parent.session_path,-4) = '.zst' THEN parent.session_path ELSE parent.session_path || '.zst' END)
             WHERE child.is_subagent = 1)
             SELECT session_path FROM descendants WHERE session_path NOT IN (?, ?)")?;
-        let archived = format!("{plain}.zst");
         Ok(statement
-            .query_map(params![plain, archived, plain, archived], |row| row.get(0))?
+            .query_map(params![plain, archived, plain, archived], |row| {
+                row.get::<_, String>(0).map(JsString::from)
+            })?
             .collect::<Result<Vec<_>, _>>()?)
     })
 }
 
 /// `removeSessionMetadata`.
-pub fn remove_session_metadata(control_db_path: &str, session_path: &str) -> Result<(), ControlDbError> {
-    remove_sessions_metadata(control_db_path, &[session_path])
+pub fn remove_session_metadata(
+    control_db_path: impl Into<JsString>,
+    session_path: impl Into<JsString>,
+) -> Result<(), ControlDbError> {
+    remove_sessions_metadata(control_db_path, &[session_path.into()])
 }
 
 /// `removeSessionsMetadata`.
-pub fn remove_sessions_metadata(control_db_path: &str, paths: &[&str]) -> Result<(), ControlDbError> {
+pub fn remove_sessions_metadata(
+    control_db_path: impl Into<JsString>,
+    paths: &[JsString],
+) -> Result<(), ControlDbError> {
     if paths.is_empty() {
         return Ok(());
     }
-    with_control_db(control_db_path, |db| {
+    with_control_db(&control_db_path.into(), |db| {
         with_immediate_transaction(db, |db| {
-            for path in paths {
+            for path in paths.iter().map(encode_node_utf8) {
                 db.execute(
                     "DELETE FROM session_sandbox_profiles WHERE session_path = ?",
                     params![path],
@@ -239,30 +258,35 @@ pub fn remove_sessions_metadata(control_db_path: &str, paths: &[&str]) -> Result
 
 /// `relocateSessionControlData`.
 pub fn relocate_session_control_data(
-    control_db_path: &str,
-    old_session_path: &str,
-    new_session_path: &str,
+    control_db_path: impl Into<JsString>,
+    old_session_path: impl Into<JsString>,
+    new_session_path: impl Into<JsString>,
 ) -> Result<(), ControlDbError> {
+    let old_session_path = old_session_path.into();
+    let new_session_path = new_session_path.into();
     if old_session_path == new_session_path {
         return Ok(());
     }
-    with_control_db(control_db_path, |db| {
+    with_control_db(&control_db_path.into(), |db| {
         let now = crate::utils::iso_time::now_iso_string();
         with_immediate_transaction(db, |db| {
-            relocate_session_control_data_in_transaction(db, old_session_path, new_session_path, &now)
+            relocate_session_control_data_in_transaction(db, &old_session_path, &new_session_path, &now)
         })
     })
 }
 
+/// Rewrites every session-keyed row; raw paths are compared before binding.
 fn relocate_session_control_data_in_transaction(
     db: &Connection,
-    old_session_path: &str,
-    new_session_path: &str,
+    old_session_path: &JsString,
+    new_session_path: &JsString,
     now: &str,
 ) -> Result<(), ControlDbError> {
     if old_session_path == new_session_path {
         return Ok(());
     }
+    let old_session_path = &encode_node_utf8(old_session_path);
+    let new_session_path = &encode_node_utf8(new_session_path);
     relocate_session_path_primary_key(db, "session_metadata", old_session_path, new_session_path, now)?;
     relocate_session_path_primary_key(db, "session_sandbox_profiles", old_session_path, new_session_path, now)?;
     relocate_multi_agent_session_rows(db, "multi_agent_agents", old_session_path, new_session_path, now)?;
@@ -291,24 +315,34 @@ fn relocate_session_control_data_in_transaction(
 
 /// `relocateAndArchiveSession`.
 pub fn relocate_and_archive_session(
-    control_db_path: &str,
-    old_session_path: &str,
-    new_session_path: &str,
+    control_db_path: impl Into<JsString>,
+    old_session_path: impl Into<JsString>,
+    new_session_path: impl Into<JsString>,
 ) -> Result<(), ControlDbError> {
-    relocate_and_set_archive_state(control_db_path, old_session_path, new_session_path, true)
+    relocate_and_set_archive_state(
+        &control_db_path.into(),
+        &old_session_path.into(),
+        &new_session_path.into(),
+        true,
+    )
 }
 /// `relocateAndUnarchiveSession`.
 pub fn relocate_and_unarchive_session(
-    control_db_path: &str,
-    old_session_path: &str,
-    new_session_path: &str,
+    control_db_path: impl Into<JsString>,
+    old_session_path: impl Into<JsString>,
+    new_session_path: impl Into<JsString>,
 ) -> Result<(), ControlDbError> {
-    relocate_and_set_archive_state(control_db_path, old_session_path, new_session_path, false)
+    relocate_and_set_archive_state(
+        &control_db_path.into(),
+        &old_session_path.into(),
+        &new_session_path.into(),
+        false,
+    )
 }
 fn relocate_and_set_archive_state(
-    control_db_path: &str,
-    old_session_path: &str,
-    new_session_path: &str,
+    control_db_path: &JsString,
+    old_session_path: &JsString,
+    new_session_path: &JsString,
     archived: bool,
 ) -> Result<(), ControlDbError> {
     with_control_db(control_db_path, |db| {
@@ -317,7 +351,7 @@ fn relocate_and_set_archive_state(
             relocate_session_control_data_in_transaction(db, old_session_path, new_session_path, &now)?;
             db.execute(
                 "UPDATE session_metadata SET archived_at = ?, updated_at = ? WHERE session_path = ?",
-                params![archived.then_some(&now), now, new_session_path],
+                params![archived.then_some(&now), now, encode_node_utf8(new_session_path)],
             )?;
             Ok(())
         })
@@ -469,8 +503,11 @@ const UPSERT_SESSION_METADATA_SQL: &str = "
 ";
 
 /// `writeSessionMetadata`.
-pub fn write_session_metadata(control_db_path: &str, metadata: &WritableSessionMetadata) -> Result<(), ControlDbError> {
-    with_control_db(control_db_path, |db| {
+pub fn write_session_metadata(
+    control_db_path: impl Into<JsString>,
+    metadata: &WritableSessionMetadata,
+) -> Result<(), ControlDbError> {
+    with_control_db(&control_db_path.into(), |db| {
         let values = read_session_metadata_write_values(db, metadata)?;
         write_session_metadata_row(db, metadata, &values)
     })
@@ -494,7 +531,7 @@ fn read_session_metadata_write_values(
         .query_row(
             "SELECT name, archived_at, goal_json, is_subagent, subagent_name, model_provider, model_id, thinking_level
 			 FROM session_metadata WHERE session_path = ?",
-            params![metadata.session_path],
+            params![encode_node_utf8(&metadata.session_path)],
             |row| {
                 Ok((
                     row.get(0)?,
@@ -512,8 +549,11 @@ fn read_session_metadata_write_values(
     let preserved_is_subagent = preserved.as_ref().is_some_and(|values| values.3 == 1);
     Ok(SessionMetadataWriteValues {
         name: match metadata.name.as_ref() {
-            Some(name) => Some(normalize_session_name_utf16(Some(name)).unwrap_or_default()),
-            None => preserved.as_ref().and_then(|values| values.0.clone()).map(Into::into),
+            Some(name) => Some(normalize_session_name(Some(name)).unwrap_or_default()),
+            None => preserved
+                .as_ref()
+                .and_then(|values| values.0.clone())
+                .map(JsString::from),
         },
         archived_at: metadata
             .archived_at
@@ -549,11 +589,11 @@ fn write_session_metadata_row(
     db.execute(
         UPSERT_SESSION_METADATA_SQL,
         params![
-            metadata.session_path,
-            metadata.id,
-            metadata.cwd,
+            encode_node_utf8(&metadata.session_path),
+            encode_node_utf8(&metadata.id),
+            encode_node_utf8(&metadata.cwd),
             values.name.as_ref().map(encode_node_utf8),
-            metadata.parent_session_path,
+            metadata.parent_session_path.as_ref().map(encode_node_utf8),
             values.archived_at,
             Option::<String>::None,
             if values.is_subagent { 1 } else { 0 },
@@ -561,10 +601,10 @@ fn write_session_metadata_row(
             values.model_provider,
             values.model_id,
             values.thinking_level,
-            metadata.created_at,
-            metadata.modified_at,
+            encode_node_utf8(&metadata.created_at),
+            encode_node_utf8(&metadata.modified_at),
             metadata.message_count,
-            metadata.first_message,
+            encode_node_utf8(&metadata.first_message),
             crate::utils::iso_time::now_iso_string()
         ],
     )?;
@@ -573,12 +613,13 @@ fn write_session_metadata_row(
 
 /// `writeSessionModel`.
 pub fn write_session_model(
-    control_db_path: &str,
-    session_path: &str,
+    control_db_path: impl Into<JsString>,
+    session_path: impl Into<JsString>,
     provider: &str,
     model_id: &str,
 ) -> Result<(), ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let session_path = encode_node_utf8(&session_path.into());
+    with_control_db(&control_db_path.into(), |db| {
         db.execute(
             "
 			UPDATE session_metadata
@@ -598,11 +639,12 @@ pub fn write_session_model(
 
 /// `writeSessionThinkingLevel`.
 pub fn write_session_thinking_level(
-    control_db_path: &str,
-    session_path: &str,
+    control_db_path: impl Into<JsString>,
+    session_path: impl Into<JsString>,
     thinking_level: &str,
 ) -> Result<(), ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let session_path = encode_node_utf8(&session_path.into());
+    with_control_db(&control_db_path.into(), |db| {
         db.execute(
             "
 			UPDATE session_metadata
@@ -617,24 +659,28 @@ pub fn write_session_thinking_level(
 
 fn assert_session_metadata_identity(
     db: &Connection,
-    session_path: &str,
-    session_id: &str,
+    session_path: &JsString,
+    session_id: &JsString,
 ) -> Result<(), ControlDbError> {
     let row: Option<String> = db
         .query_row(
             "SELECT id FROM session_metadata WHERE session_path = ?",
-            params![session_path],
+            params![encode_node_utf8(session_path)],
             |row| row.get(0),
         )
         .optional()?;
     let Some(row) = row else {
-        return Err(ControlDbError::new(format!(
-            "Session metadata is missing for {session_path}"
+        return Err(ControlDbError::new(js_format!(
+            "Session metadata is missing for {}",
+            session_path
         )));
     };
-    if row != session_id {
-        return Err(ControlDbError::new(format!(
-            "Session identity mismatch for {session_path}: expected {row}, received {session_id}"
+    if *session_id != row {
+        return Err(ControlDbError::new(js_format!(
+            "Session identity mismatch for {}: expected {}, received {}",
+            session_path,
+            row,
+            session_id
         )));
     }
     Ok(())
@@ -642,13 +688,15 @@ fn assert_session_metadata_identity(
 
 /// `writeSessionSandboxProfile`.
 pub fn write_session_sandbox_profile(
-    control_db_path: &str,
-    session_path: &str,
-    session_id: &str,
+    control_db_path: impl Into<JsString>,
+    session_path: impl Into<JsString>,
+    session_id: impl Into<JsString>,
     profile: SandboxProfileName,
 ) -> Result<(), ControlDbError> {
-    with_control_db(control_db_path, |db| {
-        assert_session_metadata_identity(db, session_path, session_id)?;
+    let session_path = session_path.into();
+    let session_id = session_id.into();
+    with_control_db(&control_db_path.into(), |db| {
+        assert_session_metadata_identity(db, &session_path, &session_id)?;
         db.execute(
             "INSERT INTO session_sandbox_profiles (session_path, session_id, profile, updated_at)
 			 VALUES (?, ?, ?, ?)
@@ -657,8 +705,8 @@ pub fn write_session_sandbox_profile(
 				profile = excluded.profile,
 				updated_at = excluded.updated_at",
             params![
-                session_path,
-                session_id,
+                encode_node_utf8(&session_path),
+                encode_node_utf8(&session_id),
                 profile.as_str(),
                 crate::utils::iso_time::now_iso_string()
             ],
@@ -669,15 +717,17 @@ pub fn write_session_sandbox_profile(
 
 /// `clearSessionSandboxProfile`.
 pub fn clear_session_sandbox_profile(
-    control_db_path: &str,
-    session_path: &str,
-    session_id: &str,
+    control_db_path: impl Into<JsString>,
+    session_path: impl Into<JsString>,
+    session_id: impl Into<JsString>,
 ) -> Result<(), ControlDbError> {
-    with_control_db(control_db_path, |db| {
-        assert_session_metadata_identity(db, session_path, session_id)?;
+    let session_path = session_path.into();
+    let session_id = session_id.into();
+    with_control_db(&control_db_path.into(), |db| {
+        assert_session_metadata_identity(db, &session_path, &session_id)?;
         db.execute(
             "DELETE FROM session_sandbox_profiles WHERE session_path = ? AND session_id = ?",
-            params![session_path, session_id],
+            params![encode_node_utf8(&session_path), encode_node_utf8(&session_id)],
         )?;
         Ok(())
     })
@@ -685,30 +735,37 @@ pub fn clear_session_sandbox_profile(
 
 /// `readSessionSandboxProfile`.
 pub fn read_session_sandbox_profile(
-    control_db_path: &str,
-    session_path: &str,
-    session_id: &str,
+    control_db_path: impl Into<JsString>,
+    session_path: impl Into<JsString>,
+    session_id: impl Into<JsString>,
 ) -> Result<Option<SandboxProfileName>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let session_path = session_path.into();
+    let session_id = session_id.into();
+    with_control_db(&control_db_path.into(), |db| {
         let row: Option<(String, String)> = db
             .query_row(
                 "SELECT session_id, profile FROM session_sandbox_profiles WHERE session_path = ?",
-                params![session_path],
+                params![encode_node_utf8(&session_path)],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;
         let Some((stored_session_id, profile)) = row else {
             return Ok(None);
         };
-        assert_session_metadata_identity(db, session_path, session_id)?;
-        if stored_session_id != session_id {
-            return Err(ControlDbError::new(format!(
-                "Session identity mismatch for {session_path}: stored {stored_session_id}, received {session_id}"
+        assert_session_metadata_identity(db, &session_path, &session_id)?;
+        if session_id != stored_session_id {
+            return Err(ControlDbError::new(js_format!(
+                "Session identity mismatch for {}: stored {}, received {}",
+                &session_path,
+                stored_session_id,
+                &session_id
             )));
         }
         let Some(profile) = SandboxProfileName::parse(&profile) else {
-            return Err(ControlDbError::new(format!(
-                "Invalid sandbox profile '{profile}' for session {session_id}"
+            return Err(ControlDbError::new(js_format!(
+                "Invalid sandbox profile '{}' for session {}",
+                profile,
+                &session_id
             )));
         };
         Ok(Some(profile))
@@ -717,11 +774,13 @@ pub fn read_session_sandbox_profile(
 
 /// `writeSessionGoal`.
 pub fn write_session_goal(
-    control_db_path: &str,
-    session_path: &str,
-    goal_json: Option<&str>,
+    control_db_path: impl Into<JsString>,
+    session_path: impl Into<JsString>,
+    goal_json: Option<&JsString>,
 ) -> Result<(), ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let session_path = encode_node_utf8(&session_path.into());
+    let goal_json = goal_json.map(encode_node_utf8);
+    with_control_db(&control_db_path.into(), |db| {
         db.execute(
             "
 			UPDATE session_metadata
@@ -735,8 +794,12 @@ pub fn write_session_goal(
 }
 
 /// `readSessionGoal`.
-pub fn read_session_goal(control_db_path: &str, session_path: &str) -> Result<Option<String>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+pub fn read_session_goal(
+    control_db_path: impl Into<JsString>,
+    session_path: impl Into<JsString>,
+) -> Result<Option<JsString>, ControlDbError> {
+    let session_path = encode_node_utf8(&session_path.into());
+    with_control_db(&control_db_path.into(), |db| {
         Ok(db
             .query_row(
                 "
@@ -748,7 +811,8 @@ pub fn read_session_goal(control_db_path: &str, session_path: &str) -> Result<Op
                 |row| row.get::<_, Option<String>>(0),
             )
             .optional()?
-            .flatten())
+            .flatten()
+            .map(JsString::from))
     })
 }
 
@@ -796,23 +860,23 @@ const SESSION_METADATA_SELECT: &str = "
 
 fn session_metadata_from_row(row: SessionMetadataRow) -> SessionMetadata {
     SessionMetadata {
-        session_path: row.0,
-        id: row.1,
-        cwd: row.2,
-        name: normalize_session_name(row.3.as_deref()),
-        parent_session_path: row.4,
+        session_path: row.0.into(),
+        id: row.1.into(),
+        cwd: row.2.into(),
+        name: normalize_session_name(row.3.map(JsString::from).as_ref()),
+        parent_session_path: row.4.map(JsString::from),
         is_archived: Some(row.5.is_some()),
         archived_at: row.5,
-        goal_json: row.6,
+        goal_json: row.6.map(JsString::from),
         is_subagent: Some(row.7 == 1),
-        subagent_name: row.8,
+        subagent_name: row.8.map(JsString::from),
         model_provider: row.9,
         model_id: row.10,
         thinking_level: row.11,
         created_at: row.12,
         modified_at: row.13,
         message_count: row.14,
-        first_message: row.15,
+        first_message: row.15.into(),
         updated_at: row.16,
     }
 }
@@ -841,10 +905,11 @@ fn query_session_metadata_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Sessi
 
 /// `readSessionMetadata`.
 pub fn read_session_metadata(
-    control_db_path: &str,
-    session_path: &str,
+    control_db_path: impl Into<JsString>,
+    session_path: impl Into<JsString>,
 ) -> Result<Option<SessionMetadata>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let session_path = encode_node_utf8(&session_path.into());
+    with_control_db(&control_db_path.into(), |db| {
         let row = db
             .query_row(
                 &format!("{SESSION_METADATA_SELECT} WHERE session_path = ?"),
@@ -857,21 +922,21 @@ pub fn read_session_metadata(
 }
 
 /// `listSessionMetadata`.
-pub fn list_session_metadata(control_db_path: &str) -> Result<Vec<SessionMetadata>, ControlDbError> {
-    list_session_metadata_by_archive_state(control_db_path, None)
+pub fn list_session_metadata(control_db_path: impl Into<JsString>) -> Result<Vec<SessionMetadata>, ControlDbError> {
+    list_session_metadata_by_archive_state(&control_db_path.into(), None)
 }
 
 /// `listEmptyMainSessionCandidates`.
 pub fn list_empty_main_session_candidates(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
 ) -> Result<Vec<EmptyMainSessionCandidate>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    with_control_db(&control_db_path.into(), |db| {
         let mut statement=db.prepare("SELECT id,session_path FROM session_metadata WHERE archived_at IS NULL AND is_subagent = 0 AND message_count = 0")?;
         Ok(statement
             .query_map([], |row| {
                 Ok(EmptyMainSessionCandidate {
-                    id: row.get(0)?,
-                    session_path: row.get(1)?,
+                    id: row.get::<_, String>(0)?.into(),
+                    session_path: row.get::<_, String>(1)?.into(),
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?)
@@ -879,10 +944,10 @@ pub fn list_empty_main_session_candidates(
 }
 /// `listResumeSessionMetadata`: absent metadata differs from a populated index with no matching rows.
 pub fn list_resume_session_metadata(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     options: &ResumeSessionMetadataOptions,
 ) -> Result<Option<Vec<SessionMetadata>>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    with_control_db(&control_db_path.into(), |db| {
         if db
             .query_row("SELECT 1 FROM session_metadata LIMIT 1", [], |row| row.get::<_, i64>(0))
             .optional()?
@@ -899,13 +964,14 @@ pub fn list_resume_session_metadata(
             "is_subagent = 0",
         ];
         let mut values = Vec::new();
-        if let Some(cwd) = options.cwd.as_deref().filter(|value| !value.is_empty()) {
+        if let Some(cwd) = options.cwd.as_ref().filter(|value| !value.is_empty()) {
             predicates.push("cwd = ?");
-            values.push(cwd);
+            values.push(encode_node_utf8(cwd));
         }
-        if let Some(prefix) = options.session_path_prefix.as_deref().filter(|value| !value.is_empty()) {
+        if let Some(prefix) = options.session_path_prefix.as_ref().filter(|value| !value.is_empty()) {
             predicates.push("substr(session_path,1,length(?)) = ?");
-            values.extend([prefix, prefix]);
+            let prefix = encode_node_utf8(prefix);
+            values.extend([prefix.clone(), prefix]);
         }
         let mut statement = db.prepare(&format!(
             "{SESSION_METADATA_SELECT} WHERE {} ORDER BY modified_at DESC,updated_at DESC,session_path DESC",
@@ -919,17 +985,21 @@ pub fn list_resume_session_metadata(
 }
 
 /// `listActiveSessionMetadata`.
-pub fn list_active_session_metadata(control_db_path: &str) -> Result<Vec<SessionMetadata>, ControlDbError> {
-    list_session_metadata_by_archive_state(control_db_path, Some(false))
+pub fn list_active_session_metadata(
+    control_db_path: impl Into<JsString>,
+) -> Result<Vec<SessionMetadata>, ControlDbError> {
+    list_session_metadata_by_archive_state(&control_db_path.into(), Some(false))
 }
 
 /// `listArchivedSessionMetadata`.
-pub fn list_archived_session_metadata(control_db_path: &str) -> Result<Vec<SessionMetadata>, ControlDbError> {
-    list_session_metadata_by_archive_state(control_db_path, Some(true))
+pub fn list_archived_session_metadata(
+    control_db_path: impl Into<JsString>,
+) -> Result<Vec<SessionMetadata>, ControlDbError> {
+    list_session_metadata_by_archive_state(&control_db_path.into(), Some(true))
 }
 
 fn list_session_metadata_by_archive_state(
-    control_db_path: &str,
+    control_db_path: &JsString,
     archived: Option<bool>,
 ) -> Result<Vec<SessionMetadata>, ControlDbError> {
     with_control_db(control_db_path, |db| {
@@ -952,22 +1022,22 @@ fn list_session_metadata_by_archive_state(
 
 /// `findActiveSessionMetadataById`.
 pub fn find_active_session_metadata_by_id(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     id: impl Into<JsString>,
 ) -> Result<Vec<SessionMetadata>, ControlDbError> {
-    find_active_session_metadata(control_db_path, "id", id)
+    find_active_session_metadata(&control_db_path.into(), "id", id)
 }
 
 /// `findActiveSessionMetadataByName`.
 pub fn find_active_session_metadata_by_name(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     name: impl Into<JsString>,
 ) -> Result<Vec<SessionMetadata>, ControlDbError> {
-    find_active_session_metadata(control_db_path, "name", name)
+    find_active_session_metadata(&control_db_path.into(), "name", name)
 }
 
 fn find_active_session_metadata(
-    control_db_path: &str,
+    control_db_path: &JsString,
     field: &str,
     value: impl Into<JsString>,
 ) -> Result<Vec<SessionMetadata>, ControlDbError> {
@@ -994,8 +1064,12 @@ fn find_active_session_metadata(
 }
 
 /// `archiveSession`.
-pub fn archive_session(control_db_path: &str, session_path: &str) -> Result<(), ControlDbError> {
-    with_control_db(control_db_path, |db| {
+pub fn archive_session(
+    control_db_path: impl Into<JsString>,
+    session_path: impl Into<JsString>,
+) -> Result<(), ControlDbError> {
+    let session_path = encode_node_utf8(&session_path.into());
+    with_control_db(&control_db_path.into(), |db| {
         let now = crate::utils::iso_time::now_iso_string();
         db.execute(
             "UPDATE session_metadata SET archived_at = ?, updated_at = ? WHERE session_path = ?",
@@ -1006,8 +1080,12 @@ pub fn archive_session(control_db_path: &str, session_path: &str) -> Result<(), 
 }
 
 /// `unarchiveSession`.
-pub fn unarchive_session(control_db_path: &str, session_path: &str) -> Result<(), ControlDbError> {
-    with_control_db(control_db_path, |db| {
+pub fn unarchive_session(
+    control_db_path: impl Into<JsString>,
+    session_path: impl Into<JsString>,
+) -> Result<(), ControlDbError> {
+    let session_path = encode_node_utf8(&session_path.into());
+    with_control_db(&control_db_path.into(), |db| {
         db.execute(
             "UPDATE session_metadata SET archived_at = NULL, updated_at = ? WHERE session_path = ?",
             params![crate::utils::iso_time::now_iso_string(), session_path],
@@ -1017,8 +1095,11 @@ pub fn unarchive_session(control_db_path: &str, session_path: &str) -> Result<()
 }
 
 /// `archiveSessionsOlderThan`; `cutoff_iso` is the already-formatted cutoff timestamp.
-pub fn archive_sessions_older_than(control_db_path: &str, cutoff_iso: &str) -> Result<Vec<String>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+pub fn archive_sessions_older_than(
+    control_db_path: impl Into<JsString>,
+    cutoff_iso: &str,
+) -> Result<Vec<JsString>, ControlDbError> {
+    with_control_db(&control_db_path.into(), |db| {
         let mut statement = db.prepare(
             "SELECT session_path, modified_at FROM session_metadata
              WHERE archived_at IS NULL AND is_subagent = 0 AND modified_at < ?",
@@ -1029,13 +1110,18 @@ pub fn archive_sessions_older_than(control_db_path: &str, cutoff_iso: &str) -> R
             })?
             .collect::<Result<Vec<_>, _>>()?;
         rows.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)));
-        Ok(rows.into_iter().map(|(session_path, _)| session_path).collect())
+        Ok(rows.into_iter().map(|(session_path, _)| session_path.into()).collect())
     })
 }
 
 /// `writeLastMessage`.
-pub fn write_last_message(control_db_path: &str, role: &str, content: &str) -> Result<(), ControlDbError> {
-    with_control_db(control_db_path, |db| {
+pub fn write_last_message(
+    control_db_path: impl Into<JsString>,
+    role: &str,
+    content: impl Into<JsString>,
+) -> Result<(), ControlDbError> {
+    let content = encode_node_utf8(&content.into());
+    with_control_db(&control_db_path.into(), |db| {
         db.execute(
             "
 			INSERT INTO last_message (id, role, content, updated_at)
@@ -1052,8 +1138,8 @@ pub fn write_last_message(control_db_path: &str, role: &str, content: &str) -> R
 }
 
 /// `readLastMessage`.
-pub fn read_last_message(control_db_path: &str) -> Result<Option<LastControlMessage>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+pub fn read_last_message(control_db_path: impl Into<JsString>) -> Result<Option<LastControlMessage>, ControlDbError> {
+    with_control_db(&control_db_path.into(), |db| {
         let row: Option<(String, String, String)> = db
             .query_row(
                 "
@@ -1080,22 +1166,26 @@ pub fn read_last_message(control_db_path: &str) -> Result<Option<LastControlMess
 }
 
 /// `recordPromptHistoryEntry`.
-pub fn record_prompt_history_entry(control_db_path: &str, content: &str) -> Result<(), ControlDbError> {
-    with_control_db(control_db_path, |db| insert_prompt_history_entry(db, content))
+pub fn record_prompt_history_entry(
+    control_db_path: impl Into<JsString>,
+    content: impl Into<JsString>,
+) -> Result<(), ControlDbError> {
+    let content = content.into();
+    with_control_db(&control_db_path.into(), |db| insert_prompt_history_entry(db, &content))
 }
 
 /// `readPromptHistory`.
-pub fn read_prompt_history(control_db_path: &str, limit: i64) -> Result<Vec<String>, ControlDbError> {
-    with_control_db(control_db_path, |db| read_prompt_history_rows(db, limit))
+pub fn read_prompt_history(control_db_path: impl Into<JsString>, limit: i64) -> Result<Vec<JsString>, ControlDbError> {
+    with_control_db(&control_db_path.into(), |db| read_prompt_history_rows(db, limit))
 }
 
 /// `readOrMigratePromptHistory`.
 pub fn read_or_migrate_prompt_history(
-    control_db_path: &str,
-    legacy_entries: &[String],
+    control_db_path: impl Into<JsString>,
+    legacy_entries: &[JsString],
     limit: i64,
-) -> Result<Vec<String>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+) -> Result<Vec<JsString>, ControlDbError> {
+    with_control_db(&control_db_path.into(), |db| {
         let existing_entries = read_prompt_history_rows(db, limit)?;
         if !existing_entries.is_empty() {
             return Ok(existing_entries);
@@ -1129,25 +1219,27 @@ pub fn read_or_migrate_prompt_history(
     })
 }
 
-fn prepare_prompt_history_migration_rows(legacy_entries: &[String]) -> Vec<(String, String)> {
+fn prepare_prompt_history_migration_rows(legacy_entries: &[JsString]) -> Vec<(JsString, String)> {
     let created_at = crate::utils::iso_time::now_iso_string();
     let mut rows = Vec::new();
-    let mut previous_content: Option<String> = None;
+    let mut previous_content: Option<JsString> = None;
     for content in legacy_entries.iter().rev() {
-        let content = pi_js_compat::string::js_trim(content);
-        if content.is_empty() || previous_content.as_deref() == Some(content) {
+        let content = content.trim();
+        if content.is_empty() || previous_content.as_ref() == Some(&content) {
             continue;
         }
-        rows.push((content.to_owned(), created_at.clone()));
-        previous_content = Some(content.to_owned());
+        rows.push((content.clone(), created_at.clone()));
+        previous_content = Some(content);
     }
     rows
 }
 
-fn insert_prompt_history_migration_rows(db: &Connection, rows: &[(String, String)]) -> Result<i64, ControlDbError> {
-    let value = Value::Array(
+fn insert_prompt_history_migration_rows(db: &Connection, rows: &[(JsString, String)]) -> Result<i64, ControlDbError> {
+    let value = JsValue::Array(
         rows.iter()
-            .map(|(content, created_at)| serde_json::json!({ "content": content, "createdAt": created_at }))
+            .map(|(content, created_at)| {
+                pi_js_compat::js_json!({ "content": content.clone(), "createdAt": created_at.as_str() })
+            })
             .collect(),
     );
     let inserted = db.execute(
@@ -1156,12 +1248,12 @@ fn insert_prompt_history_migration_rows(db: &Connection, rows: &[(String, String
 			 FROM json_each(?)
 			 WHERE NOT EXISTS (SELECT 1 FROM prompt_history)
 			 ORDER BY CAST(key AS INTEGER)",
-        params![js_json::stringify(&value)],
+        params![js_json::stringify_lossless(&value)],
     )?;
     Ok(inserted as i64)
 }
 
-fn read_prompt_history_rows(db: &Connection, limit: i64) -> Result<Vec<String>, ControlDbError> {
+fn read_prompt_history_rows(db: &Connection, limit: i64) -> Result<Vec<JsString>, ControlDbError> {
     let mut statement = db.prepare(
         "
 			SELECT content
@@ -1171,17 +1263,17 @@ fn read_prompt_history_rows(db: &Connection, limit: i64) -> Result<Vec<String>, 
 			",
     )?;
     let rows = statement
-        .query_map(params![limit], |row| row.get::<_, String>(0))?
+        .query_map(params![limit], |row| row.get::<_, String>(0).map(JsString::from))?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
 
-fn insert_prompt_history_entry(db: &Connection, content: &str) -> Result<(), ControlDbError> {
-    let trimmed_content = pi_js_compat::string::js_trim(content);
+fn insert_prompt_history_entry(db: &Connection, content: &JsString) -> Result<(), ControlDbError> {
+    let trimmed_content = content.trim();
     if trimmed_content.is_empty() {
         return Ok(());
     }
-    if read_latest_prompt_history_entry(db)?.as_deref() == Some(trimmed_content) {
+    if read_latest_prompt_history_entry(db)?.is_some_and(|latest| trimmed_content == latest) {
         return Ok(());
     }
     db.execute(
@@ -1189,7 +1281,10 @@ fn insert_prompt_history_entry(db: &Connection, content: &str) -> Result<(), Con
 		INSERT INTO prompt_history (content, created_at)
 		VALUES (?, ?)
 		",
-        params![trimmed_content, crate::utils::iso_time::now_iso_string()],
+        params![
+            encode_node_utf8(&trimmed_content),
+            crate::utils::iso_time::now_iso_string()
+        ],
     )?;
     Ok(())
 }

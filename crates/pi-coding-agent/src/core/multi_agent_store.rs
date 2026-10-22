@@ -779,11 +779,11 @@ impl Serialize for MailboxMessageCommandResult {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MultiAgentStoreError {
-    pub message: String,
+    pub message: JsString,
 }
 
 impl MultiAgentStoreError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
         }
@@ -792,7 +792,7 @@ impl MultiAgentStoreError {
 
 impl std::fmt::Display for MultiAgentStoreError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&js_json::encode_node_utf8(&self.message))
     }
 }
 

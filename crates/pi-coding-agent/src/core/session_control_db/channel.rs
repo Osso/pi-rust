@@ -1,5 +1,6 @@
 //! Shared channel messages and cursors.
 
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::encode_node_utf8;
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -11,14 +12,15 @@ use super::{
 
 /// `postSharedChannelMessage`.
 pub fn post_shared_channel_message(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     input: &PostSharedChannelMessageInput,
 ) -> Result<i64, ControlDbError> {
+    let control_db_path = control_db_path.into();
     let body = input.body.trim();
     if body.is_empty() {
         return Err(ControlDbError::new("shared channel message body must be non-empty"));
     }
-    with_control_db(control_db_path, |db| {
+    with_control_db(&control_db_path, |db| {
         let now = crate::utils::iso_time::now_iso_string();
         db.execute(
             "
@@ -38,12 +40,13 @@ pub fn post_shared_channel_message(
 
 /// `listSharedChannelMessagesAfter`.
 pub fn list_shared_channel_messages_after(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     last_seen_id: i64,
     limit: i64,
     through_id: i64,
 ) -> Result<Vec<SharedChannelMessage>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         let mut statement = db.prepare(
             "
 				SELECT id, sender_session_id, sender_agent_id, body, created_at, origin_host, origin_id
@@ -87,18 +90,20 @@ pub fn list_shared_channel_messages_after(
 
 /// `readSharedChannelCursor`.
 pub fn read_shared_channel_cursor(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     recipient: &RuntimeMailboxAddress,
 ) -> Result<Option<i64>, ControlDbError> {
-    with_control_db(control_db_path, |db| read_shared_channel_cursor_row(db, recipient))
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| read_shared_channel_cursor_row(db, recipient))
 }
 
 /// `hasPendingRuntimeCoordinationMessage`.
 pub fn has_pending_runtime_coordination_message(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     recipient: &RuntimeMailboxAddress,
 ) -> Result<bool, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         if has_deliverable_runtime_mailbox_message(db, recipient)? {
             return Ok(true);
         }
@@ -137,10 +142,11 @@ pub fn is_runtime_coordination_mailbox_message(message: &super::RuntimeMailboxMe
 
 /// `initializeSharedChannelCursorAtTail`.
 pub fn initialize_shared_channel_cursor_at_tail(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     recipient: &RuntimeMailboxAddress,
 ) -> Result<i64, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         if let Some(existing) = read_shared_channel_cursor_row(db, recipient)? {
             return Ok(existing);
         }
@@ -152,11 +158,12 @@ pub fn initialize_shared_channel_cursor_at_tail(
 
 /// `advanceSharedChannelCursor`.
 pub fn advance_shared_channel_cursor(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     recipient: &RuntimeMailboxAddress,
     last_seen_id: i64,
 ) -> Result<(), ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         write_shared_channel_cursor_row(db, recipient, last_seen_id)
     })
 }
@@ -182,8 +189,9 @@ fn read_shared_channel_cursor_row(
 }
 
 /// `readSharedChannelTail`.
-pub fn read_shared_channel_tail(control_db_path: &str) -> Result<i64, ControlDbError> {
-    with_control_db(control_db_path, read_shared_channel_tail_row)
+pub fn read_shared_channel_tail(control_db_path: impl Into<JsString>) -> Result<i64, ControlDbError> {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, read_shared_channel_tail_row)
 }
 
 fn read_shared_channel_tail_row(db: &Connection) -> Result<i64, ControlDbError> {

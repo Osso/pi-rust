@@ -3,18 +3,21 @@
 use super::mailbox::{read_session_health_row, session_health_from_row, write_session_health_row};
 use super::{ControlDbError, with_control_db};
 use crate::core::session_health::SessionHealthRecord;
+use pi_js_compat::js_json::JsString;
 
 /// `readSessionHealth`.
 pub fn read_session_health(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     session_id: &str,
 ) -> Result<Option<SessionHealthRecord>, ControlDbError> {
-    with_control_db(control_db_path, |db| read_session_health_row(db, session_id))
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| read_session_health_row(db, session_id))
 }
 
 /// `listSessionHealth`.
-pub fn list_session_health(control_db_path: &str) -> Result<Vec<SessionHealthRecord>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+pub fn list_session_health(control_db_path: impl Into<JsString>) -> Result<Vec<SessionHealthRecord>, ControlDbError> {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         let mut statement = db.prepare(
             "
 				SELECT
@@ -51,6 +54,10 @@ pub fn list_session_health(control_db_path: &str) -> Result<Vec<SessionHealthRec
 }
 
 /// `writeSessionHealth`.
-pub fn write_session_health(control_db_path: &str, health: &SessionHealthRecord) -> Result<(), ControlDbError> {
-    with_control_db(control_db_path, |db| write_session_health_row(db, health))
+pub fn write_session_health(
+    control_db_path: impl Into<JsString>,
+    health: &SessionHealthRecord,
+) -> Result<(), ControlDbError> {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| write_session_health_row(db, health))
 }

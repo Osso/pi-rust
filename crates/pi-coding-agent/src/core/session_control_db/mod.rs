@@ -33,7 +33,7 @@ use crate::core::session_health::SessionHealthRecord;
 use crate::core::sqlite::{
     DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS, configure_shared_sqlite_database, create_sqlite_database,
 };
-use pi_js_compat::js_json::{self, JsString, JsValue};
+use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
 
 pub use agents::{
     AcquireAttachedError, AcquireAttachedRuntimeOwnershipInput, AcquireAttachedRuntimeOwnershipResult,
@@ -103,12 +103,11 @@ pub use sessions::{
     find_active_session_metadata_by_id, find_active_session_metadata_by_name, list_active_session_metadata,
     list_archived_session_metadata, list_descendant_session_paths, list_empty_main_session_candidates,
     list_resume_session_metadata, list_session_metadata, list_subagent_session_paths, normalize_session_name,
-    normalize_session_name_utf16, read_last_message, read_or_migrate_prompt_history, read_prompt_history,
-    read_session_goal, read_session_metadata, read_session_name_state, read_session_sandbox_profile,
-    record_prompt_history_entry, relocate_and_archive_session, relocate_and_unarchive_session,
-    relocate_session_control_data, remove_session_metadata, remove_sessions_metadata, unarchive_session,
-    write_last_message, write_session_goal, write_session_metadata, write_session_model, write_session_name,
-    write_session_sandbox_profile, write_session_thinking_level,
+    read_last_message, read_or_migrate_prompt_history, read_prompt_history, read_session_goal, read_session_metadata,
+    read_session_name_state, read_session_sandbox_profile, record_prompt_history_entry, relocate_and_archive_session,
+    relocate_and_unarchive_session, relocate_session_control_data, remove_session_metadata, remove_sessions_metadata,
+    unarchive_session, write_last_message, write_session_goal, write_session_metadata, write_session_model,
+    write_session_name, write_session_sandbox_profile, write_session_thinking_level,
 };
 
 pub use crate::core::sqlite::ControlDbError;
@@ -346,13 +345,14 @@ struct RetainedControlDb {
     retention_thread: OnceLock<std::thread::Thread>,
 }
 
-fn retained_control_dbs() -> &'static Mutex<HashMap<String, Arc<RetainedControlDb>>> {
-    static RETAINED: OnceLock<Mutex<HashMap<String, Arc<RetainedControlDb>>>> = OnceLock::new();
+/// Keyed by the raw path string, as the source `Map` is.
+fn retained_control_dbs() -> &'static Mutex<HashMap<JsString, Arc<RetainedControlDb>>> {
+    static RETAINED: OnceLock<Mutex<HashMap<JsString, Arc<RetainedControlDb>>>> = OnceLock::new();
     RETAINED.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 pub fn with_control_db<T>(
-    control_db_path: &str,
+    control_db_path: &JsString,
     callback: impl FnOnce(&Connection) -> Result<T, ControlDbError>,
 ) -> Result<T, ControlDbError> {
     let retained = retained_control_dbs()
@@ -392,19 +392,19 @@ pub fn with_control_db<T>(
     result
 }
 
-fn setup_lock(control_db_path: &str) -> Arc<Mutex<()>> {
-    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+fn setup_lock(control_db_path: &JsString) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<JsString, Arc<Mutex<()>>>>> = OnceLock::new();
     let mut locks = LOCKS
         .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
         .expect("control db setup lock map");
     locks
-        .entry(control_db_path.to_owned())
+        .entry(control_db_path.clone())
         .or_insert_with(|| Arc::new(Mutex::new(())))
         .clone()
 }
 
-fn close_released_control_db(control_db_path: &str, retained: &Arc<RetainedControlDb>) {
+fn close_released_control_db(control_db_path: &JsString, retained: &Arc<RetainedControlDb>) {
     retained_control_dbs()
         .lock()
         .expect("retained control db mutex")
@@ -415,11 +415,12 @@ fn close_released_control_db(control_db_path: &str, retained: &Arc<RetainedContr
     }
 }
 
-fn create_writable_control_db(control_db_path: &str) -> Result<Connection, ControlDbError> {
-    if let Some(parent) = Path::new(control_db_path).parent() {
+fn create_writable_control_db(control_db_path: &JsString) -> Result<Connection, ControlDbError> {
+    let file_name = encode_node_utf8(control_db_path);
+    if let Some(parent) = Path::new(&file_name).parent() {
         create_private_directory(parent)?;
     }
-    create_sqlite_database(control_db_path)
+    create_sqlite_database(&file_name)
 }
 
 fn create_private_directory(directory: &Path) -> Result<(), ControlDbError> {
@@ -431,7 +432,7 @@ fn create_private_directory(directory: &Path) -> Result<(), ControlDbError> {
         .map_err(|error| ControlDbError::new(error.to_string()))
 }
 
-fn open_retained_control_db(control_db_path: &str) -> Result<Arc<RetainedControlDb>, ControlDbError> {
+fn open_retained_control_db(control_db_path: &JsString) -> Result<Arc<RetainedControlDb>, ControlDbError> {
     let db = create_writable_control_db(control_db_path)?;
     let result = (|| {
         configure_shared_sqlite_database(&db, DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS)?;
@@ -448,13 +449,13 @@ fn open_retained_control_db(control_db_path: &str) -> Result<Arc<RetainedControl
     retained_control_dbs()
         .lock()
         .expect("retained control db mutex")
-        .insert(control_db_path.to_owned(), retained.clone());
+        .insert(control_db_path.clone(), retained.clone());
     Ok(retained)
 }
 
-fn start_retention_timer(retained: &Arc<RetainedControlDb>, control_db_path: &str) -> Result<(), ControlDbError> {
+fn start_retention_timer(retained: &Arc<RetainedControlDb>, control_db_path: &JsString) -> Result<(), ControlDbError> {
     let weak = Arc::downgrade(retained);
-    let path = control_db_path.to_owned();
+    let path = control_db_path.clone();
     let worker = std::thread::Builder::new()
         .name("control-db-retention".into())
         .spawn(move || {
@@ -464,13 +465,19 @@ fn start_retention_timer(retained: &Arc<RetainedControlDb>, control_db_path: &st
                 let guard = match retained.connection.lock() {
                     Ok(guard) => guard,
                     Err(error) => {
-                        eprintln!("Message retention cleanup failed for {path}: {error}");
+                        eprintln!(
+                            "Message retention cleanup failed for {}: {error}",
+                            encode_node_utf8(&path)
+                        );
                         break;
                     }
                 };
                 let Some(db) = guard.as_ref() else { break };
                 if let Err(error) = retention::cleanup_expired_messages(db) {
-                    eprintln!("Message retention cleanup failed for {path}: {error}");
+                    eprintln!(
+                        "Message retention cleanup failed for {}: {error}",
+                        encode_node_utf8(&path)
+                    );
                 }
             }
         })
@@ -480,21 +487,24 @@ fn start_retention_timer(retained: &Arc<RetainedControlDb>, control_db_path: &st
 }
 
 /// `retainControlDbConnection`; dropping the returned guard releases the connection.
-pub fn retain_control_db_connection(control_db_path: &str) -> Result<RetainedControlDbGuard, ControlDbError> {
+pub fn retain_control_db_connection(
+    control_db_path: impl Into<JsString>,
+) -> Result<RetainedControlDbGuard, ControlDbError> {
+    let control_db_path = control_db_path.into();
     let retained = {
         let existing = retained_control_dbs()
             .lock()
             .expect("retained control db mutex")
-            .get(control_db_path)
+            .get(&control_db_path)
             .cloned();
         match existing {
             Some(retained) => retained,
-            None => open_retained_control_db(control_db_path)?,
+            None => open_retained_control_db(&control_db_path)?,
         }
     };
     *retained.retain_count.lock().expect("retained count mutex") += 1;
     Ok(RetainedControlDbGuard {
-        control_db_path: control_db_path.to_owned(),
+        control_db_path,
         retained,
         released: false,
     })
@@ -502,7 +512,7 @@ pub fn retain_control_db_connection(control_db_path: &str) -> Result<RetainedCon
 
 /// Guard for a retained control-db connection.
 pub struct RetainedControlDbGuard {
-    control_db_path: String,
+    control_db_path: JsString,
     retained: Arc<RetainedControlDb>,
     released: bool,
 }

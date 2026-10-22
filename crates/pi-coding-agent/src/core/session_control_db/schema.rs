@@ -11,7 +11,7 @@ use super::{
     write_canonical_mailbox_payload,
 };
 use crate::core::runtime_process::{is_pi_runtime_process_alive, is_process_identity_alive};
-use pi_js_compat::js_json;
+use pi_js_compat::js_json::{self, encode_node_utf8};
 
 /// Version that carries the multi-agent lifecycle payload migration.
 pub const LIFECYCLE_PROTOCOL_SCHEMA_VERSION: i64 = 14;
@@ -474,7 +474,7 @@ fn move_legacy_session_names_into_metadata(db: &Connection) -> Result<(), Contro
         db.execute(
             "UPDATE session_metadata SET name = ? WHERE session_path = ?",
             params![
-                super::sessions::normalize_session_name(Some(&name)).unwrap_or_default(),
+                encode_node_utf8(&super::sessions::normalize_session_name(Some(&name.into())).unwrap_or_default()),
                 session_path
             ],
         )?;

@@ -287,12 +287,16 @@ const ARCHITECT_REQUEST_COLUMNS: &str =
     "id, sender_session_id, project_cwd, body, status, created_at, claimed_at, claim_token, completed_at";
 
 /// `postArchitectRequest`.
-pub fn post_architect_request(control_db_path: &str, input: &PostArchitectRequestInput) -> Result<i64, ControlDbError> {
+pub fn post_architect_request(
+    control_db_path: impl Into<JsString>,
+    input: &PostArchitectRequestInput,
+) -> Result<i64, ControlDbError> {
+    let control_db_path = control_db_path.into();
     let body = pi_js_compat::string::js_trim(&input.body);
     if body.is_empty() {
         return Err(ControlDbError::new("Architect request body must be non-empty"));
     }
-    with_control_db(control_db_path, |db| {
+    with_control_db(&control_db_path, |db| {
         let now = crate::utils::iso_time::now_iso_string();
         db.execute(
             "
@@ -307,10 +311,11 @@ pub fn post_architect_request(control_db_path: &str, input: &PostArchitectReques
 
 /// `listPendingArchitectRequests`.
 pub fn list_pending_architect_requests(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     limit: i64,
 ) -> Result<Vec<ArchitectRequest>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         let mut statement = db.prepare(&format!(
             "SELECT {ARCHITECT_REQUEST_COLUMNS}
 					 FROM architect_requests
@@ -339,13 +344,14 @@ pub fn list_pending_architect_requests(
 
 /// `claimPendingArchitectRequests`.
 pub fn claim_pending_architect_requests(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     claim_token: &str,
     limit: i64,
 ) -> Result<Vec<ArchitectRequest>, ControlDbError> {
+    let control_db_path = control_db_path.into();
     let now_iso = crate::utils::iso_time::now_iso_string();
     let claim_limit = limit.max(1);
-    with_control_db(control_db_path, |db| {
+    with_control_db(&control_db_path, |db| {
         if !has_architect_claim_work(db, &now_iso)? {
             return Ok(Vec::new());
         }
@@ -425,10 +431,11 @@ fn has_architect_claim_work(db: &Connection, now_iso: &str) -> Result<bool, Cont
 
 /// `renewArchitectRequestClaims`.
 pub fn renew_architect_request_claims(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     request_ids: &[i64],
     claim_token: &str,
 ) -> Result<(), ControlDbError> {
+    let control_db_path = control_db_path.into();
     let unique_request_ids: Vec<i64> = {
         let mut seen = std::collections::HashSet::new();
         request_ids.iter().copied().filter(|id| seen.insert(*id)).collect()
@@ -440,7 +447,7 @@ pub fn renew_architect_request_claims(
         unique_request_ids.iter().copied().map(Value::from).collect(),
     ));
     let now = crate::utils::iso_time::now_iso_string();
-    with_control_db(control_db_path, |db| {
+    with_control_db(&control_db_path, |db| {
         with_immediate_transaction(db, |db| {
             db.execute(
                 "UPDATE architect_requests
@@ -474,12 +481,13 @@ pub fn renew_architect_request_claims(
 
 /// `completeArchitectRequest`.
 pub fn complete_architect_request(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     request_id: i64,
     claim_token: &str,
     sender_session_id: Option<&str>,
 ) -> Result<(), ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         db.execute(
             "UPDATE architect_requests
 			 SET status = 'completed', completed_at = ?
@@ -546,12 +554,13 @@ fn supervisor_request_from_row(row: SupervisorRequestRow) -> Result<SupervisorRe
 
 /// `cancelSupervisorRequest`: sender-fenced cancellation clears claim ownership.
 pub fn cancel_supervisor_request(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     request_id: i64,
     sender_session_id: &str,
     reason: &str,
 ) -> Result<bool, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         with_immediate_transaction(db, |db| {
             let response = js_json::stringify(&serde_json::json!({"kind":"error","reason":reason}));
             Ok(db.execute("UPDATE supervisor_requests SET status = 'cancelled', completed_at = ?, claim_token = NULL, response_json = ?
@@ -591,10 +600,11 @@ fn query_supervisor_request_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Sup
 
 /// `postSupervisorRequest`.
 pub fn post_supervisor_request(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     input: &PostSupervisorRequestInput,
 ) -> Result<i64, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         db.execute(
             "INSERT INTO supervisor_requests
 				 (sender_session_id, project_id, kind, payload_json, deadline_at, status, created_at)
@@ -614,10 +624,11 @@ pub fn post_supervisor_request(
 
 /// `readSupervisorRequest`.
 pub fn read_supervisor_request(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     request_id: i64,
 ) -> Result<Option<SupervisorRequest>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         let row = db
             .query_row(
                 &format!("SELECT {SUPERVISOR_REQUEST_COLUMNS} FROM supervisor_requests WHERE id = ?"),
@@ -631,10 +642,11 @@ pub fn read_supervisor_request(
 
 /// `claimNextSupervisorRequest`.
 pub fn claim_next_supervisor_request(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     claim_token: &str,
 ) -> Result<Option<SupervisorRequest>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         if read_next_supervisor_request_to_claim(db)?.is_none() {
             return Ok(None);
         }
@@ -700,9 +712,10 @@ fn read_next_supervisor_request_to_claim(db: &Connection) -> Result<Option<Super
 }
 
 /// `recoverSupervisorRequests`.
-pub fn recover_supervisor_requests(control_db_path: &str) -> Result<(), ControlDbError> {
+pub fn recover_supervisor_requests(control_db_path: impl Into<JsString>) -> Result<(), ControlDbError> {
+    let control_db_path = control_db_path.into();
     let now_iso = crate::utils::iso_time::now_iso_string();
-    with_control_db(control_db_path, |db| {
+    with_control_db(&control_db_path, |db| {
         if !has_supervisor_recovery_work(db, &now_iso)? {
             return Ok(());
         }
@@ -742,8 +755,9 @@ fn has_supervisor_recovery_work(db: &Connection, now_iso: &str) -> Result<bool, 
 }
 
 /// `hasPendingSupervisorApprovalRequest`.
-pub fn has_pending_supervisor_approval_request(control_db_path: &str) -> Result<bool, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+pub fn has_pending_supervisor_approval_request(control_db_path: impl Into<JsString>) -> Result<bool, ControlDbError> {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         Ok(db
             .query_row(
                 "SELECT 1 FROM supervisor_requests WHERE status = 'pending' AND kind = 'approval_review' LIMIT 1",
@@ -757,11 +771,12 @@ pub fn has_pending_supervisor_approval_request(control_db_path: &str) -> Result<
 
 /// `requeueSupervisorRequest`.
 pub fn requeue_supervisor_request(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     request_id: i64,
     claim_token: &str,
 ) -> Result<(), ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         let changed = db.execute(
             "UPDATE supervisor_requests
 				 SET status = 'pending', claimed_at = NULL, claim_token = NULL
@@ -795,12 +810,13 @@ fn is_supervisor_response_valid_for_request(request_kind: SupervisorRequestKind,
 
 /// `completeSupervisorRequest`.
 pub fn complete_supervisor_request(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     request_id: i64,
     claim_token: &str,
     response: &SupervisorResponse,
 ) -> Result<(), ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         let request_kind: Option<String> = db
             .query_row(
                 "SELECT kind FROM supervisor_requests WHERE id = ? AND status = 'claimed' AND claim_token = ?",

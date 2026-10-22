@@ -52,10 +52,11 @@ pub struct RuntimeMailboxDeliveryRead {
 
 /// `enqueueRuntimeMailboxMessage`.
 pub fn enqueue_runtime_mailbox_message(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     input: &EnqueueRuntimeMailboxMessageInput,
 ) -> Result<i64, ControlDbError> {
-    let result = with_control_db(control_db_path, |db| route_runtime_mailbox_message(db, input))?;
+    let control_db_path = control_db_path.into();
+    let result = with_control_db(&control_db_path, |db| route_runtime_mailbox_message(db, input))?;
     if input
         .recipient_host
         .as_ref()
@@ -181,11 +182,12 @@ pub(crate) fn prepare_stored_runtime_mailbox_message(
 
 /// `enqueueStoredRuntimeMailboxMessage`.
 pub fn enqueue_stored_runtime_mailbox_message(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     input: &EnqueueStoredRuntimeMailboxMessageInput,
 ) -> Result<i64, ControlDbError> {
+    let control_db_path = control_db_path.into();
     let prepared = prepare_stored_runtime_mailbox_message(input)?;
-    let result = with_control_db(control_db_path, |db| {
+    let result = with_control_db(&control_db_path, |db| {
         if let Some(existing) = read_canonical_mailbox_row_by_store_ref(db, &input.store_ref)? {
             return validate_existing_stored_runtime_mailbox_message(&existing, input, &prepared);
         }
@@ -230,17 +232,22 @@ pub(crate) fn enqueue_lossless_stored_runtime_mailbox_message_in_transaction(
 }
 
 pub fn notify_runtime_mailbox_recipient(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     recipient: &RuntimeMailboxAddress,
 ) -> Result<(), ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         notify_runtime_mailbox_listener(read_runtime_mailbox_listener_row(db, recipient)?.as_ref());
         Ok(())
     })
 }
-pub fn is_known_local_session(control_db_path: &str, session_id: impl Into<JsString>) -> Result<bool, ControlDbError> {
+pub fn is_known_local_session(
+    control_db_path: impl Into<JsString>,
+    session_id: impl Into<JsString>,
+) -> Result<bool, ControlDbError> {
+    let control_db_path = control_db_path.into();
     let session_id = encode_node_utf8(&session_id.into());
-    with_control_db(control_db_path, |db| {
+    with_control_db(&control_db_path, |db| {
         Ok(db.query_row("SELECT 1 FROM session_metadata WHERE id = ? UNION ALL SELECT 1 FROM session_health WHERE session_id = ? LIMIT 1",params![session_id,session_id],|row|row.get::<_,i64>(0)).optional()?.is_some())
     })
 }
@@ -359,10 +366,11 @@ fn strip_runtime_mailbox_delivery_state(
 
 /// `readRuntimeMailboxMessageForDelivery`.
 pub fn read_runtime_mailbox_message_for_delivery(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     id: i64,
 ) -> Result<Option<RuntimeMailboxDeliveryRead>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         let Some(row) = read_canonical_mailbox_row_by_id(db, id)? else {
             return Ok(None);
         };
@@ -381,11 +389,12 @@ pub fn read_runtime_mailbox_message_for_delivery(
 
 /// `deliverRuntimeMailboxMessage`.
 pub fn deliver_runtime_mailbox_message(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     id: i64,
     expected_payload_data: Option<&str>,
 ) -> Result<bool, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         let Some(row) = read_canonical_mailbox_row_by_id(db, id)? else {
             return Ok(false);
         };
@@ -403,7 +412,7 @@ pub fn deliver_runtime_mailbox_message(
 }
 
 fn update_claimed_canonical_mailbox_message(
-    control_db_path: &str,
+    control_db_path: &JsString,
     id: i64,
     expected_payload_data: Option<&str>,
     status: RuntimeMailboxMessageStatus,
@@ -459,10 +468,11 @@ fn update_claimed_canonical_mailbox_message(
 
 /// `consumeRuntimeMailboxMessageByStoreRef`.
 pub fn consume_runtime_mailbox_message_by_store_ref(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     store_ref: &super::RuntimeMailboxStoreRef,
 ) -> Result<i64, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         let Some(row) = read_canonical_mailbox_row_by_store_ref(db, store_ref)? else {
             return Ok(0);
         };
@@ -508,10 +518,11 @@ pub(super) fn candidate_authority_is_current(
 
 /// `recoverDeadRuntimeMailboxClaims`.
 pub fn recover_dead_runtime_mailbox_claims(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     recipient: &RuntimeMailboxAddress,
 ) -> Result<i64, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         let candidates = read_recoverable_runtime_mailbox_claims(db, recipient)?;
         let now_iso = crate::utils::iso_time::now_iso_string();
         let mut recovered = 0;
@@ -590,12 +601,13 @@ fn recover_runtime_mailbox_claim(
 
 /// `takeRuntimeMailboxMessagesForDelivery`.
 pub fn take_runtime_mailbox_messages_for_delivery(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     recipient: &RuntimeMailboxAddress,
     is_eligible: impl Fn(&RuntimeMailboxMessage) -> bool,
     limit: usize,
 ) -> Result<Vec<RuntimeMailboxMessage>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         let candidates = read_eligible_runtime_mailbox_delivery_candidates(db, recipient, &is_eligible)?;
         deliver_runtime_mailbox_candidates(
             db,
@@ -752,11 +764,12 @@ fn runtime_mailbox_authority_snapshots_equal(
 
 /// `claimRuntimeMailboxMessages`.
 pub fn claim_runtime_mailbox_messages(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     recipient: &RuntimeMailboxAddress,
     limit: i64,
 ) -> Result<Vec<RuntimeMailboxMessage>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         let candidates = read_claimable_runtime_mailbox_candidates(db, recipient, limit)?;
         claim_runtime_mailbox_candidates(db, recipient, candidates, &crate::utils::iso_time::now_iso_string())
     })
@@ -948,12 +961,13 @@ struct RuntimeMailboxRegistrationPlan {
 
 /// `registerRuntimeMailboxListener`.
 pub fn register_runtime_mailbox_listener(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     recipient: &RuntimeMailboxAddress,
     pid: u32,
     session_path: Option<&str>,
     options: RuntimeMailboxRegistrationOptions,
 ) -> Result<(), ControlDbError> {
+    let control_db_path = control_db_path.into();
     let runtime_instance_id = match options.runtime_instance_id.clone() {
         Some(runtime_instance_id) => runtime_instance_id,
         None => get_runtime_process_instance_id()?.to_owned(),
@@ -965,7 +979,7 @@ pub fn register_runtime_mailbox_listener(
         recipient: recipient.clone(),
         session_path: session_path.map(str::to_owned),
     };
-    with_control_db(control_db_path, |db| {
+    with_control_db(&control_db_path, |db| {
         for _ in 0..RUNTIME_MAILBOX_REGISTRATION_MAX_ATTEMPTS {
             let plan = prepare_runtime_mailbox_registration(db, &registration)?;
             if commit_runtime_mailbox_registration(db, &registration, &plan)? {
@@ -1158,12 +1172,13 @@ fn read_verified_session_cwd(
 
 /// `retireRuntimeMailboxListener`.
 pub fn retire_runtime_mailbox_listener(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     recipient: &RuntimeMailboxAddress,
     pid: u32,
 ) -> Result<bool, ControlDbError> {
+    let control_db_path = control_db_path.into();
     let now_iso = crate::utils::iso_time::now_iso_string();
-    with_control_db(control_db_path, |db| {
+    with_control_db(&control_db_path, |db| {
         with_immediate_transaction(db, |db| {
             retire_runtime_mailbox_listener_row(db, recipient, pid, &now_iso)
         })
@@ -1237,10 +1252,11 @@ fn retire_session_health_for_listener(
 
 /// `readRuntimeMailboxListener`.
 pub fn read_runtime_mailbox_listener(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     recipient: &RuntimeMailboxAddress,
 ) -> Result<Option<RuntimeMailboxListenerRecord>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         let Some(row) = read_runtime_mailbox_listener_row(db, recipient)? else {
             return Ok(None);
         };
@@ -1263,11 +1279,12 @@ pub struct RuntimeMailboxListenerRecord {
 
 /// `readLiveRuntimeMailboxSessionAgentIds`.
 pub fn read_live_runtime_mailbox_session_agent_ids(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     session_id: impl Into<JsString>,
 ) -> Result<Vec<Option<String>>, ControlDbError> {
+    let control_db_path = control_db_path.into();
     let session_id = encode_node_utf8(&session_id.into());
-    with_control_db(control_db_path, |db| {
+    with_control_db(&control_db_path, |db| {
         let mut statement=db.prepare("SELECT recipient_agent_id_key,runtime_instance_id FROM runtime_mailbox_listeners WHERE recipient_session_id = ?")?;
         let rows = statement
             .query_map(params![session_id], |row| {
@@ -1287,8 +1304,12 @@ pub fn read_live_runtime_mailbox_session_agent_ids(
 }
 
 /// `assertMainSessionRuntimeAvailable`.
-pub fn assert_main_session_runtime_available(control_db_path: &str, session_id: &str) -> Result<(), ControlDbError> {
-    with_control_db(control_db_path, |db| {
+pub fn assert_main_session_runtime_available(
+    control_db_path: impl Into<JsString>,
+    session_id: &str,
+) -> Result<(), ControlDbError> {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         let registration = RuntimeMailboxRegistration {
             options: RuntimeMailboxRegistrationOptions::default(),
             pid: std::process::id(),
@@ -1306,9 +1327,10 @@ pub fn assert_main_session_runtime_available(control_db_path: &str, session_id: 
 
 /// `resolveOwnMainRuntimeCoordinationRecipient`.
 pub fn resolve_own_main_runtime_coordination_recipient(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
 ) -> Result<Option<RuntimeMailboxAddress>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         let mut statement = db.prepare(
             "
 				SELECT recipient_session_id
@@ -1336,8 +1358,11 @@ pub fn resolve_own_main_runtime_coordination_recipient(
 }
 
 /// `listRuntimeMailboxListeners`.
-pub fn list_runtime_mailbox_listeners(control_db_path: &str) -> Result<Vec<RuntimeMailboxListener>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+pub fn list_runtime_mailbox_listeners(
+    control_db_path: impl Into<JsString>,
+) -> Result<Vec<RuntimeMailboxListener>, ControlDbError> {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         let mut statement = db.prepare(
             "
 				SELECT
@@ -1427,8 +1452,12 @@ pub fn runtime_mailbox_signal_keepalive_installed() -> bool {
 }
 
 /// `markRuntimeMailboxMessageDelivered`: caller's accepted message is fenced by its current payload.
-pub fn mark_runtime_mailbox_message_delivered(control_db_path: &str, id: i64) -> Result<(), ControlDbError> {
-    with_control_db(control_db_path, |db| {
+pub fn mark_runtime_mailbox_message_delivered(
+    control_db_path: impl Into<JsString>,
+    id: i64,
+) -> Result<(), ControlDbError> {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         let Some(row) = read_canonical_mailbox_row_by_id(db, id)? else {
             return Ok(());
         };
@@ -1441,15 +1470,24 @@ pub fn mark_runtime_mailbox_message_delivered(control_db_path: &str, id: i64) ->
 }
 
 /// `releaseRuntimeMailboxMessageClaim`.
-pub fn release_runtime_mailbox_message_claim(control_db_path: &str, id: i64) -> Result<(), ControlDbError> {
-    update_claimed_canonical_mailbox_message(control_db_path, id, None, RuntimeMailboxMessageStatus::Pending, None)?;
+pub fn release_runtime_mailbox_message_claim(
+    control_db_path: impl Into<JsString>,
+    id: i64,
+) -> Result<(), ControlDbError> {
+    let control_db_path = control_db_path.into();
+    update_claimed_canonical_mailbox_message(&control_db_path, id, None, RuntimeMailboxMessageStatus::Pending, None)?;
     Ok(())
 }
 
 /// `failRuntimeMailboxMessage`.
-pub fn fail_runtime_mailbox_message(control_db_path: &str, id: i64, error_message: &str) -> Result<(), ControlDbError> {
+pub fn fail_runtime_mailbox_message(
+    control_db_path: impl Into<JsString>,
+    id: i64,
+    error_message: &str,
+) -> Result<(), ControlDbError> {
+    let control_db_path = control_db_path.into();
     update_claimed_canonical_mailbox_message(
-        control_db_path,
+        &control_db_path,
         id,
         None,
         RuntimeMailboxMessageStatus::Failed,
@@ -1460,10 +1498,11 @@ pub fn fail_runtime_mailbox_message(control_db_path: &str, id: i64, error_messag
 
 /// `readRuntimeMailboxMessage`.
 pub fn read_runtime_mailbox_message(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     id: i64,
 ) -> Result<Option<RuntimeMailboxMessage>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         let Some(row) = read_canonical_mailbox_row_by_id(db, id)? else {
             return Ok(None);
         };
@@ -1473,17 +1512,21 @@ pub fn read_runtime_mailbox_message(
 }
 
 /// `listRuntimeMailboxMessages`.
-pub fn list_runtime_mailbox_messages(control_db_path: &str) -> Result<Vec<RuntimeMailboxMessage>, ControlDbError> {
-    list_runtime_mailbox_messages_by_session_path(control_db_path, None)
+pub fn list_runtime_mailbox_messages(
+    control_db_path: impl Into<JsString>,
+) -> Result<Vec<RuntimeMailboxMessage>, ControlDbError> {
+    let control_db_path = control_db_path.into();
+    list_runtime_mailbox_messages_by_session_path(&control_db_path, None)
 }
 pub fn list_runtime_mailbox_messages_for_session(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     session_path: &str,
 ) -> Result<Vec<RuntimeMailboxMessage>, ControlDbError> {
-    list_runtime_mailbox_messages_by_session_path(control_db_path, Some(session_path))
+    let control_db_path = control_db_path.into();
+    list_runtime_mailbox_messages_by_session_path(&control_db_path, Some(session_path))
 }
 fn list_runtime_mailbox_messages_by_session_path(
-    control_db_path: &str,
+    control_db_path: &JsString,
     session_path: Option<&str>,
 ) -> Result<Vec<RuntimeMailboxMessage>, ControlDbError> {
     with_control_db(control_db_path, |db| {

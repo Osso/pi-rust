@@ -15,7 +15,7 @@ use super::{
     with_immediate_transaction,
 };
 use crate::core::multi_agent_store::{AgentError, AgentFileReference, AgentSnapshot};
-use pi_js_compat::js_json::{self, JsObject, JsString, JsValue};
+use pi_js_compat::js_json::{self, JsObject, JsString, JsValue, encode_node_utf8};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -169,8 +169,11 @@ struct FinalizeDetachedJobPlan {
 }
 
 /// `prepareControlDbForSelfRestart`.
-pub fn prepare_control_db_for_self_restart(control_db_path: &str, process_id: u32) -> Result<(), ControlDbError> {
-    let db = crate::core::sqlite::create_sqlite_database(control_db_path)?;
+pub fn prepare_control_db_for_self_restart(
+    control_db_path: impl Into<JsString>,
+    process_id: u32,
+) -> Result<(), ControlDbError> {
+    let db = crate::core::sqlite::create_sqlite_database(&encode_node_utf8(&control_db_path.into()))?;
     let result = (|| {
         crate::core::sqlite::configure_shared_sqlite_database(
             &db,
@@ -184,10 +187,11 @@ pub fn prepare_control_db_for_self_restart(control_db_path: &str, process_id: u3
 
 /// `finalizeDetachedJob`.
 pub fn finalize_detached_job(
-    control_db_path: &str,
+    control_db_path: impl Into<JsString>,
     input: &FinalizeDetachedJobInput,
 ) -> Result<FinalizeDetachedJobResult, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         for _ in 0..3 {
             let Some(plan) = prepare_detached_job_finalization(db, input)? else {
                 continue;

@@ -1,24 +1,30 @@
 //! Incoming control messages (`incoming_messages` table).
 
+use pi_js_compat::js_json::JsString;
 use rusqlite::{OptionalExtension, params};
 
 use super::{ControlDbError, IncomingControlMessage, with_control_db, with_immediate_transaction};
 
 /// `claimCodexRestrictionRecovery`.
-pub fn claim_codex_restriction_recovery(control_db_path: &str, user_request_id: &str) -> Result<bool, ControlDbError> {
+pub fn claim_codex_restriction_recovery(
+    control_db_path: impl Into<JsString>,
+    user_request_id: &str,
+) -> Result<bool, ControlDbError> {
+    let control_db_path = control_db_path.into();
     if pi_js_compat::string::js_trim(user_request_id).is_empty() {
         return Err(ControlDbError::new(
             "Codex restriction recovery request ID must not be empty",
         ));
     }
-    with_control_db(control_db_path, |db| {
+    with_control_db(&control_db_path, |db| {
         Ok(db.execute("INSERT INTO codex_restriction_recovery_claims(user_request_id,claimed_at) VALUES(?,?) ON CONFLICT(user_request_id) DO NOTHING",params![user_request_id,crate::utils::iso_time::now_iso_string()])?==1)
     })
 }
 
 /// `enqueueIncomingMessage`.
-pub fn enqueue_incoming_message(control_db_path: &str, content: &str) -> Result<i64, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+pub fn enqueue_incoming_message(control_db_path: impl Into<JsString>, content: &str) -> Result<i64, ControlDbError> {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         db.execute(
             "
 				INSERT INTO incoming_messages (content, status, created_at)
@@ -31,8 +37,11 @@ pub fn enqueue_incoming_message(control_db_path: &str, content: &str) -> Result<
 }
 
 /// `claimLatestIncomingMessage`.
-pub fn claim_latest_incoming_message(control_db_path: &str) -> Result<Option<IncomingControlMessage>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+pub fn claim_latest_incoming_message(
+    control_db_path: impl Into<JsString>,
+) -> Result<Option<IncomingControlMessage>, ControlDbError> {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         if read_latest_pending_incoming_message(db)?.is_none() {
             return Ok(None);
         }
@@ -91,8 +100,9 @@ fn read_latest_pending_incoming_message(
 }
 
 /// `completeIncomingMessage`.
-pub fn complete_incoming_message(control_db_path: &str, id: i64) -> Result<(), ControlDbError> {
-    with_control_db(control_db_path, |db| {
+pub fn complete_incoming_message(control_db_path: impl Into<JsString>, id: i64) -> Result<(), ControlDbError> {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         db.execute(
             "
 			UPDATE incoming_messages
@@ -106,8 +116,13 @@ pub fn complete_incoming_message(control_db_path: &str, id: i64) -> Result<(), C
 }
 
 /// `failIncomingMessage`.
-pub fn fail_incoming_message(control_db_path: &str, id: i64, error_message: &str) -> Result<(), ControlDbError> {
-    with_control_db(control_db_path, |db| {
+pub fn fail_incoming_message(
+    control_db_path: impl Into<JsString>,
+    id: i64,
+    error_message: &str,
+) -> Result<(), ControlDbError> {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         db.execute(
             "
 			UPDATE incoming_messages
@@ -121,8 +136,12 @@ pub fn fail_incoming_message(control_db_path: &str, id: i64, error_message: &str
 }
 
 /// `readIncomingMessageStatus`.
-pub fn read_incoming_message_status(control_db_path: &str, id: i64) -> Result<Option<String>, ControlDbError> {
-    with_control_db(control_db_path, |db| {
+pub fn read_incoming_message_status(
+    control_db_path: impl Into<JsString>,
+    id: i64,
+) -> Result<Option<String>, ControlDbError> {
+    let control_db_path = control_db_path.into();
+    with_control_db(&control_db_path, |db| {
         Ok(db
             .query_row(
                 "

@@ -7,6 +7,7 @@
 
 use std::fmt;
 
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use rusqlite::{Connection, ErrorCode, OpenFlags};
 
 /// Default multi-consumer open settings for shared process-local SQLite DBs.
@@ -19,19 +20,19 @@ pub const DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS: u64 = 5000;
 /// `isSqliteContentionError` uses to retry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ControlDbError {
-    message: String,
+    message: JsString,
     contention: bool,
 }
 
 impl ControlDbError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
             contention: false,
         }
     }
 
-    pub fn message(&self) -> &str {
+    pub fn message(&self) -> &JsString {
         &self.message
     }
 
@@ -45,7 +46,7 @@ impl ControlDbError {
             Some(ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked)
         );
         Self {
-            message: error.to_string(),
+            message: error.to_string().into(),
             contention,
         }
     }
@@ -53,7 +54,7 @@ impl ControlDbError {
 
 impl fmt::Display for ControlDbError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&encode_node_utf8(&self.message))
     }
 }
 
