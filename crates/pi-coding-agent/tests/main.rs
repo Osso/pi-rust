@@ -70,7 +70,6 @@ fn create_session(cwd: &str, session_dir: &str, text: &str) -> SessionManager {
             stop_reason: StopReason::Stop,
             error_message: None,
             raw_stop_reason: None,
-            end_turn: None,
             timestamp: 2.0,
         })))
         .expect("append assistant message");

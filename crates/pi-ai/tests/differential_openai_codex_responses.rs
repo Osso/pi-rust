@@ -97,7 +97,6 @@ fn normalize_event(value: &Value) -> Value {
         && let Some(partial) = normalized.get_mut("partial").and_then(Value::as_object_mut)
     {
         partial.remove("responseId");
-        partial.remove("endTurn");
     }
     normalized
 }
@@ -374,6 +373,32 @@ fn request_value(request: &HttpRequest) -> Value {
 
 fn normalize_requests(value: &Value) -> Value {
     normalize(value)
+}
+
+#[tokio::test]
+async fn differential_old_tool_metadata_does_not_reject_before_fetch() {
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let context: Context = serde_json::from_value(json!({"messages":[],"tools":[{
+        "name":"legacy","description":"ignored metadata","parameters":{"type":"object"},
+        "constrainedSampling":{"type":"grammar","variants":{}}
+    }]}))
+    .unwrap();
+    let mut model = model("https://chatgpt.com/backend-api");
+    model.compat = Some(pi_ai::types::ModelCompat::OpenAIResponses(
+        serde_json::from_value(json!({"supportsOpenAIGrammarTools":true})).unwrap(),
+    ));
+    let expected = oracle.request(&json!({"id":"old-tool","operation":"sse","events":text_events(),
+        "modelOverrides":{"compat":{"supportsOpenAIGrammarTools":true}},"context":context}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&text_events())])]);
+    let opts = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None);
+    let _ = collect(stream(model, context, opts)).await;
+    let requests = fetch.requests();
+    assert_eq!(requests.len(), expected["output"]["requests"].as_array().unwrap().len());
+    assert_eq!(
+        request_value(&requests[0])["body"]["tools"],
+        expected["output"]["requests"][0]["body"]["tools"]
+    );
 }
 
 #[tokio::test]

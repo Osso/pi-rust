@@ -435,6 +435,18 @@ async fn differential_azure_openai_responses() {
     )
     .await;
 
+    let mut legacy_model = model("https://example.openai.azure.com");
+    legacy_model["compat"] = json!({"supportsOpenAIGrammarTools":true});
+    run_scenario(
+        &mut oracle,
+        Scenario::new(10, legacy_model, &text).context(
+            json!({"messages":[],"tools":[{"name":"legacy","description":"ignored metadata",
+                "parameters":{"type":"object","properties":{"input":{"type":"string"}}},
+                "constrainedSampling":{"type":"grammar","variants":{}}}]}),
+        ),
+    )
+    .await;
+
     let abort_chunks = sse_chunks(&text, 6);
     run_scenario(
         &mut oracle,

@@ -158,7 +158,6 @@ fn provider_native_context_is_inserted_before_regular_messages() {
         &allowed(),
         Some(&ConvertResponsesMessagesOptions {
             include_system_prompt: Some(false),
-            ..Default::default()
         }),
     )
     .expect("convert");

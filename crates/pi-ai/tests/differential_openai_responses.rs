@@ -572,5 +572,17 @@ async fn differential_openai_responses_stream() {
     )
     .await;
 
+    let mut legacy_model = base_model("openai", "gpt-5.5", true);
+    legacy_model["compat"] = json!({"supportsOpenAIGrammarTools":true});
+    run_scenario(
+        &mut oracle,
+        Scenario::new(20, legacy_model, &text).context(
+            json!({"messages":[],"tools":[{"name":"legacy","description":"ignored metadata",
+                "parameters":{"type":"object","properties":{"input":{"type":"string"}}},
+                "constrainedSampling":{"type":"grammar","variants":{}}}]}),
+        ),
+    )
+    .await;
+
     let _ = usage();
 }

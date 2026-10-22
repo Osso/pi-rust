@@ -49,7 +49,6 @@ fn assistant(content: Vec<AssistantContent>, provider: &str, api: &str, id: &str
         stop_reason: StopReason::ToolUse,
         error_message: None,
         raw_stop_reason: None,
-        end_turn: None,
         timestamp: 1.0,
     }
 }

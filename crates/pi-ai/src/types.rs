@@ -636,8 +636,6 @@ pub struct AssistantMessage {
     pub error_message: Option<pi_js_compat::js_json::JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_stop_reason: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_turn: Option<bool>,
 }
 
 impl AssistantMessage {
@@ -662,7 +660,6 @@ impl AssistantMessage {
             stop_reason: StopReason::Stop,
             error_message: None,
             raw_stop_reason: None,
-            end_turn: None,
             timestamp,
         }
     }

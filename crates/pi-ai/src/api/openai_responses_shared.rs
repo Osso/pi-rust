@@ -8,7 +8,6 @@ use pi_js_compat::js_json::JsString;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, OnceLock};
 
-use indexmap::IndexMap;
 use pi_js_compat::js_json::{JsObject, JsValue};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
@@ -40,7 +39,6 @@ pub type ApplyServiceTierPricing = Arc<dyn Fn(&mut Usage, Option<&str>) + Send +
 #[derive(Clone, Default)]
 pub struct OpenAIResponsesStreamOptions {
     pub service_tier: Option<String>,
-    pub grammar_tool_input_properties: Option<IndexMap<String, String>>,
     pub resolve_service_tier: Option<ResolveServiceTier>,
     pub apply_service_tier_pricing: Option<ApplyServiceTierPricing>,
 }
@@ -49,16 +47,6 @@ pub struct OpenAIResponsesStreamOptions {
 #[derive(Clone, Default)]
 pub struct ConvertResponsesMessagesOptions {
     pub include_system_prompt: Option<bool>,
-    pub grammar_tool_input_properties: Option<IndexMap<String, String>>,
-    pub deferred_tools: Option<BTreeMap<String, Tool>>,
-    pub deferred_tools_mode: Option<ResponsesDeferredToolsMode>,
-    pub tool_options: Option<ConvertResponsesToolsOptions>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResponsesDeferredToolsMode {
-    AdditionalTools,
-    ToolSearch,
 }
 
 /// `ConvertResponsesToolsOptions`.
@@ -66,9 +54,6 @@ pub enum ResponsesDeferredToolsMode {
 pub struct ConvertResponsesToolsOptions {
     /// Outer `None` = absent, `Some(None)` = explicit `null`.
     pub strict: Option<Option<bool>>,
-    pub supports_strict_mode: Option<bool>,
-    pub supports_openai_grammar_tools: Option<bool>,
-    pub defer_loading: Option<bool>,
 }
 
 /// Failure while consuming stream events: either the event source failed or
@@ -697,10 +682,7 @@ pub fn convert_responses_messages(
 // Tool conversion
 // =============================================================================
 
-pub fn convert_responses_tools(
-    tools: &[Tool],
-    options: Option<&ConvertResponsesToolsOptions>,
-) -> Result<JsValue, crate::api::constrained_sampling::ConstrainedSamplingError> {
+pub fn convert_responses_tools(tools: &[Tool], options: Option<&ConvertResponsesToolsOptions>) -> JsValue {
     let empty_options = ConvertResponsesToolsOptions::default();
     let options = options.unwrap_or(&empty_options);
     let default_strict = match options.strict {
@@ -719,7 +701,7 @@ pub fn convert_responses_tools(
             ])
         })
         .collect();
-    Ok(JsValue::Array(converted))
+    JsValue::Array(converted)
 }
 
 // =============================================================================

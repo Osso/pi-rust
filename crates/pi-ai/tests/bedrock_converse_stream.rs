@@ -605,7 +605,6 @@ async fn converts_replayed_messages_and_documents() {
             stop_reason: StopReason::ToolUse,
             error_message: None,
             raw_stop_reason: None,
-            end_turn: None,
             timestamp: 0.0,
         })),
         pi_ai::types::Message::ToolResult(pi_ai::types::ToolResultMessage {

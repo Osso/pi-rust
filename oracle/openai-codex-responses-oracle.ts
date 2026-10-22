@@ -14,6 +14,8 @@ interface SseRequest {
 	id: RequestId;
 	operation: "sse";
 	events: unknown[];
+	modelOverrides?: Record<string, unknown>;
+	context?: unknown;
 	rawPayload?: string;
 	retryStatus?: number;
 	retryHeaders?: Array<[string, string]>;
@@ -76,7 +78,6 @@ function normalizeEvent(value: unknown): unknown {
 		normalized.partial &&
 		typeof normalized.partial === "object"
 	) {
-		delete (normalized.partial as Record<string, unknown>).endTurn;
 		delete (normalized.partial as Record<string, unknown>).responseId;
 	}
 	stripScratch(normalized);
@@ -236,7 +237,11 @@ async function runSse(api: Api, request: SseRequest): Promise<unknown> {
 	if (request.maxRetries !== undefined) options.maxRetries = request.maxRetries;
 	if (request.timeoutMs !== undefined) options.timeoutMs = request.timeoutMs;
 
-	const resultStream = api.stream(model(), context(), options);
+	const resultStream = api.stream(
+		{ ...model(), ...request.modelOverrides },
+		request.context ?? context(),
+		options,
+	);
 	const events: unknown[] = [];
 	for await (const event of resultStream) {
 		events.push(normalizeEvent(event));

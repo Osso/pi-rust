@@ -85,12 +85,13 @@ fn v1_migration_uses_target_record_identity_at_the_time_of_mutation() {
 }
 
 #[test]
-fn old_pending_and_deferred_stop_tags_load_and_save_as_frozen_raw_records() {
+fn old_pending_deferred_and_end_turn_fields_load_and_save_as_frozen_raw_records() {
     use pi_coding_agent::core::session_tool_output::serialize_session_entry_for_persistence;
     let content = concat!(
         "{\"type\":\"session\",\"version\":3,\"id\":\"s\",\"timestamp\":\"2026-10-22T00:00:00.000Z\",\"cwd\":\"/tmp\"}\n",
         "{\"type\":\"message\",\"id\":\"p\",\"parentId\":null,\"timestamp\":\"t\",\"message\":{\"role\":\"assistant\",\"content\":[],\"stopReason\":\"pending\",\"deferred\":{\"id\":\"old-handle\"},\"extra\":\"keep\"}}\n",
-        "{\"type\":\"message\",\"id\":\"d\",\"parentId\":\"p\",\"timestamp\":\"t\",\"message\":{\"role\":\"assistant\",\"content\":[],\"stopReason\":\"deferred\",\"deferred\":{\"id\":\"old-handle-2\"}}}\n"
+        "{\"type\":\"message\",\"id\":\"d\",\"parentId\":\"p\",\"timestamp\":\"t\",\"message\":{\"role\":\"assistant\",\"content\":[],\"stopReason\":\"deferred\",\"deferred\":{\"id\":\"old-handle-2\"}}}\n",
+        "{\"type\":\"message\",\"id\":\"e\",\"parentId\":\"d\",\"timestamp\":\"t\",\"message\":{\"role\":\"assistant\",\"content\":[],\"api\":\"openai-responses\",\"provider\":\"openai\",\"model\":\"test\",\"usage\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":0,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},\"stopReason\":\"stop\",\"timestamp\":0,\"endTurn\":true}}\n"
     );
     let mut source = oracle::TsOracle::spawn(
         "lossless-session-records-oracle.mjs",

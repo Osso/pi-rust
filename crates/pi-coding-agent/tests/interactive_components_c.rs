@@ -160,7 +160,6 @@ fn assistant_message(content: Vec<AssistantContent>, stop_reason: StopReason) ->
         diagnostics: None,
         error_message: None,
         raw_stop_reason: None,
-        end_turn: None,
     }
 }
 

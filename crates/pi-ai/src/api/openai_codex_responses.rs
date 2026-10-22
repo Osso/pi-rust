@@ -23,13 +23,12 @@ use tokio_tungstenite::tungstenite::protocol::{CloseFrame, Message};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use tokio_util::sync::CancellationToken;
 
-use crate::api::constrained_sampling::{ConstrainedSamplingError, create_grammar_tool_input_properties};
 use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
 use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
 use crate::api::openai_responses_shared::{
-    ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions, OpenAIResponsesStreamOptions,
-    ResponsesDeferredToolsMode, ResponsesEventSource, ResponsesStreamFailure, convert_responses_messages,
-    convert_responses_tools, process_responses_stream, push_responses_done,
+    ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions, OpenAIResponsesStreamOptions, ResponsesEventSource,
+    ResponsesStreamFailure, convert_responses_messages, convert_responses_tools, process_responses_stream,
+    push_responses_done,
 };
 use crate::api::simple_options::build_base_options;
 use crate::http::default_fetch;
@@ -41,10 +40,8 @@ use crate::request::{
 use crate::session_resources::register_session_resource_cleanup;
 use crate::types::{
     AssistantMessage, AssistantMessageEvent, Context, DoneReason, ErrorReason, Message as ChatMessage, Model,
-    ModelCompat, ModelThinkingLevel, OpenAIResponsesCompat, ProviderRetryEvent, StopReason, ThinkingLevel, Tool,
-    Transport, Usage,
+    ModelThinkingLevel, ProviderRetryEvent, StopReason, ThinkingLevel, Transport, Usage,
 };
-use crate::utils::deferred_tools::split_deferred_tools;
 use crate::utils::diagnostics::{
     DiagnosticErrorInfo, ThrownValue, append_assistant_message_diagnostic, create_assistant_message_diagnostic,
     format_thrown_value,
@@ -350,36 +347,6 @@ fn model_thinking_level(level: ThinkingLevel) -> ModelThinkingLevel {
     }
 }
 
-fn responses_compat(model: &Model) -> Option<&OpenAIResponsesCompat> {
-    match &model.compat {
-        Some(ModelCompat::OpenAIResponses(compat)) => Some(compat),
-        _ => None,
-    }
-}
-
-fn supports_strict_mode(model: &Model) -> bool {
-    responses_compat(model)
-        .and_then(|compat| compat.supports_strict_mode)
-        .unwrap_or(true)
-}
-
-fn supports_grammar_tools(model: &Model) -> bool {
-    responses_compat(model)
-        .and_then(|compat| compat.supports_openai_grammar_tools)
-        .unwrap_or(false)
-}
-
-fn deferred_tools_mode(model: &Model) -> Option<ResponsesDeferredToolsMode> {
-    let compat = responses_compat(model)?;
-    if compat.supports_additional_tools == Some(true) {
-        Some(ResponsesDeferredToolsMode::AdditionalTools)
-    } else if compat.supports_tool_search == Some(true) {
-        Some(ResponsesDeferredToolsMode::ToolSearch)
-    } else {
-        None
-    }
-}
-
 async fn execute_stream(
     model: &Model,
     context: &Context,
@@ -395,22 +362,13 @@ async fn execute_stream(
         .filter(|key| !key.is_empty())
         .ok_or_else(|| CodexStreamError::Transport(format!("No API key for provider: {}", model.provider).into()))?;
     let account_id = extract_account_id(api_key)?;
-    let grammar_tool_input_properties =
-        create_grammar_tool_input_properties(context.tools.as_deref(), supports_grammar_tools(model))
-            .map_err(|error| CodexStreamError::Transport(error.to_string().into()))?;
     let cache_session_id = if options.stream.cache_retention == Some(crate::types::CacheRetention::None) {
         None
     } else {
         options.stream.session_id.as_ref()
     };
     let codex_session_id = clamp_openai_prompt_cache_key(cache_session_id);
-    let body = build_request_body(
-        model,
-        context,
-        options,
-        codex_session_id.as_ref(),
-        &grammar_tool_input_properties,
-    )?;
+    let body = build_request_body(model, context, options, codex_session_id.as_ref())?;
     let mut body = JsValue::from(body);
     if let Some(on_payload) = &options.stream.request.on_payload
         && let Some(next_body) = on_payload(body.clone(), model.clone())
@@ -453,7 +411,6 @@ async fn execute_stream(
             websocket_connect_timeout_ms,
             cache_session_id,
             account_id: &account_id,
-            grammar_tool_input_properties: &grammar_tool_input_properties,
         };
         return execute_websocket(&execution, output, sender, &mut start_emitted).await;
     }
@@ -474,39 +431,30 @@ async fn execute_stream(
         });
     }
 
-    let end_turn = Arc::new(Mutex::new(None));
     let source = SseEventSource::new(
         response.body,
         http_timeout_ms,
         options.stream.request.signal.clone(),
         request_token,
     );
-    let mut mapped = CodexMappedSource::new(source, end_turn.clone());
+    let mut mapped = CodexMappedSource::new(source);
     let result = process_responses_stream(
         &mut mapped,
         output,
         sender,
         model,
-        Some(&codex_stream_options(model, options, &grammar_tool_input_properties)),
+        Some(&codex_stream_options(model, options)),
     )
     .await;
     drop(mapped);
-    if let Some(value) = *end_turn.lock().expect("codex end-turn mutex poisoned") {
-        output.end_turn = Some(value);
-    }
     result.map_err(CodexStreamError::from_responses_failure)?;
     assert_successful_output(output)
 }
 
-fn codex_stream_options(
-    model: &Model,
-    options: &OpenAICodexResponsesOptions,
-    grammar_tool_input_properties: &IndexMap<String, String>,
-) -> OpenAIResponsesStreamOptions {
+fn codex_stream_options(model: &Model, options: &OpenAICodexResponsesOptions) -> OpenAIResponsesStreamOptions {
     let model_id = model.id.clone();
     OpenAIResponsesStreamOptions {
         service_tier: options.service_tier.map(|tier| tier.as_str().to_owned()),
-        grammar_tool_input_properties: Some(grammar_tool_input_properties.clone()),
         resolve_service_tier: Some(Arc::new(|response_tier, request_tier| {
             resolve_codex_service_tier(response_tier, request_tier).map(str::to_owned)
         })),
@@ -521,30 +469,13 @@ fn build_request_body(
     context: &Context,
     options: &OpenAICodexResponsesOptions,
     cache_session_id: Option<&JsString>,
-    grammar_tool_input_properties: &IndexMap<String, String>,
 ) -> Result<JsValue, CodexStreamError> {
-    let supports_strict = supports_strict_mode(model);
-    let supports_grammar = supports_grammar_tools(model);
-    let deferred_mode = deferred_tools_mode(model);
-    let tool_placement = split_deferred_tools(context, deferred_mode.is_some());
-    let deferred_tools: Option<BTreeMap<String, Tool>> = deferred_mode
-        .is_some()
-        .then(|| tool_placement.deferred.iter().cloned().collect());
     let messages = convert_responses_messages(
         model,
         context,
         &codex_tool_call_providers(),
         Some(&ConvertResponsesMessagesOptions {
             include_system_prompt: Some(false),
-            grammar_tool_input_properties: Some(grammar_tool_input_properties.clone()),
-            deferred_tools,
-            deferred_tools_mode: deferred_mode,
-            tool_options: Some(ConvertResponsesToolsOptions {
-                strict: Some(None),
-                supports_strict_mode: Some(supports_strict),
-                supports_openai_grammar_tools: Some(supports_grammar),
-                defer_loading: None,
-            }),
         }),
     )
     .map_err(|error| CodexStreamError::Transport(error.into()))?;
@@ -603,19 +534,10 @@ fn build_request_body(
     if let Some(service_tier) = options.service_tier {
         body.insert("service_tier".into(), JsValue::String(service_tier.as_str().into()));
     }
-    if !tool_placement.immediate.is_empty() {
+    if let Some(tools) = context.tools.as_deref().filter(|tools| !tools.is_empty()) {
         body.insert(
             "tools".into(),
-            convert_responses_tools(
-                &tool_placement.immediate,
-                Some(&ConvertResponsesToolsOptions {
-                    strict: Some(None),
-                    supports_strict_mode: Some(supports_strict),
-                    supports_openai_grammar_tools: Some(supports_grammar),
-                    defer_loading: None,
-                }),
-            )
-            .map_err(|error: ConstrainedSamplingError| CodexStreamError::Transport(error.to_string().into()))?,
+            convert_responses_tools(tools, Some(&ConvertResponsesToolsOptions { strict: Some(None) })),
         );
     }
     if let Some(reasoning_effort) = options.reasoning_effort {
@@ -1500,17 +1422,12 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 
 struct CodexMappedSource<S> {
     inner: S,
-    end_turn: Arc<Mutex<Option<bool>>>,
     finished: bool,
 }
 
 impl<S> CodexMappedSource<S> {
-    fn new(inner: S, end_turn: Arc<Mutex<Option<bool>>>) -> Self {
-        Self {
-            inner,
-            end_turn,
-            finished: false,
-        }
+    fn new(inner: S) -> Self {
+        Self { inner, finished: false }
     }
 }
 
@@ -1529,7 +1446,7 @@ where
                 let Some(event) = self.inner.next_event().await? else {
                     return Ok(None);
                 };
-                match map_codex_event(event, &self.end_turn)? {
+                match map_codex_event(event)? {
                     Some(event) => {
                         if matches!(
                             event.get("type").and_then(ingress_metadata_text).as_deref(),
@@ -1546,10 +1463,7 @@ where
     }
 }
 
-fn map_codex_event(
-    mut event: JsValue,
-    end_turn: &Arc<Mutex<Option<bool>>>,
-) -> Result<Option<JsValue>, CodexStreamError> {
+fn map_codex_event(mut event: JsValue) -> Result<Option<JsValue>, CodexStreamError> {
     crate::api::openai_responses_shared::validate_responses_metadata(&event)
         .map_err(|error| CodexStreamError::Transport(error.into()))?;
     let Some(event_type) = event
@@ -1600,9 +1514,6 @@ fn map_codex_event(
         }
         "response.done" | "response.completed" | "response.incomplete" => {
             let response = event.get("response").cloned().unwrap_or(JsValue::Null);
-            if let Some(value) = response.get("end_turn").and_then(JsValue::as_bool) {
-                *end_turn.lock().expect("codex end-turn mutex poisoned") = Some(value);
-            }
             let normalized = normalize_codex_response(response);
             let object = event.as_object_mut().expect("codex event is an object");
             object.insert(
@@ -2128,7 +2039,6 @@ struct WebSocketExecution<'a> {
     websocket_connect_timeout_ms: Option<f64>,
     cache_session_id: Option<&'a JsString>,
     account_id: &'a str,
-    grammar_tool_input_properties: &'a IndexMap<String, String>,
 }
 
 async fn execute_websocket(
@@ -2324,7 +2234,6 @@ async fn process_websocket_stream(
         return Err(CodexStreamError::Transport(websocket_error_message(&error).into()));
     }
 
-    let end_turn = Arc::new(Mutex::new(None));
     let mut source = WsEventSource::new(
         sink,
         split_stream,
@@ -2335,7 +2244,6 @@ async fn process_websocket_stream(
             partial: output.clone(),
             websocket_started,
             start_emitted,
-            end_turn: end_turn.clone(),
         },
     );
     let result = process_responses_stream(
@@ -2343,17 +2251,10 @@ async fn process_websocket_stream(
         output,
         sender,
         execution.model,
-        Some(&codex_stream_options(
-            execution.model,
-            execution.options,
-            execution.grammar_tool_input_properties,
-        )),
+        Some(&codex_stream_options(execution.model, execution.options)),
     )
     .await;
     let mut connection = source.into_connection();
-    if let Some(value) = *end_turn.lock().expect("codex end-turn mutex poisoned") {
-        output.end_turn = Some(value);
-    }
 
     let mut keep_connection = true;
     let mut failure = None;
@@ -2365,12 +2266,7 @@ async fn process_websocket_stream(
                 && let Some(entry) = &entry
                 && let Some(response_id) = &output.response_id
             {
-                let items = convert_response_items(
-                    execution.model,
-                    execution.context,
-                    output,
-                    execution.grammar_tool_input_properties,
-                );
+                let items = convert_response_items(execution.model, execution.context, output);
                 let continuation = CachedWebSocketContinuationState {
                     last_request_body: body.clone(),
                     last_response_id: response_id.clone(),
@@ -2409,12 +2305,7 @@ fn response_create_frame(body: &JsValue) -> JsValue {
     JsValue::Object(frame)
 }
 
-fn convert_response_items(
-    model: &Model,
-    _context: &Context,
-    output: &AssistantMessage,
-    grammar_tool_input_properties: &IndexMap<String, String>,
-) -> Vec<JsValue> {
+fn convert_response_items(model: &Model, _context: &Context, output: &AssistantMessage) -> Vec<JsValue> {
     let response_context = Context {
         system_prompt: None,
         messages: vec![ChatMessage::Assistant(Box::new(output.clone()))],
@@ -2426,10 +2317,6 @@ fn convert_response_items(
         &codex_tool_call_providers(),
         Some(&ConvertResponsesMessagesOptions {
             include_system_prompt: Some(false),
-            grammar_tool_input_properties: Some(grammar_tool_input_properties.clone()),
-            deferred_tools: None,
-            deferred_tools_mode: None,
-            tool_options: None,
         }),
     )
     .map(|items| {
@@ -2529,7 +2416,6 @@ struct WsEventSourceConfig {
     partial: AssistantMessage,
     websocket_started: Arc<AtomicBool>,
     start_emitted: Arc<AtomicBool>,
-    end_turn: Arc<Mutex<Option<bool>>>,
 }
 
 struct WsEventSource {
@@ -2547,7 +2433,6 @@ struct WsEventSource {
     partial: AssistantMessage,
     websocket_started: Arc<AtomicBool>,
     start_emitted: Arc<AtomicBool>,
-    end_turn: Arc<Mutex<Option<bool>>>,
     ping_interval: tokio::time::Interval,
     idle_deadline: Option<tokio::time::Instant>,
 }
@@ -2569,7 +2454,6 @@ impl WsEventSource {
             partial: config.partial,
             websocket_started: config.websocket_started,
             start_emitted: config.start_emitted,
-            end_turn: config.end_turn,
             ping_interval: tokio::time::interval_at(
                 tokio::time::Instant::now() + Duration::from_millis(WEBSOCKET_PING_INTERVAL_MS),
                 Duration::from_millis(WEBSOCKET_PING_INTERVAL_MS),
@@ -2635,7 +2519,7 @@ impl WsEventSource {
         if terminal {
             self.saw_completion = true;
         }
-        match map_codex_event(parsed, &self.end_turn) {
+        match map_codex_event(parsed) {
             Ok(Some(event)) => {
                 self.queue.push_back(event);
                 if terminal {

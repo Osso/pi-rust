@@ -59,7 +59,6 @@ fn assistant(options: Options) -> AgentMessage {
         stop_reason: StopReason::Stop,
         error_message: None,
         raw_stop_reason: None,
-        end_turn: None,
         timestamp: options.timestamp as f64,
     }))
 }

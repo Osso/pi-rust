@@ -9,12 +9,11 @@ use indexmap::IndexMap;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::api::constrained_sampling::create_grammar_tool_input_properties;
 use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
 use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
 use crate::api::openai_responses_shared::{
-    ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions, OpenAIResponsesStreamOptions,
-    convert_responses_messages, convert_responses_tools, process_responses_stream, push_responses_done,
+    OpenAIResponsesStreamOptions, convert_responses_messages, convert_responses_tools, process_responses_stream,
+    push_responses_done,
 };
 use crate::api::openai_sdk::{
     AzureClientConfig, SdkClient, SdkClientConfig, SdkError, format_request_error, format_sdk_error,
@@ -24,9 +23,7 @@ use crate::models::clamp_thinking_level;
 use crate::request::{
     BoxFuture, CallbackError, ProviderRequestOptions, ProviderStreams, SimpleStreamOptions, StreamOptions, now_millis,
 };
-use crate::types::{
-    AssistantMessage, Context, ErrorReason, Model, ModelCompat, ModelThinkingLevel, ProviderResponse, StopReason,
-};
+use crate::types::{AssistantMessage, Context, ErrorReason, Model, ModelThinkingLevel, ProviderResponse, StopReason};
 use crate::utils::event_stream::{AssistantMessageEventSender, create_assistant_message_event_stream};
 use crate::utils::headers::headers_to_record;
 use crate::utils::provider_env::get_provider_env_value;
@@ -204,7 +201,6 @@ pub fn build_params(
     options: &AzureOpenAIResponsesOptions,
     stream_options: &StreamOptions,
     deployment_name: &JsString,
-    grammar_tool_input_properties: &IndexMap<String, String>,
 ) -> Result<JsValue, String> {
     let messages = convert_responses_messages(
         model,
@@ -213,10 +209,7 @@ pub fn build_params(
             .into_iter()
             .map(str::to_owned)
             .collect::<BTreeSet<_>>(),
-        Some(&ConvertResponsesMessagesOptions {
-            grammar_tool_input_properties: Some(grammar_tool_input_properties.clone()),
-            ..Default::default()
-        }),
+        None,
     )?;
 
     let mut params = JsObject::new();
@@ -238,26 +231,7 @@ pub fn build_params(
         params.insert("temperature".into(), js_number_value(temperature).into());
     }
     if let Some(tools) = context.tools.as_deref().filter(|tools| !tools.is_empty()) {
-        let supports_strict_mode = match &model.compat {
-            Some(ModelCompat::OpenAIResponses(compat)) => compat.supports_strict_mode.unwrap_or(true),
-            _ => true,
-        };
-        let supports_openai_grammar_tools = match &model.compat {
-            Some(ModelCompat::OpenAIResponses(compat)) => compat.supports_openai_grammar_tools.unwrap_or(false),
-            _ => false,
-        };
-        params.insert(
-            "tools".into(),
-            convert_responses_tools(
-                tools,
-                Some(&ConvertResponsesToolsOptions {
-                    supports_strict_mode: Some(supports_strict_mode),
-                    supports_openai_grammar_tools: Some(supports_openai_grammar_tools),
-                    ..Default::default()
-                }),
-            )
-            .map_err(|error| error.message)?,
-        );
+        params.insert("tools".into(), convert_responses_tools(tools, None));
     }
 
     if model.reasoning {
@@ -371,22 +345,8 @@ async fn run_stream(
         .ok_or_else(|| Failure::Message(format!("No API key for provider: {}", model.provider).into()))?;
     let client =
         create_client(model, &api_key, options, stream_options).map_err(|error| Failure::Message(error.into()))?;
-    let supports_grammar = match &model.compat {
-        Some(ModelCompat::OpenAIResponses(compat)) => compat.supports_openai_grammar_tools.unwrap_or(false),
-        _ => false,
-    };
-    let grammar_tool_input_properties =
-        create_grammar_tool_input_properties(context.tools.as_deref(), supports_grammar)
-            .map_err(|error| Failure::Message(error.message.into()))?;
-    let params = build_params(
-        model,
-        context,
-        options,
-        stream_options,
-        &deployment_name,
-        &grammar_tool_input_properties,
-    )
-    .map_err(|error| Failure::Message(error.into()))?;
+    let params = build_params(model, context, options, stream_options, &deployment_name)
+        .map_err(|error| Failure::Message(error.into()))?;
 
     let mut params = JsValue::from(params);
     if let Some(on_payload) = &stream_options.request.on_payload
@@ -428,10 +388,7 @@ async fn run_stream(
     });
 
     let mut stream = response.stream;
-    let shared_options = OpenAIResponsesStreamOptions {
-        grammar_tool_input_properties: Some(grammar_tool_input_properties),
-        ..Default::default()
-    };
+    let shared_options = OpenAIResponsesStreamOptions { ..Default::default() };
     process_responses_stream(&mut stream, output, sender, model, Some(&shared_options))
         .await
         .map_err(|failure| match failure {
