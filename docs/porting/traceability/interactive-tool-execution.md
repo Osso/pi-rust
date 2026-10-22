@@ -49,3 +49,7 @@ Port: `crates/pi-coding-agent/src/modes/interactive/components/tool_execution.rs
 - The call component is passed to the result renderer as `ToolRenderContext.call_component`
   (the component returned by the last `renderCall`) instead of living in the renderer state object.
   This lets the edit result renderer rebuild the call preview in place; observable output matches.
+
+## Q18 native UTF-16
+
+Result text, style callbacks, elapsed labels and all shell render output use `JsString`. Args/details retain shared `JsValue`; JSON presentation retains lossless writer escapes. `raw_error_consumer_components::tool_execution_keeps_raw_result_and_argument_json` written **unexecuted**, coding-agent blocked. Scalar tool metadata follows shared ToolRenderContext, not a human-text encoding boundary.

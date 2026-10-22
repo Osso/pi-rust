@@ -324,3 +324,39 @@ fn scoped_models_keeps_raw_unavailable_id_search_and_refresh_status() {
     selector.handle_input(&"\r".into());
     assert_eq!(*selected.borrow(), Some(Some(vec![])));
 }
+
+#[test]
+fn tool_execution_keeps_raw_result_and_argument_json() {
+    use pi_coding_agent::modes::interactive::components::tool_execution::*;
+    use pi_js_compat::js_json::JsValue;
+    init_theme();
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let mut view = ToolExecutionComponent::new(
+        "fixture",
+        "call",
+        JsValue::String(raw.clone()),
+        ToolExecutionOptions::default(),
+        None,
+        std::sync::Arc::new(|| {}),
+        "/tmp",
+    );
+    view.update_result(
+        ToolExecutionResult {
+            content: vec![pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new(
+                raw.clone(),
+            ))],
+            details: None,
+            is_error: false,
+        },
+        false,
+        None,
+    );
+    for expanded in [false, true] {
+        view.set_expanded(expanded);
+        view.invalidate();
+        let output = JsString::join(view.render(120), "\n");
+        assert!(output.contains(&raw));
+        assert!(output.contains("\\ud800"));
+    }
+    view.dispose();
+}
