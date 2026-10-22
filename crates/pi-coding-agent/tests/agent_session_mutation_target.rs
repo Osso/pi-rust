@@ -160,7 +160,7 @@ fn agent(id: &str, agent_type: &str, lifecycle: AgentLifecycle) -> AgentSnapshot
         id: id.to_owned(),
         parent_id: Some("main".to_owned()),
         display_name: format!("Agent {id}"),
-        agent_type: agent_type.to_owned(),
+        agent_type: agent_type.into(),
         origin: None,
         lifecycle,
         revision: 1,
@@ -171,7 +171,7 @@ fn agent(id: &str, agent_type: &str, lifecycle: AgentLifecycle) -> AgentSnapshot
         model: None,
         account: None,
         permission: AgentPermission {
-            policy: "on-request".to_owned(),
+            policy: "on-request".into(),
             inherited_from: None,
             narrowed: true,
         },

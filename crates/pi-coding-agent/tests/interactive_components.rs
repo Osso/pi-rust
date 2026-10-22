@@ -132,7 +132,7 @@ fn agent(id: &str, display_name: &str, lifecycle: AgentLifecycle) -> AgentSnapsh
         last_activity: None,
         result: None,
         error: None,
-        extra: serde_json::Map::new(),
+        extra: pi_js_compat::js_json::JsObject::new(),
     }
 }
 

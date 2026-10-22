@@ -274,11 +274,11 @@ fn reserve_agent(store: &Arc<MultiAgentStore>, env: &TestEnv, id: &str, parent_i
             spawn: SpawnAgent {
                 parent_id: Some(parent_id.unwrap_or("main").to_owned()),
                 display_name: format!("Agent {id}"),
-                agent_type: "worker".to_owned(),
+                agent_type: "worker".into(),
                 origin: None,
                 cwd: env.cwd.clone(),
                 permission: AgentPermission {
-                    policy: "on-request".to_owned(),
+                    policy: "on-request".into(),
                     inherited_from: None,
                     narrowed: true,
                 },

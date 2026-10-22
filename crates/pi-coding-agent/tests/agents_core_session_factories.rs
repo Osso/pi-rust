@@ -187,7 +187,7 @@ fn child_agent(env: &TestEnv, id: &str, display_name: &str) -> AgentSnapshot {
         id: id.to_owned(),
         parent_id: Some("main".to_owned()),
         display_name: display_name.to_owned(),
-        agent_type: "explore".to_owned(),
+        agent_type: "explore".into(),
         origin: None,
         lifecycle: pi_coding_agent::core::multi_agent_store::AgentLifecycle::Running,
         revision: 0,
@@ -202,7 +202,7 @@ fn child_agent(env: &TestEnv, id: &str, display_name: &str) -> AgentSnapshot {
         }),
         account: None,
         permission: AgentPermission {
-            policy: "on-request".to_owned(),
+            policy: "on-request".into(),
             inherited_from: None,
             narrowed: true,
         },

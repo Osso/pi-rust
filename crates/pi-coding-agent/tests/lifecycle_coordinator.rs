@@ -81,11 +81,11 @@ fn child_input(parent_id: Option<&str>) -> SpawnAgent {
     SpawnAgent {
         parent_id: parent_id.map(str::to_owned),
         display_name: "Explorer".to_owned(),
-        agent_type: "explore".to_owned(),
+        agent_type: "explore".into(),
         origin: None,
         cwd: "/tmp/worktree".to_owned(),
         permission: AgentPermission {
-            policy: "on-request".to_owned(),
+            policy: "on-request".into(),
             inherited_from: None,
             narrowed: true,
         },
@@ -210,7 +210,7 @@ fn acquires_attached_runtime_ownership_and_advances_revision() {
         id: "attached-1".to_owned(),
         parent_id: None,
         display_name: "Attached".to_owned(),
-        agent_type: "resumed-session".to_owned(),
+        agent_type: "resumed-session".into(),
         origin: Some(pi_coding_agent::core::multi_agent_store::AgentOrigin::Attached),
         lifecycle: AgentLifecycle::Running,
         revision: 4,
@@ -221,7 +221,7 @@ fn acquires_attached_runtime_ownership_and_advances_revision() {
         model: None,
         account: None,
         permission: AgentPermission {
-            policy: "on-request".to_owned(),
+            policy: "on-request".into(),
             inherited_from: None,
             narrowed: true,
         },
@@ -234,7 +234,7 @@ fn acquires_attached_runtime_ownership_and_advances_revision() {
         last_activity: None,
         result: None,
         error: None,
-        extra: serde_json::Map::new(),
+        extra: pi_js_compat::js_json::JsObject::new(),
     };
     pi_coding_agent::core::session_control_db::bootstrap_multi_agent_agent(
         &db,

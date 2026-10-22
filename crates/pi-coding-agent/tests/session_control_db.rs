@@ -89,7 +89,7 @@ fn agent_node(id: &str, parent: Option<&str>, lifecycle: AgentLifecycle) -> Agen
         id: id.to_owned(),
         parent_id: parent.map(str::to_owned),
         display_name: "Scout".to_owned(),
-        agent_type: "scout".to_owned(),
+        agent_type: "scout".into(),
         origin: None,
         lifecycle,
         revision: 1,
@@ -100,7 +100,7 @@ fn agent_node(id: &str, parent: Option<&str>, lifecycle: AgentLifecycle) -> Agen
         model: None,
         account: None,
         permission: AgentPermission {
-            policy: "on-request".to_owned(),
+            policy: "on-request".into(),
             inherited_from: None,
             narrowed: true,
         },
@@ -113,7 +113,7 @@ fn agent_node(id: &str, parent: Option<&str>, lifecycle: AgentLifecycle) -> Agen
         last_activity: None,
         result: None,
         error: None,
-        extra: serde_json::Map::new(),
+        extra: pi_js_compat::js_json::JsObject::new(),
     }
 }
 
