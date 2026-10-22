@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 use pi_coding_agent::core::model_config::ModelConfig;
-use serde_json::{Value, json};
+use serde_json::json;
 
 use oracle::TsOracle;
 
