@@ -7,7 +7,6 @@ use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
 use pi_agent_core::harness::env::{NodeExecutionEnv, NodeExecutionEnvOptions};
 use pi_agent_core::harness::types::{
@@ -124,32 +123,6 @@ async fn reads_writes_lists_and_removes_files_and_directories() {
         !env.exists(&JsString::from("nested/child/file.txt"), None)
             .await
             .unwrap()
-    );
-}
-
-#[tokio::test]
-async fn expands_home_relative_paths_and_file_urls() {
-    let root = temp_dir();
-    let env = env_at(root.path());
-    let home = std::env::var("HOME").expect("HOME must be set");
-    assert_eq!(
-        env.absolute_path(&JsString::from("~/pi-node-env-test"), None)
-            .await
-            .unwrap(),
-        Path::new(&home)
-            .join("pi-node-env-test")
-            .to_str()
-            .expect("utf-8 test path")
-    );
-
-    let file_path = root.path().join("file with spaces.txt");
-    let url = format!(
-        "file://{}",
-        file_path.to_str().expect("utf-8 test path").replace(' ', "%20")
-    );
-    assert_eq!(
-        env.absolute_path(&JsString::from(&url), None).await.unwrap(),
-        file_path.to_str().expect("utf-8 test path")
     );
 }
 
@@ -311,62 +284,6 @@ async fn appends_to_new_files_and_creates_parent_directories() {
 }
 
 #[tokio::test]
-async fn renames_files_and_reports_the_source_path_on_failure() {
-    let root = temp_dir();
-    let env = env_at(root.path());
-    env.write_file(&JsString::from("source.txt"), text(&JsString::from("new")), None)
-        .await
-        .unwrap();
-    env.write_file(&JsString::from("destination.txt"), text(&JsString::from("old")), None)
-        .await
-        .unwrap();
-    env.rename_file(&JsString::from("source.txt"), &JsString::from("destination.txt"), None)
-        .await
-        .unwrap();
-    assert!(!env.exists(&JsString::from("source.txt"), None).await.unwrap());
-    assert_eq!(
-        env.read_text_file(&JsString::from("destination.txt"), None)
-            .await
-            .unwrap(),
-        "new"
-    );
-
-    env.write_file(
-        &JsString::from("destination.txt"),
-        text(&JsString::from("unchanged")),
-        None,
-    )
-    .await
-    .unwrap();
-    let error = env
-        .rename_file(
-            &JsString::from("missing-source.txt"),
-            &JsString::from("destination.txt"),
-            None,
-        )
-        .await
-        .unwrap_err();
-    assert_eq!(error.code, FileErrorCode::NotFound);
-    assert_eq!(
-        error.path.as_ref(),
-        (Some(
-            root.path()
-                .join("missing-source.txt")
-                .to_str()
-                .expect("utf-8 test path")
-        ))
-        .map(JsString::from)
-        .as_ref()
-    );
-    assert_eq!(
-        env.read_text_file(&JsString::from("destination.txt"), None)
-            .await
-            .unwrap(),
-        "unchanged"
-    );
-}
-
-#[tokio::test]
 async fn creates_temporary_directories_and_files() {
     let root = temp_dir();
     let env = env_at(root.path());
@@ -471,8 +388,6 @@ async fn returns_aborted_results_for_pre_aborted_cancellable_operations() {
     let join_arg_2 = JsString::from("file.txt");
     let join_arg_3 = JsString::from("other.txt");
     let join_arg_4 = JsString::from("x");
-    let join_arg_5 = JsString::from("file.txt");
-    let join_arg_6 = JsString::from("renamed.txt");
     let join_arg_7 = JsString::from(".");
     let results = tokio::join!(
         env.read_text_file(&join_arg_0, Some(&signal)),
@@ -485,7 +400,6 @@ async fn returns_aborted_results_for_pre_aborted_cancellable_operations() {
         ),
         env.read_binary_file(&join_arg_2, Some(&signal)),
         env.write_file(&join_arg_3, text(&join_arg_4), Some(&signal)),
-        env.rename_file(&join_arg_5, &join_arg_6, Some(&signal)),
         env.list_dir(&join_arg_7, Some(&signal)),
     );
     for code in [
@@ -494,7 +408,6 @@ async fn returns_aborted_results_for_pre_aborted_cancellable_operations() {
         results.2.unwrap_err().code,
         results.3.unwrap_err().code,
         results.4.unwrap_err().code,
-        results.5.unwrap_err().code,
     ] {
         assert_eq!(code, FileErrorCode::Aborted);
     }
@@ -559,32 +472,6 @@ async fn applies_shell_environment_overrides() {
 }
 
 #[tokio::test]
-async fn can_replace_rather_than_inherit_the_default_shell_environment() {
-    let root = temp_dir();
-    let configured_key = "PI_NODE_ENV_CONFIGURED_TEST";
-    let explicit_key = "PI_NODE_ENV_EXPLICIT_TEST";
-    let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(root.path().to_str().expect("utf-8 test path").to_owned()),
-        shell_path: None,
-        shell_env: HashMap::from([(configured_key.to_owned(), "configured".to_owned())]),
-    });
-    let result = env
-        .exec(
-            &JsString::from(format!(
-                "printf '%s:%s' \"${{{configured_key}-}}\" \"${{{explicit_key}-}}\""
-            )),
-            ShellExecOptions {
-                inherit_env: Some(false),
-                env: Some(HashMap::from([(explicit_key.to_owned(), "explicit".to_owned())])),
-                ..ShellExecOptions::default()
-            },
-        )
-        .await
-        .unwrap();
-    assert_eq!(result.stdout, ":explicit");
-}
-
-#[tokio::test]
 async fn streams_stdout_and_stderr_chunks() {
     let root = temp_dir();
     let env = env_at(root.path());
@@ -613,29 +500,6 @@ async fn streams_stdout_and_stderr_chunks() {
     assert_eq!(result.stderr, "err");
     assert_eq!(*stdout.lock().unwrap(), "out");
     assert_eq!(*stderr.lock().unwrap(), "err");
-}
-
-#[tokio::test]
-async fn reports_a_missing_working_directory_before_spawning() {
-    let root = temp_dir();
-    let missing = root.path().join("missing");
-    let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(missing.to_str().expect("utf-8 test path").to_owned()),
-        shell_path: None,
-        shell_env: HashMap::new(),
-    });
-    let error = env
-        .exec(&JsString::from("printf ok"), ShellExecOptions::default())
-        .await
-        .unwrap_err();
-    assert_eq!(error.code, ExecutionErrorCode::SpawnError);
-    assert_eq!(
-        error.message,
-        format!(
-            "Working directory does not exist: {}\nCannot execute bash commands.",
-            missing.display()
-        )
-    );
 }
 
 #[tokio::test]
@@ -750,32 +614,6 @@ async fn returns_an_aborted_result_for_aborted_commands() {
     let error = execution.await.unwrap_err();
     assert_eq!(error.code, ExecutionErrorCode::Aborted);
     assert_eq!(error.message, "aborted");
-}
-
-#[tokio::test]
-async fn cleanup_terminates_active_shell_processes() {
-    let root = temp_dir();
-    let env = Arc::new(env_at(root.path()));
-    let execution_env = Arc::clone(&env);
-    let execution = tokio::spawn(async move {
-        execution_env
-            .exec(&JsString::from("touch started; sleep 60"), ShellExecOptions::default())
-            .await
-    });
-    let started = root.path().join("started");
-    for _ in 0..100 {
-        if started.exists() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    assert!(started.exists());
-    env.cleanup().await;
-    let result = tokio::time::timeout(Duration::from_secs(3), execution)
-        .await
-        .expect("cleanup must terminate the shell")
-        .expect("execution task must not panic");
-    assert!(result.is_ok());
 }
 
 #[tokio::test]

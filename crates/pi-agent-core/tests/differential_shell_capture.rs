@@ -63,14 +63,6 @@ impl FileSystem for CaptureEnv {
     ) -> BoxFuture<'a, Result<(), FileError>> {
         FileSystem::write_file(&self.inner, path, content, abort)
     }
-    fn rename_file<'a>(
-        &'a self,
-        source_path: &'a JsString,
-        destination_path: &'a JsString,
-        abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<(), FileError>> {
-        FileSystem::rename_file(&self.inner, source_path, destination_path, abort)
-    }
     fn file_info<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<FileInfo, FileError>> {
         FileSystem::file_info(&self.inner, path)
     }

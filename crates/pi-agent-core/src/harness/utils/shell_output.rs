@@ -18,7 +18,6 @@ pub type ShellChunkHandler = dyn Fn(&JsString) -> Result<(), ExecutionError> + S
 pub struct ShellCaptureOptions {
     pub cwd: Option<JsString>,
     pub env: Option<HashMap<String, String>>,
-    pub inherit_env: Option<bool>,
     pub timeout: Option<f64>,
     pub abort: Option<CancellationToken>,
     pub on_chunk: Option<Arc<ShellChunkHandler>>,
@@ -91,7 +90,6 @@ pub async fn execute_shell_with_capture(
             ShellExecOptions {
                 cwd: options.cwd,
                 env: options.env,
-                inherit_env: options.inherit_env,
                 timeout: options.timeout,
                 abort: options.abort.clone(),
                 on_stdout: Some(Arc::clone(&chunk_handler)),
