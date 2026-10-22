@@ -18,12 +18,18 @@ Tests: `crates/pi-ai/tests/openai_responses_shared.rs` (7 behavioral), `crates/p
 
 Current bounded proof at9f327aad: all3 shared differentials (conversion12, tools7, stream12 scenarios) and7 behavioral tests pass; Responses20 and Azure10 recorded SDK scenarios pass in the same invocation (`responses-shared-current-green.log`). No assertion normalization was added to waive these removals. Obsolete option/API fields and producer validation remain open; no whole-module completion claim.
 
+## Native tool scratch lifecycle
+
+Frozen `openai-responses-shared.ts:490–504,601–635,678–692` exposes `partialJson` on tool blocks. `ToolCall.partial_json` is now the sole authority; slots retain only content indices. Start snapshots keep initial argument text with empty parsed arguments; delta snapshots append and parse; arguments.done replaces the buffer and emits only a nonempty suffix when prefix-compatible; item.done parses the final text and removes scratch before toolcall_end. An unfinished tool keeps scratch on successful terminal response, matching frozen. Provider catches remove it before errors/results (`openai-responses.ts:149–154`, Azure126–131, Codex460–464); only Responses/Azure also delete index.
+
+Unmasked shared stream scenario0 and whole Responses scenario6 were RED after oracle hardening. New five-case whole-Responses test additionally reproduced missing partialJson on an open tool, then proved unfinished successful completion, explicit error, incomplete error, suffix completion and replacement completion. Shared conversion/tools/streams and whole Responses targets GREEN (`responses-scratch-green-2.log`); Azure12 scenarios including open failure GREEN (`azure-open-scratch-green.log`); Codex open-tool error GREEN (`codex-open-scratch-green.log`). This does not close separate Codex timeout drifts or other providers' scratch. [Contract](../../specs/content-stream-scratch.md).
+
 ## Representation
 - Request bodies and SSE events are `JsValue`; this preserves TypeScript key order and omitted-vs-null distinctions without inventing wire structs for the OpenAI SDK types.
 - `ResponsesEventSource` abstracts the event iterator; production uses the SDK SSE decoder, tests use `VecResponsesEventSource`.
 - `ResponsesStreamFailure<E>` separates event-source failures (SDK errors) from state-machine rejections (plain `Error` messages), matching TypeScript's `throw` propagation.
 - `TextSignatureV1`/`TextSignatureVersion` from `types.rs` encode and parse the message signature.
-- Streaming scratch fields (`partialJson`, `customInput`, `streamIndex`, `partialArgs`) are typed slot state, not fields on `ToolCall`; they are never persisted.
+- `ToolCall.partial_json` carries the observable Responses `partialJson`; it is stripped at item.done and provider failure, not hidden in private slot state. Other providers' `streamIndex`/`partialArgs` remain pending. Frozen Responses has no customInput slots.
 
 ## Symbols → proof
 | TS | Rust | Test |

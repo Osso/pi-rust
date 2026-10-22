@@ -718,7 +718,6 @@ enum Slot {
     },
     ToolCall {
         content_index: usize,
-        partial_json: Option<pi_js_compat::js_json::JsString>,
     },
 }
 
@@ -806,7 +805,7 @@ fn create_slot(
         Some("function_call") => {
             let call_id = js_string(item.get("call_id"));
             let item_id = js_string(item.get("id"));
-            let block = ToolCall::new(
+            let mut block = ToolCall::new(
                 format!("{call_id}|{item_id}"),
                 item.get("name")
                     .and_then(ingress_metadata_text)
@@ -814,21 +813,16 @@ fn create_slot(
                     .unwrap_or(""),
                 Default::default(),
             );
-            let partial_json = item
-                .get("arguments")
-                .and_then(JsValue::as_string)
-                .filter(|arguments| !arguments.is_empty())
-                .cloned()
-                .unwrap_or_default();
+            block.partial_json = Some(
+                item.get("arguments")
+                    .and_then(JsValue::as_string)
+                    .filter(|arguments| !arguments.is_empty())
+                    .cloned()
+                    .unwrap_or_default(),
+            );
             output.content.push(AssistantContent::ToolCall(block));
             let content_index = output.content.len() - 1;
-            slots.insert(
-                output_index,
-                Slot::ToolCall {
-                    content_index,
-                    partial_json: Some(partial_json.into()),
-                },
-            );
+            slots.insert(output_index, Slot::ToolCall { content_index });
             sender.push(AssistantMessageEvent::ToolCallStart {
                 content_index,
                 partial: output.clone(),
@@ -1191,17 +1185,14 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                     .and_then(JsValue::as_string)
                     .cloned()
                     .unwrap_or_default();
-                let Some(Slot::ToolCall { partial_json, .. }) = output_slots.get_mut(&output_index) else {
+                let AssistantContent::ToolCall(block) = &mut output.content[content_index] else {
                     continue;
                 };
-                let Some(partial_json) = partial_json.as_mut() else {
+                let Some(partial_json) = block.partial_json.as_mut() else {
                     continue;
                 };
                 partial_json.push_str(&delta);
-                let parsed = parse_arguments(Some(partial_json));
-                if let AssistantContent::ToolCall(block) = &mut output.content[content_index] {
-                    block.arguments = parsed;
-                }
+                block.arguments = parse_arguments(Some(partial_json));
                 push_tool_call_delta(sender, content_index, Some(delta.to_owned()), output);
             }
             "response.function_call_arguments.done" => {
@@ -1215,18 +1206,15 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                         .cloned()
                         .unwrap_or_default(),
                 );
-                let Some(Slot::ToolCall { partial_json, .. }) = output_slots.get_mut(&output_index) else {
+                let AssistantContent::ToolCall(block) = &mut output.content[content_index] else {
                     continue;
                 };
-                let Some(previous) = partial_json.as_ref() else {
+                let Some(previous) = block.partial_json.as_ref() else {
                     continue;
                 };
                 let delta = arguments.strip_prefix(previous).filter(|delta| !delta.is_empty());
-                *partial_json = Some(arguments.clone());
-                let parsed = parse_arguments(Some(&arguments));
-                if let AssistantContent::ToolCall(block) = &mut output.content[content_index] {
-                    block.arguments = parsed;
-                }
+                block.partial_json = Some(arguments.clone());
+                block.arguments = parse_arguments(Some(&arguments));
                 push_tool_call_delta(sender, content_index, delta, output);
             }
             "response.image_generation_call.partial_image" => {
@@ -1326,31 +1314,20 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                     }
                     Some("function_call") if slot_kind == "toolCall" => {
                         let content_index = content_index.expect("tool slot has an index");
-                        let Some(Slot::ToolCall { partial_json, .. }) = output_slots.get(&output_index) else {
+                        let AssistantContent::ToolCall(block) = &mut output.content[content_index] else {
                             continue;
                         };
-                        if partial_json.is_none() {
-                            continue;
-                        }
                         let arguments = item
                             .get("arguments")
                             .and_then(JsValue::as_string)
                             .filter(|arguments| !arguments.is_empty())
                             .map(pi_js_compat::js_json::JsString::from)
-                            .or_else(|| partial_json.clone())
+                            .or_else(|| block.partial_json.clone())
                             .filter(|arguments| !arguments.is_empty())
                             .unwrap_or_else(|| "{}".into());
-                        let parsed = parse_arguments(Some(&arguments));
-                        let tool_call = match &mut output.content[content_index] {
-                            AssistantContent::ToolCall(block) => {
-                                block.arguments = parsed;
-                                block.clone()
-                            }
-                            _ => continue,
-                        };
-                        if let Some(Slot::ToolCall { partial_json, .. }) = output_slots.get_mut(&output_index) {
-                            *partial_json = None;
-                        }
+                        block.arguments = parse_arguments(Some(&arguments));
+                        block.partial_json = None;
+                        let tool_call = block.clone();
                         sender.push(AssistantMessageEvent::ToolCallEnd {
                             content_index,
                             tool_call: Box::new(tool_call),
