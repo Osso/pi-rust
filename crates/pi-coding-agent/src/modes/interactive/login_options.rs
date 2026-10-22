@@ -2,6 +2,7 @@
 
 use pi_ai::auth::types::{AuthCheck, AuthType, CredentialType};
 use pi_ai::models::Provider;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::locale_compare;
 
 use crate::core::model_runtime::ModelRuntime;
@@ -49,7 +50,7 @@ pub fn create_login_options_for_provider(
     {
         options.push(AuthSelectorProvider {
             auth_type: AuthType::Oauth,
-            method_name: Some(oauth.name().to_owned()),
+            method_name: Some(oauth.name().into()),
             ..base.clone()
         });
     }
@@ -58,7 +59,7 @@ pub fn create_login_options_for_provider(
     {
         options.push(AuthSelectorProvider {
             auth_type: AuthType::ApiKey,
-            method_name: Some(api_key.name().to_owned()),
+            method_name: Some(api_key.name().into()),
             login_supported: api_key.supports_login(),
             ..base
         });
@@ -82,7 +83,7 @@ pub fn get_login_provider_options(runtime: &ModelRuntime, auth_type: Option<Auth
                 source: auth_status
                     .label
                     .clone()
-                    .or_else(|| auth_status.source.map(|source| source.as_str().to_owned())),
+                    .or_else(|| auth_status.source.map(|source| JsString::from(source.as_str()))),
             });
             create_login_options_for_provider(provider.as_ref(), auth_type, status)
         })
@@ -99,12 +100,17 @@ fn credential_auth_type(credential_type: CredentialType) -> AuthType {
 }
 
 /// `getLogoutProviderOptions`.
-pub async fn get_logout_provider_options(runtime: &ModelRuntime) -> Result<Vec<AuthSelectorProvider>, String> {
+pub async fn get_logout_provider_options(runtime: &ModelRuntime) -> Result<Vec<AuthSelectorProvider>, JsString> {
     let timeout = crate::main_runner::TimeoutSignal::new(15_000);
     let mut options: Vec<AuthSelectorProvider> = runtime
         .list_credentials(pi_ai::auth::types::AuthOperationOptions::new(Some(timeout.token())))
         .await
-        .map_err(|error| error.to_string())?
+        .map_err(|error| {
+            error
+                .detail()
+                .cloned()
+                .unwrap_or_else(|| "The operation was aborted".into())
+        })?
         .into_iter()
         .map(|credential| {
             let auth_type = credential_auth_type(credential.credential_type);
@@ -119,7 +125,7 @@ pub async fn get_logout_provider_options(runtime: &ModelRuntime) -> Result<Vec<A
                 login_supported: true,
                 status: Some(AuthCheck {
                     auth_type,
-                    source: Some("stored credential".to_owned()),
+                    source: Some("stored credential".into()),
                 }),
             }
         })

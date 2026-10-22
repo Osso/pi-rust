@@ -789,10 +789,10 @@ struct ParsedPath {
     name: JsString,
 }
 
-fn parse_posix_path(path: &JsString) -> ParsedPosixPath {
+fn parse_posix_path(path: &JsString) -> ParsedPath {
     let base = node_basename(path);
     let extension = node_extname(&base);
-    ParsedPosixPath {
+    ParsedPath {
         dir: node_dirname(path),
         name: base.slice(0, base.len() - extension.len()),
     }
@@ -2975,9 +2975,7 @@ impl InteractiveMode {
                         padding_x: Some(editor_padding_x),
                         autocomplete_max_visible: Some(autocomplete_max_visible),
                     },
-                    legacy_prompt_history_path: Some(
-                        (Path::new(&agent_dir).join("prompt-history.json").display().to_string()).into(),
-                    ),
+                    legacy_prompt_history_path: Some(node_join(&agent_dir, "prompt-history.json")),
                     prompt_history_control_db_path: None,
                     prompt_history_filter: Some(Rc::new(|text: &JsString| !is_skill_invocation(text, &[]))),
                 },
@@ -4046,7 +4044,7 @@ impl InteractiveMode {
                 selected_agent
                     .as_ref()
                     .and_then(|agent| agent.model.as_ref())
-                    .and_then(|model| model.thinking_level.clone())
+                    .and_then(|model| model.thinking_level.clone().map(JsString::from))
             })
             .unwrap_or_else(|| session_context.thinking_level.clone());
         let model = session_context.model.as_ref().and_then(|model| {
@@ -4103,8 +4101,12 @@ impl InteractiveMode {
 
     /// `readAgentLogPreview`.
     fn read_agent_log_preview(&self, log_path: &JsString) -> JsString {
-        self.read_agent_log_preview_unchecked(log_path)
-            .unwrap_or_else(|error| js_format!("Unable to read log: {}", error))
+        self.read_agent_log_preview_unchecked(log_path).unwrap_or_else(|error| {
+            js_format!(
+                "Unable to read log: {}",
+                crate::core::tools::node_fs::node_read_error(&error, log_path)
+            )
+        })
     }
 
     /// `readAgentLogPreviewUnchecked`.
@@ -4119,7 +4121,7 @@ impl InteractiveMode {
         Ok(js_format!(
             "[Showing last {} bytes]\n{}",
             MAX_AGENT_LOG_VIEW_BYTES,
-            tail
+            JsString::from(tail.as_ref())
         ))
     }
 
@@ -5018,7 +5020,11 @@ impl InteractiveMode {
         let system_prompt_source = loader.get_system_prompt_source();
         let append_sources = loader.get_append_system_prompt_sources();
         let extensions = loader.get_extensions();
-        let active_tools = session.get_active_tool_names();
+        let active_tools: Vec<JsString> = session
+            .get_active_tool_names()
+            .into_iter()
+            .map(JsString::from)
+            .collect();
         let prompt_templates = session.prompt_templates();
         let extension_runner = session.extension_runner();
         drop(session);
@@ -6026,6 +6032,7 @@ impl InteractiveMode {
     /// `handleFatalRuntimeError`: report, stop the TUI on the transcript, and
     /// exit 1. The TypeScript signature returns `Promise<never>`.
     fn handle_fatal_runtime_error(&self, prefix: &JsString, error: impl Into<JsString>) -> ! {
+        let error = error.into();
         self.show_error(&js_format!("{}: {}", prefix, error));
         crate::modes::interactive::theme::stop_theme_watcher();
         self.stop_with_output(crate::core::settings_manager::FullscreenExitOutput::Transcript);
@@ -6488,7 +6495,7 @@ impl InteractiveMode {
         let mut fd_manager = crate::utils::tools_manager::ToolsManager::for_process(Arc::clone(&fetch));
         let mut rg_manager = crate::utils::tools_manager::ToolsManager::for_process(fetch);
         let (fd_path, _rg_path) = tokio::join!(fd_manager.ensure_tool("fd"), rg_manager.ensure_tool("rg"));
-        *self.fd_path.borrow_mut() = fd_path;
+        *self.fd_path.borrow_mut() = fd_path.map(JsString::from);
         self.render_widgets();
         self.mount_interactive_tui();
         let editor_ref = Rc::clone(&self.editor_handle.borrow());
@@ -7794,7 +7801,7 @@ impl InteractiveMode {
                 RefreshStatusKind::Warning,
             ),
             Ok(result) if !result.errors.is_empty() => {
-                let providers = result.errors.keys().cloned().collect::<Vec<JsString>>().join(", ");
+                let providers = JsString::join(result.errors.keys().map(JsString::from), ", ");
                 (
                     js_format!("Could not refresh {}; showing cached models.", providers),
                     RefreshStatusKind::Warning,
@@ -7806,7 +7813,7 @@ impl InteractiveMode {
                 RefreshStatusKind::Warning,
             ),
             Err(error) => (
-                js_format!("Could not refresh model catalogs: {}", error),
+                js_format!("Could not refresh model catalogs: {}", error.message()),
                 RefreshStatusKind::Warning,
             ),
         };
@@ -7834,8 +7841,8 @@ impl InteractiveMode {
             let matches: Vec<&Model> = models
                 .iter()
                 .filter(|model| {
-                    model.id.to_lowercase().contains(&needle)
-                        || model.provider.to_lowercase().contains(&needle)
+                    JsString::from(&model.id).to_lowercase().contains(&needle)
+                        || JsString::from(&model.provider).to_lowercase().contains(&needle)
                         || js_format!("{}/{}", model.provider, model.id)
                             .to_lowercase()
                             .contains(&needle)
@@ -8365,7 +8372,7 @@ impl InteractiveMode {
                     self.show_status("Copied last agent message to clipboard");
                 }
             }
-            Err(error) => self.show_error(&js_format!("Failed to copy: {}", error)),
+            Err(error) => self.show_error(&js_format!("Failed to copy: {}", error.message())),
         }
     }
 
@@ -9717,7 +9724,12 @@ impl InteractiveMode {
                     )
                 }),
                 with_theme(|theme| theme.fg(ThemeColor::Muted, "See:")),
-                with_theme(|theme| theme.fg(ThemeColor::Accent, &js_format!("  {}", docs_path.display()))),
+                with_theme(|theme| {
+                    theme.fg(
+                        ThemeColor::Accent,
+                        &js_format!("  {}", JsString::from(docs_path.to_string_lossy().as_ref())),
+                    )
+                }),
             ]);
         }
         self.mount_auth_dialog(&dialog);
@@ -9746,7 +9758,7 @@ impl InteractiveMode {
             settings
                 .get_warnings()
                 .get("anthropicExtraUsage")
-                .and_then(Value::as_bool)
+                .and_then(JsValue::as_bool)
         }) == Some(false);
         if warnings_disabled || self.anthropic_subscription_warning_shown.get() {
             return;
@@ -9968,7 +9980,7 @@ impl InteractiveMode {
                 Err(error) => Some(js_format!(
                     "{}, but its model catalog could not be refreshed: {}",
                     action_label,
-                    error
+                    error.message()
                 )),
                 Ok(_) => None,
             };
