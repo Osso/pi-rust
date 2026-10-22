@@ -15,7 +15,10 @@ use std::time::{Duration, Instant};
 use pi_agent_core::AgentToolResult;
 use pi_ai::types::TextOrImageContent;
 use pi_js_compat::date::js_now_millis;
-use pi_js_compat::js_json::{JsString, JsValue};
+use pi_js_compat::{
+    js_format,
+    js_json::{JsString, JsValue},
+};
 use pi_tui::tui::{Component, ComponentRef, Container};
 use pi_tui::{Box as BoxComponent, Image, ImageOptions, ImageProtocol, ImageTheme, Spacer, Text, get_capabilities};
 
@@ -55,7 +58,7 @@ fn limit_tool_output_lines(lines: &[JsString]) -> Vec<JsString> {
     let tail_line_count = MAX_TOOL_OUTPUT_LINES - head_line_count;
     let hidden_line_count = lines.len() - MAX_TOOL_OUTPUT_LINES;
     let mut limited = lines[..head_line_count].to_vec();
-    limited.push(format!("... ({hidden_line_count} more lines hidden)").into());
+    limited.push(js_format!("... ({} more lines hidden)", hidden_line_count));
     limited.extend_from_slice(&lines[lines.len() - tail_line_count..]);
     limited
 }
@@ -102,7 +105,7 @@ fn into_component_ref<T: Component + 'static>(component: Rc<RefCell<T>>) -> Comp
 }
 
 fn background_fn(background: ThemeBg) -> pi_tui::components::text::StyleFn {
-    Rc::new(move |text: &str| with_theme(|theme| theme.bg(background, text)))
+    Rc::new(move |text: &JsString| with_theme(|theme| theme.bg(background, text)))
 }
 
 fn image_blocks(content: &[TextOrImageContent]) -> Vec<&pi_ai::types::ImageContent> {
@@ -295,10 +298,10 @@ impl ToolExecutionComponent {
         )))
     }
 
-    fn format_timer_text(&self) -> Option<String> {
+    fn format_timer_text(&self) -> Option<JsString> {
         let started_at = self.execution_started_at?;
         let finished_at = self.execution_finished_at.unwrap_or_else(js_now_millis);
-        Some(format!(
+        Some(js_format!(
             "Elapsed: {}",
             format_elapsed_duration(finished_at - started_at)
         ))
@@ -313,7 +316,7 @@ impl ToolExecutionComponent {
         ))))
     }
 
-    fn get_text_output(&self, content: &[TextOrImageContent]) -> String {
+    fn get_text_output(&self, content: &[TextOrImageContent]) -> JsString {
         let result = AgentToolResult {
             content: content.to_vec(),
             details: None,
@@ -443,13 +446,13 @@ impl ToolExecutionComponent {
         self.stop_timer();
     }
 
-    fn render_self_timer(&self, width: usize) -> Vec<String> {
+    fn render_self_timer(&self, width: usize) -> Vec<JsString> {
         self.create_timer_component()
             .map(|component| component.borrow_mut().render(width))
             .unwrap_or_default()
     }
 
-    fn render_self_shell(&mut self, width: usize) -> Vec<String> {
+    fn render_self_shell(&mut self, width: usize) -> Vec<JsString> {
         let content_lines = self.self_render_container.borrow_mut().render(width);
         if content_lines.is_empty() && self.image_components.is_empty() {
             return Vec::new();
@@ -457,7 +460,7 @@ impl ToolExecutionComponent {
         let mut lines = if content_lines.is_empty() {
             Vec::new()
         } else {
-            let mut lines = vec![String::new()];
+            let mut lines = vec![JsString::default()];
             lines.extend(content_lines);
             lines.extend(self.render_self_timer(width));
             lines
@@ -482,7 +485,7 @@ impl ToolExecutionComponent {
         limit_tool_result_content(content)
     }
 
-    fn format_tool_execution(&self) -> String {
+    fn format_tool_execution(&self) -> JsString {
         let mut text = with_theme(|theme| theme.fg(ThemeColor::ToolTitle, &theme.bold(&self.tool_name)));
         let content = js_json::stringify_lossless_pretty(&self.args);
         if !content.is_empty() {
@@ -490,12 +493,12 @@ impl ToolExecutionComponent {
             text.push_str(&content);
         }
         if let Some(timer_text) = self.format_timer_text() {
-            text.push('\n');
+            text.push_str("\n");
             text.push_str(&timer_text);
         }
         let output = self.get_text_output(&self.get_display_content());
         if !output.is_empty() {
-            text.push('\n');
+            text.push_str("\n");
             text.push_str(&output);
         }
         text
@@ -624,7 +627,7 @@ impl ToolExecutionComponent {
                     self.container.add_child(Rc::clone(&spacer));
                     self.image_spacers.push(spacer);
                     let fallback_theme = Rc::new(ImageTheme {
-                        fallback_color: Rc::new(|text: &str| {
+                        fallback_color: Rc::new(|text: &JsString| {
                             with_theme(|theme| theme.fg(ThemeColor::ToolOutput, text))
                         }),
                     });
@@ -673,7 +676,7 @@ impl Component for ToolExecutionComponent {
         Some(self)
     }
 
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         if self.invalidate_requested.swap(false, Ordering::SeqCst) {
             self.update_display();
         }
