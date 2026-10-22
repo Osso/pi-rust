@@ -17,6 +17,14 @@ bundled Pyrun extension for sandboxed runner invocations.
 | `fs-worker.cjs`: all operations | `worker::run_operation_json` | differential `matches_node_fs_worker_operations_on_the_same_fixtures` runs the real Node worker on identical fixtures, including lookahead, lookbehind, and backreference patterns |
 | `fs-worker.cjs` entry protocol | `worker::run_bwrap_fs_worker` via `internal_runner::run_internal_bwrap_fs_worker` | same differential plus write/mkdir round trip |
 
+## Q18 backend native checkpoint
+
+Common pin: `4f9e6f8a4`. Invocation/runner command, cwd, environment keys/values, extra mounts, shell paths, shebang and interpreter/runtime discovery paths use `JsString`. Path resolution/canonicalization errors propagate through native results rather than copied-path fallbacks. Encoding occurs only at FS, argv, env and spawn boundaries; returned canonical paths are decoded after the FS boundary. No sandbox is launched by the new raw-unit builder fixture.
+
+`backend::tests::invocation_keeps_raw_cwd_command_and_environment_until_spawn` asserts raw cwd/command/env in the actual invocation object using a real temporary directory. Existing helper tests use native contracts. Tests remain unexecuted pending coding-library compilation. `index.rs` general worker/SandboxParams propagation is the next checkpoint; historical differential rows above are not new acceptance proof.
+
+Observed pre-existing source drift, not silently corrected by this native checkpoint: the no-profile `SandboxedBashOperations` branch uses `LocalBashOperations::default()` instead of passing the configured shell path as frozen `createLocalBashOperations` does.
+
 ## Deviations / gaps
 
 - Approved deviation: Node `fs-worker.cjs` is replaced by the pi executable's

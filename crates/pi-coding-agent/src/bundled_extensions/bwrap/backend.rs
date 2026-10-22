@@ -1,8 +1,13 @@
 //! Port of `packages/coding-agent/extensions/bwrap/src/backend.ts`.
 
+use crate::utils::paths::{node_dirname, node_join, node_resolve};
 use indexmap::IndexMap;
+use pi_js_compat::{
+    js_format,
+    js_json::{JsString, encode_node_utf8},
+};
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -37,20 +42,20 @@ impl BwrapSandboxProfile {
 
 #[derive(Debug, Clone)]
 pub struct BwrapInvocationOptions {
-    pub bwrap_command: String,
-    pub command: Vec<pi_js_compat::js_json::JsString>,
-    pub cwd: String,
-    pub env: Option<IndexMap<String, String>>,
-    pub extra_read_only_paths: Option<Vec<String>>,
-    pub home_dir: Option<String>,
+    pub bwrap_command: JsString,
+    pub command: Vec<JsString>,
+    pub cwd: JsString,
+    pub env: Option<IndexMap<JsString, JsString>>,
+    pub extra_read_only_paths: Option<Vec<JsString>>,
+    pub home_dir: Option<JsString>,
     pub profile: BwrapSandboxProfile,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BwrapInvocation {
-    pub argv: Vec<pi_js_compat::js_json::JsString>,
-    pub command: String,
-    pub env: IndexMap<String, String>,
+    pub argv: Vec<JsString>,
+    pub command: JsString,
+    pub env: IndexMap<JsString, JsString>,
 }
 
 /// `resolveBwrapSandboxProfile`.
@@ -63,26 +68,26 @@ pub fn resolve_bwrap_sandbox_profile(profile: SandboxProfileName) -> Option<Bwra
 }
 
 /// `runBwrapAvailabilityCheck`.
-pub fn run_bwrap_availability_check(bwrap_command: &str) -> Result<(), String> {
-    let result = std::process::Command::new(bwrap_command)
+pub fn run_bwrap_availability_check(bwrap_command: &JsString) -> Result<(), JsString> {
+    let result = std::process::Command::new(encode_node_utf8(bwrap_command))
         .arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output();
     match result {
-        Err(error) => Err(format!(
+        Err(error) => Err(js_format!(
             "bubblewrap is required for sandbox profile but is unavailable: {}",
-            spawn_sync_error(bwrap_command, &error)
+            node_spawn_error_message("spawnSync", bwrap_command, &error)
         )),
         Ok(output) if !output.status.success() => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stderr = stderr.trim();
+            let stderr = JsString::from(String::from_utf8_lossy(&output.stderr).into_owned()).trim();
             if stderr.is_empty() {
-                Err("bubblewrap is required for sandbox profile but failed to run".to_owned())
+                Err("bubblewrap is required for sandbox profile but failed to run".into())
             } else {
-                Err(format!(
-                    "bubblewrap is required for sandbox profile but failed to run: {stderr}"
+                Err(js_format!(
+                    "bubblewrap is required for sandbox profile but failed to run: {}",
+                    stderr
                 ))
             }
         }
@@ -90,16 +95,12 @@ pub fn run_bwrap_availability_check(bwrap_command: &str) -> Result<(), String> {
     }
 }
 
-fn spawn_sync_error(command: &str, error: &std::io::Error) -> pi_js_compat::js_json::JsString {
-    node_spawn_error_message("spawnSync", &pi_js_compat::js_json::JsString::from(command), error)
-}
-
 /// `buildBwrapInvocation`.
-pub fn build_bwrap_invocation(options: &BwrapInvocationOptions) -> Result<BwrapInvocation, String> {
-    let cwd = absolute_path(&options.cwd);
+pub fn build_bwrap_invocation(options: &BwrapInvocationOptions) -> Result<BwrapInvocation, JsString> {
+    let cwd = absolute_path(&options.cwd)?;
     let sandbox_env = build_sandbox_env(options.env.as_ref());
     Ok(BwrapInvocation {
-        argv: build_bwrap_arguments(options, &cwd, &sandbox_env),
+        argv: build_bwrap_arguments(options, &cwd, &sandbox_env)?,
         command: options.bwrap_command.clone(),
         env: sandbox_env,
     })
@@ -107,13 +108,10 @@ pub fn build_bwrap_invocation(options: &BwrapInvocationOptions) -> Result<BwrapI
 
 fn build_bwrap_arguments(
     options: &BwrapInvocationOptions,
-    cwd: &str,
-    sandbox_env: &IndexMap<String, String>,
-) -> Vec<pi_js_compat::js_json::JsString> {
-    let mut arguments = build_bwrap_base_arguments()
-        .into_iter()
-        .map(pi_js_compat::js_json::JsString::from)
-        .collect::<Vec<_>>();
+    cwd: &JsString,
+    sandbox_env: &IndexMap<JsString, JsString>,
+) -> Result<Vec<JsString>, JsString> {
+    let mut arguments = build_bwrap_base_arguments();
     for (key, value) in sandbox_env {
         arguments.push("--setenv".into());
         arguments.push(key.into());
@@ -121,40 +119,24 @@ fn build_bwrap_arguments(
     }
     for system_path in READ_ONLY_SYSTEM_PATHS {
         if Path::new(system_path).exists() {
-            arguments.extend(
-                ["--ro-bind", system_path, system_path]
-                    .into_iter()
-                    .map(pi_js_compat::js_json::JsString::from),
-            );
+            arguments.extend(["--ro-bind", system_path, system_path].into_iter().map(JsString::from));
         }
     }
     for path in REQUIRED_SYSTEM_SYMLINKS {
-        arguments.extend(
-            build_resolved_read_only_mount_arguments(path, cwd)
-                .into_iter()
-                .map(pi_js_compat::js_json::JsString::from),
-        );
+        arguments.extend(build_resolved_read_only_mount_arguments(&path.into(), cwd)?);
     }
     for path in options.extra_read_only_paths.as_deref().unwrap_or_default() {
-        arguments.extend(
-            build_read_only_mount_arguments(path, cwd)
-                .into_iter()
-                .map(pi_js_compat::js_json::JsString::from),
-        );
+        arguments.extend(build_read_only_mount_arguments(path, cwd)?);
     }
-    arguments.extend(
-        build_workspace_mount_arguments(cwd, options.profile)
-            .into_iter()
-            .map(pi_js_compat::js_json::JsString::from),
-    );
+    arguments.extend(build_workspace_mount_arguments(cwd, options.profile));
     arguments.push("--chdir".into());
     arguments.push(cwd.into());
     arguments.push("--".into());
     arguments.extend(options.command.iter().cloned());
-    arguments
+    Ok(arguments)
 }
 
-fn build_bwrap_base_arguments() -> Vec<String> {
+fn build_bwrap_base_arguments() -> Vec<JsString> {
     [
         "--die-with-parent",
         "--unshare-all",
@@ -170,22 +152,22 @@ fn build_bwrap_base_arguments() -> Vec<String> {
         SANDBOX_HOME,
     ]
     .into_iter()
-    .map(str::to_owned)
+    .map(JsString::from)
     .collect()
 }
 
 pub struct SandboxedBashOperations {
-    bwrap_command: String,
+    bwrap_command: JsString,
     profile: Option<BwrapSandboxProfile>,
-    shell_path: Option<String>,
+    shell_path: Option<JsString>,
     local: LocalBashOperations,
 }
 
 /// `createSandboxedBashOperations`.
 pub fn create_sandboxed_bash_operations(
-    bwrap_command: String,
+    bwrap_command: JsString,
     profile: Option<BwrapSandboxProfile>,
-    shell_path: Option<String>,
+    shell_path: Option<JsString>,
 ) -> Arc<dyn BashOperations> {
     Arc::new(SandboxedBashOperations {
         bwrap_command,
@@ -198,15 +180,15 @@ pub fn create_sandboxed_bash_operations(
 impl BashOperations for SandboxedBashOperations {
     fn exec<'a>(
         &'a self,
-        command: &'a pi_js_compat::js_json::JsString,
-        cwd: &'a str,
+        command: &'a JsString,
+        cwd: &'a JsString,
         options: BashExecOptions,
     ) -> crate::core::extensions::types::BoxFuture<'a, Result<BashExecResult, ToolError>> {
         let Some(profile) = self.profile else {
             return self.local.exec(command, cwd, options);
         };
         let bwrap_command = self.bwrap_command.clone();
-        let shell_path = self.shell_path.clone().unwrap_or_else(|| "/bin/sh".to_owned());
+        let shell_path = self.shell_path.clone().unwrap_or_else(|| "/bin/sh".into());
         Box::pin(async move {
             if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
                 return Err(ToolError::new("aborted"));
@@ -237,18 +219,25 @@ async fn execute_bwrap_command(
     invocation: BwrapInvocation,
     options: BashExecOptions,
 ) -> Result<BashExecResult, ToolError> {
-    let mut command = Command::new(&invocation.command);
+    let mut command = Command::new(encode_node_utf8(&invocation.command));
     command
         .args(invocation.argv.iter().map(pi_js_compat::js_json::encode_node_utf8))
         .env_clear()
-        .envs(&invocation.env)
+        .envs(
+            invocation
+                .env
+                .iter()
+                .map(|(key, value)| (encode_node_utf8(key), encode_node_utf8(value))),
+        )
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     if !cfg!(windows) {
         command.process_group(0);
     }
-    let mut child = command.spawn().map_err(|error| ToolError::new(error.to_string()))?;
+    let mut child = command
+        .spawn()
+        .map_err(|error| ToolError::new(node_spawn_error_message("spawn", &invocation.command, &error)))?;
     let child_pid = child.id();
     let stdout = child
         .stdout
@@ -348,44 +337,40 @@ fn terminate_child_process(pid: Option<u32>) {
 
 /// `createBwrapRunnerEnvironment`.
 pub fn create_bwrap_runner_environment(
-    host_env: &IndexMap<String, String>,
-    python_path: Option<&str>,
-) -> IndexMap<String, String> {
+    host_env: &IndexMap<JsString, JsString>,
+    python_path: Option<&JsString>,
+) -> IndexMap<JsString, JsString> {
     let mut environment = IndexMap::new();
     if let Some(lang) = host_env.get("LANG") {
-        environment.insert("LANG".to_owned(), lang.clone());
+        environment.insert("LANG".into(), lang.clone());
     }
     if let Some(path) = host_env.get("PATH") {
-        environment.insert("PATH".to_owned(), path.clone());
+        environment.insert("PATH".into(), path.clone());
     }
     if let Some(python_path) = python_path {
-        environment.insert("PYTHONPATH".to_owned(), python_path.to_owned());
+        environment.insert("PYTHONPATH".into(), python_path.to_owned());
     }
     if let Some(term) = host_env.get("TERM") {
-        environment.insert("TERM".to_owned(), term.clone());
+        environment.insert("TERM".into(), term.clone());
     }
     if let Some(user) = host_env.get("USER") {
-        environment.insert("USER".to_owned(), user.clone());
+        environment.insert("USER".into(), user.clone());
     }
     environment
 }
 
 /// `createBwrapRunnerCommand`.
-pub fn create_bwrap_runner_command(input: BwrapRunnerCommandOptions) -> Result<BwrapRunnerCommand, String> {
+pub fn create_bwrap_runner_command(input: BwrapRunnerCommandOptions) -> Result<BwrapRunnerCommand, JsString> {
     run_bwrap_availability_check(&input.bwrap_command)?;
-    let runner_command = find_runner_executable(&input.runner_command, input.runner_env.as_ref());
+    let runner_command = find_runner_executable(&input.runner_command, input.runner_env.as_ref())?;
     let mut extra_read_only_paths = input.extra_read_only_paths.unwrap_or_default();
     extra_read_only_paths.extend(runner_read_only_paths(
         &runner_command,
-        &input
-            .runner_args
-            .iter()
-            .map(pi_js_compat::js_json::encode_node_utf8)
-            .collect::<Vec<_>>(),
+        &input.runner_args,
         input.runner_env.as_ref(),
         &input.cwd,
-    ));
-    let mut command = vec![pi_js_compat::js_json::JsString::from(runner_command)];
+    )?);
+    let mut command = vec![JsString::from(runner_command)];
     command.extend(input.runner_args.iter().cloned());
     let invocation = build_bwrap_invocation(&BwrapInvocationOptions {
         bwrap_command: input.bwrap_command,
@@ -404,205 +389,176 @@ pub fn create_bwrap_runner_command(input: BwrapRunnerCommandOptions) -> Result<B
 }
 
 pub struct BwrapRunnerCommandOptions {
-    pub bwrap_command: String,
-    pub cwd: String,
-    pub extra_read_only_paths: Option<Vec<String>>,
+    pub bwrap_command: JsString,
+    pub cwd: JsString,
+    pub extra_read_only_paths: Option<Vec<JsString>>,
     pub profile: BwrapSandboxProfile,
-    pub runner_args: Vec<pi_js_compat::js_json::JsString>,
-    pub runner_command: String,
-    pub runner_env: Option<IndexMap<String, String>>,
+    pub runner_args: Vec<JsString>,
+    pub runner_command: JsString,
+    pub runner_env: Option<IndexMap<JsString, JsString>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BwrapRunnerCommand {
-    pub args: Vec<pi_js_compat::js_json::JsString>,
-    pub command: String,
-    pub env: IndexMap<String, String>,
+    pub args: Vec<JsString>,
+    pub command: JsString,
+    pub env: IndexMap<JsString, JsString>,
 }
 
-fn find_runner_executable(command: &str, env: Option<&IndexMap<String, String>>) -> String {
+fn find_runner_executable(
+    command: &JsString,
+    env: Option<&IndexMap<JsString, JsString>>,
+) -> Result<JsString, JsString> {
     if is_absolute(command) {
         return resolve_runner_executable(command);
     }
     let search_path = env
         .and_then(|env| env.get("PATH"))
         .cloned()
-        .or_else(|| pi_js_compat::process_env::get("PATH"))
-        .unwrap_or_else(|| DEFAULT_PATH.to_owned());
+        .or_else(|| pi_js_compat::process_env::get("PATH").map(JsString::from))
+        .unwrap_or_else(|| DEFAULT_PATH.into());
     for directory in search_path.split(':') {
-        let candidate = Path::new(directory).join(command);
-        if candidate.exists() {
-            return resolve_runner_executable(&candidate.display().to_string());
+        let candidate = node_join(directory, command);
+        if path_exists(&candidate) {
+            return resolve_runner_executable(&candidate);
         }
     }
-    command.to_owned()
+    Ok(command.clone())
 }
 
-fn resolve_runner_executable(path: &str) -> String {
-    if Path::new(path).exists() {
-        std::fs::canonicalize(path)
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|_| path.to_owned())
+fn resolve_runner_executable(path: &JsString) -> Result<JsString, JsString> {
+    if path_exists(path) {
+        read_canonical_path(path)
     } else {
-        path.to_owned()
+        Ok(path.clone())
     }
 }
 
-fn read_runner_runtime_paths(command: &str) -> Vec<String> {
+fn read_runner_runtime_paths(command: &JsString) -> Result<Vec<JsString>, JsString> {
     let Some(interpreter) = read_absolute_shebang_interpreter(command) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
-    if !Path::new(&interpreter).exists() {
-        return Vec::new();
+    if !path_exists(&interpreter) {
+        return Ok(Vec::new());
     }
-    let interpreter_target = std::fs::canonicalize(&interpreter)
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|_| interpreter.clone());
+    let interpreter_target = read_canonical_path(&interpreter)?;
     let interpreter_mount_path = if interpreter_target == interpreter {
         interpreter.clone()
     } else {
-        Path::new(&interpreter)
-            .parent()
-            .map(|parent| parent.display().to_string())
-            .unwrap_or_else(|| interpreter.clone())
+        node_dirname(&interpreter)
     };
-    let virtual_environment_root = Path::new(&interpreter)
-        .parent()
-        .and_then(Path::parent)
-        .map(|path| path.display().to_string())
-        .unwrap_or_default();
-    let virtual_environment_config = Path::new(&virtual_environment_root).join("pyvenv.cfg");
-    if !virtual_environment_config.exists() {
-        return vec![interpreter_mount_path, interpreter_target];
+    let virtual_environment_root = node_dirname(node_dirname(&interpreter));
+    let virtual_environment_config = node_join(&virtual_environment_root, "pyvenv.cfg");
+    if !path_exists(&virtual_environment_config) {
+        return Ok(vec![interpreter_mount_path, interpreter_target]);
     }
-    let runtime_root = Path::new(&interpreter_target)
-        .parent()
-        .and_then(Path::parent)
-        .map(|path| path.display().to_string())
-        .unwrap_or_default();
-    let mut paths = vec![interpreter_mount_path, virtual_environment_config.display().to_string()];
+    let runtime_root = node_dirname(node_dirname(&interpreter_target));
+    let mut paths = vec![interpreter_mount_path, virtual_environment_config];
     for directory in PYTHON_LIBRARY_DIRECTORIES {
-        paths.push(
-            Path::new(&virtual_environment_root)
-                .join(directory)
-                .display()
-                .to_string(),
-        );
+        paths.push(node_join(&virtual_environment_root, directory));
     }
     paths.push(interpreter_target);
     for directory in PYTHON_LIBRARY_DIRECTORIES {
-        paths.push(Path::new(&runtime_root).join(directory).display().to_string());
+        paths.push(node_join(&runtime_root, directory));
     }
-    paths
+    Ok(paths)
 }
 
-fn read_absolute_shebang_interpreter(path: &str) -> Option<String> {
-    let mut file = std::fs::File::open(path).ok()?;
+fn read_absolute_shebang_interpreter(path: &JsString) -> Option<JsString> {
+    let mut file = std::fs::File::open(encode_node_utf8(path)).ok()?;
     let mut prefix = vec![0u8; SHEBANG_PREFIX_BYTES];
     let bytes_read = file.read(&mut prefix).ok()?;
-    let prefix = String::from_utf8_lossy(&prefix[..bytes_read]);
+    let prefix = JsString::from(String::from_utf8_lossy(&prefix[..bytes_read]).into_owned());
     parse_shebang_interpreter(&prefix)
 }
 
-fn parse_shebang_interpreter(prefix: &str) -> Option<String> {
+fn parse_shebang_interpreter(prefix: &JsString) -> Option<JsString> {
     let rest = prefix.strip_prefix("#!")?;
-    let rest = rest.trim_start_matches([' ', '\t']);
-    let end = rest.find([' ', '\t', '\r', '\n']).unwrap_or(rest.len());
-    let interpreter = &rest[..end];
-    if interpreter.starts_with('/') {
-        Some(interpreter.to_owned())
-    } else {
-        None
-    }
+    let start = rest.units().iter().take_while(|unit| matches!(**unit, 32 | 9)).count();
+    let end = rest.units()[start..]
+        .iter()
+        .position(|unit| matches!(*unit, 32 | 9 | 13 | 10))
+        .map_or(rest.len(), |end| start + end);
+    let interpreter = rest.slice(start, end);
+    interpreter.starts_with("/").then_some(interpreter)
 }
 
 fn runner_read_only_paths(
-    command: &str,
-    args: &[String],
-    env: Option<&IndexMap<String, String>>,
-    cwd: &str,
-) -> Vec<String> {
-    let workspace = absolute_path(cwd);
-    let mut candidate_paths = read_runner_runtime_paths(command);
+    command: &JsString,
+    args: &[JsString],
+    env: Option<&IndexMap<JsString, JsString>>,
+    cwd: &JsString,
+) -> Result<Vec<JsString>, JsString> {
+    let workspace = absolute_path(cwd)?;
+    let mut candidates = read_runner_runtime_paths(command)?;
     if is_absolute(command) {
-        candidate_paths.push(command.to_owned());
+        candidates.push(command.clone());
     }
-    candidate_paths.extend(args.iter().filter(|arg| is_absolute(arg)).cloned());
+    candidates.extend(args.iter().filter(|arg| is_absolute(arg)).cloned());
     if let Some(python_path) = env.and_then(|env| env.get("PYTHONPATH")) {
-        candidate_paths.extend(
-            python_path
-                .split(':')
-                .filter(|path| !path.is_empty())
-                .map(str::to_owned),
-        );
+        candidates.extend(python_path.split(':').filter(|path| !path.is_empty()));
     }
-    let resolved_paths: Vec<String> = candidate_paths
-        .into_iter()
-        .map(|path| resolve_sandbox_path(&path, &workspace))
-        .filter(|path| !is_sandbox_mount_unnecessary(path, &workspace))
-        .collect();
-    let mut unique_paths = Vec::new();
-    for path in resolved_paths {
-        if !unique_paths.contains(&path) {
-            unique_paths.push(path);
+    let mut unique = Vec::new();
+    for candidate in candidates {
+        let path = resolve_sandbox_path(&candidate, &workspace)?;
+        if !is_sandbox_mount_unnecessary(&path, &workspace) && !unique.contains(&path) {
+            unique.push(path);
         }
     }
-    unique_paths
+    Ok(unique
         .iter()
         .filter(|path| {
-            !unique_paths
+            !unique
                 .iter()
-                .any(|parent| parent != *path && path.starts_with(&format!("{parent}/")))
+                .any(|parent| parent != *path && path.starts_with(parent.clone() + "/"))
         })
         .cloned()
-        .collect()
+        .collect())
 }
 
-fn resolve_sandbox_path(path: &str, workspace: &str) -> String {
+fn resolve_sandbox_path(path: &JsString, workspace: &JsString) -> Result<JsString, JsString> {
     if is_absolute(path) {
         absolute_path(path)
     } else {
-        absolute_path(&Path::new(workspace).join(path).display().to_string())
+        node_resolve(workspace, path).map_err(|error| error.message().clone())
     }
 }
 
-fn is_sandbox_mount_unnecessary(path: &str, workspace: &str) -> bool {
-    if !Path::new(path).exists() {
+fn is_sandbox_mount_unnecessary(path: &JsString, workspace: &JsString) -> bool {
+    if !path_exists(path) {
         return true;
     }
-    if path == workspace || path.starts_with(&format!("{workspace}/")) {
+    if path == workspace || path.starts_with(workspace.clone() + "/") {
         return true;
     }
     READ_ONLY_SYSTEM_PATHS
         .iter()
-        .any(|system_path| path == *system_path || path.starts_with(&format!("{system_path}/")))
+        .any(|system_path| path == *system_path || path.starts_with(JsString::from(*system_path) + "/"))
 }
 
-fn build_resolved_read_only_mount_arguments(path: &str, workspace: &str) -> Vec<String> {
-    if !Path::new(path).exists() {
-        return Vec::new();
+fn build_resolved_read_only_mount_arguments(path: &JsString, workspace: &JsString) -> Result<Vec<JsString>, JsString> {
+    if !path_exists(path) {
+        return Ok(Vec::new());
     }
-    let target = std::fs::canonicalize(path)
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|_| path.to_owned());
+    let target = read_canonical_path(path)?;
     if is_sandbox_mount_unnecessary(&target, workspace) {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     build_read_only_mount_arguments(&target, workspace)
 }
 
-fn build_read_only_mount_arguments(path: &str, workspace: &str) -> Vec<String> {
-    let resolved_path = absolute_path(path);
-    if !Path::new(&resolved_path).exists() || resolved_path == workspace {
-        return Vec::new();
+fn build_read_only_mount_arguments(path: &JsString, workspace: &JsString) -> Result<Vec<JsString>, JsString> {
+    let resolved_path = absolute_path(path)?;
+    if !path_exists(&resolved_path) || resolved_path == *workspace {
+        return Ok(Vec::new());
     }
     let mut arguments = create_parent_directory_arguments(&resolved_path);
-    arguments.extend(["--ro-bind".to_owned(), resolved_path.clone(), resolved_path]);
-    arguments
+    arguments.extend(["--ro-bind".into(), resolved_path.clone(), resolved_path]);
+    Ok(arguments)
 }
 
-fn build_workspace_mount_arguments(workspace: &str, profile: BwrapSandboxProfile) -> Vec<String> {
-    if !Path::new(workspace).exists() {
+fn build_workspace_mount_arguments(workspace: &JsString, profile: BwrapSandboxProfile) -> Vec<JsString> {
+    if !path_exists(workspace) {
         return Vec::new();
     }
     let bind_mode = if profile.0 == SandboxProfileName::WorkspaceWrite {
@@ -611,73 +567,103 @@ fn build_workspace_mount_arguments(workspace: &str, profile: BwrapSandboxProfile
         "--ro-bind"
     };
     let mut arguments = create_parent_directory_arguments(workspace);
-    arguments.extend([bind_mode.to_owned(), workspace.to_owned(), workspace.to_owned()]);
+    arguments.extend([bind_mode.into(), workspace.clone(), workspace.clone()]);
     arguments
 }
 
-fn create_parent_directory_arguments(path: &str) -> Vec<String> {
+fn create_parent_directory_arguments(path: &JsString) -> Vec<JsString> {
     derive_parent_directories(path)
         .into_iter()
-        .flat_map(|parent| ["--dir".to_owned(), parent])
+        .flat_map(|parent| ["--dir".into(), parent])
         .collect()
 }
 
-fn build_sandbox_env(env: Option<&IndexMap<String, String>>) -> IndexMap<String, String> {
+fn build_sandbox_env(env: Option<&IndexMap<JsString, JsString>>) -> IndexMap<JsString, JsString> {
     let mut sandbox_env = IndexMap::new();
-    sandbox_env.insert("HOME".to_owned(), SANDBOX_HOME.to_owned());
+    sandbox_env.insert("HOME".into(), SANDBOX_HOME.into());
     sandbox_env.insert(
-        "LANG".to_owned(),
+        "LANG".into(),
         env.and_then(|env| env.get("LANG"))
             .cloned()
-            .unwrap_or_else(|| DEFAULT_LANG.to_owned()),
+            .unwrap_or_else(|| DEFAULT_LANG.into()),
     );
     sandbox_env.insert(
-        "PATH".to_owned(),
+        "PATH".into(),
         env.and_then(|env| env.get("PATH"))
             .cloned()
-            .unwrap_or_else(|| DEFAULT_PATH.to_owned()),
+            .unwrap_or_else(|| DEFAULT_PATH.into()),
     );
-    sandbox_env.insert("TMPDIR".to_owned(), "/tmp".to_owned());
-    sandbox_env.insert(
-        "XDG_CONFIG_HOME".to_owned(),
-        Path::new(SANDBOX_HOME).join(".config").display().to_string(),
-    );
+    sandbox_env.insert("TMPDIR".into(), "/tmp".into());
+    sandbox_env.insert("XDG_CONFIG_HOME".into(), node_join(SANDBOX_HOME, ".config"));
     if let Some(python_path) = env.and_then(|env| env.get("PYTHONPATH")) {
-        sandbox_env.insert("PYTHONPATH".to_owned(), python_path.clone());
+        sandbox_env.insert("PYTHONPATH".into(), python_path.clone());
     }
     if let Some(term) = env.and_then(|env| env.get("TERM")) {
-        sandbox_env.insert("TERM".to_owned(), term.clone());
+        sandbox_env.insert("TERM".into(), term.clone());
     }
     if let Some(user) = env
         .and_then(|env| env.get("USER"))
         .cloned()
-        .or_else(|| pi_js_compat::process_env::get("USER"))
+        .or_else(|| pi_js_compat::process_env::get("USER").map(JsString::from))
     {
-        sandbox_env.insert("USER".to_owned(), user);
+        sandbox_env.insert("USER".into(), user);
     }
     sandbox_env
 }
 
-fn derive_parent_directories(path: &str) -> Vec<String> {
-    let parts: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
+fn derive_parent_directories(path: &JsString) -> Vec<JsString> {
+    let parts: Vec<JsString> = path.split('/').filter(|part| !part.is_empty()).collect();
     (0..parts.len().saturating_sub(1))
-        .map(|index| format!("/{}", parts[..=index].join("/")))
+        .map(|index| JsString::from("/") + JsString::join(&parts[..=index], "/"))
         .collect()
 }
 
-fn is_absolute(path: &str) -> bool {
-    Path::new(path).is_absolute()
+fn is_absolute(path: &JsString) -> bool {
+    path.starts_with("/")
 }
 
-fn absolute_path(path: &str) -> String {
-    std::path::absolute(path)
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|_| PathBuf::from(path).display().to_string())
+fn absolute_path(path: &JsString) -> Result<JsString, JsString> {
+    node_resolve("", path).map_err(|error| error.message().clone())
+}
+
+fn path_exists(path: &JsString) -> bool {
+    Path::new(&encode_node_utf8(path)).exists()
+}
+
+fn read_canonical_path(path: &JsString) -> Result<JsString, JsString> {
+    std::fs::canonicalize(encode_node_utf8(path))
+        .map(|path| path.to_string_lossy().into_owned().into())
+        .map_err(|error| pi_js_compat::node_fs::node_fs_error(&error, "lstat", path))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invocation_keeps_raw_cwd_command_and_environment_until_spawn() {
+        let root = tempfile::tempdir().unwrap();
+        let raw = JsString::from_utf16(vec![0xd800]);
+        let cwd = JsString::from(root.path().to_str().unwrap()) + "/cwd-" + &raw;
+        std::fs::create_dir(pi_js_compat::js_json::encode_node_utf8(&cwd)).unwrap();
+        let value = JsString::from("path-") + &raw;
+        let env = IndexMap::from([("PATH".into(), value.clone())]);
+        let command = JsString::from("command-") + &raw;
+        let invocation = build_bwrap_invocation(&BwrapInvocationOptions {
+            bwrap_command: command.clone(),
+            command: vec![command.clone()],
+            cwd: cwd.clone(),
+            env: Some(env),
+            extra_read_only_paths: None,
+            home_dir: None,
+            profile: BwrapSandboxProfile(SandboxProfileName::WorkspaceWrite),
+        })
+        .unwrap();
+        assert_eq!(invocation.command, command);
+        assert_eq!(invocation.argv.last(), Some(&command));
+        assert!(invocation.argv.contains(&cwd));
+        assert_eq!(invocation.env.get("PATH"), Some(&value));
+    }
 
     #[test]
     fn resolves_profiles() {
@@ -690,33 +676,33 @@ mod tests {
 
     #[test]
     fn derives_parent_directories() {
-        assert_eq!(derive_parent_directories("/a/b/c"), vec!["/a", "/a/b"]);
-        assert_eq!(derive_parent_directories("/a"), Vec::<String>::new());
+        assert_eq!(derive_parent_directories(&"/a/b/c".into()), vec!["/a", "/a/b"]);
+        assert_eq!(derive_parent_directories(&"/a".into()), Vec::<JsString>::new());
     }
 
     #[test]
     fn builds_runner_environment_in_source_order() {
         let mut host = IndexMap::new();
-        host.insert("LANG".to_owned(), "C.UTF-8".to_owned());
-        host.insert("PATH".to_owned(), "/bin".to_owned());
-        host.insert("TERM".to_owned(), "xterm".to_owned());
-        host.insert("USER".to_owned(), "tester".to_owned());
-        let env = create_bwrap_runner_environment(&host, Some("/py"));
-        let keys: Vec<&str> = env.keys().map(String::as_str).collect();
+        host.insert("LANG".into(), "C.UTF-8".into());
+        host.insert("PATH".into(), "/bin".into());
+        host.insert("TERM".into(), "xterm".into());
+        host.insert("USER".into(), "tester".into());
+        let env = create_bwrap_runner_environment(&host, Some(&"/py".into()));
+        let keys: Vec<JsString> = env.keys().cloned().collect();
         assert_eq!(keys, vec!["LANG", "PATH", "PYTHONPATH", "TERM", "USER"]);
     }
 
     #[test]
     fn parses_shebang_interpreter() {
         assert_eq!(
-            parse_shebang_interpreter("#!/usr/bin/python3 -u\n").as_deref(),
-            Some("/usr/bin/python3")
+            parse_shebang_interpreter(&"#!/usr/bin/python3 -u\n".into()),
+            Some(JsString::from("/usr/bin/python3"))
         );
         assert_eq!(
-            parse_shebang_interpreter("#! /usr/bin/env python\n").as_deref(),
-            Some("/usr/bin/env")
+            parse_shebang_interpreter(&"#! /usr/bin/env python\n".into()),
+            Some(JsString::from("/usr/bin/env"))
         );
-        assert_eq!(parse_shebang_interpreter("#!/bin/sh"), Some("/bin/sh".to_owned()));
-        assert_eq!(parse_shebang_interpreter("no shebang"), None);
+        assert_eq!(parse_shebang_interpreter(&"#!/bin/sh".into()), Some("/bin/sh".into()));
+        assert_eq!(parse_shebang_interpreter(&"no shebang".into()), None);
     }
 }
