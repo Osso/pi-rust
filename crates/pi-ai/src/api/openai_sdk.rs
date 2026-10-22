@@ -219,7 +219,16 @@ impl SdkClient {
     fn build_headers(&self) -> Result<Vec<(String, String)>, CallbackError> {
         let mut headers: Vec<(String, JsString)> = Vec::new();
         set_header(&mut headers, "accept", "application/json");
-        set_header(&mut headers, "user-agent", &format!("OpenAI/JS {OPENAI_JS_VERSION}"));
+        let client_name = if self.config.azure.is_some() {
+            "AzureOpenAI"
+        } else {
+            "OpenAI"
+        };
+        set_header(
+            &mut headers,
+            "user-agent",
+            &format!("{client_name}/JS {OPENAI_JS_VERSION}"),
+        );
         set_header(&mut headers, "x-stainless-retry-count", "0");
         if let Some(timeout_ms) = self.config.timeout_ms {
             set_header(
