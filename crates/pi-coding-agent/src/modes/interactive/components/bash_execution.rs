@@ -358,11 +358,11 @@ impl BashExecutionComponent {
     }
 
     /// Raw output used to build the `BashExecutionMessage`.
-    pub fn get_output(&self) -> String {
+    pub fn get_output(&self) -> JsString {
         JsString::join(&self.output_lines, "\n")
     }
 
-    pub fn get_command(&self) -> &str {
+    pub fn get_command(&self) -> &JsString {
         &self.command
     }
 }

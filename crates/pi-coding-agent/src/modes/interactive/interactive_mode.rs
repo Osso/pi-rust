@@ -408,37 +408,33 @@ pub fn format_resume_command(session_manager: &crate::core::session_manager::Ses
     Some(args.join(" "))
 }
 
-pub(crate) fn format_follow_up_preview(message: &str) -> String {
-    let sender = agent_sender(message)
-        .map(|sender| sender.trim().to_owned())
-        .unwrap_or_else(|| {
-            if message.trim() == "Continue working toward the active goal." {
-                "goal".to_owned()
-            } else {
-                "unknown".to_owned()
-            }
-        });
-    let body_marker = "\nMessage:\n";
-    let body_text = message.split_once(body_marker).map(|(_, rest)| rest).unwrap_or(message);
-    let body = body_text.split('\n').next().unwrap_or_default().trim();
-    let body_preview = if body.chars().count() > FOLLOW_UP_BODY_PREVIEW_LENGTH {
-        format!(
-            "{}…",
-            body.chars().take(FOLLOW_UP_BODY_PREVIEW_LENGTH).collect::<String>()
-        )
-    } else {
-        body.to_owned()
-    };
-    format!("Follow-up from {sender}: {body_preview}")
+pub(crate) fn format_follow_up_preview(message: impl Into<JsString>) -> String {
+    let message = message.into();
+    let sender = agent_sender(&message).unwrap_or_else(|| {
+        if message.trim() == "Continue working toward the active goal." { "goal".into() }
+        else { "unknown".into() }
+    });
+    let marker = "\nMessage:\n";
+    let body = message.find(marker).map(|index| {
+        let remainder = message.slice(index + marker.len(), message.len());
+        remainder.find(marker).map_or_else(|| remainder.clone(), |end| remainder.slice(0, end))
+    }).unwrap_or_else(|| message.clone());
+    let body = body.split('\n').next().unwrap_or_default().trim();
+    let preview = if body.len() > FOLLOW_UP_BODY_PREVIEW_LENGTH {
+        body.slice(0, FOLLOW_UP_BODY_PREVIEW_LENGTH) + "…"
+    } else { body };
+    encode_node_utf8(&(JsString::from("Follow-up from ") + sender + ": " + preview))
 }
 
-fn agent_sender(message: &str) -> Option<String> {
-    static AGENT_LINE: OnceLock<Regex> = OnceLock::new();
-    let regex = AGENT_LINE.get_or_init(|| Regex::new(r"^- agent:\s*(.+)$").expect("valid agent-line regex"));
-    for line in message.split('\n') {
-        if let Some(captures) = regex.captures(line) {
-            return captures.get(1).map(|capture| capture.as_str().to_owned());
-        }
+fn agent_sender(message: &JsString) -> Option<JsString> {
+    let units = message.units();
+    let is_line_end = |unit: u16| matches!(unit, 0x000a | 0x000d | 0x2028 | 0x2029);
+    for start in 0..units.len() {
+        if start > 0 && !is_line_end(units[start - 1]) { continue; }
+        let Some(line) = message.slice(start, message.len()).strip_prefix("- agent:") else { continue; };
+        let trimmed = line.trim_start();
+        let end = trimmed.units().iter().position(|unit| is_line_end(*unit)).unwrap_or(trimmed.len());
+        if end > 0 { return Some(trimmed.slice(0, end).trim()); }
     }
     None
 }
@@ -2089,21 +2085,21 @@ enum UiRequest {
     ShowSandboxSelector,
     RuntimeNewSession {
         options: Option<crate::core::extensions::types::NewSessionOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, String>>,
+        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, JsString>>,
     },
     RuntimeFork {
         entry_id: String,
         options: Option<crate::core::extensions::types::ForkOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, String>>,
+        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, JsString>>,
     },
     RuntimeNavigateTree {
         entry_id: String,
         options: Option<crate::core::extensions::types::NavigateTreeOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, String>>,
+        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, JsString>>,
     },
     RuntimeSwitchSession {
         path: String,
-        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, String>>,
+        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, JsString>>,
     },
     RuntimeReload {
         respond: tokio::sync::oneshot::Sender<()>,
@@ -4347,7 +4343,7 @@ impl InteractiveMode {
             with_mode(id, |mode| {
                 match cancelled {
                     Ok(()) => mode.show_status(&format!("Cancellation requested for {display_name}.")),
-                    Err(error) => mode.show_status(&format!("Could not cancel {display_name}: {error}")),
+                    Err(error) => mode.show_status(JsString::from(format!("Could not cancel {display_name}: ")) + error),
                 }
                 mode.ui.request_render();
             });
@@ -4775,7 +4771,7 @@ impl InteractiveMode {
                     && user.input_source != Some(pi_ai::types::InputSource::Extension)
                     && !is_skill_block
                 {
-                    self.add_rendered_message_to_editor_history(&text);
+                    self.add_rendered_message_to_editor_history(&encode_node_utf8(&text));
                 }
             }
             AgentMessage::Assistant(assistant) => {
@@ -11779,67 +11775,66 @@ fn format_compaction_source_progress_suffix(source: Option<&crate::core::compact
 
 /// `formatCompactionFailureMessage`.
 pub fn format_compaction_failure_message(
-    error_message: &str,
+    error_message: impl Into<JsString>,
     reason: &str,
     source_hint: Option<&crate::core::compaction::CompactionSourceInfo>,
-) -> String {
+) -> JsString {
     use crate::core::compaction::CompactionSourceType;
+    let error_message = error_message.into();
+    let error_message = &error_message;
     let original_error = format_compaction_original_error(error_message, reason);
     let mut lines = vec![format_compaction_failure_summary(error_message, reason)];
     if let Some(source) = source_hint
         && source.r#type == CompactionSourceType::Local
     {
-        lines.push(format!("Model: {}/{}.", source.provider, source.model));
+        lines.push(format!("Model: {}/{}.", source.provider, source.model).into());
     }
     if is_compaction_timeout(error_message) {
-        lines.push("The compaction request did not finish before the timeout.".to_owned());
+        lines.push("The compaction request did not finish before the timeout.".into());
     }
     lines.push(format_compaction_save_impact(reason));
-    lines.push(format!(
-        "Original error: {}",
-        format_compaction_sentence(&original_error)
-    ));
-    lines.join("\n")
+    lines.push(JsString::from("Original error: ") + format_compaction_sentence(&original_error));
+    JsString::join(lines, "\n")
 }
 
-fn is_compaction_timeout(error_message: &str) -> bool {
+fn is_compaction_timeout(error_message: &JsString) -> bool {
     error_message.to_lowercase().contains("timed out")
 }
 
-fn format_compaction_save_impact(reason: &str) -> String {
+fn format_compaction_save_impact(reason: &str) -> JsString {
     if reason == "manual" {
-        "No compaction was saved; context remains unchanged.".to_owned()
+        "No compaction was saved; context remains unchanged.".into()
     } else {
-        "No compaction was saved; the previous context is still too large.".to_owned()
+        "No compaction was saved; the previous context is still too large.".into()
     }
 }
 
-fn format_compaction_sentence(text: &str) -> String {
-    if text.ends_with('.') || text.ends_with('!') || text.ends_with('?') {
-        text.to_owned()
+fn format_compaction_sentence(text: &JsString) -> JsString {
+    if text.ends_with(".") || text.ends_with("!") || text.ends_with("?") {
+        text.into()
     } else {
-        format!("{text}.")
+        text.clone() + "."
     }
 }
 
-fn format_compaction_failure_summary(error_message: &str, reason: &str) -> String {
+fn format_compaction_failure_summary(error_message: &JsString, reason: &str) -> JsString {
     if is_compaction_timeout(error_message) {
         return if reason == "overflow" {
             "Context overflow recovery failed after compaction timeout."
         } else {
             "Compaction failed after timeout."
         }
-        .to_owned();
+        .into();
     }
     if reason == "overflow" {
         "Context overflow recovery failed during compaction."
     } else {
         "Compaction failed."
     }
-    .to_owned()
+    .into()
 }
 
-fn format_compaction_original_error(error_message: &str, reason: &str) -> String {
+fn format_compaction_original_error(error_message: &JsString, reason: &str) -> JsString {
     let prefixes: &[&str] = if reason == "overflow" {
         &["Context overflow recovery failed: "]
     } else {
@@ -11847,10 +11842,10 @@ fn format_compaction_original_error(error_message: &str, reason: &str) -> String
     };
     for prefix in prefixes {
         if let Some(rest) = error_message.strip_prefix(prefix) {
-            return rest.to_owned();
+            return rest.into();
         }
     }
-    error_message.to_owned()
+    error_message.into()
 }
 
 /// `formatCompactionSourceLogMessage`.
@@ -16211,5 +16206,18 @@ mod tests {
             Path::new("/tmp/a").components().next(),
             Some(std::path::Component::RootDir)
         ));
+    }
+}
+
+#[cfg(test)]
+mod lossless_preview_tests {
+    use super::*;
+    #[test]
+    fn followup_slices_raw_units_before_display_encoding() {
+        let input = JsString::from(format!("- agent: helper\nMessage:\n{}😀", "x".repeat(49)));
+        assert_eq!(
+            format_follow_up_preview(&input),
+            format!("Follow-up from helper: {}�…", "x".repeat(49))
+        );
     }
 }

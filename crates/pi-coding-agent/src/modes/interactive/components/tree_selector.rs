@@ -540,7 +540,7 @@ impl TreeList {
                             tool_call.id.clone(),
                             ToolCallInfo {
                                 name: tool_call.name.clone(),
-                                arguments: JsJsValue::Object(tool_call.arguments.clone()),
+                                arguments: JsValue::Object(tool_call.arguments.clone()),
                             },
                         );
                     }

@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 //! Ported from `packages/coding-agent/src/modes/interactive/components/user-message-selector.ts`.
 
 use std::rc::Rc;
@@ -16,7 +17,7 @@ use super::dynamic_border::dynamic_border;
 pub struct UserMessageItem {
     /// Entry ID in the session.
     pub id: String,
-    pub text: String,
+    pub text: JsString,
 }
 
 /// Scrollable user-message list used for forking.
@@ -74,7 +75,7 @@ impl Component for UserMessageList {
         for index in start_index..end_index {
             let message = &self.messages[index];
             let is_selected = index == self.selected_index;
-            let normalized_message = message.text.replace('\n', " ").trim().to_owned();
+            let normalized_message = encode_node_utf8(&message.text.replace("\n", " ").trim());
             let cursor = if is_selected {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, "› "))
             } else {
