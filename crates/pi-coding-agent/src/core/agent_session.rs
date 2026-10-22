@@ -618,7 +618,7 @@ pub struct BashExecutionUpdateEvent {
     #[serde(rename = "type")]
     pub event_type: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
+    pub id: Option<JsString>,
     pub delta: JsString,
 }
 
@@ -5226,7 +5226,7 @@ pub enum CycleDirection {
 pub struct ExecuteBashOptions {
     pub exclude_from_context: Option<bool>,
     /// Identifier included in `bash_execution_update` events.
-    pub id: Option<String>,
+    pub id: Option<JsString>,
     /// Custom operations for remote execution.
     pub operations: Option<Arc<dyn crate::core::tools::bash::BashOperations>>,
 }
