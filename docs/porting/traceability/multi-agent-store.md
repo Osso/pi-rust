@@ -1,5 +1,11 @@
 # `coding-agent/src/core/multi-agent-store.ts`
 
+## Q18 native AgentNode slice
+
+`lossless_agent_node` records native agentType/permission policy, distinct unknown UTF-16 keys and nested values through DTO serialization and store publication. Committed unexecuted while the coding library is blocked; native AgentNode implementation pending.
+
+Separate RED-intent gate: `tracked_read_failure_tests::tracked_agent_read_failure_wakes_with_error_instead_of_disappearing` exercises real DB-open failure from wait notified/terminal-check paths. Production `.ok()?` removal remains queued until executable in-crate RED; this is not acceptance evidence.
+
 Integrated model-lane clippy follow-up: native `MailboxMessageCommandResult::Ok.message` is boxed to avoid a304-byte enum for otherwise ≤32-byte variants. Existing serialization dereferences the box, preserving source-visible result shape. Removed five redundant timestamp borrows in control relocation; no behavior or warning suppression added. Exact integrated clippy recheck belongs to the independent verifier.
 
 ## Frozen 4f9e6f8a4 repin — bounded proof
