@@ -1,6 +1,7 @@
 //! Behavioral tests for `extensions/agents-core/src/session-factories.ts`
 //! production child and attached session factories.
 
+use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::agent::types::AgentMessage;
@@ -26,7 +27,8 @@ use pi_coding_agent::core::permissions::policy::ApprovalPolicy;
 use pi_coding_agent::core::resource_loader::{InlineExtension, StaticResourceLoader};
 use pi_coding_agent::core::sdk::{CreateAgentSessionOptions, create_agent_session};
 use pi_coding_agent::core::session_manager::{SessionManager, SharedSessionManager, lock_session_manager};
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsValue as Value;
 
 fn faux() -> FauxProviderHandle {
     faux_provider(RegisterFauxProviderOptions {
@@ -45,8 +47,8 @@ fn faux() -> FauxProviderHandle {
 }
 
 async fn faux_runtime(faux: &FauxProviderHandle) -> ModelRuntime {
-    let mut data = serde_json::Map::new();
-    data.insert("faux".to_owned(), json!({"type": "api_key", "key": "faux-key"}));
+    let mut data = pi_js_compat::js_json::JsObject::new();
+    data.insert(JsString::from("faux"), json!({"type": "api_key", "key": "faux-key"}));
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(Arc::new(AuthStorage::in_memory(data))),
         models_path: Some(None),
@@ -86,13 +88,14 @@ async fn test_env_with_settings(settings: Option<Value>) -> TestEnv {
     let faux = faux();
     let runtime = faux_runtime(&faux).await;
     let model = faux.get_model(None).expect("model");
-    let mut manager = SessionManager::create(&cwd, Some(&session_dir), None).expect("session manager");
+    let mut manager = SessionManager::create(&JsString::from(&cwd), Some(&JsString::from(session_dir)), None)
+        .expect("session manager");
     manager
-        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .set_metadata_control_db_path(Some(&JsString::from(&control_db)), Default::default())
         .expect("metadata control db");
     let result = create_agent_session(CreateAgentSessionOptions {
-        cwd: Some(cwd.clone()),
-        agent_dir: Some(agent_dir.clone()),
+        cwd: Some(cwd.clone().into()),
+        agent_dir: Some(agent_dir.clone().into()),
         model_runtime: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
@@ -116,8 +119,8 @@ async fn test_env() -> TestEnv {
     test_env_with_settings(None).await
 }
 
-fn user_message(text: &str) -> AgentMessage {
-    serde_json::from_value(json!({
+fn user_message(text: JsString) -> AgentMessage {
+    pi_js_compat::js_json::from_value(&json!({
         "role": "user",
         "content": text,
         "timestamp": 1
@@ -125,9 +128,9 @@ fn user_message(text: &str) -> AgentMessage {
     .expect("user message")
 }
 
-fn append_user(session_manager: &SharedSessionManager, text: &str) {
+fn append_user(session_manager: &SharedSessionManager, text: impl Into<JsString>) {
     lock_session_manager(session_manager)
-        .append_message(user_message(text))
+        .append_message(user_message(text.into()))
         .expect("append user");
 }
 
@@ -147,7 +150,7 @@ fn append_assistant(session_manager: &SharedSessionManager, text: &str) {
         .expect("append assistant");
 }
 
-fn session_texts(session_manager: &SharedSessionManager) -> Vec<String> {
+fn session_texts(session_manager: &SharedSessionManager) -> Vec<JsString> {
     lock_session_manager(session_manager)
         .build_session_context()
         .messages
@@ -156,44 +159,48 @@ fn session_texts(session_manager: &SharedSessionManager) -> Vec<String> {
         .collect()
 }
 
-fn message_text(message: &AgentMessage) -> String {
+fn message_text(message: &AgentMessage) -> JsString {
     match message {
         AgentMessage::User(user) => match &user.content {
             pi_ai::types::UserContent::Text(text) => text.clone(),
-            pi_ai::types::UserContent::Blocks(blocks) => blocks
-                .iter()
-                .filter_map(|block| match block {
-                    pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
-                    pi_ai::types::TextOrImageContent::Image(_) => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n"),
+            pi_ai::types::UserContent::Blocks(blocks) => JsString::join(
+                blocks
+                    .iter()
+                    .filter_map(|block| match block {
+                        pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
+                        pi_ai::types::TextOrImageContent::Image(_) => None,
+                    })
+                    .collect::<Vec<_>>(),
+                "\n",
+            ),
         },
-        AgentMessage::Assistant(assistant) => assistant
-            .content
-            .iter()
-            .filter_map(|part| match part {
-                pi_ai::types::AssistantContent::Text(text) => Some(text.text.clone()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
-        other => format!("{other:?}"),
+        AgentMessage::Assistant(assistant) => JsString::join(
+            assistant
+                .content
+                .iter()
+                .filter_map(|part| match part {
+                    pi_ai::types::AssistantContent::Text(text) => Some(text.text.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            "\n",
+        ),
+        other => JsString::from(format!("{other:?}")),
     }
 }
 
 fn child_agent(env: &TestEnv, id: &str, display_name: &str) -> AgentSnapshot {
     AgentSnapshot {
-        id: id.to_owned(),
-        parent_id: Some("main".to_owned()),
-        display_name: display_name.to_owned(),
+        id: id.to_owned().into(),
+        parent_id: Some("main".to_owned().into()),
+        display_name: display_name.to_owned().into(),
         agent_type: "explore".into(),
         origin: None,
         lifecycle: pi_coding_agent::core::multi_agent_store::AgentLifecycle::Running,
         revision: 0,
-        created_at: "2026-06-21T00:00:00.000Z".to_owned(),
-        updated_at: "2026-06-21T00:00:00.000Z".to_owned(),
-        cwd: env.cwd.clone(),
+        created_at: "2026-06-21T00:00:00.000Z".to_owned().into(),
+        updated_at: "2026-06-21T00:00:00.000Z".to_owned().into(),
+        cwd: env.cwd.clone().into(),
         worktree: None,
         model: Some(AgentModel {
             provider_id: "faux".to_owned(),
@@ -241,7 +248,7 @@ impl ChildAgentSession for FakeChildSession {
             .messages
     }
 
-    fn prompt(&self, text: String) -> BoxFuture<'static, Result<(), String>> {
+    fn prompt(&self, text: JsString) -> BoxFuture<'static, Result<(), JsString>> {
         let manager = Arc::clone(&self.session_manager);
         let summary = self.summary.clone();
         Box::pin(async move {
@@ -257,7 +264,7 @@ impl ChildAgentSession for FakeChildSession {
 }
 
 impl UnboundChildAgentSession for FakeChildSession {
-    fn bind_extensions(&self) -> BoxFuture<'static, Result<(), String>> {
+    fn bind_extensions(&self) -> BoxFuture<'static, Result<(), JsString>> {
         Box::pin(async { Ok(()) })
     }
 
@@ -274,7 +281,7 @@ struct Captured {
 }
 
 type TestCreateSession = Arc<
-    dyn Fn(CreateAgentSessionOptions) -> BoxFuture<'static, Result<Arc<dyn UnboundChildAgentSession>, String>>
+    dyn Fn(CreateAgentSessionOptions) -> BoxFuture<'static, Result<Arc<dyn UnboundChildAgentSession>, JsString>>
         + Send
         + Sync,
 >;
@@ -292,8 +299,8 @@ fn create_child_session(captured: Arc<Captured>, summary: &'static str) -> TestC
 }
 
 fn create_session_manager() -> CreateChildSessionManager {
-    Arc::new(|cwd: &str, session_dir: Option<&str>, options| {
-        SessionManager::create(cwd, session_dir, Some(options)).map_err(|error| error.to_string())
+    Arc::new(|cwd: &JsString, session_dir: Option<&JsString>, options| {
+        SessionManager::create(cwd, session_dir, Some(options)).map_err(|error| error.message().clone())
     })
 }
 
@@ -304,7 +311,7 @@ fn child_options(
     store: Option<Arc<MultiAgentStore>>,
 ) -> ProductionChildAgentSessionFactoryOptions {
     ProductionChildAgentSessionFactoryOptions {
-        agent_dir: Some(env.agent_dir.clone()),
+        agent_dir: Some(env.agent_dir.clone().into()),
         create_session: create_child_session(captured, "fresh child done"),
         create_session_manager: create_session_manager(),
         extension_factories,
@@ -319,7 +326,7 @@ fn child_input(env: &TestEnv, agent: AgentSnapshot, context: SpawnContext, promp
         agent,
         context,
         ctx: env.session.extension_runner().create_context(),
-        prompt: prompt.to_owned(),
+        prompt: prompt.to_owned().into(),
         signal: None,
     }
 }
@@ -340,9 +347,7 @@ async fn fresh_child_gets_its_own_session_with_only_the_assignment() {
     append_assistant(&env.session_manager, "Parent-only assistant marker");
     let parent_messages_before = session_texts(&env.session_manager);
     let parent_session_id = lock_session_manager(&env.session_manager).get_session_id().to_owned();
-    let parent_session_file = lock_session_manager(&env.session_manager)
-        .get_session_file()
-        .map(str::to_owned);
+    let parent_session_file = lock_session_manager(&env.session_manager).get_session_file().cloned();
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     let captured = Arc::new(Captured::default());
     let factory = create_production_child_agent_session_factory(child_options(
@@ -357,17 +362,23 @@ async fn fresh_child_gets_its_own_session_with_only_the_assignment() {
         .call(child_input(&env, agent, SpawnContext::Fresh, "Handle isolated task"))
         .await
         .expect("child session");
-    child.prompt("Handle isolated task".to_owned()).await.expect("prompt");
+    child
+        .prompt("Handle isolated task".to_owned().into())
+        .await
+        .expect("prompt");
 
     {
         let captured_options = captured.options.lock().expect("options");
         let options = captured_options.as_ref().expect("options");
-        assert_eq!(options.cwd.as_deref(), Some(env.cwd.as_str()));
-        assert_eq!(options.agent_dir.as_deref(), Some(env.agent_dir.as_str()));
-        assert_eq!(options.multi_agent_agent_id.as_deref(), Some("agent_child"));
+        assert_eq!(options.cwd.clone(), Some(JsString::from(&env.cwd)));
+        assert_eq!(options.agent_dir.clone(), Some(JsString::from(&env.agent_dir)));
         assert_eq!(
-            options.multi_agent_parent_session_id.as_deref(),
-            Some(parent_session_id.as_str())
+            options.multi_agent_agent_id.clone(),
+            Some(JsString::from("agent_child"))
+        );
+        assert_eq!(
+            options.multi_agent_parent_session_id.clone(),
+            Some(parent_session_id.clone())
         );
         assert!(options.multi_agent_requires_agent_id);
         assert_eq!(options.multi_agent_runtime_role, Some(MultiAgentRuntimeRole::Child));
@@ -376,9 +387,11 @@ async fn fresh_child_gets_its_own_session_with_only_the_assignment() {
             options.exclude_tools.clone().expect("exclude tools"),
             vec![
                 "agent_viewer",
+                "answer_question",
                 "attach_session_agent",
                 "close_agent",
                 "list_agents",
+                "set_agent_model",
                 "spawn_agent",
                 "steer_agent",
                 "wait_agent",
@@ -402,9 +415,7 @@ async fn fresh_child_gets_its_own_session_with_only_the_assignment() {
         vec!["Handle isolated task".to_owned(), "fresh child done".to_owned()]
     );
     let child_id = lock_session_manager(&child_manager).get_session_id().to_owned();
-    let child_file = lock_session_manager(&child_manager)
-        .get_session_file()
-        .map(str::to_owned);
+    let child_file = lock_session_manager(&child_manager).get_session_file().cloned();
     assert_ne!(child_id, parent_session_id);
     assert_ne!(child_file, parent_session_file);
     assert_eq!(session_texts(&env.session_manager), parent_messages_before);
@@ -419,7 +430,7 @@ async fn inherited_child_forks_the_parent_prefix() {
     let parent_messages_before = session_texts(&env.session_manager);
     let parent_session_file = lock_session_manager(&env.session_manager)
         .get_session_file()
-        .map(str::to_owned)
+        .cloned()
         .expect("persisted parent");
     let captured = Arc::new(Captured::default());
     let factory = create_production_child_agent_session_factory(child_options(&env, Arc::clone(&captured), None, None));
@@ -435,7 +446,7 @@ async fn inherited_child_forks_the_parent_prefix() {
         .await
         .expect("child session");
     child
-        .prompt("Continue integrated task".to_owned())
+        .prompt("Continue integrated task".to_owned().into())
         .await
         .expect("prompt");
 
@@ -451,7 +462,7 @@ async fn inherited_child_forks_the_parent_prefix() {
     );
     let parent_header = {
         let manager = lock_session_manager(&child_manager);
-        manager.get_header().and_then(|header| header.parent_session.clone())
+        manager.get_header().and_then(|header| header.parent_session().cloned())
     };
     assert_eq!(parent_header, Some(parent_session_file));
     assert_ne!(
@@ -488,7 +499,10 @@ async fn inherited_child_copies_only_the_active_tool_call_branch() {
     input.active_tool_call_id = Some("spawn_agent-call".to_owned());
 
     let child = factory.call(input).await.expect("child session");
-    child.prompt("Continue active branch".to_owned()).await.expect("prompt");
+    child
+        .prompt("Continue active branch".to_owned().into())
+        .await
+        .expect("prompt");
 
     let child_manager = captured_session_manager(&captured);
     let texts = session_texts(&child_manager);
@@ -501,10 +515,10 @@ async fn inherited_child_copies_only_the_active_tool_call_branch() {
             "fresh child done".to_owned(),
         ]
     );
-    assert!(!texts.contains(&"Later branch only".to_owned()));
+    assert!(!texts.contains(&JsString::from("Later branch only")));
     let branch = lock_session_manager(&child_manager).get_branch(None);
     assert!(
-        branch.iter().all(|entry| entry.id() != Some(tool_entry.as_str())),
+        branch.iter().all(|entry| entry.id() != Some(&tool_entry)),
         "active spawn call must not be copied"
     );
 }
@@ -517,13 +531,13 @@ async fn inherited_child_rejects_an_unpersisted_parent() {
     let runtime = faux_runtime(&faux).await;
     let model = faux.get_model(None).expect("model");
     let result = create_agent_session(CreateAgentSessionOptions {
-        cwd: Some(cwd.clone()),
-        agent_dir: Some(cwd.clone()),
+        cwd: Some(cwd.clone().into()),
+        agent_dir: Some(cwd.clone().into()),
         model_runtime: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
-        session_manager: Some(SessionManager::in_memory(Some(&cwd), None).expect("in-memory")),
-        control_db_path: Some(dir.path().join("control.db").display().to_string()),
+        session_manager: Some(SessionManager::in_memory(Some(&JsString::from(&cwd)), None).expect("in-memory")),
+        control_db_path: Some(dir.path().join("control.db").display().to_string().into()),
         ..Default::default()
     })
     .await
@@ -586,7 +600,7 @@ async fn invalid_prompts_fail_before_session_creation() {
     assert_eq!(*captured.calls.lock().expect("calls"), 0);
 
     let validation = validate_goal_objective("   ");
-    assert_eq!(spawn_prompt_validation_message(&validation), empty);
+    assert_eq!(JsString::from(spawn_prompt_validation_message(&validation)), empty);
 }
 
 #[tokio::test]
@@ -633,11 +647,11 @@ async fn goal_extension_factory_is_filtered_from_child_sessions() {
     let env = test_env().await;
     let captured = Arc::new(Captured::default());
     let goal = InlineExtension::Factory {
-        extension_path: Some("<first-party:goal>".to_owned()),
+        extension_path: Some("<first-party:goal>".to_owned().into()),
         factory: Arc::new(|_pi| Box::pin(async { Ok(()) })),
     };
     let probe = InlineExtension::Factory {
-        extension_path: Some("<first-party:probe>".to_owned()),
+        extension_path: Some("<first-party:probe>".to_owned().into()),
         factory: Arc::new(|_pi| Box::pin(async { Ok(()) })),
     };
     let factory = create_production_child_agent_session_factory(child_options(
@@ -657,12 +671,12 @@ async fn goal_extension_factory_is_filtered_from_child_sessions() {
         .expect("child session");
     let captured_options = captured.options.lock().expect("options");
     let options = captured_options.as_ref().expect("options");
-    let paths: Vec<Option<&str>> = options
+    let paths: Vec<Option<&JsString>> = options
         .extension_factories
         .iter()
         .map(InlineExtension::explicit_extension_path)
         .collect();
-    assert_eq!(paths, vec![Some("<first-party:probe>")]);
+    assert_eq!(paths, vec![Some(&JsString::from("<first-party:probe>"))]);
 }
 
 #[tokio::test]
@@ -676,7 +690,7 @@ async fn child_agent_tools_append_control_tools_in_order() {
     let captured = Arc::new(Captured::default());
     let factory = create_production_child_agent_session_factory(child_options(&env, Arc::clone(&captured), None, None));
     let mut agent = child_agent(&env, "agent_child", "Explorer");
-    agent.agent_type = "explore".to_owned();
+    agent.agent_type = "explore".to_owned().into();
     factory
         .call(child_input(&env, agent, SpawnContext::Fresh, "Run"))
         .await
@@ -718,25 +732,30 @@ async fn attached_session_opens_the_transcript_and_applies_its_policy() {
     let target_dir = env._dir.path().join("target").display().to_string();
     std::fs::create_dir_all(&target_dir).expect("target dir");
     let target_session_dir = env._dir.path().join("target-sessions").display().to_string();
-    let mut target = SessionManager::create(&target_dir, Some(&target_session_dir), None).expect("target session");
-    target.append_message(user_message("existing")).expect("append target");
+    let mut target = SessionManager::create(
+        &JsString::from(&target_dir),
+        Some(&JsString::from(target_session_dir)),
+        None,
+    )
+    .expect("target session");
+    target
+        .append_message(user_message(JsString::from("existing")))
+        .expect("append target");
     target.persist_for_recovery().expect("persist target");
     let target_path = target.get_session_file().expect("target file").to_owned();
     let target_id = target.get_session_id().to_owned();
-    let parent_session_file = lock_session_manager(&env.session_manager)
-        .get_session_file()
-        .map(str::to_owned);
+    let parent_session_file = lock_session_manager(&env.session_manager).get_session_file().cloned();
     let captured = Arc::new(Captured::default());
     let factory = create_production_attached_session_factory(ProductionAttachedSessionFactoryOptions {
-        agent_dir: Some(env.agent_dir.clone()),
+        agent_dir: Some(env.agent_dir.clone().into()),
         create_session: create_child_session(Arc::clone(&captured), "attached done"),
         extension_factories: None,
         multi_agent_store: None,
         session_dir: None,
     });
     let mut agent = child_agent(&env, "agent_attached", "Attached");
-    agent.cwd = target_dir;
-    agent.permission.policy = "never".to_owned();
+    agent.cwd = target_dir.into();
+    agent.permission.policy = "never".to_owned().into();
     agent.transcript = Some(AgentTranscriptMetadata {
         session_id: target_id.clone(),
         path: Some(target_path.clone()),
@@ -747,17 +766,17 @@ async fn attached_session_opens_the_transcript_and_applies_its_policy() {
             active_tool_call_id: None,
             agent,
             ctx: env.session.extension_runner().create_context(),
-            prompt: "resume".to_owned(),
+            prompt: "resume".to_owned().into(),
             signal: None,
             session_path: target_path.clone(),
         })
         .await
         .expect("attached session");
-    child.prompt("continue".to_owned()).await.expect("prompt");
+    child.prompt("continue".to_owned().into()).await.expect("prompt");
 
     let options = captured.options.lock().expect("options").take().expect("options");
     let manager = captured_session_manager(&captured);
-    assert_eq!(lock_session_manager(&manager).get_session_id(), target_id);
+    assert_eq!(lock_session_manager(&manager).get_session_id(), &target_id);
     assert_eq!(
         session_texts(&manager),
         vec!["existing".to_owned(), "continue".to_owned(), "attached done".to_owned()]
@@ -772,13 +791,11 @@ async fn attached_session_opens_the_transcript_and_applies_its_policy() {
         settings
             .get_merged_settings()
             .get("approvalPreset")
-            .and_then(Value::as_str),
-        Some("never-ask-deny")
+            .and_then(Value::as_string),
+        Some(&JsString::from("never-ask-deny"))
     );
-    let control_db = lock_session_manager(&manager)
-        .get_metadata_control_db_path()
-        .map(str::to_owned);
-    assert_eq!(control_db.as_deref(), Some(env.control_db.as_str()));
+    let control_db = lock_session_manager(&manager).get_metadata_control_db_path().cloned();
+    assert_eq!(control_db.clone(), Some(JsString::from(&env.control_db)));
 }
 
 #[tokio::test]
@@ -786,7 +803,7 @@ async fn attached_session_rejects_missing_paths_and_session_mismatches() {
     let env = test_env().await;
     let captured = Arc::new(Captured::default());
     let factory = create_production_attached_session_factory(ProductionAttachedSessionFactoryOptions {
-        agent_dir: Some(env.agent_dir.clone()),
+        agent_dir: Some(env.agent_dir.clone().into()),
         create_session: create_child_session(Arc::clone(&captured), "attached done"),
         extension_factories: None,
         multi_agent_store: None,
@@ -796,9 +813,9 @@ async fn attached_session_rejects_missing_paths_and_session_mismatches() {
         active_tool_call_id: None,
         agent,
         ctx: env.session.extension_runner().create_context(),
-        prompt: "resume".to_owned(),
+        prompt: "resume".to_owned().into(),
         signal: None,
-        session_path: session_path.to_owned(),
+        session_path: session_path.to_owned().into(),
     };
 
     let error = factory
@@ -819,21 +836,38 @@ async fn attached_session_rejects_missing_paths_and_session_mismatches() {
     let target_dir = env._dir.path().join("target").display().to_string();
     std::fs::create_dir_all(&target_dir).expect("target dir");
     let target_session_dir = env._dir.path().join("target-sessions").display().to_string();
-    let mut target = SessionManager::create(&target_dir, Some(&target_session_dir), None).expect("target session");
-    target.append_message(user_message("existing")).expect("append target");
+    let mut target = SessionManager::create(
+        &JsString::from(&target_dir),
+        Some(&JsString::from(target_session_dir)),
+        None,
+    )
+    .expect("target session");
+    target
+        .append_message(user_message(JsString::from("existing")))
+        .expect("append target");
     target.persist_for_recovery().expect("persist target");
     let target_path = target.get_session_file().expect("target file").to_owned();
     let target_id = target.get_session_id().to_owned();
     let mut agent = child_agent(&env, "agent_attached", "Attached");
-    agent.cwd = target_dir;
+    agent.cwd = target_dir.into();
     agent.transcript = Some(AgentTranscriptMetadata {
-        session_id: "different-session".to_owned(),
+        session_id: "different-session".to_owned().into(),
         path: Some(target_path.clone()),
     });
-    let error = factory.call(input(&target_path, agent)).await.err().expect("mismatch");
+    let error = factory
+        .call(input(&target_path.to_utf8().expect("utf-8 test path"), agent))
+        .await
+        .err()
+        .expect("mismatch");
     assert_eq!(
         error,
-        format!("Child agent transcript session mismatch: expected different-session, found {target_id}")
+        JsString::join(
+            [
+                JsString::from("Child agent transcript session mismatch: expected different-session, found "),
+                target_id
+            ],
+            ""
+        )
     );
     assert_eq!(*captured.calls.lock().expect("calls"), 0);
 }

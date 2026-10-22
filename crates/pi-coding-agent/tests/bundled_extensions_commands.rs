@@ -1,5 +1,6 @@
 //! Differential and behavioral coverage for the small command/tool bundled extensions.
 
+use pi_js_compat::js_json::JsString;
 #[path = "support/bundled_extension_commands.rs"]
 mod command_support;
 #[path = "support/bundled_extension_load.rs"]
@@ -18,7 +19,7 @@ use pi_coding_agent::core::session_control_db::{
     WritableSessionMetadata, read_session_metadata, write_session_metadata,
 };
 use pi_coding_agent::core::session_manager::{SessionManager, SetMetadataControlDbPathOptions};
-use serde_json::json;
+use pi_js_compat::js_json as json;
 use support::{Calls, Harness, RecordingUi, calls_json};
 use tempfile::TempDir;
 
@@ -38,7 +39,11 @@ async fn self_restart_matches_typescript() {
             {"op": "tool", "name": "restart_self", "params": {}}
         ]
     }));
-    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "{response:?}"
+    );
 
     let harness = Harness::load("/tmp", Arc::new(RecordingUi::default()), |api| {
         pi_coding_agent::bundled_extensions::self_restart::self_restart_extension(api)
@@ -75,7 +80,11 @@ async fn spec_validation_matches_typescript() {
             {"op": "command", "name": "spec-validation", "args": "", "idle": false}
         ]
     }));
-    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "{response:?}"
+    );
 
     let harness = Harness::load("/tmp", Arc::new(RecordingUi::default()), |api| {
         pi_coding_agent::bundled_extensions::spec_validation::spec_validation_extension(api)
@@ -104,10 +113,13 @@ async fn spec_validation_matches_typescript() {
         None,
     );
     let handler = harness.command("spec-validation").handler;
-    let error = handler("".to_owned(), runner.create_command_context())
+    let error = handler("".to_owned().into(), runner.create_command_context())
         .await
         .unwrap_err();
-    assert_eq!(error.message, response["output"]["steps"][2]["error"]["message"]);
+    assert_eq!(
+        pi_js_compat::js_json::JsValue::String(error.message),
+        response["output"]["steps"][2]["error"]["message"]
+    );
     assert_eq!(
         calls_json(&harness.take_calls()),
         response["output"]["steps"][2]["calls"]
@@ -117,7 +129,7 @@ async fn spec_validation_matches_typescript() {
 #[tokio::test]
 async fn session_id_matches_typescript() {
     let manager = Arc::new(std::sync::Mutex::new(
-        SessionManager::in_memory(Some("/tmp"), None).unwrap(),
+        SessionManager::in_memory(Some(&JsString::from("/tmp")), None).unwrap(),
     ));
     let harness = Harness::load_full(
         "/tmp",
@@ -138,7 +150,11 @@ async fn session_id_matches_typescript() {
             {"op": "command", "name": "session-id", "args": "", "sessionId": session_id}
         ]
     }));
-    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "{response:?}"
+    );
 
     assert_eq!(harness.registrations(), response["output"]["steps"][0]["result"]);
     harness.run_command("session-id", "").await.unwrap();
@@ -152,10 +168,10 @@ async fn session_id_matches_typescript() {
 async fn session_archive_matches_typescript() {
     let temp = TempDir::new().expect("temp dir");
     let db_path = temp.path().join("control.sqlite");
-    let db_path = db_path.to_string_lossy().into_owned();
+    let db_path = db_path.to_str().expect("utf-8 test path").to_owned();
     let mut manager = SessionManager::create(
-        &temp.path().to_string_lossy(),
-        Some(&temp.path().to_string_lossy()),
+        &JsString::from(temp.path().to_str().expect("utf-8 test path")),
+        Some(&JsString::from(temp.path().to_str().expect("utf-8 test path"))),
         None,
     )
     .unwrap();
@@ -166,7 +182,7 @@ async fn session_archive_matches_typescript() {
         &WritableSessionMetadata {
             session_path: session_file.clone(),
             id: manager.get_session_id().to_owned(),
-            cwd: temp.path().to_string_lossy().into_owned(),
+            cwd: temp.path().to_str().expect("utf-8 test path").to_owned().into(),
             name: None,
             parent_session_path: None,
             archived_at: None,
@@ -176,21 +192,24 @@ async fn session_archive_matches_typescript() {
             model_provider: None,
             model_id: None,
             thinking_level: None,
-            created_at: "2026-07-11T00:00:00.000Z".to_owned(),
-            modified_at: "2026-07-11T00:00:00.000Z".to_owned(),
+            created_at: "2026-07-11T00:00:00.000Z".to_owned().into(),
+            modified_at: "2026-07-11T00:00:00.000Z".to_owned().into(),
             message_count: 1,
-            first_message: "hello".to_owned(),
+            first_message: "hello".to_owned().into(),
         },
     )
     .unwrap();
 
     manager
-        .set_metadata_control_db_path(Some(&db_path), SetMetadataControlDbPathOptions::default())
+        .set_metadata_control_db_path(
+            Some(&JsString::from(&db_path)),
+            SetMetadataControlDbPathOptions::default(),
+        )
         .unwrap();
     let manager = Arc::new(std::sync::Mutex::new(manager));
 
     let harness = Harness::load_full(
-        &temp.path().to_string_lossy(),
+        &temp.path().to_str().expect("utf-8 test path"),
         Arc::clone(&manager),
         Arc::new(RecordingUi::default()),
         Some(db_path.clone()),
@@ -208,10 +227,14 @@ async fn session_archive_matches_typescript() {
             {"op": "command", "name": "archive", "args": "now", "controlDbPath": db_path, "sessionFile": session_file}
         ]
     }));
-    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "{response:?}"
+    );
     assert_eq!(harness.registrations(), response["output"]["steps"][0]["result"]);
     for step in response["output"]["steps"].as_array().unwrap() {
-        assert_eq!(step["error"], serde_json::Value::Null, "{response}");
+        assert_eq!(step["error"], pi_js_compat::js_json::JsValue::Null, "{response:?}");
     }
     harness.run_command("archive", "").await.unwrap();
     assert_eq!(
@@ -226,7 +249,7 @@ async fn session_archive_matches_typescript() {
         Some(true)
     );
     assert!(
-        std::path::Path::new(&session_file).exists(),
+        std::path::Path::new(&session_file.to_utf8().expect("utf-8 test path")).exists(),
         "quit action must be deferred"
     );
     harness.run_command("archive", "now").await.unwrap();
@@ -239,7 +262,8 @@ async fn session_archive_matches_typescript() {
         .lock()
         .unwrap()
         .append_message(
-            serde_json::from_value(json!({"role":"user","content":"last write before quit","timestamp":1})).unwrap(),
+            pi_js_compat::js_json::from_value(&json!({"role":"user","content":"last write before quit","timestamp":1}))
+                .unwrap(),
         )
         .unwrap();
     manager.lock().unwrap().persist_for_recovery().unwrap();
@@ -250,13 +274,13 @@ async fn session_archive_matches_typescript() {
             target_session_file: None,
         }))
         .await;
-    let archived = format!("{session_file}.zst");
+    let archived = format!("{}.zst", session_file.to_utf8().expect("utf-8 test path"));
     assert!(
         pi_coding_agent::core::session_transcript::read_session_transcript_text(&archived)
             .unwrap()
             .contains("last write before quit")
     );
-    assert!(!std::path::Path::new(&session_file).exists());
+    assert!(!std::path::Path::new(&session_file.to_utf8().expect("utf-8 test path")).exists());
     assert!(std::path::Path::new(&archived).exists());
     assert_eq!(
         read_session_metadata(&db_path, &archived).unwrap().unwrap().is_archived,
@@ -276,7 +300,7 @@ async fn debug_matches_typescript() {
     let ui = Arc::new(RecordingUi::default());
     let controller_calls: Arc<Mutex<Calls>> = ui.calls();
     let manager = Arc::new(std::sync::Mutex::new(
-        SessionManager::in_memory(Some("/tmp"), None).unwrap(),
+        SessionManager::in_memory(Some(&JsString::from("/tmp")), None).unwrap(),
     ));
     let harness = Harness::load_full("/tmp", Arc::clone(&manager), Arc::clone(&ui), None, move |api| {
         pi_coding_agent::bundled_extensions::debug::debug_extension(
@@ -298,7 +322,11 @@ async fn debug_matches_typescript() {
             {"op": "command", "name": "debug", "args": "attach"}
         ]
     }));
-    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "{response:?}"
+    );
 
     assert_eq!(harness.registrations(), response["output"]["steps"][0]["result"]);
     for (index, args) in ["", "off", "attach"].iter().enumerate() {
@@ -355,7 +383,7 @@ async fn registers_all_small_extensions_under_source_ids() {
     let (extensions, errors) = registry
         .load_registered(
             &[],
-            "/tmp",
+            &JsString::from("/tmp"),
             Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
             pi_coding_agent::core::extensions::create_extension_runtime(),
         )
@@ -377,7 +405,7 @@ async fn registers_all_small_extensions_under_source_ids() {
             "restart_self",
         ]
     );
-    let command_names: Vec<String> = extensions
+    let command_names: Vec<JsString> = extensions
         .iter()
         .flat_map(|extension| extension.read().commands.keys().cloned().collect::<Vec<_>>())
         .collect();
@@ -407,7 +435,7 @@ async fn registers_all_small_extensions_under_source_ids() {
 struct RecordingDebugRepl(Arc<Mutex<Calls>>);
 
 impl pi_coding_agent::bundled_extensions::debug::DebugReplController for RecordingDebugRepl {
-    fn enable(&self, session_id: &str) -> BoxFuture<'static, Result<String, HandlerError>> {
+    fn enable(&self, session_id: &JsString) -> BoxFuture<'static, Result<JsString, HandlerError>> {
         let session_id = session_id.to_owned();
         let calls = Arc::clone(&self.0);
         Box::pin(async move {
@@ -415,15 +443,15 @@ impl pi_coding_agent::bundled_extensions::debug::DebugReplController for Recordi
                 .lock()
                 .unwrap()
                 .debug
-                .push(("enable".to_owned(), Some(session_id.clone())));
-            Ok(format!("debug {session_id}"))
+                .push(("enable".to_owned().into(), Some(session_id.clone().into())));
+            Ok(JsString::join([JsString::from("debug "), session_id], ""))
         })
     }
 
     fn disable(&self) -> BoxFuture<'static, Result<(), HandlerError>> {
         let calls = Arc::clone(&self.0);
         Box::pin(async move {
-            calls.lock().unwrap().debug.push(("disable".to_owned(), None));
+            calls.lock().unwrap().debug.push(("disable".to_owned().into(), None));
             Ok(())
         })
     }
@@ -442,7 +470,7 @@ fn archive_command_rejects_missing_control_db() {
         assert_eq!(
             calls.notify,
             vec![(
-                "Session archive requires a control database.".to_owned(),
+                JsString::from("Session archive requires a control database."),
                 Some(NotifyType::Error)
             )]
         );
@@ -456,11 +484,15 @@ async fn session_archive_command_branches_match_frozen() {
     use pi_coding_agent::core::session_control_db::archive_session;
     let temp = TempDir::new().unwrap();
     let db = temp.path().join("control.sqlite").display().to_string();
-    let mut manager =
-        SessionManager::create(temp.path().to_str().unwrap(), Some(temp.path().to_str().unwrap()), None).unwrap();
+    let mut manager = SessionManager::create(
+        &JsString::from(temp.path().to_str().unwrap()),
+        Some(&JsString::from(temp.path().to_str().unwrap())),
+        None,
+    )
+    .unwrap();
     manager.persist_for_recovery().unwrap();
     manager
-        .set_metadata_control_db_path(Some(&db), Default::default())
+        .set_metadata_control_db_path(Some(&JsString::from(&db)), Default::default())
         .unwrap();
     let path = manager.get_session_file().unwrap().to_owned();
     let manager = Arc::new(Mutex::new(manager));
@@ -472,7 +504,9 @@ async fn session_archive_command_branches_match_frozen() {
             let session = if persisted {
                 Arc::clone(&manager)
             } else {
-                Arc::new(Mutex::new(SessionManager::in_memory(Some("/tmp"), None).unwrap()))
+                Arc::new(Mutex::new(
+                    SessionManager::in_memory(Some(&JsString::from("/tmp")), None).unwrap(),
+                ))
             };
             let harness = Harness::load_full(
                 "/tmp",
@@ -486,8 +520,8 @@ async fn session_archive_command_branches_match_frozen() {
             let response = oracle.request(&json!({"id":1,"extension":"session-archive","steps":[{"op":"command","name":command,"args":args,"controlDbPath":db_path,"sessionFile":persisted.then_some(&path)}]}));
             assert_eq!(
                 response["output"]["steps"][0]["error"],
-                serde_json::Value::Null,
-                "{response}"
+                pi_js_compat::js_json::JsValue::Null,
+                "{response:?}"
             );
             harness.run_command(command, args).await.unwrap();
             assert_eq!(
@@ -510,7 +544,10 @@ async fn session_archive_command_branches_match_frozen() {
                         target_session_file: None,
                     }))
                     .await;
-                assert!(std::path::Path::new(&path).exists(), "non-quit consumes pending action");
+                assert!(
+                    std::path::Path::new(&path.to_utf8().expect("utf-8 test path")).exists(),
+                    "non-quit consumes pending action"
+                );
             }
         }
     }
@@ -541,7 +578,7 @@ async fn session_archive_command_branches_match_frozen() {
         for agent in &agents {
             store
                 .publish_lifecycle_coordinator_snapshot(
-                    &serde_json::from_value::<AgentSnapshot>(agent.clone()).unwrap(),
+                    &pi_js_compat::js_json::from_value::<AgentSnapshot>(&agent.clone()).unwrap(),
                 )
                 .unwrap();
         }
@@ -565,7 +602,7 @@ async fn session_archive_command_branches_match_frozen() {
             None,
         );
         let response = oracle.request(&json!({"id":3,"extension":"session-archive","steps":[{"op":"command","name":"delete","controlDbPath":db,"sessionFile":path,"activeAgents":agents,"confirmed":true}]}));
-        (harness.command("delete").handler)("".to_owned(), runner.create_command_context())
+        (harness.command("delete").handler)("".to_owned().into(), runner.create_command_context())
             .await
             .unwrap();
         assert_eq!(
@@ -589,7 +626,7 @@ async fn session_archive_command_branches_match_frozen() {
         calls_json(&harness.take_calls()),
         response["output"]["steps"][0]["calls"]
     );
-    assert!(std::path::Path::new(&path).exists());
+    assert!(std::path::Path::new(&path.to_utf8().expect("utf-8 test path")).exists());
     harness
         .runner
         .emit(&mut ExtensionEvent::SessionShutdown(SessionShutdownEvent {
@@ -597,7 +634,7 @@ async fn session_archive_command_branches_match_frozen() {
             target_session_file: None,
         }))
         .await;
-    assert!(!std::path::Path::new(&path).exists());
+    assert!(!std::path::Path::new(&path.to_utf8().expect("utf-8 test path")).exists());
     assert!(read_session_metadata(&db, &path).unwrap().is_none());
 }
 
@@ -609,17 +646,21 @@ async fn session_archive_error_worker() {
     };
     let dir = std::env::var("ARCHIVE_ERROR_DIR").unwrap();
     let db = format!("{dir}/control.sqlite");
-    let mut manager = SessionManager::create(&dir, Some(&dir), None).unwrap();
+    let mut manager = SessionManager::create(&JsString::from(&dir), Some(&JsString::from(&dir)), None).unwrap();
     manager.persist_for_recovery().unwrap();
     manager
-        .set_metadata_control_db_path(Some(&db), Default::default())
+        .set_metadata_control_db_path(Some(&JsString::from(&db)), Default::default())
         .unwrap();
     let path = manager.get_session_file().unwrap().to_owned();
-    std::fs::remove_file(&path).unwrap();
+    std::fs::remove_file(path.to_utf8().expect("utf-8 test path")).unwrap();
     if mode == "delete" {
-        std::fs::create_dir(&path).unwrap();
+        std::fs::create_dir(path.to_utf8().expect("utf-8 test path")).unwrap();
     }
-    std::fs::write(format!("{dir}/paths.json"), json!({"path":path,"db":db}).to_string()).unwrap();
+    std::fs::write(
+        format!("{dir}/paths.json"),
+        pi_js_compat::js_json::stringify_lossless(&json!({"path":path,"db":db})),
+    )
+    .unwrap();
     let ui = Arc::new(RecordingUi::default());
     *ui.confirmed.lock().unwrap() = true;
     let harness = Harness::load_full(
@@ -653,16 +694,23 @@ fn session_archive_shutdown_errors_match_frozen_stderr() {
             .output()
             .unwrap();
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-        let paths: serde_json::Value =
+        let paths: pi_js_compat::js_json::JsValue =
             serde_json::from_slice(&std::fs::read(dir.path().join("paths.json")).unwrap()).unwrap();
         let mut oracle = oracle_for("packages/coding-agent/extensions/session-archive/src/index.ts");
         let response=oracle.request(&json!({"id":1,"extension":"session-archive","steps":[{"op":"command","name":mode,"confirmed":true,"controlDbPath":paths["db"],"sessionFile":paths["path"],"env":{"PATH":missing_bin}},{"op":"archiveShutdownStderr"}]}));
-        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(
+            response["ok"],
+            pi_js_compat::js_json::JsValue::Bool(true),
+            "{response:?}"
+        );
         for step in response["output"]["steps"].as_array().unwrap() {
-            assert_eq!(step["error"], serde_json::Value::Null, "{response}");
+            assert_eq!(step["error"], pi_js_compat::js_json::JsValue::Null, "{response:?}");
         }
         let stderr = String::from_utf8(output.stderr).unwrap();
         assert!(stderr.starts_with(&format!("Failed to {mode} session:")), "{stderr}");
-        assert_eq!(stderr, response["output"]["steps"][1]["result"].as_str().unwrap());
+        assert_eq!(
+            JsString::from(stderr),
+            *response["output"]["steps"][1]["result"].as_string().unwrap()
+        );
     }
 }

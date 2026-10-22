@@ -1,5 +1,6 @@
 //! Differential proof for the deterministic agents-core modules.
 
+use pi_js_compat::js_json::JsString;
 #[path = "support/oracle.rs"]
 mod oracle;
 
@@ -20,7 +21,8 @@ use pi_coding_agent::bundled_extensions::agents_core::viewer::{
 use pi_coding_agent::core::multi_agent_store::{
     AgentLifecycle, AgentSnapshot, MultiAgentStore, MultiAgentStoreOptions,
 };
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsValue as Value;
 
 fn new_store() -> MultiAgentStore {
     MultiAgentStore::new(MultiAgentStoreOptions {
@@ -29,7 +31,7 @@ fn new_store() -> MultiAgentStore {
 }
 
 fn parse_agent(value: &Value) -> AgentSnapshot {
-    serde_json::from_value(value.clone()).expect("agent snapshot")
+    pi_js_compat::js_json::from_value(&value.clone()).expect("agent snapshot")
 }
 
 fn seed(store: &MultiAgentStore, agents: &[Value]) {
@@ -56,56 +58,58 @@ fn normalize_result(result: &AgentToolResult) -> Value {
     })
 }
 
-fn lifecycle(value: &str) -> AgentLifecycle {
+fn lifecycle(value: &JsString) -> AgentLifecycle {
     match value {
-        "running" => AgentLifecycle::Running,
-        "waiting_for_input" => AgentLifecycle::WaitingForInput,
-        "steering_pending" => AgentLifecycle::SteeringPending,
-        "cancelling" => AgentLifecycle::Cancelling,
-        "completed" => AgentLifecycle::Completed,
-        "failed" => AgentLifecycle::Failed,
-        "aborted" => AgentLifecycle::Aborted,
-        other => panic!("unknown lifecycle {other}"),
+        value if value == "running" => AgentLifecycle::Running,
+        value if value == "waiting_for_input" => AgentLifecycle::WaitingForInput,
+        value if value == "steering_pending" => AgentLifecycle::SteeringPending,
+        value if value == "cancelling" => AgentLifecycle::Cancelling,
+        value if value == "completed" => AgentLifecycle::Completed,
+        value if value == "failed" => AgentLifecycle::Failed,
+        value if value == "aborted" => AgentLifecycle::Aborted,
+        other => panic!("unknown lifecycle {other:?}"),
     }
 }
 
-fn execute_case(case: &Value) -> Result<Value, String> {
-    let op = case["op"].as_str().ok_or("op")?;
+fn execute_case(case: &Value) -> Result<Value, JsString> {
+    let op = case["op"].as_string().ok_or("op")?;
     match op {
-        "emptyAgent" => serde_json::to_value(empty_agent(case["agentId"].as_str().ok_or("agentId")?))
-            .map_err(|error| error.to_string()),
-        "isInFlightLifecycle" => Ok(json!(is_in_flight_lifecycle(lifecycle(
-            case["lifecycle"].as_str().ok_or("lifecycle")?
+        op if op == "emptyAgent" => {
+            pi_js_compat::js_json::to_value(&empty_agent(case["agentId"].as_string().ok_or("agentId")?))
+                .map_err(|error| JsString::from(error.to_string()))
+        }
+        op if op == "isInFlightLifecycle" => Ok(json!(is_in_flight_lifecycle(lifecycle(
+            case["lifecycle"].as_string().ok_or("lifecycle")?
         )))),
-        "validateGoalObjective" => {
-            let validation = validate_goal_objective(case["prompt"].as_str().ok_or("prompt")?);
+        op if op == "validateGoalObjective" => {
+            let validation = validate_goal_objective(case["prompt"].as_string().ok_or("prompt")?);
             Ok(json!({
                 "validation": validation,
                 "spawn": spawn_prompt_validation_message(&validation),
                 "background": background_prompt_validation_message(&validation),
             }))
         }
-        "toolResults" => Ok(json!({
+        op if op == "toolResults" => Ok(json!({
             "success": normalize_result(&tool_result("ok", json!({"value": 1}))),
             "failure": normalize_result(&error_tool_result("bad", json!({"value": 2}))),
             "empty": normalize_result(&empty_tool_result()),
         })),
-        "listAgents" => {
+        op if op == "listAgents" => {
             let store = new_store();
             seed(&store, case["agents"].as_array().map(Vec::as_slice).unwrap_or_default());
             let params = ListAgentsParams {
-                parent_id: case["parentId"].as_str().map(str::to_owned),
+                parent_id: case["parentId"].as_string().cloned(),
             };
             list_agents(&store, &params)
                 .map(|result| normalize_result(&result))
                 .map_err(|error| error.message)
         }
-        "agentViewer" => {
+        op if op == "agentViewer" => {
             let store = new_store();
             seed(&store, case["agents"].as_array().map(Vec::as_slice).unwrap_or_default());
             let params = AgentViewerParams {
-                agent_id: case["agentId"].as_str().ok_or("agentId")?.to_owned(),
-                session_id: case["sessionId"].as_str().map(str::to_owned),
+                agent_id: case["agentId"].as_string().ok_or("agentId")?.to_owned(),
+                session_id: case["sessionId"].as_string().cloned(),
                 store_session_id: None,
                 trace: None,
             };
@@ -113,16 +117,20 @@ fn execute_case(case: &Value) -> Result<Value, String> {
                 .map(|result| normalize_result(&result))
                 .map_err(|error| error.message)
         }
-        "assertNoWaitParams" => {
+        op if op == "assertNoWaitParams" => {
             let params = case.get("params").cloned().unwrap_or(Value::Null);
-            let name = case["message"].as_str().unwrap_or("wait_agent");
-            match pi_coding_agent::bundled_extensions::agents_core::runtime::assert_no_wait_agents_params(&params, name)
-            {
+            let name = case["message"]
+                .as_string()
+                .map(|name| name.to_utf8().expect("fixture API name"))
+                .unwrap_or_else(|| "wait_agent".to_owned());
+            match pi_coding_agent::bundled_extensions::agents_core::runtime::assert_no_wait_agents_params(
+                &params, &name,
+            ) {
                 Ok(()) => Ok(json!({"ok": true})),
                 Err(error) => Ok(json!({"ok": false, "error": error.message})),
             }
         }
-        other => Err(format!("unsupported agents-core case {other}")),
+        other => Err(JsString::from(format!("unsupported agents-core case {other:?}"))),
     }
 }
 
@@ -192,7 +200,7 @@ fn deterministic_agents_core_cases_match_the_pinned_typescript_modules() {
     );
     let cases = cases();
     let response = oracle.request(&json!({"id": 9301, "cases": cases}));
-    assert_eq!(response["ok"], Value::Bool(true), "oracle failed: {response}");
+    assert_eq!(response["ok"], Value::Bool(true), "oracle failed: {response:?}");
     let expected = response["output"]["results"].as_array().expect("results").clone();
     assert_eq!(expected.len(), cases.len());
 
@@ -201,11 +209,11 @@ fn deterministic_agents_core_cases_match_the_pinned_typescript_modules() {
         assert_eq!(
             expected[index]["value"],
             actual.as_ref().map_or(Value::Null, Clone::clone),
-            "case {index} {} mismatch",
+            "case {index} {:?} mismatch",
             case["name"]
         );
         if let Err(error) = actual {
-            panic!("case {index} failed: {error}");
+            panic!("case {index} failed: {error:?}");
         }
     }
 }
@@ -227,7 +235,7 @@ async fn registration_metadata_matches_the_pinned_typescript_registration() {
         "id": 9302,
         "cases": [{"name": "tools", "op": "allToolMetadata"}]
     }));
-    assert_eq!(response["ok"], Value::Bool(true), "oracle failed: {response}");
+    assert_eq!(response["ok"], Value::Bool(true), "oracle failed: {response:?}");
     let expected = response["output"]["results"][0]["value"].clone();
 
     let options = MultiAgentExtensionOptions {
@@ -240,10 +248,10 @@ async fn registration_metadata_matches_the_pinned_typescript_registration() {
             let result = multi_agent_extension(pi, &options);
             Box::pin(async move { result })
         }),
-        "/repo",
+        &JsString::from("/repo"),
         Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
         create_extension_runtime(),
-        "<first-party:agents-core>",
+        &JsString::from("<first-party:agents-core>"),
     )
     .await
     .expect("extension");
@@ -276,12 +284,12 @@ async fn registration_metadata_matches_the_pinned_typescript_registration() {
     assert_eq!(
         expected_tools.len(),
         actual_tools.len(),
-        "tool count\nexpected={expected}\nactual={actual}"
+        "tool count\nexpected={expected:?}\nactual={actual:?}"
     );
     for (index, expected_tool) in expected_tools.iter().enumerate() {
         assert_eq!(
             expected_tool, &actual_tools[index],
-            "tool {index} {}",
+            "tool {index} {:?}",
             expected_tool["name"]
         );
     }

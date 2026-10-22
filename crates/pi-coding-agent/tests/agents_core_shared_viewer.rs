@@ -1,5 +1,6 @@
 //! Behavioral tests for the deterministic agents-core modules.
 
+use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::AgentToolResult;
@@ -24,7 +25,9 @@ use pi_coding_agent::core::multi_agent_store::{
     MultiAgentStoreOptions,
 };
 use pi_coding_agent::core::session_manager::FileEntry;
-use serde_json::{Map, Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsObject as Map;
+use pi_js_compat::js_json::JsValue as Value;
 
 fn new_store() -> MultiAgentStore {
     MultiAgentStore::new(MultiAgentStoreOptions {
@@ -48,7 +51,7 @@ fn agent(id: &str, parent: Option<&str>, display: &str, kind: &str, lifecycle: &
 }
 
 fn parse(value: Value) -> AgentSnapshot {
-    serde_json::from_value(value).expect("agent snapshot")
+    pi_js_compat::js_json::from_value(&value).expect("agent snapshot")
 }
 
 fn seed(store: &MultiAgentStore, values: &[Value]) {
@@ -63,7 +66,7 @@ fn details(result: &AgentToolResult) -> Value {
     result.details.clone().expect("details")
 }
 
-fn text(result: &AgentToolResult) -> String {
+fn text(result: &AgentToolResult) -> JsString {
     match &result.content[0] {
         pi_ai::types::TextOrImageContent::Text(text) => text.text.clone(),
         pi_ai::types::TextOrImageContent::Image(_) => panic!("expected text content"),
@@ -115,7 +118,7 @@ fn goal_objective_validation_matches_js_trim_and_utf16_length() {
 
     let trimmed = validate_goal_objective("  do the thing \n");
     assert!(trimmed.ok);
-    assert_eq!(trimmed.objective.as_deref(), Some("do the thing"));
+    assert_eq!(trimmed.objective.clone(), Some(JsString::from("do the thing")));
 
     let exact = "a".repeat(MAX_GOAL_OBJECTIVE_CHARS);
     assert!(validate_goal_objective(&exact).ok);
@@ -145,9 +148,14 @@ fn goal_objective_validation_matches_js_trim_and_utf16_length() {
 
 #[test]
 fn failed_mailbox_message_uses_epoch_timestamps_and_empty_id() {
-    let message = create_failed_mailbox_message("body", "child", MailboxMessageKindValue::Steer, "target");
+    let message = create_failed_mailbox_message(
+        &JsString::from("body"),
+        "child",
+        MailboxMessageKindValue::Steer,
+        "target",
+    );
     assert_eq!(message.id, "");
-    assert_eq!(message.body.as_deref(), Some("body"));
+    assert_eq!(message.body.clone(), Some(JsString::from("body")));
     assert_eq!(message.from_agent_id, "child");
     assert_eq!(message.to_agent_id, "target");
     assert_eq!(message.kind, MailboxMessageKindValue::Steer);
@@ -156,7 +164,7 @@ fn failed_mailbox_message_uses_epoch_timestamps_and_empty_id() {
         pi_coding_agent::core::multi_agent_store::MailboxMessageStatusValue::Failed
     );
     assert_eq!(message.created_at, "1970-01-01T00:00:00.000Z");
-    assert_eq!(message.updated_at, "1970-01-01T00:00:00.000Z");
+    assert_eq!(message.updated_at, Some(JsString::from("1970-01-01T00:00:00.000Z")));
 }
 
 #[test]
@@ -215,7 +223,7 @@ fn list_agents_filters_descendants_and_excludes_terminal_rows() {
         ],
     );
     let params = pi_coding_agent::bundled_extensions::agents_core::viewer::ListAgentsParams {
-        parent_id: Some("root".to_owned()),
+        parent_id: Some("root".to_owned().into()),
     };
     let result = list_agents(&store, &params).expect("list");
     assert_eq!(
@@ -232,7 +240,7 @@ fn agent_viewer_reports_missing_and_mismatched_sessions() {
     let missing = agent_viewer(
         &store,
         &AgentViewerParams {
-            agent_id: "nope".to_owned(),
+            agent_id: "nope".to_owned().into(),
             session_id: None,
             store_session_id: None,
             trace: None,
@@ -246,8 +254,8 @@ fn agent_viewer_reports_missing_and_mismatched_sessions() {
     let mismatch = agent_viewer(
         &store,
         &AgentViewerParams {
-            agent_id: "a".to_owned(),
-            session_id: Some("other".to_owned()),
+            agent_id: "a".to_owned().into(),
+            session_id: Some("other".to_owned().into()),
             store_session_id: None,
             trace: None,
         },
@@ -274,8 +282,8 @@ fn agent_viewer_exposes_status_transcript_children_and_commands() {
     let result = agent_viewer(
         &store,
         &AgentViewerParams {
-            agent_id: "a".to_owned(),
-            session_id: Some("session-a".to_owned()),
+            agent_id: "a".to_owned().into(),
+            session_id: Some("session-a".to_owned().into()),
             store_session_id: None,
             trace: None,
         },
@@ -316,7 +324,7 @@ fn agent_viewer_renders_terminal_summary_and_error() {
     let result = agent_viewer(
         &store,
         &AgentViewerParams {
-            agent_id: "a".to_owned(),
+            agent_id: "a".to_owned().into(),
             session_id: None,
             store_session_id: None,
             trace: None,
@@ -337,7 +345,7 @@ fn agent_viewer_renders_terminal_summary_and_error() {
     let result = agent_viewer(
         &store,
         &AgentViewerParams {
-            agent_id: "b".to_owned(),
+            agent_id: "b".to_owned().into(),
             session_id: None,
             store_session_id: None,
             trace: None,
@@ -357,9 +365,9 @@ fn persisted_agent_viewer_requires_a_control_db_and_known_session() {
     let result = agent_viewer(
         &store,
         &AgentViewerParams {
-            agent_id: "a".to_owned(),
+            agent_id: "a".to_owned().into(),
             session_id: None,
-            store_session_id: Some("store-session".to_owned()),
+            store_session_id: Some("store-session".to_owned().into()),
             trace: None,
         },
         None,
@@ -431,7 +439,7 @@ fn parent_agent_journal_rejects_missing_transcript_identity() {
 
 fn custom_entry(custom_type: &str, agent_id: Option<&str>) -> FileEntry {
     let data = agent_id.map(|agent_id| json!({"agentId": agent_id}));
-    serde_json::from_value(json!({
+    pi_js_compat::js_json::from_value(&json!({
         "type": "custom",
         "customType": custom_type,
         "data": data,
@@ -453,7 +461,7 @@ fn active_parent_agent_ids_use_start_and_complete_entries() {
         custom_entry("other", Some("d")),
     ];
     let active = read_active_parent_agent_ids_from_entries(&entries);
-    assert_eq!(active, ["b".to_owned()].into_iter().collect());
+    assert_eq!(active, [JsString::from("b")].into_iter().collect());
 }
 
 #[test]
@@ -470,7 +478,7 @@ fn restore_compacted_parent_agent_records_is_a_noop_without_missing_agents() {
 
 #[test]
 fn mailbox_message_round_trips_through_serde() {
-    let message: AgentMailboxMessage = serde_json::from_value(json!({
+    let message: AgentMailboxMessage = pi_js_compat::js_json::from_value(&json!({
         "id": "m1",
         "fromAgentId": "a",
         "toAgentId": "b",
@@ -481,7 +489,7 @@ fn mailbox_message_round_trips_through_serde() {
         "body": "hi"
     }))
     .expect("message");
-    let value = serde_json::to_value(&message).expect("serialize");
-    let map: &Map<String, Value> = value.as_object().expect("object");
+    let value = pi_js_compat::js_json::to_value(&message).expect("serialize");
+    let map: &Map = value.as_object().expect("object");
     assert!(!map.contains_key("threadId"));
 }

@@ -1,6 +1,5 @@
 //! Differential coverage for the `safe` and `approval-controls` bundled extensions.
 
-use pi_js_compat::js_json::JsString;
 #[path = "support/bundled_extension_commands.rs"]
 mod command_support;
 #[path = "support/bundled_extension_load.rs"]
@@ -83,7 +82,7 @@ async fn safe_matches_typescript() {
         .expect("safe completions");
     for (index, prefix) in ["o", "s", "x"].iter().enumerate() {
         let actual = pi_js_compat::js_json!(completions(&pi_js_compat::js_json::JsString::from(*prefix)).unwrap());
-        assert_eq!(actual, steps[index + 1]["result"], json!("completions {prefix}"));
+        assert_eq!(actual, steps[index + 1]["result"], "completions {prefix}");
     }
 
     harness.run_command("safe", "on").await.unwrap();

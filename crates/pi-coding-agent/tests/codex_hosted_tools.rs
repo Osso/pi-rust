@@ -1,6 +1,7 @@
 //! Behavioral tests for the bundled `codex-web-search` and
 //! `codex-image-generation` extensions.
 
+use pi_js_compat::js_json::JsString;
 #[path = "support/bundled.rs"]
 mod bundled;
 #[path = "support/extensions.rs"]
@@ -20,10 +21,10 @@ use pi_coding_agent::bundled_extensions::codex_web_search::{
 };
 use pi_coding_agent::core::extensions::ExtensionRuntime;
 use pi_coding_agent::core::extensions::{Extension, create_extension_runtime};
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
 use tokio_util::sync::CancellationToken;
 
-fn oauth_auth(provider: &str, token: &str) -> Option<serde_json::Map<String, Value>> {
+fn oauth_auth(provider: &str, token: &str) -> Option<pi_js_compat::js_json::JsObject> {
     json!({(provider): {
         "type": "oauth",
         "refresh": "refresh-token",
@@ -34,7 +35,7 @@ fn oauth_auth(provider: &str, token: &str) -> Option<serde_json::Map<String, Val
     .cloned()
 }
 
-fn text_of(result: &pi_agent_core::AgentToolResult) -> String {
+fn text_of(result: &pi_agent_core::AgentToolResult) -> JsString {
     let TextOrImageContent::Text(text) = &result.content[0] else {
         panic!("text result");
     };
@@ -169,7 +170,7 @@ async fn web_search_registers_tool_and_payload_handler() {
     assert_eq!(tool.label, "Web Search");
     assert_eq!(tool.approval_required, Some(true));
     assert_eq!(
-        tool.parameters,
+        pi_js_compat::js_json::JsValue::from(tool.parameters.clone()),
         json!({
             "type": "object",
             "required": ["query"],
@@ -212,7 +213,7 @@ async fn image_generation_registers_tool_without_payload_handler() {
     assert_eq!(tool.label, "Image Generation");
     assert_eq!(tool.approval_required, Some(true));
     assert_eq!(
-        tool.parameters,
+        pi_js_compat::js_json::JsValue::from(tool.parameters.clone()),
         json!({
             "type": "object",
             "required": ["prompt"],
@@ -233,7 +234,7 @@ async fn web_search_executes_with_injected_search() {
     let capture = Arc::clone(&captured);
     let run_search: RunWebSearch = Arc::new(move |request, _ctx| {
         *capture.lock().unwrap() = Some(request);
-        Box::pin(async { Ok("Search result text".to_owned()) })
+        Box::pin(async { Ok(JsString::from("Search result text")) })
     });
     let runtime = create_extension_runtime();
     let extension = load_web_search(
@@ -269,7 +270,7 @@ async fn web_search_executes_with_injected_search() {
     assert_eq!(text_of(&result), "Search result text");
     let request = captured.lock().unwrap().clone().expect("request");
     assert_eq!(request.query, "pi web search");
-    assert_eq!(request.api_key.as_deref(), Some("test-key"));
+    assert_eq!(request.api_key.clone(), Some(JsString::from("test-key")));
     assert!(request.signal.is_some());
 }
 
@@ -279,7 +280,7 @@ async fn web_search_times_out_with_source_message() {
     let capture = Arc::clone(&captured_signal);
     let run_search: RunWebSearch = Arc::new(move |request, _ctx| {
         *capture.lock().unwrap() = request.signal.clone();
-        Box::pin(async { std::future::pending::<Result<String, String>>().await })
+        Box::pin(async { std::future::pending::<Result<JsString, JsString>>().await })
     });
     let runtime = create_extension_runtime();
     let extension = load_web_search(
@@ -334,7 +335,7 @@ async fn web_search_preserves_caller_abort() {
         if let Some(signal) = request.signal {
             signal.cancel();
         }
-        Box::pin(async { std::future::pending::<Result<String, String>>().await })
+        Box::pin(async { std::future::pending::<Result<JsString, JsString>>().await })
     });
     let runtime = create_extension_runtime();
     let extension = load_web_search(
@@ -376,7 +377,7 @@ async fn web_search_validates_query_and_model() {
     let flag = Arc::clone(&called);
     let run_search: RunWebSearch = Arc::new(move |_request, _ctx| {
         *flag.lock().unwrap() = true;
-        Box::pin(async { Ok("text".to_owned()) })
+        Box::pin(async { Ok(JsString::from("text")) })
     });
     let runtime = create_extension_runtime();
     let extension = load_web_search(
@@ -465,16 +466,21 @@ async fn image_generation_saves_png_and_returns_content() {
     let path = path_text.strip_prefix("Generated image: ").expect("path prefix");
     assert!(
         path.starts_with(output.path().to_str().unwrap()),
-        "unexpected path {path}"
+        "unexpected path {path:?}"
     );
-    let file_name = std::path::Path::new(path).file_name().unwrap().to_string_lossy();
+    let scalar_path = path.to_utf8().expect("utf-8 test path");
+    let file_name = std::path::Path::new(&scalar_path)
+        .file_name()
+        .unwrap()
+        .to_str()
+        .expect("utf-8 test path");
     let hex = file_name
         .strip_prefix("image-gen-")
         .and_then(|name| name.strip_suffix(".png"))
         .expect("image name");
     assert_eq!(hex.len(), 16);
     assert!(hex.chars().all(|character| character.is_ascii_hexdigit()));
-    assert_eq!(std::fs::read(path).expect("saved image"), b"image");
+    assert_eq!(std::fs::read(&scalar_path).expect("saved image"), b"image");
     assert_eq!(
         result.content[1],
         TextOrImageContent::Image(ImageContent::new("aW1hZ2U=", "image/png"))
@@ -534,7 +540,7 @@ async fn image_generation_applies_timeout_to_the_request_signal() {
         Box::pin(async move {
             let signal = request.signal.expect("signal");
             signal.cancelled().await;
-            Err("aborted".to_owned())
+            Err(JsString::from("aborted"))
         })
     });
     let runtime = create_extension_runtime();
