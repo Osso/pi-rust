@@ -1240,7 +1240,7 @@ struct RuntimeConfig {
     endpoint: JsString,
     credentials: Option<AwsCredentials>,
     bearer_token: Option<JsString>,
-    sdk_features: &'static str,
+    sdk_features: String,
 }
 
 async fn resolve_runtime_config(model: &Model, options: &BedrockOptions) -> Result<RuntimeConfig, BedrockError> {
@@ -1284,12 +1284,18 @@ async fn resolve_runtime_config(model: &Model, options: &BedrockOptions) -> Resu
 
     let configured_credentials = env_credentials(env);
     let direct_credentials = skip_auth || (options_profile.is_none() && configured_credentials.is_some());
-    let sdk_features = if use_bearer {
+    let credential_features = if use_bearer {
         "E"
     } else if direct_credentials {
         "E,e"
     } else {
         "E,n"
+    };
+    let custom_endpoint = use_explicit_endpoint && standard_endpoint_region(&model.base_url).is_none();
+    let sdk_features = if custom_endpoint {
+        format!("N,{credential_features}")
+    } else {
+        credential_features.to_owned()
     };
     let credentials = if skip_auth {
         Some(AwsCredentials {
@@ -1392,7 +1398,7 @@ async fn execute_request(
     let url = endpoint + "/model/" + crate::api::bedrock_sigv4::aws_escape_uri(&model.id) + "/converse-stream";
     let url = request_url(&url).map_err(|error| BedrockError::other(error.message))?;
     let invocation_id = random_uuid_v4();
-    let mut headers = base_headers(&url, &body, &invocation_id, 1, config.sdk_features);
+    let mut headers = base_headers(&url, &body, &invocation_id, 1, &config.sdk_features);
     apply_custom_headers(&mut headers, options.stream.request.headers.as_ref())
         .map_err(|error| BedrockError::other(error.message))?;
     let fetch = options.stream.request.fetch.clone().unwrap_or_else(default_fetch);
