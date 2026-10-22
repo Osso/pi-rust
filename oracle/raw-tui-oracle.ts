@@ -39,7 +39,13 @@ async function main(): Promise<void> {
 					states.push({ value: input.getValue(), cursor: (input as unknown as { cursor: number }).cursor, lines: input.render(request.width) });
 				}
 				output = { states, submitted };
-			} else if (request.operation === "settings") {
+			} else if (request.operation === "autocomplete_apply") {
+                const module = await import(pathToFileURL(path.join(source, "autocomplete.ts")).href);
+                const provider = new module.CombinedAutocompleteProvider([], ".", null);
+                const item = native(request.item);
+                const result = provider.applyCompletion([native(request.units)], 0, request.cursor, {value:item,label:item},native(request.prefix));
+                output = [result.lines,result.cursorLine,result.cursorCol];
+            } else if (request.operation === "settings") {
                 output = await captureSettings(source, native(request.units), request.width, request.search);
             } else if (request.operation === "input_route") {
                 output = await captureInputRoute(source);

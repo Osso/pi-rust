@@ -176,3 +176,19 @@ source differential reproduced the missing line; native wrapping now accepts sig
 internal width while public usize/numeric gaps remain unchanged. Settings source
 behavior is preserved, not repaired; source/delta files remain untouched. Existing
 192-case raw utility matrix remains GREEN after this internal width change.
+
+## Autocomplete (staged)
+
+AutocompleteItem, SlashCommand, argument-completion callbacks, suggestion prefixes,
+CompletionResult lines, provider lines/trigger strings, combined base/fd paths,
+command descriptions and path parsing/manipulation now retain native strings.
+Cursor columns count UTF-16 units; no scalar boundary snapping. File paths and fd
+argv encode Node UTF-8 only at actual fs/process calls; external directory/process
+bytes decode at their actual text-ingress boundary. Sorting uses native ICU4C UTF-16
+collation, not scalar conversion.
+
+`raw_autocomplete::completion_applies_at_a_native_cursor_inside_a_surrogate_pair`
+behavioral RED observed baseline X😀tail/cursor1 versus frozen high-X-low-tail/cursor2;
+actual native implementation GREEN. Whole module source representation migrated;
+expanded command/path/filesystem/callback differential proof pending. Existing typed
+numeric gaps are not broadened or silently accepted as source behavior.
