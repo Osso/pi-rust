@@ -28,7 +28,7 @@ use pi_ai::types::{
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::core::defaults::DEFAULT_THINKING_LEVEL;
@@ -472,11 +472,11 @@ pub struct AgentMessageEvent {
 
 impl Serialize for AgentMessageEvent {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut value = serde_json::to_value(&self.event).map_err(serde::ser::Error::custom)?;
-        if let (Some(marker), Value::Object(object)) = (self.runtime_message_marker, &mut value) {
+        let mut value = pi_js_compat::js_json::to_value(&self.event).map_err(serde::ser::Error::custom)?;
+        if let (Some(marker), JsValue::Object(object)) = (self.runtime_message_marker, &mut value) {
             object.insert(
-                "runtimeMessageMarker".to_owned(),
-                serde_json::to_value(marker).map_err(serde::ser::Error::custom)?,
+                "runtimeMessageMarker".into(),
+                pi_js_compat::js_json::to_value(&marker).map_err(serde::ser::Error::custom)?,
             );
         }
         value.serialize(serializer)
@@ -619,7 +619,7 @@ pub struct BashExecutionUpdateEvent {
     pub event_type: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
-    pub delta: String,
+    pub delta: JsString,
 }
 
 fn flag_values_map(
@@ -980,9 +980,9 @@ struct Inner {
     multi_agent_active_tools: Mutex<Vec<(String, ActiveTool)>>,
     background_compaction_cache: Mutex<Option<BackgroundCompactionCache>>,
     runtime_mailbox_drain_lock: tokio::sync::Mutex<()>,
-    runtime_mailbox_steering_agent_ids: Mutex<Vec<String>>,
+    runtime_mailbox_steering_agent_ids: Mutex<Vec<JsString>>,
     runtime_mailbox_acceptance: Mutex<crate::core::runtime_mailbox_acceptance::RuntimeMailboxAcceptance>,
-    runtime_mailbox_pending_terminal: Mutex<indexmap::IndexMap<String, PendingSteeringTerminal>>,
+    runtime_mailbox_pending_terminal: Mutex<indexmap::IndexMap<JsString, PendingSteeringTerminal>>,
     runtime_mailbox_pending_terminal_unsubscribe: Mutex<Option<crate::core::multi_agent_store::AgentSubscription>>,
     runtime_mailbox_poll_token: Mutex<Option<CancellationToken>>,
     runtime_mailbox_heartbeat_token: Mutex<Option<CancellationToken>>,
@@ -1109,7 +1109,7 @@ pub const DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE: &str = "detached_tool_call_
 #[serde(rename_all = "camelCase")]
 pub struct DetachedToolCallCompletionEntryData {
     pub tool_call_id: String,
-    pub agent_id: String,
+    pub agent_id: JsString,
     pub lifecycle: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<JsString>,
@@ -2145,15 +2145,15 @@ impl AgentSession {
                     JsString::from(format!("Approve {}?", event.tool_name.as_str())) + reason_text + "\n" + input;
                 let selection = ui
                     .select(
-                        &pi_js_compat::js_json::encode_node_utf8(&title),
-                        &["Allow once".to_owned(), "Allow always".to_owned(), "Deny".to_owned()],
+                        &title,
+                        &["Allow once".into(), "Allow always".into(), "Deny".into()],
                         None,
                     )
                     .await
                     .map_err(crate::core::extensions::types::HandlerError::new)?;
-                match selection.as_deref() {
-                    Some("Allow once") => Ok(None),
-                    Some("Allow always") => {
+                match selection.as_ref() {
+                    Some(choice) if choice == "Allow once" => Ok(None),
+                    Some(choice) if choice == "Allow always" => {
                         session.spawn_allow_always_agent(&event);
                         Ok(None)
                     }
@@ -2653,11 +2653,10 @@ impl AgentSession {
         let Some(store) = self.inner.multi_agent_store.as_ref() else {
             return;
         };
-        let Some(sender_id) = message.sender.agent_id.as_ref().and_then(|id| id.to_utf8().ok()) else {
-            // Store IDs are generated scalar strings; unmatched units cannot identify one.
+        let Some(sender_id) = message.sender.agent_id.as_ref() else {
             return;
         };
-        let Some(data) = build_detached_tool_call_completion_entry(store.get_agent(&sender_id).as_ref()) else {
+        let Some(data) = build_detached_tool_call_completion_entry(store.get_agent(sender_id).as_ref()) else {
             return;
         };
         let already_recorded = lock(&self.inner.session_manager).get_entries().iter().any(|entry| {
@@ -2814,7 +2813,7 @@ impl AgentSession {
 
     fn complete_runtime_mailbox_steered_agent(
         &self,
-        agent_id: &str,
+        agent_id: &JsString,
         lifecycle: AgentLifecycle,
         summary: Option<&JsString>,
     ) -> bool {
@@ -2845,7 +2844,7 @@ impl AgentSession {
 
     fn defer_runtime_mailbox_steered_terminal(
         &self,
-        agent_id: &str,
+        agent_id: &JsString,
         lifecycle: AgentLifecycle,
         summary: Option<JsString>,
     ) {
@@ -2870,7 +2869,7 @@ impl AgentSession {
         let Some(store) = self.inner.multi_agent_store.as_ref() else {
             return;
         };
-        let pending: Vec<(String, PendingSteeringTerminal)> = lock(&self.inner.runtime_mailbox_pending_terminal)
+        let pending: Vec<(JsString, PendingSteeringTerminal)> = lock(&self.inner.runtime_mailbox_pending_terminal)
             .iter()
             .map(|(agent_id, pending)| (agent_id.clone(), pending.clone()))
             .collect();
@@ -3573,7 +3572,7 @@ impl AgentSession {
     fn publish_agent_activity(
         &self,
         store: &Arc<crate::core::multi_agent_store::MultiAgentStore>,
-        agent_id: &str,
+        agent_id: &JsString,
         activity: Option<crate::core::multi_agent_store::AgentCurrentActivity>,
         ownership: Option<&crate::core::multi_agent_store::AgentCurrentActivityOwner>,
     ) -> Result<(), AgentError> {
@@ -4564,13 +4563,12 @@ impl AgentSession {
 
     fn throw_if_extension_command(&self, text: &JsString) -> Result<(), AgentSessionError> {
         let (command_name, _) = split_prompt_command(text);
-        let Some(name) = command_name.to_utf8().ok() else {
-            return Ok(());
-        };
-        if self.runner().get_command(&name).is_some() {
-            return Err(AgentSessionError::new(format!(
-                "Extension command \"/{name}\" cannot be queued. Use prompt() or execute the command when not streaming."
-            )));
+        if self.runner().get_command(&command_name).is_some() {
+            return Err(AgentSessionError::new(
+                JsString::from("Extension command \"/")
+                    + &command_name
+                    + "\" cannot be queued. Use prompt() or execute the command when not streaming.",
+            ));
         }
         Ok(())
     }
@@ -5577,7 +5575,7 @@ impl AgentSession {
         let theme = crate::modes::interactive::theme::try_current_theme()
             .map_err(|theme_error| error(theme_error.message()))?;
         let styled = theme.fg(color, &status_text);
-        ui.set_status("bwrap", Some(&styled));
+        ui.set_status(&"bwrap".into(), Some(&styled));
         Ok(())
     }
 
@@ -7418,11 +7416,7 @@ impl AgentSession {
                     } else {
                         scoped.into_iter().map(|scoped| scoped.model).collect()
                     };
-                    let Some(model) = model_reference
-                        .to_utf8()
-                        .ok()
-                        .and_then(|reference| find_exact_model_reference_match(&reference, &models))
-                    else {
+                    let Some(model) = find_exact_model_reference_match(&model_reference, &models) else {
                         return Err(crate::core::extensions::types::HandlerError::new(
                             JsString::from("Model not found or not authenticated: ") + model_reference,
                         ));
@@ -7612,17 +7606,14 @@ impl AgentSession {
 
     async fn try_execute_extension_command(&self, text: &JsString) -> bool {
         let (command_name, args) = split_prompt_command(text);
-        let Some(command_name) = command_name.to_utf8().ok() else {
-            return false;
-        };
         let runner = self.runner();
         let Some(command) = runner.get_prompt_command(&command_name) else {
             return false;
         };
-        let context = self.create_command_context_for(&command_name);
+        let context = self.create_command_context_for(&command.invocation_name);
         if let Err(error) = (command.handler)(args, context).await {
             runner.emit_error(crate::core::extensions::types::ExtensionError {
-                extension_path: format!("command:{command_name}"),
+                extension_path: format!("command:{}", command.invocation_name),
                 event: "command".to_owned(),
                 error: error.message,
                 stack: None,

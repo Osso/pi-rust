@@ -1,139 +1,128 @@
+use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
 use pi_js_compat::number::js_number_value;
-use serde_json::{Map, Number, Value};
 use serde_yaml_ng::Value as YamlValue;
 
 /// Parsed frontmatter and the trimmed body that follows it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedFrontmatter {
-    pub frontmatter: Value,
-    pub body: String,
+    pub frontmatter: JsValue,
+    pub body: JsString,
 }
 
 /// Frontmatter YAML could not be parsed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FrontmatterError {
-    message: String,
+    message: JsString,
 }
 
 impl FrontmatterError {
-    pub fn message(&self) -> &str {
+    pub fn message(&self) -> &JsString {
         &self.message
     }
 }
 
 impl std::fmt::Display for FrontmatterError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&encode_node_utf8(&self.message))
     }
 }
 
 impl std::error::Error for FrontmatterError {}
 
 /// Parse YAML frontmatter delimited by leading and trailing `---` lines.
-pub fn parse_frontmatter(content: &str) -> Result<ParsedFrontmatter, FrontmatterError> {
-    let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
+pub fn parse_frontmatter(content: impl Into<JsString>) -> Result<ParsedFrontmatter, FrontmatterError> {
+    let normalized = content.into().replace("\r\n", "\n").replace('\r', "\n");
     let Some((yaml_string, body)) = extract_frontmatter(&normalized) else {
         return Ok(ParsedFrontmatter {
-            frontmatter: Value::Object(Map::new()),
+            frontmatter: JsValue::Object(JsObject::new()),
             body: normalized,
         });
     };
-
-    if yaml_string.is_empty() {
-        return Ok(ParsedFrontmatter {
-            frontmatter: Value::Object(Map::new()),
-            body,
-        });
-    }
-
-    let yaml = serde_yaml_ng::from_str::<YamlValue>(&document_text(yaml_string)).map_err(|error| FrontmatterError {
-        message: error.to_string(),
-    })?;
-    if yaml.is_null() {
-        return Ok(ParsedFrontmatter {
-            frontmatter: Value::Object(Map::new()),
-            body,
-        });
-    }
-
-    Ok(ParsedFrontmatter {
-        frontmatter: yaml_to_json(yaml)?,
-        body,
-    })
+    let frontmatter = if yaml_string.is_empty() {
+        JsValue::Object(JsObject::new())
+    } else {
+        parse_yaml_frontmatter(&yaml_string)?
+    };
+    Ok(ParsedFrontmatter { frontmatter, body })
 }
 
 /// Return the body with frontmatter removed.
-pub fn strip_frontmatter(content: &str) -> Result<String, FrontmatterError> {
+pub fn strip_frontmatter(content: impl Into<JsString>) -> Result<JsString, FrontmatterError> {
     Ok(parse_frontmatter(content)?.body)
 }
 
-fn extract_frontmatter(normalized: &str) -> Option<(&str, String)> {
+fn extract_frontmatter(normalized: &JsString) -> Option<(JsString, JsString)> {
     if !normalized.starts_with("---") {
         return None;
     }
-
-    let end_index = normalized.get(3..)?.find("\n---")? + 3;
-    let yaml_string = if end_index >= 4 {
-        normalized.get(4..end_index)?
-    } else {
-        ""
-    };
-    let body = normalized.get(end_index + 4..)?.trim().to_owned();
+    let end_index = normalized.find_from("\n---", 3)?;
+    let yaml_string = normalized.slice(4, end_index);
+    let body = normalized.slice(end_index + 4, normalized.len()).trim();
     Some((yaml_string, body))
 }
 
-fn document_text(yaml_string: &str) -> String {
-    // Extraction removes the line break before the closing `---`. YAML block
-    // scalars use the end-of-document line break for chomping, so restore it.
-    if yaml_string.ends_with('\n') {
-        yaml_string.to_owned()
-    } else {
-        format!("{yaml_string}\n")
+fn parse_yaml_frontmatter(yaml_string: &JsString) -> Result<JsValue, FrontmatterError> {
+    // Temporary explicit restriction pending the native-YAML/gap decision. Body extraction
+    // never crosses this scalar-only parser; neither literal nor escaped lone units are dropped.
+    let mut document = yaml_string.to_utf8().map_err(|_| FrontmatterError {
+        message: "YAML frontmatter contains an unpaired UTF-16 unit".into(),
+    })?;
+    if !document.ends_with('\n') {
+        document.push('\n');
     }
+    let yaml = serde_yaml_ng::from_str::<YamlValue>(&document).map_err(|error| FrontmatterError {
+        message: error.to_string().into(),
+    })?;
+    if yaml.is_null() {
+        return Ok(JsValue::Object(JsObject::new()));
+    }
+    yaml_to_js_value(yaml)
 }
 
-fn yaml_to_json(value: YamlValue) -> Result<Value, FrontmatterError> {
+fn yaml_to_js_value(value: YamlValue) -> Result<JsValue, FrontmatterError> {
     match value {
-        YamlValue::Null => Ok(Value::Null),
-        YamlValue::Bool(value) => Ok(Value::Bool(value)),
-        YamlValue::Number(value) => Ok(yaml_number_to_json(value)),
-        YamlValue::String(value) => Ok(Value::String(value)),
+        YamlValue::Null => Ok(JsValue::Null),
+        YamlValue::Bool(value) => Ok(JsValue::Bool(value)),
+        YamlValue::Number(value) => Ok(yaml_number_to_js_value(value)),
+        YamlValue::String(value) => Ok(JsValue::String(value.into())),
         YamlValue::Sequence(values) => values
             .into_iter()
-            .map(yaml_to_json)
+            .map(yaml_to_js_value)
             .collect::<Result<Vec<_>, _>>()
-            .map(Value::Array),
+            .map(JsValue::Array),
         YamlValue::Mapping(mapping) => {
-            let mut object = Map::new();
+            let mut object = JsObject::new();
             for (key, value) in mapping {
-                object.insert(yaml_key(key)?, yaml_to_json(value)?);
+                object.insert(yaml_key(key)?, yaml_to_js_value(value)?);
             }
-            Ok(Value::Object(object))
+            Ok(JsValue::Object(object))
         }
         YamlValue::Tagged(tagged) => Err(FrontmatterError {
-            message: format!("unsupported YAML tag: {}", tagged.tag),
+            message: format!("unsupported YAML tag: {}", tagged.tag).into(),
         }),
     }
 }
 
-fn yaml_number_to_json(value: serde_yaml_ng::Number) -> Value {
+fn yaml_number_to_js_value(value: serde_yaml_ng::Number) -> JsValue {
     if let Some(value) = value.as_i64() {
-        return Value::Number(Number::from(value));
+        return JsValue::Number(value.into());
     }
     if let Some(value) = value.as_u64() {
-        return Value::Number(Number::from(value));
+        return JsValue::Number(value.into());
     }
-    value.as_f64().map_or(Value::Null, js_number_value)
+    value
+        .as_f64()
+        .map_or(JsValue::Null, |value| js_number_value(value).into())
 }
 
-fn yaml_key(value: YamlValue) -> Result<String, FrontmatterError> {
+fn yaml_key(value: YamlValue) -> Result<JsString, FrontmatterError> {
     match value {
-        YamlValue::String(value) => Ok(value),
-        YamlValue::Bool(value) => Ok(value.to_string()),
-        YamlValue::Number(value) => Ok(value.to_string()),
-        YamlValue::Null => Ok("null".to_owned()),
+        YamlValue::String(value) => Ok(value.into()),
+        YamlValue::Bool(value) => Ok(value.to_string().into()),
+        YamlValue::Number(value) => Ok(value.to_string().into()),
+        YamlValue::Null => Ok("null".into()),
         other => Err(FrontmatterError {
-            message: format!("unsupported YAML mapping key: {other:?}"),
+            message: format!("unsupported YAML mapping key: {other:?}").into(),
         }),
     }
 }

@@ -32,7 +32,7 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
     assert!(path.units().contains(&0xd800));
     let manager = SessionManager::open(&path, Some(&directory), None).unwrap();
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(Default::default()))),
+        credentials: Some(Arc::new(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()))),
         models_path: Some(None),
         allow_model_network: false,
         refresh_on_create: Some(false),
@@ -161,8 +161,8 @@ async fn raw_storage_paths_keep_identity_until_the_filesystem_boundary() {
             .unwrap()
             .ends_with(&(JsString::from("File: ") + &models_path))
     );
-    let settings = SettingsManager::create(&raw, Some(&raw), Default::default()).unwrap();
-    assert!(settings.get_errors().is_empty());
+    let mut settings = SettingsManager::create(&raw, Some(&raw), Default::default()).unwrap();
+    assert!(settings.drain_errors().is_empty());
 }
 
 #[tokio::test]
@@ -202,4 +202,47 @@ fn session_resource_cleanup_receives_raw_session_id() {
     pi_ai::session_resources::cleanup_session_resources(Some(&raw)).unwrap();
     registration.unregister();
     assert_eq!(*seen.lock().unwrap(), Some(raw));
+}
+
+#[test]
+fn agent_message_event_serialization_retains_raw_text() {
+    let raw = JsString::from_utf16(vec![0xd800, 0x61, 0xdc00]);
+    let event = pi_coding_agent::core::agent_session::AgentMessageEvent {
+        event: pi_agent_core::agent::types::AgentEvent::MessageEnd {
+            message: pi_agent_core::AgentMessage::User(pi_ai::types::UserMessage {
+                role: pi_ai::types::UserRole::Tag,
+                content: pi_ai::types::UserContent::Text(raw.clone()),
+                input_source: None,
+                provider_native: None,
+                timestamp: 1,
+            }),
+        },
+        runtime_message_marker: None,
+    };
+    let serialized = pi_js_compat::js_json::to_value(&event).unwrap();
+    assert_eq!(serialized["message"]["content"].as_string(), Some(&raw));
+}
+
+#[test]
+fn model_reference_matching_does_not_replace_unmatched_units() {
+    use pi_coding_agent::core::model_resolver::find_exact_model_reference_match;
+    let model: pi_ai::types::Model = serde_json::from_value(serde_json::json!({
+        "id":"probe", "name":"probe", "api":"openai-responses", "provider":"vendor�", "baseUrl":"https://provider.invalid/v1", "reasoning":false, "input":["text"],
+        "cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, "contextWindow":10000, "maxTokens":1000
+    })).unwrap();
+    let raw = JsString::from("vendor") + JsString::from_utf16(vec![0xd800]) + "/probe";
+    let mut oracle = oracle::TsOracle::spawn(
+        "model-resolver-oracle.ts",
+        "packages/coding-agent/src/core/model-resolver.ts",
+    );
+    let source = oracle.request_lossless(
+        &pi_js_compat::js_json!({"id":"raw-model-reference", "operation":"exact", "reference":raw, "models":[model]}),
+    );
+    assert_eq!(source["ok"].as_bool(), Some(true));
+    assert!(source["output"]["model"].is_null());
+    assert!(find_exact_model_reference_match(&raw, &[model.clone()]).is_none());
+    assert_eq!(
+        find_exact_model_reference_match(&"vendor�/probe".into(), &[model.clone()]),
+        Some(model)
+    );
 }

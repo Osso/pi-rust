@@ -153,7 +153,7 @@ async fn manual_state_mismatch_fails_with_the_source_message() {
         "http://localhost:53692/callback?code=manual-code&state=wrong".to_owned(),
     )]);
     let error = oauth.login(interaction).await.expect_err("state mismatch");
-    assert_eq!(error.detail(), Some("OAuth state mismatch"));
+    assert_eq!(error.detail(), Some(&"OAuth state mismatch".into()));
 }
 
 #[tokio::test]

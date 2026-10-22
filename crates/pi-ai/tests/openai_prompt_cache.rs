@@ -3,8 +3,8 @@ use pi_js_compat::js_json::JsString;
 
 #[test]
 fn preserves_missing_and_short_keys() {
-    assert_eq!(clamp_openai_prompt_cache_key(None), None).into();
-    assert_eq!(clamp_openai_prompt_cache_key(Some(&"".into())), Some("".into())).into();
+    assert_eq!(clamp_openai_prompt_cache_key(None), None);
+    assert_eq!(clamp_openai_prompt_cache_key(Some(&"".into())), Some("".into()));
     assert_eq!(
         clamp_openai_prompt_cache_key(Some(&"prompt-cache-key".into())),
         Some("prompt-cache-key".into())

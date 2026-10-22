@@ -65,7 +65,7 @@ fn append_context_files(prompt: &mut String, context_files: &[ContextFile]) {
 
 /// Builds the system prompt with tools, guidelines, and context.
 pub fn build_system_prompt(options: &BuildSystemPromptOptions) -> JsString {
-    let prompt_cwd = options.cwd.replace_all('\\', "/");
+    let prompt_cwd = options.cwd.replace('\\', "/");
     let append_section = options
         .append_system_prompt
         .as_ref()
