@@ -6,6 +6,7 @@ mod oracle;
 mod support;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::json;
 
 #[tokio::test]
@@ -127,11 +128,11 @@ async fn replaces_discovery_settings_prompt_and_tools() {
     );
     let context = &requests[0]["context"];
     assert_eq!(
-        context["systemPrompt"],
-        js_format!(
+        JsValue::from(context["systemPrompt"].clone()),
+        JsValue::String(js_format!(
             "You are a minimal assistant.\nAvailable: read, bash. Be concise.\nCurrent working directory: {}\n",
             cwd
-        )
+        ))
     );
     let names: Vec<_> = context["tools"]
         .as_array()

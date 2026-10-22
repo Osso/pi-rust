@@ -14,12 +14,12 @@ fn install_oracle_theme() {
         .map(|(index, key)| {
             (
                 JsString::from(*key),
-                ColorValue::Text(format!(
+                ColorValue::Text(JsString::from(format!(
                     "#{:02x}{:02x}{:02x}",
                     (16 + 7 * index) % 256,
                     (32 + 11 * index) % 256,
                     (48 + 13 * index) % 256
-                )),
+                ))),
             )
         })
         .collect();

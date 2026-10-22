@@ -82,7 +82,7 @@ lines.on("line", (line) => {
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0],
-            json!({"type": "echo", "line": "{\"type\":\"get_commands\",\"id\":\"req_1\"}"})
+            JsValue::from(json!({"type": "echo", "line": "{\"type\":\"get_commands\",\"id\":\"req_1\"}"}))
         );
     }
 
@@ -259,6 +259,9 @@ lines.on("line", (line) => {
             }),
             json!({"type": "agent_end", "messages": [], "willRetry": false}),
         ]
+        .into_iter()
+        .map(JsValue::from)
+        .collect::<Vec<_>>()
     );
 
     client.stop().await.expect("client must stop");
@@ -367,7 +370,7 @@ setInterval(() => {}, 1000);
         .await
         .expect("event must arrive")
         .expect("event channel must stay open");
-    assert_eq!(event["id"], json!("other"));
+    assert_eq!(event["id"], JsValue::from(json!("other")));
 
     client.stop().await.expect("client must stop");
 }
@@ -408,7 +411,7 @@ lines.on("line", (line) => {
         .expect("event channel must stay open");
     assert_eq!(
         event,
-        json!({"type": "echo", "line": "{\"type\":\"clone\",\"id\":\"req_1\"}"})
+        JsValue::from(json!({"type": "echo", "line": "{\"type\":\"clone\",\"id\":\"req_1\"}"}))
     );
 
     client.stop().await.expect("client must stop");
@@ -435,7 +438,7 @@ setInterval(() => {}, 1000);
         .await
         .expect("event must arrive")
         .expect("event channel must stay open");
-    assert_eq!(event["id"], json!(""));
+    assert_eq!(event["id"], JsValue::from(json!("")));
 
     client.stop().await.expect("client must stop");
 }
@@ -489,10 +492,10 @@ lines.on("line", (line) => {
         .expect("event channel must stay open");
     assert_eq!(
         event,
-        json!({
+        JsValue::from(json!({
             "type": "echo",
             "line": "{\"type\":\"compact\",\"customInstructions\":\"Keep decisions\",\"id\":\"req_1\"}"
-        })
+        }))
     );
 
     client.stop().await.expect("client must stop");
@@ -534,7 +537,7 @@ lines.on("line", (line) => {
         .expect("event channel must stay open");
     assert_eq!(
         event,
-        json!({"type": "echo", "line": "{\"type\":\"compact\",\"id\":\"req_1\"}"})
+        JsValue::from(json!({"type": "echo", "line": "{\"type\":\"compact\",\"id\":\"req_1\"}"}))
     );
 
     client.stop().await.expect("client must stop");
@@ -596,7 +599,7 @@ lines.on("line", (line) => {
         .expect("event channel must stay open");
     assert_eq!(
         event,
-        json!({"type": "echo", "line": "{\"type\":\"get_session_stats\",\"id\":\"req_1\"}"})
+        JsValue::from(json!({"type": "echo", "line": "{\"type\":\"get_session_stats\",\"id\":\"req_1\"}"}))
     );
 
     client.stop().await.expect("client must stop");
@@ -642,10 +645,10 @@ lines.on("line", (line) => {
         .expect("event channel must stay open");
     assert_eq!(
         event,
-        json!({
+        JsValue::from(json!({
             "type": "echo",
             "line": "{\"type\":\"bash\",\"command\":\"echo hello\",\"id\":\"req_1\"}"
-        })
+        }))
     );
 
     client.stop().await.expect("client must stop");

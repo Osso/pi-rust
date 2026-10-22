@@ -1,4 +1,5 @@
 use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::encode_node_utf8;
 use std::fs;
 use std::path::PathBuf;
 
@@ -75,7 +76,7 @@ fn supports_overriding_effective_cwd_when_opening() {
         Some(&JsString::from(&fallback.display().to_string())),
     )
     .unwrap();
-    assert_eq!(manager.get_cwd(), fallback.display().to_string());
+    assert_eq!(*manager.get_cwd(), fallback.to_str().expect("utf-8 path"));
     assert!(get_missing_session_cwd_issue(&manager, &JsString::from(&fallback.display().to_string())).is_none());
 }
 
@@ -95,7 +96,10 @@ fn formats_errors_and_prompts() {
         "cwd from session file does not exist\n/missing\n\ncontinue in current cwd\n/current"
     );
     let error = MissingSessionCwdError::new(issue);
-    assert_eq!(error.to_string(), format_missing_session_cwd_error(&error.issue));
+    assert_eq!(
+        error.to_string(),
+        encode_node_utf8(&format_missing_session_cwd_error(&error.issue))
+    );
     assert_eq!(MissingSessionCwdError::NAME, "MissingSessionCwdError");
 }
 
@@ -119,7 +123,7 @@ fn asserts_and_reopens_with_selected_cwd() {
         &JsString::from(&control_db_path),
     )
     .unwrap();
-    assert_eq!(reopened.get_cwd(), fallback.display().to_string());
+    assert_eq!(*reopened.get_cwd(), fallback.to_str().expect("utf-8 path"));
     assert_eq!(
         reopened.get_metadata_control_db_path(),
         Some(control_db_path.as_str()).map(JsString::from).as_ref()

@@ -6,6 +6,7 @@ mod oracle;
 
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::encode_node_utf8;
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 
@@ -322,9 +323,12 @@ async fn native_example_prompt_failure_releases_resources_without_printing_messa
         pi_coding_agent::core::auth_guidance::format_no_api_key_found_message("sdk-minimal-missing-auth")
     );
     let source = source(json!({"messages":[],"events":[],"failure":error}));
-    assert_eq!(source["error"], error);
+    assert_eq!(JsValue::from(source["error"].clone()), JsValue::String(error.clone()));
     assert_eq!(source["errorName"], "Error");
-    assert_eq!(format!("{:?}", minimal::ExampleError(error.clone())), error);
+    assert_eq!(
+        format!("{:?}", minimal::ExampleError(error.clone())),
+        encode_node_utf8(&error)
+    );
     assert_eq!(output.text(), "");
     assert!(
         *cleaned.lock().unwrap(),

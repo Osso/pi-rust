@@ -150,7 +150,7 @@ fn native_context() -> ProviderNativeContext {
         provider: "openai-codex".to_owned(),
         api: "openai-codex-responses".to_owned(),
         format: ProviderNativeFormat::OpenAIResponsesInput,
-        value: json!([{ "type": "compaction_summary", "encrypted_content": "encrypted-checkpoint" }]),
+        value: JsValue::from(json!([{ "type": "compaction_summary", "encrypted_content": "encrypted-checkpoint" }])),
     }
 }
 

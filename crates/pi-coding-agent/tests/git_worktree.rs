@@ -272,5 +272,5 @@ fn process_exec_reports_non_zero_exit_status() {
             &JsString::from("/tmp"),
         )
         .expect_err("git failure");
-    assert!(error.message.contains("git rev-parse"), "{}", error.message);
+    assert!(error.message.contains("git rev-parse"), "{:?}", error.message);
 }

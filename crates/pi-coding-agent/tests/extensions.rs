@@ -1213,7 +1213,7 @@ async fn provider_request_scenario(temp_dir: &str) -> Value {
     let a = support::extension(&runtime, temp_dir, &path_in(temp_dir, "a.ts"), |api| {
         api.on_before_provider_request(h!(BeforeProviderRequestEvent, |e, _c| {
             let mut payload = e.payload.clone();
-            payload["a"] = json!(1);
+            payload["a"] = JsValue::from(json!(1));
             Ok(Some(payload))
         }))
         .unwrap();
@@ -1221,11 +1221,11 @@ async fn provider_request_scenario(temp_dir: &str) -> Value {
         // replacement (approved return-only deviation, compatibility.md).
         api.on_before_provider_request(h!(BeforeProviderRequestEvent, |e, _c| {
             let mut payload = e.payload;
-            payload["b"] = json!(2);
+            payload["b"] = JsValue::from(json!(2));
             Ok(Some(payload))
         }))
         .unwrap();
-        api.on_before_provider_request(h!(BeforeProviderRequestEvent, |_e, _c| Ok(Some(Value::Null))))
+        api.on_before_provider_request(h!(BeforeProviderRequestEvent, |_e, _c| Ok(Some(JsValue::Null))))
             .unwrap();
     })
     .await;
@@ -2292,7 +2292,7 @@ async fn wrapped_definitions_forward_prepare_arguments_and_prepare_execution() {
     assert_eq!(
         tool.prepare_arguments(JsValue::from(json!({"value": 1})))
             .expect("prepared arguments"),
-        json!({"value": 1, "prepared": true})
+        JsValue::from(json!({"value": 1, "prepared": true}))
     );
     let prepared = tool
         .prepare_execution("call-1".to_owned(), None)

@@ -91,7 +91,7 @@ async fn stream_write_failure_retains_message_and_disposes_owned_session() {
     let error = example::run(fixture.options, FailText(output.clone()))
         .await
         .unwrap_err();
-    assert_eq!(error, expected["error"]);
+    assert_eq!(JsValue::String(error.clone()), JsValue::from(expected["error"].clone()));
     assert_eq!(expected["errorName"], "Error");
     assert_eq!(expected["disposed"], serde_json::json!([0]));
     assert_eq!(output.text(), expected["stdout"]);

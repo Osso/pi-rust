@@ -161,7 +161,7 @@ fn agent(id: &str, agent_type: &str, lifecycle: AgentLifecycle) -> AgentSnapshot
     AgentSnapshot {
         id: JsString::from(id.to_owned()),
         parent_id: Some(JsString::from("main")),
-        display_name: format!("Agent {id}"),
+        display_name: JsString::from(format!("Agent {id}")),
         agent_type: agent_type.into(),
         origin: None,
         lifecycle,
@@ -399,7 +399,8 @@ async fn model_command_reports_a_missing_api_key_for_the_viewed_session() {
             })),
             ..Default::default()
         })
-        .await;
+        .await
+        .expect("bind extensions");
     let target_model = env.faux.get_model(Some("faux-2")).expect("faux-2");
     let target: Arc<dyn ViewedSessionMutationTarget> = Arc::new(TestMutationTarget {
         model: Some(target_model),

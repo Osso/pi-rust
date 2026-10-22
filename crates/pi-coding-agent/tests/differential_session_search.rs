@@ -16,7 +16,7 @@ const SOURCE_MODULE: &str = "packages/coding-agent/src/modes/interactive/compone
 
 fn session(id: &str, modified: i64, first_message: &str) -> SessionInfo {
     SessionInfo {
-        path: format!("/tmp/{id}.jsonl"),
+        path: JsString::from(format!("/tmp/{id}.jsonl")),
         id: JsString::from(id.to_owned()),
         cwd: JsString::default(),
         name: None,
@@ -134,7 +134,7 @@ fn rust_sessions(value: &Value) -> Vec<SessionInfo> {
         .unwrap()
         .iter()
         .map(|session| SessionInfo {
-            path: format!("/tmp/{}.jsonl", session["id"].as_str().unwrap()),
+            path: JsString::from(format!("/tmp/{}.jsonl", session["id"].as_str().unwrap())),
             id: JsString::from(session["id"].as_str().unwrap().to_owned()),
             cwd: JsString::from(session["cwd"].as_str().unwrap().to_owned()),
             name: session["name"].as_str().map(str::to_owned).map(JsString::from),

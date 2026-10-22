@@ -1038,7 +1038,7 @@ async fn runtime_mailbox_delivery_prompts_the_session_and_removes_the_accepted_r
             kind: RuntimeMailboxMessageKind::Message,
             store_ref,
             recipient_host: None,
-            message: json!({
+            message: JsValue::from(json!({
                 "id": "mailbox-1",
                 "fromAgentId": "parent",
                 "kind": "message",
@@ -1046,7 +1046,7 @@ async fn runtime_mailbox_delivery_prompts_the_session_and_removes_the_accepted_r
                 "createdAt": created_at,
                 "updatedAt": created_at,
                 "body": "hello from parent",
-            }),
+            })),
             updated_at: None,
         },
     )
@@ -1663,8 +1663,8 @@ async fn permission_prompt_tool_updates_input_before_execution() {
     assert_eq!(executed.lock().unwrap().as_slice(), ["approved".to_owned()]);
     let calls = calls.lock().unwrap();
     assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0]["tool_name"], json!("echo"));
-    assert_eq!(calls[0]["input"]["text"], json!("original"));
+    assert_eq!(calls[0]["tool_name"], JsValue::from(json!("echo")));
+    assert_eq!(calls[0]["input"]["text"], JsValue::from(json!("original")));
 }
 
 #[tokio::test]
@@ -2211,7 +2211,8 @@ async fn human_allow_always_spawns_the_permission_config_agent() {
             mode: Some(ExtensionMode::Tui),
             ..Default::default()
         })
-        .await;
+        .await
+        .expect("bind extensions");
     fixture.faux.set_responses(vec![
         faux_assistant_message(
             vec![pi_ai::types::AssistantContent::ToolCall(pi_ai::types::ToolCall::new(
@@ -2748,7 +2749,8 @@ async fn human_approval_ui_errors_abort_the_tool_call() {
             mode: Some(ExtensionMode::Tui),
             ..Default::default()
         })
-        .await;
+        .await
+        .expect("bind extensions");
     fixture.faux.set_responses(vec![
         faux_assistant_message(
             permission_tool_call("hello"),

@@ -451,7 +451,7 @@ fn reads_files_and_headers() {
     )
     .unwrap();
     assert_eq!(manager.get_session_id(), "leading-blank");
-    assert_eq!(manager.get_cwd(), dir.display().to_string());
+    assert_eq!(*manager.get_cwd(), dir.to_str().expect("utf-8 path"));
 }
 
 #[test]
@@ -536,7 +536,7 @@ fn persists_only_after_the_first_assistant_message() {
 
     let reopened = SessionManager::open(&file, None, None).unwrap();
     assert_eq!(reopened.get_entries().len(), 2);
-    assert_eq!(reopened.get_cwd(), dir.display().to_string());
+    assert_eq!(*reopened.get_cwd(), dir.to_str().expect("utf-8 path"));
 }
 
 #[test]
@@ -554,7 +554,10 @@ fn rewrites_empty_files_and_rejects_non_session_files() {
     assert!(manager.get_header().is_some());
     let content = fs::read_to_string(&empty).unwrap();
     assert_eq!(content.lines().count(), 1);
-    assert_eq!(manager.get_session_file().unwrap(), empty.display().to_string());
+    assert_eq!(
+        *manager.get_session_file().unwrap(),
+        empty.to_str().expect("utf-8 path")
+    );
 
     let no_header = dir.join("no-header.jsonl");
     let original = "{\"type\":\"message\",\"id\":\"abc\",\"parentId\":\"orphaned\",\"timestamp\":\"2025-01-01T00:00:00Z\",\"message\":{\"role\":\"assistant\",\"content\":\"test\"}}\n";
@@ -684,7 +687,7 @@ fn restores_the_sqlite_session_name_without_loading_pre_cutoff_session_info() {
             .iter()
             .any(|entry| entry.entry_type() == "session_info")
     );
-    assert_eq!(session.get_cwd(), relocated_cwd);
+    assert_eq!(*session.get_cwd(), relocated_cwd);
     assert_eq!(
         session.get_session_name().as_ref(),
         Some(&JsString::from("SQLite Session Name"))
@@ -934,7 +937,7 @@ fn restores_cwd_from_summarized_prefix() {
         None,
     )
     .unwrap();
-    assert_eq!(session.get_cwd(), relocated.display().to_string());
+    assert_eq!(*session.get_cwd(), relocated.to_str().expect("utf-8 path"));
     assert_eq!(ids(&session.get_entries()), ["kept-1", "compaction-1", "after-1"]);
 }
 
@@ -1283,7 +1286,9 @@ fn update_compaction_summary_rewrites_and_restores_on_failure() {
         provider: "openai".to_owned(),
         api: "openai-responses".to_owned(),
         format: pi_ai::types::ProviderNativeFormat::OpenAIResponsesInput,
-        value: serde_json::json!([{"type":"compaction_summary","encrypted_content":"encrypted-native-checkpoint"}]),
+        value: JsValue::from(
+            serde_json::json!([{"type":"compaction_summary","encrypted_content":"encrypted-native-checkpoint"}]),
+        ),
     };
     let id = session
         .append_compaction(
@@ -1616,7 +1621,7 @@ fn metadata_empty_paths_and_model_fields_use_js_truthiness() {
             },
         )
         .expect("empty cwd override is ignored");
-    assert_eq!(persisted.get_cwd(), cwd_before);
+    assert_eq!(*persisted.get_cwd(), cwd_before);
 
     let session_file = persisted.get_session_file().unwrap().to_owned();
     write_session_metadata(
@@ -1908,15 +1913,15 @@ fn open_preserves_a_freshly_persisted_header() {
     drop(created);
 
     let opened = SessionManager::open(&path, Some(&JsString::from(&session_dir)), None).unwrap();
-    assert_eq!(opened.get_session_id(), created_id);
+    assert_eq!(*opened.get_session_id(), created_id);
     assert_eq!(
         opened.get_session_name(),
         None,
         "names come from control-db metadata, not historical session_info entries"
     );
-    assert_eq!(opened.get_cwd(), dir.display().to_string());
+    assert_eq!(*opened.get_cwd(), dir.to_str().expect("utf-8 path"));
     let header = opened.get_header().expect("header");
-    assert_eq!(header.id(), created_id);
+    assert_eq!(*header.id(), created_id);
     assert_eq!(header.version(), Some(CURRENT_SESSION_VERSION));
     assert_eq!(header.parent_session(), Some(&JsString::from("/parent/session.jsonl")));
 
@@ -1936,7 +1941,7 @@ fn open_preserves_a_freshly_persisted_header() {
     drop(header_only);
     let reopened = SessionManager::open(&header_only_path, None, None).unwrap();
     assert_eq!(reopened.get_session_id(), "header-only");
-    assert_eq!(reopened.get_cwd(), header_only_dir_path);
+    assert_eq!(*reopened.get_cwd(), header_only_dir_path);
 }
 
 #[test]

@@ -110,10 +110,10 @@ fn strips_every_source_case() {
 #[test]
 fn strips_each_single_byte_esc_final_from_g_through_m() {
     for code in 'g'..='m' {
-        assert_eq!(strip_ansi(&format!("\x1b{code}ok")), "ok");
+        assert_eq!(strip_ansi(&JsString::from(format!("\x1b{code}ok"))), "ok");
     }
     for code in 'r'..='t' {
-        assert_eq!(strip_ansi(&format!("\x1b{code}ok")), "ok");
+        assert_eq!(strip_ansi(&JsString::from(format!("\x1b{code}ok"))), "ok");
     }
 }
 

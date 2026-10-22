@@ -188,7 +188,7 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
                     fork_logs
                         .lock()
                         .unwrap()
-                        .push(js_format!("before_fork:{}", event.entry_id));
+                        .push(encode_node_utf8(&js_format!("before_fork:{}", event.entry_id)));
                     Ok(cancel_fork.then_some(SessionBeforeForkResult {
                         cancel: Some(true),
                         skip_conversation_restore: None,
@@ -296,7 +296,7 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
                     extension_runner_ref: None,
                     session_start_event: None,
                 })
-                .map_err(|error| error.message().to_owned())?;
+                .map_err(|error| error.message().clone())?;
                 Ok(CreateAgentSessionRuntimeResult {
                     session,
                     services: AgentSessionServices {
@@ -310,7 +310,7 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
                     diagnostics: Vec::new(),
                     model_fallback_message: None,
                 })
-            }) as pi_ai::request::BoxFuture<'static, Result<CreateAgentSessionRuntimeResult, String>>
+            }) as pi_ai::request::BoxFuture<'static, Result<CreateAgentSessionRuntimeResult, JsString>>
         }) as pi_coding_agent::core::agent_session_runtime::CreateAgentSessionRuntimeFactory
     };
 
@@ -470,7 +470,7 @@ async fn relocate_updates_cwd_and_appends_a_context_note() {
         .relocate(&JsString::from(&target_cwd))
         .await
         .expect("relocate");
-    assert_eq!(harness.runtime.session().cwd(), target_cwd);
+    assert_eq!(*harness.runtime.session().cwd(), target_cwd);
     let entries = harness.runtime.session().session_manager().get_entries();
     let has_note = entries.iter().any(|entry| {
         matches!(
@@ -659,7 +659,7 @@ async fn import_from_jsonl_switches_to_the_imported_session() {
         .await
         .expect("import");
     assert!(!result.cancelled);
-    assert_eq!(harness.runtime.session().cwd(), source_cwd);
+    assert_eq!(*harness.runtime.session().cwd(), source_cwd);
     let logs = harness.logs.lock().unwrap().clone();
     assert!(logs.contains(&"before_switch:resume".to_owned()), "logs: {logs:?}");
 }
@@ -746,7 +746,7 @@ async fn bound_runtime_actions_relocate_through_the_extension_context() {
         .expect("relocate handler is bound")
         .await
         .expect("relocate");
-    assert_eq!(runtime.lock().await.cwd(), first);
+    assert_eq!(*runtime.lock().await.cwd(), first);
 
     let second = _temp.path().join("second");
     std::fs::create_dir(&second).expect("second dir");
@@ -758,7 +758,7 @@ async fn bound_runtime_actions_relocate_through_the_extension_context() {
         .expect("relocate handler is rebound after replacement")
         .await
         .expect("relocate after replacement");
-    assert_eq!(runtime.lock().await.cwd(), second);
+    assert_eq!(*runtime.lock().await.cwd(), second);
 
     let third = _temp.path().join("third");
     std::fs::create_dir(&third).expect("third dir");
@@ -778,7 +778,7 @@ async fn bound_runtime_actions_relocate_through_the_extension_context() {
         .activate_tool_result_relocation()
         .await
         .expect("activate tool-result relocation");
-    assert_eq!(runtime.lock().await.cwd(), third);
+    assert_eq!(*runtime.lock().await.cwd(), third);
 }
 
 #[tokio::test]

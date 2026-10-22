@@ -155,7 +155,7 @@ fn appends_a_restarted_notice_with_the_current_pid_after_an_exec_in_place_restar
     assert_eq!(message.custom_type, "self_restart");
     assert_eq!(
         message.content,
-        CustomMessageContent::Text(format!("Restarted. PID: {current_pid}."))
+        CustomMessageContent::Text(JsString::from(format!("Restarted. PID: {current_pid}.")))
     );
     assert!(message.display);
 }
@@ -180,7 +180,7 @@ fn appends_a_restarted_notice_with_the_old_and_new_pid_after_a_spawn_handoff() {
     let message = custom_message(&entries);
     assert_eq!(
         message.content,
-        CustomMessageContent::Text(format!("Restarted. PID 1234 -> {current_pid}."))
+        CustomMessageContent::Text(JsString::from(format!("Restarted. PID 1234 -> {current_pid}.")))
     );
 }
 

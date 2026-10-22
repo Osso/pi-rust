@@ -373,7 +373,7 @@ fn prepares_compaction_without_summarizing_latest_active_user_turn_start() {
     let entries = vec![old_user, old_assistant, latest_user.clone(), huge];
 
     let preparation = prepare_compaction(&entries, DEFAULT_COMPACTION_SETTINGS).expect("compaction prepared");
-    assert_eq!(preparation.first_kept_entry_id, entry_id(&latest_user));
+    assert_eq!(&preparation.first_kept_entry_id, entry_id(&latest_user));
     assert!(!message_text(&preparation.messages_to_summarize).contains("latest user must stay verbatim"));
     assert!(preparation.turn_prefix_messages.is_empty());
 }
