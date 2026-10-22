@@ -7,6 +7,7 @@ use pi_coding_agent::core::resident_console_transport::{
     RESIDENT_CONSOLE_PROTOCOL_VERSION, ResidentConsoleClient, ResidentConsoleEvent, ResidentConsoleHost,
     ResidentConsoleServer, ResidentConsoleServerOptions, ResidentConsoleService, ResidentConsoleSnapshot, Unsubscribe,
 };
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
@@ -26,10 +27,10 @@ fn snapshot() -> Snapshot {
 
 struct TestHost {
     snapshot: Snapshot,
-    prompts: Mutex<Vec<(String, String)>>,
+    prompts: Mutex<Vec<(JsString, JsString)>>,
     listeners: Listeners,
     next_listener: AtomicU64,
-    rejection: Mutex<Option<String>>,
+    rejection: Mutex<Option<JsString>>,
 }
 
 impl TestHost {
@@ -49,7 +50,7 @@ impl TestHost {
         }
     }
 
-    fn prompts(&self) -> Vec<(String, String)> {
+    fn prompts(&self) -> Vec<(JsString, JsString)> {
         self.prompts.lock().unwrap().clone()
     }
 }
@@ -61,9 +62,9 @@ impl ResidentConsoleHost<Value, Value> for TestHost {
 
     fn enqueue_prompt(
         &self,
-        text: String,
-        id: String,
-    ) -> Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>> {
+        text: JsString,
+        id: JsString,
+    ) -> Pin<Box<dyn std::future::Future<Output = Result<(), JsString>> + Send>> {
         self.prompts.lock().unwrap().push((id, text));
         let rejection = self.rejection.lock().unwrap().clone();
         Box::pin(async move { rejection.map_or(Ok(()), Err) })
@@ -133,7 +134,10 @@ async fn submits_prompts_and_receives_monotonic_events() {
     host.publish(json!({"type": "agent_end"}));
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    assert_eq!(host.prompts(), vec![("prompt-1".to_owned(), "inspect this".to_owned())]);
+    assert_eq!(
+        host.prompts(),
+        vec![(JsString::from("prompt-1"), JsString::from("inspect this"))]
+    );
     assert_eq!(
         *events.lock().unwrap(),
         vec![
