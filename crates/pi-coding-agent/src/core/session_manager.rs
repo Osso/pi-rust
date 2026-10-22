@@ -48,20 +48,24 @@ const HEADER_READ_BUFFER_SIZE: usize = 4096;
 /// Failure raised by session loading, mutation and persistence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionManagerError {
-    message: String,
+    message: JsString,
 }
 
 impl SessionManagerError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
         }
+    }
+
+    pub fn message(&self) -> &JsString {
+        &self.message
     }
 }
 
 impl std::fmt::Display for SessionManagerError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&encode_node_utf8(&self.message))
     }
 }
 
@@ -80,7 +84,7 @@ fn assert_unarchived_session_file(path: &str) -> Result<(), SessionManagerError>
     Ok(())
 }
 
-fn error(message: impl Into<String>) -> SessionManagerError {
+fn error(message: impl Into<JsString>) -> SessionManagerError {
     SessionManagerError::new(message)
 }
 

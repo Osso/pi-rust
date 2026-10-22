@@ -321,7 +321,7 @@ fn detach_state_fn(state: &DetachState) -> bool {
     let ownership = state.controller.register(&RegisterDetachedJobInput {
         agent_type: DetachedJobAgentType::Pyrun,
         cwd: state.cwd.clone(),
-        display_name: "Pyrun evaluation".to_owned(),
+        display_name: "Pyrun evaluation".into(),
         job_id: state.job_id.clone(),
         process_identity: state.process_identity.clone(),
         worker_handle_id: state.runner_pid.to_string(),
@@ -351,7 +351,7 @@ fn cancel_pyrun_evaluation(state: &DetachState) -> Result<(), HandlerError> {
     match state.ownership() {
         Some(ownership) => state
             .controller
-            .cancel(&ownership, Some("Pyrun tool call aborted"))
+            .cancel(&ownership, Some(&"Pyrun tool call aborted".into()))
             .map(|_| ())
             .map_err(|error| HandlerError::new(error.to_string())),
         None => terminate_foreground_runner(state.runner_pid, rustix::process::Signal::TERM).map_err(HandlerError::new),

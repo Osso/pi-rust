@@ -1,6 +1,6 @@
 //! `ask_supervisor` tool (`core/tools/ask-supervisor.ts`).
 
-use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::{JsString, JsValue};
 use std::sync::{Arc, OnceLock};
 
 use pi_agent_core::{
@@ -37,8 +37,8 @@ pub const PROMPT_GUIDELINES: [&str; 3] = [
 
 #[derive(Debug, Deserialize)]
 struct AskSupervisorParams {
-    question: String,
-    context: Option<String>,
+    question: JsString,
+    context: Option<JsString>,
 }
 
 /// `createAskSupervisorToolDefinition()`.
@@ -121,7 +121,7 @@ impl AgentHarnessTool<ExtensionContext> for AskSupervisorTool {
             let response = request_supervisor_decision(&RequestSupervisorDecisionInput {
                 control_db_path: control_db_path.to_owned(),
                 kind: SupervisorRequestKind::SupervisorAdvisory,
-                payload: advisory_payload(&params.question, params.context.as_deref()),
+                payload: advisory_payload(&params.question, params.context.as_ref()),
                 project_id: project_id.clone(),
                 sender_session_id: sender_session_id.to_owned(),
                 timeout_ms: SUPERVISOR_ADVISORY_TIMEOUT_MS,
@@ -139,7 +139,7 @@ impl AgentHarnessTool<ExtensionContext> for AskSupervisorTool {
             };
             Ok(text_result(
                 answer.clone(),
-                json!({
+                pi_js_compat::js_json!({
                     "answer": answer,
                     "projectId": project_id,
                     "senderSessionId": sender_session_id

@@ -1053,7 +1053,7 @@ fn activate_detached_bash_runner(
     let ownership = match options.lifecycle.register(&RegisterDetachedJobInput {
         agent_type: DetachedJobAgentType::Bash,
         cwd: cwd.to_owned(),
-        display_name: "Bash command".to_owned(),
+        display_name: "Bash command".into(),
         job_id: runner.job_id.clone(),
         process_identity: runner.process_identity.clone(),
         worker_handle_id: runner.runner_pid.to_string(),

@@ -621,7 +621,7 @@ impl SupervisorSession for AgentSession {
 
     fn compact(&self, instructions: &str) -> Option<BoxFuture<'static, Result<(), JsString>>> {
         let session = self.clone();
-        let instructions = instructions.to_owned();
+        let instructions = JsString::from(instructions);
         Some(Box::pin(async move {
             session
                 .compact(Some(&instructions))

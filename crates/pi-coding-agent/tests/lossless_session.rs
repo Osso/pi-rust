@@ -3,6 +3,15 @@ use pi_coding_agent::core::session_manager::{FileEntry, SessionEntry, parse_sess
 use pi_coding_agent::core::session_tool_output::serialize_session_entry;
 use pi_js_compat::js_json::parse_lossless;
 
+#[test]
+fn session_manager_error_retains_native_message_before_display() {
+    use pi_coding_agent::core::session_manager::SessionManagerError;
+    use pi_js_compat::js_json::JsString;
+    let error = SessionManagerError::new(JsString::from_utf16(vec![0xd800, 0x78, 0xdfff]));
+    assert_eq!(error.message().units(), &[0xd800, 0x78, 0xdfff]);
+    assert_eq!(error.to_string(), "�x�");
+}
+
 #[tokio::test]
 async fn custom_write_operation_error_keeps_raw_units() {
     use pi_agent_core::agent::types::AgentTool;
