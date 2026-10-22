@@ -21,7 +21,7 @@ fn persisted_runner_environment_is_an_object_with_raw_keys_and_values() {
 #[test]
 fn canonical_console_approval_and_progress_metadata_keep_raw_units() {
     use pi_coding_agent::bundled_extensions::pyrun::runner::{CanonicalPyrunEvalResult, CanonicalPyrunProgressUpdate};
-    let wire = js_json::parse_lossless(r#"{"type":"needs_approval","console":[{"level":"level-\ud800","message":"message-\udfff"}],"approval":{"args":{"key-\ud800":1},"id":"id-\ud801","summary":"summary-\ud802","tool":"tool-\ud803"}}"#).unwrap();
+    let wire = js_json::parse_lossless(r#"{"type":"needs_approval","console":["text-\ud804",{"level":"level-\ud800","message":"message-\udfff"}],"approval":{"args":{"key-\ud800":1},"id":"id-\ud801","summary":"summary-\ud802","tool":"tool-\ud803"}}"#).unwrap();
     let result: CanonicalPyrunEvalResult = js_json::from_value(&wire).unwrap();
     assert_eq!(js_json::to_value(&result).unwrap(), wire);
     let update = CanonicalPyrunProgressUpdate {
