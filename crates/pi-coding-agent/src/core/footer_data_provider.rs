@@ -5,10 +5,8 @@
 //! directly and falls back to `git symbolic-ref` for reftable repos, whose HEAD
 //! contains the `.invalid` placeholder.
 
-use crate::utils::paths::{node_dirname, node_join, node_normalize, node_resolve};
 use indexmap::IndexMap;
 use pi_js_compat::js_json::JsString;
-use pi_js_compat::js_json::encode_node_utf8;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -36,9 +34,9 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// Git metadata paths for the repository containing a directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitPaths {
-    pub repo_dir: JsString,
-    pub common_git_dir: JsString,
-    pub head_path: JsString,
+    pub repo_dir: PathBuf,
+    pub common_git_dir: PathBuf,
+    pub head_path: PathBuf,
 }
 
 /// Estimated context usage shown by the footer.
@@ -53,7 +51,7 @@ pub struct ContextUsage {
 /// Session values overriding the footer for one display cycle.
 #[derive(Clone)]
 pub struct FooterSessionOverride {
-    pub cwd: JsString,
+    pub cwd: String,
     pub session_manager: Option<Arc<Mutex<SessionManager>>>,
     pub model: Option<Model>,
     pub thinking_level: String,
@@ -63,8 +61,8 @@ pub struct FooterSessionOverride {
 /// Runs `git symbolic-ref` for reftable repos. Injectable so tests can decide
 /// what the `.invalid` placeholder resolves to.
 pub trait GitBranchRunner: Send + Sync {
-    fn resolve_sync(&self, repo_dir: &JsString) -> Option<String>;
-    fn resolve_async(&self, repo_dir: &JsString) -> BoxFuture<'static, Option<String>>;
+    fn resolve_sync(&self, repo_dir: &Path) -> Option<String>;
+    fn resolve_async(&self, repo_dir: &Path) -> BoxFuture<'static, Option<String>>;
 }
 
 /// Spawns the real `git` executable.
@@ -72,7 +70,7 @@ pub trait GitBranchRunner: Send + Sync {
 pub struct SystemGitBranchRunner;
 
 impl SystemGitBranchRunner {
-    fn command(repo_dir: &JsString) -> std::process::Command {
+    fn command(repo_dir: &Path) -> std::process::Command {
         let mut command = std::process::Command::new("git");
         command
             .arg("--no-optional-locks")
@@ -80,13 +78,13 @@ impl SystemGitBranchRunner {
             .arg("--quiet")
             .arg("--short")
             .arg("HEAD")
-            .current_dir(encode_node_utf8(repo_dir));
+            .current_dir(repo_dir);
         command
     }
 }
 
 impl GitBranchRunner for SystemGitBranchRunner {
-    fn resolve_sync(&self, repo_dir: &JsString) -> Option<String> {
+    fn resolve_sync(&self, repo_dir: &Path) -> Option<String> {
         let output = Self::command(repo_dir).output().ok()?;
         if !output.status.success() {
             return None;
@@ -96,8 +94,8 @@ impl GitBranchRunner for SystemGitBranchRunner {
         (!branch.is_empty()).then(|| branch.to_owned())
     }
 
-    fn resolve_async(&self, repo_dir: &JsString) -> BoxFuture<'static, Option<String>> {
-        let repo_dir = repo_dir.clone();
+    fn resolve_async(&self, repo_dir: &Path) -> BoxFuture<'static, Option<String>> {
+        let repo_dir = repo_dir.to_path_buf();
         Box::pin(async move {
             let output = tokio::process::Command::new("git")
                 .arg("--no-optional-locks")
@@ -105,7 +103,7 @@ impl GitBranchRunner for SystemGitBranchRunner {
                 .arg("--quiet")
                 .arg("--short")
                 .arg("HEAD")
-                .current_dir(encode_node_utf8(&repo_dir))
+                .current_dir(&repo_dir)
                 .output()
                 .await
                 .ok()?;
@@ -120,26 +118,24 @@ impl GitBranchRunner for SystemGitBranchRunner {
 }
 
 /// Finds git metadata by walking up from `cwd`.
-pub fn find_git_paths(cwd: &JsString) -> Option<GitPaths> {
-    let mut dir = cwd.clone();
+pub fn find_git_paths(cwd: &Path) -> Option<GitPaths> {
+    let mut dir = cwd.to_path_buf();
     loop {
-        let git_path = node_join(&dir, ".git");
-        if path_exists(&git_path) {
-            match std::fs::metadata(encode_node_utf8(&git_path)) {
+        let git_path = dir.join(".git");
+        if git_path.exists() {
+            match std::fs::metadata(&git_path) {
                 Ok(metadata) if metadata.is_file() => {
-                    let content = read_git_text(&git_path)?.trim();
+                    let content = std::fs::read_to_string(&git_path).ok()?.trim().to_owned();
                     if let Some(rest) = content.strip_prefix("gitdir: ") {
-                        let git_dir = node_resolve(&dir, rest.trim()).expect("absolute git directory resolves");
-                        let head_path = node_join(&git_dir, "HEAD");
-                        if !path_exists(&head_path) {
+                        let git_dir = resolve_path(&dir, rest.trim());
+                        let head_path = git_dir.join("HEAD");
+                        if !head_path.exists() {
                             return None;
                         }
-                        let common_dir_path = node_join(&git_dir, "commondir");
-                        let common_git_dir = if path_exists(&common_dir_path) {
-                            let value = read_git_text(&common_dir_path)?;
-                            node_normalize(
-                                node_resolve(&git_dir, value.trim()).expect("absolute common directory resolves"),
-                            )
+                        let common_dir_path = git_dir.join("commondir");
+                        let common_git_dir = if common_dir_path.exists() {
+                            let value = std::fs::read_to_string(&common_dir_path).ok()?;
+                            normalize_lexical(&resolve_path(&git_dir, value.trim()))
                         } else {
                             git_dir
                         };
@@ -151,8 +147,8 @@ pub fn find_git_paths(cwd: &JsString) -> Option<GitPaths> {
                     }
                 }
                 Ok(metadata) if metadata.is_dir() => {
-                    let head_path = node_join(&git_path, "HEAD");
-                    if !path_exists(&head_path) {
+                    let head_path = git_path.join("HEAD");
+                    if !head_path.exists() {
                         return None;
                     }
                     return Some(GitPaths {
@@ -164,22 +160,35 @@ pub fn find_git_paths(cwd: &JsString) -> Option<GitPaths> {
                 _ => return None,
             }
         }
-        let parent = node_dirname(&dir);
+        let parent = dir.parent()?;
         if parent == dir {
             return None;
         }
-        dir = parent;
+        dir = parent.to_path_buf();
     }
 }
 
-fn path_exists(path: &JsString) -> bool {
-    Path::new(&encode_node_utf8(path)).exists()
+fn normalize_lexical(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
 }
 
-fn read_git_text(path: &JsString) -> Option<JsString> {
-    match std::fs::read(encode_node_utf8(path)) {
-        Ok(bytes) => Some(JsString::from(String::from_utf8_lossy(&bytes).as_ref())),
-        Err(_) => None, // source catches unreadable git metadata and returns null
+fn resolve_path(base: &Path, path: &str) -> PathBuf {
+    let path = Path::new(path);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base.join(path)
     }
 }
 
@@ -235,12 +244,13 @@ fn is_wsl_environment() -> bool {
             || pi_js_compat::process_env::get("WSL_INTEROP").is_some())
 }
 
-fn is_windows_mounted_repo_path(path: &JsString) -> bool {
-    let mut characters = path.units().iter().copied();
-    if characters.next() != Some(b'/' as u16) {
+fn is_windows_mounted_repo_path(path: &Path) -> bool {
+    let value = path.to_string_lossy();
+    let mut characters = value.chars();
+    if characters.next() != Some('/') {
         return false;
     }
-    for expected in [b'm' as u16, b'n' as u16, b't' as u16, b'/' as u16] {
+    for expected in ['m', 'n', 't', '/'] {
         if characters.next() != Some(expected) {
             return false;
         }
@@ -248,18 +258,18 @@ fn is_windows_mounted_repo_path(path: &JsString) -> bool {
     let Some(drive) = characters.next() else {
         return false;
     };
-    if !(drive >= b'a' as u16 && drive <= b'z' as u16 || drive >= b'A' as u16 && drive <= b'Z' as u16) {
+    if !drive.is_ascii_alphabetic() {
         return false;
     }
-    characters.next().is_none_or(|unit| unit == b'/' as u16)
+    matches!(characters.next(), None | Some('/'))
 }
 
-fn should_poll_git_head(repo_dir: &JsString) -> bool {
+fn should_poll_git_head(repo_dir: &Path) -> bool {
     is_wsl_environment() && is_windows_mounted_repo_path(repo_dir)
 }
 
 struct FooterState {
-    cwd: Mutex<JsString>,
+    cwd: Mutex<PathBuf>,
     extension_statuses: Mutex<IndexMap<JsString, JsString>>,
     /// `None` = not computed yet, `Some(None)` = not a repo / detached.
     cached_branch: Mutex<Option<Option<String>>>,
@@ -294,7 +304,7 @@ impl FooterState {
 
     fn resolve_branch_sync(&self) -> Option<String> {
         let paths = lock(&self.git_paths).clone()?;
-        let content = std::fs::read_to_string(encode_node_utf8(&paths.head_path)).ok()?;
+        let content = std::fs::read_to_string(&paths.head_path).ok()?;
         let content = content.trim();
         if let Some(branch) = content.strip_prefix("ref: refs/heads/") {
             if branch == ".invalid" {
@@ -311,7 +321,7 @@ impl FooterState {
 
     async fn resolve_branch_async(&self) -> Option<String> {
         let paths = lock(&self.git_paths).clone()?;
-        let content = std::fs::read_to_string(encode_node_utf8(&paths.head_path)).ok()?;
+        let content = std::fs::read_to_string(&paths.head_path).ok()?;
         let content = content.trim();
         if let Some(branch) = content.strip_prefix("ref: refs/heads/") {
             if branch == ".invalid" {
@@ -336,12 +346,12 @@ pub struct FooterDataProvider {
 }
 
 impl FooterDataProvider {
-    pub fn new(cwd: impl Into<JsString>) -> Self {
+    pub fn new(cwd: impl AsRef<Path>) -> Self {
         Self::with_git_runner(cwd, Arc::new(SystemGitBranchRunner))
     }
 
-    pub fn with_git_runner(cwd: impl Into<JsString>, git: Arc<dyn GitBranchRunner>) -> Self {
-        let cwd = cwd.into();
+    pub fn with_git_runner(cwd: impl AsRef<Path>, git: Arc<dyn GitBranchRunner>) -> Self {
+        let cwd = cwd.as_ref().to_path_buf();
         let state = Arc::new(FooterState {
             git_paths: Mutex::new(find_git_paths(&cwd)),
             cwd: Mutex::new(cwd),
@@ -433,8 +443,8 @@ impl FooterDataProvider {
         self.state.available_provider_count.store(count, Ordering::SeqCst);
     }
 
-    pub fn set_cwd(&self, cwd: impl Into<JsString>) {
-        let cwd = cwd.into();
+    pub fn set_cwd(&self, cwd: impl AsRef<Path>) {
+        let cwd = cwd.as_ref().to_path_buf();
         {
             let mut current = lock(&self.state.cwd);
             if *current == cwd {
@@ -541,11 +551,11 @@ impl FooterDataProvider {
             return;
         };
         let poll_git_head = should_poll_git_head(&paths.repo_dir);
-        let head_dir = node_dirname(&paths.head_path);
+        let head_dir = paths.head_path.parent().unwrap_or(&paths.repo_dir).to_path_buf();
 
         let head_provider = self.clone();
         let head_watcher = watch_with_error_handler(
-            Path::new(&encode_node_utf8(&head_dir)),
+            &head_dir,
             move |_kind: WatchEventKind, filename: Option<PathBuf>| {
                 let matches = filename
                     .as_ref()
@@ -561,11 +571,11 @@ impl FooterDataProvider {
         );
         *lock(&self.state.head_watcher) = head_watcher;
 
-        let reftable_dir = node_join(&paths.common_git_dir, "reftable");
-        if path_exists(&reftable_dir) {
+        let reftable_dir = paths.common_git_dir.join("reftable");
+        if reftable_dir.exists() {
             let reftable_provider = self.clone();
             let reftable_watcher = watch_with_error_handler(
-                Path::new(&encode_node_utf8(&reftable_dir)),
+                &reftable_dir,
                 move |_kind: WatchEventKind, _filename: Option<PathBuf>| {
                     reftable_provider.schedule_refresh();
                 },
@@ -576,11 +586,11 @@ impl FooterDataProvider {
             );
             *lock(&self.state.reftable_watcher) = reftable_watcher;
 
-            let tables_list = node_join(&reftable_dir, "tables.list");
-            if path_exists(&tables_list) {
+            let tables_list = reftable_dir.join("tables.list");
+            if tables_list.exists() {
                 let list_provider = self.clone();
                 let list_watcher = watch_with_error_handler(
-                    Path::new(&encode_node_utf8(&tables_list)),
+                    &tables_list,
                     move |_kind: WatchEventKind, _filename: Option<PathBuf>| {
                         list_provider.schedule_refresh();
                     },
@@ -598,12 +608,12 @@ impl FooterDataProvider {
         }
 
         let provider = self.clone();
-        let poll_tables_list = path_exists(&node_join(&reftable_dir, "tables.list"));
+        let poll_tables_list = reftable_dir.join("tables.list").exists();
         let poll_head = poll_git_head;
         let head_path = paths.head_path.clone();
         let handle = self.runtime.spawn(async move {
             let mut head_stamp = file_stamp(&head_path);
-            let mut tables_stamp = file_stamp(&node_join(&reftable_dir, "tables.list"));
+            let mut tables_stamp = file_stamp(&reftable_dir.join("tables.list"));
             let mut ticker = tokio::time::interval(Duration::from_millis(GIT_FILE_POLL_INTERVAL_MS));
             loop {
                 ticker.tick().await;
@@ -624,7 +634,7 @@ impl FooterDataProvider {
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner())
                         .as_ref()
-                        .map(|paths| node_join(&paths.common_git_dir, "reftable/tables.list"));
+                        .map(|paths| paths.common_git_dir.join("reftable/tables.list"));
                     let Some(path) = path else {
                         continue;
                     };
@@ -640,8 +650,8 @@ impl FooterDataProvider {
     }
 }
 
-fn file_stamp(path: &JsString) -> Option<(u128, u128, u64)> {
-    let metadata = std::fs::metadata(encode_node_utf8(path)).ok()?;
+fn file_stamp(path: &Path) -> Option<(u128, u128, u64)> {
+    let metadata = std::fs::metadata(path).ok()?;
     let modified = metadata
         .modified()
         .ok()?

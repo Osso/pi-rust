@@ -53,14 +53,3 @@ The extension-status Map-order discrepancy below was found and corrected during 
 ## Native extension statuses
 
 Status setters/getter/storage use `JsString`; getter returns `IndexMap<JsString,JsString>` to preserve frozen `Map` insertion order. Raw status replacement/removal/clear and exact entry order are compared with actual frozen FooterDataProvider in `raw_footer_statuses` (non-repository temp directory; no git watcher toggled). Existing BTreeMap sorted `a` before previously inserted `z`, unlike source (behavioral RED); native insertion-order storage corrects that Rust discrepancy. Git/session-override surfaces are unchanged by this slice.
-
-## Q18 native git path discovery (2026-10-22)
-
-`find_git_paths` takes native cwd and returns native repo/common/head identities.
-Path joins, ancestry, gitdir/commondir text and FooterDataProvider cwd stay native;
-filesystem reads/watch setup and git process cwd encode at their actual boundaries.
-The directly coupled GitBranchRunner repo path contract is native too. Branch
-contents/executable metadata are not part of this bounded path-only migration.
-`lossless_git_paths` walks from an unpaired-unit nested directory and checks all
-three returned identities. Written but unexecuted while coding compilation is
-blocked. replacement-resources-2 has zero footer primary diagnostics.
