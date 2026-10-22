@@ -1,4 +1,9 @@
-# settings-manager.ts traceability
+# settings-manager.ts
+
+## Legacy renderer key persistence (2026-10-22)
+
+Frozen settings-manager has no tuiMode/fullscreen known API. Removed typed getters/setters/enums for tuiMode, fullscreenExitOutput and fullscreenScrollbar; no migration strips or rewrites those keys. `differential_settings_manager::legacy_tui_mode_keys_remain_unknown_settings_on_load_and_save` compares complete scoped/effective settings and persisted files against frozen before flush, after unrelated theme save, after external edits/reload and after another save. It includes string, object, number, null and array legacy values. Before deletion this differential passed, proving ordinary unknown-field preservation already matches frozen; no persistence code change was needed. File fixtures are isolated; no user settings changed.
+ traceability
 
 ## Q18 profile-key input
 

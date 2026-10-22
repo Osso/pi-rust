@@ -7,10 +7,8 @@ use std::sync::Arc;
 
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::types::Transport;
-use pi_coding_agent::core::settings_manager::ScrollViewScrollbar;
 use pi_coding_agent::core::settings_manager::{
-    DefaultProjectTrust, DoubleEscapeAction, FullscreenExitOutput, MermaidRenderingMode, TreeFilterMode,
-    WarningSettings,
+    DefaultProjectTrust, DoubleEscapeAction, MermaidRenderingMode, TreeFilterMode, WarningSettings,
 };
 use pi_coding_agent::modes::interactive::components::settings_selector::{
     SettingsCallbacks, SettingsConfig, SettingsSelectorComponent, SteeringMode,
@@ -18,7 +16,6 @@ use pi_coding_agent::modes::interactive::components::settings_selector::{
 use pi_coding_agent::modes::interactive::theme::{
     ColorMode, ColorValue, REQUIRED_COLORS, TerminalTheme, Theme, set_theme_instance,
 };
-use pi_tui::tui::TuiMode;
 use pi_tui::utils::strip_terminal_sequences;
 use pi_tui::{Component, KeybindingsManager, set_keybindings};
 
@@ -45,8 +42,6 @@ fn install_theme() -> Arc<Theme> {
 
 #[derive(Default)]
 struct Recorder {
-    exit_output: RefCell<Vec<FullscreenExitOutput>>,
-    scrollbar: RefCell<Vec<ScrollViewScrollbar>>,
     themes: RefCell<Vec<JsString>>,
     previews: RefCell<Vec<JsString>>,
     warnings: RefCell<Vec<WarningSettings>>,
@@ -58,8 +53,6 @@ fn noop<T: 'static>(_: T) -> Rc<dyn Fn()> {
 }
 
 fn callbacks(recorder: Rc<Recorder>) -> Rc<SettingsCallbacks> {
-    let exit_recorder = recorder.clone();
-    let scrollbar_recorder = recorder.clone();
     let theme_recorder = recorder.clone();
     let preview_recorder = recorder.clone();
     let warnings_recorder = recorder.clone();
@@ -95,13 +88,6 @@ fn callbacks(recorder: Rc<Recorder>) -> Rc<SettingsCallbacks> {
         on_default_project_trust_change: Rc::new(|_| {}),
         on_clear_on_shrink_change: Rc::new(|_| {}),
         on_show_terminal_progress_change: Rc::new(|_| {}),
-        on_tui_mode_change: Rc::new(|_| {}),
-        on_fullscreen_exit_output_change: Rc::new(move |output| {
-            exit_recorder.exit_output.borrow_mut().push(output);
-        }),
-        on_fullscreen_scrollbar_change: Rc::new(move |scrollbar| {
-            scrollbar_recorder.scrollbar.borrow_mut().push(scrollbar);
-        }),
         on_warnings_change: Rc::new(move |warnings| warnings_recorder.warnings.borrow_mut().push(warnings)),
         on_cancel: noop(()),
     })
@@ -139,9 +125,6 @@ fn config() -> SettingsConfig {
         default_project_trust: DefaultProjectTrust::Ask,
         clear_on_shrink: false,
         show_terminal_progress: true,
-        tui_mode: TuiMode::Regular,
-        fullscreen_exit_output: FullscreenExitOutput::Transcript,
-        fullscreen_scrollbar: ScrollViewScrollbar::Auto,
         warnings: WarningSettings {
             anthropic_extra_usage: None,
         },
@@ -171,33 +154,6 @@ fn plain(component: &mut SettingsSelectorComponent) -> JsString {
             .collect::<Vec<_>>(),
         "\n",
     )
-}
-
-#[test]
-fn cycles_through_fullscreen_settings() {
-    let recorder = Rc::new(Recorder::default());
-    let cycle = |label: &str, count: usize| {
-        let mut component = selector(config(), recorder.clone());
-        type_label(&mut component, label);
-        for _ in 0..count {
-            component.handle_input(&JsString::from("\r"));
-        }
-    };
-
-    cycle("Fullscreen exit output", 2);
-    assert_eq!(
-        *recorder.exit_output.borrow(),
-        vec![FullscreenExitOutput::ResumeHint, FullscreenExitOutput::Transcript]
-    );
-    cycle("Fullscreen scrollbar", 3);
-    assert_eq!(
-        *recorder.scrollbar.borrow(),
-        vec![
-            ScrollViewScrollbar::Always,
-            ScrollViewScrollbar::Hidden,
-            ScrollViewScrollbar::Auto
-        ]
-    );
 }
 
 #[test]
@@ -247,9 +203,6 @@ fn renders_the_settings_rows_in_source_order() {
         "Tree filter mode",
         "Warnings",
         "Thinking level",
-        "TUI mode",
-        "Fullscreen exit output",
-        "Fullscreen scrollbar",
         "Theme",
         "Clear on shrink",
         "Terminal progress",

@@ -231,7 +231,6 @@ pub use crate::core::session_tool_output::serialize_session_entry_for_persistenc
 pub use crate::core::session_tool_output::truncate_tool_result_for_persistence;
 pub use crate::core::settings_manager::CompactionSettings;
 pub use crate::core::settings_manager::DefaultProjectTrust;
-pub use crate::core::settings_manager::FullscreenExitOutput;
 pub use crate::core::settings_manager::ImageSettings;
 pub use crate::core::settings_manager::PackageSource;
 pub use crate::core::settings_manager::RetrySettings;

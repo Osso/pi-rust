@@ -95,7 +95,7 @@ use crate::modes::interactive::components::session_selector::{
     ProgressCallback, RenameSessionFn, SessionListLoader, SessionSelectorComponent,
 };
 use crate::modes::interactive::components::settings_selector::{
-    SettingsCallbacks, SettingsConfig, SettingsSelectorComponent, SteeringMode, tui_mode_name,
+    SettingsCallbacks, SettingsConfig, SettingsSelectorComponent, SteeringMode,
 };
 use crate::modes::interactive::components::skill_invocation_message::SkillInvocationMessageComponent;
 use crate::modes::interactive::components::thinking_selector::ThinkingSelectorComponent;
@@ -1314,7 +1314,6 @@ impl Renderer {
 
 /// `InteractiveTuiOptions`.
 pub struct InteractiveTuiOptions {
-    pub tui_mode: TuiMode,
     pub show_hardware_cursor: bool,
     pub log_directory: JsString,
     pub terminal: Option<Rc<RefCell<dyn Terminal>>>,
@@ -1805,23 +1804,6 @@ impl Focusable for SharedSessionSelector {
     }
 }
 
-/// Adapter mounting the settings selector while its callbacks mutate it.
-pub struct SharedSettingsSelector(pub Rc<RefCell<SettingsSelectorComponent>>);
-
-impl Component for SharedSettingsSelector {
-    fn render(&mut self, width: usize) -> Vec<JsString> {
-        self.0.borrow_mut().render(width)
-    }
-
-    fn handle_input(&mut self, data: &JsString) {
-        self.0.borrow_mut().handle_input(data);
-    }
-
-    fn invalidate(&mut self) {
-        self.0.borrow_mut().invalidate();
-    }
-}
-
 /// Adapter mounting the current editor through the component contract.
 pub struct AnyEditorHandle(pub Rc<RefCell<dyn EditorComponent>>);
 
@@ -1886,7 +1868,6 @@ pub struct InteractiveModeOptions {
     pub initial_messages: Vec<JsString>,
     pub control_message: Option<crate::core::session_control_db::IncomingControlMessage>,
     pub verbose: bool,
-    pub tui_mode: Option<TuiMode>,
     pub control_db_path: Option<JsString>,
     /// Shared first-party multi-agent store for agent slot selection.
     pub multi_agent_store: Option<Arc<MultiAgentStore>>,
@@ -1925,14 +1906,13 @@ enum ModeAction {
     Dequeue,
     CycleModel(CycleDirection),
     NewSession,
-    Copy { flash_confirmation: bool },
+    Copy,
 }
 
 /// Shared, thread-safe counters used by the extension UI bridge.
 pub struct UiShared {
     rows: std::sync::atomic::AtomicUsize,
     columns: std::sync::atomic::AtomicUsize,
-    fullscreen: std::sync::atomic::AtomicBool,
     editor_component_factory: std::sync::Mutex<Option<ExtensionEditorFactory>>,
 }
 
@@ -1941,7 +1921,6 @@ impl UiShared {
         Self {
             rows: std::sync::atomic::AtomicUsize::new(24),
             columns: std::sync::atomic::AtomicUsize::new(80),
-            fullscreen: std::sync::atomic::AtomicBool::new(false),
             editor_component_factory: std::sync::Mutex::new(None),
         }
     }
@@ -2464,11 +2443,7 @@ impl ExtensionUiTuiBackend for InteractiveUiTuiBackend {
     }
 
     fn mode(&self) -> TuiMode {
-        if self.shared.fullscreen.load(std::sync::atomic::Ordering::Relaxed) {
-            TuiMode::Fullscreen
-        } else {
-            TuiMode::Regular
-        }
+        TuiMode::Regular
     }
 }
 
@@ -2872,7 +2847,6 @@ impl InteractiveMode {
         let session = runtime.lock().await.session().clone();
         let settings_handle = session.settings_manager_handle();
         let settings = session.settings_manager();
-        let tui_mode = options.tui_mode.unwrap_or_else(|| settings.get_tui_mode());
         let show_hardware_cursor = settings.get_show_hardware_cursor();
         let clear_on_shrink = settings.get_clear_on_shrink();
         let editor_padding_x = settings.get_editor_padding_x() as usize;
@@ -2886,7 +2860,6 @@ impl InteractiveMode {
         let mode_slot: Rc<RefCell<Option<std::rc::Weak<InteractiveMode>>>> = Rc::new(RefCell::new(None));
         let right_click_slot = Rc::clone(&mode_slot);
         let renderer = create_interactive_tui(InteractiveTuiOptions {
-            tui_mode,
             show_hardware_cursor,
             log_directory: agent_dir.clone(),
             terminal,
@@ -4375,11 +4348,6 @@ impl InteractiveMode {
             }),
         });
         *self.root_compositor.borrow_mut() = Some(component(root));
-    }
-
-    // Legacy settings callback retained until Q13; frozen TUI has one renderer.
-    fn switch_tui_mode(&self, mode: TuiMode, _restore_progress: bool, _start_renderer: bool) -> bool {
-        mode == TuiMode::Regular
     }
 
     fn mount_interactive_tui(&self) {
@@ -5930,12 +5898,6 @@ impl InteractiveMode {
 
     /// `InteractiveMode.stop`: releases the session subscription and stops the TUI.
     pub fn stop(&self) {
-        self.stop_with_output(self.settings(|settings| settings.get_fullscreen_exit_output()));
-    }
-
-    /// `stop(fullscreenExitOutput)`: the exit output controls whether a
-    /// fullscreen session re-renders its transcript on the regular screen.
-    pub fn stop_with_output(&self, fullscreen_exit_output: crate::core::settings_manager::FullscreenExitOutput) {
         self.dispose_active_selector();
         if self.settings(|settings| settings.get_show_terminal_progress()) {
             self.ui.terminal().borrow_mut().set_progress(false);
@@ -5976,27 +5938,10 @@ impl InteractiveMode {
         self.close_response_complete_notification();
         self.clipboard_temp_files.borrow_mut().cleanup_all();
         if self.is_initialized.get() {
-            self.stop_interactive_tui(fullscreen_exit_output);
+            self.ui.stop();
             self.is_initialized.set(false);
         }
         self.unregister_signal_handlers();
-    }
-
-    /// `stopInteractiveTui`: for `transcript` exit output, leave the fullscreen
-    /// screen, re-render the transcript on the regular screen, then stop the
-    /// TUI without preserving the alternate screen.
-    fn stop_interactive_tui(&self, fullscreen_exit_output: crate::core::settings_manager::FullscreenExitOutput) {
-        if self.ui.mode() == TuiMode::Fullscreen
-            && fullscreen_exit_output == crate::core::settings_manager::FullscreenExitOutput::Transcript
-        {
-            while self.ui.has_overlay_entries() {
-                self.ui.hide_overlay();
-            }
-            self.switch_tui_mode(TuiMode::Regular, false, false);
-            self.ui.render_now();
-        }
-        let preserve_screen = self.ui.mode() == TuiMode::Fullscreen;
-        self.ui.stop_with(pi_tui::tui::TuiStopOptions { preserve_screen });
     }
 
     /// `handleFatalRuntimeError`: report, stop the TUI on the transcript, and
@@ -6005,7 +5950,7 @@ impl InteractiveMode {
         let error = error.into();
         self.show_error(&js_format!("{}: {}", prefix, error));
         crate::modes::interactive::theme::stop_theme_watcher();
-        self.stop_with_output(crate::core::settings_manager::FullscreenExitOutput::Transcript);
+        self.stop();
         std::process::exit(1);
     }
 
@@ -6389,9 +6334,7 @@ impl InteractiveMode {
         self.default_editor.borrow_mut().on_action(
             "app.message.copy",
             action(self, |mode| {
-                mode.actions.borrow_mut().push_back(ModeAction::Copy {
-                    flash_confirmation: true,
-                });
+                mode.actions.borrow_mut().push_back(ModeAction::Copy);
             }),
         );
         self.default_editor.borrow_mut().on_action(
@@ -6497,10 +6440,6 @@ impl InteractiveMode {
         self.ui_shared
             .columns
             .store(terminal.columns(), std::sync::atomic::Ordering::Relaxed);
-        self.ui_shared.fullscreen.store(
-            self.ui.mode() == TuiMode::Fullscreen,
-            std::sync::atomic::Ordering::Relaxed,
-        );
     }
 
     fn build_header(&self) {
@@ -6826,10 +6765,10 @@ impl InteractiveMode {
                         mode.handle_clear_command().await;
                     });
                 }
-                ModeAction::Copy { flash_confirmation } => {
+                ModeAction::Copy => {
                     let mode = Rc::clone(self);
                     tokio::task::spawn_local(async move {
-                        mode.handle_copy_command(flash_confirmation).await;
+                        mode.handle_copy_command().await;
                     });
                 }
                 ModeAction::CycleModel(direction) => {
@@ -7008,7 +6947,7 @@ impl InteractiveMode {
                 self.handle_share_command().await;
             }
             value if value == "copy" => {
-                self.handle_copy_command(false).await;
+                self.handle_copy_command().await;
             }
             value if value == "cd" => {
                 self.handle_cd_command(js_format!("/cd {}", args)).await;
@@ -7139,10 +7078,6 @@ impl InteractiveMode {
         }
     }
 
-    fn clear_status_indicator(&self) {
-        self.status_container.borrow_mut().clear();
-    }
-
     fn rebuild_chat_from_messages(&self) {
         self.chat_container.borrow_mut().clear();
         self.render_initial_messages();
@@ -7193,9 +7128,6 @@ impl InteractiveMode {
             default_project_trust: self.settings(|settings| settings.get_default_project_trust()),
             clear_on_shrink: self.settings(|settings| settings.get_clear_on_shrink()),
             show_terminal_progress: self.settings(|settings| settings.get_show_terminal_progress()),
-            tui_mode: self.ui.mode(),
-            fullscreen_exit_output: self.settings(|settings| settings.get_fullscreen_exit_output()),
-            fullscreen_scrollbar: self.settings(|settings| settings.get_fullscreen_scrollbar()),
             warnings: {
                 let warnings = self.settings(|settings| settings.get_warnings());
                 crate::core::settings_manager::WarningSettings {
@@ -7205,7 +7137,6 @@ impl InteractiveMode {
         };
 
         let mode_id = self.ui_id.get();
-        let selector_slot: Rc<RefCell<Option<Rc<RefCell<SettingsSelectorComponent>>>>> = Rc::new(RefCell::new(None));
 
         macro_rules! callback {
             ($body:expr) => {
@@ -7411,40 +7342,6 @@ impl InteractiveMode {
             on_show_terminal_progress_change: callback!(|mode: Rc<InteractiveMode>, enabled: bool| {
                 mode.settings_mut(|settings| settings.set_show_terminal_progress(enabled));
             }),
-            on_tui_mode_change: {
-                let selector_slot = Rc::clone(&selector_slot);
-                Rc::new(move |mode_value: TuiMode| {
-                    let Some(mode) = with_mode(mode_id, |mode| mode) else {
-                        return;
-                    };
-                    let selector_slot = Rc::clone(&selector_slot);
-                    tokio::task::spawn_local(async move {
-                        if !mode.switch_tui_mode(mode_value, true, true) {
-                            if let Some(selector) = selector_slot.borrow().clone() {
-                                selector
-                                    .borrow_mut()
-                                    .get_settings_list_mut()
-                                    .update_value("tui-mode", tui_mode_name(mode.ui.mode()));
-                            }
-                            mode.show_status("Close active overlays before changing TUI mode");
-                            return;
-                        }
-                        mode.settings_mut(|settings| settings.set_tui_mode(mode_value));
-                        mode.clear_status_indicator();
-                        mode.show_status(&js_format!("TUI mode: {}", tui_mode_name(mode_value)));
-                    });
-                })
-            },
-            on_fullscreen_exit_output_change: callback!(
-                |mode: Rc<InteractiveMode>, output: crate::core::settings_manager::FullscreenExitOutput| {
-                    mode.settings_mut(|settings| settings.set_fullscreen_exit_output(output));
-                }
-            ),
-            on_fullscreen_scrollbar_change: callback!(
-                |mode: Rc<InteractiveMode>, scrollbar: crate::core::settings_manager::ScrollViewScrollbar| {
-                    mode.settings_mut(|settings| settings.set_fullscreen_scrollbar(scrollbar));
-                }
-            ),
             on_warnings_change: callback!(
                 |mode: Rc<InteractiveMode>, warnings: crate::core::settings_manager::WarningSettings| {
                     let mut value = JsObject::new();
@@ -7463,15 +7360,7 @@ impl InteractiveMode {
                 })
             },
         };
-        *selector_slot.borrow_mut() = Some(Rc::new(RefCell::new(SettingsSelectorComponent::new(
-            config,
-            Rc::new(callbacks),
-        ))));
-        let selector = selector_slot
-            .borrow()
-            .clone()
-            .expect("settings selector must be installed");
-        self.show_selector(component(SharedSettingsSelector(selector)));
+        self.show_selector(component(SettingsSelectorComponent::new(config, Rc::new(callbacks))));
     }
 
     fn show_agent_switcher(&self) {
@@ -8175,7 +8064,7 @@ impl InteractiveMode {
         let _ = std::fs::remove_file(encode_node_utf8(tmp_path));
     }
 
-    async fn handle_copy_command(&self, flash_confirmation: bool) {
+    async fn handle_copy_command(&self) {
         let Some(text) = self.session.borrow().get_last_assistant_text() else {
             self.show_error("No assistant message to copy");
             return;
@@ -8188,11 +8077,7 @@ impl InteractiveMode {
         .await
         {
             Ok(()) => {
-                if flash_confirmation && self.ui.mode() == TuiMode::Fullscreen {
-                    self.show_status("Copied!");
-                } else {
-                    self.show_status("Copied last agent message to clipboard");
-                }
+                self.show_status("Copied last agent message to clipboard");
             }
             Err(error) => self.show_error(&js_format!("Failed to copy: {}", error.message())),
         }
@@ -11825,18 +11710,9 @@ mod ui_tests {
         .await
     }
 
+    #[derive(Default)]
     struct TestModeSetup {
         multi_agent_store: Option<Arc<MultiAgentStore>>,
-        tui_mode: TuiMode,
-    }
-
-    impl Default for TestModeSetup {
-        fn default() -> Self {
-            Self {
-                multi_agent_store: None,
-                tui_mode: TuiMode::Regular,
-            }
-        }
     }
 
     async fn build_mode_with_extra_providers(
@@ -12010,7 +11886,6 @@ mod ui_tests {
         let mode = InteractiveMode::new(
             runtime,
             InteractiveModeOptions {
-                tui_mode: Some(setup.tui_mode),
                 multi_agent_store: setup.multi_agent_store,
                 ..Default::default()
             },
@@ -12426,44 +12301,6 @@ mod ui_tests {
 
                 let value = settings_file(agent_dir.path());
                 assert_eq!(value.get("httpIdleTimeoutMs"), Some(&serde_json::json!(0)));
-            })
-            .await;
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn settings_selector_switches_tui_mode_and_reports_status() {
-        let local = tokio::task::LocalSet::new();
-        local
-            .run_until(async {
-                init_dark_theme();
-                let agent_dir = tempfile::tempdir().expect("agent dir");
-                let cwd = tempfile::tempdir().expect("cwd");
-                let settings = SettingsManager::create(
-                    &js_path(cwd.path()),
-                    Some(&js_path(agent_dir.path())),
-                    SettingsManagerCreateOptions::default(),
-                )
-                .expect("settings manager");
-                let (mode, terminal, _faux, _temp) = build_mode_with_settings(
-                    StaticResourceLoader::new() as Arc<dyn crate::core::resource_loader::ResourceLoader>,
-                    None,
-                    settings,
-                )
-                .await;
-                let mut events = start(&mode).await;
-                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
-                open_settings(&mode, &mut events, &terminal).await;
-
-                activate_setting(&mode, &terminal, "TUI mode");
-                let output = pump(&mode, &mut events, &terminal, |output| {
-                    output.contains("TUI mode: fullscreen")
-                })
-                .await;
-                assert!(output.contains("TUI mode: fullscreen"));
-                assert_eq!(mode.ui.mode(), TuiMode::Fullscreen);
-
-                let value = settings_file(agent_dir.path());
-                assert_eq!(value.get("tuiMode"), Some(&serde_json::json!("fullscreen")));
             })
             .await;
     }
@@ -13379,7 +13216,6 @@ mod ui_tests {
 
     async fn build_mode_with_store(
         store: Arc<MultiAgentStore>,
-        tui_mode: TuiMode,
     ) -> (
         Rc<InteractiveMode>,
         Rc<RefCell<CaptureTerminal>>,
@@ -13395,7 +13231,6 @@ mod ui_tests {
             false,
             TestModeSetup {
                 multi_agent_store: Some(store),
-                tui_mode,
             },
         )
         .await
@@ -13445,7 +13280,7 @@ mod ui_tests {
                 let store = test_store();
                 let first = spawn_agent(&store, "First", Some(1), None, None);
                 let second = spawn_agent(&store, "Second", Some(2), None, None);
-                let (mode, terminal, _faux, _temp) = build_mode_with_store(Arc::clone(&store), TuiMode::Regular).await;
+                let (mode, terminal, _faux, _temp) = build_mode_with_store(Arc::clone(&store)).await;
                 let mut events = start(&mode).await;
                 pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
 
@@ -13482,7 +13317,7 @@ mod ui_tests {
                 snapshot.revision += 1;
                 store.publish_lifecycle_coordinator_snapshot(&snapshot).unwrap();
                 let active = spawn_agent(&store, "Active", Some(2), None, None);
-                let (mode, _terminal, _faux, _temp) = build_mode_with_store(Arc::clone(&store), TuiMode::Regular).await;
+                let (mode, _terminal, _faux, _temp) = build_mode_with_store(Arc::clone(&store)).await;
                 let _events = start(&mode).await;
 
                 assert!(mode.select_agent_slot(1));
@@ -13916,7 +13751,7 @@ mod ui_tests {
                 let (path, _session_dir) = write_child_session(temp.path(), &js_path(&cwd), &["child prompt"]);
                 let store = test_store();
                 spawn_agent(&store, "Child", Some(1), Some(&path), None);
-                let (mode, _terminal, _faux, _temp) = build_mode_with_store(Arc::clone(&store), TuiMode::Regular).await;
+                let (mode, _terminal, _faux, _temp) = build_mode_with_store(Arc::clone(&store)).await;
                 let _events = start(&mode).await;
                 let main_footer = pi_tui::utils::strip_terminal_sequences(&JsString::join(
                     mode.footer.borrow_mut().render(200),
@@ -13973,33 +13808,6 @@ mod ui_tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn fullscreen_message_start_renders_directly_in_the_chat_container() {
-        let local = tokio::task::LocalSet::new();
-        local
-            .run_until(async {
-                let (mode, _terminal, _faux, _temp) = build_mode_with_store(test_store(), TuiMode::Fullscreen).await;
-                let _events = start(&mode).await;
-                assert_eq!(mode.ui.mode(), TuiMode::Fullscreen);
-                let message = AgentMessage::Assistant(Box::new(faux_assistant_message(
-                    "fullscreen answer",
-                    pi_ai::providers::faux::FauxAssistantMessageOptions::default(),
-                )));
-                mode.handle_event(AgentSessionEvent::Agent(AgentEvent::MessageStart {
-                    message: message.clone(),
-                }))
-                .await;
-                assert!(mode.transcript_tail_container.borrow().children().is_empty());
-                assert_eq!(mode.chat_container.borrow().children().len(), 1);
-                mode.handle_event(AgentSessionEvent::Agent(AgentEvent::MessageEnd { message }))
-                    .await;
-                assert!(mode.transcript_tail_container.borrow().children().is_empty());
-                assert_eq!(mode.chat_container.borrow().children().len(), 1);
-                assert!(chat_text(&mode).contains("fullscreen answer"));
-            })
-            .await;
-    }
-
-    #[tokio::test(flavor = "current_thread")]
     async fn child_transcript_reloads_after_a_watched_file_change() {
         let local = tokio::task::LocalSet::new();
         local
@@ -14010,7 +13818,7 @@ mod ui_tests {
                 let (path, session_dir) = write_child_session(temp.path(), &js_path(&cwd), &["first child message"]);
                 let store = test_store();
                 spawn_agent(&store, "Child", Some(1), Some(&path), None);
-                let (mode, _terminal, _faux, _temp) = build_mode_with_store(Arc::clone(&store), TuiMode::Regular).await;
+                let (mode, _terminal, _faux, _temp) = build_mode_with_store(Arc::clone(&store)).await;
                 let _events = start(&mode).await;
                 assert!(mode.select_agent_slot(1));
                 assert!(chat_text(&mode).contains("first child message"));
@@ -14123,10 +13931,10 @@ mod ui_tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn extension_ui_fullscreen_factory_uses_base_fixed_cells() {
+    async fn extension_ui_factory_uses_base_fixed_cells() {
         tokio::task::LocalSet::new()
             .run_until(async {
-                let (mode, terminal, _faux, _temp) = build_mode_with_store(test_store(), TuiMode::Fullscreen).await;
+                let (mode, terminal, _faux, _temp) = build_mode_with_store(test_store()).await;
                 let _events = start(&mode).await;
                 let ui = mode.session().extension_runner().create_context().ui().unwrap();
                 ui.set_editor_component(Some(Arc::new(|tui, theme, kb| {
@@ -14142,9 +13950,9 @@ mod ui_tests {
                     ))
                 })));
                 mode.handle_ui_requests().await;
-                terminal.borrow_mut().send_input("fullscreen");
+                terminal.borrow_mut().send_input("fixed-cell input");
                 mode.ui.process_events();
-                assert_eq!(mode.editor().borrow().get_text(), "fullscreen");
+                assert_eq!(mode.editor().borrow().get_text(), "fixed-cell input");
                 assert!(
                     mode.editor()
                         .borrow_mut()
@@ -15548,7 +15356,6 @@ mod ui_tests {
     }
     async fn build_mode_for_stop(
         settings: crate::core::settings_manager::Settings,
-        tui_mode: TuiMode,
     ) -> (Rc<InteractiveMode>, Rc<RefCell<CaptureTerminal>>, tempfile::TempDir) {
         let (mode, terminal, _faux, temp) = build_mode_with_extra_providers(
             StaticResourceLoader::new(),
@@ -15559,7 +15366,6 @@ mod ui_tests {
             false,
             TestModeSetup {
                 multi_agent_store: None,
-                tui_mode,
             },
         )
         .await;
@@ -15632,55 +15438,14 @@ mod ui_tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn stop_renders_the_transcript_when_leaving_fullscreen() {
-        let local = tokio::task::LocalSet::new();
-        local
-            .run_until(async {
-                let settings = stop_settings(serde_json::json!({"fullscreenExitOutput": "transcript"}));
-                let (mode, terminal, _temp) = build_mode_for_stop(settings, TuiMode::Fullscreen).await;
-                let _events = start(&mode).await;
-                mode.chat_container
-                    .borrow_mut()
-                    .add_child(component(Text::new("stop-transcript-marker", 0, 0)));
-                terminal.borrow_mut().writes.clear();
-                mode.stop();
-                assert_eq!(mode.ui.mode(), TuiMode::Regular);
-                let output = terminal.borrow().output();
-                assert!(output.contains("stop-transcript-marker"), "{output:?}");
-            })
-            .await;
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn stop_with_resume_hint_keeps_the_fullscreen_renderer() {
-        let local = tokio::task::LocalSet::new();
-        local
-            .run_until(async {
-                let settings = stop_settings(serde_json::json!({"fullscreenExitOutput": "resume-hint"}));
-                let (mode, terminal, _temp) = build_mode_for_stop(settings, TuiMode::Fullscreen).await;
-                let _events = start(&mode).await;
-                mode.chat_container
-                    .borrow_mut()
-                    .add_child(component(Text::new("stop-transcript-marker", 0, 0)));
-                terminal.borrow_mut().writes.clear();
-                mode.stop();
-                assert_eq!(mode.ui.mode(), TuiMode::Fullscreen);
-                let output = terminal.borrow().output();
-                assert!(!output.contains("stop-transcript-marker"), "{output:?}");
-            })
-            .await;
-    }
-
-    #[tokio::test(flavor = "current_thread")]
     async fn stop_clears_terminal_progress_and_disposes_footer_components() {
         let local = tokio::task::LocalSet::new();
         local
             .run_until(async {
                 let settings = stop_settings(serde_json::json!({
-                    "terminal": {"showTerminalProgress": true},
-                    "fullscreenExitOutput": "transcript"
+                    "terminal": {"showTerminalProgress": true}
                 }));
-                let (mode, terminal, _temp) = build_mode_for_stop(settings, TuiMode::Regular).await;
+                let (mode, terminal, _temp) = build_mode_for_stop(settings).await;
                 let _events = start(&mode).await;
                 let disposed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                 let footer_flag = std::sync::Arc::clone(&disposed);

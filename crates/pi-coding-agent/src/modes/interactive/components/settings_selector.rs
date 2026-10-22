@@ -3,19 +3,15 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::core::settings_manager::ScrollViewScrollbar;
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::types::Transport;
 use pi_js_compat::{js_format, js_json::JsString, number::parse_int};
 use pi_tui::components::settings_list::{SettingItem, SettingsList, SettingsListOptions, SubmenuDone};
-use pi_tui::tui::TuiMode;
 use pi_tui::tui::component;
 use pi_tui::{Component, SelectItem, SelectList, SelectListLayoutOptions, Spacer, Text};
 
 use crate::core::http_dispatcher::{HTTP_IDLE_TIMEOUT_CHOICES, format_http_idle_timeout_ms};
-use crate::core::settings_manager::{
-    DefaultProjectTrust, FullscreenExitOutput, MermaidRenderingMode, TreeFilterMode, WarningSettings,
-};
+use crate::core::settings_manager::{DefaultProjectTrust, MermaidRenderingMode, TreeFilterMode, WarningSettings};
 use crate::modes::interactive::components::dynamic_border::dynamic_border;
 use crate::modes::interactive::components::keybinding_hints::key_display_text;
 use crate::modes::interactive::theme::{
@@ -146,9 +142,6 @@ pub struct SettingsConfig {
     pub default_project_trust: DefaultProjectTrust,
     pub clear_on_shrink: bool,
     pub show_terminal_progress: bool,
-    pub tui_mode: TuiMode,
-    pub fullscreen_exit_output: FullscreenExitOutput,
-    pub fullscreen_scrollbar: ScrollViewScrollbar,
     pub warnings: WarningSettings,
 }
 
@@ -182,9 +175,6 @@ pub struct SettingsCallbacks {
     pub on_default_project_trust_change: Rc<dyn Fn(DefaultProjectTrust)>,
     pub on_clear_on_shrink_change: Rc<dyn Fn(bool)>,
     pub on_show_terminal_progress_change: Rc<dyn Fn(bool)>,
-    pub on_tui_mode_change: Rc<dyn Fn(TuiMode)>,
-    pub on_fullscreen_exit_output_change: Rc<dyn Fn(FullscreenExitOutput)>,
-    pub on_fullscreen_scrollbar_change: Rc<dyn Fn(ScrollViewScrollbar)>,
     pub on_warnings_change: Rc<dyn Fn(WarningSettings)>,
     pub on_cancel: Rc<dyn Fn()>,
 }
@@ -281,62 +271,6 @@ fn parse_tree_filter(value: &JsString) -> Option<TreeFilterMode> {
         "user-only" => Some(TreeFilterMode::UserOnly),
         "labeled-only" => Some(TreeFilterMode::LabeledOnly),
         "all" => Some(TreeFilterMode::All),
-        _ => None,
-    }
-}
-
-pub(crate) fn tui_mode_name(mode: TuiMode) -> &'static str {
-    match mode {
-        TuiMode::Regular => "regular",
-        TuiMode::Fullscreen => "fullscreen",
-    }
-}
-
-fn parse_tui_mode(value: &JsString) -> Option<TuiMode> {
-    let Ok(value) = value.to_utf8() else {
-        return None;
-    };
-    match value.as_str() {
-        "regular" => Some(TuiMode::Regular),
-        "fullscreen" => Some(TuiMode::Fullscreen),
-        _ => None,
-    }
-}
-
-fn fullscreen_exit_name(output: FullscreenExitOutput) -> &'static str {
-    match output {
-        FullscreenExitOutput::Transcript => "transcript",
-        FullscreenExitOutput::ResumeHint => "resume-hint",
-    }
-}
-
-fn parse_fullscreen_exit(value: &JsString) -> Option<FullscreenExitOutput> {
-    let Ok(value) = value.to_utf8() else {
-        return None;
-    };
-    match value.as_str() {
-        "transcript" => Some(FullscreenExitOutput::Transcript),
-        "resume-hint" => Some(FullscreenExitOutput::ResumeHint),
-        _ => None,
-    }
-}
-
-fn scrollbar_name(scrollbar: ScrollViewScrollbar) -> &'static str {
-    match scrollbar {
-        ScrollViewScrollbar::Auto => "auto",
-        ScrollViewScrollbar::Always => "always",
-        ScrollViewScrollbar::Hidden => "hidden",
-    }
-}
-
-fn parse_scrollbar(value: &JsString) -> Option<ScrollViewScrollbar> {
-    let Ok(value) = value.to_utf8() else {
-        return None;
-    };
-    match value.as_str() {
-        "auto" => Some(ScrollViewScrollbar::Auto),
-        "always" => Some(ScrollViewScrollbar::Always),
-        "hidden" => Some(ScrollViewScrollbar::Hidden),
         _ => None,
     }
 }
@@ -1360,32 +1294,6 @@ fn base_items(
             })),
         },
         SettingItem {
-            id: "tui-mode".into(),
-            label: "TUI mode".into(),
-            description: Some("Interface layout; fullscreen mode is experimental".into()),
-            current_value: tui_mode_name(config.tui_mode).into(),
-            values: Some(vec!["regular".into(), "fullscreen".into()]),
-            submenu: None,
-        },
-        SettingItem {
-            id: "fullscreen-exit-output".into(),
-            label: "Fullscreen exit output".into(),
-            description: Some(
-                "Print the transcript or only a session resume hint when exiting fullscreen mode".into(),
-            ),
-            current_value: fullscreen_exit_name(config.fullscreen_exit_output).into(),
-            values: Some(vec!["transcript".into(), "resume-hint".into()]),
-            submenu: None,
-        },
-        SettingItem {
-            id: "fullscreen-scrollbar".into(),
-            label: "Fullscreen scrollbar".into(),
-            description: Some("Scrollbar behavior in fullscreen mode; has no effect in regular mode".into()),
-            current_value: scrollbar_name(config.fullscreen_scrollbar).into(),
-            values: Some(vec!["auto".into(), "always".into(), "hidden".into()]),
-            submenu: None,
-        },
-        SettingItem {
             id: "theme".into(),
             label: "Theme".into(),
             description: Some("Color theme for the interface".into()),
@@ -1473,21 +1381,6 @@ fn build_change_handler(callbacks: Rc<SettingsCallbacks>) -> SettingsChangeHandl
             }
             "clear-on-shrink" => (callbacks.on_clear_on_shrink_change)(boolean),
             "terminal-progress" => (callbacks.on_show_terminal_progress_change)(boolean),
-            "tui-mode" => {
-                if let Some(mode) = parse_tui_mode(new_value) {
-                    (callbacks.on_tui_mode_change)(mode);
-                }
-            }
-            "fullscreen-exit-output" => {
-                if let Some(output) = parse_fullscreen_exit(new_value) {
-                    (callbacks.on_fullscreen_exit_output_change)(output);
-                }
-            }
-            "fullscreen-scrollbar" => {
-                if let Some(scrollbar) = parse_scrollbar(new_value) {
-                    (callbacks.on_fullscreen_scrollbar_change)(scrollbar);
-                }
-            }
             "theme" => (callbacks.on_theme_change)(new_value),
             _ => {}
         }

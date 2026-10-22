@@ -4,7 +4,6 @@ use indexmap::IndexMap;
 use pi_agent_core::harness::ThinkingLevel;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
-use pi_tui::tui::TuiMode;
 
 use crate::config;
 use crate::core::permissions::policy::is_approval_policy;
@@ -158,7 +157,6 @@ pub struct Args {
     pub list_extensions: Option<bool>,
     pub login_provider: Option<String>,
     pub offline: Option<bool>,
-    pub tui_mode: Option<TuiMode>,
     pub verbose: Option<bool>,
     pub project_trust_override: Option<bool>,
     pub messages: Vec<String>,
@@ -372,7 +370,6 @@ pub fn parse_args(args: &[String]) -> Args {
                     result.diagnostics.push(error("login requires a provider"));
                 }
             }
-            "--tui-mode" => parse_tui_mode(args, &mut index, &mut result),
             "--verbose" => result.verbose = Some(true),
             "--approve" | "-a" => result.project_trust_override = Some(true),
             "--no-approve" | "-na" => result.project_trust_override = Some(false),
@@ -450,28 +447,6 @@ fn parse_approval_policy(args: &[String], index: &mut usize, result: &mut Args) 
         *index += 1;
     } else {
         result.diagnostics.push(error("--approval-policy requires a value"));
-    }
-}
-
-fn parse_tui_mode(args: &[String], index: &mut usize, result: &mut Args) {
-    match args.get(*index).map(String::as_str) {
-        Some("regular") => {
-            result.tui_mode = Some(TuiMode::Regular);
-            *index += 1;
-        }
-        Some("fullscreen") => {
-            result.tui_mode = Some(TuiMode::Fullscreen);
-            *index += 1;
-        }
-        Some(value) if !value.starts_with('-') => {
-            *index += 1;
-            result.diagnostics.push(error(format!(
-                "Invalid TUI mode \"{value}\". Valid values: regular, fullscreen"
-            )));
-        }
-        _ => result
-            .diagnostics
-            .push(error("--tui-mode requires regular or fullscreen")),
     }
 }
 
@@ -637,7 +612,6 @@ fn render_help(extension_flags: &[ExtensionFlag], chalk: &Chalk) -> String {
   --export <file>                Export session file to HTML and exit
   --list-models [search]         List available models (with optional fuzzy search)
   --verbose                      Force verbose startup (overrides quietStartup setting)
-  --tui-mode <mode>              TUI mode: regular (default) or fullscreen
   --approve, -a                  Trust project-local files for this run
   --no-approve, -na              Ignore project-local files for this run
   --offline                      Disable startup network operations (same as PI_OFFLINE=1)
