@@ -62,8 +62,8 @@ pub fn supervisor_response_text(params: &JsValue) -> JsString {
 pub fn create_supervisor_response_tool() -> ToolDefinition {
     ToolDefinition {
         name: SUPERVISOR_RESPONSE_TOOL_NAME.to_owned(),
-        label: "Supervisor response".to_owned(),
-        description: "Submit exactly one structured Supervisor decision and end the current request.".to_owned(),
+        label: "Supervisor response".into(),
+        description: "Submit exactly one structured Supervisor decision and end the current request.".into(),
         prompt_snippet: Some("Submit the final structured Supervisor decision".into()),
         prompt_guidelines: Some(vec![
             "Call supervisor_response exactly once as the final action for every request.".into(),

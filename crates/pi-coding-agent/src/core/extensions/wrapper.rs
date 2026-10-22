@@ -34,21 +34,21 @@ pub fn wrap_registered_tools(
         .collect()
 }
 
-/// Adapt an `AgentHarnessTool<ExtensionContext>` into an extension `ToolDefinition`.
+/// Adapt a `ContextTool<ExtensionContext>` into an extension `ToolDefinition`.
 ///
-/// First-party coordination tools implement the harness trait; the definition
+/// First-party coordination tools implement this Rust method adapter; the definition
 /// shape is what `createAllToolDefinitions` exposes to renderers and extensions.
-pub fn harness_tool_definition<T>(tool: Arc<T>) -> ToolDefinition
+pub fn context_tool_definition<T>(tool: Arc<T>) -> ToolDefinition
 where
-    T: pi_agent_core::harness::types::AgentHarnessTool<ExtensionContext> + 'static,
+    T: super::types::ContextTool<ExtensionContext> + 'static,
 {
     let execute_tool = Arc::clone(&tool);
     let arguments_tool = Arc::clone(&tool);
     let prepare_tool = Arc::clone(&tool);
     ToolDefinition {
         name: tool.name().to_owned(),
-        label: tool.label().to_owned(),
-        description: tool.description().to_owned(),
+        label: tool.label().into(),
+        description: tool.description().into(),
         prompt_snippet: None,
         prompt_guidelines: None,
         approval_required: None,

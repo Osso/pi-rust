@@ -6,13 +6,9 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 
 use pi_ai::request::BoxFuture;
-use pi_ai::request::OnRetry;
 use pi_ai::types::{CacheRetention, Transport};
-use pi_js_compat::js_json::{JsString, JsValue};
-use serde_json::{Map, Value};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use tokio_util::sync::CancellationToken;
-
-use crate::agent::{AgentToolResult, AgentToolUpdateCallback, ToolError};
 
 /// Skill loaded from a `SKILL.md` file or provided by an application.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,60 +35,16 @@ pub struct AgentHarnessResources {
     pub skills: Option<Vec<Skill>>,
 }
 
-/// Static tool context or zero-argument provider resolved for each turn snapshot.
-pub enum AgentHarnessToolContextSource<TContext> {
-    Static(TContext),
-    Provider(Arc<dyn Fn() -> BoxFuture<'static, TContext> + Send + Sync>),
-}
-
-/// Tool definition executed by a harness with an application-defined context.
-pub trait AgentHarnessTool<TContext>: Send + Sync {
-    fn name(&self) -> &str;
-    fn description(&self) -> &str;
-    /// JSON Schema for the tool arguments.
-    fn parameters(&self) -> &Value;
-    /// Human-readable label for UI display.
-    fn label(&self) -> &str;
-    /// Per-tool execution mode override.
-    fn execution_mode(&self) -> Option<ToolExecutionMode> {
-        None
-    }
-    /// Compatibility shim for raw tool-call arguments before schema validation.
-    fn prepare_arguments(&self, args: JsValue) -> JsValue {
-        args
-    }
-    /// Prepare durable execution metadata before the assistant tool call is persisted.
-    fn prepare_execution(
-        &self,
-        _tool_call_id: String,
-        _signal: Option<CancellationToken>,
-    ) -> BoxFuture<'static, Option<pi_ai::types::ToolCallExecution>> {
-        Box::pin(async { None })
-    }
-    /// Execute the tool call with the context resolved for the current turn snapshot.
-    fn execute(
-        &self,
-        tool_call_id: String,
-        params: JsValue,
-        signal: Option<CancellationToken>,
-        on_update: Option<AgentToolUpdateCallback>,
-        context: TContext,
-        execution: Option<AgentToolExecutionContext>,
-    ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>>;
-}
-
 /// Curated provider request options owned by the harness and snapshotted per turn.
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct AgentHarnessStreamOptions {
     pub transport: Option<Transport>,
     pub timeout_ms: Option<f64>,
-    pub websocket_connect_timeout_ms: Option<f64>,
     pub max_retries: Option<f64>,
     pub max_retry_delay_ms: Option<f64>,
-    pub headers: Option<IndexMap<String, String>>,
-    pub metadata: Option<Map<String, Value>>,
+    pub headers: Option<IndexMap<JsString, JsString>>,
+    pub metadata: Option<JsObject>,
     pub cache_retention: Option<CacheRetention>,
-    pub on_retry: Option<OnRetry>,
 }
 
 /// Per-request option patch: `Unchanged` keeps the current value, `Clear` removes it entirely.
@@ -107,17 +59,15 @@ pub enum OptionalPatch<T> {
 /// Per-request stream option patch returned by provider hooks.
 ///
 /// Header and metadata patches delete keys mapped to `None`; `Clear` removes all entries.
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct AgentHarnessStreamOptionsPatch {
-    pub transport: Option<Transport>,
-    pub timeout_ms: Option<f64>,
-    pub websocket_connect_timeout_ms: Option<f64>,
-    pub max_retries: Option<f64>,
-    pub max_retry_delay_ms: Option<f64>,
-    pub headers: OptionalPatch<IndexMap<String, Option<String>>>,
-    pub metadata: OptionalPatch<IndexMap<String, Option<Value>>>,
-    pub cache_retention: Option<CacheRetention>,
-    pub on_retry: Option<OnRetry>,
+    pub transport: OptionalPatch<Transport>,
+    pub timeout_ms: OptionalPatch<f64>,
+    pub max_retries: OptionalPatch<f64>,
+    pub max_retry_delay_ms: OptionalPatch<f64>,
+    pub headers: OptionalPatch<IndexMap<JsString, Option<JsString>>>,
+    pub metadata: OptionalPatch<IndexMap<JsString, Option<JsValue>>>,
+    pub cache_retention: OptionalPatch<CacheRetention>,
 }
 
 /// Controls how tool calls from one assistant message are executed.
@@ -193,7 +143,7 @@ pub struct AgentToolExecutionContext {
 }
 
 /// Result returned by a before-tool-call hook.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BeforeToolCallResult {
     pub block: Option<bool>,
     pub reason: Option<JsString>,
@@ -488,7 +438,7 @@ impl<'a> FileContent<'a> {
 /// Options for [`FileSystem::read_text_lines`].
 #[derive(Debug, Clone, Default)]
 pub struct ReadTextLinesOptions {
-    pub max_lines: Option<usize>,
+    pub max_lines: Option<f64>,
     pub abort: Option<CancellationToken>,
 }
 

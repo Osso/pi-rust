@@ -48,7 +48,7 @@ impl ExtensionEditorHost for EditorHost {
     fn suspend(&self) {
         panic!("external editor not requested")
     }
-    fn resume(&self) {
+    fn resume(&self) -> Result<(), pi_tui::terminal::TerminalRawModeError> {
         panic!("external editor not requested")
     }
     fn request_forced_render(&self) {}

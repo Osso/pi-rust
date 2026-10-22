@@ -13,6 +13,6 @@ Rust: `crates/pi-agent-core/src/harness/compaction/branch_summarization.rs`.
 
 Frozen has no retry or usage result: transient provider failure returns immediately; remaining queued response proves no retry. Requests do not add cache overrides. Old lane fixtures now move the native tree leaf.
 
-[Temporary provider timestamp dependency](compaction.md) prevents full parity until the coordinated pi-ai f64 migration. [Owned session getter approval](agent-core-tree-session.md).
+Provider timestamps now retain f64; the temporary checked conversion has been removed ([integration proof](message-timestamps.md)). [Owned session getter approval](agent-core-tree-session.md).
 
 GREEN artifacts: `tree-compaction-dev2.log`, `tree-compaction-oracle-dev2.log`, `tree-native-boundaries-dev.log` under `/tmp/pi-rust-repin-delta-agent-core/`.

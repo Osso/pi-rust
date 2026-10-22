@@ -287,8 +287,8 @@ fn loop_tool_definition(controller: LoopController) -> ToolDefinition {
     });
     ToolDefinition {
         name: "loop".to_owned(),
-        label: "Loop".to_owned(),
-        description: "Start, stop, or inspect a recurring prompt injected into this Pi session.".to_owned(),
+        label: "Loop".into(),
+        description: "Start, stop, or inspect a recurring prompt injected into this Pi session.".into(),
         prompt_snippet: Some(
             "Schedule recurring user prompts at a fixed interval, or stop/status the active loop.".into(),
         ),

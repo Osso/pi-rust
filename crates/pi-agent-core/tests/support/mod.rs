@@ -182,8 +182,8 @@ pub fn scripted_stream_fn(scripts: Vec<Script>) -> StreamFn {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .pop_front();
         match next {
-            Some(behavior) => behavior(model, context, options),
-            None => Box::pin(async move { pi_ai::request::error_stream(&model, "Unexpected stream call") }),
+            Some(behavior) => Box::pin(async move { Ok(behavior(model, context, options).await) }),
+            None => Box::pin(async move { Ok(pi_ai::request::error_stream(&model, "Unexpected stream call")) }),
         }
     })
 }
@@ -244,16 +244,16 @@ impl AgentTool for TestTool {
         &self.name
     }
 
-    fn description(&self) -> &str {
-        &self.description
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        self.description.clone().into()
     }
 
     fn parameters(&self) -> &SchemaValue {
         &self.parameters
     }
 
-    fn label(&self) -> &str {
-        &self.label
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        self.label.clone().into()
     }
 
     fn execution_mode(&self) -> Option<pi_agent_core::harness::ToolExecutionMode> {

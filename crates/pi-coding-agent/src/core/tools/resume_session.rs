@@ -6,8 +6,9 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::OnceLock;
 
+use crate::core::extensions::types::ContextTool;
 use pi_agent_core::{
-    AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
+    AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
 use pi_js_compat::js_json as json;
@@ -364,21 +365,21 @@ fn assert_resume_target_is_different(session_path: &JsString, session: &SessionM
     Ok(())
 }
 
-impl AgentHarnessTool<ExtensionContext> for ResumeSessionTool {
+impl ContextTool<ExtensionContext> for ResumeSessionTool {
     fn name(&self) -> &str {
         NAME
     }
 
-    fn description(&self) -> &str {
-        DESCRIPTION
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        DESCRIPTION.into()
     }
 
     fn parameters(&self) -> &SchemaValue {
         parameters()
     }
 
-    fn label(&self) -> &str {
-        LABEL
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        LABEL.into()
     }
 
     fn execution_mode(&self) -> Option<ToolExecutionMode> {
@@ -510,7 +511,7 @@ pub fn render_result(
 
 /// `createResumeSessionToolDefinition()`.
 pub fn create_resume_session_tool_definition() -> ToolDefinition {
-    let mut definition = crate::core::extensions::wrapper::harness_tool_definition(Arc::new(ResumeSessionTool::new()));
+    let mut definition = crate::core::extensions::wrapper::context_tool_definition(Arc::new(ResumeSessionTool::new()));
     definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
     definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
     definition.render_call = Some(infallible_render_call(render_call));

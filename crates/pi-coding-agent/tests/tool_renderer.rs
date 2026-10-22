@@ -60,8 +60,8 @@ type RenderResult = Arc<
 fn tool_definition(render_call: Option<RenderCall>, render_result: Option<RenderResult>) -> ToolDefinition {
     ToolDefinition {
         name: "custom".to_owned(),
-        label: "custom".to_owned(),
-        description: "custom".to_owned(),
+        label: "custom".into(),
+        description: "custom".into(),
         prompt_snippet: None,
         prompt_guidelines: None,
         approval_required: None,

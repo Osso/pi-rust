@@ -10,8 +10,6 @@ use pi_ai::types::{
     AssistantContent, AssistantMessage, Context, Message, Model, ProviderNativeContext, ProviderNativeFormat,
     StopReason, TextContent, Usage, UsageCost, UserContent, UserMessage, UserRole,
 };
-use pi_ai::utils::retry::RetryPolicy;
-use pi_coding_agent::core::compaction::NoRetryCallbacks;
 use pi_coding_agent::core::compaction::{
     CompactionPreparation, CompactionSettings, CompactionSourceType, CompactionSummaryOptions,
     GenerateSummaryWithUsageOptions, MaterializeCompactionSummaryOptions, MaterializeCompactionSummaryResult, compact,
@@ -122,7 +120,7 @@ fn scripted_stream(log: Arc<Mutex<Vec<CapturedCall>>>, responses: Vec<AssistantM
                 reason: pi_ai::types::DoneReason::Stop,
                 message,
             });
-            stream
+            Ok(stream)
         })
     })
 }
@@ -214,7 +212,7 @@ async fn materializes_native_context_and_returns_the_summary() {
     assert_eq!(calls[0].api_key.as_ref(), Some(&JsString::from("test-key")));
     assert_eq!(calls[0].max_tokens, Some(8192.0));
     assert_eq!(calls[0].cache_retention, Some(pi_ai::types::CacheRetention::None));
-    assert!(calls[0].session_id_is_set);
+    assert!(!calls[0].session_id_is_set);
     assert!(calls[0].prompt.contains("complete plaintext continuation summary"));
     assert!(calls[0].prompt.contains("Return only the summary text"));
 }
@@ -307,7 +305,6 @@ async fn generates_a_summary_with_the_exact_request_shape() {
         thinking_level: None,
         stream_fn: Some(&stream_fn),
         env: None,
-        retry: None,
     })
     .await
     .expect("summary succeeds");
@@ -346,7 +343,6 @@ async fn uses_the_update_prompt_with_a_previous_summary_and_custom_focus() {
         thinking_level: None,
         stream_fn: Some(&stream_fn),
         env: None,
-        retry: None,
     })
     .await
     .expect("summary succeeds");
@@ -361,7 +357,7 @@ async fn uses_the_update_prompt_with_a_previous_summary_and_custom_focus() {
 }
 
 #[tokio::test]
-async fn retries_a_transient_summary_failure() {
+async fn returns_a_transient_summary_failure_without_retrying() {
     let log = Arc::new(Mutex::new(Vec::new()));
     let stream_fn = scripted_stream(
         Arc::clone(&log),
@@ -372,11 +368,6 @@ async fn retries_a_transient_summary_failure() {
     );
     let model = model();
     let messages = vec![user("Summarize this.")];
-    let retry = RetryPolicy {
-        enabled: true,
-        max_retries: 1,
-        base_delay_ms: 0.0,
-    };
 
     let result = generate_summary(&GenerateSummaryWithUsageOptions {
         current_messages: &messages,
@@ -390,14 +381,13 @@ async fn retries_a_transient_summary_failure() {
         thinking_level: None,
         stream_fn: Some(&stream_fn),
         env: None,
-        retry: Some(&retry),
     })
     .await
-    .expect("retry recovers");
+    .expect_err("frozen summary must not retry");
 
-    assert_eq!(result, "Recovered summary");
+    assert_eq!(result.message(), "Summarization failed: terminated");
     let calls = log.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
-    assert_eq!(calls.len(), 2);
+    assert_eq!(calls.len(), 1);
 }
 
 #[tokio::test]
@@ -419,7 +409,6 @@ async fn reports_summarization_failures_with_provider_detail() {
         thinking_level: None,
         stream_fn: Some(&stream_fn),
         env: None,
-        retry: None,
     })
     .await
     .expect_err("error response must fail");
@@ -444,9 +433,7 @@ async fn compacts_with_file_operations_and_source_details() {
             thinking_level: None,
             stream_fn: Some(&stream_fn),
             env: None,
-            retry: None,
         },
-        None::<&mut NoRetryCallbacks>,
     )
     .await
     .expect("compaction succeeds");
@@ -489,9 +476,7 @@ async fn compact_rejects_an_empty_first_kept_entry_id() {
             thinking_level: None,
             stream_fn: Some(&stream_fn),
             env: None,
-            retry: None,
         },
-        None::<&mut NoRetryCallbacks>,
     )
     .await
     .expect_err("missing id must fail");
@@ -528,9 +513,7 @@ async fn split_turn_compaction_combines_history_and_prefix_summaries() {
             thinking_level: None,
             stream_fn: Some(&stream_fn),
             env: None,
-            retry: None,
         },
-        None::<&mut NoRetryCallbacks>,
     )
     .await
     .expect("split compaction succeeds");

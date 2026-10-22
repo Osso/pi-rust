@@ -5,6 +5,7 @@ use crate::core::desktop_notification::{
     DesktopNotification, DesktopNotificationHandle, DesktopNotificationUrgency, DesktopNotifier,
     PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS, send_desktop_notification,
 };
+use crate::core::extensions::types::ContextTool;
 use crate::core::extensions::types::{
     ExtensionContext, ExtensionMode, ExtensionUiContext, NotifyType, ToolDefinition, ToolRenderContext,
     ToolRenderResultOptions, infallible_render_call, infallible_render_result,
@@ -16,7 +17,7 @@ use crate::core::session_control_db::{
 use crate::core::session_manager::lock_session_manager;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 use pi_agent_core::{
-    AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
+    AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
 use pi_js_compat::js_format;
@@ -340,15 +341,15 @@ impl AskQuestionsTool {
         Self
     }
 }
-impl AgentHarnessTool<ExtensionContext> for AskQuestionsTool {
+impl ContextTool<ExtensionContext> for AskQuestionsTool {
     fn name(&self) -> &str {
         NAME
     }
-    fn label(&self) -> &str {
-        LABEL
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        LABEL.into()
     }
-    fn description(&self) -> &str {
-        DESCRIPTION
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        DESCRIPTION.into()
     }
     fn parameters(&self) -> &SchemaValue {
         parameters()
@@ -506,7 +507,7 @@ pub fn render_result(
     super::render_text_component(context, JsString::default())
 }
 pub fn create_ask_questions_tool_definition() -> ToolDefinition {
-    let mut definition = crate::core::extensions::wrapper::harness_tool_definition(Arc::new(AskQuestionsTool::new()));
+    let mut definition = crate::core::extensions::wrapper::context_tool_definition(Arc::new(AskQuestionsTool::new()));
     definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
     definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
     definition.approval_required = Some(false);

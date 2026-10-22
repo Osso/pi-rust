@@ -13,11 +13,11 @@ mod steering {
         fn name(&self) -> &str {
             "end_turn"
         }
-        fn label(&self) -> &str {
-            "End"
+        fn label(&self) -> pi_js_compat::js_json::JsString {
+            "End".into()
         }
-        fn description(&self) -> &str {
-            "End"
+        fn description(&self) -> pi_js_compat::js_json::JsString {
+            "End".into()
         }
         fn parameters(&self) -> &Value {
             &self.0
@@ -53,7 +53,7 @@ mod steering {
         cfg.get_steering_messages = Some(Arc::new(move || {
             let poll = polls.fetch_add(1, Ordering::SeqCst);
             Box::pin(async move {
-                if poll == 1 {
+                Ok(if poll == 1 {
                     vec![
                         UserMessage {
                             role: UserRole::Tag,
@@ -66,7 +66,7 @@ mod steering {
                     ]
                 } else {
                     vec![]
-                }
+                })
             })
         }));
         let turns = Arc::new(AtomicUsize::new(0));
@@ -90,7 +90,7 @@ mod steering {
                     reason: DoneReason::Stop,
                     message: msg,
                 });
-                stream
+                Ok(stream)
             })
         });
         let ctx = AgentContext {
@@ -127,11 +127,11 @@ mod lifetime {
         fn name(&self) -> &str {
             "echo"
         }
-        fn label(&self) -> &str {
-            "Echo"
+        fn label(&self) -> pi_js_compat::js_json::JsString {
+            "Echo".into()
         }
-        fn description(&self) -> &str {
-            "Echo"
+        fn description(&self) -> pi_js_compat::js_json::JsString {
+            "Echo".into()
         }
         fn parameters(&self) -> &Value {
             &self.schema
@@ -192,7 +192,7 @@ mod lifetime {
                     reason: DoneReason::ToolUse,
                     message: msg,
                 });
-                stream
+                Ok(stream)
             })
         });
         let updates = Arc::new(AtomicUsize::new(0));

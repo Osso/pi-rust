@@ -14,6 +14,10 @@ use crate::core::session_manager::{SessionInfo, SessionManager};
 use crate::core::session_tool_output::{ToolResultSessionMigrationReport, migrate_tool_result_session_files};
 use crate::utils::iso_time::format_iso_millis;
 
+#[cfg(test)]
+#[path = "sessions_command_date_tests.rs"]
+mod date_tests;
+
 const DEFAULT_ARCHIVE_DAYS: f64 = 5.0;
 const MILLISECONDS_PER_DAY: f64 = 86_400_000.0;
 
@@ -64,8 +68,8 @@ pub trait SessionsCommandDependencies {
         Box::pin(async move {
             let sessions = SessionManager::list_all(None, None, None).map_err(|error| error.message().clone())?;
             for session in sessions {
-                write_session_metadata(control_db_path, &writable_metadata(&session))
-                    .map_err(|error| error.message().clone())?;
+                let metadata = writable_metadata(&session).map_err(|cause| JsString::from(cause.to_string()))?;
+                write_session_metadata(control_db_path, &metadata).map_err(|error| error.message().clone())?;
             }
             Ok(())
         })
@@ -84,8 +88,8 @@ pub trait SessionsCommandDependencies {
     }
 }
 
-fn writable_metadata(session: &SessionInfo) -> WritableSessionMetadata {
-    WritableSessionMetadata {
+fn writable_metadata(session: &SessionInfo) -> Result<WritableSessionMetadata, pi_js_compat::date::InvalidTimeValue> {
+    Ok(WritableSessionMetadata {
         session_path: session.path.clone(),
         id: session.id.clone(),
         cwd: session.cwd.clone(),
@@ -98,11 +102,11 @@ fn writable_metadata(session: &SessionInfo) -> WritableSessionMetadata {
         model_provider: None,
         model_id: None,
         thinking_level: None,
-        created_at: format_iso_millis(session.created).into(),
-        modified_at: format_iso_millis(session.modified).into(),
+        created_at: pi_js_compat::date::to_iso_string_value(session.created)?.into(),
+        modified_at: pi_js_compat::date::to_iso_string_value(session.modified)?.into(),
         message_count: i64::try_from(session.message_count).unwrap_or(i64::MAX),
         first_message: session.first_message.clone(),
-    }
+    })
 }
 
 fn default_control_db_path() -> JsString {

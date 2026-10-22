@@ -3,6 +3,8 @@
 //! Windows-specific shell discovery and WSL stdin transport branches are excluded; the port
 //! targets the Unix runtime the harness executes on.
 
+mod read_lines;
+
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -120,21 +122,10 @@ impl FileSystem for NodeExecutionEnv {
             if let Some(error) = abort_result(options.abort.as_ref(), &resolved) {
                 return Err(error);
             }
-            if options.max_lines == Some(0) {
+            if options.max_lines.is_some_and(|limit| limit <= 0.0) {
                 return Ok(Vec::new());
             }
-            let bytes = tokio::fs::read(&encode_node_utf8(&resolved))
-                .await
-                .map_err(|error| file_error(&error, "open", &resolved))?;
-            if let Some(error) = abort_result(options.abort.as_ref(), &resolved) {
-                return Err(error);
-            }
-            let content = String::from_utf8_lossy(&bytes);
-            let mut lines = split_lines(&content);
-            if let Some(max_lines) = options.max_lines {
-                lines.truncate(max_lines);
-            }
-            Ok(lines)
+            read_lines::read_text_lines(&resolved, options).await
         })
     }
 
@@ -238,15 +229,9 @@ impl FileSystem for NodeExecutionEnv {
             if let Some(error) = abort_result(abort, &resolved) {
                 return Err(error);
             }
-            let mut entries = tokio::fs::read_dir(&encode_node_utf8(&resolved))
-                .await
-                .map_err(|error| file_error(&error, "scandir", &resolved))?;
+            let entries = read_sorted_directory(&resolved).await?;
             let mut infos = Vec::new();
-            while let Some(entry) = entries
-                .next_entry()
-                .await
-                .map_err(|error| file_error(&error, "scandir", &resolved))?
-            {
+            for entry in entries {
                 if let Some(error) = abort_result(abort, &resolved) {
                     return Err(error);
                 }
@@ -951,30 +936,6 @@ fn random_name_suffix() -> String {
     format!("{:06x}", (nanos as u64 ^ counter) & 0xff_ffff)
 }
 
-fn split_lines(content: &str) -> Vec<String> {
-    let mut lines = Vec::new();
-    let mut current = String::new();
-    let mut characters = content.chars().peekable();
-    while let Some(character) = characters.next() {
-        match character {
-            '\n' => {
-                lines.push(std::mem::take(&mut current));
-            }
-            '\r' => {
-                if characters.peek() == Some(&'\n') {
-                    characters.next();
-                }
-                lines.push(std::mem::take(&mut current));
-            }
-            other => current.push(other),
-        }
-    }
-    if !current.is_empty() {
-        lines.push(current);
-    }
-    lines
-}
-
 fn abort_result(abort: Option<&CancellationToken>, path: &JsString) -> Option<FileError> {
     abort
         .filter(|token| token.is_cancelled())
@@ -1057,6 +1018,23 @@ fn unknown_file_error(error: &io::Error, syscall: &str, path: &JsString) -> File
         Some(path.to_owned()),
         Some(Box::new(io::Error::new(error.kind(), error.to_string()))),
     )
+}
+
+async fn read_sorted_directory(path: &JsString) -> Result<Vec<tokio::fs::DirEntry>, FileError> {
+    let mut directory = tokio::fs::read_dir(encode_node_utf8(path))
+        .await
+        .map_err(|error| file_error(&error, "scandir", path))?;
+    let mut entries = Vec::new();
+    while let Some(entry) = directory
+        .next_entry()
+        .await
+        .map_err(|error| file_error(&error, "scandir", path))?
+    {
+        entries.push(entry);
+    }
+    // Node's libuv scandir orders native names before decoding and lstat.
+    entries.sort_by_key(tokio::fs::DirEntry::file_name);
+    Ok(entries)
 }
 
 fn resolve_path(cwd: &JsString, path: &JsString) -> JsString {

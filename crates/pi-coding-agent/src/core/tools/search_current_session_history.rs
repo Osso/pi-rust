@@ -5,8 +5,9 @@ use pi_js_compat::js_json::JsValue;
 use std::collections::HashSet;
 use std::sync::{Arc, OnceLock};
 
+use crate::core::extensions::types::ContextTool;
 use pi_agent_core::{
-    AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
+    AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
 use pi_js_compat::js_json::{JsString, JsValue as Value};
@@ -247,21 +248,21 @@ fn require_persisted_session(context: &ExtensionContext) -> Result<(), ToolError
     Ok(())
 }
 
-impl AgentHarnessTool<ExtensionContext> for SearchCurrentSessionHistoryTool {
+impl ContextTool<ExtensionContext> for SearchCurrentSessionHistoryTool {
     fn name(&self) -> &str {
         NAME
     }
 
-    fn description(&self) -> &str {
-        DESCRIPTION
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        DESCRIPTION.into()
     }
 
     fn parameters(&self) -> &SchemaValue {
         parameters()
     }
 
-    fn label(&self) -> &str {
-        LABEL
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        LABEL.into()
     }
 
     fn execution_mode(&self) -> Option<ToolExecutionMode> {
@@ -390,7 +391,7 @@ pub fn render_result(
 /// `createSearchCurrentSessionHistoryToolDefinition()`.
 pub fn create_search_current_session_history_tool_definition() -> ToolDefinition {
     let mut definition =
-        crate::core::extensions::wrapper::harness_tool_definition(Arc::new(SearchCurrentSessionHistoryTool::new()));
+        crate::core::extensions::wrapper::context_tool_definition(Arc::new(SearchCurrentSessionHistoryTool::new()));
     definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
     definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
     definition.render_call = Some(infallible_render_call(render_call));

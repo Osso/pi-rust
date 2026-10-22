@@ -1263,7 +1263,7 @@ fn read_prompt_history_rows(db: &Connection, limit: i64) -> Result<Vec<JsString>
 			",
     )?;
     let rows = statement
-        .query_map(params![limit], |row| row.get::<_, String>(0).map(JsString::from))?
+        .query_map(params![limit], |row| row.get::<_, JsString>(0))?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
@@ -1289,7 +1289,7 @@ fn insert_prompt_history_entry(db: &Connection, content: &JsString) -> Result<()
     Ok(())
 }
 
-fn read_latest_prompt_history_entry(db: &Connection) -> Result<Option<String>, ControlDbError> {
+fn read_latest_prompt_history_entry(db: &Connection) -> Result<Option<JsString>, ControlDbError> {
     Ok(db
         .query_row(
             "
@@ -1299,7 +1299,7 @@ fn read_latest_prompt_history_entry(db: &Connection) -> Result<Option<String>, C
 			LIMIT 1
 			",
             [],
-            |row| row.get::<_, String>(0),
+            |row| row.get::<_, JsString>(0),
         )
         .optional()?)
 }

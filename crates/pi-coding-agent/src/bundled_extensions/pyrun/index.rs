@@ -828,8 +828,8 @@ pub fn create_pyrun_tool_definition(evaluate: PyrunEvaluate) -> ToolDefinition {
     let render_result: ToolResultRenderer = infallible_render_result(render_result);
     ToolDefinition {
         name: "pyrun_eval".into(),
-        label: "Pyrun Eval".to_owned(),
-        description: "Evaluate Python/Pyrun code through the canonical Pyrun JSONL runtime adapter.".to_owned(),
+        label: "Pyrun Eval".into(),
+        description: "Evaluate Python/Pyrun code through the canonical Pyrun JSONL runtime adapter.".into(),
         prompt_snippet: Some(PYRUN_PROMPT_SNIPPET.into()),
         prompt_guidelines: Some(PYRUN_PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect()),
         approval_required: Some(true),

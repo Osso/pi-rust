@@ -536,7 +536,7 @@ fn rust_tool_result(result: Result<pi_agent_core::AgentToolResult, pi_agent_core
 
 #[tokio::test]
 async fn end_turn_tool_differential() {
-    use pi_agent_core::AgentHarnessTool;
+    use pi_coding_agent::core::extensions::types::ContextTool;
     use pi_coding_agent::core::tools::end_turn::EndTurnTool;
 
     let context = tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "session"))
@@ -566,7 +566,7 @@ async fn end_turn_tool_differential() {
 
 #[tokio::test]
 async fn channel_post_tool_differential() {
-    use pi_agent_core::AgentHarnessTool;
+    use pi_coding_agent::core::extensions::types::ContextTool;
     use pi_coding_agent::core::tools::channel_post::ChannelPostTool;
 
     let mut oracle = Oracle::new();
@@ -624,7 +624,7 @@ async fn channel_post_tool_differential() {
 
 #[tokio::test]
 async fn ask_architect_tool_differential() {
-    use pi_agent_core::AgentHarnessTool;
+    use pi_coding_agent::core::extensions::types::ContextTool;
     use pi_coding_agent::core::tools::ask_architect::AskArchitectTool;
 
     let root = temp_root("pi-ask-architect-");
@@ -847,7 +847,7 @@ fn session_fixture_root() -> tempfile::TempDir {
 
 #[tokio::test]
 async fn search_current_session_history_tool_differential() {
-    use pi_agent_core::AgentHarnessTool;
+    use pi_coding_agent::core::extensions::types::ContextTool;
     use pi_coding_agent::core::session_manager::SessionManager;
     use pi_coding_agent::core::tools::search_current_session_history::SearchCurrentSessionHistoryTool;
 
@@ -996,8 +996,9 @@ async fn search_current_session_history_tool_differential() {
 
 #[tokio::test]
 async fn search_current_session_history_live_numbers_differential() {
-    use pi_agent_core::{AgentHarnessTool, AgentMessage};
+    use pi_agent_core::AgentMessage;
     use pi_ai::types::{AssistantContent, AssistantMessage, ToolCall};
+    use pi_coding_agent::core::extensions::types::ContextTool;
     use pi_coding_agent::core::session_manager::SessionManager;
     use pi_coding_agent::core::tools::search_current_session_history::SearchCurrentSessionHistoryTool;
     use std::sync::{Arc, Mutex};
@@ -1046,7 +1047,7 @@ async fn search_current_session_history_live_numbers_differential() {
 
 #[tokio::test]
 async fn resume_session_tool_differential() {
-    use pi_agent_core::AgentHarnessTool;
+    use pi_coding_agent::core::extensions::types::ContextTool;
     use pi_coding_agent::core::extensions::{ExtensionContext, SwitchSessionCallback};
     use pi_coding_agent::core::session_manager::SessionManager;
     use pi_coding_agent::core::tools::resume_session::ResumeSessionTool;
@@ -1204,8 +1205,8 @@ async fn resume_session_tool_differential() {
 
 #[tokio::test]
 async fn change_working_directory_tool_differential() {
-    use pi_agent_core::AgentHarnessTool;
     use pi_coding_agent::core::extensions::RelocateCallback;
+    use pi_coding_agent::core::extensions::types::ContextTool;
     use pi_coding_agent::core::session_manager::SessionManager;
     use pi_coding_agent::core::tools::change_working_directory::ChangeWorkingDirectoryTool;
     use std::sync::{Arc, Mutex};
@@ -1300,7 +1301,7 @@ async fn change_working_directory_tool_differential() {
 
 #[tokio::test]
 async fn list_sessions_tool_differential() {
-    use pi_agent_core::AgentHarnessTool;
+    use pi_coding_agent::core::extensions::types::ContextTool;
     use pi_coding_agent::core::tools::list_sessions::ListSessionsTool;
 
     let mut oracle = Oracle::new();
@@ -1389,7 +1390,7 @@ async fn list_sessions_tool_differential() {
 
 #[tokio::test]
 async fn broadcast_tool_differential() {
-    use pi_agent_core::AgentHarnessTool;
+    use pi_coding_agent::core::extensions::types::ContextTool;
     use pi_coding_agent::core::session_manager::SessionManager;
     use pi_coding_agent::core::tools::broadcast::BroadcastTool;
     use std::sync::{Arc, Mutex};
@@ -1490,8 +1491,8 @@ async fn broadcast_tool_differential() {
 
 #[tokio::test]
 async fn ask_questions_tool_differential() {
-    use pi_agent_core::AgentHarnessTool;
     use pi_ai::request::BoxFuture;
+    use pi_coding_agent::core::extensions::types::ContextTool;
     use pi_coding_agent::core::extensions::{ExtensionMode, ExtensionUiContext};
     use pi_coding_agent::core::tools::ask_questions::AskQuestionsTool;
     use std::collections::VecDeque;

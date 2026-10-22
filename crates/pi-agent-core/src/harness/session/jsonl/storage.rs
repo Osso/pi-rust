@@ -86,7 +86,7 @@ pub async fn load_jsonl_session_metadata(
         fs.read_text_lines(
             path,
             ReadTextLinesOptions {
-                max_lines: Some(1),
+                max_lines: Some(1.0),
                 abort: None,
             },
         )

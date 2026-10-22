@@ -73,8 +73,8 @@ pub fn create_browser_cli_tool_definition(options: BrowserCliExtensionOptions) -
 
     ToolDefinition {
         name: "browser-cli".to_owned(),
-        label: "Browser CLI".to_owned(),
-        description: "Run ordered browser-cli argv commands sequentially and return each command result.".to_owned(),
+        label: "Browser CLI".into(),
+        description: "Run ordered browser-cli argv commands sequentially and return each command result.".into(),
         prompt_snippet: Some("Control the browser through ordered browser-cli command batches.".into()),
         prompt_guidelines: Some(
             BROWSER_CLI_PROMPT_GUIDELINES

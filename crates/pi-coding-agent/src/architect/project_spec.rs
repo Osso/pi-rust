@@ -110,8 +110,8 @@ fn relative_path(base: &Path, target: &Path) -> PathBuf {
 pub fn architect_project_spec_tool_definition() -> ToolDefinition {
     ToolDefinition {
         name: "read_project_spec".to_owned(),
-        label: "Read project spec".to_owned(),
-        description: "Read an authoritative Markdown spec from an explicit Architect request's project.".to_owned(),
+        label: "Read project spec".into(),
+        description: "Read an authoritative Markdown spec from an explicit Architect request's project.".into(),
         prompt_snippet: None,
         prompt_guidelines: Some(Vec::new()),
         approval_required: Some(false),

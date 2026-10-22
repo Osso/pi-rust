@@ -241,7 +241,7 @@ async fn sibling_moves_finish_before_play_through_real_agent_scheduler() {
                 ),
             };
             sender.push(AssistantMessageEvent::Done { reason, message });
-            stream
+            Ok(stream)
         })
     });
     let model = serde_json::from_value(json!({"id":"fixture","name":"Fixture","api":"openai-responses","provider":"fixture","baseUrl":"https://invalid.test","reasoning":false,"input":["text"],"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"contextWindow":8192,"maxTokens":1024})).unwrap();

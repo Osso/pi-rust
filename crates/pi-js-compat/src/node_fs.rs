@@ -23,27 +23,33 @@ pub fn node_path_argument_error(path: &JsString) -> Option<NodePathArgumentError
     if !path.contains('\0') {
         return None;
     }
-    let inspected = inspect_path_argument(path);
+    Some(NodePathArgumentError {
+        name: "TypeError",
+        code: "ERR_INVALID_ARG_VALUE",
+        message: invalid_argument_value_message(
+            "path",
+            "must be a string, Uint8Array, or URL without null bytes",
+            path,
+        ),
+    })
+}
+
+/// Shared ERR_INVALID_ARG_VALUE inspection/truncation for Node IO boundaries.
+pub fn invalid_argument_value_message(name: &str, reason: &str, value: &JsString) -> JsString {
+    let inspected = inspect_argument_value(value);
     let mut received: Vec<u16> = inspected.units().iter().copied().take(128).collect();
     if inspected.len() > 128 {
         received.extend("...".encode_utf16());
     }
-    let mut message: Vec<u16> =
-        "The argument 'path' must be a string, Uint8Array, or URL without null bytes. Received "
-            .encode_utf16()
-            .collect();
-    message.extend(received);
-    Some(NodePathArgumentError {
-        name: "TypeError",
-        code: "ERR_INVALID_ARG_VALUE",
-        message: JsString::from_utf16(message),
-    })
+    let mut message = js_format!("The argument '{}' {}. Received ", name, reason);
+    message.push_str(JsString::from_utf16(received));
+    message
 }
 
-fn inspect_path_argument(path: &JsString) -> JsString {
+fn inspect_argument_value(argument: &JsString) -> JsString {
     // util.inspect's default maxStringLength is 10000 UTF-16 units; only its
     // first 128 inspected units can reach Node's path-validation diagnostic.
-    let value = path.slice(0, 10000);
+    let value = argument.slice(0, 10000);
     if value.len() > 76 {
         JsString::join(value.split_inclusive('\n').map(|part| inspect_string(&part)), " +\n  ")
     } else {

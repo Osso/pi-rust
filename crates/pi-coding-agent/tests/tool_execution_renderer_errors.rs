@@ -43,8 +43,8 @@ fn install_theme() -> Arc<Theme> {
 fn erring_definition() -> ToolDefinition {
     ToolDefinition {
         name: "erring_tool".to_owned(),
-        label: "Erring tool".to_owned(),
-        description: "Renderer failures".to_owned(),
+        label: "Erring tool".into(),
+        description: "Renderer failures".into(),
         prompt_snippet: None,
         prompt_guidelines: None,
         approval_required: None,

@@ -1,3 +1,6 @@
+pub mod agent_harness;
+mod agent_harness_types;
+pub use agent_harness::*;
 pub mod compaction;
 pub mod env;
 mod frontmatter;
@@ -23,6 +26,7 @@ pub use skills::{
     SkillDiagnostic, SkillDiagnosticCode, SkillDiagnosticType, SkillLoadResult, SourcedSkill, SourcedSkillDiagnostic,
     SourcedSkillLoadResult, load_skills, load_sourced_skills,
 };
+mod stream_options;
 pub mod system_prompt;
 pub mod types;
 pub mod utils;
@@ -35,10 +39,9 @@ pub use messages::{
     create_compaction_summary_message, create_custom_message,
 };
 pub use types::{
-    AgentHarnessResources, AgentHarnessStreamOptions, AgentHarnessStreamOptionsPatch, AgentHarnessTool,
-    AgentHarnessToolContextSource, AgentToolExecutionContext, BeforeToolCallResult, BranchSummaryError,
-    BranchSummaryErrorCode, CompactionError, CompactionErrorCode, CreateDirOptions, CreateTempFileOptions,
-    ExecutionEnv, ExecutionError, ExecutionErrorCode, FileContent, FileError, FileErrorCode, FileInfo, FileKind,
-    FileSystem, OptionalPatch, PromptTemplate, QueueMode, ReadTextLinesOptions, RemoveOptions, Shell, ShellExecOptions,
-    ShellExecResult, Skill, ThinkingLevel, ToolExecutionMode,
+    AgentHarnessResources, AgentHarnessStreamOptions, AgentHarnessStreamOptionsPatch, AgentToolExecutionContext,
+    BeforeToolCallResult, BranchSummaryError, BranchSummaryErrorCode, CompactionError, CompactionErrorCode,
+    CreateDirOptions, CreateTempFileOptions, ExecutionEnv, ExecutionError, ExecutionErrorCode, FileContent, FileError,
+    FileErrorCode, FileInfo, FileKind, FileSystem, OptionalPatch, PromptTemplate, QueueMode, ReadTextLinesOptions,
+    RemoveOptions, Shell, ShellExecOptions, ShellExecResult, Skill, ThinkingLevel, ToolExecutionMode,
 };

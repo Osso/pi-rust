@@ -152,7 +152,7 @@ async fn terminalizes_when_stream_iteration_ignores_abort() {
             }
             let (sender, stream) = create_assistant_message_event_stream();
             std::mem::forget(sender);
-            stream
+            Ok(stream)
         })
     });
     let signal = CancellationToken::new();
@@ -193,7 +193,7 @@ async fn preserves_next_rejection_without_cleanup() {
             let (sender, stream) = create_assistant_message_event_stream();
             let _ = model;
             sender.fail(pi_ai::utils::event_stream::StreamFailure::new("next failed"));
-            stream
+            Ok(stream)
         })
     });
     let stream = agent_loop(
@@ -688,7 +688,7 @@ async fn emits_tool_execution_end_in_completion_order_and_results_in_source_orde
                         message: text_assistant("done"),
                     });
                 }
-                stream
+                Ok(stream)
             })
         })
     };
@@ -749,9 +749,9 @@ async fn injects_queued_messages_after_all_tool_calls_complete() {
         Box::pin(async move {
             let poll = polls.fetch_add(1, Ordering::SeqCst);
             if poll == 1 {
-                vec![agent_message(user("interrupt"))]
+                Ok(vec![agent_message(user("interrupt"))])
             } else {
-                Vec::new()
+                Ok(Vec::new())
             }
         })
     }));
@@ -786,7 +786,7 @@ async fn injects_queued_messages_after_all_tool_calls_complete() {
                     pi_ai::types::DoneReason::Stop
                 };
                 sender.push(AssistantMessageEvent::Done { reason, message });
-                stream
+                Ok(stream)
             })
         })
     };
@@ -881,7 +881,7 @@ async fn forces_sequential_when_tool_declares_sequential_mode() {
                         message: text_assistant("done"),
                     });
                 }
-                stream
+                Ok(stream)
             })
         })
     };
@@ -965,7 +965,7 @@ async fn forces_sequential_when_one_of_multiple_tools_is_sequential() {
                         message: text_assistant("done"),
                     });
                 }
-                stream
+                Ok(stream)
             })
         })
     };
@@ -1037,7 +1037,7 @@ async fn allows_parallel_execution_when_all_tools_declare_parallel() {
                         message: text_assistant("done"),
                     });
                 }
-                stream
+                Ok(stream)
             })
         })
     };
@@ -1103,7 +1103,7 @@ async fn uses_prepare_next_turn_snapshot_before_continuing() {
                         message: text_assistant("done"),
                     });
                 }
-                stream
+                Ok(stream)
             })
         })
     };
@@ -1149,7 +1149,7 @@ async fn stops_after_current_turn_when_should_stop_after_turn_returns_true() {
             let steering_polls = Arc::clone(&steering_polls);
             Box::pin(async move {
                 steering_polls.fetch_add(1, Ordering::SeqCst);
-                Vec::new()
+                Ok(Vec::new())
             })
         }))
     };
@@ -1159,7 +1159,7 @@ async fn stops_after_current_turn_when_should_stop_after_turn_returns_true() {
             let follow_up_polls = Arc::clone(&follow_up_polls);
             Box::pin(async move {
                 follow_up_polls.fetch_add(1, Ordering::SeqCst);
-                vec![agent_message(user("follow up should stay queued"))]
+                Ok(vec![agent_message(user("follow up should stay queued"))])
             })
         }))
     };
@@ -1208,7 +1208,7 @@ async fn stops_after_current_turn_when_should_stop_after_turn_returns_true() {
                     pi_ai::types::DoneReason::Stop
                 };
                 sender.push(AssistantMessageEvent::Done { reason, message });
-                stream
+                Ok(stream)
             })
         })
     };
@@ -1287,7 +1287,7 @@ async fn continues_after_assistant_text_until_terminating_tool_result() {
                     pi_ai::types::DoneReason::ToolUse
                 };
                 sender.push(AssistantMessageEvent::Done { reason, message });
-                stream
+                Ok(stream)
             })
         })
     };
@@ -1345,7 +1345,7 @@ async fn stops_after_tool_batch_when_every_result_terminates() {
                         json!({"value": "hello"}),
                     ))]),
                 });
-                stream
+                Ok(stream)
             })
         })
     };
@@ -1412,7 +1412,7 @@ async fn continues_after_blocked_tool_call_without_termination_hint() {
                     pi_ai::types::DoneReason::Stop
                 };
                 sender.push(AssistantMessageEvent::Done { reason, message });
-                stream
+                Ok(stream)
             })
         })
     };
@@ -1483,7 +1483,7 @@ async fn continues_after_mixed_batch_with_one_terminating_blocked_call() {
                     pi_ai::types::DoneReason::Stop
                 };
                 sender.push(AssistantMessageEvent::Done { reason, message });
-                stream
+                Ok(stream)
             })
         })
     };
@@ -1527,7 +1527,7 @@ async fn continues_after_parallel_tool_calls_when_not_all_results_terminate() {
                     pi_ai::types::DoneReason::Stop
                 };
                 sender.push(AssistantMessageEvent::Done { reason, message });
-                stream
+                Ok(stream)
             })
         })
     };
@@ -1574,7 +1574,7 @@ async fn after_tool_call_can_mark_batch_as_terminating() {
                         json!({"value": "hello"}),
                     ))]),
                 });
-                stream
+                Ok(stream)
             })
         })
     };
@@ -1623,7 +1623,7 @@ async fn restarts_unfinished_tool_call_before_requesting_the_model() {
                 reason: pi_ai::types::DoneReason::Stop,
                 message: text_assistant("Done"),
             });
-            stream
+            Ok(stream)
         })
     });
     let stream = agent_loop_continue(
@@ -1931,4 +1931,76 @@ async fn leaves_small_tool_results_unchanged() {
     let result = tool_result_for("small".to_owned(), Some(json!({"ok": true}))).await;
     assert_eq!(tool_result_text(&result), "small");
     assert_eq!(result.details, Some(json!({"ok": true})));
+}
+
+#[tokio::test]
+async fn rejects_stream_acquisition_without_fabricating_an_assistant_message() {
+    let failure = JsString::from_utf16(vec![0xd800, 0x21, 0xdfff]);
+    let stream_fn: pi_agent_core::agent::StreamFn = Arc::new({
+        let failure = failure.clone();
+        move |_, _, _| {
+            let failure = failure.clone();
+            Box::pin(async move { Err(pi_agent_core::agent::AgentError::new(failure)) })
+        }
+    });
+    let stream = agent_loop(
+        vec![agent_message(user("prompt"))],
+        context(Vec::new(), Vec::new()),
+        config(),
+        None,
+        Some(stream_fn),
+    );
+    let (events, error) = collect_events_allowing_failure(stream).await;
+    assert_eq!(error, Some(failure));
+    assert!(!events.iter().any(|event| matches!(
+        event,
+        AgentEvent::MessageStart {
+            message: AgentMessage::Assistant(_)
+        } | AgentEvent::MessageEnd {
+            message: AgentMessage::Assistant(_)
+        } | AgentEvent::TurnEnd { .. }
+            | AgentEvent::AgentEnd { .. }
+    )));
+}
+
+#[tokio::test]
+async fn rejects_steering_and_follow_up_queue_failures_at_the_poll_boundary() {
+    for steering in [true, false] {
+        let failure = JsString::from_utf16(vec![0xd800, 0x21, 0xdfff]);
+        let hook: pi_agent_core::agent::MessageQueueHook = Arc::new({
+            let failure = failure.clone();
+            move || {
+                let failure = failure.clone();
+                Box::pin(async move { Err(pi_agent_core::agent::AgentError::new(failure)) })
+            }
+        });
+        let mut config = config();
+        if steering {
+            config.get_steering_messages = Some(hook);
+        } else {
+            config.get_follow_up_messages = Some(hook);
+        }
+        let stream = agent_loop(
+            vec![agent_message(user("prompt"))],
+            context(Vec::new(), Vec::new()),
+            config,
+            None,
+            Some(scripted_stream_fn(vec![Script::message(text_assistant("answer"))])),
+        );
+        let (events, error) = collect_events_allowing_failure(stream).await;
+        assert_eq!(error, Some(failure));
+        assert!(!event_types(&events).contains(&"agent_end"));
+        let assistant_ends = events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    AgentEvent::MessageEnd {
+                        message: AgentMessage::Assistant(_)
+                    }
+                )
+            })
+            .count();
+        assert_eq!(assistant_ends, usize::from(!steering));
+    }
 }

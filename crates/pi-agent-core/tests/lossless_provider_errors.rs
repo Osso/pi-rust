@@ -52,7 +52,7 @@ async fn native_stream_failure_reaches_agent_result_without_display_projection()
         Box::pin(async {
             let (sender, stream) = create_assistant_message_event_stream();
             sender.fail(StreamFailure::new(raw_error()));
-            stream
+            Ok(stream)
         })
     });
     let config = AgentLoopConfig::new(model, Arc::new(|_| Box::pin(async { Ok(vec![]) })));
@@ -80,7 +80,7 @@ async fn agent_failure_keeps_state_listener_and_persisted_message_native() {
             Box::pin(async {
                 let (sender, stream) = create_assistant_message_event_stream();
                 sender.fail(StreamFailure::new(raw_error()));
-                stream
+                Ok(stream)
             })
         })),
         ..Default::default()
@@ -175,11 +175,11 @@ async fn tool_hook_failures_keep_native_units_in_result_messages() {
         fn name(&self) -> &str {
             "probe"
         }
-        fn description(&self) -> &str {
-            "probe"
+        fn description(&self) -> pi_js_compat::js_json::JsString {
+            "probe".into()
         }
-        fn label(&self) -> &str {
-            "probe"
+        fn label(&self) -> pi_js_compat::js_json::JsString {
+            "probe".into()
         }
         fn parameters(&self) -> &serde_json::Value {
             &self.schema
@@ -221,7 +221,7 @@ async fn tool_hook_failures_keep_native_units_in_result_messages() {
                 };
                 let (sender, stream) = create_assistant_message_event_stream();
                 sender.push(AssistantMessageEvent::Done { reason, message });
-                stream
+                Ok(stream)
             })
         });
         let mut options = AgentOptions {
@@ -281,7 +281,7 @@ async fn provider_failure_survives_jsonl_repo_close_and_reopen() {
             Box::pin(async {
                 let (sender, stream) = create_assistant_message_event_stream();
                 sender.fail(StreamFailure::new(raw_error()));
-                stream
+                Ok(stream)
             })
         })),
         ..Default::default()

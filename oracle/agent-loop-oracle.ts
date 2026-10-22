@@ -86,7 +86,9 @@ function done(reason: string, message: any): any {
 	return { type: "done", reason, message };
 }
 
-async function collect(stream: any): Promise<{ events: any[]; messages: any[] }> {
+async function collect(
+	stream: any,
+): Promise<{ events: any[]; messages: any[] }> {
 	const events: any[] = [];
 	for await (const event of stream) {
 		events.push(normalize(snapshot(event)));
@@ -95,7 +97,9 @@ async function collect(stream: any): Promise<{ events: any[]; messages: any[] }>
 	return { events, messages };
 }
 
-async function collectOutcome(stream: any): Promise<{ events: any[]; messages?: any; error?: string }> {
+async function collectOutcome(
+	stream: any,
+): Promise<{ events: any[]; messages?: any; error?: string }> {
 	const events: any[] = [];
 	let error: string | undefined;
 	try {
@@ -121,7 +125,14 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 	const scriptStream = (scripts: any[]) => {
 		let index = 0;
 		return (_model: any, context: any, _options: any) => {
-			requests.push(normalize(snapshot({ systemPrompt: context.systemPrompt, messages: context.messages })));
+			requests.push(
+				normalize(
+					snapshot({
+						systemPrompt: context.systemPrompt,
+						messages: context.messages,
+					}),
+				),
+			);
 			const script = scripts[index++];
 			if (!script) throw new Error("Unexpected stream call");
 			const { AssistantMessageEventStream } = api.ai;
@@ -135,7 +146,9 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 	const config = (overrides: any = {}) => ({
 		model,
 		convertToLlm: (messages: any[]) =>
-			messages.filter((message) => ["user", "assistant", "toolResult"].includes(message.role)),
+			messages.filter((message) =>
+				["user", "assistant", "toolResult"].includes(message.role),
+			),
 		...overrides,
 	});
 	const context = (messages: any[], tools: any[] = [], systemPrompt = "") => ({
@@ -143,11 +156,16 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 		messages,
 		tools,
 	});
-	const runLoopWithThrowingEmit = async (throwOn: string, scripts: any[], tools: any[] = []) => {
+	const runLoopWithThrowingEmit = async (
+		throwOn: string,
+		scripts: any[],
+		tools: any[] = [],
+	) => {
 		const events: any[] = [];
 		const emit = async (event: any) => {
 			events.push(normalize(snapshot(event)));
-			if (event.type === throwOn) throw new Error(`listener exploded on ${event.type}`);
+			if (event.type === throwOn)
+				throw new Error(`listener exploded on ${event.type}`);
 		};
 		try {
 			const messages = await api.runAgentLoop(
@@ -160,15 +178,26 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 			);
 			return { events, messages: normalize(snapshot(messages)) };
 		} catch (failure) {
-			return { events, error: failure instanceof Error ? failure.message : String(failure) };
+			return {
+				events,
+				error: failure instanceof Error ? failure.message : String(failure),
+			};
 		}
 	};
-	const runAgentWithThrowingListener = async (throwOn: string, scripts: any[], tools: any[] = []) => {
-		const agent = new api.Agent({ initialState: { tools }, streamFn: scriptStream(scripts) });
+	const runAgentWithThrowingListener = async (
+		throwOn: string,
+		scripts: any[],
+		tools: any[] = [],
+	) => {
+		const agent = new api.Agent({
+			initialState: { tools },
+			streamFn: scriptStream(scripts),
+		});
 		const events: any[] = [];
 		agent.subscribe((event: any) => {
 			events.push(normalize(snapshot(event)));
-			if (event.type === throwOn) throw new Error(`listener exploded on ${event.type}`);
+			if (event.type === throwOn)
+				throw new Error(`listener exploded on ${event.type}`);
 		});
 		let error: string | undefined;
 		try {
@@ -193,7 +222,9 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				context([]),
 				config(),
 				undefined,
-				scriptStream([() => [done("stop", assistant([textBlock("Hi there!")]))]]),
+				scriptStream([
+					() => [done("stop", assistant([textBlock("Hi there!")]))],
+				]),
 			);
 			const collected = await collect(stream);
 			return { ...collected, requests };
@@ -203,8 +234,13 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				name: "echo",
 				label: "Echo",
 				description: "Echo tool",
-				parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
-				execute: async (_id: string, params: any) => result(`echoed: ${params.value}`),
+				parameters: {
+					type: "object",
+					properties: { value: { type: "string" } },
+					required: ["value"],
+				},
+				execute: async (_id: string, params: any) =>
+					result(`echoed: ${params.value}`),
 			};
 			const stream = api.agentLoop(
 				[user("echo something")],
@@ -212,7 +248,15 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				config(),
 				undefined,
 				scriptStream([
-					() => [done("toolUse", assistant([call("tool-1", "echo", { value: "hello" })], "toolUse"))],
+					() => [
+						done(
+							"toolUse",
+							assistant(
+								[call("tool-1", "echo", { value: "hello" })],
+								"toolUse",
+							),
+						),
+					],
 					() => [done("stop", assistant([textBlock("done")]))],
 				]),
 			);
@@ -223,7 +267,11 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				name: "echo",
 				label: "Echo",
 				description: "Echo tool",
-				parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
+				parameters: {
+					type: "object",
+					properties: { value: { type: "string" } },
+					required: ["value"],
+				},
 				execute: async () => {
 					throw new Error("tool exploded");
 				},
@@ -234,7 +282,15 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				config(),
 				undefined,
 				scriptStream([
-					() => [done("toolUse", assistant([call("tool-1", "echo", { value: "hello" })], "toolUse"))],
+					() => [
+						done(
+							"toolUse",
+							assistant(
+								[call("tool-1", "echo", { value: "hello" })],
+								"toolUse",
+							),
+						),
+					],
 					() => [done("stop", assistant([textBlock("done")]))],
 				]),
 			);
@@ -249,7 +305,11 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				name: "echo",
 				label: "Echo",
 				description: "Echo tool",
-				parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
+				parameters: {
+					type: "object",
+					properties: { value: { type: "string" } },
+					required: ["value"],
+				},
 				execute: async (_id: string, params: any) => {
 					if (params.value === "first") await firstDone;
 					if (params.value === "second") releaseFirst?.();
@@ -285,11 +345,18 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				name: "echo",
 				label: "Echo",
 				description: "Echo tool",
-				parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
-				execute: async (_id: string, params: any) => result(`echoed: ${params.value}`),
+				parameters: {
+					type: "object",
+					properties: { value: { type: "string" } },
+					required: ["value"],
+				},
+				execute: async (_id: string, params: any) =>
+					result(`echoed: ${params.value}`),
 			};
-			if (scenario === "sequential_tool_mode") echo.executionMode = "sequential";
-			const overrides = scenario === "sequential_config" ? { toolExecution: "sequential" } : {};
+			if (scenario === "sequential_tool_mode")
+				echo.executionMode = "sequential";
+			const overrides =
+				scenario === "sequential_config" ? { toolExecution: "sequential" } : {};
 			const stream = api.agentLoop(
 				[user("echo both")],
 				context([], [echo]),
@@ -318,18 +385,34 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				name: "echo",
 				label: "Echo",
 				description: "Echo tool",
-				parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
+				parameters: {
+					type: "object",
+					properties: { value: { type: "string" } },
+					required: ["value"],
+				},
 				execute: async () => result("should not execute"),
 			};
 			const stream = api.agentLoop(
 				[user("echo")],
 				context([], [echo]),
 				config({
-					beforeToolCall: async () => ({ block: true, reason: "Blocked by policy", terminate: true }),
+					beforeToolCall: async () => ({
+						block: true,
+						reason: "Blocked by policy",
+						terminate: true,
+					}),
 				}),
 				undefined,
 				scriptStream([
-					() => [done("toolUse", assistant([call("tool-1", "echo", { value: "hello" })], "toolUse"))],
+					() => [
+						done(
+							"toolUse",
+							assistant(
+								[call("tool-1", "echo", { value: "hello" })],
+								"toolUse",
+							),
+						),
+					],
 					() => [done("stop", assistant([textBlock("should not run")]))],
 				]),
 			);
@@ -341,7 +424,11 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				name: "echo",
 				label: "Echo",
 				description: "Echo tool",
-				parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
+				parameters: {
+					type: "object",
+					properties: { value: { type: "string" } },
+					required: ["value"],
+				},
 				execute: async (_id: string, params: any) => {
 					seen.push(snapshot(params));
 					return result(`echoed: ${params.value}`);
@@ -357,7 +444,15 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				}),
 				undefined,
 				scriptStream([
-					() => [done("toolUse", assistant([call("tool-1", "echo", { value: "hello" })], "toolUse"))],
+					() => [
+						done(
+							"toolUse",
+							assistant(
+								[call("tool-1", "echo", { value: "hello" })],
+								"toolUse",
+							),
+						),
+					],
 					() => [done("stop", assistant([textBlock("done")]))],
 				]),
 			);
@@ -369,8 +464,13 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				name: "echo",
 				label: "Echo",
 				description: "Echo tool",
-				parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
-				execute: async (_id: string, params: any) => result(`echoed: ${params.value}`, { terminate: true }),
+				parameters: {
+					type: "object",
+					properties: { value: { type: "string" } },
+					required: ["value"],
+				},
+				execute: async (_id: string, params: any) =>
+					result(`echoed: ${params.value}`, { terminate: true }),
 			};
 			const stream = api.agentLoop(
 				[user("echo")],
@@ -378,7 +478,15 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				config(),
 				undefined,
 				scriptStream([
-					() => [done("toolUse", assistant([call("tool-1", "echo", { value: "hello" })], "toolUse"))],
+					() => [
+						done(
+							"toolUse",
+							assistant(
+								[call("tool-1", "echo", { value: "hello" })],
+								"toolUse",
+							),
+						),
+					],
 				]),
 			);
 			return { ...(await collect(stream)), requests };
@@ -388,9 +496,15 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				name: "echo",
 				label: "Echo",
 				description: "Echo tool",
-				parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
+				parameters: {
+					type: "object",
+					properties: { value: { type: "string" } },
+					required: ["value"],
+				},
 				execute: async (_id: string, params: any) =>
-					result(`echoed: ${params.value}`, { terminate: params.value === "first" }),
+					result(`echoed: ${params.value}`, {
+						terminate: params.value === "first",
+					}),
 			};
 			const stream = api.agentLoop(
 				[user("echo both")],
@@ -420,8 +534,13 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				name: "echo",
 				label: "Echo",
 				description: "Echo tool",
-				parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
-				execute: async (_id: string, params: any) => result(`echoed: ${params.value}`),
+				parameters: {
+					type: "object",
+					properties: { value: { type: "string" } },
+					required: ["value"],
+				},
+				execute: async (_id: string, params: any) =>
+					result(`echoed: ${params.value}`),
 			};
 			const stream = api.agentLoop(
 				[user("echo")],
@@ -436,7 +555,15 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				}),
 				undefined,
 				scriptStream([
-					() => [done("toolUse", assistant([call("tool-1", "echo", { value: "hello" })], "toolUse"))],
+					() => [
+						done(
+							"toolUse",
+							assistant(
+								[call("tool-1", "echo", { value: "hello" })],
+								"toolUse",
+							),
+						),
+					],
 				]),
 			);
 			return { ...(await collect(stream)), requests };
@@ -446,7 +573,11 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				name: "echo",
 				label: "Echo",
 				description: "Echo tool",
-				parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
+				parameters: {
+					type: "object",
+					properties: { value: { type: "string" } },
+					required: ["value"],
+				},
 				prepareArguments: () => {
 					throw new Error("prepareArguments exploded");
 				},
@@ -458,7 +589,15 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				config(),
 				undefined,
 				scriptStream([
-					() => [done("toolUse", assistant([call("tool-1", "echo", { value: "hello" })], "toolUse"))],
+					() => [
+						done(
+							"toolUse",
+							assistant(
+								[call("tool-1", "echo", { value: "hello" })],
+								"toolUse",
+							),
+						),
+					],
 					() => [done("stop", assistant([textBlock("done")]))],
 				]),
 			);
@@ -469,10 +608,19 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				name: "echo",
 				label: "Echo",
 				description: "Echo tool",
-				parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
+				parameters: {
+					type: "object",
+					properties: { value: { type: "string" } },
+					required: ["value"],
+				},
 				prepareExecution: async () => ({ agentId: "known-agent" }),
-				execute: async (_id: string, params: any, _signal: any, _onUpdate: any, execution: any) =>
-					result(`${params.value}:${execution?.agentId}`),
+				execute: async (
+					_id: string,
+					params: any,
+					_signal: any,
+					_onUpdate: any,
+					execution: any,
+				) => result(`${params.value}:${execution?.agentId}`),
 			};
 			const stream = api.agentLoop(
 				[user("echo")],
@@ -480,11 +628,60 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				config(),
 				undefined,
 				scriptStream([
-					() => [done("toolUse", assistant([call("provider-call", "echo", { value: "hello" })], "toolUse"))],
+					() => [
+						done(
+							"toolUse",
+							assistant(
+								[call("provider-call", "echo", { value: "hello" })],
+								"toolUse",
+							),
+						),
+					],
 					() => [done("stop", assistant([textBlock("done")]))],
 				]),
 			);
 			return { ...(await collect(stream)), requests };
+		}
+		case "steering_error":
+		case "follow_up_error":
+		case "stream_acquisition_error": {
+			const events: any[] = [];
+			const hook = async () => {
+				throw new Error("queue hook failed");
+			};
+			const overrides =
+				scenario === "steering_error"
+					? { getSteeringMessages: hook }
+					: scenario === "follow_up_error"
+						? { getFollowUpMessages: hook }
+						: {};
+			const streamFn =
+				scenario === "stream_acquisition_error"
+					? async () => {
+							throw new Error("stream acquisition failed");
+						}
+					: scriptStream([
+							() => [done("stop", assistant([textBlock("answer")]))],
+						]);
+			try {
+				await api.runAgentLoop(
+					[user("work")],
+					context([]),
+					config(overrides),
+					async (event: any) => {
+						events.push(normalize(snapshot(event)));
+					},
+					undefined,
+					streamFn,
+				);
+				throw new Error("queue rejection must escape");
+			} catch (error) {
+				return {
+					events,
+					error: error instanceof Error ? error.message : String(error),
+					requests,
+				};
+			}
 		}
 		case "steering": {
 			let polls = 0;
@@ -595,15 +792,24 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				scriptStream([() => [done("stop", assistant([textBlock("first")]))]]),
 			);
 			const collected = await collect(stream);
-			return { ...collected, requests, polls: { steeringPolls, followUpPolls } };
+			return {
+				...collected,
+				requests,
+				polls: { steeringPolls, followUpPolls },
+			};
 		}
 		case "end_turn": {
 			const endTurn = {
 				name: "end_turn",
 				label: "End Turn",
 				description: "End the current turn",
-				parameters: { type: "object", properties: { reason: { type: "string" } }, required: ["reason"] },
-				execute: async (_id: string, params: any) => result(`Ended: ${params.reason}`, { terminate: true }),
+				parameters: {
+					type: "object",
+					properties: { reason: { type: "string" } },
+					required: ["reason"],
+				},
+				execute: async (_id: string, params: any) =>
+					result(`Ended: ${params.reason}`, { terminate: true }),
 			};
 			const stream = api.agentLoop(
 				[user("work")],
@@ -616,7 +822,11 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 						done(
 							"toolUse",
 							assistant(
-								[call("end-1", "end_turn", { reason: "Finished requested work" })],
+								[
+									call("end-1", "end_turn", {
+										reason: "Finished requested work",
+									}),
+								],
 								"toolUse",
 							),
 						),
@@ -630,10 +840,18 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				name: "echo",
 				label: "Echo",
 				description: "Echo tool",
-				parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
-				execute: async (_id: string, params: any) => result(`echoed: ${params.value}`),
+				parameters: {
+					type: "object",
+					properties: { value: { type: "string" } },
+					required: ["value"],
+				},
+				execute: async (_id: string, params: any) =>
+					result(`echoed: ${params.value}`),
 			};
-			const unfinished = assistant([call("tool-restored", "echo", { value: "restored" })], "toolUse");
+			const unfinished = assistant(
+				[call("tool-restored", "echo", { value: "restored" })],
+				"toolUse",
+			);
 			const stream = api.agentLoopContinue(
 				context([user("Echo this"), unfinished], [echo]),
 				config(),
@@ -647,7 +865,11 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				name: "echo",
 				label: "Echo",
 				description: "Echo tool",
-				parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
+				parameters: {
+					type: "object",
+					properties: { value: { type: "string" } },
+					required: ["value"],
+				},
 				execute: async (_id: string, params: any) => result(params.value),
 			};
 			const interrupted = assistant(
@@ -674,7 +896,11 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 			return { ...(await collect(stream)), requests };
 		}
 		case "convert_custom": {
-			const custom = { role: "notification", text: "This is a notification", timestamp: 1000 };
+			const custom = {
+				role: "notification",
+				text: "This is a notification",
+				timestamp: 1000,
+			};
 			const stream = api.agentLoop(
 				[user("Hello")],
 				context([custom]),
@@ -683,7 +909,9 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 						messages.filter((message) => message.role !== "notification"),
 				}),
 				undefined,
-				scriptStream([() => [done("stop", assistant([textBlock("Response")]))]]),
+				scriptStream([
+					() => [done("stop", assistant([textBlock("Response")]))],
+				]),
 			);
 			return { ...(await collect(stream)), requests };
 		}
@@ -692,9 +920,21 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				name: "echo",
 				label: "Echo",
 				description: "Echo tool",
-				parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
-				execute: async (_id: string, params: any, _signal: any, onUpdate: any) => {
-					onUpdate({ content: [textBlock("partial")], details: { status: "partial" } });
+				parameters: {
+					type: "object",
+					properties: { value: { type: "string" } },
+					required: ["value"],
+				},
+				execute: async (
+					_id: string,
+					params: any,
+					_signal: any,
+					onUpdate: any,
+				) => {
+					onUpdate({
+						content: [textBlock("partial")],
+						details: { status: "partial" },
+					});
 					return result(`echoed: ${params.value}`);
 				},
 			};
@@ -704,7 +944,15 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				config(),
 				undefined,
 				scriptStream([
-					() => [done("toolUse", assistant([call("tool-1", "echo", { value: "hello" })], "toolUse"))],
+					() => [
+						done(
+							"toolUse",
+							assistant(
+								[call("tool-1", "echo", { value: "hello" })],
+								"toolUse",
+							),
+						),
+					],
 					() => [done("stop", assistant([textBlock("done")]))],
 				]),
 			);
@@ -712,7 +960,9 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 		}
 		case "agent_text": {
 			const agent = new api.Agent({
-				streamFn: scriptStream([() => [done("stop", assistant([textBlock("Hi")]))]]),
+				streamFn: scriptStream([
+					() => [done("stop", assistant([textBlock("Hi")]))],
+				]),
 			});
 			const events: any[] = [];
 			agent.subscribe((event: any) => {
@@ -729,14 +979,27 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 		case "abort_stream": {
 			const controller = new AbortController();
 			const streamFn = (_model: any, context: any, _options: any) => {
-				requests.push(normalize(snapshot({ systemPrompt: context.systemPrompt, messages: context.messages })));
+				requests.push(
+					normalize(
+						snapshot({
+							systemPrompt: context.systemPrompt,
+							messages: context.messages,
+						}),
+					),
+				);
 				const stream = new api.ai.AssistantMessageEventStream();
 				queueMicrotask(() => {
-					stream.push({ type: "start", partial: assistant([], "pending") });
+					stream.push({ type: "start", partial: assistant([], "stop") });
 				});
 				return stream;
 			};
-			const stream = api.agentLoop([user("work")], context([]), config(), controller.signal, streamFn);
+			const stream = api.agentLoop(
+				[user("work")],
+				context([]),
+				config(),
+				controller.signal,
+				streamFn,
+			);
 			setTimeout(() => controller.abort(), 5);
 			return { ...(await collectOutcome(stream)), requests };
 		}
@@ -758,7 +1021,12 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 			const agent = new api.Agent({
 				initialState: { tools: [tool] },
 				streamFn: scriptStream([
-					() => [done("toolUse", assistant([call("call-1", "stuck_tool", {})], "toolUse"))],
+					() => [
+						done(
+							"toolUse",
+							assistant([call("call-1", "stuck_tool", {})], "toolUse"),
+						),
+					],
 				]),
 			});
 			const events: any[] = [];
@@ -778,9 +1046,14 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 		}
 		case "agent_continue_queue": {
 			const agent = new api.Agent({
-				streamFn: scriptStream([() => [done("stop", assistant([textBlock("Processed")]))]]),
+				streamFn: scriptStream([
+					() => [done("stop", assistant([textBlock("Processed")]))],
+				]),
 			});
-			agent.state.messages = [userBlocks("Initial"), assistant([textBlock("Initial response")])];
+			agent.state.messages = [
+				userBlocks("Initial"),
+				assistant([textBlock("Initial response")]),
+			];
 			agent.followUp(userBlocks("Queued follow-up"));
 			const events: any[] = [];
 			agent.subscribe((event: any) => {
@@ -795,21 +1068,38 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 			};
 		}
 		case "listener_message_end_loop":
-			return runLoopWithThrowingEmit("message_end", [() => [done("stop", assistant([textBlock("Hi there!")]))]]);
+			return runLoopWithThrowingEmit("message_end", [
+				() => [done("stop", assistant([textBlock("Hi there!")]))],
+			]);
 		case "listener_agent_end_loop":
-			return runLoopWithThrowingEmit("agent_end", [() => [done("stop", assistant([textBlock("Hi there!")]))]]);
+			return runLoopWithThrowingEmit("agent_end", [
+				() => [done("stop", assistant([textBlock("Hi there!")]))],
+			]);
 		case "listener_tool_execution_end_loop": {
 			const echo = {
 				name: "echo",
 				label: "Echo",
 				description: "Echo tool",
-				parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
-				execute: async (_id: string, params: any) => result(`echoed: ${params.value}`),
+				parameters: {
+					type: "object",
+					properties: { value: { type: "string" } },
+					required: ["value"],
+				},
+				execute: async (_id: string, params: any) =>
+					result(`echoed: ${params.value}`),
 			};
 			return runLoopWithThrowingEmit(
 				"tool_execution_end",
 				[
-					() => [done("toolUse", assistant([call("tool-1", "echo", { value: "hello" })], "toolUse"))],
+					() => [
+						done(
+							"toolUse",
+							assistant(
+								[call("tool-1", "echo", { value: "hello" })],
+								"toolUse",
+							),
+						),
+					],
 					() => [done("stop", assistant([textBlock("done")]))],
 				],
 				[echo],
@@ -828,13 +1118,26 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 				name: "echo",
 				label: "Echo",
 				description: "Echo tool",
-				parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
-				execute: async (_id: string, params: any) => result(`echoed: ${params.value}`),
+				parameters: {
+					type: "object",
+					properties: { value: { type: "string" } },
+					required: ["value"],
+				},
+				execute: async (_id: string, params: any) =>
+					result(`echoed: ${params.value}`),
 			};
 			return runAgentWithThrowingListener(
 				"tool_execution_end",
 				[
-					() => [done("toolUse", assistant([call("tool-1", "echo", { value: "hello" })], "toolUse"))],
+					() => [
+						done(
+							"toolUse",
+							assistant(
+								[call("tool-1", "echo", { value: "hello" })],
+								"toolUse",
+							),
+						),
+					],
 					() => [done("stop", assistant([textBlock("done")]))],
 				],
 				[echo],
@@ -843,22 +1146,40 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 		case "tool_result_cap": {
 			const bigText = (mode: string) => {
 				if (mode === "lines") {
-					return Array.from({ length: 2001 }, (_, index) => String.fromCharCode(97 + (index % 26))).join("\n");
+					return Array.from({ length: 2001 }, (_, index) =>
+						String.fromCharCode(97 + (index % 26)),
+					).join("\n");
 				}
 				if (mode === "single") return "a".repeat(20000);
 				return "😀".repeat(3000);
 			};
-			const bigDetails = (mode: string) => ({ "2": 2.0, "1": 1.0, value: mode === "lines" ? "y".repeat(20000) : bigText(mode) });
+			const bigDetails = (mode: string) => ({
+				"2": 2.0,
+				"1": 1.0,
+				value: mode === "lines" ? "y".repeat(20000) : bigText(mode),
+			});
 			const big = {
 				name: "big",
 				label: "Big",
 				description: "Big tool",
-				parameters: { type: "object", properties: { mode: { type: "string" } }, required: ["mode"] },
-				execute: async (_id: string, params: any, _signal: any, onUpdate: any) => {
+				parameters: {
+					type: "object",
+					properties: { mode: { type: "string" } },
+					required: ["mode"],
+				},
+				execute: async (
+					_id: string,
+					params: any,
+					_signal: any,
+					onUpdate: any,
+				) => {
 					const text = bigText(params.mode);
 					const details = bigDetails(params.mode);
 					if (params.mode === "lines") {
-						onUpdate({ content: [textBlock(text)], details: { value: "z".repeat(20000) } });
+						onUpdate({
+							content: [textBlock(text)],
+							details: { value: "z".repeat(20000) },
+						});
 					}
 					return { content: [textBlock(text)], details };
 				},
@@ -904,9 +1225,12 @@ function agentState(agent: any): any {
 
 async function main(): Promise<void> {
 	const sourceModulePath = process.argv[2];
-	if (sourceModulePath === undefined) throw new Error("agent oracle requires a source module path");
+	if (sourceModulePath === undefined)
+		throw new Error("agent oracle requires a source module path");
 	const loopApi = await import(pathToFileURL(sourceModulePath).href);
-	const agentApi = await import(new URL("./agent.ts", pathToFileURL(sourceModulePath)).href);
+	const agentApi = await import(
+		new URL("./agent.ts", pathToFileURL(sourceModulePath)).href
+	);
 	const ai = await import("@earendil-works/pi-ai");
 	const api = { ...loopApi, Agent: agentApi.Agent, ai };
 	const readline = await import("node:readline");
@@ -921,12 +1245,16 @@ async function main(): Promise<void> {
 			process.stdout.write(`${JSON.stringify({ id, ok: true, output })}\n`);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			process.stdout.write(`${JSON.stringify({ id, ok: false, error: { message } })}\n`);
+			process.stdout.write(
+				`${JSON.stringify({ id, ok: false, error: { message } })}\n`,
+			);
 		}
 	}
 }
 
 void main().catch((error) => {
-	process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
+	process.stderr.write(
+		`${error instanceof Error ? error.stack : String(error)}\n`,
+	);
 	process.exit(1);
 });

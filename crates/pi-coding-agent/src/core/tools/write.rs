@@ -105,14 +105,14 @@ impl AgentTool for WriteTool {
     fn name(&self) -> &str {
         "write"
     }
-    fn description(&self) -> &str {
-        DESCRIPTION
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        DESCRIPTION.into()
     }
     fn parameters(&self) -> &Value {
         &self.parameters
     }
-    fn label(&self) -> &str {
-        "write"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        "write".into()
     }
     fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {
         crate::core::experimental::get_experimental_tool_constrained_sampling()

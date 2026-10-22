@@ -105,9 +105,9 @@ fn scoped_chat_removal_retires_a_native_retry_timer() {
     let render_requests = requests.clone();
     let retry = Rc::new(RefCell::new(RetryStatusIndicator::new(
         Rc::new(move || render_requests.set(render_requests.get() + 1)),
-        1,
-        3,
-        1000,
+        1.0,
+        3.0,
+        1000.0,
     )));
     let child: pi_tui::tui::ComponentRef = retry.clone();
     chat.track_scoped_child(child.clone());

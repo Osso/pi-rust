@@ -5,8 +5,9 @@ mod tool_context;
 
 use std::sync::{Arc, Mutex};
 
-use pi_agent_core::{AgentHarnessTool, AgentMessage};
+use pi_agent_core::AgentMessage;
 use pi_ai::types::{AssistantContent, AssistantMessage, TextContent};
+use pi_coding_agent::core::extensions::types::ContextTool;
 use pi_coding_agent::core::session_manager::{CompactionAppendOptions, SessionManager, SharedSessionManager};
 use pi_coding_agent::core::tools::search_current_session_history::SearchCurrentSessionHistoryTool;
 use pi_js_compat::js_json::{JsString, JsValue as Value};

@@ -2116,7 +2116,6 @@ name = "pi-coding-agent"
 version = "0.0.0"
 dependencies = [
  "clipboard-rs",
- "fancy-regex",
  "flate2",
  "futures-util",
  "gethostname",

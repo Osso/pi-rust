@@ -15,6 +15,7 @@ pub use agent::{
     PrepareNextTurnSignalHook, PromptInput, ProxyAssistantMessageEvent, ProxyStreamOptions, agent_loop,
     agent_loop_continue, restored_pending_tool_message, run_agent_loop, run_agent_loop_continue, stream_proxy,
 };
+pub use harness::agent_harness::*;
 pub use harness::compaction::{
     BranchPreparation, BranchSummaryDetails, BranchSummaryResult, CollectEntriesResult, CompactResult,
     CompactionPreparation, CompactionSettings, DEFAULT_COMPACTION_SETTINGS, FileOperations,
@@ -29,10 +30,9 @@ pub use harness::session::*;
 pub use harness::skills::*;
 pub use harness::system_prompt::*;
 pub use harness::types::{
-    AgentHarnessResources, AgentHarnessStreamOptions, AgentHarnessStreamOptionsPatch, AgentHarnessTool,
-    AgentHarnessToolContextSource, AgentToolExecutionContext, BeforeToolCallResult, BranchSummaryError,
-    BranchSummaryErrorCode, CompactionError, CompactionErrorCode, ExecutionEnv, ExecutionError, ExecutionErrorCode,
-    FileError, FileErrorCode, FileInfo, FileKind, FileSystem, PromptTemplate, QueueMode, Shell, ShellExecOptions,
-    Skill, ThinkingLevel, ToolExecutionMode,
+    AgentHarnessResources, AgentHarnessStreamOptions, AgentHarnessStreamOptionsPatch, AgentToolExecutionContext,
+    BeforeToolCallResult, BranchSummaryError, BranchSummaryErrorCode, CompactionError, CompactionErrorCode,
+    ExecutionEnv, ExecutionError, ExecutionErrorCode, FileError, FileErrorCode, FileInfo, FileKind, FileSystem,
+    PromptTemplate, QueueMode, Shell, ShellExecOptions, Skill, ThinkingLevel, ToolExecutionMode,
 };
 pub use harness::utils::*;

@@ -368,7 +368,8 @@ async fn stream_function_forwards_websocket_connect_timeout_from_settings() {
         },
         SimpleStreamOptions::default(),
     )
-    .await;
+    .await
+    .expect("stream acquisition");
     stream.result().await.expect("stream result");
     assert_eq!(
         captured
@@ -429,7 +430,7 @@ async fn stream_function_fails_when_the_websocket_connect_timeout_setting_is_inv
         SimpleStreamOptions::default(),
     )
     .await;
-    let failure = stream.result().await.expect_err("invalid setting must fail the stream");
+    let failure = stream.err().expect("invalid setting must reject acquisition");
     assert_eq!(failure.message(), "Invalid websocketConnectTimeoutMs setting: \"bad\"");
 }
 

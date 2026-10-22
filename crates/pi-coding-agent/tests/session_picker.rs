@@ -13,8 +13,8 @@ fn session(path: &str, name: Option<&str>, modified: i64, archived: bool) -> Ses
         name: name.map(str::to_owned).map(JsString::from),
         is_archived: Some(archived),
         parent_session_path: None,
-        created: modified,
-        modified,
+        created: modified as f64,
+        modified: modified as f64,
         message_count: 0,
         first_message: JsString::default(),
     }

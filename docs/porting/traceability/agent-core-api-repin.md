@@ -5,6 +5,20 @@ Initial implementation revision: `f6ff6d9f`; callback-setter assertions strength
 
 Module-by-module comparison: [loop](agent-loop.md), [Agent](agent.md), [types](agent-types.md), [proxy](agent-proxy.md), [node](agent-node.md), [index](agent-index.md). Requirements: [core API spec](../../specs/agent-core-api.md).
 
+## Native public prompt input (2026-10-22)
+
+Frozen `agent.ts` prompt string path now maps to `PromptInput::Text(JsString)`, accepting owned or borrowed JsString without scalar projection. RED `agent-text-input-red.log` exposed the old String-only public boundary; GREEN `agent-text-input-green.log` proves two public prompt calls retain exact unpaired units in provider context and transcript wire. Ergonomic String/&str conversions remain direct lossless subset conversions, not alternate authorities.
+
+## Rejectable queue callbacks (2026-10-22)
+
+`MessageQueueHook` now returns `Result<Vec<AgentMessage>, AgentError>`; each low-level steering/follow-up poll propagates rejection without changing the error. Required by frozen harness queue drain rollback. API RED: `queue-rejection-red.log`; native-unit rejection and exact event-boundary GREEN: `queue-rejection-green.log`; 31 Agent +42 loop +4 verifier tests GREEN in `queue-rejection-callers.log`. Frozen differential: 35 retained scenarios +2 queue-rejection scenarios GREEN in `queue-rejection-differential.log`. Artifacts: `/tmp/pi-rust-repin-delta-agent-core/`.
+
+The first differential run exposed a stale oracle-only `assistant([], "pending")` fixture in abort_stream, not frozen runtime behavior. Corrected to `"stop"` per frozen `ai/src/types.ts:407` and faux.ts:89; assertions were not normalized or weakened. Harness rollback itself remains part of the working-harness slice.
+
+## Native iterator-return carrier (2026-10-22)
+
+Frozen `agent-loop.ts:390–418` invokes an iterable's `return()` on early termination, not normal iterator exhaustion or non-abort next rejection. Native AI EventStream now carries an optional return callback (absent by default), preserving synchronous callback rejection separately from its returned future. RED: `iterator-return-red.log`; carrier GREEN: `iterator-carrier-green.log` (one contract test). Loop invocation RED `iterator-loop-red.log` observed missing return side effects. GREEN `iterator-loop-green.log`: two tests, including nine frozen direct-module scenarios (terminal event return, cancellation, normal exhaustion, next rejection, sink rejection, synchronous/asynchronous close rejection, cancelled rejecting close, cancellation during close). Return invocation surrounds final assistant preparation and message-end emission; default streams remain unchanged. Returned futures continue on Tokio when cancellation stops awaiting them, matching JS promise lifetime.
+
 ## Current evidence
 
 All Cargo invocations use the mandatory `.cargo/config.toml` runner, `CARGO_BUILD_JOBS=4`, and `CARGO_TARGET_DIR=/home/osso/.worktrees/pi-rust-repin-agent-core-api/target`. Initial proof below predates the verifier corrections; no package-wide/workspace test suite, push, or delegation was run. The final targeted clippy and branch-local master merge are recorded below.
@@ -43,7 +57,7 @@ Parent directed preserving these as explicit gaps for user classification; that 
 - TS `agent.state` returns live mutable state: `state.messages.push(...)`, direct property assignment, and mutation of a returned message/tool can affect the next request. Rust state/messages/tools accessors return owned vectors/message values; mutation of a returned snapshot has no effect until a setter is called. Callback contexts/events likewise carry clones instead of shared TS object references. In-place prepareArguments mutation cannot mutate Rust's original raw call through object identity.
 - TS proxy events retain the same mutable partial object; retaining a start/delta event and examining it later can show content/usage added by later events, and caller mutation can affect that shared object. Rust events hold owned snapshots, so earlier events remain unchanged and consumer mutation does not change future output.
 - TS proxy assignment at contentIndex beyond length creates holes; JSON serialization yields null holes. Rust AssistantMessage.content is a dense typed vector. Sparse start indices are rejected with `Sparse proxy content index`, not materialized as holes.
-- TS iterateWithAbort calls iterator.return() on cancellation. Rust drops receiver futures; arbitrary producers do not receive a JavaScript-style return callback. Unknown proxy event warning logs are not reproduced. Proxy full text/thinking/malformed SSE differential matrix is not claimed.
+- Iterator-return side effects are now explicitly ported and differentially proven (nine scenarios above); the former arbitrary-producer return gap is closed. Unknown proxy warning and full text/thinking/malformed SSE differential still await the proxy slice.
 - Existing typed exclusions include non-object tool-call argument runtime values and lone surrogate strings; shared lossless content/details work belongs to its separate lane. This slice only changes nullish after-hook value selection, not its representation.
 
 All six coverage rows remain todo. Root exports outside core (harness/session/telemetry/tools/search and consumed implementation helpers) remain for owning slices, per parent instruction. Scope and failures are not silently narrowed into a full-parity claim.

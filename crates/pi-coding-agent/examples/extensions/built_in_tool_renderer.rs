@@ -34,7 +34,7 @@ pub fn built_in_tool_renderer_extension(pi: &ExtensionApi) -> Result<(), Handler
     for tool in tools {
         let mut definition = create_tool_definition_from_agent_tool(tool);
         let name = definition.name.clone();
-        definition.label = name.clone();
+        definition.label = name.clone().into();
         if name == "edit" {
             definition.render_shell = Some(RenderShell::SelfRender);
         }

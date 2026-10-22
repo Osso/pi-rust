@@ -234,7 +234,7 @@ async fn stops_reading_text_lines_at_the_requested_limit() {
         env.read_text_lines(
             &JsString::from("file.txt"),
             ReadTextLinesOptions {
-                max_lines: Some(1),
+                max_lines: Some(1.0),
                 abort: None
             }
         )
@@ -246,7 +246,7 @@ async fn stops_reading_text_lines_at_the_requested_limit() {
         env.read_text_lines(
             &JsString::from("file.txt"),
             ReadTextLinesOptions {
-                max_lines: Some(0),
+                max_lines: Some(0.0),
                 abort: None
             }
         )

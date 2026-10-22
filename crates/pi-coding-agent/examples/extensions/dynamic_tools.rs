@@ -41,7 +41,7 @@ fn register_echo_tool(
     pi.register_tool(ToolDefinition::define(ToolDefinition {
         name: name.into(),
         label: label.into(),
-        description: format!("Echo a message with prefix: {prefix}"),
+        description: format!("Echo a message with prefix: {prefix}").into(),
         prompt_snippet: Some(JsString::from(format!("Echo back user-provided text with {} prefix", js_trim(prefix)))),
         prompt_guidelines: Some(vec!["Use echo_session when the user asks for exact echo output.".into()]),
         parameters: json!({"type":"object","properties":{"message":{"type":"string","description":"Message to echo"}},"required":["message"]}),

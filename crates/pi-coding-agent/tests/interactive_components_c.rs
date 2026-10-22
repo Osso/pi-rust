@@ -402,7 +402,9 @@ impl EditorHost for TestHost {
 
 impl ExtensionEditorHost for TestHost {
     fn suspend(&self) {}
-    fn resume(&self) {}
+    fn resume(&self) -> Result<(), pi_tui::terminal::TerminalRawModeError> {
+        Ok(())
+    }
     fn request_forced_render(&self) {}
 }
 
@@ -482,7 +484,12 @@ fn retry_status_formats_countdown_and_disposes() {
     theme();
     let renders = std::rc::Rc::new(Cell::new(0));
     let counter = renders.clone();
-    let mut indicator = RetryStatusIndicator::new(std::rc::Rc::new(move || counter.set(counter.get() + 1)), 1, 3, 2500);
+    let mut indicator = RetryStatusIndicator::new(
+        std::rc::Rc::new(move || counter.set(counter.get() + 1)),
+        1.0,
+        3.0,
+        2500.0,
+    );
     let rendered = plain(&indicator.render(80));
     assert!(rendered.contains("Retrying (1/3) in 3s..."), "{rendered:?}");
     let calls_before_dispose = renders.get();
@@ -1520,8 +1527,8 @@ fn session_info(
         name: name.map(JsString::from),
         is_archived: archived.then_some(true),
         parent_session_path: None,
-        created: now - modified_offset_ms,
-        modified: now - modified_offset_ms,
+        created: (now - modified_offset_ms) as f64,
+        modified: (now - modified_offset_ms) as f64,
         message_count: 3,
         first_message: JsString::from(first_message.to_owned()),
     }

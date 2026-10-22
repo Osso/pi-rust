@@ -1,5 +1,9 @@
 # extensions/wrapper.ts → `core::extensions::wrapper`
 
+## Core dependency retirement (2026-10-22)
+
+Coding-agent coordination tools now implement local `extensions::types::ContextTool<TContext>` (Rust method adapter for frozen `ToolDefinition`, common-pin types.ts:522–577). `context_tool_definition` converts that adapter to the stored definition record. Core exports neither the retired trait nor its context-source enum. RED: missing local adapter import in the real coordination test; GREEN: 16 coordination tests +1 rehomed executable-context test (`context-tool-rehome-{red,green}.log`, `/tmp/pi-rust-repin-delta-agent-core/`). This bounded relocation does not upgrade old wrapper evidence below.
+
 Source: `packages/coding-agent/src/core/extensions/wrapper.ts` (46 lines).
 Rust: `crates/pi-coding-agent/src/core/extensions/wrapper.rs`.
 

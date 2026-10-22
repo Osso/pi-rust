@@ -100,8 +100,8 @@ pub fn register_manage_goal_tool(pi: &ExtensionApi, execute: ManageGoalExecute) 
     });
     pi.register_tool(ToolDefinition {
         name: "manage_goal".to_owned(),
-        label: "Manage Goal".to_owned(),
-        description: "Manage the active long-running /goal objective. Pause requires a concrete reason; complete requires a proof-backed completion report.".to_owned(),
+        label: "Manage Goal".into(),
+        description: "Manage the active long-running /goal objective. Pause requires a concrete reason; complete requires a proof-backed completion report.".into(),
         prompt_snippet: None,
         prompt_guidelines: Some(Vec::new()),
         approval_required: Some(false),

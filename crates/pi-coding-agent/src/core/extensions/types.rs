@@ -1530,11 +1530,48 @@ pub enum RenderShell {
     SelfRender,
 }
 
+/// Rust method adapter for the executable fields of frozen `ToolDefinition`.
+/// Stored extension definitions remain the `ToolDefinition` record below.
+pub trait ContextTool<TContext>: Send + Sync {
+    fn name(&self) -> &str;
+    fn description(&self) -> JsString;
+    /// JSON Schema for the tool arguments.
+    fn parameters(&self) -> &Value;
+    /// Human-readable label for UI display.
+    fn label(&self) -> JsString;
+    /// Per-tool execution mode override.
+    fn execution_mode(&self) -> Option<ToolExecutionMode> {
+        None
+    }
+    /// Compatibility shim for raw tool-call arguments before schema validation.
+    fn prepare_arguments(&self, args: JsValue) -> JsValue {
+        args
+    }
+    /// Prepare durable execution metadata before the assistant tool call is persisted.
+    fn prepare_execution(
+        &self,
+        _tool_call_id: String,
+        _signal: Option<CancellationToken>,
+    ) -> BoxFuture<'static, Option<pi_ai::types::ToolCallExecution>> {
+        Box::pin(async { None })
+    }
+    /// Execute the tool call with the context resolved for the current turn snapshot.
+    fn execute(
+        &self,
+        tool_call_id: String,
+        params: JsValue,
+        signal: Option<CancellationToken>,
+        on_update: Option<AgentToolUpdateCallback>,
+        context: TContext,
+        execution: Option<pi_agent_core::AgentToolExecutionContext>,
+    ) -> BoxFuture<'static, Result<AgentToolResult, pi_agent_core::ToolError>>;
+}
+
 #[derive(Clone)]
 pub struct ToolDefinition {
     pub name: String,
-    pub label: String,
-    pub description: String,
+    pub label: JsString,
+    pub description: JsString,
     pub prompt_snippet: Option<JsString>,
     pub prompt_guidelines: Option<Vec<JsString>>,
     pub approval_required: Option<bool>,
@@ -2622,7 +2659,7 @@ pub struct ResolvedCommand {
 #[serde(rename_all = "camelCase")]
 pub struct ToolInfo {
     pub name: String,
-    pub description: String,
+    pub description: JsString,
     pub parameters: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_guidelines: Option<Vec<JsString>>,

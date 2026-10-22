@@ -446,6 +446,57 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		}
 		return footer.render(request.width);
 	},
+	sessionSearch: (api, request) => {
+		const fromUnits = (units: number[]) => String.fromCharCode(...units);
+		const units = (text: string) => Array.from({ length: text.length }, (_, index) => text.charCodeAt(index));
+		const query = fromUnits(request.queryUnits);
+		const sessions = request.sessions.map((session: any) => ({ ...session, name: session.nameUnits === null ? undefined : fromUnits(session.nameUnits), firstMessage: fromUnits(session.firstMessageUnits), modified: new Date(session.modified) }));
+		const parsed = api.parseSearchQuery(query);
+		return {
+			mode: parsed.mode, tokens: parsed.tokens.map((token: any) => [token.kind, units(token.value)]), regex: parsed.regex !== null,
+			errorUnits: parsed.error === undefined ? null : units(parsed.error),
+			matches: sessions.map((session: any) => api.matchSession(session, parsed)),
+			names: sessions.map((session: any) => api.hasSessionName(session)), messages: sessions.map((session: any) => api.hasSessionMessages(session)),
+			sorted: ["recent", "relevance", "threaded"].flatMap(sort => ["all", "named"].map(filter => api.filterAndSortSessions(sessions, query, sort, filter).map((session: any) => session.id))),
+		};
+	},
+	numericCountdown: async (api, request, sourceRoot) => {
+		const themeApi = await import(pathToFileURL(`${sourceRoot}/modes/interactive/theme/theme.ts`).href);
+		const timerApi = await import(pathToFileURL(`${sourceRoot}/modes/interactive/components/countdown-timer.ts`).href);
+		themeApi.initTheme("dark", false);
+		let requests = 0;
+		let expired = 0;
+		let nextId = 0;
+		const timers = new Map<number, () => void>();
+		const originalSet = globalThis.setInterval;
+		const originalClear = globalThis.clearInterval;
+		globalThis.setInterval = ((callback: () => void, delay: number) => {
+			if (delay !== 1000) throw new Error(`unexpected interval ${delay}`);
+			const id = ++nextId;
+			timers.set(id, callback);
+			return id;
+		}) as typeof setInterval;
+		globalThis.clearInterval = ((id: number) => { timers.delete(id); }) as typeof clearInterval;
+		try {
+			const ui = { requestRender: () => { requests++; }, requestComponentRender: () => { requests++; return false; } };
+			const ticks: string[] = [];
+			const timer = new timerApi.CountdownTimer(Number(request.delay), ui, (seconds: number) => ticks.push(Object.is(seconds, -0) ? "-0" : String(seconds)), () => { expired++; });
+			const retry = new api.RetryStatusIndicator(ui, Number(request.attempt), Number(request.maxAttempts), Number(request.delay));
+			const frames = [retry.render(request.width)];
+			const active = [timers.size];
+			for (let tick = 0; tick < 3; tick++) {
+				for (const callback of [...timers.values()]) callback();
+				frames.push(retry.render(request.width));
+				active.push(timers.size);
+			}
+			timer.dispose();
+			retry.dispose();
+			return { ticks, expired, requests, frames, active, retired: timers.size };
+		} finally {
+			globalThis.setInterval = originalSet;
+			globalThis.clearInterval = originalClear;
+		}
+	},
 	loginLifecycle: async (api, request, sourceRoot) => {
 		const themeApi = await import(pathToFileURL(`${sourceRoot}/modes/interactive/theme/theme.ts`).href);
 		themeApi.initTheme("dark", false);

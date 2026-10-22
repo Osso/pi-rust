@@ -255,7 +255,7 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
                     stream_fn: Some(Arc::new(
                         move |model: Model, context: Context, options: SimpleStreamOptions| {
                             let runtime = stream_runtime.clone();
-                            Box::pin(async move { runtime.stream_simple(model, context, options) })
+                            Box::pin(async move { Ok(runtime.stream_simple(model, context, options)) })
                         },
                     )),
                     ..Default::default()

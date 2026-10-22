@@ -25,14 +25,14 @@ pub use crate::harness::types::{
 
 /// `StreamFn`: produces an assistant message event stream for one request.
 ///
-/// Contract: must not reject; request failures are encoded in the stream as a
-/// final `error`/`aborted` assistant message.
+/// Acquisition can reject before a stream exists; provider failures after
+/// acquisition remain encoded in the returned stream.
 pub type StreamFn = Arc<
     dyn Fn(
             Model,
             Context,
             SimpleStreamOptions,
-        ) -> BoxFuture<'static, pi_ai::utils::event_stream::AssistantMessageEventStream>
+        ) -> BoxFuture<'static, Result<pi_ai::utils::event_stream::AssistantMessageEventStream, AgentError>>
         + Send
         + Sync,
 >;
@@ -284,11 +284,11 @@ pub type AgentToolUpdateCallback = Arc<dyn Fn(AgentToolResult) + Send + Sync>;
 /// Tool definition used by the agent runtime.
 pub trait AgentTool: Send + Sync {
     fn name(&self) -> &str;
-    fn description(&self) -> &str;
+    fn description(&self) -> JsString;
     /// JSON Schema for the tool arguments (TypeBox `TSchema` in TypeScript).
     fn parameters(&self) -> &Value;
     /// Human-readable label for UI display.
-    fn label(&self) -> &str;
+    fn label(&self) -> JsString;
     fn constrained_sampling(&self) -> Option<ConstrainedSampling> {
         None
     }
@@ -515,7 +515,7 @@ pub type PrepareNextTurnHook = Arc<
     dyn Fn(PrepareNextTurnContext) -> BoxFuture<'static, Result<Option<AgentLoopTurnUpdate>, AgentError>> + Send + Sync,
 >;
 /// Queue poll hook (`getSteeringMessages`, `getFollowUpMessages`).
-pub type MessageQueueHook = Arc<dyn Fn() -> BoxFuture<'static, Vec<AgentMessage>> + Send + Sync>;
+pub type MessageQueueHook = Arc<dyn Fn() -> BoxFuture<'static, Result<Vec<AgentMessage>, AgentError>> + Send + Sync>;
 
 /// Configuration for the low-level agent loop.
 #[derive(Clone)]

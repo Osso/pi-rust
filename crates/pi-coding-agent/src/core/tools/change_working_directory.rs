@@ -5,8 +5,9 @@ use pi_js_compat::js_json::{JsString, JsValue};
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
+use crate::core::extensions::types::ContextTool;
 use pi_agent_core::{
-    AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
+    AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
 use pi_js_compat::js_json::{JsObject as Map, JsValue as Value, encode_node_utf8};
@@ -195,21 +196,21 @@ fn load_target_cwd(
     }
 }
 
-impl AgentHarnessTool<ExtensionContext> for ChangeWorkingDirectoryTool {
+impl ContextTool<ExtensionContext> for ChangeWorkingDirectoryTool {
     fn name(&self) -> &str {
         NAME
     }
 
-    fn description(&self) -> &str {
-        DESCRIPTION
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        DESCRIPTION.into()
     }
 
     fn parameters(&self) -> &SchemaValue {
         parameters()
     }
 
-    fn label(&self) -> &str {
-        LABEL
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        LABEL.into()
     }
 
     fn execution_mode(&self) -> Option<ToolExecutionMode> {
@@ -292,7 +293,7 @@ pub fn render_result(
 /// `createChangeWorkingDirectoryToolDefinition()`.
 pub fn create_change_working_directory_tool_definition() -> ToolDefinition {
     let mut definition =
-        crate::core::extensions::wrapper::harness_tool_definition(Arc::new(ChangeWorkingDirectoryTool::new()));
+        crate::core::extensions::wrapper::context_tool_definition(Arc::new(ChangeWorkingDirectoryTool::new()));
     definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
     definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
     definition.render_call = Some(infallible_render_call(render_call));

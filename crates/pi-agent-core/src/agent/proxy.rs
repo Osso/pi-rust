@@ -4,7 +4,6 @@
 //! [`Fetch`] implementation (defaulting to the shared reqwest client), which
 //! keeps the proxy stream testable without stubbing globals.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use pi_ai::http::default_fetch;
@@ -68,7 +67,9 @@ pub enum ProxyAssistantMessageEvent {
         error_message: Option<JsString>,
         usage: Usage,
     },
-    Unknown,
+    Unknown {
+        kind: JsString,
+    },
 }
 
 impl<'de> Deserialize<'de> for ProxyAssistantMessageEvent {
@@ -96,10 +97,22 @@ fn optional_proxy_field<T: serde::de::DeserializeOwned>(
         .map(Option::flatten)
 }
 
+fn decode_content_index(value: Option<&JsValue>) -> Result<usize, serde_json::Error> {
+    let index = value.and_then(JsValue::as_f64);
+    match index {
+        Some(index) if index.is_finite() && index >= 0.0 && index.fract() == 0.0 && index < f64::from(u32::MAX) => {
+            Ok(index as usize)
+        }
+        _ => Err(<serde_json::Error as serde::de::Error>::custom(
+            "Proxy protocol error: invalid contentIndex (expected a finite, non-negative array index)",
+        )),
+    }
+}
+
 fn decode_proxy_event(value: &JsValue) -> Result<ProxyAssistantMessageEvent, serde_json::Error> {
     use ProxyAssistantMessageEvent as Event;
     let kind: JsString = proxy_field(value, "type")?;
-    let index = || proxy_field(value, "contentIndex");
+    let index = || decode_content_index(value.get("contentIndex"));
     let delta = || proxy_field(value, "delta");
     let signature = || optional_proxy_field(value, "contentSignature");
     Ok(match kind {
@@ -147,7 +160,7 @@ fn decode_proxy_event(value: &JsValue) -> Result<ProxyAssistantMessageEvent, ser
             error_message: optional_proxy_field(value, "errorMessage")?,
             usage: proxy_field(value, "usage")?,
         },
-        _ => Event::Unknown,
+        _ => Event::Unknown { kind },
     })
 }
 
@@ -159,9 +172,9 @@ pub struct ProxyStreamOptions {
     /// Local abort signal for the proxy request.
     pub signal: Option<CancellationToken>,
     /// Auth token for the proxy server.
-    pub auth_token: String,
+    pub auth_token: JsString,
     /// Proxy server URL (for example `https://genai.example.com`).
-    pub proxy_url: String,
+    pub proxy_url: JsString,
     /// HTTP implementation; defaults to the shared reqwest client.
     pub fetch: Option<Arc<dyn Fetch>>,
 }
@@ -178,7 +191,7 @@ pub fn stream_proxy(model: Model, context: Context, options: ProxyStreamOptions)
 struct PartialState {
     message: AssistantMessage,
     content: Vec<Option<AssistantContent>>,
-    partial_json: HashMap<usize, JsString>,
+    decoder_at_start: bool,
 }
 
 impl PartialState {
@@ -191,7 +204,7 @@ impl PartialState {
                 pi_ai::request::now_millis() as f64,
             ),
             content: Vec::new(),
-            partial_json: HashMap::new(),
+            decoder_at_start: true,
         }
     }
 
@@ -243,9 +256,10 @@ async fn proxy_events(
 
     let request = HttpRequest {
         method: "POST".to_owned(),
-        url: format!("{}/api/stream", options.proxy_url),
+        url: pi_ai::request::request_url(&(options.proxy_url.clone() + "/api/stream"))
+            .map_err(|error| error.message)?,
         headers: vec![
-            ("Authorization".to_owned(), format!("Bearer {}", options.auth_token)),
+            ("Authorization".to_owned(), authorization_header(&options.auth_token)?),
             ("Content-Type".to_owned(), "application/json".to_owned()),
         ],
         body: Some(body),
@@ -301,6 +315,18 @@ async fn read_proxy_chunk(
     }
 }
 
+fn authorization_header(token: &JsString) -> Result<String, JsString> {
+    let value = pi_ai::request::header_value(&(JsString::from("Bearer ") + token)).map_err(|error| error.message)?;
+    let value = value.trim_matches([' ', '\t', '\r', '\n']);
+    if value.contains(['\0', '\r', '\n']) {
+        return Err(pi_js_compat::js_format!(
+            "Headers.append: \"{}\" is an invalid header value.",
+            value
+        ));
+    }
+    Ok(value.to_owned())
+}
+
 fn proxy_error_message(status: u16, status_text: &str, body: &[u8]) -> JsString {
     let fallback = format!("Proxy error: {status} {status_text}");
     let parsed: Option<pi_js_compat::js_json::JsValue> = serde_json::from_slice(body).ok();
@@ -320,16 +346,21 @@ fn drain_lines(
 ) -> Result<(), JsString> {
     while let Some(line_feed) = buffer.iter().position(|byte| *byte == b'\n') {
         let line: Vec<u8> = buffer.drain(..=line_feed).collect();
-        let line = String::from_utf8_lossy(&line);
+        let line = if std::mem::take(&mut state.decoder_at_start) {
+            line.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&line)
+        } else {
+            &line
+        };
+        let line = String::from_utf8_lossy(line);
         let Some(data) = line.strip_prefix("data: ") else {
             continue;
         };
-        let data = data.trim();
+        let data = pi_js_compat::string::js_trim(data);
         if data.is_empty() {
             continue;
         }
-        let proxy_event: ProxyAssistantMessageEvent =
-            serde_json::from_str(data).map_err(|error| JsString::from(error.to_string()))?;
+        let value = pi_js_compat::js_json::parse_lossless(data).map_err(|error| error.message().clone())?;
+        let proxy_event = decode_proxy_event(&value).map_err(|error| JsString::from(error.to_string()))?;
         if let Some(event) = process_proxy_event(proxy_event, state)? {
             sender.push(event);
         }
@@ -337,10 +368,31 @@ fn drain_lines(
     Ok(())
 }
 
+fn proxy_content_index(event: &ProxyAssistantMessageEvent) -> Option<usize> {
+    match event {
+        ProxyAssistantMessageEvent::TextStart { content_index }
+        | ProxyAssistantMessageEvent::TextDelta { content_index, .. }
+        | ProxyAssistantMessageEvent::TextEnd { content_index, .. }
+        | ProxyAssistantMessageEvent::ThinkingStart { content_index }
+        | ProxyAssistantMessageEvent::ThinkingDelta { content_index, .. }
+        | ProxyAssistantMessageEvent::ThinkingEnd { content_index, .. }
+        | ProxyAssistantMessageEvent::ToolcallStart { content_index, .. }
+        | ProxyAssistantMessageEvent::ToolcallDelta { content_index, .. }
+        | ProxyAssistantMessageEvent::ToolcallEnd { content_index } => Some(*content_index),
+        _ => None,
+    }
+}
+
 fn process_proxy_event(
     proxy_event: ProxyAssistantMessageEvent,
     state: &mut PartialState,
 ) -> Result<Option<AssistantMessageEvent>, String> {
+    if let Some(index) = proxy_content_index(&proxy_event).filter(|index| *index > state.content.len()) {
+        return Err(format!(
+            "Proxy protocol error: non-contiguous contentIndex {index} (next index: {})",
+            state.content.len()
+        ));
+    }
     match proxy_event {
         ProxyAssistantMessageEvent::Start => Ok(Some(AssistantMessageEvent::Start {
             partial: state.message.clone(),
@@ -378,7 +430,13 @@ fn process_proxy_event(
             error_message,
             usage,
         } => process_error(state, reason, error_message, usage).map(Some),
-        ProxyAssistantMessageEvent::Unknown => Ok(None),
+        ProxyAssistantMessageEvent::Unknown { kind } => {
+            eprintln!(
+                "Unhandled proxy event type: {}",
+                pi_js_compat::js_json::encode_node_utf8(&kind)
+            );
+            Ok(None)
+        }
     }
 }
 
@@ -478,16 +536,13 @@ fn process_toolcall_start(
     id: String,
     tool_name: String,
 ) -> Result<AssistantMessageEvent, String> {
+    let mut call = ToolCall::new(id, tool_name, JsObject::new());
+    call.partial_json = Some(JsString::default());
     set_slot(
         &mut state.content,
         content_index,
-        Some(AssistantContent::ToolCall(ToolCall::new(
-            id,
-            tool_name,
-            JsObject::new(),
-        ))),
+        Some(AssistantContent::ToolCall(call)),
     )?;
-    state.partial_json.insert(content_index, JsString::default());
     state.sync();
     Ok(AssistantMessageEvent::ToolCallStart {
         content_index,
@@ -500,10 +555,12 @@ fn process_toolcall_delta(
     content_index: usize,
     delta: JsString,
 ) -> Result<AssistantMessageEvent, String> {
-    let partial_json = state.partial_json.entry(content_index).or_default();
+    let call = tool_call_mut(&mut state.content, content_index, "toolcall_delta")?;
+    // Frozen += coerces the deleted property to the literal string "undefined".
+    let mut partial_json = call.partial_json.take().unwrap_or_else(|| "undefined".into());
     partial_json.push_str(delta.clone());
-    let arguments = streaming_arguments(partial_json);
-    tool_call_mut(&mut state.content, content_index, "toolcall_delta")?.arguments = arguments;
+    call.arguments = streaming_arguments(&partial_json);
+    call.partial_json = Some(partial_json);
     state.sync();
     Ok(AssistantMessageEvent::ToolCallDelta {
         content_index,
@@ -516,11 +573,11 @@ fn process_toolcall_end(
     state: &mut PartialState,
     content_index: usize,
 ) -> Result<Option<AssistantMessageEvent>, String> {
-    let Some(Some(AssistantContent::ToolCall(tool_call))) = state.content.get(content_index) else {
+    let Some(Some(AssistantContent::ToolCall(tool_call))) = state.content.get_mut(content_index) else {
         return Ok(None);
     };
+    tool_call.partial_json = None;
     let tool_call = tool_call.clone();
-    state.partial_json.remove(&content_index);
     state.sync();
     Ok(Some(AssistantMessageEvent::ToolCallEnd {
         content_index,
@@ -565,9 +622,6 @@ fn set_slot(
     index: usize,
     value: Option<AssistantContent>,
 ) -> Result<(), String> {
-    if index > content.len() {
-        return Err("Sparse proxy content index".to_owned());
-    }
     if index == content.len() {
         content.push(value);
     } else {
@@ -632,7 +686,21 @@ fn build_proxy_request_options(options: &SimpleStreamOptions) -> Result<JsValue,
     insert_some(&mut object, "reasoning", options.reasoning)?;
     insert_some(&mut object, "cacheRetention", stream.cache_retention)?;
     insert_some(&mut object, "sessionId", stream.session_id.clone())?;
-    insert_some(&mut object, "headers", stream.request.headers.clone())?;
+    if let Some(headers) = &stream.request.headers {
+        object.insert(
+            "headers".into(),
+            JsValue::Object(
+                headers
+                    .iter()
+                    .filter_map(|(key, value)| {
+                        value
+                            .as_ref()
+                            .map(|value| (key.clone().into(), JsValue::String(value.clone())))
+                    })
+                    .collect(),
+            ),
+        );
+    }
     if let Some(metadata) = &stream.metadata {
         object.insert("metadata".into(), JsValue::Object(metadata.clone()));
     }
@@ -648,4 +716,37 @@ fn insert_some<T: serde::Serialize>(object: &mut JsObject, key: &str, value: Opt
         object.insert(key.into(), value);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod index_protocol_tests {
+    use super::*;
+    fn reject_index(index: f64) {
+        let event = pi_js_compat::js_json!({"type":"text_start","contentIndex":0});
+        let mut event = event;
+        event["contentIndex"] = JsValue::Number(index);
+        let error = decode_proxy_event(&event).unwrap_err().to_string();
+        assert!(
+            error.starts_with("Proxy protocol error: invalid contentIndex"),
+            "{error}"
+        );
+    }
+    #[test]
+    fn negative_content_index_is_protocol_error() {
+        reject_index(-1.0);
+    }
+    #[test]
+    fn fractional_content_index_is_protocol_error() {
+        reject_index(0.5);
+    }
+    #[test]
+    fn nonfinite_content_index_is_protocol_error() {
+        for index in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            reject_index(index);
+        }
+    }
+    #[test]
+    fn non_array_integer_content_index_is_protocol_error() {
+        reject_index(4294967295.0);
+    }
 }

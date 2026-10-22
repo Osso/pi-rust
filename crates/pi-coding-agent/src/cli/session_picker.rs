@@ -50,17 +50,13 @@ pub async fn load_sessions<'a>(
         .into_iter()
         .filter(|session| session.is_archived.unwrap_or(false) == archived)
         .collect();
-    filtered_sessions.sort_by(|left, right| {
+    pi_js_compat::array_sort::js_array_sort(&mut filtered_sessions, |left, right| {
         let left_named = is_named(left);
         let right_named = is_named(right);
         if !archived && left_named != right_named {
-            return if left_named {
-                std::cmp::Ordering::Less
-            } else {
-                std::cmp::Ordering::Greater
-            };
+            return if left_named { -1.0 } else { 1.0 };
         }
-        right.modified.cmp(&left.modified)
+        right.modified - left.modified
     });
     Ok(filtered_sessions)
 }

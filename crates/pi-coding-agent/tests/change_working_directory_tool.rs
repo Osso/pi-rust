@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use pi_agent_core::AgentHarnessTool;
+use pi_coding_agent::core::extensions::types::ContextTool;
 use pi_coding_agent::core::extensions::{ExtensionContext, ExtensionRunner, RelocateCallback};
 use pi_coding_agent::core::session_manager::{NewSessionOptions, SessionManager};
 use pi_coding_agent::core::tools::change_working_directory::ChangeWorkingDirectoryTool;

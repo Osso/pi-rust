@@ -24,11 +24,11 @@ impl AgentTool for LosslessTool {
     fn name(&self) -> &str {
         "probe"
     }
-    fn description(&self) -> &str {
-        "probe"
+    fn description(&self) -> pi_js_compat::js_json::JsString {
+        pi_js_compat::js_json::JsString::from_utf16(vec![0xd800, 0x61])
     }
-    fn label(&self) -> &str {
-        "probe"
+    fn label(&self) -> pi_js_compat::js_json::JsString {
+        pi_js_compat::js_json::JsString::from_utf16(vec![0xdc00, 0x62])
     }
     fn parameters(&self) -> &Value {
         &self.schema
@@ -66,6 +66,9 @@ async fn agent_loop_keeps_tool_text_details_and_arguments_through_message_wire_r
     let scripted = Arc::new(Mutex::new(VecDeque::from([tool_use, done])));
     let stream_fn: StreamFn = Arc::new(move |_: Model, context: Context, _: SimpleStreamOptions| {
         assert_eq!(context.system_prompt.as_ref().unwrap().units(), &[0xd800]);
+        let tool = &context.tools.as_ref().unwrap()[0];
+        assert_eq!(tool.description.units(), &[0xd800, 0x61]);
+        assert_eq!(tool.label.as_ref().unwrap().units(), &[0xdc00, 0x62]);
         let message = scripted.lock().unwrap().pop_front().expect("two model turns");
         Box::pin(async move {
             let (sender, stream) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
@@ -79,7 +82,7 @@ async fn agent_loop_keeps_tool_text_details_and_arguments_through_message_wire_r
                 message: message.clone(),
             });
             sender.end(Some(message));
-            stream
+            Ok(stream)
         })
     });
     let config = AgentLoopConfig::new(
@@ -164,4 +167,46 @@ fn result_details_distinguish_missing_from_explicit_null() {
             parse_lossless(source).unwrap()
         );
     }
+}
+
+#[tokio::test]
+async fn agent_text_prompt_preserves_unpaired_units_through_public_input_and_transcript() {
+    use pi_agent_core::{Agent, AgentOptions};
+    use pi_js_compat::js_json::JsString;
+    let raw = JsString::from_utf16(vec![0xd800, 0x61, 0xdc00]);
+    let captured = Arc::new(Mutex::new(Vec::new()));
+    let observed = captured.clone();
+    let agent = Agent::new(AgentOptions {
+        stream_fn: Some(Arc::new(move |_, context, _| {
+            *observed.lock().unwrap() = context.messages.clone();
+            Box::pin(async move {
+                let (sender, stream) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
+                let message = AssistantMessage::empty("fixture", "fixture", "fixture", 0.0);
+                sender.push(AssistantMessageEvent::Done {
+                    reason: DoneReason::Stop,
+                    message,
+                });
+                Ok(stream)
+            })
+        })),
+        ..Default::default()
+    })
+    .unwrap();
+    agent.prompt(raw.clone()).await.unwrap();
+    agent.prompt(&raw).await.unwrap();
+    let requests = captured.lock().unwrap();
+    for message in requests.iter().filter_map(|message| match message {
+        Message::User(user) => Some(user),
+        _ => None,
+    }) {
+        let UserContent::Blocks(blocks) = &message.content else {
+            panic!("text block")
+        };
+        let pi_ai::types::TextOrImageContent::Text(text) = &blocks[0] else {
+            panic!("text")
+        };
+        assert_eq!(text.text, raw);
+    }
+    let wire = pi_js_compat::js_json::to_value(&agent.messages()).unwrap();
+    assert_eq!(wire[0]["content"][0]["text"], JsValue::String(raw));
 }

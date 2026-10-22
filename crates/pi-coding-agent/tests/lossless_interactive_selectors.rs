@@ -59,8 +59,8 @@ fn session_selector_renders_raw_name_and_returns_original_path() {
         name: Some(name.clone()),
         is_archived: Some(false),
         parent_session_path: None,
-        created: 0,
-        modified: 0,
+        created: 0.0,
+        modified: 0.0,
         message_count: 1,
         first_message: "body".into(),
     };
