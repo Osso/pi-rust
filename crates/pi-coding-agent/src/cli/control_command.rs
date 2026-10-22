@@ -2,6 +2,8 @@
 
 use std::io::Write;
 
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use rustix::process::{Pid, Signal, kill_process};
 
 use crate::config::get_user_state_root;
@@ -48,8 +50,8 @@ pub trait ControlCommandDependencies {
     }
 
     /// `getControlDbPath()`.
-    fn control_db_path(&self) -> String {
-        default_control_db_path()
+    fn control_db_path(&self) -> JsString {
+        get_control_db_path(&get_user_state_root()).into()
     }
 
     /// `process.kill(pid, "SIGHUP")`.
@@ -60,15 +62,11 @@ pub trait ControlCommandDependencies {
     }
 }
 
-fn default_control_db_path() -> String {
-    get_control_db_path(&get_user_state_root())
-}
-
 /// `handleControlCommand`.
 pub fn handle_control_command(
     args: &[String],
     dependencies: &dyn ControlCommandDependencies,
-) -> Result<ControlCommandOutcome, String> {
+) -> Result<ControlCommandOutcome, JsString> {
     if args.first().map(String::as_str) != Some("control") {
         return Ok(ControlCommandOutcome {
             handled: false,
@@ -81,7 +79,7 @@ pub fn handle_control_command(
         Some("restart") => restart(args, dependencies),
         Some("last") => last(dependencies),
         Some("path") => {
-            dependencies.stdout(&format!("{}\n", dependencies.control_db_path()));
+            dependencies.stdout(&encode_node_utf8(&js_format!("{}\n", dependencies.control_db_path())));
             Ok(ControlCommandOutcome::handled())
         }
         other => {
@@ -95,30 +93,30 @@ pub fn handle_control_command(
     }
 }
 
-fn send(args: &[String], dependencies: &dyn ControlCommandDependencies) -> Result<ControlCommandOutcome, String> {
+fn send(args: &[String], dependencies: &dyn ControlCommandDependencies) -> Result<ControlCommandOutcome, JsString> {
     let Some(parsed) = parse_send_command(&args[2..]) else {
         print_control_help(dependencies, false);
         return Ok(ControlCommandOutcome::failed());
     };
 
     let id = enqueue_incoming_message(&dependencies.control_db_path(), &parsed.message)
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.message().clone())?;
     dependencies.stdout(&format!("queued {id}\n"));
     if let Some(pid) = parsed.pid {
-        dependencies.signal_process(pid)?;
+        dependencies.signal_process(pid).map_err(JsString::from)?;
         dependencies.stdout(&format!("signaled {pid}\n"));
     }
     Ok(ControlCommandOutcome::handled())
 }
 
-fn restart(args: &[String], dependencies: &dyn ControlCommandDependencies) -> Result<ControlCommandOutcome, String> {
+fn restart(args: &[String], dependencies: &dyn ControlCommandDependencies) -> Result<ControlCommandOutcome, JsString> {
     let Some(session_id) = parse_restart_command(&args[2..]) else {
         print_control_help(dependencies, false);
         return Ok(ControlCommandOutcome::failed());
     };
 
-    let health =
-        read_session_health(&dependencies.control_db_path(), &session_id).map_err(|error| error.to_string())?;
+    let health = read_session_health(dependencies.control_db_path(), &JsString::from(session_id.as_str()))
+        .map_err(|error| error.message().clone())?;
     let pid = health
         .filter(|health| health.check_status == SessionCheckStatus::Ok)
         .and_then(|health| health.pid);
@@ -135,8 +133,8 @@ fn restart(args: &[String], dependencies: &dyn ControlCommandDependencies) -> Re
     Ok(ControlCommandOutcome::handled())
 }
 
-fn last(dependencies: &dyn ControlCommandDependencies) -> Result<ControlCommandOutcome, String> {
-    let last_message = read_last_message(&dependencies.control_db_path()).map_err(|error| error.to_string())?;
+fn last(dependencies: &dyn ControlCommandDependencies) -> Result<ControlCommandOutcome, JsString> {
+    let last_message = read_last_message(dependencies.control_db_path()).map_err(|error| error.message().clone())?;
     if let Some(last_message) = last_message {
         dependencies.stdout(&format!("{}\n", last_message.content));
     }

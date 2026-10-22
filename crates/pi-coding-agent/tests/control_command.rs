@@ -1,5 +1,6 @@
 //! Ports `packages/coding-agent/test/control-command.test.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::SystemTime;
@@ -11,7 +12,7 @@ use pi_coding_agent::core::session_control_db::{
 use pi_coding_agent::core::session_health::{SessionCheckStatus, SessionHealthRecord};
 
 struct Harness {
-    control_db_path: String,
+    control_db_path: JsString,
     stdout: Mutex<Vec<String>>,
     stderr: Mutex<Vec<String>>,
     signals: Mutex<Vec<u32>>,
@@ -20,7 +21,7 @@ struct Harness {
 impl Harness {
     fn new(dir: &Path) -> Self {
         Self {
-            control_db_path: get_control_db_path(dir),
+            control_db_path: get_control_db_path(dir).into(),
             stdout: Mutex::new(Vec::new()),
             stderr: Mutex::new(Vec::new()),
             signals: Mutex::new(Vec::new()),
@@ -37,7 +38,7 @@ impl ControlCommandDependencies for Harness {
         self.stderr.lock().unwrap().push(text.to_owned());
     }
 
-    fn control_db_path(&self) -> String {
+    fn control_db_path(&self) -> JsString {
         self.control_db_path.clone()
     }
 
@@ -169,7 +170,7 @@ fn prints_the_state_root_control_database_path() {
     assert!(outcome.handled);
     assert_eq!(
         *harness.stdout.lock().unwrap(),
-        vec![format!("{}\n", harness.control_db_path)]
+        vec![format!("{}\n", harness.control_db_path.to_utf8().unwrap())]
     );
     assert!(harness.stderr.lock().unwrap().is_empty());
     std::fs::remove_dir_all(dir).unwrap();
