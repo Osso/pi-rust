@@ -137,8 +137,49 @@ pub struct PyrunRunnerOptions {
     pub args: Option<Vec<JsString>>,
     pub command: Option<JsString>,
     pub detached: Option<bool>,
-    pub env: Option<Vec<(JsString, JsString)>>,
+    #[serde(default, with = "runner_environment")]
+    pub env: Option<indexmap::IndexMap<JsString, JsString>>,
     pub inherit_env: Option<bool>,
+}
+
+mod runner_environment {
+    use super::*;
+
+    pub fn serialize<S: serde::Serializer>(
+        env: &Option<indexmap::IndexMap<JsString, JsString>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let value = env.as_ref().map(|entries| {
+            Value::Object(
+                entries
+                    .iter()
+                    .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+                    .collect(),
+            )
+        });
+        value.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<indexmap::IndexMap<JsString, JsString>>, D::Error> {
+        let Some(value) = Option::<Value>::deserialize(deserializer)? else {
+            return Ok(None);
+        };
+        let Value::Object(entries) = value else {
+            return Err(serde::de::Error::custom("runner environment must be an object"));
+        };
+        entries
+            .into_iter()
+            .map(|(key, value)| {
+                let Value::String(value) = value else {
+                    return Err(serde::de::Error::custom("runner environment values must be strings"));
+                };
+                Ok((key, value))
+            })
+            .collect::<Result<_, _>>()
+            .map(Some)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
