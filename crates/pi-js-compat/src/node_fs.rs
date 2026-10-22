@@ -220,6 +220,7 @@ fn node_error_description(error: &io::Error, code: &str) -> String {
         io::ErrorKind::DirectoryNotEmpty => "directory not empty".to_owned(),
         _ if code == "ELOOP" => "too many symbolic links encountered".to_owned(),
         _ if code == "ENOSPC" => "no space left on device".to_owned(),
+        _ if code == "EIO" && error.raw_os_error().is_some() => "i/o error".to_owned(),
         _ => error.to_string(),
     }
 }
@@ -228,7 +229,7 @@ fn format_fs_error_record(error: &io::Error, syscall: &str, path: &str, api: Nod
     let code = node_error_code(error);
     let description = node_error_description(error, code);
     let omit_path = syscall == "uv_cwd"
-        || (syscall == "write" && path.is_empty())
+        || (matches!(syscall, "write" | "close") && path.is_empty())
         || (api == NodeReadApi::ReadFileSync
             && syscall == "read"
             && code == "EISDIR"

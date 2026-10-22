@@ -1,6 +1,8 @@
 //! Incrementally tracks streaming output with bounded memory.
 
+use super::node_fs::node_fs_error;
 use crate::utils::paths::node_join;
+use crate::utils::uncaught::{ERROR, throw_uncaught};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::fs::File;
@@ -66,6 +68,7 @@ pub struct OutputAccumulator {
     configured_temp_file_path: JsString,
     temp_file_path: Option<JsString>,
     temp_file: Option<File>,
+    close_file: fn(File) -> io::Result<()>,
 }
 
 impl OutputAccumulator {
@@ -96,6 +99,7 @@ impl OutputAccumulator {
             configured_temp_file_path: temp_file_path.into(),
             temp_file_path: None,
             temp_file: None,
+            close_file: |file| nix::unistd::close(file).map_err(io::Error::from),
         }
     }
 
@@ -177,7 +181,8 @@ impl OutputAccumulator {
         let Some(mut file) = self.temp_file.take() else {
             return Ok(());
         };
-        file.flush()
+        file.flush()?;
+        (self.close_file)(file)
     }
 
     /// Returns the decoded byte length of the current, not yet terminated line.
@@ -256,7 +261,9 @@ impl OutputAccumulator {
             return;
         }
         let path = self.configured_temp_file_path.clone();
-        self.temp_file = File::create(encode_node_utf8(&path)).ok();
+        let file = File::create(encode_node_utf8(&path))
+            .unwrap_or_else(|error| throw_uncaught(ERROR, node_fs_error(&error, "open", &encode_node_utf8(&path))));
+        self.temp_file = Some(file);
         self.temp_file_path = Some(path);
         let chunks = std::mem::take(&mut self.raw_chunks);
         for chunk in chunks {
@@ -266,7 +273,8 @@ impl OutputAccumulator {
 
     fn write_to_temp_file(&mut self, data: &[u8]) {
         if let Some(file) = self.temp_file.as_mut() {
-            file.write_all(data).ok();
+            file.write_all(data)
+                .unwrap_or_else(|error| throw_uncaught(ERROR, node_fs_error(&error, "write", "")));
         }
     }
 }
@@ -388,7 +396,30 @@ fn is_continuation(byte: u8) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::Utf8StreamDecoder;
+    use super::*;
+
+    #[test]
+    fn close_syscall_failure_is_returned_without_crashing() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = JsString::from(directory.path().to_str().unwrap()) + "/spill.log";
+        let mut output = OutputAccumulator::new_with_temp_file_path(
+            OutputAccumulatorOptions {
+                max_bytes: 1,
+                ..OutputAccumulatorOptions::default()
+            },
+            &path,
+        );
+        output.append(b"payload");
+        // A real close error requires an unreliable filesystem or invalid ownership.
+        // Inject only the close syscall result; the real file has been written and closed.
+        output.close_file = |file| {
+            drop(file);
+            Err(io::Error::from_raw_os_error(rustix::io::Errno::IO.raw_os_error()))
+        };
+        let error = output.close_temp_file().unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(rustix::io::Errno::IO.raw_os_error()));
+        assert_eq!(std::fs::read(encode_node_utf8(&path)).unwrap(), b"payload");
+    }
 
     #[test]
     fn incomplete_trailing_bytes_are_buffered() {
