@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::Path;
 
@@ -5,8 +6,8 @@ use pi_coding_agent::core::tools::path_utils::{
     expand_path, path_exists, resolve_read_path, resolve_read_path_async, resolve_to_cwd,
 };
 
-fn join(dir: &Path, name: &str) -> String {
-    dir.join(name).to_string_lossy().into_owned()
+fn join(dir: &Path, name: &str) -> JsString {
+    dir.join(name).to_string_lossy().as_ref().into()
 }
 
 #[test]
@@ -33,8 +34,9 @@ fn resolve_to_cwd_handles_absolute_relative_and_tilde_prefixed_paths() {
     );
 
     let cwd = join(&temp, "pi-path-utils-cwd");
-    assert_eq!(resolve_to_cwd("~draft.md", &cwd).unwrap(), format!("{cwd}/~draft.md"));
-    assert_eq!(resolve_to_cwd("@~draft.md", &cwd).unwrap(), format!("{cwd}/~draft.md"));
+    let draft = join(&temp, "pi-path-utils-cwd/~draft.md");
+    assert_eq!(resolve_to_cwd("~draft.md", &cwd).unwrap(), draft);
+    assert_eq!(resolve_to_cwd("@~draft.md", &cwd).unwrap(), draft);
 }
 
 #[test]
@@ -43,7 +45,7 @@ fn resolve_read_path_returns_existing_files() {
     fs::write(dir.path().join("test-file.txt"), "content").unwrap();
 
     assert_eq!(
-        resolve_read_path("test-file.txt", &dir.path().to_string_lossy()).unwrap(),
+        resolve_read_path("test-file.txt", dir.path().to_string_lossy().as_ref()).unwrap(),
         join(dir.path(), "test-file.txt")
     );
 }
@@ -53,7 +55,7 @@ fn resolve_read_path_finds_nfd_filenames_from_nfc_input() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("file\u{0065}\u{0301}.txt"), "content").unwrap();
 
-    let result = resolve_read_path("file\u{00e9}.txt", &dir.path().to_string_lossy()).unwrap();
+    let result = resolve_read_path("file\u{00e9}.txt", dir.path().to_string_lossy().as_ref()).unwrap();
 
     assert_eq!(result, join(dir.path(), "file\u{0065}\u{0301}.txt"));
 }
@@ -81,7 +83,7 @@ fn resolve_read_path_finds_nfd_plus_curly_quote_filenames() {
     let name = "Capture d\u{2019}e\u{0301}cran.txt";
     fs::write(dir.path().join(name), "content").unwrap();
 
-    let result = resolve_read_path("Capture d'\u{00e9}cran.txt", &dir.path().to_string_lossy()).unwrap();
+    let result = resolve_read_path("Capture d'\u{00e9}cran.txt", dir.path().to_string_lossy().as_ref()).unwrap();
 
     assert_eq!(result, join(dir.path(), name));
 }
@@ -115,7 +117,7 @@ fn resolve_read_path_finds_macos_screenshot_am_pm_variants() {
 fn resolve_read_path_returns_the_resolved_path_when_no_variant_exists() {
     let dir = tempfile::tempdir().unwrap();
 
-    let result = resolve_read_path("missing 1 PM.txt", &dir.path().to_string_lossy()).unwrap();
+    let result = resolve_read_path("missing 1 PM.txt", dir.path().to_string_lossy().as_ref()).unwrap();
 
     assert_eq!(result, join(dir.path(), "missing 1 PM.txt"));
 }
