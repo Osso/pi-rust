@@ -185,7 +185,7 @@ fn parse_goal_set_response(response: &Map<String, Value>) -> Option<SupervisorRe
     if response.get("kind").and_then(Value::as_str) != Some("set") {
         return None;
     }
-    let objective = response.get("objective")?.as_str()?.trim().to_owned();
+    let objective = pi_js_compat::string::js_trim(response.get("objective")?.as_str()?).to_owned();
     let reason = response.get("reason")?.as_str()?.to_owned();
     (!objective.is_empty()).then_some(SupervisorResponse::Set { objective, reason })
 }
@@ -195,7 +195,7 @@ fn parse_advisory_response(response: &Map<String, Value>) -> Option<SupervisorRe
         return None;
     }
     let answer = response.get("answer")?.as_str()?.to_owned();
-    (!answer.trim().is_empty()).then_some(SupervisorResponse::Advisory { answer })
+    (!pi_js_compat::string::js_trim(&answer).is_empty()).then_some(SupervisorResponse::Advisory { answer })
 }
 
 /// `parseSupervisorResponse`.
@@ -221,7 +221,8 @@ pub fn parse_supervisor_response(kind: SupervisorRequestKind, raw_response: &Val
         "wait" => Some(SupervisorResponse::Wait { reason }),
         "continue" => {
             let instructions = response.get("instructions")?.as_str()?.to_owned();
-            (!instructions.trim().is_empty()).then_some(SupervisorResponse::Continue { instructions, reason })
+            (!pi_js_compat::string::js_trim(&instructions).is_empty())
+                .then_some(SupervisorResponse::Continue { instructions, reason })
         }
         _ => None,
     }
@@ -251,7 +252,7 @@ fn extract_text_content(response: &Map<String, Value>) -> Option<String> {
 }
 
 fn parse_json_object(json_text: &str) -> Option<Map<String, Value>> {
-    match js_json::parse(json_text.trim()) {
+    match js_json::parse(pi_js_compat::string::js_trim(json_text)) {
         Ok(Value::Object(object)) => Some(object),
         _ => None,
     }

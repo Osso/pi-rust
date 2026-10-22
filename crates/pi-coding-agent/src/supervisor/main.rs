@@ -713,7 +713,7 @@ pub fn read_current_supervisor_response(
             _ => None,
         })
         .collect();
-    if text.trim().is_empty() {
+    if pi_js_compat::string::js_trim(&text).is_empty() {
         return Err("Supervisor model returned no assistant text for current request".to_owned());
     }
     Ok(Value::String(text))
@@ -727,7 +727,7 @@ fn read_structured_supervisor_response(message: &pi_ai::types::AssistantMessage)
         return Ok(None);
     };
     let has_assistant_text = message.content.iter().any(|part| match part {
-        AssistantContent::Text(text) => !text.text.trim().is_empty(),
+        AssistantContent::Text(text) => !pi_js_compat::string::js_trim(&text.text).is_empty(),
         _ => false,
     });
     if has_assistant_text {
