@@ -317,7 +317,7 @@ async fn login_anthropic(
     if let Some(Err(error)) = &manual {
         server.close();
         manual_abort.cancel();
-        return Err(AuthError::failed(error.message.clone()));
+        return Err(AuthError::from(error.clone()));
     }
 
     let (code, state) = match result {

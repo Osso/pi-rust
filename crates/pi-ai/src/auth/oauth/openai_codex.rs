@@ -537,7 +537,7 @@ async fn login_browser(
     if let Some(Err(error)) = &manual {
         close_server(callback_server);
         manual_abort.cancel();
-        return Err(AuthError::failed(error.message.clone()));
+        return Err(AuthError::from(error.clone()));
     }
 
     let code = match result {
