@@ -1,5 +1,9 @@
 # Shared Node filesystem errors
 
+## Local Operations NUL drift — RED-intent only
+
+`pi-coding-agent/tests/lossless_local_path_validation.rs` compares 13 real local read/range/stat/access/write/mkdir/edit/ls/grep Operations to Node's `ERR_INVALID_ARG_VALUE` with short/long paths containing NUL and unmatched UTF-16 units. It asserts exact inspected message, no OS errno, and unchanged directory contents. Test committed unexecuted while the coding library is blocked; production validation remains queued until in-crate RED. Existence probes intentionally retain Node's false-on-invalid-path contract; process spawning is a separate boundary.
+
 Rust: `crates/pi-js-compat/src/node_fs.rs`. Pure compatibility prerequisite for Node builtin filesystem errors, not a new TypeScript application module. Node reference: `oracle/node-fs-error-oracle.ts`, executed through existing `TsOracle` source-lock verification, tsx and parent watchdog. All filesystem fixtures are isolated temporary paths; no providers or network.
 
 | Public API / branch | Behavioral proof |
