@@ -47,7 +47,10 @@ fn percent_encodes_non_ascii_and_percent_signs() {
 #[test]
 fn keeps_file_uri_punctuation_and_normalizes_dot_segments() {
     assert_eq!(
-        format_terminal_current_directory_sequence(&"/tmp/a/../b:@!$&'()*+,;=".into()).unwrap(),
+        format_terminal_current_directory_sequence(&"/tmp/a/../b:@!$&'()*+,;=".into())
+            .unwrap()
+            .to_utf8()
+            .unwrap(),
         format!("\x1b]7;file://{}/tmp/b:@!$&'()*+,;=\x1b\\", hostname())
     );
 }
