@@ -203,3 +203,22 @@ fn session_resource_cleanup_receives_raw_session_id() {
     registration.unregister();
     assert_eq!(*seen.lock().unwrap(), Some(raw));
 }
+
+#[test]
+fn agent_message_event_serialization_retains_raw_text() {
+    let raw = JsString::from_utf16(vec![0xd800, 0x61, 0xdc00]);
+    let event = pi_coding_agent::core::agent_session::AgentMessageEvent {
+        event: pi_agent_core::agent::types::AgentEvent::MessageEnd {
+            message: pi_agent_core::AgentMessage::User(pi_ai::types::UserMessage {
+                role: pi_ai::types::UserRole::Tag,
+                content: pi_ai::types::UserContent::Text(raw.clone()),
+                input_source: None,
+                provider_native: None,
+                timestamp: 1,
+            }),
+        },
+        runtime_message_marker: None,
+    };
+    let serialized = pi_js_compat::js_json::to_value(&event).unwrap();
+    assert_eq!(serialized["message"]["content"].as_string(), Some(&raw));
+}

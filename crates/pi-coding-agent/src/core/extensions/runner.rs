@@ -847,17 +847,22 @@ impl ExtensionRunner {
             .clone()
     }
 
-    pub fn get_command(&self, name: &str) -> Option<ResolvedCommand> {
+    pub fn get_command(&self, name: impl Into<JsString>) -> Option<ResolvedCommand> {
+        let name = name.into();
         self.resolve_registered_commands()
             .into_iter()
-            .find(|command| command.invocation_name == name)
+            .find(|command| JsString::from(&command.invocation_name) == name)
     }
 
-    pub fn get_prompt_command(&self, name: &str) -> Option<ResolvedCommand> {
-        if let Some(command) = self.get_command(name) {
+    pub fn get_prompt_command(&self, name: impl Into<JsString>) -> Option<ResolvedCommand> {
+        let name = name.into();
+        if let Some(command) = self.get_command(&name) {
             return Some(command);
         }
-        let handler = self.internal_commands.get(name)?;
+        let (name, handler) = self
+            .internal_commands
+            .iter()
+            .find(|(key, _)| JsString::from(*key) == name)?;
         Some(ResolvedCommand {
             name: name.to_owned(),
             source_info: SourceInfo {

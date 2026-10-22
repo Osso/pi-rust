@@ -387,7 +387,7 @@ async fn create_agent_session_internal(
                         let merged = merge_provider_attribution_headers(
                             &model,
                             &lock(&settings),
-                            session_id.as_deref(),
+                            session_id.as_ref(),
                             &[model_headers, Some(request_headers)],
                         )
                         .unwrap_or_default();
