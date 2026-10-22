@@ -30,7 +30,7 @@ use crate::modes::interactive::theme::{ThemeBg, ThemeColor, with_theme};
 /// Called with the selected entry's copy text.
 pub type CopyHandler = Rc<dyn Fn(Option<JsString>)>;
 /// Called with `(entryId, label)` when a label is edited.
-pub type LabelEditHandler = Rc<dyn Fn(&str, Option<&JsString>)>;
+pub type LabelEditHandler = Rc<dyn Fn(&JsString, Option<&JsString>)>;
 
 const TREE_GUTTER_WIDTH: usize = 2;
 const MIN_VISIBLE_ANCHOR_CONTENT_WIDTH: usize = 4;
@@ -38,7 +38,7 @@ const MAX_VISIBLE_ANCHOR_CONTENT_WIDTH: usize = 20;
 const MIN_ANCHOR_CONTEXT_WIDTH: usize = 2;
 const MAX_ANCHOR_CONTEXT_WIDTH: usize = 12;
 
-fn truncate(text: &JsString, width: usize, ellipsis: &str) -> String {
+fn truncate(text: &JsString, width: usize, ellipsis: &str) -> JsString {
     truncate_to_width_with(text, width, ellipsis, false)
 }
 
@@ -269,7 +269,7 @@ fn format_tool_call(name: &str, args: &JsValue) -> JsString {
                 display.push_str(js_format!(
                     ":{}{}",
                     pi_js_compat::number::js_number_to_string(start),
-                    end.map_or_else(String::new, |end| js_format!(
+                    end.map_or_else(JsString::new, |end| js_format!(
                         "-{}",
                         pi_js_compat::number::js_number_to_string(end)
                     ))
@@ -308,11 +308,11 @@ fn format_tool_call(name: &str, args: &JsValue) -> JsString {
     text
 }
 
-fn format_label_timestamp(timestamp: &str, now_millis: i64) -> String {
+fn format_label_timestamp(timestamp: &JsString, now_millis: i64) -> JsString {
     let now = local_date_fields(now_millis);
     let Some(date) = date_parse_millis(timestamp).and_then(local_date_fields) else {
         // Every getter of an invalid `Date` is NaN, and NaN never compares equal.
-        return "aN/NaN/NaN NaN:NaN".to_owned();
+        return JsString::from("aN/NaN/NaN NaN:NaN");
     };
     let time = format!("{:02}:{:02}", date.hours, date.minutes);
     let same_year = now.is_some_and(|now| now.year == date.year);
@@ -359,20 +359,20 @@ pub struct TreeList {
     flat_nodes: Vec<FlatNode>,
     filtered_indices: Vec<usize>,
     selected_index: usize,
-    current_leaf_id: Option<String>,
+    current_leaf_id: Option<JsString>,
     max_visible_lines: usize,
     filter_mode: FilterMode,
     search_query: JsString,
-    tool_call_map: HashMap<String, ToolCallInfo>,
+    tool_call_map: HashMap<JsString, ToolCallInfo>,
     multiple_roots: bool,
     show_label_timestamps: bool,
-    active_path_ids: HashSet<String>,
-    visible_parent_map: HashMap<String, Option<String>>,
-    visible_children_map: HashMap<Option<String>, Vec<String>>,
-    last_selected_id: Option<String>,
-    folded_nodes: HashSet<String>,
+    active_path_ids: HashSet<JsString>,
+    visible_parent_map: HashMap<JsString, Option<JsString>>,
+    visible_children_map: HashMap<Option<JsString>, Vec<JsString>>,
+    last_selected_id: Option<JsString>,
+    folded_nodes: HashSet<JsString>,
     is_compacted_user_view: bool,
-    pub on_select: Option<Rc<dyn Fn(String)>>,
+    pub on_select: Option<Rc<dyn Fn(JsString)>>,
     pub on_cancel: Option<Rc<dyn Fn()>>,
     pub on_copy: Option<CopyHandler>,
     pub on_label_edit: Option<LabelEditHandler>,
@@ -381,9 +381,9 @@ pub struct TreeList {
 impl TreeList {
     pub fn new(
         tree: Vec<SessionTreeNode>,
-        current_leaf_id: Option<String>,
+        current_leaf_id: Option<JsString>,
         max_visible_lines: usize,
-        initial_selected_id: Option<String>,
+        initial_selected_id: Option<JsString>,
         initial_filter_mode: Option<FilterMode>,
     ) -> Self {
         let multiple_roots = tree.len() > 1;
@@ -394,7 +394,7 @@ impl TreeList {
             current_leaf_id,
             max_visible_lines,
             filter_mode: initial_filter_mode.unwrap_or(FilterMode::Default),
-            search_query: JsString::new(),
+            search_query: JsString::default(),
             tool_call_map: HashMap::new(),
             multiple_roots,
             show_label_timestamps: false,
@@ -414,29 +414,44 @@ impl TreeList {
         list.apply_filter();
 
         let target_id = initial_selected_id.or_else(|| list.current_leaf_id.clone());
-        list.selected_index = list.find_nearest_visible_index(target_id.as_deref());
-        list.last_selected_id = list
-            .filtered_indices
-            .get(list.selected_index)
-            .map(|index| list.flat_nodes[*index].node.entry.id().unwrap_or_default().to_owned());
+        list.selected_index = list.find_nearest_visible_index(target_id.as_ref());
+        list.last_selected_id = list.filtered_indices.get(list.selected_index).map(|index| {
+            list.flat_nodes[*index]
+                .node
+                .entry
+                .id()
+                .cloned()
+                .unwrap_or_default()
+                .to_owned()
+        });
         list
     }
 
-    fn find_nearest_visible_index(&self, entry_id: Option<&str>) -> usize {
+    fn find_nearest_visible_index(&self, entry_id: Option<&JsString>) -> usize {
         if self.filtered_indices.is_empty() {
             return 0;
         }
-        let entry_map: HashMap<&str, usize> = self
+        let entry_map: HashMap<&JsString, usize> = self
             .flat_nodes
             .iter()
             .enumerate()
-            .map(|(index, flat)| (flat.node.entry.id().unwrap_or_default(), index))
+            .map(|(index, flat)| (flat.node.entry.id().cloned().unwrap_or_default(), index))
             .collect();
-        let visible_id_to_index: HashMap<&str, usize> = self
+        let visible_id_to_index: HashMap<&JsString, usize> = self
             .filtered_indices
             .iter()
             .enumerate()
-            .map(|(index, flat_index)| (self.flat_nodes[*flat_index].node.entry.id().unwrap_or_default(), index))
+            .map(|(index, flat_index)| {
+                (
+                    self.flat_nodes[*flat_index]
+                        .node
+                        .entry
+                        .id()
+                        .cloned()
+                        .unwrap_or_default(),
+                    index,
+                )
+            })
             .collect();
 
         let mut current_id = entry_id;
@@ -458,11 +473,11 @@ impl TreeList {
         let Some(current_leaf_id) = &self.current_leaf_id else {
             return;
         };
-        let entry_map: HashMap<String, usize> = self
+        let entry_map: HashMap<JsString, usize> = self
             .flat_nodes
             .iter()
             .enumerate()
-            .map(|(index, flat)| (flat.node.entry.id().unwrap_or_default().to_owned(), index))
+            .map(|(index, flat)| (flat.node.entry.id().cloned().unwrap_or_default().to_owned(), index))
             .collect();
 
         let mut current_id = Some(current_leaf_id.clone());
@@ -471,7 +486,7 @@ impl TreeList {
             let Some(node_index) = entry_map.get(&id) else {
                 break;
             };
-            current_id = self.flat_nodes[*node_index].node.entry.parent_id().map(str::to_owned);
+            current_id = self.flat_nodes[*node_index].node.entry.parent_id().cloned();
         }
     }
 
@@ -480,7 +495,7 @@ impl TreeList {
         self.tool_call_map.clear();
 
         let leaf_id = self.current_leaf_id.clone();
-        let mut contains_active: HashMap<String, bool> = HashMap::new();
+        let mut contains_active: HashMap<JsString, bool> = HashMap::new();
         {
             let mut all_nodes: Vec<&SessionTreeNode> = Vec::new();
             let mut pre_order_stack: Vec<&SessionTreeNode> = roots.iter().collect();
@@ -491,17 +506,17 @@ impl TreeList {
                 }
             }
             for node in all_nodes.into_iter().rev() {
-                let mut has = leaf_id.as_deref() == node.entry.id();
+                let mut has = leaf_id.as_ref() == node.entry.id();
                 for child in &node.children {
                     if contains_active
-                        .get(child.entry.id().unwrap_or_default())
+                        .get(child.entry.id().cloned().unwrap_or_default())
                         .copied()
                         .unwrap_or(false)
                     {
                         has = true;
                     }
                 }
-                contains_active.insert(node.entry.id().unwrap_or_default().to_owned(), has);
+                contains_active.insert(node.entry.id().cloned().unwrap_or_default().to_owned(), has);
             }
         }
 
@@ -510,7 +525,7 @@ impl TreeList {
         ordered_roots.sort_by_key(|node| {
             std::cmp::Reverse(
                 contains_active
-                    .get(node.entry.id().unwrap_or_default())
+                    .get(node.entry.id().cloned().unwrap_or_default())
                     .copied()
                     .unwrap_or(false),
             )
@@ -564,7 +579,7 @@ impl TreeList {
             let mut rest: Vec<&SessionTreeNode> = Vec::new();
             for child in children {
                 if contains_active
-                    .get(child.entry.id().unwrap_or_default())
+                    .get(child.entry.id().cloned().unwrap_or_default())
                     .copied()
                     .unwrap_or(false)
                 {
@@ -619,7 +634,7 @@ impl TreeList {
         }
 
         let entries: Vec<SessionEntry> = self.flat_nodes.iter().map(|flat| flat.node.entry.clone()).collect();
-        let leaf = match self.current_leaf_id.as_deref() {
+        let leaf = match self.current_leaf_id.as_ref() {
             Some(id) => LeafSelection::Id(id),
             None => LeafSelection::None,
         };
@@ -628,15 +643,15 @@ impl TreeList {
             return ((0..self.flat_nodes.len()).collect(), false);
         }
 
-        let nodes_by_id: HashMap<String, usize> = self
+        let nodes_by_id: HashMap<JsString, usize> = self
             .flat_nodes
             .iter()
             .enumerate()
-            .map(|(index, flat)| (flat.node.entry.id().unwrap_or_default().to_owned(), index))
+            .map(|(index, flat)| (flat.node.entry.id().cloned().unwrap_or_default().to_owned(), index))
             .collect();
         let nodes = context_entries
             .iter()
-            .filter_map(|entry| nodes_by_id.get(entry.id().unwrap_or_default()).copied())
+            .filter_map(|entry| nodes_by_id.get(entry.id().cloned().unwrap_or_default()).copied())
             .collect();
         (nodes, true)
     }
@@ -646,7 +661,7 @@ impl TreeList {
         let Some(message) = assistant_message(entry) else {
             return false;
         };
-        if Some(entry.id().unwrap_or_default()) == self.current_leaf_id.as_deref() {
+        if Some(entry.id().cloned().unwrap_or_default()) == self.current_leaf_id.as_ref() {
             return false;
         }
         let has_text = has_text_content(message);
@@ -687,13 +702,21 @@ impl TreeList {
             self.last_selected_id = self
                 .filtered_indices
                 .get(self.selected_index)
-                .map(|index| self.flat_nodes[*index].node.entry.id().unwrap_or_default().to_owned())
+                .map(|index| {
+                    self.flat_nodes[*index]
+                        .node
+                        .entry
+                        .id()
+                        .cloned()
+                        .unwrap_or_default()
+                        .to_owned()
+                })
                 .or_else(|| self.last_selected_id.clone());
         }
 
         let search_tokens: Vec<JsString> = split_js_whitespace(&self.search_query.to_lowercase())
             .into_iter()
-            .map(str::to_owned)
+            .cloned()
             .collect();
         let (candidates, is_compacted_user_view) = self.build_filter_candidates();
         self.is_compacted_user_view = is_compacted_user_view;
@@ -709,9 +732,9 @@ impl TreeList {
             .collect();
 
         if !self.folded_nodes.is_empty() {
-            let mut skip_set: HashSet<String> = HashSet::new();
+            let mut skip_set: HashSet<JsString> = HashSet::new();
             for flat in &self.flat_nodes {
-                let id = flat.node.entry.id().unwrap_or_default().to_owned();
+                let id = flat.node.entry.id().cloned().unwrap_or_default().to_owned();
                 let parent_id = flat.node.entry.parent_id();
                 if let Some(parent_id) = parent_id
                     && (self.folded_nodes.contains(parent_id) || skip_set.contains(parent_id))
@@ -719,7 +742,9 @@ impl TreeList {
                     skip_set.insert(id);
                 }
             }
-            filtered.retain(|index| !skip_set.contains(self.flat_nodes[*index].node.entry.id().unwrap_or_default()));
+            filtered.retain(|index| {
+                !skip_set.contains(self.flat_nodes[*index].node.entry.id().cloned().unwrap_or_default())
+            });
         }
         self.filtered_indices = filtered;
 
@@ -735,7 +760,15 @@ impl TreeList {
             self.last_selected_id = self
                 .filtered_indices
                 .get(self.selected_index)
-                .map(|index| self.flat_nodes[*index].node.entry.id().unwrap_or_default().to_owned())
+                .map(|index| {
+                    self.flat_nodes[*index]
+                        .node
+                        .entry
+                        .id()
+                        .cloned()
+                        .unwrap_or_default()
+                        .to_owned()
+                })
                 .or_else(|| self.last_selected_id.clone());
         }
     }
@@ -752,24 +785,32 @@ impl TreeList {
     }
 
     fn recalculate_legacy_visual_structure(&mut self) {
-        let visible_ids: HashSet<String> = self
+        let visible_ids: HashSet<JsString> = self
             .filtered_indices
             .iter()
-            .map(|index| self.flat_nodes[*index].node.entry.id().unwrap_or_default().to_owned())
+            .map(|index| {
+                self.flat_nodes[*index]
+                    .node
+                    .entry
+                    .id()
+                    .cloned()
+                    .unwrap_or_default()
+                    .to_owned()
+            })
             .collect();
-        let entry_map: HashMap<String, usize> = self
+        let entry_map: HashMap<JsString, usize> = self
             .flat_nodes
             .iter()
             .enumerate()
-            .map(|(index, flat)| (flat.node.entry.id().unwrap_or_default().to_owned(), index))
+            .map(|(index, flat)| (flat.node.entry.id().cloned().unwrap_or_default().to_owned(), index))
             .collect();
 
-        let find_visible_ancestor = |node_id: &str| -> Option<String> {
+        let find_visible_ancestor = |node_id: &JsString| -> Option<JsString> {
             let mut current_id = self
                 .flat_nodes
                 .get(*entry_map.get(node_id)?)
                 .and_then(|flat| flat.node.entry.parent_id())
-                .map(str::to_owned);
+                .cloned();
             while let Some(id) = current_id {
                 if visible_ids.contains(&id) {
                     return Some(id);
@@ -777,17 +818,23 @@ impl TreeList {
                 current_id = entry_map
                     .get(&id)
                     .and_then(|index| self.flat_nodes[*index].node.entry.parent_id())
-                    .map(str::to_owned);
+                    .cloned();
             }
             None
         };
 
-        let mut visible_parent: HashMap<String, Option<String>> = HashMap::new();
-        let mut visible_children: HashMap<Option<String>, Vec<String>> = HashMap::new();
+        let mut visible_parent: HashMap<JsString, Option<JsString>> = HashMap::new();
+        let mut visible_children: HashMap<Option<JsString>, Vec<JsString>> = HashMap::new();
         visible_children.insert(None, Vec::new());
 
         for index in &self.filtered_indices {
-            let node_id = self.flat_nodes[*index].node.entry.id().unwrap_or_default().to_owned();
+            let node_id = self.flat_nodes[*index]
+                .node
+                .entry
+                .id()
+                .cloned()
+                .unwrap_or_default()
+                .to_owned();
             let ancestor_id = find_visible_ancestor(&node_id);
             visible_parent.insert(node_id.clone(), ancestor_id.clone());
             visible_children.entry(ancestor_id).or_default().push(node_id);
@@ -796,7 +843,7 @@ impl TreeList {
         let visible_root_ids = visible_children.get(&None).cloned().unwrap_or_default();
         self.multiple_roots = visible_root_ids.len() > 1;
 
-        type StackItem = (String, usize, bool, bool, bool, Vec<GutterInfo>, bool);
+        type StackItem = (JsString, usize, bool, bool, bool, Vec<GutterInfo>, bool);
         let mut stack: Vec<StackItem> = Vec::new();
         for (index, root_id) in visible_root_ids.iter().enumerate().rev() {
             let is_last = index == visible_root_ids.len() - 1;
@@ -871,12 +918,20 @@ impl TreeList {
     }
 
     fn recalculate_compacted_user_structure(&mut self) {
-        let entry_ids: Vec<String> = self
+        let entry_ids: Vec<JsString> = self
             .filtered_indices
             .iter()
-            .map(|index| self.flat_nodes[*index].node.entry.id().unwrap_or_default().to_owned())
+            .map(|index| {
+                self.flat_nodes[*index]
+                    .node
+                    .entry
+                    .id()
+                    .cloned()
+                    .unwrap_or_default()
+                    .to_owned()
+            })
             .collect();
-        let mut visible_children: HashMap<Option<String>, Vec<String>> = HashMap::new();
+        let mut visible_children: HashMap<Option<JsString>, Vec<JsString>> = HashMap::new();
         visible_children.insert(None, entry_ids.clone());
 
         self.multiple_roots = false;
@@ -888,7 +943,10 @@ impl TreeList {
             flat.is_last = true;
             flat.gutters = Vec::new();
             flat.is_virtual_root_child = false;
-            visible_children.insert(Some(flat.node.entry.id().unwrap_or_default().to_owned()), Vec::new());
+            visible_children.insert(
+                Some(flat.node.entry.id().cloned().unwrap_or_default().to_owned()),
+                Vec::new(),
+            );
         }
         self.visible_children_map = visible_children;
     }
@@ -917,33 +975,33 @@ impl TreeList {
                 parts.push(extract_custom_message_content(&entry.content));
             }
             SessionEntry::Known(KnownSessionEntry::Compaction(entry)) => {
-                parts.push("compaction".to_owned().into());
+                parts.push(JsString::from("compaction").into());
                 parts.push(entry.summary.clone());
             }
             SessionEntry::Known(KnownSessionEntry::BranchSummary(entry)) => {
-                parts.push("branch summary".to_owned().into());
+                parts.push(JsString::from("branch summary").into());
                 parts.push(entry.summary.clone());
             }
             SessionEntry::Known(KnownSessionEntry::SessionInfo(entry)) => {
-                parts.push("title".to_owned().into());
+                parts.push(JsString::from("title").into());
                 if let Some(name) = &entry.name {
                     parts.push(name.clone().into());
                 }
             }
             SessionEntry::Known(KnownSessionEntry::ModelChange(entry)) => {
-                parts.push("model".to_owned().into());
+                parts.push(JsString::from("model").into());
                 parts.push(entry.model_id.clone().into());
             }
             SessionEntry::Known(KnownSessionEntry::ThinkingLevelChange(entry)) => {
-                parts.push("thinking".to_owned().into());
+                parts.push(JsString::from("thinking").into());
                 parts.push(entry.thinking_level.clone().into());
             }
             SessionEntry::Known(KnownSessionEntry::Custom(entry)) => {
-                parts.push("custom".to_owned().into());
+                parts.push(JsString::from("custom").into());
                 parts.push(entry.custom_type.clone().into());
             }
             SessionEntry::Known(KnownSessionEntry::Label(entry)) => {
-                parts.push("label".to_owned().into());
+                parts.push(JsString::from("label").into());
                 parts.push(entry.label.clone().unwrap_or_default().into());
             }
             SessionEntry::Unknown(_) => {}
@@ -956,7 +1014,7 @@ impl TreeList {
         &self.search_query
     }
 
-    pub fn selected_entry_id(&self) -> Option<&str> {
+    pub fn selected_entry_id(&self) -> Option<&JsString> {
         self.filtered_indices
             .get(self.selected_index)
             .and_then(|index| self.flat_nodes[*index].node.entry.id())
@@ -976,13 +1034,18 @@ impl TreeList {
         }
     }
 
-    pub fn update_node_label(&mut self, entry_id: &str, label: Option<&JsString>, label_timestamp: Option<&str>) {
+    pub fn update_node_label(
+        &mut self,
+        entry_id: &JsString,
+        label: Option<&JsString>,
+        label_timestamp: Option<&JsString>,
+    ) {
         for flat in &mut self.flat_nodes {
             if flat.node.entry.id() == Some(entry_id) {
                 flat.node.label = label.cloned();
                 flat.node.label_timestamp = label.map(|_| {
                     label_timestamp
-                        .map(str::to_owned)
+                        .cloned()
                         .unwrap_or_else(crate::utils::iso_time::now_iso_string)
                 });
                 break;
@@ -1036,20 +1099,20 @@ impl TreeList {
                 match message.role() {
                     role if role == "user" => {
                         with_theme(|theme| theme.fg(ThemeColor::Accent, "user: "))
-                            + &&normalize(&slice_utf16(&extract_message_full_content(message), 200))
+                            + &normalize(&slice_utf16(&extract_message_full_content(message), 200))
                     }
                     role if role == "assistant" => {
                         let message = assistant_message(entry).expect("assistant entry");
                         let text_content = normalize(&slice_utf16(&extract_assistant_content(message), 200));
                         if !text_content.is_empty() {
-                            with_theme(|theme| theme.fg(ThemeColor::Success, "assistant: ")) + &&text_content
+                            with_theme(|theme| theme.fg(ThemeColor::Success, "assistant: ")) + &text_content
                         } else if message.stop_reason == StopReason::Aborted {
                             with_theme(|theme| theme.fg(ThemeColor::Success, "assistant: "))
                                 + &with_theme(|theme| theme.fg(ThemeColor::Muted, "(aborted)"))
                         } else if let Some(error_message) = &message.error_message {
                             let error = slice_utf16(&normalize(&error_message.clone().into()), 80);
                             with_theme(|theme| theme.fg(ThemeColor::Success, "assistant: "))
-                                + &with_theme(|theme| theme.fg(ThemeColor::Error, &&error))
+                                + &with_theme(|theme| theme.fg(ThemeColor::Error, &error))
                         } else {
                             with_theme(|theme| theme.fg(ThemeColor::Success, "assistant: "))
                                 + &with_theme(|theme| theme.fg(ThemeColor::Muted, "(no content)"))
@@ -1070,7 +1133,7 @@ impl TreeList {
                         } else {
                             let tool_name = match message {
                                 AgentMessage::ToolResult(result) => result.tool_name.clone(),
-                                _ => "tool".to_owned(),
+                                _ => JsString::from("tool"),
                             };
                             with_theme(|theme| theme.fg(ThemeColor::Muted, &js_format!("[{}]", tool_name)))
                         }
@@ -1091,7 +1154,7 @@ impl TreeList {
             }
             SessionEntry::Known(KnownSessionEntry::CustomMessage(entry)) => {
                 with_theme(|theme| theme.fg(ThemeColor::CustomMessageLabel, &js_format!("[{}]: ", entry.custom_type)))
-                    + &&normalize(&extract_custom_message_content(&entry.content))
+                    + &normalize(&extract_custom_message_content(&entry.content))
             }
             SessionEntry::Known(KnownSessionEntry::Compaction(entry)) => {
                 let tokens = js_round(entry.tokens_before / 1000.0);
@@ -1100,10 +1163,10 @@ impl TreeList {
                         ThemeColor::BorderAccent,
                         &js_format!("[compaction: {}k tokens]: ", tokens),
                     )
-                }) + &&normalize(&entry.summary)
+                }) + &normalize(&entry.summary)
             }
             SessionEntry::Known(KnownSessionEntry::BranchSummary(entry)) => {
-                with_theme(|theme| theme.fg(ThemeColor::Warning, "[branch summary]: ")) + &&normalize(&entry.summary)
+                with_theme(|theme| theme.fg(ThemeColor::Warning, "[branch summary]: ")) + &normalize(&entry.summary)
             }
             SessionEntry::Known(KnownSessionEntry::ModelChange(entry)) => {
                 with_theme(|theme| theme.fg(ThemeColor::Dim, &js_format!("[model: {}]", entry.model_id)))
@@ -1117,7 +1180,7 @@ impl TreeList {
             SessionEntry::Known(KnownSessionEntry::Label(entry)) => with_theme(|theme| {
                 theme.fg(
                     ThemeColor::Dim,
-                    &js_format!("[label: {}]", entry.label.as_ref().unwrap_or("(cleared)")),
+                    &js_format!("[label: {}]", entry.label.clone().unwrap_or_else(|| "(cleared)".into())),
                 )
             }),
             SessionEntry::Known(KnownSessionEntry::SessionInfo(entry)) => match &entry.name {
@@ -1142,7 +1205,7 @@ impl TreeList {
         }
     }
 
-    fn is_foldable(&self, entry_id: &str) -> bool {
+    fn is_foldable(&self, entry_id: &JsString) -> bool {
         let Some(children) = self.visible_children_map.get(&Some(entry_id.to_owned())) else {
             return false;
         };
@@ -1159,10 +1222,10 @@ impl TreeList {
     }
 
     fn find_branch_segment_start(&self, direction: BranchDirection) -> usize {
-        let Some(selected_id) = self.selected_entry_id().map(str::to_owned) else {
+        let Some(selected_id) = self.selected_entry_id().cloned() else {
             return self.selected_index;
         };
-        let index_by_entry_id: HashMap<String, usize> = self
+        let index_by_entry_id: HashMap<JsString, usize> = self
             .filtered_indices
             .iter()
             .enumerate()
@@ -1181,7 +1244,7 @@ impl TreeList {
         let mut current_id = selected_id;
         if direction == BranchDirection::Down {
             loop {
-                let children: Vec<String> = self
+                let children: Vec<JsString> = self
                     .visible_children_map
                     .get(&Some(current_id.clone()))
                     .cloned()
@@ -1243,7 +1306,7 @@ impl TreeList {
                 self.selected_index + 1
             };
         } else if keybindings.matches(key_data, "app.tree.foldOrUp") {
-            let current_id = self.selected_entry_id().map(str::to_owned);
+            let current_id = self.selected_entry_id().cloned();
             if let Some(current_id) = current_id
                 && self.is_foldable(&current_id)
                 && !self.folded_nodes.contains(&current_id)
@@ -1254,7 +1317,7 @@ impl TreeList {
                 self.selected_index = self.find_branch_segment_start(BranchDirection::Up);
             }
         } else if keybindings.matches(key_data, "app.tree.unfoldOrDown") {
-            let current_id = self.selected_entry_id().map(str::to_owned);
+            let current_id = self.selected_entry_id().cloned();
             if let Some(current_id) = current_id
                 && self.folded_nodes.contains(&current_id)
             {
@@ -1273,7 +1336,7 @@ impl TreeList {
             self.selected_index =
                 (self.selected_index + self.max_visible_lines).min(self.filtered_indices.len().saturating_sub(1));
         } else if keybindings.matches(key_data, "tui.select.confirm") {
-            if let Some(entry_id) = self.selected_entry_id().map(str::to_owned)
+            if let Some(entry_id) = self.selected_entry_id().cloned()
                 && let Some(on_select) = &self.on_select
             {
                 on_select(entry_id);
@@ -1282,7 +1345,7 @@ impl TreeList {
             self.copy_selected();
         } else if keybindings.matches(key_data, "tui.select.cancel") {
             if !self.search_query.is_empty() {
-                self.search_query.clear();
+                self.search_query = JsString::default();
                 self.folded_nodes.clear();
                 self.apply_filter();
             } else if let Some(on_cancel) = &self.on_cancel {
@@ -1338,7 +1401,7 @@ impl TreeList {
             self.apply_filter();
         } else if keybindings.matches(key_data, "tui.editor.deleteCharBackward") {
             if !self.search_query.is_empty() {
-                self.search_query.pop();
+                self.search_query = self.search_query.slice(0, self.search_query.len().saturating_sub(1));
                 self.folded_nodes.clear();
                 self.apply_filter();
             }
@@ -1346,13 +1409,16 @@ impl TreeList {
             if let Some(node) = self.get_selected_node()
                 && let Some(on_label_edit) = &self.on_label_edit
             {
-                on_label_edit(node.entry.id().unwrap_or_default(), node.label.clone().as_deref());
+                on_label_edit(
+                    node.entry.id().cloned().unwrap_or_default(),
+                    node.label.clone().as_ref(),
+                );
             }
         } else if keybindings.matches(key_data, "app.tree.toggleLabelTimestamp") {
             self.show_label_timestamps = !self.show_label_timestamps;
         } else {
-            let has_control_chars = key_data.chars().any(|character| {
-                let code = character as u32;
+            let has_control_chars = key_data.units().iter().copied().any(|character| {
+                let code = u32::from(character);
                 code < 32 || code == 0x7f || (0x80..=0x9f).contains(&code)
             });
             if !has_control_chars && !key_data.is_empty() {
@@ -1400,12 +1466,12 @@ impl Component for TreeList {
             let flat_node = &self.flat_nodes[flat_index];
             let entry = &flat_node.node.entry;
             let is_selected = i == self.selected_index;
-            let entry_id = entry.id().unwrap_or_default();
+            let entry_id = entry.id().cloned().unwrap_or_default();
 
             let cursor = if is_selected {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, "› "))
             } else {
-                "  ".to_owned()
+                JsString::from("  ")
             };
 
             let display_indent = if self.multiple_roots {
@@ -1434,16 +1500,16 @@ impl Component for TreeList {
                 let gutter = flat_node.gutters.iter().find(|gutter| gutter.position == level);
                 if let Some(gutter) = gutter {
                     if position_in_level == 0 {
-                        prefix_chars.push(if gutter.show { '│' } else { ' ' });
+                        prefix_chars.push_str(if gutter.show { '│' } else { ' ' });
                     } else {
-                        prefix_chars.push(' ');
+                        prefix_chars.push_str(' ');
                     }
                 } else if connector_position == Some(level) {
                     if position_in_level == 0 {
-                        prefix_chars.push(if flat_node.is_last { '└' } else { '├' });
+                        prefix_chars.push_str(if flat_node.is_last { '└' } else { '├' });
                     } else if position_in_level == 1 {
                         let foldable = self.is_foldable(entry_id);
-                        prefix_chars.push(if is_folded {
+                        prefix_chars.push_str(if is_folded {
                             '⊞'
                         } else if foldable {
                             '⊟'
@@ -1451,10 +1517,10 @@ impl Component for TreeList {
                             '─'
                         });
                     } else {
-                        prefix_chars.push(' ');
+                        prefix_chars.push_str(' ');
                     }
                 } else {
-                    prefix_chars.push(' ');
+                    prefix_chars.push_str(' ');
                 }
             }
 
@@ -1462,25 +1528,25 @@ impl Component for TreeList {
             let fold_marker = if is_folded && !shows_fold_in_connector {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, "⊞ "))
             } else {
-                String::new()
+                JsString::default()
             };
             let path_marker = if self.active_path_ids.contains(entry_id) {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, "• "))
             } else {
-                String::new()
+                JsString::default()
             };
             let label = flat_node
                 .node
                 .label
-                .as_deref()
+                .as_ref()
                 .map(|label| with_theme(|theme| theme.fg(ThemeColor::Warning, &js_format!("[{}] ", label))))
                 .unwrap_or_default();
             let label_timestamp = if self.show_label_timestamps {
                 flat_node
                     .node
                     .label
-                    .as_deref()
-                    .zip(flat_node.node.label_timestamp.as_deref())
+                    .as_ref()
+                    .zip(flat_node.node.label_timestamp.as_ref())
                     .map(|(_, timestamp)| {
                         with_theme(|theme| {
                             theme.fg(
@@ -1491,7 +1557,7 @@ impl Component for TreeList {
                     })
                     .unwrap_or_default()
             } else {
-                String::new()
+                JsString::default()
             };
             let content = self.get_entry_display_text(&flat_node.node, is_selected);
             let prefix_part =
@@ -1581,7 +1647,7 @@ impl Component for SearchLine {
     fn invalidate(&mut self) {}
 }
 
-const TREE_HELP_ITEMS: [(&[&str], &str, bool); 8] = [
+const TREE_HELP_ITEMS: [(&[&JsString], &JsString, bool); 8] = [
     (&["tui.select.up", "tui.select.down"], "move", false),
     (&["tui.editor.cursorLeft", "tui.editor.cursorRight"], "page", false),
     (&["app.tree.foldOrUp", "app.tree.unfoldOrDown"], "branch", false),
@@ -1617,12 +1683,7 @@ fn format_help_keys(keybindings: &[&str]) -> JsString {
     let manager = get_keybindings();
     let keys: Vec<JsString> = keybindings
         .iter()
-        .filter_map(|binding| {
-            manager
-                .get_keys(binding)
-                .first()
-                .map(|key| JsString::from(key.to_string()))
-        })
+        .filter_map(|binding| manager.get_keys(*binding).first().map(|key| key.clone()))
         .collect();
     if keys.is_empty() {
         return JsString::default();
@@ -1734,14 +1795,14 @@ impl Component for TreeHelp {
 /// Label input component shown when editing a label.
 pub struct LabelInput {
     input: Input,
-    entry_id: String,
+    entry_id: JsString,
     pub on_submit: Option<LabelEditHandler>,
     pub on_cancel: Option<Rc<dyn Fn()>>,
     focused: bool,
 }
 
 impl LabelInput {
-    pub fn new(entry_id: &str, current_label: Option<&JsString>) -> Self {
+    pub fn new(entry_id: &JsString, current_label: Option<&JsString>) -> Self {
         let mut input = Input::new(InputOptions::default());
         if let Some(label) = current_label {
             input.set_value(label);
@@ -1842,12 +1903,12 @@ impl TreeSelectorComponent {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         tree: Vec<SessionTreeNode>,
-        current_leaf_id: Option<String>,
+        current_leaf_id: Option<JsString>,
         terminal_height: usize,
-        on_select: Rc<dyn Fn(String)>,
+        on_select: Rc<dyn Fn(JsString)>,
         on_cancel: Rc<dyn Fn()>,
         on_label_change: Option<LabelEditHandler>,
-        initial_selected_id: Option<String>,
+        initial_selected_id: Option<JsString>,
         initial_filter_mode: Option<FilterMode>,
     ) -> Self {
         let max_visible_lines = 5.max(terminal_height / 2);
@@ -1887,7 +1948,7 @@ impl TreeSelectorComponent {
         let label_input_container = Rc::clone(&self.label_input_container);
         let tree_container = Rc::clone(&self.tree_container);
         let on_label_change = self.on_label_change.clone();
-        let show = Rc::new(move |entry_id: &str, current_label: Option<&JsString>| {
+        let show = Rc::new(move |entry_id: &JsString, current_label: Option<&JsString>| {
             let mut input = LabelInput::new(entry_id, current_label);
 
             let submit_tree_list = Rc::clone(&tree_list);
