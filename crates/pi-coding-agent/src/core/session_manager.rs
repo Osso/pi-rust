@@ -4,6 +4,7 @@
 //! (`setMetadataControlDbPath`, goal/model/sandbox accessors and
 //! metadata-backed listing) is persisted through `session_control_db`.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
@@ -17,7 +18,7 @@ use pi_agent_core::harness::messages::{
 };
 use pi_ai::types::{ProviderNativeContext, TextOrImageContent, UserContent};
 use pi_ai::utils::uuid::{random_uuid, uuidv7};
-use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
 use pi_js_compat::number as js_number;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -110,131 +111,74 @@ pub enum HeaderTag {
     Session,
 }
 
-/// Session header (`type: "session"`).
+/// The parsed header object is the only stored authority. Mutations update it in place.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SessionHeader {
-    pub header_type: HeaderTag,
-    pub version: Option<f64>,
-    pub id: String,
-    pub timestamp: String,
-    pub cwd: Option<String>,
-    pub parent_session: Option<String>,
-    /// Original JSON key order when this header was parsed. `None` for headers
-    /// created in memory; parsed headers keep TypeScript's insertion order when
-    /// rewritten after a migration.
-    pub original_key_order: Option<Vec<String>>,
-}
-
-const HEADER_FIELD_ORDER: [&str; 6] = ["type", "version", "id", "timestamp", "cwd", "parentSession"];
-
-struct JsNumber(f64);
-
-impl Serialize for JsNumber {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        js_number::serialize(&self.0, serializer)
-    }
-}
-
-fn header_value(header: &SessionHeader, field: &str) -> Option<Value> {
-    match field {
-        "type" => Some(Value::String("session".to_owned())),
-        "version" => header
-            .version
-            .map(|version| serde_json::to_value(JsNumber(version)).unwrap_or(Value::Null)),
-        "id" => Some(Value::String(header.id.clone())),
-        "timestamp" => Some(Value::String(header.timestamp.clone())),
-        "cwd" => header.cwd.clone().map(Value::String),
-        "parentSession" => header.parent_session.clone().map(Value::String),
-        _ => None,
-    }
+    pub fields: JsObject,
 }
 
 impl Serialize for SessionHeader {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut object = Map::new();
-        let original_order = self.original_key_order.as_deref().unwrap_or(&[]);
-        for field in original_order {
-            if !HEADER_FIELD_ORDER.contains(&field.as_str()) {
-                continue;
-            }
-            // A key present in the source file keeps its explicit `null` on rewrite.
-            let value = header_value(self, field).unwrap_or(Value::Null);
-            object.insert(field.clone(), value);
-        }
-        for field in HEADER_FIELD_ORDER {
-            if original_order.iter().any(|existing| existing == field) {
-                continue;
-            }
-            if let Some(value) = header_value(self, field) {
-                object.insert(field.to_owned(), value);
-            }
-        }
-        object.serialize(serializer)
+        pi_js_compat::js_json::serialize_object(&self.fields, serializer)
     }
 }
 
 impl<'de> Deserialize<'de> for SessionHeader {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        use serde::de::Error as DeError;
-
-        let value = Value::deserialize(deserializer)?;
-        let object = value
-            .as_object()
-            .ok_or_else(|| D::Error::custom("session header must be an object"))?;
-        if object.get("type").and_then(Value::as_str) != Some("session") {
-            return Err(D::Error::custom("session header type must be \"session\""));
+        let fields = pi_js_compat::js_json::deserialize_object(deserializer)?;
+        if fields.get("type").and_then(JsValue::as_string) != Some(&JsString::from("session")) {
+            return Err(serde::de::Error::custom("session header type must be session"));
         }
-        let version = match object.get("version") {
-            None | Some(Value::Null) => None,
-            Some(value) => Some(
-                value
-                    .as_f64()
-                    .ok_or_else(|| D::Error::custom("session header version must be a number"))?,
-            ),
-        };
-        let id = object
-            .get("id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| D::Error::custom("session header id must be a string"))?
-            .to_owned();
-        let timestamp = object
-            .get("timestamp")
-            .and_then(Value::as_str)
-            .ok_or_else(|| D::Error::custom("session header timestamp must be a string"))?
-            .to_owned();
-        let cwd = match object.get("cwd") {
-            None | Some(Value::Null) => None,
-            Some(value) => Some(
-                value
-                    .as_str()
-                    .ok_or_else(|| D::Error::custom("session header cwd must be a string"))?
-                    .to_owned(),
-            ),
-        };
-        let parent_session = match object.get("parentSession") {
-            None | Some(Value::Null) => None,
-            Some(value) => Some(
-                value
-                    .as_str()
-                    .ok_or_else(|| D::Error::custom("session header parentSession must be a string"))?
-                    .to_owned(),
-            ),
-        };
-        Ok(Self {
-            header_type: HeaderTag::Session,
-            version,
-            id,
-            timestamp,
-            cwd,
-            parent_session,
-            original_key_order: Some(object.keys().cloned().collect()),
-        })
+        Ok(Self { fields })
     }
 }
 
+fn empty_js_string() -> &'static JsString {
+    static EMPTY: std::sync::OnceLock<JsString> = std::sync::OnceLock::new();
+    EMPTY.get_or_init(JsString::default)
+}
+
 impl SessionHeader {
-    pub fn cwd_or_empty(&self) -> &str {
-        self.cwd.as_deref().unwrap_or("")
+    pub fn new(id: JsString, timestamp: JsString, cwd: Option<JsString>, parent_session: Option<JsString>) -> Self {
+        let mut fields = JsObject::new();
+        fields.insert("type".into(), JsValue::String("session".into()));
+        fields.insert("version".into(), JsValue::Number(CURRENT_SESSION_VERSION));
+        fields.insert("id".into(), JsValue::String(id));
+        fields.insert("timestamp".into(), JsValue::String(timestamp));
+        if let Some(cwd) = cwd {
+            fields.insert("cwd".into(), JsValue::String(cwd));
+        }
+        if let Some(parent) = parent_session {
+            fields.insert("parentSession".into(), JsValue::String(parent));
+        }
+        Self { fields }
+    }
+    pub fn id(&self) -> &JsString {
+        self.fields
+            .get("id")
+            .and_then(JsValue::as_string)
+            .unwrap_or_else(|| empty_js_string())
+    }
+    pub fn timestamp(&self) -> &JsString {
+        self.fields
+            .get("timestamp")
+            .and_then(JsValue::as_string)
+            .unwrap_or_else(|| empty_js_string())
+    }
+    pub fn version(&self) -> Option<f64> {
+        self.fields.get("version").and_then(JsValue::as_f64)
+    }
+    pub fn cwd(&self) -> Option<&JsString> {
+        self.fields.get("cwd").and_then(JsValue::as_string)
+    }
+    pub fn parent_session(&self) -> Option<&JsString> {
+        self.fields.get("parentSession").and_then(JsValue::as_string)
+    }
+    pub fn cwd_or_empty(&self) -> &JsString {
+        self.cwd().unwrap_or_else(|| empty_js_string())
+    }
+    fn set_version(&mut self, version: f64) {
+        self.fields.insert("version".into(), JsValue::Number(version));
     }
 }
 
@@ -284,9 +228,9 @@ fn deserialize_receipt_value<'de, D: serde::Deserializer<'de>>(
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMessageEntry {
-    pub id: String,
-    pub parent_id: Option<String>,
-    pub timestamp: String,
+    pub id: JsString,
+    pub parent_id: Option<JsString>,
+    pub timestamp: JsString,
     pub message: Box<AgentMessage>,
     /// Raw persisted receipt value; None omits the key, Some(Null) preserves it.
     #[serde(
@@ -300,29 +244,29 @@ pub struct SessionMessageEntry {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThinkingLevelChangeEntry {
-    pub id: String,
-    pub parent_id: Option<String>,
-    pub timestamp: String,
-    pub thinking_level: String,
+    pub id: JsString,
+    pub parent_id: Option<JsString>,
+    pub timestamp: JsString,
+    pub thinking_level: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelChangeEntry {
-    pub id: String,
-    pub parent_id: Option<String>,
-    pub timestamp: String,
-    pub provider: String,
-    pub model_id: String,
+    pub id: JsString,
+    pub parent_id: Option<JsString>,
+    pub timestamp: JsString,
+    pub provider: JsString,
+    pub model_id: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompactionEntry {
-    pub id: String,
-    pub parent_id: Option<String>,
-    pub timestamp: String,
+    pub id: JsString,
+    pub parent_id: Option<JsString>,
+    pub timestamp: JsString,
     pub summary: JsString,
-    pub first_kept_entry_id: String,
+    pub first_kept_entry_id: JsString,
     pub tokens_before: f64,
     pub extra: PersistedJsonObject,
     pub duration_ms: Option<f64>,
@@ -336,11 +280,11 @@ pub struct CompactionEntry {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CompactionEntryFields {
-    pub id: String,
-    pub parent_id: Option<String>,
-    pub timestamp: String,
+    pub id: JsString,
+    pub parent_id: Option<JsString>,
+    pub timestamp: JsString,
     pub summary: JsString,
-    pub first_kept_entry_id: String,
+    pub first_kept_entry_id: JsString,
     #[serde(serialize_with = "js_number::serialize")]
     pub tokens_before: f64,
     #[serde(
@@ -411,10 +355,10 @@ impl<'de> Deserialize<'de> for CompactionEntry {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BranchSummaryEntry {
-    pub id: String,
-    pub parent_id: Option<String>,
-    pub timestamp: String,
-    pub from_id: String,
+    pub id: JsString,
+    pub parent_id: Option<JsString>,
+    pub timestamp: JsString,
+    pub from_id: JsString,
     pub summary: JsString,
     pub details: Option<JsValue>,
     pub extra: PersistedJsonObject,
@@ -424,10 +368,10 @@ pub struct BranchSummaryEntry {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BranchSummaryEntryFields {
-    pub id: String,
-    pub parent_id: Option<String>,
-    pub timestamp: String,
-    pub from_id: String,
+    pub id: JsString,
+    pub parent_id: Option<JsString>,
+    pub timestamp: JsString,
+    pub from_id: JsString,
     pub summary: JsString,
     #[serde(
         default,
@@ -476,22 +420,22 @@ impl<'de> Deserialize<'de> for BranchSummaryEntry {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CustomEntry {
-    pub custom_type: String,
+    pub custom_type: JsString,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "pi_js_compat::js_json::deserialize_present"
     )]
     pub data: Option<JsValue>,
-    pub id: String,
-    pub parent_id: Option<String>,
-    pub timestamp: String,
+    pub id: JsString,
+    pub parent_id: Option<JsString>,
+    pub timestamp: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CustomMessageEntry {
-    pub custom_type: String,
+    pub custom_type: JsString,
     pub content: CustomMessageContent,
     pub display: bool,
     #[serde(
@@ -500,30 +444,30 @@ pub struct CustomMessageEntry {
         deserialize_with = "pi_js_compat::js_json::deserialize_present"
     )]
     pub details: Option<JsValue>,
-    pub id: String,
-    pub parent_id: Option<String>,
-    pub timestamp: String,
+    pub id: JsString,
+    pub parent_id: Option<JsString>,
+    pub timestamp: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LabelEntry {
-    pub id: String,
-    pub parent_id: Option<String>,
-    pub timestamp: String,
-    pub target_id: String,
+    pub id: JsString,
+    pub parent_id: Option<JsString>,
+    pub timestamp: JsString,
+    pub target_id: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
+    pub label: Option<JsString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfoEntry {
-    pub id: String,
-    pub parent_id: Option<String>,
-    pub timestamp: String,
+    pub id: JsString,
+    pub parent_id: Option<JsString>,
+    pub timestamp: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    pub name: Option<JsString>,
 }
 
 fn insert_serialized<T: Serialize + ?Sized>(
@@ -687,50 +631,38 @@ impl Serialize for KnownSessionEntry {
     }
 }
 
-/// An untyped record awaiting migration or an unknown entry shape. Ordinary
-/// fields remain editable by legacy ID/role migration; wire-only fields bypass Value.
+/// Imported object: exactly one editable UTF-16/JSON authority, including unknown fields.
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct UnknownSessionEntry {
-    fields: Map<String, Value>,
-    mailbox_store_refs: Option<PersistedJsonValue>,
-    summary_extra: PersistedJsonObject,
-}
-
+pub struct UnknownSessionEntry(pub JsObject);
 impl From<Map<String, Value>> for UnknownSessionEntry {
     fn from(fields: Map<String, Value>) -> Self {
-        Self {
-            fields,
-            ..Self::default()
-        }
+        Self(
+            fields
+                .into_iter()
+                .map(|(key, value)| (key.into(), JsValue::from(value)))
+                .collect(),
+        )
     }
 }
 impl std::ops::Deref for UnknownSessionEntry {
-    type Target = Map<String, Value>;
+    type Target = JsObject;
     fn deref(&self) -> &Self::Target {
-        &self.fields
+        &self.0
     }
 }
 impl std::ops::DerefMut for UnknownSessionEntry {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.fields
+        &mut self.0
     }
 }
 impl<'de> Deserialize<'de> for UnknownSessionEntry {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Map::<String, Value>::deserialize(deserializer).map(Self::from)
+        pi_js_compat::js_json::deserialize_object(deserializer).map(Self)
     }
 }
 impl Serialize for UnknownSessionEntry {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut object = pi_js_compat::js_json::JsObject::new();
-        for (key, value) in &self.fields {
-            object.insert(key.as_str().into(), pi_js_compat::js_json::JsValue::from(value));
-        }
-        if let Some(receipt) = &self.mailbox_store_refs {
-            object.insert("mailboxStoreRefs".into(), receipt.0.clone());
-        }
-        object.extend(self.summary_extra.0.clone());
-        serialize_lossless(&pi_js_compat::js_json::JsValue::Object(object), serializer)
+        pi_js_compat::js_json::serialize_object(&self.0, serializer)
     }
 }
 
@@ -743,13 +675,7 @@ pub enum SessionEntry {
 }
 impl<'de> Deserialize<'de> for SessionEntry {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let raw = Box::<serde_json::value::RawValue>::deserialize(deserializer)?;
-        if let Ok(known) = serde_json::from_str::<KnownSessionEntry>(raw.get()) {
-            return Ok(Self::Known(known));
-        }
-        serde_json::from_str(raw.get())
-            .map(Self::Unknown)
-            .map_err(serde::de::Error::custom)
+        UnknownSessionEntry::deserialize(deserializer).map(Self::Unknown)
     }
 }
 
@@ -768,22 +694,26 @@ impl SessionEntry {
         }
     }
 
-    pub fn entry_type(&self) -> &str {
+    pub fn entry_type(&self) -> JsString {
         match self {
-            Self::Known(KnownSessionEntry::Message(_)) => "message",
-            Self::Known(KnownSessionEntry::ThinkingLevelChange(_)) => "thinking_level_change",
-            Self::Known(KnownSessionEntry::ModelChange(_)) => "model_change",
-            Self::Known(KnownSessionEntry::Compaction(_)) => "compaction",
-            Self::Known(KnownSessionEntry::BranchSummary(_)) => "branch_summary",
-            Self::Known(KnownSessionEntry::Custom(_)) => "custom",
-            Self::Known(KnownSessionEntry::CustomMessage(_)) => "custom_message",
-            Self::Known(KnownSessionEntry::Label(_)) => "label",
-            Self::Known(KnownSessionEntry::SessionInfo(_)) => "session_info",
-            Self::Unknown(object) => object.get("type").and_then(Value::as_str).unwrap_or_default(),
+            Self::Known(KnownSessionEntry::Message(_)) => "message".into(),
+            Self::Known(KnownSessionEntry::ThinkingLevelChange(_)) => "thinking_level_change".into(),
+            Self::Known(KnownSessionEntry::ModelChange(_)) => "model_change".into(),
+            Self::Known(KnownSessionEntry::Compaction(_)) => "compaction".into(),
+            Self::Known(KnownSessionEntry::BranchSummary(_)) => "branch_summary".into(),
+            Self::Known(KnownSessionEntry::Custom(_)) => "custom".into(),
+            Self::Known(KnownSessionEntry::CustomMessage(_)) => "custom_message".into(),
+            Self::Known(KnownSessionEntry::Label(_)) => "label".into(),
+            Self::Known(KnownSessionEntry::SessionInfo(_)) => "session_info".into(),
+            Self::Unknown(object) => object
+                .get("type")
+                .and_then(JsValue::as_string)
+                .cloned()
+                .unwrap_or_default(),
         }
     }
 
-    pub fn id(&self) -> Option<&str> {
+    pub fn id(&self) -> Option<&JsString> {
         match self {
             Self::Known(KnownSessionEntry::Message(entry)) => Some(&entry.id),
             Self::Known(KnownSessionEntry::ThinkingLevelChange(entry)) => Some(&entry.id),
@@ -794,26 +724,26 @@ impl SessionEntry {
             Self::Known(KnownSessionEntry::CustomMessage(entry)) => Some(&entry.id),
             Self::Known(KnownSessionEntry::Label(entry)) => Some(&entry.id),
             Self::Known(KnownSessionEntry::SessionInfo(entry)) => Some(&entry.id),
-            Self::Unknown(object) => object.get("id").and_then(Value::as_str),
+            Self::Unknown(object) => object.get("id").and_then(JsValue::as_string),
         }
     }
 
-    pub fn parent_id(&self) -> Option<&str> {
+    pub fn parent_id(&self) -> Option<&JsString> {
         match self {
-            Self::Known(KnownSessionEntry::Message(entry)) => entry.parent_id.as_deref(),
-            Self::Known(KnownSessionEntry::ThinkingLevelChange(entry)) => entry.parent_id.as_deref(),
-            Self::Known(KnownSessionEntry::ModelChange(entry)) => entry.parent_id.as_deref(),
-            Self::Known(KnownSessionEntry::Compaction(entry)) => entry.parent_id.as_deref(),
-            Self::Known(KnownSessionEntry::BranchSummary(entry)) => entry.parent_id.as_deref(),
-            Self::Known(KnownSessionEntry::Custom(entry)) => entry.parent_id.as_deref(),
-            Self::Known(KnownSessionEntry::CustomMessage(entry)) => entry.parent_id.as_deref(),
-            Self::Known(KnownSessionEntry::Label(entry)) => entry.parent_id.as_deref(),
-            Self::Known(KnownSessionEntry::SessionInfo(entry)) => entry.parent_id.as_deref(),
-            Self::Unknown(object) => object.get("parentId").and_then(Value::as_str),
+            Self::Known(KnownSessionEntry::Message(entry)) => entry.parent_id.as_ref(),
+            Self::Known(KnownSessionEntry::ThinkingLevelChange(entry)) => entry.parent_id.as_ref(),
+            Self::Known(KnownSessionEntry::ModelChange(entry)) => entry.parent_id.as_ref(),
+            Self::Known(KnownSessionEntry::Compaction(entry)) => entry.parent_id.as_ref(),
+            Self::Known(KnownSessionEntry::BranchSummary(entry)) => entry.parent_id.as_ref(),
+            Self::Known(KnownSessionEntry::Custom(entry)) => entry.parent_id.as_ref(),
+            Self::Known(KnownSessionEntry::CustomMessage(entry)) => entry.parent_id.as_ref(),
+            Self::Known(KnownSessionEntry::Label(entry)) => entry.parent_id.as_ref(),
+            Self::Known(KnownSessionEntry::SessionInfo(entry)) => entry.parent_id.as_ref(),
+            Self::Unknown(object) => object.get("parentId").and_then(JsValue::as_string),
         }
     }
 
-    pub fn timestamp(&self) -> Option<&str> {
+    pub fn timestamp(&self) -> Option<&JsString> {
         match self {
             Self::Known(KnownSessionEntry::Message(entry)) => Some(&entry.timestamp),
             Self::Known(KnownSessionEntry::ThinkingLevelChange(entry)) => Some(&entry.timestamp),
@@ -824,50 +754,82 @@ impl SessionEntry {
             Self::Known(KnownSessionEntry::CustomMessage(entry)) => Some(&entry.timestamp),
             Self::Known(KnownSessionEntry::Label(entry)) => Some(&entry.timestamp),
             Self::Known(KnownSessionEntry::SessionInfo(entry)) => Some(&entry.timestamp),
-            Self::Unknown(object) => object.get("timestamp").and_then(Value::as_str),
+            Self::Unknown(object) => object.get("timestamp").and_then(JsValue::as_string),
         }
     }
 
-    pub fn as_message(&self) -> Option<&SessionMessageEntry> {
+    pub fn as_message(&self) -> Option<Cow<'_, SessionMessageEntry>> {
         match self {
-            Self::Known(KnownSessionEntry::Message(entry)) => Some(entry),
+            Self::Known(KnownSessionEntry::Message(entry)) => Some(Cow::Borrowed(entry)),
+            Self::Unknown(object) if self.entry_type() == "message" => {
+                pi_js_compat::js_json::from_value(&JsValue::Object(object.0.clone()))
+                    .ok()
+                    .map(Cow::Owned)
+            }
             _ => None,
         }
     }
 
-    pub fn as_compaction(&self) -> Option<&CompactionEntry> {
+    pub fn as_compaction(&self) -> Option<Cow<'_, CompactionEntry>> {
         match self {
-            Self::Known(KnownSessionEntry::Compaction(entry)) => Some(entry),
+            Self::Known(KnownSessionEntry::Compaction(entry)) => Some(Cow::Borrowed(entry)),
+            Self::Unknown(object) if self.entry_type() == "compaction" => {
+                pi_js_compat::js_json::from_value(&JsValue::Object(object.0.clone()))
+                    .ok()
+                    .map(Cow::Owned)
+            }
             _ => None,
         }
     }
 
-    pub fn as_custom_message(&self) -> Option<&CustomMessageEntry> {
+    pub fn as_custom_message(&self) -> Option<Cow<'_, CustomMessageEntry>> {
         match self {
-            Self::Known(KnownSessionEntry::CustomMessage(entry)) => Some(entry),
+            Self::Known(KnownSessionEntry::CustomMessage(entry)) => Some(Cow::Borrowed(entry)),
+            Self::Unknown(object) if self.entry_type() == "custom_message" => {
+                pi_js_compat::js_json::from_value(&JsValue::Object(object.0.clone()))
+                    .ok()
+                    .map(Cow::Owned)
+            }
             _ => None,
         }
     }
 
-    pub fn as_label(&self) -> Option<&LabelEntry> {
+    pub fn as_label(&self) -> Option<Cow<'_, LabelEntry>> {
         match self {
-            Self::Known(KnownSessionEntry::Label(entry)) => Some(entry),
+            Self::Known(KnownSessionEntry::Label(entry)) => Some(Cow::Borrowed(entry)),
+            Self::Unknown(object) if self.entry_type() == "label" => {
+                pi_js_compat::js_json::from_value(&JsValue::Object(object.0.clone()))
+                    .ok()
+                    .map(Cow::Owned)
+            }
             _ => None,
         }
     }
 
-    pub fn as_session_info(&self) -> Option<&SessionInfoEntry> {
+    pub fn as_session_info(&self) -> Option<Cow<'_, SessionInfoEntry>> {
         match self {
-            Self::Known(KnownSessionEntry::SessionInfo(entry)) => Some(entry),
+            Self::Known(KnownSessionEntry::SessionInfo(entry)) => Some(Cow::Borrowed(entry)),
+            Self::Unknown(object) if self.entry_type() == "session_info" => {
+                pi_js_compat::js_json::from_value(&JsValue::Object(object.0.clone()))
+                    .ok()
+                    .map(Cow::Owned)
+            }
             _ => None,
         }
     }
 
-    fn message(&self) -> Option<&AgentMessage> {
-        self.as_message().map(|entry| entry.message.as_ref())
+    fn message(&self) -> Option<Cow<'_, AgentMessage>> {
+        match self {
+            Self::Known(KnownSessionEntry::Message(entry)) => Some(Cow::Borrowed(entry.message.as_ref())),
+            Self::Unknown(object) if self.entry_type() == "message" => {
+                let message = object.get("message")?.as_object()?;
+                Some(Cow::Owned(AgentMessage::Custom(message.clone())))
+            }
+            _ => None,
+        }
     }
 
-    fn set_id_parent(&mut self, id: String, parent_id: Option<String>) {
+    fn set_id_parent(&mut self, id: JsString, parent_id: Option<JsString>) {
         match self {
             Self::Known(KnownSessionEntry::Message(entry)) => {
                 entry.id = id;
@@ -906,10 +868,10 @@ impl SessionEntry {
                 entry.parent_id = parent_id;
             }
             Self::Unknown(object) => {
-                object.insert("id".to_owned(), Value::String(id));
+                object.insert("id".into(), JsValue::String(id));
                 object.insert(
-                    "parentId".to_owned(),
-                    parent_id.map(Value::String).unwrap_or(Value::Null),
+                    "parentId".into(),
+                    parent_id.map(JsValue::String).unwrap_or(JsValue::Null),
                 );
             }
         }
@@ -925,10 +887,10 @@ impl SessionEntry {
                 }
             }
             Self::Unknown(object) => {
-                if let Some(message) = object.get_mut("message").and_then(Value::as_object_mut)
-                    && message.get("role").and_then(Value::as_str) == Some("hookMessage")
+                if let Some(message) = object.get_mut("message").and_then(JsValue::as_object_mut)
+                    && message.get("role").and_then(JsValue::as_string) == Some(&JsString::from("hookMessage"))
                 {
-                    message.insert("role".to_owned(), Value::String("custom".to_owned()));
+                    message.insert("role".into(), JsValue::String("custom".into()));
                 }
             }
             _ => {}
@@ -1039,24 +1001,24 @@ pub struct CompactionAppendOptions {
 // Pure helpers
 // =============================================================================
 
-fn generate_id(by_id: &HashMap<String, usize>) -> String {
+fn generate_id(by_id: &HashMap<JsString, usize>) -> JsString {
     for _ in 0..100 {
-        let candidate: String = random_uuid().chars().take(8).collect();
+        let candidate: JsString = random_uuid().chars().take(8).collect::<String>().into();
         if !by_id.contains_key(&candidate) {
             return candidate;
         }
     }
-    random_uuid()
+    random_uuid().into()
 }
 
-fn generate_id_for_ids(ids: &HashMap<String, ()>) -> String {
+fn generate_id_for_ids(ids: &HashMap<JsString, ()>) -> JsString {
     for _ in 0..100 {
-        let candidate: String = random_uuid().chars().take(8).collect();
+        let candidate: JsString = random_uuid().chars().take(8).collect::<String>().into();
         if !ids.contains_key(&candidate) {
             return candidate;
         }
     }
-    random_uuid()
+    random_uuid().into()
 }
 
 /// Validate a caller-provided session id.
@@ -1078,13 +1040,13 @@ pub fn assert_valid_session_id(id: &str) -> Result<(), SessionManagerError> {
 }
 
 fn migrate_v1_to_v2(entries: &mut [FileEntry]) {
-    let mut ids: HashMap<String, ()> = HashMap::new();
-    let mut previous_id: Option<String> = None;
+    let mut ids: HashMap<JsString, ()> = HashMap::new();
+    let mut previous_id: Option<JsString> = None;
 
     for entry in entries.iter_mut() {
         match entry {
             FileEntry::Header(header) => {
-                header.version = Some(2.0);
+                header.set_version(2.0);
             }
             FileEntry::Entry(entry) => {
                 let id = generate_id_for_ids(&ids);
@@ -1095,11 +1057,11 @@ fn migrate_v1_to_v2(entries: &mut [FileEntry]) {
         }
     }
 
-    let entry_ids: Vec<Option<String>> = entries
+    let entry_ids: Vec<Option<JsString>> = entries
         .iter()
         .map(|entry| match entry {
             FileEntry::Header(_) => None,
-            FileEntry::Entry(entry) => entry.id().map(str::to_owned),
+            FileEntry::Entry(entry) => entry.id().cloned(),
         })
         .collect();
     for entry in entries.iter_mut() {
@@ -1116,9 +1078,9 @@ fn migrate_v1_to_v2(entries: &mut [FileEntry]) {
                 }
             }
             SessionEntry::Unknown(object) => {
-                if let Some(index) = object.get("firstKeptEntryIndex").and_then(Value::as_f64) {
+                if let Some(index) = object.get("firstKeptEntryIndex").and_then(JsValue::as_f64) {
                     if let Some(Some(id)) = entry_ids.get(index as usize) {
-                        object.insert("firstKeptEntryId".to_owned(), Value::String(id.clone()));
+                        object.insert("firstKeptEntryId".into(), JsValue::String(id.clone()));
                     }
                     object.shift_remove("firstKeptEntryIndex");
                 }
@@ -1131,7 +1093,7 @@ fn migrate_v1_to_v2(entries: &mut [FileEntry]) {
 fn migrate_v2_to_v3(entries: &mut [FileEntry]) {
     for entry in entries.iter_mut() {
         match entry {
-            FileEntry::Header(header) => header.version = Some(3.0),
+            FileEntry::Header(header) => header.set_version(3.0),
             FileEntry::Entry(entry) => entry.set_hook_role_to_custom(),
         }
     }
@@ -1142,7 +1104,7 @@ pub fn migrate_to_current_version(entries: &mut [FileEntry]) -> bool {
     let version = entries
         .iter()
         .find_map(|entry| match entry {
-            FileEntry::Header(header) => Some(header.version.unwrap_or(1.0)),
+            FileEntry::Header(header) => Some(header.version().unwrap_or(1.0)),
             FileEntry::Entry(_) => None,
         })
         .unwrap_or(1.0);
@@ -1155,14 +1117,6 @@ pub fn migrate_to_current_version(entries: &mut [FileEntry]) -> bool {
     }
     if version < 3.0 {
         migrate_v2_to_v3(entries);
-    }
-    // Legacy records acquire their required IDs/parent links during migration.
-    // Reify those records before typed context projection, never on disk here.
-    for entry in entries {
-        if let FileEntry::Entry(SessionEntry::Unknown(object)) = entry {
-            let serialized = serde_json::to_string(object).expect("untyped session record serialization must succeed");
-            *entry = parse_session_file_entry(&serialized).expect("migrated session record must remain valid JSON");
-        }
     }
     true
 }
@@ -1195,7 +1149,7 @@ pub fn get_latest_compaction_entry(entries: &[SessionEntry]) -> Option<&SessionE
     entries.iter().rev().find(|entry| entry.entry_type() == "compaction")
 }
 
-fn build_entry_index(entries: &[SessionEntry]) -> HashMap<String, usize> {
+fn build_entry_index(entries: &[SessionEntry]) -> HashMap<JsString, usize> {
     let mut index = HashMap::new();
     for (position, entry) in entries.iter().enumerate() {
         if let Some(id) = entry.id() {
@@ -2420,13 +2374,13 @@ fn rechain_path_without_labels(path: &[SessionEntry]) -> Vec<SessionEntry> {
         }
         let mut entry = entry.clone();
         entry.set_id_parent(entry.id().unwrap_or_default().to_owned(), parent_id.clone());
-        parent_id = entry.id().map(str::to_owned);
+        parent_id = entry.id().cloned();
         rechain.push(entry);
     }
     rechain
 }
 
-fn entry_id_set(entries: &[SessionEntry]) -> HashMap<String, ()> {
+fn entry_id_set(entries: &[SessionEntry]) -> HashMap<JsString, ()> {
     entries
         .iter()
         .filter_map(|entry| entry.id().map(|id| (id.to_owned(), ())))
@@ -2437,7 +2391,7 @@ fn build_branch_label_entries(
     labels: &[(String, String)],
     label_timestamps: &[(String, String)],
     path_without_labels: &[SessionEntry],
-    path_entry_ids: &mut HashMap<String, ()>,
+    path_entry_ids: &mut HashMap<JsString, ()>,
 ) -> Vec<SessionEntry> {
     let labels_to_write: Vec<(String, String, String)> = labels
         .iter()
@@ -2451,9 +2405,7 @@ fn build_branch_label_entries(
         })
         .collect();
 
-    let mut parent_id = path_without_labels
-        .last()
-        .and_then(|entry| entry.id().map(str::to_owned));
+    let mut parent_id = path_without_labels.last().and_then(|entry| entry.id().cloned());
     let mut label_entries = Vec::new();
     for (target_id, label, label_timestamp) in labels_to_write {
         let label_entry = SessionEntry::Known(KnownSessionEntry::Label(LabelEntry {
@@ -2466,7 +2418,7 @@ fn build_branch_label_entries(
         if let Some(id) = label_entry.id() {
             path_entry_ids.insert(id.to_owned(), ());
         }
-        parent_id = label_entry.id().map(str::to_owned);
+        parent_id = label_entry.id().cloned();
         label_entries.push(label_entry);
     }
     label_entries
@@ -2516,7 +2468,7 @@ pub struct SessionManager {
     persist: bool,
     flushed: bool,
     file_entries: Vec<FileEntry>,
-    by_id: HashMap<String, usize>,
+    by_id: HashMap<JsString, usize>,
     labels_by_id: Vec<(String, String)>,
     label_timestamps_by_id: Vec<(String, String)>,
     leaf_id: Option<String>,
@@ -3490,7 +3442,7 @@ impl SessionManager {
             return Vec::new();
         };
         let mut path = Vec::new();
-        let mut seen: HashMap<String, ()> = HashMap::new();
+        let mut seen: HashMap<JsString, ()> = HashMap::new();
         loop {
             path.push(current.clone());
             let Some(parent_id) = current.parent_id() else {

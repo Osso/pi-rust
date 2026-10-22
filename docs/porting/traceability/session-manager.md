@@ -124,3 +124,13 @@ Authorized frozen selector delta: SessionInfo has first_message only; removed so
 Metadata listing now consumes canonical control API (c7248cac via0063fe60): absent table alone returns None; populated-but-filtered-empty returns Some(empty) without filesystem scan/cache. Scope resolves cwd and directory prefix exactly at consumer boundary; DB owns query/subagent/order semantics. Actual-source scoped-empty RED at0063fe60, GREEN12b382a9. No duplicated SQL or compatibility query path.
 
 Bounded merged evidence and unresolved consumer/classification limits: [session storage integration](session-storage-integration.md). No fresh gate or whole-module promotion.
+
+## Q18 record authority (in progress)
+
+Imported headers and entry objects now keep one `JsObject` authority; typed known-entry
+views are transient `Cow` projections. Header mutations preserve unknown UTF-16 keys,
+explicit nulls and insertion order. Known record strings use `JsString`, including
+imported identities, labels and timestamps. Dedicated regressions: `lossless_session_records`.
+Initial exact-record harness RED: both raw fixtures were silently discarded by the old
+scalar deserializers. Full module/integration proof remains pending; this is not new-pin
+whole-module parity evidence. Path API integration and persistence round trips remain open.
