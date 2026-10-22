@@ -2,7 +2,19 @@
 
 ## Q4 common-pin status
 
-Partial. Corrected global-fetch oracle now drives frozen SDK/SSE, rather than passing unsupported options.fetch. Scenario 0 differs only by native extra terminal `rawStopReason`; remaining scenarios still need re-port. Current exact RED and source-fetch proof: [oracle audit](../ai-scripted-provider-oracles.md). Historical differential claims below are superseded for this boundary. Native request.fetch remains a pending interface decision; no assertion was narrowed.
+Partial only at uncompleted shared interface/boundary audit. Corrected global-fetch oracle drives real frozen SDK/SSE. Current whole scenario matrix GREEN (1 differential target), plus 26 behavioral tests. Revision `495a87d6` + Anthropic slice; `/tmp/pi-rust-repin-delta-ai/ledger.md`, `anthropic-frozen-stream-final.log`, `anthropic-unit-final.log`. Historical fetch claims were invalid at that boundary: [audit](../ai-scripted-provider-oracles.md).
+
+| Re-pin branch / exported flow | Frozen refs | Current proof |
+|---|---|---|
+| stream/streamSimple terminal output, no rawStopReason | 490–740, mapStopReason 1215–1238 | Whole actual-import differential; exact result/event equality, no field dropped |
+| convertTools: plain properties/required, no strict/constrained schema rewrite | 1188–1210 | Prior scenario16 RED → GREEN; old-only strict/deferred/reference machinery removed |
+| tool-result conversion, no synthetic tool references | 1007–1015 | Whole differential; old feature-only tool-reference family test deleted |
+| SDK retries report per-attempt x-stainless-retry-count, custom-header override retained | frozen installed SDK `client.mjs:447–473` | Prior scenario27 RED → GREEN |
+| text/thinking start blocks begin empty, signatures start empty | 561–574 | Prior scenario42 RED → GREEN; `frozen_source_discards_initial_text_thinking_and_signature` full-content assertion |
+
+**DISCREPANCY:** frozen lines 561–574 discard nonempty text/thinking/signature supplied in content_block_start. Native now preserves this source behavior literally; it does not silently retain the old fix. RED full-content behavioral test preceded production change; signature behavior additionally proven by the actual frozen oracle.
+
+Remaining shared gaps: Rust request.fetch pending user decision; scalar Tool/schema interface boundaries and source/runtime timestamp-number migration tracked under [types](ai-types.md). No new deviation inferred; no oracle assertion narrowed.
 
 Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
 
