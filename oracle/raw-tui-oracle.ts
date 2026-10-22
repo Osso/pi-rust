@@ -39,7 +39,12 @@ async function main(): Promise<void> {
 					states.push({ value: input.getValue(), cursor: (input as unknown as { cursor: number }).cursor, lines: input.render(request.width) });
 				}
 				output = { states, submitted };
-			} else if (request.operation === "key_identity") {
+			} else if (request.operation === "terminal_colors") {
+                const module = await import(pathToFileURL(path.join(source, "terminal-colors.ts")).href);
+                const input = native(request.units);
+                const color = module.parseOsc11BackgroundColor(input);
+                output = [module.isOsc11BackgroundColorResponse(input), color ? [color.r,color.g,color.b] : null];
+            } else if (request.operation === "key_identity") {
                 const module = await import(pathToFileURL(path.join(source, "keys.ts")).href);
                 const input = native(request.units);
                 const key = native(request.key);

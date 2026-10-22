@@ -134,3 +134,12 @@ native key/identifier/event cases. Behavioral RED caught source CSI-u 55296 deco
 to a high surrogate while baseline returned None. GREEN retains raw output. Input
 source corpus expanded from 108 to 126 scenarios with Kitty high+low insertion and
 submission; previous 108 histories remain included and pass after decoder migration.
+
+## Terminal color response parsing
+
+OSC11 payload/frame/trim/RGB slices and OSC997 matching accept native strings.
+Only validated ASCII hex digits are projected for existing numeric parseInt semantics;
+raw framing payloads remain native and invalid RGB payloads are not sanitized.
+`raw_terminal_colors` compares frozen final-newline framing, Unicode trim, uppercase
+RGB, and high/low/pair payload framing (6 cases). Raw-interface RED then GREEN.
+Existing nonfinite typed RGB-channel gap unchanged.
