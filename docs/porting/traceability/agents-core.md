@@ -7,7 +7,7 @@ Actual in-crate baseline `agents_core_drift` at `27410344`: five intended behavi
 | Boundary | Implementation | Proof |
 |---|---|---|
 | Registration API errors | Helpers/top-level registration propagate the original error in source order | RED observed; focused GREEN pending |
-| Completion-time UI lookup | Queued | RED: invalidated child exited 0 instead of uncaught exit 1 |
+| Completion-time UI lookup | Resolve current UI after dispatch settles; errors reach the existing process uncaught handler | RED observed; focused GREEN pending |
 | Post-construction session lookup | Queued | RED: one child admitted instead of zero |
 | Accessed profile model / unrelated fields | Queued | RED: factory reached on numeric model; Fresh became Inherit with unrelated malformed tools |
 | Tracked-agent DB read | Queued | Unit RED-intent remains unexecuted; public integration fixture pending |

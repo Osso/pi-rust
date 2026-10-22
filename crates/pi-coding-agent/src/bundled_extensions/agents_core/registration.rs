@@ -811,17 +811,18 @@ fn notify_background_dispatch(
 ) {
     let handles = Arc::clone(handles);
     let ownerships = Arc::clone(ownerships);
-    let ui = ctx.ui().ok();
+    let ctx = ctx.clone();
     tokio::spawn(async move {
         if let Ok(agent) = promise.await {
             handles.lock().expect("sessions").remove(&agent.id);
             ownerships.lock().expect("ownerships").remove(&agent.id);
-            if let Some(ui) = ui {
-                ui.notify(
-                    &format_agent_status(&agent),
-                    Some(background_notification_level(&agent)),
-                );
-            }
+            let ui = ctx.ui().unwrap_or_else(|error| {
+                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message)
+            });
+            ui.notify(
+                &format_agent_status(&agent),
+                Some(background_notification_level(&agent)),
+            );
         }
     });
 }
