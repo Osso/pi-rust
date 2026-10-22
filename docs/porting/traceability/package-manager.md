@@ -149,3 +149,8 @@ unexecuted while coding compilation is blocked. replacement-packages-1:141 local
 primaries; replacement-packages-2:12, subsequently addressed except queued parent
 Settings native authority and spawn-error helper dependency. No runtime PASS or
 whole-module frozen parity claim until integration compiles and fixtures execute.
+
+Integration diagnostic `replacement-cli-2` after native Settings refresh: zero
+package-manager primaries. Native snapshot deserialization uses `js_json::from_value`
+directly; source comparison and optional upstream branch defaults corrected.
+Library-wide compilation still blocked, so no tests executed or runtime PASS.

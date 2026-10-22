@@ -310,7 +310,10 @@ fn snapshot_from_settings(settings: &Settings) -> PackageSettingsSnapshot {
     // reproducing JavaScript runtime type errors.
     let packages = settings
         .get("packages")
-        .and_then(|value| serde_json::from_value(value.clone()).ok())
+        .and_then(|value| match js_json::from_value(value) {
+            Ok(packages) => Some(packages),
+            Err(_) => None,
+        })
         .unwrap_or_default();
     PackageSettingsSnapshot {
         packages,
@@ -1405,7 +1408,7 @@ impl DefaultPackageManager {
 
         if let Some(index) = match_index {
             let existing = &current_packages[index];
-            if existing.source() == normalized_source {
+            if existing.source() == &normalized_source {
                 return Ok(false);
             }
             let mut next_packages = current_packages.clone();
@@ -2356,7 +2359,7 @@ impl DefaultPackageManager {
         let branch = origin_head_ref
             .trim()
             .strip_prefix("refs/remotes/origin/")
-            .unwrap_or("")
+            .unwrap_or_default()
             .to_owned();
         if branch.is_empty() {
             let _ = head;

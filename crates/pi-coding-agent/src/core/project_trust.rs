@@ -10,6 +10,7 @@ use crate::core::trust_manager::{
     ProjectTrustDecision, ProjectTrustOption, ProjectTrustStore, TrustError, get_project_trust_options,
     has_trust_requiring_project_resources,
 };
+use pi_js_compat::{js_format, js_json::JsString};
 
 /// `AppMode`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,19 +44,20 @@ impl AppMode {
 
 /// Options for [`resolve_project_trusted`].
 pub struct ResolveProjectTrustedOptions<'a> {
-    pub cwd: &'a str,
+    pub cwd: &'a JsString,
     pub trust_store: &'a ProjectTrustStore,
     pub trust_override: Option<bool>,
     pub default_project_trust: Option<DefaultProjectTrust>,
     pub extensions_result: Option<&'a LoadExtensionsResult>,
     pub project_trust_context: &'a ProjectTrustContext,
-    pub on_extension_error: Option<&'a (dyn Fn(String) + Send + Sync)>,
+    pub on_extension_error: Option<&'a (dyn Fn(JsString) + Send + Sync)>,
 }
 
 /// `formatProjectTrustPrompt`.
-pub fn format_project_trust_prompt(cwd: &str) -> String {
-    format!(
-        "Trust project folder?\n{cwd}\n\nThis allows pi to load {} settings and resources, install missing project packages, and execute project extensions.",
+pub fn format_project_trust_prompt(cwd: &JsString) -> JsString {
+    js_format!(
+        "Trust project folder?\n{}\n\nThis allows pi to load {} settings and resources, install missing project packages, and execute project extensions.",
+        cwd,
         package_config().config_dir_name
     )
 }
@@ -68,7 +70,7 @@ pub async fn resolve_project_trusted(options: ResolveProjectTrustedOptions<'_>) 
     if let Some(trust_override) = options.trust_override {
         return Ok(trust_override);
     }
-    if !has_trust_requiring_project_resources(options.cwd) {
+    if !has_trust_requiring_project_resources(options.cwd)? {
         return Ok(true);
     }
 
@@ -83,10 +85,10 @@ pub async fn resolve_project_trusted(options: ResolveProjectTrustedOptions<'_>) 
         .await;
         for error in errors {
             if let Some(on_extension_error) = options.on_extension_error {
-                on_extension_error(format!(
+                on_extension_error(js_format!(
                     "Extension \"{}\" project_trust error: {}",
                     error.extension_path,
-                    pi_js_compat::js_json::encode_node_utf8(&error.error)
+                    error.error
                 ));
             }
         }
@@ -122,7 +124,7 @@ pub async fn resolve_project_trusted(options: ResolveProjectTrustedOptions<'_>) 
         return Ok(false);
     }
 
-    match select_project_trust_option(options.cwd, options.project_trust_context).await {
+    match select_project_trust_option(options.cwd, options.project_trust_context).await? {
         Some(selected) => {
             save_project_trust_prompt_result(options.trust_store, &selected)?;
             Ok(selected.trusted)
@@ -131,16 +133,18 @@ pub async fn resolve_project_trusted(options: ResolveProjectTrustedOptions<'_>) 
     }
 }
 
-async fn select_project_trust_option(cwd: &str, context: &ProjectTrustContext) -> Option<ProjectTrustOption> {
-    let options = get_project_trust_options(cwd, true);
-    let labels: Vec<String> = options.iter().map(|option| option.label.clone()).collect();
+async fn select_project_trust_option(
+    cwd: &JsString,
+    context: &ProjectTrustContext,
+) -> Result<Option<ProjectTrustOption>, TrustError> {
+    let options = get_project_trust_options(cwd, true)?;
+    let labels: Vec<JsString> = options.iter().map(|option| option.label.clone()).collect();
     let selected = context
         .ui
         .select(&format_project_trust_prompt(cwd), &labels, None)
         .await
-        .ok()
-        .flatten()?;
-    options.into_iter().find(|option| option.label == selected)
+        .map_err(TrustError::new)?;
+    Ok(selected.and_then(|selected| options.into_iter().find(|option| option.label == selected)))
 }
 
 fn save_project_trust_prompt_result(
