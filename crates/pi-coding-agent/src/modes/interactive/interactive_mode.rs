@@ -4035,7 +4035,7 @@ impl InteractiveMode {
             cwd: manager.get_cwd().to_owned(),
             session_manager: Some(Arc::clone(&session_manager)),
             model,
-            thinking_level,
+            thinking_level: thinking_level.into(),
             context_usage,
         };
         let entries = manager.build_context_entries();
@@ -4093,7 +4093,7 @@ impl InteractiveMode {
             cwd: agent.cwd.clone(),
             session_manager: None,
             model: None,
-            thinking_level: "off".to_owned(),
+            thinking_level: "off".into(),
             context_usage: None,
         };
         self.footer.borrow_mut().set_session_override(footer_override.clone());

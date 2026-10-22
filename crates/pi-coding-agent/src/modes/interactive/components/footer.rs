@@ -1,11 +1,10 @@
 //! Ported from `coding-agent/src/modes/interactive/components/footer.ts`.
 
-use std::path::Path;
 use std::sync::Arc;
 
 use pi_ai::types::Model;
-use pi_js_compat::js_json::{JsString, encode_node_utf8};
-use pi_js_compat::number::{js_number_to_string, to_fixed};
+use pi_js_compat::number::to_fixed;
+use pi_js_compat::{js_format, js_json::JsString};
 use pi_tui::tui::Component;
 use pi_tui::utils::{truncate_to_width_with, visible_width};
 
@@ -16,56 +15,10 @@ use crate::core::session_manager::{KnownSessionEntry, SessionEntry};
 use crate::core::usage_totals::{UsageTotals, add_usage_to_totals, create_usage_totals};
 use crate::modes::interactive::theme::{ThemeColor, with_theme};
 use crate::utils::footer_status::format_extension_status_text_lines;
-use crate::utils::paths::{PathInputOptions, relative_path, resolve_path};
 
-/// Format token counts for compact footer display.
-pub fn format_tokens(count: f64) -> String {
-    if count < 1000.0 {
-        return js_number_to_string(count);
-    }
-    if count < 10_000.0 {
-        return format!("{}k", to_fixed(count / 1000.0, 1));
-    }
-    if count < 1_000_000.0 {
-        return format!("{}k", js_number_to_string((count / 1000.0).round()));
-    }
-    if count < 10_000_000.0 {
-        return format!("{}M", to_fixed(count / 1_000_000.0, 1));
-    }
-    format!("{}M", js_number_to_string((count / 1_000_000.0).round()))
-}
+pub use super::footer_format::{format_cwd_for_footer, format_tokens};
 
-/// Replace the home directory prefix with `~` for footer display.
-pub fn format_cwd_for_footer(cwd: &str, home: Option<&str>) -> String {
-    let Some(home) = home.filter(|home| !home.is_empty()) else {
-        return cwd.to_owned();
-    };
-    let base = std::env::current_dir()
-        .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| "/".to_owned());
-    let Ok(resolved_cwd) = resolve_path(cwd, &base, &PathInputOptions::default()) else {
-        return cwd.to_owned();
-    };
-    let Ok(resolved_home) = resolve_path(home, &base, &PathInputOptions::default()) else {
-        return cwd.to_owned();
-    };
-    let relative_to_home = relative_path(&resolved_home, &resolved_cwd);
-    let separator = std::path::MAIN_SEPARATOR;
-    let is_inside_home = relative_to_home.is_empty()
-        || (relative_to_home != ".."
-            && !relative_to_home.starts_with(&format!("..{separator}"))
-            && !Path::new(&relative_to_home).is_absolute());
-    if !is_inside_home {
-        return cwd.to_owned();
-    }
-    if relative_to_home.is_empty() {
-        "~".to_owned()
-    } else {
-        format!("~{separator}{relative_to_home}")
-    }
-}
-
-fn truncate(text: &str, width: usize, ellipsis: &str) -> String {
+fn truncate(text: &JsString, width: usize, ellipsis: impl Into<JsString>) -> JsString {
     truncate_to_width_with(text, width, ellipsis, false)
 }
 
@@ -215,14 +168,14 @@ impl FooterComponent {
 }
 
 impl Component for FooterComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let state = self.session.state();
         let displayed_model: Option<Model> = self
             .session_override
             .as_ref()
             .map_or_else(|| Some(state.model.clone()), |override_| override_.model.clone());
         let displayed_thinking_level = self.session_override.as_ref().map_or_else(
-            || state.thinking_level.as_str().to_owned(),
+            || state.thinking_level.as_str().into(),
             |override_| override_.thinking_level.clone(),
         );
         let session_data = self.get_session_data();
@@ -250,7 +203,8 @@ impl Component for FooterComponent {
             |override_| override_.cwd.clone(),
         );
         let home = pi_js_compat::process_env::get("HOME").or_else(|| pi_js_compat::process_env::get("USERPROFILE"));
-        let mut pwd = format_cwd_for_footer(&cwd, home.as_deref());
+        let home = home.map(JsString::from);
+        let mut pwd = format_cwd_for_footer(&cwd, home.as_ref());
 
         let branch = if self.session_override.is_some() {
             None
@@ -258,32 +212,32 @@ impl Component for FooterComponent {
             self.footer_data.get_git_branch()
         };
         if let Some(branch) = branch {
-            pwd = format!("{pwd} ({branch})");
+            pwd = js_format!("{} ({})", pwd, branch);
         }
         if let Some(session_name) = &session_data.session_name {
-            pwd = format!("{pwd} • {}", encode_node_utf8(session_name));
+            pwd = js_format!("{} • {}", pwd, session_name);
         }
 
-        let mut stats_parts: Vec<String> = Vec::new();
+        let mut stats_parts: Vec<JsString> = Vec::new();
         if let Some(executable_name) = self.footer_data.get_executable_name() {
-            stats_parts.push(format!("[{executable_name}]"));
+            stats_parts.push(js_format!("[{}]", executable_name));
         }
         if session_data.input != 0.0 {
-            stats_parts.push(format!("↑{}", format_tokens(session_data.input)));
+            stats_parts.push(js_format!("↑{}", format_tokens(session_data.input)));
         }
         if session_data.output != 0.0 {
-            stats_parts.push(format!("↓{}", format_tokens(session_data.output)));
+            stats_parts.push(js_format!("↓{}", format_tokens(session_data.output)));
         }
         if session_data.cache_read != 0.0 {
-            stats_parts.push(format!("R{}", format_tokens(session_data.cache_read)));
+            stats_parts.push(js_format!("R{}", format_tokens(session_data.cache_read)));
         }
         if session_data.cache_write != 0.0 {
-            stats_parts.push(format!("W{}", format_tokens(session_data.cache_write)));
+            stats_parts.push(js_format!("W{}", format_tokens(session_data.cache_write)));
         }
         if (session_data.cache_read > 0.0 || session_data.cache_write > 0.0)
             && let Some(rate) = session_data.latest_cache_hit_rate
         {
-            stats_parts.push(format!("CH{}%", to_fixed(rate, 1)));
+            stats_parts.push(js_format!("CH{}%", to_fixed(rate, 1)));
         }
 
         let using_subscription = state.model.provider == "kimi-coding"
@@ -292,7 +246,7 @@ impl Component for FooterComponent {
                 .model_runtime()
                 .is_using_subscription(&state.model.provider);
         if session_data.cost != 0.0 || using_subscription {
-            stats_parts.push(format!(
+            stats_parts.push(js_format!(
                 "${}{}",
                 to_fixed(session_data.cost, 3),
                 if using_subscription { " (sub)" } else { "" }
@@ -310,18 +264,18 @@ impl Component for FooterComponent {
         } else if context_percent_value > 70.0 {
             with_theme(|theme| theme.fg(ThemeColor::Warning, &context_percent_display))
         } else {
-            context_percent_display
+            context_percent_display.into()
         };
         stats_parts.push(context_percent_str);
         if are_experimental_features_enabled() {
-            stats_parts.push(format!(
+            stats_parts.push(js_format!(
                 "{} {}",
                 with_theme(|theme| theme.fg(ThemeColor::Dim, "•")),
                 with_theme(|theme| theme.bold(&theme.fg(ThemeColor::Warning, "xp")))
             ));
         }
 
-        let mut stats_left = stats_parts.join(" ");
+        let mut stats_left = JsString::join(stats_parts, " ");
         let mut stats_left_width = visible_width(&stats_left);
         if stats_left_width > width {
             stats_left = truncate(&stats_left, width, "...");
@@ -332,21 +286,21 @@ impl Component for FooterComponent {
         let model_name = displayed_model
             .as_ref()
             .map_or_else(|| "no-model".to_owned(), |model| model.id.clone());
-        let mut right_side_without_provider = model_name;
+        let mut right_side_without_provider = JsString::from(model_name);
         if displayed_model.as_ref().is_some_and(|model| model.reasoning) {
             let effort_level = if displayed_thinking_level.is_empty() {
-                "off".to_owned()
+                "off".into()
             } else {
                 displayed_thinking_level.clone()
             };
-            right_side_without_provider = format!("{right_side_without_provider} • effort {effort_level}");
+            right_side_without_provider = js_format!("{} • effort {}", right_side_without_provider, effort_level);
         }
 
         let mut right_side = right_side_without_provider.clone();
         if self.footer_data.get_available_provider_count() > 1
             && let Some(model) = &displayed_model
         {
-            right_side = format!("({}) {right_side_without_provider}", model.provider);
+            right_side = js_format!("({}) {}", model.provider, right_side_without_provider);
             if stats_left_width + min_padding + visible_width(&right_side) > width {
                 right_side = right_side_without_provider.clone();
             }
@@ -357,16 +311,16 @@ impl Component for FooterComponent {
 
         let remainder = if total_needed <= width {
             let padding = " ".repeat(width - stats_left_width - right_side_width);
-            format!("{padding}{right_side}")
+            js_format!("{}{}", padding, right_side)
         } else {
             let available_for_right = width.saturating_sub(stats_left_width + min_padding);
             if available_for_right > 0 {
                 let truncated_right = truncate(&right_side, available_for_right, "");
                 let truncated_right_width = visible_width(&truncated_right);
                 let padding = " ".repeat(width.saturating_sub(stats_left_width + truncated_right_width));
-                format!("{padding}{truncated_right}")
+                js_format!("{}{}", padding, truncated_right)
             } else {
-                String::new()
+                JsString::default()
             }
         };
 
@@ -378,7 +332,7 @@ impl Component for FooterComponent {
             width,
             &dim_ellipsis,
         );
-        let mut lines = vec![pwd_line, format!("{dim_stats_left}{dim_remainder}")];
+        let mut lines = vec![pwd_line, js_format!("{}{}", dim_stats_left, dim_remainder)];
 
         let extension_lines = format_extension_status_text_lines(&self.footer_data.get_extension_statuses())
             .into_iter()

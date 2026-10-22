@@ -4,14 +4,22 @@ import path from "node:path";
 
 async function main(): Promise<void> {
 	const source = process.argv[2]!;
-	const { FooterDataProvider } = await import(pathToFileURL(path.join(source, "core/footer-data-provider.ts")).href);
+	const { FooterDataProvider, resolveFooterExecutableName } = await import(pathToFileURL(path.join(source, "core/footer-data-provider.ts")).href);
 	const helpers = await import(pathToFileURL(path.join(source, "utils/footer-status.ts")).href);
 	for await (const line of createInterface({ input: process.stdin })) {
 		try {
 			const request = JSON.parse(line);
 			const raw = String.fromCharCode(...(request.units ?? []));
 			let output: unknown;
-			if (request.operation === "helpers") {
+			if (request.operation === "cwd") {
+				const footer = await import(pathToFileURL(path.join(source, "modes/interactive/components/footer.ts")).href);
+				output = footer.formatCwdForFooter(String.fromCharCode(...request.cwdUnits), String.fromCharCode(...request.homeUnits));
+			} else if (request.operation === "native-paths") {
+				delete process.env.PI_EXECUTABLE_NAME;
+				const provider = new FooterDataProvider(String.fromCharCode(...request.directoryUnits));
+				output = [provider.getGitBranch(), resolveFooterExecutableName([`/opt/pi-${raw}`])];
+				provider.dispose();
+			} else if (request.operation === "helpers") {
 				const statuses = new Map([
 					[`z${raw}`, `${raw}z\r\n\t  x`],
 					[`a${raw}`, `${raw}\u0085`],
