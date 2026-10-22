@@ -1,11 +1,9 @@
 use std::sync::OnceLock;
 
-use regex::Regex;
-
 use crate::types::{AssistantMessage, StopReason};
 
 /// Patterns matching context-overflow error messages from different providers.
-const OVERFLOW_PATTERNS: [&str; 25] = [
+const OVERFLOW_PATTERNS: [&str; 24] = [
     r"prompt is too long",
     r"request_too_large",
     r"exceeded request buffer limit while retrying upstream",
@@ -27,7 +25,6 @@ const OVERFLOW_PATTERNS: [&str; 25] = [
     r"prompt has [\d,]+ tokens?, but the configured context size is [\d,]+ tokens?",
     r"model_context_window_exceeded",
     r"prompt too long; exceeded (?:max )?context length",
-    r"range of input length should be",
     r"context[_ ]length[_ ]exceeded",
     r"too many tokens",
     r"token limit exceeded",
@@ -74,7 +71,7 @@ pub fn is_context_overflow(message: &AssistantMessage, context_window: Option<f6
         }
     }
 
-    let Some(context_window) = context_window.filter(|window| *window > 0.0) else {
+    let Some(context_window) = context_window.filter(|window| *window != 0.0 && !window.is_nan()) else {
         return false;
     };
     let input_tokens = message.usage.input + message.usage.cache_read;
@@ -86,16 +83,11 @@ pub fn is_context_overflow(message: &AssistantMessage, context_window: Option<f6
     message.stop_reason == StopReason::Length && message.usage.output == 0.0 && input_tokens >= context_window * 0.99
 }
 
-/// Whether a length stop ended below the caller or model's intended output limit.
-pub fn is_recoverable_length(message: &AssistantMessage, desired_max_output: f64) -> bool {
-    message.stop_reason == StopReason::Length && desired_max_output > 0.0 && message.usage.output < desired_max_output
-}
-
 /// The overflow patterns, exposed for testing.
-pub fn get_overflow_patterns() -> Vec<Regex> {
+pub fn get_overflow_patterns() -> Vec<regress::Regex> {
     OVERFLOW_PATTERNS
         .iter()
         .chain([&r"^4(?:00|13)\s*(?:status code)?\s*\(no body\)"])
-        .map(|pattern| Regex::new(&format!("(?i){pattern}")).expect("overflow patterns are valid regexes"))
+        .map(|pattern| regress::Regex::with_flags(pattern, "i").expect("overflow patterns are valid regexes"))
         .collect()
 }

@@ -2,12 +2,11 @@ import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
 
 type Request =
-	| { id: number; operation: "check"; message: unknown; contextWindow: number | null; desiredMaxOutput?: number }
+	| { id: number; operation: "check"; message: unknown; contextWindow: number | null }
 	| { id: number; operation: "patterns"; samples: string[] };
 
 type OverflowApi = {
 	isContextOverflow(message: unknown, contextWindow?: number): boolean;
-	isRecoverableLength(message: unknown, desiredMaxOutput: number): boolean;
 	getOverflowPatterns(): RegExp[];
 };
 
@@ -28,9 +27,6 @@ function execute(request: Request, api: OverflowApi) {
 		}
 		const contextWindow = request.contextWindow ?? undefined;
 		const output: Record<string, boolean> = { overflow: api.isContextOverflow(request.message, contextWindow) };
-		if (request.desiredMaxOutput !== undefined) {
-			output.recoverable = api.isRecoverableLength(request.message, request.desiredMaxOutput);
-		}
 		return { id: request.id, ok: true, output };
 	} catch (error) {
 		return { id: request.id, ok: false, error: normalizeError(error) };
