@@ -132,6 +132,36 @@ async fn maps_updated_input_and_bash_tool_names() {
 }
 
 #[tokio::test]
+async fn hook_process_preserves_native_input_keys_and_output_reason() {
+    let dir = TestDir::new();
+    let capture = dir.path().join("native-input.json");
+    let script = dir.script_with_capture(
+        "native.sh",
+        r#"{"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"ask\udfff"}}"#,
+        Some(&capture),
+    );
+    let input =
+        js_json::parse_lossless(r#"{"command":"echo raw\ud800","\ud800":"high","\udfff":"low","�":"replacement"}"#)
+            .unwrap();
+    let cwd = JsString::from_utf16(vec![0x2f, 0xd801]);
+    let result = review_tool_with_claude_bash_hook(&event("bash", input.clone()), &cwd, &options(&script))
+        .await
+        .expect("native hook review");
+    let expected_reason = JsString::from_utf16(vec![0x61, 0x73, 0x6b, 0xdfff]);
+    assert_eq!(
+        result,
+        ClaudeBashHookReviewResult::Ask {
+            reason: expected_reason
+        }
+    );
+    let payload = js_json::parse_lossless(std::fs::read_to_string(capture).unwrap()).unwrap();
+    assert_eq!(payload["cwd"], json!(cwd));
+    let mut expected_input = input.as_object().unwrap().clone();
+    expected_input.insert("cwd".into(), json!(cwd));
+    assert_eq!(payload["tool_input"], Value::Object(expected_input));
+}
+
+#[tokio::test]
 async fn maps_deny_block_and_ask_decisions() {
     let dir = TestDir::new();
     for (name, output, expected) in [
