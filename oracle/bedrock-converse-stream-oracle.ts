@@ -1,5 +1,5 @@
 import { pathToFileURL } from "node:url";
-import { Readable } from "node:stream";
+import { createServer } from "node:http";
 import { crc32 } from "node:zlib";
 import { installAssistantSnapshots } from "./assistant-snapshots.ts";
 
@@ -148,35 +148,41 @@ async function main(): Promise<void> {
 		};
 	};
 
-	nodeHttpHandler.NodeHttpHandler.prototype.handle = async (
+	const originalHandle = nodeHttpHandler.NodeHttpHandler.prototype.handle;
+	let pendingResponse: ResponseSpec | undefined;
+	const server = createServer((request, response) => {
+		request.resume();
+		const scripted = pendingResponse;
+		pendingResponse = undefined;
+		if (!scripted) {
+			response.writeHead(500);
+			response.end("bedrock loopback oracle script exhausted");
+			return;
+		}
+		const bytes = scripted.frames && scripted.frames.length > 0
+			? Buffer.concat(scripted.frames.map(encodeFrameSpec))
+			: Buffer.from(scripted.text ?? "", "utf8");
+		response.writeHead(scripted.status, Object.fromEntries(scripted.headers));
+		for (const chunk of splitBytes(bytes, scripted.chunkSizes)) response.write(chunk);
+		response.end();
+	});
+	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+	server.unref();
+	const address = server.address();
+	if (!address || typeof address === "string") throw new Error("missing loopback oracle address");
+	nodeHttpHandler.NodeHttpHandler.prototype.handle = async function (
 		request: unknown,
 		options?: { abortSignal?: AbortSignal },
-	) => {
+	) {
 		activeRequests.push(request as Record<string, unknown>);
-		const response =
-			activeScript[Math.min(scriptIndex, activeScript.length - 1)];
+		pendingResponse = activeScript[Math.min(scriptIndex, activeScript.length - 1)];
 		scriptIndex += 1;
-		if (!response) throw new Error("bedrock oracle script exhausted");
-		const bytes =
-			response.frames && response.frames.length > 0
-				? Buffer.concat(response.frames.map(encodeFrameSpec))
-				: Buffer.from(response.text ?? "", "utf8");
-		const headers: Record<string, string> = {};
-		for (const [name, value] of response.headers) headers[name] = value;
-		const body = Readable.from(splitBytes(bytes, response.chunkSizes));
-		const signal = options?.abortSignal;
-		if (signal) {
-			const abort = () => body.destroy(new Error("This operation was aborted"));
-			if (signal.aborted) abort();
-			else signal.addEventListener("abort", abort, { once: true });
-		}
-		return {
-			response: {
-				statusCode: response.status,
-				headers,
-				body,
-			},
+		if (!pendingResponse) throw new Error("bedrock oracle script exhausted");
+		const localRequest = {
+			...(request as Record<string, unknown>),
+			protocol: "http:", hostname: "127.0.0.1", port: address.port,
 		};
+		return originalHandle.call(this, localRequest, options);
 	};
 
 	const bedrock = (await import(

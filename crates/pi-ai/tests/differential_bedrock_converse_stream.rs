@@ -1170,7 +1170,7 @@ async fn bedrock_converse_stream_matches_the_pinned_typescript_module() {
         assert_eq!(
             requests.len(),
             oracle_requests.len(),
-            "request count mismatch for {}",
+            "request count mismatch for {}; oracle={response}",
             scenario.name
         );
         for (rust_request, oracle_request) in requests.iter().zip(oracle_requests) {
