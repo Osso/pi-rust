@@ -25,3 +25,9 @@ The VM oracle loads immutable `fs-worker.cjs`, removes only its final `main()` i
 - Parent coding-agent library and pi-ai validation integration remain compiler-blocked by independent slices; standalone harness compiles the actual worker module, not a replica.
 
 Proof logs: `/tmp/pi-rust-repin-lossless-worker-matching/`. Shared regex factoring retains the former pi-ai constructor/matcher behavior; pi-ai integration is not yet compiled because parent library is blocked by other slices.
+
+## Native legacy canonicalization dependency fix
+
+Strengthened case-fold fixtures disproved upstream regress 0.12.0 parity: literal `s`, classes `[s]`/`[a-z]`, and backreferences accepted U+017F in legacy `/i`; `[k]` accepted U+212A, and literal/backreference `i` accepted U+0131. Actual Node rejects those in legacy mode. These are engine defects, not scalar/surrogate conversion defects. Bounded exact vendoring is authorized by main; provenance and retirement live in [dependencies](../../dependencies.md).
+
+`legacy_and_unicode_canonicalization_matches_node_for_literals_classes_ranges_and_backrefs` records the behavioral RED across literals, classes, ranges, and backreferences. Native uppercase canonicalization now prevents non-ASCII→ASCII folds; legacy class parsing and literal expansion share that same rule. Unicode mode retains the prior full-fold implementation and is compared separately with actual Node (`iu`). No complete V8 regex parity claim follows from this corpus.

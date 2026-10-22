@@ -28,9 +28,14 @@ function executeCase(test) {
     const text = fromUnits(test.text);
     try {
         const worker = test.fallback ? fallback : active;
-        const matched = test.kind === "glob"
-            ? worker.matchesGlob(text, pattern)
-            : worker.makeMatcher(pattern, test.kind === "literal", test.ignoreCase)(text);
+        let matched;
+        if (test.kind === "sharedRegex") {
+            matched = new RegExp(pattern, test.flags).test(text);
+        } else if (test.kind === "glob") {
+            matched = worker.matchesGlob(text, pattern);
+        } else {
+            matched = worker.makeMatcher(pattern, test.kind === "literal", test.ignoreCase)(text);
+        }
         return { matched };
     } catch (error) {
         return { error: { name: error.name, message: toUnits(error.message) } };

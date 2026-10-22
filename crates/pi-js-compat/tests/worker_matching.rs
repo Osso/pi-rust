@@ -178,3 +178,44 @@ fn raw_regex_and_literal_match_actual_frozen_worker() {
     assert!(!JsRegex::new("^.$").unwrap().is_match("😀"));
     assert!(JsRegex::unicode("^.$").unwrap().is_match("😀"));
 }
+
+#[test]
+fn legacy_and_unicode_canonicalization_matches_node_for_literals_classes_ranges_and_backrefs() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "bwrap-worker-matching-oracle.cjs",
+        "packages/coding-agent/extensions/bwrap/src/fs-worker.cjs",
+    );
+    let patterns = [
+        "s", "[s]", "[a-z]", "[S-Z]", "(.)\\1", "(s)\\1", "k", "[k]", "(k)\\1", "i", "[i]", "([i])\\1",
+    ];
+    let mut texts: Vec<JsString> = ["ſ", "sſ", "Sſ", "K", "kK", "KK", "ı", "iı", "Iı", "s", "k", "i", "µΜ"]
+        .into_iter()
+        .map(JsString::from)
+        .collect();
+    texts.extend([
+        raw(&[0xd800, 0xd800]),
+        raw(&[0xd800, 0xdc00]),
+        raw(&[0xd83d, 0xde00, 0xd83d, 0xde00]),
+    ]);
+    let mut cases = Vec::new();
+    let mut actual = Vec::new();
+    for flags in ["i", "iu"] {
+        for pattern in &patterns {
+            let regex = JsRegex::with_flags(*pattern, flags).unwrap();
+            for text in &texts {
+                cases.push(json!({"kind":"sharedRegex","pattern":JsString::from(*pattern).units(),"text":text.units(),"flags":flags}));
+                actual.push(regex.is_match(text));
+            }
+        }
+    }
+    let response = oracle.request(&json!({"id":4,"cases":cases}));
+    let mismatches: Vec<_> = actual
+        .iter()
+        .enumerate()
+        .filter_map(|(index, result)| {
+            let expected = response["output"][index]["matched"].as_bool().unwrap();
+            (*result != expected).then(|| format!("{:?} expected={expected} actual={result}", cases[index]))
+        })
+        .collect();
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+}
