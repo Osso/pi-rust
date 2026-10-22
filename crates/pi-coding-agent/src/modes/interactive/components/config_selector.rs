@@ -1384,8 +1384,8 @@ pub struct ConfigSelectorComponent {
 pub struct ConfigSelectorOptions {
     pub resolved_paths: ScopedResolvedPaths,
     pub settings_manager: Rc<RefCell<SettingsManager>>,
-    pub cwd: pi_js_compat::JsString,
-    pub agent_dir: pi_js_compat::JsString,
+    pub cwd: pi_js_compat::js_json::JsString,
+    pub agent_dir: pi_js_compat::js_json::JsString,
     pub on_close: Rc<dyn Fn()>,
     pub on_exit: Rc<dyn Fn()>,
     pub request_render: Rc<dyn Fn()>,

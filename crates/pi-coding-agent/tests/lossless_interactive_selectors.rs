@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use pi_coding_agent::cli::session_picker::{SelectSessionOutcome, ValidateSelection};
-use pi_js_compat::JsString;
+use pi_js_compat::js_json::JsString;
 
 #[test]
 fn picker_selection_and_validation_retain_unpaired_path_units() {

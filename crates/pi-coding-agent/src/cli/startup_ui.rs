@@ -6,7 +6,7 @@
 //!
 //! Also ported: `showStartupInput` and `showFirstTimeSetup`.
 
-use pi_js_compat::JsString;
+use pi_js_compat::js_json::JsString;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
@@ -81,12 +81,12 @@ pub fn should_run_first_time_setup_for_process() -> bool {
 /// `loadThemes`: enabled resources, broken themes skipped, names deduped.
 pub fn load_themes(resources: &[ResolvedResource]) -> Vec<Arc<Theme>> {
     let mut themes = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
+    let mut seen: HashSet<JsString> = HashSet::new();
     for resource in resources {
         if !resource.enabled {
             continue;
         }
-        let Ok(loaded_theme) = load_theme_from_path(Path::new(&resource.path), None) else {
+        let Ok(loaded_theme) = load_theme_from_path(&resource.path, None) else {
             continue;
         };
         if let Some(name) = &loaded_theme.name
@@ -110,14 +110,14 @@ pub async fn load_startup_themes(settings_manager: &SettingsManager) -> Result<V
     let cwd = std::env::current_dir()
         .map(|path| path.display().to_string())
         .unwrap_or_else(|_| ".".to_owned());
-    let agent_dir = config::get_agent_dir().display().to_string();
+    let agent_dir = JsString::from(config::get_agent_dir().display().to_string());
     let package_manager = DefaultPackageManager::new(
-        &cwd,
+        &JsString::from(cwd),
         &agent_dir,
         Arc::new(SettingsManagerStore::new(global_settings_manager)),
     );
     let resolved_paths = package_manager
-        .resolve(Some(Box::new(|_source: String| {
+        .resolve(Some(Box::new(|_source: JsString| {
             Box::pin(async { Ok(MissingSourceAction::Skip) })
         })))
         .await
@@ -139,7 +139,7 @@ pub async fn create_startup_tui(
     set_registered_themes(themes).map_err(|error| JsString::from(error.to_string()))?;
     let terminal_theme = detect_terminal_background_from_env(env).theme;
     let theme_name = resolve_theme_setting(settings_manager.get_theme_setting(), terminal_theme)
-        .unwrap_or_else(|| terminal_theme.as_str().to_owned());
+        .unwrap_or_else(|| JsString::from(terminal_theme.as_str()));
     init_theme(Some(&theme_name), false).map_err(|error| JsString::from(error.to_string()))?;
     let agent_dir = config::get_agent_dir();
     KeybindingsManager::create(Some(&agent_dir)).install();
@@ -172,7 +172,7 @@ pub fn apply_detected_startup_theme(ui: &Rc<TUI>, settings_manager: &SettingsMan
     let detector = StartupThemeDetector { ui: Rc::clone(ui) };
     let terminal_theme = detect_terminal_theme_for_auto(&detector, THEME_DETECTION_TIMEOUT, env);
     let name =
-        resolve_theme_setting(theme_setting, terminal_theme).unwrap_or_else(|| terminal_theme.as_str().to_owned());
+        resolve_theme_setting(theme_setting, terminal_theme).unwrap_or_else(|| JsString::from(terminal_theme.as_str()));
     set_theme(&name, false)
         .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught(error.label(), error.to_string()));
     ui.invalidate();
@@ -190,7 +190,7 @@ pub async fn show_first_time_setup(
     ui.start().map_err(|error| JsString::from(error.to_string()))?;
     let detector = StartupThemeDetector { ui: Rc::clone(&ui) };
     let detected_theme = detect_terminal_theme_for_auto(&detector, THEME_DETECTION_TIMEOUT, env);
-    set_theme(detected_theme.as_str(), false).map_err(|error| JsString::from(error.to_string()))?;
+    set_theme(&detected_theme.as_str().into(), false).map_err(|error| JsString::from(error.to_string()))?;
 
     let submit_sender = sender.clone();
     let cancel_sender = sender;
@@ -199,7 +199,7 @@ pub async fn show_first_time_setup(
         detected_theme,
         on_theme_preview: Rc::new(move |theme| {
             // The source ignores `setTheme`'s result in the preview callback.
-            let _ = set_theme(theme.as_str(), false);
+            let _ = set_theme(&theme.as_str().into(), false);
             preview_ui.request_render(false);
         }),
         on_submit: Rc::new(move |result| {
@@ -224,7 +224,7 @@ pub async fn show_first_time_setup(
         }
     };
     if let Some(result) = result {
-        settings_manager.set_theme(result.theme.as_str());
+        settings_manager.set_theme(&result.theme.as_str().into());
         settings_manager.set_enable_analytics(result.share_analytics);
         settings_manager.flush();
     }
