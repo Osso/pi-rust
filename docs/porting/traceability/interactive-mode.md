@@ -2,6 +2,10 @@
 
 Ported to `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs`.
 
+## Native extension bridge checkpoint
+
+`UiRequest` and `InteractiveUiContext` dialog arguments/results, widget/status keys/content, title/editor text, custom errors and working/hidden labels retain `JsString` through queues and mounted dispatch. SelectAgentView IDs are native. No encoding adapter is added. In-module `lossless_ui_bridge_tests` covers raw status/widget/title/selection request-response units; compilation was RED in `/tmp/q18-ui-context-red.{jsonl,log}` and execution remains blocked by incomplete whole-mode/coding migration. Theme names and remaining scalar host callers are separate pending work; this checkpoint is not whole-mode acceptance.
+
 ## Lossless checkpoint (2026-10-21)
 
 Compaction and branch-summary custom instructions retain `JsString` through
