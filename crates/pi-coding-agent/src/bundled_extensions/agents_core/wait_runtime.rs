@@ -241,6 +241,41 @@ impl WaitAgentsWakeWatcher {
     }
 }
 
+#[cfg(test)]
+mod tracked_read_failure_tests {
+    use super::*;
+    use crate::core::multi_agent_store::MultiAgentStoreOptions;
+
+    // RED-intent only: production .ok()? correction waits for executable in-crate RED.
+    #[test]
+    fn tracked_agent_read_failure_wakes_with_error_instead_of_disappearing() {
+        let directory = tempfile::tempdir().unwrap();
+        let blocked_db: JsString = directory.path().to_str().unwrap().into();
+        let session_path: JsString = "/fixture/session".into();
+        let agent_ids = vec![JsString::from("agent_1")];
+        let expected = read_multi_agent_agents(&blocked_db, &session_path, &agent_ids).unwrap_err();
+        let watcher = WaitAgentsWakeWatcher {
+            deadline: None,
+            control_db_path: blocked_db,
+            recipient: None,
+            session_path,
+            signal: None,
+            store: Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default())),
+            tracked_agent_ids: agent_ids.into_iter().collect(),
+            wait_wake_listeners: WaitWakeListeners::default(),
+        };
+        for wake in [
+            watcher.settle_for_terminal_agent_or_check_coordination(),
+            watcher.on_notified(&Mutex::new(None)),
+        ] {
+            let Some(WaitNotificationsWake::Error { message }) = wake else {
+                panic!("tracked DB failure must become an error wake, not an absent agent");
+            };
+            assert_eq!(&message, expected.message());
+        }
+    }
+}
+
 pub async fn wait_notifications_runtime(
     store: &Arc<MultiAgentStore>,
     runtime_handles: &super::runtime::MultiAgentRuntimeHandles,
