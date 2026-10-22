@@ -32,8 +32,8 @@ pub struct AskSecretProvisionRequest {
 pub type AskSecretProvisioner = Arc<
     dyn Fn(
             AskSecretProvisionRequest,
-            String,
-            String,
+            JsString,
+            JsString,
             Option<CancellationToken>,
         ) -> BoxFuture<'static, Result<(), HandlerError>>
         + Send
@@ -138,8 +138,8 @@ async fn execute_ask_secret(
     let username = ctx
         .ui()?
         .input(
-            "Secrets Broker username",
-            Some("Enter username"),
+            &"Secrets Broker username".into(),
+            Some(&"Enter username".into()),
             Some(&ExtensionUiDialogOptions {
                 signal: signal.clone(),
                 timeout: None,
@@ -154,8 +154,8 @@ async fn execute_ask_secret(
     let password = ctx
         .ui()?
         .input(
-            "Secrets Broker password",
-            Some("Enter password"),
+            &"Secrets Broker password".into(),
+            Some(&"Enter password".into()),
             Some(&ExtensionUiDialogOptions {
                 signal: signal.clone(),
                 timeout: None,
@@ -251,8 +251,8 @@ fn cancelled_result() -> AgentToolResult {
 
 async fn provision_browser_credential(
     request: AskSecretProvisionRequest,
-    username: String,
-    password: String,
+    username: JsString,
+    password: JsString,
     signal: Option<CancellationToken>,
 ) -> Result<(), HandlerError> {
     if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
@@ -281,7 +281,7 @@ async fn provision_browser_credential(
         .stdin
         .take()
         .ok_or_else(|| HandlerError::new("Secrets Broker provisioning has no stdin"))?;
-    let payload = format!("{username}\n{password}\n");
+    let payload = encode_node_utf8(&(username + "\n" + password + "\n"));
     let write_result = async {
         stdin.write_all(payload.as_bytes()).await?;
         stdin.shutdown().await

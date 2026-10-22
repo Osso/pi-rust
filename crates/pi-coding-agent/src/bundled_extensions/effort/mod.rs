@@ -104,7 +104,7 @@ pub fn find_selected_effort(levels: &[ThinkingLevel], effort: impl Into<JsString
 }
 
 fn clear_editor(ctx: &ExtensionCommandContext) -> Result<(), HandlerError> {
-    ctx.ui()?.set_editor_text("");
+    ctx.ui()?.set_editor_text(&JsString::default());
     Ok(())
 }
 
@@ -134,7 +134,7 @@ fn restore_delegation_mode(state: &DelegationState, ctx: &ExtensionContext) -> R
 
 fn persist_delegation_mode(pi: &ExtensionApi, state: &DelegationState) -> Result<(), HandlerError> {
     pi.append_entry(
-        DELEGATION_MODE_ENTRY,
+        &DELEGATION_MODE_ENTRY.into(),
         Some(serde_json::json!({ "mode": state.mode().as_str() }).into()),
     )
 }
@@ -145,10 +145,7 @@ fn update_delegation_status(ctx: &ExtensionContext, state: &DelegationState) -> 
     let theme =
         crate::modes::interactive::theme::try_current_theme().map_err(|error| HandlerError::new(error.to_string()))?;
     let prefix = theme.fg(ThemeColor::Dim, "multi-agent: ");
-    ui.set_status(
-        DELEGATION_STATUS_KEY,
-        Some(&format!("{prefix}{}", state.mode().as_str())),
-    );
+    ui.set_status(&DELEGATION_STATUS_KEY.into(), Some(&(prefix + state.mode().as_str())));
     Ok(())
 }
 
@@ -239,13 +236,13 @@ async fn select_delegation_mode(ctx: &ExtensionCommandContext) -> Result<Option<
     let selected = ctx
         .ui()?
         .select(
-            "Select multi-agent mode",
-            &["proactive".to_owned(), "explicit".to_owned()],
+            &"Select multi-agent mode".into(),
+            &["proactive".into(), "explicit".into()],
             None,
         )
         .await
         .map_err(HandlerError::new)?;
-    Ok(selected.as_deref().and_then(parse_multi_agent_mode))
+    Ok(selected.and_then(parse_multi_agent_mode))
 }
 
 pub async fn handle_delegation_command(
@@ -325,15 +322,13 @@ async fn select_effort(
     ctx: &ExtensionCommandContext,
     levels: &[ThinkingLevel],
 ) -> Result<Option<ThinkingLevel>, HandlerError> {
-    let options: Vec<String> = levels.iter().map(|level| level.as_str().to_owned()).collect();
+    let options: Vec<JsString> = levels.iter().map(|level| level.as_str().into()).collect();
     let selected = ctx
         .ui()?
-        .select("Select effort", &options, None)
+        .select(&"Select effort".into(), &options, None)
         .await
         .map_err(HandlerError::new)?;
-    Ok(selected
-        .as_deref()
-        .and_then(|effort| find_selected_effort(levels, effort)))
+    Ok(selected.and_then(|effort| find_selected_effort(levels, effort)))
 }
 
 pub async fn handle_effort_command(

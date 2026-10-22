@@ -113,11 +113,11 @@ fn update_fast_status(
     let label = fast_mode_label(service_tier);
     let status = if label == "ultra" { "fast ultra" } else { "fast" };
     let text = if service_tier.is_some() && supports_fast_mode(model) {
-        Some(status)
+        Some(JsString::from(status))
     } else {
         None
     };
-    ctx.ui()?.set_status(FAST_STATUS_KEY, text);
+    ctx.ui()?.set_status(&FAST_STATUS_KEY.into(), text.as_ref());
     Ok(())
 }
 
@@ -187,7 +187,7 @@ fn persist_fast_mode(pi: &ExtensionApi, authority: &FastModeAuthority) -> Result
             None => JsValue::Null,
         },
     );
-    pi.append_entry(FAST_MODE_ENTRY, Some(JsValue::Object(data)))
+    pi.append_entry(&FAST_MODE_ENTRY.into(), Some(JsValue::Object(data)))
 }
 
 pub async fn handle_fast_command(
@@ -202,12 +202,12 @@ pub async fn handle_fast_command(
             &"Fast mode is controlled by the main thread".into(),
             Some(NotifyType::Warning),
         );
-        ui.set_editor_text("");
+        ui.set_editor_text(&JsString::default());
         return Ok(());
     }
     let Some(requested) = requested_fast_mode(args, authority.service_tier()) else {
         ui.notify(&"Usage: /fast [on|off|ultra]".into(), Some(NotifyType::Warning));
-        ui.set_editor_text("");
+        ui.set_editor_text(&JsString::default());
         return Ok(());
     };
     if let RequestedFastMode::Tier(_) = requested
@@ -217,7 +217,7 @@ pub async fn handle_fast_command(
             &"Fast mode requires openai-codex or openai-codex-gc".into(),
             Some(NotifyType::Warning),
         );
-        ui.set_editor_text("");
+        ui.set_editor_text(&JsString::default());
         return Ok(());
     }
 
@@ -231,7 +231,7 @@ pub async fn handle_fast_command(
         &format!("Fast mode: {}", fast_mode_label(authority.service_tier())).into(),
         Some(NotifyType::Info),
     );
-    ui.set_editor_text("");
+    ui.set_editor_text(&JsString::default());
     Ok(())
 }
 
