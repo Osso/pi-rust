@@ -2661,8 +2661,10 @@ impl pi_coding_agent::core::multi_agent_store::SessionPersistence for FakePersis
     }
 }
 
+/// Frozen agent-session.ts:1650,1766-1774 throws from `_handleAgentEvent`, an Agent listener;
+/// frozen agent.ts:615-620 reports listener errors and continues the run.
 #[tokio::test]
-async fn activity_publication_errors_fail_the_agent_run() {
+async fn activity_publication_errors_are_reported_without_aborting_the_run() {
     use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
 
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
@@ -2676,7 +2678,7 @@ async fn activity_publication_errors_fail_the_agent_run() {
         None,
         None,
         FixtureOverrides {
-            multi_agent: Some((store, "child-agent".to_owned())),
+            multi_agent: Some((Arc::clone(&store), "child-agent".to_owned())),
             ..Default::default()
         },
     )
@@ -2685,15 +2687,20 @@ async fn activity_publication_errors_fail_the_agent_run() {
         faux_assistant_message("done", FauxAssistantMessageOptions::default()).into(),
     ]);
 
-    let error = fixture
+    fixture
         .session
         .prompt("hi", PromptOptions::default())
         .await
-        .expect_err("publication failure must abort the run");
-    assert_eq!(
-        error.message(),
-        "Persisted agent child-agent activity update requires exact runtime ownership"
+        .expect("listener publication errors do not abort the run");
+    assert!(
+        fixture
+            .session
+            .messages()
+            .iter()
+            .any(|message| matches!(message, AgentMessage::Assistant(_)))
     );
+    let child = store.get_agent(&JsString::from("child-agent")).expect("child agent");
+    assert_eq!(child.current_activity, None, "rejected publication left no activity");
 }
 
 struct FailingApprovalUi;

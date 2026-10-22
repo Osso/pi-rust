@@ -101,9 +101,16 @@ Provider human errors, auto-retry start/end error fields, compaction errors and 
 - Multi-agent: activity publishing for `agent_start`, `tool_execution_start/end`, and
   `agent_end` with exact runtime ownership; relocation continuation via
   `AgentEndSessionContinuation::CwdRelocation` and `activateToolResultRelocation`.
-  Publication failures propagate out of the agent event listener and fail the run,
-  matching the source throw boundary
-  (`activity_publication_errors_fail_the_agent_run`).
+  Publication failures throw out of `_handleAgentEvent` (frozen agent-session.ts:1650,
+  1766-1774); the Agent reports listener errors and continues the run (frozen agent.ts:615-620),
+  so the prompt resolves and no activity is recorded
+  (`activity_publication_errors_are_reported_without_aborting_the_run`; the old-pin
+  abort assertion was replaced at re-pin).
+- Re-pin gap: `runtime_mailbox_delivery_prompts_the_session_and_removes_the_accepted_row`
+  is RED. Prompt-mode delivery is gated on `has_configured_auth` (frozen agent-session.ts:3573),
+  and the old-only `model_runtime.rs` (model-runtime.ts is absent at the pin; coverage
+  "Removed by re-pin") lets a deferred `spawn_refresh` claim a newer availability seq,
+  so the awaited refresh's snapshot is discarded. Resolved by the model-registry re-port.
 - Thinking-phase deadline: the 15-minute timer is armed on `agent_start` and after the
   last tool result, cleared on tool start/`agent_end`/abort/dispose, restarted by idle
   steering, skipped for observer runtimes and non-positive timeouts, and the recorded
