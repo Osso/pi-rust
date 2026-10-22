@@ -85,18 +85,18 @@ pub enum ResponsesStreamFailure<E> {
 pub trait ResponsesEventSource {
     type Error;
 
-    fn next_event(&mut self) -> BoxFuture<'_, Result<Option<Value>, Self::Error>>;
+    fn next_event(&mut self) -> BoxFuture<'_, Result<Option<JsValue>, Self::Error>>;
 }
 
 /// In-memory event source used by tests and replay harnesses.
 pub struct VecResponsesEventSource {
-    events: std::vec::IntoIter<Value>,
+    events: std::vec::IntoIter<JsValue>,
 }
 
 impl VecResponsesEventSource {
-    pub fn new(events: Vec<Value>) -> Self {
+    pub fn new<T: Into<JsValue>>(events: Vec<T>) -> Self {
         Self {
-            events: events.into_iter(),
+            events: events.into_iter().map(Into::into).collect::<Vec<_>>().into_iter(),
         }
     }
 }
@@ -104,7 +104,7 @@ impl VecResponsesEventSource {
 impl ResponsesEventSource for VecResponsesEventSource {
     type Error = std::convert::Infallible;
 
-    fn next_event(&mut self) -> BoxFuture<'_, Result<Option<Value>, Self::Error>> {
+    fn next_event(&mut self) -> BoxFuture<'_, Result<Option<JsValue>, Self::Error>> {
         Box::pin(async move { Ok(self.events.next()) })
     }
 }
@@ -121,22 +121,22 @@ fn object(entries: Vec<(&str, JsValue)>) -> JsValue {
     JsValue::Object(map)
 }
 
-fn js_string(value: Option<&Value>) -> String {
+fn js_string(value: Option<&JsValue>) -> String {
     match value {
-        Some(Value::String(text)) => text.clone(),
-        Some(Value::Null) => "null".to_owned(),
-        Some(other) => other.to_string(),
+        Some(JsValue::String(text)) => text.to_utf8().expect("scalar provider metadata is not UTF-8"),
+        Some(JsValue::Null) => "null".to_owned(),
+        Some(other) => pi_js_compat::js_json::stringify_lossless(other),
         None => "undefined".to_owned(),
     }
 }
 
-fn is_truthy(value: &Value) -> bool {
+fn is_truthy(value: &JsValue) -> bool {
     match value {
-        Value::Null => false,
-        Value::Bool(value) => *value,
-        Value::Number(number) => number.as_f64().is_some_and(|value| value != 0.0),
-        Value::String(text) => !text.is_empty(),
-        Value::Array(_) | Value::Object(_) => true,
+        JsValue::Null => false,
+        JsValue::Bool(value) => *value,
+        JsValue::Number(number) => *number != 0.0 && !number.is_nan(),
+        JsValue::String(text) => !text.is_empty(),
+        JsValue::Array(_) | JsValue::Object(_) => true,
     }
 }
 
@@ -234,63 +234,77 @@ fn convert_tool_result_output(model: &Model, content: &[crate::types::TextOrImag
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct CitationTextState {
-    marker_buffer: String,
-    pending_whitespace: String,
+    marker_buffer: pi_js_compat::js_json::JsString,
+    pending_whitespace: pi_js_compat::js_json::JsString,
     removed_citation: bool,
-    last_character: Option<char>,
+    last_character: Option<u16>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct NormalizedCitationText {
     state: CitationTextState,
-    text: String,
+    text: pi_js_compat::js_json::JsString,
 }
 
-fn create_citation_text_state(last_character: Option<char>) -> CitationTextState {
+fn create_citation_text_state(last_character: Option<u16>) -> CitationTextState {
     CitationTextState {
         last_character,
         ..CitationTextState::default()
     }
 }
 
-fn is_raw_hosted_search_citation(marker: &str) -> bool {
+fn is_raw_hosted_search_citation(marker: &pi_js_compat::js_json::JsString) -> bool {
     if !marker.starts_with(RAW_CITATION_PREFIX) || !marker.ends_with(RAW_ANNOTATION_END) {
         return false;
     }
-    let payload = &marker[RAW_CITATION_PREFIX.len()..marker.len() - RAW_ANNOTATION_END.len_utf8()];
+    let payload = marker.slice(RAW_CITATION_PREFIX.encode_utf16().count(), marker.len() - 1);
     let references = payload.split(RAW_ANNOTATION_SEPARATOR).collect::<Vec<_>>();
     !references.is_empty() && references.iter().all(|reference| is_citation_reference(reference))
 }
 
-fn is_citation_reference(reference: &str) -> bool {
+fn is_citation_reference(reference: &pi_js_compat::js_json::JsString) -> bool {
     static PATTERN: OnceLock<regex::Regex> = OnceLock::new();
     PATTERN
         .get_or_init(|| regex::Regex::new(r"^turn[0-9]+[A-Za-z][A-Za-z0-9_-]*[0-9]+$").expect("citation regex"))
-        .is_match(reference)
+        .is_match(&match reference.to_utf8() {
+            Ok(text) => text,
+            Err(_) => return false,
+        })
 }
 
-fn get_citation_boundary_separator(last_character: Option<char>, next_character: char) -> &'static str {
+fn get_citation_boundary_separator(last_character: Option<u16>, next_character: u16) -> &'static str {
     let Some(last_character) = last_character else {
         return "";
     };
-    if last_character.is_whitespace() || next_character.is_whitespace() {
+    if pi_js_compat::string::is_js_whitespace_unit(last_character)
+        || pi_js_compat::string::is_js_whitespace_unit(next_character)
+    {
         return "";
     }
-    if NO_SPACE_AFTER.contains(&last_character) || NO_SPACE_BEFORE.contains(&next_character) {
+    if NO_SPACE_AFTER
+        .iter()
+        .any(|c| u32::from(*c) == u32::from(last_character))
+        || NO_SPACE_BEFORE
+            .iter()
+            .any(|c| u32::from(*c) == u32::from(next_character))
+    {
         return "";
     }
     " "
 }
 
-fn append_visible_citation_text(state: &CitationTextState, text: &str) -> NormalizedCitationText {
+fn append_visible_citation_text(
+    state: &CitationTextState,
+    text: &pi_js_compat::js_json::JsString,
+) -> NormalizedCitationText {
     let mut pending_whitespace = state.pending_whitespace.clone();
     let mut removed_citation = state.removed_citation;
     let mut last_character = state.last_character;
-    let mut normalized_text = String::new();
+    let mut normalized_text = pi_js_compat::js_json::JsString::default();
 
-    for character in text.chars() {
-        if character == ' ' || character == '\t' {
-            pending_whitespace.push(character);
+    for character in text.units().iter().copied() {
+        if character == u16::from(b' ') || character == u16::from(b'\t') {
+            pending_whitespace.push_unit(character);
             continue;
         }
         if removed_citation {
@@ -298,8 +312,8 @@ fn append_visible_citation_text(state: &CitationTextState, text: &str) -> Normal
         } else {
             normalized_text.push_str(&pending_whitespace);
         }
-        normalized_text.push(character);
-        pending_whitespace.clear();
+        normalized_text.push_unit(character);
+        pending_whitespace = Default::default();
         removed_citation = false;
         last_character = Some(character);
     }
@@ -315,61 +329,73 @@ fn append_visible_citation_text(state: &CitationTextState, text: &str) -> Normal
     }
 }
 
-fn find_trailing_citation_buffer_start(text: &str) -> Option<usize> {
-    let marker_start_index = text.rfind(RAW_ANNOTATION_START)?;
-    let marker_candidate = &text[marker_start_index..];
+fn find_trailing_citation_buffer_start(text: &pi_js_compat::js_json::JsString) -> Option<usize> {
+    let marker_start_index = text
+        .units()
+        .iter()
+        .rposition(|unit| u32::from(*unit) == u32::from(RAW_ANNOTATION_START))?;
+    let marker_candidate = text.slice(marker_start_index, text.len());
     if marker_candidate.contains(RAW_ANNOTATION_END) {
         return None;
     }
-    let could_be_citation =
-        RAW_CITATION_PREFIX.starts_with(marker_candidate) || marker_candidate.starts_with(RAW_CITATION_PREFIX);
+    let could_be_citation = pi_js_compat::js_json::JsString::from(RAW_CITATION_PREFIX).starts_with(&marker_candidate)
+        || marker_candidate.starts_with(RAW_CITATION_PREFIX);
     could_be_citation.then_some(marker_start_index)
 }
 
-fn normalize_closed_citation_markers(state: &CitationTextState, text: &str) -> NormalizedCitationText {
+fn normalize_closed_citation_markers(
+    state: &CitationTextState,
+    text: &pi_js_compat::js_json::JsString,
+) -> NormalizedCitationText {
     let mut current_state = state.clone();
-    let mut normalized_text = String::new();
+    let mut normalized_text = pi_js_compat::js_json::JsString::default();
     let mut text_offset = 0;
 
-    while let Some(relative_start) = text[text_offset..].find(RAW_ANNOTATION_START) {
+    while let Some(relative_start) = text.slice(text_offset, text.len()).find(RAW_ANNOTATION_START) {
         let marker_start_index = text_offset + relative_start;
-        let search_start = marker_start_index + RAW_ANNOTATION_START.len_utf8();
-        let Some(relative_end) = text[search_start..].find(RAW_ANNOTATION_END) else {
+        let search_start = marker_start_index + 1;
+        let Some(relative_end) = text.slice(search_start, text.len()).find(RAW_ANNOTATION_END) else {
             break;
         };
-        let marker_end = search_start + relative_end + RAW_ANNOTATION_END.len_utf8();
+        let marker_end = search_start + relative_end + 1;
 
-        let visible = append_visible_citation_text(&current_state, &text[text_offset..marker_start_index]);
+        let visible = append_visible_citation_text(&current_state, &text.slice(text_offset, marker_start_index));
         current_state = visible.state;
         normalized_text.push_str(&visible.text);
 
-        let marker = &text[marker_start_index..marker_end];
-        if is_raw_hosted_search_citation(marker) {
+        let marker = text.slice(marker_start_index, marker_end);
+        if is_raw_hosted_search_citation(&marker) {
             current_state.removed_citation = true;
         } else {
-            let preserved = append_visible_citation_text(&current_state, marker);
+            let preserved = append_visible_citation_text(&current_state, &marker);
             current_state = preserved.state;
             normalized_text.push_str(&preserved.text);
         }
         text_offset = marker_end;
     }
 
-    let trailing = append_visible_citation_text(&current_state, &text[text_offset..]);
+    let trailing = append_visible_citation_text(&current_state, &text.slice(text_offset, text.len()));
     NormalizedCitationText {
         state: trailing.state,
         text: normalized_text + &trailing.text,
     }
 }
 
-fn normalize_citation_text_delta(state: &CitationTextState, delta: &str) -> NormalizedCitationText {
-    let combined_text = format!("{}{}", state.marker_buffer, delta);
+fn normalize_citation_text_delta(
+    state: &CitationTextState,
+    delta: &pi_js_compat::js_json::JsString,
+) -> NormalizedCitationText {
+    let combined_text = state.marker_buffer.clone() + delta;
     let marker_buffer_start = find_trailing_citation_buffer_start(&combined_text);
     let (stable_text, marker_buffer) = match marker_buffer_start {
-        Some(index) => (combined_text[..index].to_owned(), combined_text[index..].to_owned()),
-        None => (combined_text, String::new()),
+        Some(index) => (
+            combined_text.slice(0, index),
+            combined_text.slice(index, combined_text.len()),
+        ),
+        None => (combined_text, pi_js_compat::js_json::JsString::default()),
     };
     let mut without_buffer = state.clone();
-    without_buffer.marker_buffer.clear();
+    without_buffer.marker_buffer = Default::default();
     let normalized = normalize_closed_citation_markers(&without_buffer, &stable_text);
     let mut next_state = normalized.state;
     next_state.marker_buffer = marker_buffer;
@@ -381,8 +407,8 @@ fn normalize_citation_text_delta(state: &CitationTextState, delta: &str) -> Norm
 
 fn finish_citation_text(state: &CitationTextState) -> NormalizedCitationText {
     let mut current_state = state.clone();
-    current_state.marker_buffer.clear();
-    let mut normalized_text = String::new();
+    current_state.marker_buffer = Default::default();
+    let mut normalized_text = pi_js_compat::js_json::JsString::default();
 
     if !state.marker_buffer.is_empty() {
         let preserved = append_visible_citation_text(&current_state, &state.marker_buffer);
@@ -391,7 +417,7 @@ fn finish_citation_text(state: &CitationTextState) -> NormalizedCitationText {
     }
 
     if current_state.removed_citation {
-        current_state.pending_whitespace.clear();
+        current_state.pending_whitespace = Default::default();
         current_state.removed_citation = false;
         return NormalizedCitationText {
             state: current_state,
@@ -406,7 +432,7 @@ fn finish_citation_text(state: &CitationTextState) -> NormalizedCitationText {
     }
 }
 
-fn normalize_citation_text(text: &str) -> String {
+fn normalize_citation_text(text: &pi_js_compat::js_json::JsString) -> pi_js_compat::js_json::JsString {
     let normalized = normalize_citation_text_delta(&create_citation_text_state(None), text);
     normalized.text + &finish_citation_text(&normalized.state).text
 }
@@ -925,9 +951,12 @@ fn parse_arguments(partial_json: Option<&pi_js_compat::js_json::JsString>) -> pi
     }
 }
 
-fn apply_message_phase_stop_reason(output: &mut AssistantMessage, item: &Value) {
-    if item.get("type").and_then(Value::as_str) == Some("message")
-        && item.get("phase").and_then(Value::as_str) == Some("final_answer")
+// Scalar metadata only. Content fields are always read with JsValue::as_string.
+use crate::api::openai_sdk::{ingress_metadata_text, validate_metadata_fields};
+
+fn apply_message_phase_stop_reason(output: &mut AssistantMessage, item: &JsValue) {
+    if item.get("type").and_then(ingress_metadata_text).as_deref() == Some("message")
+        && item.get("phase").and_then(ingress_metadata_text).as_deref() == Some("final_answer")
     {
         output.stop_reason = StopReason::Stop;
     }
@@ -936,12 +965,12 @@ fn apply_message_phase_stop_reason(output: &mut AssistantMessage, item: &Value) 
 fn create_slot(
     slots: &mut BTreeMap<Option<u64>, Slot>,
     output_index: Option<u64>,
-    item: &Value,
+    item: &JsValue,
     output: &mut AssistantMessage,
     sender: &AssistantMessageEventSender,
     options: Option<&OpenAIResponsesStreamOptions>,
 ) -> Option<()> {
-    match item.get("type").and_then(Value::as_str) {
+    match item.get("type").and_then(ingress_metadata_text).as_deref() {
         Some("reasoning") => {
             output
                 .content
@@ -976,18 +1005,21 @@ fn create_slot(
             let item_id = js_string(item.get("id"));
             let mut block = ToolCall::new(
                 format!("{call_id}|{item_id}"),
-                item.get("name").and_then(Value::as_str).unwrap_or(""),
+                item.get("name")
+                    .and_then(ingress_metadata_text)
+                    .as_deref()
+                    .unwrap_or(""),
                 Default::default(),
             );
-            if let Some(namespace) = item.get("namespace").and_then(Value::as_str) {
+            if let Some(namespace) = item.get("namespace").and_then(ingress_metadata_text).as_deref() {
                 block.namespace = Some(namespace.to_owned());
             }
             let partial_json = item
                 .get("arguments")
-                .and_then(Value::as_str)
+                .and_then(JsValue::as_string)
                 .filter(|arguments| !arguments.is_empty())
-                .unwrap_or("")
-                .to_owned();
+                .cloned()
+                .unwrap_or_default();
             output.content.push(AssistantContent::ToolCall(block));
             let content_index = output.content.len() - 1;
             slots.insert(
@@ -1007,24 +1039,24 @@ fn create_slot(
         Some("custom_tool_call") => {
             let call_id = js_string(item.get("call_id"));
             let item_id = js_string(item.get("id"));
-            let name = item.get("name").and_then(Value::as_str).unwrap_or("");
+            let name = item.get("name").and_then(ingress_metadata_text).unwrap_or_default();
             let input_property = options
                 .and_then(|options| options.grammar_tool_input_properties.as_ref())
-                .and_then(|properties| properties.get(name))
+                .and_then(|properties| properties.get(&name))
                 .cloned()
                 .unwrap_or_else(|| "input".to_owned());
             let input = item
                 .get("input")
-                .and_then(Value::as_str)
+                .and_then(JsValue::as_string)
                 .filter(|input| !input.is_empty())
-                .unwrap_or("")
-                .to_owned();
-            let mut block = ToolCall::new(format!("{call_id}|{item_id}"), name, {
+                .cloned()
+                .unwrap_or_default();
+            let mut block = ToolCall::new(format!("{call_id}|{item_id}"), &name, {
                 let mut arguments = JsObject::new();
                 arguments.insert(input_property.clone().into(), JsValue::String(input.into()));
                 arguments
             });
-            if let Some(namespace) = item.get("namespace").and_then(Value::as_str) {
+            if let Some(namespace) = item.get("namespace").and_then(ingress_metadata_text).as_deref() {
                 block.namespace = Some(namespace.to_owned());
             }
             output.content.push(AssistantContent::ToolCall(block));
@@ -1053,7 +1085,7 @@ fn create_slot(
 fn get_or_create_slot(
     slots: &mut BTreeMap<Option<u64>, Slot>,
     output_index: Option<u64>,
-    item: &Value,
+    item: &JsValue,
     output: &mut AssistantMessage,
     sender: &AssistantMessageEventSender,
     options: Option<&OpenAIResponsesStreamOptions>,
@@ -1065,21 +1097,21 @@ fn get_or_create_slot(
 }
 
 fn backfill_reasoning_signatures(
-    response_output: &[Value],
+    response_output: &[JsValue],
     reasoning_blocks_by_id: &BTreeMap<String, usize>,
     output: &mut AssistantMessage,
 ) {
     for item in response_output {
-        if item.get("type").and_then(Value::as_str) != Some("reasoning") {
+        if item.get("type").and_then(ingress_metadata_text).as_deref() != Some("reasoning") {
             continue;
         }
         let Some(encrypted_content) = item.get("encrypted_content").filter(|value| is_truthy(value)) else {
             continue;
         };
-        let Some(id) = item.get("id").and_then(Value::as_str) else {
+        let Some(id) = item.get("id").and_then(ingress_metadata_text) else {
             continue;
         };
-        let Some(content_index) = reasoning_blocks_by_id.get(id) else {
+        let Some(content_index) = reasoning_blocks_by_id.get(&id) else {
             continue;
         };
         let AssistantContent::Thinking(block) = &mut output.content[*content_index] else {
@@ -1088,21 +1120,21 @@ fn backfill_reasoning_signatures(
         let Some(signature) = block.thinking_signature.as_deref() else {
             continue;
         };
-        let Ok(Value::Object(mut stored)) = serde_json::from_str::<Value>(signature) else {
+        let Ok(JsValue::Object(mut stored)) = pi_js_compat::js_json::parse_lossless(signature) else {
             continue;
         };
         if stored.get("encrypted_content").is_some_and(is_truthy) {
             continue;
         }
-        stored.insert("encrypted_content".to_owned(), encrypted_content.clone());
-        block.thinking_signature = Some(Value::Object(stored).to_string());
+        stored.insert("encrypted_content".into(), encrypted_content.clone());
+        block.thinking_signature = Some(pi_js_compat::js_json::stringify_lossless(&JsValue::Object(stored)));
     }
 }
 
 fn emit_text_delta(
     sender: &AssistantMessageEventSender,
     content_index: usize,
-    delta: &str,
+    delta: &pi_js_compat::js_json::JsString,
     output: &mut AssistantMessage,
 ) {
     if delta.is_empty() {
@@ -1121,7 +1153,7 @@ fn emit_text_delta(
 fn append_provider_text_delta(
     sender: &AssistantMessageEventSender,
     content_index: usize,
-    delta: &str,
+    delta: &pi_js_compat::js_json::JsString,
     saw_hosted_web_search_call: bool,
     citation_state: &mut Option<CitationTextState>,
     output: &mut AssistantMessage,
@@ -1131,11 +1163,7 @@ fn append_provider_text_delta(
         return;
     }
     let last_character = match &output.content[content_index] {
-        AssistantContent::Text(block) => block
-            .text
-            .units()
-            .last()
-            .and_then(|unit| char::from_u32(u32::from(*unit))),
+        AssistantContent::Text(block) => block.text.units().last().copied(),
         _ => None,
     };
     let state = citation_state
@@ -1147,27 +1175,32 @@ fn append_provider_text_delta(
 }
 
 fn finalize_response(
-    response: &Value,
+    response: &JsValue,
     output: &mut AssistantMessage,
     model: &Model,
     options: Option<&OpenAIResponsesStreamOptions>,
     reasoning_blocks_by_id: &BTreeMap<String, usize>,
 ) -> Result<(), String> {
     let empty = Vec::new();
-    let response_output = response.get("output").and_then(Value::as_array).unwrap_or(&empty);
+    let response_output = response.get("output").and_then(JsValue::as_array).unwrap_or(&empty);
     backfill_reasoning_signatures(response_output, reasoning_blocks_by_id, output);
 
-    if let Some(id) = response.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+    if let Some(id) = response
+        .get("id")
+        .and_then(ingress_metadata_text)
+        .as_deref()
+        .filter(|id| !id.is_empty())
+    {
         output.response_id = Some(id.to_owned());
     }
 
     let image_generation_item = response_output.iter().find(|item| {
-        item.get("type").and_then(Value::as_str) == Some("image_generation_call")
-            && item.get("status").and_then(Value::as_str) == Some("completed")
+        item.get("type").and_then(ingress_metadata_text).as_deref() == Some("image_generation_call")
+            && item.get("status").and_then(ingress_metadata_text).as_deref() == Some("completed")
             && item.get("result").is_some_and(is_truthy)
     });
     if let Some(item) = image_generation_item
-        && let Some(result) = item.get("result").and_then(Value::as_str)
+        && let Some(result) = item.get("result").and_then(ingress_metadata_text).as_deref()
     {
         output.image_generation_result = Some(ImageContent::new(result, "image/png"));
     }
@@ -1176,31 +1209,32 @@ fn finalize_response(
         let input_details = usage.get("input_tokens_details");
         let cached_tokens = input_details
             .and_then(|details| details.get("cached_tokens"))
-            .and_then(Value::as_f64)
+            .and_then(JsValue::as_f64)
             .unwrap_or(0.0);
         let cache_write_tokens = input_details
             .and_then(|details| details.get("cache_write_tokens"))
-            .and_then(Value::as_f64)
+            .and_then(JsValue::as_f64)
             .unwrap_or(0.0);
-        let input_tokens = usage.get("input_tokens").and_then(Value::as_f64).unwrap_or(0.0);
+        let input_tokens = usage.get("input_tokens").and_then(JsValue::as_f64).unwrap_or(0.0);
         output.usage = Usage {
             input: (input_tokens - cached_tokens - cache_write_tokens).max(0.0),
-            output: usage.get("output_tokens").and_then(Value::as_f64).unwrap_or(0.0),
+            output: usage.get("output_tokens").and_then(JsValue::as_f64).unwrap_or(0.0),
             cache_read: cached_tokens,
             cache_write: cache_write_tokens,
             cache_write_1h: None,
             reasoning: usage
                 .get("output_tokens_details")
                 .and_then(|details| details.get("reasoning_tokens"))
-                .and_then(Value::as_f64)
+                .and_then(JsValue::as_f64)
                 .unwrap_or(0.0)
                 .into(),
-            total_tokens: usage.get("total_tokens").and_then(Value::as_f64).unwrap_or(0.0),
+            total_tokens: usage.get("total_tokens").and_then(JsValue::as_f64).unwrap_or(0.0),
             cost: UsageCost::default(),
         };
         output.usage.cost = calculate_cost(model, &output.usage);
 
-        let response_service_tier = response.get("service_tier").and_then(Value::as_str);
+        let response_service_tier_text = response.get("service_tier").and_then(ingress_metadata_text);
+        let response_service_tier = response_service_tier_text.as_deref();
         if let Some(options) = options {
             let service_tier = match &options.resolve_service_tier {
                 Some(resolve) => resolve(response_service_tier, options.service_tier.as_deref()),
@@ -1214,11 +1248,13 @@ fn finalize_response(
         }
     }
 
-    let status = response.get("status").and_then(Value::as_str);
-    let incomplete_reason = response
+    let status_text = response.get("status").and_then(ingress_metadata_text);
+    let status = status_text.as_deref();
+    let incomplete_reason_text = response
         .get("incomplete_details")
         .and_then(|details| details.get("reason"))
-        .and_then(Value::as_str);
+        .and_then(ingress_metadata_text);
+    let incomplete_reason = incomplete_reason_text.as_deref();
     output.raw_stop_reason = match (status, incomplete_reason) {
         (Some(status), Some(reason)) => Some(format!("{status}.{reason}")),
         (Some(status), None) => Some(status.to_owned()),
@@ -1294,6 +1330,53 @@ fn done_reason(stop_reason: StopReason) -> Option<DoneReason> {
     }
 }
 
+fn validate_response_item_metadata(item: &JsValue) -> Result<(), String> {
+    validate_metadata_fields(
+        item,
+        &[
+            "type",
+            "id",
+            "call_id",
+            "name",
+            "namespace",
+            "phase",
+            "status",
+            "result",
+        ],
+    )?;
+    if let Some(content) = item.get("content").and_then(JsValue::as_array) {
+        for part in content {
+            validate_metadata_fields(part, &["type"])?;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_responses_metadata(event: &JsValue) -> Result<(), String> {
+    validate_metadata_fields(event, &["type", "code", "message", "partial_image_b64"])?;
+    if let Some(item) = event.get("item") {
+        validate_response_item_metadata(item)?;
+    }
+    if let Some(response) = event.get("response") {
+        validate_metadata_fields(response, &["id", "status", "service_tier"])?;
+        if let Some(details) = response.get("incomplete_details") {
+            validate_metadata_fields(details, &["reason"])?;
+        }
+        if let Some(error) = response.get("error") {
+            validate_metadata_fields(error, &["code", "message"])?;
+        }
+        if let Some(items) = response.get("output").and_then(JsValue::as_array) {
+            for item in items {
+                validate_response_item_metadata(item)?;
+            }
+        }
+    }
+    if let Some(error) = event.get("error") {
+        validate_metadata_fields(error, &["code", "message"])?;
+    }
+    Ok(())
+}
+
 pub async fn process_responses_stream<S: ResponsesEventSource>(
     source: &mut S,
     output: &mut AssistantMessage,
@@ -1312,22 +1395,24 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
             Ok(None) => break,
             Err(error) => return Err(ResponsesStreamFailure::Source(error)),
         };
-        let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
-        let output_index = event.get("output_index").and_then(Value::as_u64);
+        validate_responses_metadata(&event).map_err(ResponsesStreamFailure::Message)?;
+        let event_type = event.get("type").and_then(ingress_metadata_text).unwrap_or_default();
+        let output_index = event.get("output_index").and_then(JsValue::as_u64);
 
-        match event_type {
+        match event_type.as_str() {
             "response.created" => {
                 if let Some(id) = event
                     .get("response")
                     .and_then(|response| response.get("id"))
-                    .and_then(Value::as_str)
+                    .and_then(ingress_metadata_text)
+                    .as_deref()
                 {
                     output.response_id = Some(id.to_owned());
                 }
             }
             "response.output_item.added" => {
-                let item = event.get("item").cloned().unwrap_or(Value::Null);
-                if item.get("type").and_then(Value::as_str) == Some("web_search_call") {
+                let item = event.get("item").cloned().unwrap_or(JsValue::Null);
+                if item.get("type").and_then(ingress_metadata_text).as_deref() == Some("web_search_call") {
                     saw_hosted_web_search_call = true;
                 }
                 create_slot(&mut output_slots, output_index, &item, output, sender, options);
@@ -1336,9 +1421,13 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 let Some(content_index) = get_slot(&output_slots, output_index, "thinking") else {
                     continue;
                 };
-                let delta = event.get("delta").and_then(Value::as_str).unwrap_or("");
+                let delta = event
+                    .get("delta")
+                    .and_then(JsValue::as_string)
+                    .cloned()
+                    .unwrap_or_default();
                 if let AssistantContent::Thinking(block) = &mut output.content[content_index] {
-                    block.thinking.push_str(delta);
+                    block.thinking.push_str(&delta);
                 }
                 sender.push(AssistantMessageEvent::ThinkingDelta {
                     content_index,
@@ -1363,7 +1452,11 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 let Some(content_index) = get_slot(&output_slots, output_index, "text") else {
                     continue;
                 };
-                let delta = event.get("delta").and_then(Value::as_str).unwrap_or("");
+                let delta = event
+                    .get("delta")
+                    .and_then(JsValue::as_string)
+                    .cloned()
+                    .unwrap_or_default();
                 let mut citation_state = match output_slots.get(&output_index) {
                     Some(Slot::Text { citation_state, .. }) => citation_state.clone(),
                     _ => None,
@@ -1371,7 +1464,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 append_provider_text_delta(
                     sender,
                     content_index,
-                    delta,
+                    &delta,
                     saw_hosted_web_search_call,
                     &mut citation_state,
                     output,
@@ -1388,14 +1481,18 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 let Some(content_index) = get_slot(&output_slots, output_index, "toolCall") else {
                     continue;
                 };
-                let delta = event.get("delta").and_then(Value::as_str).unwrap_or("");
+                let delta = event
+                    .get("delta")
+                    .and_then(JsValue::as_string)
+                    .cloned()
+                    .unwrap_or_default();
                 let Some(Slot::ToolCall { partial_json, .. }) = output_slots.get_mut(&output_index) else {
                     continue;
                 };
                 let Some(partial_json) = partial_json.as_mut() else {
                     continue;
                 };
-                partial_json.push_str(delta);
+                partial_json.push_str(&delta);
                 let parsed = parse_arguments(Some(partial_json));
                 if let AssistantContent::ToolCall(block) = &mut output.content[content_index] {
                     block.arguments = parsed;
@@ -1406,8 +1503,13 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 let Some(content_index) = get_slot(&output_slots, output_index, "toolCall") else {
                     continue;
                 };
-                let arguments =
-                    pi_js_compat::js_json::JsString::from(event.get("arguments").and_then(Value::as_str).unwrap_or(""));
+                let arguments = pi_js_compat::js_json::JsString::from(
+                    event
+                        .get("arguments")
+                        .and_then(JsValue::as_string)
+                        .cloned()
+                        .unwrap_or_default(),
+                );
                 let Some(Slot::ToolCall { partial_json, .. }) = output_slots.get_mut(&output_index) else {
                     continue;
                 };
@@ -1426,7 +1528,11 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 let Some(content_index) = get_slot(&output_slots, output_index, "toolCall") else {
                     continue;
                 };
-                let delta = event.get("delta").and_then(Value::as_str).unwrap_or("");
+                let delta = event
+                    .get("delta")
+                    .and_then(JsValue::as_string)
+                    .cloned()
+                    .unwrap_or_default();
                 let Some(Slot::ToolCall { custom_input, .. }) = output_slots.get_mut(&output_index) else {
                     continue;
                 };
@@ -1448,7 +1554,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 let Some(content_index) = get_slot(&output_slots, output_index, "toolCall") else {
                     continue;
                 };
-                let input = event.get("input").and_then(Value::as_str);
+                let input = event.get("input").and_then(JsValue::as_string);
                 let Some(Slot::ToolCall { custom_input, .. }) = output_slots.get_mut(&output_index) else {
                     continue;
                 };
@@ -1469,14 +1575,18 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
             }
             "response.image_generation_call.partial_image" => {
                 output.image_generation_result = Some(ImageContent::new(
-                    event.get("partial_image_b64").and_then(Value::as_str).unwrap_or(""),
+                    event
+                        .get("partial_image_b64")
+                        .and_then(ingress_metadata_text)
+                        .as_deref()
+                        .unwrap_or(""),
                     "image/png",
                 ));
             }
             "response.output_item.done" => {
-                let item = event.get("item").cloned().unwrap_or(Value::Null);
+                let item = event.get("item").cloned().unwrap_or(JsValue::Null);
                 apply_message_phase_stop_reason(output, &item);
-                if item.get("type").and_then(Value::as_str) == Some("web_search_call") {
+                if item.get("type").and_then(ingress_metadata_text).as_deref() == Some("web_search_call") {
                     saw_hosted_web_search_call = true;
                 }
                 get_or_create_slot(&mut output_slots, output_index, &item, output, sender, options);
@@ -1488,13 +1598,16 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 };
                 let content_index = get_slot(&output_slots, output_index, slot_kind);
 
-                match item.get("type").and_then(Value::as_str) {
+                match item.get("type").and_then(ingress_metadata_text).as_deref() {
                     Some("image_generation_call")
-                        if item.get("status").and_then(Value::as_str) == Some("completed")
+                        if item.get("status").and_then(ingress_metadata_text).as_deref() == Some("completed")
                             && item.get("result").is_some_and(is_truthy) =>
                     {
                         output.image_generation_result = Some(ImageContent::new(
-                            item.get("result").and_then(Value::as_str).unwrap_or(""),
+                            item.get("result")
+                                .and_then(ingress_metadata_text)
+                                .as_deref()
+                                .unwrap_or(""),
                             "image/png",
                         ));
                     }
@@ -1511,9 +1624,9 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                             } else {
                                 existing
                             };
-                            block.thinking_signature = Some(item.to_string());
+                            block.thinking_signature = Some(pi_js_compat::js_json::stringify_lossless(&item));
                         }
-                        if let Some(id) = item.get("id").and_then(Value::as_str) {
+                        if let Some(id) = item.get("id").and_then(ingress_metadata_text).as_deref() {
                             reasoning_blocks_by_id.insert(id.to_owned(), content_index);
                         }
                         let content = match &output.content[content_index] {
@@ -1539,18 +1652,16 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                             AssistantContent::Text(block) => block.text.clone(),
                             _ => Default::default(),
                         };
-                        let existing_utf8 = existing.to_utf8();
-                        if let Ok(existing_utf8) = existing_utf8
-                            && let Some(remainder) = completed_text.strip_prefix(existing_utf8.as_str())
+                        if let Some(remainder) = completed_text.strip_prefix(&existing)
                             && !remainder.is_empty()
                         {
-                            emit_text_delta(sender, content_index, remainder, output);
+                            emit_text_delta(sender, content_index, &remainder, output);
                         }
                         if let AssistantContent::Text(block) = &mut output.content[content_index] {
                             block.text = completed_text.clone().into();
                             block.text_signature = Some(encode_text_signature_v1(
-                                item.get("id").and_then(Value::as_str).unwrap_or(""),
-                                item.get("phase").and_then(Value::as_str),
+                                item.get("id").and_then(ingress_metadata_text).as_deref().unwrap_or(""),
+                                item.get("phase").and_then(ingress_metadata_text).as_deref(),
                             ));
                         }
                         sender.push(AssistantMessageEvent::TextEnd {
@@ -1570,14 +1681,18 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                         }
                         let arguments = item
                             .get("arguments")
-                            .and_then(Value::as_str)
+                            .and_then(JsValue::as_string)
                             .filter(|arguments| !arguments.is_empty())
                             .map(pi_js_compat::js_json::JsString::from)
                             .or_else(|| partial_json.clone())
                             .filter(|arguments| !arguments.is_empty())
                             .unwrap_or_else(|| "{}".into());
                         let parsed = parse_arguments(Some(&arguments));
-                        let namespace = item.get("namespace").and_then(Value::as_str).map(str::to_owned);
+                        let namespace = item
+                            .get("namespace")
+                            .and_then(ingress_metadata_text)
+                            .as_deref()
+                            .map(str::to_owned);
                         let tool_call = match &mut output.content[content_index] {
                             AssistantContent::ToolCall(block) => {
                                 block.arguments = parsed;
@@ -1606,8 +1721,12 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                         if custom_input.is_none() {
                             continue;
                         }
-                        let input = item.get("input").and_then(Value::as_str);
-                        let namespace = item.get("namespace").and_then(Value::as_str).map(str::to_owned);
+                        let input = item.get("input").and_then(JsValue::as_string);
+                        let namespace = item
+                            .get("namespace")
+                            .and_then(ingress_metadata_text)
+                            .as_deref()
+                            .map(str::to_owned);
                         let mut next_custom_input = output_slots.get(&output_index).and_then(|slot| match slot {
                             Slot::ToolCall { custom_input, .. } => custom_input.clone(),
                             _ => None,
@@ -1643,17 +1762,17 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
             }
             "response.completed" => {
                 saw_terminal_response_event = true;
-                let response = event.get("response").cloned().unwrap_or(Value::Null);
+                let response = event.get("response").cloned().unwrap_or(JsValue::Null);
                 finalize_response(&response, output, model, options, &reasoning_blocks_by_id)
                     .map_err(ResponsesStreamFailure::Message)?;
             }
             "response.incomplete" => {
-                let response = event.get("response").cloned().unwrap_or(Value::Null);
+                let response = event.get("response").cloned().unwrap_or(JsValue::Null);
                 let reason = response
                     .get("incomplete_details")
                     .and_then(|details| details.get("reason"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("unknown");
+                    .and_then(ingress_metadata_text)
+                    .unwrap_or_else(|| "unknown".to_owned());
                 if reason == "max_output_tokens" && output.content.is_empty() {
                     return Err(ResponsesStreamFailure::Message(format!(
                         "Incomplete response returned, reason: {reason}"
@@ -1671,8 +1790,12 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 )));
             }
             "response.failed" => {
-                let response = event.get("response").cloned().unwrap_or(Value::Null);
-                output.raw_stop_reason = response.get("status").and_then(Value::as_str).map(str::to_owned);
+                let response = event.get("response").cloned().unwrap_or(JsValue::Null);
+                output.raw_stop_reason = response
+                    .get("status")
+                    .and_then(ingress_metadata_text)
+                    .as_deref()
+                    .map(str::to_owned);
                 let error = response.get("error");
                 let details = response.get("incomplete_details");
                 let message = match error.filter(|error| is_truthy(error)) {
@@ -1683,7 +1806,8 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                     ),
                     None => match details
                         .and_then(|details| details.get("reason"))
-                        .and_then(Value::as_str)
+                        .and_then(ingress_metadata_text)
+                        .as_deref()
                     {
                         Some(reason) => format!("incomplete: {reason}"),
                         None => "Unknown error (no error details in response)".to_owned(),
@@ -1703,34 +1827,53 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
     Ok(())
 }
 
-fn join_content_text(content: Option<&Value>) -> String {
+fn join_content_text(content: Option<&JsValue>) -> pi_js_compat::js_json::JsString {
     content
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .map(|item| item.get("text").and_then(Value::as_str).unwrap_or(""))
-                .collect::<Vec<_>>()
-                .join("\n\n")
-        })
-        .unwrap_or_default()
-}
-
-fn join_message_content(content: Option<&Value>) -> String {
-    content
-        .and_then(Value::as_array)
+        .and_then(JsValue::as_array)
         .map(|items| {
             items
                 .iter()
                 .map(|item| {
-                    if item.get("type").and_then(Value::as_str) == Some("output_text") {
-                        item.get("text").and_then(Value::as_str).unwrap_or("")
+                    item.get("text")
+                        .and_then(JsValue::as_string)
+                        .cloned()
+                        .unwrap_or_default()
+                })
+                .enumerate()
+                .fold(pi_js_compat::js_json::JsString::default(), |mut text, (index, part)| {
+                    if index > 0 {
+                        text.push_str("\n\n");
+                    }
+                    text.push_str(part);
+                    text
+                })
+        })
+        .unwrap_or_default()
+}
+
+fn join_message_content(content: Option<&JsValue>) -> pi_js_compat::js_json::JsString {
+    content
+        .and_then(JsValue::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| {
+                    if item.get("type").and_then(ingress_metadata_text).as_deref() == Some("output_text") {
+                        item.get("text")
+                            .and_then(JsValue::as_string)
+                            .cloned()
+                            .unwrap_or_default()
                     } else {
-                        item.get("refusal").and_then(Value::as_str).unwrap_or("")
+                        item.get("refusal")
+                            .and_then(JsValue::as_string)
+                            .cloned()
+                            .unwrap_or_default()
                     }
                 })
-                .collect::<Vec<_>>()
-                .join("")
+                .fold(pi_js_compat::js_json::JsString::default(), |mut text, part| {
+                    text.push_str(part);
+                    text
+                })
         })
         .unwrap_or_default()
 }

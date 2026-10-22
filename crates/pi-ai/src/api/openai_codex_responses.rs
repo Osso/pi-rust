@@ -892,11 +892,11 @@ pub enum CodexStreamError {
     Api {
         code: Option<String>,
         message: String,
-        payload: Option<Value>,
+        payload: Option<JsValue>,
     },
     Protocol {
         message: String,
-        payload: Option<Value>,
+        payload: Option<JsValue>,
     },
     Transport(String),
 }
@@ -1329,8 +1329,11 @@ fn parse_error_response(status: u16, status_text: &str, raw: &str) -> ParsedErro
     }
 }
 
+// Scalar metadata only; raw event content stays in JsValue.
+use crate::api::openai_sdk::ingress_metadata_text;
+
 enum SseStep {
-    Event(Value),
+    Event(JsValue),
     Skip,
     Incomplete,
 }
@@ -1378,11 +1381,11 @@ impl SseEventSource {
         if data.is_empty() || data == "[DONE]" {
             return Ok(SseStep::Skip);
         }
-        pi_js_compat::js_json::parse(data)
+        pi_js_compat::js_json::parse_lossless(data)
             .map(SseStep::Event)
             .map_err(|error| CodexStreamError::Protocol {
                 message: format!("Invalid Codex SSE JSON: {error}"),
-                payload: Some(Value::String(data.to_owned())),
+                payload: Some(JsValue::String(data.into())),
             })
     }
 
@@ -1448,7 +1451,7 @@ impl Drop for SseEventSource {
 impl ResponsesEventSource for SseEventSource {
     type Error = CodexStreamError;
 
-    fn next_event(&mut self) -> BoxFuture<'_, Result<Option<Value>, Self::Error>> {
+    fn next_event(&mut self) -> BoxFuture<'_, Result<Option<JsValue>, Self::Error>> {
         Box::pin(async move {
             loop {
                 if is_aborted(self.signal.as_ref()) {
@@ -1498,7 +1501,7 @@ where
 {
     type Error = CodexStreamError;
 
-    fn next_event(&mut self) -> BoxFuture<'_, Result<Option<Value>, Self::Error>> {
+    fn next_event(&mut self) -> BoxFuture<'_, Result<Option<JsValue>, Self::Error>> {
         Box::pin(async move {
             if self.finished {
                 return Ok(None);
@@ -1510,7 +1513,7 @@ where
                 match map_codex_event(event, &self.end_turn)? {
                     Some(event) => {
                         if matches!(
-                            event.get("type").and_then(Value::as_str),
+                            event.get("type").and_then(ingress_metadata_text).as_deref(),
                             Some("response.completed" | "response.incomplete")
                         ) {
                             self.finished = true;
@@ -1524,8 +1527,17 @@ where
     }
 }
 
-fn map_codex_event(mut event: Value, end_turn: &Arc<Mutex<Option<bool>>>) -> Result<Option<Value>, CodexStreamError> {
-    let Some(event_type) = event.get("type").and_then(Value::as_str).map(str::to_owned) else {
+fn map_codex_event(
+    mut event: JsValue,
+    end_turn: &Arc<Mutex<Option<bool>>>,
+) -> Result<Option<JsValue>, CodexStreamError> {
+    crate::api::openai_responses_shared::validate_responses_metadata(&event).map_err(CodexStreamError::Transport)?;
+    let Some(event_type) = event
+        .get("type")
+        .and_then(ingress_metadata_text)
+        .as_deref()
+        .map(str::to_owned)
+    else {
         return Ok(None);
     };
 
@@ -1544,16 +1556,18 @@ fn map_codex_event(mut event: Value, end_turn: &Arc<Mutex<Option<bool>>>) -> Res
             })
         }
         "response.failed" => {
-            let response = event.get("response").cloned().unwrap_or(Value::Null);
+            let response = event.get("response").cloned().unwrap_or(JsValue::Null);
             let code = response
                 .get("error")
                 .and_then(|error| error.get("code"))
-                .and_then(Value::as_str)
+                .and_then(ingress_metadata_text)
+                .as_deref()
                 .map(str::to_owned);
             let message = response
                 .get("error")
                 .and_then(|error| error.get("message"))
-                .and_then(Value::as_str)
+                .and_then(ingress_metadata_text)
+                .as_deref()
                 .map(str::to_owned)
                 .unwrap_or_else(|| "Codex response failed".to_owned());
             Err(CodexStreamError::Api {
@@ -1563,62 +1577,63 @@ fn map_codex_event(mut event: Value, end_turn: &Arc<Mutex<Option<bool>>>) -> Res
             })
         }
         "response.done" | "response.completed" | "response.incomplete" => {
-            let response = event.get("response").cloned().unwrap_or(Value::Null);
-            if let Some(value) = response.get("end_turn").and_then(Value::as_bool) {
+            let response = event.get("response").cloned().unwrap_or(JsValue::Null);
+            if let Some(value) = response.get("end_turn").and_then(JsValue::as_bool) {
                 *end_turn.lock().expect("codex end-turn mutex poisoned") = Some(value);
             }
             let normalized = normalize_codex_response(response);
             let object = event.as_object_mut().expect("codex event is an object");
             object.insert(
-                "type".to_owned(),
-                Value::String(
+                "type".into(),
+                JsValue::String(
                     if event_type == "response.incomplete" {
                         "response.incomplete"
                     } else {
                         "response.completed"
                     }
-                    .to_owned(),
+                    .into(),
                 ),
             );
-            object.insert("response".to_owned(), normalized);
+            object.insert("response".into(), normalized);
             Ok(Some(event))
         }
         _ => Ok(Some(event)),
     }
 }
 
-fn normalize_codex_response(response: Value) -> Value {
-    let Value::Object(mut object) = response else {
+fn normalize_codex_response(response: JsValue) -> JsValue {
+    let JsValue::Object(mut object) = response else {
         return response;
     };
     let status = object
         .get("status")
-        .and_then(Value::as_str)
+        .and_then(ingress_metadata_text)
+        .as_deref()
         .filter(|status| CODEX_RESPONSE_STATUSES.contains(status))
         .map(str::to_owned);
     match status {
         Some(status) => {
-            object.insert("status".to_owned(), Value::String(status));
+            object.insert("status".into(), JsValue::String(status.into()));
         }
         None => {
-            object.insert("status".to_owned(), Value::Null);
+            object.insert("status".into(), JsValue::Null);
         }
     }
-    Value::Object(object)
+    JsValue::Object(object)
 }
 
-fn extract_codex_event_error(event: &Value) -> (Option<String>, Option<String>) {
+fn extract_codex_event_error(event: &JsValue) -> (Option<String>, Option<String>) {
     let nested = event.get("error").filter(|error| error.is_object());
-    let code = event
-        .get("code")
-        .and_then(Value::as_str)
-        .or_else(|| nested.and_then(|error| error.get("code")).and_then(Value::as_str))
-        .map(str::to_owned);
-    let message = event
-        .get("message")
-        .and_then(Value::as_str)
-        .or_else(|| nested.and_then(|error| error.get("message")).and_then(Value::as_str))
-        .map(str::to_owned);
+    let code = event.get("code").and_then(ingress_metadata_text).or_else(|| {
+        nested
+            .and_then(|error| error.get("code"))
+            .and_then(ingress_metadata_text)
+    });
+    let message = event.get("message").and_then(ingress_metadata_text).or_else(|| {
+        nested
+            .and_then(|error| error.get("message"))
+            .and_then(ingress_metadata_text)
+    });
     (code, message)
 }
 
@@ -2499,7 +2514,7 @@ struct WsEventSource {
     stream: SplitStream<WsStream>,
     signal: Option<CancellationToken>,
     idle_timeout_ms: Option<f64>,
-    queue: VecDeque<Value>,
+    queue: VecDeque<JsValue>,
     done: bool,
     failed: Option<CodexStreamError>,
     saw_completion: bool,
@@ -2575,19 +2590,23 @@ impl WsEventSource {
     }
 
     fn handle_text(&mut self, text: &str) {
-        let parsed: Value = match pi_js_compat::js_json::parse(text) {
+        let parsed: JsValue = match pi_js_compat::js_json::parse_lossless(text) {
             Ok(parsed) => parsed,
             Err(error) => {
                 self.fail(CodexStreamError::Protocol {
                     message: format!("Invalid Codex WebSocket JSON: {error}"),
-                    payload: Some(Value::String(text.to_owned())),
+                    payload: Some(JsValue::String(text.into())),
                 });
                 return;
             }
         };
-        let event_type = parsed.get("type").and_then(Value::as_str).unwrap_or("");
+        if let Err(error) = crate::api::openai_responses_shared::validate_responses_metadata(&parsed) {
+            self.fail(CodexStreamError::Transport(error));
+            return;
+        }
+        let event_type = parsed.get("type").and_then(ingress_metadata_text).unwrap_or_default();
         let terminal = matches!(
-            event_type,
+            event_type.as_str(),
             "response.completed" | "response.done" | "response.incomplete"
         );
         if terminal {
@@ -2645,7 +2664,7 @@ impl WsEventSource {
 impl ResponsesEventSource for WsEventSource {
     type Error = CodexStreamError;
 
-    fn next_event(&mut self) -> BoxFuture<'_, Result<Option<Value>, Self::Error>> {
+    fn next_event(&mut self) -> BoxFuture<'_, Result<Option<JsValue>, Self::Error>> {
         Box::pin(async move {
             loop {
                 if is_aborted(self.signal.as_ref()) {

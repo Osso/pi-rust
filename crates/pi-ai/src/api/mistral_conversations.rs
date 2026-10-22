@@ -974,6 +974,9 @@ struct StreamState {
 }
 
 /// Applies one parsed event; `true` means the `[DONE]` sentinel ended the stream.
+// Metadata only: content and argument fragments never cross this scalar boundary.
+use crate::api::openai_sdk::{ingress_metadata_text, validate_metadata_fields};
+
 fn process_mistral_event(
     model: &Model,
     output: &mut AssistantMessage,
@@ -986,12 +989,25 @@ fn process_mistral_event(
         ParsedEvent::Done => return Ok(true),
         ParsedEvent::Empty => return Ok(false),
     };
+    crate::api::openai_sdk::validate_chat_metadata(&chunk).map_err(MistralError::message)?;
+    if let Some(content) = chunk
+        .get("choices")
+        .and_then(JsValue::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("delta"))
+        .and_then(|delta| delta.get("content"))
+        .and_then(JsValue::as_array)
+    {
+        for item in content {
+            validate_metadata_fields(item, &["type"]).map_err(MistralError::message)?;
+        }
+    }
     update_response_id(output, &chunk);
     update_usage(model, output, &chunk);
 
     let Some(choice) = chunk
         .get("choices")
-        .and_then(Value::as_array)
+        .and_then(JsValue::as_array)
         .and_then(|choices| choices.first())
     else {
         return Ok(false);
@@ -1004,7 +1020,7 @@ fn process_mistral_event(
     if let Some(content) = delta.get("content").filter(|value| !value.is_null()) {
         consume_content_delta(output, sender, content, &mut state.current_block);
     }
-    if let Some(tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {
+    if let Some(tool_calls) = delta.get("tool_calls").and_then(JsValue::as_array) {
         for tool_call in tool_calls {
             consume_tool_call_delta(output, sender, tool_call, state);
         }
@@ -1079,22 +1095,26 @@ fn start_block(
 fn consume_content_delta(
     output: &mut AssistantMessage,
     sender: &AssistantMessageEventSender,
-    content: &Value,
+    content: &JsValue,
     current_block: &mut Option<CurrentBlock>,
 ) {
     match content {
-        Value::String(text) => append_text_delta(output, sender, text, current_block),
-        Value::Array(items) => {
+        JsValue::String(text) => append_text_delta(output, sender, text, current_block),
+        JsValue::Array(items) => {
             for item in items {
                 match item {
-                    Value::String(text) => append_text_delta(output, sender, text, current_block),
-                    Value::Object(object) => {
-                        let item_type = object.get("type").and_then(Value::as_str).unwrap_or_default();
+                    JsValue::String(text) => append_text_delta(output, sender, text, current_block),
+                    JsValue::Object(object) => {
+                        let item_type = object.get("type").and_then(ingress_metadata_text).unwrap_or_default();
                         if item_type == "thinking" {
                             append_thinking_delta(output, sender, object, current_block);
                         } else if item_type == "text" {
-                            let text = object.get("text").and_then(Value::as_str).unwrap_or_default();
-                            append_text_delta(output, sender, text, current_block);
+                            let text = object
+                                .get("text")
+                                .and_then(JsValue::as_string)
+                                .cloned()
+                                .unwrap_or_default();
+                            append_text_delta(output, sender, &text, current_block);
                         }
                     }
                     _ => {}
@@ -1108,7 +1128,7 @@ fn consume_content_delta(
 fn append_text_delta(
     output: &mut AssistantMessage,
     sender: &AssistantMessageEventSender,
-    text: &str,
+    text: &pi_js_compat::js_json::JsString,
     current_block: &mut Option<CurrentBlock>,
 ) {
     if !matches!(current_block, Some(CurrentBlock::Text)) {
@@ -1121,7 +1141,7 @@ fn append_text_delta(
         );
     }
     let index = block_index(output);
-    let text_delta = sanitize_surrogates(text).to_owned();
+    let text_delta = sanitize_surrogates(text);
     if let Some(AssistantContent::Text(block)) = output.content.get_mut(index) {
         block.text.push_str(&text_delta);
     }
@@ -1135,21 +1155,24 @@ fn append_text_delta(
 fn append_thinking_delta(
     output: &mut AssistantMessage,
     sender: &AssistantMessageEventSender,
-    object: &Map<String, Value>,
+    object: &JsObject,
     current_block: &mut Option<CurrentBlock>,
 ) {
     let delta_text = object
         .get("thinking")
-        .and_then(Value::as_array)
+        .and_then(JsValue::as_array)
         .map(|parts| {
             parts
                 .iter()
-                .filter_map(|part| part.get("text").and_then(Value::as_str))
+                .filter_map(|part| part.get("text").and_then(JsValue::as_string))
                 .filter(|text| !text.is_empty())
-                .collect::<String>()
+                .fold(pi_js_compat::js_json::JsString::default(), |mut text, part| {
+                    text.push_str(part);
+                    text
+                })
         })
         .unwrap_or_default();
-    let thinking_delta = sanitize_surrogates(&delta_text).to_owned();
+    let thinking_delta = sanitize_surrogates(&delta_text);
     if thinking_delta.is_empty() {
         return;
     }
@@ -1176,7 +1199,7 @@ fn append_thinking_delta(
 fn consume_tool_call_delta(
     output: &mut AssistantMessage,
     sender: &AssistantMessageEventSender,
-    tool_call: &Value,
+    tool_call: &JsValue,
     state: &mut StreamState,
 ) {
     if state.current_block.is_some() {
@@ -1184,14 +1207,14 @@ fn consume_tool_call_delta(
         state.current_block = None;
     }
 
-    let id = tool_call.get("id").and_then(Value::as_str).unwrap_or_default();
+    let id = tool_call.get("id").and_then(ingress_metadata_text).unwrap_or_default();
     let call_id = if !id.is_empty() && id != "null" {
         id.to_owned()
     } else {
-        let index = tool_call.get("index").and_then(Value::as_f64).unwrap_or(0.0);
+        let index = tool_call.get("index").and_then(JsValue::as_f64).unwrap_or(0.0);
         derive_mistral_tool_call_id(&format!("toolcall:{}", js_number_to_string(index)), 0)
     };
-    let index_value = tool_call.get("index").and_then(Value::as_f64).unwrap_or(0.0);
+    let index_value = tool_call.get("index").and_then(JsValue::as_f64).unwrap_or(0.0);
     let key = format!("{call_id}:{}", js_number_to_string(index_value));
 
     let existing = state
@@ -1205,7 +1228,7 @@ fn consume_tool_call_delta(
             let function = tool_call.get("function");
             let name = function
                 .and_then(|function| function.get("name"))
-                .and_then(Value::as_str)
+                .and_then(ingress_metadata_text)
                 .unwrap_or_default();
             output.content.push(AssistantContent::ToolCall(ToolCall::new(
                 call_id,
@@ -1225,9 +1248,9 @@ fn consume_tool_call_delta(
 
     let function = tool_call.get("function");
     let args_delta = match function.and_then(|function| function.get("arguments")) {
-        Some(Value::String(arguments)) => arguments.clone(),
-        Some(arguments) => serde_json::to_string(arguments).unwrap_or_else(|_| "{}".to_owned()),
-        None => "{}".to_owned(),
+        Some(JsValue::String(arguments)) => arguments.clone(),
+        Some(arguments) => pi_js_compat::js_json::stringify_lossless(arguments).into(),
+        None => "{}".into(),
     };
     let buffer = state.partial_args.entry(block_index).or_default();
     buffer.push_str(&args_delta);
@@ -1278,26 +1301,26 @@ fn finalize_tool_blocks(
     }
 }
 
-fn update_response_id(output: &mut AssistantMessage, chunk: &Value) {
+fn update_response_id(output: &mut AssistantMessage, chunk: &JsValue) {
     if output.response_id.as_deref().is_none_or(str::is_empty)
-        && let Some(id) = chunk.get("id").and_then(Value::as_str)
+        && let Some(id) = chunk.get("id").and_then(ingress_metadata_text).as_deref()
         && !id.is_empty()
     {
         output.response_id = Some(id.to_owned());
     }
 }
 
-fn update_usage(model: &Model, output: &mut AssistantMessage, chunk: &Value) {
+fn update_usage(model: &Model, output: &mut AssistantMessage, chunk: &JsValue) {
     let Some(usage) = chunk.get("usage").filter(|usage| usage.is_object()) else {
         return;
     };
-    let prompt_tokens = usage.get("prompt_tokens").and_then(Value::as_f64).unwrap_or(0.0);
+    let prompt_tokens = usage.get("prompt_tokens").and_then(JsValue::as_f64).unwrap_or(0.0);
     let cached_prompt_tokens = cached_prompt_tokens(usage, prompt_tokens);
     output.usage.input = (prompt_tokens - cached_prompt_tokens).max(0.0);
-    output.usage.output = usage.get("completion_tokens").and_then(Value::as_f64).unwrap_or(0.0);
+    output.usage.output = usage.get("completion_tokens").and_then(JsValue::as_f64).unwrap_or(0.0);
     output.usage.cache_read = cached_prompt_tokens;
     output.usage.cache_write = 0.0;
-    let total_tokens = usage.get("total_tokens").and_then(Value::as_f64).unwrap_or(0.0);
+    let total_tokens = usage.get("total_tokens").and_then(JsValue::as_f64).unwrap_or(0.0);
     output.usage.total_tokens = if total_tokens == 0.0 {
         output.usage.input + output.usage.output + output.usage.cache_read + output.usage.cache_write
     } else {
@@ -1306,7 +1329,7 @@ fn update_usage(model: &Model, output: &mut AssistantMessage, chunk: &Value) {
     output.usage.cost = calculate_cost(model, &output.usage);
 }
 
-fn cached_prompt_tokens(usage: &Value, prompt_tokens: f64) -> f64 {
+fn cached_prompt_tokens(usage: &JsValue, prompt_tokens: f64) -> f64 {
     let raw = [
         usage
             .get("promptTokensDetails")
@@ -1325,21 +1348,21 @@ fn cached_prompt_tokens(usage: &Value, prompt_tokens: f64) -> f64 {
     ]
     .into_iter()
     .flatten()
-    .find_map(Value::as_f64)
+    .find_map(JsValue::as_f64)
     .unwrap_or(0.0);
     let cached = if raw.is_finite() { raw } else { 0.0 };
     prompt_tokens.min(cached.max(0.0))
 }
 
-fn apply_finish_reason(output: &mut AssistantMessage, choice: &Value) {
-    let Some(reason) = choice.get("finish_reason").and_then(Value::as_str) else {
+fn apply_finish_reason(output: &mut AssistantMessage, choice: &JsValue) {
+    let Some(reason) = choice.get("finish_reason").and_then(ingress_metadata_text) else {
         return;
     };
     if reason.is_empty() {
         return;
     }
     output.raw_stop_reason = Some(reason.to_owned());
-    match reason {
+    match reason.as_str() {
         "stop" => output.stop_reason = StopReason::Stop,
         "length" | "model_length" => output.stop_reason = StopReason::Length,
         "tool_calls" => output.stop_reason = StopReason::ToolUse,
@@ -1419,7 +1442,7 @@ fn find_mistral_event_boundary(buffer: &str) -> Option<(usize, usize)> {
 }
 
 enum ParsedEvent {
-    Event(Value),
+    Event(JsValue),
     Done,
     Empty,
 }
@@ -1439,9 +1462,9 @@ fn parse_mistral_event(raw: &str) -> Result<ParsedEvent, MistralError> {
     if data == "[DONE]" {
         return Ok(ParsedEvent::Done);
     }
-    let parsed: Value =
-        pi_js_compat::js_json::parse(&data).map_err(|error| MistralError::message(error.to_string()))?;
-    if !parsed.is_object() || !parsed.get("choices").is_some_and(Value::is_array) {
+    let parsed: JsValue =
+        pi_js_compat::js_json::parse_lossless(&data).map_err(|error| MistralError::message(error.to_string()))?;
+    if !parsed.is_object() || !parsed.get("choices").is_some_and(JsValue::is_array) {
         return Err(MistralError::message("Invalid Mistral streaming event"));
     }
     Ok(ParsedEvent::Event(parsed))

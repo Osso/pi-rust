@@ -387,7 +387,7 @@ impl SseJsonStream {
         }
     }
 
-    pub async fn next_event(&mut self) -> Result<Option<Value>, SdkError> {
+    pub async fn next_event(&mut self) -> Result<Option<JsValue>, SdkError> {
         if self.done {
             return Ok(None);
         }
@@ -402,10 +402,12 @@ impl SseJsonStream {
             self.done = true;
             return Ok(None);
         }
-        let value: Value =
-            pi_js_compat::js_json::parse(&event.data).map_err(|error| SdkError::Message(error.to_string()))?;
-        if let Some(error) = value.get("error").filter(|error| is_truthy(error)) {
-            let message = api_error_detail(error);
+        let value: JsValue =
+            pi_js_compat::js_json::parse_lossless(&event.data).map_err(|error| SdkError::Message(error.to_string()))?;
+        if let Some(error) = value.get("error").filter(|error| is_truthy_ingress(error)) {
+            let scalar_error = serde_json::from_str::<Value>(&pi_js_compat::js_json::stringify_lossless(error))
+                .map_err(|error| SdkError::Message(error.to_string()))?;
+            let message = api_error_detail(&scalar_error);
             let mut headers = ProviderErrorHeaders::new();
             for (name, value) in &self.headers {
                 headers.insert(name, value);
@@ -414,8 +416,8 @@ impl SseJsonStream {
                 message,
                 status: None,
                 headers,
-                body: is_plain_non_empty_object(error).then(|| error.to_string()),
-                inner_error: Some(Box::new(error.clone())),
+                body: is_plain_non_empty_object(&scalar_error).then(|| scalar_error.to_string()),
+                inner_error: Some(Box::new(scalar_error)),
             })));
         }
         Ok(Some(value))
@@ -511,20 +513,69 @@ fn decode_sse_segment(segment: &str) -> Vec<SseEvent> {
     events
 }
 
-fn is_truthy(value: &Value) -> bool {
+/// Check only named scalar metadata fields, never content or argument subtrees.
+pub(crate) fn validate_metadata_fields(value: &JsValue, fields: &[&str]) -> Result<(), String> {
+    for field in fields {
+        if let Some(text) = value.get(field).and_then(JsValue::as_string) {
+            text.to_utf8()
+                .map_err(|error| format!("Provider metadata {field}: {error}"))?;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_chat_metadata(chunk: &JsValue) -> Result<(), String> {
+    validate_metadata_fields(chunk, &["id", "model"])?;
+    let Some(choice) = chunk
+        .get("choices")
+        .and_then(JsValue::as_array)
+        .and_then(|choices| choices.first())
+    else {
+        return Ok(());
+    };
+    validate_metadata_fields(choice, &["finish_reason"])?;
+    let Some(delta) = choice.get("delta") else {
+        return Ok(());
+    };
+    if let Some(calls) = delta.get("tool_calls").and_then(JsValue::as_array) {
+        for call in calls {
+            validate_metadata_fields(call, &["id"])?;
+            for kind in ["function", "custom"] {
+                if let Some(function) = call.get(kind) {
+                    validate_metadata_fields(function, &["name"])?;
+                }
+            }
+        }
+    }
+    if let Some(details) = delta.get("reasoning_details").and_then(JsValue::as_array) {
+        for detail in details {
+            validate_metadata_fields(detail, &["type", "id", "data"])?;
+        }
+    }
+    Ok(())
+}
+
+/// Call only after the event's schema-specific metadata validation.
+pub(crate) fn ingress_metadata_text(value: &JsValue) -> Option<String> {
+    value
+        .as_string()
+        .map(|text| text.to_utf8().expect("provider metadata was checked"))
+}
+
+fn is_truthy_ingress(value: &JsValue) -> bool {
     match value {
-        Value::Null => false,
-        Value::Bool(value) => *value,
-        Value::Number(number) => number.as_f64().is_some_and(|value| value != 0.0),
-        Value::String(text) => !text.is_empty(),
-        Value::Array(_) | Value::Object(_) => true,
+        JsValue::Null => false,
+        JsValue::Bool(value) => *value,
+        JsValue::Number(number) => *number != 0.0 && !number.is_nan(),
+        JsValue::String(text) => !text.is_empty(),
+        JsValue::Array(_) | JsValue::Object(_) => true,
     }
 }
 
 impl crate::api::openai_responses_shared::ResponsesEventSource for SseJsonStream {
     type Error = SdkError;
 
-    fn next_event(&mut self) -> BoxFuture<'_, Result<Option<Value>, Self::Error>> {
+    fn next_event(&mut self) -> BoxFuture<'_, Result<Option<JsValue>, Self::Error>> {
         Box::pin(SseJsonStream::next_event(self))
     }
 }
