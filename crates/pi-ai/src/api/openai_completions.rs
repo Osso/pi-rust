@@ -20,9 +20,7 @@ use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
 use crate::api::openai_sdk::{
     SdkClient, SdkClientConfig, SdkError, format_request_error, format_sdk_error, json_object,
 };
-use crate::api::simple_options::{
-    MIN_ANSWER_TOKENS, build_base_options, clamp_standard_reasoning_level, model_thinking_level,
-};
+use crate::api::simple_options::{build_base_options, clamp_standard_reasoning_level, model_thinking_level};
 use crate::api::transform_messages::transform_messages_with;
 use crate::models::{calculate_cost, clamp_thinking_level};
 use crate::request::{
@@ -1090,41 +1088,6 @@ pub fn build_params(
         params.insert("reasoning_effort".into(), JsValue::String(off_value.into()));
     }
 
-    if compat.supports_thinking_token_budget
-        && effort.is_some()
-        && model.reasoning
-        && let Some(level) = effort.and_then(thinking_level_from_str).and_then(clamp_reasoning_level)
-    {
-        let mut budgets = ThinkingBudgets {
-            minimal: Some(1024.0),
-            low: Some(2048.0),
-            medium: Some(8192.0),
-            high: Some(16384.0),
-        };
-        if let Some(custom) = &options.thinking_budgets {
-            budgets.minimal = custom.minimal.or(budgets.minimal);
-            budgets.low = custom.low.or(budgets.low);
-            budgets.medium = custom.medium.or(budgets.medium);
-            budgets.high = custom.high.or(budgets.high);
-        }
-        let budget = match level {
-            crate::types::ThinkingLevel::Minimal => budgets.minimal,
-            crate::types::ThinkingLevel::Low => budgets.low,
-            crate::types::ThinkingLevel::Medium => budgets.medium,
-            _ => budgets.high,
-        }
-        .unwrap_or(0.0);
-        let ceiling = params
-            .get("max_tokens")
-            .and_then(JsValue::as_f64)
-            .or_else(|| params.get("max_completion_tokens").and_then(JsValue::as_f64))
-            .unwrap_or(model.max_tokens);
-        let budget = budget.min((ceiling - MIN_ANSWER_TOKENS).max(0.0));
-        if budget > 0.0 {
-            params.insert("thinking_token_budget".into(), js_number_value(budget).into());
-        }
-    }
-
     if let Some(ModelCompat::OpenAICompletions(compat)) = &model.compat
         && let Some(routing) = &compat.open_router_routing
     {
@@ -1159,18 +1122,6 @@ pub fn build_params(
     }
 
     JsValue::Object(params)
-}
-
-fn clamp_reasoning_level(level: ModelThinkingLevel) -> Option<crate::types::ThinkingLevel> {
-    Some(match level {
-        ModelThinkingLevel::Minimal => crate::types::ThinkingLevel::Minimal,
-        ModelThinkingLevel::Low => crate::types::ThinkingLevel::Low,
-        ModelThinkingLevel::Medium => crate::types::ThinkingLevel::Medium,
-        ModelThinkingLevel::High | ModelThinkingLevel::Xhigh | ModelThinkingLevel::Max | ModelThinkingLevel::Ultra => {
-            crate::types::ThinkingLevel::High
-        }
-        ModelThinkingLevel::Off => return None,
-    })
 }
 
 // =============================================================================

@@ -215,7 +215,7 @@ fn max_tokens_field_and_prompt_cache_follow_compat() {
 }
 
 #[test]
-fn thinking_token_budget_leaves_answer_room() {
+fn old_thinking_budget_options_do_not_add_frozen_request_fields() {
     let model = serde_json::from_value::<Model>(json!({
         "id": "custom", "name": "custom", "api": "openai-completions", "provider": "custom",
         "baseUrl": "https://example.com/v1", "reasoning": true, "input": ["text"],
@@ -244,7 +244,8 @@ fn thinking_token_budget_leaves_answer_room() {
         CacheRetention::Short,
         &IndexMap::new(),
     );
-    assert_eq!(params["thinking_token_budget"].as_f64(), Some(976.0));
+    assert!(params.get("thinking_token_budget").is_none());
+    assert_eq!(params["max_completion_tokens"].as_f64(), Some(2000.0));
 }
 
 #[test]
