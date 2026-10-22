@@ -22,8 +22,8 @@ use crate::config;
 use crate::core::extensions::types::LoadExtensionsResult;
 use crate::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use crate::core::package_manager::{
-    ConfiguredPackage, DefaultPackageManager, MissingSourceAction, PackageSettingsStore, ProgressEvent, ProgressType,
-    ResolvedPaths, SettingsManagerStore,
+    ConfiguredPackage, DefaultPackageManager, PackageSettingsStore, ProgressEvent, ProgressType, ResolvedPaths,
+    SettingsManagerStore,
 };
 use crate::core::project_trust::{AppMode, ResolveProjectTrustedOptions, resolve_project_trusted};
 use crate::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
@@ -1195,20 +1195,10 @@ pub async fn run_self_update(command: &config::SelfUpdateCommand) -> Result<(), 
 
 /// `selectConfig` request handed to the config TUI.
 pub struct SelectConfigRequest {
-    pub global: ResolvedPaths,
-    pub project: ResolvedPaths,
+    pub resolved_paths: ResolvedPaths,
     pub settings: Arc<SettingsManagerStore>,
     pub cwd: JsString,
     pub agent_dir: JsString,
-    pub write_scope: ConfigWriteScope,
-    pub project_mode_available: bool,
-}
-
-/// `writeScope` for the config TUI.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConfigWriteScope {
-    Global,
-    Project,
 }
 
 /// Progress sink: one line per `start` event.
@@ -1550,7 +1540,7 @@ pub async fn execute_config_command(
         return Ok(None);
     };
     let action = outcome.action.take();
-    let Some(PackageAction::Config { local }) = action else {
+    let Some(PackageAction::Config { .. }) = action else {
         return Ok(Some(outcome));
     };
     let cwd = effects.cwd();
@@ -1568,70 +1558,30 @@ pub async fn execute_config_command(
     outcome
         .stderr
         .extend(report_project_trust_warnings_lines(&settings.project_trust_warnings));
-    let trusted = settings.store.with(|manager| manager.is_project_trusted());
-    if local && !trusted {
-        outcome
-            .stderr
-            .push(Chalk::stderr().red("Project is not trusted. Use --approve to modify local resource config."));
-        outcome.exit_code = Some(1);
-        return Ok(Some(outcome));
-    }
     outcome
         .stderr
         .extend(report_settings_errors(&settings.store, "config command"));
 
-    let global_settings_manager = SettingsManager::create(
-        &cwd,
-        Some(&agent_dir),
-        SettingsManagerCreateOptions {
-            project_trusted: Some(false),
-        },
-    )
-    .map_err(|error| error.message().clone())?;
-    let global_manager = DefaultPackageManager::new(
+    let package_manager = DefaultPackageManager::new(
         &cwd,
         &agent_dir,
-        Arc::new(SettingsManagerStore::new(global_settings_manager)),
+        Arc::clone(&settings.store) as Arc<dyn PackageSettingsStore>,
     );
-    let global_resolved_paths = global_manager
-        .resolve(Some(skip_missing_source()))
+    let resolved_paths = package_manager
+        .resolve(None)
         .await
         .map_err(|error| error.message().clone())?;
-    let project_resolved_paths = if trusted {
-        let project_manager = DefaultPackageManager::new(
-            &cwd,
-            &agent_dir,
-            Arc::clone(&settings.store) as Arc<dyn PackageSettingsStore>,
-        );
-        project_manager
-            .resolve(Some(skip_missing_source()))
-            .await
-            .map_err(|error| error.message().clone())?
-    } else {
-        global_resolved_paths.clone()
-    };
 
     effects
         .select_config(SelectConfigRequest {
-            global: global_resolved_paths,
-            project: project_resolved_paths,
+            resolved_paths,
             settings: Arc::clone(&settings.store),
             cwd,
             agent_dir,
-            write_scope: if local {
-                ConfigWriteScope::Project
-            } else {
-                ConfigWriteScope::Global
-            },
-            project_mode_available: trusted,
         })
         .await?;
     outcome.exit_code = Some(0);
     Ok(Some(outcome))
-}
-
-fn skip_missing_source() -> crate::core::package_manager::MissingSourceHandler<'static> {
-    Box::new(|_source: JsString| Box::pin(async { Ok(MissingSourceAction::Skip) }))
 }
 
 /// `DefaultPackageCommandEffects`: the real host wiring.

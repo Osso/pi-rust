@@ -1,63 +1,30 @@
 # config-selector.ts
 
-Source: `coding-agent/src/modes/interactive/components/config-selector.ts`
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/config_selector.rs`
+Frozen: `4f9e6f8a4`, `coding-agent/src/modes/interactive/components/config-selector.ts`.
+Native: `crates/pi-coding-agent/src/modes/interactive/components/config_selector.rs`.
 
-| Symbol / branch | Rust item | Proof |
+| Symbol / branch | Native | Behavioral proof |
 |---|---|---|
-| `ResourceType` | `ResourceType` | grouping/render tests |
-| `formatBaseDir` | `format_base_dir` | group labels in differential renders |
-| `getGroupLabel` | `get_group_label` | differential renders (`npm:pi-tools (user) · inherited global`) |
-| `buildGroups` | `build_groups` | differential renders; group order by origin/scope/source |
-| `FlatEntry` | `FlatEntry` (indices instead of object refs) | navigation/search tests |
-| `ConfigSelectorHeader` render | `ConfigSelectorHeader::render_lines` | scope switch test + differential renders |
-| `ResourceList` construction/chrome | `ResourceList::new` (`chrome = 8`, min 5) | render tests |
-| `setWriteScope` | `set_write_scope` | tab switch test |
-| `groups` getter | `scope_index` / `groups` | tab switch test |
-| `buildInheritedEnabledMap` | `build_inherited_enabled_map` | inherited cycle test |
-| `buildFlatList` | `build_flat_list` | search/navigation tests |
-| `findNextItem` | `find_next_item` | navigation via keybindings (gap: no direct test) |
-| `filterItems` | `filter_items` | search test (`baz`, `zzz` no-match) |
-| `selectFirstItem` | `select_first_item` | search test |
-| `updateItem` | `update_item` | project package cycle test |
-| `render` (search, no-results, group/subgroup/item rows, cursor, scroll info) | `render_lines` | differential renders; inherited dimming test |
-| `handleInput` navigation/page/cancel/ctrl+c/tab | `handle_key_input` | tab tests; page/cancel via keybindings (gap: no direct test) |
-| confirm/space branch + user-scope guard | `handle_key_input` | project cycle, global top-level, package tests |
-| search fallthrough | `handle_key_input` | search test |
-| `toggleResource` | `toggle_resource` | all cycle tests |
-| `toggleTopLevelResource` | `toggle_top_level_resource` | global top-level test |
-| `togglePackageResource` | `toggle_package_resource` | project package cycle; global package path shares helpers (gap: no dedicated global package test) |
-| `renderCheckbox` | `render_checkbox` | differential renders (`[-]`, `[+]`, `[x]`) |
-| `getItemSuffix` | `get_item_suffix` | differential renders (`project load`, `project unload`, `inherited global`) |
-| `isDimmedItem` | `is_dimmed_item` | inherited dimming test |
-| `setProjectResourceOverride` | `set_project_resource_override` | both project cycle tests |
-| `setProjectTopLevelOverride` / `setProjectTopLevelPaths` | `set_project_top_level_override` / `set_top_level_paths` | inherited top-level cycle test |
-| `setProjectPackageOverride` | `set_project_package_override` | project package cycle test |
-| `getNextOverrideState` | `get_next_override_state` | cycle tests |
-| `getProjectOverrideState` | `get_project_override_state` | cycle tests |
-| `getOverrideStateFromEntries` | `get_override_state_from_entries` | cycle tests |
-| `getInheritedEnabled` | `get_inherited_enabled` | cycle tests |
-| `isInheritedGlobalItem` | `is_inherited_global_item` | dimming/cycle tests |
-| `getTopLevelOverridePatterns` | `get_top_level_override_patterns` | inherited top-level cycle test |
-| `getResourcePatternForScope` | `get_resource_pattern_for_scope` | top-level override tests |
-| `createPackageOverrideSource` | `create_package_override_source` | project package cycle (`autoload:false`) |
-| `packageSourceStringMatches` | `package_sources_match` | package cycle |
-| `findMatchingPackageSource` | `find_matching_package_source` | project override state |
-| `getPatternEntryTarget` | `pattern_entry_target` | cycle tests |
-| `getResourceItemKey` | `resource_item_key` | inherited map |
-| `getItemScope` | `get_item_scope` | user-scope guard |
-| `getTopLevelBaseDir` | `get_top_level_base_dir` / `get_top_level_base_dir_str` | override patterns |
-| `getResourcePattern` / `getPackageResourcePattern` | same names | toggle tests |
-| `ConfigSelectorComponent` constructor/switch/getResourceList | `new(ConfigSelectorOptions)` / `switch_write_scope` / `get_resource_list(_mut)` | tab tests, differential |
-| component focus propagation | `Focusable` | code-mapped |
+| `ResourceType`, `formatBaseDir`, `getGroupLabel`, `buildGroups` | resource enums/group builder | differential mixed package/user/project/top-level resources, explicit/implicit bases and all four categories |
+| `FlatEntry`, `buildFlatList`, `selectFirstItem`, `findNextItem`, `filterItems` | indexed groups and entries | differential initial frames, arrows, paging, matching/no-match search, empty list |
+| `ConfigSelectorHeader` | fixed Resource Configuration title and space-toggle/esc-close hint | exact ANSI frames, narrow widths |
+| `ResourceList` constructor/focus/chrome | flat `ResolvedPaths`, min-five visible rows, native input | differential heights 8/10/13/24, native raw focused query |
+| `updateItem`, render checkbox/name/group/scroll | binary enabled state | differential frames after toggles and scrolling |
+| `handleInput` | source navigation/cancel/exit/confirm and search fallthrough; no scope-switch branch | differential event sequence; tab/native header test |
+| `toggleResource`, `toggleTopLevelResource` | resource metadata selects settings scope; exact relative +/- patterns | differential categories/scopes, native project exact-pattern replacement |
+| `togglePackageResource` | string-to-filter conversion; exact source match; preserved other filters including empty arrays | differential three toggles, empty other filter, absent package; native global-package persistence |
+| `getTopLevelBaseDir`, `getResourcePattern`, `getPackageResourcePattern` | native lexical relative paths | differential explicit/implicit bases, native raw pattern persistence |
+| `ConfigSelectorComponent` constructor and `getResourceList` | flat options; forwards focus/input to owned resource list | complete frames/events plus CLI terminal probes |
 
-Adaptations:
-- `ResourceList` stores `FlatEntry` indices instead of `ResourceItem`/`ResourceGroup` references; identical ordering and identity because the lists are rebuilt only on scope changes.
-- The TypeScript component leaves tab handling to `ResourceList.onSwitchMode`. Rust records `switch_requested` in `ResourceList` and the owning component performs the scope switch plus `request_render` after `handle_input`, preserving the `tui.input.tab` keybinding match (including remaps) without a self-referential callback.
-- Project settings setters return `Result`; failures are discarded because the component has no error channel (TypeScript would throw out of `handleInput`). Gap: no write-failure test.
+Removed old-only global/project views, scope switching, inherited-resource dimming, three-state overrides and their APIs/tests. Source writes to the resource's own metadata scope, not a selected write scope. Native fields, search, names, patterns and frames retain `JsString` units; `raw_resource_name_query_and_persisted_pattern_keep_exact_units` asserts unmatched-surrogate preservation.
 
-Gaps: page up/down, cancel, and ctrl+c branches have no direct behavioral test; they are exercised only through keybinding matching.
+## Proof ledger
 
-## Q18 native UTF-16 integration (2026-10-22)
+- RED: `/tmp/pi-rust-repin-lossless-interactive/test-config-selector-red.log` — original selector fails frozen frames (Project Local Resources vs Resource Configuration).
+- GREEN: `test-config-selector-green-3.log` — dedicated differential 1/1 across six scenarios, exact complete frames/settings/events; includes tabs, cancel, default ctrl+c cancellation, all resource kinds/scopes, absent package and empty results.
+- Native/CLI execution tests run separately after the implementation commit; parent owns final checks/readability/independent gate.
 
-Config-selector cwd, agent_dir, paths, names, patterns, search and rendered frames use JsString. Filesystem-style lexical transforms use shared native path helpers; uncaught path errors propagate rather than selecting alternate values. No current primary compiler diagnostics at interactive6; runtime tests remain unexecuted.
+## Remaining proof boundaries
+
+- No claim for duplicate path/type entries across groups, the frozen non-total comparator between project/temporary scopes, or filesystem settings-write failure parity. These are not covered by the six scenarios.
+- Native CLI settings-manager identity is documented in [config-selector](config-selector.md); no whole-package-command parity claim.

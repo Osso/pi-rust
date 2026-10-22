@@ -10,13 +10,13 @@ use pi_ai::request::BoxFuture;
 use pi_coding_agent::config::{InstallContext, SelfUpdateCommand};
 use pi_coding_agent::core::extensions::create_extension_runtime;
 use pi_coding_agent::core::extensions::types::LoadExtensionsResult;
-use pi_coding_agent::core::package_manager::{ConfiguredPackage, InstalledScope};
+use pi_coding_agent::core::package_manager::{ConfiguredPackage, InstalledScope, ResolvedPaths};
 use pi_coding_agent::core::project_trust::AppMode;
 use pi_coding_agent::core::settings_manager::SettingsManager;
 use pi_coding_agent::core::trust_manager::{ProjectTrustDecision, ProjectTrustStore};
 use pi_coding_agent::package_manager_cli::{
-    CommandSettings, ConfigWriteScope, CreateCommandSettingsOptions, DefaultPackageCommandEffects, LocalBoxFuture,
-    PackageCommandEffects, PackageProgressSink, ProjectTrustExtensionsLoader, SelectConfigRequest, command_app_mode,
+    CommandSettings, CreateCommandSettingsOptions, DefaultPackageCommandEffects, LocalBoxFuture, PackageCommandEffects,
+    PackageProgressSink, ProjectTrustExtensionsLoader, SelectConfigRequest, command_app_mode,
     create_command_settings_manager, execute_config_command, execute_package_command, format_package_list,
     get_self_update_plan, pnpm_self_update_metadata_hint_lines, report_project_trust_warnings_lines, run_self_update,
     self_update_fallback_line, self_update_note_lines, self_update_plan, self_update_unavailable_lines,
@@ -132,7 +132,7 @@ struct FakeEffects {
     update: Result<(), JsString>,
     packages: Vec<ConfiguredPackage>,
     progress_messages: Vec<JsString>,
-    config_requests: Mutex<Vec<(ConfigWriteScope, bool)>>,
+    config_requests: Mutex<Vec<ResolvedPaths>>,
     calls: Mutex<Vec<JsString>>,
 }
 
@@ -219,10 +219,7 @@ impl PackageCommandEffects for FakeEffects {
     }
 
     fn select_config<'a>(&'a self, request: SelectConfigRequest) -> LocalBoxFuture<'a, Result<(), JsString>> {
-        self.config_requests
-            .lock()
-            .unwrap()
-            .push((request.write_scope, request.project_mode_available));
+        self.config_requests.lock().unwrap().push(request.resolved_paths);
         Box::pin(async { Ok(()) })
     }
 
@@ -757,32 +754,34 @@ async fn extension_load_errors_become_trust_warnings() {
 }
 
 #[tokio::test]
-async fn config_command_reports_the_requested_scope() {
+async fn config_command_passes_one_resolved_resource_set_and_ignores_old_local_flag() {
     let root = temp_dir("config");
     let project = root.join("project");
-    fs::create_dir_all(&project).unwrap();
-    let effects = FakeEffects::new(&project, &agent_dir("config"), bun_install_context(&root));
+    let agent = root.join("agent");
+    fs::create_dir_all(project.join(".pi/extensions")).unwrap();
+    fs::create_dir_all(agent.join("extensions")).unwrap();
+    let global_path = agent.join("extensions/global.ts");
+    let project_path = project.join(".pi/extensions/local.ts");
+    fs::write(&global_path, "export default () => {};").unwrap();
+    fs::write(&project_path, "export default () => {};").unwrap();
+    let effects = FakeEffects::new(&project, &agent, bun_install_context(&root));
 
-    let outcome = execute_config_command(&args(&["config", "--approve"]), &effects)
-        .await
-        .unwrap()
-        .expect("config is handled");
-    assert_eq!(outcome.exit_code, Some(0));
-    assert_eq!(
-        *effects.config_requests.lock().unwrap(),
-        vec![(ConfigWriteScope::Global, true)]
-    );
-
-    let outcome = execute_config_command(&args(&["config", "-l", "--approve"]), &effects)
-        .await
-        .unwrap()
-        .expect("config is handled");
-    assert_eq!(outcome.exit_code, Some(0));
-    assert_eq!(
-        *effects.config_requests.lock().unwrap(),
-        vec![(ConfigWriteScope::Global, true), (ConfigWriteScope::Project, true)]
-    );
-
+    for flags in [vec!["config", "--approve"], vec!["config", "-l", "--approve"]] {
+        let outcome = execute_config_command(&args(&flags), &effects).await.unwrap().unwrap();
+        assert_eq!(outcome.exit_code, Some(0));
+    }
+    let requests = effects.config_requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0], requests[1]);
+    let mut paths: Vec<_> = requests[0].extensions.iter().map(|r| r.path.clone()).collect();
+    paths.sort();
+    let mut expected: Vec<JsString> = vec![
+        global_path.display().to_string().into(),
+        project_path.display().to_string().into(),
+    ];
+    expected.sort();
+    assert_eq!(paths, expected);
+    drop(requests);
     assert!(
         execute_config_command(&args(&["install", "x"]), &effects)
             .await
@@ -792,24 +791,21 @@ async fn config_command_reports_the_requested_scope() {
 }
 
 #[tokio::test]
-async fn config_local_requires_trust() {
+async fn config_old_local_flag_does_not_require_project_trust() {
     let root = temp_dir("config-trust");
     let project = root.join("project");
-    fs::create_dir_all(project.join(".pi")).unwrap();
-    fs::write(project.join(".pi/settings.json"), "{}").unwrap();
+    fs::create_dir_all(project.join(".pi/extensions")).unwrap();
+    fs::write(project.join(".pi/extensions/local.ts"), "export default () => {};").unwrap();
     let effects = FakeEffects::new(&project, &agent_dir("config-trust"), bun_install_context(&root));
-
     let outcome = execute_config_command(&args(&["config", "-l", "--no-approve"]), &effects)
         .await
         .unwrap()
-        .expect("config is handled");
-
-    assert_eq!(outcome.exit_code, Some(1));
-    assert_eq!(
-        outcome.stderr,
-        vec![Chalk::stderr().red("Project is not trusted. Use --approve to modify local resource config.")]
-    );
-    assert!(effects.config_requests.lock().unwrap().is_empty());
+        .unwrap();
+    assert_eq!(outcome.exit_code, Some(0));
+    assert!(outcome.stderr.is_empty(), "{:?}", outcome.stderr);
+    let requests = effects.config_requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].extensions.is_empty());
 }
 
 #[test]

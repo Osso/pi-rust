@@ -11,20 +11,19 @@ use pi_tui::TUI;
 use pi_tui::terminal::Terminal;
 use pi_tui::tui::{ComponentRef, TuiExt};
 
+use crate::core::package_manager::ResolvedPaths;
 use crate::core::settings_manager::SettingsManager;
 use crate::modes::interactive::components::config_selector::{
-    ConfigSelectorComponent, ConfigSelectorOptions as ComponentOptions, ConfigWriteScope, ScopedResolvedPaths,
+    ConfigSelectorComponent, ConfigSelectorOptions as ComponentOptions,
 };
 use crate::modes::interactive::theme::{init_theme, stop_theme_watcher};
 
 /// `ConfigSelectorOptions`.
 pub struct ConfigSelectorOptions {
-    pub resolved_paths: ScopedResolvedPaths,
+    pub resolved_paths: ResolvedPaths,
     pub settings_manager: Rc<RefCell<SettingsManager>>,
     pub cwd: JsString,
     pub agent_dir: JsString,
-    pub write_scope: ConfigWriteScope,
-    pub project_mode_available: bool,
 }
 
 /// How the selector closed.
@@ -73,8 +72,6 @@ pub fn select_config(
         }),
         request_render: Rc::clone(&request_render),
         terminal_height: Some(terminal_height),
-        write_scope: options.write_scope,
-        project_mode_available: options.project_mode_available,
     });
     let selector: ComponentRef = Rc::new(RefCell::new(selector));
     ui.add_child(Rc::clone(&selector));
@@ -108,24 +105,16 @@ impl crate::package_manager_cli::ConfigSelector for TuiConfigSelector {
                 &request.cwd,
                 Some(&request.agent_dir),
                 crate::core::settings_manager::SettingsManagerCreateOptions {
-                    project_trusted: Some(request.project_mode_available),
+                    project_trusted: Some(request.settings.with(|manager| manager.is_project_trusted())),
                 },
             )
             .map_err(|error| error.message().clone())?;
             let outcome = select_config(
                 ConfigSelectorOptions {
-                    resolved_paths: ScopedResolvedPaths {
-                        global: request.global,
-                        project: request.project,
-                    },
+                    resolved_paths: request.resolved_paths,
                     settings_manager: Rc::new(RefCell::new(settings_manager)),
                     cwd: request.cwd,
                     agent_dir: request.agent_dir,
-                    write_scope: match request.write_scope {
-                        crate::package_manager_cli::ConfigWriteScope::Global => ConfigWriteScope::Global,
-                        crate::package_manager_cli::ConfigWriteScope::Project => ConfigWriteScope::Project,
-                    },
-                    project_mode_available: request.project_mode_available,
                 },
                 Rc::clone(&self.terminal),
             )?;
