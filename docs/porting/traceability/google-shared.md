@@ -4,6 +4,10 @@ Source: `packages/ai/src/api/google-shared.ts`.
 Rust: `crates/pi-ai/src/api/google_shared.rs`.
 Tests: `crates/pi-ai/tests/google_shared.rs` (30 behavioral, ported from `google-thinking-signature.test.ts`, `google-shared-signed-empty-blocks.test.ts`, `google-shared-gemini3-unsigned-tool-call.test.ts`, `google-shared-image-tool-result-routing.test.ts`, `google-shared-convert-tools.test.ts`, `google-shared-retry.test.ts`), plus `crates/pi-ai/tests/differential_google_api.rs` (request bodies exercise `convertMessages`/`convertTools`).
 
+## Q4 function-tool mapping
+
+Frozen `google-shared.ts:304–319` copies plain tool parameters; `mapToolChoice` maps only explicit choices, never infers strict mode. Removed source-absent supports_google_strict_tool_sampling/resolve_google_function_calling_mode, additionalProperties rewriting and strict validation failures. convert_tools now returns its optional array directly, without a fabricated constrained-sampling error. Old strict-helper tests asserted the previous source contract; replaced them with unchanged-schema and literal choice mapping checks, not weakened request assertions. Actual frozen Vertex116 reproduced the extra VALIDATED config and additionalProperties:false; after removal it advances to independent Gemini replay-ID drift. Google shared31 tests GREEN (`google-function-tools-green-1.log`).
+
 ## Q4 max-output ceiling
 
 Frozen `google-shared.ts:12–17` exports `GOOGLE_MAX_OUTPUT_TOKENS=65535` and `clampGoogleMaxOutputTokens`. Both Google request builders use that helper (`google-generative-ai.ts:358`, Vertex456). Native shared config now applies it too. Source request REDs were65536 versus65535 in Generative1/Vertex111; both advanced to separate generated-ID/strict-tool drifts after repair (`google-max-output-green-1.log`). `max_output_token_cap_preserves_js_numbers_below_the_ceiling` covers fractional/negative/infinite/NaN and signed-zero behavior; comparisons never narrow numbers.

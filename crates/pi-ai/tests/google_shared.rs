@@ -3,12 +3,10 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use pi_ai::api::constrained_sampling::ConstrainedSamplingError;
 use pi_ai::api::google_shared::{
     FunctionCallingConfigMode, GoogleRetryOptions, GoogleThinkingLevel, convert_messages, convert_tools,
-    is_thinking_part, map_stop_reason, map_stop_reason_string, requires_tool_call_id,
-    resolve_google_function_calling_mode, retain_thought_signature, retry_google_request,
-    supports_google_strict_tool_sampling,
+    is_thinking_part, map_stop_reason, map_stop_reason_string, map_tool_choice, requires_tool_call_id,
+    retain_thought_signature, retry_google_request,
 };
 use pi_ai::types::{
     AssistantContent, AssistantMessage, AssistantRole, Context, Message, Model, StopReason, TextContent,
@@ -600,9 +598,7 @@ fn tool(parameters: Value) -> Tool {
 }
 
 fn declarations(tools: &[Tool], use_parameters: bool) -> Vec<pi_js_compat::js_json::JsValue> {
-    convert_tools(tools, use_parameters, true)
-        .expect("tools convert")
-        .expect("tools are present")
+    convert_tools(tools, use_parameters).expect("tools are present")
 }
 
 #[test]
@@ -671,52 +667,31 @@ fn json_schema_parameters_keep_their_meta_keys() {
 
 #[test]
 fn empty_tool_lists_produce_no_tools() {
-    assert!(convert_tools(&[], false, true).unwrap().is_none());
-    assert!(convert_tools(&[], true, true).unwrap().is_none());
+    assert!(convert_tools(&[], false).is_none());
+    assert!(convert_tools(&[], true).is_none());
 }
 
 #[test]
-fn strict_tools_use_validated_mode_on_gemini3() {
+fn old_strict_metadata_does_not_rewrite_frozen_tool_parameters() {
     let mut strict_tool = tool(json!({"type": "object", "properties": {}}));
     strict_tool.constrained_sampling = Some(pi_ai::types::ConstrainedSampling::Config(
         pi_ai::types::ConstrainedSamplingConfig::JsonSchema {
             strict: pi_ai::types::JsonSchemaStrictness::Require,
         },
     ));
-    assert!(supports_google_strict_tool_sampling("gemini-3.1-pro-preview"));
-    assert!(!supports_google_strict_tool_sampling("gemini-2.5-pro"));
+    let actual = convert_tools(&[strict_tool.clone()], false).unwrap();
     assert_eq!(
-        resolve_google_function_calling_mode(&[strict_tool.clone()], None, true).unwrap(),
-        Some(FunctionCallingConfigMode::Validated)
-    );
-    let error: ConstrainedSamplingError =
-        resolve_google_function_calling_mode(&[strict_tool], None, false).unwrap_err();
-    assert_eq!(
-        error.message,
-        "Tool \"test_tool\" requires JSON-schema constrained sampling, but strict tools are unsupported."
+        actual[0]["functionDeclarations"][0]["parametersJsonSchema"],
+        pi_js_compat::js_json!(strict_tool.parameters)
     );
 }
 
 #[test]
 fn tool_choice_maps_to_function_calling_modes() {
-    let tools = [tool(json!({"type": "object", "properties": {}}))];
-    assert_eq!(
-        resolve_google_function_calling_mode(&tools, Some("none"), false).unwrap(),
-        Some(FunctionCallingConfigMode::None)
-    );
-    assert_eq!(
-        resolve_google_function_calling_mode(&tools, Some("any"), false).unwrap(),
-        Some(FunctionCallingConfigMode::Any)
-    );
-    assert_eq!(
-        resolve_google_function_calling_mode(&tools, Some("auto"), false).unwrap(),
-        Some(FunctionCallingConfigMode::Auto)
-    );
-    assert_eq!(
-        resolve_google_function_calling_mode(&tools, Some("bogus"), false).unwrap(),
-        Some(FunctionCallingConfigMode::Auto)
-    );
-    assert_eq!(resolve_google_function_calling_mode(&tools, None, false).unwrap(), None);
+    assert_eq!(map_tool_choice("none"), FunctionCallingConfigMode::None);
+    assert_eq!(map_tool_choice("any"), FunctionCallingConfigMode::Any);
+    assert_eq!(map_tool_choice("auto"), FunctionCallingConfigMode::Auto);
+    assert_eq!(map_tool_choice("bogus"), FunctionCallingConfigMode::Auto);
 }
 
 #[test]

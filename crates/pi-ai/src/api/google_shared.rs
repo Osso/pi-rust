@@ -9,9 +9,6 @@ use pi_js_compat::js_json::{JsObject, JsValue};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::api::constrained_sampling::{
-    ConstrainedSamplingError, get_json_schema_tool_parameters, resolve_json_schema_strict_sampling,
-};
 use crate::api::transform_messages::transform_messages_with;
 use crate::types::{
     AssistantContent, AssistantMessage, Context, Message, Modality, Model, ModelThinkingLevel, StopReason, Tool,
@@ -385,18 +382,13 @@ fn sanitize_for_open_api(schema: &Value) -> Value {
 }
 
 /// Convert tools to Gemini function declarations.
-pub fn convert_tools(
-    tools: &[Tool],
-    use_parameters: bool,
-    supports_strict_mode: bool,
-) -> Result<Option<Vec<JsValue>>, ConstrainedSamplingError> {
+pub fn convert_tools(tools: &[Tool], use_parameters: bool) -> Option<Vec<JsValue>> {
     if tools.is_empty() {
-        return Ok(None);
+        return None;
     }
     let mut declarations = Vec::with_capacity(tools.len());
     for tool in tools {
-        let strict = resolve_json_schema_strict_sampling(tool, supports_strict_mode)?;
-        let parameters = get_json_schema_tool_parameters(tool, strict)?;
+        let parameters = tool.parameters.clone();
         let mut declaration = JsObject::new();
         declaration.insert("name".into(), JsValue::String(tool.name.clone().into()));
         declaration.insert("description".into(), JsValue::String(tool.description.clone()));
@@ -407,14 +399,7 @@ pub fn convert_tools(
         }
         declarations.push(JsValue::Object(declaration));
     }
-    Ok(Some(vec![
-        pi_js_compat::js_json!({"functionDeclarations": declarations}),
-    ]))
-}
-
-/// Gemini 3+ enforces required function parameters in validated tool-calling modes.
-pub fn supports_google_strict_tool_sampling(model_id: &str) -> bool {
-    gemini_major_version(model_id).is_some_and(|major| major >= 3)
+    Some(vec![pi_js_compat::js_json!({"functionDeclarations": declarations})])
 }
 
 /// Map a tool choice string to `FunctionCallingConfigMode`.
@@ -424,27 +409,6 @@ pub fn map_tool_choice(choice: &str) -> FunctionCallingConfigMode {
         "any" => FunctionCallingConfigMode::Any,
         _ => FunctionCallingConfigMode::Auto,
     }
-}
-
-pub fn resolve_google_function_calling_mode(
-    tools: &[Tool],
-    tool_choice: Option<&str>,
-    supports_strict_mode: bool,
-) -> Result<Option<FunctionCallingConfigMode>, ConstrainedSamplingError> {
-    let mut use_strict_mode = false;
-    for tool in tools {
-        if resolve_json_schema_strict_sampling(tool, supports_strict_mode)? == Some(true) {
-            use_strict_mode = true;
-            break;
-        }
-    }
-    if matches!(tool_choice, Some("none" | "any")) {
-        return Ok(tool_choice.map(map_tool_choice));
-    }
-    if use_strict_mode {
-        return Ok(Some(FunctionCallingConfigMode::Validated));
-    }
-    Ok(tool_choice.map(map_tool_choice))
 }
 
 /// Map a Gemini `FinishReason` to a Pi stop reason.
@@ -570,13 +534,11 @@ pub(crate) fn build_generate_content_params(
         now,
     } = input;
     let contents = convert_messages(model, context, now);
-    let supports_strict_mode = supports_google_strict_tool_sampling(&model.id);
     let tools = context.tools.as_deref().filter(|tools| !tools.is_empty());
-    let function_calling_mode = match tools {
-        Some(tools) => resolve_google_function_calling_mode(tools, tool_choice, supports_strict_mode)
-            .map_err(|error| GoogleRequestError::new(error.message, None))?,
-        None => None,
-    };
+    let function_calling_mode = tools
+        .and(tool_choice)
+        .filter(|choice| !choice.is_empty())
+        .map(map_tool_choice);
 
     let mut config = JsObject::new();
     if let Some(temperature) = temperature {
@@ -595,8 +557,7 @@ pub(crate) fn build_generate_content_params(
         );
     }
     if let Some(tools) = tools {
-        let declarations = convert_tools(tools, false, supports_strict_mode)
-            .map_err(|error| GoogleRequestError::new(error.message, None))?;
+        let declarations = convert_tools(tools, false);
         if let Some(declarations) = declarations {
             config.insert("tools".into(), JsValue::Array(declarations));
         }
