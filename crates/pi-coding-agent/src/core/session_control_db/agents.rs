@@ -174,9 +174,9 @@ pub enum CommitMultiAgentSteeringDeliveryResult {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CommitMultiAgentLifecycleMutationResult {
-    Ok { agent: Map<String, Value> },
+    Ok { agent: JsObject },
     Err { error: LifecycleCommandError },
 }
 
@@ -1270,7 +1270,7 @@ pub fn commit_multi_agent_lifecycle_mutation(
 
 struct LifecycleMutationPlan {
     data: String,
-    updated: Map<String, Value>,
+    updated: JsObject,
     updated_data: String,
     cancellation: Option<(String, String)>,
     process_identity_data: String,
@@ -1278,7 +1278,7 @@ struct LifecycleMutationPlan {
 
 enum LifecycleMutationRead {
     Plan(LifecycleMutationPlan),
-    Unchanged(Map<String, Value>),
+    Unchanged(JsObject),
     Err(LifecycleCommandError),
 }
 
@@ -1313,26 +1313,31 @@ fn read_lifecycle_mutation_plan(
         == Some(true)
         && agent.get("suppressTerminalNotification").and_then(Value::as_bool) != Some(true);
     if !lifecycle_changed && !persist_suppression {
-        return Ok(LifecycleMutationRead::Unchanged(agent));
+        return Ok(LifecycleMutationRead::Unchanged(
+            super::parse_stored_json_object_lossless(&data, "lifecycle unchanged")?,
+        ));
     }
     if lifecycle_changed && !can_persist_lifecycle_transition_str(current_lifecycle, &input.requested_lifecycle) {
         return Ok(LifecycleMutationRead::Err(LifecycleCommandError::InvalidTransition));
     }
     let revision = agent.get("revision").and_then(Value::as_i64).unwrap_or(0) + 1;
-    let mut updated = agent;
+    let mut updated = super::parse_stored_json_object_lossless(&data, "lifecycle mutation")?;
     if persist_suppression {
-        updated.insert("suppressTerminalNotification".into(), Value::Bool(true));
+        updated.insert("suppressTerminalNotification".into(), JsValue::Bool(true));
     }
-    updated.insert("lifecycle".to_owned(), Value::String(input.requested_lifecycle.clone()));
-    updated.insert("revision".to_owned(), Value::from(revision));
-    updated.insert("updatedAt".to_owned(), Value::String(input.updated_at.clone()));
+    updated.insert(
+        "lifecycle".into(),
+        JsValue::String(input.requested_lifecycle.clone().into()),
+    );
+    updated.insert("revision".into(), JsValue::Number(revision as f64));
+    updated.insert("updatedAt".into(), JsValue::String(input.updated_at.clone().into()));
     let cancellation = input
         .detached_cancellation
         .as_ref()
         .filter(|_| lifecycle_changed)
         .map(|cancellation| build_detached_cancellation_message(input, cancellation, revision))
         .transpose()?;
-    let updated_data = js_json::stringify(&Value::Object(updated.clone()));
+    let updated_data = js_json::stringify_lossless(&JsValue::Object(updated.clone()));
     Ok(LifecycleMutationRead::Plan(LifecycleMutationPlan {
         data,
         updated,
@@ -1853,11 +1858,15 @@ fn ownership_identity(
     }
 }
 
-fn read_agent_data_row(db: &Connection, session_path: &str, agent_id: &str) -> Result<Option<String>, ControlDbError> {
+fn read_agent_data_row(
+    db: &Connection,
+    session_path: &str,
+    agent_id: impl Into<JsString>,
+) -> Result<Option<String>, ControlDbError> {
     Ok(db
         .query_row(
             "SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
-            params![session_path, agent_id],
+            params![session_path, encode_node_utf8(&agent_id.into())],
             |row| row.get(0),
         )
         .optional()?)
@@ -3234,14 +3243,18 @@ pub(crate) fn allocate_multi_agent_counter_with_db(
 pub fn read_multi_agent_agent(
     control_db_path: &str,
     session_path: &str,
-    agent_id: &str,
+    agent_id: impl Into<JsString>,
 ) -> Result<Option<AgentSnapshot>, ControlDbError> {
+    let agent_id = agent_id.into();
     with_control_db(control_db_path, |db| {
-        let data = read_agent_data_row(db, session_path, agent_id)?;
+        let data = read_agent_data_row(db, session_path, &agent_id)?;
         let Some(data) = data else {
             return Ok(None);
         };
-        let context = format!("multi_agent_agents:{session_path}#{agent_id}");
+        let context = format!(
+            "multi_agent_agents:{session_path}#{}",
+            js_json::stringify_lossless(&JsValue::String(agent_id.clone()))
+        );
 
         Ok(Some(parse_agent_snapshot(&data, &context)?))
     })
@@ -3967,6 +3980,58 @@ fn read_detached_owner_for_recovery(
 #[cfg(test)]
 mod lossless_integration_tests {
     use super::*;
+
+    // Frozen session-control-db.ts spreads the existing agent before changing lifecycle metadata.
+    #[test]
+    fn cancellation_preserves_raw_agent_fields_in_database_and_result() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("control.sqlite").display().to_string();
+        let original = js_json::parse_lossless(r#"{"id":"bash_1","displayName":"name\ud800","agentType":"background","lifecycle":"running","revision":1,"createdAt":"","updatedAt":"","cwd":"/repo","permission":{"policy":"on-request","narrowed":true},"result":{"summary":"summary\udfff"},"error":{"message":"error\ud800"},"unrelated":{"\ud800":"raw","�":"replacement","null":null}}"#).unwrap();
+        bootstrap_multi_agent_agent(&database, "/fixture/s", "bash_1", &original).unwrap();
+        let identity = crate::core::runtime_process::ProcessIdentity {
+            pid: 42,
+            start_time_ticks: 100,
+            incarnation: None,
+        };
+        with_control_db(&database, |db| {
+            db.execute("INSERT INTO multi_agent_runtime_owners (session_path, agent_id, process_identity, owner_session_id, owner_agent_id) VALUES (?, ?, ?, ?, NULL)",
+                params!["/fixture/s", "bash_1", serialize_process_identity(&identity), "s"])?;
+            Ok(())
+        }).unwrap();
+        let result = commit_multi_agent_lifecycle_mutation(
+            &database,
+            &CommitMultiAgentLifecycleMutationInput {
+                session_path: "/fixture/s".into(),
+                agent_id: "bash_1".into(),
+                process_identity: identity,
+                owner: MultiAgentRuntimeOwnerIdentity {
+                    session_id: Some("s".into()),
+                    agent_id: None,
+                },
+                requested_lifecycle: "cancelling".into(),
+                updated_at: "2026-10-21T00:00:00.000Z".into(),
+                detached_cancellation: Some(DetachedCancellation {
+                    output_label: "Bash output".into(),
+                    reason: Some(JsString::from_utf16(vec![0xdfff])),
+                    suppress_terminal_notification: None,
+                }),
+            },
+        )
+        .unwrap();
+        let CommitMultiAgentLifecycleMutationResult::Ok { agent } = result else {
+            panic!("cancellation should commit");
+        };
+        let returned = js_json::to_value(&agent).unwrap();
+        let stored = with_control_db(&database, |db| read_agent_data_row(db, "/fixture/s", "bash_1"))
+            .unwrap()
+            .unwrap();
+        let stored = js_json::parse_lossless(&stored).unwrap();
+        for key in ["displayName", "result", "error", "unrelated"] {
+            assert_eq!(stored.get(key), original.get(key), "stored {key}");
+            assert_eq!(returned.get(key), original.get(key), "returned {key}");
+        }
+        assert_eq!(stored.get("lifecycle"), Some(&JsValue::String("cancelling".into())));
+    }
 
     #[test]
     fn cancellation_wire_preserves_reason_and_omits_absent_reason() {
