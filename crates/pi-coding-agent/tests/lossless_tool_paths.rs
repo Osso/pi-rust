@@ -54,6 +54,76 @@ async fn local_write_error_matches_node_original_path_units() {
 }
 
 #[derive(Default)]
+struct RecordingFind {
+    calls: Mutex<Vec<JsValue>>,
+}
+impl pi_coding_agent::core::tools::find::FindOperations for RecordingFind {
+    fn exists<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, io::Result<bool>> {
+        Box::pin(async move {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(pi_js_compat::js_json!(["exists", path]));
+            Ok(true)
+        })
+    }
+    fn supports_glob(&self) -> bool {
+        true
+    }
+    fn glob<'a>(
+        &'a self,
+        pattern: &'a JsString,
+        cwd: &'a JsString,
+        ignore: &'a [JsString],
+        limit: usize,
+    ) -> BoxFuture<'a, io::Result<Vec<JsString>>> {
+        Box::pin(async move {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(pi_js_compat::js_json!(["glob", pattern, cwd, ignore, limit]));
+            Ok(vec![cwd.clone() + "/file-" + JsString::from_utf16(vec![0xdfff])])
+        })
+    }
+}
+
+#[tokio::test]
+async fn custom_find_receives_raw_search_path_pattern_and_results() {
+    use pi_coding_agent::core::tools::find::{FindTool, FindToolOptions};
+    let cwd = JsString::from("/cwd-") + JsString::from_utf16(vec![0xd800]);
+    let params = parse_lossless(r#"{"path":"sub-\ud801","pattern":"*\udfff"}"#).unwrap();
+    let operations = Arc::new(RecordingFind::default());
+    let tool = FindTool::with_options(
+        &cwd,
+        FindToolOptions {
+            operations: Some(operations.clone()),
+        },
+    );
+    let actual = tool
+        .execute("find".into(), params.clone(), None, Arc::new(|_| {}), None)
+        .await
+        .unwrap();
+    let mut source = oracle::TsOracle::spawn(
+        "lossless-tool-paths-oracle.ts",
+        "packages/coding-agent/src/core/tools/find.ts",
+    );
+    let expected = source.request_lossless(&pi_js_compat::js_json!({"kind":"find","cwd":cwd,"params":params}));
+    assert_eq!(
+        JsValue::Array(operations.calls.lock().unwrap().clone()),
+        expected["calls"]
+    );
+    let TextOrImageContent::Text(text) = &actual.content[0] else {
+        panic!("text")
+    };
+    assert_eq!(
+        &text.text,
+        expected["result"]["content"].as_array().unwrap()[0]["text"]
+            .as_string()
+            .unwrap()
+    );
+}
+
+#[derive(Default)]
 struct RecordingEdit {
     calls: Mutex<Vec<JsValue>>,
 }

@@ -23,6 +23,20 @@ async function main() {
 			continue;
 		}
 		const calls: unknown[] = [];
+		if (input.kind === "find") {
+			const tool = module.createFindTool(input.cwd, {
+				operations: {
+					exists: async (path: string) => { calls.push(["exists",path]); return true; },
+					glob: async (pattern: string, cwd: string, options: {ignore:string[];limit:number}) => {
+						calls.push(["glob",pattern,cwd,options.ignore,options.limit]);
+						return [`${cwd}/file-\udfff`];
+					},
+				},
+			});
+			const result = await tool.execute("raw-find", input.params);
+			process.stdout.write(`${JSON.stringify({calls,result})}\n`);
+			continue;
+		}
 		if (input.kind === "edit") {
 			const tool = module.createEditTool(input.cwd, {
 				operations: {
