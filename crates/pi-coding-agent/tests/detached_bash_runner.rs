@@ -1,6 +1,6 @@
 //! `core/detached-bash-runner.ts` behavioral tests at the real process boundary.
 
-use std::collections::BTreeMap;
+use pi_js_compat::js_json::{self, JsObject, JsString, JsValue, encode_node_utf8};
 use std::fs;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -42,10 +42,10 @@ fn test_process_identity(name: &str) -> ProcessIdentity {
     }
 }
 
-fn environment() -> BTreeMap<String, String> {
-    let mut env = BTreeMap::new();
+fn environment() -> JsObject {
+    let mut env = JsObject::new();
     if let Some(path) = std::env::var_os("PATH") {
-        env.insert("PATH".to_owned(), path.to_string_lossy().into_owned());
+        env.insert("PATH".into(), JsValue::String(path.to_string_lossy().as_ref().into()));
     }
     env
 }
@@ -65,19 +65,19 @@ fn fixture(now: &'static str) -> Fixture {
     let session_path = directory.path().join("session.jsonl").to_string_lossy().into_owned();
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
-        control_db_path: control_db_path.clone(),
-        create_agent_id: Arc::new(|| Ok("unused".to_owned())),
-        now: Arc::new(move || now.to_owned()),
+        control_db_path: control_db_path.clone().into(),
+        create_agent_id: Arc::new(|| Ok("unused".into())),
+        now: Arc::new(move || now.into()),
         process_identity: test_process_identity("runner-1"),
-        session_path: session_path.clone(),
+        session_path: session_path.clone().into(),
     }));
     let controller = DetachedJobLifecycleController::new(DetachedJobLifecycleControllerOptions {
-        artifact_root: root,
-        control_db_path: control_db_path.clone(),
+        artifact_root: root.into(),
+        control_db_path: control_db_path.clone().into(),
         coordinator,
         owner_agent_id: None,
-        owner_session_id: "main".to_owned(),
-        session_path: session_path.clone(),
+        owner_session_id: "main".into(),
+        session_path: session_path.clone().into(),
         store: Arc::clone(&store),
         write_bash_launch_manifest: None,
     });
@@ -90,16 +90,16 @@ fn fixture(now: &'static str) -> Fixture {
     }
 }
 
-fn register(fixture: &Fixture, job_id: &str, identity: ProcessIdentity) -> DetachedJobOwnership {
+fn register(fixture: &Fixture, job_id: &JsString, identity: ProcessIdentity) -> DetachedJobOwnership {
     fixture
         .controller
         .register(&RegisterDetachedJobInput {
             agent_type: DetachedJobAgentType::Bash,
-            cwd: fixture.directory.path().to_string_lossy().into_owned(),
-            display_name: "Bash command".to_owned(),
-            job_id: job_id.to_owned(),
+            cwd: fixture.directory.path().to_string_lossy().into_owned().into(),
+            display_name: "Bash command".into(),
+            job_id: job_id.into(),
             process_identity: identity,
-            worker_handle_id: "runner-pending".to_owned(),
+            worker_handle_id: "runner-pending".into(),
             tool_call_id: None,
             detached: None,
             file_refs: None,
@@ -109,25 +109,25 @@ fn register(fixture: &Fixture, job_id: &str, identity: ProcessIdentity) -> Detac
 
 fn manifest(
     fixture: &Fixture,
-    job_id: &str,
-    activation_path: &str,
-    foreground_completion_path: &str,
-    args: Vec<String>,
+    job_id: &JsString,
+    activation_path: &JsString,
+    foreground_completion_path: &JsString,
+    args: Vec<JsString>,
 ) -> DetachedBashLaunchManifestData {
     DetachedBashLaunchManifestData {
-        activation_path: activation_path.to_owned(),
+        activation_path: activation_path.into(),
         args,
         artifacts: fixture.controller.create_artifacts(job_id).expect("artifacts"),
-        command: "/bin/sh".to_owned(),
-        control_db_path: fixture.control_db_path.clone(),
-        cwd: fixture.directory.path().to_string_lossy().into_owned(),
+        command: "/bin/sh".into(),
+        control_db_path: fixture.control_db_path.clone().into(),
+        cwd: fixture.directory.path().to_string_lossy().into_owned().into(),
         env: environment(),
-        foreground_completion_path: foreground_completion_path.to_owned(),
+        foreground_completion_path: foreground_completion_path.into(),
         runner_address: RuntimeMailboxAddress {
-            agent_id: Some(job_id.to_owned()),
-            session_id: "main".to_owned(),
+            agent_id: Some(job_id.into()),
+            session_id: "main".into(),
         },
-        session_path: fixture.session_path.clone(),
+        session_path: fixture.session_path.clone().into(),
         timeout_ms: None,
         tool_call_id: None,
     }
@@ -136,15 +136,21 @@ fn manifest(
 #[test]
 fn launch_manifest_enumerates_numeric_environment_names_like_javascript() {
     let fixture = fixture("2026-07-11T22:00:00.000Z");
-    let mut data = manifest(&fixture, "job", "activation", "done", Vec::new());
+    let mut data = manifest(
+        &fixture,
+        &JsString::from("job"),
+        &JsString::from("activation"),
+        &JsString::from("done"),
+        Vec::new(),
+    );
     data.env = [
-        ("2".into(), "two".into()),
-        ("1".into(), "one".into()),
-        ("10".into(), "ten".into()),
+        ("2".into(), pi_js_compat::js_json!("two")),
+        ("1".into(), pi_js_compat::js_json!("one")),
+        ("10".into(), pi_js_compat::js_json!("ten")),
     ]
     .into();
     let path = fixture.directory.path().join("launch.json");
-    write_detached_bash_launch_manifest(path.to_str().unwrap(), &data).unwrap();
+    write_detached_bash_launch_manifest(&JsString::from(path.to_str().unwrap()), &data).unwrap();
     let bytes = fs::read_to_string(path).unwrap();
     assert!(bytes.contains(r#""env":{"1":"one","2":"two","10":"ten"}"#), "{bytes}");
 }
@@ -168,31 +174,39 @@ async fn owns_payload_exit_and_commits_one_exact_terminal_input() {
     let data = manifest(
         &fixture,
         &job_id,
-        &activation_path,
-        &foreground_completion_path,
-        vec!["-c".to_owned(), "printf done".to_owned()],
+        &JsString::from(&activation_path),
+        &JsString::from(&foreground_completion_path),
+        vec!["-c".into(), "printf done".into()],
     );
     let ownership = register(&fixture, &job_id, test_process_identity("runner"));
-    write_detached_bash_activation(&activation_path, &ownership.identity).expect("activation");
+    write_detached_bash_activation(&JsString::from(&activation_path), &ownership.identity).expect("activation");
     let manifest_path = fixture
         .directory
         .path()
         .join("launch.json")
         .to_string_lossy()
         .into_owned();
-    write_detached_bash_launch_manifest(&manifest_path, &data).expect("manifest");
+    write_detached_bash_launch_manifest(&JsString::from(&manifest_path), &data).expect("manifest");
 
-    let result = run_detached_bash_runner(&manifest_path, None).await.expect("run");
+    let result = run_detached_bash_runner(&JsString::from(&manifest_path), None)
+        .await
+        .expect("run");
     assert_eq!(result.exit_code, Some(0));
     assert_eq!(result.terminal_revision, 2);
-    assert_eq!(fs::read_to_string(&data.artifacts.output_path).expect("output"), "done");
+    assert_eq!(
+        fs::read_to_string(&encode_node_utf8(&data.artifacts.output_path)).expect("output"),
+        "done"
+    );
     let agent = read_multi_agent_agent(&fixture.control_db_path, &fixture.session_path, &job_id)
         .expect("read")
         .expect("agent");
     assert_eq!(agent.lifecycle, AgentLifecycle::Completed);
     assert_eq!(agent.revision, 2);
     let result_details = agent.result.expect("result");
-    assert_eq!(result_details.summary.as_deref(), Some("Process exited successfully."));
+    assert_eq!(
+        result_details.summary.as_ref(),
+        Some(&JsString::from("Process exited successfully."))
+    );
     assert_eq!(
         result_details.file_refs.expect("file refs")[0].path,
         data.artifacts.output_path
@@ -218,9 +232,9 @@ async fn completes_a_foreground_run_without_registering_a_background_job() {
     let data = manifest(
         &fixture,
         &job_id,
-        &activation_path,
-        &foreground_completion_path,
-        vec!["-c".to_owned(), "printf foreground".to_owned()],
+        &JsString::from(&activation_path),
+        &JsString::from(&foreground_completion_path),
+        vec!["-c".into(), "printf foreground".into()],
     );
     let manifest_path = fixture
         .directory
@@ -228,13 +242,15 @@ async fn completes_a_foreground_run_without_registering_a_background_job() {
         .join("launch.json")
         .to_string_lossy()
         .into_owned();
-    write_detached_bash_launch_manifest(&manifest_path, &data).expect("manifest");
+    write_detached_bash_launch_manifest(&JsString::from(&manifest_path), &data).expect("manifest");
 
-    let result = run_detached_bash_runner(&manifest_path, None).await.expect("run");
+    let result = run_detached_bash_runner(&JsString::from(&manifest_path), None)
+        .await
+        .expect("run");
     assert_eq!(result.exit_code, Some(0));
     assert_eq!(result.terminal_revision, 0);
     assert_eq!(
-        fs::read_to_string(&data.artifacts.output_path).expect("output"),
+        fs::read_to_string(&encode_node_utf8(&data.artifacts.output_path)).expect("output"),
         "foreground"
     );
     let completion: serde_json::Value =
@@ -263,41 +279,38 @@ async fn adopts_the_cancelling_revision_terminates_the_payload_group_and_finaliz
         .into_owned();
     let data = manifest(
         &fixture,
-        job_id,
-        &activation_path,
-        &foreground_completion_path,
-        vec![
-            "-c".to_owned(),
-            "while true; do printf running; sleep 0.05; done".to_owned(),
-        ],
+        &JsString::from(job_id),
+        &JsString::from(&activation_path),
+        &JsString::from(&foreground_completion_path),
+        vec!["-c".into(), "while true; do printf running; sleep 0.05; done".into()],
     );
     let ownership = register(
         &fixture,
-        job_id,
+        &JsString::from(job_id),
         read_process_identity(std::process::id()).expect("process identity"),
     );
-    write_detached_bash_activation(&activation_path, &ownership.identity).expect("activation");
+    write_detached_bash_activation(&JsString::from(&activation_path), &ownership.identity).expect("activation");
     let manifest_path = fixture
         .directory
         .path()
         .join("launch.json")
         .to_string_lossy()
         .into_owned();
-    write_detached_bash_launch_manifest(&manifest_path, &data).expect("manifest");
+    write_detached_bash_launch_manifest(&JsString::from(&manifest_path), &data).expect("manifest");
 
     let runner = tokio::spawn({
         let manifest_path = manifest_path.clone();
-        async move { run_detached_bash_runner(&manifest_path, None).await }
+        async move { run_detached_bash_runner(&JsString::from(&manifest_path), None).await }
     });
-    let identity_path = std::path::Path::new(&data.artifacts.directory).join("payload.json");
+    let identity_path = std::path::Path::new(&encode_node_utf8(&data.artifacts.directory)).join("payload.json");
     wait_for(|| identity_path.exists(), "payload identity").await;
 
     let coordinator = LifecycleCoordinator::new(LifecycleCoordinatorOptions {
-        control_db_path: fixture.control_db_path.clone(),
-        create_agent_id: Arc::new(|| Ok("unused".to_owned())),
-        now: Arc::new(|| "2026-07-11T22:00:00.000Z".to_owned()),
+        control_db_path: fixture.control_db_path.clone().into(),
+        create_agent_id: Arc::new(|| Ok("unused".into())),
+        now: Arc::new(|| "2026-07-11T22:00:00.000Z".into()),
         process_identity: test_process_identity("runner-1"),
-        session_path: fixture.session_path.clone(),
+        session_path: fixture.session_path.clone().into(),
     });
     let cancelling = coordinator
         .request_detached_cancellation(
@@ -316,17 +329,17 @@ async fn adopts_the_cancelling_revision_terminates_the_payload_group_and_finaliz
         panic!("expected cancelling state");
     };
 
+    let cancel_body = js_json::stringify_lossless(&pi_js_compat::js_json!({
+        "command": "cancel",
+        "identity": ownership.identity,
+        "reason": "test cancel",
+    }));
     upsert_multi_agent_mailbox_message(
         &fixture.control_db_path,
         &fixture.session_path,
         "message_1",
-        &serde_json::json!({
-            "body": serde_json::json!({
-                "command": "cancel",
-                "identity": ownership.identity,
-                "reason": "test cancel",
-            })
-            .to_string(),
+        &pi_js_compat::js_json!({
+            "body": cancel_body,
             "fromAgentId": "main",
             "id": "message_1",
             "kind": "system",
@@ -342,12 +355,12 @@ async fn adopts_the_cancelling_revision_terminates_the_payload_group_and_finaliz
             recipient_host: None,
             sender: RuntimeMailboxAddress {
                 agent_id: None,
-                session_id: "main".to_owned(),
+                session_id: "main".into(),
             },
             kind: RuntimeMailboxMessageKind::System,
             store_ref: RuntimeMailboxStoreRef {
-                message_id: "message_1".to_owned(),
-                session_path: fixture.session_path.clone(),
+                message_id: "message_1".into(),
+                session_path: fixture.session_path.clone().into(),
             },
         },
     )
@@ -380,52 +393,52 @@ async fn answers_status_requests_while_the_payload_runs() {
         .into_owned();
     let data = manifest(
         &fixture,
-        job_id,
-        &activation_path,
-        &foreground_completion_path,
-        vec!["-c".to_owned(), "sleep 0.4; printf done".to_owned()],
+        &JsString::from(job_id),
+        &JsString::from(&activation_path),
+        &JsString::from(&foreground_completion_path),
+        vec!["-c".into(), "sleep 0.4; printf done".into()],
     );
     let ownership = register(
         &fixture,
-        job_id,
+        &JsString::from(job_id),
         read_process_identity(std::process::id()).expect("process identity"),
     );
-    write_detached_bash_activation(&activation_path, &ownership.identity).expect("activation");
+    write_detached_bash_activation(&JsString::from(&activation_path), &ownership.identity).expect("activation");
     let manifest_path = fixture
         .directory
         .path()
         .join("launch.json")
         .to_string_lossy()
         .into_owned();
-    write_detached_bash_launch_manifest(&manifest_path, &data).expect("manifest");
+    write_detached_bash_launch_manifest(&JsString::from(&manifest_path), &data).expect("manifest");
 
     let runner = tokio::spawn({
         let manifest_path = manifest_path.clone();
-        async move { run_detached_bash_runner(&manifest_path, None).await }
+        async move { run_detached_bash_runner(&JsString::from(&manifest_path), None).await }
     });
-    let identity_path = std::path::Path::new(&data.artifacts.directory).join("payload.json");
+    let identity_path = std::path::Path::new(&encode_node_utf8(&data.artifacts.directory)).join("payload.json");
     wait_for(|| identity_path.exists(), "payload identity").await;
 
     let requester = RuntimeMailboxAddress {
         agent_id: None,
-        session_id: "main".to_owned(),
+        session_id: "main".into(),
     };
     register_runtime_mailbox_listener(
         &fixture.control_db_path,
         &requester,
         std::process::id(),
-        Some(&fixture.session_path),
+        Some(&JsString::from(&fixture.session_path)),
         Default::default(),
     )
     .expect("requester listener");
     enqueue_detached_job_status_request(
         &pi_coding_agent::core::detached_job_control::EnqueueDetachedJobStatusRequestInput {
-            control_db_path: fixture.control_db_path.clone(),
+            control_db_path: fixture.control_db_path.clone().into(),
             identity: ownership.identity.clone(),
             requester_address: requester.clone(),
-            request_id: "status-1".to_owned(),
+            request_id: "status-1".into(),
             runner_address: data.runner_address.clone(),
-            session_path: fixture.session_path.clone(),
+            session_path: fixture.session_path.clone().into(),
         },
     )
     .expect("status request");
@@ -437,8 +450,8 @@ async fn answers_status_requests_while_the_payload_runs() {
         panic!("expected response");
     };
     let status = response.result.as_ref().expect("status");
-    assert_eq!(status["state"], "running");
-    assert_eq!(status["outputPath"], data.artifacts.output_path);
+    assert_eq!(status["state"], pi_js_compat::js_json!("running"));
+    assert_eq!(status["outputPath"], pi_js_compat::js_json!(data.artifacts.output_path));
 }
 
 async fn wait_for_status_response(
@@ -449,7 +462,7 @@ async fn wait_for_status_response(
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         let commands = pi_coding_agent::core::detached_job_control::claim_detached_job_runtime_commands(
-            &fixture.control_db_path,
+            &JsString::from(&fixture.control_db_path),
             requester,
             &ownership.identity,
         )
@@ -472,7 +485,7 @@ fn detached_runner_process_entry() {
         .build()
         .expect("runtime");
     runtime
-        .block_on(run_detached_bash_runner(&manifest_path, None))
+        .block_on(run_detached_bash_runner(&JsString::from(&manifest_path), None))
         .expect("runner process");
 }
 
@@ -497,14 +510,14 @@ async fn launches_an_independent_runner_that_remains_the_payload_parent() {
     let release_path = fixture.directory.path().join("release-payload");
     let data = manifest(
         &fixture,
-        job_id,
-        &activation_path,
-        &foreground_completion_path,
+        &JsString::from(job_id),
+        &JsString::from(&activation_path),
+        &JsString::from(&foreground_completion_path),
         vec![
-            "-c".to_owned(),
-            format!(
+            "-c".into(),
+            pi_js_compat::js_format!(
                 "while [ ! -e '{}' ]; do sleep 0.01; done; printf independent",
-                release_path.display()
+                release_path.to_str().unwrap()
             ),
         ],
     );
@@ -514,7 +527,7 @@ async fn launches_an_independent_runner_that_remains_the_payload_parent() {
         .join("launch.json")
         .to_string_lossy()
         .into_owned();
-    write_detached_bash_launch_manifest(&manifest_path, &data).expect("manifest");
+    write_detached_bash_launch_manifest(&JsString::from(&manifest_path), &data).expect("manifest");
     let mut runner = std::process::Command::new(std::env::current_exe().expect("test binary"))
         .args(["--exact", "detached_runner_process_entry", "--nocapture"])
         .env(TEST_RUNNER_ENV, &manifest_path)
@@ -527,11 +540,11 @@ async fn launches_an_independent_runner_that_remains_the_payload_parent() {
     let runner_pid = runner.id();
     let ownership = register(
         &fixture,
-        job_id,
+        &JsString::from(job_id),
         read_process_identity(runner_pid).expect("runner identity"),
     );
-    write_detached_bash_activation(&activation_path, &ownership.identity).expect("activation");
-    let identity_path = std::path::Path::new(&data.artifacts.directory).join("payload.json");
+    write_detached_bash_activation(&JsString::from(&activation_path), &ownership.identity).expect("activation");
+    let identity_path = std::path::Path::new(&encode_node_utf8(&data.artifacts.directory)).join("payload.json");
     wait_for(|| identity_path.exists(), "payload identity").await;
     let payload_identity: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&identity_path).expect("payload identity"))
@@ -555,7 +568,7 @@ async fn launches_an_independent_runner_that_remains_the_payload_parent() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert!(
-        fs::read_to_string(&data.artifacts.output_path)
+        fs::read_to_string(&encode_node_utf8(&data.artifacts.output_path))
             .expect("output")
             .contains("independent")
     );
@@ -566,15 +579,20 @@ async fn launches_an_independent_runner_that_remains_the_payload_parent() {
 async fn does_not_retry_non_database_terminal_finalization_failures() {
     let directory = tempfile::tempdir().expect("temp dir");
     let artifacts = pi_coding_agent::core::detached_job_runner::DetachedJobArtifacts {
-        directory: directory.path().to_string_lossy().into_owned(),
-        output_path: directory.path().join("output.log").to_string_lossy().into_owned(),
+        directory: directory.path().to_string_lossy().into_owned().into(),
+        output_path: directory
+            .path()
+            .join("output.log")
+            .to_string_lossy()
+            .into_owned()
+            .into(),
     };
-    fs::write(&artifacts.output_path, "done").expect("output");
+    fs::write(&encode_node_utf8(&artifacts.output_path), "done").expect("output");
     let identity = pi_coding_agent::core::detached_job_runner::DetachedJobOwnershipIdentity {
-        job_id: "job-1".to_owned(),
+        job_id: "job-1".into(),
         owner: pi_coding_agent::core::session_control_db::MultiAgentRuntimeOwnerIdentity {
             agent_id: None,
-            session_id: "runner".to_owned(),
+            session_id: "runner".into(),
         },
         process_identity: test_process_identity("retry"),
         output_label: "Bash output".into(),
@@ -584,9 +602,9 @@ async fn does_not_retry_non_database_terminal_finalization_failures() {
         &identity,
         DetachedJobOutcome::Completed {
             exit_code: None,
-            summary: Some("done".to_owned()),
+            summary: Some("done".into()),
         },
-        "2026-07-11T22:00:00.000Z",
+        &JsString::from("2026-07-11T22:00:00.000Z"),
         None,
         None,
     )
@@ -609,15 +627,20 @@ async fn does_not_retry_non_database_terminal_finalization_failures() {
 async fn retries_the_same_terminal_input_after_transient_database_failures() {
     let directory = tempfile::tempdir().expect("temp dir");
     let artifacts = pi_coding_agent::core::detached_job_runner::DetachedJobArtifacts {
-        directory: directory.path().to_string_lossy().into_owned(),
-        output_path: directory.path().join("output.log").to_string_lossy().into_owned(),
+        directory: directory.path().to_string_lossy().into_owned().into(),
+        output_path: directory
+            .path()
+            .join("output.log")
+            .to_string_lossy()
+            .into_owned()
+            .into(),
     };
-    fs::write(&artifacts.output_path, "done").expect("output");
+    fs::write(&encode_node_utf8(&artifacts.output_path), "done").expect("output");
     let identity = pi_coding_agent::core::detached_job_runner::DetachedJobOwnershipIdentity {
-        job_id: "job-1".to_owned(),
+        job_id: "job-1".into(),
         owner: pi_coding_agent::core::session_control_db::MultiAgentRuntimeOwnerIdentity {
             agent_id: None,
-            session_id: "runner".to_owned(),
+            session_id: "runner".into(),
         },
         process_identity: test_process_identity("retry"),
         output_label: "Bash output".into(),
@@ -627,9 +650,9 @@ async fn retries_the_same_terminal_input_after_transient_database_failures() {
         &identity,
         DetachedJobOutcome::Completed {
             exit_code: None,
-            summary: Some("done".to_owned()),
+            summary: Some("done".into()),
         },
-        "2026-07-11T22:00:00.000Z",
+        &JsString::from("2026-07-11T22:00:00.000Z"),
         None,
         None,
     )
@@ -657,15 +680,20 @@ async fn retries_the_same_terminal_input_after_transient_database_failures() {
 async fn default_retry_delay_is_250_milliseconds() {
     let directory = tempfile::tempdir().expect("temp dir");
     let artifacts = pi_coding_agent::core::detached_job_runner::DetachedJobArtifacts {
-        directory: directory.path().to_string_lossy().into_owned(),
-        output_path: directory.path().join("output.log").to_string_lossy().into_owned(),
+        directory: directory.path().to_string_lossy().into_owned().into(),
+        output_path: directory
+            .path()
+            .join("output.log")
+            .to_string_lossy()
+            .into_owned()
+            .into(),
     };
-    fs::write(&artifacts.output_path, "done").expect("output");
+    fs::write(&encode_node_utf8(&artifacts.output_path), "done").expect("output");
     let identity = pi_coding_agent::core::detached_job_runner::DetachedJobOwnershipIdentity {
-        job_id: "job-1".to_owned(),
+        job_id: "job-1".into(),
         owner: pi_coding_agent::core::session_control_db::MultiAgentRuntimeOwnerIdentity {
             agent_id: None,
-            session_id: "runner".to_owned(),
+            session_id: "runner".into(),
         },
         process_identity: test_process_identity("retry"),
         output_label: "Bash output".into(),
@@ -677,7 +705,7 @@ async fn default_retry_delay_is_250_milliseconds() {
             exit_code: None,
             summary: None,
         },
-        "2026-07-11T22:00:00.000Z",
+        &JsString::from("2026-07-11T22:00:00.000Z"),
         None,
         None,
     )
@@ -712,7 +740,10 @@ impl DetachedFinalizeError for FakeError {
 async fn reads_activation_only_when_the_file_exists() {
     let directory = tempfile::tempdir().expect("temp dir");
     let path = directory.path().join("activation.json").to_string_lossy().into_owned();
-    assert_eq!(read_detached_bash_activation(&path).expect("read"), None);
+    assert_eq!(
+        read_detached_bash_activation(&JsString::from(&path)).expect("read"),
+        None
+    );
 }
 
 async fn wait_for(mut predicate: impl FnMut() -> bool, label: &str) {
@@ -744,19 +775,19 @@ fn real_pi_binary_finalizes_a_detached_bash_job() {
     let data = manifest(
         &fixture,
         &job_id,
-        &activation_path,
-        &foreground_completion_path,
-        vec!["-c".to_owned(), "printf detached-ok".to_owned()],
+        &JsString::from(&activation_path),
+        &JsString::from(&foreground_completion_path),
+        vec!["-c".into(), "printf detached-ok".into()],
     );
     let ownership = register(&fixture, &job_id, test_process_identity("runner"));
-    write_detached_bash_activation(&activation_path, &ownership.identity).expect("activation");
+    write_detached_bash_activation(&JsString::from(&activation_path), &ownership.identity).expect("activation");
     let manifest_path = fixture
         .directory
         .path()
         .join("launch.json")
         .to_string_lossy()
         .into_owned();
-    write_detached_bash_launch_manifest(&manifest_path, &data).expect("manifest");
+    write_detached_bash_launch_manifest(&JsString::from(&manifest_path), &data).expect("manifest");
 
     let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_pi"));
     command
@@ -788,7 +819,7 @@ fn real_pi_binary_finalizes_a_detached_bash_job() {
     let output = child.wait_with_output().expect("runner output");
     assert!(status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(
-        fs::read_to_string(&data.artifacts.output_path).expect("output"),
+        fs::read_to_string(&encode_node_utf8(&data.artifacts.output_path)).expect("output"),
         "detached-ok"
     );
     let agent = read_multi_agent_agent(&fixture.control_db_path, &fixture.session_path, &job_id)
@@ -797,7 +828,7 @@ fn real_pi_binary_finalizes_a_detached_bash_job() {
     assert_eq!(agent.lifecycle, AgentLifecycle::Completed);
     assert_eq!(agent.revision, 2);
     assert_eq!(
-        agent.result.expect("result").summary.as_deref(),
-        Some("Process exited successfully.")
+        agent.result.expect("result").summary.as_ref(),
+        Some(&JsString::from("Process exited successfully."))
     );
 }
