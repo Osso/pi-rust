@@ -525,7 +525,3 @@ fn report_autoname_failure(error: &HandlerError, signal_cancelled: bool) {
     }
     eprintln!("Session autoname failed: {error}");
 }
-
-fn now_millis() -> i64 {
-    pi_ai::request::now_millis()
-}

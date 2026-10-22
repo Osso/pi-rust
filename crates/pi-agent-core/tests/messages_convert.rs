@@ -11,6 +11,23 @@ use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
 
+#[test]
+fn custom_conversion_keeps_fractional_nonfinite_and_signed_zero_times() {
+    for timestamp in [12.75, -0.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let message = AgentMessage::Custom(
+            [
+                ("role".into(), JsValue::String("custom".into())),
+                ("content".into(), JsValue::String("hi".into())),
+                ("timestamp".into(), JsValue::Number(timestamp)),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let converted = convert_to_llm(&[message]).unwrap();
+        assert_eq!(message_timestamp(&converted[0]).to_bits(), timestamp.to_bits());
+    }
+}
+
 fn user(text: &str) -> AgentMessage {
     AgentMessage::User(UserMessage {
         role: UserRole::Tag,
