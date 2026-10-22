@@ -7,6 +7,7 @@ use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use pi_js_compat::js_json::{self, JsString};
 use sha2::{Digest, Sha256};
 
 use crate::core::detached_bash_runner::{DetachedBashLaunchManifestData, write_detached_bash_launch_manifest};
@@ -79,7 +80,7 @@ pub struct DetachedJobOwnership {
 pub struct RegisterDetachedJobInput {
     pub agent_type: DetachedJobAgentType,
     pub cwd: String,
-    pub display_name: String,
+    pub display_name: JsString,
     pub job_id: String,
     pub process_identity: ProcessIdentity,
     pub worker_handle_id: String,
@@ -308,7 +309,7 @@ impl DetachedJobLifecycleController {
                 agent: ownership.agent.clone(),
                 ownership: ownership.control_ownership.clone(),
                 output_label: ownership.identity.output_label.clone(),
-                reason: reason.map(str::to_owned),
+                reason: reason.map(JsString::from),
             })?;
         if let LifecycleCommandResult::Ok { agent } = &cancelled {
             self.options.store.publish_lifecycle_coordinator_snapshot(agent)?;
@@ -383,7 +384,7 @@ fn find_persisted_bash_job(
     };
     let mut candidates = Vec::new();
     for value in state.agents {
-        let agent: AgentSnapshot = serde_json::from_value(value)?;
+        let agent: AgentSnapshot = js_json::from_value(&value)?;
         if !bash_job_matches(&agent, &parent_id, tool_call_id) {
             continue;
         }
@@ -453,8 +454,8 @@ fn launch_detached_bash_job(
         env: input.env.iter().cloned().collect(),
         foreground_completion_path: foreground_completion_path.clone(),
         runner_address: crate::core::session_control_db::RuntimeMailboxAddress {
-            agent_id: Some(reserved.job_id.clone()),
-            session_id: options.owner_session_id.clone(),
+            agent_id: Some(reserved.job_id.clone().into()),
+            session_id: options.owner_session_id.clone().into(),
         },
         session_path: options.session_path.clone(),
         timeout_ms: input.timeout_ms,

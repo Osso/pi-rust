@@ -18,7 +18,7 @@ use crate::core::multi_agent_store::{
     AgentLifecycle, AgentMailboxMessage, AgentSnapshot, MailboxMessageKindValue, MailboxMessageStatusValue,
     SteeringCheckpoint, is_active_lifecycle,
 };
-use pi_js_compat::js_json::{self, JsString, JsValue};
+use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
 
 const MULTI_AGENT_CREATION_MAX_ATTEMPTS: usize = 3;
 const MULTI_AGENT_STEERING_MUTATION_MAX_ATTEMPTS: usize = 3;
@@ -257,7 +257,7 @@ pub struct CommitMultiAgentLifecycleMutationInput {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DetachedCancellation {
     pub output_label: String,
-    pub reason: Option<String>,
+    pub reason: Option<JsString>,
     pub suppress_terminal_notification: Option<bool>,
 }
 
@@ -1387,7 +1387,7 @@ fn build_detached_cancellation_message(
     cancelling_revision: i64,
 ) -> Result<(String, String), ControlDbError> {
     let message_id = format!("detached-cancel:{}:{cancelling_revision}", input.agent_id);
-    let mut body = serde_json::json!({
+    let mut body = JsValue::from(serde_json::json!({
         "command": "cancel",
         "identity": {
             "jobId": input.agent_id,
@@ -1399,14 +1399,13 @@ fn build_detached_cancellation_message(
             "processIdentity": serde_json::to_value(&input.process_identity)
                 .map_err(|error| ControlDbError::new(error.to_string()))?,
         },
-        "reason": cancellation.reason,
-    });
-    if cancellation.reason.is_none()
-        && let Some(body) = body.as_object_mut()
-    {
-        body.remove("reason");
+    }));
+    if let Some(reason) = &cancellation.reason {
+        body.as_object_mut()
+            .expect("cancel body object")
+            .insert("reason".into(), JsValue::String(reason.clone()));
     }
-    let body = js_json::stringify(&body);
+    let body = js_json::stringify_lossless(&body);
     let message = js_json::stringify(&serde_json::json!({
         "body": body,
         "createdAt":input.updated_at,
@@ -3833,8 +3832,8 @@ pub(crate) fn persist_prepared_terminal_transport(
         "INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
 		 VALUES (?, ?, ?, ?)",
         params![
-            transport.input.store_ref.session_path,
-            transport.input.store_ref.message_id,
+            encode_node_utf8(&transport.input.store_ref.session_path),
+            encode_node_utf8(&transport.input.store_ref.message_id),
             transport.prepared.serialized,
             transport.prepared.updated_at
         ],

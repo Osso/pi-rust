@@ -167,7 +167,7 @@ fn find_live_resident_session_path(
         control_db_path,
         &RuntimeMailboxAddress {
             agent_id: None,
-            session_id: role.as_str().to_owned(),
+            session_id: role.as_str().into(),
         },
     )?;
     let Some(listener) = listener else {

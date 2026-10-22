@@ -206,7 +206,7 @@ pub struct PostSharedChannelMessageInput {
 #[serde(rename_all = "camelCase")]
 pub struct EnqueueRuntimeMailboxMessageInput {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub recipient_host: Option<String>,
+    pub recipient_host: Option<JsString>,
     pub recipient: RuntimeMailboxAddress,
     pub sender: RuntimeMailboxAddress,
     pub kind: RuntimeMailboxMessageKind,
@@ -218,7 +218,7 @@ pub struct EnqueueRuntimeMailboxMessageInput {
 #[serde(rename_all = "camelCase")]
 pub struct EnqueueStoredRuntimeMailboxMessageInput {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub recipient_host: Option<String>,
+    pub recipient_host: Option<JsString>,
     pub recipient: RuntimeMailboxAddress,
     pub sender: RuntimeMailboxAddress,
     pub kind: RuntimeMailboxMessageKind,

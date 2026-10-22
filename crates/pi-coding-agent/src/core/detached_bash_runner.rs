@@ -78,7 +78,7 @@ struct DetachedBashLaunchManifest {
 #[serde(rename_all = "camelCase")]
 pub struct DetachedBashForegroundCompletion {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cancel_reason: Option<String>,
+    pub cancel_reason: Option<JsString>,
     pub exit_code: Option<i32>,
     pub signal: Option<String>,
     pub timed_out: bool,
@@ -165,7 +165,7 @@ fn manifest_unsigned_value(data: &DetachedBashLaunchManifestData) -> Result<JsOb
             "Detached Bash launch manifest must serialize to an object".to_owned(),
         ));
     };
-    unsigned.remove("checksum");
+    unsigned.shift_remove("checksum");
     Ok(unsigned)
 }
 
@@ -322,7 +322,7 @@ pub async fn run_detached_bash_runner(
 }
 
 struct ControlledExit {
-    cancel_reason: Option<String>,
+    cancel_reason: Option<JsString>,
     exit: crate::core::detached_job_bootstrap::GatedDetachedPayloadExit,
     identity: Option<DetachedJobOwnershipIdentity>,
     timed_out: bool,
@@ -336,7 +336,7 @@ async fn wait_for_detached_bash_exit(
     let exit_future = payload.wait_for_exit();
     tokio::pin!(exit_future);
     let mut exit = None;
-    let mut cancel_reason: Option<String> = None;
+    let mut cancel_reason: Option<JsString> = None;
     let mut identity = read_detached_bash_activation(&manifest.data.activation_path)?;
     let mut timed_out = false;
     let timeout_at = manifest
@@ -379,12 +379,13 @@ async fn wait_for_detached_bash_exit(
                                 "outputPath": manifest.data.artifacts.output_path,
                                 "payloadPid": payload_pid,
                                 "state": "running",
-                            }),
+                            })
+                            .into(),
                         })?;
                     }
                     DetachedJobRuntimeCommand::Cancel(cancel) => {
                         identity = Some(cancel.identity.clone());
-                        cancel_reason = Some(cancel.reason.unwrap_or_else(|| "cancelled".to_owned()));
+                        cancel_reason = Some(cancel.reason.unwrap_or_else(|| "cancelled".into()));
                         signal_payload_group(payload_pid, Signal::TERM)?;
                     }
                     DetachedJobRuntimeCommand::Response(_) => {}
@@ -457,7 +458,7 @@ fn detached_bash_outcome(controlled: &ControlledExit) -> DetachedJobOutcome {
     if controlled.timed_out {
         return DetachedJobOutcome::Failed {
             error: AgentError {
-                message: "Detached Bash command timed out".to_owned(),
+                message: "Detached Bash command timed out".into(),
                 code: None,
             },
             exit_code: None,
@@ -472,7 +473,7 @@ fn detached_bash_outcome(controlled: &ControlledExit) -> DetachedJobOutcome {
     if exit_code == Some(0) {
         return DetachedJobOutcome::Completed {
             exit_code: Some(0),
-            summary: Some("Process exited successfully.".to_owned()),
+            summary: Some("Process exited successfully.".into()),
         };
     }
     let detail = match controlled.exit.signal.and_then(signal_name) {
@@ -484,7 +485,7 @@ fn detached_bash_outcome(controlled: &ControlledExit) -> DetachedJobOutcome {
     };
     DetachedJobOutcome::Failed {
         error: AgentError {
-            message: format!("Process exited with {detail}."),
+            message: format!("Process exited with {detail}.").into(),
             code: None,
         },
         exit_code: exit_code.map(i64::from),
