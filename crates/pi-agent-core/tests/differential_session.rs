@@ -377,13 +377,7 @@ async fn jsonl_session_operations_match_the_pinned_typescript_source() {
     compare(30, "list", request, Value::Array(rust_list), &mut oracle);
 
     let request = oracle_request(31, "files", json!({}));
-    compare(
-        31,
-        "files",
-        request,
-        Value::Object(read_files(rust_root.path())),
-        &mut oracle,
-    );
+    compare(31, "files", request, json!(read_files(rust_root.path())), &mut oracle);
 
     let fork_request = oracle_request(
         32,
@@ -486,13 +480,7 @@ async fn jsonl_session_operations_match_the_pinned_typescript_source() {
     compare(35, "find_entries", request, entries_json(&entries), &mut oracle);
 
     let request = oracle_request(36, "files", json!({}));
-    compare(
-        36,
-        "files",
-        request,
-        Value::Object(read_files(rust_root.path())),
-        &mut oracle,
-    );
+    compare(36, "files", request, json!(read_files(rust_root.path())), &mut oracle);
 
     let delete_request = oracle_request(37, "delete", json!({"key": "branch"}));
     repo.delete(&branch_metadata).await.unwrap();
@@ -585,7 +573,7 @@ async fn jsonl_cross_reads_match_in_both_directions() {
 
     let request = oracle_request(9, "files", json!({}));
     let response = oracle.request(&request);
-    assert_eq!(expect_ok(&response), &Value::Object(read_files(root.path())));
+    assert_eq!(expect_ok(&response), &json!(read_files(root.path())));
 }
 
 #[tokio::test]
@@ -984,7 +972,7 @@ async fn jsonl_search_matches_the_pinned_typescript_source() {
     let request = oracle_request(21, "files", json!({}));
     assert_eq!(
         expect_ok(&oracle.request(&request)),
-        &Value::Object(read_files(rust_root.path()))
+        &json!(read_files(rust_root.path()))
     );
 
     let _ = (EntryQuery::default(), BranchQuery::default(), RecordQuery::default());
