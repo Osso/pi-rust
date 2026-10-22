@@ -8,7 +8,7 @@ Remaining Q2 component/deletion work is tracked in the [Q2 proof](../porting/q2-
 
 Markdown exports only frozen options (ordered-list markers/backslash escapes); LaTeX and source transforms are absent. Streaming render caches top-level tokens by next token type, width and serialized fingerprint. Same text/padding/theme retains caches; invalidate/theme replacement clears token caches. Default style prefixes are lazy and cached, with theme replacement invalidation.
 
-Text and Box default padding is 1/1. Input render widths<=2 return the prompt only. Empty normalized SelectList descriptions omit description columns; custom truncators receive signed i64 widths, including internally derived negative values at terminal widths0..3. Output truncation still clamps as frozen.
+Spacer default is one empty row; explicit zero remains zero rows. SettingsList skips descriptions only when absent or empty, not whitespace-only. Text and Box default padding is 1/1. Input render widths<=2 return the prompt only. Empty normalized SelectList descriptions omit description columns; custom truncators receive signed i64 widths, including internally derived negative values at terminal widths0..3. Output truncation still clamps as frozen.
 
 Frozen editor bottom scroll indicators can exceed the viewport width; preserved and classified source bug, not a silently fixed behavior. A separately approved delta is required to change it. Terminal-image numeric-domain restrictions include nonfinite and zero-cell calculation outputs, confirmed by parent against October21 user approval.
 

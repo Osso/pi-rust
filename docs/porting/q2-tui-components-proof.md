@@ -1,5 +1,11 @@
 # Q2 component re-pin proof
 
+## Independent findings checkpoint (2026-10-21)
+
+Whole Q2 acceptance remains **open**: F1 Input replacement preserves UTF8 byte offsets instead of frozen UTF16 positions (`é` → `界` then render panics). Input production is unchanged pending the user's inside-surrogate-pair representation decision; no new gap is approved. Saved failing regression and exact frozen observations: `/tmp/pi-rust-repin-tui-components-fix/REPORT.md`.
+
+F2–F4 fixed in `a21add48`: SettingsList skips empty descriptions (not whitespace-only), Spacer default renders one row while explicit zero remains zero, MarkdownOptions derives Default without changing false/false values. Frozen differential RED/GREEN covers F2/F3; three runtime mutants are killed and restored. Bounded affected targets pass 93 tests; workspace all-targets check, pi-tui all-targets clippy with `-D warnings`, and fmt pass. Logs/command scopes in the checkpoint report. These proofs do not close F1 or authorize the pending bottom-indicator delta. Remaining sections retain the earlier implementation history.
+
 Authority: [frozen source](source-lock.json). Contract: [components](../specs/tui-components.md).
 
 Initial RED: `/tmp/pi-rust-repin-tui-components/red-inherited.log` reproduces component image iTerm2 bytes, markdown math, settings input, and stale editor oracle failures. `red-padding.log` proves absent Text.setPadding API. `sandbox-fd-red.log` proves missing fd inside the mandatory runner; fd exposure is separate commit `80e3c3ea`, execution remains blocked pending installed fd.
