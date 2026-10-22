@@ -9,6 +9,8 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use super::text::{StyleFn, Text};
+use pi_js_compat::js_json::JsString;
+
 use crate::tui::Component;
 
 pub const DEFAULT_FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -18,7 +20,7 @@ pub const DEFAULT_INTERVAL_MS: u64 = 250;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LoaderIndicatorOptions {
     /// Use an empty array to hide the indicator.
-    pub frames: Option<Vec<String>>,
+    pub frames: Option<Vec<JsString>>,
     /// Frame interval in milliseconds for animated indicators.
     pub interval_ms: Option<u64>,
 }
@@ -26,7 +28,7 @@ pub struct LoaderIndicatorOptions {
 /// Loader component that updates with an optional spinning animation.
 pub struct Loader {
     text: Text,
-    frames: Vec<String>,
+    frames: Vec<JsString>,
     interval_ms: u64,
     current_frame: usize,
     running: bool,
@@ -34,7 +36,7 @@ pub struct Loader {
     render_indicator_verbatim: bool,
     spinner_color_fn: StyleFn,
     message_color_fn: StyleFn,
-    message: String,
+    message: JsString,
     request_render: Rc<dyn Fn()>,
 }
 
@@ -43,7 +45,7 @@ impl Loader {
         request_render: Rc<dyn Fn()>,
         spinner_color_fn: StyleFn,
         message_color_fn: StyleFn,
-        message: impl Into<String>,
+        message: impl Into<JsString>,
         indicator: Option<LoaderIndicatorOptions>,
     ) -> Self {
         let mut loader = Self {
@@ -63,11 +65,11 @@ impl Loader {
         loader
     }
 
-    pub fn message(&self) -> &str {
+    pub fn message(&self) -> &JsString {
         &self.message
     }
 
-    pub fn frames(&self) -> &[String] {
+    pub fn frames(&self) -> &[JsString] {
         &self.frames
     }
 
@@ -97,7 +99,7 @@ impl Loader {
         self.next_frame_at = None;
     }
 
-    pub fn set_message(&mut self, message: impl Into<String>) {
+    pub fn set_message(&mut self, message: impl Into<JsString>) {
         self.message = message.into();
         self.update_display();
     }
@@ -147,19 +149,19 @@ impl Loader {
             (self.spinner_color_fn)(&frame)
         };
         let indicator = if frame.is_empty() {
-            String::new()
+            JsString::default()
         } else {
-            format!("{rendered_frame} ")
+            rendered_frame + " "
         };
         let message = (self.message_color_fn)(&self.message);
-        self.text.set_text(format!("{indicator}{message}"));
+        self.text.set_text(indicator + message);
         (self.request_render)();
     }
 }
 
 impl Component for Loader {
-    fn render(&mut self, width: usize) -> Vec<String> {
-        let mut lines = vec![String::new()];
+    fn render(&mut self, width: usize) -> Vec<JsString> {
+        let mut lines = vec![JsString::default()];
         lines.extend(self.text.render(width));
         lines
     }
@@ -177,6 +179,6 @@ impl Component for Loader {
     }
 }
 
-fn default_frames() -> Vec<String> {
-    DEFAULT_FRAMES.iter().map(|frame| (*frame).to_string()).collect()
+fn default_frames() -> Vec<JsString> {
+    DEFAULT_FRAMES.iter().map(|frame| JsString::from(*frame)).collect()
 }

@@ -84,3 +84,17 @@ No whole-crate compilation acceptance: remaining component/editor consumers pend
 `raw_frame::raw_terminal_title_reaches_osc_output_without_sanitation` compares a
 high/low/pair/ESC/BEL title against frozen ProcessTerminal's intercepted original
 stdout write and actual Node stdout bytes. Native interface RED then GREEN.
+
+## Simple composition/components
+
+RootCompositor rendered entries and gaps, Box child/cache/background samples,
+TruncatedText storage, DynamicBorder formatter, Spacer lines, and Loader message,
+frames/styles/render state now retain `JsString`. CancellableLoader message/frame
+wrapper signatures follow Loader. No alternate scalar paths.
+
+`raw_components` source differential: four raw corpora × widths 0–7 × padding 0/1
+(64 scenarios), compares Box repeated cached lines, TruncatedText, DynamicBorder
+callback output, Spacer, flow/bottom RootCompositor, Loader before/after raw message
+update. Native interface RED -> source differential GREEN. CancellableLoader's
+wrapper compiles only when remaining crate integration is unblocked; dedicated raw
+abort/cancellation proof still pending.

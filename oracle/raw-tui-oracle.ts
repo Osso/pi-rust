@@ -39,7 +39,9 @@ async function main(): Promise<void> {
 					states.push({ value: input.getValue(), cursor: (input as unknown as { cursor: number }).cursor, lines: input.render(request.width) });
 				}
 				output = { states, submitted };
-			} else if (request.operation === "frame") {
+			} else if (request.operation === "components") {
+                output = await captureComponents(source, native(request.units), request.width, request.padding);
+            } else if (request.operation === "frame") {
                 output = await captureFrame(source, native(request.units));
             } else if (request.operation === "terminal_title") {
                 const module = await import(pathToFileURL(path.join(source, "terminal.ts")).href);
@@ -124,4 +126,32 @@ async function captureFrame(source: string, raw: string): Promise<unknown> {
     frames.push(terminal.takeWrites());
     const stop = frames.pop()!.join("");
     return [frames, stop, updated];
+}
+
+async function captureComponents(source: string, raw: string, width: number, padding: number): Promise<unknown> {
+    const load = (name: string) => import(pathToFileURL(path.join(source, name)).href);
+    const boxApi = await load("components/box.ts");
+    const truncatedApi = await load("components/truncated-text.ts");
+    const borderApi = await load("components/dynamic-border.ts");
+    const spacerApi = await load("components/spacer.ts");
+    const rootApi = await load("root-compositor.ts");
+    const loaderApi = await load("components/loader.ts");
+    const style = (value: string): string => `\x1b[44m${value}\x1b[0m`;
+    const boxed = new boxApi.Box(padding, padding, style);
+    boxed.addChild({ render: () => [raw], invalidate() {} });
+    const truncated = new truncatedApi.TruncatedText(raw, padding, padding);
+    const border = new borderApi.DynamicBorder((value: string) => raw + value);
+    const spacer = new spacerApi.Spacer(2);
+    const entry = () => ({ component: { render: () => [raw], invalidate() {} } });
+    const root = new rootApi.RootCompositor({ getHeight: () => 5, flow: [entry()], bottom: [entry()] });
+    const loader = new loaderApi.Loader({ requestComponentRender() {} }, style, style, raw, { frames: [raw] });
+    const firstLoader = loader.render(width);
+    loader.setMessage(raw + "x");
+    const output = {
+        box_lines: boxed.render(width), box_cached: boxed.render(width),
+        truncated: truncated.render(width), border: border.render(width), spacer: spacer.render(width),
+        root: root.render(width), loader: firstLoader, loader_updated: loader.render(width),
+    };
+    loader.stop();
+    return output;
 }

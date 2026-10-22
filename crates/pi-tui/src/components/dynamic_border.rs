@@ -2,9 +2,11 @@
 
 use std::rc::Rc;
 
+use pi_js_compat::js_json::JsString;
+
 use crate::tui::Component;
 
-pub type BorderFormatter = Rc<dyn Fn(&str) -> String>;
+pub type BorderFormatter = Rc<dyn Fn(&JsString) -> JsString>;
 
 pub struct DynamicBorder {
     format: BorderFormatter,
@@ -12,7 +14,7 @@ pub struct DynamicBorder {
 
 impl Default for DynamicBorder {
     fn default() -> Self {
-        Self::new(Rc::new(|line: &str| line.to_string()))
+        Self::new(Rc::new(|line: &JsString| line.clone()))
     }
 }
 
@@ -23,8 +25,8 @@ impl DynamicBorder {
 }
 
 impl Component for DynamicBorder {
-    fn render(&mut self, width: usize) -> Vec<String> {
-        vec![(self.format)(&"─".repeat(width.max(1)))]
+    fn render(&mut self, width: usize) -> Vec<JsString> {
+        vec![(self.format)(&JsString::from("─".repeat(width.max(1))))]
     }
 
     fn wants_input(&self) -> bool {
