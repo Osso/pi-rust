@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 //! Port of `packages/tui/test/bug-regression-isimageline-startswith-bug.test.ts`.
 //!
 //! `isImageLine` must detect image escape sequences anywhere in a line so the
@@ -132,46 +133,46 @@ fn markdown_does_not_wrap_image_lines() {
 struct NoopTheme;
 
 impl pi_tui::components::markdown::MarkdownTheme for NoopTheme {
-    fn heading(&self, text: &str) -> String {
-        text.to_string()
+    fn heading(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn link(&self, text: &str) -> String {
-        text.to_string()
+    fn link(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn link_url(&self, text: &str) -> String {
-        text.to_string()
+    fn link_url(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn code(&self, text: &str) -> String {
-        text.to_string()
+    fn code(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn code_block(&self, text: &str) -> String {
-        text.to_string()
+    fn code_block(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn code_block_border(&self, text: &str) -> String {
-        text.to_string()
+    fn code_block_border(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn quote(&self, text: &str) -> String {
-        text.to_string()
+    fn quote(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn quote_border(&self, text: &str) -> String {
-        text.to_string()
+    fn quote_border(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn hr(&self, text: &str) -> String {
-        text.to_string()
+    fn hr(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn list_bullet(&self, text: &str) -> String {
-        text.to_string()
+    fn list_bullet(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn bold(&self, text: &str) -> String {
-        text.to_string()
+    fn bold(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn italic(&self, text: &str) -> String {
-        text.to_string()
+    fn italic(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn strikethrough(&self, text: &str) -> String {
-        text.to_string()
+    fn strikethrough(&self, text: &JsString) -> JsString {
+        text.clone()
     }
-    fn underline(&self, text: &str) -> String {
-        text.to_string()
+    fn underline(&self, text: &JsString) -> JsString {
+        text.clone()
     }
 }

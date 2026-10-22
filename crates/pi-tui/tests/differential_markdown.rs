@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 #[path = "support/markdown_theme.rs"]
 mod markdown_theme;
 #[path = "support/oracle.rs"]
@@ -796,7 +797,7 @@ fn lex_matches_marked_token_stream() {
 
     for (index, result) in results.iter().enumerate() {
         let normalized = normalize_for_lexer(corpus[index]);
-        let mut tokens = lexer::lex(&normalized);
+        let mut tokens = lexer::lex(&normalized.into());
         trim_partial_closing_fences(&mut tokens);
         let actual = serde_json::to_value(&tokens).expect("tokens serialize");
         assert_eq!(
@@ -931,10 +932,10 @@ fn render_matches_typescript_markdown_component() {
         let default_style = (!style_json.is_null()).then(|| DefaultTextStyle {
             color: style_json["color"]
                 .as_str()
-                .map(|_| Box::new(|text: &str| apply_chalk(&[GRAY], text)) as Box<dyn Fn(&str) -> String>),
-            bg_color: style_json["bgColor"]
-                .as_str()
-                .map(|_| Box::new(|text: &str| apply_chalk(&[BG_BLUE], text)) as Box<dyn Fn(&str) -> String>),
+                .map(|_| Box::new(|text: &JsString| apply_chalk(&[GRAY], text)) as Box<dyn Fn(&JsString) -> JsString>),
+            bg_color: style_json["bgColor"].as_str().map(|_| {
+                Box::new(|text: &JsString| apply_chalk(&[BG_BLUE], text)) as Box<dyn Fn(&JsString) -> JsString>
+            }),
             bold: style_json["bold"].as_bool().unwrap_or(false),
             italic: style_json["italic"].as_bool().unwrap_or(false),
             strikethrough: style_json["strikethrough"].as_bool().unwrap_or(false),

@@ -8,6 +8,7 @@ mod virtual_terminal;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use pi_js_compat::js_json::JsString;
 use pi_tui::TUI;
 use pi_tui::components::markdown::{DefaultTextStyle, Markdown, MarkdownOptions, MarkdownTheme};
 use pi_tui::terminal_image::{TerminalCapabilities, reset_capabilities_cache, set_capabilities};
@@ -37,63 +38,63 @@ fn markdown_with(
     Markdown::new(text, padding_x, padding_y, Box::new(ChalkTheme), default_style, options)
 }
 
-fn render(markdown: &mut Markdown, width: usize) -> Vec<String> {
+fn render(markdown: &mut Markdown, width: usize) -> Vec<JsString> {
     markdown.render(width)
 }
 
-fn strip_sgr(line: &str) -> String {
-    let mut result = String::new();
-    let mut chars = line.chars().peekable();
+fn strip_sgr(line: &JsString) -> JsString {
+    let mut result = JsString::default();
+    let mut chars = line.units().iter().copied().peekable();
     while let Some(ch) = chars.next() {
-        if ch != '\u{1b}' {
-            result.push(ch);
+        if ch != 27 {
+            result.push_unit(ch);
             continue;
         }
-        if chars.peek() != Some(&'[') {
-            result.push(ch);
+        if chars.peek() != Some(&91) {
+            result.push_unit(ch);
             continue;
         }
         chars.next();
-        let mut sequence = String::new();
+        let mut sequence = JsString::default();
         let mut terminated = false;
         for next in chars.by_ref() {
-            if next == 'm' {
+            if next == 109 {
                 terminated = true;
                 break;
             }
-            if next.is_ascii_digit() || next == ';' {
-                sequence.push(next);
+            if (48..=57).contains(&next) || next == 59 {
+                sequence.push_unit(next);
             } else {
-                result.push('\u{1b}');
-                result.push('[');
+                result.push_unit(27);
+                result.push_unit(91);
                 result.push_str(&sequence);
-                result.push(next);
+                result.push_unit(next);
                 terminated = true;
                 break;
             }
         }
         if !terminated {
-            result.push('\u{1b}');
-            result.push('[');
+            result.push_unit(27);
+            result.push_unit(91);
             result.push_str(&sequence);
         }
     }
     result
 }
 
-fn plain(markdown: &mut Markdown, width: usize) -> Vec<String> {
+fn plain(markdown: &mut Markdown, width: usize) -> Vec<JsString> {
     render(markdown, width)
         .into_iter()
-        .map(|line| strip_sgr(&line).trim_end().to_string())
+        .map(|line| strip_sgr(&line).trim_end())
         .collect()
 }
 
-fn joined(markdown: &mut Markdown, width: usize) -> String {
-    render(markdown, width).join("\n")
+fn joined(markdown: &mut Markdown, width: usize) -> JsString {
+    JsString::join(render(markdown, width), "\n")
 }
 
-fn color_style(style: markdown_theme::Style) -> Box<dyn Fn(&str) -> String> {
-    Box::new(move |text: &str| apply_chalk(&[style], text))
+fn color_style(style: markdown_theme::Style) -> Box<dyn Fn(&JsString) -> JsString> {
+    Box::new(move |text: &JsString| apply_chalk(&[style], text))
 }
 
 #[test]
@@ -220,7 +221,7 @@ fn maintains_numbering_when_code_blocks_are_not_indented() {
     let mut markdown = markdown(
         "1. First item\n\n```typescript\n// code block\n```\n\n2. Second item\n\n```typescript\n// another code block\n```\n\n3. Third item",
     );
-    let lines: Vec<String> = render(&mut markdown, 80)
+    let lines: Vec<JsString> = render(&mut markdown, 80)
         .into_iter()
         .map(|line| strip_sgr(&line).trim().to_string())
         .collect();
@@ -335,7 +336,7 @@ fn keeps_column_width_at_least_the_longest_word() {
     ));
     let lines = plain(&mut markdown, 32);
     let data_line = lines.iter().find(|line| line.contains(longest_word)).expect("data row");
-    let segments: Vec<&str> = data_line.split('│').collect();
+    let segments: Vec<JsString> = data_line.split('│').collect();
     let first_segment = segments[1];
     let first_column_width = first_segment.len() - 2;
     assert!(
@@ -380,9 +381,12 @@ fn wraps_table_cells_when_table_exceeds_available_width() {
     );
     let lines = plain(&mut markdown, 50);
     for line in &lines {
-        assert!(line.chars().count() <= 50, "line exceeds width: {line:?}");
+        assert!(
+            char::decode_utf16(line.units().iter().copied()).count() <= 50,
+            "line exceeds width: {line:?}"
+        );
     }
-    let all_text = lines.join(" ");
+    let all_text = JsString::join(&lines, " ");
     assert!(all_text.contains("Command"));
     assert!(all_text.contains("Description"));
     assert!(all_text.contains("npm install"));
@@ -399,7 +403,7 @@ fn wraps_long_cell_content_to_multiple_lines() {
         .filter(|line| line.starts_with('│') && !line.contains('─'))
         .count();
     assert!(data_rows > 2, "{data_rows}");
-    let all_text = lines.join(" ");
+    let all_text = JsString::join(&lines, " ");
     assert!(all_text.contains("very long"));
     assert!(all_text.contains("cell content"));
     assert!(all_text.contains("should wrap"));
@@ -419,12 +423,19 @@ fn wraps_long_unbroken_tokens_inside_table_cells() {
     let lines = plain(&mut markdown, width);
     reset_capabilities_cache();
     for line in &lines {
-        assert!(line.chars().count() <= width, "line exceeds width: {line:?}");
+        assert!(
+            char::decode_utf16(line.units().iter().copied()).count() <= width,
+            "line exceeds width: {line:?}"
+        );
     }
     let table_lines: Vec<&String> = lines.iter().filter(|line| line.starts_with('│')).collect();
     assert!(!table_lines.is_empty());
     for line in table_lines {
-        assert_eq!(line.matches('│').count(), 2, "{line:?}");
+        assert_eq!(
+            line.units().iter().filter(|unit| **unit == 0x2502).count(),
+            2,
+            "{line:?}"
+        );
     }
     let extracted: String = lines
         .join("")
@@ -441,16 +452,23 @@ fn wraps_styled_inline_code_inside_table_cells_without_breaking_borders() {
     let mut markdown = markdown("| Code |\n| --- |\n| `averyveryveryverylongidentifier` |");
     let width = 20;
     let lines = render(&mut markdown, width);
-    assert!(lines.join("\n").contains("\u{1b}[33m"));
-    let plain_lines: Vec<String> = lines
+    assert!(JsString::join(&lines, "\n").contains("\u{1b}[33m"));
+    let plain_lines: Vec<JsString> = lines
         .iter()
         .map(|line| strip_sgr(line).trim_end().to_string())
         .collect();
     for line in &plain_lines {
-        assert!(line.chars().count() <= width, "line exceeds width: {line:?}");
+        assert!(
+            char::decode_utf16(line.units().iter().copied()).count() <= width,
+            "line exceeds width: {line:?}"
+        );
     }
     for line in plain_lines.iter().filter(|line| line.starts_with('│')) {
-        assert_eq!(line.matches('│').count(), 2, "{line:?}");
+        assert_eq!(
+            line.units().iter().filter(|unit| **unit == 0x2502).count(),
+            2,
+            "{line:?}"
+        );
     }
 }
 
@@ -461,7 +479,10 @@ fn handles_extremely_narrow_width_gracefully() {
     let lines = plain(&mut markdown, 15);
     assert!(!lines.is_empty());
     for line in &lines {
-        assert!(line.chars().count() <= 15, "line exceeds width: {line:?}");
+        assert!(
+            char::decode_utf16(line.units().iter().copied()).count() <= 15,
+            "line exceeds width: {line:?}"
+        );
     }
 }
 
@@ -491,7 +512,10 @@ fn respects_padding_x_when_calculating_table_width() {
     );
     let lines = plain(&mut markdown, 40);
     for line in &lines {
-        assert!(line.chars().count() <= 40, "line exceeds width: {line:?}");
+        assert!(
+            char::decode_utf16(line.units().iter().copied()).count() <= 40,
+            "line exceeds width: {line:?}"
+        );
     }
     let table_row = lines.iter().find(|line| line.contains('│')).expect("table row");
     assert!(table_row.starts_with("  "));
@@ -502,7 +526,7 @@ fn does_not_add_trailing_blank_line_when_table_is_last_block() {
     let _guard = lock();
     let mut markdown = markdown("| Name |\n| --- |\n| Alice |");
     let lines = plain(&mut markdown, 80);
-    assert_ne!(lines.last().map(String::as_str), Some(""));
+    assert_ne!(lines.last().cloned(), Some(JsString::default()));
 }
 
 #[test]
@@ -589,10 +613,10 @@ struct MarkdownWithInput {
 }
 
 impl Component for MarkdownWithInput {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = self.markdown.render(width);
         *self.line_count.borrow_mut() = lines.len();
-        lines.push("INPUT".to_string());
+        lines.push("INPUT".into());
         lines
     }
 
@@ -670,7 +694,7 @@ fn does_not_add_trailing_blank_line_when_code_block_is_last_block() {
     ] {
         let mut markdown = markdown(text);
         let lines = plain(&mut markdown, 80);
-        assert_ne!(lines.last().map(String::as_str), Some(""), "{text:?}");
+        assert_ne!(lines.last().cloned(), Some(JsString::default()), "{text:?}");
     }
 }
 
@@ -692,7 +716,7 @@ fn does_not_add_trailing_blank_line_when_divider_is_last_block() {
     let _guard = lock();
     let mut markdown = markdown("---");
     let lines = plain(&mut markdown, 80);
-    assert_ne!(lines.last().map(String::as_str), Some(""));
+    assert_ne!(lines.last().cloned(), Some(JsString::default()));
 }
 
 #[test]
@@ -713,7 +737,7 @@ fn does_not_add_trailing_blank_line_when_heading_is_last_block() {
     let _guard = lock();
     let mut markdown = markdown("# Hello");
     let lines = plain(&mut markdown, 80);
-    assert_ne!(lines.last().map(String::as_str), Some(""));
+    assert_ne!(lines.last().cloned(), Some(JsString::default()));
 }
 
 #[test]
@@ -737,7 +761,7 @@ fn does_not_add_trailing_blank_line_when_blockquote_is_last_block() {
     let _guard = lock();
     let mut markdown = markdown("> This is a quote");
     let lines = plain(&mut markdown, 80);
-    assert_ne!(lines.last().map(String::as_str), Some(""));
+    assert_ne!(lines.last().cloned(), Some(JsString::default()));
 }
 
 #[test]
@@ -754,7 +778,7 @@ fn applies_consistent_styling_to_lazy_continuation_blockquote() {
         MarkdownOptions::default(),
     );
     let lines = render(&mut markdown, 80);
-    let plain_lines: Vec<String> = lines.iter().map(|line| strip_sgr(line)).collect();
+    let plain_lines: Vec<JsString> = lines.iter().map(|line| strip_sgr(line)).collect();
     let quoted = plain_lines.iter().filter(|line| line.starts_with("│ ")).count();
     assert_eq!(quoted, 2, "{plain_lines:?}");
     let foo = lines.iter().find(|line| line.contains("Foo")).expect("Foo");
@@ -779,7 +803,7 @@ fn applies_consistent_styling_to_explicit_multiline_blockquote() {
         MarkdownOptions::default(),
     );
     let lines = render(&mut markdown, 80);
-    let plain_lines: Vec<String> = lines.iter().map(|line| strip_sgr(line)).collect();
+    let plain_lines: Vec<JsString> = lines.iter().map(|line| strip_sgr(line)).collect();
     let quoted = plain_lines.iter().filter(|line| line.starts_with("│ ")).count();
     assert_eq!(quoted, 2, "{plain_lines:?}");
     let foo = lines.iter().find(|line| line.contains("Foo")).expect("Foo");
@@ -811,7 +835,7 @@ fn wraps_long_blockquote_lines_and_adds_border_to_each() {
     for line in &content {
         assert!(line.starts_with("│ "), "{line:?}");
     }
-    let all_text = content.iter().map(|line| line.as_str()).collect::<Vec<_>>().join(" ");
+    let all_text = JsString::join(content.iter(), " ");
     assert!(all_text.contains("very long"));
     assert!(all_text.contains("blockquote"));
     assert!(all_text.contains("multiple"));
@@ -832,14 +856,14 @@ fn properly_indents_wrapped_blockquote_lines_with_styling() {
         MarkdownOptions::default(),
     );
     let lines = render(&mut markdown, 25);
-    let plain_lines: Vec<String> = lines
+    let plain_lines: Vec<JsString> = lines
         .iter()
         .map(|line| strip_sgr(line).trim_end().to_string())
         .collect();
     for line in plain_lines.iter().filter(|line| !line.is_empty()) {
         assert!(line.starts_with("│ "), "{line:?}");
     }
-    let output = lines.join("\n");
+    let output = JsString::join(&lines, "\n");
     assert!(output.contains("\u{1b}[3m"));
     assert!(!output.contains("\u{1b}[33m"));
 }
@@ -849,13 +873,13 @@ fn renders_inline_formatting_inside_blockquotes_and_reapplies_quote_styling() {
     let _guard = lock();
     let mut markdown = markdown("> Quote with **bold** and `code`");
     let lines = render(&mut markdown, 80);
-    let plain_lines: Vec<String> = lines.iter().map(|line| strip_sgr(line)).collect();
+    let plain_lines: Vec<JsString> = lines.iter().map(|line| strip_sgr(line)).collect();
     assert!(plain_lines.iter().any(|line| line.starts_with("│ ")));
-    let all_plain = plain_lines.join(" ");
+    let all_plain = JsString::join(&plain_lines, " ");
     assert!(all_plain.contains("Quote with"));
     assert!(all_plain.contains("bold"));
     assert!(all_plain.contains("code"));
-    let output = lines.join("\n");
+    let output = JsString::join(&lines, "\n");
     assert!(output.contains("\u{1b}[1m"));
     assert!(output.contains("\u{1b}[33m"));
     assert!(output.contains("\u{1b}[3m"));
@@ -868,7 +892,7 @@ fn preserves_heading_styling_after_inline_code() {
     let output = joined(&mut markdown, 80);
     assert!(output.contains("\u{1b}[33m"));
     let after_code = output.find("should not be optional").expect("text after code");
-    let preceding = &output[after_code.saturating_sub(40)..after_code];
+    let preceding = output.slice(after_code.saturating_sub(40), after_code);
     assert!(preceding.contains("\u{1b}[1m"), "{preceding:?}");
     assert!(preceding.contains("\u{1b}[36m"), "{preceding:?}");
 }
@@ -879,7 +903,7 @@ fn preserves_heading_styling_after_inline_code_for_h1() {
     let mut markdown = markdown("# Title with `code` inside");
     let output = joined(&mut markdown, 80);
     let after_code = output.find("inside").expect("text after code");
-    let preceding = &output[after_code.saturating_sub(40)..after_code];
+    let preceding = output.slice(after_code.saturating_sub(40), after_code);
     assert!(preceding.contains("\u{1b}[1m"), "{preceding:?}");
     assert!(preceding.contains("\u{1b}[36m"), "{preceding:?}");
     assert!(preceding.contains("\u{1b}[4m"), "{preceding:?}");
@@ -897,7 +921,7 @@ fn does_not_leak_h1_underline_into_padding() {
     terminal.borrow_mut().flush();
 
     let first_row = terminal.borrow().viewport()[0].clone();
-    let content_width = first_row.trim_end().chars().count();
+    let content_width = first_row.trim_end().len();
     assert!(content_width > 0);
     for column in content_width..80 {
         assert!(
@@ -914,7 +938,7 @@ fn preserves_heading_styling_after_bold_text() {
     let mut markdown = markdown("## Heading with **bold** and more");
     let output = joined(&mut markdown, 80);
     let after_bold = output.find("and more").expect("text after bold");
-    let preceding = &output[after_bold.saturating_sub(40)..after_bold];
+    let preceding = output.slice(after_bold.saturating_sub(40), after_bold);
     assert!(preceding.contains("\u{1b}[1m"), "{preceding:?}");
     assert!(preceding.contains("\u{1b}[36m"), "{preceding:?}");
 }
@@ -924,8 +948,8 @@ fn renders_strikethrough() {
     let _guard = lock();
     let mut markdown = markdown("Use ~~strikethrough~~ here");
     let lines = render(&mut markdown, 80);
-    let output = lines.join("\n");
-    let plain_text = lines.iter().map(|line| strip_sgr(line)).collect::<Vec<_>>().join(" ");
+    let output = JsString::join(&lines, "\n");
+    let plain_text = JsString::join(lines.iter().map(|line| strip_sgr(line)), " ");
     assert!(output.contains("\u{1b}[9m"));
     assert!(plain_text.contains("strikethrough"));
     assert!(!plain_text.contains("~~strikethrough~~"));
@@ -936,8 +960,8 @@ fn keeps_single_tilde_as_plain_text() {
     let _guard = lock();
     let mut markdown = markdown("Use ~strikethrough~ literally");
     let lines = render(&mut markdown, 80);
-    let output = lines.join("\n");
-    let plain_text = lines.iter().map(|line| strip_sgr(line)).collect::<Vec<_>>().join(" ");
+    let output = JsString::join(&lines, "\n");
+    let plain_text = JsString::join(lines.iter().map(|line| strip_sgr(line)), " ");
     assert!(plain_text.contains("~strikethrough~"));
     assert!(!output.contains("\u{1b}[9m"));
 }
@@ -963,7 +987,7 @@ fn does_not_duplicate_url_for_autolinked_emails() {
     let _guard = lock();
     without_hyperlinks();
     let mut markdown = markdown("Contact user@example.com for help");
-    let plain_text = plain(&mut markdown, 80).join(" ");
+    let plain_text = JsString::join(plain(&mut markdown, 80), " ");
     reset_capabilities_cache();
     assert!(plain_text.contains("user@example.com"));
     assert!(!plain_text.contains("mailto:"));
@@ -974,9 +998,16 @@ fn does_not_duplicate_url_for_bare_urls() {
     let _guard = lock();
     without_hyperlinks();
     let mut markdown = markdown("Visit https://example.com for more");
-    let plain_text = plain(&mut markdown, 80).join(" ");
+    let plain_text = JsString::join(plain(&mut markdown, 80), " ");
     reset_capabilities_cache();
-    assert_eq!(plain_text.matches("https://example.com").count(), 1);
+    assert_eq!(
+        plain_text
+            .units()
+            .windows("https://example.com".len())
+            .filter(|window| window.iter().copied().eq("https://example.com".encode_utf16()))
+            .count(),
+        1
+    );
 }
 
 #[test]
@@ -984,7 +1015,7 @@ fn shows_url_in_parentheses_when_hyperlinks_are_not_supported() {
     let _guard = lock();
     without_hyperlinks();
     let mut markdown = markdown("[click here](https://example.com)");
-    let plain_text = plain(&mut markdown, 80).join(" ");
+    let plain_text = JsString::join(plain(&mut markdown, 80), " ");
     reset_capabilities_cache();
     assert!(plain_text.contains("click here"));
     assert!(plain_text.contains("(https://example.com)"));
@@ -995,7 +1026,7 @@ fn shows_mailto_url_in_parentheses_when_hyperlinks_are_not_supported() {
     let _guard = lock();
     without_hyperlinks();
     let mut markdown = markdown("[Email me](mailto:test@example.com)");
-    let plain_text = plain(&mut markdown, 80).join(" ");
+    let plain_text = JsString::join(plain(&mut markdown, 80), " ");
     reset_capabilities_cache();
     assert!(plain_text.contains("Email me"));
     assert!(plain_text.contains("(mailto:test@example.com)"));
@@ -1006,7 +1037,7 @@ fn emits_osc8_hyperlink_when_supported() {
     let _guard = lock();
     with_hyperlinks();
     let mut markdown = markdown("[click here](https://example.com)");
-    let output = render(&mut markdown, 80).join("");
+    let output = JsString::join(render(&mut markdown, 80), "");
     reset_capabilities_cache();
     assert!(output.contains("\u{1b}]8;;https://example.com\u{1b}\\"));
     assert!(output.contains("\u{1b}]8;;\u{1b}\\"));
@@ -1015,20 +1046,19 @@ fn emits_osc8_hyperlink_when_supported() {
     assert!(!without_osc.contains("(https://example.com)"));
 }
 
-fn strip_osc8(text: &str) -> String {
-    let mut result = String::new();
-    let mut rest = text;
-    while let Some(start) = rest.find("\u{1b}]8;;") {
-        result.push_str(&rest[..start]);
-        let after = &rest[start + 4..];
-        if let Some(end) = after.find("\u{1b}\\") {
-            rest = &after[end + 2..];
+fn strip_osc8(text: &JsString) -> JsString {
+    let mut result = JsString::default();
+    let mut rest = text.clone();
+    while let Some(start) = rest.find("\x1b]8;;") {
+        result.push_str(rest.slice(0, start));
+        let after = rest.slice(start + 5, rest.len());
+        if let Some(end) = after.find("\x1b\\") {
+            rest = after.slice(end + 2, after.len());
         } else {
-            rest = "";
+            return result;
         }
     }
-    result.push_str(rest);
-    strip_sgr(&result)
+    result + rest
 }
 
 #[test]
@@ -1036,7 +1066,7 @@ fn uses_osc8_for_mailto_links_when_supported() {
     let _guard = lock();
     with_hyperlinks();
     let mut markdown = markdown("[Email me](mailto:test@example.com)");
-    let output = render(&mut markdown, 80).join("");
+    let output = JsString::join(render(&mut markdown, 80), "");
     reset_capabilities_cache();
     assert!(output.contains("\u{1b}]8;;mailto:test@example.com\u{1b}\\"));
     assert!(output.contains("\u{1b}]8;;\u{1b}\\"));
@@ -1047,7 +1077,7 @@ fn uses_osc8_for_bare_urls_when_supported() {
     let _guard = lock();
     with_hyperlinks();
     let mut markdown = markdown("Visit https://example.com for more");
-    let output = render(&mut markdown, 80).join("");
+    let output = JsString::join(render(&mut markdown, 80), "");
     reset_capabilities_cache();
     assert!(output.contains("\u{1b}]8;;https://example.com\u{1b}\\"));
     assert!(!strip_osc8(&output).contains("(https://example.com)"));
@@ -1057,7 +1087,7 @@ fn uses_osc8_for_bare_urls_when_supported() {
 fn renders_content_with_html_like_tags_as_text() {
     let _guard = lock();
     let mut markdown = markdown("This is text with <thinking>hidden content</thinking> that should be visible");
-    let plain_text = plain(&mut markdown, 80).join(" ");
+    let plain_text = JsString::join(plain(&mut markdown, 80), " ");
     assert!(
         plain_text.contains("hidden content") || plain_text.contains("<thinking>"),
         "{plain_text:?}"
@@ -1068,7 +1098,7 @@ fn renders_content_with_html_like_tags_as_text() {
 fn renders_html_tags_in_code_blocks() {
     let _guard = lock();
     let mut markdown = markdown("```html\n<div>Some HTML</div>\n```");
-    let output = plain(&mut markdown, 80).join("\n");
+    let output = JsString::join(plain(&mut markdown, 80), "\n");
     assert!(output.contains("<div>"));
     assert!(output.contains("</div>"));
 }
@@ -1105,19 +1135,34 @@ fn theme_is_used_for_all_default_styles() {
     let _guard = lock();
     // Guard against accidentally wiring the wrong theme method.
     let theme = ChalkTheme;
-    assert_eq!(theme.bold("x"), apply_chalk(&[markdown_theme::BOLD], "x"));
-    assert_eq!(theme.hr("x"), apply_chalk(&[markdown_theme::DIM], "x"));
-    assert_eq!(theme.code("x"), apply_chalk(&[YELLOW], "x"));
-    assert_eq!(theme.quote_border("x"), apply_chalk(&[markdown_theme::DIM], "x"));
-    assert_eq!(theme.list_bullet("x"), apply_chalk(&[CYAN], "x"));
-    assert_eq!(theme.code_block("x"), apply_chalk(&[markdown_theme::GREEN], "x"));
-    assert_eq!(theme.code_block_border("x"), apply_chalk(&[markdown_theme::DIM], "x"));
-    assert_eq!(theme.link_url("x"), apply_chalk(&[markdown_theme::DIM], "x"));
-    assert_eq!(theme.underline("x"), apply_chalk(&[markdown_theme::UNDERLINE], "x"));
+    assert_eq!(theme.bold(&"x".into()), apply_chalk(&[markdown_theme::BOLD], "x"));
+    assert_eq!(theme.hr(&"x".into()), apply_chalk(&[markdown_theme::DIM], "x"));
+    assert_eq!(theme.code(&"x".into()), apply_chalk(&[YELLOW], "x"));
     assert_eq!(
-        theme.strikethrough("x"),
+        theme.quote_border(&"x".into()),
+        apply_chalk(&[markdown_theme::DIM], "x")
+    );
+    assert_eq!(theme.list_bullet(&"x".into()), apply_chalk(&[CYAN], "x"));
+    assert_eq!(
+        theme.code_block(&"x".into()),
+        apply_chalk(&[markdown_theme::GREEN], "x")
+    );
+    assert_eq!(
+        theme.code_block_border(&"x".into()),
+        apply_chalk(&[markdown_theme::DIM], "x")
+    );
+    assert_eq!(theme.link_url(&"x".into()), apply_chalk(&[markdown_theme::DIM], "x"));
+    assert_eq!(
+        theme.underline(&"x".into()),
+        apply_chalk(&[markdown_theme::UNDERLINE], "x")
+    );
+    assert_eq!(
+        theme.strikethrough(&"x".into()),
         apply_chalk(&[markdown_theme::STRIKETHROUGH], "x")
     );
-    assert_eq!(theme.italic("x"), apply_chalk(&[markdown_theme::ITALIC], "x"));
-    assert_eq!(theme.heading("x"), apply_chalk(&[markdown_theme::BOLD, CYAN], "x"));
+    assert_eq!(theme.italic(&"x".into()), apply_chalk(&[markdown_theme::ITALIC], "x"));
+    assert_eq!(
+        theme.heading(&"x".into()),
+        apply_chalk(&[markdown_theme::BOLD, CYAN], "x")
+    );
 }
