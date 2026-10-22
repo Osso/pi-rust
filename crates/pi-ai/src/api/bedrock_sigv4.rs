@@ -6,7 +6,10 @@
 
 use hmac::{Hmac, Mac};
 use pi_js_compat::date::{UtcDateTime, utc_date_time};
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use sha2::{Digest, Sha256};
+
+use crate::request::{CallbackError, header_value};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -29,39 +32,15 @@ const UNSIGNABLE: [&str; 15] = [
     "x-amzn-trace-id",
 ];
 
-/// Resolved AWS credentials used for signing.
+/// Resolved AWS credentials used for signing. Values stay exact UTF-16: the
+/// secret is UTF-8 encoded for HMAC (`fromUtf8`), the key id and session token
+/// become ByteString header values.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AwsCredentials {
-    pub access_key_id: String,
-    pub secret_access_key: String,
-    pub session_token: Option<String>,
+    pub access_key_id: JsString,
+    pub secret_access_key: JsString,
+    pub session_token: Option<JsString>,
 }
-
-/// Signing failure (malformed endpoint or empty credentials).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SigningError {
-    message: String,
-}
-
-impl SigningError {
-    pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
-    }
-
-    pub fn message(&self) -> &str {
-        &self.message
-    }
-}
-
-impl std::fmt::Display for SigningError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for SigningError {}
 
 /// Sign an HTTP request in place. `headers` are header pairs; names are matched
 /// case-insensitively and the signed output uses lower-case names.
@@ -73,7 +52,7 @@ pub fn sign_request(
     credentials: &AwsCredentials,
     scope: (&str, &str),
     timestamp_ms: i64,
-) -> Result<(), SigningError> {
+) -> Result<(), CallbackError> {
     let parts = ParsedUrl::parse(url)?;
     remove_header(headers, "authorization");
     remove_header(headers, "date");
@@ -84,7 +63,7 @@ pub fn sign_request(
     set_header(headers, "host", &parts.authority);
     set_header(headers, "x-amz-date", &long_date);
     if let Some(token) = &credentials.session_token {
-        set_header(headers, "x-amz-security-token", token);
+        set_header(headers, "x-amz-security-token", &header_value(token)?);
     }
     let payload_hash = hex(&Sha256::digest(body));
     if find_header(headers, "x-amz-content-sha256").is_none() {
@@ -107,13 +86,17 @@ pub fn sign_request(
         "{ALGORITHM}\n{long_date}\n{scope}\n{}",
         hex(&Sha256::digest(canonical_request.as_bytes()))
     );
-    let signing_key = signing_key(&credentials.secret_access_key, &short_date, region, service);
-    let signature = hex(&hmac(&signing_key, string_to_sign.as_bytes()));
-    let authorization = format!(
-        "{ALGORITHM} Credential={}/{scope}, SignedHeaders={signed_headers}, Signature={signature}",
-        credentials.access_key_id
+    let signing_key = signing_key(
+        &encode_node_utf8(&credentials.secret_access_key),
+        &short_date,
+        region,
+        service,
     );
-    set_header(headers, "authorization", &authorization);
+    let signature = hex(&hmac(&signing_key, string_to_sign.as_bytes()));
+    let authorization = JsString::from(format!("{ALGORITHM} Credential="))
+        + &credentials.access_key_id
+        + format!("/{scope}, SignedHeaders={signed_headers}, Signature={signature}");
+    set_header(headers, "authorization", &header_value(&authorization)?);
     Ok(())
 }
 
@@ -123,17 +106,17 @@ struct ParsedUrl {
 }
 
 impl ParsedUrl {
-    fn parse(url: &str) -> Result<Self, SigningError> {
+    fn parse(url: &str) -> Result<Self, CallbackError> {
         let (_, rest) = url
             .split_once("://")
-            .ok_or_else(|| SigningError::new("endpoint must be an absolute URL"))?;
+            .ok_or_else(|| CallbackError::new("endpoint must be an absolute URL"))?;
         let (authority, path) = match rest.find('/') {
             Some(index) => (&rest[..index], &rest[index..]),
             None => (rest, "/"),
         };
         let path = path.split('?').next().unwrap_or(path);
         if authority.is_empty() {
-            return Err(SigningError::new("endpoint must include a host"));
+            return Err(CallbackError::new("endpoint must include a host"));
         }
         Ok(Self {
             authority: authority.to_owned(),

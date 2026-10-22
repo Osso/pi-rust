@@ -1273,7 +1273,7 @@ pub struct Model {
     pub name: String,
     pub api: Api,
     pub provider: ProviderId,
-    pub base_url: String,
+    pub base_url: JsString,
     pub reasoning: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_level_map: Option<ThinkingLevelMap>,
@@ -1292,7 +1292,7 @@ pub struct Model {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sampling_params: Option<JsonObject>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub headers: Option<IndexMap<String, String>>,
+    pub headers: Option<IndexMap<String, JsString>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compat: Option<ModelCompat>,
 }
@@ -1304,7 +1304,7 @@ struct ModelWire {
     name: String,
     api: Api,
     provider: ProviderId,
-    base_url: String,
+    base_url: JsString,
     reasoning: bool,
     thinking_level_map: Option<ThinkingLevelMap>,
     input: Vec<Modality>,
@@ -1313,7 +1313,7 @@ struct ModelWire {
     auto_compaction_threshold: Option<f64>,
     max_tokens: f64,
     sampling_params: Option<JsonObject>,
-    headers: Option<IndexMap<String, String>>,
+    headers: Option<IndexMap<String, JsString>>,
     compat: Option<Value>,
 }
 
@@ -1352,7 +1352,7 @@ pub struct ImagesModel {
     pub name: String,
     pub api: ImagesApi,
     pub provider: ImagesProviderId,
-    pub base_url: String,
+    pub base_url: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_level_map: Option<ThinkingLevelMap>,
     pub input: Vec<Modality>,
@@ -1366,7 +1366,7 @@ pub struct ImagesModel {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sampling_params: Option<JsonObject>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub headers: Option<IndexMap<String, String>>,
+    pub headers: Option<IndexMap<String, JsString>>,
 }
 
 fn deserialize_present_nullable<'de, D: Deserializer<'de>>(

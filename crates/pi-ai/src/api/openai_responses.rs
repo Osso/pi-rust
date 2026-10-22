@@ -136,7 +136,7 @@ fn resolve_cache_retention(cache_retention: Option<CacheRetention>, env: Option<
     if let Some(cache_retention) = cache_retention {
         return cache_retention;
     }
-    if get_provider_env_value("PI_CACHE_RETENTION", env).as_deref() == Some("long") {
+    if get_provider_env_value("PI_CACHE_RETENTION", env).is_some_and(|value| value == "long") {
         return CacheRetention::Long;
     }
     CacheRetention::Short

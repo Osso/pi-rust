@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 
 use indexmap::IndexMap;
 
+use pi_js_compat::js_json::JsString;
+
 use crate::types::ProviderHeaders;
 
 /// Convert header entries to a record, matching `Headers.entries()` normalization:
@@ -29,9 +31,9 @@ fn http_whitespace(character: char) -> bool {
 }
 
 /// Convert `ProviderHeaders` to a record, dropping explicit `None` suppressions.
-pub fn provider_headers_to_record(headers: Option<&ProviderHeaders>) -> Option<IndexMap<String, String>> {
+pub fn provider_headers_to_record(headers: Option<&ProviderHeaders>) -> Option<IndexMap<String, JsString>> {
     let headers = headers?;
-    let record: IndexMap<String, String> = headers
+    let record: IndexMap<String, JsString> = headers
         .iter()
         .filter_map(|(key, value)| value.as_ref().map(|value| (key.clone(), value.clone())))
         .collect();

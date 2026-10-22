@@ -140,7 +140,7 @@ pub async fn read_body_text(mut body: Box<dyn HttpBody>) -> Result<String, Callb
 #[derive(Clone, Default)]
 pub struct ProviderRequestOptions {
     pub signal: Option<CancellationToken>,
-    pub api_key: Option<String>,
+    pub api_key: Option<JsString>,
     /// Custom HTTP implementation; `None` uses the crate default client.
     pub fetch: Option<Arc<dyn Fetch>>,
     /// Provider-scoped environment values; take precedence over the process environment.
@@ -235,7 +235,7 @@ pub type ImagesOnResponse =
 #[derive(Clone, Default)]
 pub struct ImagesRequestOptions {
     pub signal: Option<CancellationToken>,
-    pub api_key: Option<String>,
+    pub api_key: Option<JsString>,
     /// Custom HTTP implementation; `None` uses the crate default client.
     pub fetch: Option<Arc<dyn Fetch>>,
     /// Provider-scoped environment values; take precedence over the process environment.

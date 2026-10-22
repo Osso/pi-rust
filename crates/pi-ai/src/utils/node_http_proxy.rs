@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8, stringify_lossless};
 use url::Url;
 
 use crate::http::send_reqwest;
@@ -16,7 +17,7 @@ pub const UNSUPPORTED_PROXY_PROTOCOL_MESSAGE: &str =
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProxyError {
-    InvalidProxyUrl { proxy: String, message: String },
+    InvalidProxyUrl { proxy: JsString, message: String },
     UnsupportedProxyProtocol { protocol: String },
 }
 
@@ -24,7 +25,7 @@ impl std::fmt::Display for ProxyError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidProxyUrl { proxy, message } => {
-                let quoted = serde_json::to_string(proxy).unwrap_or_else(|_| format!("\"{proxy}\""));
+                let quoted = stringify_lossless(&JsValue::String(proxy.clone()));
                 write!(formatter, "Invalid proxy URL {quoted}: {message}")
             }
             Self::UnsupportedProxyProtocol { protocol } => {
@@ -54,7 +55,8 @@ pub fn resolve_http_proxy_url_for_target_with(
     let Some(proxy) = get_proxy_for_url(target_url, env, &process_env) else {
         return Ok(None);
     };
-    let proxy_url = Url::parse(&proxy).map_err(|error| ProxyError::InvalidProxyUrl {
+    // `new URL()` takes a USVString: unpaired surrogates become U+FFFD.
+    let proxy_url = Url::parse(&encode_node_utf8(&proxy)).map_err(|error| ProxyError::InvalidProxyUrl {
         proxy: proxy.clone(),
         message: error.to_string(),
     })?;
@@ -94,7 +96,7 @@ fn get_proxy_for_url(
     target_url: &str,
     env: Option<&ProviderEnv>,
     process_env: &impl Fn(&str) -> Option<String>,
-) -> Option<String> {
+) -> Option<JsString> {
     let parsed = Url::parse(target_url).ok()?;
     let protocol = parsed.scheme().to_owned();
     let (hostname, port) = target_host_and_port(&parsed)?;
@@ -110,7 +112,7 @@ fn get_proxy_for_url(
         return None;
     }
     if !proxy.contains("://") {
-        proxy = format!("{protocol}://{proxy}");
+        proxy = JsString::from(format!("{protocol}://")) + proxy;
     }
     Some(proxy)
 }
@@ -157,7 +159,12 @@ fn should_proxy_hostname(
     env: Option<&ProviderEnv>,
     process_env: &impl Fn(&str) -> Option<String>,
 ) -> bool {
-    let no_proxy = get_proxy_env("no_proxy", env, process_env).to_lowercase();
+    // WHATWG URL hostnames never hold U+FFFD or surrogates, so an entry with
+    // an unpaired unit can match neither before nor after replacement; the
+    // separators are ASCII. The lossy view is exact for this match.
+    let no_proxy = get_proxy_env("no_proxy", env, process_env)
+        .to_lowercase()
+        .to_utf8_lossy();
     if no_proxy.is_empty() {
         return true;
     }
@@ -197,7 +204,7 @@ fn proxy_matches(proxy: &str, hostname: &str, port: f64) -> bool {
     hostname.ends_with(suffix)
 }
 
-fn get_proxy_env(key: &str, env: Option<&ProviderEnv>, process_env: &impl Fn(&str) -> Option<String>) -> String {
+fn get_proxy_env(key: &str, env: Option<&ProviderEnv>, process_env: &impl Fn(&str) -> Option<String>) -> JsString {
     let lowercase = key.to_ascii_lowercase();
     let uppercase = key.to_ascii_uppercase();
     let scoped = |name: &str| {
@@ -205,7 +212,7 @@ fn get_proxy_env(key: &str, env: Option<&ProviderEnv>, process_env: &impl Fn(&st
             .filter(|value| !value.is_empty())
             .cloned()
     };
-    let process = |name: &str| process_env(name).filter(|value| !value.is_empty());
+    let process = |name: &str| process_env(name).filter(|value| !value.is_empty()).map(JsString::from);
 
     scoped(&lowercase)
         .or_else(|| scoped(&uppercase))

@@ -412,7 +412,7 @@ fn resolve_cache_retention(cache_retention: Option<CacheRetention>, env: Option<
     if let Some(cache_retention) = cache_retention {
         return cache_retention;
     }
-    if get_provider_env_value("PI_CACHE_RETENTION", env).as_deref() == Some("long") {
+    if get_provider_env_value("PI_CACHE_RETENTION", env).is_some_and(|value| value == "long") {
         return CacheRetention::Long;
     }
     CacheRetention::Short
@@ -881,7 +881,7 @@ fn map_thinking_level_to_effort(model: &Model, level: Option<ThinkingLevel>) -> 
 fn supports_prompt_caching(model: &Model, env: Option<&ProviderEnv>) -> bool {
     let candidates = model_match_candidates(&model.id, Some(&model.name));
     if !candidates.iter().any(|candidate| candidate.contains("claude")) {
-        return get_provider_env_value("AWS_BEDROCK_FORCE_CACHE", env).as_deref() == Some("1");
+        return get_provider_env_value("AWS_BEDROCK_FORCE_CACHE", env).is_some_and(|value| value == "1");
     }
     candidates.iter().any(|candidate| {
         candidate.contains("fable-5") || candidate.contains("opus-5") || candidate.contains("sonnet-5")
@@ -1300,7 +1300,7 @@ async fn resolve_runtime_config(model: &Model, options: &BedrockOptions) -> Resu
         Some(_) => configured_region.is_none() && !has_ambient_profile,
     };
 
-    let skip_auth = get_provider_env_value("AWS_BEDROCK_SKIP_AUTH", env).as_deref() == Some("1");
+    let skip_auth = get_provider_env_value("AWS_BEDROCK_SKIP_AUTH", env).is_some_and(|value| value == "1");
     let bearer_token = options
         .bearer_token
         .clone()
