@@ -4,6 +4,18 @@ Source: `packages/ai/src/api/google-shared.ts`.
 Rust: `crates/pi-ai/src/api/google_shared.rs`.
 Tests: `crates/pi-ai/tests/google_shared.rs` (30 behavioral, ported from `google-thinking-signature.test.ts`, `google-shared-signed-empty-blocks.test.ts`, `google-shared-gemini3-unsigned-tool-call.test.ts`, `google-shared-image-tool-result-routing.test.ts`, `google-shared-convert-tools.test.ts`, `google-shared-retry.test.ts`), plus `crates/pi-ai/tests/differential_google_api.rs` (request bodies exercise `convertMessages`/`convertTools`).
 
+## Q4 replay IDs and unsigned signatures
+
+Frozen requiresToolCallId only recognizes case-sensitive `claude-`/`gpt-oss-`, not Gemini3. AI Studio Gemini thinking models (reasoning flag or case-insensitive gemini-3/gemini-2.5 substring) attach `skip_thought_signature_validator` to unsigned replay calls; Vertex never receives that sentinel. Actual frozen Generative25 and Vertex117 exposed both differences. Native now matches; prior unit tests requiring Gemini IDs and forbidding all sentinels were stale pre-repin assertions, replaced with exact Studio/Vertex behavior. Google shared31 GREEN; whole targets advance to source-absent retry wrapping (`google-replay-ids-signatures-green-1.log`).
+
+## Q4 function-tool mapping
+
+Frozen `google-shared.ts:304–319` copies plain tool parameters; `mapToolChoice` maps only explicit choices, never infers strict mode. Removed source-absent supports_google_strict_tool_sampling/resolve_google_function_calling_mode, additionalProperties rewriting and strict validation failures. convert_tools now returns its optional array directly, without a fabricated constrained-sampling error. Old strict-helper tests asserted the previous source contract; replaced them with unchanged-schema and literal choice mapping checks, not weakened request assertions. Actual frozen Vertex116 reproduced the extra VALIDATED config and additionalProperties:false; after removal it advances to independent Gemini replay-ID drift. Google shared31 tests GREEN (`google-function-tools-green-1.log`).
+
+## Q4 max-output ceiling
+
+Frozen `google-shared.ts:12–17` exports `GOOGLE_MAX_OUTPUT_TOKENS=65535` and `clampGoogleMaxOutputTokens`. Both Google request builders use that helper (`google-generative-ai.ts:358`, Vertex456). Native shared config now applies it too. Source request REDs were65536 versus65535 in Generative1/Vertex111; both advanced to separate generated-ID/strict-tool drifts after repair (`google-max-output-green-1.log`). `max_output_token_cap_preserves_js_numbers_below_the_ceiling` covers fractional/negative/infinite/NaN and signed-zero behavior; comparisons never narrow numbers.
+
 ## Representation
 - `Part`/`Content` are request-side JSON records. `convert_messages` returns typed `GoogleContent { parts: Vec<Value>, role }`; parts are `serde_json::Value` because the Gemini part union has many provider-only members that Pi never sets.
 - `GoogleThinkingLevel` is an enum with the exact Google enum wire values (`THINKING_LEVEL_UNSPECIFIED`, `MINIMAL`, `LOW`, `MEDIUM`, `HIGH`).
@@ -15,6 +27,7 @@ Tests: `crates/pi-ai/tests/google_shared.rs` (30 behavioral, ported from `google
 ## Symbols → proof
 | TS | Rust | Test |
 |---|---|---|
+| `GOOGLE_MAX_OUTPUT_TOKENS` / `clampGoogleMaxOutputTokens` | `GOOGLE_MAX_OUTPUT_TOKENS` / `clamp_google_max_output_tokens` | numeric ceiling test; actual-source Google request bodies |
 | `GoogleThinkingLevel` | `GoogleThinkingLevel` | `thinking_levels_serialize_as_google_enum_values` |
 | `isThinkingPart` | `is_thinking_part(thought: Option<bool>)` | `thinking_detection_requires_the_thought_flag` |
 | `retainThoughtSignature` | `retain_thought_signature` | `thought_signatures_are_retained_until_a_new_non_empty_one_arrives` |
