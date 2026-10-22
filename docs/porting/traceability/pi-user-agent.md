@@ -19,3 +19,11 @@ Differential proof: request `26005` executes the real pinned module and compares
 
 - Focused cases: formatting, platform mapping, architecture mapping, runtime shape.
 - Differential request: `26005`, 5 versions plus live platform/arch/runtime cross-check.
+
+## Q18 native version input (2026-10-22)
+
+User-agent format/get functions preserve native version units; platform/runtime/
+arch remain scalar metadata tags. Remote catalog/version HTTP construction encodes
+the resulting user-agent at the header boundary. Interactive direct callers pass
+native version input. Raw-version fixture written but unexecuted while coding
+compilation remains blocked. No runtime PASS.

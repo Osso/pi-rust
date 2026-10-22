@@ -5,11 +5,11 @@ use pi_coding_agent::utils::pi_user_agent::{
 #[test]
 fn formats_the_user_agent_expected_by_pi_dev() {
     assert_eq!(
-        format_pi_user_agent("1.2.3", "linux", "node/v20.11.0", "x64"),
+        format_pi_user_agent(&"1.2.3".into(), "linux", "node/v20.11.0", "x64"),
         "pi/1.2.3 (linux; node/v20.11.0; x64)"
     );
     assert_eq!(
-        format_pi_user_agent("0.84.1", "darwin", "bun/1.1.30", "arm64"),
+        format_pi_user_agent(&"0.84.1".into(), "darwin", "bun/1.1.30", "arm64"),
         "pi/0.84.1 (darwin; bun/1.1.30; arm64)"
     );
 }
@@ -36,10 +36,16 @@ fn maps_rust_arch_names_to_node_names() {
 
 #[test]
 fn runtime_user_agent_has_the_three_segment_shape() {
-    let user_agent = get_pi_user_agent("1.2.3");
+    let user_agent = get_pi_user_agent(&"1.2.3".into());
     assert!(user_agent.starts_with("pi/1.2.3 ("), "{user_agent}");
     assert!(user_agent.ends_with(')'), "{user_agent}");
     let inner = &user_agent["pi/1.2.3 (".len()..user_agent.len() - 1];
     assert_eq!(inner.split(';').count(), 3, "{user_agent}");
     assert!(!inner.contains('('), "{user_agent}");
+}
+
+#[test]
+fn raw_version_survives_user_agent_formatting() {
+    let version = pi_js_compat::js_json::JsString::from_utf16(vec![0xd800]);
+    assert!(get_pi_user_agent(&version).contains(&version));
 }
