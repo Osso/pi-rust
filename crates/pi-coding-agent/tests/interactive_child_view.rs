@@ -39,9 +39,7 @@ fn read_child_transcript_returns_the_child_messages() {
     let messages = read_child_transcript(&path, &JsString::from(&session_dir)).expect("transcript");
     assert_eq!(messages.len(), 2);
     assert!(
-        matches!(&messages[0], AgentMessage::User(message) if matches!(&message.content, UserContent::Text(text) if text == "child task")),
-        "actual first message: {:?}",
-        messages[0]
+        matches!(&messages[0], AgentMessage::User(message) if matches!(&message.content, UserContent::Text(text) if text == "child task"))
     );
     assert!(
         matches!(&messages[1], AgentMessage::Assistant(message) if message.content.iter().any(|block| matches!(block, pi_ai::types::AssistantContent::Text(text) if text.text == "child done")))

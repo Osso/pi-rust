@@ -15,9 +15,14 @@ use pi_tui::tui::Component;
 use serde_json::json;
 
 fn initialize_theme() {
-    use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, Theme, set_theme_instance};
-    let colors = ["accent", "text", "muted", "dim", "border"].map(|name| (JsString::from(name), ColorValue::Index(0)));
-    let theme = Theme::new(&colors, &[], ColorMode::Color256, None, None).unwrap();
+    use pi_coding_agent::modes::interactive::theme::{
+        ColorMode, ColorValue, REQUIRED_COLORS, Theme, set_theme_instance,
+    };
+    let colors: Vec<_> = REQUIRED_COLORS
+        .iter()
+        .map(|name| (JsString::from(*name), ColorValue::Index(0)))
+        .collect();
+    let theme = Theme::new(&colors, &colors, ColorMode::Color256, None, None).unwrap();
     set_theme_instance(std::sync::Arc::new(theme));
 }
 
