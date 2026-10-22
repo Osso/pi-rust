@@ -1060,10 +1060,10 @@ pub(crate) fn find_source_info_for_path<'a>(
     if let Some(exact) = source_infos.get(path) {
         return Some(exact);
     }
-    let mut current = path;
-    while let Some(index) = current.rfind('/') {
-        current = &current[..index];
-        if let Some(parent) = source_infos.get(current) {
+    let mut current = path.clone();
+    while let Some(index) = current.units().iter().rposition(|unit| *unit == 0x2f) {
+        current = current.slice(0, index);
+        if let Some(parent) = source_infos.get(&current) {
             return Some(parent);
         }
     }
@@ -4423,15 +4423,12 @@ impl InteractiveMode {
 
     fn update_terminal_title(&self) {
         let cwd = self.cwd();
-        let basename = Path::new(&cwd)
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| cwd.clone());
+        let basename = node_basename(&cwd);
         let title = match self.session.borrow().session_name() {
             Some(name) => js_format!(
                 "{} - {} - {}",
                 crate::config::package_config().app_title,
-                encode_node_utf8(&name.into()),
+                name,
                 basename
             ),
             None => js_format!("{} - {}", crate::config::package_config().app_title, basename),
@@ -4446,7 +4443,6 @@ impl InteractiveMode {
 
     fn show_status(&self, message: impl Into<JsString>) {
         let message = message.into();
-        let message = encode_node_utf8(&message.into());
         let last = self.chat_container.borrow().children().last().cloned();
         let second_last = {
             let container = self.chat_container.borrow();
@@ -4485,7 +4481,6 @@ impl InteractiveMode {
 
     fn show_error(&self, message: impl Into<JsString>) {
         let message = message.into();
-        let message = encode_node_utf8(&message.into());
         let text = component(Text::new(
             with_theme(|theme| theme.fg(ThemeColor::Error, &message)),
             1,
@@ -4497,7 +4492,6 @@ impl InteractiveMode {
 
     fn show_warning(&self, message: impl Into<JsString>) {
         let message = message.into();
-        let message = encode_node_utf8(&message.into());
         let text = component(Text::new(
             with_theme(|theme| theme.fg(ThemeColor::Warning, &message)),
             1,
@@ -4569,7 +4563,7 @@ impl InteractiveMode {
                     && user.input_source != Some(pi_ai::types::InputSource::Extension)
                     && !is_skill_block
                 {
-                    self.add_rendered_message_to_editor_history(&JsString::from(&encode_node_utf8(&text)));
+                    self.add_rendered_message_to_editor_history(&JsString::from(&(&text).clone()));
                 }
             }
             AgentMessage::Assistant(assistant) => {
@@ -4674,10 +4668,7 @@ impl InteractiveMode {
                 let exit_code = object.get("exitCode").and_then(JsValue::as_f64);
                 let cancelled = object.get("cancelled").and_then(JsValue::as_bool).unwrap_or(false);
                 let truncated = object.get("truncated").and_then(JsValue::as_bool).unwrap_or(false);
-                let full_output_path = object
-                    .get("fullOutputPath")
-                    .and_then(JsValue::as_string)
-                    .map(encode_node_utf8);
+                let full_output_path = object.get("fullOutputPath").and_then(JsValue::as_string).cloned();
                 let exclude_from_context = object
                     .get("excludeFromContext")
                     .and_then(JsValue::as_bool)
@@ -4717,11 +4708,10 @@ impl InteractiveMode {
                 self.chat_container.borrow_mut().add_child(component(component_value));
             }
             role if role == "compactionSummary" => {
-                let Ok(message) = js_json::from_value::<crate::core::messages::CompactionSummaryMessage>(
-                    &JsValue::Object(object.clone()),
-                ) else {
-                    return;
-                };
+                let message = js_json::from_value::<crate::core::messages::CompactionSummaryMessage>(&JsValue::Object(
+                    object.clone(),
+                ))
+                .unwrap_or_else(|error| throw_uncaught(ERROR, error.to_string()));
                 self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
                 let mut summary = CompactionSummaryMessageComponent::new(message, Some(self.markdown_theme()));
                 summary.set_expanded(self.tool_output_expanded.get());
@@ -4731,7 +4721,7 @@ impl InteractiveMode {
                 let message = crate::core::messages::BranchSummaryMessage {
                     role: pi_agent_core::harness::messages::BranchSummaryRole::BranchSummary,
                     summary: json_string(object, &JsString::from("summary")),
-                    from_id: (encode_node_utf8(&json_string(object, &JsString::from("fromId")))).into(),
+                    from_id: ((&json_string(object, &JsString::from("fromId"))).clone()).into(),
                     timestamp: object.get("timestamp").and_then(JsValue::as_f64).unwrap_or_default(),
                 };
                 self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
@@ -4748,7 +4738,7 @@ impl InteractiveMode {
                         }
                         Some(JsValue::Array(_)) => crate::core::extensions::types::CustomMessageContent::Blocks(
                             js_json::from_value(&object.get("content").cloned().unwrap_or_default())
-                                .unwrap_or_default(),
+                                .unwrap_or_else(|error| throw_uncaught(ERROR, error.to_string())),
                         ),
                         _ => crate::core::extensions::types::CustomMessageContent::Text(JsString::default()),
                     };
@@ -5286,7 +5276,7 @@ impl InteractiveMode {
                 .iter()
                 .map(|error| ResourceDiagnostic {
                     diagnostic_type: ResourceDiagnosticType::Error,
-                    message: (encode_node_utf8(&error.error)).into(),
+                    message: ((&error.error).clone()).into(),
                     path: Some(error.path.clone()),
                     collision: None,
                 })
@@ -5724,7 +5714,7 @@ impl InteractiveMode {
                         &js_format!(
                             "  {} {}",
                             with_theme(|theme| theme.fg(ThemeColor::Accent, "Steering:")),
-                            encode_node_utf8(&message)
+                            (&message).clone()
                         ),
                     )
                 }),
@@ -5910,27 +5900,21 @@ impl InteractiveMode {
         let environment = crate::utils::clipboard_image::ClipboardEnvironment::from_process();
         let native = crate::utils::clipboard_native::clipboard();
         let native = native.as_deref();
-        if let Ok(Some(image)) =
-            crate::utils::clipboard_image::read_clipboard_image(&environment, native.map(|value| value.as_ref())).await
-        {
+        if let Ok(Some(image)) = crate::utils::clipboard_image::read_clipboard_image(&environment, native).await {
             let extension =
                 crate::utils::clipboard_image::extension_for_image_mime_type(&image.mime_type).unwrap_or("png");
-            let file_path = std::env::temp_dir().join(js_format!(
-                "pi-clipboard-{}.{}",
-                pi_ai::utils::uuid::random_uuid(),
-                extension
-            ));
-            if std::fs::write(&file_path, &image.bytes).is_ok() {
+            let file_path = node_join(
+                JsString::from(std::env::temp_dir().to_string_lossy().as_ref()),
+                js_format!("pi-clipboard-{}.{}", pi_ai::utils::uuid::random_uuid(), extension),
+            );
+            if std::fs::write(encode_node_utf8(&file_path), &image.bytes).is_ok() {
                 self.clipboard_temp_files.borrow_mut().track(file_path.clone());
-                self.editor()
-                    .borrow_mut()
-                    .insert_text_at_cursor(&JsString::from(&file_path.display().to_string()));
+                self.editor().borrow_mut().insert_text_at_cursor(&file_path);
                 self.ui.request_render();
                 return;
             }
         }
-        if let Some(text) =
-            crate::utils::clipboard::read_clipboard_text(&environment, native.map(|value| value.as_ref())).await
+        if let Some(text) = crate::utils::clipboard::read_clipboard_text(&environment, native).await
             && !text.is_empty()
         {
             self.editor().borrow_mut().insert_text_at_cursor(&JsString::from(&text));
@@ -6817,7 +6801,7 @@ impl InteractiveMode {
             crate::core::session_control_db::fail_incoming_message(
                 control_db_path,
                 message.id,
-                &encode_node_utf8(&error_message),
+                &(&error_message).clone(),
             )
             .map_err(|error| JsString::from(error.to_string()))?;
             self.show_error(&error_message);
@@ -8010,7 +7994,7 @@ impl InteractiveMode {
             if !text.is_empty() {
                 text.push_str("\n");
             }
-            text.push_str(&encode_node_utf8(&message));
+            text.push_str(&(&message).clone());
         }
         self.editor().borrow_mut().set_text(&text);
         self.update_pending_messages_display();
@@ -8358,7 +8342,7 @@ impl InteractiveMode {
             return;
         };
         match crate::utils::clipboard::copy_to_clipboard(
-            &encode_node_utf8(&text),
+            &(&text).clone(),
             &crate::utils::clipboard_image::ClipboardEnvironment::from_process(),
             None,
         )
@@ -8665,9 +8649,9 @@ impl InteractiveMode {
                 let session = runtime.session().clone();
                 drop(runtime);
                 self.adopt_session(session);
-                self.editor().borrow_mut().set_text(&JsString::from(&encode_node_utf8(
-                    &result.selected_text.unwrap_or_default(),
-                )));
+                self.editor()
+                    .borrow_mut()
+                    .set_text(&JsString::from(&(&result.selected_text.unwrap_or_default(),).clone()));
                 self.show_status("Forked to new session");
             }
             Ok(_) => {
@@ -8742,7 +8726,7 @@ impl InteractiveMode {
             return;
         };
         match crate::utils::clipboard::copy_to_clipboard(
-            &encode_node_utf8(&text),
+            &(&text).clone(),
             &crate::utils::clipboard_image::ClipboardEnvironment::from_process(),
             None,
         )
@@ -8881,7 +8865,7 @@ impl InteractiveMode {
                 {
                     self.editor()
                         .borrow_mut()
-                        .set_text(&JsString::from(&encode_node_utf8(editor_text)));
+                        .set_text(&JsString::from(&(editor_text).clone()));
                 }
                 self.show_status("Navigated to selected point");
                 self.flush_compaction_queue(false).await;
@@ -8911,7 +8895,7 @@ impl InteractiveMode {
         *self.pending_compaction_summary_edit_id.borrow_mut() = Some(entry.id.clone());
         self.editor()
             .borrow_mut()
-            .set_text(&JsString::from(&encode_node_utf8(&summary)));
+            .set_text(&JsString::from(&(&summary).clone()));
         self.show_status("Editing compaction summary");
         self.ui.request_render();
     }
@@ -9893,7 +9877,7 @@ impl InteractiveMode {
                                 selection_error = Some(js_format!(
                                     "{}, but selecting its default model failed: {}. Use /model to select a model.",
                                     action_label,
-                                    encode_node_utf8(error.message())
+                                    (error.message()).clone()
                                 ));
                             }
                         }
@@ -11328,7 +11312,7 @@ impl InteractiveMode {
                     } else {
                         self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
                         self.chat_container.borrow_mut().add_child(component(Text::new(
-                            with_theme(|theme| theme.fg(ThemeColor::Error, &encode_node_utf8(&failure_message))),
+                            with_theme(|theme| theme.fg(ThemeColor::Error, &(&failure_message).clone())),
                             1,
                             0,
                         )));
