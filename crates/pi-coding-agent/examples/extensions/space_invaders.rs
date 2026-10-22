@@ -1,5 +1,7 @@
 //! Opt-in native port of `space-invaders.ts`; register its factory explicitly.
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use pi_tui::{
     keys::{is_key_release, matches_key},
     utils::{strip_terminal_sequences, visible_width},
@@ -116,8 +118,10 @@ pub(crate) fn space_invaders_extension_with_random(api: &ExtensionApi, random: R
             let random = random.clone();
             Box::pin(async move {
                 if ctx.mode()? != ExtensionMode::Tui {
-                    ctx.ui()?
-                        .notify("Space Invaders requires interactive mode", Some(NotifyType::Error));
+                    ctx.ui()?.notify(
+                        &JsString::from("Space Invaders requires interactive mode"),
+                        Some(NotifyType::Error),
+                    );
                     return Ok(());
                 }
                 let entries = ctx.session_manager()?.lock().unwrap().get_entries();
@@ -137,9 +141,10 @@ pub(crate) fn space_invaders_extension_with_random(api: &ExtensionApi, random: R
                 let error = Arc::new(Mutex::new(None));
                 let captured = error.clone();
                 let save: Save = Arc::new(move |state| {
-                    if let Err(e) =
-                        pi.append_entry("space-invaders-save", Some(state.map_or(Value::Null, |s| json!(s))))
-                    {
+                    if let Err(e) = pi.append_entry(
+                        &JsString::from("space-invaders-save"),
+                        Some(JsValue::from(state.map_or(Value::Null, |s| json!(s)))),
+                    ) {
                         *captured.lock().unwrap() = Some(e);
                     }
                 });
@@ -394,7 +399,7 @@ impl ExtensionUiComponent for Invaders {
         let released = is_key_release(data);
         let mut inner = self.inner.lock().unwrap();
         if inner.paused && !released {
-            if matches_key(data, "escape") || matches!(data, "q" | "Q") {
+            if matches_key(data, "escape") || (data == "q" || data == "Q") {
                 self.stop();
                 drop(inner);
                 self.done.call(None);
@@ -413,23 +418,23 @@ impl ExtensionUiComponent for Invaders {
             self.done.call(None);
             return;
         }
-        if !released && matches!(data, "q" | "Q") {
+        if !released && (data == "q" || data == "Q") {
             self.stop();
             drop(inner);
             (self.save)(None);
             self.done.call(None);
             return;
         }
-        if matches_key(data, "left") || matches!(data, "a" | "A") || matches_key(data, "a") {
+        if matches_key(data, "left") || (data == "a" || data == "A") || matches_key(data, "a") {
             inner.keys.left = !released;
         }
-        if matches_key(data, "right") || matches!(data, "d" | "D") || matches_key(data, "d") {
+        if matches_key(data, "right") || (data == "d" || data == "D") || matches_key(data, "d") {
             inner.keys.right = !released;
         }
-        if matches_key(data, "space") || matches!(data, " " | "f" | "F") || matches_key(data, "f") {
+        if matches_key(data, "space") || (data == " " || data == "f" || data == "F") || matches_key(data, "f") {
             inner.keys.fire = !released;
         }
-        if !released && (inner.state.game_over || inner.state.victory) && matches!(data, "r" | "R" | " ") {
+        if !released && (inner.state.game_over || inner.state.victory) && (data == "r" || data == "R" || data == " ") {
             let level = if inner.state.victory { inner.state.level + 1 } else { 1 };
             inner.state = initial(inner.state.high_score, level);
             inner.keys = Keys::default();
@@ -445,7 +450,12 @@ impl ExtensionUiComponent for Invaders {
     fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let mut inner = self.inner.lock().unwrap();
         if width == inner.cached_width && inner.cached_version == Some(inner.version) {
-            return inner.cached_lines.clone();
+            return inner
+                .cached_lines
+                .clone()
+                .into_iter()
+                .map(JsString::from)
+                .collect::<Vec<_>>();
         }
         if inner.state.player.lives < 0 {
             let lives = inner.state.player.lives;
@@ -456,7 +466,7 @@ impl ExtensionUiComponent for Invaders {
         inner.cached_width = width;
         inner.cached_version = Some(inner.version);
         inner.cached_lines = lines.clone();
-        lines
+        lines.into_iter().map(JsString::from).collect::<Vec<_>>()
     }
     fn dispose(&self) {
         self.stop();

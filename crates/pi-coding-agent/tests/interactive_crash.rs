@@ -4,6 +4,7 @@
 //! The handlers end the process, so the observable behavior is asserted at the
 //! process boundary: exit codes, stderr text, and terminal restore sequences.
 
+use pi_js_compat::js_json::JsString;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -379,7 +380,7 @@ fn terminal_stop_child() {
             pi_tui::tui::TuiMode::Regular
         },
         show_hardware_cursor: false,
-        log_directory: std::env::var("PI_CODING_AGENT_DIR").expect("agent dir"),
+        log_directory: JsString::from(std::env::var("PI_CODING_AGENT_DIR").expect("agent dir")),
         terminal: Some(terminal.clone()),
         on_right_click_paste: None,
     }));

@@ -7,6 +7,7 @@
 #[path = "support/executable_script.rs"]
 mod executable_script;
 
+use pi_js_compat::js_json::JsString;
 use std::ffi::OsStr;
 use std::path::Path;
 use std::time::Instant;
@@ -40,7 +41,7 @@ async fn skips_the_check_outside_tmux() {
     tmux_script(&path, "off", "xterm");
 
     assert_eq!(
-        check_tmux_keyboard_setup_with(None, &path.display().to_string()).await,
+        check_tmux_keyboard_setup_with(None, &JsString::from(&path.display().to_string())).await,
         None
     );
 }
@@ -52,7 +53,7 @@ async fn accepts_enabled_extended_keys_and_csi_u() {
     tmux_script(&path, "on", "csi-u");
 
     assert_eq!(
-        check_tmux_keyboard_setup_with(tmux_env(), &path.display().to_string()).await,
+        check_tmux_keyboard_setup_with(tmux_env(), &JsString::from(&path.display().to_string())).await,
         None
     );
 }
@@ -64,8 +65,8 @@ async fn warns_when_extended_keys_are_off() {
     tmux_script(&path, "off", "csi-u");
 
     assert_eq!(
-        check_tmux_keyboard_setup_with(tmux_env(), &path.display().to_string()).await,
-        Some(EXTENDED_KEYS_OFF_WARNING.to_owned())
+        check_tmux_keyboard_setup_with(tmux_env(), &JsString::from(&path.display().to_string())).await,
+        Some(EXTENDED_KEYS_OFF_WARNING.to_owned()).map(JsString::from)
     );
 }
 
@@ -76,8 +77,8 @@ async fn warns_when_the_format_is_xterm() {
     tmux_script(&path, "always", "xterm");
 
     assert_eq!(
-        check_tmux_keyboard_setup_with(tmux_env(), &path.display().to_string()).await,
-        Some(EXTENDED_KEYS_FORMAT_WARNING.to_owned())
+        check_tmux_keyboard_setup_with(tmux_env(), &JsString::from(&path.display().to_string())).await,
+        Some(EXTENDED_KEYS_FORMAT_WARNING.to_owned()).map(JsString::from)
     );
 }
 
@@ -88,7 +89,7 @@ async fn trims_whitespace_from_tmux_output() {
     tmux_script(&path, "  on  ", " csi-u ");
 
     assert_eq!(
-        check_tmux_keyboard_setup_with(tmux_env(), &path.display().to_string()).await,
+        check_tmux_keyboard_setup_with(tmux_env(), &JsString::from(&path.display().to_string())).await,
         None
     );
 }
@@ -100,7 +101,7 @@ async fn ignores_unqueryable_tmux() {
     script(&path, "#!/bin/sh\nexit 1\n");
 
     assert_eq!(
-        check_tmux_keyboard_setup_with(tmux_env(), &path.display().to_string()).await,
+        check_tmux_keyboard_setup_with(tmux_env(), &JsString::from(&path.display().to_string())).await,
         None
     );
 }
@@ -115,7 +116,7 @@ async fn ignores_a_missing_format_value() {
     );
 
     assert_eq!(
-        check_tmux_keyboard_setup_with(tmux_env(), &path.display().to_string()).await,
+        check_tmux_keyboard_setup_with(tmux_env(), &JsString::from(&path.display().to_string())).await,
         None
     );
 }
@@ -127,7 +128,7 @@ async fn times_out_after_two_seconds_without_warning() {
     script(&path, "#!/bin/sh\nsleep 5\n");
 
     let started = Instant::now();
-    let warning = check_tmux_keyboard_setup_with(tmux_env(), &path.display().to_string()).await;
+    let warning = check_tmux_keyboard_setup_with(tmux_env(), &JsString::from(&path.display().to_string())).await;
     assert_eq!(warning, None);
     assert!(
         started.elapsed() < std::time::Duration::from_secs(4),

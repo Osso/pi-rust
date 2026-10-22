@@ -1,4 +1,6 @@
 //! Opt-in native `status-line.ts`; count belongs to the extension, not the session.
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
 use pi_coding_agent::core::extensions::*;
@@ -11,7 +13,10 @@ pub fn status_line_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         |_event, ctx: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
             Box::pin(async move {
                 let ui = ctx.ui()?;
-                ui.set_status("status-demo", Some(&ui.theme().fg(ThemeColor::Dim, "Ready")));
+                ui.set_status(
+                    &JsString::from("status-demo"),
+                    Some(&ui.theme().fg(ThemeColor::Dim, "Ready")),
+                );
                 Ok(None)
             })
         },
@@ -30,7 +35,7 @@ pub fn status_line_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 let theme = ui.theme();
                 let spinner = theme.fg(ThemeColor::Accent, "●");
                 let text = theme.fg(ThemeColor::Dim, &format!(" Turn {count}..."));
-                ui.set_status("status-demo", Some(&format!("{spinner}{text}")));
+                ui.set_status(&JsString::from("status-demo"), Some(&js_format!("{}{}", spinner, text)));
                 Ok(None)
             })
         },
@@ -44,7 +49,7 @@ pub fn status_line_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 let theme = ui.theme();
                 let check = theme.fg(ThemeColor::Success, "✓");
                 let text = theme.fg(ThemeColor::Dim, &format!(" Turn {count} complete"));
-                ui.set_status("status-demo", Some(&format!("{check}{text}")));
+                ui.set_status(&JsString::from("status-demo"), Some(&js_format!("{}{}", check, text)));
                 Ok(None)
             })
         },

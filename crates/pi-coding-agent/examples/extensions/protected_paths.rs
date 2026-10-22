@@ -1,5 +1,7 @@
 //! Opt-in native port of `protected-paths.ts`; register its factory explicitly.
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsValue;
 pub fn protected_paths_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     pi.on_tool_call(
         |event: ToolCallEvent,
@@ -12,23 +14,23 @@ pub fn protected_paths_extension(pi: &ExtensionApi) -> Result<(), HandlerError> 
                 let path = event
                     .input
                     .get("path")
-                    .and_then(serde_json::Value::as_str)
+                    .and_then(JsValue::as_string)
                     .ok_or_else(|| HandlerError::new("path must be a string"))?;
                 if ![".env", ".git/", "node_modules/"]
                     .iter()
-                    .any(|part| path.contains(part))
+                    .any(|part| path.contains(*part))
                 {
                     return Ok(None);
                 }
                 if ctx.has_ui()? {
                     ctx.ui()?.notify(
-                        &format!("Blocked write to protected path: {path}"),
+                        &js_format!("Blocked write to protected path: {}", path),
                         Some(NotifyType::Warning),
                     );
                 }
                 Ok(Some(ToolCallEventResult {
                     block: Some(true),
-                    reason: Some(format!("Path \"{path}\" is protected")),
+                    reason: Some(js_format!("Path \"{}\" is protected", path)),
                     ..Default::default()
                 }))
             })

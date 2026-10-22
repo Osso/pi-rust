@@ -8,6 +8,9 @@ mod env_probe;
 #[path = "support/export_fixture.rs"]
 mod export_fixture;
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::encode_node_utf8;
 use std::path::PathBuf;
 
 fn fixture_path() -> String {
@@ -34,10 +37,10 @@ async fn export_file_probe() {
     let dir = tempfile::tempdir().expect("temp dir");
     let output = dir.path().join("export.html");
     let written = export_from_file(
-        &fixture_path(),
+        &JsString::from(&fixture_path()),
         Some(ExportOptions {
-            output_path: Some(output.display().to_string()),
-            theme_name: Some("dark".to_owned()),
+            output_path: Some(JsString::from(output.display().to_string())),
+            theme_name: Some(JsString::from("dark")),
             ..ExportOptions::default()
         }),
     )
@@ -45,7 +48,7 @@ async fn export_file_probe() {
     .expect("export succeeds");
     assert_eq!(written, output.display().to_string());
 
-    let html = std::fs::read_to_string(&written).expect("read html");
+    let html = std::fs::read_to_string(&&encode_node_utf8(&written)).expect("read html");
     assert!(html.starts_with("<!DOCTYPE html>\n<html lang=\"en\">"));
     assert!(html.contains("--exportPageBg: #18181e;"));
     assert!(html.contains("<script id=\"session-data\" type=\"application/json\">"));
@@ -110,7 +113,7 @@ async fn export_session_probe() {
         fn execute(
             &self,
             _tool_call_id: String,
-            _params: serde_json::Value,
+            _params: JsValue,
             _signal: Option<tokio_util::sync::CancellationToken>,
             _on_update: AgentToolUpdateCallback,
             _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -124,7 +127,7 @@ async fn export_session_probe() {
         name: "Claude".to_owned(),
         api: "anthropic-messages".to_owned(),
         provider: "anthropic".to_owned(),
-        base_url: "https://example.invalid".to_owned(),
+        base_url: JsString::from("https://example.invalid"),
         reasoning: false,
         thinking_level_map: None,
         input: vec![Modality::Text],
@@ -137,7 +140,7 @@ async fn export_session_probe() {
         compat: None,
     };
     let state = AgentState {
-        system_prompt: "You are a fixture.".to_owned(),
+        system_prompt: JsString::from("You are a fixture."),
         model,
         thinking_level: ThinkingLevel::Off,
         tools: vec![Arc::new(FixtureTool)],
@@ -149,15 +152,15 @@ async fn export_session_probe() {
         error_message: None,
     };
 
-    let session = SessionManager::open(&fixture_path(), None, None).expect("open session");
+    let session = SessionManager::open(&JsString::from(&fixture_path()), None, None).expect("open session");
     let dir = tempfile::tempdir().expect("temp dir");
     let output = dir.path().join("live.html");
     export_session_to_html(
         &session,
         Some(&state),
         Some(ExportOptions {
-            output_path: Some(output.display().to_string()),
-            theme_name: Some("light".to_owned()),
+            output_path: Some(JsString::from(output.display().to_string())),
+            theme_name: Some(JsString::from("light")),
             ..ExportOptions::default()
         }),
     )
@@ -189,7 +192,7 @@ async fn export_in_memory_probe() {
     use pi_coding_agent::core::export_html::export_session_to_html;
     use pi_coding_agent::core::session_manager::SessionManager;
 
-    let session = SessionManager::in_memory(Some("/tmp"), None).expect("in-memory session");
+    let session = SessionManager::in_memory(Some(&JsString::from("/tmp")), None).expect("in-memory session");
     let error = export_session_to_html(&session, None, None)
         .await
         .expect_err("in-memory export must fail");
@@ -219,7 +222,7 @@ async fn export_agent_session_probe() {
     use pi_coding_agent::core::session_manager::SessionManager;
     use pi_coding_agent::core::settings_manager::{Settings, SettingsManager, SettingsManagerCreateOptions};
 
-    pi_coding_agent::modes::interactive::theme::init_theme(Some("dark"), false).expect("dark theme");
+    pi_coding_agent::modes::interactive::theme::init_theme(Some(&JsString::from("dark")), false).expect("dark theme");
 
     let faux = faux_provider(RegisterFauxProviderOptions {
         provider: Some("faux".to_owned()),
@@ -253,7 +256,7 @@ async fn export_agent_session_probe() {
     let agent = Agent::new(AgentOptions {
         initial_state: Some(AgentInitialState {
             model: Some(model),
-            system_prompt: Some(String::new()),
+            system_prompt: Some(JsString::default()),
             thinking_level: Some(ThinkingLevel::Off),
             tools: Some(Vec::new()),
             messages: None,
@@ -265,16 +268,16 @@ async fn export_agent_session_probe() {
         ..Default::default()
     })
     .expect("agent");
-    let session_manager = SessionManager::open(&fixture_path(), None, None).expect("open session");
+    let session_manager = SessionManager::open(&JsString::from(&fixture_path()), None, None).expect("open session");
     let mut settings = Settings::new();
-    settings.insert("theme".to_owned(), serde_json::json!("dark"));
+    settings.insert(JsString::from("theme"), JsValue::from(serde_json::json!("dark")));
     let settings_manager = SettingsManager::in_memory(settings, SettingsManagerCreateOptions::default());
     let dir = tempfile::tempdir().expect("temp dir");
     let session = AgentSession::new(AgentSessionConfig {
         agent,
         session_manager: Arc::new(std::sync::Mutex::new(session_manager)),
         settings_manager: Arc::new(std::sync::Mutex::new(settings_manager)),
-        cwd: "/tmp".to_owned(),
+        cwd: JsString::from("/tmp"),
         scoped_models: Vec::new(),
         resource_loader: pi_coding_agent::core::resource_loader::StaticResourceLoader::new(),
         model_runtime: runtime,
@@ -282,8 +285,8 @@ async fn export_agent_session_probe() {
         allowed_tool_names: None,
         excluded_tool_names: None,
         permission_prompt_tool: None,
-        agent_dir: Some("/tmp".to_owned()),
-        control_db_path: Some(dir.path().join("control.db").display().to_string()),
+        agent_dir: Some(JsString::from("/tmp")),
+        control_db_path: Some(JsString::from(dir.path().join("control.db").display().to_string())),
         base_tools: Vec::new(),
         custom_tool_definitions: Vec::new(),
         custom_tools: Vec::new(),
@@ -305,11 +308,11 @@ async fn export_agent_session_probe() {
 
     let output = dir.path().join("session.html");
     let written = session
-        .export_to_html(Some(&output.display().to_string()))
+        .export_to_html(Some(&JsString::from(&output.display().to_string())))
         .await
         .expect("export succeeds");
     assert_eq!(written, output.display().to_string());
-    let html = std::fs::read_to_string(&written).expect("read html");
+    let html = std::fs::read_to_string(&&encode_node_utf8(&written)).expect("read html");
     assert!(html.contains("--exportPageBg: #18181e;"));
     let session_data = decode_session_data(&html);
     assert_eq!(session_data["header"]["id"], "export-fixture");

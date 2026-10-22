@@ -2,6 +2,7 @@
 use pi_coding_agent::core::extensions::{ExtensionApi, HandlerError};
 use pi_coding_agent::core::tools::bash::{BASH_TOOL_SYSTEM_PROMPT_CONTRIBUTION, BashToolOptions, create_bash_tool};
 use pi_coding_agent::core::tools::tool_definition_wrapper::create_tool_definition_from_agent_tool;
+use pi_js_compat::js_format;
 use std::sync::Arc;
 
 pub fn bash_spawn_hook_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
@@ -11,7 +12,7 @@ pub fn bash_spawn_hook_extension(pi: &ExtensionApi) -> Result<(), HandlerError> 
         cwd,
         BashToolOptions {
             spawn_hook: Some(Arc::new(|mut context| {
-                context.command = format!("source ~/.profile\n{}", context.command);
+                context.command = js_format!("source ~/.profile\n{}", context.command);
                 context.env.insert("PI_SPAWN_HOOK".into(), "1".into());
                 context
             })),

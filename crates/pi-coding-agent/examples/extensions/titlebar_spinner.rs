@@ -1,5 +1,7 @@
 //! Opt-in native `titlebar-spinner.ts`; embed and register explicitly.
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use std::{
     sync::{Arc, Mutex},
     time::Duration,
@@ -13,7 +15,7 @@ fn read_base_title(pi: &ExtensionApi) -> Result<String, HandlerError> {
     let cwd = std::env::current_dir().map_err(|error| HandlerError::new(error.to_string()))?;
     let basename = cwd.file_name().unwrap_or_default().to_string_lossy();
     Ok(match pi.get_session_name()?.filter(|name| !name.is_empty()) {
-        Some(session) => format!("π - {session} - {basename}"),
+        Some(session) => js_format!("π - {} - {}", session, basename),
         None => format!("π - {basename}"),
     })
 }
@@ -21,7 +23,7 @@ fn stop_animation(timer: &Timer, pi: &ExtensionApi, ctx: &ExtensionContext) -> R
     if let Some(task) = timer.lock().unwrap().take() {
         task.abort();
     }
-    ctx.ui()?.set_title(&read_base_title(pi)?);
+    ctx.ui()?.set_title(&JsString::from(read_base_title(pi)?));
     Ok(())
 }
 fn start_animation(timer: &Timer, pi: &ExtensionApi, ctx: &ExtensionContext) -> Result<(), HandlerError> {

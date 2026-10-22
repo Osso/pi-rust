@@ -2,6 +2,7 @@
 use pi_agent_core::AgentToolResult;
 use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::js_json::JsValue;
 use serde_json::json;
 use std::sync::Arc;
 
@@ -48,7 +49,7 @@ pub fn reload_runtime_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     content: vec![TextOrImageContent::Text(TextContent::new(
                         "Queued /reload-runtime as a follow-up command.",
                     ))],
-                    details: Some(json!({})),
+                    details: Some(JsValue::from(json!({}))),
                     is_error: None,
                     terminate: None,
                 })
