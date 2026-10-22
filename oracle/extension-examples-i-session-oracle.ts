@@ -13,9 +13,9 @@ async function main(){
   const registry=utils.ModelRegistry.inMemory(credentials);
   const calls:any[]=[],trace:any[]=[],errors:any[]=[];
   faux.setResponses([async(context:any,options:any,_state:any,model:any)=>{
-   if(!/^[0-9a-f]{8}-[0-9a-f]{4}-7/.test(options.sessionId))throw new Error('invalid uuidv7');
+   if(options.sessionId!==undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-7/.test(options.sessionId))throw new Error('invalid uuidv7');
    const captured=JSON.parse(JSON.stringify(context));captured.messages[0].timestamp='<clock>';
-   calls.push({model:[model.provider,model.id],context:captured,options:{cacheRetention:options.cacheRetention,sessionId:'<uuidv7>',reasoningEffort:options.reasoningEffort??null}});
+   calls.push({model:[model.provider,model.id],context:captured,options:{cacheRetention:options.cacheRetention??null,sessionId:options.sessionId===undefined?null:'<uuidv7>',reasoningEffort:options.reasoningEffort??null}});
    if(request.error)throw new Error(request.error);
    return fauxModule.fauxAssistantMessage(request.response??[{type:'text',text:'## Summary\n\nDone **one**.'},{type:'thinking',thinking:'hidden'},{type:'text',text:'Next: `two`.'}],{timestamp:0,stopReason:request.aborted?'aborted':'stop'});
   }]);
