@@ -82,6 +82,7 @@ async fn load(runtime: &ExtensionRuntime, fetch: Arc<StubFetch>, bridge: Option<
                     Arc::new(move |request| {
                         let accounts = accounts.clone();
                         request.response = Some(Box::pin(async move {
+                            tokio::task::yield_now().await;
                             if let Some(error) = accounts.get("error").and_then(JsValue::as_string) {
                                 return Err(error.clone());
                             }
@@ -108,6 +109,7 @@ async fn load(runtime: &ExtensionRuntime, fetch: Arc<StubFetch>, bridge: Option<
                         let args = request.data.get("args").and_then(JsValue::as_string).unwrap().clone();
                         let error = bridge.get("handledError").and_then(JsValue::as_string).cloned();
                         request.response = Some(Box::pin(async move {
+                            tokio::task::yield_now().await;
                             if let Some(error) = error {
                                 return Err(error);
                             }
@@ -209,7 +211,39 @@ async fn run_command_case(input: &Value) -> Value {
                 auth_for("openai-codex", &token)
             });
     }
+    let provider = input
+        .get("model")
+        .and_then(|model| model.get("provider"))
+        .and_then(Value::as_str)
+        .unwrap_or("openai-codex");
+    if let Some(stored_email) = input.get("storedEmail") {
+        options
+            .auth
+            .as_mut()
+            .unwrap()
+            .get_mut(&JsString::from(provider))
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .insert("email".into(), JsValue::from(stored_email));
+    }
+    let runtime_token = if input.get("runtimeOnly").and_then(Value::as_bool) == Some(true) {
+        options.auth = None;
+        Some(token_with_claims(input.get("token").unwrap()))
+    } else {
+        None
+    };
     let harness = Harness::new(vec![extension.clone()], runtime, options).await;
+    if let Some(token) = runtime_token {
+        harness
+            .command_context()
+            .model_registry()
+            .unwrap()
+            .runtime()
+            .set_runtime_api_key(provider, &token.into(), Default::default())
+            .await
+            .unwrap();
+    }
     harness
         .ui
         .confirm_result(input.get("confirm").and_then(Value::as_bool).unwrap_or(false));
@@ -478,6 +512,18 @@ async fn differential_claude_usage_bridge() {
         json!({"name":"all-malformed-entries", "kind":"command", "args":"all", "token":null,"bridge":{"accounts":[null,[],{}, {"account":" ","selected":false,"error":"x"}, {"account":"bad","selected":true,"fiveHour":{"percent":-1,"resetsAt":null},"weekly":null}, {"account":"bad-date","selected":false,"fiveHour":{"percent":1,"resetsAt":"2026-13-01T00:00:00Z"},"weekly":null}]}}),
         json!({"name":"all-long-control", "kind":"command", "args":"all", "token":null,"bridge":{"accounts":[{"account":"x".repeat(301),"selected":true,"error":"e\u{7f}\u{85}\u{1f}"}]}}),
     ];
+    for date in [
+        "0000-01-01T00:00:00Z",
+        "0001-01-01T00:00:00Z",
+        "0099-07-01T00:00:00Z",
+        "2026-02-30T00:00:00.123456Z",
+    ] {
+        cases.push(
+            json!({"name":format!("all-date-{date}"),"kind":"command","args":"all","token":null,"bridge":{"accounts":[{
+                "account":"date", "selected":false,"fiveHour":{"percent":0,"resetsAt":date},"weekly":null
+            }]}}),
+        );
+    }
     for (name, args, bridge) in [
         ("claude-unclaimed", "", Value::Null),
         ("claude-claimed", " reset ", json!({"handled":true})),
@@ -608,4 +654,38 @@ async fn differential_claude_bridge_raw_utf16() {
         );
     }
     assert_eq!(expected.len(), cases.len());
+}
+
+#[tokio::test]
+async fn differential_usage_all_codex_credentials() {
+    let token = json!({"https://api.openai.com/auth":{"chatgpt_account_id":"acct_123"},"email":"claim@example.com"});
+    let payload = json!({"plan_type":"pro\nBearer plan", "rate_limit": {
+        "primary_window":{"used_percent":12.5,"limit_window_seconds":18000,"reset_at":1782909000},
+        "secondary_window":{"used_percent":95,"limit_window_seconds":604800,"reset_at":1796128200}
+    },"rate_limit_reset_credits":{"available_count":2}});
+    let mut cases = Vec::new();
+    for (name, provider, email, runtime_only) in [
+        (
+            "all-codex-stored-email",
+            "openai-codex",
+            json!("stored\nsk-secret@example.com"),
+            false,
+        ),
+        ("all-codex-gc", "openai-codex-gc", json!(""), false),
+        ("all-codex-team", "openai-codex-team", Value::Null, false),
+        ("all-codex-runtime-only", "openai-codex", Value::Null, true),
+    ] {
+        cases.push(json!({"name":name,"kind":"command","args":"all","token":token,
+            "model":{"provider":provider},"storedEmail":email,"runtimeOnly":runtime_only,
+            "responses":[{"status":200,"body":payload.to_string()}]}));
+    }
+    let mut ts = TsOracle::spawn("codex-usage-oracle.ts", SOURCE);
+    let response = ts.request(&json!({"id":4,"operation":"cases","cases":cases}));
+    assert_eq!(response["ok"], true, "{response}");
+    let expected = response["output"]["results"].as_array().unwrap();
+    let actual = rust_results(&cases).await;
+    for (actual, expected) in actual.iter().zip(expected) {
+        assert_eq!(actual, expected, "credential case {}", actual["name"]);
+    }
+    assert_eq!(actual.len(), expected.len());
 }

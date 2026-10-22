@@ -502,6 +502,15 @@ async fn read_codex_usage_for_provider(
 ) -> Result<CodexUsage, HandlerError> {
     let token = read_codex_access_token_for_provider(ctx, provider_id).await?;
     let account_info = resolve_codex_account_info(&token).map_err(HandlerError::new)?;
+    let stored = ctx
+        .model_registry()?
+        .runtime()
+        .read_stored_credential(provider_id, Default::default())
+        .await
+        .map_err(|error| HandlerError::new(error.to_string()))?;
+    let stored_email = stored
+        .and_then(|credential| credential.into_oauth())
+        .and_then(|credential| truthy_claim(credential.extra.get(&JsString::from("email"))));
     let response = fetch
         .fetch(
             HttpRequest {
@@ -517,7 +526,7 @@ async fn read_codex_usage_for_provider(
     let payload = read_json_response(response).await?;
     let mut usage = map_codex_usage_payload(&payload);
     usage.account_id = Some(account_info.account_id);
-    usage.email = account_info.email;
+    usage.email = stored_email.or(account_info.email);
     Ok(usage)
 }
 

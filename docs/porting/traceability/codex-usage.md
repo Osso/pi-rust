@@ -62,3 +62,9 @@ Supersedes the bridge blocker above. Frozen lines 149–166 route trimmed `all` 
 Oracle uses frozen `AuthStorage.inMemory`, `isIdle: () => true`, and native fixture listeners assigning promises before emit returns. No network or live provider is used.
 
 `differential_claude_bridge_raw_utf16` sends native `JsValue` fixtures to tsx and the Rust listener: unpaired units in account labels, rejected errors, forwarded args and handled rejection; sanitization slices an astral pair at unit 300, preserving its high unit. No serde scalar or replacement projection participates.
+
+### Stored Codex identity and date edges
+
+`ModelRuntime::read_stored_credential` delegates to the existing backing credential store, without the runtime API-key overlay or a parallel metadata copy. `readCodexAccountRow` checks that stored read instead of `list_credentials`, preserving frozen `AuthStorage.has`: runtime-only credentials are not logged-in all-account rows. `readCodexUsage` prefers nonempty stored OAuth `email` over the JWT claim; empty/null metadata retains the claim. `differential_usage_all_codex_credentials` covers all three Codex providers, active selection, stored/empty/null email and runtime-only credentials. Parent authorized this minimal accessor on 2026-10-22.
+
+`all-date-*` covers years 0000/0001/0099 and normalized February overflow/fractional seconds; Central labels use Intl numeric year-of-era (not padded ISO years). Fixture listeners yield once before resolving to prove the claimed future is awaited.

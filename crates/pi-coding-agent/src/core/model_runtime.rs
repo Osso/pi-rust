@@ -924,6 +924,15 @@ impl ModelRuntime {
         .await
     }
 
+    /// Read stored metadata without mistaking a runtime-only API key for a login.
+    pub async fn read_stored_credential(
+        &self,
+        provider_id: &str,
+        options: AuthOperationOptions,
+    ) -> Result<Option<Credential>, pi_ai::auth::types::AuthError> {
+        self.inner.credentials.read_stored(provider_id, options).await
+    }
+
     pub async fn list_credentials(
         &self,
         options: AuthOperationOptions,

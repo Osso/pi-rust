@@ -202,12 +202,12 @@ async fn read_logged_in_codex_row(
     selected: &str,
 ) -> Result<Option<AccountUsageRow>, HandlerError> {
     let registry = ctx.model_registry()?;
-    let credentials = registry
+    let credential = registry
         .runtime()
-        .list_credentials(AuthOperationOptions::default())
+        .read_stored_credential(provider, AuthOperationOptions::default())
         .await
         .map_err(|error| HandlerError::new(error.to_string()))?;
-    if !credentials.iter().any(|entry| entry.provider_id == provider) {
+    if credential.is_none() {
         return Ok(None);
     }
     let usage = read_codex_usage_for_provider(ctx, fetch, provider).await?;
@@ -265,9 +265,11 @@ fn format_usage_reset(cell: Option<&UsageCell>) -> String {
     let Some(date) = pi_js_compat::date::local_date_fields_in(millis as i64, &zone) else {
         return "unknown".to_owned();
     };
+    // Intl's numeric year is unpadded and uses the year-of-era for BCE dates.
+    let display_year = if date.year <= 0 { 1 - date.year } else { date.year };
     format!(
-        "{:04}-{:02}-{:02} {:02}:{:02}",
-        date.year,
+        "{}-{:02}-{:02} {:02}:{:02}",
+        display_year,
         date.month + 1,
         date.day,
         date.hours,

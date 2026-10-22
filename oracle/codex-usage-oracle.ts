@@ -34,14 +34,16 @@ function installFetch(responses: AnyRecord[], requests: AnyRecord[]): void {
 }
 
 // Same credential the Rust harness installs: frozen AuthStorage, OAuth entry keyed by the active provider.
-async function createAuthStorage(provider: string, token: string | null): Promise<unknown> {
+async function createAuthStorage(provider: string, token: string | null, input: AnyRecord): Promise<unknown> {
 	const authStoragePath = resolve(dirname(process.argv[2] as string), "../../../src/core/auth-storage.ts");
 	const { AuthStorage } = (await import(pathToFileURL(authStoragePath).href)) as AnyRecord;
 	const data =
-		token === null
+		token === null || input.runtimeOnly
 			? {}
-			: { [provider]: { type: "oauth", refresh: "refresh-token", access: token, expires: 9_999_999_999_999 } };
-	return AuthStorage.inMemory(data);
+			: { [provider]: { type: "oauth", refresh: "refresh-token", access: token, expires: 9_999_999_999_999, email: input.storedEmail } };
+	const storage = AuthStorage.inMemory(data);
+	if (input.runtimeOnly && token !== null) storage.setRuntimeApiKey(provider, token);
+	return storage;
 }
 
 void runOracle(async (api, request) => {
@@ -112,7 +114,7 @@ void runOracle(async (api, request) => {
 				// The Rust harness session is idle between turns.
 				isIdle: () => true,
 				modelRegistry: {
-					authStorage: await createAuthStorage(input.model?.provider ?? "openai-codex", token),
+					authStorage: await createAuthStorage(input.model?.provider ?? "openai-codex", token, input),
 				},
 				ui: {
 					notify(message: string, type?: string) {
