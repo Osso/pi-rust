@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -20,9 +21,9 @@ fn item(value: &str) -> SelectItem {
     SelectItem::new(value, value)
 }
 
-fn visible_index(line: &str, text: &str) -> usize {
+fn visible_index(line: &JsString, text: &str) -> usize {
     let index = line.find(text).expect("line must contain text");
-    visible_width(&line[..index])
+    visible_width(line.slice(0, index))
 }
 
 #[test]
@@ -102,10 +103,10 @@ fn allows_overriding_primary_truncation_while_preserving_alignment() {
         max_primary_column_width: Some(12),
         truncate_primary: Some(Rc::new(|context: &SelectListTruncatePrimaryContext<'_>| {
             if (context.text.len() as i64) <= context.max_width {
-                return context.text.to_string();
+                return context.text.clone();
             }
             let keep = context.max_width.saturating_sub(1).max(0) as usize;
-            format!("{}…", &context.text[..keep.min(context.text.len())])
+            context.text.slice(0, keep.min(context.text.len())) + "…"
         })),
     };
     let mut list = SelectList::new(items, 5, SelectListTheme::plain(), layout);
@@ -143,11 +144,11 @@ fn confirm_and_cancel_invoke_callbacks() {
     let events = Rc::new(RefCell::new(Vec::new()));
     let select_events = Rc::clone(&events);
     list.on_select = Some(Rc::new(move |item: &SelectItem| {
-        select_events.borrow_mut().push(format!("select:{}", item.value));
+        select_events.borrow_mut().push(JsString::from("select:") + &item.value);
     }));
     let cancel_events = Rc::clone(&events);
     list.on_cancel = Some(Rc::new(move || {
-        cancel_events.borrow_mut().push("cancel".to_string());
+        cancel_events.borrow_mut().push(JsString::from("cancel"));
     }));
 
     list.handle_input(&pi_js_compat::js_json::JsString::from("\r"));
@@ -193,8 +194,8 @@ fn uses_label_fallback_value_and_selected_theme() {
         items,
         5,
         SelectListTheme {
-            selected_prefix: Rc::new(|text: &str| format!("«{text}»")),
-            selected_text: Rc::new(|text: &str| format!("{{{text}}}")),
+            selected_prefix: Rc::new(|text: &JsString| JsString::from("«") + text + "»"),
+            selected_text: Rc::new(|text: &JsString| JsString::from("{") + text + "}"),
             ..SelectListTheme::plain()
         },
         SelectListLayoutOptions::default(),

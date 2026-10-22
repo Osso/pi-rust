@@ -3,6 +3,7 @@ mod oracle;
 #[path = "support/virtual_terminal.rs"]
 mod virtual_terminal;
 
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 fn frozen(scenario: &str) -> Value {
@@ -15,9 +16,9 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use virtual_terminal::concrete;
 
-struct Text(Rc<RefCell<String>>);
+struct Text(Rc<RefCell<JsString>>);
 impl Component for Text {
-    fn render(&mut self, _: usize) -> Vec<String> {
+    fn render(&mut self, _: usize) -> Vec<JsString> {
         vec![self.0.borrow().clone()]
     }
 }
