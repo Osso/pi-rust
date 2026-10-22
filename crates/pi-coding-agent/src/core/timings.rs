@@ -1,5 +1,9 @@
 //! Startup timing instrumentation (`core/timings.ts`). Enable with `PI_TIMING=1`.
 
+use pi_js_compat::{
+    js_format,
+    js_json::{JsString, encode_node_utf8},
+};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -19,7 +23,7 @@ impl TimingLabel {
 }
 
 struct Timing {
-    label: String,
+    label: JsString,
     ms: i64,
 }
 
@@ -66,7 +70,7 @@ pub fn reset_timings(namespace: TimingLabel) {
     reset_namespace(&mut namespaces(), namespace, now_ms());
 }
 
-pub fn time(label: &str, namespace: TimingLabel) {
+pub fn time(label: &JsString, namespace: TimingLabel) {
     if !enabled() {
         return;
     }
@@ -86,18 +90,18 @@ pub fn time(label: &str, namespace: TimingLabel) {
     timing_namespace.last_time = now;
 }
 
-fn format_timing_group(title: &str, timings: &[Timing]) -> Option<String> {
+fn format_timing_group(title: &JsString, timings: &[Timing]) -> Option<JsString> {
     let printable: Vec<&Timing> = timings.iter().filter(|timing| timing.ms >= 0).collect();
     if printable.is_empty() {
         return None;
     }
-    let mut output = format!("\n--- {title} ---\n");
+    let mut output = js_format!("\n--- {} ---\n", title);
     for timing in &printable {
-        output.push_str(&format!("  {}: {}ms\n", timing.label, timing.ms));
+        output.push_str(js_format!("  {}: {}ms\n", timing.label, timing.ms));
     }
     let total: i64 = printable.iter().map(|timing| timing.ms).sum();
-    output.push_str(&format!("  TOTAL: {total}ms\n"));
-    output.push_str(&format!("{}\n\n", "-".repeat(title.chars().count() + 8)));
+    output.push_str(js_format!("  TOTAL: {}ms\n", total));
+    output.push_str(js_format!("{}\n\n", "-".repeat(title.len() + 8)));
     Some(output)
 }
 
@@ -107,9 +111,27 @@ pub fn print_timings() {
         return;
     }
     for (namespace, timing_namespace) in namespaces().iter() {
-        let title = format!("Startup Timings: {}", namespace.as_str());
+        let title = js_format!("Startup Timings: {}", namespace.as_str());
         if let Some(group) = format_timing_group(&title, &timing_namespace.timings) {
-            eprint!("{group}");
+            eprint!("{}", encode_node_utf8(&group));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pi_js_compat::js_json::JsString;
+
+    #[test]
+    fn timing_labels_keep_units_until_stderr_encoding() {
+        let label = JsString::from_utf16(vec![0xd800]);
+        let timings = [Timing {
+            label: label.clone(),
+            ms: 3,
+        }];
+        let group = format_timing_group(&JsString::from("x"), &timings).unwrap();
+        let expected = JsString::from("\n--- x ---\n  ") + label + ": 3ms\n  TOTAL: 3ms\n---------\n\n";
+        assert_eq!(group, expected);
     }
 }
