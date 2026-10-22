@@ -40,6 +40,6 @@ Behavioral mutants `mutant-highlight-replace-surrogates.log`, `mutant-html-rejec
 
 ## Explicit gaps
 
-- The pre-existing grammar generator excludes **Mathematica** (`SYSTEM_SYMBOLS_SET` callback) and **R** (`beforeMatch` compiler callback). Frozen regeneration reports both; 189 serialized grammars are not the complete highlight.js registry. These are explicit **unapproved pre-existing gaps**. Parent instruction: record them without widening this UTF-16 slice.
+- The pre-existing grammar generator excludes **Mathematica** (`SYSTEM_SYMBOLS_SET` callback) and **R** (`beforeMatch` compiler callback). Frozen regeneration reports both; 189 serialized grammars are not the complete highlight.js registry. The user approved this gap on 2026-10-22: Mathematica and R code renders unhighlighted (see `AGENTS.md`).
 - External caller adaptation and full coding-agent compilation belong to parent integration. The caller is `modes/interactive/theme/mod.rs`; both highlight functions now return `Result`.
 - This bounded corpus proves the listed behaviors, not every possible grammar/input combination.
