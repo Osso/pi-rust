@@ -2,6 +2,8 @@
 
 use std::rc::Rc;
 
+use pi_js_compat::js_json::JsString;
+
 use pi_tui::components::select_list::{SelectItem, SelectList, SelectListLayoutOptions};
 use pi_tui::tui::{Component, ComponentRef, Container, component};
 
@@ -48,7 +50,7 @@ impl ShowImagesSelectorComponent {
 }
 
 impl Component for ShowImagesSelectorComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.container.render(width)
     }
 
