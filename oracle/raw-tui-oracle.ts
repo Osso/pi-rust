@@ -39,7 +39,10 @@ async function main(): Promise<void> {
 					states.push({ value: input.getValue(), cursor: (input as unknown as { cursor: number }).cursor, lines: input.render(request.width) });
 				}
 				output = { states, submitted };
-			} else if (request.operation === "editor_actions") {
+			} else if (request.operation === "kitty_encode") {
+                const module = await import(pathToFileURL(path.join(source, "terminal-image.ts")).href);
+                output = module.encodeKitty(native(request.units));
+            } else if (request.operation === "editor_actions") {
                 output = await captureEditorActions(source,request.actions,request.width);
             } else if (request.operation === "editor_set") {
                 output = await captureEditorSet(source,native(request.units),request.width);

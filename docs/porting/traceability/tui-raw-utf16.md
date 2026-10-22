@@ -245,3 +245,19 @@ navigation. Public jump-to-low-surrogate reaches an inside-pair cursor, then ins
 backspace, undo, forward delete and raw insert match frozen JS exactly. Render snapshots
 retain the frozen narrow-scroll/overflow lines; no width sanitization or TS delta.
 Working prompt/fixed-cell and custom autocomplete-provider raw editor proof still pending.
+
+## Image / terminal-image (staged)
+
+Image base64/mime/filename, fallback styling, cached lines and rendered sequences now
+retain native strings. Kitty chunks slice exactly4096 UTF16 units, even through a
+pair; iTerm2 width/height text and name remain native until source-defined protocol
+construction. `Iterm2Size::Text` holds JsString and uses native `to_js_string`, not a
+scalar Display adapter. Hyperlink and image-fallback construction concatenate raw
+units. Dimension helpers consume native Buffer base64 via the shared primitive.
+The source's iTerm2 name Buffer.from(name).toString('base64') is preserved as its own
+UTF8 binary-metadata boundary, not generic component sanitation.
+
+`raw_images::kitty_chunking_keeps_native_units_when_a_pair_crosses_the_source_boundary`
+RED reproduced old Rust's byte4096 panic for4095A+😀Z; actual source splits a pair across
+native chunks. Current original native sequence JSON matches frozen source GREEN.
+Raw constructor/cache/protocol metadata/dimensions corpus is next; not acceptance.
