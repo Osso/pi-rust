@@ -152,7 +152,11 @@ fn icu_segments(text: &JsString) -> Vec<WordSegment> {
             // ICU4X splits combining marks after Han where ICU4C (Node) keeps
             // them attached (UAX #29 WB4). Merge those mark runs back, except
             // after a line break where WB3 keeps the break.
-            if scalar_values(&segment).next().is_some_and(is_mark)
+            let starts_with_mark = char::decode_utf16(segment.units().iter().copied())
+                .next()
+                .and_then(Result::ok)
+                .is_some_and(is_mark);
+            if starts_with_mark
                 && let Some(previous) = segments.last_mut()
                 && !previous
                     .segment

@@ -209,3 +209,11 @@ retain the original high unit across actual FS calls. Source differential RED ex
 old Rust path normalization collapsing repeated `..`; native normalization now retains
 each parent segment like Node POSIX path.join, and the actual FS fixture is GREEN.
 This repairs a Rust discrepancy, not source code. fd argv/cancellation raw proof pending.
+
+Word-navigation follow-up `raw_word_navigation` compares native segments, every unit
+cursor, and custom segment/atomic callback values and invocation ordering for four
+concrete corpora. Behavioral RED caught a new raw-boundary mistake: skipping an
+unpaired first unit during scalar mark classification merged `abc` + high-surrogate +
+combining-mark into one word. Classification now inspects the actual first decoded
+unit (an unpaired unit is not a mark); native segments, inside-pair positions and raw
+callbacks match frozen source GREEN. Dictionary segmentation gap unchanged.

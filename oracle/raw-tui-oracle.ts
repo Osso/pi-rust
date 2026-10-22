@@ -39,7 +39,9 @@ async function main(): Promise<void> {
 					states.push({ value: input.getValue(), cursor: (input as unknown as { cursor: number }).cursor, lines: input.render(request.width) });
 				}
 				output = { states, submitted };
-			} else if (request.operation === "autocomplete_commands") {
+			} else if (request.operation === "word_navigation") {
+                output = await captureWordNavigation(source,native(request.units),utils);
+            } else if (request.operation === "autocomplete_commands") {
                 output = await captureAutocompleteCommands(source,native(request.units));
             } else if (request.operation === "autocomplete_files") {
                 const module = await import(pathToFileURL(path.join(source, "autocomplete.ts")).href);
@@ -270,4 +272,16 @@ async function captureAutocompleteCommands(source: string, raw: string): Promise
         results.push([suggestions,provider.shouldTriggerFileCompletion([query],0,query.length)]);
     }
     return [results,captured];
+}
+
+async function captureWordNavigation(source: string, raw: string, utils: { getWordSegmenter(): Intl.Segmenter }): Promise<unknown> {
+    const module = await import(pathToFileURL(path.join(source, "word-navigation.ts")).href);
+    const segments = [...utils.getWordSegmenter().segment(raw)].map((segment) => [segment.segment,segment.isWordLike]);
+    const positions = Array.from({length:raw.length + 1},(_,cursor) => [module.findWordBackward(raw,cursor),module.findWordForward(raw,cursor)]);
+    const seen: string[] = [];
+    const atomic: string[] = [];
+    const options = { segment: (value: string) => { seen.push(value); return [{segment:value,isWordLike:true}]; }, isAtomicSegment: (value: string) => { atomic.push(value); return value.includes("\ud800"); } };
+    const backward = module.findWordBackward(raw,1,options);
+    const forward = module.findWordForward(raw,1,options);
+    return [segments,positions,[backward,forward,seen,atomic]];
 }
