@@ -67,6 +67,25 @@ async fn coding_compaction_keeps_failed_stream_message_with_source_prefix() {
 }
 
 #[test]
+fn extension_custom_message_payload_keeps_raw_kind_through_wire() {
+    use pi_coding_agent::core::extensions::types::{CustomMessageContent, CustomMessagePayload};
+    let payload = CustomMessagePayload {
+        custom_type: raw_error(),
+        content: CustomMessageContent::Text("body".into()),
+        display: true,
+        details: None,
+    };
+    let wire = serde_json::to_string(&payload).unwrap();
+    assert_eq!(
+        parse_lossless(&wire)
+            .unwrap()
+            .get("customType")
+            .and_then(JsValue::as_string),
+        Some(&raw_error())
+    );
+}
+
+#[test]
 fn retry_finished_event_keeps_native_units_in_wire() {
     let event = AutoRetryEndEvent {
         event_type: "auto_retry_end",

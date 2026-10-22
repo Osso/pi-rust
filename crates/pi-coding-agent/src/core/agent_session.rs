@@ -3224,7 +3224,7 @@ impl AgentSession {
         lock(&self.inner.follow_up_messages).push(prompt.into());
         self.emit_queue_update();
         self.inner.agent.follow_up(create_custom_message(
-            "shared_channel",
+            &"shared_channel".into(),
             CustomMessageContent::Text(prompt.to_owned().into()),
             true,
             None,
@@ -4602,7 +4602,7 @@ impl AgentSession {
     /// Sends a custom message to the session.
     pub async fn send_custom_message(
         &self,
-        custom_type: &str,
+        custom_type: &JsString,
         content: CustomMessageContent,
         display: bool,
         details: Option<JsValue>,
@@ -4628,7 +4628,7 @@ impl AgentSession {
     /// Queues a custom message for the next user prompt turn.
     pub fn send_custom_message_next_turn(
         &self,
-        custom_type: &str,
+        custom_type: &JsString,
         content: CustomMessageContent,
         display: bool,
         details: Option<JsValue>,
@@ -5441,11 +5441,8 @@ fn append_custom_agent_message(
         .unwrap_or(CustomMessageContent::Blocks(Vec::new()));
     let display = object.get("display").and_then(JsValue::as_bool).unwrap_or(false);
     let details = object.get("details").cloned();
-    let custom_type = custom_type
-        .to_utf8()
-        .map_err(|error| SessionManagerError::new(error.to_string()))?;
     manager
-        .append_custom_message_entry(&custom_type, content, display, details)
+        .append_custom_message_entry(custom_type, content, display, details)
         .map(Some)
 }
 

@@ -2338,7 +2338,7 @@ pub struct MessageEndEventResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CustomMessagePayload {
-    pub custom_type: String,
+    pub custom_type: JsString,
     pub content: CustomMessageContent,
     pub display: bool,
     #[serde(
