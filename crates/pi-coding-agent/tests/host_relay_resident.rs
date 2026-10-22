@@ -254,9 +254,9 @@ async fn absent_settings_spawn_nothing_and_invalid_identity_refuses_unverified_p
 fn ssh_peer_validation_and_backoff_boundaries() {
     use pi_coding_agent::core::host_relay_client::*;
     for peer in ["", " \t", "-oProxyCommand=x"] {
-        assert!(validate_peer(peer).is_err());
+        assert!(validate_peer(&peer.into()).is_err());
     }
-    validate_peer(" peer-alias ").unwrap();
+    validate_peer(&" peer-alias ".into()).unwrap();
     for (failures, min, max) in [
         (0, 500, 1000),
         (1, 1000, 2000),
@@ -275,6 +275,31 @@ fn ssh_peer_validation_and_backoff_boundaries() {
         .last()
         .unwrap(),
         "pi relay serve"
+    );
+}
+
+#[test]
+fn relay_settings_keep_lone_surrogates_until_the_ssh_argv_boundary() {
+    use pi_coding_agent::core::host_relay_client::ssh_arguments;
+    use pi_js_compat::js_json::{JsValue, parse_lossless};
+
+    let JsValue::Object(settings) =
+        parse_lossless(r#"{"relay":{"peer":"h\ud800","remoteCommand":"pi \udc00"}}"#).unwrap()
+    else {
+        panic!("settings object");
+    };
+    let relay = relay_settings_from_global(&settings).unwrap().unwrap();
+    assert_eq!(relay.peer.units(), [0x68, 0xd800]);
+    let arguments = ssh_arguments(&relay);
+    assert_eq!(arguments[4].units(), [0x68, 0xd800]);
+    assert_eq!(arguments[5].units(), [0x70, 0x69, 0x20, 0xdc00]);
+
+    let JsValue::Object(invalid) = parse_lossless(r#"{"relay":{"peer":7}}"#).unwrap() else {
+        panic!("settings object");
+    };
+    assert_eq!(
+        relay_settings_from_global(&invalid).unwrap_err(),
+        "relay.peer must be a string"
     );
 }
 

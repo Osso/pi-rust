@@ -1,34 +1,37 @@
 //! Frozen `host-relay-client.ts`: SSH stdio transport and bounded jittered reconnect.
 use super::host_relay::{HostRelayOptions, run_host_relay};
-use serde::{Deserialize, Serialize};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
 use tokio_util::sync::CancellationToken;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+/// `RelaySettings` from the `relay` settings object; text stays UTF-16 until the ssh argv boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RelaySettings {
-    pub peer: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub remote_command: Option<String>,
+    pub peer: JsString,
+    pub remote_command: Option<JsString>,
 }
-pub fn ssh_arguments(settings: &RelaySettings) -> Vec<String> {
-    [
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "ServerAliveInterval=15",
-        &settings.peer,
-        settings.remote_command.as_deref().unwrap_or("pi relay serve"),
-    ]
-    .into_iter()
-    .map(str::to_owned)
-    .collect()
+
+/// The ssh argv; Node encodes each argument to UTF-8 at spawn.
+pub fn ssh_arguments(settings: &RelaySettings) -> Vec<JsString> {
+    let remote_command = settings
+        .remote_command
+        .clone()
+        .unwrap_or_else(|| "pi relay serve".into());
+    let mut arguments: Vec<JsString> = ["-o", "BatchMode=yes", "-o", "ServerAliveInterval=15"]
+        .into_iter()
+        .map(JsString::from)
+        .collect();
+    arguments.extend([settings.peer.clone(), remote_command]);
+    arguments
 }
-pub fn validate_peer(peer: &str) -> Result<(), String> {
-    if pi_js_compat::string::js_trim(peer).is_empty() || peer.starts_with('-') {
+
+/// `!settings.peer?.trim() || settings.peer.startsWith("-")`.
+pub fn validate_peer(peer: &JsString) -> Result<(), JsString> {
+    if peer.trim().is_empty() || peer.starts_with('-') {
         return Err("relay.peer must be a non-empty SSH alias, not an option".into());
     }
     Ok(())
@@ -42,60 +45,55 @@ pub(crate) fn random_fraction() -> Result<f64, String> {
     getrandom::fill(&mut bytes).map_err(|e| e.to_string())?;
     Ok((u64::from_ne_bytes(bytes) >> 11) as f64 / ((1u64 << 53) as f64))
 }
-async fn read_stderr_tail(mut stderr: tokio::process::ChildStderr) -> Result<String, String> {
-    let mut tail = Vec::new();
+/// `stderr = (stderr + chunk.toString()).slice(-4096)`: the tail is cut by UTF-16 units, so it
+/// may start with a lone low surrogate exactly as in the source.
+async fn read_stderr_tail(mut stderr: tokio::process::ChildStderr) -> Result<JsString, JsString> {
+    let mut tail = JsString::default();
     let mut chunk = [0; 4096];
     loop {
-        let count = stderr.read(&mut chunk).await.map_err(|e| e.to_string())?;
+        let count = stderr.read(&mut chunk).await.map_err(io_message)?;
         if count == 0 {
-            return Ok(String::from_utf16_lossy(&tail));
+            return Ok(tail);
         }
-        tail.extend(String::from_utf8_lossy(&chunk[..count]).encode_utf16());
+        tail = tail + JsString::from(String::from_utf8_lossy(&chunk[..count]).as_ref());
         if tail.len() > 4096 {
-            tail.drain(..tail.len() - 4096);
+            tail = tail.slice(tail.len() - 4096, tail.len());
         }
     }
 }
-fn terminate(child: &Child) -> Result<(), String> {
+fn io_message(error: impl ToString) -> JsString {
+    error.to_string().into()
+}
+fn terminate(child: &Child) -> Result<(), JsString> {
     let Some(pid) = child.id().and_then(|pid| rustix::process::Pid::from_raw(pid as i32)) else {
         return Ok(());
     };
     match rustix::process::kill_process(pid, rustix::process::Signal::TERM) {
         Ok(()) | Err(rustix::io::Errno::SRCH) => Ok(()),
-        Err(e) => Err(e.to_string()),
+        Err(e) => Err(io_message(e)),
     }
 }
-async fn cleanup_child(child: &mut Child) -> Result<(), String> {
-    if child.try_wait().map_err(|e| e.to_string())?.is_some() {
+async fn cleanup_child(child: &mut Child) -> Result<(), JsString> {
+    if child.try_wait().map_err(io_message)?.is_some() {
         return Ok(());
     }
     terminate(child)?;
     match tokio::time::timeout(Duration::from_secs(1), child.wait()).await {
         Ok(status) => {
-            status.map_err(|error| error.to_string())?;
+            status.map_err(io_message)?;
         }
-        Err(_) => child.kill().await.map_err(|error| error.to_string())?,
+        Err(_) => child.kill().await.map_err(io_message)?,
     }
     Ok(())
 }
-async fn connect_relay(
-    path: &str,
-    settings: &RelaySettings,
-    signal: &CancellationToken,
-) -> Result<(), pi_js_compat::js_json::JsString> {
+async fn connect_relay(path: &JsString, settings: &RelaySettings, signal: &CancellationToken) -> Result<(), JsString> {
     let mut child = Command::new("ssh")
-        .args(ssh_arguments(settings))
+        .args(ssh_arguments(settings).iter().map(encode_node_utf8))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| {
-            crate::utils::child_process::node_spawn_error_message(
-                "spawn",
-                &pi_js_compat::js_json::JsString::from("ssh"),
-                &error,
-            )
-        })?;
+        .map_err(|error| crate::utils::child_process::node_spawn_error_message("spawn", &"ssh".into(), &error))?;
     let stderr = tokio::spawn(read_stderr_tail(child.stderr.take().unwrap()));
     let result = run_host_relay(
         child.stdout.take().unwrap(),
@@ -110,22 +108,26 @@ async fn connect_relay(
     .await;
     let status = match result {
         Ok(()) => wait_for_ssh_exit(&mut child, signal).await,
-        Err(error) => Err(error),
+        Err(error) => Err(JsString::from(error)),
     };
     cleanup_child(&mut child).await?;
-    let tail = stderr.await.map_err(|e| e.to_string())??;
+    let tail = stderr.await.map_err(io_message)??;
     check_ssh_status(status?, &tail, signal.is_cancelled())
 }
 
-async fn wait_for_ssh_exit(child: &mut Child, signal: &CancellationToken) -> Result<std::process::ExitStatus, String> {
+async fn wait_for_ssh_exit(
+    child: &mut Child,
+    signal: &CancellationToken,
+) -> Result<std::process::ExitStatus, JsString> {
     tokio::select! {
         biased;
         _ = signal.cancelled() => { terminate(child)?; child.wait().await },
         status = child.wait() => status,
     }
-    .map_err(|e| e.to_string())
+    .map_err(io_message)
 }
-fn check_ssh_status(status: std::process::ExitStatus, stderr: &str, cancelled: bool) -> Result<(), String> {
+/// ``ssh exited ${code ?? exitSignal}: ${stderr.trim()}``.
+fn check_ssh_status(status: std::process::ExitStatus, stderr: &JsString, cancelled: bool) -> Result<(), JsString> {
     if cancelled || status.code() == Some(0) {
         return Ok(());
     }
@@ -133,12 +135,12 @@ fn check_ssh_status(status: std::process::ExitStatus, stderr: &str, cancelled: b
         .code()
         .map(|code| code.to_string())
         .unwrap_or_else(|| crate::utils::child_process::exit_signal_name(&status));
-    Err(format!("ssh exited {code}: {}", pi_js_compat::string::js_trim(stderr)))
+    Err(js_format!("ssh exited {}: {}", code, stderr.trim()))
 }
 
 /// Failure stays within this connection; local canonical queues remain untouched.
 pub async fn run_ssh_relay_client(
-    path: &str,
+    path: &JsString,
     settings: &RelaySettings,
     signal: CancellationToken,
 ) -> Result<(), String> {
@@ -153,8 +155,16 @@ pub async fn run_ssh_relay_client(
             break;
         }
         match result {
-            Ok(()) => eprintln!("[relay:{}] connection closed; reconnecting", settings.peer),
-            Err(error) => eprintln!("[relay:{}] {error}", settings.peer),
+            // `console.error`: stderr is the UTF-8 boundary.
+            Ok(()) => eprintln!(
+                "[relay:{}] connection closed; reconnecting",
+                encode_node_utf8(&settings.peer)
+            ),
+            Err(error) => eprintln!(
+                "[relay:{}] {}",
+                encode_node_utf8(&settings.peer),
+                encode_node_utf8(&error)
+            ),
         }
         if started.elapsed() >= Duration::from_secs(30) {
             failures = 0;

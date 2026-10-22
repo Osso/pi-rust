@@ -4,6 +4,7 @@ use super::runtime_process::{
     ProcessIdentity, is_process_identity_alive, is_verified_pi_runtime_process, read_process_identity,
 };
 use crate::utils::lockfile::{self, LockErrorCode, LockGuard, LockOptions};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
@@ -182,20 +183,31 @@ pub async fn ensure_relay_running(path: &str, settings: Option<&RelaySettings>) 
     guard.release().map_err(|e| e.to_string())?;
     result
 }
-pub fn relay_settings_from_global(
-    settings: &serde_json::Map<String, serde_json::Value>,
-) -> Result<Option<RelaySettings>, String> {
-    settings
-        .get("relay")
-        .filter(|value| !value.is_null())
-        .map(|value| serde_json::from_value(value.clone()).map_err(|e| e.to_string()))
-        .transpose()
+/// `getGlobalSettings().relay`. The source casts the value; a non-object relay or a non-string
+/// `peer`/`remoteCommand` is an explicit error here (invalid JavaScript runtime input types).
+pub fn relay_settings_from_global(settings: &JsObject) -> Result<Option<RelaySettings>, String> {
+    let relay = match settings.get("relay") {
+        None | Some(JsValue::Null) => return Ok(None),
+        Some(JsValue::Object(relay)) => relay,
+        Some(_) => return Err("relay settings must be an object".into()),
+    };
+    let peer = match relay.get("peer") {
+        Some(JsValue::String(peer)) => peer.clone(),
+        _ => return Err("relay.peer must be a string".into()),
+    };
+    let remote_command = match relay.get("remoteCommand") {
+        None => None,
+        Some(JsValue::String(command)) => Some(command.clone()),
+        Some(_) => return Err("relay.remoteCommand must be a string".into()),
+    };
+    Ok(Some(RelaySettings { peer, remote_command }))
 }
 pub async fn run_relay_connect() -> Result<(), String> {
-    let home = pi_js_compat::process_env::get("HOME").unwrap_or_default();
+    let home = JsString::from(pi_js_compat::process_env::get("HOME").unwrap_or_default());
+    let agent_dir = JsString::from(crate::config::get_agent_dir().display().to_string());
     let settings = super::settings_manager::SettingsManager::create(
         &home,
-        Some(&crate::config::get_agent_dir()),
+        Some(&agent_dir),
         super::settings_manager::SettingsManagerCreateOptions {
             project_trusted: Some(false),
         },
@@ -222,7 +234,7 @@ pub async fn run_relay_connect() -> Result<(), String> {
                 version: crate::config::version().to_owned(),
             },
         )?;
-        run_ssh_relay_client(&path, &settings, signal.clone()).await
+        run_ssh_relay_client(&JsString::from(path.as_str()), &settings, signal.clone()).await
     }
     .await;
     signal.cancel();
