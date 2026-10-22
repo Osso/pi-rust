@@ -14,6 +14,7 @@ All direct dependencies are exact-pinned.
 
 - `rustix = 1.1.5` — runtime `io::Errno` names for the centralized Node filesystem/spawn error map, moved unchanged from coding-agent; existing exact dev pin promoted without a new package/version. The `process` feature remains development-only for oracle teardown.
 
+- `rusqlite = 0.37.0` (optional feature `rusqlite`, enabled by `pi-coding-agent`; `bundled` dev dependency for its test) — `impl ToSql for JsString` binds TEXT exactly like `node:sqlite` (UTF-8, unpaired surrogates become U+FFFD), so control-store SQL encodes raw strings only at the bind boundary. Reuses the coding-agent's existing exact pin.
 - `indexmap = 2.14.2` — lossless JSON objects retain UTF-16 key identity, first insertion slots, and last-value-wins duplicate replacement; reuses the already-locked ordered map rather than custom bookkeeping.
 - `ryu-js = 1.0.3` (exact `=1.0.3`; Apache-2.0 OR BSL-1.0; MSRV 1.71) — boa-dev ECMAScript shortest binary64 decimal formatter. `Buffer::format` replaces Rust Display plus custom decimal thresholds after same-bit Node RED on the halfway tie `2.9802322387695312e-8`; shared JSON/coercion use that formatter. Published source/API inspected locally; no global serde feature changes.
 - `serde = 1.0.229` — `serialize`/`serialize_option` preserve binary64 numeric meaning using representable integer storage or f64, not byte-exact JavaScript decimal text. Development-only `derive` exercises actual `serialize_with` field attributes.

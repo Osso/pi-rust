@@ -2157,6 +2157,7 @@ dependencies = [
  "indexmap",
  "jiff",
  "regress",
+ "rusqlite",
  "rust_icu_ucol",
  "rust_icu_ustring",
  "rustix 1.1.5",

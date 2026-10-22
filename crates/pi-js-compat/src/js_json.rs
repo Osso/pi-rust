@@ -339,6 +339,14 @@ pub fn encode_node_utf8(text: &JsString) -> String {
     String::from_utf16_lossy(text.units())
 }
 
+/// `node:sqlite` binds a JavaScript string as UTF-8 TEXT, replacing unpaired surrogates with U+FFFD.
+#[cfg(feature = "rusqlite")]
+impl rusqlite::ToSql for JsString {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(rusqlite::types::ToSqlOutput::from(encode_node_utf8(self)))
+    }
+}
+
 /// Insertion-ordered storage. Use `object_entries_lossless` for JavaScript enumeration order.
 pub type JsObject = IndexMap<JsString, JsValue>;
 
@@ -1157,4 +1165,17 @@ fn write_string(output: &mut String, text: &JsString) {
         }
     }
     output.push('"');
+}
+
+#[cfg(all(test, feature = "rusqlite"))]
+mod sqlite_tests {
+    use super::JsString;
+
+    #[test]
+    fn binds_text_like_node_sqlite() {
+        let db = rusqlite::Connection::open_in_memory().expect("database");
+        let text = JsString::from_utf16(vec![0x61, 0xd800, 0xd83d, 0xde00]);
+        let stored: String = db.query_row("SELECT ?", [&text], |row| row.get(0)).expect("bound text");
+        assert_eq!(stored, "a\u{fffd}\u{1f600}");
+    }
 }
