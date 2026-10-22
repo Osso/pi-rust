@@ -51,7 +51,7 @@ impl pi_ai::auth::types::ApiKeyAuth for StoredFixtureKey {
     }
 }
 struct FixtureStreams(Arc<dyn pi_ai::models::Provider>);
-impl pi_ai::models::ProviderStreams for FixtureStreams {
+impl pi_ai::request::ProviderStreams for FixtureStreams {
     fn stream(
         &self,
         model: pi_ai::types::Model,
