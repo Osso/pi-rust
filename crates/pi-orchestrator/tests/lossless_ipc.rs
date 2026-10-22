@@ -64,7 +64,7 @@ async fn lone_surrogate_cwd_label_and_id_survive_spawn_persist_list_over_real_ip
     let spawned = send_ipc_request(&socket, &js_json!({"type":"spawn", "cwd":cwd, "label":label}))
         .await
         .expect("spawn over IPC");
-    assert_eq!(spawned["ok"], true);
+    assert_eq!(spawned["ok"], js_json!(true));
     assert_eq!(spawned["instance"]["id"], js_json!(id));
     assert_eq!(spawned["instance"]["cwd"], js_json!(cwd));
     assert_eq!(spawned["instance"]["label"], js_json!(label));
@@ -80,7 +80,7 @@ async fn lone_surrogate_cwd_label_and_id_survive_spawn_persist_list_over_real_ip
     let listed = send_ipc_request(&socket, &js_json!({"type":"list"}))
         .await
         .expect("list over IPC");
-    assert_eq!(listed["ok"], true);
+    assert_eq!(listed["ok"], js_json!(true));
     for field in ["id", "cwd", "label"] {
         assert_eq!(persisted[0][field], spawned["instance"][field], "persisted {field}");
         assert_eq!(
@@ -91,7 +91,7 @@ async fn lone_surrogate_cwd_label_and_id_survive_spawn_persist_list_over_real_ip
     let stopped = send_ipc_request(&socket, &js_json!({"type":"stop", "instanceId":id}))
         .await
         .expect("stop by lossless id over IPC");
-    assert_eq!(stopped["ok"], true);
+    assert_eq!(stopped["ok"], js_json!(true));
     assert!(storage.load_instances().expect("read final persistence").is_empty());
     server.close().await;
     supervisor.shutdown().await.expect("shutdown child");

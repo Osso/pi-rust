@@ -16,8 +16,8 @@ impl Storage {
             return Ok(None);
         }
         let bytes = fs::read(&encoded).map_err(|error| node_read_error(&error, &path))?;
-        let text = String::from_utf8(bytes).map_err(|error| JsString::from(error.to_string()))?;
-        js_json::parse_lossless(text)
+        let text = String::from_utf8_lossy(&bytes);
+        js_json::parse_lossless(text.as_ref())
             .map(Some)
             .map_err(js_json::JsonParseError::into_message)
     }
@@ -57,7 +57,10 @@ impl Storage {
         self.write_json("instances.json", &JsValue::Array(instances.to_vec()))
     }
     pub fn get_instance(&self, id: &JsString) -> Result<Option<JsValue>, JsString> {
-        Ok(self.load_instances()?.into_iter().find(|v| v["id"] == *id))
+        Ok(self
+            .load_instances()?
+            .into_iter()
+            .find(|v| v["id"].as_string() == Some(id)))
     }
     pub fn upsert_instance(&self, instance: JsValue) -> Result<(), JsString> {
         let mut instances = self.load_instances()?;
@@ -72,7 +75,7 @@ impl Storage {
         let instances = self
             .load_instances()?
             .into_iter()
-            .filter(|v| v["id"] != *id)
+            .filter(|v| v["id"].as_string() != Some(id))
             .collect::<Vec<_>>();
         self.save_instances(&instances)
     }

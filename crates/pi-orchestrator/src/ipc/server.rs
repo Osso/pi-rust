@@ -1,8 +1,12 @@
 //! Unix JSONL server with the approved post-pin coalesced-frame drain fix.
 use super::protocol::{encode_message, error_response, parse_request_line};
 use pi_ai::request::BoxFuture;
-use serde_json::Value;
-use std::{path::Path, sync::Arc};
+use pi_js_compat::js_json as json;
+use pi_js_compat::{
+    js_format,
+    js_json::{JsString, JsValue as Value, encode_node_utf8},
+};
+use std::sync::Arc;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{UnixListener, UnixStream},
@@ -12,12 +16,12 @@ use tokio::{
 
 pub type OnMessage = Arc<dyn Fn(Value) + Send + Sync>;
 pub trait RpcStream: Send + Sync {
-    fn handle_request(&self, request: Value) -> BoxFuture<'_, Result<(), String>>;
+    fn handle_request(&self, request: Value) -> BoxFuture<'_, Result<(), JsString>>;
     fn close(&self);
 }
 pub trait IpcRequestHandler: Send + Sync {
-    fn handle(&self, request: Value) -> BoxFuture<'_, Result<Value, String>>;
-    fn open_rpc_stream(&self, instance_id: &str, on_message: OnMessage) -> Option<Arc<dyn RpcStream>>;
+    fn handle(&self, request: Value) -> BoxFuture<'_, Result<Value, JsString>>;
+    fn open_rpc_stream(&self, instance_id: &JsString, on_message: OnMessage) -> Option<Arc<dyn RpcStream>>;
 }
 
 pub struct IpcServer {
@@ -43,10 +47,10 @@ impl Drop for IpcServer {
     }
 }
 
-pub async fn start_ipc_server(path: &Path, handler: Arc<dyn IpcRequestHandler>) -> Result<IpcServer, String> {
+pub async fn start_ipc_server(path: &JsString, handler: Arc<dyn IpcRequestHandler>) -> Result<IpcServer, JsString> {
     remove_stale_socket(path).await?;
-    let listener = UnixListener::bind(path)
-        .map_err(|error| pi_js_compat::node_fs::node_unix_listen_error(&error, &path.to_string_lossy()))?;
+    let listener = UnixListener::bind(encode_node_utf8(path))
+        .map_err(|error| pi_js_compat::node_fs::node_unix_listen_error(&error, path))?;
     let path = path.to_owned();
     let (stop, mut stopped) = oneshot::channel();
     let task = tokio::spawn(async move {
@@ -59,7 +63,7 @@ pub async fn start_ipc_server(path: &Path, handler: Arc<dyn IpcRequestHandler>) 
                     Ok((socket, _)) => {
                         let handler = handler.clone();
                         clients.spawn(async move {
-                            if let Err(error) = serve_connection(socket, handler).await { eprintln!("IPC connection: {error}"); }
+                            if let Err(error) = serve_connection(socket, handler).await { eprintln!("IPC connection: {}", encode_node_utf8(&error)); }
                         });
                     },
                     Err(error) => { eprintln!("IPC accept: {error}"); break; }
@@ -69,7 +73,7 @@ pub async fn start_ipc_server(path: &Path, handler: Arc<dyn IpcRequestHandler>) 
         }
         drop(listener);
         if let Err(error) = crate::storage::remove_if_exists(&path) {
-            eprintln!("IPC socket close: {error}");
+            eprintln!("IPC socket close: {}", encode_node_utf8(&error));
         }
         // Node Server.close stops accepts but leaves established streams alive.
         clients.detach_all();
@@ -77,12 +81,12 @@ pub async fn start_ipc_server(path: &Path, handler: Arc<dyn IpcRequestHandler>) 
     Ok(IpcServer { task, stop: Some(stop) })
 }
 
-async fn remove_stale_socket(path: &Path) -> Result<(), String> {
-    if !path.exists() {
+async fn remove_stale_socket(path: &JsString) -> Result<(), JsString> {
+    if !std::path::Path::new(&encode_node_utf8(path)).exists() {
         return Ok(());
     }
-    match UnixStream::connect(path).await {
-        Ok(_) => Err(format!("orchestrator is already running: {}", path.display())),
+    match UnixStream::connect(encode_node_utf8(path)).await {
+        Ok(_) => Err(js_format!("orchestrator is already running: {}", path)),
         Err(e)
             if matches!(
                 e.kind(),
@@ -92,13 +96,10 @@ async fn remove_stale_socket(path: &Path) -> Result<(), String> {
                     | std::io::ErrorKind::ConnectionReset
             ) =>
         {
-            std::fs::remove_file(path)
-                .map_err(|error| pi_js_compat::node_fs::node_fs_error(&error, "unlink", &path.to_string_lossy()))
+            std::fs::remove_file(encode_node_utf8(path))
+                .map_err(|error| pi_js_compat::node_fs::node_fs_error(&error, "unlink", path))
         }
-        Err(error) => Err(pi_js_compat::node_fs::node_unix_connect_error(
-            &error,
-            &path.to_string_lossy(),
-        )),
+        Err(error) => Err(pi_js_compat::node_fs::node_unix_connect_error(&error, path)),
     }
 }
 
@@ -113,11 +114,14 @@ fn take_line(buffer: &mut String) -> Option<String> {
     }
 }
 
-async fn serve_connection(mut socket: UnixStream, handler: Arc<dyn IpcRequestHandler>) -> Result<(), String> {
+async fn serve_connection(mut socket: UnixStream, handler: Arc<dyn IpcRequestHandler>) -> Result<(), JsString> {
     let mut buffer = String::new();
     let mut chunk = [0; 8192];
     loop {
-        let count = socket.read(&mut chunk).await.map_err(|e| e.to_string())?;
+        let count = socket
+            .read(&mut chunk)
+            .await
+            .map_err(|e| JsString::from(e.to_string()))?;
         if count == 0 {
             return Ok(());
         }
@@ -125,14 +129,14 @@ async fn serve_connection(mut socket: UnixStream, handler: Arc<dyn IpcRequestHan
         let Some(line) = take_line(&mut buffer) else {
             continue;
         };
-        let request = match parse_request_line(&line) {
+        let request = match parse_request_line(&JsString::from(line)) {
             Ok(request) => request,
             Err(error) => return send_and_end(socket, error_response(error)).await,
         };
         let response = handler.handle(request.clone()).await.unwrap_or_else(error_response);
-        if request["type"] != "rpc_stream"
-            || response["ok"] != true
-            || response["type"] != "rpc_ready"
+        if request["type"] != json!("rpc_stream")
+            || response["ok"] != json!(true)
+            || response["type"] != json!("rpc_ready")
             || !response["instance"].is_object()
         {
             return send_and_end(socket, response).await;
@@ -141,12 +145,12 @@ async fn serve_connection(mut socket: UnixStream, handler: Arc<dyn IpcRequestHan
     }
 }
 
-async fn send_and_end(mut socket: UnixStream, response: Value) -> Result<(), String> {
+async fn send_and_end(mut socket: UnixStream, response: Value) -> Result<(), JsString> {
     socket
-        .write_all(encode_message(&response).as_bytes())
+        .write_all(encode_node_utf8(&encode_message(&response)).as_bytes())
         .await
-        .map_err(|e| e.to_string())?;
-    socket.shutdown().await.map_err(|e| e.to_string())
+        .map_err(|e| JsString::from(e.to_string()))?;
+    socket.shutdown().await.map_err(|e| JsString::from(e.to_string()))
 }
 
 struct CloseStream(Arc<dyn RpcStream>);
@@ -162,22 +166,24 @@ async fn serve_rpc_stream(
     request: Value,
     response: Value,
     mut buffer: String,
-) -> Result<(), String> {
+) -> Result<(), JsString> {
     let (sender, mut receiver) = mpsc::unbounded_channel();
     let sender_for_errors = sender.clone();
     let on_message = Arc::new(move |message| {
         let _ = sender.send(message);
     });
-    let id = request["instanceId"].as_str().unwrap_or_default();
+    let id = request["instanceId"]
+        .as_string()
+        .ok_or("rpc_stream instanceId missing")?;
     let Some(stream) = handler.open_rpc_stream(id, on_message) else {
-        return send_and_end(socket, error_response(format!("Unknown instance: {id}"))).await;
+        return send_and_end(socket, error_response(js_format!("Unknown instance: {}", id))).await;
     };
     let _close = CloseStream(stream.clone());
     let (requests, queued) = mpsc::unbounded_channel();
     socket
-        .write_all(encode_message(&response).as_bytes())
+        .write_all(encode_node_utf8(&encode_message(&response)).as_bytes())
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| JsString::from(e.to_string()))?;
     // The accepted request queue outlives the socket, like the frozen Promise chain.
     queue_stream_requests(stream, queued, sender_for_errors);
     enqueue_complete_requests(&mut buffer, &requests)?;
@@ -191,7 +197,7 @@ fn queue_stream_requests(
 ) {
     tokio::spawn(async move {
         while let Some(line) = queued.recv().await {
-            let result = match parse_request_line(&line) {
+            let result = match parse_request_line(&JsString::from(line)) {
                 Ok(request) => stream.handle_request(request).await,
                 Err(error) => Err(error),
             };
@@ -202,9 +208,9 @@ fn queue_stream_requests(
     });
 }
 
-fn enqueue_complete_requests(buffer: &mut String, requests: &mpsc::UnboundedSender<String>) -> Result<(), String> {
+fn enqueue_complete_requests(buffer: &mut String, requests: &mpsc::UnboundedSender<String>) -> Result<(), JsString> {
     while let Some(line) = take_line(buffer) {
-        requests.send(line).map_err(|error| error.to_string())?;
+        requests.send(line).map_err(|error| JsString::from(error.to_string()))?;
     }
     Ok(())
 }
@@ -214,15 +220,15 @@ async fn pump_stream_socket(
     buffer: &mut String,
     requests: &mpsc::UnboundedSender<String>,
     receiver: &mut mpsc::UnboundedReceiver<Value>,
-) -> Result<(), String> {
+) -> Result<(), JsString> {
     let mut chunk = [0; 8192];
     loop {
         tokio::select! {
             Some(message) = receiver.recv() => {
-                socket.write_all(encode_message(&message).as_bytes()).await.map_err(|e| e.to_string())?;
+                socket.write_all(encode_node_utf8(&encode_message(&message)).as_bytes()).await.map_err(|e| JsString::from(e.to_string()))?;
             },
             result = socket.read(&mut chunk) => {
-                let count = result.map_err(|e| e.to_string())?;
+                let count = result.map_err(|e| JsString::from(e.to_string()))?;
                 if count == 0 { return Ok(()); }
                 buffer.push_str(&String::from_utf8_lossy(&chunk[..count]));
                 enqueue_complete_requests(buffer, requests)?;
