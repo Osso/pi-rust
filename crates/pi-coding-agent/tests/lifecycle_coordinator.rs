@@ -298,7 +298,7 @@ fn rejects_another_agents_ownership_token_under_the_same_supervisor() {
     let counter = next.clone();
     let coordinator = create_coordinator_with(&db, SESSION_PATH, move || {
         let value = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-        pi_js_compat::js_format!("agent-{value}")
+        pi_js_compat::js_format!("agent-{}", value)
     });
     let (first_agent, first_ownership) = expect_created(create_running_child(&coordinator, child_input(None)));
     let (second_agent, _second_ownership) = expect_created(create_running_child(&coordinator, child_input(None)));
@@ -476,7 +476,7 @@ fn blocks_parent_recovery_until_active_descendants_are_terminal() {
     let counter = next.clone();
     let coordinator = create_coordinator_with(&db, SESSION_PATH, move || {
         let value = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-        pi_js_compat::js_format!("agent-{value}")
+        pi_js_compat::js_format!("agent-{}", value)
     });
     let dead = test_process_identity("dead-parent-runtime");
     let parent = coordinator
@@ -622,7 +622,7 @@ fn blocks_parent_terminalization_until_descendants_are_terminal() {
     let counter = next.clone();
     let coordinator = create_coordinator_with(&db, SESSION_PATH, move || {
         let value = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-        pi_js_compat::js_format!("agent-{value}")
+        pi_js_compat::js_format!("agent-{}", value)
     });
     let (parent, parent_ownership) = expect_created(create_running_child(&coordinator, child_input(None)));
     let (child, child_ownership) = expect_created(create_running_child(&coordinator, child_input(Some(&parent.id))));
@@ -843,7 +843,7 @@ fn rejects_child_and_attachment_creation_beneath_a_terminal_parent() {
     let counter = next.clone();
     let coordinator = create_coordinator_with(&db, SESSION_PATH, move || {
         let value = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-        pi_js_compat::js_format!("agent-{value}")
+        pi_js_compat::js_format!("agent-{}", value)
     });
     let (parent, ownership) = expect_created(create_running_child(&coordinator, child_input(None)));
     coordinator
