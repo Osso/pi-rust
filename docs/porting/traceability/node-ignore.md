@@ -6,7 +6,7 @@ Frozen source: `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d/node_modules/ignore/ind
 
 | Source behavior | Native API / proof |
 | --- | --- |
-| default factory, string add, CRLF split, comments/blanks, leading escapes | `Ignore::new/default/add`; frozen differential rule corpus |
+| default factory, string add, CRLF split, comments/blanks, leading escapes | `Ignore::new/default/add`; frozen differential rule corpus, including escaped final CR without newline |
 | all 15 REPLACERS, trailing wildcard mode `regex`, range sanitation | `make_regex_prefix`; generated atom combinations, deterministic raw-unit fuzz, escaped/invalid ranges |
 | legacy non-u case-insensitive regex | shared `JsRegex` with `i`; case and surrogate rules/paths |
 | ignored/unignored skipping, parent directories, trailing slash | `ignores`; negation sequences and expanded nested path corpus |
@@ -23,4 +23,4 @@ Excluded from this bounded API: non-string JS runtime inputs, factory options, a
 
 Logs under `/tmp/pi-rust-repin-lossless-js-libs/`: `red-node-ignore.log` (missing module API), `red-node-ignore-lazy-errors.log` (behavioral add-time panic vs frozen lazy error), `green-node-ignore-lazy-errors2.log` (2 tests passed). Earlier `green-node-ignore-expanded.log` covers non-error matcher behavior. Runtime invocations use configured Cargo sandbox runner.
 
-Behavioral mutants: `mutant-case-sensitive.log`, `mutant-skip-parent.log`, `mutant-wildcard-codepoint.log`; each fails frozen differential assertions, restored afterwards. Exact command: `cargo test -j4 -p pi-js-compat --test differential_node_ignore`. Parent owns independent lint/type/integration gates; these focused development proofs do not establish Q18 acceptance.
+Behavioral mutants: `mutant-case-sensitive.log`, `mutant-skip-parent.log`, `mutant-wildcard-codepoint.log`; each fails frozen differential assertions, restored afterwards. Exact command: `cargo test -j4 -p pi-js-compat --test differential_node_ignore`. `red-node-ignore-final-cr.log` reproduces an escaped final CR incorrectly stripped as CRLF (`a\\\r` must match `a `); split now removes CR only when followed by LF. Parent owns independent lint/type/integration gates; these focused development proofs do not establish Q18 acceptance.

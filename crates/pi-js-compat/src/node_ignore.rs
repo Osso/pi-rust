@@ -65,8 +65,11 @@ impl Ignore {
     }
 
     pub fn add(&mut self, rules: impl Into<JsString>) -> &mut Self {
-        for line in rules.into().split('\n') {
-            let pattern = line.strip_suffix("\r").unwrap_or(line);
+        for line in rules.into().split_inclusive('\n') {
+            let pattern = match line.strip_suffix("\n") {
+                Some(line) => line.strip_suffix("\r").unwrap_or(line),
+                None => line,
+            };
             if !check_pattern(&pattern) {
                 continue;
             }
