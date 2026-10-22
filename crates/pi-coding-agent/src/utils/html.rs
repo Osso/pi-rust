@@ -1,93 +1,85 @@
-/// A decoded HTML entity and the number of source bytes it consumed.
+use pi_js_compat::js_json::JsString;
+
+/// A decoded HTML entity and its source length in UTF-16 code units.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecodedHtmlEntity {
-    pub text: String,
+    pub text: JsString,
     pub length: usize,
 }
 
-/// Decode the entity name that follows `&` and precedes `;`.
-///
-/// Supports the five named entities and numeric character references. Returns
-/// `None` for unknown names, malformed numbers, and code points outside the
-/// Unicode scalar range. Lone surrogate references are not representable in a
-/// Rust `String` and therefore also return `None`.
-pub fn decode_html_entity(entity: &str) -> Option<String> {
-    match entity {
-        "amp" => return Some("&".to_owned()),
-        "lt" => return Some("<".to_owned()),
-        "gt" => return Some(">".to_owned()),
-        "quot" => return Some("\"".to_owned()),
-        "apos" => return Some("'".to_owned()),
-        _ => {}
+/// Frozen `decodeHtmlEntity`: named entities or Number.parseInt numeric prefixes.
+pub fn decode_html_entity(entity: &JsString) -> Option<JsString> {
+    for (name, decoded) in [("amp", "&"), ("lt", "<"), ("gt", ">"), ("quot", "\""), ("apos", "'")] {
+        if entity == name {
+            return Some(decoded.into());
+        }
     }
-
-    if let Some(digits) = entity.strip_prefix("#x").or_else(|| entity.strip_prefix("#X")) {
-        return decode_code_point(parse_int(digits, 16)?);
-    }
-
-    if let Some(digits) = entity.strip_prefix('#') {
-        return decode_code_point(parse_int(digits, 10)?);
-    }
-
-    None
+    let (digits, radix) = if entity.starts_with("#x") || entity.starts_with("#X") {
+        (entity.slice(2, entity.len()), 16)
+    } else {
+        (entity.strip_prefix("#")?, 10)
+    };
+    decode_code_point(parse_int(&digits, radix)?)
 }
 
-/// Decode an entity starting at `html[index]` when it is a `&...;` reference.
-pub fn decode_html_entity_at(html: &str, index: usize) -> Option<DecodedHtmlEntity> {
-    let remainder = html.get(index..)?;
-    if !remainder.starts_with('&') {
+/// Mirrors the source's direct indexed decoder, including its 16-unit bound.
+pub fn decode_html_entity_at(html: &JsString, index: usize) -> Option<DecodedHtmlEntity> {
+    let semicolon = html.find_from(";", index.saturating_add(1))?;
+    if semicolon.saturating_sub(index) > 16 {
         return None;
     }
-
-    let semicolon_offset = remainder.get(1..)?.find(';')?;
-    if semicolon_offset + 1 > 16 {
-        return None;
-    }
-
-    let entity = remainder.get(1..=semicolon_offset)?;
-    let text = decode_html_entity(entity)?;
+    let entity = html.slice(index.saturating_add(1), semicolon);
     Some(DecodedHtmlEntity {
-        text,
-        length: semicolon_offset + 2,
+        text: decode_html_entity(&entity)?,
+        length: semicolon - index + 1,
     })
 }
 
-fn decode_code_point(code_point: i64) -> Option<String> {
-    let scalar = u32::try_from(code_point).ok()?;
-    char::from_u32(scalar).map(|value| value.to_string())
+fn decode_code_point(code_point: i64) -> Option<JsString> {
+    let point = u32::try_from(code_point).ok().filter(|point| *point <= 0x10ffff)?;
+    let units = if point <= 0xffff {
+        vec![point as u16]
+    } else {
+        let offset = point - 0x10000;
+        vec![0xd800 + (offset >> 10) as u16, 0xdc00 + (offset & 0x3ff) as u16]
+    };
+    Some(JsString::from_utf16(units))
 }
 
-/// Port of `Number.parseInt(text, radix)` for an integer or `NaN` result.
-fn parse_int(text: &str, radix: u32) -> Option<i64> {
-    let trimmed = text.trim_start_matches(|value: char| value.is_whitespace());
-    let (negative, unsigned) = match trimmed.as_bytes().first() {
-        Some(b'-') => (true, &trimmed[1..]),
-        Some(b'+') => (false, &trimmed[1..]),
-        _ => (false, trimmed),
+fn parse_int(text: &JsString, radix: u32) -> Option<i64> {
+    let trimmed = text.trim_start();
+    let (negative, unsigned) = if let Some(unsigned) = trimmed.strip_prefix("-") {
+        (true, unsigned)
+    } else {
+        (false, trimmed.strip_prefix("+").unwrap_or(trimmed))
     };
-
-    let digits = strip_radix_prefix(unsigned, radix);
-    let mut value: i64 = 0;
-    let mut matched = false;
-    for character in digits.chars() {
-        let Some(digit) = character.to_digit(radix) else {
-            break;
-        };
-        value = value.saturating_mul(i64::from(radix)).saturating_add(i64::from(digit));
-        matched = true;
-    }
-
-    if !matched {
-        return None;
-    }
+    let digits = if radix == 16 {
+        unsigned
+            .strip_prefix("0x")
+            .or_else(|| unsigned.strip_prefix("0X"))
+            .unwrap_or(unsigned)
+    } else {
+        unsigned
+    };
+    let value = parse_digits(&digits, radix)?;
     Some(if negative { -value } else { value })
 }
 
-fn strip_radix_prefix(text: &str, radix: u32) -> &str {
-    if radix != 16 {
-        return text;
+fn parse_digits(digits: &JsString, radix: u32) -> Option<i64> {
+    let mut value = 0_i64;
+    let mut matched = false;
+    for unit in digits.units() {
+        let digit = match unit {
+            48..=57 => u32::from(*unit - 48),
+            65..=70 => u32::from(*unit - 65 + 10),
+            97..=102 => u32::from(*unit - 97 + 10),
+            _ => break,
+        };
+        if digit >= radix {
+            break;
+        }
+        value = value.saturating_mul(i64::from(radix)).saturating_add(i64::from(digit));
+        matched = true;
     }
-    text.strip_prefix("0x")
-        .or_else(|| text.strip_prefix("0X"))
-        .unwrap_or(text)
+    matched.then_some(value)
 }
