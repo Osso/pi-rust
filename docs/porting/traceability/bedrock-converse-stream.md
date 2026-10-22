@@ -9,6 +9,10 @@ plus the Rust-only helpers `bedrock_sigv4.rs`, `bedrock_eventstream.rs`,
 
 Unmasked source request headers exposed native lang/rust and missing SDK language/compiler/feature labels. Native now retains frozen aws-sdk-js3.1048.0, ua2.1, lang/js, md/tsc5.9.3, Bedrock API version and retry/credential feature labels (standardE, directe, profilen). Host kernel/Node versions are unavailable in Rust and emitted as unknown; only those version substrings are masked at captured default User-Agent. Explicit caller User-Agent remains exact. A concrete helper test preserves changed SDK/compiler/language/feature values. The first signed source request now matches all headers/signature inputs; next RED exposes start/delta index, empty-start ordering and source-absent rawStopReason (`bedrock-sdk-identity-{red,green-1}.log`). No full-provider acceptance yet.
 
+## Native scratch and push ordering
+
+Frozen handlers433–561 retain index/partialJson on output blocks; no second content vector exists. Removed native BlockState/sync_content copies and narrowed i64 indices. Text/thinking starts now snapshot empty content before the delta; thinking signatures append only after the text delta. Finalization strips scratch before constructing end snapshots; owner catches strip open-block scratch. Removed source-absent rawStopReason/error derivation. New fractional0.25/0.5/0.75/0.875 interleaving reproduces the old collapsed blocks RED then passes exact events. Existing text/tool/thinking scenarios advance too; next RED is rich-message SDK Document serialization of empty keys (`bedrock-native-scratch-{red,green-1}.log`). This is a partial checkpoint, not complete Bedrock parity.
+
 ## Exported symbols
 
 | TypeScript | Rust | Tests |

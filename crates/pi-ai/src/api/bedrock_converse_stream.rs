@@ -260,13 +260,15 @@ async fn run_stream(
 ) {
     let timestamp = now_millis() as f64;
     let mut output = AssistantMessage::empty("bedrock-converse-stream", &model.provider, &model.id, timestamp);
-    let mut blocks: Vec<BlockState> = Vec::new();
     let signal = stream_options.request.signal.clone();
-    let result = drive(&sender, &model, &context, stream_options, &mut output, &mut blocks).await;
+    let result = drive(&sender, &model, &context, stream_options, &mut output).await;
     let Err(error) = result else {
         return;
     };
 
+    for block in &mut output.content {
+        strip_bedrock_stream_scratch(block);
+    }
     output.stop_reason = if signal.as_ref().is_some_and(|signal| signal.is_cancelled()) {
         StopReason::Aborted
     } else {
@@ -294,7 +296,6 @@ async fn drive(
     context: &Context,
     stream_options: StreamOptions,
     output: &mut AssistantMessage,
-    blocks: &mut Vec<BlockState>,
 ) -> Result<(), BedrockError> {
     let options = BedrockOptions::from_stream_options(stream_options)
         .map_err(|message| BedrockError::other(format!("Invalid Bedrock options: {message}")))?;
@@ -365,7 +366,7 @@ async fn drive(
             .next_message()
             .map_err(|error| BedrockError::stream(error.message()).with_request_id(request_id.as_deref()))?
         {
-            handle_message(sender, model, output, blocks, &message, request_id.as_deref())?;
+            handle_message(sender, model, output, &message, request_id.as_deref())?;
         }
     }
 
@@ -976,31 +977,38 @@ fn get_configured_region(options: &BedrockOptions) -> Option<JsString> {
         .or_else(|| get_provider_env_value("AWS_DEFAULT_REGION", options.stream.request.env.as_ref()))
 }
 
-fn map_stop_reason(reason: Option<&str>) -> (StopReason, Option<String>) {
+fn map_stop_reason(reason: Option<&str>) -> StopReason {
     match reason {
-        Some("end_turn" | "stop_sequence") => (StopReason::Stop, None),
-        Some("max_tokens" | "model_context_window_exceeded") => (StopReason::Length, None),
-        Some("tool_use") => (StopReason::ToolUse, None),
-        Some(reason) if !reason.is_empty() => (StopReason::Error, Some(format!("Provider stopped with: {reason}"))),
-        _ => (StopReason::Error, None),
+        Some("end_turn" | "stop_sequence") => StopReason::Stop,
+        Some("max_tokens" | "model_context_window_exceeded") => StopReason::Length,
+        Some("tool_use") => StopReason::ToolUse,
+        _ => StopReason::Error,
     }
 }
 
-struct BlockState {
-    content: AssistantContent,
-    index: Option<i64>,
-    partial_json: Option<JsString>,
+fn stream_block_index(block: &AssistantContent) -> Option<f64> {
+    match block {
+        AssistantContent::Text(block) => block.index,
+        AssistantContent::Thinking(block) => block.index,
+        AssistantContent::ToolCall(block) => block.index,
+    }
 }
 
-fn sync_content(output: &mut AssistantMessage, blocks: &[BlockState]) {
-    output.content = blocks.iter().map(|block| block.content.clone()).collect();
+fn strip_bedrock_stream_scratch(block: &mut AssistantContent) {
+    match block {
+        AssistantContent::Text(block) => block.index = None,
+        AssistantContent::Thinking(block) => block.index = None,
+        AssistantContent::ToolCall(block) => {
+            block.index = None;
+            block.partial_json = None;
+        }
+    }
 }
 
 fn handle_message(
     sender: &AssistantMessageEventSender,
     model: &Model,
     output: &mut AssistantMessage,
-    blocks: &mut Vec<BlockState>,
     message: &crate::api::bedrock_eventstream::EventStreamMessage,
     request_id: Option<&str>,
 ) -> Result<(), BedrockError> {
@@ -1027,11 +1035,9 @@ fn handle_message(
     };
     let payload: Value = serde_json::from_slice(&message.payload)
         .map_err(|error| BedrockError::stream(format!("Deserialization error: {error}")))?;
-
     match event_type.as_str() {
         "messageStart" => {
-            let role = payload.get("role").and_then(Value::as_str).unwrap_or("");
-            if role != "assistant" {
+            if payload.get("role").and_then(Value::as_str) != Some("assistant") {
                 return Err(BedrockError::other(
                     "Unexpected assistant message start but got user message start instead",
                 ));
@@ -1040,41 +1046,10 @@ fn handle_message(
                 partial: output.clone(),
             });
         }
-        "contentBlockStart" => {
-            let index = payload.get("contentBlockIndex").and_then(Value::as_i64).unwrap_or(0);
-            if let Some(tool_use) = payload.pointer("/start/toolUse") {
-                let block = BlockState {
-                    content: AssistantContent::ToolCall(ToolCall::new(
-                        tool_use.get("toolUseId").and_then(Value::as_str).unwrap_or(""),
-                        tool_use.get("name").and_then(Value::as_str).unwrap_or(""),
-                        JsObject::new(),
-                    )),
-                    index: Some(index),
-                    partial_json: Some(Default::default()),
-                };
-                blocks.push(block);
-                sync_content(output, blocks);
-                sender.push(AssistantMessageEvent::ToolCallStart {
-                    content_index: blocks.len() - 1,
-                    partial: output.clone(),
-                });
-            }
-        }
-        "contentBlockDelta" => {
-            handle_content_block_delta(sender, output, blocks, &payload);
-        }
-        "contentBlockStop" => {
-            handle_content_block_stop(sender, output, blocks, &payload);
-        }
-        "messageStop" => {
-            let reason = payload.get("stopReason").and_then(Value::as_str);
-            output.raw_stop_reason = reason.map(str::to_owned);
-            let (stop_reason, error_message) = map_stop_reason(reason);
-            output.stop_reason = stop_reason;
-            if let Some(error_message) = error_message {
-                output.error_message = Some(error_message.into());
-            }
-        }
+        "contentBlockStart" => start_tool_block(sender, output, &payload),
+        "contentBlockDelta" => handle_content_block_delta(sender, output, &payload),
+        "contentBlockStop" => handle_content_block_stop(sender, output, &payload),
+        "messageStop" => output.stop_reason = map_stop_reason(payload.get("stopReason").and_then(Value::as_str)),
         "metadata" => {
             if let Some(usage) = payload.get("usage") {
                 handle_metadata(usage, model, output);
@@ -1085,167 +1060,169 @@ fn handle_message(
     Ok(())
 }
 
-fn handle_content_block_delta(
-    sender: &AssistantMessageEventSender,
-    output: &mut AssistantMessage,
-    blocks: &mut Vec<BlockState>,
-    payload: &Value,
-) {
-    let content_block_index = payload.get("contentBlockIndex").and_then(Value::as_i64).unwrap_or(0);
-    let Some(delta) = payload.get("delta") else {
+fn start_tool_block(sender: &AssistantMessageEventSender, output: &mut AssistantMessage, payload: &Value) {
+    let Some(tool_use) = payload.pointer("/start/toolUse") else {
         return;
     };
-    let index = blocks.iter().position(|block| block.index == Some(content_block_index));
+    let mut block = ToolCall::new(
+        tool_use.get("toolUseId").and_then(Value::as_str).unwrap_or(""),
+        tool_use.get("name").and_then(Value::as_str).unwrap_or(""),
+        JsObject::new(),
+    );
+    block.partial_json = Some(JsString::default());
+    block.index = payload.get("contentBlockIndex").and_then(Value::as_f64);
+    output.content.push(AssistantContent::ToolCall(block));
+    sender.push(AssistantMessageEvent::ToolCallStart {
+        content_index: output.content.len() - 1,
+        partial: output.clone(),
+    });
+}
 
+fn handle_content_block_delta(sender: &AssistantMessageEventSender, output: &mut AssistantMessage, payload: &Value) {
+    let provider_index = payload.get("contentBlockIndex").and_then(Value::as_f64);
+    let Some(delta) = payload.get("delta") else { return };
+    let index = output
+        .content
+        .iter()
+        .position(|block| stream_block_index(block) == provider_index);
     if let Some(text) = delta.get("text").and_then(Value::as_str) {
-        let (index, created) = match index {
-            Some(index) => (index, false),
-            None => {
-                blocks.push(BlockState {
-                    content: AssistantContent::Text(crate::types::TextContent::new("")),
-                    index: Some(content_block_index),
-                    partial_json: None,
-                });
-                (blocks.len() - 1, true)
-            }
-        };
-        if let AssistantContent::Text(block) = &mut blocks[index].content {
-            block.text.push_str(text);
+        append_text_delta(sender, output, index, provider_index, text);
+    } else if let Some(tool_use) = delta.get("toolUse") {
+        if let Some(index) = index {
+            append_tool_delta(
+                sender,
+                output,
+                index,
+                tool_use.get("input").and_then(Value::as_str).unwrap_or(""),
+            );
         }
-        sync_content(output, blocks);
-        if created {
-            sender.push(AssistantMessageEvent::TextStart {
-                content_index: index,
-                partial: output.clone(),
-            });
-        }
-        sender.push(AssistantMessageEvent::TextDelta {
+    } else if let Some(reasoning) = delta.get("reasoningContent") {
+        append_thinking_delta(sender, output, index, provider_index, reasoning);
+    }
+}
+
+fn append_text_delta(
+    sender: &AssistantMessageEventSender,
+    output: &mut AssistantMessage,
+    index: Option<usize>,
+    provider_index: Option<f64>,
+    text: &str,
+) {
+    let index = index.unwrap_or_else(|| {
+        let mut block = crate::types::TextContent::new("");
+        block.index = provider_index;
+        output.content.push(AssistantContent::Text(block));
+        let index = output.content.len() - 1;
+        sender.push(AssistantMessageEvent::TextStart {
+            content_index: index,
+            partial: output.clone(),
+        });
+        index
+    });
+    let AssistantContent::Text(block) = &mut output.content[index] else {
+        return;
+    };
+    block.text.push_str(text);
+    sender.push(AssistantMessageEvent::TextDelta {
+        content_index: index,
+        delta: text.into(),
+        partial: output.clone(),
+    });
+}
+
+fn append_tool_delta(sender: &AssistantMessageEventSender, output: &mut AssistantMessage, index: usize, input: &str) {
+    let AssistantContent::ToolCall(block) = &mut output.content[index] else {
+        return;
+    };
+    let partial_json = block.partial_json.get_or_insert_default();
+    partial_json.push_str(input);
+    block.arguments = parse_streaming_json(Some(partial_json))
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    sender.push(AssistantMessageEvent::ToolCallDelta {
+        content_index: index,
+        delta: input.into(),
+        partial: output.clone(),
+    });
+}
+
+fn append_thinking_delta(
+    sender: &AssistantMessageEventSender,
+    output: &mut AssistantMessage,
+    index: Option<usize>,
+    provider_index: Option<f64>,
+    reasoning: &Value,
+) {
+    let index = index.unwrap_or_else(|| {
+        let mut block = ThinkingContent::new("");
+        block.thinking_signature = Some(String::new());
+        block.index = provider_index;
+        output.content.push(AssistantContent::Thinking(block));
+        let index = output.content.len() - 1;
+        sender.push(AssistantMessageEvent::ThinkingStart {
+            content_index: index,
+            partial: output.clone(),
+        });
+        index
+    });
+    if let Some(text) = reasoning
+        .get("text")
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())
+        && let AssistantContent::Thinking(block) = &mut output.content[index]
+    {
+        block.thinking.push_str(text);
+        sender.push(AssistantMessageEvent::ThinkingDelta {
             content_index: index,
             delta: text.into(),
             partial: output.clone(),
         });
-        return;
     }
-
-    if let Some(tool_use) = delta.get("toolUse")
-        && let Some(index) = index
+    if let Some(signature) = reasoning
+        .get("signature")
+        .and_then(Value::as_str)
+        .filter(|signature| !signature.is_empty())
+        && let AssistantContent::Thinking(block) = &mut output.content[index]
     {
-        let input = tool_use.get("input").and_then(Value::as_str).unwrap_or("");
-        let mut partial_json = blocks[index].partial_json.take().unwrap_or_default();
-        partial_json.push_str(input);
-        let arguments = parse_streaming_json(Some(&partial_json))
-            .as_object()
-            .cloned()
-            .unwrap_or_default();
-        blocks[index].partial_json = Some(partial_json);
-        if let AssistantContent::ToolCall(block) = &mut blocks[index].content {
-            block.arguments = arguments;
-        }
-        sync_content(output, blocks);
-        sender.push(AssistantMessageEvent::ToolCallDelta {
-            content_index: index,
-            delta: input.to_owned().into(),
-            partial: output.clone(),
-        });
-        return;
-    }
-
-    if let Some(reasoning) = delta.get("reasoningContent") {
-        let (index, created) = match index {
-            Some(index) => (index, false),
-            None => {
-                blocks.push(BlockState {
-                    content: AssistantContent::Thinking(ThinkingContent {
-                        r#type: crate::types::ThinkingTag::Tag,
-                        thinking: String::new().into(),
-                        thinking_signature: Some(Default::default()),
-                        redacted: None,
-                        index: None,
-                    }),
-                    index: Some(content_block_index),
-                    partial_json: None,
-                });
-                (blocks.len() - 1, true)
-            }
-        };
-        let text = reasoning
-            .get("text")
-            .and_then(Value::as_str)
-            .filter(|text| !text.is_empty())
-            .map(str::to_owned);
-        let signature = reasoning
-            .get("signature")
-            .and_then(Value::as_str)
-            .filter(|signature| !signature.is_empty())
-            .map(str::to_owned);
-        if let AssistantContent::Thinking(block) = &mut blocks[index].content {
-            if let Some(text) = &text {
-                block.thinking.push_str(text);
-            }
-            if let Some(signature) = signature {
-                block
-                    .thinking_signature
-                    .get_or_insert_with(String::new)
-                    .push_str(&signature);
-            }
-        }
-        sync_content(output, blocks);
-        if created {
-            sender.push(AssistantMessageEvent::ThinkingStart {
-                content_index: index,
-                partial: output.clone(),
-            });
-        }
-        if let Some(text) = text {
-            sender.push(AssistantMessageEvent::ThinkingDelta {
-                content_index: index,
-                delta: text.into(),
-                partial: output.clone(),
-            });
-        }
+        block.thinking_signature.get_or_insert_default().push_str(signature);
     }
 }
 
-fn handle_content_block_stop(
-    sender: &AssistantMessageEventSender,
-    output: &mut AssistantMessage,
-    blocks: &mut [BlockState],
-    payload: &Value,
-) {
-    let content_block_index = payload.get("contentBlockIndex").and_then(Value::as_i64).unwrap_or(0);
-    let Some(index) = blocks.iter().position(|block| block.index == Some(content_block_index)) else {
+fn handle_content_block_stop(sender: &AssistantMessageEventSender, output: &mut AssistantMessage, payload: &Value) {
+    let provider_index = payload.get("contentBlockIndex").and_then(Value::as_f64);
+    let Some(index) = output
+        .content
+        .iter()
+        .position(|block| stream_block_index(block) == provider_index)
+    else {
         return;
     };
-    blocks[index].index = None;
-    let partial_json = blocks[index].partial_json.take();
-    let event = match &mut blocks[index].content {
-        AssistantContent::Text(block) => Some(AssistantMessageEvent::TextEnd {
+    if let AssistantContent::ToolCall(block) = &mut output.content[index] {
+        block.arguments = parse_streaming_json(block.partial_json.as_ref())
+            .as_object()
+            .cloned()
+            .unwrap_or_default();
+    }
+    strip_bedrock_stream_scratch(&mut output.content[index]);
+    let event = match &output.content[index] {
+        AssistantContent::Text(block) => AssistantMessageEvent::TextEnd {
             content_index: index,
             content: block.text.clone(),
             partial: output.clone(),
-        }),
-        AssistantContent::Thinking(block) => Some(AssistantMessageEvent::ThinkingEnd {
+        },
+        AssistantContent::Thinking(block) => AssistantMessageEvent::ThinkingEnd {
             content_index: index,
             content: block.thinking.clone(),
             partial: output.clone(),
-        }),
-        AssistantContent::ToolCall(block) => {
-            block.arguments = parse_streaming_json(partial_json.as_ref())
-                .as_object()
-                .cloned()
-                .unwrap_or_default();
-            let tool_call = block.clone();
-            Some(AssistantMessageEvent::ToolCallEnd {
-                content_index: index,
-                tool_call: Box::new(tool_call),
-                partial: output.clone(),
-            })
-        }
+        },
+        AssistantContent::ToolCall(block) => AssistantMessageEvent::ToolCallEnd {
+            content_index: index,
+            tool_call: Box::new(block.clone()),
+            partial: output.clone(),
+        },
     };
-    sync_content(output, blocks);
-    if let Some(event) = event {
-        sender.push(event);
-    }
+    sender.push(event);
 }
 
 fn handle_metadata(usage: &Value, model: &Model, output: &mut AssistantMessage) {

@@ -294,6 +294,47 @@ fn text_script() -> Vec<ResponseSpec> {
 fn scenarios() -> Vec<Scenario> {
     let mut scenarios = Vec::new();
     scenarios.push(Scenario {
+        name: "fractional-interleaved-scratch",
+        model: model(),
+        context: context(),
+        options: options(),
+        process_env: BTreeMap::new(),
+        capture_payload: false,
+        simple: None,
+        script: vec![ResponseSpec::eventstream(vec![
+            FrameSpec::event("messageStart", json!({"role":"assistant"})),
+            FrameSpec::event(
+                "contentBlockDelta",
+                json!({"contentBlockIndex":0.25,"delta":{"text":"a"}}),
+            ),
+            FrameSpec::event(
+                "contentBlockDelta",
+                json!({"contentBlockIndex":0.5,"delta":{"text":"b"}}),
+            ),
+            FrameSpec::event(
+                "contentBlockDelta",
+                json!({"contentBlockIndex":0.25,"delta":{"text":"c"}}),
+            ),
+            FrameSpec::event(
+                "contentBlockStart",
+                json!({"contentBlockIndex":0.75,"start":{"toolUse":{"toolUseId":"call_frac","name":"lookup"}}}),
+            ),
+            FrameSpec::event(
+                "contentBlockDelta",
+                json!({"contentBlockIndex":0.75,"delta":{"toolUse":{"input":"{\"n\":1"}}}),
+            ),
+            FrameSpec::event(
+                "contentBlockDelta",
+                json!({"contentBlockIndex":0.875,"delta":{"reasoningContent":{"text":"why","signature":"sig"}}}),
+            ),
+            FrameSpec::event("contentBlockStop", json!({"contentBlockIndex":0.75})),
+            FrameSpec::event("contentBlockStop", json!({"contentBlockIndex":0.5})),
+            FrameSpec::event("contentBlockStop", json!({"contentBlockIndex":0.25})),
+            FrameSpec::event("contentBlockStop", json!({"contentBlockIndex":0.875})),
+            FrameSpec::event("messageStop", json!({"stopReason":"end_turn"})),
+        ])],
+    });
+    scenarios.push(Scenario {
         name: "text",
         model: model(),
         context: context(),
