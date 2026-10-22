@@ -3,6 +3,7 @@
 //! The oracle imports the pinned TypeScript modules and returns their raw
 //! values; the Rust side must match byte-for-byte after JSON serialization.
 
+use pi_js_compat::js_json::JsString;
 #[path = "support/oracle.rs"]
 mod oracle;
 
@@ -16,7 +17,9 @@ use pi_coding_agent::bundled_extensions::goal::goal_turn::{
     did_last_assistant_abort, did_last_assistant_return_empty, find_last_assistant_message,
 };
 use pi_coding_agent::core::extensions::types::AgentEndEvent;
-use serde_json::{Map, Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsObject as Map;
+use pi_js_compat::js_json::JsValue as Value;
 
 fn oracle() -> oracle::TsOracle {
     oracle::TsOracle::spawn(
@@ -39,7 +42,7 @@ fn parsed_args_value(result: &ParseGoalArgsResult) -> Value {
 }
 
 fn goal_value(goal: &pi_coding_agent::bundled_extensions::goal::goal_types::Goal) -> Value {
-    serde_json::to_value(goal).unwrap()
+    pi_js_compat::js_json::to_value(goal).unwrap()
 }
 
 fn assistant(text: &str, stop_reason: &str, with_tool_call: bool) -> Value {
@@ -94,7 +97,7 @@ fn matches_typescript_goal_parsing_args_presentation_and_turn_classification() {
     let expected = output["output"].clone();
     let actual: Vec<Value> = args_cases
         .iter()
-        .map(|args| parsed_args_value(&parse_goal_args(args)))
+        .map(|args| parsed_args_value(&parse_goal_args(*args)))
         .collect();
     assert_eq!(Value::Array(actual), expected);
 
@@ -130,7 +133,7 @@ fn matches_typescript_goal_parsing_args_presentation_and_turn_classification() {
     }));
     let actual: Vec<Value> = parse_cases
         .iter()
-        .map(|value| serde_json::to_value(parse_goal(value)).unwrap())
+        .map(|value| pi_js_compat::js_json::to_value(&parse_goal(value)).unwrap())
         .collect();
     assert_eq!(Value::Array(actual), output["output"]);
 
@@ -146,7 +149,7 @@ fn matches_typescript_goal_parsing_args_presentation_and_turn_classification() {
     }));
     let actual: Vec<Value> = json_cases
         .iter()
-        .map(|value| serde_json::to_value(parse_goal_json(value)).unwrap())
+        .map(|value| pi_js_compat::js_json::to_value(&parse_goal_json(&JsString::from(*value))).unwrap())
         .collect();
     assert_eq!(Value::Array(actual), output["output"]);
 
@@ -165,7 +168,12 @@ fn matches_typescript_goal_parsing_args_presentation_and_turn_classification() {
     }));
     let actual: Vec<Value> = dedupe_cases
         .iter()
-        .map(|(reviewed, current)| Value::String(deduplicate_current_goal_scope(reviewed, current)))
+        .map(|(reviewed, current)| {
+            Value::String(deduplicate_current_goal_scope(
+                &JsString::from(*reviewed),
+                &JsString::from(*current),
+            ))
+        })
         .collect();
     assert_eq!(Value::Array(actual), output["output"]);
 
@@ -230,14 +238,20 @@ fn matches_typescript_goal_parsing_args_presentation_and_turn_classification() {
     let actual: Vec<Value> = events
         .iter()
         .map(|value| {
-            let event: AgentEndEvent = serde_json::from_value(value.clone()).unwrap();
+            let event: AgentEndEvent = pi_js_compat::js_json::from_value(&value.clone()).unwrap();
             let mut result = Map::new();
-            result.insert("aborted".to_owned(), Value::Bool(did_last_assistant_abort(&event)));
-            result.insert("empty".to_owned(), Value::Bool(did_last_assistant_return_empty(&event)));
+            result.insert(
+                "aborted".to_owned().into(),
+                Value::Bool(did_last_assistant_abort(&event)),
+            );
+            result.insert(
+                "empty".to_owned().into(),
+                Value::Bool(did_last_assistant_return_empty(&event)),
+            );
             if let Some(message) = find_last_assistant_message(&event) {
                 result.insert(
-                    "stopReason".to_owned(),
-                    serde_json::to_value(message.stop_reason).unwrap(),
+                    "stopReason".to_owned().into(),
+                    pi_js_compat::js_json::to_value(&message.stop_reason).unwrap(),
                 );
             }
             Value::Object(result)

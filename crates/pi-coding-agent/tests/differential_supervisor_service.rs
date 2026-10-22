@@ -1,5 +1,6 @@
 //! Differential: supervisor prompt building and response parsing against the pinned TypeScript module.
 
+use pi_js_compat::js_json::JsString;
 #[path = "support/oracle.rs"]
 mod oracle;
 
@@ -7,7 +8,8 @@ use pi_coding_agent::core::session_control_db::{
     SupervisorRequest, SupervisorRequestKind, SupervisorRequestStatus, SupervisorResponse,
 };
 use pi_coding_agent::supervisor::service::{build_supervisor_prompt, parse_supervisor_response};
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsValue as Value;
 
 const SOURCE_MODULE: &str = "packages/coding-agent/src/supervisor/service.ts";
 
@@ -21,21 +23,21 @@ fn request(kind: &str, payload: Value, project_id: &str, deadline_at: &str, id: 
     };
     let request = SupervisorRequest {
         id,
-        sender_session_id: "main".to_owned(),
-        project_id: project_id.to_owned(),
+        sender_session_id: "main".to_owned().into(),
+        project_id: project_id.to_owned().into(),
         kind: request_kind,
         payload: payload.as_object().cloned().unwrap_or_default(),
         deadline_at: deadline_at.to_owned(),
         status: SupervisorRequestStatus::Claimed,
         created_at: "2026-07-14T12:00:00.000Z".to_owned(),
         claimed_at: Some("2026-07-14T12:00:00.000Z".to_owned()),
-        claim_token: Some("runtime".to_owned()),
+        claim_token: Some("runtime".to_owned().into()),
         completed_at: None,
         response: None,
     };
     (
         request_kind,
-        serde_json::to_value(&request).expect("request serializes"),
+        pi_js_compat::js_json::to_value(&request).expect("request serializes"),
     )
 }
 
@@ -172,16 +174,24 @@ fn prompts_and_parsed_responses_match_the_typescript_module() {
     }
     let mut ts = oracle::TsOracle::spawn("coding-agent-supervisor-service-oracle.ts", SOURCE_MODULE);
     let response = ts.request(&json!({"id": 1, "operation": "supervisor", "cases": cases}));
-    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["ok"],
+        pi_js_compat::js_json::JsValue::Bool(true),
+        "{response:?}"
+    );
     let ts_results = response["output"]["results"].as_array().expect("results");
 
     let mut index = 0;
     for (name, (kind, request_value)) in &prompt_cases {
         let rust_request: SupervisorRequest =
-            serde_json::from_value(request_value.clone()).expect("request deserializes");
+            pi_js_compat::js_json::from_value(&request_value.clone()).expect("request deserializes");
         let prompt = build_supervisor_prompt(&rust_request);
-        assert_eq!(ts_results[index]["name"], *name);
-        assert_eq!(prompt, ts_results[index]["value"].as_str().unwrap(), "prompt {name}");
+        assert_eq!(ts_results[index]["name"], json!(*name));
+        assert_eq!(
+            prompt,
+            *ts_results[index]["value"].as_string().unwrap(),
+            "prompt {name}"
+        );
         let _ = kind;
         index += 1;
     }
@@ -196,8 +206,12 @@ fn prompts_and_parsed_responses_match_the_typescript_module() {
         let parsed = parse_supervisor_response(request_kind, raw)
             .map(|response| serde_json::to_string(&response).expect("response serializes"))
             .unwrap_or_else(|| "null".to_owned());
-        assert_eq!(ts_results[index]["name"], *name);
-        assert_eq!(parsed, ts_results[index]["value"].as_str().unwrap(), "parse {name}");
+        assert_eq!(ts_results[index]["name"], json!(*name));
+        assert_eq!(
+            JsString::from(parsed),
+            *ts_results[index]["value"].as_string().unwrap(),
+            "parse {name}"
+        );
         index += 1;
     }
     assert_eq!(index, ts_results.len());
@@ -206,24 +220,24 @@ fn prompts_and_parsed_responses_match_the_typescript_module() {
 #[test]
 fn response_serialization_is_stable() {
     assert_eq!(
-        serde_json::to_value(SupervisorResponse::Continue {
-            instructions: "Continue the goal.".to_owned(),
-            reason: "recovered".to_owned(),
+        pi_js_compat::js_json::to_value(&SupervisorResponse::Continue {
+            instructions: "Continue the goal.".to_owned().into(),
+            reason: "recovered".to_owned().into(),
         })
         .unwrap(),
         json!({"kind": "continue", "reason": "recovered", "instructions": "Continue the goal."})
     );
     assert_eq!(
         serde_json::to_string(&SupervisorResponse::Continue {
-            instructions: "Continue the goal.".to_owned(),
-            reason: "recovered".to_owned(),
+            instructions: "Continue the goal.".to_owned().into(),
+            reason: "recovered".to_owned().into(),
         })
         .unwrap(),
         r#"{"instructions":"Continue the goal.","kind":"continue","reason":"recovered"}"#
     );
     assert_eq!(
         serde_json::to_string(&SupervisorResponse::Advisory {
-            answer: "Nothing is missing.".to_owned(),
+            answer: "Nothing is missing.".to_owned().into(),
         })
         .unwrap(),
         r#"{"answer":"Nothing is missing.","kind":"advisory"}"#
