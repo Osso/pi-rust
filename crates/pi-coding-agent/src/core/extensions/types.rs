@@ -2809,7 +2809,7 @@ pub struct ExtensionState {
     pub tools: IndexMap<String, RegisteredTool>,
     pub message_renderers: IndexMap<JsString, MessageRenderer>,
     pub markdown_transformer: Option<MarkdownTransformer>,
-    pub entry_renderers: Option<IndexMap<String, EntryRenderer>>,
+    pub entry_renderers: Option<IndexMap<JsString, EntryRenderer>>,
     pub commands: IndexMap<JsString, RegisteredCommand>,
     pub flags: IndexMap<String, ExtensionFlag>,
     pub shortcuts: IndexMap<KeyId, ExtensionShortcut>,
@@ -3375,13 +3375,17 @@ impl ExtensionApi {
         Ok(())
     }
 
-    pub fn register_entry_renderer(&self, custom_type: &str, renderer: EntryRenderer) -> Result<(), String> {
+    pub fn register_entry_renderer(
+        &self,
+        custom_type: impl Into<JsString>,
+        renderer: EntryRenderer,
+    ) -> Result<(), String> {
         self.runtime.assert_active()?;
         let mut extension = self.extension_lock();
         extension
             .entry_renderers
             .get_or_insert_with(IndexMap::new)
-            .insert(custom_type.to_owned(), renderer);
+            .insert(custom_type.into(), renderer);
         Ok(())
     }
 

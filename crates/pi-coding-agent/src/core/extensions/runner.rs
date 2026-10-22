@@ -769,13 +769,14 @@ impl ExtensionRunner {
             .collect()
     }
 
-    pub fn get_entry_renderer(&self, custom_type: &str) -> Option<EntryRenderer> {
+    pub fn get_entry_renderer(&self, custom_type: impl Into<JsString>) -> Option<EntryRenderer> {
+        let custom_type = custom_type.into();
         for extension in &self.extensions {
             if let Some(renderer) = extension
                 .read()
                 .entry_renderers
                 .as_ref()
-                .and_then(|renderers| renderers.get(custom_type))
+                .and_then(|renderers| renderers.get(&custom_type))
             {
                 return Some(Arc::clone(renderer));
             }
