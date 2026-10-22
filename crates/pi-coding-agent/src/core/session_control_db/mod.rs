@@ -232,8 +232,8 @@ pub struct EnqueueStoredRuntimeMailboxMessageInput {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeMailboxListener {
-    pub session_id: String,
-    pub agent_id: Option<String>,
+    pub session_id: JsString,
+    pub agent_id: Option<JsString>,
     pub pid: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_path: Option<String>,
@@ -258,24 +258,24 @@ pub(crate) struct RuntimeMailboxListenerRow {
 pub(crate) struct RuntimeMailboxRow {
     pub id: i64,
     pub session_path: String,
-    pub message_id: String,
+    pub message_id: JsString,
     pub data: String,
     pub updated_at: String,
 }
 
 pub(crate) struct MultiAgentRuntimeOwnershipRow {
     pub session_path: String,
-    pub agent_id: String,
+    pub agent_id: JsString,
     pub process_identity: Option<String>,
-    pub owner_session_id: Option<String>,
-    pub owner_agent_id: Option<String>,
+    pub owner_session_id: Option<JsString>,
+    pub owner_agent_id: Option<JsString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MultiAgentRuntimeOwnership {
     pub session_path: JsString,
-    pub agent_id: String,
+    pub agent_id: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process_identity: Option<ProcessIdentity>,
     pub owner: MultiAgentRuntimeOwner,
@@ -285,22 +285,22 @@ pub struct MultiAgentRuntimeOwnership {
 #[serde(rename_all = "camelCase")]
 pub struct MultiAgentRuntimeOwner {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<String>,
-    pub agent_id: Option<String>,
+    pub session_id: Option<JsString>,
+    pub agent_id: Option<JsString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MultiAgentRuntimeOwnerIdentity {
-    pub session_id: String,
-    pub agent_id: Option<String>,
+    pub session_id: JsString,
+    pub agent_id: Option<JsString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MultiAgentRuntimeOwnershipIdentity {
     pub session_path: JsString,
-    pub agent_id: String,
+    pub agent_id: JsString,
     pub process_identity: ProcessIdentity,
     pub owner: MultiAgentRuntimeOwnerIdentity,
 }
@@ -310,8 +310,8 @@ pub fn get_control_db_path(directory: &Path) -> String {
     directory.join("control.sqlite").display().to_string()
 }
 
-pub(crate) fn runtime_mailbox_agent_id_key<T: Into<JsString>>(agent_id: Option<T>) -> String {
-    agent_id.map(|value| value.into().to_utf8_lossy()).unwrap_or_default()
+pub(crate) fn runtime_mailbox_agent_id_key(agent_id: Option<&JsString>) -> JsString {
+    agent_id.cloned().unwrap_or_default()
 }
 
 pub(crate) fn optional_row<T>(result: rusqlite::Result<T>) -> Result<Option<T>, ControlDbError> {
@@ -913,7 +913,7 @@ pub(crate) fn runtime_owner_matches(
     input.session_path == ownership.session_path
         && ownership.agent_id == input.agent_id
         && ownership.process_identity.as_deref() == Some(serialize_process_identity(&input.process_identity).as_str())
-        && ownership.owner_session_id.as_deref() == Some(input.owner.session_id.as_str())
+        && ownership.owner_session_id.as_ref() == Some(&input.owner.session_id)
         && ownership.owner_agent_id == input.owner.agent_id
 }
 
@@ -973,7 +973,7 @@ pub(crate) fn read_runtime_mailbox_listener_row(
 			WHERE recipient_session_id = ? AND recipient_agent_id_key = ?
 			",
         params![
-            &recipient.session_id.to_utf8_lossy(),
+            &recipient.session_id,
             runtime_mailbox_agent_id_key(recipient.agent_id.as_ref())
         ],
         |row| {
@@ -991,7 +991,7 @@ pub(crate) fn read_runtime_mailbox_listener_row(
 pub(crate) fn read_multi_agent_runtime_ownership_row(
     db: &Connection,
     session_path: impl Into<JsString>,
-    agent_id: &str,
+    agent_id: &JsString,
 ) -> Result<Option<MultiAgentRuntimeOwnershipRow>, ControlDbError> {
     let session_path: &JsString = &session_path.into();
     optional_row(db.query_row(
@@ -1036,11 +1036,7 @@ pub(crate) fn read_canonical_mailbox_row_by_store_ref(
             "SELECT rowid AS id, session_path, message_id, data, updated_at
 			 FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ? AND {MAILBOX_CREATED_AT_MS_SQL} > ?"
         ),
-        params![
-            &store_ref.session_path.to_utf8_lossy(),
-            &store_ref.message_id.to_utf8_lossy(),
-            mailbox_cutoff_ms()
-        ],
+        params![&store_ref.session_path, &store_ref.message_id, mailbox_cutoff_ms()],
         mailbox_row_from_row,
     ))
 }

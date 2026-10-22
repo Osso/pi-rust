@@ -863,7 +863,7 @@ fn migrate_legacy_runtime_mailbox_messages(db: &Connection, now_iso: &str) -> Re
         .collect::<Result<Vec<_>, _>>()?;
     let mut migrated = HashSet::new();
     for row in rows {
-        let key = format!("{}\u{0}{}", row.store_session_path, row.store_message_id);
+        let key = js_format!("{}\u{0}{}", row.store_session_path, row.store_message_id);
         if !migrated.insert(key) {
             continue;
         }
@@ -881,13 +881,13 @@ fn migrate_legacy_runtime_mailbox_messages(db: &Connection, now_iso: &str) -> Re
 }
 
 struct LegacyRuntimeMailboxRow {
-    recipient_session_id: String,
-    recipient_agent_id: Option<String>,
-    sender_session_id: Option<String>,
-    sender_agent_id: Option<String>,
+    recipient_session_id: JsString,
+    recipient_agent_id: Option<JsString>,
+    sender_session_id: Option<JsString>,
+    sender_agent_id: Option<JsString>,
     kind: String,
-    store_session_path: String,
-    store_message_id: String,
+    store_session_path: JsString,
+    store_message_id: JsString,
     status: String,
     created_at: String,
     updated_at: String,
@@ -904,16 +904,17 @@ fn migrate_legacy_runtime_mailbox_row(
         session_path: row.store_session_path.clone().into(),
     };
     // Legacy payload validation precedes retention cleanup, as in frozen TS.
-    let canonical=db.query_row("SELECT rowid,session_path,message_id,data,updated_at FROM multi_agent_mailbox_messages WHERE session_path=? AND message_id=?",params![store_ref.session_path.to_utf8_lossy(),store_ref.message_id.to_utf8_lossy()],|r|Ok(super::RuntimeMailboxRow{id:r.get(0)?,session_path:r.get(1)?,message_id:r.get(2)?,data:r.get(3)?,updated_at:r.get(4)?})).optional()?;
+    let canonical=db.query_row("SELECT rowid,session_path,message_id,data,updated_at FROM multi_agent_mailbox_messages WHERE session_path=? AND message_id=?",params![store_ref.session_path,store_ref.message_id],|r|Ok(super::RuntimeMailboxRow{id:r.get(0)?,session_path:r.get(1)?,message_id:r.get(2)?,data:r.get(3)?,updated_at:r.get(4)?})).optional()?;
     let Some(canonical) = canonical else {
         return Ok(());
     };
-    let context = format!(
+    let context = js_format!(
         "multi_agent_mailbox_messages:{}#{}",
-        row.store_session_path, row.store_message_id
+        row.store_session_path,
+        row.store_message_id
     );
-    let message = parse_stored_json_object(&canonical.data, &JsString::from(&context))?;
-    validate_mailbox_payload(&Value::Object(message.clone()), &JsString::from(&context))?;
+    let message = parse_stored_json_object(&canonical.data, &context)?;
+    validate_mailbox_payload(&Value::Object(message.clone()), &context)?;
     let input = super::EnqueueRuntimeMailboxMessageInput {
         recipient_host: None,
         kind: to_runtime_mailbox_message_kind(&row.kind),
@@ -932,10 +933,7 @@ fn migrate_legacy_runtime_mailbox_row(
     if message.get("status").and_then(Value::as_str) == Some("delivered") || row.status == "delivered" {
         db.execute(
             "DELETE FROM multi_agent_mailbox_messages WHERE session_path=? AND message_id=?",
-            params![
-                input.store_ref.session_path.to_utf8_lossy(),
-                input.store_ref.message_id.to_utf8_lossy()
-            ],
+            params![input.store_ref.session_path, input.store_ref.message_id],
         )?;
         return Ok(());
     }
@@ -1112,8 +1110,8 @@ pub(crate) fn assert_runtime_mailbox_routing_with_fields(
     }
     Err(ControlDbError::new(js_format!(
         "Runtime mailbox store reference conflicts with canonical mailbox row: {}#{}",
-        input.store_ref.session_path.to_utf8_lossy(),
-        input.store_ref.message_id.to_utf8_lossy()
+        input.store_ref.session_path,
+        input.store_ref.message_id
     )))
 }
 

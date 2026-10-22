@@ -4,6 +4,7 @@
 mod oracle;
 use pi_coding_agent::core::session_control_db::ControlDbError;
 use pi_coding_agent::utils;
+use pi_js_compat::js_json::JsString;
 #[path = "../src/core/session_control_db/retention.rs"]
 mod retention_contract;
 use serde_json::{Value, json};
@@ -87,16 +88,16 @@ fn exact_creation_boundary_and_invalid_birth_match_frozen_sqlite_cleanup() {
         "fresh"
     );
     assert!(retention_contract::is_mailbox_message_expired(
-        Some(&boundary),
+        Some(&JsString::from(&boundary)),
         now as f64
     ));
     assert!(!retention_contract::is_mailbox_message_expired(
-        Some(&fresh),
+        Some(&JsString::from(&fresh)),
         now as f64
     ));
     assert!(retention_contract::is_mailbox_message_expired(None, now as f64));
     assert!(retention_contract::is_mailbox_message_expired(
-        Some("invalid"),
+        Some(&JsString::from("invalid")),
         now as f64
     ));
     let fresh_payload = json!({"createdAt":fresh});

@@ -276,10 +276,7 @@ pub fn ack_relay_channel(path: &str, peer: &str, id: i64) -> Result<(), ControlD
     control::with_control_db(path, |db| write_counter(db, &format!("relay:{peer}"), id))
 }
 pub fn import_relay_channel(path: &str, message: &RelayChannel) -> Result<(), ControlDbError> {
-    if control::is_mailbox_message_expired(
-        Some(&message.created_at.to_utf8_lossy()),
-        pi_js_compat::date::js_now_millis(),
-    ) {
+    if control::is_mailbox_message_expired(Some(&message.created_at), pi_js_compat::date::js_now_millis()) {
         return Ok(());
     }
     let recipients = control::with_control_db(path, |db| {

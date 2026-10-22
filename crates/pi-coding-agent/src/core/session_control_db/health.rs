@@ -8,7 +8,7 @@ use pi_js_compat::js_json::JsString;
 /// `readSessionHealth`.
 pub fn read_session_health(
     control_db_path: impl Into<JsString>,
-    session_id: &str,
+    session_id: &JsString,
 ) -> Result<Option<SessionHealthRecord>, ControlDbError> {
     let control_db_path = control_db_path.into();
     with_control_db(&control_db_path, |db| read_session_health_row(db, session_id))

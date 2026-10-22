@@ -21,7 +21,7 @@ use pi_js_compat::js_json::{self, JsObject, JsString, JsValue, encode_node_utf8}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DetachedJobOwnershipIdentity {
-    pub job_id: String,
+    pub job_id: JsString,
     pub owner: MultiAgentRuntimeOwnerIdentity,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
     pub output_label: String,
@@ -111,13 +111,13 @@ impl DetachedJobOutcome {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DetachedJobTerminalInput {
-    pub job_id: String,
+    pub job_id: JsString,
     pub owner: MultiAgentRuntimeOwnerIdentity,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
     pub output_label: String,
     pub terminal_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_call_id: Option<String>,
+    pub tool_call_id: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<i64>,
     pub outcome: DetachedJobOutcome,
@@ -467,7 +467,7 @@ fn detached_job_agent_details(
     let existing_file_refs = match agent.get("result") {
         Some(Value::Object(result)) => parse_file_refs(
             result.get("fileRefs"),
-            &format!("detached job {} result", terminal.job_id),
+            &js_format!("detached job {} result", terminal.job_id),
         )?
         .unwrap_or_default(),
         _ => Vec::new(),

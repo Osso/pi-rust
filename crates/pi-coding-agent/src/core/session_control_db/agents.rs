@@ -195,15 +195,15 @@ pub enum CommitMultiAgentDetachMarkResult {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SupervisorRuntimeOwnership {
-    pub agent_id: Option<String>,
+    pub agent_id: Option<JsString>,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
-    pub session_id: String,
+    pub session_id: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AcquireMultiAgentRuntimeOwnershipInput {
     pub session_path: JsString,
-    pub agent_id: String,
+    pub agent_id: JsString,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
     pub owner: MultiAgentRuntimeOwnerIdentity,
     pub now_iso: String,
@@ -212,7 +212,7 @@ pub struct AcquireMultiAgentRuntimeOwnershipInput {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AcquireAttachedRuntimeOwnershipInput {
     pub session_path: JsString,
-    pub agent_id: String,
+    pub agent_id: JsString,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
     pub owner: MultiAgentRuntimeOwnerIdentity,
     pub now_iso: String,
@@ -222,7 +222,7 @@ pub struct AcquireAttachedRuntimeOwnershipInput {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateMultiAgentChildWithRuntimeOwnershipInput {
     pub session_path: JsString,
-    pub agent_id: String,
+    pub agent_id: JsString,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
     pub owner: MultiAgentRuntimeOwnerIdentity,
     pub now_iso: String,
@@ -232,7 +232,7 @@ pub struct CreateMultiAgentChildWithRuntimeOwnershipInput {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateMultiAgentAttachmentInput {
     pub agent: AgentSnapshot,
-    pub agent_id: String,
+    pub agent_id: JsString,
     pub now_iso: String,
     pub session_path: JsString,
 }
@@ -247,7 +247,7 @@ pub struct CreateFailedMultiAgentChildInput {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitMultiAgentLifecycleMutationInput {
     pub session_path: JsString,
-    pub agent_id: String,
+    pub agent_id: JsString,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
     pub owner: MultiAgentRuntimeOwnerIdentity,
     pub requested_lifecycle: String,
@@ -265,14 +265,14 @@ pub struct DetachedCancellation {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommitMultiAgentSteeringMutationInput {
     pub session_path: JsString,
-    pub agent_id: String,
+    pub agent_id: JsString,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
     pub owner: MultiAgentRuntimeOwnerIdentity,
     pub requested_lifecycle: String,
     pub updated_at: String,
     pub body: JsString,
     pub file_refs: Option<JsValue>,
-    pub from_agent_id: String,
+    pub from_agent_id: JsString,
     pub recipient: RuntimeMailboxAddress,
     pub target_checkpoint: Option<SteeringCheckpoint>,
     pub thread_id: Option<JsString>,
@@ -281,17 +281,17 @@ pub struct CommitMultiAgentSteeringMutationInput {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitMultiAgentSteeringDeliveryInput {
     pub session_path: JsString,
-    pub agent_id: String,
+    pub agent_id: JsString,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
     pub owner: MultiAgentRuntimeOwnerIdentity,
     pub requested_lifecycle: String,
     pub updated_at: String,
-    pub message_id: String,
+    pub message_id: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitMultiAgentDetachMarkInput {
-    pub agent_id: String,
+    pub agent_id: JsString,
     pub owner: MultiAgentRuntimeOwnerIdentity,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
     pub session_path: JsString,
@@ -320,7 +320,7 @@ impl AgentDetails {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommitMultiAgentTerminalMutationInput {
     pub session_path: JsString,
-    pub agent_id: String,
+    pub agent_id: JsString,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
     pub owner: MultiAgentRuntimeOwnerIdentity,
     pub terminal_lifecycle: String,
@@ -350,11 +350,11 @@ impl TerminalOutboxStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MultiAgentTerminalOutboxRecord {
     pub session_path: String,
-    pub agent_id: String,
+    pub agent_id: JsString,
     pub terminal_revision: i64,
     pub event_kind: String,
     pub status: TerminalOutboxStatus,
-    pub claim_id: Option<String>,
+    pub claim_id: Option<JsString>,
     pub attempt_count: i64,
 }
 
@@ -441,7 +441,7 @@ impl MultiAgentCounterName {
 }
 
 struct ClaimedTerminalOutboxRow {
-    agent_id: String,
+    agent_id: JsString,
     attempt_count: i64,
     event_kind: String,
     session_path: String,
@@ -451,7 +451,7 @@ struct ClaimedTerminalOutboxRow {
 /// `claimMultiAgentTerminalOutbox`.
 pub fn claim_multi_agent_terminal_outbox(
     control_db_path: impl Into<JsString>,
-    claim_id: &str,
+    claim_id: &JsString,
     now_iso: &str,
     options: &ClaimMultiAgentTerminalOutboxOptions,
 ) -> Result<Option<MultiAgentTerminalOutboxRecord>, ControlDbError> {
@@ -532,7 +532,7 @@ fn recover_stale_terminal_outbox_claims(
 
 fn claim_next_terminal_outbox_row(
     db: &Connection,
-    claim_id: &str,
+    claim_id: &JsString,
     now_iso: &str,
     max_attempts: i64,
     session_path: Option<&str>,
@@ -724,7 +724,7 @@ fn prepare_multi_agent_steering_mutation(
     let mut updated_agent = agent.clone();
     updated_agent.lifecycle = AgentLifecycle::SteeringPending;
     updated_agent.revision += 1;
-    updated_agent.updated_at = input.updated_at.clone();
+    updated_agent.updated_at = input.updated_at.clone().into();
     Ok(SteeringMutationPreflight::Plan(Box::new(SteeringMutationPlan {
         agent_data,
         mailbox: prepare_steering_mailbox_message(input)?,
@@ -768,9 +768,9 @@ fn steering_mutation_has_authority(
     }
     let sender_path_matches = input.owner.agent_id.is_some()
         || trusted_runtime_mailbox_session_path(sender_listener).is_some_and(|path| input.session_path == path);
-    let expected_sender_id = input.owner.agent_id.as_deref().unwrap_or("supervisor");
+    let expected_sender_id = input.owner.agent_id.clone().unwrap_or_else(|| "supervisor".into());
     Ok(input.from_agent_id == expected_sender_id
-        && agent.parent_id.as_deref() == Some(input.owner.agent_id.as_deref().unwrap_or("main"))
+        && agent.parent_id == Some(input.owner.agent_id.clone().unwrap_or_else(|| "main".into()))
         && input.recipient.agent_id.as_ref() == Some(&JsString::from(&input.agent_id))
         && agent
             .transcript
@@ -818,7 +818,7 @@ fn persist_multi_agent_steering_mutation(
             return Ok(None);
         }
         let allocated = allocate_multi_agent_counter_with_db(db, &input.session_path, MultiAgentCounterName::Message)?;
-        let message_id = format!("message_{allocated}");
+        let message_id = JsString::from(format!("message_{allocated}"));
         persist_prepared_steering_mailbox_message(db, &input.session_path, &message_id, &plan.mailbox)?;
         Ok(Some(allocated))
     })?;
@@ -829,7 +829,7 @@ fn persist_multi_agent_steering_mutation(
         agent: Box::new(plan.updated_agent.clone()),
         message: Box::new(build_steering_mailbox_message(
             input,
-            &format!("message_{message_number}"),
+            &JsString::from(format!("message_{message_number}")),
         )?),
     }))
 }
@@ -871,13 +871,13 @@ fn compare_and_persist_steering_agent(
             input.owner.session_id,
             input.owner.agent_id,
             input.owner.session_id,
-            runtime_mailbox_agent_id_key(input.owner.agent_id.as_deref()),
+            runtime_mailbox_agent_id_key(input.owner.agent_id.as_ref()),
             plan.sender_listener.pid,
             plan.sender_listener.runtime_instance_id,
             plan.sender_listener.session_path,
             plan.sender_listener.session_path_asserted_at,
             plan.sender_listener.updated_at,
-            input.recipient.session_id.to_utf8_lossy(),
+            input.recipient.session_id,
             runtime_mailbox_agent_id_key(input.recipient.agent_id.as_ref()),
             plan.recipient_listener.pid,
             plan.recipient_listener.runtime_instance_id,
@@ -890,7 +890,7 @@ fn compare_and_persist_steering_agent(
 
 fn build_steering_mailbox_message(
     input: &CommitMultiAgentSteeringMutationInput,
-    message_id: &str,
+    message_id: &JsString,
 ) -> Result<AgentMailboxMessage, ControlDbError> {
     Ok(AgentMailboxMessage {
         extra: js_json::JsObject::new(),
@@ -912,7 +912,7 @@ fn build_steering_mailbox_message(
 fn prepare_steering_mailbox_message(
     input: &CommitMultiAgentSteeringMutationInput,
 ) -> Result<PreparedSteeringMailboxMessage, ControlDbError> {
-    let message = build_steering_mailbox_message(input, STEERING_MESSAGE_ID_PLACEHOLDER)?;
+    let message = build_steering_mailbox_message(input, &JsString::from(STEERING_MESSAGE_ID_PLACEHOLDER))?;
     let message_value = js_json::to_value(&message).map_err(|error| ControlDbError::new(error.to_string()))?;
     let mailbox_input = EnqueueStoredRuntimeMailboxMessageInput {
         recipient_host: None,
@@ -951,7 +951,7 @@ fn prepare_steering_mailbox_message(
 fn persist_prepared_steering_mailbox_message(
     db: &Connection,
     session_path: &JsString,
-    message_id: &str,
+    message_id: &JsString,
     prepared: &PreparedSteeringMailboxMessage,
 ) -> Result<(), ControlDbError> {
     db.execute(
@@ -1014,7 +1014,7 @@ pub fn commit_multi_agent_detach_mark(
             }
             agent_snapshot.detached = Some(true);
             agent_snapshot.revision += 1;
-            agent_snapshot.updated_at = input.updated_at.clone();
+            agent_snapshot.updated_at = input.updated_at.clone().into();
             validate_persisted_agent_payload(&agent, &context)?;
             let updated_data = super::serialize_agent(&agent_snapshot)?;
             let persisted = db.execute(
@@ -1137,7 +1137,10 @@ pub(super) fn read_steering_delivery_plan(
     let message = parse_stored_json_object(&message_data, &message_context)?;
     validate_mailbox_payload(&Value::Object(message.clone()), &message_context)?;
     let is_steering_message = message.get("kind").and_then(Value::as_str) == Some("steer");
-    let addressed_to_agent = message.get("toAgentId").and_then(Value::as_str) == Some(input.agent_id.as_str());
+    let addressed_to_agent = message
+        .get("toAgentId")
+        .and_then(Value::as_str)
+        .is_some_and(|to_agent_id| input.agent_id == to_agent_id);
     if !is_steering_message || !addressed_to_agent {
         return Ok(Err(SteeringCommandError::MessageNotFound));
     }
@@ -1172,7 +1175,7 @@ pub(super) fn persist_steering_delivery(
 ) -> Result<bool, ControlDbError> {
     with_immediate_transaction(db, |db| {
         if super::is_mailbox_message_expired(
-            plan.updated_message.created_at.to_utf8().ok().as_deref(),
+            Some(&plan.updated_message.created_at),
             pi_js_compat::date::js_now_millis(),
         ) {
             return Ok(false);
@@ -1287,7 +1290,7 @@ struct LifecycleMutationPlan {
     data: String,
     updated: JsObject,
     updated_data: String,
-    cancellation: Option<(String, String)>,
+    cancellation: Option<(JsString, String)>,
     process_identity_data: String,
 }
 
@@ -1405,9 +1408,11 @@ fn build_detached_cancellation_message(
     input: &CommitMultiAgentLifecycleMutationInput,
     cancellation: &DetachedCancellation,
     cancelling_revision: i64,
-) -> Result<(String, String), ControlDbError> {
-    let message_id = format!("detached-cancel:{}:{cancelling_revision}", input.agent_id);
-    let mut body = JsValue::from(serde_json::json!({
+) -> Result<(JsString, String), ControlDbError> {
+    let message_id = js_format!("detached-cancel:{}:{}", input.agent_id, cancelling_revision.to_string());
+    let process_identity =
+        js_json::to_value(&input.process_identity).map_err(|error| ControlDbError::new(error.to_string()))?;
+    let mut body = pi_js_compat::js_json!({
         "command": "cancel",
         "identity": {
             "jobId": input.agent_id,
@@ -1416,25 +1421,24 @@ fn build_detached_cancellation_message(
                 "sessionId": input.owner.session_id,
                 "agentId": input.owner.agent_id,
             },
-            "processIdentity": serde_json::to_value(&input.process_identity)
-                .map_err(|error| ControlDbError::new(error.to_string()))?,
+            "processIdentity": process_identity,
         },
-    }));
+    });
     if let Some(reason) = &cancellation.reason {
         body.as_object_mut()
             .expect("cancel body object")
             .insert("reason".into(), JsValue::String(reason.clone()));
     }
     let body = js_json::stringify_lossless(&body);
-    let message = js_json::stringify(&serde_json::json!({
+    let message = js_json::stringify_lossless(&pi_js_compat::js_json!({
         "body": body,
-        "createdAt":input.updated_at,
+        "createdAt": input.updated_at,
         "fromAgentId": "main",
         "id": message_id,
         "kind": "system",
         "recipientAgentId": input.agent_id,
         "recipientSessionId": input.owner.session_id,
-        "senderAgentId": Value::Null,
+        "senderAgentId": null,
         "senderSessionId": input.owner.session_id,
         "status": "pending",
         "toAgentId": input.agent_id,
@@ -1628,7 +1632,7 @@ fn persist_terminal_mutation(
 
 pub(crate) struct TerminalAgentCasInput<'a> {
     pub agent_data: &'a str,
-    pub agent_id: &'a str,
+    pub agent_id: &'a JsString,
     pub owner: &'a MultiAgentRuntimeOwnerIdentity,
     pub process_identity_data: &'a str,
     pub require_unique_ownership: bool,
@@ -1702,7 +1706,7 @@ pub(crate) fn update_terminal_agent_if_current(
 pub(crate) fn has_active_persisted_descendant(
     db: &Connection,
     session_path: impl Into<JsString>,
-    ancestor_id: &str,
+    ancestor_id: &JsString,
 ) -> Result<bool, ControlDbError> {
     let session_path: &JsString = &session_path.into();
     let mut statement = db.prepare("SELECT agent_id, data FROM multi_agent_agents WHERE session_path = ?")?;
@@ -1726,7 +1730,7 @@ pub(crate) fn has_active_persisted_descendant(
             if !visited.insert(current_parent.clone()) {
                 break;
             }
-            if current_parent == ancestor_id {
+            if *ancestor_id == current_parent {
                 return Ok(true);
             }
             parent_id = agents
@@ -1776,7 +1780,7 @@ fn can_persist_terminal_transition(current: &str, requested: &str) -> bool {
 struct ActiveParentSnapshot {
     agent: Option<AgentSnapshot>,
     data: Option<String>,
-    parent_id: String,
+    parent_id: JsString,
 }
 
 /// `createFailedMultiAgentChild`.
@@ -1836,7 +1840,7 @@ pub fn create_failed_multi_agent_child(
 fn read_active_parent_snapshot(
     db: &Connection,
     session_path: &JsString,
-    parent_id: &str,
+    parent_id: &JsString,
 ) -> Result<Option<ActiveParentSnapshot>, ControlDbError> {
     if parent_id == "main" {
         return Ok(Some(ActiveParentSnapshot {
@@ -1865,7 +1869,7 @@ fn read_active_parent_snapshot(
 
 fn ownership_identity(
     session_path: &JsString,
-    agent_id: &str,
+    agent_id: &JsString,
     process_identity: &crate::core::runtime_process::ProcessIdentity,
     owner: &MultiAgentRuntimeOwnerIdentity,
 ) -> MultiAgentRuntimeOwnershipIdentity {
@@ -1891,7 +1895,11 @@ fn read_agent_data_row(
         .optional()?)
 }
 
-fn multi_agent_agent_exists(db: &Connection, session_path: &JsString, agent_id: &str) -> Result<bool, ControlDbError> {
+fn multi_agent_agent_exists(
+    db: &Connection,
+    session_path: &JsString,
+    agent_id: &JsString,
+) -> Result<bool, ControlDbError> {
     Ok(db
         .query_row(
             "SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
@@ -1905,7 +1913,7 @@ fn multi_agent_agent_exists(db: &Connection, session_path: &JsString, agent_id: 
 fn insert_multi_agent_agent_if_parent_current(
     db: &Connection,
     session_path: &JsString,
-    agent_id: &str,
+    agent_id: &JsString,
     serialized_agent: &str,
     updated_at: &str,
     parent: &ActiveParentSnapshot,
@@ -2127,7 +2135,7 @@ fn read_attachment_parent_snapshot(
         return Ok(ActiveParentSnapshot {
             agent: None,
             data: None,
-            parent_id: "main".to_owned(),
+            parent_id: "main".into(),
         });
     };
     if parent_id == "main" {
@@ -2157,7 +2165,7 @@ fn read_attachment_parent_snapshot(
 pub fn read_multi_agent_runtime_ownership(
     control_db_path: impl Into<JsString>,
     session_path: impl Into<JsString>,
-    agent_id: &str,
+    agent_id: &JsString,
 ) -> Result<Option<MultiAgentRuntimeOwnership>, ControlDbError> {
     let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
@@ -2223,7 +2231,7 @@ pub fn acquire_attached_runtime_ownership(
             }
             let mut updated_agent = agent.clone();
             updated_agent.revision += 1;
-            updated_agent.updated_at = input.now_iso.clone();
+            updated_agent.updated_at = input.now_iso.clone().into();
             let updated_agent_data = super::serialize_agent(&updated_agent)?;
             let process_identity_data = serialize_process_identity(&input.process_identity);
             let persisted = with_immediate_transaction(db, |db| {
@@ -2351,7 +2359,7 @@ fn commit_acquired_runtime_ownership(
 fn read_attached_runtime_agent(
     db: &Connection,
     session_path: &JsString,
-    agent_id: &str,
+    agent_id: &JsString,
 ) -> Result<AttachedRuntimeAgentRead, ControlDbError> {
     let data = read_agent_data_row(db, session_path, agent_id)?;
     let Some(data) = data else {
@@ -2401,7 +2409,7 @@ fn read_persisted_supervisor_session_authority(
 			 WHERE recipient_session_id = ? AND recipient_agent_id_key = ? AND pid = ?",
             params![
                 supervisor.session_id,
-                runtime_mailbox_agent_id_key(supervisor.agent_id.as_deref()),
+                runtime_mailbox_agent_id_key(supervisor.agent_id.as_ref()),
                 supervisor.process_identity.pid
             ],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
@@ -2428,21 +2436,17 @@ fn read_persisted_supervisor_session_authority(
             supervisor_agent_data: None,
         }));
     }
-    let supervisor_agent = read_agent_data_row(db, session_path, supervisor.agent_id.as_deref().unwrap_or_default())?;
+    let supervisor_agent = read_agent_data_row(db, session_path, &supervisor.agent_id.clone().unwrap_or_default())?;
     let Some(supervisor_agent_data) = supervisor_agent else {
         return Ok(None);
     };
     let context = js_format!(
         "multi_agent_agents:{}#{}",
         session_path,
-        supervisor.agent_id.as_deref().unwrap_or_default()
+        &supervisor.agent_id.clone().unwrap_or_default()
     );
     let agent = parse_agent_snapshot(&supervisor_agent_data, &context)?;
-    if agent
-        .transcript
-        .as_ref()
-        .map(|transcript| transcript.session_id.as_str())
-        != Some(supervisor.session_id.as_str())
+    if agent.transcript.as_ref().map(|transcript| &transcript.session_id) != Some(&supervisor.session_id)
         || !is_active_lifecycle(agent.lifecycle)
     {
         return Ok(None);
@@ -2468,7 +2472,7 @@ fn supervisor_session_authority_is_current(
 			 WHERE recipient_session_id = ? AND recipient_agent_id_key = ? AND pid = ?",
             params![
                 supervisor.session_id,
-                runtime_mailbox_agent_id_key(supervisor.agent_id.as_deref()),
+                runtime_mailbox_agent_id_key(supervisor.agent_id.as_ref()),
                 supervisor.process_identity.pid
             ],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
@@ -2486,7 +2490,7 @@ fn supervisor_session_authority_is_current(
     if supervisor.agent_id.is_none() {
         return Ok(expected.supervisor_agent_data.is_none());
     }
-    let supervisor_agent = read_agent_data_row(db, session_path, supervisor.agent_id.as_deref().unwrap_or_default())?;
+    let supervisor_agent = read_agent_data_row(db, session_path, &supervisor.agent_id.clone().unwrap_or_default())?;
     Ok(supervisor_agent == expected.supervisor_agent_data)
 }
 
@@ -2503,7 +2507,7 @@ fn same_process_with_superseded_incarnation(
 fn persist_acquired_runtime_ownership(
     db: &Connection,
     session_path: &JsString,
-    agent_id: &str,
+    agent_id: &JsString,
     process_identity_data: &str,
     owner: &MultiAgentRuntimeOwnerIdentity,
 ) -> Result<(), ControlDbError> {
@@ -2528,7 +2532,7 @@ fn persist_acquired_runtime_ownership(
 
 fn ownership_from_identity_parts(
     session_path: &JsString,
-    agent_id: &str,
+    agent_id: &JsString,
     owner: &MultiAgentRuntimeOwnerIdentity,
     process_identity: &crate::core::runtime_process::ProcessIdentity,
 ) -> MultiAgentRuntimeOwnership {
@@ -2551,7 +2555,7 @@ fn ownership_from_identity_parts(
 pub fn update_multi_agent_agent_activity(
     control_db_path: impl Into<JsString>,
     session_path: impl Into<JsString>,
-    agent_id: &str,
+    agent_id: &JsString,
     last_activity: Option<&Value>,
     updated_at: &str,
 ) -> Result<Option<Value>, ControlDbError> {
@@ -2568,7 +2572,7 @@ pub fn update_multi_agent_agent_activity(
 pub fn update_multi_agent_agent_current_activity(
     control_db_path: impl Into<JsString>,
     session_path: impl Into<JsString>,
-    agent_id: &str,
+    agent_id: &JsString,
     current_activity: Option<&Value>,
     updated_at: &str,
     ownership: &crate::core::multi_agent_store::AgentCurrentActivityOwner,
@@ -2598,7 +2602,7 @@ pub fn update_multi_agent_agent_current_activity(
 pub fn update_multi_agent_agent_model(
     control_db_path: impl Into<JsString>,
     session_path: impl Into<JsString>,
-    agent_id: &str,
+    agent_id: &JsString,
     model: &Value,
     updated_at: &str,
     ownership: &crate::core::multi_agent_store::AgentCurrentActivityOwner,
@@ -2621,7 +2625,7 @@ pub fn update_multi_agent_agent_model(
 pub fn update_multi_agent_agent_slot(
     control_db_path: impl Into<JsString>,
     session_path: impl Into<JsString>,
-    agent_id: &str,
+    agent_id: &JsString,
     slot: Option<&Value>,
     updated_at: &str,
 ) -> Result<Option<Value>, ControlDbError> {
@@ -2636,7 +2640,7 @@ pub fn update_multi_agent_agent_slot(
 pub fn update_multi_agent_agent_transcript(
     control_db_path: impl Into<JsString>,
     session_path: impl Into<JsString>,
-    agent_id: &str,
+    agent_id: &JsString,
     transcript: Option<&Value>,
     updated_at: &str,
 ) -> Result<Option<Value>, ControlDbError> {
@@ -2650,7 +2654,7 @@ pub fn update_multi_agent_agent_transcript(
 fn update_multi_agent_agent_metadata(
     control_db_path: &JsString,
     session_path: &JsString,
-    agent_id: &str,
+    agent_id: &JsString,
     metadata: &Map<String, Value>,
     updated_at: &str,
     activity_ownership: Option<&crate::core::multi_agent_store::AgentCurrentActivityOwner>,
@@ -2689,7 +2693,7 @@ fn update_multi_agent_agent_metadata(
 fn read_metadata_agent_row(
     db: &Connection,
     session_path: &JsString,
-    agent_id: &str,
+    agent_id: &JsString,
 ) -> Result<Option<(String, String)>, ControlDbError> {
     Ok(db
         .query_row(
@@ -2703,7 +2707,7 @@ fn read_metadata_agent_row(
 fn read_metadata_agent(
     db: &Connection,
     session_path: &JsString,
-    agent_id: &str,
+    agent_id: &JsString,
     data: &str,
     metadata: &Map<String, Value>,
     activity_ownership: Option<&crate::core::multi_agent_store::AgentCurrentActivityOwner>,
@@ -2744,7 +2748,7 @@ struct MetadataUpdate<'a> {
 fn persist_metadata_update(
     db: &Connection,
     session_path: &JsString,
-    agent_id: &str,
+    agent_id: &JsString,
     update: &MetadataUpdate<'_>,
 ) -> Result<usize, ControlDbError> {
     let Some(ownership) = update.activity_ownership else {
@@ -2787,12 +2791,12 @@ fn persist_metadata_update(
 fn multi_agent_activity_ownership_matches(
     db: &Connection,
     session_path: &JsString,
-    agent_id: &str,
+    agent_id: &JsString,
     ownership: &crate::core::multi_agent_store::AgentCurrentActivityOwner,
 ) -> Result<bool, ControlDbError> {
     let runtime_ownership = read_multi_agent_runtime_ownership_row(db, session_path, agent_id)?;
     Ok(runtime_ownership.is_some_and(|runtime_ownership| {
-        runtime_ownership.owner_session_id.as_deref() == Some(ownership.owner_session_id.as_str())
+        runtime_ownership.owner_session_id.as_ref() == Some(&ownership.owner_session_id)
             && runtime_ownership.owner_agent_id.is_none()
             && runtime_ownership.process_identity.as_deref()
                 == Some(serialize_process_identity(&ownership.process_identity).as_str())
@@ -2816,7 +2820,7 @@ fn permits_multi_agent_current_activity(agent: &Map<String, Value>, metadata: &M
 pub fn bootstrap_multi_agent_agent(
     control_db_path: impl Into<JsString>,
     session_path: impl Into<JsString>,
-    id: &str,
+    id: &JsString,
     data: &JsValue,
 ) -> Result<(), ControlDbError> {
     let session_path: &JsString = &session_path.into();
@@ -2884,27 +2888,31 @@ pub fn upsert_multi_agent_mailbox_message(
 ) -> Result<(), ControlDbError> {
     let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
-    let id = id.into();
-    let sql_id = id.to_utf8_lossy();
+    let id: JsString = id.into();
     let validation =
         js_json::parse(&js_json::stringify_lossless(data)).map_err(|error| ControlDbError::new(error.to_string()))?;
     validate_mailbox_payload(
         &validation,
-        &js_format!("multi_agent_mailbox_messages:{}#{}", session_path, sql_id),
+        &js_format!("multi_agent_mailbox_messages:{}#{}", session_path, id),
     )?;
     let created_at = validation.get("createdAt").filter(|value| !value.is_null());
-    if created_at
-        .is_some_and(|value| super::is_mailbox_message_expired(value.as_str(), pi_js_compat::date::js_now_millis()))
-    {
+    if created_at.is_some_and(|value| {
+        super::is_mailbox_message_expired(
+            value.as_str().map(JsString::from).as_ref(),
+            pi_js_compat::date::js_now_millis(),
+        )
+    }) {
         return Ok(());
     }
     with_control_db(&control_db_path, |db| {
         for _ in 0..MULTI_AGENT_MAILBOX_UPSERT_MAX_ATTEMPTS {
             let plan = prepare_multi_agent_mailbox_upsert(db, session_path, &id, data)?;
             if super::is_mailbox_message_expired(
-                super::parse_stored_json_object(&plan.serialized, &js_format!("{}#{}", session_path, sql_id))?
+                super::parse_stored_json_object(&plan.serialized, &js_format!("{}#{}", session_path, id))?
                     .get("createdAt")
-                    .and_then(Value::as_str),
+                    .and_then(Value::as_str)
+                    .map(JsString::from)
+                    .as_ref(),
                 pi_js_compat::date::js_now_millis(),
             ) {
                 return Ok(());
@@ -2912,22 +2920,20 @@ pub fn upsert_multi_agent_mailbox_message(
             if plan.existing.as_ref().map(|existing| existing.data.as_str()) == Some(plan.serialized.as_str()) {
                 return Ok(());
             }
-            if with_immediate_transaction(db, |db| {
-                commit_multi_agent_mailbox_upsert(db, session_path, &sql_id, &plan)
-            })? {
+            if with_immediate_transaction(db, |db| commit_multi_agent_mailbox_upsert(db, session_path, &id, &plan))? {
                 return Ok(());
             }
         }
         Err(ControlDbError::new(js_format!(
             "Mailbox message changed repeatedly while updating {}#{}",
             session_path,
-            sql_id
+            id
         )))
     })
 }
 
 struct ParentRequestTargetSnapshot {
-    agent_id: String,
+    agent_id: JsString,
     data: String,
 }
 
@@ -2948,7 +2954,7 @@ fn prepare_multi_agent_mailbox_upsert(
     id: &JsString,
     data: &JsValue,
 ) -> Result<MultiAgentMailboxUpsertPlan, ControlDbError> {
-    let sql_id = id.to_utf8_lossy();
+    let sql_id = id;
     let parent_target = read_parent_request_target_snapshot(
         db,
         session_path,
@@ -2986,13 +2992,15 @@ fn prepare_multi_agent_mailbox_upsert(
 fn commit_multi_agent_mailbox_upsert(
     db: &Connection,
     session_path: &JsString,
-    id: &str,
+    id: &JsString,
     plan: &MultiAgentMailboxUpsertPlan,
 ) -> Result<bool, ControlDbError> {
     if super::is_mailbox_message_expired(
         super::parse_stored_json_object(&plan.serialized, &js_format!("{}#{}", session_path, id))?
             .get("createdAt")
-            .and_then(Value::as_str),
+            .and_then(Value::as_str)
+            .map(JsString::from)
+            .as_ref(),
         pi_js_compat::date::js_now_millis(),
     ) {
         return Ok(true);
@@ -3026,7 +3034,7 @@ fn commit_multi_agent_mailbox_upsert(
             crate::utils::iso_time::now_iso_string(),
             has_parent_target,
             session_path,
-            plan.parent_target.as_ref().map(|target| target.agent_id.as_str()),
+            plan.parent_target.as_ref().map(|target| &target.agent_id),
             plan.parent_target.as_ref().map(|target| target.data.as_str()),
             has_existing,
             session_path,
@@ -3046,7 +3054,7 @@ fn commit_multi_agent_mailbox_upsert(
 fn read_multi_agent_mailbox_row_snapshot(
     db: &Connection,
     session_path: &JsString,
-    id: &str,
+    id: &JsString,
 ) -> Result<Option<MultiAgentMailboxRowSnapshot>, ControlDbError> {
     Ok(db
         .query_row(
@@ -3116,7 +3124,7 @@ fn read_parent_request_target_snapshot(
         .as_ref()
         .and_then(|sender| sender.get("parentId"))
         .and_then(Value::as_str)
-        != Some(to_agent_id.as_str())
+        .is_none_or(|parent_id| to_agent_id != parent_id)
     {
         return Err(ControlDbError::new(js_format!(
             "Invalid parent request target at {}#{}",
@@ -3125,7 +3133,7 @@ fn read_parent_request_target_snapshot(
         )));
     }
     Ok(Some(ParentRequestTargetSnapshot {
-        agent_id: from_agent_id,
+        agent_id: from_agent_id.into(),
         data: row.unwrap_or_default(),
     }))
 }
@@ -3134,7 +3142,7 @@ fn read_parent_request_target_snapshot(
 pub fn get_multi_agent_mailbox_message_status(
     control_db_path: impl Into<JsString>,
     session_path: impl Into<JsString>,
-    message_id: &str,
+    message_id: &JsString,
 ) -> Result<Option<String>, ControlDbError> {
     let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
@@ -3157,7 +3165,7 @@ pub fn get_multi_agent_mailbox_message_status(
 pub fn mark_multi_agent_mailbox_message_delivered(
     control_db_path: impl Into<JsString>,
     session_path: impl Into<JsString>,
-    message_id: &str,
+    message_id: &JsString,
 ) -> Result<bool, ControlDbError> {
     let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
@@ -3174,7 +3182,7 @@ pub fn mark_multi_agent_mailbox_message_delivered(
 pub fn mark_multi_agent_mailbox_message_failed(
     control_db_path: impl Into<JsString>,
     session_path: impl Into<JsString>,
-    message_id: &str,
+    message_id: &JsString,
     error: impl Into<JsString>,
 ) -> Result<bool, ControlDbError> {
     let session_path: &JsString = &session_path.into();
@@ -3191,7 +3199,7 @@ pub fn mark_multi_agent_mailbox_message_failed(
 fn update_multi_agent_mailbox_message_status(
     control_db_path: &JsString,
     session_path: &JsString,
-    message_id: &str,
+    message_id: &JsString,
     status: &str,
     error: Option<&JsString>,
 ) -> Result<bool, ControlDbError> {
@@ -3346,7 +3354,7 @@ pub fn read_multi_agent_agent(
 pub fn read_multi_agent_agents(
     control_db_path: impl Into<JsString>,
     session_path: impl Into<JsString>,
-    agent_ids: &[String],
+    agent_ids: &[JsString],
 ) -> Result<Vec<AgentSnapshot>, ControlDbError> {
     let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
@@ -3477,8 +3485,8 @@ pub fn read_multi_agent_state(
 
 struct SupervisorRecoveryAuthority {
     listener: RuntimeMailboxListenerRow,
-    supervisor_session_id: String,
-    supervisor_agent_id: Option<String>,
+    supervisor_session_id: JsString,
+    supervisor_agent_id: Option<JsString>,
     supervisor_agent_data: Option<String>,
 }
 
@@ -3585,7 +3593,7 @@ fn read_supervisor_recovery_authority(
             supervisor_agent_data: None,
         }));
     }
-    let supervisor_row = read_agent_data_row(db, session_path, supervisor.agent_id.as_deref().unwrap_or_default())?;
+    let supervisor_row = read_agent_data_row(db, session_path, &supervisor.agent_id.clone().unwrap_or_default())?;
     let Some(supervisor_agent_data) = supervisor_row else {
         return Ok(None);
     };
@@ -3594,16 +3602,12 @@ fn read_supervisor_recovery_authority(
         &js_format!(
             "multi_agent_agents:{}#{}",
             session_path,
-            supervisor.agent_id.as_deref().unwrap_or_default()
+            &supervisor.agent_id.clone().unwrap_or_default()
         ),
     )?;
     let agent: AgentSnapshot =
         serde_json::from_value(Value::Object(snapshot)).map_err(|error| ControlDbError::new(error.to_string()))?;
-    if agent
-        .transcript
-        .as_ref()
-        .map(|transcript| transcript.session_id.as_str())
-        != Some(supervisor.session_id.as_str())
+    if agent.transcript.as_ref().map(|transcript| &transcript.session_id) != Some(&supervisor.session_id)
         || !is_active_lifecycle(agent.lifecycle)
     {
         return Ok(None);
@@ -3881,34 +3885,35 @@ pub(super) fn should_notify_detached_job_owner(agent: &Map<String, Value>) -> bo
 
 pub(crate) fn prepare_detached_agent_terminal_transport(
     session_path: impl Into<JsString>,
-    agent_id: &str,
+    agent_id: &JsString,
     owner: &MultiAgentRuntimeOwnerIdentity,
     terminal_revision: i64,
     event_kind: &str,
     terminal_at: &str,
 ) -> Result<PreparedTerminalTransport, ControlDbError> {
     let session_path: &JsString = &session_path.into();
-    let owner_session_id = owner.session_id.as_str();
+    let owner_session_id = &owner.session_id;
     if owner_session_id.is_empty() {
-        return Err(ControlDbError::new(format!(
-            "Detached job {agent_id} ownership has no owner session"
+        return Err(ControlDbError::new(js_format!(
+            "Detached job {} ownership has no owner session",
+            agent_id
         )));
     }
-    let message_id = format!("terminal:{agent_id}:{terminal_revision}:{event_kind}");
-    let body = js_json::stringify(&serde_json::json!({
+    let message_id = js_format!("terminal:{}:{}:{}", agent_id, terminal_revision.to_string(), event_kind);
+    let body = js_json::stringify_lossless(&pi_js_compat::js_json!({
         "agentId": agent_id,
         "eventKind": event_kind,
         "terminalRevision": terminal_revision,
         "type": "multi_agent_terminal",
     }));
-    let message = serde_json::json!({
+    let message = pi_js_compat::js_json!({
         "body": body,
         "createdAt": terminal_at,
         "fromAgentId": agent_id,
         "id": message_id,
         "kind": "system",
         "status": "pending",
-        "toAgentId": owner.agent_id.clone().unwrap_or_else(|| "main".to_owned()),
+        "toAgentId": owner.agent_id.clone().unwrap_or_else(|| "main".into()),
         "updatedAt": terminal_at,
     });
     let input = EnqueueStoredRuntimeMailboxMessageInput {
@@ -3916,16 +3921,16 @@ pub(crate) fn prepare_detached_agent_terminal_transport(
         kind: RuntimeMailboxMessageKind::System,
         message: message.into(),
         recipient: RuntimeMailboxAddress {
-            agent_id: owner.agent_id.clone().map(Into::into),
-            session_id: owner_session_id.to_owned().into(),
+            agent_id: owner.agent_id.clone(),
+            session_id: owner_session_id.clone(),
         },
         sender: RuntimeMailboxAddress {
-            agent_id: Some(agent_id.to_owned().into()),
-            session_id: owner_session_id.to_owned().into(),
+            agent_id: Some(agent_id.clone()),
+            session_id: owner_session_id.clone(),
         },
         store_ref: super::RuntimeMailboxStoreRef {
-            message_id: message_id.clone().into(),
-            session_path: session_path.to_owned().into(),
+            message_id,
+            session_path: session_path.clone(),
         },
         updated_at: Some(terminal_at.to_owned()),
     };
@@ -3945,8 +3950,8 @@ pub(crate) fn persist_prepared_terminal_transport(
         "INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
 		 VALUES (?, ?, ?, ?)",
         params![
-            encode_node_utf8(&transport.input.store_ref.session_path),
-            encode_node_utf8(&transport.input.store_ref.message_id),
+            transport.input.store_ref.session_path,
+            transport.input.store_ref.message_id,
             transport.prepared.serialized,
             transport.prepared.updated_at
         ],
@@ -3977,10 +3982,10 @@ pub fn reconcile_dead_detached_agent_runtimes(
 }
 
 struct DeadDetachedRuntimeCandidate {
-    agent_id: String,
+    agent_id: JsString,
     data: String,
-    owner_agent_id: Option<String>,
-    owner_session_id: Option<String>,
+    owner_agent_id: Option<JsString>,
+    owner_session_id: Option<JsString>,
     process_identity: Option<String>,
     session_path: String,
 }
@@ -4208,7 +4213,7 @@ mod lossless_integration_tests {
 fn has_terminal_outbox_record(
     db: &Connection,
     session_path: &JsString,
-    agent_id: &str,
+    agent_id: &JsString,
 ) -> Result<bool, ControlDbError> {
     Ok(db
         .query_row(

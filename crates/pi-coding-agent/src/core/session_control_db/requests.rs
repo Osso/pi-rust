@@ -19,7 +19,7 @@ pub enum ArchitectRequestStatus {
 #[serde(rename_all = "camelCase")]
 pub struct ArchitectRequest {
     pub id: i64,
-    pub sender_session_id: String,
+    pub sender_session_id: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_cwd: Option<String>,
     pub body: String,
@@ -28,7 +28,7 @@ pub struct ArchitectRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub claimed_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub claim_token: Option<String>,
+    pub claim_token: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
 }
@@ -36,7 +36,7 @@ pub struct ArchitectRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PostArchitectRequestInput {
-    pub sender_session_id: String,
+    pub sender_session_id: JsString,
     pub project_cwd: String,
     pub body: String,
 }
@@ -214,7 +214,7 @@ impl SupervisorResponse {
 #[serde(rename_all = "camelCase")]
 pub struct SupervisorRequest {
     pub id: i64,
-    pub sender_session_id: String,
+    pub sender_session_id: JsString,
     pub project_id: String,
     pub kind: SupervisorRequestKind,
     #[serde(
@@ -228,7 +228,7 @@ pub struct SupervisorRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub claimed_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub claim_token: Option<String>,
+    pub claim_token: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -238,7 +238,7 @@ pub struct SupervisorRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PostSupervisorRequestInput {
-    pub sender_session_id: String,
+    pub sender_session_id: JsString,
     pub project_id: String,
     pub kind: SupervisorRequestKind,
     #[serde(
@@ -251,13 +251,13 @@ pub struct PostSupervisorRequestInput {
 
 type ArchitectRequestRow = (
     i64,
-    String,
+    JsString,
     Option<String>,
     String,
     String,
     String,
     Option<String>,
-    Option<String>,
+    Option<JsString>,
     Option<String>,
 );
 
@@ -345,7 +345,7 @@ pub fn list_pending_architect_requests(
 /// `claimPendingArchitectRequests`.
 pub fn claim_pending_architect_requests(
     control_db_path: impl Into<JsString>,
-    claim_token: &str,
+    claim_token: &JsString,
     limit: i64,
 ) -> Result<Vec<ArchitectRequest>, ControlDbError> {
     let control_db_path = control_db_path.into();
@@ -363,7 +363,7 @@ pub fn claim_pending_architect_requests(
             .map(|mut row| {
                 row.4 = "claimed".to_owned();
                 row.6 = Some(now_iso.clone());
-                row.7 = Some(claim_token.to_owned());
+                row.7 = Some(claim_token.clone());
                 architect_request_from_row(row)
             })
             .collect())
@@ -372,7 +372,7 @@ pub fn claim_pending_architect_requests(
 
 fn claim_pending_architect_requests_in_transaction(
     db: &Connection,
-    claim_token: &str,
+    claim_token: &JsString,
     now_iso: &str,
     claim_limit: i64,
 ) -> Result<Vec<ArchitectRequestRow>, ControlDbError> {
@@ -433,7 +433,7 @@ fn has_architect_claim_work(db: &Connection, now_iso: &str) -> Result<bool, Cont
 pub fn renew_architect_request_claims(
     control_db_path: impl Into<JsString>,
     request_ids: &[i64],
-    claim_token: &str,
+    claim_token: &JsString,
 ) -> Result<(), ControlDbError> {
     let control_db_path = control_db_path.into();
     let unique_request_ids: Vec<i64> = {
@@ -483,8 +483,8 @@ pub fn renew_architect_request_claims(
 pub fn complete_architect_request(
     control_db_path: impl Into<JsString>,
     request_id: i64,
-    claim_token: &str,
-    sender_session_id: Option<&str>,
+    claim_token: &JsString,
+    sender_session_id: Option<&JsString>,
 ) -> Result<(), ControlDbError> {
     let control_db_path = control_db_path.into();
     with_control_db(&control_db_path, |db| {
@@ -507,7 +507,7 @@ pub fn complete_architect_request(
 
 type SupervisorRequestRow = (
     i64,
-    String,
+    JsString,
     String,
     String,
     String,
@@ -515,7 +515,7 @@ type SupervisorRequestRow = (
     String,
     String,
     Option<String>,
-    Option<String>,
+    Option<JsString>,
     Option<String>,
     Option<String>,
 );
@@ -556,7 +556,7 @@ fn supervisor_request_from_row(row: SupervisorRequestRow) -> Result<SupervisorRe
 pub fn cancel_supervisor_request(
     control_db_path: impl Into<JsString>,
     request_id: i64,
-    sender_session_id: &str,
+    sender_session_id: &JsString,
     reason: &str,
 ) -> Result<bool, ControlDbError> {
     let control_db_path = control_db_path.into();
@@ -643,7 +643,7 @@ pub fn read_supervisor_request(
 /// `claimNextSupervisorRequest`.
 pub fn claim_next_supervisor_request(
     control_db_path: impl Into<JsString>,
-    claim_token: &str,
+    claim_token: &JsString,
 ) -> Result<Option<SupervisorRequest>, ControlDbError> {
     let control_db_path = control_db_path.into();
     with_control_db(&control_db_path, |db| {
@@ -660,7 +660,7 @@ pub fn claim_next_supervisor_request(
 
 fn claim_next_supervisor_request_in_transaction(
     db: &Connection,
-    claim_token: &str,
+    claim_token: &JsString,
     claimed_at: &str,
 ) -> Result<Option<SupervisorRequestRow>, ControlDbError> {
     let Some(row) = read_next_supervisor_request_to_claim(db)? else {
@@ -773,7 +773,7 @@ pub fn has_pending_supervisor_approval_request(control_db_path: impl Into<JsStri
 pub fn requeue_supervisor_request(
     control_db_path: impl Into<JsString>,
     request_id: i64,
-    claim_token: &str,
+    claim_token: &JsString,
 ) -> Result<(), ControlDbError> {
     let control_db_path = control_db_path.into();
     with_control_db(&control_db_path, |db| {
@@ -812,7 +812,7 @@ fn is_supervisor_response_valid_for_request(request_kind: SupervisorRequestKind,
 pub fn complete_supervisor_request(
     control_db_path: impl Into<JsString>,
     request_id: i64,
-    claim_token: &str,
+    claim_token: &JsString,
     response: &SupervisorResponse,
 ) -> Result<(), ControlDbError> {
     let control_db_path = control_db_path.into();

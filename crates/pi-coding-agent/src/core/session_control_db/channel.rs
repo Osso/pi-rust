@@ -123,7 +123,7 @@ pub fn has_pending_runtime_coordination_message(
 					AND (origin_host IS NOT NULL OR sender_session_id <> ?)
 				LIMIT 1
 				",
-                params![cursor, recipient.session_id.to_utf8_lossy()],
+                params![cursor, recipient.session_id],
                 |_| Ok(()),
             )
             .optional()?
@@ -180,7 +180,7 @@ fn read_shared_channel_cursor_row(
 			WHERE session_id = ? AND agent_id_key = ?
 			",
             params![
-                recipient.session_id.to_utf8_lossy(),
+                recipient.session_id,
                 runtime_mailbox_agent_id_key(recipient.agent_id.as_ref())
             ],
             |row| row.get(0),
@@ -217,7 +217,7 @@ fn write_shared_channel_cursor_row(
 			updated_at = excluded.updated_at
 		",
         params![
-            recipient.session_id.to_utf8_lossy(),
+            recipient.session_id,
             runtime_mailbox_agent_id_key(recipient.agent_id.as_ref()),
             last_seen_id,
             now

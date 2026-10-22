@@ -81,14 +81,14 @@ fn route_runtime_mailbox_message(
         let Some(row) = read_canonical_mailbox_row_by_store_ref(db, &input.store_ref)? else {
             return Err(ControlDbError::new(js_format!(
                 "Runtime mailbox store reference does not exist: {}#{}",
-                input.store_ref.session_path.to_utf8_lossy(),
-                input.store_ref.message_id.to_utf8_lossy()
+                input.store_ref.session_path,
+                input.store_ref.message_id
             )));
         };
         let context = js_format!(
             "multi_agent_mailbox_messages:{}#{}",
-            input.store_ref.session_path.to_utf8_lossy(),
-            input.store_ref.message_id.to_utf8_lossy()
+            input.store_ref.session_path,
+            input.store_ref.message_id
         );
         let message = parse_stored_json_object(&row.data, &context)?;
         validate_mailbox_payload(&Value::Object(message.clone()), &context)?;
@@ -116,8 +116,8 @@ fn route_runtime_mailbox_message(
     }
     Err(ControlDbError::new(js_format!(
         "Runtime mailbox row changed while routing: {}#{}",
-        input.store_ref.session_path.to_utf8_lossy(),
-        input.store_ref.message_id.to_utf8_lossy()
+        input.store_ref.session_path,
+        input.store_ref.message_id
     )))
 }
 
@@ -142,8 +142,8 @@ pub(crate) fn prepare_stored_runtime_mailbox_message(
 ) -> Result<PreparedStoredRuntimeMailboxMessage, ControlDbError> {
     let context = js_format!(
         "multi_agent_mailbox_messages:{}#{}",
-        input.store_ref.session_path.to_utf8_lossy(),
-        input.store_ref.message_id.to_utf8_lossy()
+        input.store_ref.session_path,
+        input.store_ref.message_id
     );
     let validation = js_json::parse(&js_json::stringify_lossless(&input.message))
         .map_err(|_| ControlDbError::new(js_format!("Invalid persisted JSON at {}", context)))?;
@@ -270,8 +270,8 @@ fn persist_stored_runtime_mailbox_message(
 			 VALUES (?, ?, ?, ?)
 			 ON CONFLICT(session_path, message_id) DO NOTHING",
         params![
-            input.store_ref.session_path.to_utf8_lossy(),
-            input.store_ref.message_id.to_utf8_lossy(),
+            input.store_ref.session_path,
+            input.store_ref.message_id,
             prepared.serialized,
             prepared.updated_at
         ],
@@ -285,8 +285,8 @@ fn persist_stored_runtime_mailbox_message(
     let Some(concurrent) = read_canonical_mailbox_row_by_store_ref(db, &input.store_ref)? else {
         return Err(ControlDbError::new(js_format!(
             "Runtime mailbox store reference disappeared after insert conflict: {}#{}",
-            input.store_ref.session_path.to_utf8_lossy(),
-            input.store_ref.message_id.to_utf8_lossy()
+            input.store_ref.session_path,
+            input.store_ref.message_id
         )));
     };
     validate_existing_stored_runtime_mailbox_message(&concurrent, input, prepared)
@@ -302,8 +302,8 @@ fn validate_existing_stored_runtime_mailbox_message(
     if !same_mailbox_message_identity(&previous, &prepared.routed, &input.store_ref.message_id) {
         return Err(ControlDbError::new(js_format!(
             "Mailbox message ID collision: {}#{}",
-            input.store_ref.session_path.to_utf8_lossy(),
-            input.store_ref.message_id.to_utf8_lossy()
+            input.store_ref.session_path,
+            input.store_ref.message_id
         )));
     }
     super::schema::assert_runtime_mailbox_routing_with_fields(
@@ -322,8 +322,8 @@ fn validate_existing_stored_runtime_mailbox_message(
     {
         return Err(ControlDbError::new(js_format!(
             "Mailbox message ID collision: {}#{}",
-            input.store_ref.session_path.to_utf8_lossy(),
-            input.store_ref.message_id.to_utf8_lossy()
+            input.store_ref.session_path,
+            input.store_ref.message_id
         )));
     }
     Ok(RoutedMailboxMessage {
@@ -577,7 +577,9 @@ fn recover_runtime_mailbox_claim(
             .authority
             .listener
             .as_ref()
-            .and_then(|listener| listener.session_path.as_deref()),
+            .and_then(|listener| listener.session_path.as_ref())
+            .map(JsString::from)
+            .as_ref(),
     )?;
     let expected = pi_js_compat::js_json::JsValue::from(
         &serde_json::json!({"sessionPath":candidate.row.session_path,"messageId":candidate.row.message_id}),
@@ -737,7 +739,7 @@ fn read_runtime_mailbox_authority_snapshot(
     Ok(RuntimeMailboxAuthoritySnapshot {
         listener: read_runtime_mailbox_listener_row(db, recipient)?,
         ownership: match &recipient.agent_id {
-            Some(agent_id) => read_multi_agent_runtime_ownership_row(db, session_path, &agent_id.to_utf8_lossy())?,
+            Some(agent_id) => read_multi_agent_runtime_ownership_row(db, session_path, &agent_id)?,
             None => None,
         },
     })
@@ -922,11 +924,11 @@ fn read_canonical_mailbox_rows_for_recipient(
         .query_map(
             params![
                 status_name(status),
-                recipient.session_id.to_utf8_lossy(),
+                recipient.session_id,
                 gethostname::gethostname().to_string_lossy(),
                 super::retention::mailbox_cutoff_ms(),
-                recipient.agent_id.as_ref().map(JsString::to_utf8_lossy),
-                recipient.agent_id.as_ref().map(JsString::to_utf8_lossy),
+                recipient.agent_id.as_ref(),
+                recipient.agent_id.as_ref(),
                 limit
             ],
             |row| {
@@ -997,9 +999,9 @@ pub fn register_runtime_mailbox_listener(
                 return Ok(());
             }
         }
-        Err(ControlDbError::new(format!(
+        Err(ControlDbError::new(js_format!(
             "Runtime mailbox listener changed repeatedly while registering session {}",
-            registration.recipient.session_id.to_utf8_lossy()
+            registration.recipient.session_id
         )))
     })?;
     if pid == std::process::id() && registration.runtime_instance_id == get_runtime_process_instance_id()? {
@@ -1056,7 +1058,7 @@ fn read_runtime_mailbox_registration_snapshot(
 ) -> Result<RuntimeMailboxRegistrationSnapshot, ControlDbError> {
     Ok(RuntimeMailboxRegistrationSnapshot {
         health: match recipient.agent_id {
-            None => read_session_health_row(db, &recipient.session_id.to_utf8_lossy())?,
+            None => read_session_health_row(db, &recipient.session_id)?,
             Some(_) => None,
         },
         listener: read_runtime_mailbox_listener_row(db, recipient)?,
@@ -1085,12 +1087,12 @@ fn register_runtime_mailbox_listener_in_transaction(
         ..
     } = registration;
     if recipient.agent_id.is_none() {
-        retire_superseded_main_runtime_mailbox_listeners(db, &recipient.session_id.to_utf8_lossy(), *pid, now_iso)?;
+        retire_superseded_main_runtime_mailbox_listeners(db, &recipient.session_id, *pid, now_iso)?;
     }
     db.execute(
         UPSERT_RUNTIME_MAILBOX_LISTENER_SQL,
         params![
-            recipient.session_id.to_utf8_lossy(),
+            recipient.session_id,
             runtime_mailbox_agent_id_key(recipient.agent_id.as_ref()),
             pid,
             runtime_instance_id,
@@ -1100,13 +1102,7 @@ fn register_runtime_mailbox_listener_in_transaction(
         ],
     )?;
     if recipient.agent_id.is_none() {
-        upsert_session_health_for_listener(
-            db,
-            &recipient.session_id.to_utf8_lossy(),
-            *pid,
-            now_iso,
-            should_reconcile_replacement,
-        )?;
+        upsert_session_health_for_listener(db, &recipient.session_id, *pid, now_iso, should_reconcile_replacement)?;
     }
     Ok(())
 }
@@ -1150,7 +1146,7 @@ fn assert_runtime_replacement_allowed(
     if !is_runtime_process_alive(existing_owner_pid) {
         return Ok(());
     }
-    let session_id = &registration.recipient.session_id.to_utf8_lossy();
+    let session_id = &registration.recipient.session_id;
     let cwd = match existing_listener {
         Some(listener) => read_verified_session_cwd(db, session_id, listener)?,
         None => None,
@@ -1159,14 +1155,16 @@ fn assert_runtime_replacement_allowed(
         Some(cwd) => format!("PID {existing_owner_pid}, cwd {cwd}"),
         None => format!("PID {existing_owner_pid}"),
     };
-    Err(ControlDbError::new(format!(
-        "Cannot continue session {session_id} because it is open in another Pi process ({process_context}). Close that Pi session, run pi to start a new session, or use pi -r to choose another."
+    Err(ControlDbError::new(js_format!(
+        "Cannot continue session {} because it is open in another Pi process ({}). Close that Pi session, run pi to start a new session, or use pi -r to choose another.",
+        session_id,
+        process_context
     )))
 }
 
 fn read_verified_session_cwd(
     db: &Connection,
-    session_id: &str,
+    session_id: &JsString,
     listener: &RuntimeMailboxListenerRow,
 ) -> Result<Option<String>, ControlDbError> {
     let Some(session_path) = trusted_runtime_mailbox_session_path(listener) else {
@@ -1210,20 +1208,20 @@ fn retire_runtime_mailbox_listener_row(
 				AND pid = ?
 			",
         params![
-            recipient.session_id.to_utf8_lossy(),
+            recipient.session_id,
             runtime_mailbox_agent_id_key(recipient.agent_id.as_ref()),
             pid
         ],
     )? > 0;
     if retired && recipient.agent_id.is_none() {
-        retire_session_health_for_listener(db, &recipient.session_id.to_utf8_lossy(), pid, now_iso)?;
+        retire_session_health_for_listener(db, &recipient.session_id, pid, now_iso)?;
     }
     Ok(retired)
 }
 
 fn retire_superseded_main_runtime_mailbox_listeners(
     db: &Connection,
-    current_session_id: &str,
+    current_session_id: &JsString,
     pid: u32,
     now_iso: &str,
 ) -> Result<(), ControlDbError> {
@@ -1236,7 +1234,7 @@ fn retire_superseded_main_runtime_mailbox_listeners(
 			RETURNING recipient_session_id
 			",
     )?;
-    let superseded: Vec<String> = statement
+    let superseded: Vec<JsString> = statement
         .query_map(params![pid, current_session_id], |row| row.get(0))?
         .collect::<Result<Vec<_>, _>>()?;
     drop(statement);
@@ -1248,7 +1246,7 @@ fn retire_superseded_main_runtime_mailbox_listeners(
 
 fn retire_session_health_for_listener(
     db: &Connection,
-    session_id: &str,
+    session_id: &JsString,
     pid: u32,
     now_iso: &str,
 ) -> Result<(), ControlDbError> {
@@ -1390,8 +1388,8 @@ pub fn list_runtime_mailbox_listeners(
         let rows = statement
             .query_map([], |row| {
                 Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
+                    row.get::<_, JsString>(0)?,
+                    row.get::<_, JsString>(1)?,
                     row.get::<_, u32>(2)?,
                     row.get::<_, Option<String>>(3)?,
                     row.get::<_, Option<String>>(4)?,
@@ -1613,7 +1611,7 @@ pub(crate) fn is_lifecycle_notification_payload(message: &Map<String, Value>) ->
 }
 
 type SessionHealthRow = (
-    String,
+    JsString,
     u64,
     Option<u32>,
     Option<String>,
@@ -1626,7 +1624,7 @@ type SessionHealthRow = (
 
 pub(crate) fn read_session_health_row(
     db: &Connection,
-    session_id: &str,
+    session_id: &JsString,
 ) -> Result<Option<SessionHealthRecord>, ControlDbError> {
     let row: Option<SessionHealthRow> = db
         .query_row(
@@ -1737,7 +1735,7 @@ fn session_check_status_name(status: crate::core::session_health::SessionCheckSt
 
 fn upsert_session_health_for_listener(
     db: &Connection,
-    session_id: &str,
+    session_id: &JsString,
     pid: u32,
     now_iso: &str,
     force_new_generation: bool,

@@ -8,10 +8,10 @@ use super::{ControlDbError, IncomingControlMessage, with_control_db, with_immedi
 /// `claimCodexRestrictionRecovery`.
 pub fn claim_codex_restriction_recovery(
     control_db_path: impl Into<JsString>,
-    user_request_id: &str,
+    user_request_id: &JsString,
 ) -> Result<bool, ControlDbError> {
     let control_db_path = control_db_path.into();
-    if pi_js_compat::string::js_trim(user_request_id).is_empty() {
+    if user_request_id.trim().is_empty() {
         return Err(ControlDbError::new(
             "Codex restriction recovery request ID must not be empty",
         ));
