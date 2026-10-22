@@ -102,7 +102,7 @@ fn store_message_serialization_preserves_raw_addresses_file_refs_and_unknown_key
 }
 
 #[test]
-fn completion_notification_keeps_summary_units_and_duration() {
+fn terminal_notifications_keep_content_units_and_duration() {
     use pi_coding_agent::core::multi_agent_store::{AgentSnapshot, MultiAgentStore, agent_to_value};
     let now = pi_coding_agent::utils::iso_time::now_iso_string();
     let raw = js_json::parse_lossless(r#"{"id":"agent_1","displayName":"Scout","agentType":"scout","lifecycle":"completed","revision":2,"createdAt":"","updatedAt":"","cwd":"/repo","permission":{"policy":"on-request","narrowed":true},"result":{"summary":"  raw\ud800  ","durationMs":42}}"#).unwrap();
@@ -115,6 +115,28 @@ fn completion_notification_keeps_summary_units_and_duration() {
     let messages = store.list_mailbox_messages().unwrap();
     let expected = js_json::parse_lossless(r#""Scout completed: raw\ud800. Duration: 42ms""#).unwrap();
     assert_eq!(messages[0].body.as_ref(), expected.as_string());
+    agent.lifecycle = pi_coding_agent::core::multi_agent_store::AgentLifecycle::Failed;
+    agent.result = None;
+    agent.error = Some(pi_coding_agent::core::multi_agent_store::AgentError {
+        message: js_json::parse_lossless(r#""  failed\udfff  ""#)
+            .unwrap()
+            .as_string()
+            .unwrap()
+            .clone(),
+        code: None,
+    });
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("control.sqlite").display().to_string();
+    bootstrap_multi_agent_agent(&database, "/fixture/s", &agent.id, &agent_to_value(&agent).unwrap()).unwrap();
+    let stored = read_multi_agent_agent(&database, "/fixture/s", &agent.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.error, agent.error);
+    let failed_store = MultiAgentStore::new(Default::default());
+    failed_store.publish_terminal_outbox_snapshot(&agent).unwrap();
+    let failed = failed_store.list_mailbox_messages().unwrap();
+    let expected = js_json::parse_lossless(r#""Scout failed: failed\udfff""#).unwrap();
+    assert_eq!(failed[0].body.as_ref(), expected.as_string());
 }
 
 #[test]

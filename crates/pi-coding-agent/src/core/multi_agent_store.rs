@@ -229,7 +229,7 @@ pub struct AgentSlot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentError {
-    pub message: String,
+    pub message: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
 }
@@ -2489,13 +2489,13 @@ fn format_failure_notification_body(agent: &AgentNode) -> JsString {
     let error_message = agent
         .error
         .as_ref()
-        .map(|error| pi_js_compat::string::js_trim(&error.message))
+        .map(|error| error.message.trim())
         .filter(|message| !message.is_empty());
     let body = match error_message {
-        Some(message) => format!("{} failed: {message}", agent.display_name),
-        None => format!("{} failed.", agent.display_name),
+        Some(message) => JsString::from(format!("{} failed: ", agent.display_name)) + message,
+        None => JsString::from(format!("{} failed.", agent.display_name)),
     };
-    append_agent_duration(body.into(), agent.result.as_ref().and_then(|result| result.duration_ms))
+    append_agent_duration(body, agent.result.as_ref().and_then(|result| result.duration_ms))
 }
 
 fn append_agent_duration(body: JsString, duration_ms: Option<i64>) -> JsString {

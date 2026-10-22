@@ -15,7 +15,7 @@ use super::{
     with_immediate_transaction,
 };
 use crate::core::multi_agent_store::{AgentError, AgentFileReference, AgentSnapshot};
-use pi_js_compat::js_json;
+use pi_js_compat::js_json::{self, JsObject, JsString, JsValue};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,7 +42,7 @@ pub enum DetachedJobOutcome {
         #[serde(skip_serializing_if = "Option::is_none")]
         exit_code: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        summary: Option<String>,
+        summary: Option<JsString>,
     },
     Failed {
         error: AgentError,
@@ -261,6 +261,7 @@ fn prepare_detached_job_finalization(
             &session_path,
             terminal,
             &agent,
+            &agent_data,
             agent.get("revision").and_then(Value::as_i64).unwrap_or(0),
         )?))));
     }
@@ -273,18 +274,17 @@ fn prepare_detached_job_finalization(
             },
         ))));
     }
-    let mut terminal_agent = agent.clone();
+    let mut terminal_agent = super::parse_stored_json_object_lossless(&agent_data, &context)?;
     for (key, value) in detached_job_agent_details(&agent, terminal, terminal_lifecycle)? {
         terminal_agent.insert(key, value);
     }
-    terminal_agent.remove("currentActivity");
-    terminal_agent.insert("lifecycle".to_owned(), Value::String(terminal_lifecycle.to_owned()));
-    terminal_agent.insert("revision".to_owned(), Value::from(terminal_revision));
-    terminal_agent.insert("updatedAt".to_owned(), Value::String(terminal.terminal_at.clone()));
-    terminal_agent.remove("worker");
-    validate_persisted_agent_payload(&terminal_agent, &context)?;
-    let terminal_agent_snapshot =
-        parse_agent_snapshot(&js_json::stringify(&Value::Object(terminal_agent.clone())), &context)?;
+    terminal_agent.shift_remove("currentActivity");
+    terminal_agent.insert("lifecycle".into(), JsValue::String(terminal_lifecycle.into()));
+    terminal_agent.insert("revision".into(), JsValue::Number(terminal_revision as f64));
+    terminal_agent.insert("updatedAt".into(), JsValue::String(terminal.terminal_at.clone().into()));
+    terminal_agent.shift_remove("worker");
+    let terminal_agent_data = js_json::stringify_lossless(&JsValue::Object(terminal_agent));
+    let terminal_agent_snapshot = parse_agent_snapshot(&terminal_agent_data, &context)?;
     let terminal_transport = if super::agents::should_notify_detached_job_owner(&agent) {
         let owner = MultiAgentRuntimeOwnerIdentity {
             agent_id: ownership.owner_agent_id.clone(),
@@ -306,7 +306,7 @@ fn prepare_detached_job_finalization(
         event_kind,
         process_identity_data: serialize_process_identity(&terminal.process_identity),
         session_path,
-        terminal_agent_data: js_json::stringify(&Value::Object(terminal_agent)),
+        terminal_agent_data,
         terminal_agent: terminal_agent_snapshot,
         terminal_revision,
         terminal_transport,
@@ -344,6 +344,7 @@ fn detached_job_replay_result(
     session_path: &str,
     terminal: &DetachedJobTerminalInput,
     terminal_agent: &Map<String, Value>,
+    agent_data: &str,
     terminal_revision: i64,
 ) -> Result<FinalizeDetachedJobResult, ControlDbError> {
     let lifecycle = terminal_agent
@@ -351,8 +352,9 @@ fn detached_job_replay_result(
         .and_then(Value::as_str)
         .unwrap_or("failed");
     let expected_details = detached_job_agent_details(terminal_agent, terminal, lifecycle)?;
+    let raw = super::parse_stored_json_object_lossless(agent_data, "detached job replay")?;
     for (key, value) in expected_details {
-        if js_json::stringify(terminal_agent.get(&key).unwrap_or(&Value::Null)) != js_json::stringify(&value) {
+        if js_json::stringify_lossless(raw.get(&key).unwrap_or(&JsValue::Null)) != js_json::stringify_lossless(&value) {
             return Ok(FinalizeDetachedJobResult::Err {
                 error: FinalizeDetachedJobError::MutationMismatch,
             });
@@ -362,7 +364,7 @@ fn detached_job_replay_result(
     validate_persisted_agent_payload(terminal_agent, &context)?;
     Ok(FinalizeDetachedJobResult::Ok {
         terminal_agent: Box::new(parse_agent_snapshot(
-            &js_json::stringify(&Value::Object(terminal_agent.clone())),
+            &js_json::stringify_lossless(&JsValue::Object(terminal_agent.clone())),
             &context,
         )?),
         terminal_revision,
@@ -418,9 +420,9 @@ fn detached_job_agent_details(
     agent: &Map<String, Value>,
     terminal: &DetachedJobTerminalInput,
     terminal_lifecycle: &str,
-) -> Result<Map<String, Value>, ControlDbError> {
+) -> Result<JsObject, ControlDbError> {
     let existing_file_refs = match agent.get("result") {
-        Some(Value::Object(result)) => parse_file_refs(
+        Some(JsValue::Object(result)) => parse_file_refs(
             result.get("fileRefs"),
             &format!("detached job {} result", terminal.job_id),
         )?
@@ -437,67 +439,83 @@ fn detached_job_agent_details(
             .into_iter()
             .filter(|file_ref| file_ref.label != output_ref.label || file_ref.path != output_ref.path),
     );
-    let file_refs_value = serde_json::to_value(&file_refs).map_err(|error| ControlDbError::new(error.to_string()))?;
-    let mut result = Map::new();
-    result.insert("fileRefs".to_owned(), file_refs_value);
+    let file_refs_value = js_json::to_value(&file_refs).map_err(|error| ControlDbError::new(error.to_string()))?;
+    let mut result = JsObject::new();
+    result.insert("fileRefs".into(), file_refs_value);
     if terminal_lifecycle == "aborted" {
-        insert_optional(&mut result, "durationMs", terminal.duration_ms.map(Value::from));
+        insert_optional(
+            &mut result,
+            "durationMs",
+            terminal.duration_ms.map(|value| JsValue::Number(value as f64)),
+        );
         insert_optional(
             &mut result,
             "toolCallId",
-            terminal.tool_call_id.clone().map(Value::String),
+            terminal.tool_call_id.clone().map(|value| JsValue::String(value.into())),
         );
-        let mut details = Map::new();
-        details.insert("result".to_owned(), Value::Object(result));
+        let mut details = JsObject::new();
+        details.insert("result".into(), JsValue::Object(result));
         return Ok(details);
     }
     match &terminal.outcome {
         DetachedJobOutcome::Completed { summary, .. } => {
             if let Some(summary) = summary {
-                result.insert("summary".to_owned(), Value::String(summary.clone()));
+                result.insert("summary".into(), JsValue::String(summary.clone()));
             }
-            insert_optional(&mut result, "durationMs", terminal.duration_ms.map(Value::from));
+            insert_optional(
+                &mut result,
+                "durationMs",
+                terminal.duration_ms.map(|value| JsValue::Number(value as f64)),
+            );
             insert_optional(
                 &mut result,
                 "toolCallId",
-                terminal.tool_call_id.clone().map(Value::String),
+                terminal.tool_call_id.clone().map(|value| JsValue::String(value.into())),
             );
-            let mut details = Map::new();
-            details.insert("result".to_owned(), Value::Object(result));
+            let mut details = JsObject::new();
+            details.insert("result".into(), JsValue::Object(result));
             Ok(details)
         }
         DetachedJobOutcome::Failed { error, .. } => {
-            result.insert("summary".to_owned(), Value::String(error.message.clone()));
-            insert_optional(&mut result, "durationMs", terminal.duration_ms.map(Value::from));
+            result.insert("summary".into(), JsValue::String(error.message.clone()));
+            insert_optional(
+                &mut result,
+                "durationMs",
+                terminal.duration_ms.map(|value| JsValue::Number(value as f64)),
+            );
             insert_optional(
                 &mut result,
                 "toolCallId",
-                terminal.tool_call_id.clone().map(Value::String),
+                terminal.tool_call_id.clone().map(|value| JsValue::String(value.into())),
             );
-            let mut details = Map::new();
+            let mut details = JsObject::new();
             details.insert(
-                "error".to_owned(),
-                serde_json::to_value(error).map_err(|error| ControlDbError::new(error.to_string()))?,
+                "error".into(),
+                js_json::to_value(error).map_err(|error| ControlDbError::new(error.to_string()))?,
             );
-            details.insert("result".to_owned(), Value::Object(result));
+            details.insert("result".into(), JsValue::Object(result));
             Ok(details)
         }
         DetachedJobOutcome::Aborted { .. } => {
-            insert_optional(&mut result, "durationMs", terminal.duration_ms.map(Value::from));
+            insert_optional(
+                &mut result,
+                "durationMs",
+                terminal.duration_ms.map(|value| JsValue::Number(value as f64)),
+            );
             insert_optional(
                 &mut result,
                 "toolCallId",
-                terminal.tool_call_id.clone().map(Value::String),
+                terminal.tool_call_id.clone().map(|value| JsValue::String(value.into())),
             );
-            let mut details = Map::new();
-            details.insert("result".to_owned(), Value::Object(result));
+            let mut details = JsObject::new();
+            details.insert("result".into(), JsValue::Object(result));
             Ok(details)
         }
     }
 }
 
-fn insert_optional(map: &mut Map<String, Value>, key: &str, value: Option<Value>) {
+fn insert_optional(map: &mut JsObject, key: &str, value: Option<JsValue>) {
     if let Some(value) = value {
-        map.insert(key.to_owned(), value);
+        map.insert(key.into(), value);
     }
 }
