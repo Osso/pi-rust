@@ -226,9 +226,11 @@ async fn load_discovery(
     };
     let response = send(&runtime.fetch, request, Some(signal)).await?;
     if !response.ok() {
-        return Err(CallbackError::new(format!(
-            "Could not load Radius OAuth config from {gateway}: {} {}",
-            response.status, response.body
+        return Err(CallbackError::new(js_format!(
+            "Could not load Radius OAuth config from {}: {} {}",
+            gateway,
+            response.status,
+            response.body
         )));
     }
     let discovery = response.json.unwrap_or(Value::Null);
