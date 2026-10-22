@@ -235,3 +235,13 @@ cursor2 (behavioral RED). The actual current Editor/EditorComponent plus product
 renderer/dependencies compile in the module-isolated harness, and native cursor/render
 source JSON is GREEN. Expanded raw high/low/history/paste/inside-pair/editor narrow-scroll
 proof remains pending; this is not whole-module acceptance. No TS fixes/deltas applied.
+
+Editor expanded native source proof is now GREEN: 96 scenarios / 576 intermediate
+state snapshots (4 raw corpora × 6 action histories × widths 1/2/4/9). Covers raw
+high/low/pair/combining strings, multiline edits, undo, word/line kill+yank, callbacks,
+raw bracketed paste and CSI-u control cleanup, 1000+ unit paste registry/expanded text,
+raw history/search with length-changing lowercase, submission, and narrow scroll/page
+navigation. Public jump-to-low-surrogate reaches an inside-pair cursor, then insertion,
+backspace, undo, forward delete and raw insert match frozen JS exactly. Render snapshots
+retain the frozen narrow-scroll/overflow lines; no width sanitization or TS delta.
+Working prompt/fixed-cell and custom autocomplete-provider raw editor proof still pending.

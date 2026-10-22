@@ -39,7 +39,9 @@ async function main(): Promise<void> {
 					states.push({ value: input.getValue(), cursor: (input as unknown as { cursor: number }).cursor, lines: input.render(request.width) });
 				}
 				output = { states, submitted };
-			} else if (request.operation === "editor_set") {
+			} else if (request.operation === "editor_actions") {
+                output = await captureEditorActions(source,request.actions,request.width);
+            } else if (request.operation === "editor_set") {
                 output = await captureEditorSet(source,native(request.units),request.width);
             } else if (request.operation === "word_navigation") {
                 output = await captureWordNavigation(source,native(request.units),utils);
@@ -301,4 +303,32 @@ async function captureEditorSet(source: string, raw: string, width: number): Pro
     editor.setText(raw);
     const cursor = editor.getCursor();
     return [editor.getText(),editor.getExpandedText(),cursor.line,cursor.col,editor.render(width)];
+}
+
+async function captureEditorActions(source: string, actions: Array<{set?:number[];key?:number[];insert?:number[];history?:number[][]}>, width: number): Promise<unknown> {
+    const editorApi = await import(pathToFileURL(path.join(source, "components/editor.ts")).href);
+    const tuiApi = await import(pathToFileURL(path.join(source, "tui.ts")).href);
+    const terminal = new RawTerminal();
+    terminal.rows = 24;
+    terminal.columns = 80;
+    const tui = new tuiApi.TUI(terminal);
+    const identity = (value: string): string => value;
+    const theme = { borderColor: identity, selectList: { selectedPrefix: identity, selectedText: identity, description: identity, scrollInfo: identity, noMatch: identity } };
+    const editor = new editorApi.Editor(tui,theme);
+    const changes: string[] = [];
+    const submissions: string[] = [];
+    editor.onChange = (value: string) => changes.push(value);
+    editor.onSubmit = (value: string) => submissions.push(value);
+    const states: unknown[] = [];
+    const native = (units: number[]): string => String.fromCharCode(...units);
+    for (const action of actions) {
+        if (action.set) editor.setText(native(action.set));
+        if (action.key) editor.handleInput(native(action.key));
+        if (action.insert) editor.insertTextAtCursor(native(action.insert));
+        if (action.history) editor.setHistory(action.history.map(native));
+        const lines = editor.render(width);
+        const cursor = editor.getCursor();
+        states.push({text:editor.getText(),expanded:editor.getExpandedText(),cursor:[cursor.line,cursor.col],lines,history:editor.getHistory()});
+    }
+    return {states,changes,submissions};
 }
