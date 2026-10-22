@@ -26,7 +26,13 @@ const context: { preview?: (message: string) => string } = {};
 runInNewContext(javascript, context);
 if (!context.preview) throw new Error("Frozen followup helper did not initialize");
 const preview = context.preview;
-for await (const line of createInterface({ input: process.stdin })) {
-	const request = JSON.parse(line) as { message: string };
-	process.stdout.write(JSON.stringify(preview(request.message)) + "\n");
+async function runRequests(): Promise<void> {
+	for await (const line of createInterface({ input: process.stdin })) {
+		const request = JSON.parse(line) as { message: string };
+		process.stdout.write(JSON.stringify(preview(request.message)) + "\n");
+	}
 }
+void runRequests().catch((error: unknown) => {
+	console.error(error);
+	process.exitCode = 1;
+});
