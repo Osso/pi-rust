@@ -327,6 +327,63 @@ async fn tool_hook_failures_keep_native_units_in_result_messages() {
     }
 }
 
+#[tokio::test]
+async fn provider_failure_survives_jsonl_repo_close_and_reopen() {
+    use pi_agent_core::agent::{Agent, AgentOptions};
+    use pi_agent_core::harness::session::jsonl::types::NativeFileSystem;
+    use pi_agent_core::harness::session::{
+        EntryBody, EntryQuery, JsonlSessionCreateOptions, JsonlSessionRepo, JsonlSessionRepoOptions,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let repo = JsonlSessionRepo::with_clock(
+        JsonlSessionRepoOptions {
+            fs: Arc::new(NativeFileSystem::new(root.path())),
+            sessions_root: root.path().to_string_lossy().into_owned(),
+        },
+        Arc::new(|| 1_700_000_000_000),
+    );
+    let agent = Agent::new(AgentOptions {
+        stream_fn: Some(Arc::new(|_, _, _| {
+            Box::pin(async {
+                let (sender, stream) = create_assistant_message_event_stream();
+                sender.fail(StreamFailure::new(raw_error()));
+                stream
+            })
+        })),
+        ..Default::default()
+    })
+    .unwrap();
+    agent.prompt("start").await.unwrap();
+    let session = repo
+        .create(JsonlSessionCreateOptions {
+            id: Some("native-error".into()),
+            parent_session_id: None,
+            cwd: root.path().to_string_lossy().into_owned(),
+            metadata: None,
+        })
+        .await
+        .unwrap();
+    session
+        .append_entry(
+            EntryBody::Message {
+                id: "failure".into(),
+                message: agent.messages().last().unwrap().clone(),
+                terminate: None,
+            },
+            "main",
+        )
+        .await
+        .unwrap();
+    let metadata = session.get_metadata().await.unwrap();
+    drop(session);
+    let restored = repo.open(&metadata).await.unwrap();
+    let entries = restored.find_entries(EntryQuery::default()).await.unwrap();
+    let EntryBody::Message { message, .. } = &entries[0].body else {
+        panic!("persisted failure message")
+    };
+    assert_eq!(message.as_assistant().unwrap().error_message, Some(raw_error()));
+}
+
 #[test]
 fn persisted_provider_failure_keeps_native_units() {
     let mut message = AssistantMessage::empty("openai-responses", "openai", "probe", 0);
