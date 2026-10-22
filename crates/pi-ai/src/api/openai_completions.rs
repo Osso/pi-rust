@@ -1938,7 +1938,7 @@ async fn run_stream(
     let compat = get_compat(model);
     let grammar_tool_input_properties =
         create_grammar_tool_input_properties(context.tools.as_deref(), compat.supports_openai_grammar_tools)
-            .map_err(|error| CompletionsFailure::Message(error.message))?;
+            .map_err(|error| CompletionsFailure::Message(error.message.into()))?;
     let cache_retention = resolve_cache_retention(stream_options.cache_retention, stream_options.request.env.as_ref());
     let cache_session_id = (cache_retention != CacheRetention::None)
         .then_some(stream_options.session_id.as_deref())
