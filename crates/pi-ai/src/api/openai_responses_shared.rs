@@ -695,7 +695,7 @@ pub fn convert_responses_tools(tools: &[Tool], options: Option<&ConvertResponses
             object(vec![
                 ("type", JsValue::String("function".into())),
                 ("name", JsValue::String(tool.name.clone().into())),
-                ("description", JsValue::String(tool.description.clone().into())),
+                ("description", JsValue::String(tool.description.clone())),
                 ("parameters", tool.parameters.clone().into()),
                 ("strict", default_strict.map(JsValue::Bool).unwrap_or(JsValue::Null)),
             ])

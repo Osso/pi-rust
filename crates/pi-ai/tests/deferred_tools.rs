@@ -8,7 +8,7 @@ use serde_json::json;
 fn tool(name: &str, description: &str) -> Tool {
     Tool {
         name: name.to_owned(),
-        description: description.to_owned(),
+        description: description.into(),
         parameters: json!({"type": "object"}),
         constrained_sampling: None,
         label: None,

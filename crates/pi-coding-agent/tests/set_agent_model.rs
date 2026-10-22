@@ -696,7 +696,7 @@ async fn schema_argument_admission_matches_source_validation() {
     let expected = oracle.request(&json!({"op":"validate", "cases":cases}));
     let tool = pi_ai::types::Tool {
         name: definition.name.clone(),
-        description: definition.description,
+        description: definition.description.into(),
         parameters: definition.parameters,
         label: None,
         execution_mode: None,

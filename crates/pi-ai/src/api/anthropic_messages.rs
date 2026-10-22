@@ -678,7 +678,7 @@ fn convert_tools(
                 tool.name.clone()
             };
             object.insert("name".into(), JsValue::String(name.into()));
-            object.insert("description".into(), JsValue::String(tool.description.clone().into()));
+            object.insert("description".into(), JsValue::String(tool.description.clone()));
             if supports_eager_tool_input_streaming {
                 object.insert("eager_input_streaming".into(), JsValue::Bool(true));
             }
