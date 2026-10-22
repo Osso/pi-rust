@@ -271,6 +271,12 @@ pub fn node_fs_error(error: &io::Error, syscall: &str, path: &JsString) -> JsStr
     node_fs_error_record(error, syscall, path).message
 }
 
+/// Two-path syscalls (`rename`, `copyfile`) append the repaired destination as ` -> 'dest'`.
+pub fn node_fs_dest_error(error: &io::Error, syscall: &str, path: &JsString, dest: &JsString) -> JsString {
+    let dest = JsString::from(encode_node_utf8(dest));
+    js_format!("{} -> '{}'", node_fs_error(error, syscall, path), dest)
+}
+
 /// Whole-file read failure: directory reads use `read`, other failures use `open`.
 pub fn node_read_error_record(error: &io::Error, path: &JsString, api: NodeReadApi) -> NodeFsError {
     let syscall = if error.kind() == io::ErrorKind::IsADirectory {

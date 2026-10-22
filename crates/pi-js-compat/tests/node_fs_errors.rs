@@ -3,8 +3,8 @@ mod oracle;
 
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::node_fs::{
-    NodeReadApi, node_errno_name, node_error_code, node_fs_error, node_fs_error_record, node_promises_read_error,
-    node_read_error, node_read_error_record,
+    NodeReadApi, node_errno_name, node_error_code, node_fs_dest_error, node_fs_error, node_fs_error_record,
+    node_promises_read_error, node_read_error, node_read_error_record,
 };
 use serde_json::json;
 use std::fs;
@@ -211,4 +211,33 @@ fn actual_vertical_tab_filesystem_error_console_matches_node() {
         record.console_message(None) + "\n",
         JsString::from(String::from_utf8(node.stdout).unwrap())
     );
+}
+
+#[test]
+fn two_path_rename_and_copyfile_messages_match_node() {
+    let root = std::env::temp_dir().join(format!("pi-node-fs-dest-{}", std::process::id()));
+    fs::create_dir(&root).unwrap();
+    let source = root.join("missing ' source");
+    let dest = root.join("dest");
+    for syscall in ["rename", "copyfile"] {
+        let error = match syscall {
+            "rename" => fs::rename(&source, &dest).unwrap_err(),
+            _ => fs::copy(&source, &dest).map(|_| ()).unwrap_err(),
+        };
+        let script = r#"const fs=require('fs');const [op,s,d]=process.argv.slice(1);try{op==='rename'?fs.renameSync(s,d):fs.copyFileSync(s,d)}catch(e){console.log(JSON.stringify(e.message))}"#;
+        let output = std::process::Command::new("node")
+            .args(["-e", script, syscall, source.to_str().unwrap(), dest.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let expected: String = serde_json::from_slice(&output.stdout).unwrap();
+        let actual = node_fs_dest_error(
+            &error,
+            syscall,
+            &JsString::from(source.to_str().unwrap()),
+            &JsString::from(dest.to_str().unwrap()),
+        );
+        assert_eq!(actual.to_utf8().unwrap(), expected);
+    }
+    fs::remove_dir_all(&root).unwrap();
 }
