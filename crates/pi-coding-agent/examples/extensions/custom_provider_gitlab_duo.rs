@@ -35,7 +35,7 @@ pub struct Backends {
 }
 #[derive(Clone)]
 struct DirectToken {
-    token: String,
+    token: JsString,
     headers: pi_ai::types::ProviderHeaders,
     expires: f64,
 }
@@ -77,15 +77,19 @@ impl State {
                 format!("Failed to get direct access token: {status} {body}")
             }));
         }
-        let data: Value = pi_js_compat::js_json::parse(&body).map_err(|e| CallbackError::new(e.to_string()))?;
+        let data = pi_js_compat::js_json::parse_lossless(&body).map_err(|e| CallbackError::new(e.to_string()))?;
         let headers = data["headers"]
             .as_object()
             .into_iter()
             .flatten()
-            .map(|(key, v)| (key.clone(), v.as_str().map(JsString::from)))
-            .collect();
+            .map(|(key, value)| {
+                key.to_utf8()
+                    .map(|name| (name, value.as_string().cloned()))
+                    .map_err(|error| CallbackError::new(error.to_string()))
+            })
+            .collect::<Result<_, _>>()?;
         let token = DirectToken {
-            token: data["token"].as_str().unwrap_or_default().into(),
+            token: data["token"].as_string().cloned().unwrap_or_else(JsString::default),
             headers,
             expires: now + 25.0 * 60.0 * 1000.0,
         };
@@ -116,7 +120,7 @@ impl State {
         if !ok {
             return Err(CallbackError::new(format!("{failure}: {body}")));
         }
-        let data: Value = pi_js_compat::js_json::parse(&body).map_err(|e| CallbackError::new(e.to_string()))?;
+        let data = pi_js_compat::js_json::parse_lossless(&body).map_err(|e| CallbackError::new(e.to_string()))?;
         *self.cache.lock().unwrap() = None;
         Ok(OAuthCredential::new(
             data["refresh_token"].as_str().unwrap_or_default(),
