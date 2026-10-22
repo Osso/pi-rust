@@ -1792,7 +1792,11 @@ pub fn highlight_code(code: &JsString, lang: Option<&JsString>) -> Vec<JsString>
         language_subset: None,
         theme: build_cli_highlight_theme(&theme),
     };
-    highlight(code, &options).split('\n').collect()
+    // The source swallows highlighter errors and shows the code unstyled.
+    match highlight(code, &options) {
+        Ok(highlighted) => highlighted.split('\n').collect(),
+        Err(_) => code.split('\n').collect(),
+    }
 }
 
 /// Get a language identifier from a file path extension.
