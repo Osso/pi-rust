@@ -27,6 +27,10 @@ Native examples are embeddable `#[path]` modules, registered explicitly through
   descendants execute inside cargo's mandatory test sandbox; no GitHub contact.
 - Typed issue records exclude invalid JavaScript value types per compatibility policy.
 
+### Common-pin fixture column migration (2026-10-22)
+
+Native autocomplete provider accepts UTF-16 cursor columns. The fixture's `text.len()` default counted UTF-8 bytes; oracle delegation also converted columns to byte length. Existing `#café` differential reproduced applied `##101` instead of `#101`. Both fixture column calculations now remain UTF-16. Frozen example :120–121 forwards completion arguments unchanged; no production behavior/assertion was changed. Historical fuzzy-boundary assertions below remain held pending explicit approval review.
+
 ### Approved String-typed fuzzy boundary exclusion
 
 [Compatibility policy](../../specs/compatibility.md#out-of-scope), line 177:

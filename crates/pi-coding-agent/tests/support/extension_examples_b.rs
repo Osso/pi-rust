@@ -337,7 +337,9 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
                     .map(|lines| serde_json::from_value(lines.clone()).unwrap())
                     .unwrap_or_else(|| vec![text.to_owned()]);
                 let line = case["line"].as_u64().unwrap_or(0) as usize;
-                let col = case["col"].as_u64().map_or(text.len(), |col| col as usize);
+                let col = case["col"]
+                    .as_u64()
+                    .map_or(text.encode_utf16().count(), |col| col as usize);
                 let prefix = case["prefix"].as_str().unwrap_or(text);
                 let signal = tokio_util::sync::CancellationToken::new();
                 if case["aborted"] == true {
