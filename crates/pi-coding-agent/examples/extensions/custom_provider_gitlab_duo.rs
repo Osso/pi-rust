@@ -199,7 +199,7 @@ impl OAuthAuth for GitlabOAuth {
     fn refresh(
         &self,
         c: OAuthCredential,
-        signal: CancellationToken,
+        _signal: CancellationToken,
     ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let state = self.0.clone();
         Box::pin(async move {
@@ -213,7 +213,7 @@ impl OAuthAuth for GitlabOAuth {
                             &pi_ai::auth::oauth::support::to_form_usv_string(&c.refresh),
                         ),
                     ],
-                    Some(signal),
+                    None,
                     "Token refresh failed",
                 )
                 .await
