@@ -97,18 +97,22 @@ fn set_private_directory_permissions(path: &std::path::Path) -> Result<(), JsStr
 }
 
 fn spawn_editor(command: &JsString, file_path: &PathBuf) -> Option<std::process::ExitStatus> {
-    let command = encode_node_utf8(command);
     let mut parts = command.split(' ');
-    let editor = parts.next().unwrap_or("");
-    let editor_args: Vec<&str> = parts.collect();
+    let editor = parts.next().unwrap_or_default();
+    let editor_args: Vec<JsString> = parts.collect();
 
     let mut process = if cfg!(target_os = "windows") {
         let mut process = Command::new("cmd");
-        process.arg("/d").arg("/s").arg("/c").arg(&command).arg(file_path);
+        process
+            .arg("/d")
+            .arg("/s")
+            .arg("/c")
+            .arg(encode_node_utf8(command))
+            .arg(file_path);
         process
     } else {
-        let mut process = Command::new(editor);
-        process.args(&editor_args).arg(file_path);
+        let mut process = Command::new(encode_node_utf8(&editor));
+        process.args(editor_args.iter().map(encode_node_utf8)).arg(file_path);
         process
     };
     process
