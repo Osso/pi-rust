@@ -168,7 +168,9 @@ pub async fn spawn_agent(input: SpawnAgentRuntimeInput<'_>) -> Result<AgentToolR
         Ok(constructed) => constructed,
         Err(result) => return Ok(*result),
     };
-    let committed = match commit_running_child(&valid, constructed) {
+    let session_manager = valid.ctx.session_manager()?;
+    let owner_session_id = lock_session_manager(&session_manager).get_session_id().to_owned();
+    let committed = match commit_running_child(&valid, constructed, &owner_session_id) {
         Ok(committed) => committed,
         Err(result) => return Ok(*result),
     };
@@ -394,26 +396,14 @@ async fn construct_child_session(
 fn commit_running_child(
     input: &ValidSpawnInput,
     spawn: ConstructedSpawn,
+    owner_session_id: &JsString,
 ) -> Result<CommittedSpawn, Box<AgentToolResult>> {
-    let session_manager = input
-        .ctx
-        .session_manager()
-        .map_err(|error| tool_result(error.message, json!({})))
-        .ok();
-    let owner_session_id = match session_manager {
-        Some(session_manager) => lock_session_manager(&session_manager).get_session_id().to_owned(),
-        None => input
-            .store
-            .get_persistence_target()
-            .map(|persistence| persistence.session_path)
-            .unwrap_or_default(),
-    };
     let created = spawn
         .prepared
         .coordinator
         .commit_running_child(
             &spawn.prepared.prepared,
-            &owner_session_id,
+            owner_session_id,
             runtime_process_identity(),
             None,
         )
