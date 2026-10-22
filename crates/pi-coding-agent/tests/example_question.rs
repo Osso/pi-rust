@@ -35,7 +35,10 @@ async fn question_all_branches_keys_editor_renderers_and_widths_match() {
     )
     .await;
     let result=harness::compare("question",example::question_extension,json!({"params":params,"widths":[30],"steps":[{"input":"\x1b[B"},{"input":"\x1b[B"},{"input":"\r"},{"inputUnits":[55296]},{"invalidate":true},{"input":"\r"}]})).await;
-    assert_eq!(result["result"]["details"]["answer"], "\u{fffd}");
+    assert_eq!(
+        result["result"]["details"]["answer"],
+        pi_js_compat::js_json!("\u{fffd}")
+    );
     harness::compare("question", example::question_extension, json!({"params":params,"widths":[24],"steps":[{"input":"\r"}],"renderCases":[{"content":[],"details":{"question":"lookup","options":["A"],"answer":"missing","wasCustom":false}}]})).await;
     harness::compare("question", example::question_extension, json!({"params":params,"widths":[1],"steps":[{"input":"\x1b[B"},{"input":"\x1b[B"},{"input":"\r"},{"input":"🚀"}],"sourceError":{"name":"RangeError","message":"Maximum call stack size exceeded"}})).await;
 }
