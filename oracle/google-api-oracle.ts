@@ -2,6 +2,11 @@ import * as fs from "node:fs";
 import * as net from "node:net";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+	clearFetchScript,
+	installScriptedFetch,
+	setFetchScript,
+} from "./scripted-fetch.ts";
 import * as tls from "node:tls";
 
 type RequestId = string | number | null;
@@ -68,7 +73,8 @@ function normalize(value: unknown): unknown {
 		const result: Record<string, unknown> = {};
 		for (const [key, entry] of Object.entries(source)) {
 			if (key === "timestamp") result[key] = 0;
-			else if (key === "id" && typeof entry === "string") result[key] = normalizeId(entry);
+			else if (key === "id" && typeof entry === "string")
+				result[key] = normalizeId(entry);
 			else result[key] = normalize(entry);
 		}
 		return result;
@@ -92,7 +98,11 @@ function normalizeBody(body: string | null): {
 		header: JSON.parse(decodeBase64Url(header ?? "")),
 		claims: JSON.parse(decodeBase64Url(claims ?? "")),
 		signatureLength: (signature ?? "").length,
-	} as { header: Record<string, unknown>; claims: Record<string, unknown>; signatureLength: number };
+	} as {
+		header: Record<string, unknown>;
+		claims: Record<string, unknown>;
+		signatureLength: number;
+	};
 	normalized.claims.iat = 0;
 	normalized.claims.exp = 0;
 	return { body: body.replace(assertion, "<jwt>"), jwt: normalized };
@@ -101,7 +111,8 @@ function normalizeBody(body: string | null): {
 function normalizeSdkHeaders(headers: Headers): Record<string, string> {
 	const result: Record<string, string> = {};
 	for (const [name, value] of headers.entries()) {
-		if (name === "user-agent" || name === "x-goog-api-client") result[name] = "<sdk-ua>";
+		if (name === "user-agent" || name === "x-goog-api-client")
+			result[name] = "<sdk-ua>";
 		else result[name] = value;
 	}
 	return result;
@@ -129,11 +140,19 @@ function startTokenProxy(): Promise<number> {
 			const headerEnd = handshake.indexOf("\r\n\r\n");
 			if (headerEnd === -1) return;
 			socket.off("data", onHandshake);
-			const requestLine = handshake.subarray(0, headerEnd).toString("utf8").split("\r\n")[0] ?? "";
+			const requestLine =
+				handshake.subarray(0, headerEnd).toString("utf8").split("\r\n")[0] ??
+				"";
 			const target = requestLine.split(" ")[1] ?? "oauth2.googleapis.com:443";
 			socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-			const tlsSocket = new tls.TLSSocket(socket, { isServer: true, secureContext });
-			serveTokenRequest(tlsSocket, target.split(":")[0] ?? "oauth2.googleapis.com");
+			const tlsSocket = new tls.TLSSocket(socket, {
+				isServer: true,
+				secureContext,
+			});
+			serveTokenRequest(
+				tlsSocket,
+				target.split(":")[0] ?? "oauth2.googleapis.com",
+			);
 		};
 		socket.on("data", onHandshake);
 		socket.on("error", () => {});
@@ -157,14 +176,19 @@ function serveTokenRequest(socket: tls.TLSSocket, host: string): void {
 		const headers: Record<string, string> = {};
 		for (const line of lines.slice(1)) {
 			const separator = line.indexOf(":");
-			if (separator > 0) headers[line.slice(0, separator).toLowerCase()] = line.slice(separator + 1).trim();
+			if (separator > 0)
+				headers[line.slice(0, separator).toLowerCase()] = line
+					.slice(separator + 1)
+					.trim();
 		}
 		const length = Number(headers["content-length"] ?? "0");
 		const bodyStart = headerEnd + 4;
 		if (buffer.length < bodyStart + length) return;
 		socket.off("data", onData);
 
-		const body = buffer.subarray(bodyStart, bodyStart + length).toString("utf8");
+		const body = buffer
+			.subarray(bodyStart, bodyStart + length)
+			.toString("utf8");
 		const normalized = normalizeBody(body.length > 0 ? body : null);
 		const recorded: RecordedRequest = {
 			method: method ?? "POST",
@@ -181,12 +205,21 @@ function serveTokenRequest(socket: tls.TLSSocket, host: string): void {
 		const scripted = activeTokenResponses.shift();
 		const status = scripted?.status ?? 200;
 		const payload = (scripted?.chunks ?? [])
-			.map((chunk) => (typeof chunk === "string" ? chunk : Buffer.from(chunk.base64, "base64").toString("utf8")))
+			.map((chunk) =>
+				typeof chunk === "string"
+					? chunk
+					: Buffer.from(chunk.base64, "base64").toString("utf8"),
+			)
 			.join("");
-		const responseHeaders = { "content-type": "application/json", ...(scripted?.headers ?? {}) };
+		const responseHeaders = {
+			"content-type": "application/json",
+			...(scripted?.headers ?? {}),
+		};
 		const head = [
 			`HTTP/1.1 ${status} ${scripted?.statusText ?? "OK"}`,
-			...Object.entries(responseHeaders).map(([name, value]) => `${name}: ${value}`),
+			...Object.entries(responseHeaders).map(
+				([name, value]) => `${name}: ${value}`,
+			),
 			`content-length: ${Buffer.byteLength(payload)}`,
 			"connection: close",
 			"",
@@ -207,7 +240,10 @@ function installFetch(
 ): typeof fetch {
 	let responseIndex = 0;
 	return (async (input: unknown, init: Record<string, unknown> = {}) => {
-		const url = typeof input === "string" ? input : String((input as { url: string }).url);
+		const url =
+			typeof input === "string"
+				? input
+				: String((input as { url: string }).url);
 		const method = (init.method as string | undefined) ?? "GET";
 		const headers = new Headers(init.headers as HeadersInit | undefined);
 		const rawBody = init.body as string | URLSearchParams | undefined;
@@ -215,7 +251,10 @@ function installFetch(
 		if (rawBody instanceof URLSearchParams) {
 			body = rawBody.toString();
 			if (!headers.has("content-type")) {
-				headers.set("content-type", "application/x-www-form-urlencoded;charset=UTF-8");
+				headers.set(
+					"content-type",
+					"application/x-www-form-urlencoded;charset=UTF-8",
+				);
 			}
 		} else if (typeof rawBody === "string") {
 			body = rawBody;
@@ -245,7 +284,9 @@ function installFetch(
 		const stream = new ReadableStream<Uint8Array>({
 			pull(streamController) {
 				if (aborted) {
-					streamController.error(new DOMException("This operation was aborted", "AbortError"));
+					streamController.error(
+						new DOMException("This operation was aborted", "AbortError"),
+					);
 					return;
 				}
 				if (chunkIndex >= chunks.length) {
@@ -263,7 +304,10 @@ function installFetch(
 		return new Response(stream, {
 			status: scripted.status ?? 200,
 			statusText: scripted.statusText ?? "",
-			headers: { "content-type": "text/event-stream", ...(scripted.headers ?? {}) },
+			headers: {
+				"content-type": "text/event-stream",
+				...(scripted.headers ?? {}),
+			},
 		});
 	}) as typeof fetch;
 }
@@ -273,56 +317,76 @@ async function execute(request: RunRequest, api: ApiModule): Promise<unknown> {
 	const requests: RecordedRequest[] = [];
 	activeRequests = requests;
 	activeTokenResponses = request.tokenResponses ?? [];
-	globalThis.fetch = installFetch(request.responses, requests, controller, request.abortAfterChunks);
-
-	const options: Record<string, unknown> = {
-		...(request.stream ?? {}),
-		...(request.extra ?? {}),
-	};
-	if (request.operation === "streamSimple") {
-		if (request.reasoning !== undefined) options.reasoning = request.reasoning;
-		if (request.thinkingBudgets !== undefined) options.thinkingBudgets = request.thinkingBudgets;
-	}
-	if (request.onPayloadPatch !== undefined) {
-		options.onPayload = async (payload: unknown) => request.onPayloadPatch;
-	}
-	if (request.abortAfterChunks !== undefined || request.preAborted) options.signal = controller.signal;
-	if (request.preAborted) controller.abort();
-
-	const events: unknown[] = [];
-	const runner = request.operation === "streamSimple" ? api.streamSimple : api.stream;
-	const stream = runner(request.model, request.context, options);
-	const originalPush = stream.push?.bind(stream);
-	if (originalPush) {
-		stream.push = (event: unknown) => {
-			events.push(JSON.parse(JSON.stringify(normalize(event))));
-			originalPush(event);
+	setFetchScript(
+		installFetch(
+			request.responses,
+			requests,
+			controller,
+			request.abortAfterChunks,
+		),
+	);
+	try {
+		const options: Record<string, unknown> = {
+			...(request.stream ?? {}),
+			...(request.extra ?? {}),
 		};
+		if (request.operation === "streamSimple") {
+			if (request.reasoning !== undefined)
+				options.reasoning = request.reasoning;
+			if (request.thinkingBudgets !== undefined)
+				options.thinkingBudgets = request.thinkingBudgets;
+		}
+		if (request.onPayloadPatch !== undefined) {
+			options.onPayload = async (payload: unknown) => request.onPayloadPatch;
+		}
+		if (request.abortAfterChunks !== undefined || request.preAborted)
+			options.signal = controller.signal;
+		if (request.preAborted) controller.abort();
+
+		const events: unknown[] = [];
+		const runner =
+			request.operation === "streamSimple" ? api.streamSimple : api.stream;
+		const stream = runner(request.model, request.context, options);
+		const originalPush = stream.push?.bind(stream);
+		if (originalPush) {
+			stream.push = (event: unknown) => {
+				events.push(JSON.parse(JSON.stringify(normalize(event))));
+				originalPush(event);
+			};
+		}
+		let consumed = 0;
+		for await (const event of stream) {
+			// Events pushed before the patch was installed (synchronous setup
+			// failures) are snapshotted when the consumer receives them.
+			if (events.length === consumed)
+				events.push(JSON.parse(JSON.stringify(normalize(event))));
+			consumed++;
+		}
+		const result = normalize(await stream.result());
+		return { requests, events, result };
+	} finally {
+		clearFetchScript();
 	}
-	let consumed = 0;
-	for await (const event of stream) {
-		// Events pushed before the patch was installed (synchronous setup
-		// failures) are snapshotted when the consumer receives them.
-		if (events.length === consumed) events.push(JSON.parse(JSON.stringify(normalize(event))));
-		consumed++;
-	}
-	const result = normalize(await stream.result());
-	return { requests, events, result };
 }
 
 async function loadApi(moduleDir: string, api: string): Promise<ApiModule> {
-	const file = api === "google-vertex" ? "google-vertex.ts" : "google-generative-ai.ts";
-	return (await import(pathToFileURL(path.join(moduleDir, file)).href)) as ApiModule;
+	const file =
+		api === "google-vertex" ? "google-vertex.ts" : "google-generative-ai.ts";
+	return (await import(
+		pathToFileURL(path.join(moduleDir, file)).href
+	)) as ApiModule;
 }
 
 function normalizeError(error: unknown): { name: string; message: string } {
-	if (error instanceof Error) return { name: error.name, message: error.message };
+	if (error instanceof Error)
+		return { name: error.name, message: error.message };
 	return { name: "Unknown", message: String(error) };
 }
 
 async function main(): Promise<void> {
 	const moduleDir = process.argv[2];
 	if (!moduleDir) throw new Error("module directory argument is required");
+	installScriptedFetch();
 	const apis = new Map<string, ApiModule>();
 	const proxyPort = await startTokenProxy();
 	process.env.HTTPS_PROXY = `http://127.0.0.1:${proxyPort}`;
@@ -355,12 +419,16 @@ async function main(): Promise<void> {
 			const output = await execute(request, api);
 			process.stdout.write(`${JSON.stringify({ id, ok: true, output })}\n`);
 		} catch (error) {
-			process.stdout.write(`${JSON.stringify({ id, ok: false, error: normalizeError(error) })}\n`);
+			process.stdout.write(
+				`${JSON.stringify({ id, ok: false, error: normalizeError(error) })}\n`,
+			);
 		}
 	}
 }
 
 void main().catch((error: unknown) => {
-	process.stderr.write(`google api oracle startup failed: ${normalizeError(error).message}\n`);
+	process.stderr.write(
+		`google api oracle startup failed: ${normalizeError(error).message}\n`,
+	);
 	process.exitCode = 1;
 });

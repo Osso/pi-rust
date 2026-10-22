@@ -1,6 +1,11 @@
 import { dirname, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
+import {
+	clearFetchScript,
+	installScriptedFetch,
+	setFetchScript,
+} from "./scripted-fetch.ts";
 
 type RequestId = string | number | null;
 
@@ -12,12 +17,19 @@ type Provider = {
 	baseUrl?: string;
 	headers?: Record<string, string | null>;
 	auth: {
-		apiKey?: { name: string; login?: (interaction: unknown) => Promise<unknown> };
+		apiKey?: {
+			name: string;
+			login?: (interaction: unknown) => Promise<unknown>;
+		};
 		oauth?: { name: string; isSubscription?: boolean; loginLabel?: string };
 	};
 	getModels(): Model[];
 	filterModels?: (models: Model[], credential: unknown) => Model[];
-	streamSimple(model: Model, context: unknown, options?: unknown): { result(): Promise<unknown> };
+	streamSimple(
+		model: Model,
+		context: unknown,
+		options?: unknown,
+	): { result(): Promise<unknown> };
 };
 
 type Models = {
@@ -36,10 +48,30 @@ type Api = {
 type Request =
 	| { id: RequestId; op: "providers" }
 	| { id: RequestId; op: "catalog" }
-	| { id: RequestId; op: "auth"; cases: Array<{ provider: string; env: Record<string, string>; credential?: unknown }> }
-	| { id: RequestId; op: "login"; cases: Array<{ provider: string; answers: string[] }> }
-	| { id: RequestId; op: "cloudflare"; cases: Array<{ model: Model; env?: Record<string, string> }> }
-	| { id: RequestId; op: "dispatch"; cases: Array<{ provider: string; modelId: string }> };
+	| {
+			id: RequestId;
+			op: "auth";
+			cases: Array<{
+				provider: string;
+				env: Record<string, string>;
+				credential?: unknown;
+			}>;
+	  }
+	| {
+			id: RequestId;
+			op: "login";
+			cases: Array<{ provider: string; answers: string[] }>;
+	  }
+	| {
+			id: RequestId;
+			op: "cloudflare";
+			cases: Array<{ model: Model; env?: Record<string, string> }>;
+	  }
+	| {
+			id: RequestId;
+			op: "dispatch";
+			cases: Array<{ provider: string; modelId: string }>;
+	  };
 
 function normalizeError(error: unknown): { name: string; message: string } {
 	if (error instanceof Error) {
@@ -65,7 +97,9 @@ function describeProvider(provider: Provider) {
 		headers: provider.headers ?? null,
 		apiKeyName: provider.auth.apiKey?.name ?? null,
 		oauthName: provider.auth.oauth?.name ?? null,
-		oauthSubscription: provider.auth.oauth ? Boolean(provider.auth.oauth.isSubscription) : null,
+		oauthSubscription: provider.auth.oauth
+			? Boolean(provider.auth.oauth.isSubscription)
+			: null,
 		oauthLoginLabel: provider.auth.oauth?.loginLabel ?? null,
 		models: provider.getModels().map((model) => model.id),
 	};
@@ -78,7 +112,9 @@ async function executeAuth(
 ) {
 	const results = [];
 	for (const testCase of request.cases) {
-		const provider = api.builtinProviders().find((candidate) => candidate.id === testCase.provider);
+		const provider = api
+			.builtinProviders()
+			.find((candidate) => candidate.id === testCase.provider);
 		if (!provider) throw new Error(`Unknown provider ${testCase.provider}`);
 		const models = modelsModule.createModels({
 			authContext: fakeAuthContext(testCase.env, testCase.files ?? []),
@@ -90,10 +126,15 @@ async function executeAuth(
 	return { results };
 }
 
-async function executeLogin(api: Api, request: Extract<Request, { op: "login" }>) {
+async function executeLogin(
+	api: Api,
+	request: Extract<Request, { op: "login" }>,
+) {
 	const results = [];
 	for (const testCase of request.cases) {
-		const provider = api.builtinProviders().find((candidate) => candidate.id === testCase.provider);
+		const provider = api
+			.builtinProviders()
+			.find((candidate) => candidate.id === testCase.provider);
 		if (!provider) throw new Error(`Unknown provider ${testCase.provider}`);
 		const answers = [...testCase.answers];
 		const events: unknown[] = [];
@@ -101,44 +142,69 @@ async function executeLogin(api: Api, request: Extract<Request, { op: "login" }>
 		try {
 			const credential = await provider.auth.apiKey?.login?.({
 				signal: neverAbortedSignal,
-				prompt: async (prompt: { type: string; message: string; options?: unknown[] }) => {
+				prompt: async (prompt: {
+					type: string;
+					message: string;
+					options?: unknown[];
+				}) => {
 					prompts.push(prompt);
 					return answers.shift() ?? "";
 				},
 				notify: (event: unknown) => events.push(event),
 			});
-			results.push({ provider: testCase.provider, credential: credential ?? null, events, prompts });
+			results.push({
+				provider: testCase.provider,
+				credential: credential ?? null,
+				events,
+				prompts,
+			});
 		} catch (error) {
-			results.push({ provider: testCase.provider, error: normalizeError(error), events, prompts });
+			results.push({
+				provider: testCase.provider,
+				error: normalizeError(error),
+				events,
+				prompts,
+			});
 		}
 	}
 	return { results };
 }
 
-async function executeDispatch(api: Api, request: Extract<Request, { op: "dispatch" }>) {
+async function executeDispatch(
+	api: Api,
+	request: Extract<Request, { op: "dispatch" }>,
+) {
 	const results = [];
-	const originalFetch = globalThis.fetch;
 	try {
 		for (const testCase of request.cases) {
-			const provider = api.builtinProviders().find((candidate) => candidate.id === testCase.provider);
+			const provider = api
+				.builtinProviders()
+				.find((candidate) => candidate.id === testCase.provider);
 			if (!provider) throw new Error(`Unknown provider ${testCase.provider}`);
-			const model = provider.getModels().find((candidate) => candidate.id === testCase.modelId);
-			if (!model) throw new Error(`Unknown model ${testCase.provider}/${testCase.modelId}`);
+			const model = provider
+				.getModels()
+				.find((candidate) => candidate.id === testCase.modelId);
+			if (!model)
+				throw new Error(
+					`Unknown model ${testCase.provider}/${testCase.modelId}`,
+				);
 			const requests: unknown[] = [];
-			globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
-				const headers: Record<string, string> = {};
-				for (const [name, value] of new Headers(init?.headers).entries()) headers[name] = value;
+			setFetchScript(async (input, init) => {
+				const request = new Request(input, init);
 				requests.push({
-					url: String(input),
-					method: init?.method ?? "GET",
-					headers,
-					body: typeof init?.body === "string" ? init.body : null,
+					url: request.url,
+					method: request.method,
+					headers: Object.fromEntries(request.headers),
+					body: request.body === null ? null : await request.clone().text(),
 				});
-				return new Response(JSON.stringify({ error: { message: "recorded" } }), {
-					status: 400,
-					headers: { "content-type": "application/json" },
-				});
-			}) as typeof fetch;
+				return new Response(
+					JSON.stringify({ error: { message: "recorded" } }),
+					{
+						status: 400,
+						headers: { "content-type": "application/json" },
+					},
+				);
+			});
 			try {
 				const result = (await provider
 					.streamSimple(model, { messages: [] }, { apiKey: "test-key" })
@@ -151,11 +217,16 @@ async function executeDispatch(api: Api, request: Extract<Request, { op: "dispat
 					errorMessage: result.errorMessage ?? null,
 				});
 			} catch (error) {
-				results.push({ provider: testCase.provider, modelId: testCase.modelId, requests, error: normalizeError(error) });
+				results.push({
+					provider: testCase.provider,
+					modelId: testCase.modelId,
+					requests,
+					error: normalizeError(error),
+				});
 			}
 		}
 	} finally {
-		globalThis.fetch = originalFetch;
+		clearFetchScript();
 	}
 	return { results };
 }
@@ -168,10 +239,16 @@ async function execute(request: Request, api: Api, srcDir: string) {
 			return {
 				providers: api.getBuiltinProviders(),
 				generatedAt: api.getBuiltinModelDataGeneratedAt() ?? null,
-				models: Object.fromEntries(api.getBuiltinProviders().map((provider) => [provider, api.getBuiltinModels(provider)])),
+				models: Object.fromEntries(
+					api
+						.getBuiltinProviders()
+						.map((provider) => [provider, api.getBuiltinModels(provider)]),
+				),
 			};
 		case "auth": {
-			const modelsModule = (await import(pathToFileURL(join(srcDir, "models.ts")).href)) as {
+			const modelsModule = (await import(
+				pathToFileURL(join(srcDir, "models.ts")).href
+			)) as {
 				createModels(options?: unknown): Models;
 			};
 			return executeAuth(api, modelsModule, request);
@@ -179,12 +256,20 @@ async function execute(request: Request, api: Api, srcDir: string) {
 		case "login":
 			return executeLogin(api, request);
 		case "cloudflare": {
-			const cloudflare = (await import(pathToFileURL(join(srcDir, "providers/cloudflare-stream.ts")).href)) as {
-				resolveCloudflareModel(model: Model, env?: Record<string, string>): Model;
+			const cloudflare = (await import(
+				pathToFileURL(join(srcDir, "providers/cloudflare-stream.ts")).href
+			)) as {
+				resolveCloudflareModel(
+					model: Model,
+					env?: Record<string, string>,
+				): Model;
 			};
 			return {
 				results: request.cases.map((testCase) => ({
-					baseUrl: cloudflare.resolveCloudflareModel(testCase.model, testCase.env).baseUrl,
+					baseUrl: cloudflare.resolveCloudflareModel(
+						testCase.model,
+						testCase.env,
+					).baseUrl,
 				})),
 			};
 		}
@@ -201,7 +286,9 @@ function executeRequestLine(line: string, api: Api, srcDir: string): void {
 		id = request.id;
 		pending = execute(request, api, srcDir);
 	} catch (error) {
-		process.stdout.write(`${JSON.stringify({ id, ok: false, error: normalizeError(error) })}\n`);
+		process.stdout.write(
+			`${JSON.stringify({ id, ok: false, error: normalizeError(error) })}\n`,
+		);
 		return;
 	}
 	void pending
@@ -209,7 +296,9 @@ function executeRequestLine(line: string, api: Api, srcDir: string): void {
 			process.stdout.write(`${JSON.stringify({ id, ok: true, output })}\n`);
 		})
 		.catch((error: unknown) => {
-			process.stdout.write(`${JSON.stringify({ id, ok: false, error: normalizeError(error) })}\n`);
+			process.stdout.write(
+				`${JSON.stringify({ id, ok: false, error: normalizeError(error) })}\n`,
+			);
 		});
 }
 
@@ -229,12 +318,16 @@ function serveRequests(api: Api, srcDir: string): void {
 
 async function main(): Promise<void> {
 	const modulePath = process.argv[2];
-	if (modulePath === undefined) throw new Error("providers oracle requires a source module path");
+	if (modulePath === undefined)
+		throw new Error("providers oracle requires a source module path");
+	installScriptedFetch();
 	const api = (await import(pathToFileURL(modulePath).href)) as Api;
 	serveRequests(api, dirname(dirname(modulePath)));
 }
 
 void main().catch((error: unknown) => {
-	process.stderr.write(`providers oracle startup failed: ${normalizeError(error).message}\n`);
+	process.stderr.write(
+		`providers oracle startup failed: ${normalizeError(error).message}\n`,
+	);
 	process.exitCode = 1;
 });

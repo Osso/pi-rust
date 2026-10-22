@@ -19,6 +19,8 @@ Six differentials supplied `options.fetch` to frozen API modules. Their SDK cons
 | `differential_mistral_conversations` | actual SDK Request and SSE schema, scenario 0 | Frozen SDK rejects fixture missing `data.model`; native accepts. Also source SDK user-agent/cookie and unused onResponse differences. No assertion narrowed |
 | `differential_openrouter_images` | scenarios 0–2 equal; abort scenario 3 reached | Native `Request aborted`; frozen `Request was aborted.` |
 
+Remaining audit: Google, Codex, legacy aliases, and provider-dispatch oracles now install the same guarded global fetch before import and clear scripts after each request. Provider dispatch records SDK `Request` bodies/headers rather than stringifying Request objects. Existing exact assertions remain. Legacy aliases pass; Google, Codex, provider-dispatch, and the unchanged Bedrock stand-in differential remain RED (`*-remaining-fetch-audit.log`, ledger). These failures are not waived.
+
 These are targeted development diagnostics, not six GREEN suites or whole-module parity. They supersede pre-repin recorded-fetch claims for these paths. Other oracles already intercept globals (Codex/Google) or have different SDK stand-ins (Bedrock); this slice does not revalidate them.
 
 ## Approved native interface deviation
