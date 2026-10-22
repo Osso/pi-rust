@@ -1,14 +1,16 @@
 //! Primary schema always comes from the frozen public TS API. Historical secondary
 //! tables/rows are explicit fixture mutations, not alternative production schemas.
+use pi_js_compat::js_json::JsString;
 #[path = "support/repin_fixture_process.rs"]
 mod fixture_process;
 #[path = "support/oracle.rs"]
 mod oracle;
 use pi_coding_agent::core::session_control_db::*;
-use serde_json::{Value, json};
+use pi_js_compat::js_json::JsValue as Value;
+use pi_js_compat::{js_json, js_json as json};
 fn step(ts: &mut oracle::TsOracle, op: &str, args: Value) -> Value {
     let r = ts.request(&json!({"id":1,"steps":[{"op":op,"args":args}]}));
-    assert_eq!(r["output"][0]["ok"], true, "{r}");
+    assert_eq!(r["output"][0]["ok"], json!(true), "{r:?}");
     r["output"][0]["value"].clone()
 }
 fn call(ts: &mut oracle::TsOracle, name: &str, args: Value) -> Value {
@@ -16,7 +18,12 @@ fn call(ts: &mut oracle::TsOracle, name: &str, args: Value) -> Value {
 }
 fn new_fixture() -> (tempfile::TempDir, String, oracle::TsOracle) {
     let t = tempfile::tempdir().unwrap();
-    let db = t.path().join("control.sqlite").display().to_string();
+    let db = t
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
     call(&mut ts, "listRuntimeMailboxMessages", json!([db]));
     (t, db, ts)
@@ -76,11 +83,11 @@ fn missing_parent_and_obsolete_search_column_migrate_without_peer_row_normalizat
         ]),
     );
     let row = read_session_metadata(&db, "/fixture/s").unwrap().unwrap();
-    assert_eq!(row.name.as_deref(), Some("Peer Name"));
-    write_session_name(&db, "/fixture/s", Some("Rust Name")).unwrap();
+    assert_eq!(row.name.as_ref(), Some(&JsString::from("Peer Name")));
+    write_session_name(&db, "/fixture/s", Some(&JsString::from("Rust Name"))).unwrap();
     assert_eq!(
         call(&mut ts, "readSessionMetadata", json!([db, "/fixture/s"]))["name"],
-        "Rust Name"
+        json!("Rust Name")
     );
 }
 #[test]
@@ -107,7 +114,7 @@ fn legacy_counters_merge_monotonically_and_payload_fields_are_stripped() {
     assert_eq!(state.agents[0]["nested"], json!({"keep":"value"}));
     assert_eq!(
         call(&mut ts, "allocateMultiAgentCounter", json!([db, "/fixture/s", "agent"])),
-        7
+        json!(7)
     );
     assert_eq!(
         allocate_multi_agent_counter(&db, "/fixture/s", MultiAgentCounterName::Message).unwrap(),
@@ -122,9 +129,9 @@ fn legacy_counters_merge_monotonically_and_payload_fields_are_stripped() {
 fn migration_quiescence_tracks_owned_fixture_process_then_allows_after_exit() {
     let (_t, db, mut ts) = new_fixture();
     let now = pi_coding_agent::utils::iso_time::now_iso_string();
-    let identity = serde_json::from_str::<Value>(
+    let identity = js_json::parse_lossless(
         call(&mut ts, "getRuntimeProcessInstanceId", json!([]))
-            .as_str()
+            .as_string()
             .unwrap(),
     )
     .unwrap();
@@ -134,15 +141,15 @@ fn migration_quiescence_tracks_owned_fixture_process_then_allows_after_exit() {
             "createMultiAgentChildWithRuntimeOwnership",
             json!([db,{"sessionPath":"/fixture/s","agentId":"child","processIdentity":identity,"owner":{"sessionId":"owner","agentId":null},"nowIso":now,"agent":{"id":"child","parentId":"main","displayName":"child","agentType":"worker","lifecycle":"running","revision":1,"createdAt":now,"updatedAt":now,"cwd":"/fixture","permission":{"policy":"on-request","narrowed":true}}}])
         )["ok"],
-        true
+        json!(true)
     );
     step(&mut ts, "fixtureExec", json!([db, "PRAGMA user_version=14;"]));
     let error = read_session_metadata(&db, "/fixture/s").unwrap_err();
     assert!(error.message().contains("while lifecycle owners are active"));
     let peer = ts.request(&json!({"id":1,"steps":[{"op":"call","args":["readSessionMetadata",[db,"/fixture/s"]]}]}));
-    assert_eq!(peer["output"][0]["ok"], false);
-    assert_eq!(peer["output"][0]["error"]["message"], error.message());
+    assert_eq!(peer["output"][0]["ok"], json!(false));
+    assert_eq!(peer["output"][0]["error"]["message"], json!(error.message()));
     drop(ts);
-    fixture_process::wait_for_owned_fixture_exit(&serde_json::from_value(identity).unwrap());
+    fixture_process::wait_for_owned_fixture_exit(&js_json::from_value(&identity).unwrap());
     assert!(read_session_metadata(&db, "/fixture/s").unwrap().is_none());
 }

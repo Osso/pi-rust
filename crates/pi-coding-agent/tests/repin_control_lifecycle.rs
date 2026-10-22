@@ -4,10 +4,12 @@ mod fixture_process;
 mod oracle;
 use pi_coding_agent::core::runtime_process::{ProcessIdentity, read_process_identity};
 use pi_coding_agent::core::session_control_db::*;
-use serde_json::{Value, json};
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue as Value;
+use pi_js_compat::{js_json, js_json as json};
 fn call(ts: &mut oracle::TsOracle, name: &str, args: Value) -> Value {
     let r = ts.request(&json!({"id":1,"steps":[{"op":"call","args":[name,args]}]}));
-    assert_eq!(r["output"][0]["ok"], true, "{r}");
+    assert_eq!(r["output"][0]["ok"], json!(true), "{r:?}");
     r["output"][0]["value"].clone()
 }
 fn fixture(
@@ -21,7 +23,12 @@ fn fixture(
     String,
 ) {
     let t = tempfile::tempdir().unwrap();
-    let db = t.path().join("control.sqlite").display().to_string();
+    let db = t
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
     let now = pi_coding_agent::utils::iso_time::now_iso_string();
     let identity = read_process_identity(std::process::id()).unwrap();
@@ -36,7 +43,7 @@ fn fixture(
             "createMultiAgentChildWithRuntimeOwnership",
             json!([db,{"sessionPath":"/fixture/s","agentId":"child","processIdentity":identity,"owner":owner,"nowIso":now,"agent":agent}])
         )["ok"],
-        true
+        json!(true)
     );
     (t, db, ts, identity, owner, now)
 }
@@ -92,12 +99,12 @@ fn detached_finalization_replays_after_peer_outbox_deletion() {
     let record = call(&mut ts, "claimMultiAgentTerminalOutbox", json!([db, "peer", now]));
     assert_eq!(
         call(&mut ts, "deliverMultiAgentTerminalOutbox", json!([db, record])),
-        true
+        json!(true)
     );
     assert_eq!(finalize_detached_job(&db, &input).unwrap(), first);
 }
 fn enqueue_steer(ts: &mut oracle::TsOracle, db: &str, now: &str) -> i64 {
-    call(ts,"enqueueStoredRuntimeMailboxMessage",json!([db,{"recipient":{"sessionId":"child-session","agentId":"child"},"sender":{"sessionId":"owner","agentId":null},"kind":"steer","storeRef":{"sessionPath":"/fixture/s","messageId":"steer"},"message":{"id":"steer","fromAgentId":"main","toAgentId":"child","kind":"steer","status":"pending","createdAt":now,"updatedAt":now,"body":"change course"}}])).as_i64().unwrap()
+    call(ts,"enqueueStoredRuntimeMailboxMessage",json!([db,{"recipient":{"sessionId":"child-session","agentId":"child"},"sender":{"sessionId":"owner","agentId":null},"kind":"steer","storeRef":{"sessionPath":"/fixture/s","messageId":"steer"},"message":{"id":"steer","fromAgentId":"main","toAgentId":"child","kind":"steer","status":"pending","createdAt":now,"updatedAt":now,"body":"change course"}}])).as_f64().unwrap() as i64
 }
 #[test]
 fn direct_steering_delivery_consumes_and_returns_original_snapshot() {
@@ -119,10 +126,10 @@ fn direct_steering_delivery_consumes_and_returns_original_snapshot() {
     let CommitMultiAgentSteeringDeliveryResult::Ok { message, agent } = result else {
         panic!("steering rejected")
     };
-    assert_eq!(serde_json::to_value(message.status).unwrap(), "pending");
+    assert_eq!(js_json::to_value(&message.status).unwrap(), json!("pending"));
     assert_eq!(
-        serde_json::to_value(&message).unwrap()["recipientSessionId"],
-        "child-session"
+        js_json::to_value(&&message).unwrap()["recipientSessionId"],
+        json!("child-session")
     );
     assert_eq!(agent.revision, 2);
     assert!(call(&mut ts, "readRuntimeMailboxMessage", json!([db, id])).is_null());
@@ -140,11 +147,11 @@ fn taking_owned_steer_claims_message_and_advances_agent_atomically() {
     assert_eq!(taken[0].status, RuntimeMailboxMessageStatus::Claimed);
     assert_eq!(
         call(&mut ts, "readMultiAgentAgent", json!([db, "/fixture/s", "child"]))["revision"],
-        2
+        json!(2)
     );
     assert_eq!(
         call(&mut ts, "readRuntimeMailboxMessage", json!([db, id]))["status"],
-        "claimed"
+        json!("claimed")
     );
 }
 
@@ -160,13 +167,13 @@ fn raw_writer_owned_steering_claim_preserves_source_payload() {
     );
     let response =
         source.request(&json!({"id":1,"steps":[{"op":"callWire","args":["enqueueStoredRuntimeMailboxMessage",wire]}]}));
-    assert_eq!(response["output"][0]["ok"], true, "{response}");
+    assert_eq!(response["output"][0]["ok"], json!(true), "{response:?}");
     let raw_before = source.request(
         &json!({"id":1,"steps":[{"op":"fixtureSql","args":[path,"SELECT data FROM multi_agent_mailbox_messages",[]]}]}),
     );
-    assert_eq!(raw_before["output"][0]["ok"], true, "{raw_before}");
+    assert_eq!(raw_before["output"][0]["ok"], json!(true), "{raw_before:?}");
     let JsValue::Object(before) =
-        js_json::parse_lossless(raw_before["output"][0]["value"][0]["data"].as_str().unwrap()).unwrap()
+        js_json::parse_lossless(raw_before["output"][0]["value"][0]["data"].as_string().unwrap()).unwrap()
     else {
         panic!("canonical object")
     };
@@ -183,9 +190,9 @@ fn raw_writer_owned_steering_claim_preserves_source_payload() {
     let raw_after = source.request(
         &json!({"id":1,"steps":[{"op":"fixtureSql","args":[path,"SELECT data FROM multi_agent_mailbox_messages",[]]}]}),
     );
-    assert_eq!(raw_after["output"][0]["ok"], true, "{raw_after}");
+    assert_eq!(raw_after["output"][0]["ok"], json!(true), "{raw_after:?}");
     let JsValue::Object(after) =
-        js_json::parse_lossless(raw_after["output"][0]["value"][0]["data"].as_str().unwrap()).unwrap()
+        js_json::parse_lossless(raw_after["output"][0]["value"][0]["data"].as_string().unwrap()).unwrap()
     else {
         panic!("canonical object")
     };
@@ -203,7 +210,7 @@ fn raw_writer_owned_steering_claim_preserves_source_payload() {
     );
     assert_eq!(
         call(&mut source, "readMultiAgentAgent", json!([path, "/fixture/s", "child"]))["revision"],
-        2
+        json!(2)
     );
 }
 
@@ -216,7 +223,7 @@ fn repeated_cancellation_can_add_suppression_without_second_cancel_command() {
             "commitMultiAgentLifecycleMutation",
             json!([db,{"sessionPath":"/fixture/s","agentId":"child","processIdentity":identity,"owner":owner,"requestedLifecycle":"cancelling","updatedAt":now}])
         )["ok"],
-        true
+        json!(true)
     );
     let input = CommitMultiAgentLifecycleMutationInput {
         session_path: "/fixture/s".into(),
@@ -236,8 +243,8 @@ fn repeated_cancellation_can_add_suppression_without_second_cancel_command() {
         CommitMultiAgentLifecycleMutationResult::Ok { .. }
     ));
     let peer = call(&mut ts, "readMultiAgentAgent", json!([db, "/fixture/s", "child"]));
-    assert_eq!(peer["suppressTerminalNotification"], true);
-    assert_eq!(peer["revision"], 3);
+    assert_eq!(peer["suppressTerminalNotification"], json!(true));
+    assert_eq!(peer["revision"], json!(3));
     assert!(
         call(&mut ts, "listRuntimeMailboxMessages", json!([db]))
             .as_array()
@@ -251,7 +258,7 @@ fn steering_failure_after_agent_update_rolls_back_both_state_changes() {
     let (_t, db, mut ts, identity, owner, now) = fixture(false);
     let id = enqueue_steer(&mut ts, &db, &now);
     let response=ts.request(&json!({"id":1,"steps":[{"op":"fixtureSql","args":[db,"CREATE TRIGGER fixture_steering_race AFTER UPDATE ON multi_agent_agents BEGIN UPDATE multi_agent_mailbox_messages SET data=json_set(data,'$.body','raced') WHERE session_path='/fixture/s' AND message_id='steer'; END",[]]}]}));
-    assert_eq!(response["output"][0]["ok"], true, "{response}");
+    assert_eq!(response["output"][0]["ok"], json!(true), "{response:?}");
     let result = commit_multi_agent_steering_delivery(
         &db,
         &CommitMultiAgentSteeringDeliveryInput {
@@ -272,24 +279,32 @@ fn steering_failure_after_agent_update_rolls_back_both_state_changes() {
     );
     assert_eq!(
         call(&mut ts, "readMultiAgentAgent", json!([db, "/fixture/s", "child"]))["revision"],
-        1
+        json!(1)
     );
     assert_eq!(
         call(&mut ts, "readRuntimeMailboxMessage", json!([db, id]))["body"],
-        "change course"
+        json!("change course")
     );
 }
 
 #[test]
 fn dead_owned_fixture_runtime_recovery_honors_persisted_suppression() {
     let t = tempfile::tempdir().unwrap();
-    let db = t.path().join("control.sqlite").display().to_string();
+    let db = t
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let mut child = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
     let now = pi_coding_agent::utils::iso_time::now_iso_string();
-    let identity: ProcessIdentity = serde_json::from_str(
-        call(&mut child, "getRuntimeProcessInstanceId", json!([]))
-            .as_str()
-            .unwrap(),
+    let identity: ProcessIdentity = js_json::from_value(
+        &js_json::parse_lossless(
+            call(&mut child, "getRuntimeProcessInstanceId", json!([]))
+                .as_string()
+                .unwrap(),
+        )
+        .unwrap(),
     )
     .unwrap();
     let owner = MultiAgentRuntimeOwnerIdentity {
@@ -303,12 +318,12 @@ fn dead_owned_fixture_runtime_recovery_honors_persisted_suppression() {
             "createMultiAgentChildWithRuntimeOwnership",
             json!([db,{"sessionPath":"/fixture/s","agentId":"child","processIdentity":identity,"owner":owner,"nowIso":now,"agent":agent}])
         )["ok"],
-        true
+        json!(true)
     );
     drop(child);
     fixture_process::wait_for_owned_fixture_exit(&identity);
     let supervisor_identity: ProcessIdentity =
-        serde_json::from_str(get_runtime_process_instance_id().unwrap()).unwrap();
+        js_json::from_value(&js_json::parse_lossless(get_runtime_process_instance_id().unwrap()).unwrap()).unwrap();
     register_runtime_mailbox_listener(
         &db,
         &RuntimeMailboxAddress {
@@ -316,7 +331,7 @@ fn dead_owned_fixture_runtime_recovery_honors_persisted_suppression() {
             agent_id: None,
         },
         std::process::id(),
-        Some("/fixture/s"),
+        Some(&JsString::from("/fixture/s")),
         RuntimeMailboxRegistrationOptions::default(),
     )
     .unwrap();
