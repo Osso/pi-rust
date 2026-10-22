@@ -376,7 +376,8 @@ async fn run_faux_case(case: &Value) -> Value {
             stop_reason: case["response"]["stopReason"]
                 .as_str()
                 .map(|reason| serde_json::from_value(json!(reason)).unwrap()),
-            error_message: (case["response"]["errorMessage"].as_str().map(str::to_owned)).map(pi_js_compat::js_json::JsString::from),
+            error_message: (case["response"]["errorMessage"].as_str().map(str::to_owned))
+                .map(pi_js_compat::js_json::JsString::from),
             ..Default::default()
         },
     );
@@ -396,7 +397,7 @@ async fn run_faux_case(case: &Value) -> Value {
             context,
             SimpleStreamOptions {
                 stream: StreamOptions {
-                    (session_id).map(pi_js_compat::js_json::JsString::from),
+                    session_id: session_id.map(pi_js_compat::js_json::JsString::from),
                     cache_retention,
                     ..Default::default()
                 },

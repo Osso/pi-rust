@@ -55,9 +55,12 @@ fn empty_tool_result_uses_no_tool_output_placeholder() {
     let messages = convert_responses_messages(&model, &context, &allowed(), None).expect("convert");
     let output = messages
         .iter()
-        .find(|item| item["type"] == "function_call_output")
+        .find(|item| item["type"] == pi_js_compat::js_json::JsValue::String(("function_call_output").into()))
         .expect("function_call_output");
-    assert_eq!(output["output"], "(no tool output)");
+    assert_eq!(
+        output["output"],
+        pi_js_compat::js_json::JsValue::String(("(no tool output)").into())
+    );
 }
 
 #[test]
@@ -72,10 +75,14 @@ fn orphan_tool_result_is_dropped() {
         ]
     }));
     let messages = convert_responses_messages(&model, &context, &allowed(), None).expect("convert");
-    assert!(!messages.iter().any(|item| item["type"] == "function_call_output"));
-    assert!(messages.contains(&json!({
+    assert!(
+        !messages
+            .iter()
+            .any(|item| item["type"] == pi_js_compat::js_json::JsValue::String(("function_call_output").into()))
+    );
+    assert!(messages.contains(&pi_js_compat::js_json::JsValue::from(&json!({
         "role": "user", "content": [{"type": "input_text", "text": "continue"}]
-    })));
+    }))));
 }
 
 #[test]
@@ -96,7 +103,7 @@ fn foreign_tool_call_item_id_is_hashed_into_fc_shape() {
     let messages = convert_responses_messages(&model, &context, &allowed(), None).expect("convert");
     let function_call = messages
         .iter()
-        .find(|item| item["type"] == "function_call")
+        .find(|item| item["type"] == pi_js_compat::js_json::JsValue::String(("function_call").into()))
         .expect("function_call");
     let expected = format!("fc_{}", short_hash(raw.split('|').nth(1).expect("item id")));
     assert_eq!(function_call["id"], expected);
@@ -120,7 +127,7 @@ fn fallback_message_ids_are_unique_per_text_block() {
     let messages = convert_responses_messages(&model, &context, &allowed(), None).expect("convert");
     let ids = messages
         .iter()
-        .filter(|item| item["type"] == "message")
+        .filter(|item| item["type"] == pi_js_compat::js_json::JsValue::String(("message").into()))
         .map(|item| item["id"].as_str().expect("id").to_owned())
         .collect::<Vec<_>>();
     assert_eq!(ids, ["msg_pi_1", "msg_pi_1_1", "msg_pi_1_2"]);
@@ -222,6 +229,12 @@ fn function_call_arguments_are_parsed_and_scratch_state_removed() {
     let pi_ai::types::AssistantContent::ToolCall(tool_call) = &assistant.content[0] else {
         panic!("expected tool call");
     };
-    assert_eq!(tool_call.arguments["path"], "README.md");
-    assert_eq!(tool_call.arguments["content"], "updated");
+    assert_eq!(
+        tool_call.arguments["path"],
+        pi_js_compat::js_json::JsValue::String(("README.md").into())
+    );
+    assert_eq!(
+        tool_call.arguments["content"],
+        pi_js_compat::js_json::JsValue::String(("updated").into())
+    );
 }

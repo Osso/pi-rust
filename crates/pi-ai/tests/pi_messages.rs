@@ -229,7 +229,12 @@ async fn streams_text_and_tool_calls_and_resolves_the_terminal_message() {
             AssistantContent::ToolCall(ToolCall::new(
                 "call_1",
                 "read",
-                json!({"path": "a.txt"}).as_object().unwrap().clone(),
+                pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(
+                    json!({"path": "a.txt"}).as_object().unwrap().clone()
+                ))
+                .as_object()
+                .unwrap()
+                .clone(),
             )),
         ]
     );
@@ -346,7 +351,10 @@ async fn propagates_server_sent_error_events() {
     let (_, message) = collect(stream(model(), context(), options(fetch, "test-key"))).await;
 
     assert_eq!(message.stop_reason, StopReason::Error);
-    assert_eq!(message.error_message.as_ref(), Some("Upstream failed"));
+    assert_eq!(
+        message.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("Upstream failed"))
+    );
     assert_eq!(message.usage.input, 10.0);
     assert_eq!(message.usage.total_tokens, 15.0);
 }

@@ -67,7 +67,7 @@ fn sanitizes_valid_configs_and_filters_shallowly_invalid_models() {
         "maxTokens": 1
     }));
 
-    let parsed = sanitize_radius_gateway_config(&value).expect("config");
+    let parsed = sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(&value)).expect("config");
     assert_eq!(parsed.base_url, "https://radius.example/v1");
     assert_eq!(parsed.models.len(), 2);
     assert_eq!(parsed.models[0].id, "alpha");
@@ -77,11 +77,16 @@ fn sanitizes_valid_configs_and_filters_shallowly_invalid_models() {
 
 #[test]
 fn rejects_non_object_or_malformed_configs() {
-    assert!(sanitize_radius_gateway_config(&json!(null)).is_none());
-    assert!(sanitize_radius_gateway_config(&json!([])).is_none());
-    assert!(sanitize_radius_gateway_config(&json!({"baseUrl": "x"})).is_none());
-    assert!(sanitize_radius_gateway_config(&json!({"models": []})).is_none());
-    assert!(sanitize_radius_gateway_config(&json!({"baseUrl": 1, "models": []})).is_none());
+    assert!(sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(&json!(null))).is_none());
+    assert!(sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(&json!([]))).is_none());
+    assert!(sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(&json!({"baseUrl": "x"}))).is_none());
+    assert!(sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(&json!({"models": []}))).is_none());
+    assert!(
+        sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(
+            &json!({"baseUrl": 1, "models": []})
+        ))
+        .is_none()
+    );
 }
 
 #[test]
@@ -101,7 +106,7 @@ fn reads_the_gateway_config_from_the_credential_extra_fields() {
 
 #[test]
 fn builds_pi_messages_models_from_gateway_entries() {
-    let parsed = sanitize_radius_gateway_config(&config()).unwrap();
+    let parsed = sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(&config())).unwrap();
     let models = get_radius_models_from_config("radius", &parsed);
     assert_eq!(models.len(), 2);
     let model = &models[0];

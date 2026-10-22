@@ -149,7 +149,10 @@ async fn lazy_stream_turns_setup_failure_into_an_error_event() {
         AssistantMessageEvent::Error { reason, error } => {
             assert_eq!(*reason, pi_ai::types::ErrorReason::Error);
             assert_eq!(error.stop_reason, StopReason::Error);
-            assert_eq!(error.error_message.as_ref(), Some("setup boom"));
+            assert_eq!(
+                error.error_message.as_ref(),
+                Some(&pi_js_compat::js_json::JsString::from("setup boom"))
+            );
             assert_eq!(error.api, model.api);
             assert_eq!(error.provider, model.provider);
             assert_eq!(error.model, model.id);
@@ -158,7 +161,10 @@ async fn lazy_stream_turns_setup_failure_into_an_error_event() {
     }
     let result = stream.result().await.unwrap();
     assert_eq!(result.stop_reason, StopReason::Error);
-    assert_eq!(result.error_message.as_ref(), Some("setup boom"));
+    assert_eq!(
+        result.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("setup boom"))
+    );
 }
 
 #[tokio::test]
@@ -252,7 +258,9 @@ async fn lazy_api_fetch_deferred_without_capability_is_an_error_stream() {
     assert_eq!(result.stop_reason, StopReason::Error);
     assert_eq!(
         result.error_message.as_ref(),
-        Some("API does not support deferred responses")
+        Some(&pi_js_compat::js_json::JsString::from(
+            "API does not support deferred responses"
+        ))
     );
 }
 
@@ -268,5 +276,8 @@ async fn lazy_api_surfaces_load_failure_as_stream_error() {
         .await
         .unwrap();
     assert_eq!(result.stop_reason, StopReason::Error);
-    assert_eq!(result.error_message.as_ref(), Some("load failed"));
+    assert_eq!(
+        result.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("load failed"))
+    );
 }

@@ -73,5 +73,8 @@ async fn provider_module_and_lazy_override_match_the_typescript_exports() {
         .result()
         .await
         .expect("marker result");
-    assert_eq!(message.error_message.as_ref(), Some("marker provider"));
+    assert_eq!(
+        message.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("marker provider"))
+    );
 }

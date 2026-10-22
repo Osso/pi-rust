@@ -834,7 +834,12 @@ fn rust_validate(arguments: &Value, schema: &Value, kind: &str) -> Value {
     let tool_call = ToolCall::new(
         "tool-1",
         "echo",
-        arguments.as_object().cloned().unwrap_or_else(Map::<String, Value>::new),
+        pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(
+            arguments.as_object().cloned().unwrap_or_else(Map::<String, Value>::new),
+        ))
+        .as_object()
+        .unwrap()
+        .clone(),
     );
     let original = tool_call.arguments.clone();
     let result = match validate_tool_arguments(&tool, &tool_call) {
@@ -946,10 +951,15 @@ fn tool_call_lookup_matches_the_pinned_typescript_module() {
         let tool_call = ToolCall::new(
             "tool-1",
             case["toolName"].as_str().expect("toolName"),
-            case["arguments"]
-                .as_object()
-                .cloned()
-                .unwrap_or_else(Map::<String, Value>::new),
+            pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(
+                case["arguments"]
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_else(Map::<String, Value>::new),
+            ))
+            .as_object()
+            .unwrap()
+            .clone(),
         );
         let actual = match validate_tool_call(&tools, &tool_call) {
             Ok(value) => json!({ "ok": true, "value": value }),

@@ -630,7 +630,7 @@ fn compare_radius_config(oracle: &mut oracle::TsOracle) {
             ],
         }),
     );
-    let parsed = sanitize_radius_gateway_config(&config).expect("config");
+    let parsed = sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(&config)).expect("config");
     let actual = json!([
         serde_json::to_value(&parsed).expect("config JSON"),
         serde_json::to_value(get_radius_models_from_config("radius", &parsed)).expect("models JSON"),

@@ -229,7 +229,7 @@ async fn streams_sse_text_and_codex_headers() {
             pi_ai::types::AssistantContent::Text(text) => Some(&text.text),
             _ => None,
         }),
-        Some("Hello")
+        Some(&pi_js_compat::js_json::JsString::from("Hello"))
     );
 
     let requests = fetch.requests();

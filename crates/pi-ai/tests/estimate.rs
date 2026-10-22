@@ -125,7 +125,12 @@ fn tool_call_tokens_include_name_and_json_arguments() {
         content: vec![AssistantContent::ToolCall(ToolCall::new(
             "call_1",
             "read",
-            json!({"path": "a.txt"}).as_object().cloned().unwrap(),
+            pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(
+                json!({"path": "a.txt"}).as_object().cloned().unwrap(),
+            ))
+            .as_object()
+            .unwrap()
+            .clone(),
         ))],
         ..AssistantMessage::empty("anthropic-messages", "anthropic", "test", 1)
     }));

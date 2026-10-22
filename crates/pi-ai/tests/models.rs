@@ -964,7 +964,7 @@ async fn resolves_auth_stored_credential_owns_the_provider() {
             .auth
             .api_key
             .as_ref(),
-        Some("env-key")
+        Some(&pi_js_compat::js_json::JsString::from("env-key"))
     );
     assert_eq!(
         models
@@ -975,7 +975,7 @@ async fn resolves_auth_stored_credential_owns_the_provider() {
             .auth
             .api_key
             .as_ref(),
-        Some("env-key")
+        Some(&pi_js_compat::js_json::JsString::from("env-key"))
     );
     assert_eq!(
         models
@@ -992,7 +992,7 @@ async fn resolves_auth_stored_credential_owns_the_provider() {
             .auth
             .api_key
             .as_ref(),
-        Some("explicit-key")
+        Some(&pi_js_compat::js_json::JsString::from("explicit-key"))
     );
 
     credentials
@@ -1004,8 +1004,14 @@ async fn resolves_auth_stored_credential_owns_the_provider() {
         .await
         .unwrap();
     let resolution = models.get_auth("p1", Default::default()).await.unwrap().unwrap();
-    assert_eq!(resolution.auth.api_key.as_ref(), Some("oauth-token"));
-    assert_eq!(resolution.source.as_ref(), Some("OAuth"));
+    assert_eq!(
+        resolution.auth.api_key.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("oauth-token"))
+    );
+    assert_eq!(
+        resolution.source.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("OAuth"))
+    );
 
     credentials
         .modify(
@@ -1023,8 +1029,14 @@ async fn resolves_auth_stored_credential_owns_the_provider() {
         .await
         .unwrap();
     let resolution = models.get_auth("p1", Default::default()).await.unwrap().unwrap();
-    assert_eq!(resolution.auth.api_key.as_ref(), Some("stored-key"));
-    assert_eq!(resolution.source.as_ref(), Some("stored"));
+    assert_eq!(
+        resolution.auth.api_key.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("stored-key"))
+    );
+    assert_eq!(
+        resolution.source.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("stored"))
+    );
 }
 
 #[tokio::test]
@@ -1275,7 +1287,7 @@ async fn valid_oauth_tokens_do_not_touch_modify_and_short_lived_tokens_refresh()
             .auth
             .api_key
             .as_ref(),
-        Some("valid")
+        Some(&pi_js_compat::js_json::JsString::from("valid"))
     );
     assert_eq!(credentials.modifies.load(Ordering::SeqCst), 0);
 
@@ -1297,7 +1309,7 @@ async fn valid_oauth_tokens_do_not_touch_modify_and_short_lived_tokens_refresh()
             .auth
             .api_key
             .as_ref(),
-        Some("new-token")
+        Some(&pi_js_compat::js_json::JsString::from("new-token"))
     );
     assert_eq!(refreshes.load(Ordering::SeqCst), 1);
 
@@ -1325,7 +1337,7 @@ async fn valid_oauth_tokens_do_not_touch_modify_and_short_lived_tokens_refresh()
             .auth
             .api_key
             .as_ref(),
-        Some("new-token")
+        Some(&pi_js_compat::js_json::JsString::from("new-token"))
     );
     assert_eq!(refreshes.load(Ordering::SeqCst), 2);
 }
@@ -1398,8 +1410,14 @@ async fn serializes_concurrent_oauth_refreshes() {
         models.get_auth("p1", Default::default()),
         models.get_auth("p1", Default::default())
     );
-    assert_eq!(left.unwrap().unwrap().auth.api_key.as_ref(), Some("new-1"));
-    assert_eq!(right.unwrap().unwrap().auth.api_key.as_ref(), Some("new-1"));
+    assert_eq!(
+        left.unwrap().unwrap().auth.api_key.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("new-1"))
+    );
+    assert_eq!(
+        right.unwrap().unwrap().auth.api_key.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("new-1"))
+    );
     assert_eq!(refreshes.load(Ordering::SeqCst), 1);
 }
 
@@ -1586,7 +1604,10 @@ async fn explicit_request_api_key_and_env_resolve_provider_auth() {
         .unwrap();
     let calls = calls.lock().unwrap();
     assert_eq!(calls[0].model.base_url, "https://example.test/acct");
-    assert_eq!(calls[0].options.request.api_key.as_ref(), Some("explicit-key"));
+    assert_eq!(
+        calls[0].options.request.api_key.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("explicit-key"))
+    );
     assert_eq!(
         calls[0].options.request.env,
         Some(IndexMap::from([("ACCOUNT_ID".to_owned(), "acct".to_owned())]))
@@ -1655,11 +1676,23 @@ async fn merges_resolved_auth_into_stream_options_and_applies_model_headers_once
     assert_eq!(result.stop_reason, StopReason::Stop);
     {
         let calls = calls.lock().unwrap();
-        assert_eq!(calls[0].options.request.api_key.as_ref(), Some("explicit-key"));
+        assert_eq!(
+            calls[0].options.request.api_key.as_ref(),
+            Some(&pi_js_compat::js_json::JsString::from("explicit-key"))
+        );
         let headers = calls[0].options.request.headers.as_ref().unwrap();
-        assert_eq!(headers.get("authorization").unwrap().as_ref(), Some("Explicit token"));
-        assert_eq!(headers.get("x-a").unwrap().as_ref(), Some("auth"));
-        assert_eq!(headers.get("x-b").unwrap().as_ref(), Some("explicit"));
+        assert_eq!(
+            headers.get("authorization").unwrap().as_ref(),
+            Some(&pi_js_compat::js_json::JsString::from("Explicit token"))
+        );
+        assert_eq!(
+            headers.get("x-a").unwrap().as_ref(),
+            Some(&pi_js_compat::js_json::JsString::from("auth"))
+        );
+        assert_eq!(
+            headers.get("x-b").unwrap().as_ref(),
+            Some(&pi_js_compat::js_json::JsString::from("explicit"))
+        );
         assert_eq!(calls[0].model.base_url, "https://auth.test/v1");
     }
 
@@ -1696,10 +1729,22 @@ async fn merges_resolved_auth_into_stream_options_and_applies_model_headers_once
     assert_eq!(transforms.load(Ordering::SeqCst), 1);
     let calls = calls.lock().unwrap();
     let headers = calls[1].options.request.headers.as_ref().unwrap();
-    assert_eq!(headers.get("x-model").unwrap().as_ref(), Some("model"));
-    assert_eq!(headers.get("x-explicit").unwrap().as_ref(), Some("explicit"));
-    assert_eq!(headers.get("X-Shared").unwrap().as_ref(), Some("explicit"));
-    assert_eq!(headers.get("x-transformed").unwrap().as_ref(), Some("yes"));
+    assert_eq!(
+        headers.get("x-model").unwrap().as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("model"))
+    );
+    assert_eq!(
+        headers.get("x-explicit").unwrap().as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("explicit"))
+    );
+    assert_eq!(
+        headers.get("X-Shared").unwrap().as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("explicit"))
+    );
+    assert_eq!(
+        headers.get("x-transformed").unwrap().as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("yes"))
+    );
     assert!(calls[1].options.request.transform_headers.is_none());
 }
 
@@ -1918,7 +1963,10 @@ async fn applies_resolved_env_to_stream_options() {
         .await
         .unwrap();
     let options = captured.lock().unwrap().clone().unwrap();
-    assert_eq!(options.request.api_key.as_ref(), Some("request-key"));
+    assert_eq!(
+        options.request.api_key.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("request-key"))
+    );
     assert_eq!(
         options.request.env,
         Some(IndexMap::from([
@@ -2067,12 +2115,27 @@ async fn applies_resolved_options_to_deferred_fetch_and_cancellation() {
         let (fetched_model, options) = fetched.as_ref().unwrap();
         assert_eq!(fetched_model.base_url, "https://resolved.test/v1");
         assert_eq!(options.wait, Some(50.0));
-        assert_eq!(options.request.api_key.as_ref(), Some("request-key"));
+        assert_eq!(
+            options.request.api_key.as_ref(),
+            Some(&pi_js_compat::js_json::JsString::from("request-key"))
+        );
         let headers = options.request.headers.as_ref().unwrap();
-        assert_eq!(headers.get("Authorization").unwrap().as_ref(), Some("Bearer provider"));
-        assert_eq!(headers.get("X-Request").unwrap().as_ref(), Some("request"));
-        assert_eq!(headers.get("x-shared").unwrap().as_ref(), Some("request"));
-        assert_eq!(headers.get("X-Transformed").unwrap().as_ref(), Some("yes"));
+        assert_eq!(
+            headers.get("Authorization").unwrap().as_ref(),
+            Some(&pi_js_compat::js_json::JsString::from("Bearer provider"))
+        );
+        assert_eq!(
+            headers.get("X-Request").unwrap().as_ref(),
+            Some(&pi_js_compat::js_json::JsString::from("request"))
+        );
+        assert_eq!(
+            headers.get("x-shared").unwrap().as_ref(),
+            Some(&pi_js_compat::js_json::JsString::from("request"))
+        );
+        assert_eq!(
+            headers.get("X-Transformed").unwrap().as_ref(),
+            Some(&pi_js_compat::js_json::JsString::from("yes"))
+        );
         assert_eq!(
             options.request.env,
             Some(IndexMap::from([
@@ -2101,10 +2164,19 @@ async fn applies_resolved_options_to_deferred_fetch_and_cancellation() {
     let cancelled = cancelled.lock().unwrap();
     let options = cancelled.as_ref().unwrap();
     assert_eq!(options.timeout_ms, Some(200.0));
-    assert_eq!(options.api_key.as_ref(), Some("provider-key"));
+    assert_eq!(
+        options.api_key.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("provider-key"))
+    );
     let headers = options.headers.as_ref().unwrap();
-    assert_eq!(headers.get("X-Shared").unwrap().as_ref(), Some("provider"));
-    assert_eq!(headers.get("X-Cancel").unwrap().as_ref(), Some("yes"));
+    assert_eq!(
+        headers.get("X-Shared").unwrap().as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("provider"))
+    );
+    assert_eq!(
+        headers.get("X-Cancel").unwrap().as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("yes"))
+    );
 }
 
 #[tokio::test]
@@ -2301,8 +2373,14 @@ fn merges_headers_case_insensitively_and_compares_models() {
         ])),
     )
     .unwrap();
-    assert_eq!(merged.get("authorization").unwrap().as_ref(), Some("Explicit"));
-    assert_eq!(merged.get("x-a").unwrap().as_ref(), Some("a"));
+    assert_eq!(
+        merged.get("authorization").unwrap().as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("Explicit"))
+    );
+    assert_eq!(
+        merged.get("x-a").unwrap().as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("a"))
+    );
     assert!(merged.contains_key("x-b"));
     assert!(!merged.contains_key("Authorization"));
     // Deleting a case-insensitive duplicate and re-inserting moves it to the end.

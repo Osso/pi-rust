@@ -199,7 +199,7 @@ async fn resolves_auth_and_merges_it_into_requests_with_explicit_options_winning
             .auth
             .api_key
             .as_ref(),
-        Some("env-key")
+        Some(&pi_js_compat::js_json::JsString::from("env-key"))
     );
     assert_eq!(
         models
@@ -210,7 +210,7 @@ async fn resolves_auth_and_merges_it_into_requests_with_explicit_options_winning
             .auth
             .api_key
             .as_ref(),
-        Some("env-key")
+        Some(&pi_js_compat::js_json::JsString::from("env-key"))
     );
     let overrides = pi_ai::auth::AuthResolutionOverrides {
         api_key: Some(("explicit-key".to_owned()).into()),
@@ -225,7 +225,7 @@ async fn resolves_auth_and_merges_it_into_requests_with_explicit_options_winning
             .auth
             .api_key
             .as_ref(),
-        Some("explicit-key")
+        Some(&pi_js_compat::js_json::JsString::from("explicit-key"))
     );
 
     let result = models
@@ -234,7 +234,7 @@ async fn resolves_auth_and_merges_it_into_requests_with_explicit_options_winning
     assert_eq!(result.stop_reason, ImagesStopReason::Stop);
     assert_eq!(
         calls.lock().expect("calls lock")[0].options.request.api_key.as_ref(),
-        Some("env-key")
+        Some(&pi_js_compat::js_json::JsString::from("env-key"))
     );
 
     let mut explicit = ImagesOptions::default();
@@ -242,7 +242,7 @@ async fn resolves_auth_and_merges_it_into_requests_with_explicit_options_winning
     models.generate_images(model, context(), explicit).await;
     assert_eq!(
         calls.lock().expect("calls lock")[1].options.request.api_key.as_ref(),
-        Some("explicit")
+        Some(&pi_js_compat::js_json::JsString::from("explicit"))
     );
 }
 
@@ -288,7 +288,10 @@ async fn merges_provider_resolved_env_into_image_options() {
     models.generate_images(model, context(), options).await;
 
     let recorded = &calls.lock().expect("calls lock")[0].options;
-    assert_eq!(recorded.request.api_key.as_ref(), Some("request-key"));
+    assert_eq!(
+        recorded.request.api_key.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("request-key"))
+    );
     let env = recorded.request.env.as_ref().expect("merged env");
     let keys: Vec<&str> = env.keys().map(String::as_str).collect();
     assert_eq!(keys, vec!["zeta", "SHARED", "alpha"]);

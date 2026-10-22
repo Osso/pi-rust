@@ -619,11 +619,11 @@ mod tests {
         )));
         assert_eq!(
             map.get(&pi_js_compat::js_json::JsString::from("gpt-4.1")),
-            Some(&"dep-a".to_owned())
+            Some(&pi_js_compat::js_json::JsString::from(&"dep-a".to_owned()))
         );
         assert_eq!(
             map.get(&pi_js_compat::js_json::JsString::from("gpt-5")),
-            Some(&"dep-b".to_owned())
+            Some(&pi_js_compat::js_json::JsString::from(&"dep-b".to_owned()))
         );
         assert_eq!(map.len(), 2);
     }

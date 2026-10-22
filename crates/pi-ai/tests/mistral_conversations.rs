@@ -339,7 +339,12 @@ async fn serializes_assistant_thinking_tool_calls_and_tool_results_for_replay() 
             AssistantContent::ToolCall(ToolCall::new(
                 "abc123456",
                 "lookup",
-                json!({"query": "pi"}).as_object().unwrap().clone(),
+                pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(
+                    json!({"query": "pi"}).as_object().unwrap().clone(),
+                ))
+                .as_object()
+                .unwrap()
+                .clone(),
             )),
         ],
         stop_reason: StopReason::ToolUse,
@@ -459,7 +464,12 @@ async fn parses_native_thinking_text_tool_calls_and_cached_token_usage() {
             AssistantContent::ToolCall(ToolCall::new(
                 "abc123456",
                 "lookup",
-                json!({"query": "pi"}).as_object().unwrap().clone(),
+                pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(
+                    json!({"query": "pi"}).as_object().unwrap().clone()
+                ))
+                .as_object()
+                .unwrap()
+                .clone(),
             )),
         ]
     );
@@ -545,7 +555,10 @@ async fn aborts_while_waiting_for_an_sse_chunk() {
     let (_, message) = collect(result).await;
 
     assert_eq!(message.stop_reason, StopReason::Aborted);
-    assert_eq!(message.error_message.as_ref(), Some("This operation was aborted"));
+    assert_eq!(
+        message.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("This operation was aborted"))
+    );
 }
 
 #[tokio::test]
@@ -589,7 +602,9 @@ async fn preserves_http_status_and_response_bodies_in_errors() {
     assert_eq!(message.stop_reason, StopReason::Error);
     assert_eq!(
         message.error_message.as_ref(),
-        Some(r#"Mistral API error (403): {"message":"blocked by gateway"}"#)
+        Some(&pi_js_compat::js_json::JsString::from(
+            r#"Mistral API error (403): {"message":"blocked by gateway"}"#
+        ))
     );
 }
 
@@ -627,12 +642,18 @@ async fn normalizes_invalid_tool_call_ids_for_replay() {
             AssistantContent::ToolCall(ToolCall::new(
                 "call_1|fc_1",
                 "read",
-                json!({}).as_object().unwrap().clone(),
+                pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(json!({}).as_object().unwrap().clone()))
+                    .as_object()
+                    .unwrap()
+                    .clone(),
             )),
             AssistantContent::ToolCall(ToolCall::new(
                 "abc123456",
                 "lookup",
-                json!({}).as_object().unwrap().clone(),
+                pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(json!({}).as_object().unwrap().clone()))
+                    .as_object()
+                    .unwrap()
+                    .clone(),
             )),
         ],
         stop_reason: StopReason::ToolUse,
@@ -801,7 +822,12 @@ async fn errors_on_malformed_stream_events() {
     ))
     .await;
     assert_eq!(message.stop_reason, StopReason::Error);
-    assert_eq!(message.error_message.as_ref(), Some("Invalid Mistral streaming event"));
+    assert_eq!(
+        message.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from(
+            "Invalid Mistral streaming event"
+        ))
+    );
 }
 
 #[tokio::test]
@@ -818,6 +844,8 @@ async fn errors_when_the_stream_ends_without_a_finish_reason() {
     assert_eq!(message.stop_reason, StopReason::Error);
     assert_eq!(
         message.error_message.as_ref(),
-        Some("Mistral stream ended without a finish reason")
+        Some(&pi_js_compat::js_json::JsString::from(
+            "Mistral stream ended without a finish reason"
+        ))
     );
 }

@@ -59,9 +59,18 @@ fn thinking_as_text_flattens_reasoning_into_content() {
     let compat = get_compat(&model);
     let messages = convert_messages(&model, &context, &compat, None);
     let assistant = &messages[1];
-    assert_eq!(assistant["content"][0]["type"], "text");
-    assert_eq!(assistant["content"][0]["text"], "reason");
-    assert_eq!(assistant["content"][1]["text"], "answer");
+    assert_eq!(
+        assistant["content"][0]["type"],
+        pi_js_compat::js_json::JsValue::String(("text").into())
+    );
+    assert_eq!(
+        assistant["content"][0]["text"],
+        pi_js_compat::js_json::JsValue::String(("reason").into())
+    );
+    assert_eq!(
+        assistant["content"][1]["text"],
+        pi_js_compat::js_json::JsValue::String(("answer").into())
+    );
 }
 
 #[test]
@@ -75,7 +84,10 @@ fn reasoning_content_is_added_for_deepseek_assistant_messages() {
     }));
     let compat = get_compat(&model);
     let messages = convert_messages(&model, &context, &compat, None);
-    assert_eq!(messages[1]["reasoning_content"], "");
+    assert_eq!(
+        messages[1]["reasoning_content"],
+        pi_js_compat::js_json::JsValue::String(("").into())
+    );
 }
 
 #[test]
@@ -92,8 +104,14 @@ fn tool_call_ids_are_normalized_for_pipe_ids() {
     }));
     let compat = get_compat(&model);
     let messages = convert_messages(&model, &context, &compat, None);
-    assert_eq!(messages[1]["tool_calls"][0]["id"], "call_1_item_1");
-    assert_eq!(messages[2]["tool_call_id"], "call_1_item_1");
+    assert_eq!(
+        messages[1]["tool_calls"][0]["id"],
+        pi_js_compat::js_json::JsValue::String(("call_1_item_1").into())
+    );
+    assert_eq!(
+        messages[2]["tool_call_id"],
+        pi_js_compat::js_json::JsValue::String(("call_1_item_1").into())
+    );
 }
 
 #[test]
@@ -153,15 +171,24 @@ fn anthropic_cache_control_is_applied_to_system_tools_and_last_message() {
     );
     assert_eq!(
         params["messages"][0]["content"][0]["cache_control"]["type"],
-        "ephemeral"
+        pi_js_compat::js_json::JsValue::String(("ephemeral").into())
     );
-    assert_eq!(params["messages"][0]["content"][0]["cache_control"]["ttl"], "1h");
-    assert_eq!(params["tools"][0]["cache_control"]["ttl"], "1h");
+    assert_eq!(
+        params["messages"][0]["content"][0]["cache_control"]["ttl"],
+        pi_js_compat::js_json::JsValue::String(("1h").into())
+    );
+    assert_eq!(
+        params["tools"][0]["cache_control"]["ttl"],
+        pi_js_compat::js_json::JsValue::String(("1h").into())
+    );
     assert_eq!(
         params["messages"][1]["content"][0]["cache_control"]["type"],
-        "ephemeral"
+        pi_js_compat::js_json::JsValue::String(("ephemeral").into())
     );
-    assert_eq!(params["prompt_cache_key"], "session");
+    assert_eq!(
+        params["prompt_cache_key"],
+        pi_js_compat::js_json::JsValue::String(("session").into())
+    );
 }
 
 #[test]
@@ -253,8 +280,14 @@ fn grammar_tools_use_custom_shape() {
         CacheRetention::Short,
         &IndexMap::new(),
     );
-    assert_eq!(params["tools"][0]["type"], "custom");
-    assert_eq!(params["tools"][0]["custom"]["format"]["grammar"]["syntax"], "lark");
+    assert_eq!(
+        params["tools"][0]["type"],
+        pi_js_compat::js_json::JsValue::String(("custom").into())
+    );
+    assert_eq!(
+        params["tools"][0]["custom"]["format"]["grammar"]["syntax"],
+        pi_js_compat::js_json::JsValue::String(("lark").into())
+    );
 }
 
 #[test]
@@ -276,6 +309,12 @@ fn convert_options_grammar_map_produces_custom_tool_calls() {
             grammar_tool_input_properties: Some(IndexMap::from([("query".to_owned(), "input".to_owned())])),
         }),
     );
-    assert_eq!(messages[1]["tool_calls"][0]["type"], "custom");
-    assert_eq!(messages[1]["tool_calls"][0]["custom"]["input"], "hello");
+    assert_eq!(
+        messages[1]["tool_calls"][0]["type"],
+        pi_js_compat::js_json::JsValue::String(("custom").into())
+    );
+    assert_eq!(
+        messages[1]["tool_calls"][0]["custom"]["input"],
+        pi_js_compat::js_json::JsValue::String(("hello").into())
+    );
 }

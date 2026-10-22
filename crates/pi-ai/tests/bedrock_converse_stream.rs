@@ -313,7 +313,9 @@ async fn retries_throttling_then_reports_validation_diagnostic() {
     assert_eq!(message.stop_reason, StopReason::Error);
     assert_eq!(
         message.error_message.as_ref(),
-        Some("Validation error: The provided model identifier is invalid.")
+        Some(&pi_js_compat::js_json::JsString::from(
+            "Validation error: The provided model identifier is invalid."
+        ))
     );
     let diagnostic = message
         .diagnostics
@@ -385,7 +387,10 @@ async fn aborts_before_the_request() {
     let (_, message) = drain(stream(model(), context(), stream_options)).await;
 
     assert_eq!(message.stop_reason, StopReason::Aborted);
-    assert_eq!(message.error_message.as_ref(), Some(pi_ai::http::ABORT_ERROR_MESSAGE));
+    assert_eq!(
+        message.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from(pi_ai::http::ABORT_ERROR_MESSAGE))
+    );
     assert_eq!(fetch.request_count(), 1);
     assert!(message.diagnostics.is_none());
 }
@@ -537,7 +542,10 @@ async fn surfaces_gateway_bodies_and_stop_reason_errors() {
     )]);
     let (_, message) = drain(stream(model(), context(), options(fetch, env()))).await;
     assert_eq!(message.stop_reason, StopReason::Error);
-    assert_eq!(message.error_message.as_ref(), Some("403: blocked by gateway WAF"));
+    assert_eq!(
+        message.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("403: blocked by gateway WAF"))
+    );
 
     let body = [message_start(), message_stop("guardrail_intervened")].concat();
     let fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(body, &[])]);
@@ -546,7 +554,9 @@ async fn surfaces_gateway_bodies_and_stop_reason_errors() {
     assert_eq!(message.raw_stop_reason.as_deref(), Some("guardrail_intervened"));
     assert_eq!(
         message.error_message.as_ref(),
-        Some("Provider stopped with: guardrail_intervened")
+        Some(&pi_js_compat::js_json::JsString::from(
+            "Provider stopped with: guardrail_intervened"
+        ))
     );
 }
 
@@ -570,7 +580,12 @@ async fn converts_replayed_messages_and_documents() {
                 AssistantContent::ToolCall(pi_ai::types::ToolCall::new(
                     "tool-1",
                     "lookup",
-                    json!({"q": "x", "": ""}).as_object().unwrap().clone(),
+                    pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(
+                        json!({"q": "x", "": ""}).as_object().unwrap().clone(),
+                    ))
+                    .as_object()
+                    .unwrap()
+                    .clone(),
                 )),
             ],
             api: "bedrock-converse-stream".to_owned(),

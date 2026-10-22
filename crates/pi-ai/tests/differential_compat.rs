@@ -197,7 +197,7 @@ fn dispatch_injects_env_keys_like_the_pinned_typescript_module() {
             other => panic!("unknown thinking level {other}"),
         });
         let request = ProviderRequestOptions {
-            (api_key).map(pi_js_compat::js_json::JsString::from),
+            api_key: api_key.map(pi_js_compat::js_json::JsString::from),
             env,
             ..ProviderRequestOptions::default()
         };

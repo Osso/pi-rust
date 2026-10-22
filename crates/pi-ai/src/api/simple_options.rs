@@ -230,7 +230,10 @@ mod tests {
             Some(&options),
             Some(&pi_js_compat::js_json::JsString::from("key")),
         );
-        assert_eq!(base.request.api_key.as_ref(), Some("key"));
+        assert_eq!(
+            base.request.api_key.as_ref(),
+            Some(&pi_js_compat::js_json::JsString::from("key"))
+        );
         assert_eq!(
             base.sampling_params,
             Some(JsonObject::from_iter([

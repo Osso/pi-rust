@@ -455,7 +455,12 @@ fn scenarios() -> Vec<Scenario> {
                 AssistantContent::ToolCall(pi_ai::types::ToolCall::new(
                     "tool-1",
                     "lookup",
-                    json!({"q": "x", "": ""}).as_object().unwrap().clone(),
+                    pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(
+                        json!({"q": "x", "": ""}).as_object().unwrap().clone(),
+                    ))
+                    .as_object()
+                    .unwrap()
+                    .clone(),
                 )),
             ],
             api: "bedrock-converse-stream".to_owned(),

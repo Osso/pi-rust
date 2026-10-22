@@ -19,7 +19,14 @@ fn typebox_tool(parameters: Value) -> Tool {
 }
 
 fn tool_call(arguments: Map<String, Value>) -> ToolCall {
-    ToolCall::new("tool-1", "echo", arguments)
+    ToolCall::new(
+        "tool-1",
+        "echo",
+        pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(arguments))
+            .as_object()
+            .unwrap()
+            .clone(),
+    )
 }
 
 /// `createToolCallWithPlainSchema` from the TypeScript test: wrap a schema as the
@@ -376,7 +383,14 @@ fn received_arguments_are_pretty_printed_with_javascript_number_formatting() {
 #[test]
 fn validate_tool_call_reports_unknown_tool_names() {
     let tools = vec![plain_tool(json!({ "type": "object" }))];
-    let call = ToolCall::new("tool-1", "missing", object([]));
+    let call = ToolCall::new(
+        "tool-1",
+        "missing",
+        pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(object([])))
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
     let error = validate_tool_call(&tools, &call).expect_err("tool must be missing");
     assert_eq!(error.to_string(), "Tool \"missing\" not found");
 }
@@ -426,7 +440,14 @@ fn string_enum_builds_a_google_compatible_string_schema() {
         "properties": { "operation": schema.value().clone() }
     });
     let tool = Tool::typebox("calc", "Calculator", TypeBoxSchema::new(parameters));
-    let call = ToolCall::new("tool-1", "calc", object([("operation", json!("multiply"))]));
+    let call = ToolCall::new(
+        "tool-1",
+        "calc",
+        pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(object([("operation", json!("multiply"))])))
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
     let message = validate_tool_arguments(&tool, &call).unwrap_err().to_string();
     assert!(
         message.contains("operation: must be equal to one of the allowed values"),

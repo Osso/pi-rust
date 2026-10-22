@@ -30,7 +30,10 @@ fn assistant_call(timestamp: i64, name: &str) -> Message {
         content: vec![AssistantContent::ToolCall(ToolCall::new(
             "call_1",
             name,
-            json!({}).as_object().cloned().unwrap(),
+            pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(json!({}).as_object().cloned().unwrap()))
+                .as_object()
+                .unwrap()
+                .clone(),
         ))],
         stop_reason: StopReason::ToolUse,
         timestamp,

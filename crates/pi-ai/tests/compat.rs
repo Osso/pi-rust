@@ -143,7 +143,9 @@ fn unknown_api_reports_the_registration_error_in_the_stream() {
     };
     assert_eq!(
         error.error_message.as_ref(),
-        Some("No API provider registered for api: missing-api")
+        Some(&pi_js_compat::js_json::JsString::from(
+            "No API provider registered for api: missing-api"
+        ))
     );
     assert_eq!(error.stop_reason, StopReason::Error);
 }
@@ -329,7 +331,9 @@ fn api_mismatch_is_reported_as_the_typescript_error_message() {
     };
     assert_eq!(
         error.error_message.as_ref(),
-        Some("Mismatched api: other-api expected openai-responses")
+        Some(&pi_js_compat::js_json::JsString::from(
+            "Mismatched api: other-api expected openai-responses"
+        ))
     );
 }
 

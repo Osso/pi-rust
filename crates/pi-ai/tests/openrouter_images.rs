@@ -282,7 +282,9 @@ async fn missing_api_key_returns_an_error_without_a_request() {
     assert_eq!(output.stop_reason, ImagesStopReason::Error);
     assert_eq!(
         output.error_message.as_ref(),
-        Some("No API key for provider: openrouter")
+        Some(&pi_js_compat::js_json::JsString::from(
+            "No API key for provider: openrouter"
+        ))
     );
     assert!(fetch.requests().is_empty());
 }
@@ -305,7 +307,10 @@ async fn aborted_signal_returns_aborted_without_a_request() {
         .await
         .expect("generation returns a result");
     assert_eq!(output.stop_reason, ImagesStopReason::Aborted);
-    assert_eq!(output.error_message.as_ref(), Some("Request aborted"));
+    assert_eq!(
+        output.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("Request aborted"))
+    );
     assert!(fetch.requests().is_empty());
 }
 
@@ -484,7 +489,10 @@ async fn timeout_returns_the_sdk_timeout_message() {
         .await
         .expect("generation returns a result");
     assert_eq!(output.stop_reason, ImagesStopReason::Error);
-    assert_eq!(output.error_message.as_ref(), Some("Request timed out."));
+    assert_eq!(
+        output.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("Request timed out."))
+    );
 }
 
 #[tokio::test]
@@ -516,5 +524,8 @@ async fn abort_during_body_read_returns_aborted() {
         .await
         .expect("generation returns a result");
     assert_eq!(output.stop_reason, ImagesStopReason::Aborted);
-    assert_eq!(output.error_message.as_ref(), Some("Request aborted"));
+    assert_eq!(
+        output.error_message.as_ref(),
+        Some(&pi_js_compat::js_json::JsString::from("Request aborted"))
+    );
 }
