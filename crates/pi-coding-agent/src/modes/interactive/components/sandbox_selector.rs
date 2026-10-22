@@ -1,5 +1,6 @@
 //! Ported from `packages/coding-agent/src/modes/interactive/components/sandbox-selector.ts`.
 
+use pi_js_compat::{js_format, js_json::JsString};
 use std::rc::Rc;
 
 use pi_tui::components::spacer::Spacer;
@@ -96,13 +97,15 @@ impl SandboxSelectorComponent {
             )),
             component(Spacer::new(1)),
         ];
-        let controls = [
-            raw_key_hint("↑↓", "navigate"),
-            raw_key_hint("Tab", "scope"),
-            key_hint("tui.select.confirm", "save"),
-            key_hint("tui.select.cancel", "cancel"),
-        ]
-        .join("  ");
+        let controls = JsString::join(
+            [
+                raw_key_hint("↑↓", "navigate"),
+                raw_key_hint("Tab", "scope"),
+                key_hint("tui.select.confirm", "save"),
+                key_hint("tui.select.cancel", "cancel"),
+            ],
+            "  ",
+        );
         let suffix_children = vec![
             component(Spacer::new(1)),
             component(Text::new(controls, 1, 0)),
@@ -163,7 +166,7 @@ impl SandboxSelectorComponent {
     fn update_list(&mut self) {
         self.list_container.clear();
         self.list_container.add_child(component(Text::new(
-            with_theme(|theme| theme.fg(ThemeColor::Muted, &format!("Save scope: {}", self.scope.as_str()))),
+            with_theme(|theme| theme.fg(ThemeColor::Muted, &js_format!("Save scope: {}", self.scope.as_str()))),
             1,
             0,
         )));
@@ -177,7 +180,7 @@ impl SandboxSelectorComponent {
             let prefix = if is_selected {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, "→ "))
             } else {
-                "  ".to_owned()
+                JsString::from("  ")
             };
             let label = if is_selected {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, option.label))
@@ -187,10 +190,13 @@ impl SandboxSelectorComponent {
             let checkmark = if option.profile == active_profile {
                 with_theme(|theme| theme.fg(ThemeColor::Success, " ✓"))
             } else {
-                String::new()
+                JsString::default()
             };
-            self.list_container
-                .add_child(component(Text::new(format!("{prefix}{label}{checkmark}"), 1, 0)));
+            self.list_container.add_child(component(Text::new(
+                js_format!("{}{}{}", prefix, label, checkmark),
+                1,
+                0,
+            )));
         }
     }
 
@@ -200,7 +206,7 @@ impl SandboxSelectorComponent {
 }
 
 impl Component for SandboxSelectorComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
         for child in &self.prefix_children {
             lines.extend(child.borrow_mut().render(width));
@@ -212,7 +218,7 @@ impl Component for SandboxSelectorComponent {
         lines
     }
 
-    fn handle_input(&mut self, key_data: &str) {
+    fn handle_input(&mut self, key_data: &JsString) {
         let keybindings = get_keybindings();
         let options = self.options_for_scope();
         if keybindings.matches(key_data, "tui.select.up") || key_data == "k" {
