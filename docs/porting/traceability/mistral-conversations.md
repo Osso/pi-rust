@@ -1,5 +1,7 @@
 # mistral-conversations.ts
 
+Q18 ingress representation and current bounded proof: [lossless provider ingress](lossless-provider-ingress.md). Earlier suite counts below are historical, not new-pin rerun evidence.
+
 Source: `packages/ai/src/api/mistral-conversations.ts` (pinned revision).
 Rust: `crates/pi-ai/src/api/mistral_conversations.rs`.
 Tests: `crates/pi-ai/tests/mistral_conversations.rs`,

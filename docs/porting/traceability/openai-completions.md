@@ -1,5 +1,7 @@
 # openai-completions traceability
 
+Q18 ingress representation and current bounded proof: [lossless provider ingress](lossless-provider-ingress.md). Earlier suite counts below are historical, not new-pin rerun evidence.
+
 Source: `packages/ai/src/api/openai-completions.ts` and `openai-completions.lazy.ts`.
 Rust: `crates/pi-ai/src/api/openai_completions.rs`.
 Tests: module unit tests, `crates/pi-ai/tests/openai_completions.rs` (9 behavioral), `crates/pi-ai/tests/differential_openai_completions.rs` (35 recorded-fetch scenarios).
