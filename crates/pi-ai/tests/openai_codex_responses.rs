@@ -808,7 +808,7 @@ async fn websocket_cached_continuation_sends_only_input_deltas() {
     .await
     .1;
 
-    assert_eq!(text_of(&second), Some("Done"));
+    assert_eq!(text_of(&second), Some(&pi_js_compat::js_json::JsString::from("Done")));
     let connections = server.records.connections.lock().unwrap();
     assert_eq!(connections.len(), 1);
     let frames = &connections[0].frames;
@@ -1015,7 +1015,7 @@ async fn websocket_reconnects_once_when_connection_limit_is_reached() {
     let (events, result) = collect(stream(ws_model(&server.url), context(), opts)).await;
 
     assert_eq!(result.stop_reason, StopReason::Stop);
-    assert_eq!(text_of(&result), Some("ok"));
+    assert_eq!(text_of(&result), Some(&pi_js_compat::js_json::JsString::from("ok")));
     assert_eq!(
         events
             .iter()
@@ -1073,7 +1073,10 @@ async fn websocket_recovers_missing_cached_continuation() {
     .await;
 
     assert_eq!(second.stop_reason, StopReason::Stop);
-    assert_eq!(text_of(&second), Some("Recovered"));
+    assert_eq!(
+        text_of(&second),
+        Some(&pi_js_compat::js_json::JsString::from("Recovered"))
+    );
     assert_eq!(
         events
             .iter()

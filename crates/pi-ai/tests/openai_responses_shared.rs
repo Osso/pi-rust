@@ -108,7 +108,7 @@ fn foreign_tool_call_item_id_is_hashed_into_fc_shape() {
     let expected = format!("fc_{}", short_hash(raw.split('|').nth(1).expect("item id")));
     assert_eq!(
         function_call["id"],
-        pi_js_compat::js_json::JsValue::String(expected.into())
+        pi_js_compat::js_json::JsValue::String(pi_js_compat::js_json::JsString::from(&expected))
     );
     assert!(expected.len() <= 64);
 }
@@ -131,7 +131,7 @@ fn fallback_message_ids_are_unique_per_text_block() {
     let ids = messages
         .iter()
         .filter(|item| item["type"] == pi_js_compat::js_json::JsValue::String(("message").into()))
-        .map(|item| item["id"].as_js_string().expect("id").to_owned())
+        .map(|item| item["id"].as_string().expect("id").to_owned())
         .collect::<Vec<_>>();
     assert_eq!(ids, ["msg_pi_1", "msg_pi_1_1", "msg_pi_1_2"]);
 }

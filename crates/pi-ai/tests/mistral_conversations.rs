@@ -285,7 +285,7 @@ async fn serializes_sdk_style_payloads_to_the_mistral_wire_format() {
     let (_, message) = collect(stream(model("mistral-large-latest", false), context, options)).await;
     assert_eq!(message.stop_reason, StopReason::Stop);
 
-    let payload = json!(captured.lock().unwrap().clone().expect("payload captured"));
+    let payload = captured.lock().unwrap().clone().expect("payload captured");
     assert_eq!(payload["maxTokens"], pi_js_compat::js_json::JsValue::from(json!(123)));
     assert_eq!(
         payload["promptMode"],
