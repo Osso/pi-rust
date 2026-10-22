@@ -149,6 +149,13 @@ impl JsString {
         self.clone().trim_js_whitespace()
     }
 
+    /// `String.prototype.padEnd(width)`: pads with spaces to `width` UTF-16 units.
+    pub fn pad_end(&self, width: usize) -> Self {
+        let mut padded = self.clone();
+        padded.0.resize(width.max(self.len()), u16::from(b' '));
+        padded
+    }
+
     fn trim_js_whitespace(self) -> Self {
         let start = self
             .0
