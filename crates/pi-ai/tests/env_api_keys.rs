@@ -76,7 +76,7 @@ fn zai_china_coding_plan_uses_its_own_env_var() {
 }
 
 #[test]
-fn anthropic_reports_auth_token_but_never_returns_it_as_api_key() {
+fn anthropic_ignores_auth_token_and_prefers_oauth() {
     let all = env(&[
         ("ANTHROPIC_AUTH_TOKEN", "auth-token"),
         ("ANTHROPIC_OAUTH_TOKEN", "oauth-token"),
@@ -85,11 +85,7 @@ fn anthropic_reports_auth_token_but_never_returns_it_as_api_key() {
     let lookup = |_: &str| None;
     assert_eq!(
         find_env_keys_with("anthropic", Some(&all), lookup),
-        Some(vec![
-            "ANTHROPIC_AUTH_TOKEN".to_owned(),
-            "ANTHROPIC_OAUTH_TOKEN".to_owned(),
-            "ANTHROPIC_API_KEY".to_owned(),
-        ])
+        Some(vec!["ANTHROPIC_OAUTH_TOKEN".to_owned(), "ANTHROPIC_API_KEY".to_owned(),])
     );
     assert_eq!(
         get_env_api_key_with("anthropic", Some(&all), lookup, &adc_missing()),
@@ -97,10 +93,7 @@ fn anthropic_reports_auth_token_but_never_returns_it_as_api_key() {
     );
 
     let auth_only = env(&[("ANTHROPIC_AUTH_TOKEN", "auth-token")]);
-    assert_eq!(
-        find_env_keys_with("anthropic", Some(&auth_only), lookup),
-        Some(vec!["ANTHROPIC_AUTH_TOKEN".to_owned()])
-    );
+    assert_eq!(find_env_keys_with("anthropic", Some(&auth_only), lookup), None);
     assert_eq!(
         get_env_api_key_with("anthropic", Some(&auth_only), lookup, &adc_missing()),
         None
@@ -251,9 +244,6 @@ fn bedrock_ambient_credential_sources_report_authenticated() {
 fn api_key_env_map_covers_known_providers() {
     let cases = [
         ("ant-ling", "ANT_LING_API_KEY"),
-        ("qwen-token-plan", "QWEN_TOKEN_PLAN_API_KEY"),
-        ("qwen-token-plan-cn", "QWEN_TOKEN_PLAN_CN_API_KEY"),
-        ("qwen-token-plan-individual", "QWEN_TOKEN_PLAN_API_KEY"),
         ("nvidia", "NVIDIA_API_KEY"),
         ("deepseek", "DEEPSEEK_API_KEY"),
         ("google", "GEMINI_API_KEY"),
@@ -261,7 +251,6 @@ fn api_key_env_map_covers_known_providers() {
         ("groq", "GROQ_API_KEY"),
         ("cerebras", "CEREBRAS_API_KEY"),
         ("xai", "XAI_API_KEY"),
-        ("radius", "RADIUS_API_KEY"),
         ("openrouter", "OPENROUTER_API_KEY"),
         ("vercel-ai-gateway", "AI_GATEWAY_API_KEY"),
         ("zai", "ZAI_API_KEY"),
@@ -273,7 +262,6 @@ fn api_key_env_map_covers_known_providers() {
         ("huggingface", "HF_TOKEN"),
         ("fireworks", "FIREWORKS_API_KEY"),
         ("together", "TOGETHER_API_KEY"),
-        ("baseten", "BASETEN_API_KEY"),
         ("opencode", "OPENCODE_API_KEY"),
         ("opencode-go", "OPENCODE_API_KEY"),
         ("kimi-coding", "KIMI_API_KEY"),
@@ -290,6 +278,25 @@ fn api_key_env_map_covers_known_providers() {
             find_env_keys_with(provider, Some(&scoped), |_: &str| None),
             Some(vec![env_name.to_owned()]),
             "provider {provider}"
+        );
+    }
+}
+
+#[test]
+fn removed_provider_keys_are_not_ambient_credentials() {
+    for provider in [
+        "qwen-token-plan",
+        "qwen-token-plan-cn",
+        "qwen-token-plan-individual",
+        "radius",
+        "baseten",
+    ] {
+        let lookup = |name: &str| Some(format!("key-for-{name}"));
+        assert_eq!(find_env_keys_with(provider, None, lookup), None, "{provider}");
+        assert_eq!(
+            get_env_api_key_with(provider, None, lookup, &adc_missing()),
+            None,
+            "{provider}"
         );
     }
 }
