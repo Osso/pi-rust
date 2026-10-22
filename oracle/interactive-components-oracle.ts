@@ -446,6 +446,32 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		}
 		return footer.render(request.width);
 	},
+	loginLifecycle: async (api, request, sourceRoot) => {
+		const themeApi = await import(pathToFileURL(`${sourceRoot}/modes/interactive/theme/theme.ts`).href);
+		themeApi.initTheme("dark", false);
+		const events: unknown[] = [];
+		const answers: unknown[] = [];
+		const dialog = new api.LoginDialogComponent({ requestRender: () => events.push(["render"]) }, "fixture", (success: boolean, message: string) => events.push(["complete", success, message]), undefined, "Fixture");
+		const states: unknown[] = [];
+		for (const step of request.steps) {
+			if (step.op === "prompt" || step.op === "manual") {
+				const index = answers.length;
+				answers.push("pending");
+				const promise = step.op === "prompt" ? dialog.showPrompt(step.message, step.placeholder) : dialog.showManualInput(step.message);
+				promise.then((value: string) => { answers[index] = ["ok", value]; }, (error: Error) => { answers[index] = ["error", error.message]; });
+			} else if (step.op === "input") dialog.handleInput(step.data);
+			else if (step.op === "info") dialog.showInfo(step.lines);
+			else if (step.op === "waiting") dialog.showWaiting(step.message);
+			else if (step.op === "progress") dialog.showProgress(step.message);
+			else if (step.op === "device") dialog.showDeviceCode(step.info);
+			else if (step.op === "auth") dialog.showAuth(step.url, step.instructions);
+			else if (step.op === "focus") dialog.focused = step.value;
+			else throw new Error(`unknown login step ${step.op}`);
+			await Promise.resolve();
+			states.push({ frames: dialog.render(request.width).map((line: string) => Array.from({ length: line.length }, (_, i) => line.charCodeAt(i))), answers: structuredClone(answers), cancelled: dialog.signal.aborted, focused: dialog.focused });
+		}
+		return { states, events };
+	},
 	themeController: async (api, request, sourceRoot) => {
 		const themeApi = await import(pathToFileURL(`${sourceRoot}/modes/interactive/theme/theme.ts`).href);
 		const events: unknown[] = [];

@@ -373,7 +373,7 @@ async fn login_dialog_keeps_raw_prompt_answer_and_display() {
     assert!(JsString::join(dialog.render(120), "\n").contains(&raw));
     dialog.handle_input(&raw);
     dialog.handle_input(&"\r".into());
-    assert_eq!(answer.await.unwrap().unwrap(), raw);
+    assert_eq!(answer.await.unwrap(), raw);
 }
 
 #[test]
