@@ -19,6 +19,11 @@ async function main() {
 			process.stdout.write(`${JSON.stringify({call:call.render(input.width),result:result.render(input.width)})}\n`);
 			continue;
 		}
+		if (input.kind === "fileAttachment") {
+			const result=await module.processFileArguments(input.paths);
+			process.stdout.write(`${JSON.stringify(result)}\n`);
+			continue;
+		}
 		if (input.kind === "shellMissing") {
 			try { module.getShellConfig(input.path); throw new Error("expected missing shell"); }
 			catch(error) {

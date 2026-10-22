@@ -51,6 +51,12 @@ Artifacts: `/tmp/pi-rust-repin-lossless-tools/`.
 
 `utils::ansi::strip_ansi` is the single native UTF-16 API; removed `strip_ansi_js` and its surrogate sentinel/offset projection. Shared JsRegex removes ANSI ranges directly. `utils::shell::sanitize_binary_output` filters UTF-16 units, preserving retained unmatched units and pairs. `ansi-red.log` is compiler RED for the old API. `ansi-green.log`: 1/1 native cleanup test PASS using actual ANSI, shell and child-process modules, zero warnings. Frozen cleanup comparison was added after that log and remains pending execution.
 
+## CLI file-processor checkpoint
+
+`process_file_arguments` takes native cwd and accepts a slice of values convertible to JsString (including decoded CLI `String` argv and raw API paths); each path is resolved natively once. Attachment text and FileProcessorError.message are JsString. Only metadata/read/MIME filesystem calls encode paths. Image/text wrappers interpolate the original raw resolved filename. `file-processor-red.log`: compiler RED. `file-processor-green.log`: **1/1 test PASS, zero warnings**, actual-file original raw filename markup and empty arguments match frozen TS. Actual image processing is excluded from this bounded probe (explicit panic stub).
+
+Outside caller: `main.rs` receives native text and `error.message(): &JsString`; its existing parsed `Vec<String>` file args remain accepted by the generic input without another legacy API. CLI file-processor regression tests need native cwd fixture adaptation.
+
 ## Shell configuration checkpoint
 
 Main granted the whole shell module. `ShellConfig.shell/args` and `ShellError` messages are native; `get_shell_config` accepts `Option<&JsString>`; `ShellError::message` exposes the raw error while Display alone encodes. Shell lookup tests existence at the actual filesystem boundary, retains raw custom paths in diagnostics, and uses native lexical Windows-shim matching. `get_shell_env` returns `BTreeMap<JsString,JsString>`; consumers must encode keys/values only at spawn. External process lookup stdout is decoded into the native authority on entry.
