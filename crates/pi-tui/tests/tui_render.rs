@@ -307,7 +307,10 @@ fn clears_reserved_kitty_image_rows_before_drawing_appended_placements() {
         terminal.borrow_mut().clear_writes();
 
         let image = kitty(2, 2, None);
-        set_lines_owned(&state, vec![JsString::from("before"), image.clone(), String::new()]);
+        set_lines_owned(
+            &state,
+            vec![JsString::from("before"), image.clone(), JsString::default()],
+        );
         tui.request_render(false);
         wait(&tui, &terminal);
 
@@ -342,8 +345,8 @@ fn falls_back_to_full_redraw_when_kitty_image_pre_clear_would_scroll() {
             vec![
                 JsString::from("before"),
                 image,
-                String::new(),
-                String::new(),
+                JsString::default(),
+                JsString::default(),
                 JsString::from("after"),
             ],
         );
@@ -378,8 +381,8 @@ fn reserves_kitty_image_rows_before_drawing_during_full_redraw_fallbacks() {
                 JsString::from("l3"),
                 JsString::from("l4"),
                 image.clone(),
-                String::new(),
-                String::new(),
+                JsString::default(),
+                JsString::default(),
                 JsString::from("after"),
             ],
         );
@@ -410,7 +413,7 @@ fn does_not_use_cursor_up_placement_for_kitty_images_taller_than_the_viewport() 
 
         let image = kitty(6, 6, None);
         let mut lines = vec![JsString::from("before"), image.clone()];
-        lines.extend(std::iter::repeat_n(String::new(), 5));
+        lines.extend(std::iter::repeat_n(JsString::default(), 5));
         lines.push(JsString::from("after"));
         set_lines_owned(&state, lines);
         tui.request_render(true);
@@ -436,7 +439,7 @@ fn deletes_changed_image_ids_before_drawing_moved_placements() {
     terminal.borrow_mut().clear_writes();
 
     let new_image = kitty(2, 1, Some(42));
-    set_lines_owned(&state, vec![new_image.clone(), String::new()]);
+    set_lines_owned(&state, vec![new_image.clone(), JsString::default()]);
     tui.request_render(false);
     wait(&tui, &terminal);
 
@@ -455,7 +458,7 @@ fn redraws_image_lines_when_an_earlier_reserved_image_row_changes() {
     let (child, state) = test_component(&[""]);
     tui.add_child(child);
     let image = kitty(2, 2, Some(88));
-    set_lines_owned(&state, vec![String::new(), image.clone()]);
+    set_lines_owned(&state, vec![JsString::default(), image.clone()]);
     tui.start().unwrap();
     wait(&tui, &terminal);
     terminal.borrow_mut().clear_writes();
