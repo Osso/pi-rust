@@ -75,30 +75,39 @@ fn shorten_path(path: &JsString) -> JsString {
     path.to_owned()
 }
 
-fn format_session_date(modified_ms: i64, now_ms: i64) -> JsString {
-    let diff_ms = now_ms - modified_ms;
-    let diff_mins = diff_ms.div_euclid(60_000);
-    let diff_hours = diff_ms.div_euclid(3_600_000);
-    let diff_days = diff_ms.div_euclid(86_400_000);
-    if diff_mins < 1 {
+fn format_session_date(modified_ms: f64, now_ms: i64) -> JsString {
+    let diff_ms = now_ms as f64 - modified_ms;
+    let diff_mins = (diff_ms / 60_000.0).floor();
+    let diff_hours = (diff_ms / 3_600_000.0).floor();
+    let diff_days = (diff_ms / 86_400_000.0).floor();
+    if diff_mins < 1.0 {
         return JsString::from("now");
     }
-    if diff_mins < 60 {
-        return js_format!("{}m", diff_mins);
+    if diff_mins < 60.0 {
+        return js_format!("{}m", pi_js_compat::number::js_number_to_string(diff_mins));
     }
-    if diff_hours < 24 {
-        return js_format!("{}h", diff_hours);
+    if diff_hours < 24.0 {
+        return js_format!("{}h", pi_js_compat::number::js_number_to_string(diff_hours));
     }
-    if diff_days < 7 {
-        return js_format!("{}d", diff_days);
+    if diff_days < 7.0 {
+        return js_format!("{}d", pi_js_compat::number::js_number_to_string(diff_days));
     }
-    if diff_days < 30 {
-        return js_format!("{}w", diff_days.div_euclid(7));
+    if diff_days < 30.0 {
+        return js_format!(
+            "{}w",
+            pi_js_compat::number::js_number_to_string((diff_days / 7.0).floor())
+        );
     }
-    if diff_days < 365 {
-        return js_format!("{}mo", diff_days.div_euclid(30));
+    if diff_days < 365.0 {
+        return js_format!(
+            "{}mo",
+            pi_js_compat::number::js_number_to_string((diff_days / 30.0).floor())
+        );
     }
-    js_format!("{}y", diff_days.div_euclid(365))
+    js_format!(
+        "{}y",
+        pi_js_compat::number::js_number_to_string((diff_days / 365.0).floor())
+    )
 }
 
 fn canonicalize(path: Option<&JsString>) -> Option<JsString> {
@@ -351,7 +360,7 @@ struct FlatSessionNode {
 
 fn build_session_tree(sessions: &[SessionInfo]) -> Vec<SessionTreeNode> {
     let mut by_path: HashMap<JsString, usize> = HashMap::new();
-    let mut latest_activity: Vec<i64> = sessions.iter().map(|session| session.modified).collect();
+    let mut latest_activity: Vec<f64> = sessions.iter().map(|session| session.modified).collect();
     let mut children: Vec<Vec<usize>> = vec![Vec::new(); sessions.len()];
     for (index, session) in sessions.iter().enumerate() {
         let session_path = canonicalize(Some(&session.path)).unwrap_or_else(|| session.path.clone());
@@ -368,18 +377,25 @@ fn build_session_tree(sessions: &[SessionInfo]) -> Vec<SessionTreeNode> {
         }
     }
 
-    fn update_latest_activity(index: usize, latest: &mut [i64], children: &[Vec<usize>]) -> i64 {
+    fn update_latest_activity(index: usize, latest: &mut [f64], children: &[Vec<usize>]) -> f64 {
         let mut activity = latest[index];
         for child in &children[index] {
-            activity = activity.max(update_latest_activity(*child, latest, children));
+            let child_activity = update_latest_activity(*child, latest, children);
+            activity = if activity.is_nan() || child_activity.is_nan() {
+                f64::NAN
+            } else {
+                activity.max(child_activity)
+            };
         }
         latest[index] = activity;
         activity
     }
 
-    fn sort_nodes(index: usize, sessions: &[SessionInfo], latest: &[i64], children: &mut [Vec<usize>]) {
+    fn sort_nodes(index: usize, sessions: &[SessionInfo], latest: &[f64], children: &mut [Vec<usize>]) {
         let mut node_children = children[index].clone();
-        node_children.sort_by(|left, right| compare_session_ids(*left, *right, sessions, latest));
+        pi_js_compat::array_sort::js_array_sort(&mut node_children, |left, right| {
+            compare_session_ids(*left, *right, sessions, latest)
+        });
         for child in &node_children {
             sort_nodes(*child, sessions, latest, children);
         }
@@ -402,29 +418,22 @@ fn build_session_tree(sessions: &[SessionInfo]) -> Vec<SessionTreeNode> {
     for root in &roots {
         sort_nodes(*root, sessions, &latest_activity, &mut children);
     }
-    roots.sort_by(|left, right| compare_session_ids(*left, *right, sessions, &latest_activity));
+    pi_js_compat::array_sort::js_array_sort(&mut roots, |left, right| {
+        compare_session_ids(*left, *right, sessions, &latest_activity)
+    });
     roots
         .iter()
         .map(|root| materialize(*root, sessions, &children))
         .collect()
 }
 
-fn compare_session_ids(
-    left: usize,
-    right: usize,
-    sessions: &[SessionInfo],
-    latest_activity: &[i64],
-) -> std::cmp::Ordering {
+fn compare_session_ids(left: usize, right: usize, sessions: &[SessionInfo], latest_activity: &[f64]) -> f64 {
     let left_named = has_session_name(&sessions[left]);
     let right_named = has_session_name(&sessions[right]);
     if left_named != right_named {
-        return if left_named {
-            std::cmp::Ordering::Less
-        } else {
-            std::cmp::Ordering::Greater
-        };
+        return if left_named { -1.0 } else { 1.0 };
     }
-    latest_activity[right].cmp(&latest_activity[left])
+    latest_activity[right] - latest_activity[left]
 }
 
 fn flatten_session_tree(roots: &[SessionTreeNode]) -> Vec<FlatSessionNode> {

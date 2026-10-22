@@ -44,8 +44,8 @@ fn make_session(id: &str, modified: i64, first_message: &str) -> SessionInfo {
         name: None,
         is_archived: None,
         parent_session_path: None,
-        created: 0,
-        modified,
+        created: 0.0,
+        modified: modified as f64,
         message_count: 1,
         first_message: JsString::from(first_message.to_owned()),
     }

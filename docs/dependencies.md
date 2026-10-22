@@ -10,6 +10,8 @@ All direct dependencies are exact-pinned.
 
 ### `pi-js-compat`
 
+- `array_sort` ports the exact pinned V8 TimSort algorithm without a crate dependency. Required for Date/NaN and other inconsistent comparators, whose order and callback trace differ from Rust stable sort. Node v26.11.1 primary-file provenance: [source lock](porting/v8-array-sort-source-lock.json); retained PSF notice and [license](porting/vendor/V8-array-sort-PSF-LICENSE). Changes are documented in the Rust header: dense index workarray/final permutation replace JS object accessors. [Proof](porting/traceability/array-sort.md).
+
 - `node_ignore` ports frozen npm `ignore@7.0.5` defaults over shared `JsString`/`JsRegex`; no additional dependency. Coding-agent package discovery uses this instead of Rust `ignore = 0.4.23` (removed).
 
 - `rustix = 1.1.5` — runtime `io::Errno` names for the centralized Node filesystem/spawn error map, moved unchanged from coding-agent; existing exact dev pin promoted without a new package/version. The `process` feature remains development-only for oracle teardown.
@@ -50,7 +52,7 @@ All direct dependencies are exact-pinned.
 - `tokio = 1.53.3` (`rt`, `macros`, `time`, `sync`, `process`, `io-util`, `io-std`, `fs`) — provides async sleep, cancellation, process I/O for `utils::{sleep, abort, child_process}`, and the stdin/stdout line read behind `main::prompt_confirm`.
 - `tokio-util = 0.7.20` — supplies `CancellationToken` as the Rust `AbortSignal` mapping.
 - `notify = 8.2.0` — provides the platform file watcher behind `utils::fs_watch`.
-- `fancy-regex = 0.16.2` — retained by interactive session-selector search. Syntax highlighting and bwrap grep use the shared native UTF-16 `pi-js-compat::js_regex::JsRegex` adapter; the highlighter's old translation/Plain/Fancy paths are removed.
+- Removed the unused coding-agent `fancy-regex` dependency: session-selector search, syntax highlighting and bwrap grep use shared native UTF-16 `pi-js-compat::js_regex::JsRegex`. The separate pi-tui dependency is unchanged.
 - `photon-rs = 0.3.3` (exact, `default-features = false`) — the Rust image library compiled to the `@silvia-odwyer/photon-node` 0.3.4 WASM used by `utils::{photon, exif_orientation, image_convert, image_resize_core}`. Resize (Lanczos3), flips, and `PhotonImage` come from this crate so output bytes match.
 - `image = 0.24.9` (exact, `default-features = false`, codec features mirroring photon-rs) — supplies the fallible `load_from_memory`/`DynamicImage::write_to` calls behind `utils::photon`, replacing photon-rs' panicking wrappers; pinned with the `png 0.17.14`, `jpeg-decoder 0.3.1`, `gif 0.13.1`, `tiff 0.9.1`, `flate2 1.0.34`, `miniz_oxide 0.8.0`, `fdeflate 0.3.6`, `weezl 0.1.8` versions embedded in that WASM build (see `docs/porting/traceability/photon.md`).
 - `clipboard-rs = 0.3.4` (exact) — the release vendored by `@mariozechner/clipboard` 0.3.9, providing the native X11/Wayland/macOS/Windows clipboard behind `utils::clipboard_native`.

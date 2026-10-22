@@ -2043,17 +2043,13 @@ fn sort_named_sessions_first(
     sessions: Vec<crate::core::session_manager::SessionInfo>,
 ) -> Vec<crate::core::session_manager::SessionInfo> {
     let mut sessions = sessions;
-    sessions.sort_by(|a, b| {
+    pi_js_compat::array_sort::js_array_sort(&mut sessions, |a, b| {
         let a_named = session_has_name(a);
         let b_named = session_has_name(b);
         if a_named != b_named {
-            return if a_named {
-                std::cmp::Ordering::Less
-            } else {
-                std::cmp::Ordering::Greater
-            };
+            return if a_named { -1.0 } else { 1.0 };
         }
-        b.modified.cmp(&a.modified)
+        b.modified - a.modified
     });
     sessions
 }

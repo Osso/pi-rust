@@ -54,6 +54,32 @@ pub fn time_clip_millis(millis: f64) -> Option<i64> {
     Some(millis.trunc() as i64)
 }
 
+/// JavaScript Date's numeric time value: TimeClip at `new Date(number)`.
+pub fn time_clip(millis: f64) -> f64 {
+    time_clip_millis(millis).map_or(f64::NAN, |millis| millis as f64)
+}
+
+/// `Date.prototype.toISOString` rejects Invalid Date with RangeError.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidTimeValue;
+
+impl InvalidTimeValue {
+    pub fn name(&self) -> &'static str {
+        "RangeError"
+    }
+}
+impl std::fmt::Display for InvalidTimeValue {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("Invalid time value")
+    }
+}
+impl std::error::Error for InvalidTimeValue {}
+
+/// `new Date(millis).toISOString()`, including the invalid-date failure boundary.
+pub fn to_iso_string_value(millis: f64) -> Result<String, InvalidTimeValue> {
+    time_clip_millis(millis).map(to_iso_string).ok_or(InvalidTimeValue)
+}
+
 /// [`date_parse`] as integral epoch milliseconds; `None` where JavaScript returns `NaN`.
 pub fn date_parse_millis(input: &str) -> Option<i64> {
     let millis = date_parse(input);
