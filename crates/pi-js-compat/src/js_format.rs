@@ -64,7 +64,7 @@ macro_rules! integer_format_argument {
     )*};
 }
 
-integer_format_argument!(u8, i32, i64, u32, u64, usize);
+integer_format_argument!(u8, u16, i32, i64, u32, u64, usize);
 
 impl<T: FormatArgument + ?Sized> FormatArgument for &T {
     fn to_js_string(&self) -> JsString {
@@ -136,6 +136,8 @@ mod tests {
         assert_eq!(js_format!("{}", 0u64), "0");
         let output_pad: u8 = 2;
         assert_eq!(js_format!("pad {}", output_pad), "pad 2");
+        let port: u16 = 65535;
+        assert_eq!(js_format!("http://localhost:{}/", port), "http://localhost:65535/");
     }
 
     #[test]
