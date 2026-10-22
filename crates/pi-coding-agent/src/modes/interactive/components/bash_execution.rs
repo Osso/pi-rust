@@ -17,7 +17,7 @@ use crate::core::tools::truncate::{
     DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncationOptions, TruncationResult, truncate_tail,
 };
 use crate::modes::interactive::theme::{ThemeColor, with_theme};
-use crate::utils::ansi::strip_ansi_js;
+use crate::utils::ansi::strip_ansi;
 use pi_js_compat::{js_format, js_json::JsString};
 
 const BASH_TIMER_INTERVAL_MS: u64 = 1000;
@@ -125,7 +125,7 @@ impl BashExecutionComponent {
 
     pub fn append_output(&mut self, chunk: impl Into<JsString>) {
         let chunk = chunk.into();
-        let clean = strip_ansi_js(&chunk).replace("\r\n", "\n").replace("\r", "\n");
+        let clean = strip_ansi(&chunk).replace("\r\n", "\n").replace("\r", "\n");
         let new_lines: Vec<JsString> = clean.split('\n').collect();
         if self.output_lines.is_empty() {
             self.output_lines.extend(new_lines);
@@ -223,11 +223,7 @@ impl BashExecutionComponent {
         let available_lines: Vec<JsString> = if context_truncation.content.is_empty() {
             Vec::new()
         } else {
-            context_truncation
-                .content
-                .split('\n')
-                .map(|line| pi_js_compat::js_json::encode_node_utf8(&line))
-                .collect()
+            context_truncation.content.split('\n').collect()
         };
         let preview_start = available_lines.len().saturating_sub(PREVIEW_LINES);
         let preview_logical_lines = &available_lines[preview_start..];

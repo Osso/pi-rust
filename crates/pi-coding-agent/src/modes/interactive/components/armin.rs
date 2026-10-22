@@ -225,7 +225,7 @@ impl ArminComponent {
                 self.current_grid = (0..DISPLAY_HEIGHT)
                     .map(|_| {
                         (0..WIDTH)
-                            .map(|_| characters[random_index(characters.len())].to_owned())
+                            .map(|_| characters[random_index(characters.len())].into())
                             .collect()
                     })
                     .collect();
@@ -294,7 +294,7 @@ impl ArminComponent {
                             drop.settled = DISPLAY_HEIGHT - target_row as usize;
                             drop.y = -((random_f64() * 5.0).floor() as isize) - 1;
                         } else {
-                            self.current_grid[drop.y as usize][x] = "\u{2593}".to_owned();
+                            self.current_grid[drop.y as usize][x] = "\u{2593}".into();
                         }
                     }
                 }
