@@ -8,9 +8,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsValue as Value;
 use pi_js_compat::js_json::{self, JsObject, JsString, JsValue};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 
 use crate::core::runtime_process::ProcessIdentity;
 use crate::core::session_control_db::{
@@ -214,7 +214,7 @@ pub struct AgentRateLimit {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentPermission {
-    pub policy: String,
+    pub policy: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inherited_from: Option<JsString>,
     pub narrowed: bool,
@@ -235,51 +235,130 @@ pub struct AgentError {
     pub code: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AgentNode {
     pub id: JsString,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<JsString>,
     pub display_name: JsString,
-    pub agent_type: String,
+    pub agent_type: JsString,
     /// How the agent entered the store; absent means spawned as a child agent.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub origin: Option<AgentOrigin>,
     pub lifecycle: AgentLifecycle,
     pub revision: i64,
     pub created_at: JsString,
     pub updated_at: JsString,
     pub cwd: JsString,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree: Option<AgentWorktree>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<AgentModel>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub account: Option<AgentAccount>,
     pub permission: AgentPermission,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub slot: Option<AgentSlot>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub transcript: Option<AgentTranscriptMetadata>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub event_stream: Option<AgentEventStreamMetadata>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub worker: Option<AgentWorkerAdapter>,
     /// True when a background job was detached from its waiting tool call.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub detached: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub current_activity: Option<AgentCurrentActivity>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_activity: Option<AgentActivity>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<AgentResult>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<AgentError>,
     /// Fields the TypeScript runtime preserves through `{...agent}` spreads.
-    #[serde(flatten)]
-    pub extra: Map<String, Value>,
+    pub extra: JsObject,
+}
+
+fn agent_node_json(agent: &AgentNode) -> JsValue {
+    let JsValue::Object(mut object) = js_json::json!({
+        "id": agent.id,
+        "parentId": agent.parent_id,
+        "displayName": agent.display_name,
+        "agentType": agent.agent_type,
+        "origin": agent.origin,
+        "lifecycle": agent.lifecycle,
+        "revision": agent.revision,
+        "createdAt": agent.created_at,
+        "updatedAt": agent.updated_at,
+        "cwd": agent.cwd,
+        "worktree": agent.worktree,
+        "model": agent.model,
+        "account": agent.account,
+        "permission": agent.permission,
+        "slot": agent.slot,
+        "transcript": agent.transcript,
+        "eventStream": agent.event_stream,
+        "worker": agent.worker,
+        "detached": agent.detached,
+        "currentActivity": agent.current_activity,
+        "lastActivity": agent.last_activity,
+        "result": agent.result,
+        "error": agent.error,
+    }) else {
+        unreachable!("agent fields are an object")
+    };
+    for (key, present) in [
+        ("parentId", agent.parent_id.is_some()),
+        ("origin", agent.origin.is_some()),
+        ("worktree", agent.worktree.is_some()),
+        ("model", agent.model.is_some()),
+        ("account", agent.account.is_some()),
+        ("slot", agent.slot.is_some()),
+        ("transcript", agent.transcript.is_some()),
+        ("eventStream", agent.event_stream.is_some()),
+        ("worker", agent.worker.is_some()),
+        ("detached", agent.detached.is_some()),
+        ("currentActivity", agent.current_activity.is_some()),
+        ("lastActivity", agent.last_activity.is_some()),
+        ("result", agent.result.is_some()),
+        ("error", agent.error.is_some()),
+    ] {
+        if !present {
+            object.shift_remove(key);
+        }
+    }
+    object.extend(agent.extra.clone());
+    JsValue::Object(object)
+}
+
+impl Serialize for AgentNode {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        agent_node_json(self).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for AgentNode {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let JsValue::Object(mut object) = JsValue::deserialize(deserializer)? else {
+            return Err(serde::de::Error::custom("expected agent object"));
+        };
+        fn take<T: serde::de::DeserializeOwned, E: serde::de::Error>(object: &mut JsObject, key: &str) -> Result<T, E> {
+            js_json::from_value(&object.shift_remove(key).unwrap_or(JsValue::Null)).map_err(E::custom)
+        }
+        Ok(Self {
+            id: take(&mut object, "id")?,
+            parent_id: take(&mut object, "parentId")?,
+            display_name: take(&mut object, "displayName")?,
+            agent_type: take(&mut object, "agentType")?,
+            origin: take(&mut object, "origin")?,
+            lifecycle: take(&mut object, "lifecycle")?,
+            revision: take(&mut object, "revision")?,
+            created_at: take(&mut object, "createdAt")?,
+            updated_at: take(&mut object, "updatedAt")?,
+            cwd: take(&mut object, "cwd")?,
+            worktree: take(&mut object, "worktree")?,
+            model: take(&mut object, "model")?,
+            account: take(&mut object, "account")?,
+            permission: take(&mut object, "permission")?,
+            slot: take(&mut object, "slot")?,
+            transcript: take(&mut object, "transcript")?,
+            event_stream: take(&mut object, "eventStream")?,
+            worker: take(&mut object, "worker")?,
+            detached: take(&mut object, "detached")?,
+            current_activity: take(&mut object, "currentActivity")?,
+            last_activity: take(&mut object, "lastActivity")?,
+            result: take(&mut object, "result")?,
+            error: take(&mut object, "error")?,
+            extra: object,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -295,7 +374,7 @@ pub struct SpawnAgent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<JsString>,
     pub display_name: JsString,
-    pub agent_type: String,
+    pub agent_type: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub origin: Option<AgentOrigin>,
     pub cwd: JsString,
@@ -473,7 +552,7 @@ pub struct RecordOutboundSessionMessageInput {
     pub file_refs: Option<JsValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSlotProjection {
     pub agent_id: JsString,
@@ -510,13 +589,13 @@ pub struct MultiAgentProjectionSnapshot {
     pub slots: Vec<AgentSlotProjection>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AgentViewSelectionResult {
     Ok(Box<AgentSnapshot>),
     NotFound { agent_id: JsString },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ActiveAgentTargetSelectionResult {
     Ok(Box<AgentSnapshot>),
     NotFound { agent_id: JsString },
@@ -540,7 +619,7 @@ pub enum AgentMetadataCommandResult {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AgentTranscriptCommandResult {
     Ok(Box<AgentSnapshot>),
     NotFound { agent_id: JsString },
@@ -1952,7 +2031,7 @@ impl MultiAgentStore {
     fn create_main_thread_snapshot(&self) -> AgentSnapshot {
         let timestamp = self.now();
         AgentSnapshot {
-            agent_type: "main".to_owned(),
+            agent_type: "main".into(),
             created_at: timestamp.clone().into(),
             cwd: JsString::default(),
             display_name: "Main thread".into(),
@@ -1961,7 +2040,7 @@ impl MultiAgentStore {
             parent_id: None,
             permission: AgentPermission {
                 narrowed: true,
-                policy: "on-request".to_owned(),
+                policy: "on-request".into(),
                 inherited_from: None,
             },
             revision: 0,
@@ -1979,7 +2058,7 @@ impl MultiAgentStore {
             last_activity: None,
             result: None,
             error: None,
-            extra: Map::new(),
+            extra: JsObject::new(),
         }
     }
 

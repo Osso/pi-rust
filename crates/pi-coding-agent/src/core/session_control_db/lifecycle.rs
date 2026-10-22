@@ -130,7 +130,7 @@ pub struct FinalizeDetachedJobInput {
     pub terminal: DetachedJobTerminalInput,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum FinalizeDetachedJobResult {
     Ok {
         terminal_agent: Box<AgentSnapshot>,

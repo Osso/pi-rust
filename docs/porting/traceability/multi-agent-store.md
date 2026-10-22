@@ -2,7 +2,7 @@
 
 ## Q18 native AgentNode slice
 
-`lossless_agent_node` records native agentType/permission policy, distinct unknown UTF-16 keys and nested values through DTO serialization and store publication. Committed unexecuted while the coding library is blocked; native AgentNode implementation pending.
+`lossless_agent_node` records native agentType/permission policy, distinct unknown UTF-16 keys and nested values through DTO serialization and store publication. Committed unexecuted while the coding library is blocked. AgentNode now manually serializes/deserializes through `JsObject`/`JsValue`; unknown fields no longer use serde flatten, and agentType/permission policy/SpawnAgent type are `JsString`. Store JSON has no serde scalar JSON path. Native arbitrary JSON removes the invalid `Eq` promise from AgentNode and containing result types; `PartialEq` remains. External caller propagation and runtime proof are pending.
 
 Separate RED-intent gate: `tracked_read_failure_tests::tracked_agent_read_failure_wakes_with_error_instead_of_disappearing` exercises real DB-open failure from wait notified/terminal-check paths. Production `.ok()?` removal remains queued until executable in-crate RED; this is not acceptance evidence.
 
