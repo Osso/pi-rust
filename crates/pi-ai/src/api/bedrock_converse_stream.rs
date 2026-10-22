@@ -6,7 +6,7 @@
 //! differential oracle.
 
 use indexmap::IndexMap;
-use pi_js_compat::js_json::{JsObject, JsString, JsValue};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -23,7 +23,8 @@ use crate::api::transform_messages::transform_messages_with;
 use crate::http::default_fetch;
 use crate::models::calculate_cost;
 use crate::request::{
-    HttpBody, HttpRequest, HttpResponse, OnPayload, ProviderStreams, SimpleStreamOptions, StreamOptions, now_millis,
+    CallbackError, HttpBody, HttpRequest, HttpResponse, OnPayload, ProviderStreams, SimpleStreamOptions, StreamOptions,
+    header_value, now_millis, request_url,
 };
 use crate::types::{
     AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, Context, DoneReason, ErrorReason,
@@ -99,15 +100,15 @@ impl<'de> Deserialize<'de> for BedrockToolChoice {
 #[derive(Clone, Default)]
 pub struct BedrockOptions {
     pub stream: StreamOptions,
-    pub region: Option<String>,
-    pub profile: Option<String>,
+    pub region: Option<JsString>,
+    pub profile: Option<JsString>,
     pub tool_choice: Option<BedrockToolChoice>,
     pub reasoning: Option<ThinkingLevel>,
     pub thinking_budgets: Option<ThinkingBudgets>,
     pub interleaved_thinking: Option<bool>,
     pub thinking_display: Option<BedrockThinkingDisplay>,
     pub request_metadata: Option<JsonObject>,
-    pub bearer_token: Option<String>,
+    pub bearer_token: Option<JsString>,
 }
 
 impl BedrockOptions {
@@ -116,15 +117,15 @@ impl BedrockOptions {
         let extra = stream.extra.clone();
         let take = |key: &str| extra.get(key).cloned();
         Ok(Self {
-            region: optional_string(take("region"))?,
-            profile: optional_string(take("profile"))?,
+            region: optional_string(take("region"))?.map(JsString::from),
+            profile: optional_string(take("profile"))?.map(JsString::from),
             tool_choice: optional_json::<BedrockToolChoice>(take("toolChoice"))?,
             reasoning: optional_json::<ThinkingLevel>(take("reasoning"))?,
             thinking_budgets: optional_json::<ThinkingBudgets>(take("thinkingBudgets"))?,
             interleaved_thinking: optional_bool(take("interleavedThinking"))?,
             thinking_display: optional_json::<BedrockThinkingDisplay>(take("thinkingDisplay"))?,
             request_metadata: optional_object(take("requestMetadata"))?,
-            bearer_token: optional_string(take("bearerToken"))?,
+            bearer_token: optional_string(take("bearerToken"))?.map(JsString::from),
             stream,
         })
     }
@@ -971,7 +972,7 @@ fn is_gov_cloud_bedrock_target(model: &Model, options: &BedrockOptions) -> bool 
     model_id.starts_with("us-gov.") || model_id.starts_with("arn:aws-us-gov:")
 }
 
-fn get_configured_region(options: &BedrockOptions) -> Option<String> {
+fn get_configured_region(options: &BedrockOptions) -> Option<JsString> {
     options
         .region
         .clone()
@@ -1279,10 +1280,10 @@ fn handle_metadata(usage: &Value, model: &Model, output: &mut AssistantMessage) 
 }
 
 struct RuntimeConfig {
-    region: String,
-    endpoint: String,
+    region: JsString,
+    endpoint: JsString,
     credentials: Option<AwsCredentials>,
-    bearer_token: Option<String>,
+    bearer_token: Option<JsString>,
 }
 
 async fn resolve_runtime_config(model: &Model, options: &BedrockOptions) -> Result<RuntimeConfig, BedrockError> {
@@ -1291,14 +1292,11 @@ async fn resolve_runtime_config(model: &Model, options: &BedrockOptions) -> Resu
         .profile
         .clone()
         .or_else(|| get_provider_env_value("AWS_PROFILE", env));
-    let profile = profile_name(options_profile.as_deref(), env);
+    let profile = profile_name(options_profile.as_ref(), env);
     let configured_region = get_configured_region(options);
     let has_ambient_profile = get_provider_env_value("AWS_PROFILE", env).is_some();
-    let endpoint_region = standard_endpoint_region(&model.base_url);
-    let use_explicit_endpoint = match endpoint_region.as_deref() {
-        None => true,
-        Some(_) => configured_region.is_none() && !has_ambient_profile,
-    };
+    let endpoint_region = standard_endpoint_region(&model.base_url).map(JsString::from);
+    let use_explicit_endpoint = endpoint_region.is_none() || (configured_region.is_none() && !has_ambient_profile);
 
     let skip_auth = get_provider_env_value("AWS_BEDROCK_SKIP_AUTH", env).is_some_and(|value| value == "1");
     let bearer_token = options
@@ -1308,14 +1306,14 @@ async fn resolve_runtime_config(model: &Model, options: &BedrockOptions) -> Resu
         .or_else(|| get_provider_env_value("AWS_BEARER_TOKEN_BEDROCK", env));
     let use_bearer = bearer_token.is_some() && !skip_auth;
 
-    let region = match arn_region(&model.id) {
+    let region = match arn_region(&model.id).map(JsString::from) {
         Some(region) => region,
         None => match configured_region {
             Some(region) => region,
             None => match endpoint_region.filter(|_| use_explicit_endpoint) {
                 Some(region) => region,
-                None if !has_ambient_profile => "us-east-1".to_owned(),
-                None => profile_region(&profile, env).ok_or_else(|| {
+                None if !has_ambient_profile => "us-east-1".into(),
+                None => profile_region(&profile, env).map(JsString::from).ok_or_else(|| {
                     BedrockError::other("Region is missing; configure AWS_REGION or a profile region")
                 })?,
             },
@@ -1330,8 +1328,8 @@ async fn resolve_runtime_config(model: &Model, options: &BedrockOptions) -> Resu
 
     let credentials = if skip_auth {
         Some(AwsCredentials {
-            access_key_id: "dummy-access-key".to_owned(),
-            secret_access_key: "dummy-secret-key".to_owned(),
+            access_key_id: "dummy-access-key".into(),
+            secret_access_key: "dummy-secret-key".into(),
             session_token: None,
         })
     } else if use_bearer {
@@ -1366,7 +1364,10 @@ async fn resolve_runtime_config(model: &Model, options: &BedrockOptions) -> Resu
     })
 }
 
-fn standard_endpoint_region(base_url: &str) -> Option<String> {
+/// `new URL(baseUrl).hostname` matched against an ASCII grammar; the URL
+/// parser sees the USVString, so the Node UTF-8 view is exact here.
+fn standard_endpoint_region(base_url: &JsString) -> Option<String> {
+    let base_url = encode_node_utf8(base_url);
     let rest = base_url.split_once("://")?.1;
     let authority = rest.split('/').next()?;
     let hostname = authority.split(':').next()?.to_lowercase();
@@ -1403,12 +1404,13 @@ fn arn_region(model_id: &str) -> Option<String> {
     Some(region.to_owned())
 }
 
-fn default_endpoint(region: &str) -> String {
-    if region.starts_with("cn-") {
-        format!("https://bedrock-runtime.{region}.amazonaws.com.cn")
+fn default_endpoint(region: &JsString) -> JsString {
+    let suffix = if region.starts_with("cn-") {
+        ".amazonaws.com.cn"
     } else {
-        format!("https://bedrock-runtime.{region}.amazonaws.com")
-    }
+        ".amazonaws.com"
+    };
+    JsString::from("https://bedrock-runtime.") + region + suffix
 }
 
 async fn execute_request(
@@ -1417,14 +1419,16 @@ async fn execute_request(
     model: &Model,
     body: Vec<u8>,
 ) -> Result<HttpResponse, BedrockError> {
-    let url = format!(
-        "{}/model/{}/converse-stream",
-        config.endpoint.trim_end_matches('/'),
-        crate::api::bedrock_sigv4::aws_escape_uri(&model.id)
-    );
+    let mut endpoint = config.endpoint.clone();
+    while let Some(trimmed) = endpoint.strip_suffix('/') {
+        endpoint = trimmed;
+    }
+    let url = endpoint + "/model/" + crate::api::bedrock_sigv4::aws_escape_uri(&model.id) + "/converse-stream";
+    let url = request_url(&url).map_err(|error| BedrockError::other(error.message))?;
     let invocation_id = random_uuid_v4();
     let mut headers = base_headers(&url, &body, &invocation_id, 1);
-    apply_custom_headers(&mut headers, options.stream.request.headers.as_ref());
+    apply_custom_headers(&mut headers, options.stream.request.headers.as_ref())
+        .map_err(|error| BedrockError::other(error.message))?;
     let fetch = options.stream.request.fetch.clone().unwrap_or_else(default_fetch);
 
     let mut attempt = 1usize;
@@ -1435,7 +1439,9 @@ async fn execute_request(
             &format!("attempt={attempt}; max={MAX_ATTEMPTS}"),
         );
         if let Some(token) = &config.bearer_token {
-            set_header_exact(&mut headers, "Authorization", &format!("Bearer {token}"));
+            let authorization = header_value(&(JsString::from("Bearer ") + token))
+                .map_err(|error| BedrockError::other(error.message))?;
+            set_header_exact(&mut headers, "Authorization", &authorization);
         } else if let Some(credentials) = &config.credentials {
             sign_request(
                 "POST",
@@ -1446,7 +1452,7 @@ async fn execute_request(
                 (&config.region, SERVICE),
                 now_millis(),
             )
-            .map_err(|error| BedrockError::other(error.message()))?;
+            .map_err(|error| BedrockError::other(error.message))?;
         }
 
         let request = HttpRequest {
@@ -1511,15 +1517,19 @@ fn base_headers(url: &str, body: &[u8], invocation_id: &str, attempt: usize) -> 
     ]
 }
 
-fn apply_custom_headers(headers: &mut Vec<(String, String)>, custom: Option<&crate::types::ProviderHeaders>) {
+fn apply_custom_headers(
+    headers: &mut Vec<(String, String)>,
+    custom: Option<&crate::types::ProviderHeaders>,
+) -> Result<(), CallbackError> {
     let Some(custom) = provider_headers_to_record(custom) else {
-        return;
+        return Ok(());
     };
     for (key, value) in custom {
         if !is_reserved_header(&key) {
-            set_header_exact(headers, &key, &value);
+            set_header_exact(headers, &key, &header_value(&value)?);
         }
     }
+    Ok(())
 }
 
 fn is_reserved_header(key: &str) -> bool {
@@ -1685,7 +1695,7 @@ fn is_retryable(error: &BedrockError) -> bool {
 }
 
 fn http_error(status: u16, headers: &[(String, String)], body: &[u8]) -> BedrockError {
-    let code = header_value(headers, "x-amzn-errortype").and_then(|value| {
+    let code = response_header(headers, "x-amzn-errortype").and_then(|value| {
         value
             .split(':')
             .next()
@@ -1693,7 +1703,7 @@ fn http_error(status: u16, headers: &[(String, String)], body: &[u8]) -> Bedrock
             .filter(|code| !code.is_empty())
             .map(str::to_owned)
     });
-    let request_id = header_value(headers, "x-amzn-requestid").map(str::to_owned);
+    let request_id = response_header(headers, "x-amzn-requestid").map(str::to_owned);
     let text = String::from_utf8_lossy(body).into_owned();
     let parsed = serde_json::from_str::<Value>(&text).ok();
     let parsed_message = parsed.as_ref().and_then(|value| {
@@ -1717,7 +1727,7 @@ fn http_error(status: u16, headers: &[(String, String)], body: &[u8]) -> Bedrock
     }
 }
 
-fn header_value<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+fn response_header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
     headers
         .iter()
         .find(|(key, _)| key.eq_ignore_ascii_case(name))
@@ -1725,7 +1735,7 @@ fn header_value<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a s
 }
 
 fn response_request_id(response: &HttpResponse) -> Option<String> {
-    header_value(&response.headers, "x-amzn-requestid")
+    response_header(&response.headers, "x-amzn-requestid")
         .map(str::trim)
         .filter(|value| !value.is_empty() && value.len() <= MAX_BEDROCK_DIAGNOSTIC_VALUE_CHARS)
         .map(str::to_owned)

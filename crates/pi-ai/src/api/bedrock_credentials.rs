@@ -9,6 +9,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 
@@ -29,20 +30,20 @@ pub fn env_credentials(env: Option<&ProviderEnv>) -> Option<AwsCredentials> {
 }
 
 /// `getProfileName`: explicit profile, then `AWS_PROFILE`, then `default`.
-pub fn profile_name(explicit: Option<&str>, env: Option<&ProviderEnv>) -> String {
+pub fn profile_name(explicit: Option<&JsString>, env: Option<&ProviderEnv>) -> JsString {
     explicit
-        .map(str::to_owned)
+        .cloned()
         .or_else(|| get_provider_env_value("AWS_PROFILE", env))
-        .unwrap_or_else(|| "default".to_owned())
+        .unwrap_or_else(|| "default".into())
 }
 
 /// Resolve credentials for a profile from shared files and the SSO cache.
 pub fn profile_credentials(
-    profile: &str,
+    profile: &JsString,
     env: Option<&ProviderEnv>,
     fetch: std::sync::Arc<dyn Fetch>,
 ) -> BoxFuture<'static, Result<Option<AwsCredentials>, CallbackError>> {
-    let profile = profile.to_owned();
+    let profile = profile.clone();
     let env = env.cloned();
     Box::pin(async move {
         let files = SharedFiles::load(env.as_ref());
@@ -60,7 +61,7 @@ pub fn profile_credentials(
 }
 
 /// Region from the shared config file for `profile`.
-pub fn profile_region(profile: &str, env: Option<&ProviderEnv>) -> Option<String> {
+pub fn profile_region(profile: &JsString, env: Option<&ProviderEnv>) -> Option<String> {
     let files = SharedFiles::load(env);
     files
         .profile(profile)
@@ -72,12 +73,12 @@ fn static_credentials(section: &BTreeMap<String, String>) -> Option<AwsCredentia
     let access_key_id = section.get("aws_access_key_id").filter(|value| !value.is_empty())?;
     let secret_access_key = section.get("aws_secret_access_key").filter(|value| !value.is_empty())?;
     Some(AwsCredentials {
-        access_key_id: access_key_id.clone(),
-        secret_access_key: secret_access_key.clone(),
+        access_key_id: access_key_id.into(),
+        secret_access_key: secret_access_key.into(),
         session_token: section
             .get("aws_session_token")
             .filter(|value| !value.is_empty())
-            .cloned(),
+            .map(JsString::from),
     })
 }
 
@@ -165,9 +166,9 @@ async fn resolve_sso_credentials(
         .as_str()
         .ok_or_else(|| CallbackError::new("SSO returns an invalid temporary credential."))?;
     Ok(AwsCredentials {
-        access_key_id: access_key_id.to_owned(),
-        secret_access_key: secret_access_key.to_owned(),
-        session_token: Some(session_token.to_owned()),
+        access_key_id: access_key_id.into(),
+        secret_access_key: secret_access_key.into(),
+        session_token: Some(session_token.into()),
     })
 }
 
@@ -234,11 +235,12 @@ struct SharedFiles {
 impl SharedFiles {
     fn load(env: Option<&ProviderEnv>) -> Self {
         let home = pi_js_compat::process_env::get("HOME").unwrap_or_default();
+        // Node encodes path strings as UTF-8 at the fs boundary.
         let config_path = get_provider_env_value("AWS_CONFIG_FILE", env)
-            .map(PathBuf::from)
+            .map(|path| PathBuf::from(encode_node_utf8(&path)))
             .unwrap_or_else(|| Path::new(&home).join(".aws").join("config"));
         let credentials_path = get_provider_env_value("AWS_SHARED_CREDENTIALS_FILE", env)
-            .map(PathBuf::from)
+            .map(|path| PathBuf::from(encode_node_utf8(&path)))
             .unwrap_or_else(|| Path::new(&home).join(".aws").join("credentials"));
 
         let mut files = Self::default();
@@ -247,8 +249,10 @@ impl SharedFiles {
         files
     }
 
-    fn profile(&self, name: &str) -> Option<BTreeMap<String, String>> {
-        self.profiles.get(name).cloned()
+    /// Section names decode from UTF-8 files and never hold unpaired
+    /// surrogates, so a name with one matches no profile.
+    fn profile(&self, name: &JsString) -> Option<BTreeMap<String, String>> {
+        self.profiles.get(&name.to_utf8().ok()?).cloned()
     }
 
     fn sso_session(&self, name: &str) -> Option<BTreeMap<String, String>> {

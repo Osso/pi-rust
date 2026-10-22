@@ -50,7 +50,7 @@ pub fn sign_request(
     headers: &mut Vec<(String, String)>,
     body: &[u8],
     credentials: &AwsCredentials,
-    scope: (&str, &str),
+    scope: (&JsString, &str),
     timestamp_ms: i64,
 ) -> Result<(), CallbackError> {
     let parts = ParsedUrl::parse(url)?;
@@ -81,21 +81,24 @@ pub fn sign_request(
             .collect::<Vec<_>>()
             .join("\n")
     );
-    let scope = format!("{short_date}/{region}/{service}/aws4_request");
+    let scope = JsString::from(format!("{short_date}/")) + region + format!("/{service}/aws4_request");
     let string_to_sign = format!(
-        "{ALGORITHM}\n{long_date}\n{scope}\n{}",
+        "{ALGORITHM}\n{long_date}\n{}\n{}",
+        encode_node_utf8(&scope),
         hex(&Sha256::digest(canonical_request.as_bytes()))
     );
     let signing_key = signing_key(
         &encode_node_utf8(&credentials.secret_access_key),
         &short_date,
-        region,
+        &encode_node_utf8(region),
         service,
     );
     let signature = hex(&hmac(&signing_key, string_to_sign.as_bytes()));
     let authorization = JsString::from(format!("{ALGORITHM} Credential="))
         + &credentials.access_key_id
-        + format!("/{scope}, SignedHeaders={signed_headers}, Signature={signature}");
+        + "/"
+        + scope
+        + format!(", SignedHeaders={signed_headers}, Signature={signature}");
     set_header(headers, "authorization", &header_value(&authorization)?);
     Ok(())
 }
