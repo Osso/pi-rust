@@ -24,3 +24,5 @@ No whole-provider parity or broad verification claimed. Final proof ledger will 
 Frozen `mistral-conversations.ts` does not call `onResponse`; Rust already does. This slice retains that invocation, tests its human error text without claiming source invocation parity, and leaves full Q4 reconciliation open. This is neither a source bug nor an approved deviation.
 
 `ProviderRetryEvent.reason` is now `JsString`; Codex retry notifications use error message data, never Display. Native retry/overflow classification executes the existing patterns against UTF16 units with the existing regress dependency; public scalar overflow-pattern enumeration remains available for callers.
+
+Retry classification retains frozen non-Unicode `/i` behavior (no Unicode lowercasing projection): `retry::frozen_regex_uses_javascript_characters` rejected the initial Kelvin-sign fold; native regress patterns use `i` directly.
