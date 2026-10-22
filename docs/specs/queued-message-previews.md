@@ -4,11 +4,11 @@ Preserve frozen `4f9e6f8a4` display queue provenance and coordination visibility
 
 ## What it must do
 
-- [ ] Keep exact text, input source and custom type in display queues; text getters and clearQueue retain their existing text outputs.
-- [ ] Return independent, non-consuming preview snapshots; enqueue/remove/clear keep previews synchronized with source behavior.
-- [ ] Identify shared-channel previews and extension mailbox envelopes exactly, including optional host/session and joined user text blocks.
-- [ ] Hide only coordination session previews when configured, not user input or compaction queues; delivery remains untouched.
-- [ ] Retain unmatched UTF-16 units in text, envelope classification and snapshots.
+- [x] Keep exact text, input source and custom type in display queues; text getters and clearQueue retain their existing text outputs.
+- [x] Return independent, non-consuming preview snapshots; enqueue/remove/clear keep previews synchronized with source behavior.
+- [x] Identify shared-channel previews and extension mailbox envelopes exactly, including optional host/session and joined user text blocks.
+- [x] Hide only coordination session previews when configured, not user input or compaction queues; delivery remains untouched.
+- [x] Retain unmatched UTF-16 units in text, envelope classification and snapshots.
 
 ## How it works
 
@@ -28,7 +28,7 @@ Preserve frozen `4f9e6f8a4` display queue provenance and coordination visibility
 
 ## Known gaps (current cycle)
 
-- [ ] Targeted post-commit proof pending; pre-existing mailbox RED must remain visible.
+- [x] Targeted queue/visibility/UI proofs pass at 15f0eca7; full agent_session52/53 retains the expected mailbox RED (traceability).
 
 ## Out of scope
 

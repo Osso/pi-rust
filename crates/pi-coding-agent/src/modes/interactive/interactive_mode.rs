@@ -11708,8 +11708,20 @@ mod ui_tests {
                 assert!(output.contains("visible user input"), "{output:?}");
                 assert_eq!(
                     mode.session().get_follow_up_messages(),
-                    vec![envelope, "visible user input".into()]
+                    vec![envelope.clone(), "visible user input".into()]
                 );
+                mode.compaction_queued_messages
+                    .borrow_mut()
+                    .push(CompactionQueuedMessage {
+                        text: envelope.clone(),
+                        mode: "steer",
+                    });
+                let (steering, follow_up) = mode.get_all_queued_messages(true);
+                assert_eq!(steering, vec![envelope.clone()], "compaction input is not filtered");
+                assert_eq!(follow_up, vec![JsString::from("visible user input")]);
+                assert_eq!(mode.get_all_queued_messages(false).1.len(), 2);
+                mode.settings_mut(|settings| settings.set_hide_coordination_messages(false));
+                assert_eq!(mode.get_all_queued_messages(true).1.len(), 2);
                 gate.notify_one();
                 task.await.unwrap().unwrap();
             })
