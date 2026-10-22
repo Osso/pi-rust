@@ -24,6 +24,7 @@ use pi_ai::request::{
 };
 use pi_ai::types::{AssistantMessage, Context, DeferredHandle, Model, ProviderEnv, ProviderHeaders, ProviderId};
 use pi_ai::utils::event_stream::{AssistantMessageEventStream, StreamFailure};
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use serde_json::Map;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio_util::sync::CancellationToken;
@@ -72,7 +73,7 @@ pub struct CredentialSynchronizationError {
     pub provider_id: String,
     pub operation: CredentialSynchronizationOperation,
     pub credential: Option<Credential>,
-    pub cause: String,
+    pub cause: JsString,
 }
 
 impl std::fmt::Display for CredentialSynchronizationError {
@@ -94,7 +95,7 @@ pub enum ModelRuntimeError {
     Aborted,
     Resolve(ResolveError),
     CredentialSync(Box<CredentialSynchronizationError>),
-    Message(String),
+    Message(JsString),
 }
 
 impl std::fmt::Display for ModelRuntimeError {
@@ -103,8 +104,32 @@ impl std::fmt::Display for ModelRuntimeError {
             Self::Aborted => formatter.write_str("The operation was aborted"),
             Self::Resolve(error) => write!(formatter, "{error}"),
             Self::CredentialSync(error) => write!(formatter, "{error}"),
-            Self::Message(message) => formatter.write_str(message),
+            Self::Message(message) => formatter.write_str(&encode_node_utf8(message)),
         }
+    }
+}
+
+impl ModelRuntimeError {
+    pub fn message(&self) -> JsString {
+        match self {
+            Self::Aborted => "The operation was aborted".into(),
+            Self::Resolve(error) => resolve_error_message(error),
+            Self::CredentialSync(error) => format!(
+                "Credential {} committed for {}, but local synchronization failed",
+                error.operation.as_str(),
+                error.provider_id
+            )
+            .into(),
+            Self::Message(message) => message.clone(),
+        }
+    }
+}
+
+pub fn resolve_error_message(error: &ResolveError) -> JsString {
+    match error {
+        ResolveError::Aborted => "The operation was aborted".into(),
+        ResolveError::Models(error) => error.message.clone(),
+        ResolveError::Callback(error) => error.message.clone(),
     }
 }
 
@@ -116,7 +141,7 @@ impl From<ResolveError> for ModelRuntimeError {
     }
 }
 
-fn resolve_error(code: ModelsErrorCode, message: impl Into<String>) -> ResolveError {
+fn resolve_error(code: ModelsErrorCode, message: impl Into<JsString>) -> ResolveError {
     ResolveError::models(code, message)
 }
 
@@ -169,7 +194,7 @@ struct RuntimeInner {
     availability_refresh_seq: AtomicU64,
     availability_error_seq: AtomicU64,
     provider_availability_seq: Mutex<HashMap<String, u64>>,
-    availability_error: Mutex<Option<String>>,
+    availability_error: Mutex<Option<JsString>>,
     credential_gates: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
 }
 
@@ -463,7 +488,7 @@ impl ModelRuntime {
             && error_seq == self.inner.availability_error_seq.load(Ordering::SeqCst)
             && !effective_signal.is_cancelled()
         {
-            *lock(&self.inner.availability_error) = Some(error.to_string());
+            *lock(&self.inner.availability_error) = Some(resolve_error_message(error));
         }
         result
     }
@@ -603,7 +628,7 @@ impl ModelRuntime {
                     if error_seq == self.inner.availability_error_seq.load(Ordering::SeqCst)
                         && !options.signal.as_ref().is_some_and(CancellationToken::is_cancelled)
                     {
-                        *lock(&self.inner.availability_error) = Some(error.to_string());
+                        *lock(&self.inner.availability_error) = Some(resolve_error_message(error));
                     }
                     Err(error)
                 }
@@ -618,18 +643,18 @@ impl ModelRuntime {
         lock(&self.inner.snapshot).available.clone()
     }
 
-    pub fn get_error(&self) -> Option<String> {
-        let mut errors: Vec<String> = Vec::new();
+    pub fn get_error(&self) -> Option<JsString> {
+        let mut errors: Vec<JsString> = Vec::new();
         if let Some(config_error) = lock(&self.inner.config).get_error() {
-            errors.push(config_error.to_owned());
+            errors.push(config_error.into());
         }
         for (provider_id, error) in lock(&self.inner.composition_errors).iter() {
-            errors.push(format!("Provider \"{provider_id}\": {error}"));
+            errors.push(format!("Provider \"{provider_id}\": {error}").into());
         }
         if let Some(error) = lock(&self.inner.availability_error).as_ref() {
-            errors.push(format!("Availability refresh: {error}"));
+            errors.push(JsString::from("Availability refresh: ") + error);
         }
-        (!errors.is_empty()).then(|| errors.join("\n\n"))
+        (!errors.is_empty()).then(|| JsString::join(errors, "\n\n"))
     }
 
     pub fn get_registered_provider_config(&self, provider_id: &str) -> Option<ProviderConfigInput> {
@@ -675,7 +700,7 @@ impl ModelRuntime {
         let config = self.provider_config(&model.provider);
         let extension = self.extension_config(&model.provider);
         resolve_compatibility_request_config(model, config.as_ref(), extension.as_ref())
-            .map_err(|error| ModelRuntimeError::Message(error.to_string()))
+            .map_err(|error| ModelRuntimeError::Message(error.to_string().into()))
     }
 
     pub fn is_using_oauth(&self, provider_id: &str) -> bool {
@@ -793,7 +818,7 @@ impl ModelRuntime {
                     provider_id: provider_id.to_owned(),
                     operation,
                     credential,
-                    cause: cause.to_string(),
+                    cause: cause.message(),
                 },
             ))),
         }
@@ -809,7 +834,7 @@ impl ModelRuntime {
         }
         self.recompose_provider(provider_id);
         if let Some(error) = lock(&self.inner.composition_errors).get(provider_id) {
-            return Err(ModelRuntimeError::Message(error.clone()));
+            return Err(ModelRuntimeError::Message(error.clone().into()));
         }
         let result = self
             .inner
@@ -996,7 +1021,7 @@ impl ModelRuntime {
                 let prepared = runtime
                     .prepare_request(&model, options)
                     .await
-                    .map_err(|error| CallbackError::new(error.to_string()))?;
+                    .map_err(|error| CallbackError::new(resolve_error_message(&error)))?;
                 Ok(prepared.provider.stream(prepared.model, context, prepared.options))
             })
         })
@@ -1023,7 +1048,7 @@ impl ModelRuntime {
                 let prepared = runtime
                     .prepare_request(&model, options.stream.clone())
                     .await
-                    .map_err(|error| CallbackError::new(error.to_string()))?;
+                    .map_err(|error| CallbackError::new(resolve_error_message(&error)))?;
                 let prepared_options = SimpleStreamOptions {
                     stream: prepared.options,
                     ..options
@@ -1063,7 +1088,7 @@ impl ModelRuntime {
                         },
                     )
                     .await
-                    .map_err(|error| CallbackError::new(error.to_string()))?;
+                    .map_err(|error| CallbackError::new(resolve_error_message(&error)))?;
                 if !prepared.provider.supports_fetch_deferred() {
                     return Err(CallbackError::new(format!(
                         "Provider {} does not support deferred responses",
@@ -1094,10 +1119,9 @@ impl ModelRuntime {
             .await
             .map_err(ModelRuntimeError::Resolve)?;
         if !prepared.provider.supports_cancel_deferred() {
-            return Err(ModelRuntimeError::Message(format!(
-                "Provider {} does not support deferred responses",
-                model.provider
-            )));
+            return Err(ModelRuntimeError::Message(
+                format!("Provider {} does not support deferred responses", model.provider).into(),
+            ));
         }
         prepared
             .provider
@@ -1220,7 +1244,7 @@ impl ModelRuntime {
                         .await
                         && !options.signal.as_ref().is_some_and(CancellationToken::is_cancelled)
                     {
-                        errors.insert(provider_id.clone(), CallbackError::new(error.to_string()));
+                        errors.insert(provider_id.clone(), CallbackError::new(resolve_error_message(&error)));
                     }
                 }
             }
@@ -1257,7 +1281,7 @@ impl ModelRuntime {
             .ok()
             .flatten();
         validate_extension_provider(provider_id, base.as_deref(), models_config.as_ref(), &config)
-            .map_err(|error| ModelRuntimeError::Message(error.to_string()))?;
+            .map_err(|error| ModelRuntimeError::Message(error.to_string().into()))?;
         lock(&self.inner.native_extension_providers).retain(|(id, _)| id != provider_id);
         let previous = lock(&self.inner.extension_providers)
             .iter()
@@ -1423,6 +1447,6 @@ pub fn empty_json_object() -> Map<String, serde_json::Value> {
 }
 
 /// Models error constructor used by compatibility call sites.
-pub fn models_error(code: ModelsErrorCode, message: impl Into<String>) -> ModelsError {
+pub fn models_error(code: ModelsErrorCode, message: impl Into<JsString>) -> ModelsError {
     ModelsError::new(code, message)
 }

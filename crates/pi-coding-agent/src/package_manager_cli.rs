@@ -880,17 +880,22 @@ async fn refresh_model_catalogs_inner(agent_dir: &str, signal: CancellationToken
 }
 
 /// Post-processing of a catalog refresh: timeout, provider errors, success.
-pub fn model_catalog_refresh_outcome(result: pi_ai::models::ModelsRefreshResult) -> Result<(), String> {
+pub fn model_catalog_refresh_outcome(
+    result: pi_ai::models::ModelsRefreshResult,
+) -> Result<(), pi_js_compat::js_json::JsString> {
     if result.aborted {
-        return Err("Model catalog refresh timed out.".to_owned());
+        return Err("Model catalog refresh timed out.".into());
     }
     if !result.errors.is_empty() {
-        let details: Vec<String> = result
+        let details: Vec<pi_js_compat::js_json::JsString> = result
             .errors
             .iter()
-            .map(|(provider, error)| format!("{provider}: {}", error.message))
+            .map(|(provider, error)| pi_js_compat::js_json::JsString::from(provider.as_str()) + ": " + &error.message)
             .collect();
-        return Err(format!("Could not refresh model catalogs: {}", details.join("; ")));
+        return Err(
+            pi_js_compat::js_json::JsString::from("Could not refresh model catalogs: ")
+                + pi_js_compat::js_json::JsString::join(details, "; "),
+        );
     }
     Ok(())
 }

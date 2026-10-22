@@ -38,7 +38,7 @@ pub struct BranchSummaryResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aborted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
+    pub error: Option<JsString>,
 }
 
 /// Details stored in `BranchSummaryEntry.details` for file tracking.
@@ -336,7 +336,7 @@ pub async fn generate_branch_summary<C: RetryCallbacks + ?Sized>(
                     .error_message
                     .clone()
                     .filter(|message| !message.is_empty())
-                    .unwrap_or_else(|| "Summarization failed".to_owned()),
+                    .unwrap_or_else(|| "Summarization failed".into()),
             ),
             ..BranchSummaryResult::default()
         };

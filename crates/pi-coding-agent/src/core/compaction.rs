@@ -115,24 +115,24 @@ pub struct CompactionResult<T = Value> {
 /// Failure surfaced by compaction helpers; mirrors the TypeScript `Error` message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompactionError {
-    message: String,
+    message: JsString,
 }
 
 impl CompactionError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
         }
     }
 
-    pub fn message(&self) -> &str {
+    pub fn message(&self) -> &JsString {
         &self.message
     }
 }
 
 impl std::fmt::Display for CompactionError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message))
     }
 }
 
@@ -759,10 +759,10 @@ fn read_compaction_materialization_response(
             .error_message
             .clone()
             .filter(|message| !message.is_empty())
-            .unwrap_or_else(|| "Unknown provider error".to_owned());
-        return Err(CompactionError::new(format!(
-            "Compaction summary materialization failed: {detail}"
-        )));
+            .unwrap_or_else(|| "Unknown provider error".into());
+        return Err(CompactionError::new(
+            JsString::from("Compaction summary materialization failed: ") + detail,
+        ));
     }
     let summary = JsString::join(
         response
@@ -891,8 +891,8 @@ async fn generate_summary_with_options<C: RetryCallbacks + ?Sized>(
             .error_message
             .clone()
             .filter(|message| !message.is_empty())
-            .unwrap_or_else(|| "Unknown error".to_owned());
-        return Err(CompactionError::new(format!("Summarization failed: {detail}")));
+            .unwrap_or_else(|| "Unknown error".into());
+        return Err(CompactionError::new(JsString::from("Summarization failed: ") + detail));
     }
     Ok(SummaryWithUsage {
         text: content_text(ContentText::Assistant(&response.content), "\n"),
@@ -1128,10 +1128,10 @@ fn interpret_turn_prefix_summary_response(response: &AssistantMessage) -> Result
             .error_message
             .clone()
             .filter(|message| !message.is_empty())
-            .unwrap_or_else(|| "Unknown error".to_owned());
-        return Err(CompactionError::new(format!(
-            "Turn prefix summarization failed: {detail}"
-        )));
+            .unwrap_or_else(|| "Unknown error".into());
+        return Err(CompactionError::new(
+            JsString::from("Turn prefix summarization failed: ") + detail,
+        ));
     }
     Ok(SummaryWithUsage {
         text: content_text(ContentText::Assistant(&response.content), "\n"),

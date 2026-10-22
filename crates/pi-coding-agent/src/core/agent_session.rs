@@ -593,7 +593,7 @@ pub struct AutoRetryEndEvent {
     pub success: bool,
     pub attempt: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub final_error: Option<String>,
+    pub final_error: Option<JsString>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1466,7 +1466,7 @@ impl AgentSession {
                     if let Some(inner) = weak.upgrade() {
                         lock(&inner.settings_manager)
                             .get_compaction_settings()
-                            .map_err(|failure| AgentError::new(failure.to_string()))?;
+                            .map_err(|failure| AgentError::new(failure.message().clone()))?;
                     }
                     let previous_snapshot = if let Some(hook) = previous_with_context {
                         hook(turn.clone(), signal.clone()).await?
@@ -4027,7 +4027,7 @@ impl AgentSession {
             }
             let settings = lock(&self.inner.settings_manager)
                 .get_retry_settings()
-                .map_err(|failure| error(failure.to_string()))?;
+                .map_err(|failure| error(failure.message().clone()))?;
             return Ok(settings.enabled
                 && self.inner.retry_attempt.load(Ordering::SeqCst) < settings.max_retries as u64
                 && self.is_retryable_error(assistant));
@@ -5067,7 +5067,7 @@ impl AgentSession {
         if self.inner.quota_fallback_attempted.load(Ordering::SeqCst) || message.stop_reason != StopReason::Error {
             return None;
         }
-        let error_message = message.error_message.as_deref()?;
+        let error_message = message.error_message.as_ref()?;
         if !quota_exhaustion(error_message) {
             return None;
         }
@@ -5103,7 +5103,7 @@ impl AgentSession {
     async fn prepare_retry(&self, message: &AssistantMessage) -> Result<bool, AgentSessionError> {
         let settings = lock(&self.inner.settings_manager)
             .get_retry_settings()
-            .map_err(|failure| error(failure.to_string()))?;
+            .map_err(|failure| error(failure.message().clone()))?;
         if !settings.enabled {
             return Ok(false);
         }
@@ -5126,7 +5126,7 @@ impl AgentSession {
             error_message: message
                 .error_message
                 .clone()
-                .unwrap_or_else(|| "Unknown error".to_owned())
+                .unwrap_or_else(|| "Unknown error".into())
                 .into(),
         }));
         let mut messages = self.inner.agent.messages();
@@ -5147,7 +5147,7 @@ impl AgentSession {
                 event_type: "auto_retry_end",
                 success: false,
                 attempt,
-                final_error: Some("Retry cancelled".to_owned()),
+                final_error: Some("Retry cancelled".into()),
             }));
             return Ok(false);
         }
@@ -5247,7 +5247,7 @@ fn compaction_settings(
 ) -> Result<crate::core::compaction::CompactionSettings, AgentSessionError> {
     let view = lock(settings_manager)
         .get_compaction_settings()
-        .map_err(|failure| error(failure.to_string()))?;
+        .map_err(|failure| error(failure.message().clone()))?;
     Ok(crate::core::compaction::CompactionSettings {
         enabled: view.enabled,
         reserve_tokens: view.reserve_tokens,
@@ -5481,7 +5481,7 @@ fn codex_provider_pair(provider: &str) -> Option<&'static str> {
     }
 }
 
-fn quota_exhaustion(message: &str) -> bool {
+fn quota_exhaustion(message: &JsString) -> bool {
     let lowercase = message.to_lowercase();
     const NEEDLES: [&str; 7] = [
         "gousagelimiterror",
@@ -5549,7 +5549,7 @@ impl AgentSession {
             };
             self.settings_manager()
                 .set_sandbox_profile(profile, settings_scope)
-                .map_err(|failure| error(failure.to_string()))?;
+                .map_err(|failure| error(failure.message().clone()))?;
         }
 
         let effective_profile = self.settings_manager().get_explicit_sandbox_profile();
@@ -5980,7 +5980,7 @@ impl AgentSession {
     fn retry_policy(&self) -> Result<pi_ai::utils::retry::RetryPolicy, AgentSessionError> {
         let settings = lock(&self.inner.settings_manager)
             .get_retry_settings()
-            .map_err(|failure| error(failure.to_string()))?;
+            .map_err(|failure| error(failure.message().clone()))?;
         Ok(pi_ai::utils::retry::RetryPolicy {
             enabled: settings.enabled,
             max_retries: settings.max_retries.max(0.0) as u32,
@@ -6515,7 +6515,7 @@ impl AgentSession {
     pub fn set_session_name(&self, name: &JsString) -> Result<(), AgentSessionError> {
         lock(&self.inner.session_manager)
             .set_session_name(Some(name))
-            .map_err(|failure| error(failure.to_string()))?;
+            .map_err(|failure| error(failure.message().clone()))?;
         let name = lock(&self.inner.session_manager).get_session_name();
         self.emit(AgentSessionEvent::SessionInfoChanged(SessionInfoChangedEvent {
             event_type: "session_info_changed",
@@ -6533,7 +6533,7 @@ impl AgentSession {
     pub fn clear_session_name(&self) -> Result<(), AgentSessionError> {
         lock(&self.inner.session_manager)
             .set_session_name(None)
-            .map_err(|failure| error(failure.to_string()))?;
+            .map_err(|failure| error(failure.message().clone()))?;
         self.emit(AgentSessionEvent::SessionInfoChanged(SessionInfoChangedEvent {
             event_type: "session_info_changed",
             name: None,
@@ -6552,7 +6552,7 @@ impl AgentSession {
             let mut manager = lock(&self.inner.session_manager);
             manager
                 .update_compaction_summary(entry_id, summary)
-                .map_err(|failure| error(failure.to_string()))?;
+                .map_err(|failure| error(failure.message().clone()))?;
             manager.build_session_context().messages
         };
         self.inner.agent.set_messages(messages);
