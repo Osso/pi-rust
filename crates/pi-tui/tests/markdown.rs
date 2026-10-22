@@ -223,14 +223,11 @@ fn maintains_numbering_when_code_blocks_are_not_indented() {
     );
     let lines: Vec<JsString> = render(&mut markdown, 80)
         .into_iter()
-        .map(|line| strip_sgr(&line).trim().to_string())
+        .map(|line| strip_sgr(&line).trim())
         .collect();
-    let numbered: Vec<&String> = lines
+    let numbered: Vec<&JsString> = lines
         .iter()
-        .filter(|line| {
-            let mut chars = line.chars();
-            chars.next().is_some_and(|ch| ch.is_ascii_digit())
-        })
+        .filter(|line| line.units().first().is_some_and(|unit| (48..=57).contains(unit)))
         .collect();
     assert_eq!(numbered.len(), 3, "{numbered:?}");
     assert!(numbered[0].starts_with("1."), "{numbered:?}");
@@ -337,7 +334,7 @@ fn keeps_column_width_at_least_the_longest_word() {
     let lines = plain(&mut markdown, 32);
     let data_line = lines.iter().find(|line| line.contains(longest_word)).expect("data row");
     let segments: Vec<JsString> = data_line.split('│').collect();
-    let first_segment = segments[1];
+    let first_segment = &segments[1];
     let first_column_width = first_segment.len() - 2;
     assert!(
         first_column_width >= longest_word.len(),
@@ -428,7 +425,7 @@ fn wraps_long_unbroken_tokens_inside_table_cells() {
             "line exceeds width: {line:?}"
         );
     }
-    let table_lines: Vec<&String> = lines.iter().filter(|line| line.starts_with('│')).collect();
+    let table_lines: Vec<&JsString> = lines.iter().filter(|line| line.starts_with('│')).collect();
     assert!(!table_lines.is_empty());
     for line in table_lines {
         assert_eq!(
@@ -437,11 +434,17 @@ fn wraps_long_unbroken_tokens_inside_table_cells() {
             "{line:?}"
         );
     }
-    let extracted: String = lines
-        .join("")
-        .chars()
-        .filter(|ch| !matches!(ch, '│' | '├' | '┤' | '─') && !ch.is_whitespace())
-        .collect();
+    let joined = JsString::join(&lines, "");
+    let extracted = JsString::from_utf16(
+        joined
+            .units()
+            .iter()
+            .copied()
+            .filter(|unit| {
+                ![0x2502, 0x251c, 0x2524, 0x2500].contains(unit) && !pi_js_compat::string::is_js_whitespace_unit(*unit)
+            })
+            .collect(),
+    );
     assert!(extracted.contains("prefix"));
     assert!(extracted.contains(url));
 }
@@ -453,10 +456,7 @@ fn wraps_styled_inline_code_inside_table_cells_without_breaking_borders() {
     let width = 20;
     let lines = render(&mut markdown, width);
     assert!(JsString::join(&lines, "\n").contains("\u{1b}[33m"));
-    let plain_lines: Vec<JsString> = lines
-        .iter()
-        .map(|line| strip_sgr(line).trim_end().to_string())
-        .collect();
+    let plain_lines: Vec<JsString> = lines.iter().map(|line| strip_sgr(line).trim_end()).collect();
     for line in &plain_lines {
         assert!(
             char::decode_utf16(line.units().iter().copied()).count() <= width,
@@ -819,7 +819,7 @@ fn renders_list_content_inside_blockquotes() {
     let _guard = lock();
     let mut markdown = markdown("> 1. bla bla\n> - nested bullet");
     let lines = plain(&mut markdown, 80);
-    let quoted: Vec<&String> = lines.iter().filter(|line| line.starts_with("│ ")).collect();
+    let quoted: Vec<&JsString> = lines.iter().filter(|line| line.starts_with("│ ")).collect();
     assert!(quoted.iter().any(|line| line.contains("1. bla bla")), "{quoted:?}");
     assert!(quoted.iter().any(|line| line.contains("- nested bullet")), "{quoted:?}");
 }
@@ -830,12 +830,12 @@ fn wraps_long_blockquote_lines_and_adds_border_to_each() {
     let long_text = "This is a very long blockquote line that should wrap to multiple lines when rendered";
     let mut markdown = markdown(&format!("> {long_text}"));
     let lines = plain(&mut markdown, 30);
-    let content: Vec<&String> = lines.iter().filter(|line| !line.is_empty()).collect();
+    let content: Vec<&JsString> = lines.iter().filter(|line| !line.is_empty()).collect();
     assert!(content.len() > 1, "{content:?}");
     for line in &content {
         assert!(line.starts_with("│ "), "{line:?}");
     }
-    let all_text = JsString::join(content.iter(), " ");
+    let all_text = JsString::join(content.into_iter(), " ");
     assert!(all_text.contains("very long"));
     assert!(all_text.contains("blockquote"));
     assert!(all_text.contains("multiple"));
@@ -856,10 +856,7 @@ fn properly_indents_wrapped_blockquote_lines_with_styling() {
         MarkdownOptions::default(),
     );
     let lines = render(&mut markdown, 25);
-    let plain_lines: Vec<JsString> = lines
-        .iter()
-        .map(|line| strip_sgr(line).trim_end().to_string())
-        .collect();
+    let plain_lines: Vec<JsString> = lines.iter().map(|line| strip_sgr(line).trim_end()).collect();
     for line in plain_lines.iter().filter(|line| !line.is_empty()) {
         assert!(line.starts_with("│ "), "{line:?}");
     }

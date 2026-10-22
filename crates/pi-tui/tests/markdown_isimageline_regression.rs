@@ -1,9 +1,9 @@
-use pi_js_compat::js_json::JsString;
 //! Port of `packages/tui/test/bug-regression-isimageline-startswith-bug.test.ts`.
 //!
 //! `isImageLine` must detect image escape sequences anywhere in a line so the
 //! Markdown wrapper skips width checks on huge base64 payloads.
 
+use pi_js_compat::js_json::JsString;
 use pi_tui::components::markdown::{Markdown, MarkdownOptions};
 use pi_tui::terminal_image::is_image_line;
 use pi_tui::tui::Component;
