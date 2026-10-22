@@ -345,7 +345,7 @@ fn has_explicit_api_key(options: &StreamOptions) -> bool {
     options
         .request
         .api_key
-        .as_deref()
+        .as_ref()
         .is_some_and(|api_key| !api_key.trim().is_empty())
 }
 

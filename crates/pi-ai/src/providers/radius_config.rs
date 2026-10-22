@@ -2,8 +2,11 @@
 
 use std::sync::Arc;
 
+use pi_js_compat::{
+    js_format,
+    js_json::{JsString, JsValue as Value},
+};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::auth::OAuthCredential;
@@ -33,7 +36,7 @@ pub struct RadiusGatewayModel {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RadiusGatewayConfig {
-    pub base_url: String,
+    pub base_url: JsString,
     pub models: Vec<RadiusGatewayModel>,
 }
 
@@ -44,11 +47,11 @@ fn is_radius_gateway_model(value: &Value) -> bool {
     };
     model.get("id").is_some_and(Value::is_string)
         && model.get("name").is_some_and(Value::is_string)
-        && model.get("reasoning").is_some_and(Value::is_boolean)
+        && model.get("reasoning").and_then(Value::as_bool).is_some()
         && model.get("input").is_some_and(Value::is_array)
         && model.get("cost").is_some_and(|cost| cost.is_object())
-        && model.get("contextWindow").is_some_and(Value::is_number)
-        && model.get("maxTokens").is_some_and(Value::is_number)
+        && model.get("contextWindow").and_then(Value::as_f64).is_some()
+        && model.get("maxTokens").and_then(Value::as_f64).is_some()
 }
 
 /// Typed form of `sanitizeRadiusGatewayConfig`.
@@ -56,43 +59,52 @@ fn is_radius_gateway_model(value: &Value) -> bool {
 /// Models that pass the source's shallow check but cannot be represented by the
 /// typed [`RadiusGatewayModel`] contract (for example a non-numeric `cost`
 /// field) are excluded instead of producing an invalid Rust model.
-pub fn sanitize_radius_gateway_config(config: &Value) -> Option<RadiusGatewayConfig> {
-    let object = config.as_object()?;
-    let base_url = object.get("baseUrl")?.as_str()?.to_owned();
-    let models = object.get("models")?.as_array()?;
+pub fn sanitize_radius_gateway_config(config: &Value) -> Result<Option<RadiusGatewayConfig>, CallbackError> {
+    let Some(object) = config.as_object() else {
+        return Ok(None);
+    };
+    let Some(base_url) = object.get("baseUrl").and_then(Value::as_string) else {
+        return Ok(None);
+    };
+    let Some(models) = object.get("models").and_then(Value::as_array) else {
+        return Ok(None);
+    };
     let models = models
         .iter()
         .filter(|model| is_radius_gateway_model(model))
-        .filter_map(|model| serde_json::from_value(model.clone()).ok())
-        .collect();
-    Some(RadiusGatewayConfig { base_url, models })
+        .map(|model| {
+            pi_js_compat::js_json::from_value(model)
+                .map_err(|error| CallbackError::new(format!("Invalid Radius gateway model: {error}")))
+        })
+        .collect::<Result<_, _>>()?;
+    Ok(Some(RadiusGatewayConfig {
+        base_url: base_url.clone(),
+        models,
+    }))
 }
 
 /// Prepends `https://` when missing and strips trailing slashes.
-pub fn normalize_radius_gateway_url(value: &str) -> String {
-    let has_scheme = value
-        .get(..7)
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("http://"))
-        || value
-            .get(..8)
-            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("https://"));
-    let with_scheme = if has_scheme {
-        value.to_owned()
+pub fn normalize_radius_gateway_url(value: &JsString) -> JsString {
+    let lower = value.to_lowercase();
+    let mut normalized = if lower.starts_with("http://") || lower.starts_with("https://") {
+        value.clone()
     } else {
-        format!("https://{value}")
+        JsString::from("https://") + value
     };
-    with_scheme.trim_end_matches('/').to_owned()
+    while normalized.ends_with('/') {
+        normalized = normalized.slice(0, normalized.len() - 1);
+    }
+    normalized
 }
 
-/// Reads and sanitizes `credential.gatewayConfig`.
-pub fn get_radius_credential_config(credential: Option<&OAuthCredential>) -> Option<RadiusGatewayConfig> {
-    sanitize_radius_gateway_config(
-        &credential?
-            .extra
-            .get(&pi_js_compat::js_json::JsString::from("gatewayConfig"))?
-            .to_serde()
-            .ok()?,
-    )
+/// Reads and sanitizes `credential.gatewayConfig` without scalar JSON projection.
+pub fn get_radius_credential_config(
+    credential: Option<&OAuthCredential>,
+) -> Result<Option<RadiusGatewayConfig>, CallbackError> {
+    let Some(config) = credential.and_then(|credential| credential.extra.get("gatewayConfig")) else {
+        return Ok(None);
+    };
+    sanitize_radius_gateway_config(config)
 }
 
 /// Converts gateway model entries into full `pi-messages` models.
@@ -120,58 +132,68 @@ pub fn get_radius_models_from_config(provider_id: &str, config: &RadiusGatewayCo
         .collect()
 }
 
-pub fn get_radius_models(provider_id: &str, credential: Option<&OAuthCredential>) -> Vec<Model> {
-    match get_radius_credential_config(credential) {
+pub fn get_radius_models(provider_id: &str, credential: Option<&OAuthCredential>) -> Result<Vec<Model>, CallbackError> {
+    Ok(match get_radius_credential_config(credential)? {
         Some(config) => get_radius_models_from_config(provider_id, &config),
         None => Vec::new(),
-    }
+    })
 }
 
 /// Loads `/v1/config` from a Radius gateway.
 pub async fn load_radius_gateway_config(
     fetch: &Arc<dyn Fetch>,
-    gateway: &str,
-    api_key: Option<&str>,
+    gateway: &JsString,
+    api_key: Option<&JsString>,
     signal: Option<CancellationToken>,
 ) -> Result<RadiusGatewayConfig, CallbackError> {
     let mut headers = vec![("accept".to_owned(), "application/json".to_owned())];
     if let Some(api_key) = api_key {
-        headers.push(("authorization".to_owned(), format!("Bearer {api_key}")));
+        headers.push((
+            "authorization".to_owned(),
+            crate::request::header_value(&js_format!("Bearer {}", api_key))?,
+        ));
     }
     let request = HttpRequest {
         method: "GET".to_owned(),
-        url: format!("{gateway}/v1/config"),
+        url: crate::request::request_url(&js_format!("{}/v1/config", gateway))?,
         headers,
         body: None,
     };
     let response = crate::auth::oauth::support::send(fetch, request, signal).await?;
     if !response.ok() {
-        return Err(CallbackError::new(format!(
-            "Could not load Radius config from {gateway}: {}: {}",
-            response.status,
+        return Err(CallbackError::new(js_format!(
+            "Could not load Radius config from {}: {}: {}",
+            gateway,
+            u32::from(response.status),
             truncate_http_body(&response.body)
         )));
     }
-    let config: Value = serde_json::from_str(&response.body).unwrap_or(Value::Null);
-    sanitize_radius_gateway_config(&config)
-        .ok_or_else(|| CallbackError::new(format!("Invalid Radius config from {gateway}")))
+    let config = pi_js_compat::js_json::parse_lossless(&response.body)
+        .map_err(|error| CallbackError::new(error.into_message()))?;
+    sanitize_radius_gateway_config(&config)?
+        .ok_or_else(|| CallbackError::new(js_format!("Invalid Radius config from {}", gateway)))
 }
 
 /// `body.trim().slice(0, 512)` plus an ellipsis, counted in UTF-16 code units.
-fn truncate_http_body(body: &str) -> String {
-    let trimmed = body.trim();
-    if trimmed.encode_utf16().count() <= HTTP_BODY_LIMIT {
-        return trimmed.to_owned();
+fn truncate_http_body(body: &str) -> JsString {
+    let trimmed = JsString::from(body).trim();
+    if trimmed.len() <= HTTP_BODY_LIMIT {
+        trimmed
+    } else {
+        trimmed.slice(0, HTTP_BODY_LIMIT) + "…"
     }
-    let mut units = 0;
-    let mut end = 0;
-    for (index, character) in trimmed.char_indices() {
-        let width = character.len_utf16();
-        if units + width > HTTP_BODY_LIMIT {
-            break;
-        }
-        units += width;
-        end = index + character.len_utf8();
+}
+
+#[cfg(test)]
+mod native_config_tests {
+    use super::*;
+    #[test]
+    fn credential_config_preserves_endpoint_and_rejects_invalid_scalar_model_id() {
+        let config =
+            pi_js_compat::js_json::parse_lossless(r#"{"baseUrl":"https://example.com/\ud800","models":[]}"#).unwrap();
+        let output = sanitize_radius_gateway_config(&config).unwrap().unwrap();
+        assert!(output.base_url.units().contains(&0xd800));
+        let config = pi_js_compat::js_json::parse_lossless(r#"{"baseUrl":"https://example.com","models":[{"id":"\ud800","name":"model","reasoning":false,"input":[],"cost":{},"contextWindow":10,"maxTokens":2}]}"#).unwrap();
+        assert!(sanitize_radius_gateway_config(&config).is_err());
     }
-    format!("{}…", &trimmed[..end])
 }

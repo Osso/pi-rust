@@ -141,7 +141,6 @@ fn resolve_azure_config(
         .as_ref()
         .map(|value| value.trim())
         .filter(|value| !value.is_empty())
-        .map(str::to_owned)
         .or_else(|| {
             get_provider_env_value("AZURE_OPENAI_BASE_URL", env)
                 .map(|value| value.trim().to_owned())
@@ -156,7 +155,7 @@ fn resolve_azure_config(
         .or_else(|| resource_name.as_ref().map(build_default_base_url))
         .or_else(|| (!model.base_url.is_empty()).then(|| model.base_url.clone()))
         .ok_or_else(|| {
-            "Azure OpenAI base URL is required. Set AZURE_OPENAI_BASE_URL or AZURE_OPENAI_RESOURCE_NAME, or pass azureBaseUrl, azureResourceName, or model.baseUrl.".into()
+            JsString::from("Azure OpenAI base URL is required. Set AZURE_OPENAI_BASE_URL or AZURE_OPENAI_RESOURCE_NAME, or pass azureBaseUrl, azureResourceName, or model.baseUrl.")
         })?;
 
     Ok((normalize_azure_base_url(&resolved_base_url)?, api_version))
@@ -206,7 +205,7 @@ pub fn build_params(
     options: &AzureOpenAIResponsesOptions,
     stream_options: &StreamOptions,
     deployment_name: &JsString,
-    grammar_tool_input_properties: &IndexMap<String, JsString>,
+    grammar_tool_input_properties: &IndexMap<String, String>,
 ) -> Result<JsValue, String> {
     let messages = convert_responses_messages(
         model,

@@ -119,7 +119,7 @@ fn resolve_cache_retention(cache_retention: Option<CacheRetention>, env: Option<
 
 fn detect_compat(model: &Model) -> ResolvedOpenAICompletionsCompat {
     let provider = model.provider.as_str();
-    let base_url = model.base_url.as_str();
+    let base_url = &model.base_url;
     let lower_base_url = base_url.to_lowercase();
 
     let is_zai = provider == "zai"
