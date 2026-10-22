@@ -2,6 +2,7 @@ import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 
 interface Fixture {
+	kind?: "identity" | "probe";
 	socketPath: string;
 	snapshot: unknown;
 	event: unknown;
@@ -43,7 +44,7 @@ async function main() {
 			getSnapshot: () => input.snapshot,
 			enqueuePrompt: (text: string, id: string) => {
 				prompts.push([id, text]);
-				throw new Error(input.rejection);
+				if (input.kind !== "probe") throw new Error(input.rejection);
 			},
 			subscribe: (callback: (event: unknown) => void) => {
 				listener = callback;
@@ -57,8 +58,18 @@ async function main() {
 				listener(event);
 			};
 			const client = await module.ResidentConsoleClient.connect({ socketPath: input.socketPath, service: "supervisor" });
-			const result = await exerciseClient(client, input, publish, prompts);
-			process.stdout.write(`${JSON.stringify(result)}\n`);
+			if (input.kind) {
+				try {
+					const result = input.kind === "identity"
+						? { snapshot: client.snapshot }
+						: { probe: { type: "probed", version: 1, ...await module.probeResidentConsole({ socketPath: input.socketPath, service: "supervisor" }) } };
+					if (input.kind === "probe") await client.prompt("still-owner", "accepted");
+					process.stdout.write(`${JSON.stringify(result)}\n`);
+				} finally { await client.close(); }
+			} else {
+				const result = await exerciseClient(client, input, publish, prompts);
+				process.stdout.write(`${JSON.stringify(result)}\n`);
+			}
 		} finally { await server.close(); }
 	}
 }

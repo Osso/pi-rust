@@ -2,8 +2,9 @@
 use super::ask_questions::Question;
 use crate::core::extensions::types::{ExtensionUiComponent, ExtensionUiDone, ExtensionUiFactoryContext};
 use crate::modes::interactive::theme::{ThemeBg, ThemeColor};
+use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
-use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
+use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value};
 use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::tui::{Component, Focusable};
 use pi_tui::utils::{truncate_to_width, wrap_text_with_ansi};
@@ -13,7 +14,7 @@ use std::rc::Rc;
 #[derive(Default)]
 struct Answer {
     selected: Vec<JsString>,
-    custom: Option<String>,
+    custom: Option<JsString>,
 }
 impl Answer {
     fn has_answer(&self) -> bool {
@@ -24,7 +25,6 @@ impl Answer {
             return self
                 .custom
                 .clone()
-                .map(JsString::from)
                 .or_else(|| self.selected.first().cloned())
                 .unwrap_or_default();
         }
@@ -35,12 +35,39 @@ impl Answer {
             .filter(|option| self.selected.contains(&option.label))
             .map(|option| option.label.clone())
             .collect::<Vec<_>>();
-        selected.extend(self.custom.clone().map(JsString::from));
+        selected.extend(self.custom.clone());
         JsString::join(selected, ", ")
     }
 }
+#[cfg(test)]
+mod raw_answer_tests {
+    use super::super::ask_questions::QuestionOption;
+    use super::*;
+
+    #[test]
+    fn custom_and_multi_select_answers_keep_original_units() {
+        let raw = JsString::from_utf16(vec![0xd800]);
+        let label = JsString::from("choice-") + &raw;
+        let custom = JsString::from("other-") + &raw;
+        let question = Question {
+            question: "question".into(),
+            header: None,
+            options: Some(vec![QuestionOption {
+                label: label.clone(),
+                description: None,
+            }]),
+            multi_select: Some(true),
+        };
+        let answer = Answer {
+            selected: vec![label.clone()],
+            custom: Some(custom.clone()),
+        };
+        assert_eq!(answer.format(&question), label + ", " + custom);
+    }
+}
+
 enum InputAction {
-    Submit(String),
+    Submit(JsString),
     Escape,
 }
 struct State {
@@ -165,7 +192,7 @@ impl QuestionPanel {
             self.advance(state);
         }
     }
-    fn edit_answer(&self, state: &mut State, data: &str) {
+    fn edit_answer(&self, state: &mut State, data: &JsString) {
         let free = self.is_free_text(state);
         let kb = &self.context.keybindings;
         if free && kb.matches(data, "app.questions.next") && !kb.matches(data, "tui.editor.cursorRight") {
@@ -181,7 +208,7 @@ impl QuestionPanel {
         let action = self.action.borrow_mut().take();
         match action {
             Some(InputAction::Submit(value)) => {
-                let text = pi_js_compat::string::js_trim(&value).to_owned();
+                let text = value.trim();
                 state.answers[tab].custom = (!text.is_empty()).then_some(text.clone());
                 if free && text.is_empty() {
                     return;
@@ -204,11 +231,11 @@ impl QuestionPanel {
             None => {}
         }
         if free {
-            let text = pi_js_compat::string::js_trim(state.inputs[tab].get_value());
+            let text = state.inputs[tab].get_value().trim();
             state.answers[tab].custom = (!text.is_empty()).then(|| text.to_owned());
         }
     }
-    fn handle_key(&self, state: &mut State, data: &str) {
+    fn handle_key(&self, state: &mut State, data: &JsString) {
         if state.editing {
             self.edit_answer(state, data);
             return;
@@ -233,7 +260,7 @@ impl QuestionPanel {
             self.activate_row(state);
         }
     }
-    fn render_tab_bar(&self, state: &State) -> String {
+    fn render_tab_bar(&self, state: &State) -> JsString {
         let theme = &self.context.theme;
         let mut labels = self
             .questions
@@ -245,12 +272,8 @@ impl QuestionPanel {
                 } else {
                     "□"
                 };
-                let header = question
-                    .header
-                    .as_ref()
-                    .map(encode_node_utf8)
-                    .unwrap_or_else(|| format!("Q{}", index + 1));
-                let text = format!(" {marker} {header} ");
+                let header = question.header.clone().unwrap_or_else(|| js_format!("Q{}", index + 1));
+                let text = js_format!(" {} {} ", marker, header);
                 if index == state.tab {
                     theme.bg(ThemeBg::SelectedBg, &theme.fg(ThemeColor::Text, &text))
                 } else {
@@ -271,9 +294,9 @@ impl QuestionPanel {
                 text,
             )
         });
-        format!(" {}", labels.join(" "))
+        js_format!(" {}", JsString::join(&labels, " "))
     }
-    fn render_options(&self, state: &State, width: usize) -> Vec<String> {
+    fn render_options(&self, state: &State, width: usize) -> Vec<JsString> {
         let question = &self.questions[state.tab];
         let Some(options) = &question.options else {
             return Vec::new();
@@ -295,19 +318,21 @@ impl QuestionPanel {
                     .description
                     .as_ref()
                     .filter(|text| !text.is_empty())
-                    .map(|text| theme.fg(ThemeColor::Muted, &format!(" — {}", encode_node_utf8(text))))
+                    .map(|text| theme.fg(ThemeColor::Muted, &js_format!(" — {}", text)))
                     .unwrap_or_default();
-                (marker, encode_node_utf8(&option.label), description)
+                (marker, option.label.clone(), description)
             })
             .enumerate()
-            .map(|(index, (marker, label, description))| format!("{marker}{}. {label}{description}", index + 1))
+            .map(|(index, (marker, label, description))| {
+                js_format!("{}{}. {}{}", marker, index + 1, label, description)
+            })
             .collect::<Vec<_>>();
         rows.push(
             answer
                 .custom
                 .as_ref()
-                .map(|text| format!("✎ Other: {text}"))
-                .unwrap_or_else(|| "  Other".to_owned()),
+                .map(|text| js_format!("✎ Other: {}", text))
+                .unwrap_or_else(|| "  Other".into()),
         );
         rows.into_iter()
             .enumerate()
@@ -316,18 +341,18 @@ impl QuestionPanel {
                 let prefix = if active {
                     theme.fg(ThemeColor::Accent, "> ")
                 } else {
-                    "  ".to_owned()
+                    "  ".into()
                 };
                 let text = if active {
                     theme.fg(ThemeColor::Accent, &text)
                 } else {
                     text
                 };
-                truncate_to_width(&format!(" {prefix}{text}"), width)
+                truncate_to_width(&js_format!(" {}{}", prefix, text), width)
             })
             .collect()
     }
-    fn render_body(&self, state: &mut State, width: usize) -> Vec<String> {
+    fn render_body(&self, state: &mut State, width: usize) -> Vec<JsString> {
         let theme = &self.context.theme;
         if self.is_submit(state) {
             let mut lines = self
@@ -336,14 +361,15 @@ impl QuestionPanel {
                 .zip(&state.answers)
                 .map(|(question, answer)| {
                     let value = if answer.has_answer() {
-                        encode_node_utf8(&answer.format(question))
+                        answer.format(question)
                     } else {
                         theme.fg(ThemeColor::Warning, "—")
                     };
                     truncate_to_width(
-                        &format!(
-                            "   {}→ {value}",
-                            theme.fg(ThemeColor::Muted, &format!("{} ", encode_node_utf8(&question.question)))
+                        &js_format!(
+                            "   {}→ {}",
+                            theme.fg(ThemeColor::Muted, &js_format!("{} ", question.question)),
+                            value
                         ),
                         width,
                     )
@@ -354,32 +380,32 @@ impl QuestionPanel {
             } else {
                 theme.fg(ThemeColor::Warning, "Answer every question to submit")
             };
-            lines.extend([String::new(), format!("   {status}")]);
+            lines.extend([JsString::default(), js_format!("   {}", status)]);
             return lines;
         }
         let mut lines = wrap_text_with_ansi(
-            &theme.fg(ThemeColor::Text, &encode_node_utf8(&self.questions[state.tab].question)),
+            &theme.fg(ThemeColor::Text, &self.questions[state.tab].question),
             width.saturating_sub(2).max(1),
         )
         .into_iter()
-        .map(|line| format!(" {line}"))
+        .map(|line| js_format!(" {}", line))
         .collect::<Vec<_>>();
-        lines.push(String::new());
+        lines.push(JsString::default());
         lines.extend(self.render_options(state, width));
         if state.editing {
             let input = &mut state.inputs[state.tab];
             input.set_focused(self.focused.get());
             lines.extend([
-                String::new(),
-                format!(" {}", theme.fg(ThemeColor::Muted, "Your answer:")),
+                JsString::default(),
+                js_format!(" {}", theme.fg(ThemeColor::Muted, "Your answer:")),
             ]);
             lines.extend(input.render(width.saturating_sub(2).max(1)));
         }
         lines
     }
-    fn help(&self, state: &State) -> String {
+    fn help(&self, state: &State) -> JsString {
         if self.is_free_text(state) {
-            return format!(
+            return js_format!(
                 "{}Enter save • Esc cancel",
                 if self.tab_count() > 1 {
                     "Tab/Shift+Tab questions • "
@@ -389,9 +415,9 @@ impl QuestionPanel {
             );
         }
         if state.editing {
-            return "Enter save • Esc back".to_owned();
+            return "Enter save • Esc back".into();
         }
-        format!(
+        js_format!(
             "{}↑↓ move • Enter {} • Esc cancel",
             if self.tab_count() > 1 {
                 "←→ questions • "
@@ -417,21 +443,21 @@ impl ExtensionUiComponent for QuestionPanel {
     fn set_focused(&self, value: bool) {
         self.focused.set(value);
     }
-    fn handle_input(&self, data: &str) {
+    fn handle_input(&self, data: &JsString) {
         self.handle_key(&mut self.state.borrow_mut(), data);
         self.context.tui.request_render();
     }
-    fn render(&self, width: usize) -> Vec<String> {
+    fn render(&self, width: usize) -> Vec<JsString> {
         let mut state = self.state.borrow_mut();
         let rule = self.context.theme.fg(ThemeColor::Accent, &"─".repeat(width.max(1)));
         let mut lines = vec![rule.clone()];
         if self.tab_count() > 1 {
-            lines.extend([self.render_tab_bar(&state), String::new()]);
+            lines.extend([self.render_tab_bar(&state), JsString::default()]);
         }
         lines.extend(self.render_body(&mut state, width));
         lines.extend([
-            String::new(),
-            format!(" {}", self.context.theme.fg(ThemeColor::Dim, &self.help(&state))),
+            JsString::default(),
+            js_format!(" {}", self.context.theme.fg(ThemeColor::Dim, &self.help(&state))),
             rule,
         ]);
         lines

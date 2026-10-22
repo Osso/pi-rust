@@ -520,7 +520,7 @@ impl Selector {
     }
 }
 impl ExtensionUiComponent for Selector {
-    fn render(&self, width: usize) -> Vec<String> {
+    fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let theme: &Theme = &self.context.theme;
         let mut lines = self.border(width);
         lines.extend(Text::new(theme.fg(ThemeColor::Accent, &theme.bold("Select Preset")), 1, 1).render(width));
@@ -536,7 +536,7 @@ impl ExtensionUiComponent for Selector {
         lines.extend(self.border(width));
         lines
     }
-    fn handle_input(&self, data: &str) {
+    fn handle_input(&self, data: &pi_js_compat::js_json::JsString) {
         let mut list = self.list();
         list.handle_input(data);
         *self.selected.lock().unwrap() = list.selected_index();

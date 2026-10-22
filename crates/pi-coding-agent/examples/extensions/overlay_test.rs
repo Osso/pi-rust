@@ -108,7 +108,7 @@ impl ExtensionUiComponent for OverlayTest {
     fn set_focused(&self, value: bool) {
         self.focused.store(value, Ordering::SeqCst);
     }
-    fn handle_input(&self, data: &str) {
+    fn handle_input(&self, data: &pi_js_compat::js_json::JsString) {
         if matches_key(data, "escape") {
             self.done.call(None);
             return;
@@ -134,7 +134,7 @@ impl ExtensionUiComponent for OverlayTest {
             current.edit_input(data);
         }
     }
-    fn render(&self, _width: usize) -> Vec<String> {
+    fn render(&self, _width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let th = &self.theme;
         let mut lines = vec![
             th.fg(ThemeColor::Border, &format!("╭{}╮", "─".repeat(68))),

@@ -1,5 +1,6 @@
 //! `search_current_session_history` tool (`core/tools/search-current-session-history.ts`).
 
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue;
 use std::collections::HashSet;
 use std::sync::{Arc, OnceLock};
@@ -39,7 +40,7 @@ struct SearchCurrentSessionHistoryParams {
     query: JsString,
     context_entries: Option<i64>,
     limit: Option<i64>,
-    cursor: Option<String>,
+    cursor: Option<JsString>,
 }
 
 #[derive(Debug, Clone)]
@@ -53,9 +54,9 @@ struct SearchableSessionEntry {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SessionHistorySearchEntry {
-    id: String,
-    timestamp: String,
-    entry_type: String,
+    id: JsString,
+    timestamp: JsString,
+    entry_type: JsString,
     role: JsString,
     content: Value,
     matched: bool,
@@ -69,7 +70,7 @@ struct SearchCurrentSessionHistoryDetails {
     total_matches: usize,
     returned_matches: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
-    next_cursor: Option<String>,
+    next_cursor: Option<JsString>,
     entries: Vec<SessionHistorySearchEntry>,
 }
 
@@ -221,16 +222,21 @@ fn searchable_entry(entry: &SessionEntry) -> Option<SearchableSessionEntry> {
     }
 }
 
-fn parse_cursor(cursor: Option<&str>) -> Result<usize, ToolError> {
+fn parse_cursor(cursor: Option<&JsString>) -> Result<usize, ToolError> {
     let Some(cursor) = cursor else {
         return Ok(0);
     };
-    if cursor.is_empty() || !cursor.bytes().all(|byte| byte.is_ascii_digit()) {
+    if cursor.is_empty()
+        || !cursor
+            .units()
+            .iter()
+            .all(|unit| (u16::from(b'0')..=u16::from(b'9')).contains(unit))
+    {
         return Err(ToolError::new(
             "search_current_session_history cursor must be a non-negative integer cursor",
         ));
     }
-    Ok(cursor.parse::<f64>().map(|value| value as usize).unwrap_or(usize::MAX))
+    Ok(pi_js_compat::number::parse_int(cursor.units(), 10) as usize)
 }
 
 fn selected_indexes(match_indexes: &[usize], context_entries: i64, entry_count: usize) -> HashSet<usize> {
@@ -303,7 +309,7 @@ impl AgentHarnessTool<ExtensionContext> for SearchCurrentSessionHistoryTool {
 
             let mut history = crate::core::session_history::read_session_history_reverse(&manager)
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|cause| ToolError::new(cause.to_string()))?;
+                .map_err(|cause| ToolError::new(cause.message()))?;
             history.reverse();
             let searchable_entries: Vec<SearchableSessionEntry> = history.iter().filter_map(searchable_entry).collect();
             let normalized_query = query.to_lowercase();
@@ -318,7 +324,7 @@ impl AgentHarnessTool<ExtensionContext> for SearchCurrentSessionHistoryTool {
                 })
                 .map(|(index, _)| index)
                 .collect();
-            let cursor = parse_cursor(params.cursor.as_deref())?;
+            let cursor = parse_cursor(params.cursor.as_ref())?;
             let limit = usize::try_from(params.limit.unwrap_or(DEFAULT_LIMIT as i64).max(0)).unwrap_or(0);
             let page_end = cursor.saturating_add(limit).min(all_match_indexes.len());
             let page_match_indexes: Vec<usize> = all_match_indexes
@@ -328,30 +334,30 @@ impl AgentHarnessTool<ExtensionContext> for SearchCurrentSessionHistoryTool {
             let context_entries = params.context_entries.unwrap_or(0);
             let included_indexes = selected_indexes(&page_match_indexes, context_entries, searchable_entries.len());
             let match_index_set: HashSet<usize> = page_match_indexes.iter().copied().collect();
-            let context_entry_ids: HashSet<String> = manager
+            let context_entry_ids: HashSet<JsString> = manager
                 .build_context_entries()
                 .iter()
-                .filter_map(|entry| entry.id().map(str::to_owned))
+                .filter_map(|entry| entry.id().cloned())
                 .collect();
             let entries: Vec<SessionHistorySearchEntry> = searchable_entries
                 .iter()
                 .enumerate()
                 .filter(|(index, _)| included_indexes.contains(index))
                 .map(|(index, searchable)| {
-                    let entry_id = searchable.entry.id().unwrap_or_default();
+                    let entry_id = searchable.entry.id().cloned().unwrap_or_default();
                     SessionHistorySearchEntry {
-                        id: entry_id.to_owned(),
-                        timestamp: searchable.entry.timestamp().unwrap_or_default().to_owned(),
+                        id: entry_id.clone(),
+                        timestamp: searchable.entry.timestamp().cloned().unwrap_or_default(),
                         entry_type: searchable.entry.entry_type().to_owned(),
                         role: searchable.role.clone(),
                         content: searchable.content.clone(),
                         matched: match_index_set.contains(&index),
-                        compacted: !context_entry_ids.contains(entry_id),
+                        compacted: !context_entry_ids.contains(&entry_id),
                     }
                 })
                 .collect();
             let next_offset = cursor.saturating_add(page_match_indexes.len());
-            let next_cursor = (next_offset < all_match_indexes.len()).then(|| next_offset.to_string());
+            let next_cursor = (next_offset < all_match_indexes.len()).then(|| next_offset.to_string().into());
             let details = SearchCurrentSessionHistoryDetails {
                 query: query.to_owned(),
                 total_matches: all_match_indexes.len(),
@@ -370,13 +376,13 @@ impl AgentHarnessTool<ExtensionContext> for SearchCurrentSessionHistoryTool {
     }
 }
 
-fn format_call(args: &JsValue, theme: &Theme) -> String {
+fn format_call(args: &JsValue, theme: &Theme) -> JsString {
     let query = match args.get("query") {
         None | Some(Value::Null) => Value::String(String::new().into()),
         Some(query) => query.clone(),
     };
     let query = pi_js_compat::js_json::stringify_lossless(&query);
-    format!(
+    js_format!(
         "{} {}",
         theme.fg(ThemeColor::ToolTitle, &theme.bold("search_current_session_history")),
         theme.fg(ThemeColor::Accent, &query)
@@ -412,6 +418,17 @@ pub fn create_search_current_session_history_tool_definition() -> ToolDefinition
 #[cfg(test)]
 mod js_value_tests {
     use super::*;
+
+    #[test]
+    fn raw_cursor_reaches_explicit_numeric_validation_without_json_narrowing() {
+        let value = pi_js_compat::js_json::parse_lossless(r#"{"query":"needle","cursor":"offset-\ud800"}"#).unwrap();
+        let params: SearchCurrentSessionHistoryParams = pi_js_compat::js_json::from_value(&value).unwrap();
+        let error = parse_cursor(params.cursor.as_ref()).unwrap_err();
+        assert_eq!(
+            error.message,
+            "search_current_session_history cursor must be a non-negative integer cursor"
+        );
+    }
 
     #[test]
     fn collects_numeric_properties_in_javascript_order() {

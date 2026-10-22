@@ -79,7 +79,7 @@ struct Summary {
     done: ExtensionUiDone,
 }
 impl ExtensionUiComponent for Summary {
-    fn render(&self, width: usize) -> Vec<String> {
+    fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let theme = self.context.theme.clone();
         let border = || {
             let theme = theme.clone();
@@ -92,7 +92,7 @@ impl ExtensionUiComponent for Summary {
         lines.extend(border());
         lines
     }
-    fn handle_input(&self, data: &str) {
+    fn handle_input(&self, data: &pi_js_compat::js_json::JsString) {
         if pi_tui::keys::matches_key(data, "enter") || pi_tui::keys::matches_key(data, "escape") {
             self.done.call(None);
         }

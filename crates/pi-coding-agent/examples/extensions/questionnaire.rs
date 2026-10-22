@@ -235,7 +235,7 @@ impl Questionnaire {
     }
 }
 impl ExtensionUiComponent for Questionnaire {
-    fn handle_input(&self, data: &str) {
+    fn handle_input(&self, data: &pi_js_compat::js_json::JsString) {
         let mut state = self.state.borrow_mut();
         if state.input_id.is_some() {
             self.input_editor(&mut state, data);
@@ -300,7 +300,7 @@ impl ExtensionUiComponent for Questionnaire {
     fn invalidate(&self) {
         self.state.borrow_mut().cache = None;
     }
-    fn render(&self, width: usize) -> Vec<String> {
+    fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let mut state = self.state.borrow_mut();
         if let Some(cache) = &state.cache {
             return cache.clone();

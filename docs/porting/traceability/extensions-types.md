@@ -12,6 +12,10 @@ event/API contracts are Rust-native; factories receive `ExtensionApi`.
 
 `TerminalInputHandler` receives `&JsString`, `TerminalInputResult.data` is `Option<JsString>`, and `WorkingIndicatorOptions.frames` is `Option<Vec<JsString>>`. No scalar terminal adapter remains in those contracts. `raw_extension_ui_types.rs` tests lone high/low units and astral callback values plus lossless frame serialization; execution is pending whole coding integration compilation. Interactive dispatch is a separate native migration, not proof supplied by this contract change.
 
+## Native custom-component checkpoint
+
+`ExtensionUiComponent::render` returns `Vec<JsString>` and `handle_input` takes `&JsString`. Both synchronous and asynchronous `ExtensionUiCustomResult` error carriers are `JsString`. The question panel uses this single native interface. Mechanical signature updates cover the 19 extension-example implementers and LlamaViewComponent; native propagation inside their existing bodies is not claimed complete. Interactive implementers remain owned by the interactive lane. No scalar component adapter is introduced; actual coding-library proof remains pending compilation.
+
 ## Contract adaptations
 
 - Representation deviation (Rust-native extension API, AGENTS.md): handlers

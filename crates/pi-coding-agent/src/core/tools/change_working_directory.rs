@@ -1,6 +1,7 @@
 //! `change_working_directory` tool (`core/tools/change-working-directory.ts`).
 
-use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{JsString, JsValue};
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
@@ -9,7 +10,6 @@ use pi_agent_core::{
 };
 use pi_ai::request::BoxFuture;
 use pi_js_compat::js_json::{JsObject as Map, JsValue as Value, encode_node_utf8};
-use pi_js_compat::string::js_trim;
 use pi_tui::tui::ComponentRef;
 use serde_json::Value as SchemaValue;
 use tokio_util::sync::CancellationToken;
@@ -37,14 +37,39 @@ pub const PROMPT_GUIDELINES: [&str; 2] = [
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ChangeWorkingDirectoryTarget {
-    Path(String),
-    Id(String),
+    Path(JsString),
+    Id(JsString),
 }
 
 struct ResolvedTarget {
-    cwd: String,
+    cwd: JsString,
     source: &'static str,
-    session_id: Option<String>,
+    session_id: Option<JsString>,
+}
+
+#[cfg(test)]
+mod lossless_target_tests {
+    use super::*;
+
+    #[test]
+    fn target_normalization_and_missing_directory_error_keep_raw_units() {
+        let raw = JsString::from_utf16(vec![0xd800]);
+        let params = pi_js_compat::js_json::parse_lossless(r#"{"path":" /missing-\ud800 "}"#).unwrap();
+        let ChangeWorkingDirectoryTarget::Path(path) = normalize_target(&params).unwrap() else {
+            panic!("path target")
+        };
+        assert_eq!(path, JsString::from(" /missing-") + &raw + " ");
+        let missing = JsString::from("/pi-missing-directory-") + &raw;
+        assert_eq!(
+            assert_existing_directory(&missing).unwrap_err().message,
+            JsString::from("Directory does not exist: ") + missing
+        );
+        let params = pi_js_compat::js_json::parse_lossless(r#"{"id":" id-\ud800 "}"#).unwrap();
+        assert_eq!(
+            normalize_target(&params).unwrap(),
+            ChangeWorkingDirectoryTarget::Id(JsString::from("id-") + raw)
+        );
+    }
 }
 
 /// `createChangeWorkingDirectoryToolDefinition()`.
@@ -76,7 +101,7 @@ pub fn parameters() -> &'static SchemaValue {
     })
 }
 
-fn read_non_empty_target(record: &Map, key: &str) -> Result<Option<String>, ToolError> {
+fn read_non_empty_target(record: &Map, key: &str) -> Result<Option<JsString>, ToolError> {
     let Some(value) = record.get(key) else {
         return Ok(None);
     };
@@ -93,7 +118,7 @@ fn read_non_empty_target(record: &Map, key: &str) -> Result<Option<String>, Tool
             "change_working_directory {key} must be a non-empty string"
         )));
     }
-    Ok(Some(encode_node_utf8(&text)))
+    Ok(Some(text.clone()))
 }
 
 fn normalize_target(params: &JsValue) -> Result<ChangeWorkingDirectoryTarget, ToolError> {
@@ -103,7 +128,7 @@ fn normalize_target(params: &JsValue) -> Result<ChangeWorkingDirectoryTarget, To
         ));
     };
     let path = read_non_empty_target(record, "path")?;
-    let id = read_non_empty_target(record, "id")?.map(|id| js_trim(&id).to_owned());
+    let id = read_non_empty_target(record, "id")?.map(|id| id.trim());
     match (path, id) {
         (Some(path), None) => Ok(ChangeWorkingDirectoryTarget::Path(path)),
         (None, Some(id)) => Ok(ChangeWorkingDirectoryTarget::Id(id)),
@@ -113,27 +138,28 @@ fn normalize_target(params: &JsValue) -> Result<ChangeWorkingDirectoryTarget, To
     }
 }
 
-fn assert_existing_directory(cwd: &str) -> Result<(), ToolError> {
-    let path = Path::new(cwd);
+fn assert_existing_directory(cwd: &JsString) -> Result<(), ToolError> {
+    let encoded = encode_node_utf8(cwd);
+    let path = Path::new(&encoded);
     if !path.exists() {
-        return Err(ToolError::new(format!("Directory does not exist: {cwd}")));
+        return Err(ToolError::new(js_format!("Directory does not exist: {}", cwd)));
     }
     if !path.is_dir() {
-        return Err(ToolError::new(format!("Not a directory: {cwd}")));
+        return Err(ToolError::new(js_format!("Not a directory: {}", cwd)));
     }
     Ok(())
 }
 
 fn load_target_cwd(
     target: &ChangeWorkingDirectoryTarget,
-    cwd: &str,
+    cwd: &JsString,
     session: &SessionManager,
-    control_db_path: Option<&str>,
+    control_db_path: Option<&JsString>,
 ) -> Result<ResolvedTarget, ToolError> {
     match target {
         ChangeWorkingDirectoryTarget::Path(path) => {
             let cwd = resolve_path(path, cwd, &PathInputOptions::default())
-                .map_err(|error| ToolError::new(error.to_string()))?;
+                .map_err(|error| ToolError::new(error.message()))?;
             assert_existing_directory(&cwd)?;
             Ok(ResolvedTarget {
                 cwd,
@@ -144,7 +170,7 @@ fn load_target_cwd(
         ChangeWorkingDirectoryTarget::Id(id) => {
             let session_path = find_session_file_by_id(id, session, control_db_path)?;
             if let Some(current_session_file) = session.get_session_file()
-                && resolve_session_path(current_session_file) == resolve_session_path(&session_path)
+                && resolve_session_path(current_session_file)? == resolve_session_path(&session_path)?
             {
                 return Err(ToolError::new(
                     "current session id cannot be used as a working directory target",
@@ -154,7 +180,10 @@ fn load_target_cwd(
                 .and_then(|header| header.cwd)
                 .filter(|cwd| !cwd.is_empty())
                 .ok_or_else(|| {
-                    ToolError::new(format!("Session does not record a working directory: {session_path}"))
+                    ToolError::new(js_format!(
+                        "Session does not record a working directory: {}",
+                        session_path
+                    ))
                 })?;
             assert_existing_directory(&cwd)?;
             Ok(ResolvedTarget {
@@ -206,12 +235,7 @@ impl AgentHarnessTool<ExtensionContext> for ChangeWorkingDirectoryTool {
                 .control_db_path()
                 .map_err(|error| ToolError::new(error.message))?;
             let previous_cwd = cwd.clone();
-            let resolved = load_target_cwd(
-                &target,
-                &cwd,
-                &lock_session_manager(&session),
-                control_db_path.as_deref(),
-            )?;
+            let resolved = load_target_cwd(&target, &cwd, &lock_session_manager(&session), control_db_path.as_ref())?;
             context
                 .relocate_after_tool_result(&tool_call_id, &resolved.cwd)
                 .map_err(|error| ToolError::new(error.message))?;
@@ -223,27 +247,27 @@ impl AgentHarnessTool<ExtensionContext> for ChangeWorkingDirectoryTool {
                 details.insert("sessionId".into(), Value::String(session_id.into()));
             }
             Ok(terminating_text_result(
-                format!("Changed working directory to {}", resolved.cwd),
+                js_format!("Changed working directory to {}", resolved.cwd),
                 Value::Object(details),
             ))
         })
     }
 }
 
-fn format_call(args: &JsValue, theme: &Theme) -> String {
+fn format_call(args: &JsValue, theme: &Theme) -> JsString {
     let target = args
         .get("path")
         .and_then(Value::as_string)
         .filter(|path| !path.is_empty())
-        .map(|path| format!("path {}", encode_node_utf8(path)))
+        .map(|path| js_format!("path {}", path))
         .or_else(|| {
             args.get("id")
                 .and_then(Value::as_string)
                 .filter(|id| !id.is_empty())
-                .map(|id| format!("session {}", encode_node_utf8(id)))
+                .map(|id| js_format!("session {}", id))
         })
-        .unwrap_or_else(|| "target".to_owned());
-    format!(
+        .unwrap_or_else(|| "target".into());
+    js_format!(
         "{} {}",
         theme.fg(ThemeColor::ToolTitle, &theme.bold("change_working_directory")),
         theme.fg(ThemeColor::Accent, &target)

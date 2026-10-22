@@ -13,7 +13,7 @@ struct CustomHeader {
 }
 
 impl ExtensionUiComponent for CustomHeader {
-    fn render(&self, _width: usize) -> Vec<String> {
+    fn render(&self, _width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let mut lines = pi_mascot(&self.theme);
         lines.push(format!(
             "{}{}",

@@ -241,7 +241,7 @@ impl Drop for Snake {
     }
 }
 impl ExtensionUiComponent for Snake {
-    fn handle_input(&self, data: &str) {
+    fn handle_input(&self, data: &pi_js_compat::js_json::JsString) {
         let mut inner = self.inner.lock().unwrap();
         if inner.paused {
             if matches_key(data, "escape") || matches!(data, "q" | "Q") {
@@ -299,7 +299,7 @@ impl ExtensionUiComponent for Snake {
             self.tui.request_render();
         }
     }
-    fn render(&self, width: usize) -> Vec<String> {
+    fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         if width < 4 {
             let count = (width as i32 - 4).div_euclid(2) * 2;
             pi_coding_agent::utils::uncaught::throw_uncaught("RangeError", format!("Invalid count value: {count}"));
