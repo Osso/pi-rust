@@ -15866,13 +15866,28 @@ mod tests {
 #[cfg(test)]
 mod lossless_preview_tests {
     use super::*;
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
     #[test]
     fn followup_slices_raw_units_before_display_encoding() {
-        let input = JsString::from(format!("- agent: helper\nMessage:\n{}😀", "x".repeat(49)));
-        assert_eq!(
-            format_follow_up_preview(&input),
-            format!("Follow-up from helper: {}�…", "x".repeat(49))
+        let mut oracle = oracle::TsOracle::spawn(
+            "interactive-followup-oracle.ts",
+            "packages/coding-agent/src/modes/interactive/interactive-mode.ts",
         );
+        for input in [
+            JsString::from(format!("- agent: helper\nMessage:\n{}😀", "x".repeat(49))),
+            JsString::from("Continue working toward the active goal."),
+            JsString::from_utf16(vec![0xd800, 0x20, 0xdc00]),
+        ] {
+            let request = JsValue::Object(JsObject::from_iter([(
+                JsString::from("message"),
+                JsValue::String(input.clone()),
+            )]));
+            let expected = oracle.request(&request);
+            let actual = JsValue::String(format_follow_up_preview(&input));
+            assert_eq!(actual, expected, "input {input:?}");
+        }
     }
 }
 
