@@ -1652,7 +1652,7 @@ pub fn configured_request_auth_status(
             AuthStatus {
                 configured: true,
                 source: Some(AuthStatusSource::Environment),
-                label: Some(names.join(", ")),
+                label: Some(JsString::join(names, ", ")),
             }
         } else {
             AuthStatus {
