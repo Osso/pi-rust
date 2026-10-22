@@ -13,7 +13,6 @@ use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 use pi_js_compat::js_json::JsValue as Value;
-use pi_js_compat::string::js_trim;
 use pi_tui::{
     Text,
     keys::matches_key,
@@ -84,7 +83,7 @@ async fn execute(params: Value, ctx: ExtensionContext) -> Result<AgentToolResult
     } else {
         js_format!(
             "User selected: {}. {}",
-            answer["index"],
+            pi_js_compat::js_json::to_js_string(&answer["index"]).expect("answer index converts to JS text"),
             answer["answer"].as_string().unwrap()
         )
     };

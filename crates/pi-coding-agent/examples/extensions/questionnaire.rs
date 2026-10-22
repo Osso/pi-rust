@@ -14,7 +14,6 @@ use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 use pi_js_compat::js_json::JsValue as Value;
-use pi_js_compat::string::js_trim;
 use pi_tui::{
     Text,
     keys::matches_key,
@@ -99,7 +98,8 @@ async fn execute(params: Value, ctx: ExtensionContext) -> Result<AgentToolResult
                     js_format!(
                         "{}: user selected: {}. {}",
                         label,
-                        answer["index"],
+                        pi_js_compat::js_json::to_js_string(&answer["index"])
+                            .expect("answer index converts to JS text"),
                         answer["label"].as_string().unwrap()
                     )
                 }
@@ -443,7 +443,13 @@ fn render_result(result: &AgentToolResult, theme: &Theme) -> JsString {
                     prefix
                         + &a["index"].as_f64().filter(|i| *i != 0.0).map_or_else(
                             || a["label"].as_string().unwrap().to_owned(),
-                            |i| js_format!("{}. {}", i, a["label"].as_string().unwrap()),
+                            |i| {
+                                js_format!(
+                                    "{}. {}",
+                                    pi_js_compat::number::js_number_to_string(i),
+                                    a["label"].as_string().unwrap()
+                                )
+                            },
                         )
                 }
             })
