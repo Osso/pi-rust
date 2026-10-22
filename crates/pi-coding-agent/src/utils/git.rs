@@ -1,4 +1,8 @@
 use percent_encoding::percent_decode_str;
+use pi_js_compat::{
+    js_format,
+    js_json::{JsString, encode_node_utf8},
+};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -10,14 +14,14 @@ pub struct GitSource {
     #[serde(rename = "type")]
     pub source_type: GitSourceType,
     /// Clone URL without a ref suffix.
-    pub repo: String,
+    pub repo: JsString,
     /// Git host domain, for example `github.com`.
-    pub host: String,
+    pub host: JsString,
     /// Repository path, for example `user/repo`.
-    pub path: String,
+    pub path: JsString,
     /// Git ref (branch, tag, commit) when specified.
     #[serde(rename = "ref", skip_serializing_if = "Option::is_none")]
-    pub reference: Option<String>,
+    pub reference: Option<JsString>,
     /// True when a ref was specified.
     pub pinned: bool,
 }
@@ -32,30 +36,30 @@ pub enum GitSourceType {
 ///
 /// With a `git:` prefix all historical shorthand forms are accepted. Without
 /// the prefix only explicit protocol URLs are accepted.
-pub fn parse_git_url(source: &str) -> Option<GitSource> {
+pub fn parse_git_url(source: &JsString) -> Option<GitSource> {
     let trimmed = source.trim();
     let has_git_prefix = trimmed.starts_with("git:");
     let url = if has_git_prefix {
-        trimmed.get(4..)?.trim()
+        trimmed.slice(4, trimmed.len()).trim()
     } else {
-        trimmed
+        trimmed.clone()
     };
 
-    if !has_git_prefix && !has_explicit_protocol(url) {
+    if !has_git_prefix && !has_explicit_protocol(&url) {
         return None;
     }
 
-    let split = split_ref(url);
-    if let Some(source) = parse_hosted_candidates(&split, url) {
+    let split = split_ref(&url);
+    if let Some(source) = parse_hosted_candidates(&split, &url) {
         return Some(source);
     }
-    if let Some(source) = parse_https_candidates(&split, url) {
+    if let Some(source) = parse_https_candidates(&split, &url) {
         return Some(source);
     }
-    parse_generic_git_url(url)
+    parse_generic_git_url(&url)
 }
 
-fn parse_hosted_candidates(split: &SplitRef, url: &str) -> Option<GitSource> {
+fn parse_hosted_candidates(split: &SplitRef, url: &JsString) -> Option<GitSource> {
     for candidate in reference_candidates(split, url) {
         let Some(info) = hosted_git_info(&candidate) else {
             continue;
@@ -64,7 +68,7 @@ fn parse_hosted_candidates(split: &SplitRef, url: &str) -> Option<GitSource> {
             continue;
         }
         let repo = if needs_https_prefix(&split.repo) {
-            format!("https://{}", split.repo)
+            js_format!("https://{}", split.repo)
         } else {
             split.repo.clone()
         };
@@ -73,7 +77,7 @@ fn parse_hosted_candidates(split: &SplitRef, url: &str) -> Option<GitSource> {
     None
 }
 
-fn parse_https_candidates(split: &SplitRef, url: &str) -> Option<GitSource> {
+fn parse_https_candidates(split: &SplitRef, url: &JsString) -> Option<GitSource> {
     for candidate in https_candidates(split, url) {
         let Some(info) = hosted_git_info(&candidate) else {
             continue;
@@ -81,44 +85,44 @@ fn parse_https_candidates(split: &SplitRef, url: &str) -> Option<GitSource> {
         if split.reference.is_some() && info.project.contains('@') {
             continue;
         }
-        return build_from_hosted_info(format!("https://{}", split.repo), info, split);
+        return build_from_hosted_info(js_format!("https://{}", split.repo), info, split);
     }
     None
 }
 
-fn reference_candidates(split: &SplitRef, url: &str) -> Vec<String> {
+fn reference_candidates(split: &SplitRef, url: &JsString) -> Vec<JsString> {
     let mut candidates = Vec::new();
     if let Some(reference) = &split.reference {
-        candidates.push(format!("{}#{reference}", split.repo));
+        candidates.push(js_format!("{}#{}", split.repo, reference));
     }
     candidates.push(url.to_owned());
     candidates
 }
 
-fn https_candidates(split: &SplitRef, url: &str) -> Vec<String> {
+fn https_candidates(split: &SplitRef, url: &JsString) -> Vec<JsString> {
     let mut candidates = Vec::new();
     if let Some(reference) = &split.reference {
-        candidates.push(format!("https://{}#{reference}", split.repo));
+        candidates.push(js_format!("https://{}#{}", split.repo, reference));
     }
-    candidates.push(format!("https://{url}"));
+    candidates.push(js_format!("https://{}", url));
     candidates
 }
 
-fn build_from_hosted_info(repo: String, info: HostedGitInfo, split: &SplitRef) -> Option<GitSource> {
+fn build_from_hosted_info(repo: JsString, info: HostedGitInfo, split: &SplitRef) -> Option<GitSource> {
     let user = info.user.unwrap_or_else(|| "null".to_owned());
-    let path = format!("{user}/{}", info.project);
-    let reference = info.committish.or_else(|| split.reference.clone());
-    build_git_source(repo, info.domain, path, reference)
+    let path = js_format!("{}/{}", user, info.project);
+    let reference = info.committish.map(JsString::from).or_else(|| split.reference.clone());
+    build_git_source(repo, info.domain.into(), path, reference)
 }
 
-fn has_explicit_protocol(url: &str) -> bool {
-    let lowercase = url.to_ascii_lowercase();
+fn has_explicit_protocol(url: &JsString) -> bool {
+    let lowercase = url.to_lowercase();
     ["http://", "https://", "ssh://", "git://"]
         .iter()
-        .any(|prefix| lowercase.starts_with(prefix))
+        .any(|prefix| lowercase.starts_with(*prefix))
 }
 
-fn needs_https_prefix(repo: &str) -> bool {
+fn needs_https_prefix(repo: &JsString) -> bool {
     !(repo.starts_with("http://")
         || repo.starts_with("https://")
         || repo.starts_with("ssh://")
@@ -127,11 +131,11 @@ fn needs_https_prefix(repo: &str) -> bool {
 }
 
 struct SplitRef {
-    repo: String,
-    reference: Option<String>,
+    repo: JsString,
+    reference: Option<JsString>,
 }
 
-fn split_ref(url: &str) -> SplitRef {
+fn split_ref(url: &JsString) -> SplitRef {
     if let Some(split) = split_scp_like_ref(url) {
         return split;
     }
@@ -141,61 +145,61 @@ fn split_ref(url: &str) -> SplitRef {
     split_host_path_ref(url)
 }
 
-fn split_scp_like_ref(url: &str) -> Option<SplitRef> {
+fn split_scp_like_ref(url: &JsString) -> Option<SplitRef> {
     let rest = url.strip_prefix("git@")?;
-    let (host, path_with_maybe_ref) = rest.split_once(':')?;
+    let (host, path_with_maybe_ref) = split_once(&rest, ':')?;
     if path_with_maybe_ref.is_empty() {
         return None;
     }
-    let (repo_path, reference) = split_reference(path_with_maybe_ref)?;
+    let (repo_path, reference) = split_reference(&path_with_maybe_ref)?;
     Some(SplitRef {
-        repo: format!("git@{host}:{repo_path}"),
+        repo: js_format!("git@{}:{}", host, repo_path),
         reference: Some(reference.to_owned()),
     })
 }
 
-fn split_url_ref(url: &str) -> SplitRef {
-    let Ok(mut parsed) = Url::parse(url) else {
+fn split_url_ref(url: &JsString) -> SplitRef {
+    let Ok(mut parsed) = Url::parse(&encode_node_utf8(url)) else {
         return unchanged_ref(url);
     };
-    let path_with_maybe_ref = parsed.path().trim_start_matches('/').to_owned();
+    let path_with_maybe_ref = JsString::from(parsed.path().trim_start_matches('/'));
     let Some((repo_path, reference)) = split_reference(&path_with_maybe_ref) else {
         return unchanged_ref(url);
     };
 
-    parsed.set_path(&format!("/{repo_path}"));
+    parsed.set_path(&encode_node_utf8(&js_format!("/{}", repo_path)));
     SplitRef {
-        repo: parsed.to_string().trim_end_matches('/').to_owned(),
-        reference: Some(reference.to_owned()),
+        repo: parsed.to_string().trim_end_matches('/').into(),
+        reference: Some(reference.into()),
     }
 }
 
-fn split_host_path_ref(url: &str) -> SplitRef {
+fn split_host_path_ref(url: &JsString) -> SplitRef {
     let Some(slash_index) = url.find('/') else {
         return unchanged_ref(url);
     };
-    let host = &url[..slash_index];
-    let path_with_maybe_ref = &url[slash_index + 1..];
-    let Some((repo_path, reference)) = split_reference(path_with_maybe_ref) else {
+    let host = url.slice(0, slash_index);
+    let path_with_maybe_ref = url.slice(slash_index + 1, url.len());
+    let Some((repo_path, reference)) = split_reference(&path_with_maybe_ref) else {
         return unchanged_ref(url);
     };
     SplitRef {
-        repo: format!("{host}/{repo_path}"),
+        repo: js_format!("{}/{}", host, repo_path),
         reference: Some(reference.to_owned()),
     }
 }
 
-fn split_reference(path_with_maybe_ref: &str) -> Option<(&str, &str)> {
+fn split_reference(path_with_maybe_ref: &JsString) -> Option<(JsString, JsString)> {
     let separator = path_with_maybe_ref.find('@')?;
-    let repo_path = &path_with_maybe_ref[..separator];
-    let reference = &path_with_maybe_ref[separator + 1..];
+    let repo_path = path_with_maybe_ref.slice(0, separator);
+    let reference = path_with_maybe_ref.slice(separator + 1, path_with_maybe_ref.len());
     if repo_path.is_empty() || reference.is_empty() {
         return None;
     }
     Some((repo_path, reference))
 }
 
-fn unchanged_ref(url: &str) -> SplitRef {
+fn unchanged_ref(url: &JsString) -> SplitRef {
     SplitRef {
         repo: url.to_owned(),
         reference: None,
@@ -266,7 +270,10 @@ impl Host {
     }
 }
 
-fn hosted_git_info(giturl: &str) -> Option<HostedGitInfo> {
+fn hosted_git_info(giturl: &JsString) -> Option<HostedGitInfo> {
+    // hosted-git-info parses candidates as URLs; URL input applies USVString conversion.
+    let encoded = encode_node_utf8(giturl);
+    let giturl = encoded.as_str();
     let corrected = if is_github_shorthand(giturl) {
         format!("github:{giturl}")
     } else {
@@ -553,22 +560,25 @@ fn has_valid_percent_sequences(value: &str) -> bool {
     true
 }
 
-fn build_git_source(repo: String, host: String, path: String, reference: Option<String>) -> Option<GitSource> {
+fn split_once(text: &JsString, separator: char) -> Option<(JsString, JsString)> {
+    let index = text.find(separator)?;
+    Some((text.slice(0, index), text.slice(index + 1, text.len())))
+}
+
+fn build_git_source(repo: JsString, host: JsString, path: JsString, reference: Option<JsString>) -> Option<GitSource> {
     if path.starts_with('/') {
         return None;
     }
-    let normalized_path = path
-        .strip_suffix(".git")
-        .unwrap_or(&path)
-        .trim_start_matches('/')
-        .to_owned();
+    let mut normalized_path = path.strip_suffix(".git").unwrap_or(path);
+    while normalized_path.starts_with('/') {
+        normalized_path = normalized_path.slice(1, normalized_path.len());
+    }
     if host.is_empty() || normalized_path.is_empty() || normalized_path.split('/').count() < 2 {
         return None;
     }
     if has_unsafe_git_install_part(&host, false) || has_unsafe_git_install_part(&normalized_path, true) {
         return None;
     }
-
     Some(GitSource {
         source_type: GitSourceType::Git,
         repo,
@@ -579,11 +589,36 @@ fn build_git_source(repo: String, host: String, path: String, reference: Option<
     })
 }
 
-fn has_unsafe_git_install_part(value: &str, allow_slash: bool) -> bool {
-    let Some(decoded) = decode_uri_component(value) else {
+fn decode_validation_text(value: &JsString) -> Option<JsString> {
+    let mut output = JsString::default();
+    let mut index = 0;
+    while index < value.len() {
+        if value.units()[index] != b'%' as u16 {
+            output.push_unit(value.units()[index]);
+            index += 1;
+            continue;
+        }
+        let mut bytes = Vec::new();
+        while index < value.len() && value.units()[index] == b'%' as u16 {
+            let high = char::from_u32(u32::from(*value.units().get(index + 1)?))?.to_digit(16)?;
+            let low = char::from_u32(u32::from(*value.units().get(index + 2)?))?.to_digit(16)?;
+            bytes.push((high * 16 + low) as u8);
+            index += 3;
+        }
+        let decoded = match String::from_utf8(bytes) {
+            Ok(decoded) => decoded,
+            Err(_) => return None,
+        };
+        output.push_str(decoded);
+    }
+    Some(output)
+}
+
+fn has_unsafe_git_install_part(value: &JsString, allow_slash: bool) -> bool {
+    let Some(decoded) = decode_validation_text(value) else {
         return true;
     };
-    for candidate in [value, decoded.as_str()] {
+    for candidate in [value, &decoded] {
         if candidate.contains('\0') || candidate.contains('\\') || candidate.starts_with('/') {
             return true;
         }
@@ -597,32 +632,33 @@ fn has_unsafe_git_install_part(value: &str, allow_slash: bool) -> bool {
     false
 }
 
-fn parse_generic_git_url(url: &str) -> Option<GitSource> {
+fn parse_generic_git_url(url: &JsString) -> Option<GitSource> {
     let split = split_ref(url);
     let repo_without_ref = split.repo;
     let mut repo = repo_without_ref.clone();
     let host;
     let path;
-
     if let Some(rest) = repo_without_ref.strip_prefix("git@")
-        && let Some((scp_host, scp_path)) = rest.split_once(':')
+        && let Some((scp_host, scp_path)) = split_once(&rest, ':')
         && !scp_path.is_empty()
     {
-        host = scp_host.to_owned();
-        path = scp_path.to_owned();
+        host = scp_host;
+        path = scp_path;
     } else if has_explicit_protocol(&repo_without_ref) {
-        let parsed = Url::parse(&repo_without_ref).ok()?;
-        host = parsed.host_str().unwrap_or("").to_owned();
-        path = parsed.path().trim_start_matches('/').to_owned();
+        let parsed = match Url::parse(&encode_node_utf8(&repo_without_ref)) {
+            Ok(parsed) => parsed,
+            Err(_) => return None,
+        };
+        host = parsed.host_str().unwrap_or("").into();
+        path = parsed.path().trim_start_matches('/').into();
     } else {
         let slash_index = repo_without_ref.find('/')?;
-        host = repo_without_ref[..slash_index].to_owned();
-        path = repo_without_ref[slash_index + 1..].to_owned();
+        host = repo_without_ref.slice(0, slash_index);
+        path = repo_without_ref.slice(slash_index + 1, repo_without_ref.len());
         if !host.contains('.') && host != "localhost" {
             return None;
         }
-        repo = format!("https://{repo_without_ref}");
+        repo = js_format!("https://{}", repo_without_ref);
     }
-
     build_git_source(repo, host, path, split.reference)
 }

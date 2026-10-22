@@ -27,3 +27,15 @@ Hosted parsing ports the pinned `hosted-git-info@9.0.3` subset: GitHub, Bitbucke
 
 - Focused cases: 8.
 - Differential request: `26008`, 55 cases.
+
+## Q18 native git sources (2026-10-22)
+
+`parse_git_url`, GitSource repo/host/path/reference, pre-URL splitting and unsafe
+path validation retain native UTF-16 units. WHATWG URL/hosted URL parsing applies
+Node encoding only at the URL parse boundary; original repo and non-URL refs remain
+native. Percent validation decodes only percent byte runs and preserves unmatched
+non-percent units; invalid percent/UTF-8 runs reject the source explicitly.
+`lossless_git_source` covers an unpaired generic-git ref and compares the whole
+result to frozen utils/git.ts through the existing oracle. Written but unexecuted
+because the coding library is blocked. replacement-git-1:1728 total primaries,
+zero utils/git.rs primary diagnostics. No runtime PASS claimed.
