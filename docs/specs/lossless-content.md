@@ -13,6 +13,7 @@ Approved 2026-10-21: shared JS message text and arbitrary JSON properties retain
 - [x] User and thinking text use the same UTF-16 authority.
 - [x] Core custom-message text uses the same UTF-16 authority; coding-agent consumers remain pending.
 - [x] Tool-call arguments and complete/partial JSON argument parsing use lossless object/value authorities.
+- [x] Human `Tool.description` preserves unmatched UTF-16 units through all nine chat API request bodies, whole-Tool serialization and token estimators; it is not opaque scalar metadata.
 - [x] Anthropic SSE retains text/thinking and native UTF-16 JSON fragments through ordered block/delta/stop handling.
 - [x] User classification (2026-10-21): “Approve scalar metadata gap” for opaque provider IDs/names, type/stop tags and signatures. Unpaired units must cause explicit errors, never replacement; arbitrary argument keys named `id`/`name`/`type` and human text/errors are not covered.
 - [ ] Input values, UTF-16 cursor positions, inside-pair edits and rendered lines must match frozen source. User chose “Widen Input to UTF-16” (2026-10-21), not a representation gap.
@@ -39,6 +40,8 @@ Approved 2026-10-21: shared JS message text and arbitrary JSON properties retain
 
 - `crates/pi-js-compat/tests/js_json_serde.rs`.
 - `crates/pi-ai/tests/lossless_content.rs`.
+- `crates/pi-ai/tests/tool_description.rs` — actual frozen request descriptions for all nine chat APIs.
+- `crates/pi-ai/tests/tool_metadata.rs` — whole-Tool JSON, Faux and context estimates including unmatched description units.
 - `crates/pi-agent-core/tests/lossless_agent.rs`.
 - `crates/pi-coding-agent/tests/lossless_session.rs` and `lossless_tools.rs` (blocked pending coding-agent compilation).
 - `crates/pi-coding-agent/tests/lossless_incoming_content.rs` — native DTO/producer/claim and real SQLite/frozen source boundary.

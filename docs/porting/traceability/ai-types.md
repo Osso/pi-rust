@@ -29,6 +29,10 @@ Whole AI-source JSON.stringify/structuredClone/spread audit found no additional 
 
 RED reproduced the shared harness fixture exactly: Native Faux input48 versus actual frozen53 (`tool-metadata-red.log`). `tool_metadata.rs` additionally compares whole Tool JSON order, both estimators, unpaired label units, optional execution modes and explicit provider mapping. Carrier availability alone does not claim harness integration.
 
+## Human Tool descriptions
+
+`Tool.description` is a native `JsString`, not opaque protocol metadata. Frozen adapters forward it unchanged in the request tool mapping: Anthropic, Completions, Responses/Azure/Codex, Google Generative/Vertex, Bedrock and Mistral. `tool_description.rs` compares unmatched description units against actual frozen HTTP bodies for all nine APIs; the initial Context decode rejected `\ud800` before any native request. Tool builders now use native JSON objects instead of scalar serde staging. Whole-tool JSON and both estimators remain covered by `tool_metadata.rs`, including unmatched description units. Schema parameters remain a separate pending native-boundary migration. Contract: [lossless content](../../specs/lossless-content.md).
+
 ## Representation decisions
 - `StreamOptions.metadata` is native `JsObject`, preserving arbitrary nested JSON and lone UTF-16 keys/values through buildBaseOptions. Anthropic forwards only string user_id, matching frozen; proxy forwards the complete metadata object. RED: metadata deserialization rejected a lone surrogate; proxy silently omitted native metadata. Proof: `lossless_metadata` and core `proxy` UTF-16 regression (`metadata-{red,proxy-red}.log` in the lane ledger). ImagesOptions.metadata and Bedrock's separate requestMetadata extra are outside this common-field slice.
 - TS `number` → `f64` serialized via `pi_js_compat::number` (integral values print without `.0`, like `JSON.stringify`). User/Assistant/ToolResult `timestamp` → `f64`, including nonfinite/signed-zero values; [integration proof](message-timestamps.md). `contentIndex` → `usize`. `Number.parseInt` → `pi_js_compat::number::parse_int` (used by the `pi-ai` CLI selection prompt).

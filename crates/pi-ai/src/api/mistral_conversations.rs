@@ -644,49 +644,52 @@ fn build_chat_payload(
     messages: &[Message],
     options: &MistralOptions,
 ) -> Result<JsValue, MistralError> {
-    let mut payload = Map::new();
-    payload.insert("model".to_owned(), Value::String(model.id.clone()));
-    payload.insert("stream".to_owned(), Value::Bool(true));
+    let mut payload = JsObject::new();
+    payload.insert("model".into(), JsValue::String(model.id.clone().into()));
+    payload.insert("stream".into(), JsValue::Bool(true));
     payload.insert(
-        "messages".to_owned(),
-        Value::Array(to_chat_messages(messages, model.input.contains(&Modality::Image))?),
+        "messages".into(),
+        JsValue::from(Value::Array(to_chat_messages(
+            messages,
+            model.input.contains(&Modality::Image),
+        )?)),
     );
 
     if let Some(tools) = &context.tools
         && !tools.is_empty()
     {
-        payload.insert("tools".to_owned(), Value::Array(to_function_tools(tools)?));
+        payload.insert("tools".into(), JsValue::Array(to_function_tools(tools)?));
     }
     if let Some(temperature) = options.stream.temperature {
-        payload.insert("temperature".to_owned(), js_number_value(temperature));
+        payload.insert("temperature".into(), js_number_value(temperature).into());
     }
     if let Some(max_tokens) = options.stream.max_tokens {
-        payload.insert("maxTokens".to_owned(), js_number_value(max_tokens));
+        payload.insert("maxTokens".into(), js_number_value(max_tokens).into());
     }
     if let Some(tool_choice) = &options.tool_choice {
-        payload.insert("toolChoice".to_owned(), tool_choice_value(tool_choice));
+        payload.insert("toolChoice".into(), tool_choice_value(tool_choice).into());
     }
     if options.prompt_mode == Some(MistralPromptMode::Reasoning) {
-        payload.insert("promptMode".to_owned(), Value::String("reasoning".to_owned()));
+        payload.insert("promptMode".into(), JsValue::String("reasoning".into()));
     }
     if let Some(reasoning_effort) = options.reasoning_effort {
         payload.insert(
-            "reasoningEffort".to_owned(),
-            Value::String(reasoning_effort.wire_value().to_owned()),
+            "reasoningEffort".into(),
+            JsValue::String(reasoning_effort.wire_value().into()),
         );
     }
 
     if let Some(system_prompt) = &context.system_prompt
         && !system_prompt.is_empty()
-        && let Some(Value::Array(entries)) = payload.get_mut("messages")
+        && let Some(JsValue::Array(entries)) = payload.get_mut("messages")
     {
         entries.insert(
             0,
-            json!({"role": "system", "content": sanitize_surrogates(system_prompt)}),
+            pi_js_compat::js_json!({"role": "system", "content": sanitize_surrogates(system_prompt)}),
         );
     }
 
-    let mut payload = JsValue::from(Value::Object(payload));
+    let mut payload = JsValue::Object(payload);
     if should_use_prompt_caching(options) {
         payload.as_object_mut().expect("payload object").insert(
             "promptCacheKey".into(),
@@ -708,7 +711,7 @@ fn tool_choice_value(choice: &MistralToolChoice) -> Value {
     }
 }
 
-fn to_function_tools(tools: &[Tool]) -> Result<Vec<Value>, MistralError> {
+fn to_function_tools(tools: &[Tool]) -> Result<Vec<JsValue>, MistralError> {
     tools
         .iter()
         .map(|tool| {
@@ -716,7 +719,7 @@ fn to_function_tools(tools: &[Tool]) -> Result<Vec<Value>, MistralError> {
                 .map_err(|error| MistralError::message(error.message))?;
             let parameters =
                 get_json_schema_tool_parameters(tool, strict).map_err(|error| MistralError::message(error.message))?;
-            Ok(json!({
+            Ok(pi_js_compat::js_json!({
                 "type": "function",
                 "function": {
                     "name": tool.name,

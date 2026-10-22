@@ -17,9 +17,7 @@ use crate::api::constrained_sampling::{
 use crate::api::github_copilot_headers::{build_copilot_dynamic_headers, has_copilot_vision_input};
 use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
 use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
-use crate::api::openai_sdk::{
-    SdkClient, SdkClientConfig, SdkError, format_request_error, format_sdk_error, json_object,
-};
+use crate::api::openai_sdk::{SdkClient, SdkClientConfig, SdkError, format_request_error, format_sdk_error};
 use crate::api::simple_options::{build_base_options, clamp_standard_reasoning_level, model_thinking_level};
 use crate::api::transform_messages::transform_messages_with;
 use crate::models::{calculate_cost, clamp_thinking_level};
@@ -696,23 +694,22 @@ pub fn convert_messages(
     params
 }
 
-fn convert_tools(tools: &[Tool], compat: &ResolvedOpenAICompletionsCompat) -> Value {
+fn convert_tools(tools: &[Tool], compat: &ResolvedOpenAICompletionsCompat) -> JsValue {
     let mut converted = Vec::new();
     for tool in tools {
-        let parameters = tool.parameters.clone();
-        let mut function = Map::new();
-        function.insert("name".to_owned(), Value::String(tool.name.clone()));
-        function.insert("description".to_owned(), Value::String(tool.description.clone()));
-        function.insert("parameters".to_owned(), parameters);
+        let mut function = JsObject::new();
+        function.insert("name".into(), JsValue::String(tool.name.clone().into()));
+        function.insert("description".into(), JsValue::String(tool.description.clone()));
+        function.insert("parameters".into(), tool.parameters.clone().into());
         if compat.supports_strict_mode {
-            function.insert("strict".to_owned(), Value::Bool(false));
+            function.insert("strict".into(), JsValue::Bool(false));
         }
-        converted.push(json_object(vec![
-            ("type", Value::String("function".to_owned())),
-            ("function", Value::Object(function)),
+        converted.push(lossless_object(vec![
+            ("type", JsValue::String("function".into())),
+            ("function", JsValue::Object(function)),
         ]));
     }
-    Value::Array(converted)
+    JsValue::Array(converted)
 }
 
 // =============================================================================
@@ -964,7 +961,7 @@ pub fn build_params(
 
     let mut tools_value = None;
     if let Some(active_tools) = context.tools.as_deref().filter(|tools| !tools.is_empty()) {
-        tools_value = Some(JsValue::from(convert_tools(active_tools, compat)));
+        tools_value = Some(convert_tools(active_tools, compat));
         if compat.zai_tool_stream {
             params.insert("tool_stream".into(), JsValue::Bool(true));
         }

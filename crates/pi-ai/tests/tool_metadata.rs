@@ -22,6 +22,7 @@ async fn agent_tool_metadata_matches_frozen_whole_object_consumers() {
         ),
         (Some(JsString::from("lookup")), Some("sequential")),
         (None, None),
+        (Some(JsString::from("lookup")), Some("parallel")),
     ]
     .into_iter()
     .enumerate()
@@ -40,6 +41,12 @@ async fn agent_tool_metadata_matches_frozen_whole_object_consumers() {
         }
         if let Some(mode) = execution_mode {
             tool.insert("executionMode".into(), JsValue::String(mode.into()));
+        }
+        if index == 4 {
+            tool.insert(
+                "description".into(),
+                JsValue::String(JsString::from_utf16(vec![0xd800, 0x61, 0xdfff])),
+            );
         }
         let expected = oracle.request(&pi_js_compat::js_json!({"context":fixture}));
         let context: Context = from_value(&fixture).unwrap();

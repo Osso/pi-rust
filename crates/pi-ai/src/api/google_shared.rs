@@ -7,7 +7,7 @@ use std::future::Future;
 
 use pi_js_compat::js_json::{JsObject, JsValue};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 
 use crate::api::constrained_sampling::{
     ConstrainedSamplingError, get_json_schema_tool_parameters, resolve_json_schema_strict_sampling,
@@ -378,7 +378,7 @@ pub fn convert_tools(
     tools: &[Tool],
     use_parameters: bool,
     supports_strict_mode: bool,
-) -> Result<Option<Vec<Value>>, ConstrainedSamplingError> {
+) -> Result<Option<Vec<JsValue>>, ConstrainedSamplingError> {
     if tools.is_empty() {
         return Ok(None);
     }
@@ -386,17 +386,19 @@ pub fn convert_tools(
     for tool in tools {
         let strict = resolve_json_schema_strict_sampling(tool, supports_strict_mode)?;
         let parameters = get_json_schema_tool_parameters(tool, strict)?;
-        let mut declaration = Map::new();
-        declaration.insert("name".to_owned(), Value::String(tool.name.clone()));
-        declaration.insert("description".to_owned(), Value::String(tool.description.clone()));
+        let mut declaration = JsObject::new();
+        declaration.insert("name".into(), JsValue::String(tool.name.clone().into()));
+        declaration.insert("description".into(), JsValue::String(tool.description.clone()));
         if use_parameters {
-            declaration.insert("parameters".to_owned(), sanitize_for_open_api(&parameters));
+            declaration.insert("parameters".into(), sanitize_for_open_api(&parameters).into());
         } else {
-            declaration.insert("parametersJsonSchema".to_owned(), parameters);
+            declaration.insert("parametersJsonSchema".into(), parameters.into());
         }
-        declarations.push(Value::Object(declaration));
+        declarations.push(JsValue::Object(declaration));
     }
-    Ok(Some(vec![json!({"functionDeclarations": declarations})]))
+    Ok(Some(vec![
+        pi_js_compat::js_json!({"functionDeclarations": declarations}),
+    ]))
 }
 
 /// Gemini 3+ enforces required function parameters in validated tool-calling modes.
@@ -565,34 +567,34 @@ pub(crate) fn build_generate_content_params(
         None => None,
     };
 
-    let mut config = Map::new();
+    let mut config = JsObject::new();
     if let Some(temperature) = temperature {
-        config.insert("temperature".to_owned(), json!(temperature));
+        config.insert("temperature".into(), pi_js_compat::js_json!(temperature));
     }
     if let Some(max_tokens) = max_tokens {
-        config.insert("maxOutputTokens".to_owned(), json!(max_tokens));
+        config.insert("maxOutputTokens".into(), pi_js_compat::js_json!(max_tokens));
     }
     if let Some(system_prompt) = context.system_prompt.as_ref().filter(|prompt| !prompt.is_empty()) {
         config.insert(
-            "systemInstruction".to_owned(),
-            Value::String(sanitize_surrogates(system_prompt).to_owned()),
+            "systemInstruction".into(),
+            JsValue::String(sanitize_surrogates(system_prompt).into()),
         );
     }
     if let Some(tools) = tools {
         let declarations = convert_tools(tools, false, supports_strict_mode)
             .map_err(|error| GoogleRequestError::new(error.message, None))?;
         if let Some(declarations) = declarations {
-            config.insert("tools".to_owned(), Value::Array(declarations));
+            config.insert("tools".into(), JsValue::Array(declarations));
         }
     }
     if let Some(mode) = function_calling_mode {
         config.insert(
-            "toolConfig".to_owned(),
-            json!({"functionCallingConfig": {"mode": mode}}),
+            "toolConfig".into(),
+            pi_js_compat::js_json!({"functionCallingConfig": {"mode": mode}}),
         );
     }
     if let Some(thinking_config) = thinking_config {
-        config.insert("thinkingConfig".to_owned(), thinking_config);
+        config.insert("thinkingConfig".into(), thinking_config.into());
     }
     if request_aborted {
         return Err(GoogleRequestError::new("Request aborted", None));
@@ -606,7 +608,7 @@ pub(crate) fn build_generate_content_params(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| GoogleRequestError::new(error.to_string(), None))?;
     params.insert("contents".into(), JsValue::Array(contents));
-    params.insert("config".into(), JsValue::from(Value::Object(config)));
+    params.insert("config".into(), JsValue::Object(config));
     Ok(params)
 }
 

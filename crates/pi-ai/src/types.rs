@@ -813,7 +813,7 @@ pub struct Tool {
     /// Enumerable AgentTool label; absent on plain AI Tool values.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<JsString>,
-    pub description: String,
+    pub description: JsString,
     /// JSON Schema for the tool arguments (TypeBox `TSchema` in TypeScript).
     pub parameters: Value,
     /// Enumerable AgentTool override; AI adapters do not interpret it.
@@ -830,7 +830,7 @@ pub struct Tool {
 
 impl Tool {
     /// Tool with a plain JSON Schema (MCP/extension origin).
-    pub fn new(name: impl Into<String>, description: impl Into<String>, parameters: Value) -> Self {
+    pub fn new(name: impl Into<String>, description: impl Into<JsString>, parameters: Value) -> Self {
         Self {
             name: name.into(),
             label: None,
@@ -843,7 +843,7 @@ impl Tool {
     }
 
     /// Tool whose schema was built with the TypeBox-equivalent builder.
-    pub fn typebox(name: impl Into<String>, description: impl Into<String>, parameters: TypeBoxSchema) -> Self {
+    pub fn typebox(name: impl Into<String>, description: impl Into<JsString>, parameters: TypeBoxSchema) -> Self {
         Self {
             name: name.into(),
             label: None,
