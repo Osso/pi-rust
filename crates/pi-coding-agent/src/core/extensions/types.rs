@@ -4,7 +4,6 @@
 //! The event payloads, handler ordering, and result merging match the source;
 //! the extension entry point is a Rust factory receiving [`ExtensionApi`].
 
-use pi_js_compat::js_json::encode_node_utf8;
 use std::cell::RefCell;
 use std::future::Future;
 use std::pin::Pin;
