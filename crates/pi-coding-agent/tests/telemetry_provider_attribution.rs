@@ -51,7 +51,7 @@ fn merged(
 }
 
 #[test]
-fn native_session_id_encodes_only_in_header_construction() {
+fn native_session_id_stays_raw_until_the_http_header_boundary() {
     let session_id = pi_js_compat::js_json::JsString::from_utf16(vec![0xd800]);
     let headers = merge_provider_attribution_headers(
         &model("opencode", "https://opencode.ai", "model"),
@@ -60,7 +60,7 @@ fn native_session_id_encodes_only_in_header_construction() {
         &[],
     )
     .unwrap();
-    assert_eq!(headers.get("x-opencode-session"), Some(&Some("�".into())));
+    assert_eq!(headers.get("x-opencode-session"), Some(&Some(session_id.clone())));
     assert_eq!(session_id.units(), &[0xd800]);
 }
 

@@ -64,13 +64,13 @@ async fn load(runtime: &ExtensionRuntime, fetch: Arc<StubFetch>) -> Extension {
     .await
 }
 
-fn auth(token: &str) -> Option<serde_json::Map<String, Value>> {
-    json!({"openai-codex": {
+fn auth(token: &str) -> Option<pi_js_compat::js_json::JsObject> {
+    JsValue::from(json!({"openai-codex": {
         "type": "oauth",
         "refresh": "refresh-token",
         "access": token,
         "expires": 9_999_999_999_999.0
-    }})
+    }}))
     .as_object()
     .cloned()
 }
@@ -265,7 +265,7 @@ async fn usage_command_rejects_extra_arguments() {
 
     assert_eq!(
         harness.ui.last_notification(),
-        Some(("Usage: /usage [reset]".to_owned(), Some(NotifyType::Warning)))
+        Some((JsString::from("Usage: /usage [reset]"), Some(NotifyType::Warning)))
     );
 }
 

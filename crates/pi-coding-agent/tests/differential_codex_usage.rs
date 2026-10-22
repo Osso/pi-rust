@@ -34,7 +34,7 @@ fn token_with_claims(claims: &Value) -> String {
     )
 }
 
-fn notification_value(notifications: &[(String, Option<NotifyType>)]) -> Value {
+fn notification_value(notifications: &[(JsString, Option<NotifyType>)]) -> Value {
     Value::Array(
         notifications
             .iter()
@@ -58,13 +58,13 @@ fn uuid_normalized(text: &str) -> String {
     pattern.replace_all(text, "<uuid>").into_owned()
 }
 
-fn auth_for(provider: &str, token: &str) -> Option<Map<String, Value>> {
-    json!({(provider): {
+fn auth_for(provider: &str, token: &str) -> Option<pi_js_compat::js_json::JsObject> {
+    JsValue::from(json!({(provider): {
         "type": "oauth",
         "refresh": "refresh-token",
         "access": token,
         "expires": 9_999_999_999_999.0
-    }})
+    }}))
     .as_object()
     .cloned()
 }

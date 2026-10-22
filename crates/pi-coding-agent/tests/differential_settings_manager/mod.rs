@@ -368,9 +368,9 @@ fn parse_transport(value: &str) -> pi_ai::types::Transport {
 
 fn snapshot(manager: &SettingsManager) -> Value {
     json!({
-        "globalSettings": json!(manager.get_global_settings()),
-        "projectSettings": json!(manager.get_project_settings()),
-        "mergedSettings": json!(manager.get_merged_settings()),
+        "globalSettings": json!(JsValue::Object(manager.get_global_settings())),
+        "projectSettings": json!(JsValue::Object(manager.get_project_settings())),
+        "mergedSettings": json!(JsValue::Object(manager.get_merged_settings())),
         "projectTrusted": manager.is_project_trusted(),
         "lastChangelogVersion": option_str(manager.get_last_changelog_version()),
         "externalEditorCommand": manager.get_external_editor_command(),
@@ -451,7 +451,7 @@ fn snapshot(manager: &SettingsManager) -> Value {
         "outputPad": manager.get_output_pad(),
         "autocompleteMaxVisible": number(manager.get_autocomplete_max_visible()),
         "codeBlockIndent": manager.get_code_block_indent(),
-        "warnings": json!(manager.get_warnings()),
+        "warnings": json!(JsValue::Object(manager.get_warnings())),
         "permissionPromptTool": manager.get_permission_prompt_tool(),
         "agentProfiles": {
             "browser": manager.get_agent_profile(&JsString::from("browser")),
