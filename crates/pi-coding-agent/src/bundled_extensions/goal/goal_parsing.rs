@@ -1,16 +1,28 @@
 //! Port of `packages/coding-agent/extensions/goal/src/goal-parsing.ts`.
 
-use pi_js_compat::string::js_trim;
-use serde_json::Value;
+use pi_js_compat::js_json::{self, JsString, JsValue as Value};
 
 use super::goal_types::{Goal, GoalReviewEvidenceEvent};
+
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    #[test]
+    fn goal_json_preserves_objective_and_evidence_units() {
+        let goal = parse_goal_json(r#"{"objective":"x\ud800","branch":"main","createdAt":"now","reviewEvidence":[{"kind":"user","text":"y\udc00"}]}"#).unwrap();
+        assert_eq!(goal.objective.units(), &[120, 0xd800]);
+        let json = serde_json::to_string(&goal).unwrap();
+        let restored = parse_goal_json(&json).unwrap();
+        assert_eq!(restored, goal);
+    }
+}
 
 pub fn is_record(value: &Value) -> bool {
     value.is_object()
 }
 
-pub fn optional_string(value: Option<&Value>) -> Option<String> {
-    value.and_then(Value::as_str).map(str::to_owned)
+pub fn optional_string(value: Option<&Value>) -> Option<JsString> {
+    value.and_then(Value::as_string).cloned()
 }
 
 fn optional_number(value: Option<&Value>) -> Option<f64> {
@@ -21,13 +33,13 @@ fn parse_review_evidence_event(value: &Value) -> Option<GoalReviewEvidenceEvent>
     if !is_record(value) {
         return None;
     }
-    match value.get("kind").and_then(Value::as_str) {
-        Some("user") => Some(GoalReviewEvidenceEvent::User {
-            text: value.get("text")?.as_str()?.to_owned(),
+    match value.get("kind").and_then(Value::as_string) {
+        Some(kind) if kind == "user" => Some(GoalReviewEvidenceEvent::User {
+            text: value.get("text")?.as_string()?.to_owned(),
         }),
-        Some("end_turn") => {
-            let reason = value.get("reason")?.as_str()?;
-            if js_trim(reason).is_empty() {
+        Some(kind) if kind == "end_turn" => {
+            let reason = value.get("reason")?.as_string()?;
+            if reason.trim().is_empty() {
                 return None;
             }
             Some(GoalReviewEvidenceEvent::EndTurn {
@@ -53,21 +65,21 @@ pub fn parse_goal(value: &Value) -> Option<Goal> {
         return None;
     }
     let objective = optional_string(value.get("objective"))
-        .map(|objective| js_trim(&objective).to_owned())
+        .map(|objective| objective.trim())
         .filter(|objective| !objective.is_empty())?;
     let branch = optional_string(value.get("branch")).filter(|branch| !branch.is_empty())?;
     let created_at = optional_string(value.get("createdAt")).filter(|created_at| !created_at.is_empty())?;
     let pause_reason = optional_string(value.get("pauseReason"))
-        .map(|reason| js_trim(&reason).to_owned())
+        .map(|reason| reason.trim())
         .filter(|reason| !reason.is_empty());
     Some(Goal {
         objective,
-        branch,
-        created_at,
-        completed_at: optional_string(value.get("completedAt")),
+        branch: branch.to_utf8().ok()?,
+        created_at: created_at.to_utf8().ok()?,
+        completed_at: optional_string(value.get("completedAt")).and_then(|text| text.to_utf8().ok()),
         completion_reason: optional_string(value.get("completionReason")),
         continuation_turns: optional_number(value.get("continuationTurns")),
-        paused_at: optional_string(value.get("pausedAt")),
+        paused_at: optional_string(value.get("pausedAt")).and_then(|text| text.to_utf8().ok()),
         pause_reason,
         review_evidence: parse_review_evidence(value.get("reviewEvidence")),
     })
@@ -75,5 +87,5 @@ pub fn parse_goal(value: &Value) -> Option<Goal> {
 
 /// `parseGoalJson`.
 pub fn parse_goal_json(value: &str) -> Option<Goal> {
-    parse_goal(&serde_json::from_str(value).ok()?)
+    parse_goal(&js_json::parse_lossless(value).ok()?)
 }

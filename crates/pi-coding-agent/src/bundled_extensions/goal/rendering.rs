@@ -4,11 +4,11 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use pi_js_compat::date::date_parse_millis;
+use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value, encode_node_utf8};
 use pi_tui::components::r#box::BoxComponent;
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
 use pi_tui::tui::{Component, ComponentRef};
-use serde_json::Value;
 
 use crate::core::extensions::types::{
     CustomMessageContent, CustomMessagePayload, CustomMessageValue, EntryRenderOptions, EntryRenderer, ExtensionApi,
@@ -62,26 +62,29 @@ pub struct SupervisorStatusController {
 }
 
 pub type AppendSupervisorStatus =
-    std::sync::Arc<dyn Fn(ExtensionContext, &str, Option<&str>) -> Result<(), HandlerError> + Send + Sync>;
+    std::sync::Arc<dyn Fn(ExtensionContext, &JsString, Option<&str>) -> Result<(), HandlerError> + Send + Sync>;
 
 impl SupervisorStatusController {
     /// `append`.
-    pub fn append(&self, ctx: ExtensionContext, message: &str, review_at: Option<&str>) -> Result<(), HandlerError> {
-        let session = ctx
-            .session_manager()
-            .map_err(|error| HandlerError::new(error.to_string()))?;
+    pub fn append(
+        &self,
+        ctx: ExtensionContext,
+        message: impl Into<JsString>,
+        review_at: Option<&str>,
+    ) -> Result<(), HandlerError> {
+        let session = ctx.session_manager()?;
         let session_id = lock_session_manager(&session).get_session_id().to_owned();
         self.refresher.clear_session(&session_id);
         let data = match review_at {
             Some(review_at) => {
-                let mut object = serde_json::Map::new();
-                object.insert("message".to_owned(), Value::String(message.to_owned()));
-                object.insert("reviewAt".to_owned(), Value::String(review_at.to_owned()));
+                let mut object = JsObject::new();
+                object.insert("message".into(), Value::String(message.into()));
+                object.insert("reviewAt".into(), Value::String(review_at.into()));
                 Some(Value::Object(object))
             }
             None => {
-                let mut object = serde_json::Map::new();
-                object.insert("message".to_owned(), Value::String(message.to_owned()));
+                let mut object = JsObject::new();
+                object.insert("message".into(), Value::String(message.into()));
                 Some(Value::Object(object))
             }
         };
@@ -104,9 +107,7 @@ impl SupervisorStatusController {
 
     /// `restore`.
     pub fn restore(&self, ctx: ExtensionContext) -> Result<(), HandlerError> {
-        let session = ctx
-            .session_manager()
-            .map_err(|error| HandlerError::new(error.to_string()))?;
+        let session = ctx.session_manager()?;
         let session_id = lock_session_manager(&session).get_session_id().to_owned();
         self.refresher.clear_session(&session_id);
         if let Some(review_at) = latest_future_review_at(&ctx)? {
@@ -122,21 +123,21 @@ impl SupervisorStatusController {
 }
 
 /// `supervisorInstructionContent`.
-pub fn supervisor_instruction_content(instructions: &str) -> String {
-    format!("{SUPERVISOR_INSTRUCTION_OPEN}\n{instructions}\n{SUPERVISOR_INSTRUCTION_CLOSE}")
+pub fn supervisor_instruction_content(instructions: impl Into<JsString>) -> JsString {
+    JsString::from(SUPERVISOR_INSTRUCTION_OPEN) + "\n" + instructions.into() + "\n" + SUPERVISOR_INSTRUCTION_CLOSE
 }
 
-fn supervisor_message(content: &str) -> CustomMessagePayload {
+fn supervisor_message(content: &JsString) -> CustomMessagePayload {
     CustomMessagePayload {
         custom_type: "supervisor".to_owned(),
-        content: CustomMessageContent::Text(supervisor_instruction_content(content)),
+        content: CustomMessageContent::Text(supervisor_instruction_content(content).into()),
         display: true,
         details: None,
     }
 }
 
 /// `sendSupervisorInstructions`.
-pub fn send_supervisor_instructions(pi: &ExtensionApi, instructions: &str) -> Result<(), HandlerError> {
+pub fn send_supervisor_instructions(pi: &ExtensionApi, instructions: &JsString) -> Result<(), HandlerError> {
     pi.send_message(
         supervisor_message(instructions),
         Some(SendMessageOptions {
@@ -147,35 +148,40 @@ pub fn send_supervisor_instructions(pi: &ExtensionApi, instructions: &str) -> Re
     .map_err(|error| HandlerError::new(error.to_string()))
 }
 
-fn has_supervisor_instruction_wrapper(content: &str) -> bool {
+fn has_supervisor_instruction_wrapper(content: &JsString) -> bool {
     content.starts_with(SUPERVISOR_INSTRUCTION_OPEN) && content.ends_with(SUPERVISOR_INSTRUCTION_CLOSE)
 }
 
-fn supervisor_instruction_body(content: &str) -> String {
+fn supervisor_instruction_body(content: &JsString) -> JsString {
     if !has_supervisor_instruction_wrapper(content) {
         return content.to_owned();
     }
-    let mut body =
-        content[SUPERVISOR_INSTRUCTION_OPEN.len()..content.len() - SUPERVISOR_INSTRUCTION_CLOSE.len()].to_owned();
-    if body.starts_with('\n') {
-        body.remove(0);
+    let mut body = content.slice(
+        SUPERVISOR_INSTRUCTION_OPEN.len(),
+        content.len() - SUPERVISOR_INSTRUCTION_CLOSE.len(),
+    );
+    if body.starts_with("\n") {
+        body = body.slice(1, body.len());
     }
-    if body.ends_with('\n') {
-        body.pop();
+    if body.ends_with("\n") {
+        body = body.slice(0, body.len() - 1);
     }
     body
 }
 
-fn status_details(data: Option<&Value>) -> (String, Option<String>) {
+fn status_details(data: Option<&Value>) -> (JsString, Option<String>) {
     let Some(Value::Object(details)) = data else {
-        return ("Supervisor status unavailable".to_owned(), None);
+        return ("Supervisor status unavailable".into(), None);
     };
     let message = details
         .get("message")
-        .and_then(Value::as_str)
-        .unwrap_or("Supervisor status unavailable")
-        .to_owned();
-    let review_at = details.get("reviewAt").and_then(Value::as_str).map(str::to_owned);
+        .and_then(Value::as_string)
+        .cloned()
+        .unwrap_or_else(|| "Supervisor status unavailable".into());
+    let review_at = details
+        .get("reviewAt")
+        .and_then(Value::as_string)
+        .and_then(|value| value.to_utf8().ok());
     (message, review_at)
 }
 
@@ -191,9 +197,7 @@ fn format_review_countdown(deadline_ms: i64, now_ms: i64) -> String {
 }
 
 fn latest_future_review_at(ctx: &ExtensionContext) -> Result<Option<String>, HandlerError> {
-    let session = ctx
-        .session_manager()
-        .map_err(|error| HandlerError::new(error.to_string()))?;
+    let session = ctx.session_manager()?;
     let entries = lock_session_manager(&session).get_entries();
     for entry in entries.iter().rev() {
         let crate::core::session_manager::SessionEntry::Known(crate::core::session_manager::KnownSessionEntry::Custom(
@@ -241,7 +245,7 @@ pub fn render_supervisor_status_entry(
     let label_theme = theme.clone();
     let message_theme = theme.clone();
     Some(Rc::new(RefCell::new(SupervisorStatusComponent {
-        message,
+        message: encode_node_utf8(&message),
         deadline_ms,
         styles: SupervisorStatusStyles {
             background: Rc::new(move |text| background_theme.bg(ThemeBg::CustomMessageBg, text)),
@@ -260,7 +264,7 @@ pub fn render_supervisor_message(
 ) -> Option<ComponentRef> {
     let content = match &message.content {
         CustomMessageContent::Text(text) => text.clone(),
-        CustomMessageContent::Blocks(_) => String::new(),
+        CustomMessageContent::Blocks(_) => String::new().into(),
     };
     let background_theme = theme.clone();
     let label_theme = theme.clone();
@@ -277,7 +281,10 @@ pub fn render_supervisor_message(
     ))) as ComponentRef);
     container.add_child(Rc::new(RefCell::new(Spacer::new(1))) as ComponentRef);
     container.add_child(Rc::new(RefCell::new(Text::new(
-        message_theme.fg(ThemeColor::CustomMessageText, &supervisor_instruction_body(&content)),
+        message_theme.fg(
+            ThemeColor::CustomMessageText,
+            &encode_node_utf8(&supervisor_instruction_body(&content)),
+        ),
         0,
         0,
     ))) as ComponentRef);

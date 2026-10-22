@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use pi_agent_core::AgentToolResult;
+use pi_js_compat::js_json::{JsString, JsValue};
 use serde_json::{Value, json};
 
 use crate::core::extensions::types::{
@@ -22,9 +23,9 @@ pub enum ManageGoalAction {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ManageGoalParams {
     pub action: Option<ManageGoalAction>,
-    pub objective: Option<String>,
-    pub reason: Option<String>,
-    pub completion_report: Option<String>,
+    pub objective: Option<JsString>,
+    pub reason: Option<JsString>,
+    pub completion_report: Option<JsString>,
 }
 
 pub type ManageGoalExecute = Arc<
@@ -65,31 +66,28 @@ fn manage_goal_parameters() -> Value {
     })
 }
 
-fn parse_action(value: Option<&Value>) -> Option<ManageGoalAction> {
-    match value?.as_str()? {
-        "set" => Some(ManageGoalAction::Set),
-        "pause" => Some(ManageGoalAction::Pause),
-        "resume" => Some(ManageGoalAction::Resume),
-        "complete" => Some(ManageGoalAction::Complete),
-        "clear" => Some(ManageGoalAction::Clear),
-        "status" => Some(ManageGoalAction::Status),
+fn parse_action(value: Option<&JsValue>) -> Option<ManageGoalAction> {
+    match value?.as_string()? {
+        value if value == "set" => Some(ManageGoalAction::Set),
+        value if value == "pause" => Some(ManageGoalAction::Pause),
+        value if value == "resume" => Some(ManageGoalAction::Resume),
+        value if value == "complete" => Some(ManageGoalAction::Complete),
+        value if value == "clear" => Some(ManageGoalAction::Clear),
+        value if value == "status" => Some(ManageGoalAction::Status),
         _ => None,
     }
 }
 
 /// Parses the tool arguments into the typed params the executor consumes.
-pub fn manage_goal_params(params: &Value) -> ManageGoalParams {
+pub fn manage_goal_params(params: &JsValue) -> ManageGoalParams {
     let Some(record) = params.as_object() else {
         return ManageGoalParams::default();
     };
     ManageGoalParams {
         action: parse_action(record.get("action")),
-        objective: record.get("objective").and_then(Value::as_str).map(str::to_owned),
-        reason: record.get("reason").and_then(Value::as_str).map(str::to_owned),
-        completion_report: record
-            .get("completionReport")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
+        objective: record.get("objective").and_then(JsValue::as_string).cloned(),
+        reason: record.get("reason").and_then(JsValue::as_string).cloned(),
+        completion_report: record.get("completionReport").and_then(JsValue::as_string).cloned(),
     }
 }
 

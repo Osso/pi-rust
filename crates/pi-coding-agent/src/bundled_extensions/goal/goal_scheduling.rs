@@ -7,7 +7,7 @@ use std::time::Duration;
 use pi_agent_core::AgentToolResult;
 use pi_agent_core::agent::types::AgentMessage;
 use pi_ai::types::TextOrImageContent;
-use serde_json::{Map, Value};
+use pi_js_compat::js_json::{self, JsObject as Map, JsString, JsValue as Value};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -64,16 +64,18 @@ fn tool_error(result: &AgentToolResult, tool_name: &str) -> Option<HandlerError>
     if result.is_error != Some(true) {
         return None;
     }
-    let message = result
-        .content
-        .iter()
-        .filter_map(|item| match item {
-            TextOrImageContent::Text(text) => Some(text.text.as_str()),
-            TextOrImageContent::Image(_) => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    let trimmed = pi_js_compat::string::js_trim(&message);
+    let message = JsString::join(
+        result
+            .content
+            .iter()
+            .filter_map(|item| match item {
+                TextOrImageContent::Text(text) => Some(text.text.clone()),
+                TextOrImageContent::Image(_) => None,
+            })
+            .collect::<Vec<_>>(),
+        "\n",
+    );
+    let trimmed = message.trim();
     if trimmed.is_empty() {
         return Some(HandlerError::new(format!("{tool_name} failed")));
     }
@@ -92,22 +94,20 @@ fn wait_wake_evidence(result: &AgentToolResult) -> Value {
         Some(Value::Object(details)) => details.clone(),
         Some(other) => {
             let mut object = Map::new();
-            object.insert("details".to_owned(), other.clone());
+            object.insert("details".into(), other.clone());
             object
         }
         None => Map::new(),
     };
     evidence.insert(
-        "content".to_owned(),
-        serde_json::to_value(&result.content).unwrap_or(Value::Null),
+        "content".into(),
+        js_json::to_value(&result.content).unwrap_or(Value::Null),
     );
     Value::Object(evidence)
 }
 
 fn session_id(ctx: &ExtensionContext) -> Result<String, HandlerError> {
-    let session = ctx
-        .session_manager()
-        .map_err(|error| HandlerError::new(error.to_string()))?;
+    let session = ctx.session_manager()?;
     Ok(lock_session_manager(&session).get_session_id().to_owned())
 }
 
@@ -234,7 +234,7 @@ where
             .pi
             .call_tool(
                 "list_agents".to_owned(),
-                serde_json::json!({ "parentId": "main" }),
+                serde_json::json!({ "parentId": "main" }).into(),
                 None,
                 None,
             )
@@ -294,10 +294,7 @@ where
         if !(self.inner.options.is_same_running_goal)(ctx.clone(), goal.clone())? {
             return Ok(false);
         }
-        if !ctx
-            .has_pending_messages()
-            .map_err(|error| HandlerError::new(error.to_string()))?
-        {
+        if !ctx.has_pending_messages()? {
             return Ok(true);
         }
         self.schedule_review_retry(ctx.clone(), goal.clone(), terminal_turn.clone(), wake_evidence.cloned());
@@ -311,10 +308,7 @@ where
         ctx: ExtensionContext,
         terminal_turn: TerminalTurn,
     ) -> Result<(), HandlerError> {
-        if ctx
-            .has_pending_messages()
-            .map_err(|error| HandlerError::new(error.to_string()))?
-        {
+        if ctx.has_pending_messages()? {
             self.defer_decision(decision, goal, ctx, terminal_turn);
             return Ok(());
         }
@@ -477,7 +471,7 @@ where
             .pi
             .call_tool(
                 "wait_agent".to_owned(),
-                Value::Object(Map::new()),
+                Value::Object(Map::new()).into(),
                 Some(controller.clone()),
                 None,
             )
