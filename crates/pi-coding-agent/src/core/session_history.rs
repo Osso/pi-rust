@@ -3,6 +3,8 @@ use super::session_manager::{SessionEntry, SessionManager, SessionManagerError};
 use super::session_transcript::{create_session_transcript_read_stream, read_session_transcript_path};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom};
+
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 const READ_BUFFER_SIZE: usize = 64 * 1024;
 fn error(cause: impl std::fmt::Display) -> SessionManagerError {
     SessionManagerError::new(cause.to_string())
@@ -15,7 +17,7 @@ struct ReverseEntries {
     directory: Option<tempfile::TempDir>,
 }
 impl ReverseEntries {
-    fn open(path: &str) -> Result<Self, SessionManagerError> {
+    fn open(path: &JsString) -> Result<Self, SessionManagerError> {
         let source = read_session_transcript_path(path);
         let (file, directory) = if source.ends_with(".jsonl.zst") {
             let directory = tempfile::Builder::new()
@@ -35,7 +37,7 @@ impl ReverseEntries {
             .map_err(error)?;
             (File::open(plain).map_err(error)?, Some(directory))
         } else {
-            (File::open(source).map_err(error)?, None)
+            (File::open(encode_node_utf8(&source)).map_err(error)?, None)
         };
         let position = file.metadata().map_err(error)?.len();
         Ok(Self {
@@ -77,7 +79,7 @@ impl ReverseEntries {
     }
 }
 fn parse_entry(line: &[u8]) -> Option<SessionEntry> {
-    match super::session_manager::parse_session_file_entry(&String::from_utf8_lossy(line)).ok()? {
+    match super::session_manager::parse_session_file_entry(String::from_utf8_lossy(line).as_ref()).ok()? {
         super::session_manager::FileEntry::Header(_) => None,
         super::session_manager::FileEntry::Entry(entry) => Some(entry),
     }
@@ -85,8 +87,8 @@ fn parse_entry(line: &[u8]) -> Option<SessionEntry> {
 
 pub struct SessionHistoryReverse {
     branch: std::iter::Rev<std::vec::IntoIter<SessionEntry>>,
-    parent: Option<String>,
-    path: Option<String>,
+    parent: Option<JsString>,
+    path: Option<JsString>,
     transcript: Option<ReverseEntries>,
     done: bool,
 }
@@ -125,14 +127,14 @@ impl Iterator for SessionHistoryReverse {
 impl SessionHistoryReverse {
     fn next_ancestor(&mut self) -> Result<Option<SessionEntry>, SessionManagerError> {
         if self.transcript.is_none() {
-            self.transcript = Some(ReverseEntries::open(self.path.as_deref().expect("checked path"))?);
+            self.transcript = Some(ReverseEntries::open(self.path.as_ref().expect("checked path"))?);
         }
         let transcript = self.transcript.as_mut().expect("opened transcript");
         while let Some(entry) = transcript.next_entry()? {
-            if entry.id() != self.parent.as_deref() {
+            if entry.id() != self.parent.as_ref() {
                 continue;
             }
-            self.parent = entry.parent_id().map(str::to_owned);
+            self.parent = entry.parent_id().cloned();
             return Ok(Some(entry));
         }
         Ok(None)
@@ -141,11 +143,11 @@ impl SessionHistoryReverse {
 /// Lazy newest-first traversal. Never installs historical entries into model context.
 pub fn read_session_history_reverse(manager: &SessionManager) -> SessionHistoryReverse {
     let branch = manager.get_branch(None);
-    let parent = branch.first().and_then(|e| e.parent_id()).map(str::to_owned);
+    let parent = branch.first().and_then(|e| e.parent_id()).cloned();
     SessionHistoryReverse {
         branch: branch.into_iter().rev(),
         parent,
-        path: manager.get_session_file().map(str::to_owned),
+        path: manager.get_session_file().cloned(),
         transcript: None,
         done: false,
     }
