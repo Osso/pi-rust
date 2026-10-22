@@ -7,8 +7,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
 
 pub struct HostRelayOptions<'a> {
-    pub control_db_path: &'a str,
-    pub host: Option<&'a str>,
+    pub control_db_path: &'a JsString,
+    pub host: Option<&'a JsString>,
     pub poll_ms: Option<u64>,
     pub signal: CancellationToken,
 }
@@ -100,8 +100,8 @@ fn parse_mailbox(frame: &JsValue) -> Result<RelayFrame, ControlDbError> {
 }
 
 struct RelayState<'a> {
-    path: &'a str,
-    host: &'a str,
+    path: &'a JsString,
+    host: &'a JsString,
     peer: Option<JsString>,
     mailbox: Option<RelayMailbox>,
     channel: Option<RelayChannel>,
@@ -111,9 +111,8 @@ impl RelayState<'_> {
         let Some(peer) = &self.peer else {
             return Ok(Vec::new());
         };
-        let peer = peer.to_utf8_lossy();
-        self.mailbox = next_relay_mailbox(self.path, &peer)?;
-        self.channel = next_relay_channel(self.path, &peer, self.host)?;
+        self.mailbox = next_relay_mailbox(self.path, peer)?;
+        self.channel = next_relay_channel(self.path, peer, self.host)?;
         Ok(self
             .mailbox
             .clone()
@@ -124,7 +123,7 @@ impl RelayState<'_> {
     }
     fn receive(&mut self, frame: RelayFrame, can_scan: bool) -> Result<Vec<RelayFrame>, ControlDbError> {
         if let RelayFrame::Hello { host } = frame {
-            if self.peer.is_some() || host == JsString::from(self.host) {
+            if self.peer.is_some() || host == *self.host {
                 return Err(ControlDbError::new("Invalid relay peer hello"));
             }
             self.peer = Some(host);
@@ -135,12 +134,12 @@ impl RelayState<'_> {
         };
         match frame {
             RelayFrame::Mailbox(message) => {
-                if message.data.get("recipientHost") != Some(&JsValue::String(self.host.into()))
+                if message.data.get("recipientHost") != Some(&JsValue::String(self.host.clone()))
                     || message.data.get("relaySeq").and_then(JsValue::as_f64) != Some(message.seq as f64)
                 {
                     return Err(ControlDbError::new("Relay mailbox route/sequence mismatch"));
                 }
-                import_relay_mailbox(self.path, peer.clone(), &message)?;
+                import_relay_mailbox(self.path, peer, &message)?;
                 return Ok(vec![RelayFrame::Ack {
                     kind: "mailbox".into(),
                     id: message.seq,
@@ -159,13 +158,13 @@ impl RelayState<'_> {
             RelayFrame::Ack { kind, id }
                 if kind == "mailbox" && self.mailbox.as_ref().is_some_and(|message| message.seq == id) =>
             {
-                ack_relay_mailbox(self.path, &peer.to_utf8_lossy(), self.mailbox.as_ref().unwrap())?;
+                ack_relay_mailbox(self.path, peer, self.mailbox.as_ref().unwrap())?;
                 self.mailbox = None;
             }
             RelayFrame::Ack { kind, id }
                 if kind == "channel" && self.channel.as_ref().is_some_and(|message| message.origin_id == id) =>
             {
-                ack_relay_channel(self.path, &peer.to_utf8_lossy(), id)?;
+                ack_relay_channel(self.path, peer, id)?;
                 self.channel = None;
             }
             _ => {}
@@ -303,8 +302,8 @@ async fn relay_stream(
 ) -> Result<(), String> {
     let host = options
         .host
-        .map(str::to_owned)
-        .unwrap_or_else(|| gethostname::gethostname().to_string_lossy().into_owned());
+        .cloned()
+        .unwrap_or_else(|| JsString::from(gethostname::gethostname().to_string_lossy().as_ref()));
     let mut state = RelayState {
         path: options.control_db_path,
         host: &host,
@@ -312,9 +311,7 @@ async fn relay_stream(
         mailbox: None,
         channel: None,
     };
-    output.send(vec![RelayFrame::Hello {
-        host: host.as_str().into(),
-    }])?;
+    output.send(vec![RelayFrame::Hello { host: host.clone() }])?;
     // Frozen stream listeners observe input only after the initial synchronous hello write.
     tokio::task::yield_now().await;
     let period = Duration::from_millis(options.poll_ms.unwrap_or(2000).max(1));
@@ -336,7 +333,9 @@ async fn relay_stream(
     }
 }
 pub async fn run_relay_serve() -> Result<(), String> {
-    let path = super::session_control_db::get_control_db_path(&crate::config::get_user_state_root());
+    let path = JsString::from(super::session_control_db::get_control_db_path(
+        &crate::config::get_user_state_root(),
+    ));
     run_host_relay(
         tokio::io::stdin(),
         tokio::io::stdout(),

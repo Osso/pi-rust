@@ -1,4 +1,5 @@
 //! Frozen `host-relay-store.ts`: canonical SQLite queues and persistent relay cursors.
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::{self, JsString, JsValue};
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -53,7 +54,7 @@ pub fn require_text(value: Option<&JsValue>, field: &str) -> Result<JsString, Co
         .and_then(JsValue::as_string)
         .filter(|text| !text.trim().is_empty())
         .cloned()
-        .ok_or_else(|| ControlDbError::new(format!("Invalid relay {field}")))
+        .ok_or_else(|| ControlDbError::new(js_format!("Invalid relay {}", field)))
 }
 
 pub fn nullable_text(value: Option<&JsValue>, field: &str) -> Result<Option<JsString>, ControlDbError> {
@@ -71,7 +72,7 @@ pub(crate) fn positive_integer(value: Option<&JsValue>) -> Result<i64, ControlDb
         .map(|n| n as i64)
         .ok_or_else(|| ControlDbError::new("Invalid relay sequence/id"))
 }
-fn read_counter(db: &Connection, key: &str) -> Result<i64, ControlDbError> {
+fn read_counter(db: &Connection, key: &JsString) -> Result<i64, ControlDbError> {
     Ok(db
         .query_row(
             "SELECT last_seen_id FROM shared_channel_cursors WHERE session_id = ? AND agent_id_key = ''",
@@ -81,18 +82,18 @@ fn read_counter(db: &Connection, key: &str) -> Result<i64, ControlDbError> {
         .optional()?
         .unwrap_or(0))
 }
-fn write_counter(db: &Connection, key: &str, value: i64) -> Result<(), ControlDbError> {
+fn write_counter(db: &Connection, key: &JsString, value: i64) -> Result<(), ControlDbError> {
     db.execute("INSERT INTO shared_channel_cursors(session_id, agent_id_key, last_seen_id, updated_at) VALUES (?, '', ?, ?)
  ON CONFLICT(session_id, agent_id_key) DO UPDATE SET last_seen_id = MAX(last_seen_id, excluded.last_seen_id), updated_at = excluded.updated_at", params![key, value, crate::utils::iso_time::now_iso_string()])?;
     Ok(())
 }
 
 struct StoredRelayRow {
-    session_path: String,
-    message_id: String,
-    raw: String,
+    session_path: JsString,
+    message_id: JsString,
+    raw: JsString,
 }
-fn read_next_relay_row(db: &Connection, peer: &str) -> Result<Option<StoredRelayRow>, ControlDbError> {
+fn read_next_relay_row(db: &Connection, peer: &JsString) -> Result<Option<StoredRelayRow>, ControlDbError> {
     Ok(db
         .query_row(
             "SELECT session_path, message_id, data FROM multi_agent_mailbox_messages
@@ -116,13 +117,13 @@ fn read_next_relay_row(db: &Connection, peer: &str) -> Result<Option<StoredRelay
 }
 fn assign_relay_sequence(
     db: &Connection,
-    peer: &str,
+    peer: &JsString,
     row: &StoredRelayRow,
     data: &mut JsValue,
 ) -> Result<i64, ControlDbError> {
     if data.get("relaySeq").is_none() {
-        let key = format!("relay-out:{peer}");
-        let exhausted = || ControlDbError::new(format!("Relay sequence exhausted for {peer}"));
+        let key = js_format!("relay-out:{}", peer);
+        let exhausted = || ControlDbError::new(js_format!("Relay sequence exhausted for {}", peer));
         let seq = read_counter(db, &key)?.checked_add(1).ok_or_else(exhausted)?;
         if seq > 9_007_199_254_740_991 {
             return Err(exhausted());
@@ -142,9 +143,9 @@ fn assign_relay_sequence(
         write_counter(db, &key, seq)?;
     }
     positive_integer(data.get("relaySeq"))
-        .map_err(|_| ControlDbError::new(format!("Invalid stored relay sequence for {peer}")))
+        .map_err(|_| ControlDbError::new(js_format!("Invalid stored relay sequence for {}", peer)))
 }
-pub fn next_relay_mailbox(path: &str, peer: &str) -> Result<Option<RelayMailbox>, ControlDbError> {
+pub fn next_relay_mailbox(path: &JsString, peer: &JsString) -> Result<Option<RelayMailbox>, ControlDbError> {
     control::with_control_db(path, |db| {
         control::with_immediate_transaction(db, |db| {
             let Some(row) = read_next_relay_row(db, peer)? else {
@@ -154,21 +155,21 @@ pub fn next_relay_mailbox(path: &str, peer: &str) -> Result<Option<RelayMailbox>
             let seq = assign_relay_sequence(db, peer, &row, &mut data)?;
             Ok(Some(RelayMailbox {
                 seq,
-                session_path: row.session_path.into(),
-                message_id: row.message_id.into(),
+                session_path: row.session_path,
+                message_id: row.message_id,
                 data,
             }))
         })
     })
 }
-pub fn ack_relay_mailbox(path: &str, peer: &str, message: &RelayMailbox) -> Result<(), ControlDbError> {
+pub fn ack_relay_mailbox(path: &JsString, peer: &JsString, message: &RelayMailbox) -> Result<(), ControlDbError> {
     control::with_control_db(path, |db| {
         db.execute(
             "DELETE FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ? AND data = ?
    AND json_extract(data, '$.recipientHost') = ? AND json_extract(data, '$.relaySeq') = ?",
             params![
-                message.session_path.to_utf8_lossy(),
-                message.message_id.to_utf8_lossy(),
+                message.session_path,
+                message.message_id,
                 js_json::stringify_lossless(&message.data),
                 peer,
                 message.seq
@@ -177,12 +178,7 @@ pub fn ack_relay_mailbox(path: &str, peer: &str, message: &RelayMailbox) -> Resu
         Ok(())
     })
 }
-pub fn import_relay_mailbox(
-    path: &str,
-    peer: impl Into<JsString>,
-    message: &RelayMailbox,
-) -> Result<(), ControlDbError> {
-    let peer = peer.into();
+pub fn import_relay_mailbox(path: &JsString, peer: &JsString, message: &RelayMailbox) -> Result<(), ControlDbError> {
     let mut data = message
         .data
         .as_object()
@@ -202,8 +198,7 @@ pub fn import_relay_mailbox(
     };
     let applied = control::with_control_db(path, |db| {
         control::with_immediate_transaction(db, |db| {
-            // Node/SQLite TEXT keys replace lone surrogates; canonical JSON above must not.
-            let key = format!("relay-in:{}", peer.to_utf8_lossy());
+            let key = js_format!("relay-in:{}", peer);
             if message.seq <= read_counter(db, &key)? {
                 return Ok(false);
             }
@@ -230,8 +225,8 @@ pub fn import_relay_mailbox(
     }
     Ok(())
 }
-fn relay_channel_cursor(db: &Connection, peer: &str) -> Result<i64, ControlDbError> {
-    let key = format!("relay:{peer}");
+fn relay_channel_cursor(db: &Connection, peer: &JsString) -> Result<i64, ControlDbError> {
+    let key = js_format!("relay:{}", peer);
     let existing = db
         .query_row(
             "SELECT last_seen_id FROM shared_channel_cursors WHERE session_id = ? AND agent_id_key = ''",
@@ -250,7 +245,11 @@ fn relay_channel_cursor(db: &Connection, peer: &str) -> Result<i64, ControlDbErr
     write_counter(db, &key, tail)?;
     Ok(tail)
 }
-pub fn next_relay_channel(path: &str, peer: &str, host: &str) -> Result<Option<RelayChannel>, ControlDbError> {
+pub fn next_relay_channel(
+    path: &JsString,
+    peer: &JsString,
+    host: &JsString,
+) -> Result<Option<RelayChannel>, ControlDbError> {
     control::with_control_db(path, |db| {
         let cursor = relay_channel_cursor(db, peer)?;
         Ok(db
@@ -260,42 +259,42 @@ pub fn next_relay_channel(path: &str, peer: &str, host: &str) -> Result<Option<R
                 [cursor],
                 |row| {
                     Ok(RelayChannel {
-                        origin_host: host.into(),
+                        origin_host: host.clone(),
                         origin_id: row.get(0)?,
-                        sender_session_id: row.get::<_, String>(1)?.into(),
-                        sender_agent_id: row.get::<_, Option<String>>(2)?.map(Into::into),
-                        body: row.get::<_, String>(3)?.into(),
-                        created_at: row.get::<_, String>(4)?.into(),
+                        sender_session_id: row.get(1)?,
+                        sender_agent_id: row.get(2)?,
+                        body: row.get(3)?,
+                        created_at: row.get(4)?,
                     })
                 },
             )
             .optional()?)
     })
 }
-pub fn ack_relay_channel(path: &str, peer: &str, id: i64) -> Result<(), ControlDbError> {
-    control::with_control_db(path, |db| write_counter(db, &format!("relay:{peer}"), id))
+pub fn ack_relay_channel(path: &JsString, peer: &JsString, id: i64) -> Result<(), ControlDbError> {
+    control::with_control_db(path, |db| write_counter(db, &js_format!("relay:{}", peer), id))
 }
-pub fn import_relay_channel(path: &str, message: &RelayChannel) -> Result<(), ControlDbError> {
+pub fn import_relay_channel(path: &JsString, message: &RelayChannel) -> Result<(), ControlDbError> {
     if control::is_mailbox_message_expired(Some(&message.created_at), pi_js_compat::date::js_now_millis()) {
         return Ok(());
     }
     let recipients = control::with_control_db(path, |db| {
         let changed = db.execute("INSERT INTO shared_channel_messages(sender_session_id, sender_agent_id, body, created_at, origin_host, origin_id)
-   VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING", params![message.sender_session_id.to_utf8_lossy(), message.sender_agent_id.as_ref().map(JsString::to_utf8_lossy), message.body.to_utf8_lossy(), message.created_at.to_utf8_lossy(), message.origin_host.to_utf8_lossy(), message.origin_id])?;
+   VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING", params![message.sender_session_id, message.sender_agent_id, message.body, message.created_at, message.origin_host, message.origin_id])?;
         if changed == 0 {
             return Ok(Vec::new());
         }
         let mut query =
             db.prepare("SELECT recipient_session_id FROM runtime_mailbox_listeners WHERE recipient_agent_id_key = ''")?;
         Ok(query
-            .query_map([], |row| row.get::<_, String>(0))?
+            .query_map([], |row| row.get::<_, JsString>(0))?
             .collect::<Result<Vec<_>, _>>()?)
     })?;
     for session_id in recipients {
         control::notify_runtime_mailbox_recipient(
             path,
             &RuntimeMailboxAddress {
-                session_id: session_id.into(),
+                session_id,
                 agent_id: None,
             },
         )?;
