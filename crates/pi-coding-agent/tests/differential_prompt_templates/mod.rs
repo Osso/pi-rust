@@ -240,8 +240,8 @@ fn compare_load(oracle: &mut oracle::TsOracle) {
         assert_eq!(response["ok"], true, "oracle failed: {response}");
 
         let actual = load_prompt_templates(&LoadPromptTemplatesOptions {
-            cwd: cwd.to_string_lossy().into_owned(),
-            agent_dir: agent_dir.to_string_lossy().into_owned(),
+            cwd: cwd.to_string_lossy().into_owned().into(),
+            agent_dir: agent_dir.to_string_lossy().into_owned().into(),
             prompt_paths: prompt_paths.clone(),
             include_defaults: *include_defaults,
         })
@@ -253,20 +253,20 @@ fn compare_load(oracle: &mut oracle::TsOracle) {
 fn template(name: &str, content: &str) -> PromptTemplate {
     let file_path = format!("/tmp/{name}.md");
     PromptTemplate {
-        name: name.to_owned(),
-        description: "test".to_owned(),
+        name: name.to_owned().into(),
+        description: "test".to_owned().into(),
         argument_hint: None,
-        content: content.to_owned(),
+        content: content.to_owned().into(),
         source_info: pi_coding_agent::core::source_info::create_synthetic_source_info(
             &file_path,
             &pi_coding_agent::core::source_info::SyntheticSourceInfoOptions {
-                source: "local".to_owned(),
+                source: "local".to_owned().into(),
                 scope: None,
                 origin: None,
                 base_dir: None,
             },
         ),
-        file_path,
+        file_path: file_path.into(),
     }
 }
 

@@ -211,7 +211,7 @@ fn alias_preference_prefers_alias_over_dated_and_latest_alias_descending() {
 fn scope_diagnostics_match_the_source_order() {
     let result = resolve_model_scope_from_models(
         &[
-            "sonnet:high".to_owned(),
+            "sonnet:high".to_owned().into(),
             "gpt-4o:invalid".to_owned(),
             "missing".to_owned(),
         ],
@@ -242,7 +242,7 @@ fn scope_diagnostics_match_the_source_order() {
 fn scope_resolves_bracketed_ids_before_glob_matching() {
     let mut models = all_models();
     models.push(model("custom", "bracketed-model[1m]", "Bracketed Model"));
-    let result = resolve_model_scope_from_models(&["custom/bracketed-model[1m]".to_owned()], &models);
+    let result = resolve_model_scope_from_models(&["custom/bracketed-model[1m]".to_owned().into()], &models);
     assert_eq!(
         result
             .scoped_models
@@ -253,7 +253,7 @@ fn scope_resolves_bracketed_ids_before_glob_matching() {
     );
     assert!(result.diagnostics.is_empty());
 
-    let result = resolve_model_scope_from_models(&["custom/bracketed-model[1m]:high".to_owned()], &models);
+    let result = resolve_model_scope_from_models(&["custom/bracketed-model[1m]:high".to_owned().into()], &models);
     assert_eq!(result.scoped_models[0].model.id, "bracketed-model[1m]");
     assert_eq!(result.scoped_models[0].thinking_level, Some(ThinkingLevel::High));
     assert!(result.diagnostics.is_empty());
@@ -262,11 +262,11 @@ fn scope_resolves_bracketed_ids_before_glob_matching() {
 #[test]
 fn scope_globs_match_provider_and_bare_ids() {
     let models = all_models();
-    let result = resolve_model_scope_from_models(&["*sonnet*".to_owned()], &models);
+    let result = resolve_model_scope_from_models(&["*sonnet*".to_owned().into()], &models);
     assert_eq!(result.scoped_models.len(), 1);
     assert_eq!(result.scoped_models[0].model.id, "claude-sonnet-4-5");
 
-    let result = resolve_model_scope_from_models(&["openrouter/*/*:high".to_owned()], &models);
+    let result = resolve_model_scope_from_models(&["openrouter/*/*:high".to_owned().into()], &models);
     assert_eq!(result.scoped_models.len(), 2);
     assert!(
         result
@@ -275,7 +275,7 @@ fn scope_globs_match_provider_and_bare_ids() {
             .all(|scoped| scoped.thinking_level == Some(ThinkingLevel::High))
     );
 
-    let result = resolve_model_scope_from_models(&["nope/*".to_owned()], &models);
+    let result = resolve_model_scope_from_models(&["nope/*".to_owned().into()], &models);
     assert!(result.scoped_models.is_empty());
     assert_eq!(result.diagnostics[0].message, "No models match pattern \"nope/*\"");
 }
@@ -283,7 +283,8 @@ fn scope_globs_match_provider_and_bare_ids() {
 #[test]
 fn scope_deduplicates_models() {
     let models = all_models();
-    let result = resolve_model_scope_from_models(&["sonnet".to_owned(), "claude-sonnet-4-5".to_owned()], &models);
+    let result =
+        resolve_model_scope_from_models(&["sonnet".to_owned().into(), "claude-sonnet-4-5".to_owned()], &models);
     assert_eq!(result.scoped_models.len(), 1);
 }
 
@@ -360,7 +361,7 @@ fn cli_resolves_provider_id_without_provider_flag() {
     let runtime = stub(all_models(), vec![]);
     let (provider, id, thinking, error) = cli(
         ResolveCliModelOptions {
-            cli_model: Some("openai/gpt-4o".to_owned()),
+            cli_model: Some("openai/gpt-4o".to_owned().into()),
             ..Default::default()
         },
         &runtime,
@@ -377,7 +378,7 @@ fn cli_resolves_fuzzy_patterns_within_provider() {
     let (provider, id, _, error) = cli(
         ResolveCliModelOptions {
             cli_provider: Some("openai".to_owned()),
-            cli_model: Some("4o".to_owned()),
+            cli_model: Some("4o".to_owned().into()),
             ..Default::default()
         },
         &runtime,
@@ -392,7 +393,7 @@ fn cli_parses_thinking_suffix() {
     let runtime = stub(all_models(), vec![]);
     let (_, id, thinking, error) = cli(
         ResolveCliModelOptions {
-            cli_model: Some("sonnet:high".to_owned()),
+            cli_model: Some("sonnet:high".to_owned().into()),
             ..Default::default()
         },
         &runtime,
@@ -407,7 +408,7 @@ fn cli_prefers_exact_id_over_provider_inference() {
     let runtime = stub(all_models(), vec![]);
     let (provider, id, _, error) = cli(
         ResolveCliModelOptions {
-            cli_model: Some("openai/gpt-4o:extended".to_owned()),
+            cli_model: Some("openai/gpt-4o:extended".to_owned().into()),
             ..Default::default()
         },
         &runtime,
@@ -423,7 +424,7 @@ fn cli_keeps_invalid_suffix_as_part_of_the_id() {
     let (provider, id, _, error) = cli(
         ResolveCliModelOptions {
             cli_provider: Some("openai".to_owned()),
-            cli_model: Some("gpt-4o:extended".to_owned()),
+            cli_model: Some("gpt-4o:extended".to_owned().into()),
             ..Default::default()
         },
         &runtime,
@@ -439,7 +440,7 @@ fn cli_allows_custom_ids_without_double_prefixing() {
     let (provider, id, _, error) = cli(
         ResolveCliModelOptions {
             cli_provider: Some("openrouter".to_owned()),
-            cli_model: Some("openrouter/openai/ghost-model".to_owned()),
+            cli_model: Some("openrouter/openai/ghost-model".to_owned().into()),
             ..Default::default()
         },
         &runtime,
@@ -455,7 +456,7 @@ fn cli_reports_no_models() {
     let (model, _, _, error) = cli(
         ResolveCliModelOptions {
             cli_provider: Some("openai".to_owned()),
-            cli_model: Some("gpt-4o".to_owned()),
+            cli_model: Some("gpt-4o".to_owned().into()),
             ..Default::default()
         },
         &runtime,
@@ -473,7 +474,7 @@ fn cli_prefers_the_sole_authenticated_provider_for_ambiguous_ids() {
     let runtime = stub(models, vec!["openai-codex"]);
     let (provider, id, _, error) = cli(
         ResolveCliModelOptions {
-            cli_model: Some("gpt-5.6-sol".to_owned()),
+            cli_model: Some("gpt-5.6-sol".to_owned().into()),
             ..Default::default()
         },
         &runtime,
@@ -492,7 +493,7 @@ fn cli_requires_a_provider_for_ambiguous_ids_without_unique_auth() {
     let runtime = stub(models, vec![]);
     let (model, _, _, error) = cli(
         ResolveCliModelOptions {
-            cli_model: Some("gpt-5.6-sol".to_owned()),
+            cli_model: Some("gpt-5.6-sol".to_owned().into()),
             ..Default::default()
         },
         &runtime,
@@ -513,7 +514,7 @@ fn cli_prefers_provider_split_over_gateway_model_id() {
     let runtime = stub(models, vec!["zai", "vercel-ai-gateway"]);
     let (provider, id, _, error) = cli(
         ResolveCliModelOptions {
-            cli_model: Some("zai/glm-5".to_owned()),
+            cli_model: Some("zai/glm-5".to_owned().into()),
             ..Default::default()
         },
         &runtime,
@@ -535,7 +536,7 @@ fn cli_prefers_authenticated_raw_id_over_unauthenticated_inferred_provider() {
     let runtime = stub(models, vec!["commandcode"]);
     let (provider, id, _, error) = cli(
         ResolveCliModelOptions {
-            cli_model: Some("xiaomi/mimo-v2.5-pro".to_owned()),
+            cli_model: Some("xiaomi/mimo-v2.5-pro".to_owned().into()),
             ..Default::default()
         },
         &runtime,
@@ -550,7 +551,7 @@ fn cli_resolves_provider_prefixed_fuzzy_patterns() {
     let runtime = stub(all_models(), vec![]);
     let (provider, id, _, error) = cli(
         ResolveCliModelOptions {
-            cli_model: Some("openrouter/qwen".to_owned()),
+            cli_model: Some("openrouter/qwen".to_owned().into()),
             ..Default::default()
         },
         &runtime,
@@ -571,7 +572,7 @@ fn cli_strips_thinking_suffix_from_custom_model_id() {
     let runtime = stub(neuralwatt_models(), vec![]);
     let result = resolve_cli_model(
         &ResolveCliModelOptions {
-            cli_model: Some("neuralwatt/zai-org/GLM-5.1-FP8:high".to_owned()),
+            cli_model: Some("neuralwatt/zai-org/GLM-5.1-FP8:high".to_owned().into()),
             ..Default::default()
         },
         &runtime,
@@ -589,7 +590,7 @@ fn cli_custom_model_without_suffix_works() {
     let runtime = stub(neuralwatt_models(), vec![]);
     let result = resolve_cli_model(
         &ResolveCliModelOptions {
-            cli_model: Some("neuralwatt/zai-org/GLM-5.1-FP8".to_owned()),
+            cli_model: Some("neuralwatt/zai-org/GLM-5.1-FP8".to_owned().into()),
             ..Default::default()
         },
         &runtime,
@@ -605,7 +606,7 @@ fn cli_all_valid_thinking_levels_work_in_fallback_path() {
     for level in ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] {
         let result = resolve_cli_model(
             &ResolveCliModelOptions {
-                cli_model: Some(format!("neuralwatt/zai-org/GLM-5.1-FP8:{level}")),
+                cli_model: Some(format!("neuralwatt/zai-org/GLM-5.1-FP8:{level}").into()),
                 ..Default::default()
             },
             &runtime,
@@ -635,7 +636,7 @@ fn cli_invalid_suffix_on_custom_model_stays_in_id() {
     let runtime = stub(neuralwatt_models(), vec![]);
     let result = resolve_cli_model(
         &ResolveCliModelOptions {
-            cli_model: Some("neuralwatt/zai-org/GLM-5.1-FP8:banana".to_owned()),
+            cli_model: Some("neuralwatt/zai-org/GLM-5.1-FP8:banana".to_owned().into()),
             ..Default::default()
         },
         &runtime,
@@ -650,7 +651,7 @@ fn cli_explicit_provider_strips_custom_model_thinking_suffix() {
     let result = resolve_cli_model(
         &ResolveCliModelOptions {
             cli_provider: Some("neuralwatt".to_owned()),
-            cli_model: Some("zai-org/GLM-5.1-FP8:high".to_owned()),
+            cli_model: Some("zai-org/GLM-5.1-FP8:high".to_owned().into()),
             ..Default::default()
         },
         &runtime,
@@ -664,7 +665,7 @@ fn cli_explicit_thinking_keeps_suffix_in_id() {
     let runtime = stub(neuralwatt_models(), vec![]);
     let result = resolve_cli_model(
         &ResolveCliModelOptions {
-            cli_model: Some("neuralwatt/zai-org/GLM-5.1-FP8:high".to_owned()),
+            cli_model: Some("neuralwatt/zai-org/GLM-5.1-FP8:high".to_owned().into()),
             cli_thinking: Some(ThinkingLevel::Medium),
             ..Default::default()
         },
@@ -707,7 +708,7 @@ async fn initial_model_accepts_explicit_provider_custom_ids() {
     let result = find_initial_model(
         &FindInitialModelOptions {
             cli_provider: Some("openrouter".to_owned()),
-            cli_model: Some("openrouter/openai/ghost-model".to_owned()),
+            cli_model: Some("openrouter/openai/ghost-model".to_owned().into()),
             scoped_models: Vec::new(),
             is_continuing: false,
             ..Default::default()

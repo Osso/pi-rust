@@ -45,8 +45,8 @@ fn compare_single_dirs(oracle: &mut oracle::TsOracle, fixtures: &Path) {
         assert_eq!(response["ok"], true, "oracle failed for {dir}: {response}");
 
         let actual = load_skills_from_dir(&LoadSkillsFromDirOptions {
-            dir: path,
-            source: "test".to_owned(),
+            dir: path.into(),
+            source: "test".to_owned().into(),
         });
         assert_eq!(json!(actual.skills), response["output"]["skills"], "{dir} skills");
         assert_eq!(
@@ -63,8 +63,8 @@ fn compare_tree(oracle: &mut oracle::TsOracle, root: &Path) {
     assert_eq!(response["ok"], true, "oracle failed: {response}");
 
     let actual = load_skills_from_dir(&LoadSkillsFromDirOptions {
-        dir: path,
-        source: "test".to_owned(),
+        dir: path.into(),
+        source: "test".to_owned().into(),
     });
     assert_eq!(json!(actual.skills), response["output"]["skills"]);
     assert_eq!(json!(actual.diagnostics), response["output"]["diagnostics"]);
@@ -159,8 +159,8 @@ fn compare_load(oracle: &mut oracle::TsOracle, root: &Path, fixtures: &Path) {
         assert_eq!(response["ok"], true, "oracle failed: {response}");
 
         let actual = load_skills(&LoadSkillsOptions {
-            cwd: cwd.to_string_lossy().into_owned(),
-            agent_dir: agent_dir.to_string_lossy().into_owned(),
+            cwd: cwd.to_string_lossy().into_owned().into(),
+            agent_dir: agent_dir.to_string_lossy().into_owned().into(),
             skill_paths: skill_paths.clone(),
             include_defaults: *include_defaults,
         })
@@ -176,17 +176,17 @@ fn compare_load(oracle: &mut oracle::TsOracle, root: &Path, fixtures: &Path) {
 
 fn skill(name: &str, description: &str, file_path: &str, base_dir: &str, hidden: bool) -> Skill {
     Skill {
-        name: name.to_owned(),
-        description: description.to_owned(),
-        file_path: file_path.to_owned(),
-        base_dir: base_dir.to_owned(),
+        name: name.to_owned().into(),
+        description: description.to_owned().into(),
+        file_path: file_path.to_owned().into(),
+        base_dir: base_dir.to_owned().into(),
         source_info: pi_coding_agent::core::source_info::create_synthetic_source_info(
             file_path,
             &pi_coding_agent::core::source_info::SyntheticSourceInfoOptions {
-                source: "test".to_owned(),
+                source: "test".to_owned().into(),
                 scope: None,
                 origin: None,
-                base_dir: Some(base_dir.to_owned()),
+                base_dir: Some(base_dir.to_owned().into()),
             },
         ),
         disable_model_invocation: hidden,

@@ -190,44 +190,44 @@ fn runs_oauth_login_interactions_from_terminal_io_and_persists_credentials() {
             Box::new(|interaction| {
                 Box::pin(async move {
                     interaction.notify(AuthEvent::AuthUrl {
-                        url: "https://example.invalid/login".to_owned(),
-                        instructions: Some("Open browser".to_owned()),
+                        url: "https://example.invalid/login".to_owned().into(),
+                        instructions: Some("Open browser".to_owned().into()),
                     });
                     interaction.notify(AuthEvent::DeviceCode {
-                        verification_uri: "https://example.invalid/device".to_owned(),
-                        user_code: "ABCD-EFGH".to_owned(),
+                        verification_uri: "https://example.invalid/device".to_owned().into(),
+                        user_code: "ABCD-EFGH".to_owned().into(),
                         interval_seconds: None,
                         expires_in_seconds: None,
                     });
                     interaction.notify(AuthEvent::Progress {
-                        message: "Waiting for login".to_owned(),
+                        message: "Waiting for login".to_owned().into(),
                     });
                     let typed = interaction
                         .prompt(prompt(AuthPromptKind::Text {
-                            message: "Enter token".to_owned(),
-                            placeholder: Some("token".to_owned()),
+                            message: "Enter token".to_owned().into(),
+                            placeholder: Some("token".to_owned().into()),
                         }))
                         .await
                         .map_err(AuthError::Failed)?;
                     let manual = interaction
                         .prompt(prompt(AuthPromptKind::ManualCode {
-                            message: "Paste authorization code or redirect URL".to_owned(),
+                            message: "Paste authorization code or redirect URL".to_owned().into(),
                             placeholder: None,
                         }))
                         .await
                         .map_err(AuthError::Failed)?;
                     let selected = interaction
                         .prompt(prompt(AuthPromptKind::Select {
-                            message: "Select account:".to_owned(),
+                            message: "Select account:".to_owned().into(),
                             options: vec![
                                 AuthSelectOption {
-                                    id: "first".to_owned(),
-                                    label: "First Account".to_owned(),
+                                    id: "first".to_owned().into(),
+                                    label: "First Account".to_owned().into(),
                                     description: None,
                                 },
                                 AuthSelectOption {
-                                    id: "second".to_owned(),
-                                    label: "Second Account".to_owned(),
+                                    id: "second".to_owned().into(),
+                                    label: "Second Account".to_owned().into(),
                                     description: None,
                                 },
                             ],
@@ -281,7 +281,7 @@ fn opens_browser_oauth_urls_when_requested() {
             Box::new(|interaction| {
                 Box::pin(async move {
                     interaction.notify(AuthEvent::AuthUrl {
-                        url: "https://example.invalid/browser-login".to_owned(),
+                        url: "https://example.invalid/browser-login".to_owned().into(),
                         instructions: None,
                     });
                     Ok(OAuthCredential::new(
@@ -329,7 +329,7 @@ fn reports_browser_cli_open_failures_without_failing_the_login() {
             Box::new(|interaction| {
                 Box::pin(async move {
                     interaction.notify(AuthEvent::AuthUrl {
-                        url: "https://example.invalid/failing".to_owned(),
+                        url: "https://example.invalid/failing".to_owned().into(),
                         instructions: None,
                     });
                     Ok(OAuthCredential::new(
@@ -401,10 +401,10 @@ fn reports_login_failures_with_the_provider_name() {
             Box::new(|interaction| {
                 Box::pin(async move {
                     interaction.notify(AuthEvent::Info {
-                        message: "Starting".to_owned(),
+                        message: "Starting".to_owned().into(),
                         links: Some(vec![AuthInfoLink {
-                            url: "https://example.invalid/info".to_owned(),
-                            label: Some("Docs".to_owned()),
+                            url: "https://example.invalid/info".to_owned().into(),
+                            label: Some("Docs".to_owned().into()),
                         }]),
                     });
                     Err(AuthError::failed("login rejected"))

@@ -128,7 +128,7 @@ fn rust_response(cases: &[Case]) -> Value {
 
 fn normalize_case(case: &Case) -> Value {
     let options = SyntheticSourceInfoOptions {
-        source: case.source.to_owned(),
+        source: case.source.to_owned().into(),
         scope: case.scope.value(),
         origin: case.origin.value(),
         base_dir: optional_string(case.base_dir_state, case.base_dir),
@@ -311,7 +311,7 @@ fn metadata_case_request(case: &MetadataCase) -> Value {
 
 fn normalize_metadata_case(case: &MetadataCase) -> Value {
     let metadata = pi_coding_agent::core::package_manager::PathMetadata {
-        source: case.source.to_owned(),
+        source: case.source.to_owned().into(),
         scope: match case.scope {
             "user" => pi_coding_agent::core::package_manager::SourceScope::User,
             "project" => pi_coding_agent::core::package_manager::SourceScope::Project,

@@ -121,7 +121,7 @@ impl ExtensionUiContext for RecordingUi {
 
 fn context(cwd: &str, has_ui: bool, ui: Arc<dyn ExtensionUiContext>) -> ProjectTrustContext {
     ProjectTrustContext {
-        cwd: cwd.to_owned(),
+        cwd: cwd.to_owned().into(),
         mode: ExtensionMode::Tui,
         has_ui,
         ui,
@@ -490,7 +490,7 @@ fn cli_context(
     startup_ui: Option<Arc<RecordingStartupUi>>,
 ) -> ProjectTrustContext {
     create_project_trust_context(CreateProjectTrustContextOptions {
-        cwd: cwd.to_owned(),
+        cwd: cwd.to_owned().into(),
         mode,
         has_ui,
         startup_ui: startup_ui.map(|ui| ui as Arc<dyn ProjectTrustStartupUi>),
@@ -521,7 +521,7 @@ async fn cli_context_selects_through_the_startup_ui_in_interactive_mode() {
 
     let selected = ctx
         .ui
-        .select("Pick", &["Yes".to_owned(), "No".to_owned()], None)
+        .select("Pick", &["Yes".to_owned().into(), "No".to_owned()], None)
         .await
         .unwrap();
     assert_eq!(selected.as_deref(), Some("Yes"));
@@ -563,7 +563,10 @@ async fn cli_context_confirm_uses_yes_no_labels() {
 async fn cli_context_without_ui_never_prompts() {
     let startup = RecordingStartupUi::new(Some("Yes"), Some("typed"));
     let ctx = cli_context("/work", AppMode::Interactive, false, Some(startup.clone()));
-    assert_eq!(ctx.ui.select("Pick", &["Yes".to_owned()], None).await.unwrap(), None);
+    assert_eq!(
+        ctx.ui.select("Pick", &["Yes".to_owned().into()], None).await.unwrap(),
+        None
+    );
     assert!(!ctx.ui.confirm("Title", "Body", None).await.unwrap());
     assert_eq!(ctx.ui.input("Name", None, None).await.unwrap(), None);
     assert!(startup.selections.lock().unwrap().is_empty());
@@ -575,7 +578,10 @@ async fn cli_context_outside_interactive_mode_never_prompts() {
     for mode in [AppMode::Print, AppMode::Json, AppMode::Rpc] {
         let startup = RecordingStartupUi::new(Some("Yes"), Some("typed"));
         let ctx = cli_context("/work", mode, true, Some(startup.clone()));
-        assert_eq!(ctx.ui.select("Pick", &["Yes".to_owned()], None).await.unwrap(), None);
+        assert_eq!(
+            ctx.ui.select("Pick", &["Yes".to_owned().into()], None).await.unwrap(),
+            None
+        );
         assert!(!ctx.ui.confirm("Title", "Body", None).await.unwrap());
         assert_eq!(ctx.ui.input("Name", None, None).await.unwrap(), None);
         assert!(startup.selections.lock().unwrap().is_empty());

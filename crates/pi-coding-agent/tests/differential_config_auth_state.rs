@@ -160,11 +160,11 @@ fn trust_store_matches_the_pinned_typescript_module() {
     store
         .set_many(&[
             ProjectTrustUpdate {
-                path: zulu.display().to_string(),
+                path: zulu.display().to_string().into(),
                 decision: ProjectTrustDecision::Trusted,
             },
             ProjectTrustUpdate {
-                path: alpha.display().to_string(),
+                path: alpha.display().to_string().into(),
                 decision: ProjectTrustDecision::Untrusted,
             },
         ])
@@ -274,12 +274,12 @@ fn permission_rule_store_matches_the_pinned_typescript_module() {
                 _ => PermissionRuleDestination::LocalSettings,
             };
             let actual = write_permission_rules(&WritePermissionRulesOptions {
-                cwd: cwd.display().to_string(),
-                agent_dir: agent_dir.display().to_string(),
+                cwd: cwd.display().to_string().into(),
+                agent_dir: agent_dir.display().to_string().into(),
                 destination: destination_kind,
                 behavior: PermissionRuleBehavior::Allow,
                 tool_name: "bash".to_owned(),
-                rules: vec!["git status".to_owned(), "git status".to_owned()],
+                rules: vec!["git status".to_owned().into(), "git status".to_owned()],
             });
             match actual {
                 Ok(()) => {
@@ -344,7 +344,7 @@ fn permission_rule_store_matches_the_pinned_typescript_module() {
         }));
     }));
     let mut results: Vec<Value> = Vec::new();
-    store.add_allow_rules("bash", &["git status".to_owned()]);
+    store.add_allow_rules("bash", &["git status".to_owned().into()]);
     results.push(Value::Null);
     results.push(json!(store.has_allow_rule("bash", "git status")));
     results.push(json!(store.has_allow_rule("bash", "git diff")));
@@ -357,20 +357,26 @@ fn permission_rule_store_matches_the_pinned_typescript_module() {
     store.apply_updated_permissions(
         "bash",
         Some(&[
-            PermissionRuleUpdate::new(PermissionRuleDestination::Session, vec!["session-rule".to_owned()]),
+            PermissionRuleUpdate::new(
+                PermissionRuleDestination::Session,
+                vec!["session-rule".to_owned().into()],
+            ),
             PermissionRuleUpdate::new(
                 PermissionRuleDestination::ProjectSettings,
-                vec!["project-rule".to_owned()],
+                vec!["project-rule".to_owned().into()],
             ),
         ]),
     );
     results.push(Value::Null);
-    store.set_locations(Some(cwd.display().to_string()), Some(agent_dir.display().to_string()));
+    store.set_locations(
+        Some(cwd.display().to_string().into()),
+        Some(agent_dir.display().to_string().into()),
+    );
     store.apply_updated_permissions(
         "bash",
         Some(&[PermissionRuleUpdate::new(
             PermissionRuleDestination::UserSettings,
-            vec!["user-rule".to_owned()],
+            vec!["user-rule".to_owned().into()],
         )]),
     );
     results.push(Value::Null);

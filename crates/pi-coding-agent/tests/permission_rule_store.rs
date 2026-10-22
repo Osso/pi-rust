@@ -23,7 +23,7 @@ fn temp_dir(name: &str) -> PathBuf {
 #[test]
 fn allow_rules_match_by_tool_name_and_exact_content() {
     let mut store = PermissionRuleStore::new();
-    store.add_allow_rules("bash", &["git status".to_owned()]);
+    store.add_allow_rules("bash", &["git status".to_owned().into()]);
     assert!(store.has_allow_rule("bash", "git status"));
     assert!(!store.has_allow_rule("bash", "git diff"));
     assert!(!store.has_allow_rule("read", "git status"));
@@ -90,12 +90,12 @@ fn writes_allow_rules_without_dropping_existing_settings() {
     ] {
         let (cwd, agent_dir) = setup();
         write_permission_rules(&WritePermissionRulesOptions {
-            cwd: cwd.display().to_string(),
-            agent_dir: agent_dir.display().to_string(),
+            cwd: cwd.display().to_string().into(),
+            agent_dir: agent_dir.display().to_string().into(),
             destination,
             behavior: PermissionRuleBehavior::Allow,
             tool_name: "bash".to_owned(),
-            rules: vec!["git status".to_owned(), "git status".to_owned()],
+            rules: vec!["git status".to_owned().into(), "git status".to_owned()],
         })
         .unwrap();
 
@@ -118,12 +118,12 @@ fn adding_rules_does_not_reformat_existing_settings() {
     fs::write(&settings_path, "{\"theme\":\"dark\",\"extensions\":[\"./ext.ts\"]}\n").unwrap();
 
     write_permission_rules(&WritePermissionRulesOptions {
-        cwd: cwd.display().to_string(),
-        agent_dir: agent_dir.display().to_string(),
+        cwd: cwd.display().to_string().into(),
+        agent_dir: agent_dir.display().to_string().into(),
         destination: PermissionRuleDestination::UserSettings,
         behavior: PermissionRuleBehavior::Allow,
         tool_name: "bash".to_owned(),
-        rules: vec!["git status".to_owned()],
+        rules: vec!["git status".to_owned().into()],
     })
     .unwrap();
 
@@ -145,12 +145,12 @@ fn adding_rules_replaces_an_existing_permission_rules_value() {
     .unwrap();
 
     write_permission_rules(&WritePermissionRulesOptions {
-        cwd: cwd.display().to_string(),
-        agent_dir: agent_dir.display().to_string(),
+        cwd: cwd.display().to_string().into(),
+        agent_dir: agent_dir.display().to_string().into(),
         destination: PermissionRuleDestination::UserSettings,
         behavior: PermissionRuleBehavior::Allow,
         tool_name: "bash".to_owned(),
-        rules: vec!["new".to_owned()],
+        rules: vec!["new".to_owned().into()],
     })
     .unwrap();
 
@@ -165,12 +165,12 @@ fn adding_rules_replaces_an_existing_permission_rules_value() {
 fn created_settings_files_are_pretty_json_with_a_trailing_newline() {
     let (cwd, agent_dir) = setup();
     write_permission_rules(&WritePermissionRulesOptions {
-        cwd: cwd.display().to_string(),
-        agent_dir: agent_dir.display().to_string(),
+        cwd: cwd.display().to_string().into(),
+        agent_dir: agent_dir.display().to_string().into(),
         destination: PermissionRuleDestination::LocalSettings,
         behavior: PermissionRuleBehavior::Allow,
         tool_name: "read".to_owned(),
-        rules: vec!["/tmp/a".to_owned()],
+        rules: vec!["/tmp/a".to_owned().into()],
     })
     .unwrap();
     let content = fs::read_to_string(cwd.join(".pi/settings.local.json")).unwrap();
@@ -187,15 +187,18 @@ fn apply_updated_permissions_keeps_session_rules_and_persists_the_rest() {
     let mut store = PermissionRuleStore::with_writer(Box::new(move |options| {
         sink.lock().unwrap().push(options.clone());
     }));
-    store.set_locations(Some("/project".to_owned()), Some("/agent".to_owned()));
+    store.set_locations(Some("/project".to_owned().into()), Some("/agent".to_owned().into()));
 
     store.apply_updated_permissions(
         "bash",
         Some(&[
-            PermissionRuleUpdate::new(PermissionRuleDestination::Session, vec!["session-rule".to_owned()]),
+            PermissionRuleUpdate::new(
+                PermissionRuleDestination::Session,
+                vec!["session-rule".to_owned().into()],
+            ),
             PermissionRuleUpdate::new(
                 PermissionRuleDestination::ProjectSettings,
-                vec!["project-rule".to_owned()],
+                vec!["project-rule".to_owned().into()],
             ),
         ]),
     );
@@ -221,8 +224,14 @@ fn non_session_updates_are_skipped_without_locations() {
     store.apply_updated_permissions(
         "bash",
         Some(&[
-            PermissionRuleUpdate::new(PermissionRuleDestination::Session, vec!["session-only".to_owned()]),
-            PermissionRuleUpdate::new(PermissionRuleDestination::UserSettings, vec!["user-rule".to_owned()]),
+            PermissionRuleUpdate::new(
+                PermissionRuleDestination::Session,
+                vec!["session-only".to_owned().into()],
+            ),
+            PermissionRuleUpdate::new(
+                PermissionRuleDestination::UserSettings,
+                vec!["user-rule".to_owned().into()],
+            ),
         ]),
     );
     assert!(store.has_allow_rule("bash", "session-only"));

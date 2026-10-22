@@ -69,7 +69,7 @@ async fn accepts_a_pi_ai_credential_store() {
     let modifier: CredentialModifier = Arc::new(|_current| {
         Box::pin(async {
             Ok(Some(Credential::ApiKey(pi_ai::auth::types::ApiKeyCredential {
-                key: Some("stored-key".to_owned()),
+                key: Some("stored-key".to_owned().into()),
                 env: None,
             })))
         })
@@ -159,8 +159,8 @@ async fn constructs_an_api_key_method_for_an_extension_provider() {
             "extension-api-key",
             ProviderConfigInput {
                 name: Some("Extension API Key".to_owned()),
-                base_url: Some("https://example.test/v1".to_owned()),
-                api_key: Some("$EXTENSION_TEST_API_KEY".to_owned()),
+                base_url: Some("https://example.test/v1".to_owned().into()),
+                api_key: Some("$EXTENSION_TEST_API_KEY".to_owned().into()),
                 api: Some("openai-completions".to_owned()),
                 models: Some(vec![test_model("extension-model")]),
                 ..Default::default()
@@ -183,8 +183,8 @@ async fn resolves_configured_auth_from_request_scoped_env_overrides() {
         .register_provider(
             "request-env-provider",
             ProviderConfigInput {
-                base_url: Some("https://example.test/v1".to_owned()),
-                api_key: Some("$REQUEST_SCOPED_API_KEY".to_owned()),
+                base_url: Some("https://example.test/v1".to_owned().into()),
+                api_key: Some("$REQUEST_SCOPED_API_KEY".to_owned().into()),
                 headers: Some(
                     [("x-request-value".to_owned(), "$REQUEST_SCOPED_HEADER".to_owned())]
                         .into_iter()
@@ -198,8 +198,8 @@ async fn resolves_configured_auth_from_request_scoped_env_overrides() {
         .unwrap();
     let model = runtime.get_model("request-env-provider", "request-env-model").unwrap();
     let mut env = ProviderEnv::new();
-    env.insert("REQUEST_SCOPED_API_KEY".to_owned(), "request-key".to_owned());
-    env.insert("REQUEST_SCOPED_HEADER".to_owned(), "request-header".to_owned());
+    env.insert("REQUEST_SCOPED_API_KEY".to_owned(), "request-key".to_owned().into());
+    env.insert("REQUEST_SCOPED_HEADER".to_owned(), "request-header".to_owned().into());
     let auth = runtime
         .get_auth_for_model(
             &model,
@@ -228,8 +228,8 @@ fn capturing_provider() -> (ProviderConfigInput, Arc<Mutex<Option<pi_ai::types::
     let captured = Arc::new(Mutex::new(None));
     let sink = Arc::clone(&captured);
     let config = ProviderConfigInput {
-        base_url: Some("https://example.test/v1".to_owned()),
-        api_key: Some("generated-key".to_owned()),
+        base_url: Some("https://example.test/v1".to_owned().into()),
+        api_key: Some("generated-key".to_owned().into()),
         auth_header: Some(true),
         headers: Some([("x-provider".to_owned(), "provider".to_owned())].into_iter().collect()),
         api: Some("openai-completions".to_owned()),
@@ -252,7 +252,7 @@ async fn explicit_authorization_header_overrides_auth_header_case_insensitively(
     runtime.register_provider("auth-header-provider", config).unwrap();
     let model = runtime.get_model("auth-header-provider", "auth-header-model").unwrap();
     let mut headers = pi_ai::types::ProviderHeaders::new();
-    headers.insert("authorization".to_owned(), Some("Explicit token".to_owned()));
+    headers.insert("authorization".to_owned(), Some("Explicit token".to_owned().into()));
     let mut options = SimpleStreamOptions::default();
     options.stream.request.headers = Some(headers);
     let _ = runtime
@@ -308,7 +308,7 @@ async fn transforms_fully_assembled_headers_once() {
                 Some("explicit")
             );
             let mut transformed = headers;
-            transformed.insert("x-transformed".to_owned(), Some("yes".to_owned()));
+            transformed.insert("x-transformed".to_owned(), Some("yes".to_owned().into()));
             Ok(transformed)
         })
     }));
@@ -346,7 +346,7 @@ async fn forwards_cancellation_to_extension_oauth_refresh() {
             "extension-oauth",
             ProviderConfigInput {
                 name: Some("Extension OAuth".to_owned()),
-                base_url: Some("https://example.test/v1".to_owned()),
+                base_url: Some("https://example.test/v1".to_owned().into()),
                 api: Some("openai-completions".to_owned()),
                 oauth: Some(ExtensionOAuthConfig {
                     name: "Extension subscription".to_owned(),
@@ -363,7 +363,7 @@ async fn forwards_cancellation_to_extension_oauth_refresh() {
                             Ok(refreshed)
                         })
                     }),
-                    get_api_key: Arc::new(|credential| credential.access.to_utf8().expect("scalar fixture key")),
+                    get_api_key: Arc::new(|credential| credential.access.to_utf8().expect("scalar fixture key").into()),
                     modify_models: None,
                 }),
                 models: Some(vec![test_model("extension-model")]),
@@ -422,8 +422,8 @@ async fn credential_sync_failure_is_reported_as_a_typed_error() {
         .register_provider(
             "failing-provider",
             ProviderConfigInput {
-                base_url: Some("https://example.test/v1".to_owned()),
-                api_key: Some("key".to_owned()),
+                base_url: Some("https://example.test/v1".to_owned().into()),
+                api_key: Some("key".to_owned().into()),
                 api: Some("openai-completions".to_owned()),
                 models: Some(vec![test_model("model")]),
                 refresh_models: Some(Arc::new(|_context| {
@@ -471,7 +471,7 @@ async fn refresh_reloads_models_json_from_disk() {
     .unwrap();
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(storage_with(&[]) as Arc<dyn CredentialStore>),
-        models_path: Some(Some(path.display().to_string())),
+        models_path: Some(Some(path.display().to_string().into())),
         ..Default::default()
     })
     .await
@@ -514,7 +514,7 @@ async fn reports_every_provider_composition_error() {
     .unwrap();
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(storage_with(&[]) as Arc<dyn CredentialStore>),
-        models_path: Some(Some(path.display().to_string())),
+        models_path: Some(Some(path.display().to_string().into())),
         ..Default::default()
     })
     .await
@@ -532,8 +532,8 @@ async fn unregister_provider_removes_the_registration() {
         .register_provider(
             "extension",
             ProviderConfigInput {
-                base_url: Some("https://example.test/v1".to_owned()),
-                api_key: Some("key".to_owned()),
+                base_url: Some("https://example.test/v1".to_owned().into()),
+                api_key: Some("key".to_owned().into()),
                 api: Some("openai-completions".to_owned()),
                 models: Some(vec![test_model("model")]),
                 ..Default::default()
@@ -558,7 +558,7 @@ async fn registered_models_json_overrides_apply_above_extension_models() {
     .unwrap();
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(storage_with(&[]) as Arc<dyn CredentialStore>),
-        models_path: Some(Some(path.display().to_string())),
+        models_path: Some(Some(path.display().to_string().into())),
         ..Default::default()
     })
     .await
@@ -567,8 +567,8 @@ async fn registered_models_json_overrides_apply_above_extension_models() {
         .register_provider(
             "extension",
             ProviderConfigInput {
-                base_url: Some("https://example.test/v1".to_owned()),
-                api_key: Some("key".to_owned()),
+                base_url: Some("https://example.test/v1".to_owned().into()),
+                api_key: Some("key".to_owned().into()),
                 api: Some("openai-completions".to_owned()),
                 models: Some(vec![test_model("model")]),
                 ..Default::default()
@@ -595,7 +595,7 @@ async fn provider_auth_status_reports_models_json_sources() {
     .unwrap();
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(storage_with(&[]) as Arc<dyn CredentialStore>),
-        models_path: Some(Some(path.display().to_string())),
+        models_path: Some(Some(path.display().to_string().into())),
         ..Default::default()
     })
     .await
@@ -630,7 +630,7 @@ async fn extension_oauth_only_provider_has_no_api_key_method() {
             "extension-oauth",
             ProviderConfigInput {
                 name: Some("Extension OAuth".to_owned()),
-                base_url: Some("https://example.test/v1".to_owned()),
+                base_url: Some("https://example.test/v1".to_owned().into()),
                 api: Some("openai-completions".to_owned()),
                 oauth: Some(ExtensionOAuthConfig {
                     name: "Extension subscription".to_owned(),
@@ -640,7 +640,7 @@ async fn extension_oauth_only_provider_has_no_api_key_method() {
                         Box::pin(async { Err(pi_ai::auth::types::AuthError::failed("unused")) })
                     }),
                     refresh_token: Arc::new(|credential, _signal| Box::pin(async move { Ok(credential) })),
-                    get_api_key: Arc::new(|credential| credential.access.to_utf8().expect("scalar fixture key")),
+                    get_api_key: Arc::new(|credential| credential.access.to_utf8().expect("scalar fixture key").into()),
                     modify_models: None,
                 }),
                 models: Some(vec![test_model("extension-model")]),
@@ -706,7 +706,7 @@ async fn get_auth_merges_configured_headers_with_resolved_auth() {
         credentials: Some(
             storage_with(&[("anthropic", json!({"type": "api_key", "key": "stored-key"}))]) as Arc<dyn CredentialStore>,
         ),
-        models_path: Some(Some(path.display().to_string())),
+        models_path: Some(Some(path.display().to_string().into())),
         ..Default::default()
     })
     .await

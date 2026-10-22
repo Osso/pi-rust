@@ -127,7 +127,7 @@ impl Fixture {
             self.agent_dir.to_str().unwrap(),
             Arc::new(FakeSettings {
                 global: Mutex::new(PackageSettingsSnapshot {
-                    packages: vec![PackageSource::Name(package.to_owned())],
+                    packages: vec![PackageSource::Name(package.to_owned().into())],
                     ..PackageSettingsSnapshot::default()
                 }),
                 trusted: false,

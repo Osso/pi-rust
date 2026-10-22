@@ -20,7 +20,7 @@ fn human(result: Option<ToolCallEventResult>) -> SupervisorHumanReviewer {
         let result = result.clone();
         Box::pin(async move {
             if let Some(mut result) = result {
-                result.reason = Some(format!("{reason}:{}", result.reason.unwrap_or_default()));
+                result.reason = Some(format!("{reason}:{}", result.reason.unwrap_or_default()).into());
                 Ok(Some(result))
             } else {
                 Ok(None)
@@ -33,7 +33,7 @@ fn human(result: Option<ToolCallEventResult>) -> SupervisorHumanReviewer {
 async fn approves_without_a_block() {
     let result = review_tool_call_with_supervisor(
         decision(SupervisorResponse::Approve {
-            reason: "ok".to_owned(),
+            reason: "ok".to_owned().into(),
         }),
         None,
         false,
@@ -47,7 +47,7 @@ async fn approves_without_a_block() {
 async fn rejects_with_the_supervisor_reason() {
     let result = review_tool_call_with_supervisor(
         decision(SupervisorResponse::Reject {
-            reason: "not allowed".to_owned(),
+            reason: "not allowed".to_owned().into(),
         }),
         None,
         false,
@@ -63,12 +63,12 @@ async fn rejects_with_the_supervisor_reason() {
 async fn escalates_rejection_to_the_human_reviewer() {
     let result = review_tool_call_with_supervisor(
         decision(SupervisorResponse::Reject {
-            reason: "uncertain".to_owned(),
+            reason: "uncertain".to_owned().into(),
         }),
         Some(human(Some(ToolCallEventResult {
             block: Some(false),
             input: None,
-            reason: Some("allowed".to_owned()),
+            reason: Some("allowed".to_owned().into()),
             terminate: None,
         }))),
         true,
@@ -84,7 +84,7 @@ async fn escalates_rejection_to_the_human_reviewer() {
 async fn errors_and_invalid_responses_fall_back_to_human_or_block() {
     let error = review_tool_call_with_supervisor(
         decision(SupervisorResponse::Error {
-            reason: "supervisor down".to_owned(),
+            reason: "supervisor down".to_owned().into(),
         }),
         None,
         false,
@@ -96,7 +96,7 @@ async fn errors_and_invalid_responses_fall_back_to_human_or_block() {
 
     let invalid = review_tool_call_with_supervisor(
         decision(SupervisorResponse::Complete {
-            reason: "done".to_owned(),
+            reason: "done".to_owned().into(),
         }),
         None,
         false,
@@ -111,7 +111,7 @@ async fn errors_and_invalid_responses_fall_back_to_human_or_block() {
 
     let escalated = review_tool_call_with_supervisor(
         decision(SupervisorResponse::Error {
-            reason: "timeout".to_owned(),
+            reason: "timeout".to_owned().into(),
         }),
         Some(human(None)),
         false,

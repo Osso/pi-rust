@@ -730,7 +730,7 @@ pub(crate) fn bidirectional() {
     assert!(!rust.get_idle_compaction_enabled());
     assert_eq!(
         rust.get_merged_settings()["permissionRules"]["allow"],
-        json!({"write":["project"]})
+        json!({"write":["project"]}).into()
     );
 
     // Two stale product managers plus a fixture-only independent writer. None may lose siblings.
@@ -743,7 +743,7 @@ pub(crate) fn bidirectional() {
     rust.set_hide_tool_output(true);
     rust.set_hide_coordination_messages(true);
     rust.set_shell_path(Some("~/literal/../shell"));
-    rust.set_project_extension_paths(&["Rust-extension".to_owned()])
+    rust.set_project_extension_paths(&["Rust-extension".to_owned().into()])
         .unwrap();
     rust.flush();
     let ts = ask(

@@ -4,20 +4,20 @@ use pi_coding_agent::core::prompt_templates::{
 
 fn template(name: &str, content: &str) -> PromptTemplate {
     PromptTemplate {
-        name: name.to_owned(),
-        description: "test".to_owned(),
+        name: name.to_owned().into(),
+        description: "test".to_owned().into(),
         argument_hint: None,
-        content: content.to_owned(),
+        content: content.to_owned().into(),
         source_info: pi_coding_agent::core::source_info::create_synthetic_source_info(
-            &format!("/tmp/{name}.md"),
+            &format!("/tmp/{name}.md").into(),
             &pi_coding_agent::core::source_info::SyntheticSourceInfoOptions {
-                source: "local".to_owned(),
+                source: "local".to_owned().into(),
                 scope: None,
                 origin: None,
                 base_dir: None,
             },
         ),
-        file_path: format!("/tmp/{name}.md"),
+        file_path: format!("/tmp/{name}.md").into(),
     }
 }
 
@@ -39,7 +39,7 @@ fn substitutes_positional_wildcards_and_slices() {
     assert_eq!(substitute_args("${@:0}", &args), "cmd arg1 arg2 arg3");
     assert_eq!(substitute_args("${3:-fallback}", &args), "arg2");
     assert_eq!(substitute_args("${9:-fallback}", &args), "fallback");
-    assert_eq!(substitute_args("$1.5", &["a".to_owned()]), "a.5");
+    assert_eq!(substitute_args("$1.5", &["a".to_owned().into()]), "a.5");
 }
 
 #[test]

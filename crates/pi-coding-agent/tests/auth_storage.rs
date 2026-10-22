@@ -44,7 +44,7 @@ fn write_auth(path: &std::path::Path, data: Value) {
 
 fn api_key(key: &str) -> Credential {
     Credential::ApiKey(ApiKeyCredential {
-        key: Some(key.to_owned()),
+        key: Some(key.to_owned().into()),
         env: None,
     })
 }
@@ -146,11 +146,11 @@ fn coalesces_file_reloads_across_concurrent_readers_and_instances() {
     });
     let first = AuthStorage::from_storage_at(
         Arc::clone(&backend) as Arc<dyn AuthStorageBackend>,
-        Some(auth_path.display().to_string()),
+        Some(auth_path.display().to_string().into()),
     );
     let second = AuthStorage::from_storage_at(
         Arc::clone(&backend) as Arc<dyn AuthStorageBackend>,
-        Some(auth_path.display().to_string()),
+        Some(auth_path.display().to_string().into()),
     );
     let locks_before = locks.load(Ordering::SeqCst);
 

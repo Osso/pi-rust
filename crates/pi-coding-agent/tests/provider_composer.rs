@@ -67,12 +67,12 @@ impl ApiKeyAuth for StubAuth {
         Box::pin(async {
             Ok(Some(AuthResult {
                 auth: ModelAuth {
-                    api_key: Some("base-key".to_owned()),
+                    api_key: Some("base-key".to_owned().into()),
                     headers: None,
                     base_url: None,
                 },
                 env: None,
-                source: Some("stub".to_owned()),
+                source: Some("stub".to_owned().into()),
             }))
         })
     }
@@ -80,7 +80,7 @@ impl ApiKeyAuth for StubAuth {
     fn check(&self, _input: ApiKeyCheckInput) -> Option<BoxFuture<'static, Result<Option<AuthCheck>, AuthError>>> {
         Some(Box::pin(async {
             Ok(Some(AuthCheck {
-                source: Some("stub".to_owned()),
+                source: Some("stub".to_owned().into()),
                 auth_type: pi_ai::auth::types::AuthType::ApiKey,
             }))
         }))
@@ -526,7 +526,7 @@ fn compatibility_request_config_includes_static_model_headers() {
 #[test]
 fn configured_auth_status_reports_env_and_literal_sources() {
     let provider = |api_key: &str| pi_coding_agent::core::provider_composer::ModelsJsonProvider {
-        api_key: Some(api_key.to_owned()),
+        api_key: Some(api_key.to_owned().into()),
         ..Default::default()
     };
 
@@ -547,7 +547,7 @@ fn configured_auth_status_reports_env_and_literal_sources() {
     assert_eq!(status.source, Some(AuthStatusSource::ModelsJsonCommand));
 
     let extension = ProviderConfigInput {
-        api_key: Some("literal".to_owned()),
+        api_key: Some("literal".to_owned().into()),
         ..Default::default()
     };
     let status = configured_request_auth_status(None, Some(&extension)).unwrap();
@@ -573,7 +573,7 @@ fn extension_stream_simple_requires_api() {
 #[test]
 fn extension_models_override_provider_and_base_url() {
     let extension = ProviderConfigInput {
-        base_url: Some("https://extension.example.com".to_owned()),
+        base_url: Some("https://extension.example.com".to_owned().into()),
         api: Some("openai-completions".to_owned()),
         models: Some(vec![model(
             "ignored",
@@ -604,7 +604,7 @@ fn oauth_only_extension_has_no_api_key_method() {
     let config = ModelConfig::load(Some(&path));
     let extension = ProviderConfigInput {
         name: Some("Extension OAuth".to_owned()),
-        base_url: Some("https://example.test/v1".to_owned()),
+        base_url: Some("https://example.test/v1".to_owned().into()),
         api: Some("openai-completions".to_owned()),
         oauth: Some(pi_coding_agent::core::provider_composer::ExtensionOAuthConfig {
             name: "Extension subscription".to_owned(),
@@ -612,7 +612,7 @@ fn oauth_only_extension_has_no_api_key_method() {
             uses_callback_server: None,
             login: Arc::new(|_callbacks| Box::pin(async { Err(AuthError::failed("unused")) })),
             refresh_token: Arc::new(|credential, _signal| Box::pin(async move { Ok(credential) })),
-            get_api_key: Arc::new(|credential| credential.access.to_utf8().expect("scalar fixture key")),
+            get_api_key: Arc::new(|credential| credential.access.to_utf8().expect("scalar fixture key").into()),
             modify_models: None,
         }),
         models: Some(vec![model(
@@ -678,7 +678,7 @@ fn provider_credentials_are_not_read_during_composition() {
 #[test]
 fn headers_map_helper_is_available_for_fixtures() {
     let mut headers = HashMap::new();
-    headers.insert("x".to_owned(), "y".to_owned());
+    headers.insert("x".to_owned(), "y".to_owned().into());
     let converted = pi_coding_agent::core::provider_composer::provider_headers(headers);
     assert_eq!(converted.get("x"), Some(&Some("y".to_owned())));
     assert!(matches!(
@@ -704,9 +704,9 @@ fn refresh_models_publishes_extension_results() {
     let config = ModelConfig::load(Some(&path));
     let published = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
     let extension = ProviderConfigInput {
-        base_url: Some("https://example.test/v1".to_owned()),
+        base_url: Some("https://example.test/v1".to_owned().into()),
         api: Some("openai-completions".to_owned()),
-        api_key: Some("key".to_owned()),
+        api_key: Some("key".to_owned().into()),
         models: Some(vec![model(
             "ignored",
             "initial",

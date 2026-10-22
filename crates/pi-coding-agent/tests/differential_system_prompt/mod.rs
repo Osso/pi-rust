@@ -74,7 +74,7 @@ fn options_json(options: &BuildSystemPromptOptions) -> Value {
 
 fn cases() -> Vec<BuildSystemPromptOptions> {
     let base = |cwd: &str| BuildSystemPromptOptions {
-        cwd: cwd.to_owned(),
+        cwd: cwd.to_owned().into(),
         ..BuildSystemPromptOptions::default()
     };
     let mut cases = Vec::new();
@@ -143,7 +143,7 @@ fn cases() -> Vec<BuildSystemPromptOptions> {
     cases.push(BuildSystemPromptOptions {
         selected_tools: Some(vec!["read".to_owned(), "dynamic_tool".to_owned()]),
         prompt_guidelines: Some(vec![
-            "Use dynamic_tool for summaries.".to_owned(),
+            "Use dynamic_tool for summaries.".to_owned().into(),
             "  Use dynamic_tool for summaries.  ".to_owned(),
             "   ".to_owned(),
         ]),
@@ -151,15 +151,15 @@ fn cases() -> Vec<BuildSystemPromptOptions> {
     });
     cases.push(BuildSystemPromptOptions {
         context_files: Some(vec![ContextFile {
-            path: "/repo/AGENTS.md".to_owned(),
-            content: "Project instructions.".to_owned(),
+            path: "/repo/AGENTS.md".to_owned().into(),
+            content: "Project instructions.".to_owned().into(),
         }]),
-        rules_content: Some("Global rule.\n\nProject rule.".to_owned()),
+        rules_content: Some("Global rule.\n\nProject rule.".to_owned().into()),
         skills: Some(Vec::new()),
         ..base("/repo/project")
     });
     cases.push(BuildSystemPromptOptions {
-        rules_content: Some(String::new()),
+        rules_content: Some(String::new().into()),
         ..base("/repo/project")
     });
 
@@ -179,29 +179,29 @@ fn cases() -> Vec<BuildSystemPromptOptions> {
     });
 
     cases.push(BuildSystemPromptOptions {
-        custom_prompt: Some("Custom prompt.".to_owned()),
-        append_system_prompt: Some("Appended.".to_owned()),
+        custom_prompt: Some("Custom prompt.".to_owned().into()),
+        append_system_prompt: Some("Appended.".to_owned().into()),
         context_files: Some(vec![ContextFile {
-            path: "/repo/AGENTS.md".to_owned(),
-            content: "Project instructions.".to_owned(),
+            path: "/repo/AGENTS.md".to_owned().into(),
+            content: "Project instructions.".to_owned().into(),
         }]),
-        rules_content: Some("Global rule.".to_owned()),
+        rules_content: Some("Global rule.".to_owned().into()),
         selected_tools: Some(vec!["read".to_owned()]),
         skills: Some(skills.clone()),
         ..base("/repo/project")
     });
     cases.push(BuildSystemPromptOptions {
-        custom_prompt: Some("Custom prompt without read.".to_owned()),
+        custom_prompt: Some("Custom prompt without read.".to_owned().into()),
         selected_tools: Some(vec!["grep".to_owned()]),
         skills: Some(skills),
         ..base("C:\\repo\\project")
     });
     cases.push(BuildSystemPromptOptions {
-        custom_prompt: Some(String::new()),
+        custom_prompt: Some(String::new().into()),
         ..base("/repo/project")
     });
     cases.push(BuildSystemPromptOptions {
-        append_system_prompt: Some("Extra instructions.".to_owned()),
+        append_system_prompt: Some("Extra instructions.".to_owned().into()),
         ..base("/repo/project")
     });
 
@@ -213,17 +213,17 @@ fn skill(name: &str, description: &str, file_path: &str, hidden: bool) -> Skill 
         .parent()
         .map_or_else(String::new, |path| path.to_string_lossy().into_owned());
     Skill {
-        name: name.to_owned(),
-        description: description.to_owned(),
-        file_path: file_path.to_owned(),
-        base_dir: base_dir.clone(),
+        name: name.to_owned().into(),
+        description: description.to_owned().into(),
+        file_path: file_path.to_owned().into(),
+        base_dir: base_dir.clone().into(),
         source_info: create_synthetic_source_info(
             file_path,
             &SyntheticSourceInfoOptions {
-                source: "test".to_owned(),
+                source: "test".to_owned().into(),
                 scope: None,
                 origin: None,
-                base_dir: Some(base_dir),
+                base_dir: Some(base_dir.into()),
             },
         ),
         disable_model_invocation: hidden,

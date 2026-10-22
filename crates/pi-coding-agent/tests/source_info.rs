@@ -15,18 +15,18 @@ fn source_info_exports_and_literals_are_exact() {
     assert_eq!(SourceOrigin::TopLevel.as_str(), "top-level");
 
     let module_result = ModuleSourceInfo {
-        path: "module".to_owned(),
-        source: "source".to_owned(),
+        path: "module".to_owned().into(),
+        source: "source".to_owned().into(),
         scope: SourceScope::User,
         origin: SourceOrigin::Package,
         base_dir: None,
     };
     let root_result = SourceInfo {
-        path: "root".to_owned(),
-        source: "source".to_owned(),
+        path: "root".to_owned().into(),
+        source: "source".to_owned().into(),
         scope: SourceScope::Project,
         origin: SourceOrigin::TopLevel,
-        base_dir: Some("/base".to_owned()),
+        base_dir: Some("/base".to_owned().into()),
     };
 
     assert_debug(&module_result);
@@ -38,16 +38,16 @@ fn source_info_exports_and_literals_are_exact() {
 #[test]
 fn synthetic_source_info_applies_defaults_and_preserves_overrides() {
     let defaults = SyntheticSourceInfoOptions {
-        source: "default-source".to_owned(),
+        source: "default-source".to_owned().into(),
         scope: None,
         origin: None,
         base_dir: None,
     };
     let explicit = SyntheticSourceInfoOptions {
-        source: "代理🙂\0\n".to_owned(),
+        source: "代理🙂\0\n".to_owned().into(),
         scope: Some(SourceScope::User),
         origin: Some(SourceOrigin::Package),
-        base_dir: Some("C:\\base\r\n".to_owned()),
+        base_dir: Some("C:\\base\r\n".to_owned().into()),
     };
 
     let default_result = create_synthetic_source_info("", &defaults);
@@ -66,17 +66,17 @@ fn synthetic_source_info_applies_defaults_and_preserves_overrides() {
 #[test]
 fn synthetic_source_info_returns_fresh_mutable_results_and_reuses_options() {
     let options = SyntheticSourceInfoOptions {
-        source: "source".to_owned(),
+        source: "source".to_owned().into(),
         scope: Some(SourceScope::Project),
         origin: Some(SourceOrigin::TopLevel),
-        base_dir: Some("/base".to_owned()),
+        base_dir: Some("/base".to_owned().into()),
     };
 
     let mut first = create_synthetic_source_info("first", &options);
     let second = create_synthetic_source_info("second", &options);
 
-    first.path = "changed".to_owned();
-    first.source = "changed-source".to_owned();
+    first.path = "changed".to_owned().into();
+    first.source = "changed-source".to_owned().into();
     first.scope = SourceScope::Temporary;
     first.origin = SourceOrigin::Package;
     first.base_dir = None;

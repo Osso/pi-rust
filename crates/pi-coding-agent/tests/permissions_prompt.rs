@@ -51,7 +51,7 @@ fn blocked(reason: &str) -> Option<ToolCallEventResult> {
     Some(ToolCallEventResult {
         block: Some(true),
         input: None,
-        reason: Some(reason.to_owned()),
+        reason: Some(reason.to_owned().into()),
         terminate: None,
     })
 }
@@ -235,7 +235,7 @@ fn parses_deny_decisions() {
     assert_eq!(
         parse_permission_prompt_decision(&json!("{\"behavior\":\"deny\",\"message\":\"blocked\"}")),
         Some(PermissionPromptDecision::Deny {
-            message: "blocked".to_owned()
+            message: "blocked".to_owned().into()
         })
     );
 }
@@ -265,7 +265,7 @@ fn parses_decisions_from_text_content_records() {
             "content": [{ "type": "text", "text": "{\"behavior\":\"deny\",\"message\":\"nope\"}" }]
         })),
         Some(PermissionPromptDecision::Deny {
-            message: "nope".to_owned()
+            message: "nope".to_owned().into()
         })
     );
     // A record without text content is used directly.
@@ -342,7 +342,7 @@ fn handler(
 ) -> pi_coding_agent::core::permissions::mcp_permission_prompt::PermissionPromptHandler {
     create_permission_prompt_handler(PermissionPromptHandlerOptions {
         permission_prompt_tool: permission_prompt_tool.map(str::to_owned),
-        cwd: "/repo".to_owned(),
+        cwd: "/repo".to_owned().into(),
         call_tool,
         desktop_notifier,
         rule_store,
@@ -371,7 +371,7 @@ async fn allows_tool_calls_without_further_prompting() {
     assert_eq!(
         calls[0].1,
         PermissionPromptInput {
-            cwd: "/repo".to_owned(),
+            cwd: "/repo".to_owned().into(),
             input: json!({ "command": "git status" }).as_object().unwrap().clone(),
             tool_name: "bash".to_owned(),
             tool_use_id: "toolu_01".to_owned(),

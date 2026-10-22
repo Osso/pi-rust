@@ -212,7 +212,7 @@ fn resolves_local_extension_files_and_directories() {
     fixture.write_agent("extensions/dir/index.ts", "export default 2;");
     let settings = FakeSettings::new(
         PackageSettingsSnapshot {
-            extensions: vec!["extensions/single.ts".to_owned(), "extensions/dir".to_owned()],
+            extensions: vec!["extensions/single.ts".to_owned().into(), "extensions/dir".to_owned()],
             ..PackageSettingsSnapshot::default()
         },
         Default::default(),
@@ -241,7 +241,7 @@ fn applies_include_exclude_and_force_patterns_to_top_level_entries() {
     let settings = FakeSettings::new(
         PackageSettingsSnapshot {
             extensions: vec![
-                "extensions".to_owned(),
+                "extensions".to_owned().into(),
                 "!extensions/beta.ts".to_owned(),
                 "-extensions/foo.ts".to_owned(),
             ],
@@ -278,7 +278,7 @@ fn force_include_restores_an_excluded_file() {
     let settings = FakeSettings::new(
         PackageSettingsSnapshot {
             extensions: vec![
-                "extensions".to_owned(),
+                "extensions".to_owned().into(),
                 "!extensions/*.ts".to_owned(),
                 "+extensions/beta.ts".to_owned(),
             ],
@@ -310,7 +310,7 @@ fn manifest_globs_and_overrides_control_package_resources() {
     .unwrap();
 
     let settings = FakeSettings::new(
-        snapshot(vec![PackageSource::Name("./pkg".to_owned())]),
+        snapshot(vec![PackageSource::Name("./pkg".to_owned().into())]),
         Default::default(),
         false,
     );
@@ -337,8 +337,8 @@ fn package_filters_apply_on_top_of_manifest_filters() {
     .unwrap();
 
     let filter = PackageFilter {
-        source: "./filtered".to_owned(),
-        extensions: Some(vec!["!extensions/b.ts".to_owned()]),
+        source: "./filtered".to_owned().into(),
+        extensions: Some(vec!["!extensions/b.ts".to_owned().into()]),
         ..PackageFilter::default()
     };
     let settings = FakeSettings::new(snapshot(vec![PackageSource::Filter(filter)]), Default::default(), false);
@@ -360,13 +360,13 @@ fn autoload_disabled_project_entry_is_a_delta_over_the_global_package() {
     }
     let shared = package_dir.to_string_lossy().into_owned();
     let filter = PackageFilter {
-        source: shared.clone(),
+        source: shared.clone().into(),
         autoload: Some(false),
-        extensions: Some(vec!["+extensions/two.ts".to_owned()]),
+        extensions: Some(vec!["+extensions/two.ts".to_owned().into()]),
         ..PackageFilter::default()
     };
     let settings = FakeSettings::new(
-        snapshot(vec![PackageSource::Name(shared)]),
+        snapshot(vec![PackageSource::Name(shared.into())]),
         snapshot(vec![PackageSource::Filter(filter)]),
         true,
     );
@@ -387,8 +387,8 @@ fn dedupes_project_and_global_packages_with_project_winning() {
     fs::write(package_dir.join("extensions/one.ts"), "x").unwrap();
     let shared = package_dir.to_string_lossy().into_owned();
     let settings = FakeSettings::new(
-        snapshot(vec![PackageSource::Name(shared.clone())]),
-        snapshot(vec![PackageSource::Name(shared)]),
+        snapshot(vec![PackageSource::Name(shared.clone().into())]),
+        snapshot(vec![PackageSource::Name(shared.into())]),
         true,
     );
     let manager = fixture.manager(settings);
@@ -419,7 +419,7 @@ fn multi_file_extensions_only_load_index_or_manifest_entries() {
     );
     let settings = FakeSettings::new(
         PackageSettingsSnapshot {
-            extensions: vec!["extensions".to_owned()],
+            extensions: vec!["extensions".to_owned().into()],
             ..PackageSettingsSnapshot::default()
         },
         Default::default(),
@@ -453,11 +453,11 @@ fn auto_discovers_project_and_user_resources_with_overrides() {
     fixture.write_agent("extensions/global.ts", "global");
     let settings = FakeSettings::new(
         PackageSettingsSnapshot {
-            prompts: vec!["!prompts/skip.md".to_owned()],
+            prompts: vec!["!prompts/skip.md".to_owned().into()],
             ..PackageSettingsSnapshot::default()
         },
         PackageSettingsSnapshot {
-            prompts: vec!["!prompts/skip.md".to_owned()],
+            prompts: vec!["!prompts/skip.md".to_owned().into()],
             ..PackageSettingsSnapshot::default()
         },
         true,
@@ -580,7 +580,7 @@ fn gitignore_files_filter_package_resources_but_not_pi_auto_discovery() {
     fixture.write(".pi/prompts/kept.md", "kept");
 
     let settings = FakeSettings::new(
-        snapshot(vec![PackageSource::Name("./pkg".to_owned())]),
+        snapshot(vec![PackageSource::Name("./pkg".to_owned().into())]),
         Default::default(),
         true,
     );
@@ -611,7 +611,7 @@ fn installed_npm_packages_resolve_from_the_managed_root() {
         &json!({"name": "my-pkg", "version": "1.0.0"}).to_string(),
     );
     let settings = FakeSettings::new(
-        snapshot(vec![PackageSource::Name("npm:my-pkg".to_owned())]),
+        snapshot(vec![PackageSource::Name("npm:my-pkg".to_owned().into())]),
         Default::default(),
         false,
     );
@@ -820,22 +820,22 @@ fn add_and_remove_sources_normalizes_local_paths() {
     assert!(manager.add_source_to_settings("./local", false).unwrap());
     assert_eq!(
         settings.global_settings().packages,
-        vec![PackageSource::Name("../project/local".to_owned())]
+        vec![PackageSource::Name("../project/local".to_owned().into())]
     );
     assert!(!manager.add_source_to_settings("./local", false).unwrap());
     assert!(manager.add_source_to_settings("npm:left-pad", false).unwrap());
     assert_eq!(
         settings.global_settings().packages,
         vec![
-            PackageSource::Name("../project/local".to_owned()),
-            PackageSource::Name("npm:left-pad".to_owned()),
+            PackageSource::Name("../project/local".to_owned().into()),
+            PackageSource::Name("npm:left-pad".to_owned().into()),
         ]
     );
 
     assert!(manager.remove_source_from_settings("npm:left-pad@1.2.3", false));
     assert_eq!(
         settings.global_settings().packages,
-        vec![PackageSource::Name("../project/local".to_owned())]
+        vec![PackageSource::Name("../project/local".to_owned().into())]
     );
     assert!(!manager.remove_source_from_settings("npm:unknown", false));
 }
@@ -844,8 +844,8 @@ fn add_and_remove_sources_normalizes_local_paths() {
 fn replaces_a_filtered_source_while_keeping_its_filters() {
     let fixture = Fixture::new();
     let filter = PackageFilter {
-        source: "npm:left-pad@1.0.0".to_owned(),
-        extensions: Some(vec!["!bad.ts".to_owned()]),
+        source: "npm:left-pad@1.0.0".to_owned().into(),
+        extensions: Some(vec!["!bad.ts".to_owned().into()]),
         ..PackageFilter::default()
     };
     let settings = Arc::new(FakeSettings::new(
@@ -870,11 +870,11 @@ fn lists_configured_packages_with_installed_paths() {
     fixture.write_agent("npm/node_modules/user-pkg/package.json", "{\"version\":\"1.0.0\"}");
     let settings = FakeSettings::new(
         snapshot(vec![
-            PackageSource::Name("npm:user-pkg".to_owned()),
-            PackageSource::Name("npm:user-missing".to_owned()),
+            PackageSource::Name("npm:user-pkg".to_owned().into()),
+            PackageSource::Name("npm:user-missing".to_owned().into()),
         ]),
         snapshot(vec![PackageSource::Filter(PackageFilter {
-            source: "npm:project-pkg".to_owned(),
+            source: "npm:project-pkg".to_owned().into(),
             ..PackageFilter::default()
         })]),
         true,
@@ -922,8 +922,8 @@ exit 0
     );
     let settings = FakeSettings::new(
         snapshot(vec![
-            PackageSource::Name("npm:old-pkg".to_owned()),
-            PackageSource::Name("npm:pinned@1.0.0".to_owned()),
+            PackageSource::Name("npm:old-pkg".to_owned().into()),
+            PackageSource::Name("npm:pinned@1.0.0".to_owned().into()),
         ]),
         Default::default(),
         false,
@@ -951,7 +951,7 @@ exit 0
 fn update_reports_missing_sources_with_suggestions() {
     let fixture = Fixture::new();
     let settings = FakeSettings::new(
-        snapshot(vec![PackageSource::Name("npm:left-pad".to_owned())]),
+        snapshot(vec![PackageSource::Name("npm:left-pad".to_owned().into())]),
         Default::default(),
         false,
     );
@@ -983,10 +983,10 @@ exit 0
     );
     let settings = FakeSettings::new(
         snapshot(vec![
-            PackageSource::Name("npm:old-pkg".to_owned()),
-            PackageSource::Name("npm:current@2.0.0".to_owned()),
-            PackageSource::Name("npm:absent".to_owned()),
-            PackageSource::Name("npm:pinned@1.0.0".to_owned()),
+            PackageSource::Name("npm:old-pkg".to_owned().into()),
+            PackageSource::Name("npm:current@2.0.0".to_owned().into()),
+            PackageSource::Name("npm:absent".to_owned().into()),
+            PackageSource::Name("npm:pinned@1.0.0".to_owned().into()),
         ]),
         Default::default(),
         false,
@@ -1008,7 +1008,8 @@ fn resolve_extension_sources_uses_temporary_and_project_scopes() {
     let manager = fixture.manager(settings);
 
     let resolved =
-        futures_block(manager.resolve_extension_sources(&["extensions/ext.ts".to_owned()], true, false)).unwrap();
+        futures_block(manager.resolve_extension_sources(&["extensions/ext.ts".to_owned().into()], true, false))
+            .unwrap();
     assert!(
         resolved
             .extensions
@@ -1048,8 +1049,8 @@ fn settings_manager_store_adapts_the_ported_settings_manager() {
     assert_eq!(
         store.with(|settings_manager| settings_manager.get_packages().unwrap()),
         vec![
-            PackageSource::Name("npm:my-pkg".to_owned()),
-            PackageSource::Name("npm:left-pad".to_owned()),
+            PackageSource::Name("npm:my-pkg".to_owned().into()),
+            PackageSource::Name("npm:left-pad".to_owned().into()),
         ]
     );
     assert_eq!(

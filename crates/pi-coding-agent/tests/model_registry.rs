@@ -93,7 +93,7 @@ async fn accepts_a_pi_ai_credential_store() {
         Box::pin(async {
             Ok(Some(pi_ai::auth::types::Credential::ApiKey(
                 pi_ai::auth::types::ApiKeyCredential {
-                    key: Some("stored-key".to_owned()),
+                    key: Some("stored-key".to_owned().into()),
                     env: None,
                 },
             )))
@@ -215,8 +215,8 @@ async fn provider_display_names_resolve_registered_oauth_builtin_and_fallback() 
             "extension-display",
             ProviderConfigInput {
                 name: Some("Extension Display".to_owned()),
-                base_url: Some("https://example.test/v1".to_owned()),
-                api_key: Some("key".to_owned()),
+                base_url: Some("https://example.test/v1".to_owned().into()),
+                api_key: Some("key".to_owned().into()),
                 api: Some("openai-completions".to_owned()),
                 models: Some(vec![test_model("model")]),
                 ..Default::default()
@@ -312,8 +312,8 @@ async fn refresh_reloads_custom_models_from_disk() {
 async fn registered_provider_accessors_round_trip() {
     let registry = registry(storage_with(&[]), None).await;
     let config = ProviderConfigInput {
-        base_url: Some("https://example.test/v1".to_owned()),
-        api_key: Some("key".to_owned()),
+        base_url: Some("https://example.test/v1".to_owned().into()),
+        api_key: Some("key".to_owned().into()),
         api: Some("openai-completions".to_owned()),
         models: Some(vec![test_model("model")]),
         ..Default::default()

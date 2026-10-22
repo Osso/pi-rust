@@ -102,11 +102,11 @@ fn the_trust_file_is_sorted_pretty_json_with_a_trailing_newline() {
     store
         .set_many(&[
             ProjectTrustUpdate {
-                path: first.display().to_string(),
+                path: first.display().to_string().into(),
                 decision: ProjectTrustDecision::Trusted,
             },
             ProjectTrustUpdate {
-                path: second.display().to_string(),
+                path: second.display().to_string().into(),
                 decision: ProjectTrustDecision::Untrusted,
             },
         ])

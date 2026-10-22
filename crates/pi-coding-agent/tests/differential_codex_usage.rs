@@ -173,7 +173,12 @@ async fn run_command_case(input: &Value) -> Value {
         .handler
         .clone();
     let error = handler(
-        input.get("args").and_then(Value::as_str).unwrap_or_default().to_owned(),
+        input
+            .get("args")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned()
+            .into(),
         harness.command_context(),
     )
     .await

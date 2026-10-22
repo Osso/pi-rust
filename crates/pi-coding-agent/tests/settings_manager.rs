@@ -126,7 +126,7 @@ fn project_enabled_models_override_global() {
 
     assert_eq!(manager.get_enabled_models(), Some(Vec::new()));
     manager
-        .set_enabled_models(Some(&["faux/faux-1".to_owned()]), SettingsScope::Project)
+        .set_enabled_models(Some(&["faux/faux-1".to_owned().into()]), SettingsScope::Project)
         .unwrap();
     assert_eq!(manager.get_enabled_models(), Some(vec!["faux/faux-1".to_owned()]));
 }
@@ -260,7 +260,7 @@ fn packages_migration_keeps_local_extensions_and_filter_objects() {
     assert_eq!(packages.len(), 2);
     assert_eq!(
         packages[0],
-        pi_coding_agent::core::settings_manager::PackageSource::Name("npm:simple-pkg".to_owned())
+        pi_coding_agent::core::settings_manager::PackageSource::Name("npm:simple-pkg".to_owned().into())
     );
     let pi_coding_agent::core::settings_manager::PackageSource::Filter(filter) = &packages[1] else {
         panic!("expected filter package");
@@ -327,7 +327,7 @@ fn untrusted_projects_skip_reads_and_reject_writes() {
 
     let error = manager
         .set_project_packages(vec![pi_coding_agent::core::settings_manager::PackageSource::Name(
-            "npm:new".to_owned(),
+            "npm:new".to_owned().into(),
         )])
         .unwrap_err();
     assert_eq!(
@@ -362,7 +362,7 @@ fn reading_project_settings_does_not_create_the_config_directory() {
 
     manager
         .set_project_packages(vec![pi_coding_agent::core::settings_manager::PackageSource::Name(
-            "npm:test-pkg".to_owned(),
+            "npm:test-pkg".to_owned().into(),
         )])
         .unwrap();
     manager.flush();
@@ -524,9 +524,9 @@ fn nested_scope_overlay_replaces_grandchildren() {
     workspace.write_project(r#"{"agents":{"implement":{"thinkingLevel":"low"}},"retry":{"provider":{"maxRetries":3}},"permissionRules":{"allow":{"write":["project"]}}}"#);
     let manager = workspace.manager();
     let merged = manager.get_merged_settings();
-    assert_eq!(merged["agents"]["implement"], json!({"thinkingLevel":"low"}));
-    assert_eq!(merged["retry"]["provider"], json!({"maxRetries":3}));
-    assert_eq!(merged["permissionRules"]["allow"], json!({"write":["project"]}));
+    assert_eq!(merged["agents"]["implement"], json!({"thinkingLevel":"low"}).into());
+    assert_eq!(merged["retry"]["provider"], json!({"maxRetries":3}).into());
+    assert_eq!(merged["permissionRules"]["allow"], json!({"write":["project"]}).into());
 }
 
 #[test]

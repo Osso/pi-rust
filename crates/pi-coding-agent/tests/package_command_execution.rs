@@ -75,8 +75,8 @@ impl ProjectTrustExtensionsLoader for ErroringExtensionsLoader {
             Ok(Some(LoadExtensionsResult {
                 extensions: Vec::new(),
                 errors: vec![pi_coding_agent::core::extensions::types::ExtensionLoadError {
-                    path,
-                    error: "boom".to_owned(),
+                    path: path.into(),
+                    error: "boom".to_owned().into(),
                 }],
                 runtime: create_extension_runtime(),
             }))
@@ -144,7 +144,7 @@ impl FakeEffects {
             context,
             loader: Arc::new(NoExtensionsLoader),
             release: Ok(LatestPiRelease {
-                version: "9.9.9".to_owned(),
+                version: "9.9.9".to_owned().into(),
                 package_name: None,
                 note: None,
             }),
@@ -234,7 +234,7 @@ impl PackageCommandEffects for FakeEffects {
     ) -> LocalBoxFuture<'a, Result<(), String>> {
         self.calls.lock().unwrap().push(format!("install:{source}:{local}"));
         for message in &self.progress_messages {
-            progress(message.clone());
+            progress(message.clone().into());
         }
         let result = self.install.clone();
         Box::pin(async move { result })
@@ -249,7 +249,7 @@ impl PackageCommandEffects for FakeEffects {
     ) -> LocalBoxFuture<'a, Result<bool, String>> {
         self.calls.lock().unwrap().push(format!("remove:{source}:{local}"));
         for message in &self.progress_messages {
-            progress(message.clone());
+            progress(message.clone().into());
         }
         let result = self.remove.clone();
         Box::pin(async move { result })
@@ -273,7 +273,7 @@ impl PackageCommandEffects for FakeEffects {
             .unwrap()
             .push(format!("update:{}", source.unwrap_or("<all>")));
         for message in &self.progress_messages {
-            progress(message.clone());
+            progress(message.clone().into());
         }
         let result = self.update.clone();
         Box::pin(async move { result })
@@ -408,13 +408,13 @@ async fn list_prints_the_configured_package_table() {
     let mut effects = FakeEffects::new(&root, &agent_dir("list"), bun_install_context(&root));
     effects.packages = vec![
         ConfiguredPackage {
-            source: "npm:@foo/bar".to_owned(),
+            source: "npm:@foo/bar".to_owned().into(),
             scope: InstalledScope::User,
             filtered: false,
-            installed_path: Some("/agent/node_modules/@foo/bar".to_owned()),
+            installed_path: Some("/agent/node_modules/@foo/bar".to_owned().into()),
         },
         ConfiguredPackage {
-            source: "git:github.com/x/y".to_owned(),
+            source: "git:github.com/x/y".to_owned().into(),
             scope: InstalledScope::Project,
             filtered: true,
             installed_path: None,
@@ -499,7 +499,7 @@ async fn up_to_date_release_prints_the_up_to_date_line() {
     let root = temp_dir("up-to-date");
     let mut effects = FakeEffects::new(&root, &agent_dir("up-to-date"), bun_install_context(&root));
     effects.release = Ok(LatestPiRelease {
-        version: current_version(),
+        version: current_version().into(),
         package_name: None,
         note: None,
     });
@@ -527,7 +527,7 @@ async fn force_runs_the_self_update_even_when_current() {
     let root = temp_dir("force");
     let mut effects = FakeEffects::new(&root, &agent_dir("force"), bun_install_context(&root));
     effects.release = Ok(LatestPiRelease {
-        version: current_version(),
+        version: current_version().into(),
         package_name: None,
         note: None,
     });
@@ -704,7 +704,7 @@ async fn saved_project_trust_is_used_for_updates() {
         .unwrap();
     let mut effects = FakeEffects::new(&project, &agent, bun_install_context(&root));
     effects.release = Ok(LatestPiRelease {
-        version: current_version(),
+        version: current_version().into(),
         package_name: None,
         note: None,
     });
@@ -805,9 +805,9 @@ async fn config_local_requires_trust() {
 #[test]
 fn self_update_plan_decides_between_running_and_up_to_date() {
     let release = LatestPiRelease {
-        version: "9.9.9".to_owned(),
+        version: "9.9.9".to_owned().into(),
         package_name: None,
-        note: Some("note".to_owned()),
+        note: Some("note".to_owned().into()),
     };
     let (plan, line) = self_update_plan(false, &release, "0.0.0");
     assert!(plan.should_run);
@@ -825,8 +825,8 @@ fn self_update_plan_decides_between_running_and_up_to_date() {
     assert!(line.is_none());
 
     let renamed = LatestPiRelease {
-        version: "1.0.0".to_owned(),
-        package_name: Some("@other/pi".to_owned()),
+        version: "1.0.0".to_owned().into(),
+        package_name: Some("@other/pi".to_owned().into()),
         note: None,
     };
     let (plan, line) = self_update_plan(false, &renamed, "1.0.0");
@@ -870,9 +870,9 @@ fn self_update_note_renders_markdown_between_blank_lines() {
 #[test]
 fn self_update_helpers_render_the_expected_lines() {
     let command = SelfUpdateCommand {
-        command: "bun".to_owned(),
-        args: vec!["install".to_owned()],
-        display: "bun install".to_owned(),
+        command: "bun".to_owned().into(),
+        args: vec!["install".to_owned().into()],
+        display: "bun install".to_owned().into(),
         steps: None,
     };
     assert_eq!(
@@ -898,17 +898,17 @@ fn self_update_helpers_render_the_expected_lines() {
 #[tokio::test]
 async fn run_self_update_reports_exit_codes_and_signals() {
     let success = SelfUpdateCommand {
-        command: "sh".to_owned(),
-        args: vec!["-c".to_owned(), "exit 0".to_owned()],
-        display: "sh -c exit 0".to_owned(),
+        command: "sh".to_owned().into(),
+        args: vec!["-c".to_owned().into(), "exit 0".to_owned()],
+        display: "sh -c exit 0".to_owned().into(),
         steps: None,
     };
     assert_eq!(run_self_update(&success).await, Ok(()));
 
     let failure = SelfUpdateCommand {
-        command: "sh".to_owned(),
-        args: vec!["-c".to_owned(), "exit 3".to_owned()],
-        display: "sh -c exit 3".to_owned(),
+        command: "sh".to_owned().into(),
+        args: vec!["-c".to_owned().into(), "exit 3".to_owned()],
+        display: "sh -c exit 3".to_owned().into(),
         steps: None,
     };
     assert_eq!(
@@ -917,9 +917,9 @@ async fn run_self_update_reports_exit_codes_and_signals() {
     );
 
     let missing = SelfUpdateCommand {
-        command: "/nonexistent/pi-self-update".to_owned(),
+        command: "/nonexistent/pi-self-update".to_owned().into(),
         args: Vec::new(),
-        display: "missing".to_owned(),
+        display: "missing".to_owned().into(),
         steps: None,
     };
     assert!(run_self_update(&missing).await.is_err());
@@ -928,7 +928,7 @@ async fn run_self_update_reports_exit_codes_and_signals() {
 #[test]
 fn report_project_trust_warnings_are_yellow() {
     assert_eq!(
-        report_project_trust_warnings_lines(&["a".to_owned()]),
+        report_project_trust_warnings_lines(&["a".to_owned().into()]),
         vec![Chalk::stderr().yellow("Warning: a")]
     );
 }
@@ -947,8 +947,8 @@ fn package_config_effects_struct_exposes_the_host_values() {
         }
     }
     let effects = DefaultPackageCommandEffects {
-        cwd: root.display().to_string(),
-        agent_dir: root.join("agent").display().to_string(),
+        cwd: root.display().to_string().into(),
+        agent_dir: root.join("agent").display().to_string().into(),
         install_context: context.clone(),
         entrypoint: context.entrypoint.clone(),
         extensions_loader: Arc::new(NoExtensionsLoader),

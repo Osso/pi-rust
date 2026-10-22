@@ -169,7 +169,7 @@ fn rust_output(models_path: &str, case: &Case) -> Value {
     runtime.block_on(async {
         let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
             credentials: Some(storage_with(&case.auth) as Arc<dyn CredentialStore>),
-            models_path: Some(Some(models_path.to_owned())),
+            models_path: Some(Some(models_path.to_owned().into())),
             ..Default::default()
         })
         .await

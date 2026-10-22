@@ -272,7 +272,7 @@ fn compare_cli(oracle: &mut oracle::TsOracle, models: &[Model]) {
         let result = resolve_cli_model(
             &ResolveCliModelOptions {
                 cli_provider: cli_provider.map(str::to_owned),
-                cli_model: Some(cli_model.to_owned()),
+                cli_model: Some(cli_model.to_owned().into()),
                 cli_thinking: thinking_level,
             },
             &runtime,

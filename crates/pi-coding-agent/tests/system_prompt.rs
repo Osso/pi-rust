@@ -6,7 +6,7 @@ use pi_coding_agent::core::system_prompt::{BuildSystemPromptOptions, ContextFile
 
 fn options(cwd: &str) -> BuildSystemPromptOptions {
     BuildSystemPromptOptions {
-        cwd: cwd.to_owned(),
+        cwd: cwd.to_owned().into(),
         ..BuildSystemPromptOptions::default()
     }
 }
@@ -53,10 +53,10 @@ fn warns_about_auto_backgrounding_only_with_wait_agent() {
 fn wraps_rules_after_project_context_and_omits_empty_rules() {
     let prompt = build_system_prompt(&BuildSystemPromptOptions {
         context_files: Some(vec![ContextFile {
-            path: "/repo/AGENTS.md".to_owned(),
-            content: "Project instructions.".to_owned(),
+            path: "/repo/AGENTS.md".to_owned().into(),
+            content: "Project instructions.".to_owned().into(),
         }]),
-        rules_content: Some("Global rule.\n\nProject rule.".to_owned()),
+        rules_content: Some("Global rule.\n\nProject rule.".to_owned().into()),
         ..options("/repo/project")
     });
 
@@ -70,30 +70,30 @@ fn wraps_rules_after_project_context_and_omits_empty_rules() {
 #[test]
 fn custom_prompt_appends_context_rules_and_skills() {
     let skill = Skill {
-        name: "visible-skill".to_owned(),
-        description: "A visible skill.".to_owned(),
-        file_path: "/path/visible/SKILL.md".to_owned(),
-        base_dir: "/path/visible".to_owned(),
+        name: "visible-skill".to_owned().into(),
+        description: "A visible skill.".to_owned().into(),
+        file_path: "/path/visible/SKILL.md".to_owned().into(),
+        base_dir: "/path/visible".to_owned().into(),
         source_info: create_synthetic_source_info(
             "/path/visible/SKILL.md",
             &SyntheticSourceInfoOptions {
-                source: "test".to_owned(),
+                source: "test".to_owned().into(),
                 scope: None,
                 origin: None,
-                base_dir: Some("/path/visible".to_owned()),
+                base_dir: Some("/path/visible".to_owned().into()),
             },
         ),
         disable_model_invocation: false,
     };
 
     let prompt = build_system_prompt(&BuildSystemPromptOptions {
-        custom_prompt: Some("Custom prompt.".to_owned()),
-        append_system_prompt: Some("Appended.".to_owned()),
+        custom_prompt: Some("Custom prompt.".to_owned().into()),
+        append_system_prompt: Some("Appended.".to_owned().into()),
         context_files: Some(vec![ContextFile {
-            path: "/repo/AGENTS.md".to_owned(),
-            content: "Project instructions.".to_owned(),
+            path: "/repo/AGENTS.md".to_owned().into(),
+            content: "Project instructions.".to_owned().into(),
         }]),
-        rules_content: Some("Global rule.".to_owned()),
+        rules_content: Some("Global rule.".to_owned().into()),
         selected_tools: Some(vec!["read".to_owned()]),
         skills: Some(vec![skill]),
         ..options("/repo/project")

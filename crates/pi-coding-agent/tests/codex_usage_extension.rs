@@ -116,8 +116,8 @@ fn formats_usage_text() {
     use pi_coding_agent::bundled_extensions::codex_usage::{format_codex_usage, map_codex_usage_payload};
 
     let mut usage = map_codex_usage_payload(&usage_payload(json!({})));
-    usage.account_id = Some("acct_123".to_owned());
-    usage.email = Some("user@example.com".to_owned());
+    usage.account_id = Some("acct_123".to_owned().into());
+    usage.email = Some("user@example.com".to_owned().into());
     let text = format_codex_usage(&usage);
     assert_eq!(
         text,
@@ -187,7 +187,9 @@ async fn usage_command_sends_formatted_message_and_headers() {
         .handler
         .clone();
 
-    handler(String::new(), harness.command_context()).await.expect("usage");
+    handler(String::new().into(), harness.command_context())
+        .await
+        .expect("usage");
 
     let messages = harness.actions.messages.lock().unwrap();
     assert_eq!(messages.len(), 1);
@@ -250,7 +252,7 @@ async fn usage_command_rejects_extra_arguments() {
         .handler
         .clone();
 
-    handler("bogus".to_owned(), harness.command_context())
+    handler("bogus".to_owned().into(), harness.command_context())
         .await
         .expect("usage");
 
@@ -281,7 +283,7 @@ async fn reset_asks_for_confirmation_before_consuming() {
         .handler
         .clone();
 
-    handler("reset".to_owned(), harness.command_context())
+    handler("reset".to_owned().into(), harness.command_context())
         .await
         .expect("reset");
 
@@ -318,7 +320,7 @@ async fn reset_consumes_credit_and_reports_new_usage() {
         .handler
         .clone();
 
-    handler("reset".to_owned(), harness.command_context())
+    handler("reset".to_owned().into(), harness.command_context())
         .await
         .expect("reset");
 
@@ -364,7 +366,7 @@ async fn reset_without_credits_reports_unavailable() {
         .handler
         .clone();
 
-    handler("reset".to_owned(), harness.command_context())
+    handler("reset".to_owned().into(), harness.command_context())
         .await
         .expect("reset");
 
@@ -390,7 +392,9 @@ async fn reports_missing_login() {
         .handler
         .clone();
 
-    let error = handler(String::new(), harness.command_context()).await.unwrap_err();
+    let error = handler(String::new().into(), harness.command_context())
+        .await
+        .unwrap_err();
 
     assert_eq!(
         error.message,
@@ -418,7 +422,9 @@ async fn reports_failed_usage_requests() {
         .handler
         .clone();
 
-    let error = handler(String::new(), harness.command_context()).await.unwrap_err();
+    let error = handler(String::new().into(), harness.command_context())
+        .await
+        .unwrap_err();
 
     assert_eq!(error.message, "OpenAI Codex usage request failed (500): boom");
 }

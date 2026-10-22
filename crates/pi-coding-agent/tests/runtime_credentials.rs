@@ -21,7 +21,7 @@ fn runtime() -> tokio::runtime::Runtime {
 
 fn api_key(key: &str) -> Credential {
     Credential::ApiKey(ApiKeyCredential {
-        key: Some(key.to_owned()),
+        key: Some(key.to_owned().into()),
         env: None,
     })
 }

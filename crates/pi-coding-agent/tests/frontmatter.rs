@@ -7,7 +7,7 @@ fn parses_keys_strips_quotes_and_returns_body() {
     let parsed = parse_frontmatter(input).expect("valid frontmatter");
     assert_eq!(
         parsed.frontmatter,
-        json!({"name": "skill-name", "description": "A desc", "foo-bar": "value"})
+        json!({"name": "skill-name", "description": "A desc", "foo-bar": "value"}).into()
     );
     assert_eq!(parsed.body, "Body text");
 }
@@ -16,7 +16,7 @@ fn parses_keys_strips_quotes_and_returns_body() {
 fn normalizes_newlines_and_handles_crlf() {
     let input = "---\r\nname: test\r\n---\r\nLine one\r\nLine two";
     let parsed = parse_frontmatter(input).expect("valid frontmatter");
-    assert_eq!(parsed.frontmatter, json!({"name": "test"}));
+    assert_eq!(parsed.frontmatter, json!({"name": "test"}).into());
     assert_eq!(parsed.body, "Line one\nLine two");
 }
 
@@ -30,7 +30,10 @@ fn rejects_invalid_yaml() {
 fn parses_block_scalars() {
     let input = "---\ndescription: |\n  Line one\n  Line two\n---\n\nBody";
     let parsed = parse_frontmatter(input).expect("valid frontmatter");
-    assert_eq!(parsed.frontmatter, json!({"description": "Line one\nLine two\n"}));
+    assert_eq!(
+        parsed.frontmatter,
+        json!({"description": "Line one\nLine two\n"}).into()
+    );
     assert_eq!(parsed.body, "Body");
 }
 
@@ -40,22 +43,22 @@ fn returns_original_content_when_frontmatter_is_missing_or_unterminated() {
     let missing_end = "---\nname: test\nBody without terminator";
 
     let parsed = parse_frontmatter(no_frontmatter).expect("no frontmatter");
-    assert_eq!(parsed.frontmatter, json!({}));
+    assert_eq!(parsed.frontmatter, json!({}).into());
     assert_eq!(parsed.body, "Just text\nsecond line");
 
     let parsed = parse_frontmatter(missing_end).expect("unterminated frontmatter");
-    assert_eq!(parsed.frontmatter, json!({}));
+    assert_eq!(parsed.frontmatter, json!({}).into());
     assert_eq!(parsed.body, "---\nname: test\nBody without terminator");
 }
 
 #[test]
 fn returns_empty_object_for_empty_or_comment_only_frontmatter() {
     let parsed = parse_frontmatter("---\n# just a comment\n---\nBody").expect("comment-only");
-    assert_eq!(parsed.frontmatter, json!({}));
+    assert_eq!(parsed.frontmatter, json!({}).into());
     assert_eq!(parsed.body, "Body");
 
     let parsed = parse_frontmatter("---\n---\nBody").expect("empty frontmatter");
-    assert_eq!(parsed.frontmatter, json!({}));
+    assert_eq!(parsed.frontmatter, json!({}).into());
     assert_eq!(parsed.body, "Body");
 }
 
@@ -69,6 +72,7 @@ fn parses_nested_structures_and_scalars() {
             "list": ["one", "two"],
             "nested": {"enabled": true, "count": 3, "empty": null}
         })
+        .into()
     );
 }
 

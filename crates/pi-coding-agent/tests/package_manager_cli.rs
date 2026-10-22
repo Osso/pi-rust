@@ -43,14 +43,14 @@ fn update_target_matrix_matches_the_source() {
         (
             &["update", "npm:pkg"],
             UpdateTarget::Extensions {
-                source: Some("npm:pkg".to_owned()),
+                source: Some("npm:pkg".to_owned().into()),
             },
             false,
         ),
         (
             &["update", "--extension", "npm:pkg"],
             UpdateTarget::Extensions {
-                source: Some("npm:pkg".to_owned()),
+                source: Some("npm:pkg".to_owned().into()),
             },
             false,
         ),
@@ -107,7 +107,7 @@ fn valid_commands_return_actions() {
     assert_eq!(
         outcome.action,
         Some(PackageAction::Install {
-            source: "npm:x".to_owned(),
+            source: "npm:x".to_owned().into(),
             local: true,
         })
     );
@@ -141,13 +141,13 @@ fn formats_the_configured_package_list() {
     assert_eq!(format_package_list(&[]), "No packages installed.");
     let packages = vec![
         ConfiguredPackage {
-            source: "npm:user".to_owned(),
+            source: "npm:user".to_owned().into(),
             scope: InstalledScope::User,
             filtered: false,
-            installed_path: Some("/agent/npm/node_modules/user".to_owned()),
+            installed_path: Some("/agent/npm/node_modules/user".to_owned().into()),
         },
         ConfiguredPackage {
-            source: "npm:project".to_owned(),
+            source: "npm:project".to_owned().into(),
             scope: InstalledScope::Project,
             filtered: true,
             installed_path: None,
