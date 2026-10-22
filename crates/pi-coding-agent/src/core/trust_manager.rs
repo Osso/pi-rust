@@ -7,10 +7,14 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{self, JsObject, JsString, JsValue, encode_node_utf8};
+
 use crate::config::package_config;
 use crate::utils::lockfile::{LockOptions, acquire_sync};
-use crate::utils::paths::{PathInputOptions, canonicalize_path, resolve_path};
-use pi_js_compat::js_json;
+use crate::utils::paths::{
+    PathError, PathInputOptions, canonicalize_path, home_directory, node_dirname, node_join, process_cwd, resolve_path,
+};
 
 const TRUST_REQUIRING_PROJECT_CONFIG_RESOURCES: [&str; 8] = [
     "settings.json",
@@ -32,28 +36,20 @@ pub enum ProjectTrustDecision {
 }
 
 impl ProjectTrustDecision {
-    fn from_value(value: &serde_json::Value) -> Option<Self> {
+    fn from_value(value: &JsValue) -> Option<Self> {
         match value {
-            serde_json::Value::Bool(true) => Some(Self::Trusted),
-            serde_json::Value::Bool(false) => Some(Self::Untrusted),
-            serde_json::Value::Null => Some(Self::Unknown),
+            JsValue::Bool(true) => Some(Self::Trusted),
+            JsValue::Bool(false) => Some(Self::Untrusted),
+            JsValue::Null => Some(Self::Unknown),
             _ => None,
         }
     }
 
-    fn to_value(self) -> serde_json::Value {
+    fn to_value(self) -> JsValue {
         match self {
-            Self::Unknown => serde_json::Value::Null,
-            Self::Trusted => serde_json::Value::Bool(true),
-            Self::Untrusted => serde_json::Value::Bool(false),
-        }
-    }
-
-    fn decided(self) -> Option<bool> {
-        match self {
-            Self::Unknown => None,
-            Self::Trusted => Some(true),
-            Self::Untrusted => Some(false),
+            Self::Unknown => JsValue::Null,
+            Self::Trusted => JsValue::Bool(true),
+            Self::Untrusted => JsValue::Bool(false),
         }
     }
 }
@@ -61,80 +57,104 @@ impl ProjectTrustDecision {
 /// A trust entry that applies to a directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectTrustStoreEntry {
-    pub path: String,
+    pub path: JsString,
     pub decision: ProjectTrustDecision,
 }
 
 /// One path decision to persist.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectTrustUpdate {
-    pub path: String,
+    pub path: JsString,
     pub decision: ProjectTrustDecision,
 }
 
 /// A trust choice offered to the user.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectTrustOption {
-    pub label: String,
+    pub label: JsString,
     pub trusted: bool,
     pub updates: Vec<ProjectTrustUpdate>,
-    pub saved_path: Option<String>,
+    pub saved_path: Option<JsString>,
 }
 
 /// Failure reading or writing the trust store.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrustError {
-    message: String,
+    message: JsString,
+}
+
+impl TrustError {
+    fn new(message: impl Into<JsString>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+
+    pub fn message(&self) -> &JsString {
+        &self.message
+    }
+}
+
+impl From<PathError> for TrustError {
+    fn from(error: PathError) -> Self {
+        Self::new(error.message().clone())
+    }
 }
 
 impl std::fmt::Display for TrustError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&encode_node_utf8(&self.message))
     }
 }
 
 impl std::error::Error for TrustError {}
 
-fn path_options() -> PathInputOptions {
-    PathInputOptions::default()
+/// `resolvePath(path)` against `process.cwd()`.
+fn resolve_from_process_cwd(path: &JsString) -> Result<JsString, PathError> {
+    resolve_path(path, process_cwd()?, &PathInputOptions::default())
 }
 
-fn current_dir() -> String {
-    std::env::current_dir()
-        .map(|directory| directory.display().to_string())
-        .unwrap_or_else(|_| ".".to_owned())
+fn normalize_cwd(cwd: &JsString) -> Result<JsString, PathError> {
+    Ok(canonicalize_path(resolve_from_process_cwd(cwd)?))
 }
 
-fn normalize_cwd(cwd: &str) -> String {
-    let resolved = resolve_path(cwd, &current_dir(), &path_options()).unwrap_or_else(|_| cwd.to_owned());
-    canonicalize_path(&resolved)
+fn path_exists(path: &JsString) -> bool {
+    Path::new(&encode_node_utf8(path)).exists()
 }
 
-fn dirname(path: &str) -> String {
-    let trimmed = path.trim_end_matches('/');
-    match trimmed.rfind('/') {
-        Some(0) => "/".to_owned(),
-        Some(index) => trimmed[..index].to_owned(),
-        None => ".".to_owned(),
+fn find_nearest_trust_entry(data: &JsObject, cwd: &JsString) -> Result<Option<ProjectTrustStoreEntry>, PathError> {
+    let mut current_dir = normalize_cwd(cwd)?;
+    loop {
+        let decision = data.get(&current_dir).and_then(ProjectTrustDecision::from_value);
+        if let Some(decision @ (ProjectTrustDecision::Trusted | ProjectTrustDecision::Untrusted)) = decision {
+            return Ok(Some(ProjectTrustStoreEntry {
+                path: current_dir,
+                decision,
+            }));
+        }
+        let parent_dir = node_dirname(&current_dir);
+        if parent_dir == current_dir {
+            return Ok(None);
+        }
+        current_dir = parent_dir;
     }
 }
 
-fn join(base: &str, segment: &str) -> String {
-    PathBuf::from(base).join(segment).display().to_string()
-}
-
 /// The parent directory of the trust path, or `None` at the filesystem root.
-pub fn get_project_trust_parent_path(cwd: &str) -> Option<String> {
-    let trust_path = normalize_cwd(cwd);
-    let parent = dirname(&trust_path);
-    (parent != trust_path).then_some(parent)
+pub fn get_project_trust_parent_path(cwd: &JsString) -> Result<Option<JsString>, PathError> {
+    let trust_path = normalize_cwd(cwd)?;
+    let parent = node_dirname(&trust_path);
+    Ok((parent != trust_path).then_some(parent))
 }
 
 /// `getProjectTrustOptions`: the choices for a project directory.
-pub fn get_project_trust_options(cwd: &str, include_session_only: bool) -> Vec<ProjectTrustOption> {
-    let trust_path = normalize_cwd(cwd);
+pub fn get_project_trust_options(
+    cwd: &JsString,
+    include_session_only: bool,
+) -> Result<Vec<ProjectTrustOption>, PathError> {
+    let trust_path = normalize_cwd(cwd)?;
     let mut options = vec![ProjectTrustOption {
-        label: "Trust".to_owned(),
+        label: "Trust".into(),
         trusted: true,
         updates: vec![ProjectTrustUpdate {
             path: trust_path.clone(),
@@ -142,9 +162,9 @@ pub fn get_project_trust_options(cwd: &str, include_session_only: bool) -> Vec<P
         }],
         saved_path: Some(trust_path.clone()),
     }];
-    if let Some(parent_path) = get_project_trust_parent_path(cwd) {
+    if let Some(parent_path) = get_project_trust_parent_path(cwd)? {
         options.push(ProjectTrustOption {
-            label: format!("Trust parent folder ({parent_path})"),
+            label: js_format!("Trust parent folder ({})", parent_path),
             trusted: true,
             updates: vec![
                 ProjectTrustUpdate {
@@ -161,14 +181,14 @@ pub fn get_project_trust_options(cwd: &str, include_session_only: bool) -> Vec<P
     }
     if include_session_only {
         options.push(ProjectTrustOption {
-            label: "Trust (this session only)".to_owned(),
+            label: "Trust (this session only)".into(),
             trusted: true,
             updates: Vec::new(),
             saved_path: None,
         });
     }
     options.push(ProjectTrustOption {
-        label: "Do not trust".to_owned(),
+        label: "Do not trust".into(),
         trusted: false,
         updates: vec![ProjectTrustUpdate {
             path: trust_path.clone(),
@@ -178,85 +198,86 @@ pub fn get_project_trust_options(cwd: &str, include_session_only: bool) -> Vec<P
     });
     if include_session_only {
         options.push(ProjectTrustOption {
-            label: "Do not trust (this session only)".to_owned(),
+            label: "Do not trust (this session only)".into(),
             trusted: false,
             updates: Vec::new(),
             saved_path: None,
         });
     }
-    options
+    Ok(options)
 }
 
-type TrustFile = Vec<(String, serde_json::Value)>;
-
-fn read_trust_file(path: &str) -> Result<TrustFile, TrustError> {
-    if !Path::new(path).exists() {
-        return Ok(Vec::new());
+fn read_trust_file(path: &JsString) -> Result<JsObject, TrustError> {
+    if !path_exists(path) {
+        return Ok(JsObject::new());
     }
-    let content = std::fs::read_to_string(path).map_err(|error| TrustError {
-        message: format!("Failed to read trust store {path}: {error}"),
-    })?;
-    let parsed = js_json::parse(&content).map_err(|error| TrustError {
-        message: format!("Failed to read trust store {path}: {error}"),
-    })?;
-    let serde_json::Value::Object(object) = parsed else {
-        return Err(TrustError {
-            message: format!("Invalid trust store {path}: expected an object"),
-        });
+    let encoded_path = encode_node_utf8(path);
+    let read_error =
+        |message: JsString| TrustError::new(js_format!("Failed to read trust store {}: {}", path, message));
+    let bytes = std::fs::read(&encoded_path)
+        .map_err(|error| read_error(pi_js_compat::node_fs::node_read_error(&error, &encoded_path).into()))?;
+    // `readFileSync(path, "utf-8")` decodes with replacement.
+    let content = JsString::from(String::from_utf8_lossy(&bytes).as_ref());
+    let parsed = js_json::parse_lossless(content).map_err(|error| read_error(error.message().clone()))?;
+    let JsValue::Object(object) = parsed else {
+        return Err(TrustError::new(js_format!(
+            "Invalid trust store {}: expected an object",
+            path
+        )));
     };
-    let mut data = Vec::new();
-    for (key, value) in object {
-        if ProjectTrustDecision::from_value(&value).is_none() {
-            return Err(TrustError {
-                message: format!(
-                    "Invalid trust store {path}: value for {} must be true, false, or null",
-                    serde_json::Value::String(key.clone())
-                ),
-            });
+    for (key, value) in js_json::object_entries_lossless(&object) {
+        if ProjectTrustDecision::from_value(value).is_none() {
+            return Err(TrustError::new(js_format!(
+                "Invalid trust store {}: value for {} must be true, false, or null",
+                path,
+                js_json::stringify_lossless(&JsValue::String(key.clone()))
+            )));
         }
-        data.push((key, value));
     }
-    Ok(data)
+    Ok(object)
 }
 
-fn write_trust_file(path: &str, data: &TrustFile) -> Result<(), TrustError> {
-    let mut sorted: Vec<&(String, serde_json::Value)> = data.iter().collect();
+fn write_trust_file(path: &JsString, data: &JsObject) -> Result<(), TrustError> {
+    let write_error = |error: std::io::Error| {
+        TrustError::new(js_format!(
+            "Failed to write trust store {}: {}",
+            path,
+            error.to_string()
+        ))
+    };
+    let mut keys: Vec<&JsString> = data.keys().collect();
     // `Object.keys(data).sort()` orders by UTF-16 code units.
-    sorted.sort_by_key(|(key, _)| key.encode_utf16().collect::<Vec<_>>());
-    let object: serde_json::Map<String, serde_json::Value> = sorted
+    keys.sort_by(|left, right| left.units().cmp(right.units()));
+    let sorted: JsObject = keys
         .into_iter()
-        .map(|(key, value)| (key.clone(), value.clone()))
+        .filter_map(|key| {
+            let value = data.get(key)?;
+            ProjectTrustDecision::from_value(value).map(|_| (key.clone(), value.clone()))
+        })
         .collect();
-    if let Some(parent) = Path::new(path).parent() {
-        std::fs::create_dir_all(parent).map_err(|error| TrustError {
-            message: format!("Failed to write trust store {path}: {error}"),
-        })?;
-    }
+    std::fs::create_dir_all(encode_node_utf8(&node_dirname(path))).map_err(write_error)?;
     std::fs::write(
-        path,
-        format!("{}\n", js_json::stringify_pretty(&serde_json::Value::Object(object))),
+        encode_node_utf8(path),
+        format!("{}\n", js_json::stringify_lossless_pretty(&JsValue::Object(sorted))),
     )
-    .map_err(|error| TrustError {
-        message: format!("Failed to write trust store {path}: {error}"),
-    })
+    .map_err(write_error)
 }
 
 /// Acquires `<path>.lock` with ten attempts twenty milliseconds apart, like the TypeScript store.
-fn acquire_trust_lock(path: &str) -> Result<crate::utils::lockfile::LockGuard, TrustError> {
-    if let Some(directory) = Path::new(path).parent() {
-        std::fs::create_dir_all(directory).map_err(|error| TrustError {
-            message: format!("Failed to create trust directory {}: {error}", directory.display()),
-        })?;
-    }
+fn acquire_trust_lock(path: &JsString) -> Result<crate::utils::lockfile::LockGuard, TrustError> {
+    let encoded_path = encode_node_utf8(path);
+    let directory = encode_node_utf8(&node_dirname(path));
+    std::fs::create_dir_all(&directory)
+        .map_err(|error| TrustError::new(format!("Failed to create trust directory {directory}: {error}")))?;
     let options = LockOptions {
-        lockfile_path: Some(PathBuf::from(format!("{path}.lock"))),
+        lockfile_path: Some(PathBuf::from(format!("{encoded_path}.lock"))),
         realpath: false,
         ..LockOptions::default()
     };
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut last_error = None;
     for _ in 0..10 {
-        match acquire_sync(Path::new(path), &options) {
+        match acquire_sync(Path::new(&encoded_path), &options) {
             Ok(guard) => return Ok(guard),
             Err(error) if error.code == crate::utils::lockfile::LockErrorCode::Locked => {
                 last_error = Some(error);
@@ -265,74 +286,46 @@ fn acquire_trust_lock(path: &str) -> Result<crate::utils::lockfile::LockGuard, T
                 }
                 std::thread::sleep(Duration::from_millis(20));
             }
-            Err(error) => {
-                return Err(TrustError {
-                    message: error.to_string(),
-                });
-            }
+            Err(error) => return Err(TrustError::new(error.to_string())),
         }
     }
-    Err(TrustError {
-        message: last_error.map_or_else(
-            || "Failed to acquire trust store lock".to_owned(),
-            |error| error.to_string(),
-        ),
-    })
-}
-
-fn find_nearest_trust_entry(data: &TrustFile, cwd: &str) -> Option<ProjectTrustStoreEntry> {
-    let mut current_dir = normalize_cwd(cwd);
-    loop {
-        if let Some((_, value)) = data.iter().find(|(path, _)| path == &current_dir)
-            && let Some(decision) = ProjectTrustDecision::from_value(value)
-            && decision.decided().is_some()
-        {
-            return Some(ProjectTrustStoreEntry {
-                path: current_dir,
-                decision,
-            });
-        }
-        let parent_dir = dirname(&current_dir);
-        if parent_dir == current_dir {
-            return None;
-        }
-        current_dir = parent_dir;
-    }
+    Err(TrustError::new(last_error.map_or_else(
+        || "Failed to acquire trust store lock".to_owned(),
+        |error| error.to_string(),
+    )))
 }
 
 /// JSON-backed project trust decisions (`<agentDir>/trust.json`).
 pub struct ProjectTrustStore {
-    trust_path: String,
+    trust_path: JsString,
 }
 
 impl ProjectTrustStore {
-    pub fn new(agent_dir: &str) -> Self {
-        let resolved =
-            resolve_path(agent_dir, &current_dir(), &path_options()).unwrap_or_else(|_| agent_dir.to_owned());
-        Self {
-            trust_path: join(&resolved, "trust.json"),
-        }
+    pub fn new(agent_dir: &JsString) -> Result<Self, PathError> {
+        Ok(Self {
+            trust_path: node_join(resolve_from_process_cwd(agent_dir)?, "trust.json"),
+        })
     }
 
-    pub fn trust_path(&self) -> &str {
+    pub fn trust_path(&self) -> &JsString {
         &self.trust_path
     }
 
-    pub fn get(&self, cwd: &str) -> Result<ProjectTrustDecision, TrustError> {
+    pub fn get(&self, cwd: &JsString) -> Result<ProjectTrustDecision, TrustError> {
         Ok(self
             .get_entry(cwd)?
             .map_or(ProjectTrustDecision::Unknown, |entry| entry.decision))
     }
 
-    pub fn get_entry(&self, cwd: &str) -> Result<Option<ProjectTrustStoreEntry>, TrustError> {
+    pub fn get_entry(&self, cwd: &JsString) -> Result<Option<ProjectTrustStoreEntry>, TrustError> {
         let _guard = acquire_trust_lock(&self.trust_path)?;
         let data = read_trust_file(&self.trust_path)?;
-        Ok(find_nearest_trust_entry(&data, cwd))
+        Ok(find_nearest_trust_entry(&data, cwd)?)
     }
 
-    pub fn set(&self, cwd: &str, decision: ProjectTrustDecision) -> Result<(), TrustError> {
+    pub fn set(&self, cwd: &JsString, decision: ProjectTrustDecision) -> Result<(), TrustError> {
         self.set_many(&[ProjectTrustUpdate {
-            path: cwd.to_owned(),
+            path: cwd.clone(),
             decision,
         }])
     }
@@ -341,10 +334,11 @@ impl ProjectTrustStore {
         let _guard = acquire_trust_lock(&self.trust_path)?;
         let mut data = read_trust_file(&self.trust_path)?;
         for update in decisions {
-            let key = normalize_cwd(&update.path);
-            data.retain(|(path, _)| path != &key);
-            if update.decision != ProjectTrustDecision::Unknown {
-                data.push((key, update.decision.to_value()));
+            let key = normalize_cwd(&update.path)?;
+            if update.decision == ProjectTrustDecision::Unknown {
+                data.shift_remove(&key);
+            } else {
+                data.insert(key, update.decision.to_value());
             }
         }
         write_trust_file(&self.trust_path, &data)
@@ -354,42 +348,41 @@ impl ProjectTrustStore {
 /// `hasTrustRequiringProjectResources`: whether `cwd` (or an ancestor) holds resources that must be
 /// gated by project trust. The user-level `~/.agents/skills`, `~/.codex/skills`, and
 /// `~/.claude/skills` directories are always trusted and ignored.
-pub fn has_trust_requiring_project_resources(cwd: &str) -> bool {
-    let home = pi_js_compat::process_env::get("HOME")
-        .filter(|home| !home.is_empty())
-        .unwrap_or_else(|| ".".to_owned());
-    let home_dir = canonicalize_path(&resolve_path(&home, &current_dir(), &path_options()).unwrap_or(home));
-    let user_agents_skills_dir = join(&home_dir, ".agents/skills");
-    let user_tool_skill_dirs = [join(&home_dir, ".codex/skills"), join(&home_dir, ".claude/skills")];
-    let mut current_dir =
-        canonicalize_path(&resolve_path(cwd, &current_dir(), &path_options()).unwrap_or_else(|_| cwd.to_owned()));
+pub fn has_trust_requiring_project_resources(cwd: &JsString) -> Result<bool, PathError> {
+    let home_dir = canonicalize_path(resolve_from_process_cwd(&home_directory())?);
+    let user_agents_skills_dir = node_join(node_join(&home_dir, ".agents"), "skills");
+    let user_tool_skill_dirs = [
+        node_join(node_join(&home_dir, ".codex"), "skills"),
+        node_join(node_join(&home_dir, ".claude"), "skills"),
+    ];
+    let mut current_dir = canonicalize_path(resolve_from_process_cwd(cwd)?);
 
-    let config_dir = join(&current_dir, &package_config().config_dir_name);
+    let config_dir = node_join(&current_dir, package_config().config_dir_name.as_str());
     if TRUST_REQUIRING_PROJECT_CONFIG_RESOURCES
         .iter()
-        .any(|entry| Path::new(&join(&config_dir, entry)).exists())
+        .any(|entry| path_exists(&node_join(&config_dir, *entry)))
     {
-        return true;
+        return Ok(true);
     }
 
     loop {
-        let agents_skills_dir = join(&current_dir, ".agents/skills");
-        if agents_skills_dir != user_agents_skills_dir && Path::new(&agents_skills_dir).exists() {
-            return true;
+        let agents_skills_dir = node_join(node_join(&current_dir, ".agents"), "skills");
+        if agents_skills_dir != user_agents_skills_dir && path_exists(&agents_skills_dir) {
+            return Ok(true);
         }
-        let codex_skills_dir = join(&current_dir, ".codex/skills");
-        let claude_skills_dir = join(&current_dir, ".claude/skills");
+        let codex_skills_dir = node_join(node_join(&current_dir, ".codex"), "skills");
+        let claude_skills_dir = node_join(node_join(&current_dir, ".claude"), "skills");
         let has_project_codex_skills =
-            !user_tool_skill_dirs.contains(&codex_skills_dir) && Path::new(&codex_skills_dir).exists();
+            !user_tool_skill_dirs.contains(&codex_skills_dir) && path_exists(&codex_skills_dir);
         let has_project_claude_skills =
-            !user_tool_skill_dirs.contains(&claude_skills_dir) && Path::new(&claude_skills_dir).exists();
+            !user_tool_skill_dirs.contains(&claude_skills_dir) && path_exists(&claude_skills_dir);
         if has_project_codex_skills || has_project_claude_skills {
-            return true;
+            return Ok(true);
         }
 
-        let parent_dir = dirname(&current_dir);
+        let parent_dir = node_dirname(&current_dir);
         if parent_dir == current_dir {
-            return false;
+            return Ok(false);
         }
         current_dir = parent_dir;
     }
