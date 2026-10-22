@@ -222,3 +222,27 @@ fn agent_message_event_serialization_retains_raw_text() {
     let serialized = pi_js_compat::js_json::to_value(&event).unwrap();
     assert_eq!(serialized["message"]["content"].as_string(), Some(&raw));
 }
+
+#[test]
+fn model_reference_matching_does_not_replace_unmatched_units() {
+    use pi_coding_agent::core::model_resolver::find_exact_model_reference_match;
+    let model: pi_ai::types::Model = serde_json::from_value(serde_json::json!({
+        "id":"probe", "name":"probe", "api":"openai-responses", "provider":"vendor�", "baseUrl":"https://provider.invalid/v1", "reasoning":false, "input":["text"],
+        "cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, "contextWindow":10000, "maxTokens":1000
+    })).unwrap();
+    let raw = JsString::from("vendor") + JsString::from_utf16(vec![0xd800]) + "/probe";
+    let mut oracle = oracle::TsOracle::spawn(
+        "model-resolver-oracle.ts",
+        "packages/coding-agent/src/core/model-resolver.ts",
+    );
+    let source = oracle.request_lossless(
+        &pi_js_compat::js_json!({"id":"raw-model-reference", "operation":"exact", "reference":raw, "models":[model]}),
+    );
+    assert_eq!(source["ok"].as_bool(), Some(true));
+    assert!(source["output"]["model"].is_null());
+    assert!(find_exact_model_reference_match(&raw, &[model.clone()]).is_none());
+    assert_eq!(
+        find_exact_model_reference_match(&"vendor�/probe".into(), &[model.clone()]),
+        Some(model)
+    );
+}

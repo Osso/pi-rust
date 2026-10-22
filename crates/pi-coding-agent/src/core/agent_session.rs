@@ -7416,11 +7416,7 @@ impl AgentSession {
                     } else {
                         scoped.into_iter().map(|scoped| scoped.model).collect()
                     };
-                    let Some(model) = model_reference
-                        .to_utf8()
-                        .ok()
-                        .and_then(|reference| find_exact_model_reference_match(&reference, &models))
-                    else {
+                    let Some(model) = find_exact_model_reference_match(&model_reference, &models) else {
                         return Err(crate::core::extensions::types::HandlerError::new(
                             JsString::from("Model not found or not authenticated: ") + model_reference,
                         ));

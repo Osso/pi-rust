@@ -8,6 +8,7 @@
 use pi_agent_core::harness::ThinkingLevel;
 use pi_ai::models::models_are_equal;
 use pi_ai::types::Model;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::minimatch::{MinimatchOptions, minimatch};
 
 use crate::cli::args::is_valid_thinking_level;
@@ -151,7 +152,7 @@ fn parse_thinking_level(value: &str) -> Option<ThinkingLevel> {
 
 /// Finds an exact model reference: canonical `provider/model`, explicit
 /// `provider/model` split, then a bare model id. Ambiguous matches are rejected.
-pub fn find_exact_model_reference_match(model_reference: &str, available_models: &[Model]) -> Option<Model> {
+pub fn find_exact_model_reference_match(model_reference: &JsString, available_models: &[Model]) -> Option<Model> {
     let trimmed = model_reference.trim();
     if trimmed.is_empty() {
         return None;
@@ -160,7 +161,7 @@ pub fn find_exact_model_reference_match(model_reference: &str, available_models:
 
     let canonical: Vec<&Model> = available_models
         .iter()
-        .filter(|model| format!("{}/{}", model.provider, model.id).to_lowercase() == normalized)
+        .filter(|model| JsString::from(format!("{}/{}", model.provider, model.id)).to_lowercase() == normalized)
         .collect();
     match canonical.len() {
         1 => return Some(canonical[0].clone()),
@@ -168,15 +169,15 @@ pub fn find_exact_model_reference_match(model_reference: &str, available_models:
         _ => return None,
     }
 
-    if let Some(slash_index) = trimmed.find('/') {
-        let provider = trimmed[..slash_index].trim();
-        let model_id = trimmed[slash_index + 1..].trim();
+    if let Some(slash_index) = trimmed.find_from('/', 0) {
+        let provider = trimmed.slice(0, slash_index).trim();
+        let model_id = trimmed.slice(slash_index + 1, trimmed.len()).trim();
         if !provider.is_empty() && !model_id.is_empty() {
             let provider_matches: Vec<&Model> = available_models
                 .iter()
                 .filter(|model| {
-                    model.provider.to_lowercase() == provider.to_lowercase()
-                        && model.id.to_lowercase() == model_id.to_lowercase()
+                    JsString::from(&model.provider).to_lowercase() == provider.to_lowercase()
+                        && JsString::from(&model.id).to_lowercase() == model_id.to_lowercase()
                 })
                 .collect();
             match provider_matches.len() {
@@ -189,14 +190,14 @@ pub fn find_exact_model_reference_match(model_reference: &str, available_models:
 
     let id_matches: Vec<&Model> = available_models
         .iter()
-        .filter(|model| model.id.to_lowercase() == normalized)
+        .filter(|model| JsString::from(&model.id).to_lowercase() == normalized)
         .collect();
     (id_matches.len() == 1).then(|| id_matches[0].clone())
 }
 
 /// Exact match first, then partial id/name matching with alias preference.
 fn try_match_model(model_pattern: &str, available_models: &[Model]) -> Option<Model> {
-    if let Some(exact) = find_exact_model_reference_match(model_pattern, available_models) {
+    if let Some(exact) = find_exact_model_reference_match(&model_pattern.into(), available_models) {
         return Some(exact);
     }
     let needle = model_pattern.to_lowercase();
@@ -312,7 +313,7 @@ pub fn resolve_model_scope_from_models(patterns: &[String], models: &[Model]) ->
     for pattern in patterns {
         if contains_glob_characters(pattern) {
             let (glob_pattern, thinking_level) = split_glob_thinking_suffix(pattern);
-            if let Some(exact) = find_exact_model_reference_match(glob_pattern, models) {
+            if let Some(exact) = find_exact_model_reference_match(&glob_pattern.into(), models) {
                 push_unique(&mut scoped_models, exact, thinking_level);
                 continue;
             }

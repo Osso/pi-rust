@@ -175,12 +175,12 @@ fn exact_reference_rejects_ambiguity() {
         model("azure-openai-responses", "gpt-5.6-sol", "GPT 5.6 Sol"),
         model("openai-codex", "gpt-5.6-sol", "GPT 5.6 Sol"),
     ];
-    assert!(find_exact_model_reference_match("gpt-5.6-sol", &models).is_none());
+    assert!(find_exact_model_reference_match(&"gpt-5.6-sol".into(), &models).is_none());
     assert_eq!(
-        find_exact_model_reference_match("openai-codex/gpt-5.6-sol", &models).map(|model| model.provider),
+        find_exact_model_reference_match(&"openai-codex/gpt-5.6-sol".into(), &models).map(|model| model.provider),
         Some("openai-codex".to_owned())
     );
-    assert!(find_exact_model_reference_match("   ", &models).is_none());
+    assert!(find_exact_model_reference_match(&"   ".into(), &models).is_none());
 }
 
 #[test]

@@ -326,7 +326,7 @@ fn compare_exact(oracle: &mut oracle::TsOracle, models: &[Model]) {
         });
         let expected = oracle.request(&request);
         assert!(expected["ok"].as_bool().unwrap(), "{expected}");
-        let actual = normalize_model(find_exact_model_reference_match(reference, models).as_ref());
+        let actual = normalize_model(find_exact_model_reference_match(&reference.into(), models).as_ref());
         assert_eq!(actual, expected["output"]["model"], "exact {reference}");
     }
 }
