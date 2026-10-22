@@ -254,7 +254,7 @@ fn compare_variants(
                     "options": options_json(options),
                 }));
                 labels.push((*path, *pattern));
-                expected.push(minimatch(path, pattern, options));
+                expected.push(minimatch(*path, *pattern, options));
             }
         }
         let response = oracle.request(&json!({
@@ -380,6 +380,9 @@ fn matches_minimatch_brace_expansion() {
                 .collect()
         })
         .collect();
-    let actual: Vec<Vec<String>> = patterns.iter().map(|pattern| brace_expand(pattern, &options)).collect();
+    let actual: Vec<Vec<pi_js_compat::js_json::JsString>> = patterns
+        .iter()
+        .map(|pattern| brace_expand(*pattern, &options))
+        .collect();
     assert_eq!(actual, expected);
 }

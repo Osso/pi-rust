@@ -2195,11 +2195,11 @@ dependencies = [
 name = "pi-js-compat"
 version = "0.0.0"
 dependencies = [
- "fancy-regex",
  "icu_collator",
  "icu_locale_core",
  "indexmap",
  "jiff",
+ "regress",
  "rust_icu_ucol",
  "rust_icu_ustring",
  "rustix 1.1.5",
@@ -2576,8 +2576,6 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 [[package]]
 name = "regress"
 version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32eef8b209c3c1c15dbad02c1f30f9539f00dc7253e0cbcdaae442a50a09d7c1"
 dependencies = [
  "memchr",
 ]
