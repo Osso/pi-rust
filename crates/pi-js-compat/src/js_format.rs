@@ -4,15 +4,19 @@
 use crate::js_json::JsString;
 
 /// Counts `{}` placeholders; `js_format!` checks this against its arguments at compile time.
+/// Any other brace is rejected, so `format!`-style named captures such as `{path}` cannot
+/// silently survive as literal text.
 #[doc(hidden)]
 pub const fn placeholder_count(template: &str) -> usize {
     let bytes = template.as_bytes();
     let mut count = 0;
     let mut index = 0;
-    while index + 1 < bytes.len() {
-        if bytes[index] == b'{' && bytes[index + 1] == b'}' {
+    while index < bytes.len() {
+        if bytes[index] == b'{' && index + 1 < bytes.len() && bytes[index + 1] == b'}' {
             count += 1;
             index += 2;
+        } else if bytes[index] == b'{' || bytes[index] == b'}' {
+            panic!("js_format! templates only support `{{}}` placeholders");
         } else {
             index += 1;
         }
@@ -48,6 +52,19 @@ impl FormatArgument for char {
         (*self).into()
     }
 }
+
+/// Integer counts and ids interpolate as JavaScript `${n}` does for safe integers: plain decimal.
+macro_rules! integer_format_argument {
+    ($($integer:ty),*) => {$(
+        impl FormatArgument for $integer {
+            fn to_js_string(&self) -> JsString {
+                self.to_string().into()
+            }
+        }
+    )*};
+}
+
+integer_format_argument!(i32, i64, u32, u64, usize);
 
 impl<T: FormatArgument + ?Sized> FormatArgument for &T {
     fn to_js_string(&self) -> JsString {
@@ -110,6 +127,25 @@ mod tests {
         let formatted = js_format!("{}#{}", row.path, row.id);
         assert_eq!(formatted.units(), [0xdc00, 0x23, 0x37]);
         assert_eq!(row.id, "7");
+    }
+
+    #[test]
+    fn interpolates_integers_as_javascript_template_numbers() {
+        let count: usize = 3;
+        assert_eq!(js_format!("{} of {} ({})", count, 10u32, -7i64), "3 of 10 (-7)");
+        assert_eq!(js_format!("{}", 0u64), "0");
+    }
+
+    #[test]
+    #[should_panic(expected = "only support `{}` placeholders")]
+    fn rejects_named_captures() {
+        crate::js_format::placeholder_count("{path}.tmp");
+    }
+
+    #[test]
+    #[should_panic(expected = "only support `{}` placeholders")]
+    fn rejects_unpaired_closing_brace() {
+        crate::js_format::placeholder_count("x}");
     }
 
     #[test]
