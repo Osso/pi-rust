@@ -332,11 +332,23 @@ async fn invalid_utf8_stdout_line_does_not_hide_following_notification() {
 }
 
 #[test]
-fn utf16_clipping_projects_split_surrogate_at_string_boundary() {
-    let mut app = client::RpcExtensionUi::new();
-    app.receive(
-        &pi_js_compat::js_json!({"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"🚀"}}),
+fn utf16_clipping_preserves_split_surrogate_like_frozen() {
+    let event =
+        pi_js_compat::js_json!({"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"🚀"}});
+    let mut ts = oracle::TsOracle::spawn(
+        "example-rpc-extension-ui-oracle.ts",
+        "packages/coding-agent/examples/rpc-extension-ui.ts",
     );
-    // Raw source slices include ANSI bytes; 20 units retain half of the rocket pair.
-    assert!(app.render(20).iter().any(|line| line.contains('\u{fffd}')));
+    let expected: pi_js_compat::js_json::JsValue =
+        ts.request(&pi_js_compat::js_json!({"ops":[{"event":event}],"widths":[19,20,21]}));
+    let mut app = client::RpcExtensionUi::new();
+    app.set_focused(true);
+    app.receive(&event);
+    for (i, width) in [19, 20, 21].into_iter().enumerate() {
+        assert_eq!(
+            pi_js_compat::js_json!(app.render(width)),
+            expected["steps"][0]["renders"][i],
+            "width {width}"
+        );
+    }
 }
