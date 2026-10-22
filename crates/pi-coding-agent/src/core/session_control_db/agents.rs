@@ -4155,9 +4155,9 @@ mod lossless_integration_tests {
     #[test]
     fn cancellation_preserves_raw_agent_fields_in_database_and_result() {
         let directory = tempfile::tempdir().unwrap();
-        let database = directory.path().join("control.sqlite").display().to_string();
+        let database: JsString = directory.path().join("control.sqlite").display().to_string().into();
         let original = js_json::parse_lossless(r#"{"id":"bash_1","displayName":"name\ud800","agentType":"background","lifecycle":"running","revision":1,"createdAt":"","updatedAt":"","cwd":"/repo","permission":{"policy":"on-request","narrowed":true},"result":{"summary":"summary\udfff"},"error":{"message":"error\ud800"},"unrelated":{"\ud800":"raw","�":"replacement","null":null}}"#).unwrap();
-        bootstrap_multi_agent_agent(&database, "/fixture/s", "bash_1", &original).unwrap();
+        bootstrap_multi_agent_agent(&database, "/fixture/s", &"bash_1".into(), &original).unwrap();
         let identity = crate::core::runtime_process::ProcessIdentity {
             pid: 42,
             start_time_ticks: 100,
@@ -4192,7 +4192,7 @@ mod lossless_integration_tests {
             panic!("cancellation should commit");
         };
         let returned = js_json::to_value(&agent).unwrap();
-        let stored = with_control_db(&database, |db| read_agent_data_row(db, "/fixture/s", "bash_1"))
+        let stored = with_control_db(&database, |db| read_agent_data_row(db, &"/fixture/s".into(), "bash_1"))
             .unwrap()
             .unwrap();
         let stored = js_json::parse_lossless(&stored).unwrap();

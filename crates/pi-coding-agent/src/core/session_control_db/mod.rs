@@ -1182,7 +1182,7 @@ mod tests {
 
     fn identity_read_failure(message: &str) -> Result<ProcessIdentity, ProcessIdentityError> {
         Err(ProcessIdentityError {
-            message: message.to_owned(),
+            message: message.into(),
         })
     }
 
@@ -1190,7 +1190,7 @@ mod tests {
     fn process_instance_id_propagates_identity_read_failure() {
         assert_eq!(
             process_instance_id_from(identity_read_failure("Invalid process stat for process 1")),
-            Err("Invalid process stat for process 1".to_owned())
+            Err("Invalid process stat for process 1".into())
         );
     }
 

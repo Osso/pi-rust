@@ -137,11 +137,14 @@ fn initialize_supervisor_session(
     registration.runtime_lifecycle_mirror.bind(ctx)
 }
 
-fn register_session_start_hook(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+fn register_session_start_hook(
+    pi: &ExtensionApi,
+    registration: &AgentsCoreRegistrationContext,
+) -> Result<(), HandlerError> {
     let model_request_started = registration.runtime_handles.latest_model_request_started_at.clone();
     let registration = registration.clone_for_hooks();
     let journal = JournalWriter::from_api(pi);
-    let _ = pi.on_session_start(move |_event, ctx| {
+    pi.on_session_start(move |_event, ctx| {
         let registration = registration.clone();
         let journal = journal.clone();
         let model_request_started = model_request_started.clone();
@@ -166,12 +169,17 @@ fn register_session_start_hook(pi: &ExtensionApi, registration: &AgentsCoreRegis
                 Ok(None)
             });
         future
-    });
+    })
+    .map_err(HandlerError::new)?;
+    Ok(())
 }
 
-fn register_session_shutdown_hook(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+fn register_session_shutdown_hook(
+    pi: &ExtensionApi,
+    registration: &AgentsCoreRegistrationContext,
+) -> Result<(), HandlerError> {
     let registration = registration.clone_for_hooks();
-    let _ = pi.on_session_shutdown(move |event: SessionShutdownEvent, _ctx| {
+    pi.on_session_shutdown(move |event: SessionShutdownEvent, _ctx| {
         let registration = registration.clone();
         let future: crate::core::extensions::types::BoxFuture<'static, Result<Option<()>, HandlerError>> =
             Box::pin(async move {
@@ -216,7 +224,9 @@ fn register_session_shutdown_hook(pi: &ExtensionApi, registration: &AgentsCoreRe
                 Ok(None)
             });
         future
-    });
+    })
+    .map_err(HandlerError::new)?;
+    Ok(())
 }
 
 impl AgentsCoreRegistrationContext {
@@ -247,10 +257,13 @@ struct HookRegistration {
     waiting_desktop_notifications: WaitingDesktopNotificationHandles,
 }
 
-fn register_background_command(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+fn register_background_command(
+    pi: &ExtensionApi,
+    registration: &AgentsCoreRegistrationContext,
+) -> Result<(), HandlerError> {
     let background = registration.background_dispatch.clone();
     let mirror = registration.runtime_lifecycle_mirror.clone();
-    let _ = pi.register_command(
+    pi.register_command(
         "bg",
         Some("Run a prompt as a background agent job.".into()),
         None,
@@ -264,12 +277,14 @@ fn register_background_command(pi: &ExtensionApi, registration: &AgentsCoreRegis
                 })
             },
         ),
-    );
+    )
+    .map_err(HandlerError::new)?;
+    Ok(())
 }
 
-fn register_jobs_command(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+fn register_jobs_command(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) -> Result<(), HandlerError> {
     let store = Arc::clone(&registration.store);
-    let _ = pi.register_command(
+    pi.register_command(
         "jobs",
         Some("List background agent jobs.".into()),
         None,
@@ -279,7 +294,9 @@ fn register_jobs_command(pi: &ExtensionApi, registration: &AgentsCoreRegistratio
                 Box::pin(async move { jobs_command(&store, &ctx) })
             },
         ),
-    );
+    )
+    .map_err(HandlerError::new)?;
+    Ok(())
 }
 
 pub(super) fn tool_definition(
@@ -310,7 +327,10 @@ pub(super) fn tool_definition(
     }
 }
 
-fn register_spawn_agent_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+fn register_spawn_agent_tool(
+    pi: &ExtensionApi,
+    registration: &AgentsCoreRegistrationContext,
+) -> Result<(), HandlerError> {
     let store = Arc::clone(&registration.store);
     let create_child_session = registration.create_child_session.clone();
     let dispatches = Arc::clone(&registration.active_dispatches);
@@ -320,7 +340,7 @@ fn register_spawn_agent_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistr
     let handles = Arc::clone(&registration.background_sessions);
     let mirror = registration.runtime_lifecycle_mirror.clone();
     let journal = JournalWriter::from_api(pi);
-    let _ = pi.register_tool(tool_definition(
+    pi.register_tool(tool_definition(
         "spawn_agent",
         "Spawn Agent",
         "Create a child agent record and optionally dispatch it through the multi-agent runtime.",
@@ -359,12 +379,16 @@ fn register_spawn_agent_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistr
                 .await
             })
         }),
-    ));
+    )).map_err(HandlerError::new)?;
+    Ok(())
 }
 
-fn register_list_agents_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+fn register_list_agents_tool(
+    pi: &ExtensionApi,
+    registration: &AgentsCoreRegistrationContext,
+) -> Result<(), HandlerError> {
     let store = Arc::clone(&registration.store);
-    let _ = pi.register_tool(tool_definition(
+    pi.register_tool(tool_definition(
         "list_agents",
         "List Agents",
         "List agents from the authoritative multi-agent store.",
@@ -378,10 +402,15 @@ fn register_list_agents_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistr
                 list_agents(&store, &params)
             })
         }),
-    ));
+    ))
+    .map_err(HandlerError::new)?;
+    Ok(())
 }
 
-fn register_attach_session_agent_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+fn register_attach_session_agent_tool(
+    pi: &ExtensionApi,
+    registration: &AgentsCoreRegistrationContext,
+) -> Result<(), HandlerError> {
     let store = Arc::clone(&registration.store);
     let create_attached_session = registration.create_attached_session.clone();
     let desktop_notifier = Arc::clone(&registration.desktop_notifier);
@@ -390,7 +419,7 @@ fn register_attach_session_agent_tool(pi: &ExtensionApi, registration: &AgentsCo
     let ownerships = Arc::clone(&registration.ownerships);
     let waiting = Arc::clone(&registration.waiting_desktop_notifications);
     let mirror = registration.runtime_lifecycle_mirror.clone();
-    let _ = pi.register_tool(tool_definition(
+    pi.register_tool(tool_definition(
         "attach_session_agent",
         "Attach Session Agent",
         "Attach or resume an existing saved session as an agent without changing its session ID.",
@@ -423,14 +452,19 @@ fn register_attach_session_agent_tool(pi: &ExtensionApi, registration: &AgentsCo
                 .await
             })
         }),
-    ));
+    ))
+    .map_err(HandlerError::new)?;
+    Ok(())
 }
 
-fn register_wait_agents_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+fn register_wait_agents_tool(
+    pi: &ExtensionApi,
+    registration: &AgentsCoreRegistrationContext,
+) -> Result<(), HandlerError> {
     let store = Arc::clone(&registration.store);
     let runtime_handles = registration.runtime_handles.clone();
     let mirror = registration.runtime_lifecycle_mirror.clone();
-    let _ = pi.register_tool(tool_definition(
+    pi.register_tool(tool_definition(
         "wait_agent",
         "Wait Agent",
         "Wait until an active agent terminates, steering wakes the wait, persisted coordination polling finds input, or 25 minutes elapse since the latest model request started. Timeout leaves agents running. Terminal wakes consume pending terminal notifications.",
@@ -446,13 +480,17 @@ fn register_wait_agents_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistr
                 wait_agents(&store, &runtime_handles, signal, Some(&ctx)).await
             })
         }),
-    ));
+    )).map_err(HandlerError::new)?;
+    Ok(())
 }
 
-fn register_cancel_agent_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+fn register_cancel_agent_tool(
+    pi: &ExtensionApi,
+    registration: &AgentsCoreRegistrationContext,
+) -> Result<(), HandlerError> {
     let store = Arc::clone(&registration.store);
     let runtime_handles = registration.runtime_handles.clone();
-    let _ = pi.register_tool(tool_definition(
+    pi.register_tool(tool_definition(
         "close_agent",
         "Close Agent",
         "Close an agent through the multi-agent store using the current store revision.",
@@ -467,13 +505,18 @@ fn register_cancel_agent_tool(pi: &ExtensionApi, registration: &AgentsCoreRegist
                 cancel_agent(&store, &runtime_handles, &params).await
             })
         }),
-    ));
+    ))
+    .map_err(HandlerError::new)?;
+    Ok(())
 }
 
-fn register_steer_agent_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+fn register_steer_agent_tool(
+    pi: &ExtensionApi,
+    registration: &AgentsCoreRegistrationContext,
+) -> Result<(), HandlerError> {
     let store = Arc::clone(&registration.store);
     let runtime_handles = registration.runtime_handles.clone();
-    let _ = pi.register_tool(tool_definition(
+    pi.register_tool(tool_definition(
         "steer_agent",
         "Steer Agent",
         "Queue a steering message through the multi-agent mailbox.",
@@ -488,12 +531,17 @@ fn register_steer_agent_tool(pi: &ExtensionApi, registration: &AgentsCoreRegistr
                 steer_agent(&store, &runtime_handles, &params, Some(&ctx))
             })
         }),
-    ));
+    ))
+    .map_err(HandlerError::new)?;
+    Ok(())
 }
 
-fn register_wait_slice_hooks(pi: &ExtensionApi, registration: &AgentsCoreRegistrationContext) {
+fn register_wait_slice_hooks(
+    pi: &ExtensionApi,
+    registration: &AgentsCoreRegistrationContext,
+) -> Result<(), HandlerError> {
     let started = registration.runtime_handles.latest_model_request_started_at.clone();
-    let _ = pi.on_model_request_start(move |_event, ctx| {
+    pi.on_model_request_start(move |_event, ctx| {
         let started = started.clone();
         Box::pin(async move {
             if !is_child_agent_runtime(&ctx)? {
@@ -506,9 +554,10 @@ fn register_wait_slice_hooks(pi: &ExtensionApi, registration: &AgentsCoreRegistr
             }
             Ok(None)
         }) as crate::core::extensions::types::BoxFuture<'static, Result<Option<()>, HandlerError>>
-    });
+    })
+    .map_err(HandlerError::new)?;
     let started = registration.runtime_handles.latest_model_request_started_at.clone();
-    let _ = pi.on_agent_end(move |_event, ctx| {
+    pi.on_agent_end(move |_event, ctx| {
         let started = started.clone();
         Box::pin(async move {
             if !is_child_agent_runtime(&ctx)? {
@@ -516,27 +565,29 @@ fn register_wait_slice_hooks(pi: &ExtensionApi, registration: &AgentsCoreRegistr
             }
             Ok(None)
         }) as crate::core::extensions::types::BoxFuture<'static, Result<Option<()>, HandlerError>>
-    });
+    })
+    .map_err(HandlerError::new)?;
+    Ok(())
 }
 
 pub fn register_agents_core_tools(pi: &ExtensionApi, options: &MultiAgentExtensionOptions) -> Result<(), HandlerError> {
     let registration = create_registration_context(options);
-    register_wait_slice_hooks(pi, &registration);
-    register_session_start_hook(pi, &registration);
-    register_session_shutdown_hook(pi, &registration);
-    register_background_command(pi, &registration);
-    register_jobs_command(pi, &registration);
-    register_spawn_agent_tool(pi, &registration);
+    register_wait_slice_hooks(pi, &registration)?;
+    register_session_start_hook(pi, &registration)?;
+    register_session_shutdown_hook(pi, &registration)?;
+    register_background_command(pi, &registration)?;
+    register_jobs_command(pi, &registration)?;
+    register_spawn_agent_tool(pi, &registration)?;
     super::agent_model_tool::register_set_agent_model_tool(
         pi,
         Arc::clone(&registration.store),
         registration.runtime_handles.clone(),
     )?;
-    register_list_agents_tool(pi, &registration);
-    register_attach_session_agent_tool(pi, &registration);
-    register_wait_agents_tool(pi, &registration);
-    register_cancel_agent_tool(pi, &registration);
-    register_steer_agent_tool(pi, &registration);
+    register_list_agents_tool(pi, &registration)?;
+    register_attach_session_agent_tool(pi, &registration)?;
+    register_wait_agents_tool(pi, &registration)?;
+    register_cancel_agent_tool(pi, &registration)?;
+    register_steer_agent_tool(pi, &registration)?;
     Ok(())
 }
 
@@ -760,17 +811,18 @@ fn notify_background_dispatch(
 ) {
     let handles = Arc::clone(handles);
     let ownerships = Arc::clone(ownerships);
-    let ui = ctx.ui().ok();
+    let ctx = ctx.clone();
     tokio::spawn(async move {
         if let Ok(agent) = promise.await {
             handles.lock().expect("sessions").remove(&agent.id);
             ownerships.lock().expect("ownerships").remove(&agent.id);
-            if let Some(ui) = ui {
-                ui.notify(
-                    &format_agent_status(&agent),
-                    Some(background_notification_level(&agent)),
-                );
-            }
+            let ui = ctx.ui().unwrap_or_else(|error| {
+                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message)
+            });
+            ui.notify(
+                &format_agent_status(&agent),
+                Some(background_notification_level(&agent)),
+            );
         }
     });
 }

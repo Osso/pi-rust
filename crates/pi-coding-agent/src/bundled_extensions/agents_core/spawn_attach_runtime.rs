@@ -168,7 +168,9 @@ pub async fn spawn_agent(input: SpawnAgentRuntimeInput<'_>) -> Result<AgentToolR
         Ok(constructed) => constructed,
         Err(result) => return Ok(*result),
     };
-    let committed = match commit_running_child(&valid, constructed) {
+    let session_manager = valid.ctx.session_manager()?;
+    let owner_session_id = lock_session_manager(&session_manager).get_session_id().to_owned();
+    let committed = match commit_running_child(&valid, constructed, &owner_session_id) {
         Ok(committed) => committed,
         Err(result) => return Ok(*result),
     };
@@ -394,26 +396,14 @@ async fn construct_child_session(
 fn commit_running_child(
     input: &ValidSpawnInput,
     spawn: ConstructedSpawn,
+    owner_session_id: &JsString,
 ) -> Result<CommittedSpawn, Box<AgentToolResult>> {
-    let session_manager = input
-        .ctx
-        .session_manager()
-        .map_err(|error| tool_result(error.message, json!({})))
-        .ok();
-    let owner_session_id = match session_manager {
-        Some(session_manager) => lock_session_manager(&session_manager).get_session_id().to_owned(),
-        None => input
-            .store
-            .get_persistence_target()
-            .map(|persistence| persistence.session_path)
-            .unwrap_or_default(),
-    };
     let created = spawn
         .prepared
         .coordinator
         .commit_running_child(
             &spawn.prepared.prepared,
-            &owner_session_id,
+            owner_session_id,
             runtime_process_identity(),
             None,
         )
@@ -1052,36 +1042,54 @@ fn resolve_configured_agent_profile(
         return Ok(ResolvedAgentProfile::default());
     };
     let profile = settings.lock().expect("settings").get_agent_profile(agent_type);
-    let Some(profile) = profile else {
+    let Some(profile) = profile.filter(pi_js_compat::js_json::is_truthy) else {
         return Ok(ResolvedAgentProfile::default());
     };
-    let model = profile.model.as_ref().and_then(|model| {
-        let registry = ctx.model_registry().ok()?;
-        find_exact_model_reference_match(&JsString::from(model), &registry.get_all())
-    });
-    let model_metadata = model.as_ref().map(|model| AgentModel {
-        provider_id: model.provider.to_string(),
-        model_id: model.id.clone(),
-        thinking_level: profile.thinking_level.map(|level| {
-            match level {
-                crate::core::settings_manager::AgentProfileThinkingLevel::Off => "off",
-                crate::core::settings_manager::AgentProfileThinkingLevel::Minimal => "minimal",
-                crate::core::settings_manager::AgentProfileThinkingLevel::Low => "low",
-                crate::core::settings_manager::AgentProfileThinkingLevel::Medium => "medium",
-                crate::core::settings_manager::AgentProfileThinkingLevel::High => "high",
-                crate::core::settings_manager::AgentProfileThinkingLevel::Xhigh => "xhigh",
-                crate::core::settings_manager::AgentProfileThinkingLevel::Max => "max",
-                crate::core::settings_manager::AgentProfileThinkingLevel::Ultra => "ultra",
-            }
-            .to_owned()
-        }),
+    let model = read_configured_profile_model(&profile, ctx)?;
+    let model_metadata = model
+        .as_ref()
+        .map(|model| {
+            let thinking_level = profile
+                .get("thinkingLevel")
+                .filter(|value| !value.is_null())
+                .map(pi_js_compat::js_json::from_value::<String>)
+                .transpose()
+                .map_err(|error| HandlerError::new(error.to_string()))?;
+            Ok::<_, HandlerError>(AgentModel {
+                provider_id: model.provider.to_string(),
+                model_id: model.id.clone(),
+                thinking_level,
+            })
+        })
+        .transpose()?;
+    // Production child-session creation selects inheritance by strict equality.
+    let context = profile.get("context").filter(|value| !value.is_null()).map(|value| {
+        if value.as_string().is_some_and(|context| context == "inherit") {
+            SpawnContext::Inherit
+        } else {
+            SpawnContext::Fresh
+        }
     });
     Ok(ResolvedAgentProfile {
-        context: profile.context.map(|context| match context {
-            crate::core::settings_manager::AgentProfileContext::Fresh => SpawnContext::Fresh,
-            crate::core::settings_manager::AgentProfileContext::Inherit => SpawnContext::Inherit,
-        }),
+        context,
         model,
         model_metadata,
     })
+}
+
+fn read_configured_profile_model(
+    profile: &Value,
+    ctx: &ExtensionContext,
+) -> Result<Option<pi_ai::types::Model>, HandlerError> {
+    let Some(reference) = profile
+        .get("model")
+        .filter(|value| pi_js_compat::js_json::is_truthy(value))
+    else {
+        return Ok(None);
+    };
+    let models = ctx.model_registry()?.get_all();
+    let reference = reference
+        .as_string()
+        .ok_or_else(|| HandlerError::new("modelReference.trim is not a function"))?;
+    Ok(find_exact_model_reference_match(reference, &models))
 }
