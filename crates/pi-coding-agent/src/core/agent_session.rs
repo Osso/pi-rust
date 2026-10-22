@@ -3269,7 +3269,7 @@ impl AgentSession {
             CustomMessageContent::Text(prompt.to_owned().into()),
             true,
             None,
-            now_millis(),
+            crate::utils::iso_time::now_iso_string(),
         ));
         Ok(true)
     }
@@ -3808,7 +3808,7 @@ impl AgentSession {
             preparation,
             &auth.model,
             &summary_options,
-            None::<&mut pi_agent_core::harness::compaction::NoRetryCallbacks>,
+            None::<&mut crate::core::compaction::NoRetryCallbacks>,
         )
         .await
         .map_err(|compaction_error| error(compaction_error.message()))
@@ -4500,7 +4500,7 @@ impl AgentSession {
                     content,
                     payload.display,
                     payload.details,
-                    now_millis(),
+                    crate::utils::iso_time::now_iso_string(),
                 ));
             }
         }
@@ -4666,7 +4666,13 @@ impl AgentSession {
         trigger_turn: bool,
         deliver_as: Option<StreamingBehavior>,
     ) -> Result<(), AgentSessionError> {
-        let app_message = create_custom_message(custom_type, content, display, details, now_millis());
+        let app_message = create_custom_message(
+            custom_type,
+            content,
+            display,
+            details,
+            crate::utils::iso_time::now_iso_string(),
+        );
         if self.is_streaming() {
             if deliver_as == Some(StreamingBehavior::FollowUp) {
                 self.inner.agent.follow_up(app_message);
@@ -4695,7 +4701,7 @@ impl AgentSession {
             content,
             display,
             details,
-            now_millis(),
+            crate::utils::iso_time::now_iso_string(),
         ));
     }
 

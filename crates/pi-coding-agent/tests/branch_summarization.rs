@@ -422,7 +422,7 @@ async fn returns_no_content_when_there_are_no_messages() {
     let result = generate_branch_summary(
         &[],
         &options(&model, None),
-        None::<&mut pi_agent_core::harness::compaction::NoRetryCallbacks>,
+        None::<&mut pi_coding_agent::core::compaction::NoRetryCallbacks>,
     )
     .await;
     assert_eq!(
@@ -446,7 +446,7 @@ async fn generates_a_preambled_summary_with_usage_and_file_lists() {
     let result = generate_branch_summary(
         &entries,
         &options(&model, Some(&stream_fn)),
-        None::<&mut pi_agent_core::harness::compaction::NoRetryCallbacks>,
+        None::<&mut pi_coding_agent::core::compaction::NoRetryCallbacks>,
     )
     .await;
 
@@ -487,7 +487,7 @@ async fn appends_custom_instructions_to_the_default_prompt() {
     let _ = generate_branch_summary(
         &entries,
         &options,
-        None::<&mut pi_agent_core::harness::compaction::NoRetryCallbacks>,
+        None::<&mut pi_coding_agent::core::compaction::NoRetryCallbacks>,
     )
     .await;
     let calls = log.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
@@ -509,7 +509,7 @@ async fn replaces_the_default_prompt_when_requested() {
     let _ = generate_branch_summary(
         &entries,
         &options,
-        None::<&mut pi_agent_core::harness::compaction::NoRetryCallbacks>,
+        None::<&mut pi_coding_agent::core::compaction::NoRetryCallbacks>,
     )
     .await;
     let calls = log.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
@@ -527,7 +527,7 @@ async fn reports_an_aborted_provider_response() {
     let result = generate_branch_summary(
         &entries,
         &options(&model, Some(&stream_fn)),
-        None::<&mut pi_agent_core::harness::compaction::NoRetryCallbacks>,
+        None::<&mut pi_coding_agent::core::compaction::NoRetryCallbacks>,
     )
     .await;
     assert_eq!(result.aborted, Some(true));
@@ -545,7 +545,7 @@ async fn reports_provider_errors_with_a_fallback_message() {
     let result = generate_branch_summary(
         &entries,
         &options(&model, Some(&stream_fn)),
-        None::<&mut pi_agent_core::harness::compaction::NoRetryCallbacks>,
+        None::<&mut pi_coding_agent::core::compaction::NoRetryCallbacks>,
     )
     .await;
     assert_eq!(result.error.as_ref(), Some(&JsString::from("Summarization failed")));

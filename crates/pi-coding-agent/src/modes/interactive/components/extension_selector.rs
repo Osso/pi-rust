@@ -160,6 +160,10 @@ fn set_text(target: &ComponentRef, text: JsString) {
 }
 
 impl Component for ExtensionSelectorComponent {
+    fn dispose(&mut self) {
+        ExtensionSelectorComponent::dispose(self);
+    }
+
     fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
         for child in &self.prefix_children {

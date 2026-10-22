@@ -10,7 +10,8 @@ pub mod utils;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use pi_agent_core::agent::{AgentMessage, StreamFn};
-use pi_agent_core::harness::compaction::NoRetryCallbacks;
+pub struct NoRetryCallbacks;
+impl pi_ai::utils::retry::RetryCallbacks for NoRetryCallbacks {}
 pub use pi_agent_core::harness::compaction::{ContextUsageEstimate, estimate_context_tokens, estimate_tokens};
 use pi_agent_core::harness::messages::{
     CompactionSummaryOptions as MessageCompactionSummaryOptions, convert_to_llm, create_branch_summary_message,
@@ -155,10 +156,6 @@ pub(crate) fn now_millis() -> i64 {
         .unwrap_or(0)
 }
 
-fn timestamp_millis(timestamp: &JsString) -> i64 {
-    pi_js_compat::date::date_parse_utf16(timestamp.units()) as i64
-}
-
 fn extract_file_operations(
     messages: &[AgentMessage],
     entries: &[SessionEntry],
@@ -198,17 +195,17 @@ fn get_message_from_entry(entry: &SessionEntry) -> Option<AgentMessage> {
             entry.content.clone(),
             entry.display,
             entry.details.clone(),
-            timestamp_millis(&entry.timestamp),
+            &entry.timestamp,
         )),
         Some(KnownSessionEntry::BranchSummary(entry)) => Some(create_branch_summary_message(
             &entry.summary,
             &entry.from_id,
-            timestamp_millis(&entry.timestamp),
+            &entry.timestamp,
         )),
         Some(KnownSessionEntry::Compaction(entry)) => Some(create_compaction_summary_message(
             &entry.summary,
             entry.tokens_before,
-            timestamp_millis(&entry.timestamp),
+            &entry.timestamp,
             &MessageCompactionSummaryOptions {
                 duration_ms: entry.duration_ms,
                 ..MessageCompactionSummaryOptions::default()
@@ -731,7 +728,7 @@ fn build_compaction_materialization_messages(
     let checkpoint = create_compaction_summary_message(
         &entry.summary,
         entry.tokens_before,
-        timestamp_millis(&entry.timestamp),
+        &entry.timestamp,
         &MessageCompactionSummaryOptions {
             duration_ms: entry.duration_ms,
             provider_native: entry.provider_native.as_deref().cloned(),

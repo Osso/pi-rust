@@ -387,6 +387,10 @@ impl ArminComponent {
 }
 
 impl Component for ArminComponent {
+    fn dispose(&mut self) {
+        ArminComponent::dispose(self);
+    }
+
     fn render(&mut self, width: usize) -> Vec<JsString> {
         if self.cached_width == Some(width) && self.cached_version == Some(self.grid_version) {
             return self.cached_lines.clone();

@@ -119,6 +119,10 @@ impl BorderedLoader {
 }
 
 impl Component for BorderedLoader {
+    fn dispose(&mut self) {
+        BorderedLoader::dispose(self);
+    }
+
     fn render(&mut self, width: usize) -> Vec<JsString> {
         self.container.render(width)
     }

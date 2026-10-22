@@ -7,12 +7,12 @@ use std::sync::{Arc, Mutex};
 use pi_agent_core::agent::AgentMessage;
 use pi_agent_core::harness::compaction::{
     CompactOptions, CompactionDetails, CompactionPreparation, CompactionSettings, ContextUsageEstimate, CutPointResult,
-    DEFAULT_COMPACTION_SETTINGS, GenerateSummaryOptions, NoRetryCallbacks, calculate_context_tokens, compact,
-    estimate_context_tokens, estimate_tokens, find_cut_point, find_turn_start_index, generate_summary,
-    generate_summary_with_usage, get_last_assistant_usage, prepare_compaction, should_compact,
+    DEFAULT_COMPACTION_SETTINGS, GenerateSummaryOptions, calculate_context_tokens, compact, estimate_context_tokens,
+    estimate_tokens, find_cut_point, find_turn_start_index, generate_summary, get_last_assistant_usage,
+    prepare_compaction, should_compact,
 };
 use pi_agent_core::harness::session::{
-    Entry, EntryBody, OptionalValue, SessionContextBuildOptions, build_session_context,
+    KnownSessionEntry, SessionTreeEntry as Entry, SessionTreeEntryBase, build_session_context,
 };
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::auth::resolve::ResolveError;
@@ -112,85 +112,58 @@ impl EntryFactory {
         Self { next_id: 0 }
     }
 
-    fn identity(&mut self) -> (String, i64) {
-        let id = format!("entry-{}", self.next_id);
+    fn base(&mut self, parent_id: Option<&JsString>) -> SessionTreeEntryBase {
+        let id = format!("entry-{}", self.next_id).into();
         self.next_id += 1;
-        (id, self.next_id)
-    }
-
-    fn message(&mut self, message: AgentMessage, parent_id: Option<&str>) -> Entry {
-        let (id, seq) = self.identity();
-        Entry {
-            body: EntryBody::Message {
-                id,
-                message,
-                terminate: None,
-            },
-            parent_id: parent_id.map(str::to_owned),
-            seq,
-            timestamp: seq,
+        SessionTreeEntryBase {
+            id,
+            parent_id: parent_id.cloned(),
+            timestamp: "2026-10-22T00:00:00.000Z".into(),
         }
     }
 
-    fn compaction(&mut self, summary: &str, parent_id: Option<&str>, retained_tail: Vec<AgentMessage>) -> Entry {
-        let (id, seq) = self.identity();
-        Entry {
-            body: EntryBody::Compaction {
-                id,
-                summary: JsString::from(summary.to_owned()),
-                tokens_before: 1234.0,
-                retained_tail,
-                duration_ms: None,
-                details: OptionalValue::Missing,
-                usage: None,
-            },
-            parent_id: parent_id.map(str::to_owned),
-            seq,
-            timestamp: seq,
-        }
+    fn message(&mut self, message: AgentMessage, parent_id: Option<&JsString>) -> Entry {
+        Entry::from_known(KnownSessionEntry::Message {
+            base: self.base(parent_id),
+            message,
+        })
     }
 
-    fn thinking_level(&mut self, level: &str, parent_id: Option<&str>) -> Entry {
-        let (id, seq) = self.identity();
-        Entry {
-            body: EntryBody::ThinkingLevelChange {
-                id,
-                thinking_level: level.to_owned(),
-            },
-            parent_id: parent_id.map(str::to_owned),
-            seq,
-            timestamp: seq,
-        }
+    fn compaction(&mut self, summary: &str, parent_id: Option<&JsString>, first_kept_entry_id: &JsString) -> Entry {
+        Entry::from_known(KnownSessionEntry::Compaction {
+            base: self.base(parent_id),
+            summary: summary.into(),
+            first_kept_entry_id: first_kept_entry_id.clone(),
+            tokens_before: 1234.0,
+            duration_ms: None,
+            details: None,
+            from_hook: None,
+        })
     }
 
-    fn model_change(&mut self, provider: &str, model_id: &str, parent_id: Option<&str>) -> Entry {
-        let (id, seq) = self.identity();
-        Entry {
-            body: EntryBody::ModelChange {
-                id,
-                provider: provider.to_owned(),
-                model_id: model_id.to_owned(),
-            },
-            parent_id: parent_id.map(str::to_owned),
-            seq,
-            timestamp: seq,
-        }
+    fn thinking_level(&mut self, level: &str, parent_id: Option<&JsString>) -> Entry {
+        Entry::from_known(KnownSessionEntry::ThinkingLevelChange {
+            base: self.base(parent_id),
+            thinking_level: level.into(),
+        })
     }
 
-    fn branch_summary(&mut self, from_id: &str, summary: &str, parent_id: Option<&str>) -> Entry {
-        let (id, seq) = self.identity();
-        Entry {
-            body: EntryBody::BranchSummary {
-                id,
-                from_id: from_id.to_owned(),
-                summary: JsString::from(summary.to_owned()),
-                details: OptionalValue::Missing,
-                usage: None,
-            },
-            parent_id: parent_id.map(str::to_owned),
-            seq,
-            timestamp: seq,
-        }
+    fn model_change(&mut self, provider: &str, model_id: &str, parent_id: Option<&JsString>) -> Entry {
+        Entry::from_known(KnownSessionEntry::ModelChange {
+            base: self.base(parent_id),
+            provider: provider.into(),
+            model_id: model_id.into(),
+        })
+    }
+
+    fn branch_summary(&mut self, from_id: &str, summary: &str, parent_id: Option<&JsString>) -> Entry {
+        Entry::from_known(KnownSessionEntry::BranchSummary {
+            base: self.base(parent_id),
+            from_id: from_id.into(),
+            summary: summary.into(),
+            details: None,
+            from_hook: None,
+        })
     }
 }
 
@@ -235,7 +208,7 @@ fn create_repeated_tool_cycle_entries(factory: &mut EntryFactory, cycle_count: u
 fn expect_kept_tool_results_follow_calls(entries: &[Entry], first_kept_index: usize, expected_result_text: &str) {
     let mut kept_tool_call_ids = std::collections::BTreeSet::new();
     for entry in &entries[first_kept_index..] {
-        let Some(message) = entry.body.message() else {
+        let Some(message) = entry.message() else {
             continue;
         };
         match message {
@@ -295,9 +268,9 @@ fn checks_compaction_threshold() {
 fn finds_a_cut_point_based_on_token_differences() {
     let mut factory = EntryFactory::new();
     let mut entries = Vec::new();
-    let mut parent_id: Option<String> = None;
+    let mut parent_id: Option<JsString> = None;
     for index in 0..10 {
-        let user = factory.message(user_message(&format!("User {index}")), parent_id.as_deref());
+        let user = factory.message(user_message(&format!("User {index}")), parent_id.as_ref());
         parent_id = Some(user.id().to_owned());
         entries.push(user);
         let assistant = factory.message(
@@ -305,17 +278,14 @@ fn finds_a_cut_point_based_on_token_differences() {
                 &format!("Assistant {index}"),
                 usage(0.0, 100.0, ((index + 1) as f64) * 1000.0, 0.0),
             ),
-            parent_id.as_deref(),
+            parent_id.as_ref(),
         );
         parent_id = Some(assistant.id().to_owned());
         entries.push(assistant);
     }
 
     let result = find_cut_point(&entries, 0, entries.len(), 2500.0);
-    assert_eq!(
-        entries[result.first_kept_entry_index as usize].entry_type().as_str(),
-        "message"
-    );
+    assert_eq!(entries[result.first_kept_entry_index as usize].kind(), "message");
 }
 
 #[test]
@@ -376,7 +346,7 @@ fn retains_latest_user_verbatim_when_active_assistant_suffix_exceeds_ten_thousan
     assert_eq!(result.first_kept_entry_index, 2.0);
     assert_eq!(entries[2].id(), entries[2].id());
     assert_eq!(
-        role(entries[result.first_kept_entry_index as usize].body.message().unwrap()),
+        role(entries[result.first_kept_entry_index as usize].message().unwrap()),
         "user"
     );
     assert!(!result.is_split_turn);
@@ -408,7 +378,7 @@ fn retains_latest_user_verbatim_when_active_tool_suffix_exceeds_ten_thousand_tok
 
     let result = find_cut_point(&entries, 0, entries.len(), 20_000.0);
     assert_eq!(result.first_kept_entry_index, 2.0);
-    assert_eq!(role(entries[2].body.message().unwrap()), "user");
+    assert_eq!(role(entries[2].message().unwrap()), "user");
 }
 
 #[test]
@@ -434,10 +404,10 @@ fn prepares_compaction_without_summarizing_the_latest_active_user_turn_start() {
     assert!(
         !preparation
             .messages_to_summarize
-            .contains(latest_user.body.message().unwrap())
+            .contains(latest_user.message().unwrap())
     );
     assert!(preparation.turn_prefix_messages.is_empty());
-    assert_eq!(preparation.retained_tail[0], *latest_user.body.message().unwrap());
+    assert_eq!(preparation.first_kept_entry_id, *latest_user.id());
 }
 
 #[test]
@@ -455,10 +425,10 @@ fn prepares_a_split_turn_for_repeated_ordinary_sized_tool_cycles() {
 
     let first_kept = entries
         .iter()
-        .position(|entry| entry.body.message() == Some(&preparation.retained_tail[0]))
+        .position(|entry| entry.id() == &preparation.first_kept_entry_id)
         .expect("retained tail must come from an entry");
     assert!(first_kept > 0);
-    assert_eq!(role(entries[first_kept].body.message().unwrap()), "assistant");
+    assert_eq!(role(entries[first_kept].message().unwrap()), "assistant");
     expect_kept_tool_results_follow_calls(&entries, first_kept, &result_text);
 }
 
@@ -534,7 +504,7 @@ fn covers_cut_point_and_turn_start_edge_cases() {
     );
 
     let user = factory.message(user_message("user"), None);
-    let compaction = factory.compaction("summary", Some(user.id()), Vec::new());
+    let compaction = factory.compaction("summary", Some(user.id()), &"missing".into());
     let assistant = factory.message(
         assistant_message("assistant", usage(100.0, 50.0, 0.0, 0.0)),
         Some(compaction.id()),
@@ -708,18 +678,11 @@ fn builds_session_context_with_a_compaction_entry() {
     let a1 = factory.message(assistant_message("a", usage(100.0, 50.0, 0.0, 0.0)), Some(u1.id()));
     let u2 = factory.message(user_message("2"), Some(a1.id()));
     let a2 = factory.message(assistant_message("b", usage(100.0, 50.0, 0.0, 0.0)), Some(u2.id()));
-    let compaction = factory.compaction(
-        "Summary of 1,a,2,b",
-        Some(a2.id()),
-        vec![user_message("2"), assistant_message("b", usage(100.0, 50.0, 0.0, 0.0))],
-    );
+    let compaction = factory.compaction("Summary of 1,a,2,b", Some(a2.id()), u2.id());
     let u3 = factory.message(user_message("3"), Some(compaction.id()));
     let a3 = factory.message(assistant_message("c", usage(100.0, 50.0, 0.0, 0.0)), Some(u3.id()));
 
-    let loaded = build_session_context(
-        &[u1, a1, u2, a2, compaction, u3, a3],
-        &SessionContextBuildOptions::default(),
-    );
+    let loaded = build_session_context(&[u1, a1, u2, a2, compaction, u3, a3]).unwrap();
     assert_eq!(loaded.messages.len(), 5);
     assert_eq!(
         loaded.messages.iter().map(|message| message.role()).collect::<Vec<_>>(),
@@ -738,15 +701,12 @@ fn tracks_model_and_thinking_level_changes_in_built_context() {
     );
     let thinking_change = factory.thinking_level("high", Some(assistant.id()));
 
-    let loaded = build_session_context(
-        &[user, model_change, assistant, thinking_change],
-        &SessionContextBuildOptions::default(),
-    );
+    let loaded = build_session_context(&[user, model_change, assistant, thinking_change]).unwrap();
     assert_eq!(
         loaded.model,
         Some(pi_agent_core::harness::session::SessionModel {
-            provider: "anthropic".to_owned(),
-            model_id: "claude-sonnet-4-5".to_owned(),
+            provider: "anthropic".into(),
+            model_id: "claude-sonnet-4-5".into(),
         })
     );
     assert_eq!(loaded.thinking_level, "high");
@@ -765,7 +725,7 @@ fn prepares_compaction_using_the_latest_compaction_summary_as_previous_summary()
         assistant_message("assistant msg 2", usage(5000.0, 1000.0, 0.0, 0.0)),
         Some(u2.id()),
     );
-    let compaction1 = factory.compaction("First summary", Some(a2.id()), Vec::new());
+    let compaction1 = factory.compaction("First summary", Some(a2.id()), &"missing".into());
     let u3 = factory.message(user_message("user msg 3"), Some(compaction1.id()));
     let a3 = factory.message(
         assistant_message("assistant msg 3", usage(8000.0, 2000.0, 0.0, 0.0)),
@@ -785,8 +745,12 @@ fn prepares_compaction_using_the_latest_compaction_summary_as_previous_summary()
         preparation.previous_summary.as_ref(),
         Some(&JsString::from("First summary"))
     );
-    assert!(!preparation.retained_tail.is_empty());
-    let context = build_session_context(&path_entries, &SessionContextBuildOptions::default());
+    assert!(
+        path_entries
+            .iter()
+            .any(|entry| entry.id() == &preparation.first_kept_entry_id)
+    );
+    let context = build_session_context(&path_entries).unwrap();
     assert_eq!(
         preparation.tokens_before,
         estimate_context_tokens(&context.messages).tokens
@@ -794,14 +758,16 @@ fn prepares_compaction_using_the_latest_compaction_summary_as_previous_summary()
 }
 
 #[test]
-fn carries_a_previous_compactions_retained_tail_into_the_next_preparation() {
+fn carries_previous_compactions_kept_entries_into_the_next_preparation() {
     let mut factory = EntryFactory::new();
     let retained_user = user_message("retained user");
     let retained_assistant = assistant_message("retained assistant", usage(100.0, 50.0, 0.0, 0.0));
+    let retained_user_entry = factory.message(retained_user.clone(), None);
+    let retained_assistant_entry = factory.message(retained_assistant.clone(), Some(retained_user_entry.id()));
     let compaction = factory.compaction(
         "previous summary",
-        None,
-        vec![retained_user.clone(), retained_assistant.clone()],
+        Some(retained_assistant_entry.id()),
+        retained_user_entry.id(),
     );
     let user = factory.message(user_message("new user"), Some(compaction.id()));
     let assistant = factory.message(
@@ -809,7 +775,14 @@ fn carries_a_previous_compactions_retained_tail_into_the_next_preparation() {
         Some(user.id()),
     );
 
-    let preparation = prepare_compaction(&[compaction, user.clone(), assistant.clone()], &settings(100.0, 1.0))
+    let path = [
+        retained_user_entry,
+        retained_assistant_entry,
+        compaction,
+        user.clone(),
+        assistant.clone(),
+    ];
+    let preparation = prepare_compaction(&path, &settings(100.0, 1.0))
         .expect("preparation must not fail")
         .expect("preparation must be defined");
     assert_eq!(
@@ -819,14 +792,18 @@ fn carries_a_previous_compactions_retained_tail_into_the_next_preparation() {
 
     let mut all = preparation.messages_to_summarize.clone();
     all.extend(preparation.turn_prefix_messages.clone());
-    all.extend(preparation.retained_tail.clone());
+    let first_kept = path
+        .iter()
+        .position(|entry| entry.id() == &preparation.first_kept_entry_id)
+        .unwrap();
+    all.extend(path[first_kept..].iter().filter_map(Entry::message).cloned());
     assert_eq!(
         all,
         vec![
             retained_user,
             retained_assistant,
-            user.body.message().unwrap().clone(),
-            assistant.body.message().unwrap().clone(),
+            user.message().unwrap().clone(),
+            assistant.message().unwrap().clone(),
         ]
     );
 }
@@ -844,13 +821,15 @@ fn prepares_split_turn_compaction_with_prior_file_operation_details() {
         ),
         Some(u1.id()),
     );
-    let mut compaction1 = factory.compaction("First summary", Some(a1.id()), Vec::new());
-    if let EntryBody::Compaction { details, .. } = &mut compaction1.body {
-        *details = OptionalValue::Present(JsValue::from(json!({
-            "readFiles": ["old-read.ts"],
-            "modifiedFiles": ["old-edit.ts", "written.ts"]
-        })));
-    }
+    let mut compaction1 = factory.compaction("First summary", Some(a1.id()), &"missing".into());
+    let mut raw = compaction1.value();
+    raw.as_object_mut().unwrap().insert(
+        "details".into(),
+        JsValue::from(json!({
+            "readFiles": ["old-read.ts"], "modifiedFiles": ["old-edit.ts", "written.ts"]
+        })),
+    );
+    compaction1 = Entry::from_value(raw).unwrap();
     let u2 = factory.message(user_message("large turn"), Some(compaction1.id()));
     let prefix_assistant = factory.message(
         assistant_message("early assistant work", usage(100.0, 50.0, 0.0, 0.0)),
@@ -889,7 +868,7 @@ fn prepares_split_turn_compaction_with_prior_file_operation_details() {
 #[test]
 fn does_not_prepare_compaction_when_there_is_nothing_valid_to_compact() {
     let mut factory = EntryFactory::new();
-    let compaction = factory.compaction("already compacted", None, Vec::new());
+    let compaction = factory.compaction("already compacted", None, &"missing".into());
     assert!(
         prepare_compaction(&[compaction], &DEFAULT_COMPACTION_SETTINGS)
             .expect("preparation must not fail")
@@ -1056,7 +1035,6 @@ fn summary_options<'a>(
         custom_instructions: None,
         previous_summary: None,
         thinking_level: None,
-        retry: None,
     }
 }
 
@@ -1064,7 +1042,7 @@ fn preparation(messages: Vec<AgentMessage>, settings: CompactionSettings) -> Com
     CompactionPreparation {
         messages_to_summarize: messages.clone(),
         turn_prefix_messages: Vec::new(),
-        retained_tail: messages,
+        first_kept_entry_id: "kept-entry".into(),
         is_split_turn: false,
         tokens_before: 100.0,
         previous_summary: None,
@@ -1078,7 +1056,7 @@ fn preparation(messages: Vec<AgentMessage>, settings: CompactionSettings) -> Com
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn passes_reasoning_through_generate_summary_only_for_reasoning_models_with_thinking_enabled() {
+async fn ignores_reasoning_for_summary_generation_like_frozen() {
     let messages = vec![user_message("Summarize this.")];
     let log: CallLog = Arc::default();
 
@@ -1088,10 +1066,7 @@ async fn passes_reasoning_through_generate_summary_only_for_reasoning_models_wit
     let mut options = summary_options(&messages, &models, &reasoning_model, 2000.0);
     options.thinking_level = Some(ThinkingLevel::Medium);
     generate_summary(&options).await.expect("summary must succeed");
-    assert_eq!(
-        log.lock().unwrap()[0].reasoning,
-        Some(pi_ai::types::ThinkingLevel::Medium)
-    );
+    assert_eq!(log.lock().unwrap()[0].reasoning, None);
 
     let (off_faux, off_model) = create_faux_model(true, 8192.0);
     let models = registered_models(&off_faux);
@@ -1123,17 +1098,8 @@ async fn includes_previous_summaries_and_custom_instructions_in_generate_summary
     options.custom_instructions = Some(&options_custom_instructions);
     let options_previous_summary = JsString::from("old summary");
     options.previous_summary = Some(&options_previous_summary);
-    let summary = generate_summary_with_usage(&options)
-        .await
-        .expect("summary must succeed");
-
-    assert!(summary.text.contains("Test summary"));
-    assert!(summary.usage.input > 0.0);
-    assert!(summary.usage.output > 0.0);
-    assert_eq!(
-        summary.usage.total_tokens,
-        summary.usage.input + summary.usage.output + summary.usage.cache_read + summary.usage.cache_write
-    );
+    let summary = generate_summary(&options).await.expect("summary must succeed");
+    assert!(summary.contains("Test summary"));
     let prompt = &log.lock().unwrap()[0].prompt;
     assert!(prompt.contains("<previous-summary>\nold summary\n</previous-summary>"));
     assert!(prompt.contains("Additional focus: focus"));
@@ -1206,10 +1172,10 @@ async fn clamps_compaction_summary_max_tokens_to_the_model_output_cap() {
     );
     assert_eq!(
         calls.iter().map(|call| call.cache_retention).collect::<Vec<_>>(),
-        [Some(CacheRetention::None), Some(CacheRetention::None)]
+        [None, None]
     );
-    assert_ne!(calls[0].session_id, calls[1].session_id);
-    assert!(calls[0].session_id.is_some());
+    assert_eq!(calls[0].session_id, None);
+    assert_eq!(calls[1].session_id, None);
 }
 
 #[tokio::test]
@@ -1235,7 +1201,7 @@ async fn returns_compaction_error_results_without_throwing() {
 }
 
 #[tokio::test]
-async fn combines_usage_for_split_turn_compaction_summaries() {
+async fn combines_text_for_split_turn_compaction_summaries() {
     let messages = vec![user_message("Summarize this.")];
     let (_, model) = create_faux_model(false, 8192.0);
 
@@ -1255,11 +1221,14 @@ async fn combines_usage_for_split_turn_compaction_summaries() {
     let result = compact(&preparation, &models, &model, &CompactOptions::default())
         .await
         .expect("compaction must succeed");
-    assert_eq!(result.usage, Some(usage(6.0, 8.0, 10.0, 12.0)));
+    assert_eq!(
+        result.summary,
+        "history summary\n\n---\n\n**Turn Context (split turn):**\n\nturn prefix summary"
+    );
 }
 
 #[tokio::test]
-async fn passes_reasoning_through_turn_prefix_summaries_when_enabled() {
+async fn ignores_reasoning_for_turn_prefix_summaries_like_frozen() {
     let messages = vec![user_message("Summarize this.")];
     let log: CallLog = Arc::default();
     let (faux, model) = create_faux_model(true, 8192.0);
@@ -1270,8 +1239,7 @@ async fn passes_reasoning_through_turn_prefix_summaries_when_enabled() {
     ));
 
     let mut preparation = preparation(messages, settings(2000.0, 20.0));
-    preparation.messages_to_summarize = Vec::new();
-    preparation.turn_prefix_messages = preparation.retained_tail.clone();
+    preparation.turn_prefix_messages = std::mem::take(&mut preparation.messages_to_summarize);
     preparation.is_split_turn = true;
 
     let options = CompactOptions {
@@ -1282,10 +1250,7 @@ async fn passes_reasoning_through_turn_prefix_summaries_when_enabled() {
         .await
         .expect("compaction must succeed");
 
-    assert_eq!(
-        log.lock().unwrap()[0].reasoning,
-        Some(pi_ai::types::ThinkingLevel::High)
-    );
+    assert_eq!(log.lock().unwrap()[0].reasoning, None);
 }
 
 #[tokio::test]
@@ -1296,8 +1261,7 @@ async fn returns_turn_prefix_compaction_errors_without_throwing() {
     faux.set_responses(vec![scripted_failure(StopReason::Error, "prefix failed")]);
 
     let mut preparation = preparation(messages, settings(2000.0, 20.0));
-    preparation.messages_to_summarize = Vec::new();
-    preparation.turn_prefix_messages = preparation.retained_tail.clone();
+    preparation.turn_prefix_messages = std::mem::take(&mut preparation.messages_to_summarize);
     preparation.is_split_turn = true;
 
     let error = compact(&preparation, &models, &model, &CompactOptions::default())
@@ -1347,8 +1311,7 @@ async fn returns_a_compaction_result_with_file_details() {
 
     assert!(!result.summary.is_empty());
     assert!(result.duration_ms.is_some_and(|duration| duration >= 0.0));
-    assert!(result.usage.is_some_and(|usage| usage.total_tokens > 0.0));
-    assert!(!result.retained_tail.is_empty());
+    assert_eq!(result.first_kept_entry_id, preparation.first_kept_entry_id);
     assert_eq!(
         result.details,
         Some(CompactionDetails {
@@ -1357,12 +1320,6 @@ async fn returns_a_compaction_result_with_file_details() {
         })
     );
     assert_eq!(result.tokens_before, preparation.tokens_before);
-}
-
-#[test]
-fn exposes_a_no_op_retry_callback_type() {
-    fn assert_callbacks<C: pi_ai::utils::retry::RetryCallbacks>() {}
-    assert_callbacks::<NoRetryCallbacks>();
 }
 
 // ---------------------------------------------------------------------------

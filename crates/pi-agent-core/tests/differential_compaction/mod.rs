@@ -11,11 +11,12 @@ use pi_agent_core::harness::compaction::branch_summarization::{
 use pi_agent_core::harness::compaction::utils::{FileLists, compute_file_lists, format_file_operations};
 use pi_agent_core::harness::compaction::{
     CompactOptions, CompactionPreparation, CompactionSettings, GenerateSummaryOptions, calculate_context_tokens,
-    compact, estimate_context_tokens, estimate_tokens, find_cut_point, find_turn_start_index,
-    generate_summary_with_usage, get_last_assistant_usage, prepare_compaction, serialize_conversation,
+    compact, estimate_context_tokens, estimate_tokens, find_cut_point, find_turn_start_index, generate_summary,
+    get_last_assistant_usage, prepare_compaction, serialize_conversation,
 };
 use pi_agent_core::harness::session::{
-    Entry, EntryBody, IdGenerator, InMemorySessionStorage, OptionalValue, Session, SessionMetadata,
+    InMemorySessionStorage, InMemorySessionStorageOptions, KnownSessionEntry, Session, SessionTreeEntry as Entry,
+    SessionTreeEntryBase,
 };
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::models::{CreateModelsOptions, MutableModels, create_models};
@@ -37,7 +38,7 @@ use support::TsOracle;
 const COMPACTION_MODULE: &str = "packages/agent-core/src/harness/compaction/compaction.ts";
 const BRANCH_MODULE: &str = "packages/agent-core/src/harness/compaction/branch-summarization.ts";
 const MESSAGES_MODULE: &str = "packages/agent-core/src/harness/messages.ts";
-const SESSION_MODULE: &str = "packages/agent/src/harness/session/index.ts";
+const SESSION_MODULE: &str = "packages/agent-core/src/harness/session/session.ts";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -122,68 +123,46 @@ fn custom_message(value: Value) -> AgentMessage {
 }
 
 struct EntryFactory {
-    next_id: i64,
+    next_id: usize,
 }
-
 impl EntryFactory {
     fn new() -> Self {
         Self { next_id: 0 }
     }
-
-    fn identity(&mut self) -> (String, i64) {
-        let id = format!("entry-{}", self.next_id);
+    fn base(&mut self, parent_id: Option<&JsString>) -> SessionTreeEntryBase {
+        let id = format!("entry-{}", self.next_id).into();
         self.next_id += 1;
-        (id, self.next_id)
-    }
-
-    fn message(&mut self, message: AgentMessage, parent_id: Option<&str>) -> Entry {
-        let (id, seq) = self.identity();
-        Entry {
-            body: EntryBody::Message {
-                id,
-                message,
-                terminate: None,
-            },
-            parent_id: parent_id.map(str::to_owned),
-            seq,
-            timestamp: seq,
+        SessionTreeEntryBase {
+            id,
+            parent_id: parent_id.cloned(),
+            timestamp: "2026-10-22T00:00:00.000Z".into(),
         }
     }
-
-    fn compaction(&mut self, summary: &str, parent_id: Option<&str>, retained_tail: Vec<AgentMessage>) -> Entry {
-        let (id, seq) = self.identity();
-        Entry {
-            body: EntryBody::Compaction {
-                id,
-                summary: JsString::from(summary.to_owned()),
-                tokens_before: 1234.0,
-                retained_tail,
-                duration_ms: None,
-                details: OptionalValue::Missing,
-                usage: None,
-            },
-            parent_id: parent_id.map(str::to_owned),
-            seq,
-            timestamp: seq,
-        }
+    fn message(&mut self, message: AgentMessage, parent_id: Option<&JsString>) -> Entry {
+        Entry::from_known(KnownSessionEntry::Message {
+            base: self.base(parent_id),
+            message,
+        })
     }
-
+    fn compaction(&mut self, summary: &str, parent_id: Option<&JsString>, first_kept_entry_id: &JsString) -> Entry {
+        Entry::from_known(KnownSessionEntry::Compaction {
+            base: self.base(parent_id),
+            summary: summary.into(),
+            first_kept_entry_id: first_kept_entry_id.clone(),
+            tokens_before: 1234.0,
+            duration_ms: None,
+            details: None,
+            from_hook: None,
+        })
+    }
     fn branch_summary(&mut self, summary: &str, details: Option<Value>) -> Entry {
-        let (id, seq) = self.identity();
-        Entry {
-            body: EntryBody::BranchSummary {
-                id,
-                from_id: "branch".to_owned(),
-                summary: JsString::from(summary.to_owned()),
-                details: details
-                    .map(JsValue::from)
-                    .map_or(OptionalValue::Missing, OptionalValue::Present),
-                usage: None,
-            },
-            parent_id: None,
-            seq,
-            timestamp: seq,
-        }
+        Entry::from_known(KnownSessionEntry::BranchSummary {
+            base: self.base(None),
+            from_id: "branch".into(),
+            summary: summary.into(),
+            details: details.map(JsValue::from),
+            from_hook: None,
+        })
     }
 }
 
@@ -232,7 +211,7 @@ fn preparation_json(preparation: &CompactionPreparation) -> Value {
     let mut value = json!({
         "messagesToSummarize": preparation.messages_to_summarize.iter().map(message_json).collect::<Vec<_>>(),
         "turnPrefixMessages": preparation.turn_prefix_messages.iter().map(message_json).collect::<Vec<_>>(),
-        "retainedTail": preparation.retained_tail.iter().map(message_json).collect::<Vec<_>>(),
+        "firstKeptEntryId": preparation.first_kept_entry_id,
         "isSplitTurn": preparation.is_split_turn,
         "tokensBefore": preparation.tokens_before,
         "fileOps": file_ops_json(&preparation.file_ops),
@@ -644,7 +623,7 @@ fn compare_find_cut_point(oracle: &mut TsOracle) {
     ];
     let cycle_entries = repeated_tool_cycle_entries(&mut factory, 24, &"x".repeat(4_000));
     let thinking = factory.message(user_message("user"), None);
-    let compaction = factory.compaction("summary", Some(thinking.id()), Vec::new());
+    let compaction = factory.compaction("summary", Some(thinking.id()), &"missing".into());
     let assistant = factory.message(
         assistant_message("assistant", usage(100.0, 50.0, 0.0, 0.0)),
         Some(compaction.id()),
@@ -723,12 +702,13 @@ fn compare_prepare_compaction(oracle: &mut TsOracle) {
         assistant_message("assistant msg 2", usage(5000.0, 1000.0, 0.0, 0.0)),
         Some(u2.id()),
     );
-    let mut compaction = factory.compaction("First summary", Some(a2.id()), Vec::new());
-    if let EntryBody::Compaction { details, .. } = &mut compaction.body {
-        *details = OptionalValue::Present(JsValue::from(
-            json!({"readFiles": ["old-read.ts"], "modifiedFiles": ["old-edit.ts"]}),
-        ));
-    }
+    let mut compaction = factory.compaction("First summary", Some(a2.id()), &"missing".into());
+    let mut raw = compaction.value();
+    raw.as_object_mut().unwrap().insert(
+        "details".into(),
+        JsValue::from(json!({"readFiles": ["old-read.ts"], "modifiedFiles": ["old-edit.ts"]})),
+    );
+    compaction = Entry::from_value(raw).unwrap();
     let u3 = factory.message(user_message("user msg 3"), Some(compaction.id()));
     let a3 = factory.message(
         tool_call_message(
@@ -746,23 +726,27 @@ fn compare_prepare_compaction(oracle: &mut TsOracle) {
     );
     let full_path = vec![u1, a1, u2, a2, compaction, u3, a3, tool_result, a4];
 
-    let retained_compaction = factory.compaction(
-        "previous summary",
-        None,
-        vec![
-            user_message("retained user"),
-            assistant_message("retained assistant", usage(100.0, 50.0, 0.0, 0.0)),
-        ],
+    let retained_user = factory.message(user_message("retained user"), None);
+    let retained_assistant = factory.message(
+        assistant_message("retained assistant", usage(100.0, 50.0, 0.0, 0.0)),
+        Some(retained_user.id()),
     );
+    let retained_compaction = factory.compaction("previous summary", Some(retained_assistant.id()), retained_user.id());
     let new_user = factory.message(user_message("new user"), Some(retained_compaction.id()));
     let new_assistant = factory.message(
         assistant_message("new assistant", usage(100.0, 50.0, 0.0, 0.0)),
         Some(new_user.id()),
     );
-    let retained_path = vec![retained_compaction, new_user, new_assistant];
+    let retained_path = vec![
+        retained_user,
+        retained_assistant,
+        retained_compaction,
+        new_user,
+        new_assistant,
+    ];
 
     let cycle_entries = repeated_tool_cycle_entries(&mut factory, 24, &"x".repeat(4_000));
-    let already_compacted = factory.compaction("already compacted", None, Vec::new());
+    let already_compacted = factory.compaction("already compacted", None, &"missing".into());
 
     let cases: Vec<(&str, Vec<Entry>, CompactionSettings)> = vec![
         ("default", full_path.clone(), settings(16384.0, 20000.0)),
@@ -902,7 +886,7 @@ fn compare_prepare_branch_entries(oracle: &mut TsOracle) {
     });
     let response = oracle.request(&request);
     for (name, entries, budget) in &cases {
-        let preparation = prepare_branch_entries(entries, *budget);
+        let preparation = prepare_branch_entries(entries, Some(*budget));
         let expected = json!({
             "messages": preparation.messages.iter().map(message_json).collect::<Vec<_>>(),
             "fileOps": file_ops_json(&preparation.file_ops),
@@ -1095,15 +1079,10 @@ async fn compare_generate_summary(oracle: &mut TsOracle) {
             custom_instructions: native_custom.as_ref(),
             previous_summary: native_previous.as_ref(),
             thinking_level: (*thinking).map(parse_thinking_level),
-            retry: None,
         };
         let _ = &mut options;
-        match generate_summary_with_usage(&options).await {
-            Ok(summary) => expect_output(
-                &response,
-                name,
-                &json!({"text": summary.text, "usage": usage_json(&summary.usage), "calls": take_calls(&log)}),
-            ),
+        match generate_summary(&options).await {
+            Ok(summary) => expect_output(&response, name, &json!({"text": summary, "calls": take_calls(&log)})),
             Err(error) => expect_error(&response, name, error.code.as_str(), &error.message),
         }
     }
@@ -1125,14 +1104,14 @@ fn parse_thinking_level(value: &str) -> ThinkingLevel {
 fn direct_preparation(
     messages: Vec<AgentMessage>,
     turn_prefix_messages: Vec<AgentMessage>,
-    retained_tail: Vec<AgentMessage>,
+    first_kept_entry_id: &str,
     is_split_turn: bool,
     settings: CompactionSettings,
 ) -> CompactionPreparation {
     CompactionPreparation {
         messages_to_summarize: messages,
         turn_prefix_messages,
-        retained_tail,
+        first_kept_entry_id: first_kept_entry_id.into(),
         is_split_turn,
         tokens_before: 100.0,
         previous_summary: None,
@@ -1149,28 +1128,22 @@ async fn compare_compact(oracle: &mut TsOracle) {
     let split_preparation = direct_preparation(
         messages.clone(),
         messages.clone(),
-        messages.clone(),
+        "kept-entry",
         true,
         settings(2000.0, 20.0),
     );
-    let prefix_only = direct_preparation(
-        Vec::new(),
-        messages.clone(),
-        messages.clone(),
-        true,
-        settings(2000.0, 20.0),
-    );
+    let prefix_only = direct_preparation(Vec::new(), messages.clone(), "kept-entry", true, settings(2000.0, 20.0));
     let history_only = direct_preparation(
         messages.clone(),
         Vec::new(),
-        messages.clone(),
+        "kept-entry",
         false,
         settings(2000.0, 20.0),
     );
     let clamp_preparation = direct_preparation(
         messages.clone(),
         messages.clone(),
-        messages.clone(),
+        "kept-entry",
         true,
         settings(500000.0, 20.0),
     );
@@ -1271,7 +1244,6 @@ async fn compare_compact(oracle: &mut TsOracle) {
             custom_instructions: None,
             signal: None,
             thinking_level: (*thinking).map(parse_thinking_level),
-            retry: None,
         };
         match compact(preparation, &models, &model, &options).await {
             Ok(result) => expect_output(
@@ -1280,8 +1252,7 @@ async fn compare_compact(oracle: &mut TsOracle) {
                 &json!({
                     "summary": result.summary,
                     "tokensBefore": result.tokens_before,
-                    "usage": result.usage.as_ref().map(usage_json),
-                    "retainedTail": result.retained_tail.iter().map(message_json).collect::<Vec<_>>(),
+                    "firstKeptEntryId": result.first_kept_entry_id,
                     "details": result.details.as_ref().map(|details| json!({
                         "readFiles": details.read_files,
                         "modifiedFiles": details.modified_files,
@@ -1426,7 +1397,6 @@ async fn compare_generate_branch_summary(oracle: &mut TsOracle) {
             custom_instructions: native_custom.as_ref(),
             replace_instructions: *replace,
             reserve_tokens: *reserve,
-            retry: None,
         };
         match generate_branch_summary(entries, &options).await {
             Ok(result) => expect_output(
@@ -1434,7 +1404,6 @@ async fn compare_generate_branch_summary(oracle: &mut TsOracle) {
                 name,
                 &json!({
                     "summary": result.summary,
-                    "usage": result.usage.as_ref().map(usage_json),
                     "readFiles": result.read_files,
                     "modifiedFiles": result.modified_files,
                     "calls": take_calls(&log),
@@ -1444,6 +1413,7 @@ async fn compare_generate_branch_summary(oracle: &mut TsOracle) {
                 let code = match error.code {
                     BranchSummaryErrorCode::Aborted => "aborted",
                     BranchSummaryErrorCode::SummarizationFailed => "summarization_failed",
+                    BranchSummaryErrorCode::InvalidSession => "invalid_session",
                 };
                 expect_error(&response, name, code, &error.message);
             }
@@ -1451,89 +1421,31 @@ async fn compare_generate_branch_summary(oracle: &mut TsOracle) {
     }
 }
 
-struct CountingIdGenerator {
-    next: Mutex<i64>,
-}
-
-impl CountingIdGenerator {
-    fn new() -> Self {
-        Self { next: Mutex::new(0) }
-    }
-}
-
-impl IdGenerator for CountingIdGenerator {
-    fn next(&self) -> String {
-        let mut next = self.next.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        *next += 1;
-        format!("entry-{next}")
-    }
-}
-
 async fn compare_collect_entries(oracle: &mut TsOracle) {
-    let operations = json!([
-        {"op": "append", "text": "root"},
-        {"op": "append", "text": "common"},
-        {"op": "append", "text": "abandoned 1"},
-        {"op": "append", "text": "abandoned 2"},
-        {"op": "lane", "name": "target", "at": "entry-2"},
-        {"op": "append", "lane": "target", "text": "target"},
-    ]);
-    let cases = [
-        ("branch", operations.clone(), Some("entry-4"), "entry-5"),
-        (
-            "no previous leaf",
-            json!([{"op": "append", "text": "target"}]),
-            None,
-            "entry-1",
-        ),
-    ];
-
-    let request = json!({
-        "id": "collect_entries_for_branch_summary",
-        "operation": "collect_entries_for_branch_summary",
-        "cases": cases.iter().map(|(name, operations, old_leaf_id, target_id)| json!({
-            "name": name,
-            "operations": operations,
-            "oldLeafId": old_leaf_id,
-            "targetId": target_id,
-        })).collect::<Vec<_>>(),
-    });
-    let response = oracle.request(&request);
-
-    for (name, operations, old_leaf_id, target_id) in cases {
-        let session = Session::with_id_generator(
-            Arc::new(InMemorySessionStorage::new(SessionMetadata {
-                id: "session".to_owned(),
-                created_at: 1,
-                parent_session_id: None,
-            })),
-            Arc::new(CountingIdGenerator::new()),
-        );
-        for operation in operations.as_array().expect("operations must be an array") {
-            if operation["op"] == "lane" {
-                session
-                    .create_lane(operation["name"].as_str().expect("lane name"), operation["at"].as_str())
-                    .await
-                    .expect("lane creation must succeed");
-            } else {
-                let message = user_message(operation["text"].as_str().expect("append text"));
-                match operation["lane"].as_str() {
-                    Some(lane) => session.view(lane).append_message(message).await,
-                    None => session.append_message(message).await,
-                }
-                .expect("message append must succeed");
-            }
-        }
-        let result = collect_entries_for_branch_summary(&session, old_leaf_id, target_id)
+    let mut factory = EntryFactory::new();
+    let root = factory.message(user_message("root"), None);
+    let common = factory.message(user_message("common"), Some(root.id()));
+    let old = factory.message(user_message("abandoned 1"), Some(common.id()));
+    let old_leaf = factory.message(user_message("abandoned 2"), Some(old.id()));
+    let target = factory.message(user_message("target"), Some(common.id()));
+    let entries = vec![root, common, old, old_leaf.clone(), target.clone()];
+    let cases = [("branch", Some(old_leaf.id().clone())), ("no previous leaf", None)];
+    let response = oracle.request(&json!({"operation":"collect_entries_for_branch_summary","cases":cases.iter().map(|(name,old)| json!({"name":name,"entries":entries_json(&entries),"oldLeafId":old,"targetId":target.id()})).collect::<Vec<_>>()}));
+    let session = Session::new(Arc::new(
+        InMemorySessionStorage::new(InMemorySessionStorageOptions {
+            entries,
+            ..Default::default()
+        })
+        .unwrap(),
+    ));
+    for (name, old) in cases {
+        let result = collect_entries_for_branch_summary(&session, old.as_ref(), target.id())
             .await
-            .expect("collection must succeed");
+            .unwrap();
         expect_output(
             &response,
             name,
-            &json!({
-                "entryIds": result.entries.iter().map(|entry| entry.id()).collect::<Vec<_>>(),
-                "commonAncestorId": result.common_ancestor_id,
-            }),
+            &json!({"entryIds":result.entries.iter().map(Entry::id).collect::<Vec<_>>(),"commonAncestorId":result.common_ancestor_id}),
         );
     }
 }

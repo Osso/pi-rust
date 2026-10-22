@@ -1,7 +1,7 @@
 //! Port of `packages/coding-agent/src/core/compaction/branch-summarization.ts`.
 
+use crate::core::compaction::NoRetryCallbacks;
 use pi_agent_core::agent::{AgentMessage, StreamFn};
-use pi_agent_core::harness::compaction::NoRetryCallbacks;
 use pi_agent_core::harness::compaction::utils::{
     FileOperations, compute_file_lists, create_file_ops, extract_file_ops_from_message, format_file_operations,
 };
@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use super::utils::{SUMMARIZATION_SYSTEM_PROMPT, serialize_conversation};
-use super::{complete_summarization, estimate_tokens, timestamp_millis};
+use super::{complete_summarization, estimate_tokens};
 use crate::core::session_manager::{KnownSessionEntry, SessionEntry, SessionManager};
 
 /// Result of a branch-summary generation attempt.
@@ -144,17 +144,17 @@ fn get_message_from_entry(entry: &SessionEntry) -> Option<AgentMessage> {
             entry.content.clone(),
             entry.display,
             entry.details.clone(),
-            timestamp_millis(&entry.timestamp),
+            &entry.timestamp,
         )),
         Some(KnownSessionEntry::BranchSummary(entry)) => Some(create_branch_summary_message(
             &entry.summary,
             &entry.from_id,
-            timestamp_millis(&entry.timestamp),
+            &entry.timestamp,
         )),
         Some(KnownSessionEntry::Compaction(entry)) => Some(create_compaction_summary_message(
             &entry.summary,
             entry.tokens_before,
-            timestamp_millis(&entry.timestamp),
+            &entry.timestamp,
             &CompactionSummaryOptions {
                 duration_ms: entry.duration_ms,
                 ..CompactionSummaryOptions::default()

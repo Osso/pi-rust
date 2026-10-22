@@ -130,7 +130,10 @@ pub fn bash_execution_to_text(message: &BashExecutionMessage) -> JsString {
     } else if let Some(exit_code) = message.exit_code
         && exit_code != 0.0
     {
-        text.push_str(&format!("\n\nCommand exited with code {exit_code}"));
+        text.push_str(format!(
+            "\n\nCommand exited with code {}",
+            pi_js_compat::number::js_number_to_string(exit_code)
+        ));
     }
     if message.truncated
         && let Some(path) = message.full_output_path.as_ref()
@@ -171,11 +174,11 @@ fn custom_message_to_llm(object: &JsObject) -> Result<Option<Message>, AgentErro
         return Ok(None);
     };
     let message = if role == "bashExecution" {
-        bash_execution_message_to_llm(object)
+        bash_execution_message_to_llm(object)?
     } else if role == "custom" {
-        Some(custom_content_message(object))
+        Some(custom_content_message(object)?)
     } else if role == "branchSummary" {
-        Some(summary_message(object, BRANCH_SUMMARY_PREFIX, BRANCH_SUMMARY_SUFFIX))
+        Some(summary_message(object, BRANCH_SUMMARY_PREFIX, BRANCH_SUMMARY_SUFFIX)?)
     } else if role == "compactionSummary" {
         Some(compaction_summary_message(object)?)
     } else {
@@ -184,9 +187,9 @@ fn custom_message_to_llm(object: &JsObject) -> Result<Option<Message>, AgentErro
     Ok(message)
 }
 
-fn bash_execution_message_to_llm(object: &JsObject) -> Option<Message> {
+fn bash_execution_message_to_llm(object: &JsObject) -> Result<Option<Message>, AgentError> {
     if object.get("excludeFromContext").is_some_and(is_truthy) {
-        return None;
+        return Ok(None);
     }
     let message = BashExecutionMessage {
         role: BashExecutionRole::BashExecution,
@@ -196,25 +199,25 @@ fn bash_execution_message_to_llm(object: &JsObject) -> Option<Message> {
         cancelled: bool_field(object, "cancelled"),
         truncated: bool_field(object, "truncated"),
         full_output_path: object.get("fullOutputPath").and_then(Value::as_string).cloned(),
-        timestamp: object.get("timestamp").and_then(Value::as_f64).unwrap_or(0.0),
+        timestamp: timestamp_field(object)?,
         exclude_from_context: None,
     };
-    Some(text_message(bash_execution_to_text(&message), &message))
+    Ok(Some(text_message(bash_execution_to_text(&message), &message)?))
 }
 
-fn custom_content_message(object: &JsObject) -> Message {
-    Message::User(UserMessage {
+fn custom_content_message(object: &JsObject) -> Result<Message, AgentError> {
+    Ok(Message::User(UserMessage {
         role: UserRole::Tag,
         content: custom_content(object.get("content")),
         input_source: None,
         provider_native: None,
-        timestamp: timestamp_field(object),
-    })
+        timestamp: checked_provider_timestamp(timestamp_field(object)?)?,
+    }))
 }
 
-fn summary_message(object: &JsObject, prefix: &str, suffix: &str) -> Message {
+fn summary_message(object: &JsObject, prefix: &str, suffix: &str) -> Result<Message, AgentError> {
     let summary = string_field(object, "summary");
-    Message::User(UserMessage {
+    Ok(Message::User(UserMessage {
         role: UserRole::Tag,
         content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(JsString::join(
             [JsString::from(prefix), summary, JsString::from(suffix)],
@@ -222,8 +225,8 @@ fn summary_message(object: &JsObject, prefix: &str, suffix: &str) -> Message {
         )))]),
         input_source: None,
         provider_native: None,
-        timestamp: timestamp_field(object),
-    })
+        timestamp: checked_provider_timestamp(timestamp_field(object)?)?,
+    }))
 }
 
 fn compaction_summary_message(object: &JsObject) -> Result<Message, AgentError> {
@@ -245,18 +248,18 @@ fn compaction_summary_message(object: &JsObject) -> Result<Message, AgentError> 
         )))]),
         input_source: None,
         provider_native,
-        timestamp: timestamp_field(object),
+        timestamp: checked_provider_timestamp(timestamp_field(object)?)?,
     }))
 }
 
-fn text_message(text: JsString, message: &BashExecutionMessage) -> Message {
-    Message::User(UserMessage {
+fn text_message(text: JsString, message: &BashExecutionMessage) -> Result<Message, AgentError> {
+    Ok(Message::User(UserMessage {
         role: UserRole::Tag,
         content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(text))]),
         input_source: None,
         provider_native: None,
-        timestamp: message.timestamp as i64,
-    })
+        timestamp: checked_provider_timestamp(message.timestamp)?,
+    }))
 }
 
 /// `typeof content === "string" ? [{ type: "text", text: content }] : content`.
@@ -283,17 +286,45 @@ fn bool_field(object: &JsObject, key: &str) -> bool {
     object.get(key).and_then(Value::as_bool).unwrap_or(false)
 }
 
-fn timestamp_field(object: &JsObject) -> i64 {
-    object.get("timestamp").and_then(Value::as_f64).unwrap_or(0.0) as i64
+fn timestamp_field(object: &JsObject) -> Result<f64, AgentError> {
+    object
+        .get("timestamp")
+        .and_then(Value::as_f64)
+        .ok_or_else(|| AgentError::new("Message timestamp must be a JavaScript number"))
+}
+
+/// Temporary dependency boundary: removed by the pending pi-ai f64 timestamp migration.
+/// Reject unsupported values explicitly; never clamp, round, or substitute them.
+pub(crate) fn checked_provider_timestamp(timestamp: f64) -> Result<i64, AgentError> {
+    const I64_EXCLUSIVE_UPPER_BOUND: f64 = 9_223_372_036_854_775_808.0;
+    let signed_zero = timestamp == 0.0 && timestamp.is_sign_negative();
+    let representable = timestamp.is_finite()
+        && timestamp.fract() == 0.0
+        && timestamp >= i64::MIN as f64
+        && timestamp < I64_EXCLUSIVE_UPPER_BOUND
+        && !signed_zero;
+    if !representable {
+        return Err(AgentError::new(
+            "Provider message timestamp requires the pending pi-ai f64 timestamp integration",
+        ));
+    }
+    Ok(timestamp as i64)
 }
 
 /// Build the custom `branchSummary` message for a branch summary entry.
-pub fn create_branch_summary_message(summary: impl Into<JsString>, from_id: &JsString, timestamp: i64) -> AgentMessage {
+pub fn create_branch_summary_message(
+    summary: impl Into<JsString>,
+    from_id: &JsString,
+    timestamp: impl Into<JsString>,
+) -> AgentMessage {
     let mut message = JsObject::new();
     message.insert("role".into(), Value::String("branchSummary".into()));
     message.insert("summary".into(), Value::String(summary.into()));
     message.insert("fromId".into(), Value::String(from_id.into()));
-    message.insert("timestamp".into(), Value::Number(timestamp as f64));
+    message.insert(
+        "timestamp".into(),
+        Value::Number(pi_js_compat::date::date_parse_utf16(timestamp.into().units())),
+    );
     AgentMessage::Custom(message)
 }
 
@@ -301,7 +332,7 @@ pub fn create_branch_summary_message(summary: impl Into<JsString>, from_id: &JsS
 pub fn create_compaction_summary_message(
     summary: impl Into<JsString>,
     tokens_before: f64,
-    timestamp: i64,
+    timestamp: impl Into<JsString>,
     options: &CompactionSummaryOptions,
 ) -> AgentMessage {
     let mut message = JsObject::new();
@@ -321,7 +352,10 @@ pub fn create_compaction_summary_message(
     );
     insert_optional(&mut message, "durationMs", options.duration_ms.map(Value::Number));
     insert_optional(&mut message, "providerNative", options.provider_native.clone());
-    message.insert("timestamp".into(), Value::Number(timestamp as f64));
+    message.insert(
+        "timestamp".into(),
+        Value::Number(pi_js_compat::date::date_parse_utf16(timestamp.into().units())),
+    );
     AgentMessage::Custom(message)
 }
 
@@ -331,7 +365,7 @@ pub fn create_custom_message(
     content: CustomMessageContent,
     display: bool,
     details: Option<Value>,
-    timestamp: i64,
+    timestamp: impl Into<JsString>,
 ) -> AgentMessage {
     let mut message = JsObject::new();
     message.insert("role".into(), Value::String("custom".into()));
@@ -342,6 +376,9 @@ pub fn create_custom_message(
     );
     message.insert("display".into(), Value::Bool(display));
     insert_optional(&mut message, "details", details);
-    message.insert("timestamp".into(), Value::Number(timestamp as f64));
+    message.insert(
+        "timestamp".into(),
+        Value::Number(pi_js_compat::date::date_parse_utf16(timestamp.into().units())),
+    );
     AgentMessage::Custom(message)
 }

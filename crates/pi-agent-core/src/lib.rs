@@ -15,14 +15,13 @@ pub use agent::{
     PrepareNextTurnSignalHook, PromptInput, ProxyAssistantMessageEvent, ProxyStreamOptions, agent_loop,
     agent_loop_continue, restored_pending_tool_message, run_agent_loop, run_agent_loop_continue, stream_proxy,
 };
-pub use harness::agent_harness::*;
 pub use harness::compaction::{
     BranchPreparation, BranchSummaryDetails, BranchSummaryResult, CollectEntriesResult, CompactResult,
     CompactionPreparation, CompactionSettings, DEFAULT_COMPACTION_SETTINGS, FileOperations,
     GenerateBranchSummaryOptions, calculate_context_tokens, collect_entries_for_branch_summary, compact,
     estimate_context_tokens, estimate_tokens, find_cut_point, find_turn_start_index, generate_branch_summary,
-    generate_summary, generate_summary_with_usage, get_last_assistant_usage, prepare_branch_entries,
-    prepare_compaction, serialize_conversation, should_compact,
+    generate_summary, get_last_assistant_usage, prepare_branch_entries, prepare_compaction, serialize_conversation,
+    should_compact,
 };
 pub use harness::messages::*;
 pub use harness::prompt_templates::*;

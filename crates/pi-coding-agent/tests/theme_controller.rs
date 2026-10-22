@@ -151,23 +151,26 @@ fn theme_controller_detect_probe() {
 }
 
 #[test]
-fn rebinds_tui_listeners() {
+fn registered_ui_listener_retains_controller() {
     let package = fixture_package_dir();
     let agent = fixture_agent_dir();
-    run_controller_probe("theme_controller_rebind_probe", package.path(), agent.path());
+    run_controller_probe("theme_controller_listener_lifetime_probe", package.path(), agent.path());
 }
 
 #[test]
 #[ignore = "child process probe"]
-fn theme_controller_rebind_probe() {
+fn theme_controller_listener_lifetime_probe() {
     if !env_probe::in_probe() {
         return;
     }
-    let (mut controller, ui, _changed, _settings) = build_controller(Some("dark"));
+    use pi_coding_agent::modes::interactive::theme::{TerminalTheme, current_theme};
+    let (mut controller, ui, _changed, _settings) = build_controller(Some("light/dark"));
+    controller.apply_from_settings();
     assert_eq!(ui.listener_count(), 1);
-    controller.rebind_tui();
+    drop(controller);
+    ui.emit_color_scheme(TerminalTheme::Light);
+    assert_eq!(current_theme().name.as_ref(), Some(&JsString::from("light")));
     assert_eq!(ui.listener_count(), 1);
-    assert_eq!(ui.removed.get(), 1);
 }
 
 // ============================================================================
@@ -182,7 +185,6 @@ type BackgroundResult =
 struct FakeUi {
     invalidations: std::cell::Cell<usize>,
     render_requests: std::cell::Cell<usize>,
-    removed: std::cell::Cell<usize>,
     notifications: std::cell::RefCell<Vec<bool>>,
     listeners: std::cell::RefCell<Vec<(usize, SchemeListener)>>,
     next_id: std::cell::Cell<usize>,
@@ -221,13 +223,6 @@ impl pi_coding_agent::modes::interactive::theme::ThemeUi for FakeUi {
         self.next_id.set(id + 1);
         self.listeners.borrow_mut().push((id, listener));
         id
-    }
-
-    fn remove_terminal_color_scheme_listener(&self, id: usize) {
-        self.removed.set(self.removed.get() + 1);
-        self.listeners
-            .borrow_mut()
-            .retain(|(listener_id, _)| *listener_id != id);
     }
 
     fn query_terminal_background_color(

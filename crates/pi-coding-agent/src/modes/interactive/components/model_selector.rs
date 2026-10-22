@@ -473,6 +473,10 @@ impl Focusable for ModelSelectorComponent {
 }
 
 impl Component for ModelSelectorComponent {
+    fn dispose(&mut self) {
+        ModelSelectorComponent::dispose(self);
+    }
+
     fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = self.top_border.render(width);
         lines.extend(Spacer::new(1).render(width));

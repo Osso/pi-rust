@@ -1621,10 +1621,6 @@ impl crate::modes::interactive::theme::ThemeUi for InteractiveThemeUi {
         }))
     }
 
-    fn remove_terminal_color_scheme_listener(&self, id: usize) {
-        self.0.remove_terminal_color_scheme_listener(id);
-    }
-
     fn query_terminal_background_color(
         &self,
         timeout: Duration,
@@ -9158,11 +9154,7 @@ impl InteractiveMode {
                     AuthPromptKind::Select { .. } => unreachable!(),
                 };
                 tokio::task::spawn_local(async move {
-                    let result = match receiver.await {
-                        Ok(Ok(value)) => Ok(value),
-                        Ok(Err(error)) => Err(error.0),
-                        Err(_) => Err(JsString::from("Login cancelled")),
-                    };
+                    let result = receiver.await.map_err(|error| error.0);
                     let _ = respond.send(result);
                 });
             }
