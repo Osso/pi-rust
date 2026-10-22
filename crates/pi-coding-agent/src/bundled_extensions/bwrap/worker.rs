@@ -224,10 +224,19 @@ fn format_regex_error(pattern: &JsString, flags: &str, diagnostic: &str) -> JsSt
     // Unknown engine diagnostics remain an explicitly tracked port discrepancy.
     let reason = match diagnostic {
         "Unbalanced bracket" => "Unterminated character class",
-        "Unbalanced parenthesis" if has_unmatched_closing_parenthesis(pattern) => "Unmatched ')'",
+        "Unbalanced parenthesis"
+            if inspect_regex_structure(pattern) == Some(StructuralRegexError::UnmatchedClosingGroup) =>
+        {
+            "Unmatched ')'"
+        }
         "Unbalanced parenthesis" => "Unterminated group",
         "Invalid atom character" | "Invalid braced quantifier" => "Nothing to repeat",
-        "Quantifier not allowed here" => quantified_assertion_reason(pattern),
+        "Quantifier not allowed here"
+            if inspect_regex_structure(pattern) == Some(StructuralRegexError::QuantifiedAnchor) =>
+        {
+            "Nothing to repeat"
+        }
+        "Quantifier not allowed here" => "Invalid quantifier",
         "Invalid quantifier" => "numbers out of order in {} quantifier",
         "Range values reversed, start char code is greater than end char code." => {
             "Range out of order in character class"
@@ -245,10 +254,49 @@ fn format_regex_error(pattern: &JsString, flags: &str, diagnostic: &str) -> JsSt
     JsString::from("Invalid regular expression: /") + pattern + "/" + flags + ": " + reason
 }
 
-fn quantified_assertion_reason(pattern: &JsString) -> &'static str {
+#[derive(PartialEq, Eq)]
+enum StructuralRegexError {
+    UnmatchedClosingGroup,
+    QuantifiedAnchor,
+    QuantifiedLookbehind,
+}
+
+#[derive(Default)]
+struct RegexStructure {
+    lookbehind_groups: Vec<bool>,
+    in_class: bool,
+}
+
+impl RegexStructure {
+    fn inspect_token(&mut self, units: &[u16], index: usize) -> Option<StructuralRegexError> {
+        let unit = units[index];
+        if [u16::from(b'^'), u16::from(b'$')].contains(&unit) && starts_quantifier(units, index + 1) {
+            return Some(StructuralRegexError::QuantifiedAnchor);
+        }
+        if unit == u16::from(b'(') {
+            self.lookbehind_groups.push(is_lookbehind_open(units, index));
+        }
+        if unit != u16::from(b')') {
+            return None;
+        }
+        match self.lookbehind_groups.pop() {
+            None => Some(StructuralRegexError::UnmatchedClosingGroup),
+            Some(true) if starts_quantifier(units, index + 1) => Some(StructuralRegexError::QuantifiedLookbehind),
+            Some(_) => None,
+        }
+    }
+}
+
+fn is_lookbehind_open(units: &[u16], index: usize) -> bool {
+    let prefix = [u16::from(b'?'), u16::from(b'<')];
+    let marker = units.get(index + 3);
+    units.get(index + 1..index + 3) == Some(prefix.as_slice())
+        && (marker == Some(&u16::from(b'=')) || marker == Some(&u16::from(b'!')))
+}
+
+fn inspect_regex_structure(pattern: &JsString) -> Option<StructuralRegexError> {
     let units = pattern.units();
-    let mut lookbehinds = Vec::new();
-    let mut in_class = false;
+    let mut state = RegexStructure::default();
     let mut index = 0;
     while index < units.len() {
         let unit = units[index];
@@ -256,33 +304,24 @@ fn quantified_assertion_reason(pattern: &JsString) -> &'static str {
             let boundary = units
                 .get(index + 1)
                 .is_some_and(|next| [u16::from(b'b'), u16::from(b'B')].contains(next));
-            if !in_class && boundary && starts_quantifier(units, index + 2) {
-                return "Nothing to repeat";
+            if !state.in_class && boundary && starts_quantifier(units, index + 2) {
+                return Some(StructuralRegexError::QuantifiedAnchor);
             }
             index += 2;
             continue;
         }
-        if unit == u16::from(b'[') && !in_class {
-            in_class = true;
+        if unit == u16::from(b'[') && !state.in_class {
+            state.in_class = true;
         } else if unit == u16::from(b']') {
-            in_class = false;
-        } else if !in_class {
-            if [u16::from(b'^'), u16::from(b'$')].contains(&unit) && starts_quantifier(units, index + 1) {
-                return "Nothing to repeat";
-            }
-            if unit == u16::from(b'(') {
-                let lookbehind = units
-                    .get(index + 1..index + 4)
-                    .is_some_and(|suffix| suffix == [63, 60, 61] || suffix == [63, 60, 33]);
-                lookbehinds.push(lookbehind);
-            }
-            if unit == u16::from(b')') && lookbehinds.pop() == Some(true) && starts_quantifier(units, index + 1) {
-                return "Invalid quantifier";
+            state.in_class = false;
+        } else if !state.in_class {
+            if let Some(error) = state.inspect_token(units, index) {
+                return Some(error);
             }
         }
         index += 1;
     }
-    "Invalid quantifier"
+    None
 }
 
 fn starts_quantifier(units: &[u16], index: usize) -> bool {
@@ -295,57 +334,25 @@ fn starts_quantifier(units: &[u16], index: usize) -> bool {
     if *unit != u16::from(b'{') {
         return false;
     }
-    let mut position = index + 1;
-    while units.get(position).is_some_and(|unit| (48..=57).contains(unit)) {
-        position += 1;
-    }
-    if position == index + 1 {
+    let after_minimum = skip_decimal_digits(units, index + 1);
+    if after_minimum == index + 1 {
         return false;
     }
-    if units.get(position) == Some(&u16::from(b',')) {
-        position += 1;
-        while units.get(position).is_some_and(|unit| (48..=57).contains(unit)) {
-            position += 1;
-        }
-    }
-    units.get(position) == Some(&u16::from(b'}'))
+    let after_range = if units.get(after_minimum) == Some(&u16::from(b',')) {
+        skip_decimal_digits(units, after_minimum + 1)
+    } else {
+        after_minimum
+    };
+    units.get(after_range) == Some(&u16::from(b'}'))
 }
 
-fn has_unmatched_closing_parenthesis(pattern: &JsString) -> bool {
-    let mut depth = 0usize;
-    let mut in_class = false;
-    let mut escaped = false;
-    for unit in pattern.units() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        if *unit == u16::from(b'\\') {
-            escaped = true;
-            continue;
-        }
-        if *unit == u16::from(b'[') && !in_class {
-            in_class = true;
-            continue;
-        }
-        if *unit == u16::from(b']') {
-            in_class = false;
-            continue;
-        }
-        if in_class {
-            continue;
-        }
-        if *unit == u16::from(b'(') {
-            depth += 1;
-        }
-        if *unit == u16::from(b')') {
-            if depth == 0 {
-                return true;
-            }
-            depth -= 1;
-        }
+fn skip_decimal_digits(units: &[u16], start: usize) -> usize {
+    let mut position = start;
+    let digits = u16::from(b'0')..=u16::from(b'9');
+    while units.get(position).is_some_and(|unit| digits.contains(unit)) {
+        position += 1;
     }
-    false
+    position
 }
 
 struct GrepFileResult {
@@ -363,8 +370,8 @@ fn relative_grep_path(file_path: &Path, options: &GrepOptions) -> String {
     }
     file_path
         .strip_prefix(&options.root_path)
-        .map(|path| path.to_string_lossy().replace('\\', "/"))
-        .unwrap_or_else(|_| file_path.to_string_lossy().replace('\\', "/"))
+        .map(|path| path.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/"))
+        .unwrap_or_else(|_| file_path.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/"))
 }
 
 fn format_grep_match(relative_path: &str, lines: &[String], match_index: usize, context: usize) -> (String, bool) {
@@ -545,8 +552,8 @@ pub fn run_operation_json(operation: &str, payload: &Value) -> Result<Value, JsS
             for file_path in read_files_recursively(&cwd)? {
                 let relative = file_path
                     .strip_prefix(&cwd)
-                    .map(|path| path.to_string_lossy().replace('\\', "/"))
-                    .unwrap_or_else(|_| file_path.to_string_lossy().replace('\\', "/"));
+                    .map(|path| path.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/"))
+                    .unwrap_or_else(|_| file_path.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/"));
                 if matches_glob(&relative, &pattern)? {
                     results.push(relative);
                 }
@@ -628,234 +635,5 @@ pub fn run_bwrap_fs_worker(args: &[String]) -> i32 {
 }
 
 #[cfg(test)]
-mod matching_tests {
-    use super::*;
-    mod oracle {
-        include!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../pi-js-compat/tests/support/oracle.rs"
-        ));
-    }
-
-    fn raw(units: &[u16]) -> JsString {
-        JsString::from_utf16(units.to_vec())
-    }
-
-    #[test]
-    fn actual_worker_glob_function_matches_raw_units_and_node_options() {
-        let mut oracle = oracle::TsOracle::spawn(
-            "bwrap-worker-matching-oracle.cjs",
-            "packages/coding-agent/extensions/bwrap/src/fs-worker.cjs",
-        );
-        let atoms = [
-            raw(&[0xd800]),
-            raw(&[0xdc00]),
-            raw(&[0xd83d, 0xde00]),
-            raw(&[0xfffd]),
-            raw(&[0xe000]),
-            JsString::from("a"),
-        ];
-        let mut paths: Vec<JsString> = [
-            "", ".", "..", ".a.x", "a/b.x", "a\\b.x", "a/b/", "!a", "#a", "a", "a/./b", "a/../b", "b", "./b", "a/b/c",
-        ]
-        .into_iter()
-        .map(JsString::from)
-        .collect();
-        let mut patterns: Vec<JsString> = [
-            "*",
-            "**/*",
-            "*.x",
-            "@(?)",
-            "@(??)",
-            "a\\b.x",
-            "!a",
-            "#a",
-            "a/**/../b",
-            "**/..",
-            "a/**/b",
-            "**/b",
-            "a/../b",
-            "a/./b",
-            "{a,b}",
-            "[[:alpha:]]",
-            "[]",
-            "[!a]",
-            ".*",
-            "**",
-            "a/**/c",
-        ]
-        .into_iter()
-        .map(JsString::from)
-        .collect();
-        for atom in &atoms {
-            paths.extend([atom.clone(), JsString::from("dir/") + atom, atom.clone() + ".x"]);
-            patterns.extend([
-                atom.clone(),
-                JsString::from("{") + atom + ",b}",
-                JsString::from("@(") + atom + "|b)",
-                JsString::from("[") + atom + "]",
-                JsString::from("*") + atom,
-            ]);
-        }
-        let mut cases = Vec::new();
-        let mut actual = Vec::new();
-        for pattern in &patterns {
-            for path in &paths {
-                cases.push(serde_json::json!({"kind":"glob","pattern":pattern.units(),"text":path.units()}));
-                actual.push(matches_glob(path, pattern).unwrap());
-            }
-        }
-        let response = oracle.request(&serde_json::json!({"id":1,"cases":cases}));
-        for (index, result) in actual.iter().enumerate() {
-            assert_eq!(
-                *result,
-                response["output"][index]["matched"].as_bool().unwrap(),
-                "case {:?}",
-                cases[index]
-            );
-        }
-    }
-
-    #[test]
-    fn regex_matcher_preserves_legacy_units_and_literal_lowercase() {
-        let options = GrepOptions {
-            context: 0,
-            glob: None,
-            ignore_case: false,
-            limit: 100,
-            literal: false,
-            pattern: JsString::from("^..$"),
-            root_is_directory: false,
-            root_path: PathBuf::from("."),
-        };
-        assert!(compile_matcher(&options).unwrap().is_match("😀").unwrap());
-        let options = GrepOptions {
-            pattern: raw(&[0xd800]),
-            ..options
-        };
-        assert!(!compile_matcher(&options).unwrap().is_match(raw(&[0xdc00])).unwrap());
-        assert!(compile_matcher(&options).unwrap().is_match(raw(&[0xd800])).unwrap());
-        let options = GrepOptions {
-            literal: true,
-            ignore_case: true,
-            pattern: raw(&[65, 0xd800]),
-            ..options
-        };
-        assert!(compile_matcher(&options).unwrap().is_match(raw(&[97, 0xd800])).unwrap());
-        assert!(!compile_matcher(&options).unwrap().is_match(raw(&[97, 0xdc00])).unwrap());
-    }
-
-    #[test]
-    fn invalid_regex_errors_retain_raw_pattern_units() {
-        let mut oracle = oracle::TsOracle::spawn(
-            "bwrap-worker-matching-oracle.cjs",
-            "packages/coding-agent/extensions/bwrap/src/fs-worker.cjs",
-        );
-        let patterns = [
-            raw(&[91, 0xd800]),
-            raw(&[40, 0xdc00]),
-            raw(&[42, 0xd800]),
-            raw(&[91, 122, 45, 97, 93]),
-            raw(&[92]),
-            raw(&[41, 0xd800]),
-            JsString::from("a{3,2}"),
-            JsString::from("^*"),
-            JsString::from("(?x)"),
-            JsString::from("(?<1a>x)"),
-            JsString::from("(?<a>x)(?<a>y)"),
-            JsString::from("(?<a>x)\\k<b>"),
-            JsString::from("(?<=a)*"),
-        ];
-        let cases: Vec<_> = patterns
-            .iter()
-            .map(|pattern| serde_json::json!({"kind":"regex","pattern":pattern.units(),"text":[],"ignoreCase":false}))
-            .collect();
-        let response = oracle.request(&serde_json::json!({"id":2,"cases":cases}));
-        for (index, pattern) in patterns.iter().enumerate() {
-            let options = GrepOptions {
-                context: 0,
-                glob: None,
-                ignore_case: false,
-                limit: 1,
-                literal: false,
-                pattern: pattern.clone(),
-                root_is_directory: false,
-                root_path: PathBuf::from("."),
-            };
-            let error = compile_matcher(&options).err().unwrap();
-            assert!(error.contains(pattern));
-            let expected: Vec<u16> =
-                serde_json::from_value(response["output"][index]["error"]["message"].clone()).unwrap();
-            assert_eq!(error.units(), expected, "invalid pattern {:?}", pattern);
-        }
-    }
-
-    #[test]
-    fn frozen_source_fallback_is_not_the_active_glob_contract() {
-        let mut oracle = oracle::TsOracle::spawn(
-            "bwrap-worker-matching-oracle.cjs",
-            "packages/coding-agent/extensions/bwrap/src/fs-worker.cjs",
-        );
-        let response = oracle.request(&serde_json::json!({"id":3,"cases":[
-            {"kind":"glob","text":[46,97],"pattern":[42],"fallback":false},
-            {"kind":"glob","text":[46,97],"pattern":[42],"fallback":true}
-        ]}));
-        assert_eq!(response["output"][0]["matched"], false);
-        assert_eq!(response["output"][1]["matched"], true);
-        assert!(!matches_glob(".a", &JsString::from("*")).unwrap());
-    }
-
-    #[test]
-    fn oversized_glob_throws_frozen_error_instead_of_no_match() {
-        let mut oracle = oracle::TsOracle::spawn(
-            "bwrap-worker-matching-oracle.cjs",
-            "packages/coding-agent/extensions/bwrap/src/fs-worker.cjs",
-        );
-        let pattern = JsString::from_utf16(vec![0xd800; 65537]);
-        let response = oracle
-            .request(&serde_json::json!({"id":4,"cases":[{"kind":"glob","pattern":pattern.units(),"text":[97]}]}));
-        let expected: Vec<u16> = serde_json::from_value(response["output"][0]["error"]["message"].clone()).unwrap();
-        assert_eq!(expected, JsString::from("pattern is too long").units());
-        let directory = std::env::temp_dir().join(format!("q18-glob-error-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).unwrap();
-        std::fs::write(directory.join("a"), "a").unwrap();
-        let payload = json!({"workspace":directory.to_string_lossy().into_owned(),"cwd":".","pattern":pattern});
-        let error = run_operation_json("find", &payload).err();
-        std::fs::remove_dir_all(directory).unwrap();
-        assert_eq!(error, Some(JsString::from("TypeError: pattern is too long")));
-    }
-
-    #[test]
-    fn empty_directory_still_rejects_invalid_regex_before_scanning() {
-        let directory = std::env::temp_dir().join(format!("q18-empty-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).unwrap();
-        let payload =
-            json!({"workspace":directory.to_string_lossy().into_owned(),"path":".","pattern":raw(&[91,0xd800])});
-        let result = run_operation_json("grep", &payload);
-        std::fs::remove_dir_all(directory).unwrap();
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn worker_grep_operation_distinguishes_pair_and_unit_regex() {
-        let directory = std::env::temp_dir().join(format!("q18-worker-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).unwrap();
-        std::fs::write(directory.join("sample"), "😀\nA\n").unwrap();
-        let workspace = directory.to_string_lossy().into_owned();
-        let payload = json!({"workspace":workspace,"path":"sample","pattern":"^..$"});
-        let result = run_operation_json("grep", &payload).unwrap();
-        assert_eq!(
-            result.get("text").and_then(Value::as_string),
-            Some(&JsString::from("sample:1: 😀"))
-        );
-        let payload = json!({"workspace":workspace,"path":"sample","pattern":raw(&[91,0xd800,45,0xdfff,93])});
-        assert_eq!(
-            run_operation_json("grep", &payload)
-                .unwrap()
-                .get("text")
-                .and_then(Value::as_string),
-            Some(&JsString::from("sample:1: 😀"))
-        );
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-}
+#[path = "worker_matching_tests.rs"]
+mod matching_tests;

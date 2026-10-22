@@ -4,14 +4,14 @@ Common source: `4f9e6f8a4`, full pin in [source lock](../source-lock.json). Cont
 
 | Capability | Rust | Behavioral proof |
 |---|---|---|
-| Legacy RegExp and explicit Unicode execution | `pi-js-compat::js_regex::JsRegex` | `worker_matching::raw_regex_and_literal_match_actual_frozen_worker`: 280 comparisons with actual immutable worker functions evaluated in VM; mode mutants distinguish pair vs unit consumption |
+| Legacy RegExp and explicit Unicode execution | `pi-js-compat::js_regex::JsRegex` | `worker_matching::raw_regex_and_literal_match_actual_frozen_worker`: 616 comparisons with actual immutable worker functions evaluated in VM; mode mutants distinguish pair vs unit consumption |
 | Literal lowercase/includes | raw `JsString` operations | same frozen-function matrix: unmatched units, pairs, case folding |
 | AST/extglob/class/brace matching on raw units | whole `pi-js-compat::minimatch` engine | `raw_minimatch_matches_pinned_ast_braces_extglobs_and_classes`: 5,544 comparisons against pinned minimatch, including high/low ranges and nocase |
 | Scalar matcher regression | same engine | existing `differential_minimatch` three targeted tests passed before final formatting fixes; passed at bd36a1e8 |
 | Observed scalar bug | AST legacy regex | RED: `😀` against `@(?)`: frozen minimatch false, old scalar matcher true; GREEN after native UCS-2 execution |
-| Active frozen worker glob / Node options | `worker::matches_glob`, level-two raw path preprocessing | `bwrap_worker_matching`: 1,683 actual frozen-function comparisons; raw units, braces/extglobs, traversal, Node nonegate/nocomment/backslash-pattern behavior |
-| Legacy matcher and operation propagation | `LineMatcher`, compile once before collection | native worker module standalone harness runs actual grep; pair-unit regex, raw ranges/literals, empty-directory invalid-pattern RED/GREEN |
-| Raw regex compile errors | `format_regex_error` | 13 exact frozen message comparisons: unmatched bracket/group/close, leading quantifier, reversed class range, trailing escape, reversed quantifier bounds, quantified anchor/lookbehind, invalid group/capture name, duplicate name, missing named reference |
+| Active frozen worker glob / Node options | `worker::matches_glob`, level-two raw path preprocessing | `bwrap_worker_matching`: 1,683 actual frozen-function comparisons; raw units, braces/extglobs, traversal, Node nonegate/nocomment/backslash-pattern behavior; real find retains Linux backslash filenames after a separate RED |
+| Legacy matcher and operation propagation | `LineMatcher`, compile once before collection | native worker module standalone harness (`worker_matching_tests.rs`) runs actual grep; pair-unit regex, raw ranges/literals, empty-directory invalid-pattern RED/GREEN |
+| Raw regex compile errors | `format_regex_error` | 26 exact frozen message comparisons (13 patterns × both ignoreCase flags): unmatched bracket/group/close, leading quantifier, reversed class range, trailing escape, reversed quantifier bounds, quantified anchor/lookbehind, invalid group/capture name, duplicate name, missing named reference |
 | Oversized glob throws | `matches_glob` | actual frozen `TypeError: pattern is too long` and actual Rust find-operation error, not silent false |
 | Frozen fallback branch | oracle with `path.matchesGlob` absent | `.a`/`*` proves source fallback true differs active branch false. Rust provides the active matching capability unconditionally; no legacy Node-feature-detection branch is introduced |
 

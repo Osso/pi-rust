@@ -117,6 +117,10 @@ fn raw_regex_and_literal_match_actual_frozen_worker() {
         raw(&[0xfffd]),
         raw(&[0xe000]),
         JsString::from("AKſ"),
+        JsString::from("K"),
+        JsString::from("ſ"),
+        JsString::from("K"),
+        JsString::from("S"),
         JsString::from("İΣ"),
     ];
     let patterns = [
@@ -130,6 +134,10 @@ fn raw_regex_and_literal_match_actual_frozen_worker() {
         JsString::from("(?<=A)K"),
         JsString::from("[^a]"),
         JsString::from("Σ"),
+        JsString::from("\\uD800"),
+        JsString::from("[\\uD800-\\uDFFF]"),
+        JsString::from("k"),
+        JsString::from("s"),
     ];
     let mut cases = Vec::new();
     let mut actual = Vec::new();

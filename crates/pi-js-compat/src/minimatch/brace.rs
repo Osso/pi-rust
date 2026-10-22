@@ -118,14 +118,18 @@ fn is_padded(value: &[u16]) -> bool {
 }
 
 fn numeric(value: &[u16]) -> f64 {
-    let negative = value.first() == Some(&DASH);
-    let digits = if negative { &value[1..] } else { value };
+    let digits = if value.first() == Some(&DASH) {
+        &value[1..]
+    } else {
+        value
+    };
     if !digits.is_empty() && digits.iter().all(|unit| (ZERO..=NINE).contains(unit)) {
-        let number = digits
-            .iter()
-            .fold(0.0, |number, unit| number * 10.0 + f64::from(unit - ZERO));
-        return if negative { -number } else { number };
+        // Decimal grammar is ASCII by construction. Parsing a number here is
+        // not an encoding of arbitrary pattern text; keep correctly-rounded f64.
+        let decimal: String = value.iter().map(|unit| char::from(*unit as u8)).collect();
+        return decimal.parse::<f64>().expect("validated decimal brace sequence");
     }
+
     f64::from(value.first().copied().unwrap_or(0))
 }
 
