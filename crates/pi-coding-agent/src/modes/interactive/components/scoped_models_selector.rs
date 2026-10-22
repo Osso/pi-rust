@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 use pi_ai::types::Model;
+use pi_js_compat::{js_format, js_json::JsString};
 use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
@@ -18,16 +19,16 @@ use super::dynamic_border::dynamic_border;
 use super::keybinding_hints::key_text;
 
 /// `null` = all enabled (no filter); otherwise an explicit ordered list.
-pub type EnabledIds = Option<Vec<String>>;
+pub type EnabledIds = Option<Vec<JsString>>;
 
-fn is_enabled(enabled_ids: &EnabledIds, id: &str) -> bool {
+fn is_enabled(enabled_ids: &EnabledIds, id: &JsString) -> bool {
     match enabled_ids {
         None => true,
         Some(ids) => ids.iter().any(|enabled| enabled == id),
     }
 }
 
-fn toggle(enabled_ids: &EnabledIds, id: &str) -> EnabledIds {
+fn toggle(enabled_ids: &EnabledIds, id: &JsString) -> EnabledIds {
     let Some(ids) = enabled_ids else {
         return Some(vec![id.to_owned()]);
     };
@@ -45,7 +46,7 @@ fn toggle(enabled_ids: &EnabledIds, id: &str) -> EnabledIds {
     }
 }
 
-fn enable_all(enabled_ids: &EnabledIds, all_ids: &[String], target_ids: Option<&[String]>) -> EnabledIds {
+fn enable_all(enabled_ids: &EnabledIds, all_ids: &[JsString], target_ids: Option<&[JsString]>) -> EnabledIds {
     let Some(ids) = enabled_ids else {
         return None;
     };
@@ -63,21 +64,21 @@ fn enable_all(enabled_ids: &EnabledIds, all_ids: &[String], target_ids: Option<&
     }
 }
 
-fn clear_all(enabled_ids: &EnabledIds, all_ids: &[String], target_ids: Option<&[String]>) -> EnabledIds {
+fn clear_all(enabled_ids: &EnabledIds, all_ids: &[JsString], target_ids: Option<&[JsString]>) -> EnabledIds {
     let Some(ids) = enabled_ids else {
         return Some(match target_ids {
             Some(targets) => all_ids.iter().filter(|id| !targets.contains(id)).cloned().collect(),
             None => Vec::new(),
         });
     };
-    let targets: HashSet<&String> = match target_ids {
+    let targets: HashSet<&JsString> = match target_ids {
         Some(targets) => targets.iter().collect(),
         None => ids.iter().collect(),
     };
     Some(ids.iter().filter(|id| !targets.contains(id)).cloned().collect())
 }
 
-fn move_id(enabled_ids: &EnabledIds, id: &str, delta: isize) -> EnabledIds {
+fn move_id(enabled_ids: &EnabledIds, id: &JsString, delta: isize) -> EnabledIds {
     let Some(ids) = enabled_ids else {
         return None;
     };
@@ -93,11 +94,11 @@ fn move_id(enabled_ids: &EnabledIds, id: &str, delta: isize) -> EnabledIds {
     Some(list)
 }
 
-fn get_sorted_ids(enabled_ids: &EnabledIds, all_ids: &[String]) -> Vec<String> {
+fn get_sorted_ids(enabled_ids: &EnabledIds, all_ids: &[JsString]) -> Vec<JsString> {
     let Some(ids) = enabled_ids else {
         return all_ids.to_vec();
     };
-    let enabled_set: HashSet<&String> = ids.iter().collect();
+    let enabled_set: HashSet<&JsString> = ids.iter().collect();
     let mut result = ids.clone();
     result.extend(all_ids.iter().filter(|id| !enabled_set.contains(id)).cloned());
     result
@@ -105,7 +106,7 @@ fn get_sorted_ids(enabled_ids: &EnabledIds, all_ids: &[String]) -> Vec<String> {
 
 #[derive(Clone)]
 struct ModelItem {
-    full_id: String,
+    full_id: JsString,
     model: Option<Model>,
     enabled: bool,
 }
@@ -113,7 +114,7 @@ struct ModelItem {
 pub struct ModelsConfig {
     pub all_models: Vec<Model>,
     pub enabled_model_ids: EnabledIds,
-    pub refresh_status: Option<String>,
+    pub refresh_status: Option<JsString>,
 }
 
 pub struct ModelsCallbacks {
@@ -126,13 +127,13 @@ pub struct ModelsCallbacks {
 
 /// Enable/disable and reorder models used for model cycling.
 pub struct ScopedModelsSelectorComponent {
-    models_by_id: Vec<(String, Model)>,
-    all_ids: Vec<String>,
+    models_by_id: Vec<(JsString, Model)>,
+    all_ids: Vec<JsString>,
     enabled_ids: EnabledIds,
     filtered_items: Vec<ModelItem>,
     selected_index: usize,
     search_input: ComponentRef,
-    search_value: String,
+    search_value: JsString,
     list_container: Container,
     footer_text: ComponentRef,
     callbacks: ModelsCallbacks,
@@ -153,9 +154,9 @@ impl ScopedModelsSelectorComponent {
             filtered_items: Vec::new(),
             selected_index: 0,
             search_input: component(Input::new(InputOptions::default())),
-            search_value: String::new(),
+            search_value: JsString::default(),
             list_container: Container::new(),
-            footer_text: component(Text::new(String::new(), 0, 0)),
+            footer_text: component(Text::new(JsString::default(), 0, 0)),
             callbacks,
             max_visible: 8,
             is_dirty: false,
@@ -165,7 +166,7 @@ impl ScopedModelsSelectorComponent {
             suffix_children: Vec::new(),
         };
         for model in &config.all_models {
-            let full_id = format!("{}/{}", model.provider, model.id);
+            let full_id = js_format!("{}/{}", model.provider, model.id);
             selector.models_by_id.push((full_id.clone(), model.clone()));
             selector.all_ids.push(full_id);
         }
@@ -183,7 +184,7 @@ impl ScopedModelsSelectorComponent {
                 with_theme(|theme| {
                     theme.fg(
                         ThemeColor::Muted,
-                        &format!("Session-only. {} to save to settings.", key_text("app.models.save")),
+                        &js_format!("Session-only. {} to save to settings.", key_text("app.models.save")),
                     )
                 }),
                 0,
@@ -194,7 +195,7 @@ impl ScopedModelsSelectorComponent {
         let mut suffix_children = vec![component(Spacer::new(1))];
         if let Some(refresh_status) = &config.refresh_status {
             let status = component(Text::new(
-                with_theme(|theme| theme.fg(ThemeColor::Muted, &format!("  {refresh_status}"))),
+                with_theme(|theme| theme.fg(ThemeColor::Muted, &js_format!("  {}", refresh_status))),
                 0,
                 0,
             ));
@@ -221,7 +222,7 @@ impl ScopedModelsSelectorComponent {
         self.models_by_id.clear();
         self.all_ids.clear();
         for model in models {
-            let full_id = format!("{}/{}", model.provider, model.id);
+            let full_id = js_format!("{}/{}", model.provider, model.id);
             self.models_by_id.push((full_id.clone(), model.clone()));
             self.all_ids.push(full_id);
         }
@@ -234,16 +235,16 @@ impl ScopedModelsSelectorComponent {
         }
     }
 
-    pub fn set_refresh_status(&self, message: &str, kind: RefreshStatusKind) {
+    pub fn set_refresh_status(&self, message: &JsString, kind: RefreshStatusKind) {
         if let Some(status) = &self.refresh_status_text {
             set_text(
                 status,
-                with_theme(|theme| theme.fg(kind.color(), &format!("  {message}"))),
+                with_theme(|theme| theme.fg(kind.color(), &js_format!("  {}", message))),
             );
         }
     }
 
-    fn model_for(&self, id: &str) -> Option<&Model> {
+    fn model_for(&self, id: &JsString) -> Option<&Model> {
         self.models_by_id
             .iter()
             .find(|(full_id, _)| full_id == id)
@@ -261,7 +262,7 @@ impl ScopedModelsSelectorComponent {
             .collect()
     }
 
-    fn get_footer_text(&self) -> String {
+    fn get_footer_text(&self) -> JsString {
         let enabled_count = self.enabled_ids.as_ref().map_or(self.all_ids.len(), |ids| {
             ids.iter().filter(|id| self.model_for(id).is_some()).count()
         });
@@ -271,38 +272,40 @@ impl ScopedModelsSelectorComponent {
             .map_or(0, |ids| ids.iter().filter(|id| self.model_for(id).is_none()).count());
         let all_enabled = self.enabled_ids.is_none();
         let count_text = if all_enabled {
-            "all enabled".to_owned()
+            JsString::from("all enabled")
         } else if unavailable_count > 0 {
-            format!(
-                "{enabled_count}/{} enabled · {unavailable_count} unavailable",
-                self.all_ids.len()
+            js_format!(
+                "{}/{} enabled · {} unavailable",
+                enabled_count,
+                self.all_ids.len(),
+                unavailable_count
             )
         } else {
-            format!("{enabled_count}/{} enabled", self.all_ids.len())
+            js_format!("{}/{} enabled", enabled_count, self.all_ids.len())
         };
         let parts = [
-            format!("{} toggle", key_text("tui.select.confirm")),
-            format!("{} all", key_text("app.models.enableAll")),
-            format!("{} clear", key_text("app.models.clearAll")),
-            format!("{} provider", key_text("app.models.toggleProvider")),
-            format!(
+            js_format!("{} toggle", key_text("tui.select.confirm")),
+            js_format!("{} all", key_text("app.models.enableAll")),
+            js_format!("{} clear", key_text("app.models.clearAll")),
+            js_format!("{} provider", key_text("app.models.toggleProvider")),
+            js_format!(
                 "{}/{} reorder",
                 key_text("app.models.reorderUp"),
                 key_text("app.models.reorderDown")
             ),
-            format!("{} save", key_text("app.models.save")),
+            js_format!("{} save", key_text("app.models.save")),
             count_text,
         ];
-        let joined = parts.join(" · ");
+        let joined = JsString::join(parts, " · ");
         if self.is_dirty {
-            with_theme(|theme| theme.fg(ThemeColor::Dim, &format!("  {joined} ")))
+            with_theme(|theme| theme.fg(ThemeColor::Dim, &js_format!("  {} ", joined)))
                 + &with_theme(|theme| theme.fg(ThemeColor::Warning, "(unsaved)"))
         } else {
-            with_theme(|theme| theme.fg(ThemeColor::Dim, &format!("  {joined}")))
+            with_theme(|theme| theme.fg(ThemeColor::Dim, &js_format!("  {}", joined)))
         }
     }
 
-    fn set_footer_text(&self, text: String) {
+    fn set_footer_text(&self, text: JsString) {
         set_text(&self.footer_text, text);
     }
 
@@ -317,7 +320,10 @@ impl ScopedModelsSelectorComponent {
                     id: model.id.clone(),
                     provider: model.provider.clone(),
                     name: Some(model.name.clone()),
-                }),
+                })
+                .into_iter()
+                .map(JsString::from)
+                .collect(),
                 None => vec![item.full_id.clone()],
             })
         };
@@ -356,30 +362,30 @@ impl ScopedModelsSelectorComponent {
             let prefix = if is_selected {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, "→ "))
             } else {
-                "  ".to_owned()
+                JsString::from("  ")
             };
             let id = item
                 .model
                 .as_ref()
-                .map_or(item.full_id.clone(), |model| model.id.clone());
+                .map_or(item.full_id.clone(), |model| JsString::from(&model.id));
             let model_text = if is_selected {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, &id))
             } else {
                 id
             };
             let badge_text = match &item.model {
-                Some(model) => format!(" [{}]", model.provider),
-                None => " [unavailable]".to_owned(),
+                Some(model) => js_format!(" [{}]", model.provider),
+                None => JsString::from(" [unavailable]"),
             };
             let provider_badge = with_theme(|theme| theme.fg(ThemeColor::Muted, &badge_text));
             let status = match &item.model {
                 None => with_theme(|theme| theme.fg(ThemeColor::Dim, " ✗")),
-                Some(_) if all_enabled => String::new(),
+                Some(_) if all_enabled => JsString::default(),
                 Some(_) if item.enabled => with_theme(|theme| theme.fg(ThemeColor::Success, " ✓")),
                 Some(_) => with_theme(|theme| theme.fg(ThemeColor::Dim, " ✗")),
             };
             self.list_container.add_child(component(Text::new(
-                format!("{prefix}{model_text}{provider_badge}{status}"),
+                js_format!("{}{}{}{}", prefix, model_text, provider_badge, status),
                 0,
                 0,
             )));
@@ -387,7 +393,12 @@ impl ScopedModelsSelectorComponent {
 
         if start_index > 0 || end_index < length {
             self.list_container.add_child(component(Text::new(
-                with_theme(|theme| theme.fg(ThemeColor::Muted, &format!("  ({}/{length})", self.selected_index + 1))),
+                with_theme(|theme| {
+                    theme.fg(
+                        ThemeColor::Muted,
+                        &js_format!("  ({}/{})", self.selected_index + 1, length),
+                    )
+                }),
                 0,
                 0,
             )));
@@ -396,8 +407,8 @@ impl ScopedModelsSelectorComponent {
         if !self.filtered_items.is_empty() {
             let selected = &self.filtered_items[self.selected_index];
             let description = match &selected.model {
-                Some(model) => format!("  Model Name: {}", model.name),
-                None => "  Model unavailable".to_owned(),
+                Some(model) => js_format!("  Model Name: {}", model.name),
+                None => JsString::from("  Model unavailable"),
             };
             self.list_container.add_child(component(Spacer::new(1)));
             self.list_container.add_child(component(Text::new(
@@ -412,7 +423,7 @@ impl ScopedModelsSelectorComponent {
         Rc::clone(&self.search_input)
     }
 
-    fn set_search_value(&mut self, value: &str) {
+    fn set_search_value(&mut self, value: &JsString) {
         if let Some(input) = self
             .search_input
             .borrow_mut()
@@ -474,7 +485,7 @@ impl ScopedModelsSelectorComponent {
         self.notify_change();
     }
 
-    fn target_ids(&self) -> Option<Vec<String>> {
+    fn target_ids(&self) -> Option<Vec<JsString>> {
         if self.search_value.is_empty() {
             None
         } else {
@@ -490,7 +501,7 @@ impl ScopedModelsSelectorComponent {
             return;
         };
         let provider = model.provider.clone();
-        let provider_ids: Vec<String> = self
+        let provider_ids: Vec<JsString> = self
             .all_ids
             .iter()
             .filter(|id| self.model_for(id).is_some_and(|model| model.provider == provider))
@@ -525,7 +536,7 @@ impl RefreshStatusKind {
     }
 }
 
-fn set_text(target: &ComponentRef, text: String) {
+fn set_text(target: &ComponentRef, text: JsString) {
     if let Some(text_component) = target
         .borrow_mut()
         .as_any_mut()
@@ -536,7 +547,7 @@ fn set_text(target: &ComponentRef, text: String) {
 }
 
 impl Component for ScopedModelsSelectorComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
         for child in &self.prefix_children {
             lines.extend(child.borrow_mut().render(width));
@@ -551,7 +562,7 @@ impl Component for ScopedModelsSelectorComponent {
         lines
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         let keybindings = get_keybindings();
 
         if keybindings.matches(data, "tui.select.up") {
@@ -623,7 +634,7 @@ impl Component for ScopedModelsSelectorComponent {
 
         if matches_key(data, "ctrl+c") {
             if !self.search_value.is_empty() {
-                self.set_search_value("");
+                self.set_search_value(&JsString::default());
                 self.refresh();
             } else {
                 (self.callbacks.on_cancel)();
