@@ -3,6 +3,7 @@ mod oracle;
 #[path = "support/virtual_terminal.rs"]
 mod virtual_terminal;
 
+use pi_js_compat::js_json::JsString;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -19,28 +20,28 @@ type FocusFlag = Option<Rc<Cell<bool>>>;
 type FocusFlags = Rc<RefCell<Vec<FocusFlag>>>;
 
 struct ScenarioState {
-    lines: Vec<String>,
+    lines: Vec<JsString>,
     renders: usize,
-    inputs: Vec<String>,
+    inputs: Vec<JsString>,
 }
 
 struct ScenarioComponent {
     state: Rc<RefCell<ScenarioState>>,
     focus: Option<Rc<Cell<bool>>>,
-    focus_on_input: Vec<(String, usize)>,
+    focus_on_input: Vec<(JsString, usize)>,
     components: Rc<RefCell<Vec<ComponentRef>>>,
     set_focus: Rc<dyn Fn(Option<ComponentRef>)>,
 }
 
 impl Component for ScenarioComponent {
-    fn render(&mut self, _width: usize) -> Vec<String> {
+    fn render(&mut self, _width: usize) -> Vec<JsString> {
         let mut state = self.state.borrow_mut();
         state.renders += 1;
         state.lines.clone()
     }
 
-    fn handle_input(&mut self, data: &str) {
-        self.state.borrow_mut().inputs.push(data.to_string());
+    fn handle_input(&mut self, data: &JsString) {
+        self.state.borrow_mut().inputs.push(data.clone());
         if let Some((_, target)) = self.focus_on_input.iter().find(|(key, _)| key == data) {
             let component = self.components.borrow().get(*target).cloned();
             (self.set_focus)(component);
@@ -222,12 +223,7 @@ fn run_scenario(scenario: &Value) -> Value {
                 let state = Rc::new(RefCell::new(ScenarioState {
                     lines: step["lines"]
                         .as_array()
-                        .map(|lines| {
-                            lines
-                                .iter()
-                                .map(|line| line.as_str().unwrap_or("").to_string())
-                                .collect()
-                        })
+                        .map(|lines| lines.iter().map(|line| line.as_str().unwrap_or("").into()).collect())
                         .unwrap_or_default(),
                     renders: 0,
                     inputs: Vec::new(),
@@ -241,7 +237,7 @@ fn run_scenario(scenario: &Value) -> Value {
                             .iter()
                             .map(|binding| {
                                 (
-                                    binding[0].as_str().unwrap().to_string(),
+                                    binding[0].as_str().unwrap().into(),
                                     binding[1].as_u64().unwrap() as usize,
                                 )
                             })
@@ -266,14 +262,9 @@ fn run_scenario(scenario: &Value) -> Value {
             "request_render" => tui.request_render(step["force"].as_bool().unwrap_or(false)),
             "set_lines" => {
                 let index = step["component"].as_u64().unwrap_or(0) as usize;
-                let lines: Vec<String> = step["lines"]
+                let lines: Vec<JsString> = step["lines"]
                     .as_array()
-                    .map(|lines| {
-                        lines
-                            .iter()
-                            .map(|line| line.as_str().unwrap_or("").to_string())
-                            .collect()
-                    })
+                    .map(|lines| lines.iter().map(|line| line.as_str().unwrap_or("").into()).collect())
                     .unwrap_or_default();
                 states.borrow()[index].borrow_mut().lines = lines;
             }
