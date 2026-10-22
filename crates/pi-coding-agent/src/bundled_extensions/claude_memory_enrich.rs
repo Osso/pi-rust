@@ -83,7 +83,7 @@ pub fn parse_additional_context(stdout: &str) -> Result<Option<JsString>, Handle
         return Ok(None);
     }
 
-    let parsed = js_json::parse_lossless(trimmed).map_err(|error| HandlerError::new(error.to_string()))?;
+    let parsed = js_json::parse_lossless(trimmed).map_err(|error| HandlerError::new(error.into_message()))?;
     if !is_hook_output(&parsed) {
         return Err(HandlerError::new("claude-memory enrich returned unexpected JSON shape"));
     }

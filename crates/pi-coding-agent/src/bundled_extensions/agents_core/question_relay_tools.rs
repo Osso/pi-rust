@@ -64,7 +64,7 @@ mod delivery_lossless_tests {
             if let Some(cancelled) = &cancelled {
                 payload["cancelled"] = cancelled.clone();
             }
-            let delivered = RuntimeMailboxMessage {
+            let mut delivered = RuntimeMailboxMessage {
                 id: 7,
                 recipient: RuntimeMailboxAddress {
                     agent_id: Some("child".into()),
@@ -99,6 +99,10 @@ mod delivery_lossless_tests {
             };
             assert!(text.text.contains(JsString::from_utf16(vec![0xd800])));
             assert!(text.text.contains(JsString::from_utf16(vec![0xdc00])));
+
+            delivered.body = JsString::from_utf16(vec![0xd800]);
+            let error = delivered_answer_result(&params, &inbox, &delivered).unwrap_err();
+            assert!(error.message.contains(JsString::from_utf16(vec![0xd800])));
         }
     }
 }
@@ -280,7 +284,7 @@ fn delivered_answer_result(
     delivered: &RuntimeMailboxMessage,
 ) -> Result<AgentToolResult, HandlerError> {
     use pi_js_compat::js_json::{self, JsString, JsValue};
-    let parsed = js_json::parse_lossless(&delivered.body).map_err(handler)?;
+    let parsed = js_json::parse_lossless(&delivered.body).map_err(|error| HandlerError::new(error.into_message()))?;
     let JsValue::Object(answer) = parsed else {
         return Err(HandlerError::new(
             JsString::from("Malformed question answer ") + &delivered.store_ref.message_id,

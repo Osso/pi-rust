@@ -157,7 +157,7 @@ fn parse_runner_args(value: Option<&str>) -> Result<Option<Vec<JsString>>, Pyrun
     let Some(value) = value.filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
-    let parsed = js_json::parse_lossless(value).map_err(|error| PyrunRunnerError::new(error.to_string()))?;
+    let parsed = js_json::parse_lossless(value).map_err(|error| PyrunRunnerError::new(error.into_message()))?;
     let Some(items) = parsed.as_array() else {
         return Err(PyrunRunnerError::new(
             "PI_PYRUN_RUNNER_ARGS must be a JSON string array",
@@ -596,7 +596,7 @@ async fn handle_stdout_line(
         Ok(parsed) => parsed,
         Err(error) => {
             let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            reject_generation_locked(&mut state, generation, PyrunRunnerError::new(error.to_string()));
+            reject_generation_locked(&mut state, generation, PyrunRunnerError::new(error.into_message()));
             return;
         }
     };
