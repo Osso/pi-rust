@@ -7,6 +7,11 @@ import {
 	setFetchScript,
 } from "./scripted-fetch.ts";
 import { zstdDecompressSync } from "node:zlib";
+import {
+	installAssistantSnapshots,
+	normalizeAssistantEventClocks as normalizeEvent,
+	normalizeAssistantMessageClock as normalize,
+} from "./assistant-snapshots.ts";
 
 type RequestId = string | number | null;
 
@@ -14,6 +19,8 @@ interface SseRequest {
 	id: RequestId;
 	operation: "sse";
 	events: unknown[];
+	modelOverrides?: Record<string, unknown>;
+	context?: unknown;
 	rawPayload?: string;
 	retryStatus?: number;
 	retryHeaders?: Array<[string, string]>;
@@ -55,60 +62,6 @@ function normalizeError(error: unknown): { name: string; message: string } {
 	if (error instanceof Error)
 		return { name: error.name, message: error.message };
 	return { name: "UnknownError", message: String(error) };
-}
-
-function stripScratch(value: unknown): void {
-	if (Array.isArray(value)) {
-		for (const entry of value) stripScratch(entry);
-		return;
-	}
-	if (!value || typeof value !== "object") return;
-	const object = value as Record<string, unknown>;
-	delete object.partialJson;
-	delete object.customInput;
-	for (const entry of Object.values(object)) stripScratch(entry);
-}
-
-function normalizeEvent(value: unknown): unknown {
-	const normalized = normalize(value) as Record<string, unknown>;
-	if (
-		normalized.type !== "done" &&
-		normalized.partial &&
-		typeof normalized.partial === "object"
-	) {
-		delete (normalized.partial as Record<string, unknown>).endTurn;
-		delete (normalized.partial as Record<string, unknown>).responseId;
-	}
-	stripScratch(normalized);
-	return normalized;
-}
-
-function normalize(value: unknown): unknown {
-	if (Array.isArray(value)) return value.map(normalize);
-	if (value && typeof value === "object") {
-		const output: Record<string, unknown> = {};
-		for (const [key, entry] of Object.entries(
-			value as Record<string, unknown>,
-		)) {
-			if (key === "timestamp") output[key] = 0;
-			else if (key === "stack") continue;
-			else if (
-				key === "errorMessage" &&
-				typeof entry === "string" &&
-				entry.startsWith("Invalid Codex SSE JSON:")
-			)
-				output[key] = "<invalid json>";
-			else if (
-				key === "errorMessage" &&
-				typeof entry === "string" &&
-				entry.startsWith("Invalid Codex WebSocket JSON:")
-			)
-				output[key] = "<invalid json>";
-			else output[key] = normalize(entry);
-		}
-		return output;
-	}
-	return value;
 }
 
 function mockToken(accountId = "acc_test"): string {
@@ -231,12 +184,16 @@ async function runSse(api: Api, request: SseRequest): Promise<unknown> {
 		transport: "sse",
 		sessionId: "diff-session",
 		signal: controller.signal,
-		onRetry: (event: unknown) => retries.push(normalize(event)),
+		onRetry: (event: unknown) => retries.push(structuredClone(event)),
 	};
 	if (request.maxRetries !== undefined) options.maxRetries = request.maxRetries;
 	if (request.timeoutMs !== undefined) options.timeoutMs = request.timeoutMs;
 
-	const resultStream = api.stream(model(), context(), options);
+	const resultStream = api.stream(
+		{ ...model(), ...request.modelOverrides },
+		request.context ?? context(),
+		options,
+	);
 	const events: unknown[] = [];
 	for await (const event of resultStream) {
 		events.push(normalizeEvent(event));
@@ -249,10 +206,7 @@ async function runSse(api: Api, request: SseRequest): Promise<unknown> {
 	}
 	const result = await resultStream.result();
 	return {
-		requests: recorded.map((entry) => ({
-			...entry,
-			headers: { ...entry.headers, "user-agent": "<ua>" },
-		})),
+		requests: recorded,
 		events,
 		result: normalize(result),
 		retries,
@@ -527,6 +481,7 @@ async function main(): Promise<void> {
 	if (modulePath === undefined)
 		throw new Error("codex oracle requires a source module path");
 	installScriptedFetch();
+	await installAssistantSnapshots(modulePath);
 	const codex = (await import(
 		pathToFileURL(`${modulePath}/api/openai-codex-responses.ts`).href
 	)) as Api;

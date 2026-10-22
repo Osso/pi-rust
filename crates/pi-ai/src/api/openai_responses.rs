@@ -2,20 +2,17 @@
 
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::{JsObject, JsValue};
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
-use crate::api::constrained_sampling::create_grammar_tool_input_properties;
 use crate::api::github_copilot_headers::{build_copilot_dynamic_headers, has_copilot_vision_input};
 use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
 use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
 use crate::api::openai_responses_shared::{
-    ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions, OpenAIResponsesStreamOptions,
-    ResponsesDeferredToolsMode, convert_responses_messages, convert_responses_tools, process_responses_stream,
+    OpenAIResponsesStreamOptions, convert_responses_messages, convert_responses_tools, process_responses_stream,
     push_responses_done,
 };
 use crate::api::openai_sdk::{SdkClient, SdkClientConfig, SdkError, format_request_error, format_sdk_error};
@@ -28,7 +25,6 @@ use crate::types::{
     AssistantMessage, CacheRetention, Context, ErrorReason, Model, ModelCompat, ModelThinkingLevel, ProviderEnv,
     ProviderHeaders, ProviderResponse, Usage,
 };
-use crate::utils::deferred_tools::split_deferred_tools;
 use crate::utils::event_stream::{AssistantMessageEventSender, create_assistant_message_event_stream};
 use crate::utils::headers::headers_to_record;
 use crate::utils::provider_env::get_provider_env_value;
@@ -178,32 +174,12 @@ pub fn build_params(
     options: &OpenAIResponsesOptions,
     stream_options: &StreamOptions,
     compat: &ResolvedCompat,
-    grammar_tool_input_properties: &IndexMap<String, String>,
 ) -> Result<JsValue, String> {
-    let deferred_tools_mode = if compat.supports_additional_tools {
-        Some(ResponsesDeferredToolsMode::AdditionalTools)
-    } else if compat.supports_tool_search {
-        Some(ResponsesDeferredToolsMode::ToolSearch)
-    } else {
-        None
-    };
-    let tool_placement = split_deferred_tools(context, deferred_tools_mode.is_some());
-    let deferred_tools = tool_placement.deferred.iter().cloned().collect::<BTreeMap<_, _>>();
     let messages = convert_responses_messages(
         model,
         context,
         &OPENAI_TOOL_CALL_PROVIDERS.into_iter().map(str::to_owned).collect(),
-        Some(&ConvertResponsesMessagesOptions {
-            grammar_tool_input_properties: Some(grammar_tool_input_properties.clone()),
-            deferred_tools: Some(deferred_tools),
-            deferred_tools_mode,
-            tool_options: Some(ConvertResponsesToolsOptions {
-                supports_strict_mode: Some(compat.supports_strict_mode),
-                supports_openai_grammar_tools: Some(compat.supports_openai_grammar_tools),
-                ..Default::default()
-            }),
-            ..Default::default()
-        }),
+        None,
     )?;
 
     let cache_retention = resolve_cache_retention(stream_options.cache_retention, stream_options.request.env.as_ref());
@@ -233,19 +209,8 @@ pub fn build_params(
     if let Some(service_tier) = &options.service_tier {
         params.insert("service_tier".into(), JsValue::String(service_tier.clone().into()));
     }
-    if !tool_placement.immediate.is_empty() {
-        params.insert(
-            "tools".into(),
-            convert_responses_tools(
-                &tool_placement.immediate,
-                Some(&ConvertResponsesToolsOptions {
-                    supports_strict_mode: Some(compat.supports_strict_mode),
-                    supports_openai_grammar_tools: Some(compat.supports_openai_grammar_tools),
-                    ..Default::default()
-                }),
-            )
-            .map_err(|error| error.message)?,
-        );
+    if let Some(tools) = context.tools.as_deref().filter(|tools| !tools.is_empty()) {
+        params.insert("tools".into(), convert_responses_tools(tools, None));
     }
     if let Some(tool_choice) = &options.tool_choice {
         params.insert("tool_choice".into(), tool_choice.clone().into());
@@ -406,19 +371,9 @@ async fn run_stream(
         .then_some(stream_options.session_id.as_ref())
         .flatten();
     let compat = get_compat(model);
-    let grammar_tool_input_properties =
-        create_grammar_tool_input_properties(context.tools.as_deref(), compat.supports_openai_grammar_tools)
-            .map_err(|error| Failure::Message(error.message.into()))?;
     let client = create_client(model, context, &api_key, stream_options, cache_session_id, &compat);
-    let params = build_params(
-        model,
-        context,
-        options,
-        stream_options,
-        &compat,
-        &grammar_tool_input_properties,
-    )
-    .map_err(|error| Failure::Message(error.into()))?;
+    let params = build_params(model, context, options, stream_options, &compat)
+        .map_err(|error| Failure::Message(error.into()))?;
 
     let mut params = JsValue::from(params);
     if let Some(on_payload) = &stream_options.request.on_payload
@@ -462,7 +417,6 @@ async fn run_stream(
     let mut stream = response.stream;
     let stream_options_for_shared = OpenAIResponsesStreamOptions {
         service_tier: options.service_tier.clone(),
-        grammar_tool_input_properties: Some(grammar_tool_input_properties),
         apply_service_tier_pricing: Some(Arc::new({
             let model_id = model.id.clone();
             move |usage: &mut Usage, service_tier: Option<&str>| {

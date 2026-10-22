@@ -148,10 +148,13 @@ async fn proxy_stream_preserves_utf16_deltas_arguments_and_request_context() {
     });
     let user: pi_ai::types::UserMessage =
         serde_json::from_str(r#"{"role":"user","content":"\ud800","timestamp":0}"#).unwrap();
+    let mut tool = pi_ai::types::Tool::new("lookup", "fixture", json!({"type":"object"}));
+    tool.label = Some(JsString::from_utf16(vec![0xd800]));
+    tool.execution_mode = Some("parallel".into());
     let context = Context {
         system_prompt: None,
         messages: vec![pi_ai::types::Message::User(user)],
-        tools: None,
+        tools: Some(vec![tool]),
     };
     let metadata = parse_lossless(r#"{"\ud800":{"nested":["\udfff",null,3]}}"#).unwrap();
     let mut options = options(fetch, None);
@@ -180,6 +183,14 @@ async fn proxy_stream_preserves_utf16_deltas_arguments_and_request_context() {
         &[0xd800]
     );
     assert_eq!(body["options"]["metadata"], metadata);
+    assert_eq!(
+        body["context"]["tools"][0]["label"].as_string().unwrap().units(),
+        &[0xd800]
+    );
+    assert_eq!(
+        body["context"]["tools"][0]["executionMode"].as_string(),
+        Some(&JsString::from("parallel"))
+    );
 }
 
 #[tokio::test]

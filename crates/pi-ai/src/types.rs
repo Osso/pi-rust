@@ -636,8 +636,6 @@ pub struct AssistantMessage {
     pub error_message: Option<pi_js_compat::js_json::JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_stop_reason: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_turn: Option<bool>,
 }
 
 impl AssistantMessage {
@@ -662,7 +660,6 @@ impl AssistantMessage {
             stop_reason: StopReason::Stop,
             error_message: None,
             raw_stop_reason: None,
-            end_turn: None,
             timestamp,
         }
     }
@@ -813,9 +810,15 @@ impl TypeBoxSchema {
 #[serde(rename_all = "camelCase")]
 pub struct Tool {
     pub name: String,
+    /// Enumerable AgentTool label; absent on plain AI Tool values.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<JsString>,
     pub description: String,
     /// JSON Schema for the tool arguments (TypeBox `TSchema` in TypeScript).
     pub parameters: Value,
+    /// Enumerable AgentTool override; AI adapters do not interpret it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_mode: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub constrained_sampling: Option<ConstrainedSampling>,
     /// Whether `parameters` was built with TypeBox. TypeScript's
@@ -830,8 +833,10 @@ impl Tool {
     pub fn new(name: impl Into<String>, description: impl Into<String>, parameters: Value) -> Self {
         Self {
             name: name.into(),
+            label: None,
             description: description.into(),
             parameters,
+            execution_mode: None,
             constrained_sampling: None,
             typebox_kind: false,
         }
@@ -841,8 +846,10 @@ impl Tool {
     pub fn typebox(name: impl Into<String>, description: impl Into<String>, parameters: TypeBoxSchema) -> Self {
         Self {
             name: name.into(),
+            label: None,
             description: description.into(),
             parameters: parameters.into_value(),
+            execution_mode: None,
             constrained_sampling: None,
             typebox_kind: true,
         }

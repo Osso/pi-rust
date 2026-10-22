@@ -11,6 +11,8 @@ fn tool(name: &str, description: &str) -> Tool {
         description: description.to_owned(),
         parameters: json!({"type": "object"}),
         constrained_sampling: None,
+        label: None,
+        execution_mode: None,
         typebox_kind: false,
     }
 }

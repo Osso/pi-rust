@@ -1,6 +1,7 @@
 import { pathToFileURL } from "node:url";
 import { Readable } from "node:stream";
 import { crc32 } from "node:zlib";
+import { installAssistantSnapshots } from "./assistant-snapshots.ts";
 
 type RequestId = string | number | null;
 
@@ -55,9 +56,11 @@ class FakeDate extends RealDate {
 		return FIXED_MILLIS;
 	}
 }
-(globalThis as unknown as { Date: typeof Date }).Date = FakeDate as unknown as typeof Date;
-(globalThis as unknown as { crypto: { randomUUID: () => string } }).crypto.randomUUID = () =>
-	"11111111-2222-4333-8444-555555555555";
+(globalThis as unknown as { Date: typeof Date }).Date =
+	FakeDate as unknown as typeof Date;
+(
+	globalThis as unknown as { crypto: { randomUUID: () => string } }
+).crypto.randomUUID = () => "11111111-2222-4333-8444-555555555555";
 process.env.AWS_BEDROCK_FORCE_HTTP1 = "1";
 
 function encodeFrame(
@@ -70,18 +73,27 @@ function encodeFrame(
 	for (const [name, value] of headers) {
 		const nameBytes = Buffer.from(name, "utf8");
 		const valueBytes = Buffer.from(value, "utf8");
-		headerParts.push(nameBytes.length, ...nameBytes, 7, valueBytes.length >> 8, valueBytes.length & 0xff, ...valueBytes);
+		headerParts.push(
+			nameBytes.length,
+			...nameBytes,
+			7,
+			valueBytes.length >> 8,
+			valueBytes.length & 0xff,
+			...valueBytes,
+		);
 	}
 	const headersLength = headerParts.length;
 	const totalLength = 12 + headersLength + payload.length + 4;
 	const out = Buffer.alloc(totalLength);
 	out.writeUInt32BE(totalLength, 0);
 	out.writeUInt32BE(headersLength, 4);
-	const preludeCrc = (crc32(out.subarray(0, 8)) ^ (corruptPrelude ? 1 : 0)) >>> 0;
+	const preludeCrc =
+		(crc32(out.subarray(0, 8)) ^ (corruptPrelude ? 1 : 0)) >>> 0;
 	out.writeUInt32BE(preludeCrc, 8);
 	Buffer.from(headerParts).copy(out, 12);
 	Buffer.from(payload).copy(out, 12 + headersLength);
-	const messageCrc = (crc32(out.subarray(0, totalLength - 4)) ^ (corruptMessage ? 1 : 0)) >>> 0;
+	const messageCrc =
+		(crc32(out.subarray(0, totalLength - 4)) ^ (corruptMessage ? 1 : 0)) >>> 0;
 	out.writeUInt32BE(messageCrc, totalLength - 4);
 	return out;
 }
@@ -121,23 +133,34 @@ let scriptIndex = 0;
 
 async function main(): Promise<void> {
 	const modulePath = process.argv[2];
-	if (modulePath === undefined) throw new Error("bedrock oracle requires a source module path");
+	if (modulePath === undefined)
+		throw new Error("bedrock oracle requires a source module path");
+	await installAssistantSnapshots(modulePath);
 	const sourceRoot = new URL("../../../", pathToFileURL(`${modulePath}/`));
 	const nodeHttpHandler = (await import(
-		new URL("node_modules/@smithy/node-http-handler/dist-cjs/index.js", sourceRoot).href
-	)) as { NodeHttpHandler: { prototype: { handle: (...args: unknown[]) => Promise<unknown> } } };
+		new URL(
+			"node_modules/@smithy/node-http-handler/dist-cjs/index.js",
+			sourceRoot,
+		).href
+	)) as {
+		NodeHttpHandler: {
+			prototype: { handle: (...args: unknown[]) => Promise<unknown> };
+		};
+	};
 
 	nodeHttpHandler.NodeHttpHandler.prototype.handle = async (
 		request: unknown,
 		options?: { abortSignal?: AbortSignal },
 	) => {
 		activeRequests.push(request as Record<string, unknown>);
-		const response = activeScript[Math.min(scriptIndex, activeScript.length - 1)];
+		const response =
+			activeScript[Math.min(scriptIndex, activeScript.length - 1)];
 		scriptIndex += 1;
 		if (!response) throw new Error("bedrock oracle script exhausted");
-		const bytes = response.frames && response.frames.length > 0
-			? Buffer.concat(response.frames.map(encodeFrameSpec))
-			: Buffer.from(response.text ?? "", "utf8");
+		const bytes =
+			response.frames && response.frames.length > 0
+				? Buffer.concat(response.frames.map(encodeFrameSpec))
+				: Buffer.from(response.text ?? "", "utf8");
 		const headers: Record<string, string> = {};
 		for (const [name, value] of response.headers) headers[name] = value;
 		const body = Readable.from(splitBytes(bytes, response.chunkSizes));
@@ -156,8 +179,14 @@ async function main(): Promise<void> {
 		};
 	};
 
-	const bedrock = (await import(pathToFileURL(`${modulePath}/api/bedrock-converse-stream.ts`).href)) as {
-		stream: (model: unknown, context: unknown, options: unknown) => AsyncIterable<unknown> & {
+	const bedrock = (await import(
+		pathToFileURL(`${modulePath}/api/bedrock-converse-stream.ts`).href
+	)) as {
+		stream: (
+			model: unknown,
+			context: unknown,
+			options: unknown,
+		) => AsyncIterable<unknown> & {
 			result: () => Promise<unknown>;
 		};
 	};
@@ -172,7 +201,16 @@ function restoreEnv(originals: Map<string, string | undefined>): void {
 	}
 }
 
-async function execute(request: OracleRequest, bedrock: { stream: (model: unknown, context: unknown, options: unknown) => AsyncIterable<unknown> & { result: () => Promise<unknown> } }): Promise<OracleResponse> {
+async function execute(
+	request: OracleRequest,
+	bedrock: {
+		stream: (
+			model: unknown,
+			context: unknown,
+			options: unknown,
+		) => AsyncIterable<unknown> & { result: () => Promise<unknown> };
+	},
+): Promise<OracleResponse> {
 	activeScript = request.script;
 	activeRequests = [];
 	scriptIndex = 0;
@@ -205,7 +243,11 @@ async function execute(request: OracleRequest, bedrock: { stream: (model: unknow
 		for await (const event of stream) {
 			events.push(JSON.parse(JSON.stringify(event)));
 			eventCount += 1;
-			if (request.abort !== null && typeof request.abort === "object" && eventCount >= request.abort.afterEvents) {
+			if (
+				request.abort !== null &&
+				typeof request.abort === "object" &&
+				eventCount >= request.abort.afterEvents
+			) {
 				controller.abort();
 			}
 		}
@@ -221,7 +263,8 @@ async function execute(request: OracleRequest, bedrock: { stream: (model: unknow
 					path: item.path,
 					query: item.query ?? {},
 					headers: item.headers,
-					body: (item.body as { toString(): string } | undefined)?.toString() ?? "",
+					body:
+						(item.body as { toString(): string } | undefined)?.toString() ?? "",
 				})),
 				events,
 				message,
@@ -235,13 +278,20 @@ async function execute(request: OracleRequest, bedrock: { stream: (model: unknow
 }
 
 function normalizeError(error: unknown): { name: string; message: string } {
-	if (error instanceof Error) return { name: error.name, message: error.message };
+	if (error instanceof Error)
+		return { name: error.name, message: error.message };
 	return { name: "UnknownError", message: String(error) };
 }
 
 function executeLine(
 	line: string,
-	bedrock: { stream: (model: unknown, context: unknown, options: unknown) => AsyncIterable<unknown> & { result: () => Promise<unknown> } },
+	bedrock: {
+		stream: (
+			model: unknown,
+			context: unknown,
+			options: unknown,
+		) => AsyncIterable<unknown> & { result: () => Promise<unknown> };
+	},
 ): void {
 	let id: RequestId = null;
 	let request: OracleRequest | undefined;
@@ -253,17 +303,31 @@ function executeLine(
 				process.stdout.write(`${JSON.stringify(response)}\n`);
 			},
 			(error) => {
-				const response: OracleError = { id, ok: false, error: normalizeError(error) };
+				const response: OracleError = {
+					id,
+					ok: false,
+					error: normalizeError(error),
+				};
 				process.stdout.write(`${JSON.stringify(response)}\n`);
 			},
 		);
 	} catch (error) {
-		const response: OracleError = { id, ok: false, error: normalizeError(error) };
+		const response: OracleError = {
+			id,
+			ok: false,
+			error: normalizeError(error),
+		};
 		process.stdout.write(`${JSON.stringify(response)}\n`);
 	}
 }
 
-function serveRequests(bedrock: { stream: (model: unknown, context: unknown, options: unknown) => AsyncIterable<unknown> & { result: () => Promise<unknown> } }): void {
+function serveRequests(bedrock: {
+	stream: (
+		model: unknown,
+		context: unknown,
+		options: unknown,
+	) => AsyncIterable<unknown> & { result: () => Promise<unknown> };
+}): void {
 	let buffer = "";
 	let queue: Promise<void> = Promise.resolve();
 	process.stdin.on("data", (chunk: string | Buffer) => {
@@ -285,6 +349,8 @@ function serveRequests(bedrock: { stream: (model: unknown, context: unknown, opt
 }
 
 void main().catch((error: unknown) => {
-	process.stderr.write(`bedrock oracle startup failed: ${normalizeError(error).message}\n`);
+	process.stderr.write(
+		`bedrock oracle startup failed: ${normalizeError(error).message}\n`,
+	);
 	process.exitCode = 1;
 });

@@ -360,18 +360,14 @@ pub fn filter_and_sort_sessions(
         scored.push((session, result.literal, result.score));
     }
 
-    scored.sort_by(|left, right| {
+    pi_js_compat::array_sort::js_array_sort(&mut scored, |left, right| {
         if left.1 != right.1 {
-            return if left.1 {
-                std::cmp::Ordering::Less
-            } else {
-                std::cmp::Ordering::Greater
-            };
+            return if left.1 { -1.0 } else { 1.0 };
         }
-        match left.2.partial_cmp(&right.2) {
-            Some(std::cmp::Ordering::Equal) | None => right.0.modified.cmp(&left.0.modified),
-            Some(ordering) => ordering,
+        if left.2 != right.2 {
+            return left.2 - right.2;
         }
+        right.0.modified - left.0.modified
     });
 
     scored.into_iter().map(|(session, _, _)| session).collect()

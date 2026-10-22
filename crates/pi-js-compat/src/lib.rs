@@ -5,6 +5,7 @@
 //! `Number`/`parseInt`/`parseFloat`/`Date.parse`, Base64 (`atob`, `btoa`,
 //! `Buffer`), JavaScript string whitespace, and `minimatch`.
 
+pub mod array_sort;
 pub mod base64;
 pub mod collator;
 pub mod date;

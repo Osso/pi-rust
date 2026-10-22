@@ -332,7 +332,7 @@ async fn completes_after_response_completed_while_body_stays_open() {
     .1;
 
     assert_eq!(result.stop_reason, StopReason::Stop);
-    assert_eq!(result.end_turn, Some(false));
+    assert!(serde_json::to_value(&result).unwrap().get("endTurn").is_none());
 }
 
 #[tokio::test]
@@ -348,7 +348,7 @@ async fn maps_incomplete_max_output_to_length() {
 
     assert_eq!(result.stop_reason, StopReason::Length);
     assert_eq!(result.error_message, None);
-    assert_eq!(result.raw_stop_reason.as_deref(), Some("incomplete.max_output_tokens"));
+    assert_eq!(result.raw_stop_reason, None);
 }
 
 #[tokio::test]
@@ -512,7 +512,7 @@ async fn stream_simple_preserves_xhigh_and_clamps_minimal() {
 }
 
 #[tokio::test]
-async fn forwards_tool_choice_and_strict_tools() {
+async fn forwards_tool_choice_with_frozen_null_strict_tools() {
     let fetch = RecordingFetch::new(vec![sse_response(&text_sse("completed", None))]);
     let mut opts = options(fetch.clone(), Transport::Sse);
     opts.tool_choice = Some(CodexToolChoice::Required);
@@ -544,7 +544,7 @@ async fn forwards_tool_choice_and_strict_tools() {
     assert_eq!(body["tool_choice"], "required");
     assert_eq!(body["tools"][0]["strict"], Value::Null);
     assert_eq!(body["tools"][0]["name"], "optional");
-    assert_eq!(body["tools"][1]["strict"], true);
+    assert_eq!(body["tools"][1]["strict"], Value::Null);
     assert_eq!(body["tools"][1]["name"], "strict");
 }
 
@@ -677,10 +677,10 @@ async fn maps_usage_and_reasoning_tokens() {
 
     let (_, result) = collect(stream(model(), context(), opts)).await;
 
-    assert_eq!(result.usage.input, 60.0);
+    assert_eq!(result.usage.input, 70.0);
     assert_eq!(result.usage.output, 40.0);
     assert_eq!(result.usage.cache_read, 30.0);
-    assert_eq!(result.usage.cache_write, 10.0);
+    assert_eq!(result.usage.cache_write, 0.0);
     assert_eq!(result.usage.reasoning, Some(7.0));
     assert_eq!(result.usage.total_tokens, 140.0);
 }
@@ -1185,8 +1185,8 @@ async fn response_done_is_normalized_to_completed() {
     let (_, result) = collect(stream(model(), context(), options(fetch, Transport::Sse))).await;
 
     assert_eq!(result.stop_reason, StopReason::Stop);
-    assert_eq!(result.end_turn, Some(true));
-    assert_eq!(result.raw_stop_reason.as_deref(), Some("completed"));
+    assert!(serde_json::to_value(&result).unwrap().get("endTurn").is_none());
+    assert_eq!(result.raw_stop_reason, None);
 }
 
 #[tokio::test]

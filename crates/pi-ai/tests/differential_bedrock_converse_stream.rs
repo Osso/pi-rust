@@ -1,3 +1,6 @@
+#[path = "support/provider_normalize.rs"]
+pub mod provider_normalize;
+
 #[path = "support/oracle.rs"]
 mod oracle;
 
@@ -474,7 +477,6 @@ fn scenarios() -> Vec<Scenario> {
             stop_reason: StopReason::ToolUse,
             error_message: None,
             raw_stop_reason: None,
-            end_turn: None,
             timestamp: 0.0,
         })),
         Message::ToolResult(ToolResultMessage {
@@ -928,61 +930,38 @@ fn split_chunks(body: Vec<u8>, sizes: &[usize]) -> Vec<Vec<u8>> {
     chunks
 }
 
-fn normalize_timestamps(value: &mut Value) {
-    match value {
-        Value::Object(object) => {
-            if object.contains_key("timestamp") {
-                object.insert("timestamp".to_owned(), json!(0));
-            }
-            for value in object.values_mut() {
-                normalize_timestamps(value);
-            }
-        }
-        Value::Array(items) => {
-            for item in items {
-                normalize_timestamps(item);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn strip_transient_block_index(value: &mut Value) {
-    match value {
-        Value::Object(object) => {
-            if matches!(
-                object.get("type").and_then(Value::as_str),
-                Some("text" | "thinking" | "toolCall")
-            ) {
-                object.remove("index");
-                object.remove("partialJson");
-            }
-            for value in object.values_mut() {
-                strip_transient_block_index(value);
-            }
-        }
-        Value::Array(items) => {
-            for item in items {
-                strip_transient_block_index(item);
-            }
-        }
-        _ => {}
-    }
-}
-
 fn normalize_request_headers(headers: &Map<String, Value>) -> Map<String, Value> {
-    let mut normalized = Map::new();
-    for (name, value) in headers {
-        let lower = name.to_ascii_lowercase();
-        if matches!(
-            lower.as_str(),
-            "user-agent" | "x-amz-date" | "authorization" | "amz-sdk-invocation-id"
-        ) {
-            continue;
-        }
-        normalized.insert(lower, value.clone());
-    }
-    normalized
+    headers
+        .iter()
+        .map(|(name, value)| {
+            let name = name.to_ascii_lowercase();
+            let value = match name.as_str() {
+                "x-amz-date" => json!("<clock>"),
+                "amz-sdk-invocation-id" => json!("<generated>"),
+                "authorization" => {
+                    match value
+                        .as_str()
+                        .filter(|value| value.starts_with("AWS4-HMAC-SHA256 "))
+                        .and_then(|value| value.split_once(", Signature="))
+                    {
+                        Some((scope, _signature)) => {
+                            let mut parts = scope.split('/').collect::<Vec<_>>();
+                            if parts.len() > 1
+                                && parts[1].len() == 8
+                                && parts[1].bytes().all(|byte| byte.is_ascii_digit())
+                            {
+                                parts[1] = "<clock-date>";
+                            }
+                            json!(format!("{}, Signature=<signature>", parts.join("/")))
+                        }
+                        None => value.clone(),
+                    }
+                }
+                _ => value.clone(),
+            };
+            (name, value)
+        })
+        .collect()
 }
 
 fn headers_map(headers: &[(String, String)]) -> Map<String, Value> {
@@ -1132,23 +1111,24 @@ async fn bedrock_converse_stream_matches_the_pinned_typescript_module() {
         }
 
         let mut rust_events = serde_json::to_value(&events).expect("events");
-        normalize_timestamps(&mut rust_events);
+        for event in rust_events.as_array_mut().unwrap() {
+            provider_normalize::normalize_event_clocks(event);
+        }
         let mut oracle_events = output["events"].clone();
-        normalize_timestamps(&mut oracle_events);
-        strip_transient_block_index(&mut oracle_events);
+        for event in oracle_events.as_array_mut().unwrap() {
+            provider_normalize::normalize_event_clocks(event);
+        }
         assert_eq!(rust_events, oracle_events, "event mismatch for {}", scenario.name);
 
         let mut rust_message = serde_json::to_value(&message).expect("message");
-        normalize_timestamps(&mut rust_message);
+        provider_normalize::normalize_message_clock(&mut rust_message);
         let mut oracle_message = output["message"].clone();
-        normalize_timestamps(&mut oracle_message);
+        provider_normalize::normalize_message_clock(&mut oracle_message);
         assert_eq!(rust_message, oracle_message, "message mismatch for {}", scenario.name);
 
         if scenario.capture_payload {
-            let mut rust_payload = captured.expect("captured payload");
-            normalize_timestamps(&mut rust_payload);
-            let mut oracle_payload = output["capturedPayload"].clone();
-            normalize_timestamps(&mut oracle_payload);
+            let rust_payload = captured.expect("captured payload");
+            let oracle_payload = output["capturedPayload"].clone();
             assert_eq!(rust_payload, oracle_payload, "payload mismatch for {}", scenario.name);
         }
     }

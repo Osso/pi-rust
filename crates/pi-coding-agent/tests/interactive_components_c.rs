@@ -160,7 +160,6 @@ fn assistant_message(content: Vec<AssistantContent>, stop_reason: StopReason) ->
         diagnostics: None,
         error_message: None,
         raw_stop_reason: None,
-        end_turn: None,
     }
 }
 
@@ -1526,8 +1525,8 @@ fn session_info(
         name: name.map(JsString::from),
         is_archived: archived.then_some(true),
         parent_session_path: None,
-        created: now - modified_offset_ms,
-        modified: now - modified_offset_ms,
+        created: (now - modified_offset_ms) as f64,
+        modified: (now - modified_offset_ms) as f64,
         message_count: 3,
         first_message: JsString::from(first_message.to_owned()),
     }

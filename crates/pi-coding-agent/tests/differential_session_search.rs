@@ -22,8 +22,8 @@ fn session(id: &str, modified: i64, first_message: &str) -> SessionInfo {
         name: None,
         is_archived: None,
         parent_session_path: None,
-        created: 0,
-        modified,
+        created: 0.0,
+        modified: modified as f64,
         message_count: 1,
         first_message: JsString::from(first_message.to_owned()),
     }
@@ -140,8 +140,8 @@ fn rust_sessions(value: &Value) -> Vec<SessionInfo> {
             name: session["name"].as_str().map(str::to_owned).map(JsString::from),
             is_archived: None,
             parent_session_path: None,
-            created: 0,
-            modified: session["modified"].as_i64().unwrap(),
+            created: 0.0,
+            modified: session["modified"].as_f64().unwrap(),
             message_count: session["messageCount"].as_u64().unwrap() as usize,
             first_message: JsString::from(session["firstMessage"].as_str().unwrap().to_owned()),
         })

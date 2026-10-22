@@ -1,4 +1,8 @@
 import { dirname, join } from "node:path";
+import {
+	normalizeAssistantEventClocks as normalizeEvent,
+	normalizeAssistantMessageClock as normalize,
+} from "./assistant-snapshots.ts";
 import { pathToFileURL } from "node:url";
 import {
 	clearFetchScript,
@@ -57,29 +61,6 @@ type StreamApi = {
 
 // Streaming scratch state (`partialArgs`) never reaches a persisted message and
 // `Date.now()`/`Error.stack` are environment-derived; both are normalized here.
-// Property order is preserved so the differential compares the exact serialized
-// shape.
-function normalize(value: unknown): unknown {
-	if (Array.isArray(value)) return value.map(normalize);
-	if (value === null || typeof value !== "object") return value;
-	const result: Record<string, unknown> = {};
-	const keys = Object.keys(value);
-	for (const key of keys) {
-		if (key === "partialArgs" || key === "stack") continue;
-		const entry = (value as Record<string, unknown>)[key];
-		if (key === "timestamp" || key === "timestampMs") {
-			result[key] = 0;
-			continue;
-		}
-		result[key] = normalize(entry);
-	}
-	return result;
-}
-
-function normalizeEvent(event: unknown): unknown {
-	return normalize(event);
-}
-
 // TypeScript pushes event objects whose `partial` is a live reference to the
 // streaming message. Snapshotting on `push` (instead of when the consumer
 // receives the event) reproduces the module's emitted event sequence; Rust

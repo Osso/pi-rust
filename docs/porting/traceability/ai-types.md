@@ -2,7 +2,9 @@
 
 Partial. Frozen `types.ts:407` has only stop/length/toolUse/error/aborted. Frozen provider initializers (`api/anthropic-messages.ts:490`, `openai-completions.ts:174`, `openai-responses.ts:110`, `azure-openai-responses.ts:89`, `openai-codex-responses.ts:250`, `google-generative-ai.ts:75`, `google-vertex.ts:92`, `bedrock-converse-stream.ts:127`, `mistral-conversations.ts:148`) initialize stop, not pending. `AssistantMessage::empty` now matches. RED new initial-reason regression; GREEN 15 type tests. `/tmp/pi-rust-repin-delta-ai/ledger.md`, revision `18487b42` + initial-stop slice.
 
-Removed old-only `StopReason::Pending/Deferred`, `DoneReason::Deferred`, and `AssistantMessage.deferred` per frozen `types.ts:407–438`; whole frozen package search found no renamed DeferredHandle/fetchDeferred/cancelDeferred equivalent. Stream producer terminal matches, supervisor/print labels, imported assistant construction and fixtures adapted; proxy's temporary fail-fast wildcard removed (frozen proxy.ts:345–352). RED variant regression → GREEN 16 types tests. Persisted pending/deferred records remain raw, including old deferred handles/unknown fields: `lossless_session_persistence::old_pending_and_deferred_stop_tags_load_and_save_as_frozen_raw_records` compares actual frozen parse/serialization and file round-trip bytes, GREEN 1. Ledger: `/tmp/pi-rust-repin-delta-ai/ledger.md`, revision `bc681593` + stop-reason slice.
+Removed old-only `StopReason::Pending/Deferred`, `DoneReason::Deferred`, and `AssistantMessage.deferred` per frozen `types.ts:407–438`; whole frozen package search found no renamed DeferredHandle/fetchDeferred/cancelDeferred equivalent. Stream producer terminal matches, supervisor/print labels, imported assistant construction and fixtures adapted; proxy's temporary fail-fast wildcard removed (frozen proxy.ts:345–352). RED variant regression → GREEN 16 types tests. Persisted pending/deferred records remain raw, including old deferred handles/unknown fields: `lossless_session_persistence::old_pending_deferred_and_end_turn_fields_load_and_save_as_frozen_raw_records` compares actual frozen parse/serialization and file round-trip bytes, GREEN 1. Ledger: `/tmp/pi-rust-repin-delta-ai/ledger.md`, revision `bc681593` + stop-reason slice.
+
+Removed source-absent AssistantMessage.endTurn and all constructor literals; SSE/WebSocket Codex producers no longer read or emit it. Exact provider differential RED precedes removal. Persisted records keep legacy endTurn raw: `lossless_session_persistence::old_pending_deferred_and_end_turn_fields_load_and_save_as_frozen_raw_records` compares actual frozen serialization and filesystem roundtrip bytes. The coding-agent end-turn tool is unchanged.
 
 Deferred request interfaces, constrained sampling and other pre-repin exports below remain pending deletion, not new-pin parity evidence. The historical mapping below is retained only for migration inventory.
 
@@ -10,6 +12,22 @@ Deferred request interfaces, constrained sampling and other pre-repin exports be
 
 Sources: `packages/ai/src/types.ts`, `packages/ai/src/utils/event-stream.ts`.
 Rust: `crates/pi-ai/src/types.rs`, `crates/pi-ai/src/utils/event_stream.rs`, `crates/pi-js-compat/src/number.rs`.
+
+## Enumerable AgentTool metadata
+
+[Contract](../../specs/tool-enumerable-metadata.md). Frozen AgentTool extends Tool with label, optional executionMode and function-valued prepareArguments/prepareExecution/execute (`agent-core/src/types.ts:383–411`). Only label/executionMode survive JSON. Frozen coding-agent `tool-definition-wrapper.ts:100–119,141–156` emits name,label,description,parameters,executionMode in that order after function/undefined omission. Rust Tool retains optional JsString label/execution_mode in that order; constructors leave both absent. These are JSON carriers, not an AI execution policy.
+
+| Whole-object path / explicit mapping | Frozen evidence | Metadata behavior |
+|---|---|---|
+| Faux prompt serialization | `ai/providers/faux.ts:190–202` | JSON.stringify(context.tools) counts both fields |
+| Context token estimate | `ai/utils/estimate.ts:21–27,101–103` | safeJsonStringify(context.tools) counts both fields |
+| Whole-context proxy, outside AI package | `agent-core/proxy.ts:158–162` | JSON.stringify({model,context,options}) retains both fields; raw-context request proof |
+| Completions / Responses / Azure / Codex | `openai-completions.ts:1095–1108`, `openai-responses-shared.ts:425–437`; other three delegate | Explicit name/description/parameters mapping ignores both fields |
+| Anthropic / Google / Bedrock / Mistral | `anthropic-messages.ts:1195–1208`, `google-shared.ts:308–317`, `bedrock-converse-stream.ts:905–911`, `mistral-conversations.ts:485–495` | Explicit schema/name/description mapping ignores both fields |
+
+Whole AI-source JSON.stringify/structuredClone/spread audit found no additional whole-Tool consumer: other serializers handle arguments, messages, reasoning items, OAuth/error/proxy data or already-mapped request bodies; schema spreads/clones affect parameters only. No generic unknown-property bag or function serialization is added. AgentTool population is owned by222; its label accessor's native representation is outside this carrier slice.
+
+RED reproduced the shared harness fixture exactly: Native Faux input48 versus actual frozen53 (`tool-metadata-red.log`). `tool_metadata.rs` additionally compares whole Tool JSON order, both estimators, unpaired label units, optional execution modes and explicit provider mapping. Carrier availability alone does not claim harness integration.
 
 ## Representation decisions
 - `StreamOptions.metadata` is native `JsObject`, preserving arbitrary nested JSON and lone UTF-16 keys/values through buildBaseOptions. Anthropic forwards only string user_id, matching frozen; proxy forwards the complete metadata object. RED: metadata deserialization rejected a lone surrogate; proxy silently omitted native metadata. Proof: `lossless_metadata` and core `proxy` UTF-16 regression (`metadata-{red,proxy-red}.log` in the lane ledger). ImagesOptions.metadata and Bedrock's separate requestMetadata extra are outside this common-field slice.

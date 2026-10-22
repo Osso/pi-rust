@@ -46,7 +46,6 @@ fn assistant_message(text: &str, timestamp: i64) -> AgentMessage {
         stop_reason: StopReason::Stop,
         error_message: None,
         raw_stop_reason: None,
-        end_turn: None,
         timestamp: timestamp as f64,
     }))
 }
@@ -332,7 +331,6 @@ fn drops_orphaned_tool_results_from_capped_pre_compaction_suffix() {
         stop_reason: StopReason::ToolUse,
         error_message: None,
         raw_stop_reason: None,
-        end_turn: None,
         timestamp: 1.0,
     }));
     let entries = vec![
@@ -1416,7 +1414,7 @@ fn session_info_listing_uses_message_timestamps_and_skips_extension_prompts() {
     .unwrap();
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].first_message, "resume the implementation");
-    assert_eq!(sessions[0].modified, 1_700_000_000_000);
+    assert_eq!(sessions[0].modified, 1_700_000_000_000.0);
     assert_eq!(sessions[0].message_count, 4);
 }
 

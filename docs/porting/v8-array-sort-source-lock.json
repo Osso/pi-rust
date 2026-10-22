@@ -1,0 +1,21 @@
+{
+  "purpose": "Implementation reference only; does not change the frozen TypeScript runtime/oracle pin",
+  "repository": "nodejs/node",
+  "tag": "v26.11.1",
+  "runtime": "Node v26.11.1 / V8 14.6.202.34-node.37",
+  "retrieved": "2026-10-22",
+  "files": [
+    {
+      "path": "deps/v8/third_party/v8/builtins/array-sort.tq",
+      "bytes": 49977,
+      "sha256": "431b4a52e984d0e3add8bf2f0929a73390ad867b3bcebf41cc071d0c3c9e5310",
+      "localReference": "/tmp/pi-rust-v8-src/array-sort/array-sort.tq"
+    },
+    {
+      "path": "deps/v8/third_party/v8/builtins/LICENSE",
+      "bytes": 12763,
+      "sha256": "b9a6d9320b8f2693e8d41e496ce56caadacaddcca9be2a64a61749278f425cf2",
+      "retainedAt": "docs/porting/vendor/V8-array-sort-PSF-LICENSE"
+    }
+  ]
+}

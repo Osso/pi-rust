@@ -33,7 +33,7 @@ fn session_info_clips_fractional_message_time_only_at_date_construction() {
         assert_eq!(expected["ok"], true, "{expected}");
         let actual = build_session_info(&JsString::from(path.to_str().unwrap())).unwrap();
         assert_eq!(
-            json!({"created":actual.created,"modified":actual.modified}),
+            json!({"created":pi_js_compat::number::js_number_value(actual.created),"modified":pi_js_compat::number::js_number_value(actual.modified)}),
             expected["output"]
         );
     }
