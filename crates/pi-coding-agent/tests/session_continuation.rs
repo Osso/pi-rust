@@ -42,6 +42,8 @@ fn end_turn_call() -> AssistantContent {
         namespace: None,
         index: None,
         partial_json: None,
+        partial_args: None,
+        stream_index: None,
     })
 }
 
