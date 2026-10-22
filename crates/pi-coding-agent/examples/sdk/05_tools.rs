@@ -4,6 +4,7 @@ use pi_coding_agent::core::{
     sdk::{CreateAgentSessionOptions, create_agent_session},
     session_manager::SessionManager,
 };
+use pi_js_compat::js_json::JsString;
 use std::io::Write;
 
 /// Return the observed cwd and active names for embedders without extra stdout.
@@ -11,7 +12,7 @@ pub async fn run(
     options: [CreateAgentSessionOptions; 4],
     custom_cwd: &str,
     mut output: impl Write,
-) -> Result<Vec<(String, Vec<String>)>, String> {
+) -> Result<Vec<(JsString, Vec<String>)>, JsString> {
     let choices: &[(&[&str], &str)] = &[
         (&["read", "grep", "find", "ls"], "Read-only session created"),
         (&["read", "bash", "grep"], "Custom tools session created"),
@@ -28,9 +29,9 @@ pub async fn run(
         }
         options.tools = Some(names.iter().map(|name| (*name).into()).collect());
         options.session_manager =
-            Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.to_string())?);
+            Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.message().clone())?);
         let session = create_agent_session(options).await?.session;
-        writeln!(output, "{message}").map_err(|e| e.to_string())?;
+        writeln!(output, "{message}").map_err(|e| JsString::from(e.to_string()))?;
         selections.push((session.cwd().to_owned(), session.get_active_tool_names()));
         session.dispose();
     }

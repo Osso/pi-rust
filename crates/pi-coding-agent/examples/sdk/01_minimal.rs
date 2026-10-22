@@ -1,4 +1,7 @@
 //! Minimal SDK usage: discover resources and choose a model using SDK defaults.
+use pi_js_compat::js_json;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::encode_node_utf8;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
@@ -9,7 +12,7 @@ use pi_coding_agent::core::sdk::{CreateAgentSessionOptions, create_agent_session
 
 /// Run the example; explicit options and an owned writer permit isolated SDK fixtures.
 /// Messages are JSON lines, preserving Node `console.log` values, not inspect syntax.
-pub async fn run(options: CreateAgentSessionOptions, output: impl Write + Send + 'static) -> Result<(), String> {
+pub async fn run(options: CreateAgentSessionOptions, output: impl Write + Send + 'static) -> Result<(), JsString> {
     let result = create_agent_session(options).await?;
     let session = result.session;
     let output = Arc::new(Mutex::new(Ok(output)));
@@ -26,7 +29,9 @@ pub async fn run(options: CreateAgentSessionOptions, output: impl Write + Send +
         {
             let mut output = stream_output.lock().expect("output mutex poisoned");
             if let Ok(writer) = output.as_mut()
-                && let Err(error) = writer.write_all(delta.as_bytes()).and_then(|()| writer.flush())
+                && let Err(error) = writer
+                    .write_all(encode_node_utf8(delta).as_bytes())
+                    .and_then(|()| writer.flush())
             {
                 *output = Err(error);
             }
@@ -36,15 +41,16 @@ pub async fn run(options: CreateAgentSessionOptions, output: impl Write + Send +
         session
             .prompt("What files are in the current directory?", PromptOptions::default())
             .await
-            .map_err(|error| error.message().to_owned())?;
+            .map_err(|error| error.message().clone())?;
         let mut output = output.lock().expect("output mutex poisoned");
-        let writer = output.as_mut().map_err(|error| error.to_string())?;
+        let writer = output.as_mut().map_err(|error| JsString::from(error.to_string()))?;
         for message in session.messages() {
-            serde_json::to_writer(&mut *writer, &message).map_err(|error| error.to_string())?;
-            writeln!(writer).map_err(|error| error.to_string())?;
+            let line = js_json::to_value(&message).map_err(|error| JsString::from(error.to_string()))?;
+            writeln!(writer, "{}", js_json::stringify_lossless(&line))
+                .map_err(|error| JsString::from(error.to_string()))?;
         }
-        writeln!(writer).map_err(|error| error.to_string())?;
-        writer.flush().map_err(|error| error.to_string())
+        writeln!(writer).map_err(|error| JsString::from(error.to_string()))?;
+        writer.flush().map_err(|error| JsString::from(error.to_string()))
     }
     .await;
     // Rust equivalent of the source's finally, including prompt/output failures.
@@ -53,12 +59,12 @@ pub async fn run(options: CreateAgentSessionOptions, output: impl Write + Send +
 }
 
 /// Generic SDK error, retaining its message without Rust Debug string quoting.
-pub struct ExampleError(pub String);
+pub struct ExampleError(pub JsString);
 
 impl std::fmt::Debug for ExampleError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Result termination supplies the single `Error: ` prefix.
-        formatter.write_str(&self.0)
+        formatter.write_str(&encode_node_utf8(&self.0))
     }
 }
 

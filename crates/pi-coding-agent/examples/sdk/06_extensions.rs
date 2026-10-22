@@ -11,6 +11,7 @@ use pi_coding_agent::core::{
     sdk::CreateAgentSessionOptions,
     session_manager::SessionManager,
 };
+use pi_js_compat::js_json::JsString;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
@@ -18,7 +19,7 @@ pub async fn run(
     options: CreateAgentSessionOptions,
     registry: Arc<ExtensionRegistry>,
     output: impl Write + Send + 'static,
-) -> Result<(), String> {
+) -> Result<(), JsString> {
     let output = Arc::new(Mutex::new(output));
     let inline_output = Arc::clone(&output);
     let factory = Arc::new(move |api: &pi_coding_agent::core::extensions::types::ExtensionApi| {
@@ -48,11 +49,12 @@ pub async fn run(
         extension_path: None,
         factory,
     }];
-    let loader = Arc::new(DefaultResourceLoader::new(loader_options).map_err(|e| e.to_string())?);
+    let loader = Arc::new(DefaultResourceLoader::new(loader_options)?);
     loader.reload().await?;
     let mut options = options;
     options.resource_loader = Some(loader);
-    options.session_manager = Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.to_string())?);
+    options.session_manager =
+        Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.message().clone())?);
     common::stream(options, "List files in the current directory.", "", "\n", output).await
 }
 #[tokio::main(flavor = "current_thread")]

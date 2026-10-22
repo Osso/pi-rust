@@ -16,7 +16,7 @@ use std::sync::Arc;
 pub async fn run(
     mut options: CreateAgentSessionOptions,
     mut output: impl Write + Send + 'static,
-) -> Result<AgentSession, String> {
+) -> Result<AgentSession, JsString> {
     let mut loader_options = resources::options(&options)?;
     loader_options.skills_override = Some(Arc::new(|mut current| {
         current
@@ -40,28 +40,29 @@ pub async fn run(
         });
         current
     }));
-    let loader = Arc::new(DefaultResourceLoader::new(loader_options).map_err(|e| e.to_string())?);
+    let loader = Arc::new(DefaultResourceLoader::new(loader_options)?);
     loader.reload().await?;
     let discovered = loader.get_skills();
     let names: Vec<_> = discovered.skills.iter().map(|skill| &skill.name).collect();
     writeln!(
         output,
         "Discovered skills: {}",
-        serde_json::to_string(&names).map_err(|e| e.to_string())?
+        serde_json::to_string(&names).map_err(|e| JsString::from(e.to_string()))?
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| JsString::from(e.to_string()))?;
     if !discovered.diagnostics.is_empty() {
         writeln!(
             output,
             "Warnings: {}",
-            serde_json::to_string(&discovered.diagnostics).map_err(|e| e.to_string())?
+            serde_json::to_string(&discovered.diagnostics).map_err(|e| JsString::from(e.to_string()))?
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| JsString::from(e.to_string()))?;
     }
     options.resource_loader = Some(loader);
-    options.session_manager = Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.to_string())?);
+    options.session_manager =
+        Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.message().clone())?);
     let session = create_agent_session(options).await?.session;
-    writeln!(output, "Session created with filtered skills").map_err(|e| e.to_string())?;
+    writeln!(output, "Session created with filtered skills").map_err(|e| JsString::from(e.to_string()))?;
     session.dispose();
     Ok(session)
 }

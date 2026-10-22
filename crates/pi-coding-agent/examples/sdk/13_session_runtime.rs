@@ -16,11 +16,11 @@ use pi_coding_agent::core::{
     session_manager::{SessionManager, get_default_session_dir},
     settings_manager::SettingsManager,
 };
-use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
-type Subscription = (AgentSession, u64, Arc<Mutex<Option<String>>>);
+type Subscription = (AgentSession, u64, Arc<Mutex<Option<JsString>>>);
 
 fn create_factory(options: CreateAgentSessionOptions) -> CreateAgentSessionRuntimeFactory {
     let runtime = options.model_runtime;
@@ -50,8 +50,8 @@ fn create_factory(options: CreateAgentSessionOptions) -> CreateAgentSessionRunti
             })
             .await?;
             let diagnostics = services.diagnostics.clone();
-            let reason = serde_json::from_value(serde_json::Value::String(request.session_start_reason))
-                .map_err(|e| e.to_string())?;
+            let reason = js_json::from_value(&JsValue::String(request.session_start_reason.into()))
+                .map_err(|e| JsString::from(e.to_string()))?;
             let result = create_agent_session_from_services(CreateAgentSessionFromServicesOptions {
                 services: services.clone(),
                 session_manager: request.session_manager,
@@ -84,13 +84,13 @@ fn create_factory(options: CreateAgentSessionOptions) -> CreateAgentSessionRunti
     })
 }
 
-pub async fn create_runtime(mut options: CreateAgentSessionOptions) -> Result<AgentSessionRuntime, String> {
+pub async fn create_runtime(mut options: CreateAgentSessionOptions) -> Result<AgentSessionRuntime, JsString> {
     let paths = resources::options(&options)?;
     let manager = match options.session_manager.take() {
         Some(manager) => manager,
         None => {
-            let dir = get_default_session_dir(&paths.cwd, Some(&paths.agent_dir)).map_err(|e| e.to_string())?;
-            SessionManager::create(&paths.cwd, Some(&dir), None).map_err(|e| e.to_string())?
+            let dir = get_default_session_dir(&paths.cwd, Some(&paths.agent_dir)).map_err(|e| e.message().clone())?;
+            SessionManager::create(&paths.cwd, Some(&dir), None).map_err(|e| e.message().clone())?
         }
     };
     create_agent_session_runtime(create_factory(options), &paths.cwd, &paths.agent_dir, manager).await
@@ -100,12 +100,15 @@ pub async fn bind_session<W: Write + Send + 'static>(
     runtime: &AgentSessionRuntime,
     previous: Option<Subscription>,
     output: Arc<Mutex<W>>,
-) -> Subscription {
+) -> Result<Subscription, JsString> {
     if let Some((session, id, _)) = previous {
         session.unsubscribe(id);
     }
     let session = runtime.session().clone();
-    session.bind_extensions(ExtensionBindings::default()).await;
+    session
+        .bind_extensions(ExtensionBindings::default())
+        .await
+        .map_err(|error| error.message().clone())?;
     let failure = Arc::new(Mutex::new(None));
     let write_failure = Arc::clone(&failure);
     let id = session.subscribe(Arc::new(move |event| {
@@ -116,53 +119,57 @@ pub async fn bind_session<W: Write + Send + 'static>(
                 event.steering.len() + event.follow_up.len()
             );
             if let Err(error) = result {
-                *write_failure.lock().expect("failure mutex poisoned") = Some(error.to_string());
+                *write_failure.lock().expect("failure mutex poisoned") = Some(JsString::from(error.to_string()));
             }
         }
     }));
-    (session, id, failure)
+    Ok((session, id, failure))
+}
+
+fn display_session_file(file: Option<&JsString>) -> String {
+    file.map_or_else(|| "undefined".to_owned(), encode_node_utf8)
 }
 
 pub async fn run(
     options: CreateAgentSessionOptions,
     output: impl Write + Send + 'static,
-) -> Result<Vec<Option<String>>, String> {
+) -> Result<Vec<Option<JsString>>, JsString> {
     let mut runtime = create_runtime(options).await?;
     let output = Arc::new(Mutex::new(output));
-    let mut subscription = bind_session(&runtime, None, Arc::clone(&output)).await;
+    let mut subscription = bind_session(&runtime, None, Arc::clone(&output)).await?;
     let original = subscription.0.session_file();
     writeln!(
         output.lock().expect("output mutex poisoned"),
         "Initial session: {}",
-        original.as_ref().unwrap_or(&JsString::from("undefined"))
+        display_session_file(original.as_ref())
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| JsString::from(e.to_string()))?;
     let mut files = vec![original.clone()];
     runtime.new_session(Default::default()).await?;
     if let Some(error) = subscription.2.lock().expect("failure mutex poisoned").take() {
         return Err(error);
     }
-    subscription = bind_session(&runtime, Some(subscription), Arc::clone(&output)).await;
+    subscription = bind_session(&runtime, Some(subscription), Arc::clone(&output)).await?;
     files.push(subscription.0.session_file());
     writeln!(
         output.lock().expect("output mutex poisoned"),
         "After newSession(): {}",
-        files[1].as_ref().unwrap_or(&JsString::from("undefined"))
+        display_session_file(files[1].as_ref())
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| JsString::from(e.to_string()))?;
     if let Some(original) = original {
         runtime.switch_session(&original, None, None).await?;
         if let Some(error) = subscription.2.lock().expect("failure mutex poisoned").take() {
             return Err(error);
         }
-        subscription = bind_session(&runtime, Some(subscription), Arc::clone(&output)).await;
+        subscription = bind_session(&runtime, Some(subscription), Arc::clone(&output)).await?;
         files.push(subscription.0.session_file());
         writeln!(
             output.lock().expect("output mutex poisoned"),
             "After switchSession(): {}",
-            files[2].as_ref().unwrap_or(&JsString::from("undefined"))
+            display_session_file(files[2].as_ref())
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| JsString::from(e.to_string()))?;
     }
     subscription.0.unsubscribe(subscription.1);
     runtime.dispose().await;

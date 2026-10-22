@@ -22,23 +22,23 @@ pub fn read_api_key() -> Option<String> {
 pub async fn configure_options(
     mut options: CreateAgentSessionOptions,
     api_key: Option<&str>,
-) -> Result<CreateAgentSessionOptions, String> {
+) -> Result<CreateAgentSessionOptions, JsString> {
     let agent_dir = options.agent_dir.clone().unwrap_or_else(|| "/tmp/my-agent".into());
     let runtime = match options.model_runtime.take() {
         Some(runtime) => runtime,
         None => ModelRuntime::create(CreateModelRuntimeOptions {
-            auth_path: Some(format!("{agent_dir}/auth.json")),
-            models_path: Some(Some(format!("{agent_dir}/models.json"))),
+            auth_path: Some(agent_dir.clone() + "/auth.json"),
+            models_path: Some(Some(agent_dir.clone() + "/models.json")),
             ..Default::default()
         })
         .await
-        .map_err(|e| e.to_string())?,
+        .map_err(|e| e.message().clone())?,
     };
     if let Some(key) = api_key.filter(|key| !key.is_empty()) {
         runtime
             .set_runtime_api_key("anthropic", &JsString::from(key), Default::default())
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| e.message().clone())?;
     }
     let model = options
         .model
@@ -64,7 +64,8 @@ pub async fn configure_options(
         .collect::<pi_js_compat::js_json::JsObject>(),
         Default::default(),
     ))));
-    options.session_manager = Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.to_string())?);
+    options.session_manager =
+        Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.message().clone())?);
     Ok(options)
 }
 
@@ -72,7 +73,7 @@ pub async fn run(
     options: CreateAgentSessionOptions,
     api_key: Option<&str>,
     output: impl Write + Send + 'static,
-) -> Result<(), String> {
+) -> Result<(), JsString> {
     common::stream(
         configure_options(options, api_key).await?,
         "List files in the current directory.",

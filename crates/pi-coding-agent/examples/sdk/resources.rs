@@ -6,12 +6,12 @@ use pi_coding_agent::{
 use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
-pub fn options(session: &CreateAgentSessionOptions) -> Result<DefaultResourceLoaderOptions, String> {
+pub fn options(session: &CreateAgentSessionOptions) -> Result<DefaultResourceLoaderOptions, JsString> {
     let cwd = match &session.cwd {
         Some(cwd) => cwd.clone(),
         None => JsString::from(
             std::env::current_dir()
-                .map_err(|e| e.to_string())?
+                .map_err(|e| JsString::from(e.to_string()))?
                 .display()
                 .to_string(),
         ),
