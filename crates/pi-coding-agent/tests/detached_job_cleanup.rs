@@ -3,7 +3,9 @@
 use std::fs;
 use std::sync::Mutex;
 
-use pi_coding_agent::core::detached_job_cleanup::{DetachedJobCleanupOptions, cleanup_detached_job_artifacts};
+use pi_coding_agent::core::detached_job_cleanup::{
+    DetachedJobCleanupOptions, cleanup_detached_job_artifacts, run_detached_job_artifact_cleanup,
+};
 use pi_coding_agent::core::session_control_db::bootstrap_multi_agent_agent;
 use pi_js_compat::{
     js_json as json,
@@ -166,6 +168,51 @@ fn cleanup_accepts_both_agent_and_session_artifact_roots_like_frozen_source() {
     assert_eq!(actual, expected["output"]);
     assert!(!std::path::Path::new(&bash_directory).exists());
     assert!(!std::path::Path::new(&pyrun_directory).exists());
+}
+
+#[test]
+fn wrapper_selects_recent_session_root_artifacts_over_the_cap_like_frozen_source() {
+    let fixture = fixture();
+    let session_path = std::path::Path::new(&fixture.root).join("session-side/project/recent.jsonl");
+    let session_root = session_path.parent().unwrap();
+    let over_cap_bytes = 2_u64 * 1024 * 1024 * 1024 + 1;
+    let directory = persist_artifact_in_root(
+        &fixture,
+        &session_path,
+        session_root,
+        "pyrun",
+        "completed",
+        RECENT_AT,
+        Some(over_cap_bytes),
+    );
+    let mut source = oracle::TsOracle::spawn(
+        "detached-job-cleanup-oracle.ts",
+        "packages/coding-agent/src/core/detached-job-cleanup.ts",
+    );
+    let expected = source.request(&json!({
+        "id": 2, "mode": "wrapper", "database": fixture.control_db_path,
+        "artifactRoot": fixture.root, "now": now_millis(), "paths": [directory],
+    }));
+    assert_eq!(expected["ok"], json!(true), "{expected:?}");
+    assert_eq!(expected["output"], json!({"exists": [false]}));
+    persist_artifact_in_root(
+        &fixture,
+        &session_path,
+        session_root,
+        "pyrun",
+        "completed",
+        RECENT_AT,
+        Some(over_cap_bytes),
+    );
+    run_detached_job_artifact_cleanup(
+        &JsString::from(&fixture.control_db_path),
+        Some(&JsString::from(&fixture.root)),
+        Some(now_millis()),
+    );
+    assert_eq!(
+        json!({"exists": [std::path::Path::new(&directory).exists()]}),
+        expected["output"]
+    );
 }
 
 #[test]

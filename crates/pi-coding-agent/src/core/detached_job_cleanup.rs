@@ -21,7 +21,6 @@ use crate::utils::paths::{node_basename, node_dirname, node_extname, node_join, 
 const DETACHED_ARTIFACT_MAX_AGE_MS: f64 = (3 * 24 * 60 * 60 * 1_000) as f64;
 const DETACHED_ARTIFACT_MAX_BYTES: f64 = (2_u64 * 1024 * 1024 * 1024) as f64;
 const ALL_TERMINAL_AGENTS_CUTOFF: &str = "9999-12-31T23:59:59.999Z";
-const NO_BYTE_CAP: f64 = 9_007_199_254_740_991.0;
 const DETACHED_OUTPUT_LABELS: [&str; 2] = ["Bash output", "Pyrun output"];
 const DELETED_PATH_SUFFIX: &str = " (deleted)";
 
@@ -83,25 +82,16 @@ pub fn run_detached_job_artifact_cleanup(
         .cloned()
         .unwrap_or_else(|| JsString::from(crate::config::get_agent_dir().to_string_lossy().as_ref()));
     let now = now.unwrap_or_else(now_millis);
-    match cleanup_expired_detached_job_artifacts(control_db_path, &artifact_root, now) {
-        Ok(mut errors) => {
-            match detached_artifact_bytes(&artifact_root, &mut errors) {
-                Some(bytes) if bytes as f64 > DETACHED_ARTIFACT_MAX_BYTES => {
-                    match cleanup_detached_job_artifacts(
-                        control_db_path,
-                        &DetachedJobCleanupOptions {
-                            artifact_root: artifact_root.clone(),
-                            now: Some(now),
-                            on_directory_quarantined: None,
-                        },
-                    ) {
-                        Ok(result) => errors.extend(result.errors),
-                        Err(error) => errors.push(error),
-                    }
-                }
-                _ => {}
-            }
-            for error in errors {
+    match cleanup_detached_job_artifacts(
+        control_db_path,
+        &DetachedJobCleanupOptions {
+            artifact_root,
+            now: Some(now),
+            on_directory_quarantined: None,
+        },
+    ) {
+        Ok(result) => {
+            for error in result.errors {
                 eprintln!("Detached artifact cleanup: {}", encode_node_utf8(&error));
             }
         }
@@ -114,39 +104,6 @@ fn now_millis() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .expect("the system clock is after the epoch")
         .as_millis() as i64
-}
-
-fn cleanup_expired_detached_job_artifacts(
-    control_db_path: &JsString,
-    artifact_root: &JsString,
-    now: i64,
-) -> Result<Vec<JsString>, JsString> {
-    let Some(process_references) = read_linux_process_references()? else {
-        return Ok(Vec::new());
-    };
-    let mut errors = Vec::new();
-    let cutoff = crate::utils::iso_time::format_iso_millis(now - DETACHED_ARTIFACT_MAX_AGE_MS as i64);
-    let candidates = collect_terminal_artifact_candidates(
-        control_db_path,
-        artifact_root,
-        &process_references,
-        &mut errors,
-        &cutoff,
-    )?;
-    let paths_to_delete = select_detached_artifact_directories_to_delete(
-        &candidates,
-        &DetachedArtifactRetentionPolicy {
-            max_age: DETACHED_ARTIFACT_MAX_AGE_MS,
-            max_bytes: NO_BYTE_CAP,
-            now: now as f64,
-        },
-    )?;
-    delete_selected_artifact_directories(&candidates, &paths_to_delete, &mut errors, None);
-    Ok(errors)
-}
-
-fn detached_artifact_bytes(artifact_root: &JsString, errors: &mut Vec<JsString>) -> Option<i64> {
-    read_directory_byte_size(&node_join(artifact_root, "detached-jobs"), errors)
 }
 
 fn empty_cleanup_result(reason: &str) -> DetachedJobCleanupResult {
