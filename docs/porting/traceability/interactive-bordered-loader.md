@@ -24,3 +24,11 @@ Tests: `interactive_components_c.rs::bordered_loader_*`, differential `borderedL
 ## Discrepancies
 
 None found.
+
+## Q18 native message/input/render (2026-10-22)
+
+Message input, color callbacks, component input and rendered lines are JsString.
+Frozen bordered-loader.ts constructor ordering, empty indicator frames, optional
+cancel hint, signal and dispose behavior are unchanged. raw_leaf_components
+checks an unpaired message in rendered lines and Escape cancellation for both
+cancellable settings. Written but unexecuted while coding compilation is blocked.
