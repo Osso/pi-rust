@@ -102,7 +102,7 @@ async fn run_plan_matches_typescript() {
         .command("run-plan")
         .get_argument_completions
         .expect("run-plan completions");
-    let completions = completions("").unwrap_or_default();
+    let completions = completions(&"".into()).unwrap().unwrap_or_default();
     assert_eq!(json!(completions), steps[6]["result"]);
 
     harness.run_command("run-plan", "ALT.md").await.unwrap();

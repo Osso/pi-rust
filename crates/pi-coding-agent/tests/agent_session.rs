@@ -2811,7 +2811,7 @@ async fn fixture_with_test_command() -> Fixture {
     let factory: ExtensionFactory = Arc::new(|api| {
         api.register_command(
             "testcmd",
-            Some("Test command".to_owned()),
+            Some("Test command".into()),
             None,
             Arc::new(|_args: String, _ctx: ExtensionCommandContext| {
                 Box::pin(async { Ok(()) })

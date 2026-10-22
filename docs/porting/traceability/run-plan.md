@@ -26,3 +26,14 @@ the workspace forbids unsafe code. Child spawns build their environment from
 Gaps:
 - Environment reads outside child-process spawn paths are not migrated; follow-up.
 - Completions use the process cwd, matching the source's `process.cwd()`.
+
+## Q18 native run-plan paths and completions (2026-10-22)
+
+Native cwd/file/path, native regex captures/item prompt, native autocomplete
+prefix/results, and raw NodeFS errors remain exact until FS/environment bindings.
+Node path joins replace the old hand-built path normalization.
+
+Corrected discrepancy: source getArgumentCompletions throws cwd/readdir failures;
+the old Option callback swallowed them. The single native Result callback now
+propagates them. Raw cwd/read/missing-file fixtures are written but unexecuted
+while coding compilation is blocked. Public TUI propagation is owned by204.

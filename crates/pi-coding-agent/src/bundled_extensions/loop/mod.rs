@@ -416,7 +416,7 @@ pub fn loop_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
 
     pi.register_command(
         "loop",
-        Some("Inject a recurring prompt (/loop <interval> <prompt> | /loop status | /loop stop).".to_owned()),
+        Some("Inject a recurring prompt (/loop <interval> <prompt> | /loop status | /loop stop).".into()),
         None,
         Arc::new(move |args, ctx: ExtensionCommandContext| {
             let controller = controller.clone();

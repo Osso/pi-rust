@@ -1973,7 +1973,7 @@ pub struct ThinkingLevelSelectEvent {
 pub struct UserBashEvent {
     pub command: JsString,
     pub exclude_from_context: bool,
-    pub cwd: String,
+    pub cwd: JsString,
 }
 
 // ============================================================================
@@ -2595,25 +2595,25 @@ pub struct CustomMessageValue {
 pub type CommandHandler =
     Arc<dyn Fn(JsString, ExtensionCommandContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
 
-pub type ArgumentCompletions = Arc<dyn Fn(&str) -> Option<Vec<Value>> + Send + Sync>;
+pub type ArgumentCompletions = Arc<dyn Fn(&JsString) -> Result<Option<Vec<JsValue>>, JsString> + Send + Sync>;
 
 #[derive(Clone)]
 pub struct RegisteredCommand {
-    pub name: String,
+    pub name: JsString,
     pub source_info: SourceInfo,
-    pub description: Option<String>,
+    pub description: Option<JsString>,
     pub get_argument_completions: Option<ArgumentCompletions>,
     pub handler: CommandHandler,
 }
 
 #[derive(Clone)]
 pub struct ResolvedCommand {
-    pub name: String,
+    pub name: JsString,
     pub source_info: SourceInfo,
-    pub description: Option<String>,
+    pub description: Option<JsString>,
     pub get_argument_completions: Option<ArgumentCompletions>,
     pub handler: CommandHandler,
-    pub invocation_name: String,
+    pub invocation_name: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2810,7 +2810,7 @@ pub struct ExtensionState {
     pub message_renderers: IndexMap<JsString, MessageRenderer>,
     pub markdown_transformer: Option<MarkdownTransformer>,
     pub entry_renderers: Option<IndexMap<String, EntryRenderer>>,
-    pub commands: IndexMap<String, RegisteredCommand>,
+    pub commands: IndexMap<JsString, RegisteredCommand>,
     pub flags: IndexMap<String, ExtensionFlag>,
     pub shortcuts: IndexMap<KeyId, ExtensionShortcut>,
 }
@@ -2885,7 +2885,7 @@ pub type CallToolHandler = Arc<
         + Sync,
 >;
 pub type CallCommandHandler =
-    Arc<dyn Fn(String, Option<JsString>) -> BoxFuture<'static, Result<JsValue, HandlerError>> + Send + Sync>;
+    Arc<dyn Fn(JsString, Option<JsString>) -> BoxFuture<'static, Result<JsValue, HandlerError>> + Send + Sync>;
 pub type GetCommandsHandler = Arc<dyn Fn() -> Result<Vec<SlashCommandInfo>, HandlerError> + Send + Sync>;
 pub type SetModelHandler = Arc<dyn Fn(Model) -> BoxFuture<'static, Result<bool, HandlerError>> + Send + Sync>;
 pub type GetThinkingLevelHandler = Arc<dyn Fn() -> Result<ThinkingLevel, HandlerError> + Send + Sync>;
@@ -3287,12 +3287,13 @@ impl ExtensionApi {
 
     pub fn register_command(
         &self,
-        name: &str,
-        description: Option<String>,
+        name: impl Into<JsString>,
+        description: Option<JsString>,
         get_argument_completions: Option<ArgumentCompletions>,
         handler: CommandHandler,
-    ) -> Result<(), String> {
+    ) -> Result<(), JsString> {
         self.runtime.assert_active()?;
+        let name = name.into();
         let mut extension = self.extension_lock();
         let source_info = extension.source_info.clone();
         extension.commands.insert(
@@ -3490,7 +3491,7 @@ impl ExtensionApi {
 
     pub fn call_command(
         &self,
-        name: String,
+        name: JsString,
         args: Option<JsString>,
     ) -> BoxFuture<'static, Result<JsValue, HandlerError>> {
         if let Err(error) = self.runtime.assert_active() {

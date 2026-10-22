@@ -240,7 +240,7 @@ pub fn codex_fast_extension(pi: &ExtensionApi, options: &CodexFastOptions) -> Re
     let authority = options.authority.clone();
     pi.register_command(
         "fast",
-        Some("Toggle Codex priority or ultrafast processing from the main thread".to_owned()),
+        Some("Toggle Codex priority or ultrafast processing from the main thread".into()),
         None,
         {
             let authority = authority.clone();

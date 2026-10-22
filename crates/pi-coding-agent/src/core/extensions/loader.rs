@@ -536,13 +536,13 @@ pub fn extension_event_bus(runtime: ExtensionRuntime, bus: Arc<dyn EventBus>) ->
 
 /// Re-exported placeholder for extension command metadata.
 pub fn registered_command(
-    name: &str,
+    name: impl Into<JsString>,
     source_info: crate::core::source_info::SourceInfo,
-    description: Option<String>,
+    description: Option<JsString>,
     handler: CommandHandler,
 ) -> RegisteredCommand {
     RegisteredCommand {
-        name: name.to_owned(),
+        name: name.into(),
         source_info,
         description,
         get_argument_completions: None,

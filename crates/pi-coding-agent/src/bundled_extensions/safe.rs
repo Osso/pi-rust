@@ -3,8 +3,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use serde_json::{Value, json};
-
 use crate::core::extensions::types::{
     ArgumentCompletions, BoxFuture, ExtensionApi, ExtensionCommandContext, ExtensionContext, HandlerError, NotifyType,
     ToolCallEvent, ToolCallEventResult, ToolGate,
@@ -41,17 +39,17 @@ pub fn safe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         .map_err(HandlerError::new)?;
 
     let command_enabled = Arc::clone(&enabled);
-    let completions: ArgumentCompletions = Arc::new(|prefix: &str| {
-        let matches: Vec<Value> = SAFE_COMMAND_ACTIONS
+    let completions: ArgumentCompletions = Arc::new(|prefix: &pi_js_compat::js_json::JsString| {
+        let matches: Vec<pi_js_compat::js_json::JsValue> = SAFE_COMMAND_ACTIONS
             .iter()
-            .filter(|action| action.starts_with(prefix))
-            .map(|action| json!({"value": action, "label": action}))
+            .filter(|action| pi_js_compat::js_json::JsString::from(**action).starts_with(prefix))
+            .map(|action| pi_js_compat::js_json!({"value": *action, "label": *action}))
             .collect();
-        if matches.is_empty() { None } else { Some(matches) }
+        Ok(if matches.is_empty() { None } else { Some(matches) })
     });
     pi.register_command(
         "safe",
-        Some("Restrict tool calls to web_search and ask_questions for this session.".to_owned()),
+        Some("Restrict tool calls to web_search and ask_questions for this session.".into()),
         Some(completions),
         Arc::new(
             move |args: pi_js_compat::js_json::JsString, ctx: ExtensionCommandContext| {
@@ -83,7 +81,7 @@ pub fn safe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                         },
                         Some(NotifyType::Info),
                     );
-                    ctx.ui()?.set_editor_text("");
+                    ctx.ui()?.set_editor_text(&"".into());
                     Ok(())
                 })
             },
@@ -97,8 +95,10 @@ fn safe_mode_status(enabled: bool) -> &'static str {
 }
 
 fn update_safe_status(ctx: &ExtensionContext, enabled: bool) -> Result<(), HandlerError> {
-    ctx.ui()?
-        .set_status(SAFE_STATUS_KEY, if enabled { Some(SAFE_STATUS_TEXT) } else { None });
+    ctx.ui()?.set_status(
+        &SAFE_STATUS_KEY.into(),
+        if enabled { Some(&SAFE_STATUS_TEXT.into()) } else { None },
+    );
     Ok(())
 }
 

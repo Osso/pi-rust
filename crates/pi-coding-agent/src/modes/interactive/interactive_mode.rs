@@ -343,14 +343,20 @@ fn login_argument_completions(
     )
 }
 
-fn autocomplete_item_from_value(value: &Value) -> Option<AutocompleteItem> {
+fn autocomplete_item_from_value(value: &pi_js_compat::js_json::JsValue) -> Option<AutocompleteItem> {
     let object = value.as_object()?;
-    let item_value = object.get("value")?.as_str()?;
-    let label = object.get("label").and_then(Value::as_str).unwrap_or(item_value);
+    let item_value = object.get("value")?.as_string()?;
+    let label = object
+        .get("label")
+        .and_then(pi_js_compat::js_json::JsValue::as_string)
+        .unwrap_or(item_value);
     Some(AutocompleteItem {
         value: item_value.to_owned(),
         label: label.to_owned(),
-        description: object.get("description").and_then(Value::as_str).map(str::to_owned),
+        description: object
+            .get("description")
+            .and_then(pi_js_compat::js_json::JsValue::as_string)
+            .cloned(),
     })
 }
 
@@ -5421,12 +5427,19 @@ impl InteractiveMode {
             slash.description =
                 self.prefix_autocomplete_description(command.description.as_deref(), Some(&command.source_info));
             if let Some(completions) = command.get_argument_completions.clone() {
-                slash.get_argument_completions = Some(Box::new(move |prefix: &str| {
-                    completions(prefix).map(|items| {
+                slash.get_argument_completions = Some(Box::new(move |prefix: &JsString| {
+                    completions(prefix).and_then(|items| {
                         items
-                            .into_iter()
-                            .filter_map(|item| autocomplete_item_from_value(&item))
-                            .collect()
+                            .map(|items| {
+                                items
+                                    .into_iter()
+                                    .map(|item| {
+                                        autocomplete_item_from_value(&item)
+                                            .ok_or_else(|| JsString::from("Invalid extension argument completion"))
+                                    })
+                                    .collect::<Result<Vec<_>, _>>()
+                            })
+                            .transpose()
                     })
                 }));
             }

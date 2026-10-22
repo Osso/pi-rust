@@ -13,7 +13,7 @@ const RESTART_NOTICE: &str = "The agent process was restarted by tool request. C
 pub fn self_restart_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     pi.register_command(
         "restart",
-        Some("Restart Pi and resume the current session".to_owned()),
+        Some("Restart Pi and resume the current session".into()),
         None,
         Arc::new(|_args, ctx| {
             Box::pin(async move {

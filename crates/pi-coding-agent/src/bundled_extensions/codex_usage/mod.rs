@@ -391,7 +391,7 @@ pub fn format_reset_response(response: &ConsumeResetCreditResponse) -> String {
 fn send_codex_usage_message(pi: &ExtensionApi, content: String) -> Result<(), HandlerError> {
     pi.send_message(
         CustomMessagePayload {
-            custom_type: "codex-usage".to_owned(),
+            custom_type: "codex-usage".into(),
             content: CustomMessageContent::Text(content.into()),
             display: true,
             details: None,
@@ -540,8 +540,8 @@ async fn reset_codex_usage_and_send_result(
     let reset_confirmed = ctx
         .ui()?
         .confirm(
-            "Are you sure you want to reset OpenAI Codex usage?",
-            &format!(
+            &"Are you sure you want to reset OpenAI Codex usage?".into(),
+            &pi_js_compat::js_format!(
                 "This will consume 1 of {} available reset credits.",
                 js_number_to_string(usage_before_reset.reset_credits_available)
             ),
@@ -581,13 +581,15 @@ async fn handle_usage_command(
     read_and_send_codex_usage(ctx, pi, fetch).await
 }
 
-fn argument_completions(prefix: &str) -> Option<Vec<Value>> {
-    let matches: Vec<Value> = ["reset"]
+fn argument_completions(
+    prefix: &pi_js_compat::js_json::JsString,
+) -> Result<Option<Vec<pi_js_compat::js_json::JsValue>>, pi_js_compat::js_json::JsString> {
+    let matches: Vec<pi_js_compat::js_json::JsValue> = ["reset"]
         .into_iter()
-        .filter(|option| option.starts_with(prefix))
-        .map(|value| json!({"value": value, "label": value}))
+        .filter(|option| pi_js_compat::js_json::JsString::from(*option).starts_with(prefix))
+        .map(|value| pi_js_compat::js_json!({"value": value, "label": value}))
         .collect();
-    (!matches.is_empty()).then_some(matches)
+    Ok((!matches.is_empty()).then_some(matches))
 }
 
 /// Bundled `codex-usage` extension.
@@ -596,7 +598,7 @@ pub fn codex_usage_extension(pi: &ExtensionApi, options: &CodexUsageOptions) -> 
     let command_pi = pi.clone();
     pi.register_command(
         "usage",
-        Some("Show OpenAI Codex account usage and optionally consume a reset credit".to_owned()),
+        Some("Show OpenAI Codex account usage and optionally consume a reset credit".into()),
         Some(Arc::new(argument_completions)),
         Arc::new(move |args, ctx| {
             let pi = command_pi.clone();

@@ -298,7 +298,13 @@ async fn registers_the_native_provider_and_command() {
     .await
     .unwrap();
     assert_eq!(
-        extension.read().commands.get("llama").unwrap().description.as_deref(),
+        extension
+            .read()
+            .commands
+            .get(&pi_js_compat::js_json::JsString::from("llama"))
+            .unwrap()
+            .description
+            .as_deref(),
         Some("Manage llama.cpp router models")
     );
     let registrations = runtime.pending_native_provider_registrations();
@@ -338,7 +344,13 @@ async fn warns_outside_interactive_mode() {
     )
     .await
     .unwrap();
-    let handler = extension.read().commands.get("llama").unwrap().handler.clone();
+    let handler = extension
+        .read()
+        .commands
+        .get(&pi_js_compat::js_json::JsString::from("llama"))
+        .unwrap()
+        .handler
+        .clone();
     handler(String::new(), ExtensionCommandContext { context })
         .await
         .unwrap();
@@ -437,7 +449,13 @@ async fn manages_models_through_the_tui_flow() {
     )
     .await
     .unwrap();
-    let handler = extension.read().commands.get("llama").unwrap().handler.clone();
+    let handler = extension
+        .read()
+        .commands
+        .get(&pi_js_compat::js_json::JsString::from("llama"))
+        .unwrap()
+        .handler
+        .clone();
     let task = tokio::spawn(handler(String::new(), ExtensionCommandContext { context }));
     wait_for_component(&ui).await;
     wait_for_text(&ui, "Download model…").await;

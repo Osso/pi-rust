@@ -366,7 +366,7 @@ pub fn effort_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
 
     pi.register_command(
         "effort",
-        Some("Set model effort level (depends on selected model)".to_owned()),
+        Some("Set model effort level (depends on selected model)".into()),
         None,
         {
             let state = state.clone();
@@ -383,20 +383,15 @@ pub fn effort_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
 }
 
 fn register_delegation_control(pi: &ExtensionApi, state: DelegationState) -> Result<(), HandlerError> {
-    pi.register_command(
-        "multi-agent",
-        Some("Set multi-agent delegation mode".to_owned()),
-        None,
-        {
+    pi.register_command("multi-agent", Some("Set multi-agent delegation mode".into()), None, {
+        let state = state.clone();
+        let pi = pi.clone();
+        Arc::new(move |args, ctx| {
             let state = state.clone();
             let pi = pi.clone();
-            Arc::new(move |args, ctx| {
-                let state = state.clone();
-                let pi = pi.clone();
-                Box::pin(async move { handle_delegation_command(&args, &ctx, &pi, &state).await })
-            })
-        },
-    )
+            Box::pin(async move { handle_delegation_command(&args, &ctx, &pi, &state).await })
+        })
+    })
     .map_err(HandlerError::new)?;
 
     pi.on_session_start({

@@ -122,3 +122,24 @@ None.
 `ExtensionUiTui` implements `EditorHost`, including live `create_fixed_cell` on the owning UI thread. `ExtensionUiComponent::focused() -> Option<bool>` models TS property presence; `set_focused` forwards focus changes only for opted-in components. Proof: interactive unit tests `extension_ui_factory_builds_real_custom_editor`, `extension_ui_overlay_focus_emits_cursor_and_restores_editor`.
 
 `ExtensionUiComponent::width` models the optional component width used by the pinned custom-overlay host. Explicit overlay options map to TUI options without losing visibility/sizing fields. Tests: `extension_ui_overlay_uses_component_width_and_closes_once`, `extension_ui_overlay_explicit_options_and_synchronous_close`.
+
+## Q18 native local commands/completions (2026-10-22)
+
+RegisteredCommand/ResolvedCommand name, invocation_name and description are
+JsString; the command map key and register/call-command actions use that same
+identity. Local slash-command names are not the provider-ID scalar exception.
+UserBashEvent.cwd is native.
+
+ArgumentCompletions is one API: Fn(&JsString) -> Result<Option<Vec<JsValue>>,
+JsString>. Run-plan/safe/codex-usage and example producers retain native prefix/
+results and propagate errors; direct literal descriptions/maps and fixtures are
+adapted mechanically. The interactive adapter preserves Err and rejects malformed
+completion items explicitly instead of dropping them.204 owns TUI future/error
+propagation to uncaught rejection; source tui/autocomplete.ts:353 and
+components/editor.ts:2531 contain no catch.
+
+Corrected discrepancy: the former Option-only callback representation could not
+carry source thrown errors; run-plan also discarded cwd/readdir failures. Both
+are replaced with the Result channel, not a new fallback or a second API. A real
+extension registration fixture asserts raw command lookup and raw callback
+failure; written but unexecuted while coding compilation is blocked.

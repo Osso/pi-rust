@@ -168,7 +168,7 @@ async fn run_command_case(input: &Value) -> Value {
     let handler = extension
         .read()
         .commands
-        .get("usage")
+        .get(&pi_js_compat::js_json::JsString::from("usage"))
         .expect("usage command")
         .handler
         .clone();
@@ -259,14 +259,14 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
                 let completions = extension
                     .read()
                     .commands
-                    .get("usage")
+                    .get(&pi_js_compat::js_json::JsString::from("usage"))
                     .expect("usage command")
                     .get_argument_completions
                     .clone()
                     .expect("completions");
                 output.insert(
                     "completions".to_owned(),
-                    completions(prefix).map(Value::Array).unwrap_or(Value::Null),
+                    serde_json::json!(completions(&pi_js_compat::js_json::JsString::from(prefix)).unwrap()),
                 );
             }
             "command" => return_value_into_map(&mut output, run_command_case(case).await),

@@ -4,9 +4,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use pi_js_compat::js_json::{JsString, JsValue as Value, encode_node_utf8};
+use pi_js_compat::js_regex::JsRegex;
 use pi_js_compat::process_env;
-use regex::Regex;
-use serde_json::json;
 
 use crate::core::extensions::types::{
     AgentEndEvent, BoxFuture, ExtensionApi, ExtensionCommandContext, ExtensionContext, HandlerError, NotifyType,
@@ -75,17 +74,16 @@ pub fn run_plan_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     let command_api = pi.clone();
     pi.register_command(
         "run-plan",
-        Some("Submit the first unchecked item from PLAN.md or another markdown plan file.".to_owned()),
-        Some(Arc::new(|argument_prefix: &str| {
-            let cwd = std::env::current_dir().ok()?;
-            complete_markdown_files(&cwd.to_string_lossy(), argument_prefix)
-                .ok()
-                .map(|files| {
-                    files
-                        .into_iter()
-                        .map(|file| json!({"label": file, "value": file}))
-                        .collect()
-                })
+        Some("Submit the first unchecked item from PLAN.md or another markdown plan file.".into()),
+        Some(Arc::new(|argument_prefix: &JsString| {
+            let cwd = crate::utils::paths::process_cwd().map_err(|error| error.message().clone())?;
+            let files = complete_markdown_files(&cwd, argument_prefix).map_err(|error| error.message)?;
+            Ok(Some(
+                files
+                    .into_iter()
+                    .map(|file| pi_js_compat::js_json!({"label": file, "value": file}))
+                    .collect(),
+            ))
         })),
         Arc::new(move |args: JsString, ctx: ExtensionCommandContext| {
             let command_plan = Arc::clone(&command_plan);
@@ -101,21 +99,22 @@ pub fn run_plan_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
 }
 
 /// `findNextPlanItem`.
-pub fn find_next_plan_item(file_path: &str) -> Result<Option<String>, HandlerError> {
-    let content = std::fs::read_to_string(file_path)
+pub fn find_next_plan_item(file_path: &JsString) -> Result<Option<JsString>, HandlerError> {
+    let content = std::fs::read(encode_node_utf8(file_path))
+        .map(|bytes| JsString::from(String::from_utf8_lossy(&bytes).as_ref()))
         .map_err(|error| HandlerError::new(node_fs_error(&error, "open", file_path)))?;
     let pattern = unchecked_item_pattern();
     for line in content.split('\n').map(|line| line.strip_suffix('\r').unwrap_or(line)) {
-        if let Some(captures) = pattern.captures(line) {
-            return Ok(Some(captures[1].trim().to_owned()));
+        if let Some(captures) = pattern.captures(&line) {
+            return Ok(Some(captures.get(1).expect("item capture").text().trim()));
         }
     }
     Ok(None)
 }
 
-fn unchecked_item_pattern() -> &'static Regex {
-    static PATTERN: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    PATTERN.get_or_init(|| Regex::new(r"^\s*[-*]\s+\[\s\]\s+(.*)$").expect("unchecked item pattern"))
+fn unchecked_item_pattern() -> &'static JsRegex {
+    static PATTERN: std::sync::OnceLock<JsRegex> = std::sync::OnceLock::new();
+    PATTERN.get_or_init(|| JsRegex::new(r"^\s*[-*]\s+\[\s\]\s+(.*)$").expect("unchecked item pattern"))
 }
 
 fn read_persisted_active_plan(ctx: &ExtensionContext) -> Result<Option<ActivePlan>, HandlerError> {
@@ -146,10 +145,10 @@ fn persist_active_plan(pi: &ExtensionApi, plan: Option<&ActivePlan>) -> Result<(
         Some(plan) => pi_js_compat::js_json!({"file": basename(&plan.file), "path": plan.path}),
         None => Value::Null,
     };
-    pi.append_entry(ACTIVE_PLAN_ENTRY_TYPE, Some(data.into()))
+    pi.append_entry(&ACTIVE_PLAN_ENTRY_TYPE.into(), Some(data.into()))
 }
 
-fn resolve_plan_file(cwd: &str, args: &JsString) -> ActivePlan {
+fn resolve_plan_file(cwd: &JsString, args: &JsString) -> ActivePlan {
     let trimmed = args.trim();
     let file = if trimmed.is_empty() {
         JsString::from("PLAN.md")
@@ -162,8 +161,8 @@ fn resolve_plan_file(cwd: &str, args: &JsString) -> ActivePlan {
     }
 }
 
-fn build_plan_prompt(item: &str) -> String {
-    format!("{item}\n\n{RUN_PLAN_AGENT_INSTRUCTION}")
+fn build_plan_prompt(item: &JsString) -> JsString {
+    pi_js_compat::js_format!("{}\n\n{}", item, RUN_PLAN_AGENT_INSTRUCTION)
 }
 
 fn plan_file_env_value(plan: &ActivePlan) -> JsString {
@@ -194,7 +193,7 @@ async fn submit_next_plan_item(
         return Err(HandlerError::new(JsString::from("Plan file not found: ") + &plan.file));
     }
 
-    let Some(next_item) = find_next_plan_item(&encode_node_utf8(&plan.path))? else {
+    let Some(next_item) = find_next_plan_item(&plan.path)? else {
         ctx.ui()?.notify(
             &(JsString::from("No unchecked items in ") + &plan.file),
             Some(NotifyType::Info),
@@ -234,20 +233,23 @@ async fn run_plan(
 
     export_plan_environment(&plan);
     persist_active_plan(pi, Some(&plan))?;
-    ctx.ui()?.set_editor_text("");
+    ctx.ui()?.set_editor_text(&"".into());
     Ok(Some(plan))
 }
 
-fn complete_markdown_files(cwd: &str, argument_prefix: &str) -> Result<Vec<String>, HandlerError> {
+fn complete_markdown_files(cwd: &JsString, argument_prefix: &JsString) -> Result<Vec<JsString>, HandlerError> {
     let normalized_prefix = argument_prefix.trim();
-    let mut files: Vec<String> = std::fs::read_dir(cwd)
-        .map_err(|error| HandlerError::new(node_fs_error(&error, "scandir", cwd)))?
-        .filter_map(Result::ok)
-        .filter_map(|entry| entry.file_name().to_str().map(str::to_owned))
-        .filter(|entry| entry.ends_with(".md"))
-        .filter(|entry| entry.starts_with(normalized_prefix))
-        .collect();
-    files.sort_by(|left, right| pi_js_compat::locale_compare(left, right));
+    let entries = std::fs::read_dir(encode_node_utf8(cwd))
+        .map_err(|error| HandlerError::new(node_fs_error(&error, "scandir", cwd)))?;
+    let mut files = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| HandlerError::new(node_fs_error(&error, "scandir", cwd)))?;
+        let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
+        if name.ends_with(".md") && name.starts_with(&normalized_prefix) {
+            files.push(name);
+        }
+    }
+    files.sort_by(|left, right| pi_js_compat::collator::locale_compare_utf16(left.units(), right.units()));
     Ok(files)
 }
 
@@ -263,24 +265,27 @@ fn basename(path: &JsString) -> JsString {
 mod lossless_tests {
     use super::*;
     #[test]
+    fn raw_plan_directory_survives_read_and_missing_file_error() {
+        let temporary = tempfile::tempdir().unwrap();
+        let cwd = JsString::from(temporary.path().to_str().unwrap()) + "/" + JsString::from_utf16(vec![0xd800]);
+        std::fs::create_dir_all(encode_node_utf8(&cwd)).unwrap();
+        let plan = resolve_plan_file(&cwd, &"PLAN.md".into());
+        std::fs::write(encode_node_utf8(&plan.path), "- [ ] 🛠 native item\n").unwrap();
+        assert_eq!(find_next_plan_item(&plan.path).unwrap(), Some("🛠 native item".into()));
+        let missing = cwd + "/missing.md";
+        assert!(find_next_plan_item(&missing).unwrap_err().message.contains(&missing));
+    }
+
+    #[test]
     fn plan_metadata_keeps_raw_filename_before_filesystem_encoding() {
         let name = JsString::from("plan-") + JsString::from_utf16(vec![0xd800]) + ".md";
-        let plan = resolve_plan_file("/repo", &name);
+        let plan = resolve_plan_file(&"/repo".into(), &name);
         assert_eq!(plan.file, name);
         assert_eq!(plan.path, JsString::from("/repo/") + &name);
         assert_eq!(basename(&plan.path), name);
     }
 }
 
-fn join_plan_path(cwd: &str, file: &JsString) -> JsString {
-    let joined = JsString::from(cwd) + "/" + file;
-    let mut parts = Vec::new();
-    for part in joined.split('/') {
-        if part == ".." {
-            parts.pop();
-        } else if !part.is_empty() && part != "." {
-            parts.push(part);
-        }
-    }
-    JsString::from(if joined.starts_with("/") { "/" } else { "" }) + JsString::join(parts, "/")
+fn join_plan_path(cwd: &JsString, file: &JsString) -> JsString {
+    crate::utils::paths::node_join(cwd, file)
 }

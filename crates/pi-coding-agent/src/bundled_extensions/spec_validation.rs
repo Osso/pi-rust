@@ -27,7 +27,7 @@ pub fn spec_validation_extension(pi: &ExtensionApi) -> Result<(), HandlerError> 
     let api = pi.clone();
     pi.register_command(
         "spec-validation",
-        Some("Validate each docs/specs/*.md file separately".to_owned()),
+        Some("Validate each docs/specs/*.md file separately".into()),
         None,
         Arc::new(move |_args, ctx| {
             let api = api.clone();

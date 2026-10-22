@@ -139,7 +139,12 @@ async fn run_native(request: &Value) -> Value {
     .await
     .unwrap();
     assert_eq!(extension.read().commands.len(), 1);
-    let registered = extension.read().commands.get("commands").unwrap().clone();
+    let registered = extension
+        .read()
+        .commands
+        .get(&pi_js_compat::js_json::JsString::from("commands"))
+        .unwrap()
+        .clone();
     let metadata = json!([{
         "name":registered.name,"description":registered.description,
         "hasArgumentCompletions":registered.get_argument_completions.is_some(),"hasHandler":true,
@@ -149,9 +154,7 @@ async fn run_native(request: &Value) -> Value {
         .unwrap()
         .iter()
         .map(|prefix| {
-            json!(registered.get_argument_completions.as_ref().unwrap()(
-                prefix.as_str().unwrap()
-            ))
+            json!(registered.get_argument_completions.as_ref().unwrap()(&prefix.as_str().unwrap().into()).unwrap())
         })
         .collect();
     let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {

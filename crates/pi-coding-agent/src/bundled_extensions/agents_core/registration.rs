@@ -252,7 +252,7 @@ fn register_background_command(pi: &ExtensionApi, registration: &AgentsCoreRegis
     let mirror = registration.runtime_lifecycle_mirror.clone();
     let _ = pi.register_command(
         "bg",
-        Some("Run a prompt as a background agent job.".to_owned()),
+        Some("Run a prompt as a background agent job.".into()),
         None,
         Arc::new(
             move |args: pi_js_compat::js_json::JsString, ctx: ExtensionCommandContext| {
@@ -271,7 +271,7 @@ fn register_jobs_command(pi: &ExtensionApi, registration: &AgentsCoreRegistratio
     let store = Arc::clone(&registration.store);
     let _ = pi.register_command(
         "jobs",
-        Some("List background agent jobs.".to_owned()),
+        Some("List background agent jobs.".into()),
         None,
         Arc::new(
             move |_args: pi_js_compat::js_json::JsString, ctx: ExtensionCommandContext| {

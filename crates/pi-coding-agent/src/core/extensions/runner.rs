@@ -402,7 +402,7 @@ impl ExtensionRunner {
         Ok(())
     }
 
-    fn report_provider_registration_error(&self, extension_path: &str, error: &str) {
+    fn report_provider_registration_error(&self, extension_path: &JsString, error: &JsString) {
         self.emit_error(ExtensionError {
             extension_path: extension_path.to_owned(),
             event: "register_provider".to_owned(),
@@ -515,7 +515,7 @@ impl ExtensionRunner {
         self.live().has_ui
     }
 
-    pub fn get_extension_paths(&self) -> Vec<String> {
+    pub fn get_extension_paths(&self) -> Vec<JsString> {
         self.extensions
             .iter()
             .map(|extension| extension.read().path.clone())
@@ -572,7 +572,7 @@ impl ExtensionRunner {
         let builtin = build_builtin_keybindings(resolved_keybindings);
         let mut extension_shortcuts: IndexMap<KeyId, ExtensionShortcut> = IndexMap::new();
 
-        let add_diagnostic = |message: JsString, extension_path: &str| {
+        let add_diagnostic = |message: JsString, extension_path: &JsString| {
             self.shortcut_diagnostics
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -785,7 +785,7 @@ impl ExtensionRunner {
 
     fn resolve_registered_commands(&self) -> Vec<ResolvedCommand> {
         let mut commands: Vec<RegisteredCommand> = Vec::new();
-        let mut counts: IndexMap<String, usize> = IndexMap::new();
+        let mut counts: IndexMap<JsString, usize> = IndexMap::new();
         for extension in &self.extensions {
             for command in extension.read().commands.values() {
                 commands.push(command.clone());
@@ -793,8 +793,8 @@ impl ExtensionRunner {
             }
         }
 
-        let mut seen: IndexMap<String, usize> = IndexMap::new();
-        let mut taken_invocation_names: Vec<String> = Vec::new();
+        let mut seen: IndexMap<JsString, usize> = IndexMap::new();
+        let mut taken_invocation_names: Vec<JsString> = Vec::new();
 
         commands
             .into_iter()
@@ -803,7 +803,7 @@ impl ExtensionRunner {
                 seen.insert(command.name.clone(), occurrence);
 
                 let mut invocation_name = if counts.get(&command.name).copied().unwrap_or(0) > 1 {
-                    format!("{}:{occurrence}", command.name)
+                    pi_js_compat::js_format!("{}:{}", command.name, occurrence)
                 } else {
                     command.name.clone()
                 };
@@ -812,7 +812,7 @@ impl ExtensionRunner {
                     let mut suffix = occurrence;
                     loop {
                         suffix += 1;
-                        invocation_name = format!("{}:{suffix}", command.name);
+                        invocation_name = pi_js_compat::js_format!("{}:{}", command.name, suffix);
                         if !taken_invocation_names.contains(&invocation_name) {
                             break;
                         }
@@ -864,10 +864,10 @@ impl ExtensionRunner {
             .iter()
             .find(|(key, _)| JsString::from(*key) == name)?;
         Some(ResolvedCommand {
-            name: name.to_owned(),
+            name: name.into(),
             source_info: SourceInfo {
-                path: "<internal>".to_owned(),
-                source: "internal".to_owned(),
+                path: "<internal>".into(),
+                source: "internal".into(),
                 scope: SourceScope::Temporary,
                 origin: SourceOrigin::TopLevel,
                 base_dir: None,
@@ -875,7 +875,7 @@ impl ExtensionRunner {
             description: None,
             get_argument_completions: None,
             handler: Arc::clone(handler),
-            invocation_name: name.to_owned(),
+            invocation_name: name.into(),
         })
     }
 
@@ -1237,7 +1237,7 @@ impl ExtensionRunner {
 
     fn report_runtime_mailbox_handler_error(
         &self,
-        extension_path: &str,
+        extension_path: &JsString,
         event: &RuntimeMailboxEvent,
         error: &HandlerError,
     ) {

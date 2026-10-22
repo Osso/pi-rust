@@ -9,7 +9,7 @@ impl Harness {
         self.extension
             .read()
             .commands
-            .get(name)
+            .get(&pi_js_compat::js_json::JsString::from(name))
             .unwrap_or_else(|| panic!("command {name} registered"))
             .clone()
     }

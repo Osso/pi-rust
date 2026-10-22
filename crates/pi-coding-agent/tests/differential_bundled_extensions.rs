@@ -95,7 +95,7 @@ fn loop_metadata(extension: &Extension) -> Value {
         "promptGuidelines": tool.prompt_guidelines,
         "approvalRequired": tool.approval_required,
         "parameters": tool.parameters,
-        "commandDescription": extension.read().commands.get("loop").and_then(|command| command.description.clone()),
+        "commandDescription": extension.read().commands.get(&pi_js_compat::js_json::JsString::from("loop")).and_then(|command| command.description.clone()),
     })
 }
 
@@ -111,7 +111,7 @@ async fn rust_loop_results(cases: &[Value]) -> Vec<Value> {
             let handler = extension
                 .read()
                 .commands
-                .get("loop")
+                .get(&pi_js_compat::js_json::JsString::from("loop"))
                 .expect("loop command")
                 .handler
                 .clone();
@@ -271,7 +271,7 @@ async fn rust_fast_results(cases: &[Value]) -> Vec<Value> {
                     let handler = extension
                         .read()
                         .commands
-                        .get("fast")
+                        .get(&pi_js_compat::js_json::JsString::from("fast"))
                         .expect("fast command")
                         .handler
                         .clone();
@@ -327,7 +327,7 @@ async fn rust_fast_results(cases: &[Value]) -> Vec<Value> {
 
         results.push(json!({
             "name": case.get("name").cloned().unwrap_or(Value::Null),
-            "commandDescription": extension.read().commands.get("fast").and_then(|command| command.description.clone()),
+            "commandDescription": extension.read().commands.get(&pi_js_compat::js_json::JsString::from("fast")).and_then(|command| command.description.clone()),
             "serviceTier": authority.service_tier().map(|tier| tier.as_str()),
             "notifications": notification_value(&harness.ui.notifications()),
             "statuses": status_value(&harness.ui.status_calls.lock().unwrap()),
@@ -423,7 +423,7 @@ async fn rust_effort_results(cases: &[Value]) -> Vec<Value> {
                     let handler = extension
                         .read()
                         .commands
-                        .get(name)
+                        .get(&pi_js_compat::js_json::JsString::from(name))
                         .expect("effort command")
                         .handler
                         .clone();
@@ -481,8 +481,8 @@ async fn rust_effort_results(cases: &[Value]) -> Vec<Value> {
         let descriptions = {
             let registration = extension.read();
             json!({
-                "effort": registration.commands.get("effort").and_then(|command| command.description.clone()),
-                "multiAgent": registration.commands.get("multi-agent").and_then(|command| command.description.clone()),
+                "effort": registration.commands.get(&pi_js_compat::js_json::JsString::from("effort")).and_then(|command| command.description.clone()),
+                "multiAgent": registration.commands.get(&pi_js_compat::js_json::JsString::from("multi-agent")).and_then(|command| command.description.clone()),
             })
         };
         results.push(json!({

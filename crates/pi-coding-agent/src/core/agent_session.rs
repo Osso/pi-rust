@@ -7915,7 +7915,7 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
     );
     let command_weak = weak.clone();
     let call_command: crate::core::extensions::types::CallCommandHandler =
-        Arc::new(move |name: String, args: Option<JsString>| {
+        Arc::new(move |name: JsString, args: Option<JsString>| {
             let Some(inner) = command_weak.upgrade() else {
                 return Box::pin(async {
                     Err(crate::core::extensions::types::HandlerError::new("Session is disposed"))
@@ -7925,9 +7925,9 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
             Box::pin(async move {
                 let runner = session.runner();
                 let Some(command) = runner.get_prompt_command(&name) else {
-                    return Err(crate::core::extensions::types::HandlerError::new(format!(
-                        "Command not found: {name}"
-                    )));
+                    return Err(crate::core::extensions::types::HandlerError::new(
+                        pi_js_compat::js_format!("Command not found: {}", name),
+                    ));
                 };
                 let context = session.create_command_context_for(&name);
                 (command.handler)(args.unwrap_or_default(), context)
@@ -8264,7 +8264,7 @@ impl AgentSession {
 
     /// `_createCommandContext`: `model` and `effort` commands from a main
     /// session act on the selected child session when one is being viewed.
-    fn create_command_context_for(&self, command_name: &str) -> ExtensionCommandContext {
+    fn create_command_context_for(&self, command_name: &JsString) -> ExtensionCommandContext {
         let context = self.create_command_context();
         if self.inner.multi_agent_agent_id.is_some() || (command_name != "model" && command_name != "effort") {
             return context;

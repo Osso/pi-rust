@@ -498,7 +498,7 @@ pub fn llama_extension_with_fetch(pi: &ExtensionApi, fetch: Arc<dyn Fetch>) -> R
     let handler_fetch = Arc::clone(&fetch);
     pi.register_command(
         "llama",
-        Some("Manage llama.cpp router models".to_owned()),
+        Some("Manage llama.cpp router models".into()),
         None,
         Arc::new(move |_args, ctx| {
             let fetch = Arc::clone(&handler_fetch);
