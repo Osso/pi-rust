@@ -249,9 +249,13 @@ fn append(output: &mut ProcessOutput, stream: Stream, bytes: Vec<u8>) {
 ///
 /// Node reports the `uv_err_name` code, not the OS description, so the errno name is looked up
 /// from the Linux errno table instead of using `io::Error`'s display text.
-pub fn node_spawn_error_message(prefix: &str, command: &str, error: &io::Error) -> String {
+pub fn node_spawn_error_message(
+    prefix: &str,
+    command: &pi_js_compat::js_json::JsString,
+    error: &io::Error,
+) -> pi_js_compat::js_json::JsString {
     match error.raw_os_error().and_then(node_errno_name) {
-        Some(name) => format!("{prefix} {command} {name}"),
-        None => error.to_string(),
+        Some(name) => pi_js_compat::js_format!("{} {} {}", prefix, command, name),
+        None => error.to_string().into(),
     }
 }

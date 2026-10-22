@@ -106,8 +106,8 @@ fn launch_index_with(session_path: &str, executable: &str, log_path: &Path) -> R
     }
 }
 
-fn spawn_error_message(executable: &str, error: &std::io::Error) -> String {
-    node_spawn_error_message("spawn", executable, error)
+fn spawn_error_message(executable: &str, error: &std::io::Error) -> pi_js_compat::js_json::JsString {
+    node_spawn_error_message("spawn", &pi_js_compat::js_json::JsString::from(executable), error)
 }
 
 fn error_message(error: &std::io::Error) -> String {

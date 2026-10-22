@@ -3567,7 +3567,7 @@ impl DefaultPackageManager {
                 "Failed to run {} {}: {}",
                 command,
                 JsString::join(args.iter().cloned(), " "),
-                node_spawn_error_message("spawnSync", &encode_node_utf8(command), &error)
+                node_spawn_error_message("spawnSync", command, &error)
             ))),
         }
     }
@@ -3687,9 +3687,9 @@ fn spawn_inherit(
     if let Some(cwd) = cwd {
         process.current_dir(encode_node_utf8(cwd));
     }
-    process.spawn().map_err(|error| {
-        PackageManagerError::new(node_spawn_error_message("spawn", &encode_node_utf8(command), &error))
-    })
+    process
+        .spawn()
+        .map_err(|error| PackageManagerError::new(node_spawn_error_message("spawn", command, &error)))
 }
 
 fn spawn_capture(
@@ -3710,9 +3710,9 @@ fn spawn_capture(
     if let Some(cwd) = cwd {
         process.current_dir(encode_node_utf8(cwd));
     }
-    process.spawn().map_err(|error| {
-        PackageManagerError::new(node_spawn_error_message("spawn", &encode_node_utf8(command), &error))
-    })
+    process
+        .spawn()
+        .map_err(|error| PackageManagerError::new(node_spawn_error_message("spawn", command, &error)))
 }
 
 #[cfg(unix)]

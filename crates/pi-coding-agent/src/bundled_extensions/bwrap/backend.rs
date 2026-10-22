@@ -90,8 +90,8 @@ pub fn run_bwrap_availability_check(bwrap_command: &str) -> Result<(), String> {
     }
 }
 
-fn spawn_sync_error(command: &str, error: &std::io::Error) -> String {
-    node_spawn_error_message("spawnSync", command, error)
+fn spawn_sync_error(command: &str, error: &std::io::Error) -> pi_js_compat::js_json::JsString {
+    node_spawn_error_message("spawnSync", &pi_js_compat::js_json::JsString::from(command), error)
 }
 
 /// `buildBwrapInvocation`.

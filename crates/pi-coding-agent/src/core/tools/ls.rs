@@ -345,7 +345,7 @@ async fn run_rtk_ls(cwd: &JsString, path: &JsString, signal: Option<&Cancellatio
             RtkError::MissingExecutable
         } else {
             RtkError::Failed {
-                message: node_spawn_error_message("spawn", "rtk", &error),
+                message: node_spawn_error_message("spawn", &pi_js_compat::js_json::JsString::from("rtk"), &error),
                 stdout: String::new(),
                 stderr: String::new(),
             }

@@ -6184,7 +6184,13 @@ async fn run_gh_gist(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|error| crate::utils::child_process::node_spawn_error_message("spawn", "gh", &error))?;
+        .map_err(|error| {
+            crate::utils::child_process::node_spawn_error_message(
+                "spawn",
+                &pi_js_compat::js_json::JsString::from("gh"),
+                &error,
+            )
+        })?;
     pid.store(child.id(), std::sync::atomic::Ordering::SeqCst);
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();

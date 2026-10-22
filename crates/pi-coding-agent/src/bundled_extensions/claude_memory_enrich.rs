@@ -202,6 +202,6 @@ mod lossless_tests {
     }
 }
 
-fn spawn_error_message(command: &str, error: &std::io::Error) -> String {
-    node_spawn_error_message("spawn", command, error)
+fn spawn_error_message(command: &str, error: &std::io::Error) -> pi_js_compat::js_json::JsString {
+    node_spawn_error_message("spawn", &pi_js_compat::js_json::JsString::from(command), error)
 }

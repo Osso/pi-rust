@@ -78,14 +78,24 @@ async fn cleanup_child(child: &mut Child) -> Result<(), String> {
     }
     Ok(())
 }
-async fn connect_relay(path: &str, settings: &RelaySettings, signal: &CancellationToken) -> Result<(), String> {
+async fn connect_relay(
+    path: &str,
+    settings: &RelaySettings,
+    signal: &CancellationToken,
+) -> Result<(), pi_js_compat::js_json::JsString> {
     let mut child = Command::new("ssh")
         .args(ssh_arguments(settings))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| crate::utils::child_process::node_spawn_error_message("spawn", "ssh", &error))?;
+        .map_err(|error| {
+            crate::utils::child_process::node_spawn_error_message(
+                "spawn",
+                &pi_js_compat::js_json::JsString::from("ssh"),
+                &error,
+            )
+        })?;
     let stderr = tokio::spawn(read_stderr_tail(child.stderr.take().unwrap()));
     let result = run_host_relay(
         child.stdout.take().unwrap(),
