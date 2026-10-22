@@ -1958,7 +1958,7 @@ pub struct ThinkingLevelSelectEvent {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserBashEvent {
-    pub command: String,
+    pub command: JsString,
     pub exclude_from_context: bool,
     pub cwd: String,
 }

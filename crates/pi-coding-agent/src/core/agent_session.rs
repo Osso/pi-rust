@@ -6360,7 +6360,7 @@ impl AgentSession {
     /// Executes a bash command, records the result, and streams output.
     pub async fn execute_bash(
         &self,
-        command: &str,
+        command: &JsString,
         on_chunk: Option<crate::core::bash_executor::BashChunkCallback>,
         options: ExecuteBashOptions,
     ) -> Result<crate::core::bash_executor::BashResult, AgentSessionError> {
@@ -6376,8 +6376,8 @@ impl AgentSession {
             )
         };
         let resolved_command = match prefix {
-            Some(prefix) => format!("{prefix}\n{command}"),
-            None => command.to_owned(),
+            Some(prefix) => JsString::from(prefix) + "\n" + command,
+            None => command.clone(),
         };
         let operations = options.operations.clone().unwrap_or_else(|| {
             Arc::new(crate::core::tools::bash::create_local_bash_operations(
@@ -6416,14 +6416,14 @@ impl AgentSession {
     /// Records a bash execution result in session history.
     pub fn record_bash_result(
         &self,
-        command: &str,
+        command: &JsString,
         result: &crate::core::bash_executor::BashResult,
         exclude_from_context: Option<bool>,
     ) {
         let bash_message = BashExecutionMessage {
             role: BashExecutionRole::BashExecution,
-            command: command.to_owned().into(),
-            output: result.output.clone().into(),
+            command: command.clone(),
+            output: result.output.clone(),
             exit_code: result.exit_code.map(f64::from),
             cancelled: result.cancelled,
             truncated: result.truncated,

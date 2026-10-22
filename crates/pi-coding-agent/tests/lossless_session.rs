@@ -4,6 +4,18 @@ use pi_coding_agent::core::session_tool_output::serialize_session_entry;
 use pi_js_compat::js_json::parse_lossless;
 
 #[test]
+fn bash_replacement_result_keeps_raw_output() {
+    let result: pi_coding_agent::core::bash_executor::BashResult =
+        serde_json::from_str(r#"{"output":"\ud800","exitCode":0,"cancelled":false,"truncated":false}"#).unwrap();
+    assert_eq!(result.output.units(), &[0xd800]);
+    let output = serde_json::to_string(&result).unwrap();
+    assert_eq!(
+        parse_lossless(&output).unwrap()["output"],
+        parse_lossless(r#""\ud800""#).unwrap()
+    );
+}
+
+#[test]
 fn artifact_json_lines_and_hashes_distinguish_raw_surrogates() {
     use pi_coding_agent::core::detached_bash_runner::{append_artifact_record, hash_json, read_json_lines};
 

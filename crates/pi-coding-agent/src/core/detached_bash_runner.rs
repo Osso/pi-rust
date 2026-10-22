@@ -12,9 +12,9 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use pi_js_compat::js_json::{self, JsObject, JsString, JsValue, encode_node_utf8};
 use rustix::process::{Pid, Signal, kill_process, kill_process_group};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 
 use crate::core::detached_job_bootstrap::{
     DetachedPayloadError, GatedDetachedPayloadInput, spawn_gated_detached_payload,
@@ -49,7 +49,7 @@ const EXIT_POLL_MS: u64 = 25;
 #[serde(rename_all = "camelCase")]
 pub struct DetachedBashLaunchManifestData {
     pub activation_path: String,
-    pub args: Vec<String>,
+    pub args: Vec<JsString>,
     pub artifacts: DetachedJobArtifacts,
     pub command: String,
     pub control_db_path: String,
@@ -64,7 +64,7 @@ pub struct DetachedBashLaunchManifestData {
     pub tool_call_id: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DetachedBashLaunchManifest {
     #[serde(flatten)]
@@ -148,21 +148,19 @@ pub fn write_detached_bash_launch_manifest(
     data: &DetachedBashLaunchManifestData,
 ) -> Result<(), DetachedBashRunnerError> {
     let unsigned = manifest_unsigned_value(data)?;
-    let checksum = hash_json(&pi_js_compat::js_json::JsValue::from(&Value::Object(unsigned.clone())));
+    let checksum = hash_json(&JsValue::Object(unsigned.clone()));
     let mut manifest = unsigned;
-    manifest.insert("checksum".to_owned(), Value::String(checksum));
-    write_atomic_json(path, &Value::Object(manifest))
+    manifest.insert("checksum".into(), JsValue::String(checksum.into()));
+    write_atomic_json(path, &JsValue::Object(manifest))
 }
 
-fn manifest_unsigned_value(
-    data: &DetachedBashLaunchManifestData,
-) -> Result<Map<String, Value>, DetachedBashRunnerError> {
+fn manifest_unsigned_value(data: &DetachedBashLaunchManifestData) -> Result<JsObject, DetachedBashRunnerError> {
     let manifest = DetachedBashLaunchManifest {
         data: data.clone(),
         version: DETACHED_BASH_LAUNCH_VERSION,
         checksum: String::new(),
     };
-    let Value::Object(mut unsigned) = serde_json::to_value(&manifest)? else {
+    let JsValue::Object(mut unsigned) = js_json::to_value(&manifest)? else {
         return Err(DetachedBashRunnerError(
             "Detached Bash launch manifest must serialize to an object".to_owned(),
         ));
@@ -176,7 +174,7 @@ pub fn write_detached_bash_activation(
     path: &str,
     identity: &DetachedJobOwnershipIdentity,
 ) -> Result<(), DetachedBashRunnerError> {
-    write_atomic_json(path, &serde_json::to_value(identity)?)
+    write_atomic_json(path, &js_json::to_value(identity)?)
 }
 
 /// `readDetachedBashActivation`; `None` when the file does not exist.
@@ -187,9 +185,9 @@ pub fn read_detached_bash_activation(
         return Ok(None);
     }
     let data = std::fs::read_to_string(path)?;
-    let value = pi_js_compat::js_json::parse(&data).map_err(|error| DetachedBashRunnerError(error.to_string()))?;
+    let value = js_json::parse_lossless(&data).map_err(|error| DetachedBashRunnerError(error.to_string()))?;
     Ok(Some(
-        serde_json::from_value(value).map_err(DetachedBashRunnerError::from)?,
+        js_json::from_value(&value).map_err(DetachedBashRunnerError::from)?,
     ))
 }
 
@@ -259,8 +257,9 @@ pub async fn run_detached_bash_runner(
         .iter()
         .map(|(name, value)| (name.clone(), value.clone()))
         .collect();
+    let process_args = manifest.data.args.iter().map(encode_node_utf8).collect::<Vec<_>>();
     let mut payload = spawn_gated_detached_payload(&GatedDetachedPayloadInput {
-        args: &manifest.data.args,
+        args: &process_args,
         command: &manifest.data.command,
         cwd: Path::new(&manifest.data.cwd),
         env: Some(&env),
@@ -274,7 +273,7 @@ pub async fn run_detached_bash_runner(
     let Some(ref identity) = controlled.identity else {
         write_atomic_json(
             &manifest.data.foreground_completion_path,
-            &serde_json::to_value(&DetachedBashForegroundCompletion {
+            &js_json::to_value(&DetachedBashForegroundCompletion {
                 cancel_reason: controlled.cancel_reason.clone(),
                 exit_code: controlled.exit.exit_code,
                 signal: controlled.exit.signal.and_then(signal_name),
@@ -548,17 +547,24 @@ async fn wait_for_detached_bash_launch_manifest(
 
 fn read_detached_bash_launch_manifest(path: &str) -> Result<DetachedBashLaunchManifest, DetachedBashRunnerError> {
     let data = std::fs::read_to_string(path)?;
-    let value = pi_js_compat::js_json::parse(&data).map_err(|error| DetachedBashRunnerError(error.to_string()))?;
-    let parsed: DetachedBashLaunchManifest = serde_json::from_value(value).map_err(DetachedBashRunnerError::from)?;
-    let checksum = hash_json(&pi_js_compat::js_json::JsValue::from(&Value::Object(
-        manifest_unsigned_value(&parsed.data)?,
-    )));
-    if parsed.version != DETACHED_BASH_LAUNCH_VERSION || parsed.checksum != checksum {
+    let value = js_json::parse_lossless(&data).map_err(|error| DetachedBashRunnerError(error.to_string()))?;
+    let parsed_data = js_json::from_value::<DetachedBashLaunchManifestData>(&value)?;
+    let checksum = hash_json(&JsValue::Object(manifest_unsigned_value(&parsed_data)?));
+    let version_matches = value.get("version").and_then(JsValue::as_f64) == Some(DETACHED_BASH_LAUNCH_VERSION as f64);
+    let checksum_matches = value
+        .get("checksum")
+        .and_then(JsValue::as_string)
+        .is_some_and(|stored| stored == &checksum);
+    if !version_matches || !checksum_matches {
         return Err(DetachedBashRunnerError(format!(
             "Invalid detached Bash launch manifest: {path}"
         )));
     }
-    Ok(parsed)
+    Ok(DetachedBashLaunchManifest {
+        data: parsed_data,
+        version: DETACHED_BASH_LAUNCH_VERSION,
+        checksum,
+    })
 }
 
 /// `hashJson`.
@@ -577,7 +583,7 @@ pub fn fsync_directory(path: &str) -> Result<(), std::io::Error> {
     std::fs::File::open(path)?.sync_all()
 }
 
-fn write_atomic_json(path: &str, value: &Value) -> Result<(), DetachedBashRunnerError> {
+fn write_atomic_json(path: &str, value: &JsValue) -> Result<(), DetachedBashRunnerError> {
     let temporary_path = format!("{path}.tmp");
     let mut file = OpenOptions::new()
         .create(true)
@@ -585,7 +591,7 @@ fn write_atomic_json(path: &str, value: &Value) -> Result<(), DetachedBashRunner
         .truncate(true)
         .mode(0o600)
         .open(&temporary_path)?;
-    let line = format!("{}\n", pi_js_compat::js_json::stringify(value));
+    let line = format!("{}\n", js_json::stringify_lossless(value));
     file.write_all(line.as_bytes())?;
     file.sync_all()?;
     drop(file);

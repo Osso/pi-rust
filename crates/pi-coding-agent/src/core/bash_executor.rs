@@ -32,7 +32,7 @@ pub struct BashExecutorOptions {
 #[serde(rename_all = "camelCase")]
 pub struct BashResult {
     /// Combined stdout + stderr output (sanitized, possibly truncated).
-    pub output: String,
+    pub output: pi_js_compat::js_json::JsString,
     /// Process exit code; `None` when killed or cancelled.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
@@ -45,7 +45,7 @@ pub struct BashResult {
 
 /// `executeBashWithOperations`.
 pub async fn execute_bash_with_operations(
-    command: &str,
+    command: &pi_js_compat::js_json::JsString,
     cwd: &str,
     operations: Arc<dyn BashOperations>,
     options: &BashExecutorOptions,
@@ -142,12 +142,9 @@ impl OutputCollector {
         state.temp_file.take();
         BashResult {
             output: if truncation.truncated {
-                truncation
-                    .content
-                    .to_utf8()
-                    .expect("decoded process output remains UTF-8")
+                truncation.content
             } else {
-                full_output
+                full_output.into()
             },
             exit_code: if cancelled { None } else { exit_code },
             cancelled,
