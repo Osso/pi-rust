@@ -552,7 +552,7 @@ async fn force_runs_the_self_update_even_when_current() {
                 "Updating {app} with bun install -g --ignore-scripts --minimum-release-age=0 @earendil-works/pi-coding-agent@{}...",
                 current_version()
             )),
-            Chalk::stdout().green(&format!("Updated {app} from {} to {}", current_version())),
+            Chalk::stdout().green(&format!("Updated {app} from {0} to {0}", current_version())),
         ]
     );
 }
