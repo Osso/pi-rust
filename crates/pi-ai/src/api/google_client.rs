@@ -38,7 +38,8 @@ use crate::utils::provider_env::get_provider_env_value;
 const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const JWT_LIFETIME_SECONDS: i64 = 3600;
 const VERTEX_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
-const SDK_USER_AGENT: &str = "google-genai-sdk/1.52.0";
+// Preserve the frozen SDK language label; Rust has no host Node version.
+const SDK_USER_AGENT: &str = "google-genai-sdk/1.52.0 gl-node/unknown";
 const GOOGLE_AI_DEFAULT_API_VERSION: &str = "v1beta";
 const GOOGLE_AI_DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com/";
 

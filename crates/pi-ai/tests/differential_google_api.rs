@@ -8,7 +8,7 @@ mod json_compare;
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use google_fetch::{RecordingFetch, ScriptedResponse};
@@ -522,11 +522,69 @@ async fn collect_stream(mut stream: AssistantMessageEventStream) -> (Vec<Value>,
     (events, serde_json::to_value(result).expect("result serializes"))
 }
 
+fn normalize_sdk_runtime_versions(capture: &mut Value, model: &Value, stream: &Value) {
+    let configured: BTreeSet<_> = [model.get("headers"), stream.get("headers")]
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_object)
+        .flat_map(|headers| headers.keys().map(|key| key.to_ascii_lowercase()))
+        .collect();
+    let Some(requests) = capture.get_mut("requests").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for request in requests {
+        for name in ["user-agent", "x-goog-api-client"] {
+            if configured.contains(name) {
+                continue;
+            }
+            if let Some(Value::String(value)) = request.get_mut("headers").and_then(|headers| headers.get_mut(name)) {
+                *value = value
+                    .split(' ')
+                    .map(|component| {
+                        if component.starts_with("gl-node/") {
+                            "gl-node/<host-version>"
+                        } else {
+                            component
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+            }
+        }
+    }
+}
+
+#[test]
+fn runtime_normalization_preserves_sdk_identity_and_explicit_headers() {
+    let mut captured = json!({"requests":[{"headers":{
+        "user-agent":"google-genai-sdk/1.52.0 gl-node/v26.11.1",
+        "x-goog-api-client":"google-genai-sdk/9.9.9 gl-rust/1 gl-node/v26.11.1"
+    }}]});
+    normalize_sdk_runtime_versions(&mut captured, &json!({}), &json!({}));
+    assert_eq!(
+        captured["requests"][0]["headers"]["user-agent"],
+        "google-genai-sdk/1.52.0 gl-node/<host-version>"
+    );
+    assert_eq!(
+        captured["requests"][0]["headers"]["x-goog-api-client"],
+        "google-genai-sdk/9.9.9 gl-rust/1 gl-node/<host-version>"
+    );
+    let mut explicit = json!({"requests":[{"headers":{"user-agent":"custom gl-node/v26.11.1"}}]});
+    let original = explicit.clone();
+    normalize_sdk_runtime_versions(
+        &mut explicit,
+        &json!({"headers":{"User-Agent":"custom gl-node/v26.11.1"}}),
+        &json!({}),
+    );
+    assert_eq!(explicit, original);
+}
+
 async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
     let request = scenario.request();
     let expected = oracle.request(&request);
     assert_eq!(expected["ok"], Value::Bool(true), "oracle failed: {expected}");
-    let expected = &expected["output"];
+    let mut expected = expected["output"].clone();
+    normalize_sdk_runtime_versions(&mut expected, &scenario.model, &scenario.stream);
 
     let model: Model = serde_json::from_value(scenario.model.clone()).expect("model");
     let context: Context = serde_json::from_value(scenario.context.clone()).expect("context");
@@ -582,8 +640,9 @@ async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
     let requests = fetch.requests().iter().map(request_value).collect::<Vec<_>>();
     let mut actual = json!({"requests": requests, "events": events, "result": result});
     normalize_events(&mut actual);
-    assert_json_eq(&actual, expected, &format!("google scenario {}", scenario.id));
-    assert_jwt_header_order(&actual, expected, &format!("google scenario {}", scenario.id));
+    normalize_sdk_runtime_versions(&mut actual, &scenario.model, &scenario.stream);
+    assert_json_eq(&actual, &expected, &format!("google scenario {}", scenario.id));
+    assert_jwt_header_order(&actual, &expected, &format!("google scenario {}", scenario.id));
 }
 
 fn tool(name: &str, strict: bool) -> Value {

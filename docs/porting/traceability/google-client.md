@@ -6,6 +6,10 @@ Source of truth (read-only): `node_modules/@google/genai` (`ApiClient`, `Models.
 Rust: `crates/pi-ai/src/api/google_client.rs`.
 Tests: `crates/pi-ai/tests/differential_google_api.rs` (66 scenarios), `crates/pi-ai/tests/google_api.rs`.
 
+## Q4 SDK identity boundary
+
+Frozen `@google/genai/dist/node/index.mjs:13327–13332,21331` sends `google-genai-sdk/1.52.0 gl-node/${process.version}` in User-Agent and x-goog-api-client. Native now retains the stable SDK and language labels, using `unknown` for unavailable host Node version. The wrapper masks only the gl-node version component at those two captured request-header paths, and only when neither model nor caller configured that header. A concrete normalizer regression preserves altered SDK versions, language tags and explicit headers. No oracle-side header waiver exists. Both actual-source Google targets advanced from missing language-label RED to source-absent rawStopReason RED (`google-runtime-identity-{red-2,green-1}.log`); not full-provider acceptance.
+
 ## Behavior → proof
 | SDK behavior | Rust | Test |
 |---|---|---|
