@@ -4,6 +4,7 @@
 - Type and runtime proofs use the unmodified common pin; retired type patch fails on this revision. Integrity/setup: `docs/porting/oracle-gate.md`.
 - Approved TS+Rust fix (2026-10-21): v1 session migration records generated IDs in its collision set. Locked delta `6573c713`; frozen bytes stay unchanged.
 - Common-pin approval (2026-10-21): opaque provider IDs/names, type/stop tags and signatures may remain Unicode scalars; reject unpaired units explicitly, never replace. Human text/errors and arbitrary argument JSON are excluded.
+- Login prompt answers (API keys, OAuth codes/redirect URLs, domains, account ids, method choices) stay native to their auth.json/HTTP boundaries with Node-exact failures; not covered by the opaque-scalar approval (decision 2026-10-22).
 - Approved gap (2026-10-22): the syntax highlighter omits the highlight.js Mathematica and R grammars (callback-based); their code renders unhighlighted.
 - All pre-repin approvals below are **to re-validate against 4f9e6f8a4**; retain them pending user review, not as new-pin parity evidence.
 - Control DB v15 and metadata-authoritative names formerly followed approved `c248b0067` (2026-10-20), now an ancestor of the common pin.
