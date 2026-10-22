@@ -35,3 +35,9 @@ Tests: `crates/pi-coding-agent/tests/model_registry.rs` (ports
 ## Discrepancies
 
 None found.
+
+Q18 auth consumer propagation retains native key/base URL/env/header values; native errors avoid Display except explicit formatting. Tests/proof status: [lossless auth](lossless-auth.md).
+
+## DRIFT: provider-key lookup swallows auth failure
+
+Frozen `packages/coding-agent/src/core/model-registry.ts:811-820` awaits authStorage.getApiKey without a catch. Rust `get_api_key_for_provider` currently uses `.ok().flatten()`, losing a rejection. Per parent sequencing, retain that production behavior until coding-agent compiles and a public-boundary RED can run; then migrate it and codex_usage:414 together to `Result<Option<JsString>, ResolveError>`. Required public-boundary test is queued, **unexecuted**. This is not approved parity.

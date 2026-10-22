@@ -2,6 +2,7 @@
 //!
 //! Non-persistent runtime API keys mask stored credentials for one process.
 
+use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::auth::types::{
@@ -18,7 +19,7 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// Async credential-store overlay for runtime API keys (`RuntimeCredentials`).
 pub struct RuntimeCredentials {
     store: Arc<dyn CredentialStore>,
-    overrides: Mutex<Vec<(String, String)>>,
+    overrides: Mutex<Vec<(String, JsString)>>,
 }
 
 impl RuntimeCredentials {
@@ -29,7 +30,7 @@ impl RuntimeCredentials {
         }
     }
 
-    pub fn set_runtime_api_key(&self, provider_id: &str, api_key: &str) {
+    pub fn set_runtime_api_key(&self, provider_id: &str, api_key: &JsString) {
         let mut overrides = lock(&self.overrides);
         match overrides.iter_mut().find(|(provider, _)| provider == provider_id) {
             Some((_, key)) => *key = api_key.to_owned(),
@@ -47,7 +48,7 @@ impl RuntimeCredentials {
             .any(|(provider, _)| provider == provider_id)
     }
 
-    fn override_for(&self, provider_id: &str) -> Option<String> {
+    fn override_for(&self, provider_id: &str) -> Option<JsString> {
         lock(&self.overrides)
             .iter()
             .find(|(provider, _)| provider == provider_id)

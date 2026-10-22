@@ -133,3 +133,11 @@ fn auth_event_json_retains_raw_prompt_related_text() {
         js_json::parse_lossless(wire).unwrap()
     );
 }
+
+#[test]
+fn resolve_error_exposes_native_message_without_display_projection() {
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let error = pi_ai::auth::resolve::ResolveError::Callback(pi_ai::request::CallbackError::new(raw.clone()));
+    assert_eq!(error.message(), raw);
+    assert_eq!(error.to_string(), "�");
+}

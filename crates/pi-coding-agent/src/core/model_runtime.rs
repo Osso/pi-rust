@@ -754,7 +754,7 @@ impl ModelRuntime {
         if let Some(overrides_env) = &overrides.env {
             env.extend(overrides_env.clone());
         }
-        let env_map: HashMap<String, String> = env.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
+        let env_map: HashMap<String, JsString> = env.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
         let configured = resolve_configured_model_headers(
             model,
             config.as_ref(),
@@ -868,7 +868,7 @@ impl ModelRuntime {
     pub async fn set_runtime_api_key(
         &self,
         provider_id: &str,
-        api_key: &str,
+        api_key: &JsString,
         options: AuthOperationOptions,
     ) -> Result<(), ModelRuntimeError> {
         let signal = options.signal.unwrap_or_default();
@@ -1315,7 +1315,7 @@ impl ModelRuntime {
                 snapshot.auth.insert(
                     provider_id.to_owned(),
                     AuthCheck {
-                        source: Some("configured provider".to_owned()),
+                        source: Some("configured provider".into()),
                         auth_type: if effective.oauth.is_some() && effective.api_key.is_none() {
                             AuthType::Oauth
                         } else {

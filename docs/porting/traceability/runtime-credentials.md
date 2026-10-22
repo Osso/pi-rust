@@ -27,3 +27,5 @@ covered by the focused tests against the real `AuthStorage`.
 ## Proof inventory
 
 - Focused cases: 5.
+
+Q18 auth consumer propagation retains native key/base URL/env/header values; native errors avoid Display except explicit formatting. Tests/proof status: [lossless auth](lossless-auth.md).

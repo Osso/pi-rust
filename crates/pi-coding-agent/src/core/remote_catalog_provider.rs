@@ -122,7 +122,7 @@ impl Provider for RemoteCatalogProvider {
         self.inner.name()
     }
 
-    fn base_url(&self) -> Option<&str> {
+    fn base_url(&self) -> Option<&JsString> {
         self.inner.base_url()
     }
 

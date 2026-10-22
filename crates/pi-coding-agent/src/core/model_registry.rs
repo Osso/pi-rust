@@ -18,9 +18,9 @@ pub use crate::core::provider_composer::clear_api_key_cache;
 #[derive(Debug, Clone, PartialEq)]
 pub enum ResolvedRequestAuth {
     Ok {
-        api_key: Option<String>,
+        api_key: Option<JsString>,
         headers: Option<ProviderHeaders>,
-        base_url: Option<String>,
+        base_url: Option<JsString>,
         env: Option<ProviderEnv>,
     },
     Err {
@@ -154,7 +154,7 @@ impl ModelRegistry {
             .await
     }
 
-    pub async fn get_api_key_for_provider(&self, provider: &str) -> Option<String> {
+    pub async fn get_api_key_for_provider(&self, provider: &str) -> Option<JsString> {
         self.get_provider_auth(provider)
             .await
             .ok()

@@ -66,3 +66,5 @@ resolved auth, and compatibility config from temp `models.json` + auth fixtures)
 ## Discrepancies
 
 None found.
+
+Q18 auth consumer propagation retains native key/base URL/env/header values; native errors avoid Display except explicit formatting. Tests/proof status: [lossless auth](lossless-auth.md).
