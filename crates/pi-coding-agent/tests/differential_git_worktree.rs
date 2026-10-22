@@ -2,10 +2,10 @@
 mod oracle;
 
 use std::collections::VecDeque;
-use std::path::Path;
 use std::sync::Mutex;
 
 use pi_coding_agent::utils::git_worktree::{GitExec, GitExecError, GitOutput, resolve_worktree_with_exec};
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 const REQUEST_ID: u64 = 26_011;
@@ -41,6 +41,17 @@ fn cases() -> Vec<Case> {
                 },
                 Step::Output {
                     stdout: "worktree /repo/project\nHEAD abc\n\nworktree /repo/project-feature\nHEAD def\n",
+                },
+            ],
+        },
+        Case {
+            name: "filesystem root repository concatenates paths",
+            cwd: "/",
+            worktree_name: "feature",
+            steps: vec![
+                Step::Output { stdout: "/\n" },
+                Step::Output {
+                    stdout: "worktree /\nHEAD abc\n\nworktree //-feature\nHEAD def\n",
                 },
             ],
         },
@@ -234,10 +245,10 @@ impl RecordingExec {
 }
 
 impl GitExec for RecordingExec {
-    fn exec(&self, args: &[&str], cwd: &Path) -> Result<GitOutput, GitExecError> {
+    fn exec(&self, args: &[JsString], cwd: &JsString) -> Result<GitOutput, GitExecError> {
         self.calls.lock().expect("calls lock").push((
-            args.iter().map(|arg| (*arg).to_owned()).collect(),
-            cwd.to_string_lossy().into_owned(),
+            args.iter().map(|arg| arg.to_utf8().expect("scalar arg")).collect(),
+            cwd.to_utf8().expect("scalar cwd"),
         ));
         let step = self
             .steps
@@ -255,9 +266,9 @@ impl GitExec for RecordingExec {
                 stderr,
                 stdout,
             } => Err(GitExecError {
-                message: message.to_owned(),
-                stderr: stderr.map(str::to_owned),
-                stdout: stdout.map(str::to_owned),
+                message: message.into(),
+                stderr: stderr.map(JsString::from),
+                stdout: stdout.map(JsString::from),
             }),
         }
     }
@@ -328,11 +339,11 @@ fn response(cases: &[Case]) -> Value {
         .map(|case| {
             let exec = RecordingExec::new(&case.steps);
             let name = case.name;
-            match resolve_worktree_with_exec(case.worktree_name, Path::new(case.cwd), &exec) {
+            match resolve_worktree_with_exec(&case.worktree_name.into(), &case.cwd.into(), &exec) {
                 Ok(worktree) => json!({
                     "name": name,
                     "ok": true,
-                    "value": worktree.to_string_lossy(),
+                    "value": worktree.to_utf8().expect("scalar worktree"),
                     "calls": exec.calls_json(),
                 }),
                 Err(error) => json!({

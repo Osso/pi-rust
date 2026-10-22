@@ -80,6 +80,7 @@ use crate::core::session_control_db::{
 };
 use crate::core::session_cwd::{MissingSessionCwdError, get_missing_session_cwd_issue, reopen_session_with_cwd};
 use crate::core::session_directory::{SessionDirectoryOptions, reconcile_session_runtime_bindings};
+use crate::core::session_manager::SessionManagerError;
 use crate::core::session_manager::{
     NewSessionOptions, SessionInfo, SessionManager, assert_valid_session_id, get_default_session_dir,
 };
@@ -99,7 +100,7 @@ use crate::utils::chalk::Chalk;
 use crate::utils::git_project::read_git_common_directory;
 use crate::utils::git_worktree::resolve_worktree;
 use crate::utils::iso_time::now_iso_string;
-use crate::utils::paths::{PathInputOptions, is_local_path, normalize_path, process_cwd, resolve_path};
+use crate::utils::paths::{PathError, PathInputOptions, is_local_path, normalize_path, process_cwd, resolve_path};
 use crate::utils::windows_self_update::cleanup_windows_self_update_quarantine;
 
 /// `process.exit(code)` represented as an error so helpers can stop the flow.
@@ -340,16 +341,16 @@ pub fn create_first_party_multi_agent_store() -> Arc<MultiAgentStore> {
 #[derive(Clone)]
 pub struct RuntimeFactoryOptions {
     pub parsed: Args,
-    pub agent_dir: String,
+    pub agent_dir: JsString,
     pub startup_default_project_trust: DefaultProjectTrust,
     pub trust_store: Arc<ProjectTrustStore>,
     pub trust_prompt_mode: AppMode,
     pub app_mode: AppMode,
     pub project_trust_by_cwd: Arc<Mutex<HashMap<String, bool>>>,
-    pub additional_extension_paths: Vec<String>,
-    pub additional_skill_paths: Vec<String>,
-    pub additional_prompt_template_paths: Vec<String>,
-    pub additional_theme_paths: Vec<String>,
+    pub additional_extension_paths: Vec<JsString>,
+    pub additional_skill_paths: Vec<JsString>,
+    pub additional_prompt_template_paths: Vec<JsString>,
+    pub additional_theme_paths: Vec<JsString>,
     pub extension_factories: Vec<InlineExtension>,
     pub multi_agent_store: Arc<MultiAgentStore>,
     pub multi_agent_runtime_handles: crate::bundled_extensions::agents_core::runtime::MultiAgentRuntimeHandles,
@@ -406,11 +407,11 @@ async fn create_runtime(
                 cwd_override: None,
             },
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.message().clone())?;
     options
         .multi_agent_store
         .restore_from_session_manager(&session_manager)
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.message().clone())?;
 
     let is_initial_runtime = request.session_start_reason == "startup";
     let project_trust_diagnostics = Arc::new(Mutex::new(Vec::new()));
@@ -439,7 +440,7 @@ async fn create_runtime(
             project_trusted: Some(project_trusted),
         },
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| error.message().clone())?;
 
     let timeout = TimeoutSignal::new(15_000);
     let reload_options = if should_resolve_project_trust {
@@ -1005,7 +1006,7 @@ pub async fn run_auth_command(args: &[String], exit_code: &mut i32) -> bool {
 
     let result = run_auth_command_inner(&command, &parsed, exit_code).await;
     if let Err(message) = result {
-        console_error(&Chalk::stderr().red(&format!("Error: {message}")));
+        console_error(Chalk::stderr().red(js_format!("Error: {}", message)));
         *exit_code = if command.kind() == AuthCommandKind::Check { 2 } else { 1 };
     }
     true
@@ -1018,7 +1019,8 @@ async fn run_auth_command_inner(command: &AuthCommand, parsed: &Args, exit_code:
             .iter()
             .map(|diagnostic| diagnostic.message.as_str())
             .collect::<Vec<_>>()
-            .join("\n"));
+            .join("\n")
+            .into());
     }
 
     if let Some(kind) = credential_print_kind(command.kind()) {
@@ -1073,10 +1075,10 @@ pub async fn prepare_initial_message(
         Some(ProcessFileOptions {
             auto_resize_images: Some(auto_resize_images),
         }),
-        &process_cwd(),
+        &process_cwd().map_err(|error| error.message().clone())?,
     )
     .await
-    .map_err(|error| error.message().to_owned())?;
+    .map_err(|error| error.message().clone())?;
     Ok(build_initial_message(InitialMessageInput {
         parsed,
         file_text: Some(&processed.text),
@@ -1706,16 +1708,16 @@ pub fn build_session_options(
 }
 
 /// `resolveCliPaths`.
-pub fn resolve_cli_paths(cwd: &str, paths: Option<&[String]>) -> Result<Option<Vec<String>>, JsString> {
+pub fn resolve_cli_paths(cwd: &JsString, paths: Option<&[String]>) -> Result<Option<Vec<JsString>>, JsString> {
     paths
         .map(|paths| {
             paths
                 .iter()
                 .map(|value| {
                     if is_local_path(value) {
-                        resolve_path(value, cwd, &PathInputOptions::default()).map_err(|error| error.to_string())
+                        resolve_path(value, cwd, &PathInputOptions::default()).map_err(|error| error.message().clone())
                     } else {
-                        Ok(value.clone())
+                        Ok(value.into())
                     }
                 })
                 .collect()
@@ -1724,18 +1726,18 @@ pub fn resolve_cli_paths(cwd: &str, paths: Option<&[String]>) -> Result<Option<V
 }
 
 /// `normalizePath` for the `--session-dir` argument.
-pub fn normalize_session_dir(value: &str) -> Result<String, JsString> {
-    normalize_path(value, &PathInputOptions::default()).map_err(|error| error.to_string())
+pub fn normalize_session_dir(value: &str) -> Result<JsString, JsString> {
+    normalize_path(value, &PathInputOptions::default()).map_err(|error| error.message().clone())
 }
 
 /// `getAgentDir` as a string.
-pub fn agent_dir_string() -> String {
-    get_agent_dir().display().to_string()
+pub fn agent_dir_string() -> JsString {
+    get_agent_dir().display().to_string().into()
 }
 
 /// Default session directory for a cwd (`getDefaultSessionDir`).
-pub fn default_session_dir(cwd: &str, agent_dir: Option<&str>) -> Result<String, JsString> {
-    get_default_session_dir(cwd, agent_dir).map_err(|error| error.to_string())
+pub fn default_session_dir(cwd: &JsString, agent_dir: Option<&JsString>) -> Result<JsString, JsString> {
+    get_default_session_dir(cwd, agent_dir).map_err(|error| error.message().clone())
 }
 
 /// `ListModels` search text (`None` means all models).
@@ -1819,7 +1821,7 @@ async fn read_piped_stdin() -> Option<String> {
 async fn prompt_for_missing_session_cwd(
     issue: &crate::core::session_cwd::SessionCwdIssue,
     settings_manager: &SettingsManager,
-) -> Option<String> {
+) -> Result<Option<JsString>, JsString> {
     let env: BTreeMap<String, String> = pi_js_compat::process_env::vars().into_iter().collect();
     let terminal = Rc::new(RefCell::new(pi_tui::terminal::ProcessTerminal::new()));
     let options = vec![
@@ -1834,9 +1836,7 @@ async fn prompt_for_missing_session_cwd(
         options,
     )
     .await
-    .ok()
-    .flatten()
-    .flatten()
+    .map(|selected| selected.flatten())
 }
 
 fn parent_process_id() -> u32 {
@@ -1869,7 +1869,7 @@ pub async fn run_main_or_report_error(args: &[String], options: MainOptions) -> 
     match main(args, options).await {
         Ok(code) => code,
         Err(message) => {
-            console_error(&Chalk::stderr().red(&format!("Error: {message}")));
+            console_error(Chalk::stderr().red(js_format!("Error: {}", message)));
             1
         }
     }
@@ -1949,18 +1949,16 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         cleanup_windows_self_update_quarantine(&get_package_dir());
     }
 
-    let mut cwd = std::env::current_dir()
-        .map(|path| path.display().to_string())
-        .unwrap_or_default();
+    let mut cwd = process_cwd().map_err(|error| error.message().clone())?;
     let agent_dir = agent_dir_string();
     let _bootstrap_settings_manager = SettingsManager::create(
         &cwd,
-        Some(Path::new(&agent_dir)),
+        Some(&agent_dir),
         SettingsManagerCreateOptions {
             project_trusted: Some(false),
         },
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| error.message().clone())?;
     let fetch = configure_http_dispatcher(crate::core::http_dispatcher::DEFAULT_HTTP_IDLE_TIMEOUT_MS as f64)?;
 
     let package_effects = DefaultPackageCommandEffects {
@@ -2032,7 +2030,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
     wait_for_self_restart_parent_exit(handoff.as_ref(), &SelfRestartWaitDependencies::default()).await;
     if handoff.as_ref().and_then(|handoff| handoff.old_pid) == Some(std::process::id()) {
         prepare_control_db_for_self_restart(&get_control_db_path(&get_user_state_root()), std::process::id())
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| error.message().clone())?;
     }
 
     let multi_agent_store = create_first_party_multi_agent_store();
@@ -2089,10 +2087,10 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
     if let Some(export_path) = parsed.export.as_deref() {
         let output_path = parsed.messages.first().cloned();
         let options = output_path.map(ExportOptions::from_output_path);
-        let result = export_from_file(export_path, options)
+        let result = export_from_file(&export_path.into(), options)
             .await
-            .map_err(|error| error.message().to_owned())?;
-        console_log(&format!("Exported to: {result}"));
+            .map_err(|error| error.message())?;
+        console_log(js_format!("Exported to: {}", result));
         return Ok(Some(0));
     }
 
@@ -2111,9 +2109,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         return Ok(Some(code));
     }
     if let Some(worktree) = parsed.worktree.as_deref() {
-        cwd = resolve_worktree(worktree, Path::new(&cwd))
-            .map(|path| path.display().to_string())
-            .map_err(|error| error.to_string())?;
+        cwd = resolve_worktree(&worktree.into(), &cwd).map_err(|error| error.message().clone())?;
     }
 
     let migrations = run_migrations(&cwd);
@@ -2121,10 +2117,10 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
 
     let mut startup_settings_manager = SettingsManager::create(
         &cwd,
-        Some(Path::new(&agent_dir)),
+        Some(&agent_dir),
         SettingsManagerCreateOptions { project_trusted: None },
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| error.message().clone())?;
     report_diagnostics(&collect_settings_diagnostics(
         &mut startup_settings_manager,
         "startup session lookup",
@@ -2148,15 +2144,15 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
     let session_dir = match parsed.session_dir.as_deref() {
         Some(dir) => Some(normalize_session_dir(dir)?),
         None => match env_session_dir {
-            Some(dir) => Some(crate::config::expand_tilde_path(&dir)),
-            None => startup_settings_manager.get_session_dir(),
+            Some(dir) => Some(JsString::from(crate::config::expand_tilde_path(&dir))),
+            None => startup_settings_manager.get_session_dir().map(JsString::from),
         },
     };
-    let control_db_path = get_control_db_path(&get_user_state_root());
+    let control_db_path = JsString::from(get_control_db_path(&get_user_state_root()));
     let mut session_manager = match create_session_manager(
         &parsed,
         &cwd,
-        session_dir.as_deref(),
+        session_dir.as_ref(),
         &startup_settings_manager,
         Some(&control_db_path),
     )
@@ -2173,25 +2169,25 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
                 cwd_override: None,
             },
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.message().clone())?;
     if let Some(issue) = get_missing_session_cwd_issue(&session_manager, &cwd) {
         if handoff.is_some() {
             session_manager =
-                reopen_session_with_cwd(&issue, session_dir.as_deref(), &issue.fallback_cwd, &control_db_path)
-                    .map_err(|error| error.to_string())?;
+                reopen_session_with_cwd(&issue, session_dir.as_ref(), &issue.fallback_cwd, &control_db_path)
+                    .map_err(|error| error.message().clone())?;
         } else if app_mode == AppMode::Interactive {
-            let Some(selected_cwd) = prompt_for_missing_session_cwd(&issue, &startup_settings_manager).await else {
+            let Some(selected_cwd) = prompt_for_missing_session_cwd(&issue, &startup_settings_manager).await? else {
                 return Ok(Some(0));
             };
-            session_manager = reopen_session_with_cwd(&issue, session_dir.as_deref(), &selected_cwd, &control_db_path)
-                .map_err(|error| error.to_string())?;
+            session_manager = reopen_session_with_cwd(&issue, session_dir.as_ref(), &selected_cwd, &control_db_path)
+                .map_err(|error| error.message().clone())?;
         } else {
-            console_error(&Chalk::stderr().red(&MissingSessionCwdError::new(issue).to_string()));
+            console_error(Chalk::stderr().red(MissingSessionCwdError::new(issue).message()));
             return Ok(Some(1));
         }
     }
     append_self_restart_notice(&mut session_manager, handoff.as_ref(), std::process::id())
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.message().clone())?;
     if let Some(name) = parsed.name.as_deref() {
         let name = name.trim();
         if name.is_empty() {
@@ -2200,14 +2196,14 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         }
         session_manager
             .set_session_name(Some(&JsString::from(name)))
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| error.message().clone())?;
     }
     if should_take_over_stdout {
         take_over_stdout();
     }
     time("createSessionManager", TimingLabel::Main);
     let control_message = if app_mode == AppMode::Interactive {
-        claim_latest_incoming_message(&control_db_path).map_err(|error| error.to_string())?
+        claim_latest_incoming_message(&control_db_path).map_err(|error| error.message().clone())?
     } else {
         None
     };
@@ -2246,13 +2242,13 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         multi_agent_runtime_handles: multi_agent_runtime_handles.clone(),
     });
     time("createRuntime", TimingLabel::Main);
-    let session_cwd = session_manager.get_cwd().to_owned();
+    let session_cwd = session_manager.get_cwd().clone();
     let runtime = create_agent_session_runtime(create_runtime, &session_cwd, &agent_dir, session_manager).await?;
     let runtime = share_agent_session_runtime(runtime).await;
     reconcile_session_runtime_bindings(&control_db_path, &SessionDirectoryOptions::default())
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.message().clone())?;
     LifecycleCoordinator::reconcile_dead_detached_runtimes(&control_db_path, &now_iso_string())
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.message().clone())?;
     time("createAgentSessionRuntime", TimingLabel::Main);
 
     let (services, session, model_fallback_message, diagnostics) = {
