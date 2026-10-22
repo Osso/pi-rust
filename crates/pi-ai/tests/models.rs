@@ -70,6 +70,57 @@ fn context() -> Context {
     }
 }
 
+#[path = "support/oracle.rs"]
+mod oracle;
+
+#[tokio::test]
+async fn request_auth_receives_the_actual_model_not_provider_status_context() {
+    struct ModelAwareAuth;
+    impl ApiKeyAuth for ModelAwareAuth {
+        fn name(&self) -> &str {
+            "model-aware"
+        }
+        fn resolve(&self, input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {
+            Box::pin(async move {
+                let model = input.model.expect("request model must be present");
+                let pi_ai::auth::AuthModel::Chat(model) = model else {
+                    panic!("chat model")
+                };
+                Ok(Some(AuthResult {
+                    auth: ModelAuth {
+                        api_key: Some(format!("{}:{}", model.id, model.base_url.to_utf8().unwrap()).into()),
+                        ..Default::default()
+                    },
+                    env: None,
+                    source: None,
+                }))
+            })
+        }
+    }
+    let models = models();
+    let model = test_model("model-aware", "requested-2");
+    models.set_provider(provider(
+        TestProvider::new("model-aware", vec![test_model("model-aware", "first-1")])
+            .with_auth(ProviderAuth::api_key(Arc::new(ModelAwareAuth))),
+    ));
+    let auth = models
+        .get_auth_for_model(&model, Default::default())
+        .await
+        .unwrap()
+        .unwrap();
+    let mut oracle = oracle::TsOracle::spawn("auth-request-model-oracle.ts", "packages/ai/src/auth/resolve.ts");
+    assert_eq!(
+        serde_json::to_value(&auth).unwrap(),
+        oracle.request(&json!({"model": model}))
+    );
+    assert_eq!(auth.auth.api_key, Some("requested-2:https://example.test/v1".into()));
+    let result = models
+        .complete_simple(model.clone(), context(), Default::default())
+        .await
+        .unwrap();
+    assert_eq!(result.model, model.id);
+}
+
 fn now_ms() -> f64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

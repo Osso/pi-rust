@@ -160,6 +160,7 @@ async fn native_registered_api_key_auth_matches_pinned_composed_registration() {
                 }
             } else {
                 auth.resolve(ApiKeyResolveInput {
+                    model: None,
                     ctx,
                     credential,
                     signal: CancellationToken::new(),

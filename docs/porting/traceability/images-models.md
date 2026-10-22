@@ -1,5 +1,11 @@
 # images-models traceability
 
+## Q4 common-pin request auth
+
+Partial. Frozen `images-models.ts` resolves auth for the actual requested image model. Rust `get_auth_for_model` and `generate_images` now supply `AuthModel::Images` through the request resolver. `image_request_auth_receives_the_actual_image_model` checks a requested model absent from the listed catalog, compares actual frozen model-sensitive auth, and asserts the generated request receives its key. GREEN images_models9, revision `56d41700` + slice; ledger `/tmp/pi-rust-repin-delta-ai/ledger.md`.
+
+Provider-ID status helper passes explicit None under the approved Q15 gap; requests never use it. Remaining whole-module/auth-interface parity requires follow-up; historical proof below is not refreshed except for the cited target. [Auth contract](../../specs/auth-resolution.md).
+
 Source: `packages/ai/src/images-models.ts`.
 Rust: `crates/pi-ai/src/images_models.rs`.
 Tests: `crates/pi-ai/tests/images_models.rs` (8 behavioral, ports the TS suite), `crates/pi-ai/tests/differential_images_models.rs` (registry reads, unknown provider, auth/env/header merge, baseUrl, explicit-option precedence vs pinned TS).

@@ -149,6 +149,63 @@ fn test_provider(
     })
 }
 
+#[path = "support/oracle.rs"]
+mod oracle;
+
+#[tokio::test]
+async fn image_request_auth_receives_the_actual_image_model() {
+    struct ImageAwareAuth;
+    impl ApiKeyAuth for ImageAwareAuth {
+        fn name(&self) -> &str {
+            "image-aware"
+        }
+        fn resolve(&self, input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {
+            Box::pin(async move {
+                let Some(pi_ai::auth::AuthModel::Images(model)) = input.model else {
+                    panic!("image request model")
+                };
+                Ok(Some(AuthResult {
+                    auth: ModelAuth {
+                        api_key: Some(format!("{}:{}", model.id, model.base_url.to_utf8().unwrap()).into()),
+                        ..Default::default()
+                    },
+                    env: None,
+                    source: None,
+                }))
+            })
+        }
+    }
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let models = create_images_models(Default::default());
+    models.set_provider(create_images_provider(CreateImagesProviderOptions {
+        id: "p1".into(),
+        name: None,
+        auth: ProviderAuth::api_key(Arc::new(ImageAwareAuth)),
+        models: vec![test_model("p1", "first")],
+        refresh_models: None,
+        api: Arc::new(TestApi {
+            calls: Arc::clone(&calls),
+        }),
+    }));
+    let model = test_model("p1", "actual-image");
+    let auth = models
+        .get_auth_for_model(&model, Default::default())
+        .await
+        .unwrap()
+        .unwrap();
+    let mut oracle = oracle::TsOracle::spawn("auth-request-model-oracle.ts", "packages/ai/src/auth/resolve.ts");
+    assert_eq!(
+        serde_json::to_value(&auth).unwrap(),
+        oracle.request(&json!({"model": model}))
+    );
+    let result = models.generate_images(model, context(), Default::default()).await;
+    assert_eq!(result.stop_reason, ImagesStopReason::Stop);
+    assert_eq!(
+        calls.lock().unwrap()[0].options.request.api_key,
+        Some("actual-image:https://example.test/v1".into())
+    );
+}
+
 #[test]
 fn registers_providers_and_reads_models_synchronously() {
     let models = create_images_models(Default::default());

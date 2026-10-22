@@ -10,8 +10,8 @@ use crate::types::ProviderEnv;
 use crate::utils::abort::{operation_signal, race_with_abort_signal};
 
 use super::types::{
-    ApiKeyCredential, ApiKeyResolveInput, AuthContext, AuthError, AuthResult, Credential, CredentialModifier,
-    CredentialStore, ModelAuth, OAuthCredential, ProviderAuth,
+    ApiKeyCredential, ApiKeyResolveInput, AuthContext, AuthError, AuthModel, AuthResult, Credential,
+    CredentialModifier, CredentialStore, ModelAuth, OAuthCredential, ProviderAuth,
 };
 
 pub const DEFAULT_OAUTH_MINIMUM_VALIDITY_MS: f64 = 5.0 * 60.0 * 1000.0;
@@ -139,10 +139,41 @@ pub struct AuthResolutionOverrides {
     pub signal: Option<CancellationToken>,
 }
 
-/// Auth resolution shared by `Models` and `ImagesModels`.
+/// Frozen request-auth entrypoint: callers supply the actual requested model.
 pub fn resolve_provider_auth(
     provider_id: &str,
     provider_auth: &ProviderAuth,
+    model: AuthModel,
+    credentials: Arc<dyn CredentialStore>,
+    auth_context: Arc<dyn AuthContext>,
+    overrides: AuthResolutionOverrides,
+) -> BoxFuture<'static, Result<Option<AuthResult>, ResolveError>> {
+    resolve_auth_input(
+        provider_id,
+        provider_auth,
+        Some(model),
+        credentials,
+        auth_context,
+        overrides,
+    )
+}
+
+/// Approved Q15 gap: provider-ID-only status wrappers have no request model.
+/// This path must not be used for chat/image requests or invent a representative model.
+pub fn resolve_provider_status_auth(
+    provider_id: &str,
+    provider_auth: &ProviderAuth,
+    credentials: Arc<dyn CredentialStore>,
+    auth_context: Arc<dyn AuthContext>,
+    overrides: AuthResolutionOverrides,
+) -> BoxFuture<'static, Result<Option<AuthResult>, ResolveError>> {
+    resolve_auth_input(provider_id, provider_auth, None, credentials, auth_context, overrides)
+}
+
+fn resolve_auth_input(
+    provider_id: &str,
+    provider_auth: &ProviderAuth,
+    model: Option<AuthModel>,
     credentials: Arc<dyn CredentialStore>,
     auth_context: Arc<dyn AuthContext>,
     overrides: AuthResolutionOverrides,
@@ -153,6 +184,7 @@ pub fn resolve_provider_auth(
     let operation = resolve_with_signal(
         provider_id,
         provider_auth,
+        model,
         credentials,
         auth_context,
         overrides,
@@ -168,6 +200,7 @@ pub fn resolve_provider_auth(
 async fn resolve_with_signal(
     provider_id: String,
     provider_auth: ProviderAuth,
+    model: Option<AuthModel>,
     credentials: Arc<dyn CredentialStore>,
     auth_context: Arc<dyn AuthContext>,
     overrides: AuthResolutionOverrides,
@@ -194,6 +227,7 @@ async fn resolve_with_signal(
             request_context,
             Some(credential),
             provider_id,
+            model,
             signal,
         )
         .await;
@@ -230,6 +264,7 @@ async fn resolve_with_signal(
                     request_context,
                     Some(credential),
                     provider_id,
+                    model,
                     signal,
                 )
                 .await;
@@ -240,7 +275,15 @@ async fn resolve_with_signal(
 
     match &provider_auth.api_key {
         Some(api_key_auth) => {
-            resolve_api_key(Arc::clone(api_key_auth), request_context, None, provider_id, signal).await
+            resolve_api_key(
+                Arc::clone(api_key_auth),
+                request_context,
+                None,
+                provider_id,
+                model,
+                signal,
+            )
+            .await
         }
         None => Ok(None),
     }
@@ -380,10 +423,16 @@ async fn resolve_api_key(
     ctx: Arc<dyn AuthContext>,
     credential: Option<ApiKeyCredential>,
     provider_id: String,
+    model: Option<AuthModel>,
     signal: CancellationToken,
 ) -> Result<Option<AuthResult>, ResolveError> {
+    let error_provider = match &model {
+        Some(model) => model.provider().to_owned(),
+        None => provider_id,
+    };
     match api_key
         .resolve(ApiKeyResolveInput {
+            model,
             ctx,
             credential,
             signal,
@@ -394,7 +443,7 @@ async fn resolve_api_key(
         Err(AuthError::Aborted) => Err(ResolveError::Aborted),
         Err(AuthError::Failed(error)) => Err(ResolveError::with_cause(
             ModelsErrorCode::Auth,
-            format!("API key auth failed for provider {provider_id}"),
+            format!("API key auth failed for provider {error_provider}"),
             Some(&error.message),
         )),
     }

@@ -448,8 +448,28 @@ impl std::fmt::Display for AuthError {
 
 impl std::error::Error for AuthError {}
 
+/// Model shape received by frozen auth resolution: chat or image generation.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AuthModel {
+    Chat(crate::types::Model),
+    Images(crate::types::ImagesModel),
+}
+
+impl AuthModel {
+    pub fn provider(&self) -> &str {
+        match self {
+            Self::Chat(model) => &model.provider,
+            Self::Images(model) => &model.provider,
+        }
+    }
+}
+
 /// Inputs to `ApiKeyAuth::resolve`.
 pub struct ApiKeyResolveInput {
+    /// Requests always carry the actual model. `None` is the approved Q15 gap:
+    /// legacy provider-ID-only status/refresh wrappers have no request model.
+    /// Never substitute an invented or first-listed model for those wrappers.
+    pub model: Option<AuthModel>,
     pub ctx: Arc<dyn AuthContext>,
     pub credential: Option<ApiKeyCredential>,
     pub signal: CancellationToken,

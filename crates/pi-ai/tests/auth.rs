@@ -33,6 +33,12 @@ impl AuthContext for TestAuthContext {
     }
 }
 
+fn request_auth_model(provider: &str) -> pi_ai::auth::AuthModel {
+    let mut model = pi_ai::providers::all::get_builtin_model("openai", "gpt-5").unwrap();
+    model.provider = provider.to_owned();
+    pi_ai::auth::AuthModel::Chat(model)
+}
+
 fn auth_context(env: &[(&str, &str)], files: &[&str]) -> Arc<dyn AuthContext> {
     Arc::new(TestAuthContext {
         env: env
@@ -287,6 +293,7 @@ async fn env_api_key_auth_prefers_stored_key_then_env_order() {
     let auth = env_api_key_auth("Test key", &["FIRST_KEY", "SECOND_KEY"]);
     let stored = auth
         .resolve(pi_ai::auth::ApiKeyResolveInput {
+            model: None,
             ctx: auth_context(&[("FIRST_KEY", "env")], &[]),
             credential: Some(pi_ai::auth::ApiKeyCredential {
                 key: Some(("stored".to_owned()).into()),
@@ -302,6 +309,7 @@ async fn env_api_key_auth_prefers_stored_key_then_env_order() {
 
     let second = auth
         .resolve(pi_ai::auth::ApiKeyResolveInput {
+            model: None,
             ctx: auth_context(&[("SECOND_KEY", "second")], &[]),
             credential: None,
             signal: CancellationToken::new(),
@@ -314,6 +322,7 @@ async fn env_api_key_auth_prefers_stored_key_then_env_order() {
 
     assert_eq!(
         auth.resolve(pi_ai::auth::ApiKeyResolveInput {
+            model: None,
             ctx: auth_context(&[], &[]),
             credential: None,
             signal: CancellationToken::new(),
@@ -347,6 +356,7 @@ async fn helpers_match_frozen_stored_credential_and_loader_semantics() {
             oracle.request(&json!({"operation": "resolve", "env": {"KEY": "ambient"}, "credential": credential}));
         let result = auth
             .resolve(pi_ai::auth::ApiKeyResolveInput {
+                model: None,
                 ctx: auth_context(&[("KEY", "ambient")], &[]),
                 credential,
                 signal: CancellationToken::new(),
@@ -367,6 +377,7 @@ async fn stored_empty_key_owns_provider_without_ambient_resolution() {
     for key in [None, Some(JsString::from(""))] {
         let result = auth
             .resolve(pi_ai::auth::ApiKeyResolveInput {
+                model: None,
                 ctx: auth_context(&[("FIRST_KEY", "ambient")], &[]),
                 credential: Some(pi_ai::auth::ApiKeyCredential { key, env: None }),
                 signal: CancellationToken::new(),
@@ -382,6 +393,7 @@ async fn stored_key_does_not_publish_credential_environment() {
     let auth = env_api_key_auth("Test key", &["KEY"]);
     let result = auth
         .resolve(pi_ai::auth::ApiKeyResolveInput {
+            model: None,
             ctx: auth_context(&[], &[]),
             credential: Some(pi_ai::auth::ApiKeyCredential {
                 key: Some("stored".into()),
@@ -454,6 +466,7 @@ async fn resolve_provider_auth_honors_explicit_key_stored_credentials_and_ambien
     let explicit = resolve_provider_auth(
         "p1",
         &provider_auth,
+        request_auth_model("p1"),
         Arc::clone(&credentials) as Arc<dyn CredentialStore>,
         Arc::clone(&ctx),
         pi_ai::auth::AuthResolutionOverrides {
@@ -470,6 +483,7 @@ async fn resolve_provider_auth_honors_explicit_key_stored_credentials_and_ambien
     let ambient = resolve_provider_auth(
         "p1",
         &provider_auth,
+        request_auth_model("p1"),
         Arc::clone(&credentials) as Arc<dyn CredentialStore>,
         Arc::clone(&ctx),
         Default::default(),
@@ -490,6 +504,7 @@ async fn resolve_provider_auth_honors_explicit_key_stored_credentials_and_ambien
     let oauth_resolution = resolve_provider_auth(
         "p1",
         &provider_auth,
+        request_auth_model("p1"),
         Arc::clone(&credentials) as Arc<dyn CredentialStore>,
         Arc::clone(&ctx),
         Default::default(),
@@ -515,6 +530,7 @@ async fn resolve_provider_auth_honors_explicit_key_stored_credentials_and_ambien
     let blocked = resolve_provider_auth(
         "p2",
         &ProviderAuth::api_key(Arc::new(env_api_key_auth("Test key", &["ENV_KEY"]))),
+        request_auth_model("p2"),
         Arc::clone(&credentials) as Arc<dyn CredentialStore>,
         ctx,
         Default::default(),
@@ -558,6 +574,7 @@ async fn expired_oauth_refreshes_once_and_persists_rotated_credential() {
         resolve_provider_auth(
             "p1",
             &provider_auth,
+            request_auth_model("p1"),
             Arc::clone(&credentials) as Arc<dyn CredentialStore>,
             Arc::clone(&ctx),
             Default::default(),
@@ -565,6 +582,7 @@ async fn expired_oauth_refreshes_once_and_persists_rotated_credential() {
         resolve_provider_auth(
             "p1",
             &provider_auth,
+            request_auth_model("p1"),
             Arc::clone(&credentials) as Arc<dyn CredentialStore>,
             Arc::clone(&ctx),
             Default::default(),
@@ -603,6 +621,7 @@ async fn oauth_refresh_failure_keeps_stored_credential_and_reports_oauth_code() 
     let error = resolve_provider_auth(
         "p1",
         &ProviderAuth::oauth(oauth_auth),
+        request_auth_model("p1"),
         Arc::clone(&credentials) as Arc<dyn CredentialStore>,
         auth_context(&[], &[]),
         Default::default(),
@@ -648,6 +667,7 @@ async fn oauth_refresh_aborts_without_writing() {
     let pending = resolve_provider_auth(
         "p1",
         &ProviderAuth::oauth(oauth_auth),
+        request_auth_model("p1"),
         Arc::clone(&credentials) as Arc<dyn CredentialStore>,
         auth_context(&[], &[]),
         pi_ai::auth::AuthResolutionOverrides {
@@ -749,6 +769,7 @@ async fn custom_credential_store_failures_wrap_with_auth_code() {
     let error = resolve_provider_auth(
         "p1",
         &ProviderAuth::api_key(Arc::new(env_api_key_auth("Test", &["KEY"]))),
+        request_auth_model("p1"),
         Arc::new(FailingStore),
         auth_context(&[("KEY", "value")], &[]),
         Default::default(),

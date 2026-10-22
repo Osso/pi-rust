@@ -120,6 +120,7 @@ fn auth_context(env: &[(&str, &str)], files: &[&str]) -> Arc<dyn AuthContext> {
 
 fn resolve_input(ctx: Arc<dyn AuthContext>, credential: Option<ApiKeyCredential>) -> ApiKeyResolveInput {
     ApiKeyResolveInput {
+        model: None,
         ctx,
         credential,
         signal: CancellationToken::new(),
@@ -255,6 +256,7 @@ fn anthropic_resolve_honors_abort_before_env_reads() {
     let result = tokio::runtime::Runtime::new()
         .expect("runtime")
         .block_on(auth.resolve(ApiKeyResolveInput {
+            model: None,
             ctx: auth_context(&[("ANTHROPIC_API_KEY", "api-key")], &[]),
             credential: None,
             signal,

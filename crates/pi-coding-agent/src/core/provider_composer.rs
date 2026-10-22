@@ -771,6 +771,7 @@ impl ApiKeyAuth for ComposedApiKeyAuth {
                 if let Some(inherited) = &inherited {
                     let resolved = inherited
                         .resolve(ApiKeyResolveInput {
+                            model: None, // Q15 provider-ID status check has no request model.
                             ctx: Arc::clone(&input.ctx),
                             credential: Some(credential.clone()),
                             signal: input.signal.clone(),
@@ -810,6 +811,7 @@ impl ApiKeyAuth for ComposedApiKeyAuth {
                 }
                 let resolved = inherited
                     .resolve(ApiKeyResolveInput {
+                        model: None, // Q15 provider-ID status check has no request model.
                         ctx: Arc::clone(&input.ctx),
                         credential: None,
                         signal: input.signal.clone(),
@@ -831,6 +833,7 @@ impl ApiKeyAuth for ComposedApiKeyAuth {
         let raw_headers = self.raw_headers.clone();
         let auth_header = self.auth_header;
         let ApiKeyResolveInput {
+            model,
             ctx,
             credential,
             signal,
@@ -841,6 +844,7 @@ impl ApiKeyAuth for ComposedApiKeyAuth {
                     Some(inherited) => {
                         inherited
                             .resolve(ApiKeyResolveInput {
+                                model: model.clone(),
                                 ctx: Arc::clone(&ctx),
                                 credential: Some(credential.clone()),
                                 signal: signal.clone(),
@@ -873,6 +877,7 @@ impl ApiKeyAuth for ComposedApiKeyAuth {
                     Some(inherited) => {
                         inherited
                             .resolve(ApiKeyResolveInput {
+                                model: model.clone(),
                                 ctx: Arc::clone(&ctx),
                                 credential: Some(ApiKeyCredential {
                                     key: Some(key),
@@ -895,6 +900,7 @@ impl ApiKeyAuth for ComposedApiKeyAuth {
             } else if let Some(inherited) = &inherited {
                 inherited
                     .resolve(ApiKeyResolveInput {
+                        model,
                         ctx: Arc::clone(&ctx),
                         credential: None,
                         signal: signal.clone(),
