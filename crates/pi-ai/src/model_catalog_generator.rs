@@ -370,10 +370,11 @@ pub fn read_generator_options(args: &[String]) -> Result<GeneratorOptions, Gener
                 } else {
                     std::env::current_dir()
                         .map_err(|error| {
-                            let record = pi_js_compat::node_fs::node_fs_error_record(&error, "uv_cwd", "");
+                            let record =
+                                pi_js_compat::node_fs::node_fs_error_record(&error, "uv_cwd", &JsString::from(""));
                             GeneratorError {
                                 name: record.name.to_owned(),
-                                message: JsString::from(record.message.as_str()),
+                                message: record.message.clone(),
                                 details: Some(Box::new(GeneratorErrorDetails::FileSystem {
                                     record,
                                     destination: None,
@@ -444,9 +445,13 @@ impl GeneratorError {
                 if let Some(errno) = record.errno {
                     output.push_str(&format!("  errno: {errno},\n"));
                 }
-                output.push_str(&format!("  code: '{}',\n  syscall: '{}'", record.code, record.syscall));
+                output.push_str(&format!(
+                    "  code: '{}',\n  syscall: '{}'",
+                    record.code,
+                    record.syscall.to_utf8_lossy()
+                ));
                 if let Some(path) = &record.path {
-                    output.push_str(&format!(",\n  path: '{path}'"));
+                    output.push_str(&format!(",\n  path: '{}'", path.to_utf8_lossy()));
                 }
                 if let Some(destination) = destination {
                     output.push_str(&format!(",\n  dest: '{destination}'"));

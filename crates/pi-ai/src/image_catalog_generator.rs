@@ -335,19 +335,24 @@ fn write_artifact(path: &Path, artifact: &[u8]) -> Result<(), GeneratorError> {
 }
 
 fn filesystem_error(error: std::io::Error, syscall: &str, path: &Path) -> GeneratorError {
-    let record = pi_js_compat::node_fs::node_fs_error_record(&error, syscall, &path.to_string_lossy());
+    let record =
+        pi_js_compat::node_fs::node_fs_error_record(&error, syscall, &JsString::from(path.to_string_lossy().as_ref()));
     let mut fields = String::from(" {\n");
     if let Some(errno) = record.errno {
         fields.push_str(&format!("  errno: {errno},\n"));
     }
-    fields.push_str(&format!("  code: '{}',\n  syscall: '{}'", record.code, record.syscall));
-    if let Some(path) = record.path {
-        fields.push_str(&format!(",\n  path: '{path}'"));
+    fields.push_str(&format!(
+        "  code: '{}',\n  syscall: '{}'",
+        record.code,
+        record.syscall.to_utf8_lossy()
+    ));
+    if let Some(path) = &record.path {
+        fields.push_str(&format!(",\n  path: '{}'", path.to_utf8_lossy()));
     }
     fields.push_str("\n}");
     GeneratorError {
         name: record.name.into(),
-        message: record.message.into(),
+        message: record.message,
         cause: None,
         filesystem_inspection: Some(fields),
     }

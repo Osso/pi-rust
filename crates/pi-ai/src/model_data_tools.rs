@@ -240,13 +240,13 @@ pub fn assert_exact_model_ids<S: Into<JsString>>(
 }
 
 fn fs_error(error: std::io::Error, operation: &str, path: &Path) -> ModelDataError {
-    let path = path.to_string_lossy();
+    let path = JsString::from(path.to_string_lossy().as_ref());
     let message = if operation == "open" {
         pi_js_compat::node_fs::node_read_error(&error, &path)
     } else {
         pi_js_compat::node_fs::node_fs_error(&error, operation, &path)
     };
-    ModelDataError(JsString::from(message.as_str()))
+    ModelDataError(message)
 }
 fn read_text(path: &Path) -> Result<String> {
     fs::read(path)

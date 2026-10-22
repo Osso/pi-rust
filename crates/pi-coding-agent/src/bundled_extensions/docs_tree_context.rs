@@ -81,7 +81,8 @@ fn collect_docs_files(cwd: &JsString, current_dir: &JsString, files: &mut Vec<Js
         // `readdir` decodes entry names as UTF-8.
         let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
         let absolute_path = node_join(current_dir.clone(), name.clone());
-        let relative = relative_path(cwd, &absolute_path).map_err(|error| HandlerError::new(error.message().clone()))?;
+        let relative =
+            relative_path(cwd, &absolute_path).map_err(|error| HandlerError::new(error.message().clone()))?;
         let relative_path = to_portable_path(&relative);
         let file_type = entry
             .file_type()

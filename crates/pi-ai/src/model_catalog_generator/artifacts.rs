@@ -42,8 +42,9 @@ impl CatalogFileSystem for NativeCatalogFileSystem {
 }
 
 fn io_error(error: io::Error, syscall: &str, path: &Path) -> GeneratorError {
-    let record = pi_js_compat::node_fs::node_fs_error_record(&error, syscall, &path.to_string_lossy());
-    let mut error = GeneratorError::new(record.name, JsString::from(record.message.as_str()));
+    let record =
+        pi_js_compat::node_fs::node_fs_error_record(&error, syscall, &JsString::from(path.to_string_lossy().as_ref()));
+    let mut error = GeneratorError::new(record.name, record.message.clone());
     error.details = Some(Box::new(GeneratorErrorDetails::FileSystem {
         record,
         destination: None,
