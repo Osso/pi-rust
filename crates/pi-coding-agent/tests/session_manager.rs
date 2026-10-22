@@ -1416,7 +1416,7 @@ fn session_info_listing_uses_message_timestamps_and_skips_extension_prompts() {
     .unwrap();
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].first_message, "resume the implementation");
-    assert_eq!(sessions[0].modified, 1_700_000_000_000);
+    assert_eq!(sessions[0].modified, 1_700_000_000_000.0);
     assert_eq!(sessions[0].message_count, 4);
 }
 
