@@ -41,6 +41,15 @@ fn temp_dir(name: &str) -> String {
     dir.to_str().expect("utf-8 test path").to_owned()
 }
 
+fn environment_value(environment: IndexMap<JsString, JsString>) -> Value {
+    Value::Object(
+        environment
+            .into_iter()
+            .map(|(key, value)| (key, Value::String(value)))
+            .collect(),
+    )
+}
+
 fn source_worker() -> String {
     let lock: Value = js_json::parse_lossless(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -85,11 +94,10 @@ fn matches_typescript_bwrap_profiles_and_runner_environment() {
                 .iter()
                 .map(|(key, value)| (key.clone(), value.as_string().unwrap().clone()))
                 .collect();
-            js_json::to_value(&create_bwrap_runner_environment(
+            environment_value(create_bwrap_runner_environment(
                 &host,
                 case.get("pythonPath").and_then(Value::as_string),
             ))
-            .unwrap()
         })
         .collect();
     assert_eq!(Value::Array(actual), output["output"]);
@@ -157,7 +165,7 @@ fn matches_typescript_bwrap_invocation_arguments() {
                 profile: BwrapSandboxProfile(profile),
             })
             .unwrap();
-            json!({"argv": invocation.argv, "command": invocation.command, "env": invocation.env})
+            json!({"argv": invocation.argv, "command": invocation.command, "env": environment_value(invocation.env)})
         })
         .collect();
     assert_eq!(Value::Array(actual), output["output"]);
