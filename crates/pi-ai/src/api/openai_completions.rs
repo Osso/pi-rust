@@ -1643,7 +1643,6 @@ pub async fn process_completions_stream(
         if let Some(finish_reason) = choice.get("finish_reason").and_then(ingress_metadata_text).as_deref()
             && !finish_reason.is_empty()
         {
-            output.raw_stop_reason = Some(finish_reason.to_owned());
             let mapped = map_stop_reason(finish_reason);
             output.stop_reason = mapped.stop_reason;
             if mapped.error_message.is_some() {
