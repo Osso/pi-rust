@@ -11,7 +11,12 @@ use pi_coding_agent::core::extensions::types::{
     Extension, ExtensionContext, HandlerError, SessionStartEvent, ToolDefinition,
 };
 use pi_coding_agent::core::extensions::{ExtensionFactory, create_extension_runtime, load_extension_from_factory};
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
+
+fn text(value: &JsString) -> String {
+    value.to_utf8().expect("oracle fixtures are well-formed")
+}
 
 struct ExtensionSpec {
     path: &'static str,
@@ -61,7 +66,7 @@ async fn build_extension(spec: &ExtensionSpec) -> Extension {
         "temporary" => pi_coding_agent::core::source_info::SourceScope::Temporary,
         other => panic!("unknown scope {other}"),
     };
-    extension.read().source_info.source = spec.source.to_owned();
+    extension.read().source_info.source = spec.source.into();
     extension
 }
 
@@ -102,10 +107,10 @@ fn wire(extensions: &[Extension]) -> Value {
             .map(|extension| {
                 let registration = extension.read();
                 json!({
-                    "path": registration.path,
+                    "path": text(&registration.path),
                     "sourceInfo": {
                         "scope": registration.source_info.scope.as_str(),
-                        "source": registration.source_info.source,
+                        "source": text(&registration.source_info.source),
                     },
                     "commands": registration.commands.len(),
                     "tools": registration.tools.len(),
@@ -221,7 +226,7 @@ async fn list_extensions_matches_the_pinned_typescript_source() {
         let actual = json!({
             "id": 28_600 + case,
             "ok": true,
-            "output": format_extension_inventory(&extensions),
+            "output": text(&format_extension_inventory(&extensions)),
         });
         assert_eq!(expected, actual, "list extensions mismatch: case {case}");
     }
@@ -241,11 +246,34 @@ async fn list_extensions_appends_the_console_log_newline() {
     let extensions = vec![extension];
     assert_eq!(
         list_extensions(&extensions),
-        format!("{}\n", format_extension_inventory(&extensions))
+        format_extension_inventory(&extensions) + "\n"
     );
 }
 
 #[test]
 fn no_extensions_message() {
-    assert_eq!(format_extension_inventory(&[]), "Loaded extensions: none");
+    assert!(format_extension_inventory(&[]) == *"Loaded extensions: none");
+}
+
+#[tokio::test]
+async fn inventory_keeps_lone_surrogate_extension_basenames() {
+    let extension = build_extension(&ExtensionSpec {
+        path: "/ext/plain.ts",
+        source: "user",
+        scope: "user",
+        commands: 0,
+        tools: 0,
+        handlers: 0,
+    })
+    .await;
+    let mut path = JsString::from("/ext/");
+    path.push_str(JsString::from_utf16(vec![0xD83D]));
+    path.push_str(".ts");
+    extension.read().path = path;
+
+    let output = format_extension_inventory(&[extension]);
+
+    let mut expected_label = JsString::from_utf16(vec![0xD83D]);
+    expected_label.push_str(".ts");
+    assert!(output.contains(expected_label));
 }

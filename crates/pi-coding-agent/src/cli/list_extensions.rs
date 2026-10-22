@@ -1,35 +1,45 @@
 //! `pi extensions` inventory output (`cli/list-extensions.ts`).
 
-use std::path::Path;
+use pi_js_compat::collator::locale_compare_utf16;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 
-use pi_js_compat::collator::locale_compare;
-use pi_js_compat::string::utf16_len;
-
+use crate::core::extensions::ExtensionState;
 use crate::core::extensions::types::Extension;
+use crate::utils::paths::node_basename;
 
 const FIRST_PARTY_PREFIX: &str = "<first-party:";
 
 struct ExtensionInventoryRow {
-    scope: String,
-    source: String,
-    extension: String,
-    commands: String,
-    tools: String,
-    handlers: String,
+    scope: JsString,
+    source: JsString,
+    extension: JsString,
+    commands: JsString,
+    tools: JsString,
+    handlers: JsString,
+}
+
+impl ExtensionInventoryRow {
+    fn cells(&self) -> [&JsString; 6] {
+        [
+            &self.scope,
+            &self.source,
+            &self.extension,
+            &self.commands,
+            &self.tools,
+            &self.handlers,
+        ]
+    }
 }
 
 /// `formatExtensionInventory`.
-pub fn format_extension_inventory(extensions: &[Extension]) -> String {
+pub fn format_extension_inventory(extensions: &[Extension]) -> JsString {
     if extensions.is_empty() {
-        return "Loaded extensions: none".to_owned();
+        return "Loaded extensions: none".into();
     }
 
     let mut sorted: Vec<&Extension> = extensions.iter().collect();
-    sorted.sort_by(|left, right| {
-        let left_path = left.read().path.clone();
-        let right_path = right.read().path.clone();
-        locale_compare(&left_path, &right_path)
-    });
+    sorted.sort_by(|left, right| locale_compare_utf16(left.read().path.units(), right.read().path.units()));
     let rows: Vec<ExtensionInventoryRow> = sorted
         .into_iter()
         .map(|extension| {
@@ -38,131 +48,76 @@ pub fn format_extension_inventory(extensions: &[Extension]) -> String {
                 scope: scope_label(&registration),
                 source: source_label(&registration),
                 extension: extension_label(&registration),
-                commands: registration.commands.len().to_string(),
-                tools: registration.tools.len().to_string(),
-                handlers: registration.handlers.len().to_string(),
+                commands: registration.commands.len().to_string().into(),
+                tools: registration.tools.len().to_string().into(),
+                handlers: registration.handlers.len().to_string().into(),
             }
         })
         .collect();
 
-    let mut lines = vec![format!("Loaded extensions ({})", rows.len()), String::new()];
+    let mut lines = vec![js_format!("Loaded extensions ({})", rows.len()), JsString::default()];
     lines.extend(format_rows(&headers(), &rows));
-    lines.join("\n")
+    JsString::join(lines, "\n")
 }
 
 /// `listExtensions` output including the trailing newline from `console.log`.
-pub fn list_extensions(extensions: &[Extension]) -> String {
-    format!("{}\n", format_extension_inventory(extensions))
+pub fn list_extensions(extensions: &[Extension]) -> JsString {
+    format_extension_inventory(extensions) + "\n"
 }
 
-fn is_first_party_path(path: &str) -> bool {
-    path.starts_with(FIRST_PARTY_PREFIX) && path.ends_with('>')
+fn is_first_party_path(path: &JsString) -> bool {
+    path.starts_with(FIRST_PARTY_PREFIX) && path.ends_with(">")
 }
 
-fn extension_label(extension: &crate::core::extensions::ExtensionState) -> String {
+fn extension_label(extension: &ExtensionState) -> JsString {
     if is_first_party_path(&extension.path) {
-        let start = FIRST_PARTY_PREFIX.len();
-        return extension.path[start..extension.path.len() - 1].to_owned();
+        return extension.path.slice(FIRST_PARTY_PREFIX.len(), extension.path.len() - 1);
     }
-    basename(&extension.path)
+    node_basename(&extension.path)
 }
 
-fn scope_label(extension: &crate::core::extensions::ExtensionState) -> String {
+fn scope_label(extension: &ExtensionState) -> JsString {
     if is_first_party_path(&extension.path) {
-        return "runtime".to_owned();
+        return "runtime".into();
     }
-    extension.source_info.scope.as_str().to_owned()
+    extension.source_info.scope.as_str().into()
 }
 
-fn source_label(extension: &crate::core::extensions::ExtensionState) -> String {
+fn source_label(extension: &ExtensionState) -> JsString {
     if is_first_party_path(&extension.path) {
-        return "built-in".to_owned();
+        return "built-in".into();
     }
     extension.source_info.source.clone()
 }
 
-/// `node:path.basename` for the paths extension loaders produce.
-fn basename(path: &str) -> String {
-    Path::new(path)
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default()
-}
-
 fn headers() -> ExtensionInventoryRow {
     ExtensionInventoryRow {
-        scope: "scope".to_owned(),
-        source: "source".to_owned(),
-        extension: "extension".to_owned(),
-        commands: "commands".to_owned(),
-        tools: "tools".to_owned(),
-        handlers: "handlers".to_owned(),
+        scope: "scope".into(),
+        source: "source".into(),
+        extension: "extension".into(),
+        commands: "commands".into(),
+        tools: "tools".into(),
+        handlers: "handlers".into(),
     }
 }
 
-fn format_rows(headers: &ExtensionInventoryRow, rows: &[ExtensionInventoryRow]) -> Vec<String> {
-    let widths = [
-        row_width(&headers.scope, rows.iter().map(|row| row.scope.as_str())),
-        row_width(&headers.source, rows.iter().map(|row| row.source.as_str())),
-        row_width(&headers.extension, rows.iter().map(|row| row.extension.as_str())),
-        row_width(&headers.commands, rows.iter().map(|row| row.commands.as_str())),
-        row_width(&headers.tools, rows.iter().map(|row| row.tools.as_str())),
-        row_width(&headers.handlers, rows.iter().map(|row| row.handlers.as_str())),
-    ];
-
-    let mut lines = vec![
-        join_cells(
-            &[
-                headers.scope.clone(),
-                headers.source.clone(),
-                headers.extension.clone(),
-                headers.commands.clone(),
-                headers.tools.clone(),
-                headers.handlers.clone(),
-            ],
-            &widths,
-        ),
-        join_cells(
-            &[
-                "-".repeat(widths[0]),
-                "-".repeat(widths[1]),
-                "-".repeat(widths[2]),
-                "-".repeat(widths[3]),
-                "-".repeat(widths[4]),
-                "-".repeat(widths[5]),
-            ],
-            &widths,
-        ),
-    ];
+fn format_rows(headers: &ExtensionInventoryRow, rows: &[ExtensionInventoryRow]) -> Vec<JsString> {
+    let mut widths = headers.cells().map(JsString::len);
     for row in rows {
-        lines.push(
-            join_cells(
-                &[
-                    row.scope.clone(),
-                    row.source.clone(),
-                    row.extension.clone(),
-                    row.commands.clone(),
-                    row.tools.clone(),
-                    row.handlers.clone(),
-                ],
-                &widths,
-            )
-            .trim_end()
-            .to_owned(),
-        );
+        for (width, cell) in widths.iter_mut().zip(row.cells()) {
+            *width = (*width).max(cell.len());
+        }
     }
-    lines.into_iter().map(|line| line.trim_end().to_owned()).collect()
+
+    let rule = widths.map(|width| JsString::from("-".repeat(width)));
+    let mut lines = vec![
+        join_cells(headers.cells(), &widths),
+        join_cells(rule.each_ref(), &widths),
+    ];
+    lines.extend(rows.iter().map(|row| join_cells(row.cells(), &widths).trim_end()));
+    lines.into_iter().map(|line| line.trim_end()).collect()
 }
 
-fn row_width<'a>(header: &str, values: impl Iterator<Item = &'a str>) -> usize {
-    values.fold(utf16_len(header), |width, value| width.max(utf16_len(value)))
-}
-
-fn join_cells(cells: &[String; 6], widths: &[usize; 6]) -> String {
-    cells
-        .iter()
-        .zip(widths)
-        .map(|(cell, width)| crate::cli::args::pad_end_utf16(cell, *width))
-        .collect::<Vec<_>>()
-        .join("  ")
+fn join_cells(cells: [&JsString; 6], widths: &[usize; 6]) -> JsString {
+    JsString::join(cells.iter().zip(widths).map(|(cell, width)| cell.pad_end(*width)), "  ")
 }
