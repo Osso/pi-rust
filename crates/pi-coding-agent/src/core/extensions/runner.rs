@@ -369,7 +369,7 @@ impl ExtensionRunner {
         provider_actions: Option<&ProviderActions>,
         name: &str,
         config: &ProviderConfig,
-    ) -> Result<(), String> {
+    ) -> Result<(), JsString> {
         if let Some(register) = provider_actions.and_then(|actions| actions.register_provider.as_ref()) {
             register(name, config)?;
             return Ok(());
@@ -377,22 +377,22 @@ impl ExtensionRunner {
         let registry = Arc::clone(&self.live().model_registry);
         registry
             .register_provider(name, config.clone())
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.message())
     }
 
     fn register_native_provider(
         &self,
         provider_actions: Option<&ProviderActions>,
         provider: NativeProvider,
-    ) -> Result<(), String> {
+    ) -> Result<(), JsString> {
         let Some(register) = provider_actions.and_then(|actions| actions.register_native_provider.as_ref()) else {
-            return Err("Native provider registration is unavailable in this session mode.".to_owned());
+            return Err("Native provider registration is unavailable in this session mode.".into());
         };
         register(provider);
         Ok(())
     }
 
-    fn unregister_provider(&self, provider_actions: Option<&ProviderActions>, name: &str) -> Result<(), String> {
+    fn unregister_provider(&self, provider_actions: Option<&ProviderActions>, name: &str) -> Result<(), JsString> {
         if let Some(unregister) = provider_actions.and_then(|actions| actions.unregister_provider.as_ref()) {
             unregister(name);
             return Ok(());

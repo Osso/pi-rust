@@ -246,3 +246,79 @@ fn model_reference_matching_does_not_replace_unmatched_units() {
         Some(model)
     );
 }
+
+#[tokio::test]
+async fn invalid_skill_frontmatter_emits_native_path_error_and_keeps_original_command() {
+    use pi_coding_agent::core::resource_loader::LoadedSkills;
+    use pi_coding_agent::core::skills::Skill;
+    use pi_coding_agent::core::source_info::{SyntheticSourceInfoOptions, create_synthetic_source_info};
+    let root = tempfile::tempdir().unwrap();
+    let cwd = JsString::from(root.path().to_str().unwrap());
+    let path = cwd.clone() + "/skill-" + JsString::from_utf16(vec![0xd800]) + ".md";
+    std::fs::write(encode_node_utf8(&path), "---\ndescription: [broken\n---\nbody").unwrap();
+    let skill = Skill {
+        name: "broken".into(),
+        description: "injected skill".into(),
+        file_path: path.clone(),
+        base_dir: cwd.clone(),
+        source_info: create_synthetic_source_info(
+            &path,
+            &SyntheticSourceInfoOptions {
+                source: "local".into(),
+                scope: None,
+                origin: None,
+                base_dir: Some(cwd.clone()),
+            },
+        ),
+        disable_model_invocation: false,
+    };
+    let loader = StaticResourceLoader {
+        skills: LoadedSkills {
+            skills: vec![skill],
+            diagnostics: vec![],
+        },
+        ..Default::default()
+    };
+    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
+        credentials: Some(Arc::new(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()))),
+        models_path: Some(None),
+        refresh_on_create: Some(false),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let created =
+        pi_coding_agent::core::sdk::create_agent_session(pi_coding_agent::core::sdk::CreateAgentSessionOptions {
+            cwd: Some(cwd.clone()),
+            agent_dir: Some(cwd.clone()),
+            model_runtime: Some(runtime),
+            resource_loader: Some(Arc::new(loader)),
+            settings_manager: Some(Arc::new(Mutex::new(SettingsManager::in_memory(
+                Default::default(),
+                Default::default(),
+            )))),
+            session_manager: Some(SessionManager::in_memory(Some(&cwd), None).unwrap()),
+            no_tools: Some(pi_coding_agent::core::sdk::NoTools::All),
+            control_db_path: Some(cwd + "/control.db"),
+            disable_runtime_coordination_inbound: true,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let captured = seen.clone();
+    let _subscription = created
+        .session
+        .extension_runner()
+        .on_error(Arc::new(move |error| captured.lock().unwrap().push(error.clone())));
+    created.session.follow_up("/skill:broken extra", &[]).await.unwrap();
+    assert_eq!(
+        created.session.get_follow_up_messages(),
+        vec![JsString::from("/skill:broken extra")]
+    );
+    let errors = seen.lock().unwrap();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].extension_path, path);
+    assert_eq!(errors[0].event, "skill_expansion");
+    created.session.dispose();
+}

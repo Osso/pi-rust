@@ -15,3 +15,6 @@ Rust: `crates/pi-agent-core/src/harness/system_prompt.rs`. Behavioral port of
 - Focused: `tests/skill_formatting.rs` (8 tests, shared with the skill invocation formatter).
 - Differential: `oracle/truncate-oracle.ts` operation `skill_formatting`, fixtures `13061..=13064`.
 - Gaps: none.
+
+## Q18 native composition
+BuildSystemPromptOptions human text, context-file path/content, guidelines and snippets retain JsString alongside cwd. Prompt composition uses native formatting/joining so raw Skill path text reaches the resulting prompt without encoding. Resource-loader option/consumer adaptation is in progress; focused proof remains compiler-blocked.

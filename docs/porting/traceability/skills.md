@@ -44,3 +44,6 @@ Source: `packages/coding-agent/src/core/skills.ts` (487 lines, pinned revision i
 - Differential: `cargo test -p pi-coding-agent --test differential_skills` (1 passed) via
   `oracle/coding-agent-skills-oracle.ts`, comparing skills and diagnostics in source order. Directory
   entries are locale-collated in Rust to match libuv `scandir` order used by Node `readdirSync`.
+
+## Q18 common-pin native migration
+Skill names/descriptions/paths/source metadata and load options retain JsString. Native ignore matcher receives original paths; XML prompt escaping retains raw units. Current-directory resolution errors propagate instead of selecting `/`. Directory entries are collected without dropping errors, then byte-sorted as libuv scandir; traversal exceptions preserve the frozen whole-directory catch. `load_skills_from_dir` now returns Result to expose source path-resolution exceptions. The TS-created raw skill directory fixture lives in `lossless_resources`; `skills-red.jsonl` is library-blocked, not runtime PASS. Isolated YAML parser restriction remains tracked in [frontmatter](frontmatter.md). Source-info.source is also native because caller-supplied skill source labels are arbitrary strings.

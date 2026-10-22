@@ -165,12 +165,14 @@ pub type ReplacedSendUserMessageCallback = Arc<
 >;
 pub type ContextShortcutHandler =
     Arc<dyn Fn(ExtensionContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
-pub type RegisterProviderCallback = Arc<dyn Fn(&str, &ProviderConfig) -> Result<(), String> + Send + Sync>;
+pub type RegisterProviderCallback = Arc<dyn Fn(&str, &ProviderConfig) -> Result<(), JsString> + Send + Sync>;
 pub type UnregisterProviderCallback = Arc<dyn Fn(&str) + Send + Sync>;
 pub type NativeProviderCallback = Arc<dyn Fn(NativeProvider) + Send + Sync>;
-pub type RegisterProviderHandler = Arc<dyn Fn(&str, &ProviderConfig, Option<&str>) -> Result<(), String> + Send + Sync>;
-pub type RegisterNativeProviderCallback = Arc<dyn Fn(NativeProvider, Option<&str>) -> Result<(), String> + Send + Sync>;
-pub type UnregisterProviderRuntimeCallback = Arc<dyn Fn(&str, Option<&str>) -> Result<(), String> + Send + Sync>;
+pub type RegisterProviderHandler =
+    Arc<dyn Fn(&str, &ProviderConfig, Option<&JsString>) -> Result<(), JsString> + Send + Sync>;
+pub type RegisterNativeProviderCallback =
+    Arc<dyn Fn(NativeProvider, Option<&JsString>) -> Result<(), JsString> + Send + Sync>;
+pub type UnregisterProviderRuntimeCallback = Arc<dyn Fn(&str, Option<&JsString>) -> Result<(), JsString> + Send + Sync>;
 
 pub trait ApprovalReviewer: Send + Sync {
     fn call(
@@ -1659,7 +1661,7 @@ pub enum SessionStartReason {
 pub struct SessionStartEvent {
     pub reason: SessionStartReason,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub previous_session_file: Option<String>,
+    pub previous_session_file: Option<JsString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2662,7 +2664,7 @@ pub struct ExtensionFlag {
     pub flag_type: FlagType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<FlagValue>,
-    pub extension_path: String,
+    pub extension_path: JsString,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -2677,7 +2679,7 @@ pub struct ExtensionShortcut {
     pub shortcut: KeyId,
     pub description: Option<String>,
     pub handler: ContextShortcutHandler,
-    pub extension_path: String,
+    pub extension_path: JsString,
 }
 
 #[derive(Clone)]
@@ -2797,8 +2799,8 @@ impl Extension {
 
 /// Registration state. Never retained as a separate load-time copy.
 pub struct ExtensionState {
-    pub path: String,
-    pub resolved_path: String,
+    pub path: JsString,
+    pub resolved_path: JsString,
     pub hidden: Option<bool>,
     pub source_info: SourceInfo,
     pub handlers: ExtensionHandlers,
@@ -2823,7 +2825,7 @@ pub struct LoadExtensionsResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtensionLoadError {
-    pub path: String,
+    pub path: JsString,
     pub error: JsString,
 }
 
@@ -2834,7 +2836,7 @@ pub struct ExtensionLoadError {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtensionError {
-    pub extension_path: String,
+    pub extension_path: JsString,
     pub event: String,
     pub error: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2999,7 +3001,7 @@ impl ExtensionEventBus {
 pub struct ExtensionApi {
     pub(crate) extension: Extension,
     pub(crate) runtime: ExtensionRuntime,
-    pub(crate) cwd: String,
+    pub(crate) cwd: JsString,
     pub events: ExtensionEventBus,
 }
 
@@ -3007,7 +3009,7 @@ impl ExtensionApi {
     pub(crate) fn new(
         extension: Extension,
         runtime: ExtensionRuntime,
-        cwd: String,
+        cwd: JsString,
         event_bus: Arc<dyn EventBus>,
     ) -> Self {
         Self {
@@ -3519,19 +3521,19 @@ impl ExtensionApi {
         (self.runtime.actions().set_thinking_level)(level)
     }
 
-    pub fn register_provider(&self, name: &str, config: ProviderConfig) -> Result<(), String> {
+    pub fn register_provider(&self, name: &str, config: ProviderConfig) -> Result<(), JsString> {
         self.runtime.assert_active()?;
         let extension_path = self.extension_lock().path.clone();
         self.runtime.register_provider(name, config, Some(&extension_path))
     }
 
-    pub fn register_native_provider(&self, provider: NativeProvider) -> Result<(), String> {
+    pub fn register_native_provider(&self, provider: NativeProvider) -> Result<(), JsString> {
         self.runtime.assert_active()?;
         let extension_path = self.extension_lock().path.clone();
         self.runtime.register_native_provider(provider, Some(&extension_path))
     }
 
-    pub fn unregister_provider(&self, name: &str) -> Result<(), String> {
+    pub fn unregister_provider(&self, name: &str) -> Result<(), JsString> {
         self.runtime.assert_active()?;
         let extension_path = self.extension_lock().path.clone();
         self.runtime.unregister_provider(name, Some(&extension_path))

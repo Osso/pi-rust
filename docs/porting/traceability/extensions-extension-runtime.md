@@ -21,3 +21,6 @@ Source: `packages/coding-agent/src/core/extensions/extension-runtime.ts`
 
 No gaps. Registration errors after bind propagate to the caller; queued
 registration errors are reported by the runner as `register_provider`.
+
+## Q18 native provider/path contracts
+Provider-registration callbacks return JsString errors, pending registration extension paths retain JsString, and direct consumers propagate ModelRuntimeError.message without Display. Selected extension path/cwd/load-error/shutdown/start-event and slash metadata contracts are native. Full extension-loader migration and focused runtime proof remain pending; no library-success claim.

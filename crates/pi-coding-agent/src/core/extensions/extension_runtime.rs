@@ -1,5 +1,6 @@
 //! Extension runtime state (`core/extensions/extension-runtime.ts`).
 
+use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex, RwLock};
 
 use indexmap::IndexMap;
@@ -20,13 +21,13 @@ const NOT_INITIALIZED: &str =
 pub struct PendingProviderRegistration {
     pub name: String,
     pub config: ProviderConfig,
-    pub extension_path: String,
+    pub extension_path: JsString,
 }
 
 #[derive(Clone)]
 pub struct PendingNativeProviderRegistration {
     pub provider: NativeProvider,
-    pub extension_path: String,
+    pub extension_path: JsString,
 }
 
 /// Registration hooks installed by `ExtensionRunner::bindCore`.
@@ -186,8 +187,8 @@ impl ExtensionRuntime {
         &self,
         name: &str,
         config: ProviderConfig,
-        extension_path: Option<&str>,
-    ) -> Result<(), String> {
+        extension_path: Option<&JsString>,
+    ) -> Result<(), JsString> {
         let handlers = read(&self.inner.provider_handlers).clone();
         if let Some(handlers) = handlers {
             return (handlers.register_provider)(name, &config, extension_path);
@@ -195,7 +196,7 @@ impl ExtensionRuntime {
         lock(&self.inner.pending_provider_registrations).push(PendingProviderRegistration {
             name: name.to_owned(),
             config,
-            extension_path: extension_path.unwrap_or("<unknown>").to_owned(),
+            extension_path: extension_path.cloned().unwrap_or_else(|| "<unknown>".into()),
         });
         Ok(())
     }
@@ -203,20 +204,20 @@ impl ExtensionRuntime {
     pub fn register_native_provider(
         &self,
         provider: NativeProvider,
-        extension_path: Option<&str>,
-    ) -> Result<(), String> {
+        extension_path: Option<&JsString>,
+    ) -> Result<(), JsString> {
         let handlers = read(&self.inner.provider_handlers).clone();
         if let Some(handlers) = handlers {
             return (handlers.register_native_provider)(provider, extension_path);
         }
         lock(&self.inner.pending_native_provider_registrations).push(PendingNativeProviderRegistration {
             provider,
-            extension_path: extension_path.unwrap_or("<unknown>").to_owned(),
+            extension_path: extension_path.cloned().unwrap_or_else(|| "<unknown>".into()),
         });
         Ok(())
     }
 
-    pub fn unregister_provider(&self, name: &str, extension_path: Option<&str>) -> Result<(), String> {
+    pub fn unregister_provider(&self, name: &str, extension_path: Option<&JsString>) -> Result<(), JsString> {
         let handlers = read(&self.inner.provider_handlers).clone();
         if let Some(handlers) = handlers {
             return (handlers.unregister_provider)(name, extension_path);
