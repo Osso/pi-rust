@@ -2,7 +2,7 @@
 mod oracle;
 
 use pi_ai::types::AssistantMessage;
-use pi_ai::utils::overflow::{get_overflow_patterns, is_context_overflow, is_recoverable_length};
+use pi_ai::utils::overflow::{get_overflow_patterns, is_context_overflow};
 use serde_json::{Value, json};
 
 fn error_messages() -> Vec<&'static str> {
@@ -42,6 +42,9 @@ fn error_messages() -> Vec<&'static str> {
         "Too many requests. Please slow down.",
         "500 `model runner crashed unexpectedly`",
         "",
+        "prompt iſ too long",
+        "maximum prompt length is ١٢٣",
+        "413\x0b(no body)",
     ]
 }
 
@@ -69,7 +72,7 @@ fn check_requests() -> Vec<Value> {
             "message": assistant_json(message, "error", 0, 0, 0), "contextWindow": 200_000}));
         id += 1;
     }
-    for window in [Value::Null, json!(0), json!(32_768)] {
+    for window in [Value::Null, json!(0), json!(-1), json!(32_768)] {
         requests.push(json!({"id": id, "operation": "check",
             "message": assistant_json("", "stop", 40_000, 0, 10), "contextWindow": window}));
         id += 1;
@@ -83,7 +86,7 @@ fn check_requests() -> Vec<Value> {
     ] {
         requests.push(json!({"id": id, "operation": "check",
             "message": assistant_json("", "length", input, cache_read, output),
-            "contextWindow": window, "desiredMaxOutput": 128_000}));
+            "contextWindow": window}));
         id += 1;
     }
     requests.push(json!({"id": id, "operation": "patterns", "samples": error_messages()}));
@@ -100,17 +103,14 @@ fn observe(request: &Value) -> Value {
             .collect();
         let matches: Vec<Vec<bool>> = get_overflow_patterns()
             .iter()
-            .map(|pattern| samples.iter().map(|sample| pattern.is_match(sample)).collect())
+            .map(|pattern| samples.iter().map(|sample| pattern.find(sample).is_some()).collect())
             .collect();
         return json!({"id": request["id"], "ok": true, "output": matches});
     }
 
     let message: AssistantMessage = serde_json::from_value(request["message"].clone()).expect("message");
     let context_window = request["contextWindow"].as_f64();
-    let mut output = json!({"overflow": is_context_overflow(&message, context_window)});
-    if let Some(desired) = request["desiredMaxOutput"].as_f64() {
-        output["recoverable"] = json!(is_recoverable_length(&message, desired));
-    }
+    let output = json!({"overflow": is_context_overflow(&message, context_window)});
     json!({"id": request["id"], "ok": true, "output": output})
 }
 

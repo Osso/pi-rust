@@ -334,6 +334,39 @@ async fn repin_settings_retry_delay_grows_with_attempt() {
 }
 
 #[tokio::test]
+async fn repin_short_length_stop_below_threshold_does_not_force_overflow_compaction() {
+    let settings = serde_json::from_value(json!({"compaction": {"keepRecentTokens": 1}})).unwrap();
+    let fixture = fixture_with(settings, Vec::new(), None, Some(Vec::new())).await;
+    fixture.faux.set_responses(vec![retry_completion_response().into()]);
+    fixture
+        .session
+        .prompt("seed history", PromptOptions::default())
+        .await
+        .unwrap();
+    let events = record_events(&fixture.session);
+    let mut response = faux_assistant_message("truncated", FauxAssistantMessageOptions::default());
+    response.stop_reason = pi_ai::types::StopReason::Length;
+    response.usage.input = 100.0;
+    response.usage.output = 16.0;
+    response.usage.total_tokens = 116.0;
+    fixture
+        .faux
+        .set_responses(vec![response.into(), retry_completion_response().into()]);
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        fixture.session.prompt("short length stop", PromptOptions::default()),
+    )
+    .await
+    .expect("bounded prompt")
+    .expect("prompt");
+    assert!(
+        !event_types(&events).contains(&"compaction_end".to_owned()),
+        "{:?}",
+        event_types(&events)
+    );
+}
+
+#[tokio::test]
 async fn repin_settings_invalid_compaction_threshold_rejects_before_next_request() {
     let settings = serde_json::from_value(json!({"compaction": {"thresholdPercent": 101}})).unwrap();
     let fixture = fixture_with(settings, Vec::new(), None, Some(Vec::new())).await;

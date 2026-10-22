@@ -6138,12 +6138,7 @@ impl AgentSession {
         if assistant_is_before_compaction {
             return Ok(false);
         }
-        let recoverable_length =
-            same_model && pi_ai::utils::overflow::is_recoverable_length(assistant_message, model.max_tokens);
-        if same_model
-            && (pi_ai::utils::overflow::is_context_overflow(assistant_message, Some(context_window))
-                || recoverable_length)
-        {
+        if same_model && pi_ai::utils::overflow::is_context_overflow(assistant_message, Some(context_window)) {
             let should_retry_after_compaction = assistant_message.stop_reason != StopReason::Stop;
             let should_continue_after_compaction = post_run_check && should_retry_after_compaction;
             if !should_retry_after_compaction {

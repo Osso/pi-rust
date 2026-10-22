@@ -1,32 +1,17 @@
-# overflow traceability
+# Overflow — common-pin re-port
 
-Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
+Frozen `packages/ai/src/utils/overflow.ts`, `4f9e6f8a4` (191 lines), compared whole to `utils/overflow.rs`.
 
-Source: `packages/ai/src/utils/overflow.ts`.
-Rust: `crates/pi-ai/src/utils/overflow.rs`.
-Tests: `crates/pi-ai/tests/overflow.rs` (13 behavioral), `crates/pi-ai/tests/differential_overflow.rs` (40 checks + 35-sample pattern matrix vs pinned TS).
-
-## Representation
-- Patterns are compiled once in `OnceLock<Vec<Regex>>` with a `(?i)` prefix, replacing JS `new RegExp(..., "i")`.
-- `contextWindow?: number` → `Option<f64>`; JS truthiness is mirrored: `Some(0.0)`/`None`/NaN behave as absent.
-
-## Symbols → proof
-| TS | Rust | Test |
+| Export / branches | Frozen lines | Proof |
 |---|---|---|
-| `isContextOverflow` error branch | `is_context_overflow` | 13 behavioral tests + differential checks |
-| `NON_OVERFLOW_PATTERNS` precedence | `non_overflow_regexes` | `does_not_treat_bedrock_throttling_as_overflow`, `does_not_treat_rate_limits_as_overflow` |
-| silent overflow (`stop`, `input + cacheRead > window`) | `is_context_overflow` | differential checks with `contextWindow` 0/null/32768 |
-| length-stop overflow (`length`, `output == 0`, `input + cacheRead >= 0.99 * window`) | `is_context_overflow` | `detects_xiaomi_style_length_stop_with_zero_output_and_filled_context`, `normal_length_stops_are_not_context_overflow` |
-| `isRecoverableLength` | `is_recoverable_length` | `recoverable_length_stops_below_the_desired_output_limit` |
-| `getOverflowPatterns` | `get_overflow_patterns` | `exposes_the_overflow_patterns_for_testing`, differential pattern matrix |
+| 25 ordered overflow regexes, 3 exclusion regexes | 38–86 | `differential_overflow`: every regex tested against 38 strings, plus end-to-end error checks; Unicode long-s, Arabic digits and vertical-tab probes |
+| `isContextOverflow`: error + exclusion priority | 147–155 | 14 behavioral tests and differential message matrix |
+| successful silent overflow includes cacheRead; truthy contextWindow (including negative) | 158–164 | `negative_context_window_is_truthy_like_javascript`; differential windows null/zero/negative/positive |
+| length + zero output + 99% threshold | 169–174 | Xiaomi/below-window/output behavioral and differential fixtures |
+| `getOverflowPatterns`: fresh copy, exact JS regex semantics | 189–191 | actual frozen pattern matrix; uses regress rather than Unicode Rust regex engine |
 
-## Branch notes
-- All 26 patterns are ported verbatim, including the anchored Cerebras `^4(00|13)…(no body)` pattern.
-- Rust regex `.` matches any character except `\n`, like JS without `s`.
-- `\d` in the `regex` crate is Unicode-aware; JS `\d` is ASCII. Provider error strings use ASCII digits, so the differential matrix covers all documented wordings.
+Deleted old-only `range of input length should be` pattern and `isRecoverableLength`, including its tests and oracle operation. Frozen whole-tree search found no renamed equivalent. Frozen coding-agent `agent-session.ts:4825` checks only `isContextOverflow`; removed its Rust recoverable-length OR branch. Consumer regression seeds persisted history then delivers short length-stop below threshold, asserting no compaction events. Empty-history probe was insufficient (preparation returned none); final test reproduced RED at the real history boundary.
 
-## Gaps
-- None.
+RED: 3 overflow tests; exported Unicode regex differential; seeded coding-agent consumer test. GREEN: 14 behavioral + 1 differential + 1 seeded consumer. Revision `718805ff` + slice; `/tmp/pi-rust-repin-delta-ai/ledger.md`. Full agent_session target/checks recorded separately after commit.
 
-## Discrepancies
-- None.
+No module-specific gaps or frozen source bugs identified. Typed Rust cannot contain invalid JavaScript message runtime shapes (approved exclusion).

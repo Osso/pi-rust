@@ -1,5 +1,5 @@
 use pi_ai::types::{AssistantMessage, StopReason, Usage};
-use pi_ai::utils::overflow::{get_overflow_patterns, is_context_overflow, is_recoverable_length};
+use pi_ai::utils::overflow::{get_overflow_patterns, is_context_overflow};
 
 fn error_message(message: &str) -> AssistantMessage {
     AssistantMessage {
@@ -120,29 +120,33 @@ fn normal_length_stops_are_not_context_overflow() {
 }
 
 #[test]
-fn recoverable_length_stops_below_the_desired_output_limit() {
-    let message = length_stop(3.0, 253_584.0, 25_554.0, 16.0);
-    assert!(is_recoverable_length(&message, 128_000.0));
-    assert!(!is_recoverable_length(
-        &length_stop(4_062.0, 0.0, 0.0, 1_024.0),
-        1_024.0
+fn range_input_wording_is_not_in_frozen_overflow_patterns() {
+    assert!(!is_context_overflow(
+        &error_message("Range of input length should be [1, 100]"),
+        None
     ));
-    assert!(is_recoverable_length(&length_stop(100.0, 0.0, 0.0, 0.0), 128_000.0));
-    assert!(!is_recoverable_length(&length_stop(100.0, 0.0, 0.0, 0.0), 0.0));
+}
+
+#[test]
+fn negative_context_window_is_truthy_like_javascript() {
+    let mut message = length_stop(1.0, 0.0, 0.0, 1.0);
+    message.stop_reason = StopReason::Stop;
+    assert!(is_context_overflow(&message, Some(-1.0)));
+    assert!(!is_context_overflow(&message, Some(0.0)));
 }
 
 #[test]
 fn exposes_the_overflow_patterns_for_testing() {
     let patterns = get_overflow_patterns();
-    assert_eq!(patterns.len(), 26);
+    assert_eq!(patterns.len(), 25);
+    assert!(patterns.iter().any(|pattern| {
+        pattern
+            .find("prompt is too long: 213462 tokens > 200000 maximum")
+            .is_some()
+    }));
     assert!(
         patterns
             .iter()
-            .any(|pattern| pattern.is_match("prompt is too long: 213462 tokens > 200000 maximum"))
-    );
-    assert!(
-        patterns
-            .iter()
-            .any(|pattern| pattern.is_match("400 status code (no body)"))
+            .any(|pattern| pattern.find("400 status code (no body)").is_some())
     );
 }
