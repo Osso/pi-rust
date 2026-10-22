@@ -294,9 +294,9 @@ fn trimmed_value(value: &Option<String>) -> Option<String> {
 }
 
 /// `getAuthCredential`.
-pub fn get_auth_credential(auth: Option<&AuthResult>) -> Option<String> {
+pub fn get_auth_credential(auth: Option<&AuthResult>) -> Option<JsString> {
     let auth = auth?;
-    if let Some(api_key) = auth.auth.api_key.as_deref().filter(|value| !value.is_empty()) {
+    if let Some(api_key) = auth.auth.api_key.as_ref().filter(|value| !value.is_empty()) {
         return Some(api_key.to_owned());
     }
 
@@ -306,37 +306,36 @@ pub fn get_auth_credential(auth: Option<&AuthResult>) -> Option<String> {
         .as_ref()?
         .iter()
         .find(|(name, _)| name.to_lowercase() == "authorization")
-        .and_then(|(_, value)| value.as_deref())?;
+        .and_then(|(_, value)| value.as_ref())?;
     bearer_token(authorization)
 }
 
 /// `^Bearer\s+(.+)$` with the source `iu` flags: JavaScript whitespace after
 /// the case-insensitive prefix, then at least one non-line-terminator character.
-fn bearer_token(authorization: &str) -> Option<String> {
-    const PREFIX: &str = "Bearer";
-    if authorization.len() < PREFIX.len() || !authorization[..PREFIX.len()].eq_ignore_ascii_case(PREFIX) {
+fn bearer_token(authorization: &JsString) -> Option<JsString> {
+    const PREFIX_LENGTH: usize = 6;
+    if authorization.len() < PREFIX_LENGTH || authorization.slice(0, PREFIX_LENGTH).to_lowercase() != "bearer" {
         return None;
     }
-
-    let rest = &authorization[PREFIX.len()..];
+    let rest = authorization.slice(PREFIX_LENGTH, authorization.len());
     let whitespace_end = rest
-        .char_indices()
-        .take_while(|(_, character)| pi_js_compat::string::is_js_whitespace_char(*character))
-        .map(|(index, character)| index + character.len_utf8())
-        .last()
-        .unwrap_or(0);
-    let token = &rest[whitespace_end..];
-    if token.is_empty() || token.chars().any(is_line_terminator) {
+        .units()
+        .iter()
+        .take_while(|unit| pi_js_compat::string::is_js_whitespace_unit(**unit))
+        .count();
+    let token = rest.slice(whitespace_end, rest.len());
+    if token.is_empty()
+        || token
+            .units()
+            .iter()
+            .any(|unit| matches!(*unit, 10 | 13 | 0x2028 | 0x2029))
+    {
         return None;
     }
-    Some(token.to_owned())
+    Some(token)
 }
 
-fn is_line_terminator(character: char) -> bool {
-    matches!(character, '\n' | '\r' | '\u{2028}' | '\u{2029}')
-}
-
-/// `printAuthCommandHelp` output including the trailing newline from `console.log`.
+/// Full auth command usage text.
 pub fn print_auth_command_help() -> String {
     const HELP: &str = "Usage:\n  pi auth print-api-key [--provider <provider>] [--model <model>]\n  pi auth print-bearer-token [--provider <provider>] [--model <model>] [--min-expiry <duration>]\n  pi auth check [--provider <provider>] [--model <model>] [--json] [--credentials] [--no-refresh]\n\nAuth commands require at least one of --provider or --model. Checks refresh expired OAuth credentials by default; --no-refresh prevents this. --credentials emits the credential, or includes it in JSON output.\n";
     HELP.to_owned()

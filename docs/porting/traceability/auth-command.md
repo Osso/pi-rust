@@ -34,3 +34,5 @@ Rust uses typed enums/structs rather than TypeScript literal/object values. `min
 `ProviderHeaders` is the shared `BTreeMap` from `pi-ai`; the source iterates object insertion order, so duplicate differently-cased `authorization` keys could pick a different first entry. Single-header auth results are identical. Invalid runtime input types (non-string header values) are excluded by the typed Rust API.
 
 Q18 native CLI auth prompt/credential text stays `JsString` through IO callbacks; browser URL encodes at spawn, not presentation. Behavioral proof status: [lossless auth](lossless-auth.md); coding-agent tests unexecuted until library compiles.
+
+DRIFT retained pending behavioral RED: the pre-existing bearer matcher greedily consumes all whitespace after `Bearer` and rejects an all-whitespace token; frozen `^Bearer\s+(.+)$` can backtrack to retain the final whitespace unit. Q18 changes the representation only at this site, not that old algorithm.

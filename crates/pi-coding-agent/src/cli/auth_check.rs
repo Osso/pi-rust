@@ -165,21 +165,24 @@ pub async fn get_provider_credential(
     model_runtime: &ModelRuntime,
     credentials: Arc<dyn CredentialStore>,
     options: CheckProviderAuthOptions,
-) -> Result<Option<String>, String> {
+) -> Result<Option<pi_js_compat::js_json::JsString>, pi_js_compat::js_json::JsString> {
     let credential = credentials
         .read(provider_id, AuthOperationOptions::default())
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| match error {
+            pi_ai::auth::types::AuthError::Aborted => "The operation was aborted".into(),
+            pi_ai::auth::types::AuthError::Failed(error) => error.message,
+        })?;
     if !options.refresh
         && let Some(Credential::OAuth(oauth)) = credential.as_ref()
     {
-        return Ok(Some(oauth.access_utf8().map_err(|error| error.to_string())?));
+        return Ok(Some(oauth.access.clone()));
     }
 
     let auth = model_runtime
         .get_auth(provider_id, AuthResolutionOverrides::default())
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.message())?;
     Ok(get_auth_credential(auth.as_ref()))
 }
 

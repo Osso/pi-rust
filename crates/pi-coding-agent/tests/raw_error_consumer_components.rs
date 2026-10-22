@@ -458,3 +458,25 @@ fn model_config_keeps_raw_provider_credentials_and_url() {
     assert!(provider.base_url.unwrap().contains(JsString::from_utf16(vec![0xdc00])));
     assert_eq!(provider.headers.unwrap()["X-Key"], JsString::from_utf16(vec![0xd800]));
 }
+
+#[test]
+fn auth_command_extracts_native_api_key_and_bearer_units() {
+    use pi_ai::auth::types::{AuthResult, ModelAuth};
+    use pi_coding_agent::cli::auth_command::get_auth_credential;
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let mut auth = AuthResult {
+        auth: ModelAuth {
+            api_key: Some(raw.clone()),
+            ..Default::default()
+        },
+        env: None,
+        source: None,
+    };
+    assert_eq!(get_auth_credential(Some(&auth)), Some(raw.clone()));
+    auth.auth.api_key = None;
+    auth.auth.headers = Some(pi_ai::types::ProviderHeaders::from([(
+        "Authorization".to_string(),
+        Some(JsString::from("Bearer ") + &raw),
+    )]));
+    assert_eq!(get_auth_credential(Some(&auth)), Some(raw));
+}
