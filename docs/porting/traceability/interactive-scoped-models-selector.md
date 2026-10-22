@@ -12,6 +12,10 @@ Rust: `crates/pi-coding-agent/src/modes/interactive/components/scoped_models_sel
 
 2026-10-22 RED: old Rust retained missing IDs and rendered `[unavailable]`; frozen filters them out. Raw regression also failed because `No matching models` was absent (`test-scoped-filter-red.log`). Missing raw IDs now remain configuration data but cannot become selectable rows; native search input still preserves their units.
 
+## Frozen length-only enable-all behavior
+
+Frozen `enableAll` :32–39 returns `null` when the resulting configured list length equals the available model count, without checking list membership. With missing configured IDs, this can clear the explicit filter before every available model was included. The existing scoped-subset differential exercises this exact boundary. Native's extra membership guard diverged (`test-differential_components-scoped-native.log`); removed under explicit whole-module frozen-alignment authorization. This records source behavior, not a correctness improvement.
+
 ## Old-only refresh removal (2026-10-22)
 
 Frozen config :74–77 has no refresh status; removed native refresh-status row, field, setter, enum and `update_models`. Frozen `interactive-mode.ts::showModelsSelector` :6154–6186 refreshes/reads available models before constructing the selector; after mounting it only keeps change/persist/cancel callbacks. Removed the native post-mount catalog request, timeout task, mutable catalog cells, disposal cancellation and status rendering, plus its now-unused shared-component adapter. No background request or error result is left silently discarded.

@@ -57,7 +57,7 @@ fn enable_all(enabled_ids: &EnabledIds, all_ids: &[JsString], target_ids: Option
             result.push(id.clone());
         }
     }
-    if result.len() == all_ids.len() && result.iter().all(|id| all_ids.contains(id)) {
+    if result.len() == all_ids.len() {
         None
     } else {
         Some(result)
