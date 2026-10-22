@@ -692,8 +692,7 @@ async fn stream_with_deltas(
                     block.arguments.clone(),
                 ));
                 let chunks = split_text_by_token_size(&JsString::from(arguments), min_token_size, max_token_size);
-                let last_chunk = chunks.len().saturating_sub(1);
-                for (chunk_index, chunk) in chunks.iter().enumerate() {
+                for chunk in &chunks {
                     schedule_chunk(chunk, tokens_per_second).await;
                     if signal.is_some_and(CancellationToken::is_cancelled) {
                         let aborted = create_aborted_message(&partial);
@@ -703,13 +702,6 @@ async fn stream_with_deltas(
                         });
                         sender.end(Some(aborted));
                         return Ok(());
-                    }
-                    // TypeScript assigns the final arguments synchronously right after
-                    // the last delta; listeners observe them on that delta's partial.
-                    if chunk_index == last_chunk
-                        && let Some(AssistantContent::ToolCall(partial_call)) = partial.content.get_mut(index)
-                    {
-                        partial_call.arguments = block.arguments.clone();
                     }
                     sender.push(AssistantMessageEvent::ToolCallDelta {
                         content_index: index,
