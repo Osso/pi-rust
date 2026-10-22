@@ -701,7 +701,7 @@ fn open_attached_session_manager(
     if !Path::new(&input.session_path).exists() {
         return Err(format!("Child agent transcript does not exist: {}", input.session_path));
     }
-    let ctx_cwd = input.ctx.cwd().map_err(|error| JsString::from(error.to_string()))?;
+    let ctx_cwd = input.ctx.cwd().map_err(|error| error.message)?;
     if input.agent.cwd != ctx_cwd && !Path::new(&input.agent.cwd).exists() {
         return Err(format!(
             "Agent {} working directory does not exist: {}",
@@ -717,7 +717,7 @@ fn open_attached_session_manager(
     let control_db_path = input
         .ctx
         .control_db_path()
-        .map_err(|error| JsString::from(error.to_string()))?;
+        .map_err(|error| error.message)?;
     session_manager
         .set_metadata_control_db_path(control_db_path.as_deref(), Default::default())
         .map_err(|error| JsString::from(error.to_string()))?;
