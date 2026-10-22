@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use pi_ai::types::{AssistantContent, AssistantMessage, StopReason};
-use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::{js_format, js_json::JsString};
 use pi_tui::components::text::StyleFn;
 use pi_tui::tui::component;
 use pi_tui::{Component, Container, Markdown, MarkdownOptions, MarkdownTheme, Spacer, Text};
@@ -20,7 +20,7 @@ pub struct AssistantMessageComponent {
     content_container: Container,
     hide_thinking_block: bool,
     markdown_theme: Rc<dyn MarkdownTheme>,
-    hidden_thinking_label: String,
+    hidden_thinking_label: JsString,
     output_pad: usize,
     last_message: Option<AssistantMessage>,
     has_tool_calls: bool,
@@ -32,7 +32,7 @@ impl AssistantMessageComponent {
         message: Option<AssistantMessage>,
         hide_thinking_block: bool,
         markdown_theme: Option<Rc<dyn MarkdownTheme>>,
-        hidden_thinking_label: Option<String>,
+        hidden_thinking_label: Option<JsString>,
         output_pad: usize,
         _markdown_transformers: Vec<MarkdownTransformer>,
     ) -> Self {
@@ -40,7 +40,7 @@ impl AssistantMessageComponent {
             content_container: Container::new(),
             hide_thinking_block,
             markdown_theme: markdown_theme.unwrap_or_else(|| Rc::from(get_markdown_theme())),
-            hidden_thinking_label: hidden_thinking_label.unwrap_or_else(|| "Thinking...".to_owned()),
+            hidden_thinking_label: hidden_thinking_label.unwrap_or_else(|| "Thinking...".into()),
             output_pad,
             last_message: None,
             has_tool_calls: false,
@@ -59,7 +59,7 @@ impl AssistantMessageComponent {
         }
     }
 
-    pub fn set_hidden_thinking_label(&mut self, label: impl Into<String>) {
+    pub fn set_hidden_thinking_label(&mut self, label: impl Into<JsString>) {
         self.hidden_thinking_label = label.into();
         if let Some(message) = self.last_message.clone() {
             self.update_content(message, self.is_streaming);
@@ -88,7 +88,7 @@ impl AssistantMessageComponent {
             match &message.content[index] {
                 AssistantContent::Text(text) if !text.text.trim().is_empty() => {
                     self.content_container.add_child(component(Markdown::with_shared_theme(
-                        encode_node_utf8(&text.text.trim()),
+                        text.text.trim(),
                         self.output_pad,
                         0,
                         self.markdown_theme.clone(),
@@ -124,14 +124,14 @@ impl AssistantMessageComponent {
                             .add_child(component(Text::new(text, self.output_pad, 0)));
                     } else {
                         let color: StyleFn =
-                            Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::ThinkingText, text)));
+                            Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::ThinkingText, text)));
                         self.content_container.add_child(component(Markdown::with_shared_theme(
-                            encode_node_utf8(&JsString::join(thinking_blocks, "\n\n")),
+                            JsString::join(thinking_blocks, "\n\n"),
                             self.output_pad,
                             0,
                             self.markdown_theme.clone(),
                             Some(pi_tui::DefaultTextStyle {
-                                color: Some(Box::new(move |text: &str| color(text))),
+                                color: Some(Box::new(move |text: &JsString| color(text))),
                                 italic: true,
                                 ..Default::default()
                             }),
@@ -163,9 +163,9 @@ impl AssistantMessageComponent {
         } else if !has_tool_calls {
             match message.stop_reason {
                 StopReason::Aborted => {
-                    let abort_message = match message.error_message.as_deref() {
-                        Some(error) if error != "Request was aborted" => error,
-                        _ => "Operation aborted",
+                    let abort_message = match message.error_message.as_ref() {
+                        Some(error) if error != "Request was aborted" => error.clone(),
+                        _ => "Operation aborted".into(),
                     };
                     self.content_container.add_child(component(Spacer::new(1)));
                     self.content_container.add_child(component(Text::new(
@@ -175,10 +175,10 @@ impl AssistantMessageComponent {
                     )));
                 }
                 StopReason::Error => {
-                    let error = message.error_message.as_deref().unwrap_or("Unknown error");
+                    let error = message.error_message.clone().unwrap_or_else(|| "Unknown error".into());
                     self.content_container.add_child(component(Spacer::new(1)));
                     self.content_container.add_child(component(Text::new(
-                        with_theme(|theme| theme.fg(ThemeColor::Error, &format!("Error: {error}"))),
+                        with_theme(|theme| theme.fg(ThemeColor::Error, &js_format!("Error: {}", error))),
                         self.output_pad,
                         0,
                     )));
@@ -202,15 +202,15 @@ impl Component for AssistantMessageComponent {
         Some(self)
     }
 
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = self.content_container.render(width);
         if self.has_tool_calls || lines.is_empty() {
             return lines;
         }
 
-        lines[0] = format!("{OSC133_ZONE_START}{}", lines[0]);
+        lines[0] = js_format!("{}{}", OSC133_ZONE_START, &lines[0]);
         let last = lines.len() - 1;
-        lines[last] = format!("{OSC133_ZONE_END}{OSC133_ZONE_FINAL}{}", lines[last]);
+        lines[last] = js_format!("{}{}{}", OSC133_ZONE_END, OSC133_ZONE_FINAL, &lines[last]);
         lines
     }
 

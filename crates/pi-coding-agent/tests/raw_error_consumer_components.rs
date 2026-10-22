@@ -193,3 +193,40 @@ fn animation_leaf_caches_native_render_output() {
     assert_eq!(daxnuts.render(80), first);
     daxnuts.dispose();
 }
+
+#[test]
+fn assistant_message_keeps_raw_thinking_label_text_and_error() {
+    use pi_ai::types::{AssistantContent, AssistantMessage, StopReason, TextContent, ThinkingContent};
+    use pi_coding_agent::modes::interactive::components::assistant_message::AssistantMessageComponent;
+    init_theme();
+    let raw = JsString::from_utf16(vec![0xd800, 0x20, 0xdc00]);
+    let mut message = AssistantMessage::empty("faux", "faux", "fixture", 0);
+    message.content = vec![
+        AssistantContent::Thinking(ThinkingContent::new(raw.clone())),
+        AssistantContent::Text(TextContent::new(raw.clone())),
+    ];
+    message.stop_reason = StopReason::Error;
+    message.error_message = Some(JsString::from("failed ") + &raw);
+    let mut view = AssistantMessageComponent::new(Some(message), false, None, None, 1, vec![]);
+    let output = JsString::join(view.render(100), "\n");
+    assert!(output.contains(&raw));
+    assert!(output.contains(JsString::from("Error: failed ") + &raw));
+    view.set_hidden_thinking_label(JsString::from("hidden ") + &raw);
+    view.set_hide_thinking_block(true);
+    view.invalidate();
+    assert!(JsString::join(view.render(100), "\n").contains(JsString::from("hidden ") + &raw));
+}
+
+#[test]
+fn earendil_announcement_renders_and_invalidates_native_lines() {
+    use pi_coding_agent::modes::interactive::{
+        components::earendil_announcement::EarendilAnnouncementComponent, theme::with_theme,
+    };
+    init_theme();
+    let mut panel = EarendilAnnouncementComponent::new(with_theme(|theme| std::sync::Arc::new(theme.clone())));
+    let output = JsString::join(panel.render(100), "\n");
+    assert!(output.contains("pi has joined Earendil"));
+    assert!(output.contains("https://mariozechner.at/posts/2026-04-08-ive-sold-out/"));
+    panel.invalidate();
+    assert_eq!(JsString::join(panel.render(100), "\n"), output);
+}

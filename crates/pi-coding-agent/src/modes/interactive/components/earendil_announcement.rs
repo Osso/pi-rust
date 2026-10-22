@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
-use pi_js_compat::base64::buffer_to_base64;
+use pi_js_compat::{base64::buffer_to_base64, js_json::JsString};
 use pi_tui::components::image::{ImageOptions, ImageTheme};
 use pi_tui::tui::component;
 use pi_tui::{Component, Container, DynamicBorder, Image, Spacer, Text};
@@ -38,7 +38,7 @@ impl EarendilAnnouncementComponent {
         let mut container = Container::new();
         let accent_border = {
             let theme = theme.clone();
-            Rc::new(move |text: &str| theme.fg(ThemeColor::Accent, text))
+            Rc::new(move |text: &JsString| theme.fg(ThemeColor::Accent, text))
         };
         container.add_child(component(DynamicBorder::new(accent_border.clone())));
         container.add_child(component(Text::new(
@@ -58,7 +58,7 @@ impl EarendilAnnouncementComponent {
         if let Some(image_base64) = load_image_base64() {
             let fallback_theme = theme.clone();
             let image_theme = Rc::new(ImageTheme {
-                fallback_color: Rc::new(move |text: &str| fallback_theme.fg(ThemeColor::Muted, text)),
+                fallback_color: Rc::new(move |text: &JsString| fallback_theme.fg(ThemeColor::Muted, text)),
             });
             container.add_child(component(Image::new(
                 image_base64,
@@ -66,7 +66,7 @@ impl EarendilAnnouncementComponent {
                 image_theme,
                 ImageOptions {
                     max_width_cells: Some(56),
-                    filename: Some(IMAGE_FILENAME.to_string()),
+                    filename: Some(IMAGE_FILENAME.into()),
                     ..Default::default()
                 },
                 None,
@@ -80,7 +80,7 @@ impl EarendilAnnouncementComponent {
 }
 
 impl Component for EarendilAnnouncementComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.container.render_children(width)
     }
 

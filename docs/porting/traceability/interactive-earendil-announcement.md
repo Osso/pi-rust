@@ -12,3 +12,7 @@ Rust: `crates/pi-coding-agent/src/modes/interactive/components/earendil_announce
 | `getBundledInteractiveAssetPath` | `config::get_bundled_interactive_asset_path` | same test (path resolution) |
 
 Gap: the image-present branch is not executed in tests because the asset ships next to the packaged executable.
+
+## Q18 native UTF-16
+
+Native style callbacks and render output; assistant text/thinking/labels/errors no longer encode before Markdown/Text. Behavioral cases in `raw_error_consumer_components` written **unexecuted** pending coding-agent compilation. Earendil image filesystem load omission follows frozen source lines 14-22; no change to that source behavior.
