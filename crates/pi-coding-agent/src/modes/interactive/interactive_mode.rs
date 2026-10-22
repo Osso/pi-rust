@@ -411,18 +411,28 @@ pub fn format_resume_command(session_manager: &crate::core::session_manager::Ses
 pub(crate) fn format_follow_up_preview(message: impl Into<JsString>) -> String {
     let message = message.into();
     let sender = agent_sender(&message).unwrap_or_else(|| {
-        if message.trim() == "Continue working toward the active goal." { "goal".into() }
-        else { "unknown".into() }
+        if message.trim() == "Continue working toward the active goal." {
+            "goal".into()
+        } else {
+            "unknown".into()
+        }
     });
     let marker = "\nMessage:\n";
-    let body = message.find(marker).map(|index| {
-        let remainder = message.slice(index + marker.len(), message.len());
-        remainder.find(marker).map_or_else(|| remainder.clone(), |end| remainder.slice(0, end))
-    }).unwrap_or_else(|| message.clone());
+    let body = message
+        .find(marker)
+        .map(|index| {
+            let remainder = message.slice(index + marker.len(), message.len());
+            remainder
+                .find(marker)
+                .map_or_else(|| remainder.clone(), |end| remainder.slice(0, end))
+        })
+        .unwrap_or_else(|| message.clone());
     let body = body.split('\n').next().unwrap_or_default().trim();
     let preview = if body.len() > FOLLOW_UP_BODY_PREVIEW_LENGTH {
         body.slice(0, FOLLOW_UP_BODY_PREVIEW_LENGTH) + "…"
-    } else { body };
+    } else {
+        body
+    };
     encode_node_utf8(&(JsString::from("Follow-up from ") + sender + ": " + preview))
 }
 
@@ -430,11 +440,21 @@ fn agent_sender(message: &JsString) -> Option<JsString> {
     let units = message.units();
     let is_line_end = |unit: u16| matches!(unit, 0x000a | 0x000d | 0x2028 | 0x2029);
     for start in 0..units.len() {
-        if start > 0 && !is_line_end(units[start - 1]) { continue; }
-        let Some(line) = message.slice(start, message.len()).strip_prefix("- agent:") else { continue; };
+        if start > 0 && !is_line_end(units[start - 1]) {
+            continue;
+        }
+        let Some(line) = message.slice(start, message.len()).strip_prefix("- agent:") else {
+            continue;
+        };
         let trimmed = line.trim_start();
-        let end = trimmed.units().iter().position(|unit| is_line_end(*unit)).unwrap_or(trimmed.len());
-        if end > 0 { return Some(trimmed.slice(0, end).trim()); }
+        let end = trimmed
+            .units()
+            .iter()
+            .position(|unit| is_line_end(*unit))
+            .unwrap_or(trimmed.len());
+        if end > 0 {
+            return Some(trimmed.slice(0, end).trim());
+        }
     }
     None
 }
@@ -2186,7 +2206,9 @@ fn with_mode<R>(id: usize, f: impl FnOnce(Rc<InteractiveMode>) -> R) -> Option<R
 }
 
 /// Completes an extension UI request with the value the mode sends back.
-async fn await_ui_response<T>(receiver: tokio::sync::oneshot::Receiver<Result<T, String>>) -> Result<T, HandlerError> {
+async fn await_ui_response<T, E: Into<JsString>>(
+    receiver: tokio::sync::oneshot::Receiver<Result<T, E>>,
+) -> Result<T, HandlerError> {
     receiver
         .await
         .map_err(|error| HandlerError::new(error.to_string()))?
@@ -4343,7 +4365,9 @@ impl InteractiveMode {
             with_mode(id, |mode| {
                 match cancelled {
                     Ok(()) => mode.show_status(&format!("Cancellation requested for {display_name}.")),
-                    Err(error) => mode.show_status(JsString::from(format!("Could not cancel {display_name}: ")) + error),
+                    Err(error) => {
+                        mode.show_status(JsString::from(format!("Could not cancel {display_name}: ")) + error)
+                    }
                 }
                 mode.ui.request_render();
             });
@@ -10798,9 +10822,11 @@ impl InteractiveMode {
                 if let Ok(result) = &result {
                     self.adopt_transitioned_session(&runtime, result.cancelled);
                 }
-                let transition = result.map(|result| SessionTransitionResult {
-                    cancelled: result.cancelled,
-                });
+                let transition = result
+                    .map(|result| SessionTransitionResult {
+                        cancelled: result.cancelled,
+                    })
+                    .map_err(JsString::from);
                 let _ = respond.send(transition);
             }
             UiRequest::RuntimeReload { respond } => {
@@ -11480,7 +11506,7 @@ impl InteractiveMode {
                     } else {
                         self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
                         self.chat_container.borrow_mut().add_child(component(Text::new(
-                            with_theme(|theme| theme.fg(ThemeColor::Error, &failure_message)),
+                            with_theme(|theme| theme.fg(ThemeColor::Error, &encode_node_utf8(&failure_message))),
                             1,
                             0,
                         )));
@@ -11841,7 +11867,7 @@ fn format_compaction_original_error(error_message: &JsString, reason: &str) -> J
         &["Compaction failed: ", "Auto-compaction failed: "]
     };
     for prefix in prefixes {
-        if let Some(rest) = error_message.strip_prefix(prefix) {
+        if let Some(rest) = error_message.strip_prefix(*prefix) {
             return rest.into();
         }
     }

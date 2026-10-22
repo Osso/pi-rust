@@ -10,7 +10,7 @@ use pi_agent_core::agent::AgentMessage;
 use pi_ai::types::{AssistantContent, AssistantMessage, StopReason, TextOrImageContent, UserContent};
 use pi_js_compat::date::{date_parse_millis, local_date_fields};
 use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
-use pi_js_compat::string::{js_trim, utf16_len};
+use pi_js_compat::string::js_trim;
 use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;

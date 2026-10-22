@@ -1,5 +1,6 @@
-use pi_js_compat::js_json::{JsString, encode_node_utf8};
 //! Ported from `packages/coding-agent/src/modes/interactive/components/user-message-selector.ts`.
+
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 
 use std::rc::Rc;
 use std::time::{Duration, Instant};
