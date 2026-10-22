@@ -40,6 +40,19 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
     })
     .await
     .unwrap();
+    let model = runtime.get_models(None).into_iter().next().unwrap();
+    assert_eq!(
+        runtime.get_model(JsString::from(&model.provider), JsString::from(&model.id)),
+        Some(model.clone())
+    );
+    let invalid_provider = JsString::from(&model.provider) + JsString::from_utf16(vec![0xd800]);
+    assert!(runtime.get_model(invalid_provider, JsString::from(&model.id)).is_none());
+    let invalid_model = JsString::from(&model.id) + JsString::from_utf16(vec![0xdc00]);
+    assert!(
+        runtime
+            .get_model(JsString::from(&model.provider), invalid_model)
+            .is_none()
+    );
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     let session = AgentSession::new(AgentSessionConfig {
         agent: Agent::new(AgentOptions::default()).unwrap(),
@@ -75,6 +88,17 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
         session_start_event: None,
     })
     .unwrap();
+    let missing_id = JsString::from("missing-") + JsString::from_utf16(vec![0xd800]);
+    let missing_compaction = session.materialize_compaction_summary(&missing_id).await.unwrap_err();
+    assert_eq!(
+        missing_compaction.message(),
+        &(JsString::from("Entry ") + &missing_id + " not found")
+    );
+    let missing_tree = session
+        .navigate_tree(&missing_id, Default::default())
+        .await
+        .unwrap_err();
+    assert_eq!(missing_tree.message(), missing_compaction.message());
     assert_eq!(session.session_file(), Some(path.clone()));
     let target = store.get_persistence_target().unwrap();
     assert_eq!(target.session_path, path);
@@ -89,4 +113,6 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
     };
     assert_ne!(os_alias.session_path, target.session_path);
     session.dispose();
+    let reopened = SessionManager::open(&path, Some(&directory), None).unwrap();
+    assert_eq!(reopened.get_session_file(), Some(&path));
 }

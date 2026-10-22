@@ -833,7 +833,7 @@ pub struct NavigateTreeOptions {
     pub summarize: Option<bool>,
     pub custom_instructions: Option<JsString>,
     pub replace_instructions: Option<bool>,
-    pub label: Option<String>,
+    pub label: Option<JsString>,
 }
 
 #[derive(Clone, Default)]
@@ -875,10 +875,10 @@ pub struct ExtensionContextState {
     pub(super) has_pending_messages_fn: Arc<dyn Fn() -> bool + Send + Sync>,
     pub(super) shutdown_handler: Arc<dyn Fn() + Send + Sync>,
     pub(super) restart_fn: RestartHandler,
-    pub(super) get_control_db_path_fn: Arc<dyn Fn() -> Option<String> + Send + Sync>,
+    pub(super) get_control_db_path_fn: Arc<dyn Fn() -> Option<JsString> + Send + Sync>,
     pub(super) get_context_usage_fn: Arc<dyn Fn() -> Option<ContextUsage> + Send + Sync>,
-    pub(super) get_multi_agent_agent_id_fn: Arc<dyn Fn() -> Option<String> + Send + Sync>,
-    pub(super) get_multi_agent_parent_session_id_fn: Arc<dyn Fn() -> Option<String> + Send + Sync>,
+    pub(super) get_multi_agent_agent_id_fn: Arc<dyn Fn() -> Option<JsString> + Send + Sync>,
+    pub(super) get_multi_agent_parent_session_id_fn: Arc<dyn Fn() -> Option<JsString> + Send + Sync>,
     pub(super) get_multi_agent_requires_agent_id_fn: Arc<dyn Fn() -> bool + Send + Sync>,
     pub(super) get_multi_agent_store_fn: Arc<dyn Fn() -> Option<Arc<MultiAgentStore>> + Send + Sync>,
     pub(super) get_detached_job_lifecycle_fn:
@@ -1762,9 +1762,9 @@ pub struct RuntimeMailboxEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TreePreparation {
-    pub target_id: String,
-    pub old_leaf_id: Option<String>,
-    pub common_ancestor_id: Option<String>,
+    pub target_id: JsString,
+    pub old_leaf_id: Option<JsString>,
+    pub common_ancestor_id: Option<JsString>,
     pub entries_to_summarize: Vec<SessionEntry>,
     pub user_wants_summary: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1772,7 +1772,7 @@ pub struct TreePreparation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replace_instructions: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
+    pub label: Option<JsString>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1786,8 +1786,8 @@ pub struct SessionBeforeTreeEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionTreeEvent {
-    pub new_leaf_id: Option<String>,
-    pub old_leaf_id: Option<String>,
+    pub new_leaf_id: Option<JsString>,
+    pub old_leaf_id: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary_entry: Option<BranchSummaryEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2462,7 +2462,7 @@ pub struct SessionBeforeTreeResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replace_instructions: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
+    pub label: Option<JsString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2854,10 +2854,10 @@ pub type SendMessageHandler =
     Arc<dyn Fn(CustomMessagePayload, Option<SendMessageOptions>) -> Result<(), HandlerError> + Send + Sync>;
 pub type SendUserMessageHandler =
     Arc<dyn Fn(UserMessageContent, Option<SendUserMessageOptions>) -> Result<(), HandlerError> + Send + Sync>;
-pub type AppendEntryHandler = Arc<dyn Fn(&str, Option<JsValue>) -> Result<(), HandlerError> + Send + Sync>;
+pub type AppendEntryHandler = Arc<dyn Fn(&JsString, Option<JsValue>) -> Result<(), HandlerError> + Send + Sync>;
 pub type SetSessionNameHandler = Arc<dyn Fn(&JsString) -> Result<(), HandlerError> + Send + Sync>;
 pub type GetSessionNameHandler = Arc<dyn Fn() -> Result<Option<JsString>, HandlerError> + Send + Sync>;
-pub type SetLabelHandler = Arc<dyn Fn(&str, Option<&str>) -> Result<(), HandlerError> + Send + Sync>;
+pub type SetLabelHandler = Arc<dyn Fn(&JsString, Option<&JsString>) -> Result<(), HandlerError> + Send + Sync>;
 pub type GetActiveToolsHandler = Arc<dyn Fn() -> Result<Vec<String>, HandlerError> + Send + Sync>;
 pub type GetAllToolsHandler = Arc<dyn Fn() -> Result<Vec<ToolInfo>, HandlerError> + Send + Sync>;
 pub type SetActiveToolsHandler = Arc<dyn Fn(&[String]) -> Result<(), HandlerError> + Send + Sync>;
@@ -2914,10 +2914,10 @@ pub struct ExtensionContextActions {
     pub has_pending_messages: Arc<dyn Fn() -> bool + Send + Sync>,
     pub shutdown: Arc<dyn Fn() + Send + Sync>,
     pub restart: RestartHandler,
-    pub get_control_db_path: Option<Arc<dyn Fn() -> Option<String> + Send + Sync>>,
+    pub get_control_db_path: Option<Arc<dyn Fn() -> Option<JsString> + Send + Sync>>,
     pub get_context_usage: Arc<dyn Fn() -> Option<ContextUsage> + Send + Sync>,
-    pub get_multi_agent_agent_id: Option<Arc<dyn Fn() -> Option<String> + Send + Sync>>,
-    pub get_multi_agent_parent_session_id: Option<Arc<dyn Fn() -> Option<String> + Send + Sync>>,
+    pub get_multi_agent_agent_id: Option<Arc<dyn Fn() -> Option<JsString> + Send + Sync>>,
+    pub get_multi_agent_parent_session_id: Option<Arc<dyn Fn() -> Option<JsString> + Send + Sync>>,
     pub get_multi_agent_requires_agent_id: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     pub get_multi_agent_store: Option<Arc<dyn Fn() -> Option<Arc<MultiAgentStore>> + Send + Sync>>,
     pub get_tool_detach_registry: Option<Arc<dyn Fn() -> Option<Arc<ToolDetachRegistry>> + Send + Sync>>,
@@ -3398,7 +3398,7 @@ impl ExtensionApi {
         (self.runtime.actions().send_user_message)(content, options)
     }
 
-    pub fn append_entry(&self, custom_type: &str, data: Option<JsValue>) -> Result<(), HandlerError> {
+    pub fn append_entry(&self, custom_type: &JsString, data: Option<JsValue>) -> Result<(), HandlerError> {
         self.runtime.assert_active()?;
         (self.runtime.actions().append_entry)(custom_type, data)
     }
@@ -3419,7 +3419,7 @@ impl ExtensionApi {
         (self.runtime.actions().get_session_name)()
     }
 
-    pub fn set_label(&self, entry_id: &str, label: Option<&str>) -> Result<(), HandlerError> {
+    pub fn set_label(&self, entry_id: &JsString, label: Option<&JsString>) -> Result<(), HandlerError> {
         self.runtime.assert_active()?;
         (self.runtime.actions().set_label)(entry_id, label)
     }

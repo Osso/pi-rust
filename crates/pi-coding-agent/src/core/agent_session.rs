@@ -335,7 +335,7 @@ pub struct ModelCycleResult {
 #[serde(rename_all = "camelCase")]
 pub struct SessionStats {
     pub session_file: Option<JsString>,
-    pub session_id: String,
+    pub session_id: JsString,
     pub user_messages: u64,
     pub assistant_messages: u64,
     pub tool_calls: u64,
@@ -367,7 +367,7 @@ pub struct SessionTokenStats {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserMessageForForking {
-    pub entry_id: String,
+    pub entry_id: JsString,
     pub text: JsString,
 }
 
@@ -415,9 +415,10 @@ fn add_session_entry(mut total: SessionStatsTotals, entry: &SessionEntry) -> Ses
     if entry.entry_type() != "message" {
         return total;
     }
-    let Some(message) = entry.as_message().map(|entry| entry.message.as_ref()) else {
+    let Some(entry_message) = entry.as_message() else {
         return total;
     };
+    let message = entry_message.message.as_ref();
     total.total_messages += 1;
     match message {
         AgentMessage::User(_) => total.user_messages += 1,
@@ -645,7 +646,7 @@ pub struct NavigateTreeOptions {
     pub summarize: Option<bool>,
     pub custom_instructions: Option<JsString>,
     pub replace_instructions: Option<bool>,
-    pub label: Option<String>,
+    pub label: Option<JsString>,
 }
 
 /// Result of [`AgentSession::navigate_tree`].
@@ -1028,8 +1029,8 @@ enum BackgroundCompactionState {
 struct BackgroundCompactionCache {
     token: u64,
     state: BackgroundCompactionState,
-    session_id: String,
-    snapshot_leaf_id: String,
+    session_id: JsString,
+    snapshot_leaf_id: JsString,
     branch_entries: Vec<SessionEntry>,
     preparation: crate::core::compaction::CompactionPreparation,
     settings: crate::core::compaction::CompactionSettings,
@@ -1265,7 +1266,7 @@ impl AgentSession {
                 });
             manager
                 .set_metadata_control_db_path(Some(&path), Default::default())
-                .map_err(|error| AgentSessionError::new(error.to_string()))?;
+                .map_err(AgentSessionError::from)?;
             path
         };
 
@@ -2679,7 +2680,7 @@ impl AgentSession {
             return;
         }
         if let Err(error) = lock(&self.inner.session_manager).append_custom_entry(
-            DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE,
+            &DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE.into(),
             Some(pi_js_compat::js_json::to_value(&data).expect("mailbox delivery serializes")),
         ) {
             eprintln!("Failed to record detached tool call completion: {error}");
@@ -2967,7 +2968,7 @@ impl AgentSession {
             return;
         };
         if lock(&self.inner.runtime_mailbox_poll_token).is_some()
-            && lock(&self.inner.runtime_mailbox_control_db_path).as_deref() == Some(control_db_path.as_str())
+            && lock(&self.inner.runtime_mailbox_control_db_path).as_ref() == Some(&control_db_path)
         {
             return;
         }
@@ -3041,7 +3042,7 @@ impl AgentSession {
             control_db_path,
             &recipient,
             std::process::id(),
-            session_file.as_deref(),
+            session_file.as_ref(),
             Default::default(),
         ) {
             eprintln!("Failed to refresh runtime mailbox listeners: {error}");
@@ -3217,7 +3218,7 @@ impl AgentSession {
     ) -> Result<bool, AgentSessionError> {
         if options.trigger_if_idle && !self.is_streaming() {
             Box::pin(self.send_custom_message(
-                "shared_channel",
+                &"shared_channel".into(),
                 CustomMessageContent::Text(prompt.to_owned().into()),
                 true,
                 None,
@@ -3629,7 +3630,7 @@ impl AgentSession {
             return Ok(());
         }
         let branch_entries = lock(&self.inner.session_manager).get_branch(None);
-        let Some(snapshot_leaf_id) = lock(&self.inner.session_manager).get_leaf_id().map(str::to_owned) else {
+        let Some(snapshot_leaf_id) = lock(&self.inner.session_manager).get_leaf_id().cloned() else {
             return Ok(());
         };
         let Some(preparation) = crate::core::compaction::prepare_compaction(&branch_entries, settings) else {
@@ -3802,7 +3803,7 @@ impl AgentSession {
             }
             return Ok(());
         }
-        let session_advanced = lock(&self.inner.session_manager).get_leaf_id().map(str::to_owned)
+        let session_advanced = lock(&self.inner.session_manager).get_leaf_id().cloned()
             != lock(&self.inner.background_compaction_cache)
                 .as_ref()
                 .map(|cache| cache.snapshot_leaf_id.clone());
@@ -3829,8 +3830,8 @@ impl AgentSession {
         let snapshot_is_ancestor = lock(&self.inner.session_manager)
             .get_branch(None)
             .iter()
-            .any(|entry| entry.id() == Some(cache.snapshot_leaf_id.as_str()));
-        Ok(cache.session_id == lock(&self.inner.session_manager).get_session_id()
+            .any(|entry| entry.id() == Some(&cache.snapshot_leaf_id));
+        Ok(&cache.session_id == lock(&self.inner.session_manager).get_session_id()
             && snapshot_is_ancestor
             && cache.model_provider == model.provider
             && cache.model_id == model.id
@@ -4834,7 +4835,7 @@ impl AgentSession {
         self.inner.agent.set_model(model.clone());
         lock(&self.inner.session_manager)
             .set_session_model(&JsString::from(&model.provider), &JsString::from(&model.id))
-            .map_err(|error| AgentSessionError::new(error.to_string()))?;
+            .map_err(AgentSessionError::from)?;
         if self.inner.multi_agent_agent_id.is_none() {
             lock_settings_manager(&self.inner.settings_manager)
                 .set_default_model_and_provider(&model.provider, &model.id);
@@ -4932,7 +4933,7 @@ impl AgentSession {
         self.inner.agent.set_model(next.model.clone());
         lock(&self.inner.session_manager)
             .set_session_model(&JsString::from(&next.model.provider), &JsString::from(&next.model.id))
-            .map_err(|error| AgentSessionError::new(error.to_string()))?;
+            .map_err(AgentSessionError::from)?;
         lock_settings_manager(&self.inner.settings_manager)
             .set_default_model_and_provider(&next.model.provider, &next.model.id);
         self.set_thinking_level(thinking_level)?;
@@ -4966,7 +4967,7 @@ impl AgentSession {
                 },
                 self.current_agent_activity_owner().as_ref(),
             )
-            .map_err(|error| AgentSessionError::new(error.to_string()))?;
+            .map_err(AgentSessionError::from)?;
         Ok(())
     }
 
@@ -4985,7 +4986,7 @@ impl AgentSession {
         if is_changing {
             lock(&self.inner.session_manager)
                 .set_session_thinking_level(&effective.as_str().into())
-                .map_err(|error| AgentSessionError::new(error.to_string()))?;
+                .map_err(AgentSessionError::from)?;
             if self.inner.multi_agent_agent_id.is_none()
                 && (self.supports_thinking() || effective != ThinkingLevel::Off)
             {
@@ -5105,7 +5106,7 @@ impl AgentSession {
                 &JsString::from(&fallback_model.provider),
                 &JsString::from(&fallback_model.id),
             )
-            .map_err(|error| AgentSessionError::new(error.to_string()))?;
+            .map_err(AgentSessionError::from)?;
         Ok(true)
     }
 
@@ -5592,7 +5593,7 @@ impl AgentSession {
         &self.inner.cwd
     }
 
-    pub fn agent_dir(&self) -> &str {
+    pub fn agent_dir(&self) -> &JsString {
         &self.inner.agent_dir
     }
 
@@ -5686,7 +5687,7 @@ impl AgentSession {
         lock(&self.inner.session_manager).get_session_id().to_owned()
     }
 
-    pub fn control_db_path(&self) -> Option<String> {
+    pub fn control_db_path(&self) -> Option<JsString> {
         self.inner.control_db_path.clone()
     }
 
@@ -6551,7 +6552,7 @@ impl AgentSession {
         Ok(())
     }
 
-    pub fn update_compaction_summary(&self, entry_id: &str, summary: &JsString) -> Result<(), AgentSessionError> {
+    pub fn update_compaction_summary(&self, entry_id: &JsString, summary: &JsString) -> Result<(), AgentSessionError> {
         let messages = {
             let mut manager = lock(&self.inner.session_manager);
             manager
@@ -6566,7 +6567,7 @@ impl AgentSession {
     /// Materializes a provider-native compaction summary.
     pub async fn materialize_compaction_summary(
         &self,
-        entry_id: &str,
+        entry_id: &JsString,
     ) -> Result<crate::core::compaction::MaterializeCompactionSummaryResult, AgentSessionError> {
         let (entry, model) = self.require_compaction_summary_materialization_target(entry_id)?;
         if lock(&self.inner.compaction_summary_materialization_abort_controller).is_some() {
@@ -6597,28 +6598,36 @@ impl AgentSession {
 
     fn require_compaction_summary_materialization_target(
         &self,
-        entry_id: &str,
+        entry_id: &JsString,
     ) -> Result<(crate::core::session_manager::CompactionEntry, Model), AgentSessionError> {
         let entry = lock(&self.inner.session_manager)
             .get_entry(entry_id)
             .cloned()
-            .ok_or_else(|| error(format!("Entry {entry_id} not found")))?;
-        let Some(compaction) = entry.as_compaction().cloned() else {
-            return Err(error(format!("Entry {entry_id} is not a compaction")));
+            .ok_or_else(|| error(pi_js_compat::js_format!("Entry {} not found", entry_id)))?;
+        let Some(compaction) = entry.as_compaction().map(std::borrow::Cow::into_owned) else {
+            return Err(error(pi_js_compat::js_format!(
+                "Entry {} is not a compaction",
+                entry_id
+            )));
         };
         let Some(checkpoint) = &compaction.provider_native else {
-            return Err(error(format!(
-                "Compaction entry {entry_id} has no provider-native checkpoint"
+            return Err(error(pi_js_compat::js_format!(
+                "Compaction entry {} has no provider-native checkpoint",
+                entry_id
             )));
         };
         let model = self.inner.agent.model();
-        let matching_provider = checkpoint.provider == model.provider;
-        let matching_api = checkpoint.api == model.api;
-        let supported_format = checkpoint.format == pi_ai::types::ProviderNativeFormat::OpenAIResponsesInput;
+        let provider = &checkpoint["provider"];
+        let api = &checkpoint["api"];
+        let matching_provider = provider.as_string() == Some(&JsString::from(&model.provider));
+        let matching_api = api.as_string() == Some(&JsString::from(&model.api));
+        let supported_format = checkpoint["format"].as_string() == Some(&JsString::from("openai.responses.input"))
+            && checkpoint["value"].as_array().is_some();
         if !matching_provider || !matching_api || !supported_format {
-            return Err(error(format!(
+            return Err(error(pi_js_compat::js_format!(
                 "Compaction summary materialization requires an active {}/{} model",
-                checkpoint.provider, checkpoint.api
+                pi_js_compat::js_json::to_js_string(provider).map_err(error)?,
+                pi_js_compat::js_json::to_js_string(api).map_err(error)?
             )));
         }
         Ok((compaction, model))
@@ -6671,7 +6680,7 @@ impl AgentSession {
     /// Navigates to a different node in the session tree.
     pub async fn navigate_tree(
         &self,
-        target_id: &str,
+        target_id: &JsString,
         options: NavigateTreeOptions,
     ) -> Result<NavigateTreeResult, AgentSessionError> {
         if self.is_streaming() {
@@ -6681,10 +6690,10 @@ impl AgentSession {
         }
         let (old_leaf_id, target_entry, entries_to_summarize, common_ancestor_id) = {
             let manager = lock(&self.inner.session_manager);
-            let old_leaf_id = manager.get_leaf_id().map(str::to_owned);
+            let old_leaf_id = manager.get_leaf_id().cloned();
             let collected = crate::core::compaction::branch_summarization::collect_entries_for_branch_summary(
                 &manager,
-                old_leaf_id.as_deref(),
+                old_leaf_id.as_ref(),
                 target_id,
             );
             (
@@ -6694,7 +6703,7 @@ impl AgentSession {
                 collected.common_ancestor_id,
             )
         };
-        if old_leaf_id.as_deref() == Some(target_id) {
+        if old_leaf_id.as_ref() == Some(target_id) {
             return Ok(NavigateTreeResult {
                 editor_text: None,
                 cancelled: false,
@@ -6703,7 +6712,7 @@ impl AgentSession {
             });
         }
         let Some(target_entry) = target_entry else {
-            return Err(error(format!("Entry {target_id} not found")));
+            return Err(error(pi_js_compat::js_format!("Entry {} not found", target_id)));
         };
 
         let mut custom_instructions = options.custom_instructions.clone();
@@ -6840,12 +6849,8 @@ impl AgentSession {
         {
             let mut manager = lock(&self.inner.session_manager);
             if let Some(text) = summary_text {
-                let summary_id = manager.branch_with_summary(
-                    new_leaf_id.as_deref(),
-                    &text,
-                    summary_details,
-                    Some(from_extension),
-                )?;
+                let summary_id =
+                    manager.branch_with_summary(new_leaf_id.as_ref(), &text, summary_details, Some(from_extension))?;
                 summary_entry = manager.get_entry(&summary_id).cloned();
                 if let Some(label) = &label {
                     manager.append_label_change(&summary_id, Some(label))?;
@@ -6865,7 +6870,7 @@ impl AgentSession {
         self.inner.agent.set_messages(session_context.messages);
         let mut event = crate::core::extensions::types::ExtensionEvent::SessionTree(
             crate::core::extensions::types::SessionTreeEvent {
-                new_leaf_id: lock(&self.inner.session_manager).get_leaf_id().map(str::to_owned),
+                new_leaf_id: lock(&self.inner.session_manager).get_leaf_id().cloned(),
                 old_leaf_id,
                 summary_entry: summary_entry.clone().and_then(|entry| match entry {
                     SessionEntry::Known(crate::core::session_manager::KnownSessionEntry::BranchSummary(summary)) => {
@@ -7821,7 +7826,7 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
             let entry_id = session
                 .session_manager()
                 .append_custom_entry(custom_type, data)
-                .map_err(|error| crate::core::extensions::types::HandlerError::new(error.to_string()))?;
+                .map_err(|error| crate::core::extensions::types::HandlerError::new(error.message()))?;
             let entry = session.session_manager().get_entry(&entry_id).cloned();
             if let Some(entry) = entry {
                 session.emit(AgentSessionEvent::EntryAppended(EntryAppendedEvent {
@@ -7854,7 +7859,7 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
         });
     let label_weak = weak.clone();
     let set_label: crate::core::extensions::types::SetLabelHandler =
-        Arc::new(move |entry_id: &str, label: Option<&str>| {
+        Arc::new(move |entry_id: &JsString, label: Option<&JsString>| {
             let Some(inner) = label_weak.upgrade() else {
                 return Ok(());
             };
@@ -7862,7 +7867,7 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
                 .session_manager()
                 .append_label_change(entry_id, label)
                 .map(|_| ())
-                .map_err(|error| crate::core::extensions::types::HandlerError::new(error.to_string()))
+                .map_err(|error| crate::core::extensions::types::HandlerError::new(error.message()))
         });
     let active_weak = weak.clone();
     let get_active_tools: crate::core::extensions::types::GetActiveToolsHandler =
@@ -8356,7 +8361,7 @@ impl AgentSession {
         };
         let tool_spec = pi_ai::types::Tool::new(tool_name, tool.description(), tool.parameters().clone());
         let validated = pi_ai::utils::validation::validate_tool_arguments(&tool_spec, &tool_call)
-            .map_err(|error| crate::core::extensions::types::HandlerError::new(error.to_string()))?;
+            .map_err(|error| crate::core::extensions::types::HandlerError::new(error.message()))?;
         let before = self
             .before_tool_call(BeforeToolCallContext {
                 assistant_message: synthetic_tool_call_assistant_message(&self.model(), &tool_call),

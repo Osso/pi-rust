@@ -81,7 +81,7 @@ impl ModelRegistry {
         self.runtime.get_available_snapshot()
     }
 
-    pub fn find(&self, provider: &str, model_id: &str) -> Option<Model> {
+    pub fn find(&self, provider: impl Into<JsString>, model_id: impl Into<JsString>) -> Option<Model> {
         self.runtime.get_model(provider, model_id)
     }
 
