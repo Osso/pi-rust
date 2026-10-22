@@ -30,16 +30,19 @@ fn text(result: &AgentToolResult) -> JsString {
 #[test]
 fn writes_file_contents_and_creates_parent_directories() {
     let temp = tempfile::tempdir().expect("temp dir");
-    let tool = WriteTool::new(temp.path().to_string_lossy().as_ref());
+    let tool = WriteTool::new(temp.path().to_str().expect("utf-8 test path"));
     let file = temp.path().join("nested/dir/write-test.txt");
     let result = execute(
         &tool,
-        json!({"path": file.to_string_lossy().as_ref(), "content": "Test content"}),
+        json!({"path": file.to_str().expect("utf-8 test path"), "content": "Test content"}),
     )
     .expect("write result");
     assert_eq!(
         text(&result),
-        format!("Successfully wrote 12 bytes to {}", file.to_string_lossy().as_ref())
+        format!(
+            "Successfully wrote 12 bytes to {}",
+            file.to_str().expect("utf-8 test path")
+        )
     );
     assert_eq!(std::fs::read_to_string(&file).expect("written file"), "Test content");
 }
@@ -47,11 +50,11 @@ fn writes_file_contents_and_creates_parent_directories() {
 #[test]
 fn write_reports_utf16_code_unit_length() {
     let temp = tempfile::tempdir().expect("temp dir");
-    let tool = WriteTool::new(temp.path().to_string_lossy().as_ref());
+    let tool = WriteTool::new(temp.path().to_str().expect("utf-8 test path"));
     let file = temp.path().join("emoji.txt");
     let result = execute(
         &tool,
-        json!({"path": file.to_string_lossy().as_ref(), "content": "a😀b"}),
+        json!({"path": file.to_str().expect("utf-8 test path"), "content": "a😀b"}),
     )
     .expect("write result");
     assert!(
@@ -66,17 +69,17 @@ fn edit_replaces_text_and_reports_diff_and_patch() {
     let temp = tempfile::tempdir().expect("temp dir");
     let file = temp.path().join("edit-test.txt");
     std::fs::write(&file, "Hello, world!").expect("fixture");
-    let tool = EditTool::new(temp.path().to_string_lossy().as_ref());
+    let tool = EditTool::new(temp.path().to_str().expect("utf-8 test path"));
     let result = execute(
         &tool,
-        json!({"path": file.to_string_lossy().as_ref(), "edits": [{"oldText": "world", "newText": "universe"}]}),
+        json!({"path": file.to_str().expect("utf-8 test path"), "edits": [{"oldText": "world", "newText": "universe"}]}),
     )
     .expect("edit result");
     assert_eq!(
         text(&result),
         format!(
             "Successfully replaced 1 block(s) in {}.",
-            file.to_string_lossy().as_ref()
+            file.to_str().expect("utf-8 test path")
         )
     );
     assert_eq!(std::fs::read_to_string(&file).expect("edited file"), "Hello, universe!");
@@ -98,16 +101,16 @@ fn edit_fails_when_text_is_missing_or_ambiguous() {
     let temp = tempfile::tempdir().expect("temp dir");
     let file = temp.path().join("edit-test.txt");
     std::fs::write(&file, "same\nsame").expect("fixture");
-    let tool = EditTool::new(temp.path().to_string_lossy().as_ref());
+    let tool = EditTool::new(temp.path().to_str().expect("utf-8 test path"));
     let error = execute(
         &tool,
-        json!({"path": file.to_string_lossy().as_ref(), "edits": [{"oldText": "missing", "newText": "x"}]}),
+        json!({"path": file.to_str().expect("utf-8 test path"), "edits": [{"oldText": "missing", "newText": "x"}]}),
     )
     .expect_err("missing text");
     assert!(error.contains("Could not find the exact text"), "{error:?}");
     let error = execute(
         &tool,
-        json!({"path": file.to_string_lossy().as_ref(), "edits": [{"oldText": "same", "newText": "x"}]}),
+        json!({"path": file.to_str().expect("utf-8 test path"), "edits": [{"oldText": "same", "newText": "x"}]}),
     )
     .expect_err("ambiguous text");
     assert!(error.contains("Found 2 occurrences"), "{error:?}");
@@ -117,18 +120,18 @@ fn edit_fails_when_text_is_missing_or_ambiguous() {
 #[test]
 fn edit_reports_enoent_for_missing_files() {
     let temp = tempfile::tempdir().expect("temp dir");
-    let tool = EditTool::new(temp.path().to_string_lossy().as_ref());
+    let tool = EditTool::new(temp.path().to_str().expect("utf-8 test path"));
     let file = temp.path().join("missing.txt");
     let error = execute(
         &tool,
-        json!({"path": file.to_string_lossy().as_ref(), "edits": [{"oldText": "a", "newText": "b"}]}),
+        json!({"path": file.to_str().expect("utf-8 test path"), "edits": [{"oldText": "a", "newText": "b"}]}),
     )
     .expect_err("missing file");
     assert_eq!(
         error,
         format!(
             "Could not edit file: {}. Error code: ENOENT.",
-            file.to_string_lossy().as_ref()
+            file.to_str().expect("utf-8 test path")
         )
     );
 }
@@ -138,15 +141,19 @@ fn edit_rejects_empty_and_overlapping_edits() {
     let temp = tempfile::tempdir().expect("temp dir");
     let file = temp.path().join("edit-test.txt");
     std::fs::write(&file, "abcdef").expect("fixture");
-    let tool = EditTool::new(temp.path().to_string_lossy().as_ref());
-    let error = execute(&tool, json!({"path": file.to_string_lossy().as_ref(), "edits": []})).expect_err("empty edits");
+    let tool = EditTool::new(temp.path().to_str().expect("utf-8 test path"));
+    let error = execute(
+        &tool,
+        json!({"path": file.to_str().expect("utf-8 test path"), "edits": []}),
+    )
+    .expect_err("empty edits");
     assert_eq!(
         error,
         "Edit tool input is invalid. edits must contain at least one replacement."
     );
     let error = execute(
         &tool,
-        json!({"path": file.to_string_lossy().as_ref(), "edits": [
+        json!({"path": file.to_str().expect("utf-8 test path"), "edits": [
             {"oldText": "abcd", "newText": "x"},
             {"oldText": "cdef", "newText": "y"}
         ]}),
@@ -161,10 +168,10 @@ fn edit_applies_disjoint_edits_against_the_original_content() {
     let temp = tempfile::tempdir().expect("temp dir");
     let file = temp.path().join("edit-test.txt");
     std::fs::write(&file, "alpha\nbeta\ngamma\ndelta").expect("fixture");
-    let tool = EditTool::new(temp.path().to_string_lossy().as_ref());
+    let tool = EditTool::new(temp.path().to_str().expect("utf-8 test path"));
     execute(
         &tool,
-        json!({"path": file.to_string_lossy().as_ref(), "edits": [
+        json!({"path": file.to_str().expect("utf-8 test path"), "edits": [
             {"oldText": "alpha", "newText": "one"},
             {"oldText": "gamma", "newText": "three"}
         ]}),
@@ -181,10 +188,10 @@ fn edit_preserves_crlf_and_bom() {
     let temp = tempfile::tempdir().expect("temp dir");
     let file = temp.path().join("edit-test.txt");
     std::fs::write(&file, "\u{feff}first\r\nsecond\r\n").expect("fixture");
-    let tool = EditTool::new(temp.path().to_string_lossy().as_ref());
+    let tool = EditTool::new(temp.path().to_str().expect("utf-8 test path"));
     execute(
         &tool,
-        json!({"path": file.to_string_lossy().as_ref(), "edits": [{"oldText": "first\nsecond", "newText": "one\ntwo"}]}),
+        json!({"path": file.to_str().expect("utf-8 test path"), "edits": [{"oldText": "first\nsecond", "newText": "one\ntwo"}]}),
     )
     .expect("crlf edit");
     assert_eq!(
@@ -228,7 +235,7 @@ fn edit_definition_forwards_prepare_arguments() {
     let temp = tempfile::tempdir().expect("temp dir");
     std::fs::write(temp.path().join("legacy.txt"), "before\n").expect("fixture");
     let definition = create_edit_tool_definition(
-        &JsString::from(temp.path().to_string_lossy().as_ref()),
+        &JsString::from(temp.path().to_str().expect("utf-8 test path")),
         EditToolOptions::default(),
     );
     let prepare = definition
@@ -241,7 +248,7 @@ fn edit_definition_forwards_prepare_arguments() {
         prepared,
         json!({"path": "legacy.txt", "edits": [{"oldText": "before", "newText": "after"}]})
     );
-    execute(&EditTool::new(temp.path().to_string_lossy().as_ref()), prepared).expect("prepared edit executes");
+    execute(&EditTool::new(temp.path().to_str().expect("utf-8 test path")), prepared).expect("prepared edit executes");
     assert_eq!(
         std::fs::read_to_string(temp.path().join("legacy.txt")).expect("edited file"),
         "after\n"
@@ -256,17 +263,17 @@ fn edit_reports_eacces_for_read_only_files() {
     let file = temp.path().join("edit-readonly.txt");
     std::fs::write(&file, "hello\n").expect("fixture");
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o444)).expect("chmod");
-    let tool = EditTool::new(temp.path().to_string_lossy().as_ref());
+    let tool = EditTool::new(temp.path().to_str().expect("utf-8 test path"));
     let error = execute(
         &tool,
-        json!({"path": file.to_string_lossy().as_ref(), "edits": [{"oldText": "hello", "newText": "world"}]}),
+        json!({"path": file.to_str().expect("utf-8 test path"), "edits": [{"oldText": "hello", "newText": "world"}]}),
     )
     .expect_err("read-only file");
     assert_eq!(
         error,
         format!(
             "Could not edit file: {}. Error code: EACCES.",
-            file.to_string_lossy().as_ref()
+            file.to_str().expect("utf-8 test path")
         )
     );
 }

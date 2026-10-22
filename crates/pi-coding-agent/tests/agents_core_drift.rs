@@ -50,12 +50,22 @@ async fn public_spawn_propagates_the_accessed_malformed_model_error_before_child
     assert_eq!(expected["name"], "TypeError");
     assert_eq!(expected["message"], "modelReference.trim is not a function");
     let directory = tempfile::tempdir().unwrap();
-    let cwd: JsString = directory.path().to_str().unwrap().into();
-    let session_dir: JsString = directory.path().join("sessions").to_str().unwrap().into();
+    let cwd: JsString = directory.path().to_str().expect("utf-8 test path").into();
+    let session_dir: JsString = directory
+        .path()
+        .join("sessions")
+        .to_str()
+        .expect("utf-8 test path")
+        .into();
     let manager = Arc::new(Mutex::new(
         SessionManager::create(&cwd, Some(&session_dir), None).unwrap(),
     ));
-    let control_db_path: JsString = directory.path().join("control.sqlite").to_str().unwrap().into();
+    let control_db_path: JsString = directory
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .into();
     lock_session_manager(&manager)
         .set_metadata_control_db_path(Some(&control_db_path), Default::default())
         .unwrap();
@@ -113,12 +123,22 @@ async fn public_spawn_preserves_profile_context_when_unrelated_tools_are_malform
     assert_eq!(expected["context"], "fresh");
     assert_eq!(expected["dispatched"], false);
     let directory = tempfile::tempdir().unwrap();
-    let cwd: JsString = directory.path().to_str().unwrap().into();
-    let session_dir: JsString = directory.path().join("sessions").to_str().unwrap().into();
+    let cwd: JsString = directory.path().to_str().expect("utf-8 test path").into();
+    let session_dir: JsString = directory
+        .path()
+        .join("sessions")
+        .to_str()
+        .expect("utf-8 test path")
+        .into();
     let manager = Arc::new(Mutex::new(
         SessionManager::create(&cwd, Some(&session_dir), None).unwrap(),
     ));
-    let db: JsString = directory.path().join("control.sqlite").to_str().unwrap().into();
+    let db: JsString = directory
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .into();
     lock_session_manager(&manager)
         .set_metadata_control_db_path(Some(&db), Default::default())
         .unwrap();
@@ -223,12 +243,22 @@ async fn public_spawn_does_not_commit_an_agent_after_the_session_getter_fails() 
     assert_eq!(expected["constructed"], true);
     assert_eq!(expected["agents"], 0);
     let directory = tempfile::tempdir().unwrap();
-    let cwd: JsString = directory.path().to_str().unwrap().into();
-    let session_dir: JsString = directory.path().join("sessions").to_str().unwrap().into();
+    let cwd: JsString = directory.path().to_str().expect("utf-8 test path").into();
+    let session_dir: JsString = directory
+        .path()
+        .join("sessions")
+        .to_str()
+        .expect("utf-8 test path")
+        .into();
     let manager = Arc::new(Mutex::new(
         SessionManager::create(&cwd, Some(&session_dir), None).unwrap(),
     ));
-    let control_db_path: JsString = directory.path().join("control.sqlite").to_str().unwrap().into();
+    let control_db_path: JsString = directory
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .into();
     lock_session_manager(&manager)
         .set_metadata_control_db_path(Some(&control_db_path), Default::default())
         .unwrap();
@@ -390,12 +420,22 @@ async fn background_ui_lifetime_child() {
     };
     pi_coding_agent::utils::uncaught::install_uncaught_handler();
     let directory = tempfile::tempdir().unwrap();
-    let cwd: JsString = directory.path().to_str().unwrap().into();
-    let session_dir: JsString = directory.path().join("sessions").to_str().unwrap().into();
+    let cwd: JsString = directory.path().to_str().expect("utf-8 test path").into();
+    let session_dir: JsString = directory
+        .path()
+        .join("sessions")
+        .to_str()
+        .expect("utf-8 test path")
+        .into();
     let manager = Arc::new(Mutex::new(
         SessionManager::create(&cwd, Some(&session_dir), None).unwrap(),
     ));
-    let db: JsString = directory.path().join("control.sqlite").to_str().unwrap().into();
+    let db: JsString = directory
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .into();
     lock_session_manager(&manager)
         .set_metadata_control_db_path(Some(&db), Default::default())
         .unwrap();

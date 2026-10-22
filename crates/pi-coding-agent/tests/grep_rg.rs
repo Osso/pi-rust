@@ -79,7 +79,7 @@ fn run_fake_rg() {
     let result = runtime
         .block_on(tool.execute(
             "grep-argv".to_owned(),
-            json!({"pattern": "match", "path": searched.to_string_lossy()}),
+            json!({"pattern": "match", "path": searched.to_str().expect("utf-8 test path")}),
             None,
             Arc::new(|_result| {}),
             None,

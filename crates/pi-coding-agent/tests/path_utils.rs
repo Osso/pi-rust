@@ -7,7 +7,7 @@ use pi_coding_agent::core::tools::path_utils::{
 };
 
 fn join(dir: &Path, name: &str) -> JsString {
-    dir.join(name).to_string_lossy().as_ref().into()
+    dir.join(name).to_str().expect("utf-8 test path").into()
 }
 
 #[test]
@@ -45,7 +45,7 @@ fn resolve_read_path_returns_existing_files() {
     fs::write(dir.path().join("test-file.txt"), "content").unwrap();
 
     assert_eq!(
-        resolve_read_path("test-file.txt", dir.path().to_string_lossy().as_ref()).unwrap(),
+        resolve_read_path("test-file.txt", dir.path().to_str().expect("utf-8 test path")).unwrap(),
         join(dir.path(), "test-file.txt")
     );
 }
@@ -55,7 +55,7 @@ fn resolve_read_path_finds_nfd_filenames_from_nfc_input() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("file\u{0065}\u{0301}.txt"), "content").unwrap();
 
-    let result = resolve_read_path("file\u{00e9}.txt", dir.path().to_string_lossy().as_ref()).unwrap();
+    let result = resolve_read_path("file\u{00e9}.txt", dir.path().to_str().expect("utf-8 test path")).unwrap();
 
     assert_eq!(result, join(dir.path(), "file\u{0065}\u{0301}.txt"));
 }
@@ -63,7 +63,7 @@ fn resolve_read_path_finds_nfd_filenames_from_nfc_input() {
 #[test]
 fn resolve_read_path_finds_curly_quote_filenames() {
     let dir = tempfile::tempdir().unwrap();
-    let cwd = dir.path().to_string_lossy().into_owned();
+    let cwd = dir.path().to_str().expect("utf-8 test path").to_owned();
     fs::write(dir.path().join("Capture d\u{2019}cran.txt"), "content").unwrap();
     fs::write(dir.path().join("Capture d\u{2019}\u{00e9}cran.txt"), "content").unwrap();
 
@@ -83,7 +83,11 @@ fn resolve_read_path_finds_nfd_plus_curly_quote_filenames() {
     let name = "Capture d\u{2019}e\u{0301}cran.txt";
     fs::write(dir.path().join(name), "content").unwrap();
 
-    let result = resolve_read_path("Capture d'\u{00e9}cran.txt", dir.path().to_string_lossy().as_ref()).unwrap();
+    let result = resolve_read_path(
+        "Capture d'\u{00e9}cran.txt",
+        dir.path().to_str().expect("utf-8 test path"),
+    )
+    .unwrap();
 
     assert_eq!(result, join(dir.path(), name));
 }
@@ -91,7 +95,7 @@ fn resolve_read_path_finds_nfd_plus_curly_quote_filenames() {
 #[test]
 fn resolve_read_path_finds_macos_screenshot_am_pm_variants() {
     let dir = tempfile::tempdir().unwrap();
-    let cwd = dir.path().to_string_lossy().into_owned();
+    let cwd = dir.path().to_str().expect("utf-8 test path").to_owned();
     fs::write(
         dir.path().join("Screenshot 2024-01-01 at 10.00.00\u{202F}AM.png"),
         "content",
@@ -117,7 +121,7 @@ fn resolve_read_path_finds_macos_screenshot_am_pm_variants() {
 fn resolve_read_path_returns_the_resolved_path_when_no_variant_exists() {
     let dir = tempfile::tempdir().unwrap();
 
-    let result = resolve_read_path("missing 1 PM.txt", dir.path().to_string_lossy().as_ref()).unwrap();
+    let result = resolve_read_path("missing 1 PM.txt", dir.path().to_str().expect("utf-8 test path")).unwrap();
 
     assert_eq!(result, join(dir.path(), "missing 1 PM.txt"));
 }
@@ -125,7 +129,7 @@ fn resolve_read_path_returns_the_resolved_path_when_no_variant_exists() {
 #[tokio::test]
 async fn async_variants_match_the_sync_resolution() {
     let dir = tempfile::tempdir().unwrap();
-    let cwd = dir.path().to_string_lossy().into_owned();
+    let cwd = dir.path().to_str().expect("utf-8 test path").to_owned();
     fs::write(dir.path().join("Capture d\u{2019}cran.txt"), "content").unwrap();
 
     assert_eq!(

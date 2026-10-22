@@ -11,7 +11,7 @@ use pi_js_compat::js_json::JsValue as Value;
 #[test]
 fn coding_agent_ls_tool_matches_the_pinned_typescript_source() {
     let temp = tempfile::tempdir().expect("temp dir");
-    let cwd = temp.path().to_string_lossy().into_owned();
+    let cwd = temp.path().to_str().expect("utf-8 test path").to_owned();
     std::fs::write(temp.path().join("a.txt"), "a").expect("file");
     std::fs::write(temp.path().join(".hidden"), "h").expect("file");
     std::fs::write(temp.path().join("B.txt"), "b").expect("file");
@@ -32,11 +32,11 @@ fn coding_agent_ls_tool_matches_the_pinned_typescript_source() {
 
     let cases = vec![
         json!({}),
-        json!({"path": empty.to_string_lossy()}),
-        json!({"path": small.to_string_lossy(), "limit": 2}),
-        json!({"path": many.to_string_lossy()}),
-        json!({"path": temp.path().join("missing").to_string_lossy()}),
-        json!({"path": file.to_string_lossy()}),
+        json!({"path": empty.to_str().expect("utf-8 test path")}),
+        json!({"path": small.to_str().expect("utf-8 test path"), "limit": 2}),
+        json!({"path": many.to_str().expect("utf-8 test path")}),
+        json!({"path": temp.path().join("missing").to_str().expect("utf-8 test path")}),
+        json!({"path": file.to_str().expect("utf-8 test path")}),
         json!({"path": "zdir"}),
     ];
 

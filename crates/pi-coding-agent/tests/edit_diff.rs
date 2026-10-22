@@ -198,9 +198,9 @@ async fn computes_a_diff_preview_for_a_crlf_file_with_a_bom() {
     fs::write(&path, "\u{FEFF}one\r\ntwo\r\n").unwrap();
 
     let outcome = compute_edits_diff(
-        path.to_str().unwrap(),
+        path.to_str().expect("utf-8 test path"),
         &edits(&[("two", "TWO")]),
-        dir.path().to_str().unwrap(),
+        dir.path().to_str().expect("utf-8 test path"),
     )
     .await
     .unwrap();
@@ -217,42 +217,50 @@ async fn computes_a_diff_preview_for_a_crlf_file_with_a_bom() {
 #[tokio::test]
 async fn reports_missing_unreadable_and_directory_targets() {
     let dir = tempfile::tempdir().unwrap();
-    let cwd = dir.path().to_str().unwrap();
+    let cwd = dir.path().to_str().expect("utf-8 test path");
     let missing = dir.path().join("missing.txt");
 
-    let missing_outcome = compute_edits_diff(missing.to_str().unwrap(), &edits(&[("a", "b")]), cwd)
+    let missing_outcome = compute_edits_diff(missing.to_str().expect("utf-8 test path"), &edits(&[("a", "b")]), cwd)
         .await
         .unwrap();
     assert_eq!(
         missing_outcome,
         EditDiffOutcome::Error(pi_js_compat::js_format!(
             "Could not edit file: {}. Error code: ENOENT.",
-            missing.to_str().unwrap()
+            missing.to_str().expect("utf-8 test path")
         ))
     );
 
     let unreadable = dir.path().join("unreadable.txt");
     fs::write(&unreadable, "hello\n").unwrap();
     fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o222)).unwrap();
-    let unreadable_outcome = compute_edits_diff(unreadable.to_str().unwrap(), &edits(&[("a", "b")]), cwd)
-        .await
-        .unwrap();
+    let unreadable_outcome = compute_edits_diff(
+        unreadable.to_str().expect("utf-8 test path"),
+        &edits(&[("a", "b")]),
+        cwd,
+    )
+    .await
+    .unwrap();
     assert_eq!(
         unreadable_outcome,
         EditDiffOutcome::Error(pi_js_compat::js_format!(
             "Could not edit file: {}. Error code: EACCES.",
-            unreadable.to_str().unwrap()
+            unreadable.to_str().expect("utf-8 test path")
         ))
     );
 
-    let directory_outcome = compute_edits_diff(dir.path().to_str().unwrap(), &edits(&[("a", "b")]), cwd)
-        .await
-        .unwrap();
+    let directory_outcome = compute_edits_diff(
+        dir.path().to_str().expect("utf-8 test path"),
+        &edits(&[("a", "b")]),
+        cwd,
+    )
+    .await
+    .unwrap();
     assert_eq!(
         directory_outcome,
         EditDiffOutcome::Error(pi_js_compat::js_format!(
             "EISDIR: illegal operation on a directory, read '{}'",
-            dir.path().to_str().unwrap()
+            dir.path().to_str().expect("utf-8 test path")
         ))
     );
 }
@@ -263,9 +271,14 @@ async fn single_edit_diff_wraps_the_multi_edit_form() {
     let path = dir.path().join("file.txt");
     fs::write(&path, "hello\n").unwrap();
 
-    let outcome = compute_edit_diff(path.to_str().unwrap(), "hello", "world", dir.path().to_str().unwrap())
-        .await
-        .unwrap();
+    let outcome = compute_edit_diff(
+        path.to_str().expect("utf-8 test path"),
+        "hello",
+        "world",
+        dir.path().to_str().expect("utf-8 test path"),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(
         outcome,

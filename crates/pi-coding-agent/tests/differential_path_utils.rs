@@ -24,7 +24,7 @@ const FILES: [&str; 6] = [
 #[test]
 fn coding_agent_path_utils_matches_the_pinned_typescript_source() {
     let temp = tempfile::tempdir().expect("temp dir");
-    let cwd = temp.path().to_string_lossy().into_owned();
+    let cwd = temp.path().to_str().expect("utf-8 test path").to_owned();
     for file in FILES {
         fs::write(temp.path().join(file), "content").expect("fixture file");
     }

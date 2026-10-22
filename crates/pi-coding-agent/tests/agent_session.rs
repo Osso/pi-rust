@@ -89,7 +89,7 @@ async fn jsonl_export_preserves_javascript_value_bytes() {
     let path = fixture._temp_dir.path().join("export.jsonl");
     fixture
         .session
-        .export_to_jsonl(Some(&JsString::from(path.to_str().unwrap())))
+        .export_to_jsonl(Some(&JsString::from(path.to_str().expect("utf-8 test path"))))
         .unwrap();
     let bytes = std::fs::read_to_string(path).unwrap();
     assert!(

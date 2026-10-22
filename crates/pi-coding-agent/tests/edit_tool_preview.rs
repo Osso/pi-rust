@@ -84,7 +84,11 @@ fn edit_call_renders_the_pending_header_then_the_on_disk_preview() {
     std::fs::write(temp.path().join("note.txt"), "hello world\n").expect("fixture");
     let state = ToolRenderState::new();
     let args = json!({"path": "note.txt", "edits": [{"oldText": "hello", "newText": "goodbye"}]});
-    let context = context(args.clone(), &temp.path().to_string_lossy(), state.clone());
+    let context = context(
+        args.clone(),
+        temp.path().to_str().expect("utf-8 test path"),
+        state.clone(),
+    );
 
     let pending = edit_render_call(&args, &theme, &context).expect("call renderer");
     let pending_lines = pending.borrow_mut().render(80);
@@ -137,7 +141,11 @@ fn edit_preview_errors_render_in_the_call_header_and_suppress_duplicate_result_t
     std::fs::write(temp.path().join("note.txt"), "hello world\n").expect("fixture");
     let state = ToolRenderState::new();
     let args = json!({"path": "note.txt", "edits": [{"oldText": "missing", "newText": "x"}]});
-    let context = context(args.clone(), &temp.path().to_string_lossy(), state.clone());
+    let context = context(
+        args.clone(),
+        temp.path().to_str().expect("utf-8 test path"),
+        state.clone(),
+    );
 
     let _ = edit_render_call(&args, &theme, &context).expect("call renderer");
     let preview = wait_for_preview(&state);
@@ -183,7 +191,7 @@ fn edit_args_change_discards_the_previous_preview() {
     let temp = tempfile::tempdir().expect("temp dir");
     std::fs::write(temp.path().join("note.txt"), "hello world\n").expect("fixture");
     let state = ToolRenderState::new();
-    let cwd = temp.path().to_string_lossy().into_owned();
+    let cwd = temp.path().to_str().expect("utf-8 test path").to_owned();
     let first_args = json!({"path": "note.txt", "edits": [{"oldText": "hello", "newText": "goodbye"}]});
     let first_context = context(first_args.clone(), &cwd, state.clone());
     let _ = edit_render_call(&first_args, &theme, &first_context).expect("call renderer");
@@ -206,7 +214,11 @@ fn edit_settled_result_reconstructs_the_preview_without_complete_args() {
     std::fs::write(temp.path().join("note.txt"), "hello world\n").expect("fixture");
     let state = ToolRenderState::new();
     let args = json!({"path": "note.txt", "edits": [{"oldText": "hello", "newText": "goodbye"}]});
-    let mut context = context(args.clone(), &temp.path().to_string_lossy(), state.clone());
+    let mut context = context(
+        args.clone(),
+        temp.path().to_str().expect("utf-8 test path"),
+        state.clone(),
+    );
     context.args_complete = false;
 
     let pending = edit_render_call(&args, &theme, &context).expect("call renderer");
@@ -298,7 +310,7 @@ fn bash_call_records_the_start_and_result_records_the_end() {
 fn edit_settled_result_rebuilds_the_rendered_call_component() {
     let _theme = theme();
     let temp = tempfile::tempdir().expect("temp dir");
-    let cwd = temp.path().to_string_lossy().into_owned();
+    let cwd = temp.path().to_str().expect("utf-8 test path").to_owned();
     std::fs::write(temp.path().join("note.txt"), "hello world\n").expect("fixture");
     let args = json!({"path": "note.txt", "edits": [{"oldText": "hello", "newText": "goodbye"}]});
     let definition = create_edit_tool_definition(&JsString::from(&cwd), Default::default());
