@@ -3792,7 +3792,6 @@ impl AgentSession {
         abort: &CancellationToken,
     ) -> Result<crate::core::compaction::CompactionResult, AgentSessionError> {
         let stream_fn = self.inner.agent.stream_fn();
-        let retry_policy = self.retry_policy()?;
         let summary_options = crate::core::compaction::CompactionSummaryOptions {
             model: &auth.model,
             api_key: auth.api_key.clone(),
@@ -3802,16 +3801,10 @@ impl AgentSession {
             thinking_level: Some(self.thinking_level()),
             stream_fn: Some(&stream_fn),
             env: auth.env.clone(),
-            retry: Some(&retry_policy),
         };
-        crate::core::compaction::compact(
-            preparation,
-            &auth.model,
-            &summary_options,
-            None::<&mut crate::core::compaction::NoRetryCallbacks>,
-        )
-        .await
-        .map_err(|compaction_error| error(compaction_error.message()))
+        crate::core::compaction::compact(preparation, &auth.model, &summary_options)
+            .await
+            .map_err(|compaction_error| error(compaction_error.message()))
     }
 
     fn schedule_background_compaction_install(&self, token: u64) {
@@ -6060,17 +6053,6 @@ impl AgentSession {
         self.subscribe_agent();
     }
 
-    fn retry_policy(&self) -> Result<pi_ai::utils::retry::RetryPolicy, AgentSessionError> {
-        let settings = lock(&self.inner.settings_manager)
-            .get_retry_settings()
-            .map_err(|failure| error(failure.message().clone()))?;
-        Ok(pi_ai::utils::retry::RetryPolicy {
-            enabled: settings.enabled,
-            max_retries: settings.max_retries.max(0.0) as u32,
-            base_delay_ms: settings.base_delay_ms,
-        })
-    }
-
     async fn get_compaction_source_hint(
         &self,
         reason: &str,
@@ -6846,7 +6828,7 @@ impl AgentSession {
                 .get_branch_summary_settings()
                 .reserve_tokens;
             let stream_fn = self.inner.agent.stream_fn();
-            let result = crate::core::compaction::branch_summarization::generate_branch_summary_default(
+            let result = crate::core::compaction::branch_summarization::generate_branch_summary(
                 &entries_to_summarize,
                 &crate::core::compaction::branch_summarization::GenerateBranchSummaryOptions {
                     model: &auth.model,
@@ -6858,10 +6840,13 @@ impl AgentSession {
                     replace_instructions: replace_instructions.unwrap_or(false),
                     reserve_tokens: Some(reserve_tokens),
                     stream_fn: Some(&stream_fn),
-                    retry: None,
                 },
             )
-            .await;
+            .await
+            .map_err(|failure| {
+                *lock(&self.inner.branch_summary_abort_controller) = None;
+                error(failure.message().clone())
+            })?;
             if result.aborted == Some(true) {
                 *lock(&self.inner.branch_summary_abort_controller) = None;
                 return Ok(NavigateTreeResult {

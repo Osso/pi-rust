@@ -531,15 +531,20 @@ async fn run_scenario(name: &str) -> Value {
             )
             .await
         }
-        "steering_error" | "follow_up_error" => {
+        "steering_error" | "follow_up_error" | "stream_acquisition_error" => {
             let mut cfg = config();
             let hook: pi_agent_core::agent::MessageQueueHook =
                 Arc::new(|| Box::pin(async { Err(pi_agent_core::agent::AgentError::new("queue hook failed")) }));
             if name == "steering_error" {
                 cfg.get_steering_messages = Some(hook);
-            } else {
+            } else if name == "follow_up_error" {
                 cfg.get_follow_up_messages = Some(hook);
             }
+            let stream: StreamFn = if name == "stream_acquisition_error" {
+                Arc::new(|_, _, _| Box::pin(async { Err(pi_agent_core::AgentError::new("stream acquisition failed")) }))
+            } else {
+                recording_stream_fn(requests.clone(), vec![Script::message(text_assistant("answer"))])
+            };
             let events = Arc::new(Mutex::new(Vec::new()));
             let captured = events.clone();
             let emit: pi_agent_core::agent::AgentEventSink = Arc::new(move |event| {
@@ -555,10 +560,7 @@ async fn run_scenario(name: &str) -> Value {
                 cfg,
                 emit,
                 None,
-                Some(recording_stream_fn(
-                    requests.clone(),
-                    vec![Script::message(text_assistant("answer"))],
-                )),
+                Some(stream),
             )
             .await;
             json!({"events":events.lock().unwrap().clone(),"error":result.unwrap_err().message(),"requests":requests.lock().unwrap().clone()})
@@ -860,7 +862,7 @@ async fn run_scenario(name: &str) -> Value {
                             partial: AssistantMessage::empty("openai-responses", "openai", "mock", 1000.0),
                         });
                         std::mem::forget(sender);
-                        stream
+                        Ok(stream)
                     })
                 })
             };
@@ -1207,8 +1209,8 @@ pub async fn run_differential() {
     compare_scenarios(&scenarios).await;
 }
 
-pub async fn run_queue_rejection_differential() {
-    compare_scenarios(&["steering_error", "follow_up_error"]).await;
+pub async fn run_rejection_differential() {
+    compare_scenarios(&["steering_error", "follow_up_error", "stream_acquisition_error"]).await;
 }
 
 async fn compare_scenarios(scenarios: &[&str]) {

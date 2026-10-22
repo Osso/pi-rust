@@ -12,7 +12,7 @@ Rust: `crates/pi-agent-core/src/harness/compaction/mod.rs`.
 | `compact`, history-only/prefix-only/split output, files, first-kept ID, errors and aborts | Same differential and 31 focused compaction tests |
 | `CompactionDetails`, `CompactionSettings`, `ContextUsageEstimate`, `CutPointResult`, `SUMMARIZATION_SYSTEM_PROMPT` | Retained public record tests plus runtime differential |
 
-Frozen intentionally ignores `thinkingLevel`; requests contain only maxTokens/signal. No core retry API, usage-returning summary helper, generated request session ID, cache override, or retained-tail result remains. Obsolete assertions for those removed APIs were replaced with frozen text/first-kept-ID and exact request assertions; retry-only callback tests were removed. Coding-agent retains its separate retry implementation and no-op callback type.
+Frozen intentionally ignores `thinkingLevel`; requests contain only maxTokens/signal. No core retry API, usage-returning summary helper, generated request session ID, cache override, or retained-tail result remains. Obsolete assertions for those removed APIs were replaced with frozen text/first-kept-ID and exact request assertions; retry-only callback tests were removed. Coding-agent summary retries and the temporary no-op callback type were also retired in the [rejectable acquisition integration](stream-acquisition.md).
 
 Native-tree `firstKeptEntryId` replaces embedded retained tails. [Session proof](agent-core-tree-session.md).
 

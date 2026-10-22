@@ -1,5 +1,9 @@
 # Traceability: `packages/coding-agent/src/core/compaction/branch-summarization.ts`
 
+## Common-pin acquisition correction (2026-10-22)
+
+Frozen `branch-summarization.ts:349–353` awaits acquisition/result and propagates rejection. Rust now returns Result for those failures, without converting them to a provider-error record; removed old retry/callback parameters and the callback-less alternate wrapper. [Bounded proof](stream-acquisition.md): native acquisition rejection, 14 branch tests, SDK/agent-session consumers. Historical evidence below is not a whole-module re-pin claim; existing usage fields await their owning re-port.
+
 Rust: `crates/pi-coding-agent/src/core/compaction/branch_summarization.rs`. Tests:
 `tests/branch_summarization.rs`, `tests/differential_compaction.rs`.
 

@@ -1,5 +1,9 @@
 # Traceability: `packages/coding-agent/src/core/compaction/compaction.ts` and `index.ts`
 
+## Common-pin acquisition correction (2026-10-22)
+
+Frozen `compaction.ts:697–708` has no summarization retry. Acquisition and `stream.result()` rejection now propagate; removed the old retry/callback API, generated request session IDs and fabricated assistant-error path. [Exact bounded proof and caller coverage](stream-acquisition.md). Existing usage-returning fields remain outside this bounded correction. Evidence below is historical and does not authorize removed APIs or claim new-pin whole-module parity.
+
 Rust: `crates/pi-coding-agent/src/core/compaction.rs` (with
 `compaction/utils.rs`, `compaction/branch_summarization.rs`). Tests:
 `tests/compaction.rs`, `tests/compaction_generation.rs`,

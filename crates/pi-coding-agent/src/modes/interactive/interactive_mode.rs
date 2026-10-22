@@ -12069,7 +12069,7 @@ mod ui_tests {
                         stream_fn: Some(Arc::new(
                             move |model: Model, context: Context, options: SimpleStreamOptions| {
                                 let runtime = stream_runtime.clone();
-                                Box::pin(async move { runtime.stream_simple(model, context, options) })
+                                Box::pin(async move { Ok(runtime.stream_simple(model, context, options)) })
                             },
                         )),
                         ..Default::default()

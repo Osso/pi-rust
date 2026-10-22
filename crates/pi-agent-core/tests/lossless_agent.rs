@@ -79,7 +79,7 @@ async fn agent_loop_keeps_tool_text_details_and_arguments_through_message_wire_r
                 message: message.clone(),
             });
             sender.end(Some(message));
-            stream
+            Ok(stream)
         })
     });
     let config = AgentLoopConfig::new(

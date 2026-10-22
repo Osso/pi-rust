@@ -5,7 +5,7 @@ Evidence/exclusions: [slice-1 ledger](agent-core-api-repin.md). Status todo: sha
 
 | Frozen export | Rust representation | Proof |
 |---|---|---|
-| StreamFn | Arc callback returning boxed assistant stream future | agent/loop stream acquisition and error/abort tests |
+| StreamFn | Arc callback returning boxed `Result<AssistantMessageEventStream, AgentError>` future | native acquisition rejection regression, frozen rejection differential, [coding consumer proof](stream-acquisition.md) |
 | ToolExecutionMode, QueueMode, ThinkingLevel | enums re-exported from harness/types through agent/types and agent | respective enum tests; queue/tool-mode differentials |
 | AgentToolCall | pi-ai ToolCall alias | tool execution/restoration fixtures |
 | BeforeToolCallResult | block/reason option fields, re-exported harness type | before_tool_call_result.rs; blocked/default-reason loop tests |

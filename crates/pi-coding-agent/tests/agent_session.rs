@@ -73,7 +73,7 @@ async fn model_runtime(faux: &FauxProviderHandle) -> ModelRuntime {
 fn stream_fn(runtime: ModelRuntime) -> pi_agent_core::agent::types::StreamFn {
     Arc::new(move |model: Model, context: Context, options: SimpleStreamOptions| {
         let runtime = runtime.clone();
-        Box::pin(async move { runtime.stream_simple(model, context, options) })
+        Box::pin(async move { Ok(runtime.stream_simple(model, context, options)) })
     })
 }
 

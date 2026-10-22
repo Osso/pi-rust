@@ -28,7 +28,7 @@ fn model_runtime_message_keeps_raw_resolve_callback() {
 }
 
 #[tokio::test]
-async fn coding_compaction_keeps_failed_stream_message_with_source_prefix() {
+async fn coding_compaction_propagates_failed_stream_message_without_adding_a_prefix() {
     use pi_agent_core::agent::StreamFn;
     use pi_ai::providers::faux::{RegisterFauxProviderOptions, faux_provider};
     use pi_ai::utils::event_stream::{StreamFailure, create_assistant_message_event_stream};
@@ -41,7 +41,7 @@ async fn coding_compaction_keeps_failed_stream_message_with_source_prefix() {
         Box::pin(async {
             let (sender, stream) = create_assistant_message_event_stream();
             sender.fail(StreamFailure::new(raw_error()));
-            stream
+            Ok(stream)
         })
     });
     let error = generate_summary(&GenerateSummaryWithUsageOptions {
@@ -56,14 +56,10 @@ async fn coding_compaction_keeps_failed_stream_message_with_source_prefix() {
         thinking_level: None,
         stream_fn: Some(&stream_fn),
         env: None,
-        retry: None,
     })
     .await
     .unwrap_err();
-    assert_eq!(
-        error.message(),
-        &(JsString::from("Summarization failed: ") + raw_error())
-    );
+    assert_eq!(error.message(), &raw_error());
 }
 
 #[tokio::test]

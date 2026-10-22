@@ -22,7 +22,7 @@ async fn streamed_thinking_text_tool_and_usage_survive_each_interruption() {
             }),
             stream_fn: Some(Arc::new(move |_, _, _| {
                 let stream = stream.lock().unwrap().take().unwrap();
-                Box::pin(async move { stream })
+                Box::pin(async move { Ok(stream) })
             })),
             ..Default::default()
         })

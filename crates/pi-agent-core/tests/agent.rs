@@ -43,7 +43,7 @@ async fn preserves_streamed_partial_on_abort_without_duplicate_start() {
                 let (sender, stream) = create_assistant_message_event_stream();
                 sender.push(AssistantMessageEvent::Start { partial });
                 std::mem::forget(sender);
-                stream
+                Ok(stream)
             })
         })),
         ..Default::default()
@@ -268,7 +268,7 @@ async fn forwards_frozen_agent_callbacks_and_mutable_provider_configuration() {
                 reason: pi_ai::types::DoneReason::Stop,
                 message: text_assistant("new stream"),
             });
-            stream
+            Ok(stream)
         })
     }));
     agent.prompt("hello").await.unwrap();
@@ -538,7 +538,7 @@ async fn passes_active_abort_signal_to_subscribers() {
                     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
                 }
             });
-            stream
+            Ok(stream)
         })
     });
     let agent = Agent::new(AgentOptions {
@@ -590,7 +590,7 @@ async fn aborts_active_model_request_when_steering_is_queued() {
                     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
                 }
             });
-            stream
+            Ok(stream)
         })
     });
     let agent = Agent::new(AgentOptions {
@@ -801,7 +801,7 @@ async fn reset_during_pending_response_keeps_run_reserved_and_completes() {
                     message: text_assistant("Done"),
                 });
             });
-            stream
+            Ok(stream)
         })
     });
     let agent = Agent::new(AgentOptions {
@@ -859,7 +859,7 @@ async fn aborting_agent() -> Agent {
                     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
                 }
             });
-            stream
+            Ok(stream)
         })
     });
     Agent::new(AgentOptions {
@@ -944,7 +944,7 @@ async fn continue_keeps_one_at_a_time_steering_from_assistant_tail() {
                 reason: pi_ai::types::DoneReason::Stop,
                 message: text_assistant(&format!("Processed {count}")),
             });
-            stream
+            Ok(stream)
         })
     });
     let agent = Agent::new(AgentOptions {
@@ -1006,7 +1006,7 @@ async fn keeps_legacy_prepare_next_turn_signal_callback_behavior() {
                         pi_ai::types::DoneReason::Stop
                     };
                     sender.push(AssistantMessageEvent::Done { reason, message });
-                    stream
+                    Ok(stream)
                 })
             })
         }),
@@ -1115,7 +1115,7 @@ async fn forwards_should_stop_after_turn_through_agent_options() {
                         pi_ai::types::DoneReason::Stop
                     };
                     sender.push(AssistantMessageEvent::Done { reason, message });
-                    stream
+                    Ok(stream)
                 })
             })
         }),
@@ -1144,7 +1144,7 @@ async fn forwards_session_id_to_stream_function_options() {
                     reason: pi_ai::types::DoneReason::Stop,
                     message: text_assistant("ok"),
                 });
-                stream
+                Ok(stream)
             })
         })),
         ..Default::default()

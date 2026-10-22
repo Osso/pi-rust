@@ -217,7 +217,7 @@ fn stream_fn(log: Arc<Mutex<Vec<CapturedCall>>>, message: AssistantMessage) -> S
                 reason: pi_ai::types::DoneReason::Stop,
                 message,
             });
-            stream
+            Ok(stream)
         })
     })
 }
@@ -254,7 +254,6 @@ fn options<'a>(model: &'a Model, stream_fn: Option<&'a StreamFn>) -> GenerateBra
         replace_instructions: false,
         reserve_tokens: None,
         stream_fn,
-        retry: None,
     }
 }
 
@@ -419,12 +418,9 @@ fn keeps_a_summary_entry_when_it_fits_below_ninety_percent_of_the_budget() {
 #[tokio::test]
 async fn returns_no_content_when_there_are_no_messages() {
     let model = model(128_000.0);
-    let result = generate_branch_summary(
-        &[],
-        &options(&model, None),
-        None::<&mut pi_coding_agent::core::compaction::NoRetryCallbacks>,
-    )
-    .await;
+    let result = generate_branch_summary(&[], &options(&model, None))
+        .await
+        .expect("branch request");
     assert_eq!(
         result.summary.as_ref(),
         Some(&JsString::from("No content to summarize"))
@@ -443,12 +439,9 @@ async fn generates_a_preambled_summary_with_usage_and_file_lists() {
     let model = model(128_000.0);
     let stream_fn = stream_fn(Arc::clone(&log), response("## Goal\nExplore"));
 
-    let result = generate_branch_summary(
-        &entries,
-        &options(&model, Some(&stream_fn)),
-        None::<&mut pi_coding_agent::core::compaction::NoRetryCallbacks>,
-    )
-    .await;
+    let result = generate_branch_summary(&entries, &options(&model, Some(&stream_fn)))
+        .await
+        .expect("branch request");
 
     assert_eq!(
         result.summary.as_ref(),
@@ -484,12 +477,9 @@ async fn appends_custom_instructions_to_the_default_prompt() {
     let instructions = JsString::from("focus on files");
     options.custom_instructions = Some(&instructions);
 
-    let _ = generate_branch_summary(
-        &entries,
-        &options,
-        None::<&mut pi_coding_agent::core::compaction::NoRetryCallbacks>,
-    )
-    .await;
+    let _ = generate_branch_summary(&entries, &options)
+        .await
+        .expect("branch request");
     let calls = log.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
     assert!(calls[0].prompt.ends_with("Keep each section concise. Preserve exact file paths, function names, and error messages.\n\nAdditional focus: focus on files"));
 }
@@ -506,12 +496,9 @@ async fn replaces_the_default_prompt_when_requested() {
     options.custom_instructions = Some(&instructions);
     options.replace_instructions = true;
 
-    let _ = generate_branch_summary(
-        &entries,
-        &options,
-        None::<&mut pi_coding_agent::core::compaction::NoRetryCallbacks>,
-    )
-    .await;
+    let _ = generate_branch_summary(&entries, &options)
+        .await
+        .expect("branch request");
     let calls = log.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
     assert!(calls[0].prompt.ends_with("</conversation>\n\nonly this"));
 }
@@ -524,12 +511,9 @@ async fn reports_an_aborted_provider_response() {
     let model = model(128_000.0);
     let stream_fn = stream_fn(Arc::clone(&log), failure(StopReason::Aborted, ""));
 
-    let result = generate_branch_summary(
-        &entries,
-        &options(&model, Some(&stream_fn)),
-        None::<&mut pi_coding_agent::core::compaction::NoRetryCallbacks>,
-    )
-    .await;
+    let result = generate_branch_summary(&entries, &options(&model, Some(&stream_fn)))
+        .await
+        .expect("branch request");
     assert_eq!(result.aborted, Some(true));
     assert_eq!(result.summary, None);
 }
@@ -542,11 +526,8 @@ async fn reports_provider_errors_with_a_fallback_message() {
     let model = model(128_000.0);
     let stream_fn = stream_fn(Arc::clone(&log), failure(StopReason::Error, ""));
 
-    let result = generate_branch_summary(
-        &entries,
-        &options(&model, Some(&stream_fn)),
-        None::<&mut pi_coding_agent::core::compaction::NoRetryCallbacks>,
-    )
-    .await;
+    let result = generate_branch_summary(&entries, &options(&model, Some(&stream_fn)))
+        .await
+        .expect("branch request");
     assert_eq!(result.error.as_ref(), Some(&JsString::from("Summarization failed")));
 }
