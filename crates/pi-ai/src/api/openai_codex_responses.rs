@@ -6,7 +6,7 @@
 
 use crate::api::openai_sdk::ingress_metadata_text;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
