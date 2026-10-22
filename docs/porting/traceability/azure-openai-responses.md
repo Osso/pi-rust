@@ -2,7 +2,7 @@
 
 ## Q4 common-pin status
 
-Partial. Corrected global-fetch oracle now drives frozen SDK requests. First RED: native SDK version header 6.40.0 versus frozen 6.26.0; later branches remain unported. [Exact audit/proof](../ai-scripted-provider-oracles.md). Historical recorded-fetch parity claims below are superseded. No assertion narrowed; native request.fetch is a pending interface delta.
+Partial. Corrected global-fetch oracle now drives frozen SDK requests. SDK header6.26.0 restored; current RED is native output minimum16 versus frozen requested4 in scenario0. Later branches remain unported. [Exact audit/proof](../ai-scripted-provider-oracles.md). Historical recorded-fetch parity claims below are superseded. No assertion narrowed; `request.fetch` is an approved Rust-only seam; unset must match frozen default fetch (`AGENTS.md`).
 
 Source: `packages/ai/src/api/azure-openai-responses.ts` and `azure-openai-responses.lazy.ts`.
 Rust: `crates/pi-ai/src/api/azure_openai_responses.rs`.

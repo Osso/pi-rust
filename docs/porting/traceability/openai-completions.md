@@ -2,7 +2,7 @@
 
 ## Q4 common-pin status
 
-Partial. Corrected global-fetch oracle now drives frozen SDK requests. First RED: native SDK version header 6.40.0 versus frozen 6.26.0; later branches remain unported. [Exact audit/proof](../ai-scripted-provider-oracles.md). Historical recorded-fetch parity claims below are superseded. No assertion narrowed; native request.fetch is a pending interface delta.
+Partial. Corrected global-fetch oracle now drives frozen SDK requests. SDK header6.26.0 restored; current RED advances to native extra rawStopReason in scenario0. Later branches remain unported. [Exact audit/proof](../ai-scripted-provider-oracles.md). Historical recorded-fetch parity claims below are superseded. No assertion narrowed; `request.fetch` is an approved Rust-only seam; unset must match frozen default fetch (`AGENTS.md`).
 
 Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
 

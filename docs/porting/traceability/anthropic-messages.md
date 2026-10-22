@@ -14,7 +14,7 @@ Partial only at uncompleted shared interface/boundary audit. Corrected global-fe
 
 **DISCREPANCY:** frozen lines 561–574 discard nonempty text/thinking/signature supplied in content_block_start. Native now preserves this source behavior literally; it does not silently retain the old fix. RED full-content behavioral test preceded production change; signature behavior additionally proven by the actual frozen oracle.
 
-Remaining shared gaps: Rust request.fetch pending user decision; scalar Tool/schema interface boundaries and source/runtime timestamp-number migration tracked under [types](ai-types.md). No new deviation inferred; no oracle assertion narrowed.
+Approved `request.fetch` seam: unset must match frozen default fetch (`AGENTS.md`). Remaining shared gaps are scalar Tool/schema interface boundaries and source/runtime timestamp-number migration, tracked under [types](ai-types.md). No other deviation inferred; no oracle assertion narrowed.
 
 Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
 
