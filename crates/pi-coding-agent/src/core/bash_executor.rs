@@ -1,8 +1,8 @@
 //! Bash execution with streaming and truncation (`core/bash-executor.ts`).
 
+use crate::utils::paths::node_join;
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -41,13 +41,13 @@ pub struct BashResult {
     pub truncated: bool,
     /// Temp file containing the full output when it exceeded the truncation threshold.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub full_output_path: Option<String>,
+    pub full_output_path: Option<JsString>,
 }
 
 /// `executeBashWithOperations`.
 pub async fn execute_bash_with_operations(
     command: &JsString,
-    cwd: &str,
+    cwd: &JsString,
     operations: Arc<dyn BashOperations>,
     options: &BashExecutorOptions,
 ) -> Result<BashResult, ToolError> {
@@ -91,7 +91,7 @@ struct CollectorState {
     output_chunks: Vec<JsString>,
     output_bytes: usize,
     total_bytes: usize,
-    temp_file_path: Option<PathBuf>,
+    temp_file_path: Option<JsString>,
     temp_file: Option<File>,
     decoder: StreamingUtf8Decoder,
 }
@@ -150,10 +150,7 @@ impl OutputCollector {
             exit_code: if cancelled { None } else { exit_code },
             cancelled,
             truncated: truncation.truncated,
-            full_output_path: state
-                .temp_file_path
-                .as_ref()
-                .map(|path| path.to_string_lossy().into_owned()),
+            full_output_path: state.temp_file_path.clone(),
         }
     }
 }
@@ -164,8 +161,11 @@ impl CollectorState {
             return;
         }
         let id = random_hex_8();
-        let path = std::env::temp_dir().join(format!("pi-bash-{id}.log"));
-        let mut file = File::create(&path).expect("bash output temp file");
+        let path = node_join(
+            std::env::temp_dir().to_string_lossy().into_owned(),
+            format!("pi-bash-{id}.log"),
+        );
+        let mut file = File::create(encode_node_utf8(&path)).expect("bash output temp file");
         for chunk in &self.output_chunks {
             let _ = file.write_all(encode_node_utf8(chunk).as_bytes());
         }

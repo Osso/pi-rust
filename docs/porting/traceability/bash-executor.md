@@ -18,6 +18,12 @@ Rust: `crates/pi-coding-agent/src/core/bash_executor.rs`. Tests: `crates/pi-codi
 | error path rethrow unless aborted | `execute_bash_with_operations` error branch | cancellation test |
 | streaming callback | `BashExecutorOptions.on_chunk` | `streams_sanitized_chunks_to_the_callback` |
 
+## Q18 native checkpoint
+
+Common pin: `4f9e6f8a4`. `execute_bash_with_operations` accepts native command/cwd. `BashResult.full_output_path` and the collector's sole temp-path authority are `JsString`; temp-root text is decoded from the OS once and file creation encodes only at the filesystem call. Output and callback strings remain native.
+
+`tests/lossless_bash_executor.rs` exercises raw command/cwd forwarding to custom Operations and verifies a native full-output path contains complete spilled bytes. The six existing behavioral tests use native contracts. All runtime execution remains pending coding-library compilation per parent instruction; no additional standalone probe was created. This checkpoint does not establish spill-I/O error parity.
+
 Gaps / deviations:
 
 - The collector is synchronous behind a mutex; Node's `WriteStream` is asynchronous, but the observable ordering (chunks written before `end`) is identical.
