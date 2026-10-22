@@ -2,7 +2,7 @@
 
 Rust: `crates/pi-coding-agent/src/core/sdk.rs`.
 
-Q18: convert-to-LLM callback propagates native AgentError from core conversion before optional image blocking; invalid typed provider context is never omitted or Display-encoded. Broader SDK path/runtime migration evidence remains separate.
+Q18: convert-to-LLM callback propagates native AgentError from core conversion before optional image blocking; invalid typed provider context is never omitted or Display-encoded. SDK cwd/agent_dir/control_db_path options, result fallback message and errors now use JsString. Native resolution and node_join preserve path units through auth/models path construction, SettingsManager/SessionManager/resource-loader adapters and AgentSession config; no SDK encoding boundary. `lossless_agent_session_paths` adds SDK reopen/agent-dir assertions. Execution remains blocked by scalar model-storage/settings/resource-loader dependencies and coding-library callers. `sdk-path-red.jsonl` records the blocked target before SDK migration; no runtime parity claim.
 
 | TS | Rust | Tests |
 | --- | --- | --- |

@@ -2,7 +2,6 @@
 //!
 //! See `docs/porting/traceability/sdk.md`.
 
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::agent::types::{AgentError, AgentMessage, ConvertToLlm, StreamFn, TransformContext};
@@ -32,7 +31,7 @@ use crate::core::resource_loader::{
 use crate::core::session_manager::{SessionManager, get_default_session_dir};
 use crate::core::settings_manager::SettingsManager;
 use crate::core::tools::DEFAULT_ACTIVE_TOOL_NAMES;
-use crate::utils::paths::{PathInputOptions, resolve_path};
+use crate::utils::paths::{PathInputOptions, node_join, resolve_path};
 
 /// `noTools` option.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,8 +46,8 @@ type RetryNotifier = Arc<dyn Fn(pi_ai::types::ProviderRetryEvent) + Send + Sync>
 /// `CreateAgentSessionOptions`.
 #[derive(Default)]
 pub struct CreateAgentSessionOptions {
-    pub cwd: Option<String>,
-    pub agent_dir: Option<String>,
+    pub cwd: Option<JsString>,
+    pub agent_dir: Option<JsString>,
     pub model_runtime: Option<ModelRuntime>,
     pub model: Option<Model>,
     pub thinking_level: Option<ThinkingLevel>,
@@ -69,7 +68,7 @@ pub struct CreateAgentSessionOptions {
     pub extension_factories: Vec<InlineExtension>,
     pub session_manager: Option<SessionManager>,
     pub settings_manager: Option<Arc<Mutex<SettingsManager>>>,
-    pub control_db_path: Option<String>,
+    pub control_db_path: Option<JsString>,
     pub multi_agent_store: Option<Arc<crate::core::multi_agent_store::MultiAgentStore>>,
     pub multi_agent_runtime_role: Option<MultiAgentRuntimeRole>,
     pub multi_agent_execution_capability: Option<MultiAgentExecutionCapability>,
@@ -89,7 +88,7 @@ pub struct CreateAgentSessionOptions {
 pub struct CreateAgentSessionResult {
     pub session: AgentSession,
     pub extensions_result: crate::core::extensions::types::LoadExtensionsResult,
-    pub model_fallback_message: Option<String>,
+    pub model_fallback_message: Option<JsString>,
 }
 
 fn rules_scope_for_runtime_role(role: Option<MultiAgentRuntimeRole>) -> RulesScope {
@@ -101,58 +100,48 @@ fn rules_scope_for_runtime_role(role: Option<MultiAgentRuntimeRole>) -> RulesSco
 }
 
 /// Creates an [`AgentSession`] with the supplied options.
-pub async fn create_agent_session(options: CreateAgentSessionOptions) -> Result<CreateAgentSessionResult, String> {
+pub async fn create_agent_session(options: CreateAgentSessionOptions) -> Result<CreateAgentSessionResult, JsString> {
     create_agent_session_internal(options).await
 }
 
 /// Internal-options entry point mirrored from the source.
 pub async fn create_agent_session_with_internal_options(
     options: CreateAgentSessionOptions,
-) -> Result<CreateAgentSessionResult, String> {
+) -> Result<CreateAgentSessionResult, JsString> {
     create_agent_session_internal(options).await
 }
 
-fn resolve(input: &str) -> Result<String, String> {
-    resolve_path(
-        input,
-        &std::env::current_dir()
-            .map(|path| path.display().to_string())
-            .unwrap_or_default(),
-        &PathInputOptions::default(),
-    )
-    .map_err(|error| error.to_string())
+fn read_process_cwd() -> Result<JsString, JsString> {
+    std::env::current_dir()
+        .map(|path| JsString::from(path.to_string_lossy().as_ref()))
+        .map_err(|error| JsString::from(error.to_string()))
 }
 
-async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Result<CreateAgentSessionResult, String> {
-    let cwd = resolve(
-        &options
-            .cwd
-            .clone()
-            .or_else(|| {
-                options
-                    .session_manager
-                    .as_ref()
-                    .map(|manager| manager.get_cwd().to_owned())
-            })
-            .unwrap_or_else(|| {
-                std::env::current_dir()
-                    .map(|path| path.display().to_string())
-                    .unwrap_or_default()
-            }),
-    )?;
+async fn create_agent_session_internal(
+    options: CreateAgentSessionOptions,
+) -> Result<CreateAgentSessionResult, JsString> {
+    let process_cwd = read_process_cwd()?;
+    let cwd_input = options
+        .cwd
+        .clone()
+        .or_else(|| {
+            options
+                .session_manager
+                .as_ref()
+                .map(|manager| manager.get_cwd().to_owned())
+        })
+        .unwrap_or_else(|| process_cwd.clone());
+    let cwd = resolve_path(&cwd_input, &process_cwd, &PathInputOptions::default())
+        .map_err(|error| error.message().clone())?;
     let agent_dir = match options.agent_dir.as_ref() {
-        Some(dir) => resolve(dir)?,
-        None => get_agent_dir().display().to_string(),
+        Some(dir) => {
+            resolve_path(dir, &process_cwd, &PathInputOptions::default()).map_err(|error| error.message().clone())?
+        }
+        None => JsString::from(get_agent_dir().to_string_lossy().as_ref()),
     };
 
-    let auth_path = options
-        .agent_dir
-        .as_ref()
-        .map(|_| Path::new(&agent_dir).join("auth.json").display().to_string());
-    let models_path = options
-        .agent_dir
-        .as_ref()
-        .map(|_| Path::new(&agent_dir).join("models.json").display().to_string());
+    let auth_path = options.agent_dir.as_ref().map(|_| node_join(&agent_dir, "auth.json"));
+    let models_path = options.agent_dir.as_ref().map(|_| node_join(&agent_dir, "models.json"));
     let model_runtime = match options.model_runtime {
         Some(runtime) => runtime,
         None => ModelRuntime::create(CreateModelRuntimeOptions {
@@ -161,26 +150,27 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
             ..Default::default()
         })
         .await
-        .map_err(|error| error.to_string())?,
+        .map_err(|error| error.message())?,
     };
 
     let settings_manager = match options.settings_manager {
         Some(manager) => manager,
         None => Arc::new(Mutex::new(
-            SettingsManager::create(&cwd, Some(Path::new(&agent_dir)), Default::default())
-                .map_err(|error| error.to_string())?,
+            SettingsManager::create(&cwd, Some(&agent_dir), Default::default())
+                .map_err(|error| JsString::from(error.message()))?,
         )),
     };
     let session_manager = match options.session_manager {
         Some(manager) => manager,
         None => {
-            let session_dir = get_default_session_dir(&cwd, Some(&agent_dir)).map_err(|error| error.to_string())?;
-            SessionManager::create(&cwd, Some(&session_dir), None).map_err(|error| error.to_string())?
+            let session_dir =
+                get_default_session_dir(&cwd, Some(&agent_dir)).map_err(|error| JsString::from(error.message()))?;
+            SessionManager::create(&cwd, Some(&session_dir), None).map_err(|error| JsString::from(error.message()))?
         }
     };
     let persisted_settings = session_manager
         .read_persisted_session_settings()
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| JsString::from(error.message()))?;
     lock(&settings_manager).set_session_sandbox_profile(
         persisted_settings
             .as_ref()
@@ -202,7 +192,7 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
                     ),
                     ..Default::default()
                 })
-                .map_err(|error| error.to_string())?,
+                .map_err(JsString::from)?,
             );
             loader.reload().await?;
             loader
@@ -213,7 +203,7 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
     let has_existing_session = !existing_session.messages.is_empty();
 
     let mut model = options.model.clone();
-    let mut model_fallback_message: Option<String> = None;
+    let mut model_fallback_message: Option<JsString> = None;
 
     let saved_model = persisted_settings
         .as_ref()
@@ -235,7 +225,11 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
             model = Some(restored);
         }
         if model.is_none() {
-            model_fallback_message = Some(format!("Could not restore model {saved_provider}/{saved_model_id}"));
+            model_fallback_message = Some(pi_js_compat::js_format!(
+                "Could not restore model {}/{}",
+                &saved_provider,
+                &saved_model_id
+            ));
         }
     }
 
@@ -256,10 +250,10 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         match &model {
             Some(model) => {
                 if let Some(message) = model_fallback_message.as_mut() {
-                    message.push_str(&format!(". Using {}/{}", model.provider, model.id));
+                    *message = message.clone() + pi_js_compat::js_format!(". Using {}/{}", &model.provider, &model.id);
                 }
             }
-            None => model_fallback_message = Some(format_no_models_available_message()),
+            None => model_fallback_message = Some(format_no_models_available_message().into()),
         }
     }
 
@@ -494,7 +488,7 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         transform_context: Some(transform_context),
         ..Default::default()
     })
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| JsString::from(error.message()))?;
 
     let mut restored_messages = existing_session.messages.clone();
     if has_existing_session && !restored_messages.is_empty() {
@@ -534,7 +528,7 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
         extension_runner_ref: Some(extension_runner_ref),
         session_start_event: options.session_start_event,
     })
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| JsString::from(error.message()))?;
     let notifier_session = session.clone();
     *lock(&session_ref) = Some(Arc::new(move |event: pi_ai::types::ProviderRetryEvent| {
         notifier_session.notify_provider_retry(event);

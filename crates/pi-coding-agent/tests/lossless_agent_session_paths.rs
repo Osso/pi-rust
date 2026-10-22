@@ -64,7 +64,7 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
         cwd: cwd.clone(),
         scoped_models: vec![],
         resource_loader: Arc::new(StaticResourceLoader::default()),
-        model_runtime: runtime,
+        model_runtime: runtime.clone(),
         initial_active_tool_names: Some(vec![]),
         allowed_tool_names: Some(vec![]),
         excluded_tool_names: None,
@@ -115,4 +115,24 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
     session.dispose();
     let reopened = SessionManager::open(&path, Some(&directory), None).unwrap();
     assert_eq!(reopened.get_session_file(), Some(&path));
+    let sdk = pi_coding_agent::core::sdk::create_agent_session(pi_coding_agent::core::sdk::CreateAgentSessionOptions {
+        cwd: Some(cwd.clone()),
+        agent_dir: Some(directory.clone()),
+        model_runtime: Some(runtime),
+        resource_loader: Some(Arc::new(StaticResourceLoader::default())),
+        settings_manager: Some(Arc::new(Mutex::new(SettingsManager::in_memory(
+            Default::default(),
+            SettingsManagerCreateOptions::default(),
+        )))),
+        session_manager: Some(reopened),
+        no_tools: Some(pi_coding_agent::core::sdk::NoTools::All),
+        control_db_path: Some(cwd + "/control.db"),
+        disable_runtime_coordination_inbound: true,
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    assert_eq!(sdk.session.session_file(), Some(path));
+    assert_eq!(sdk.session.agent_dir(), &directory);
+    sdk.session.dispose();
 }
