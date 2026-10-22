@@ -18,3 +18,5 @@ pub mod process_env;
 pub mod string;
 
 pub use collator::{compare_in_locale, host_locale, locale_compare};
+
+pub mod js_regex;
