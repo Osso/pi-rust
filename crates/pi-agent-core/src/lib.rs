@@ -5,20 +5,9 @@
 
 pub mod agent;
 pub mod harness;
-pub mod jsdiff;
 pub mod node;
-pub mod search;
-pub mod unicode;
 
 pub use pi_ai::utils::uuid::uuidv7;
-pub use pi_telemetry::SpanAttributes as TelemetrySpanAttributes;
-pub use pi_telemetry::{
-    AttributeValue, InMemoryTelemetryContext, NOOP_TELEMETRY_CONTEXT, RecordedTelemetryEvent, RecordedTelemetrySpan,
-    SpanAttributes, SpanOptions, SpanStatus, TelemetryAttributeDefinition, TelemetryAttributeMetadata,
-    TelemetryAttributeType, TelemetryContext, TelemetryEventAttributeDefinition, TelemetryEventDefinition,
-    TelemetryParentDefinition, TelemetrySchemaDefinition, TelemetrySpan, TelemetrySpanDefinition,
-    TelemetryStartAttributeDefinition, TypedSpanStarter, create_typed_span_starter, define_telemetry_schema,
-};
 
 pub use agent::types::*;
 pub use agent::{
@@ -40,15 +29,6 @@ pub use harness::prompt_templates::*;
 pub use harness::session::*;
 pub use harness::skills::*;
 pub use harness::system_prompt::*;
-pub use harness::telemetry::{
-    AiSpan, AiSpanAttributes, AiSpanEndAttributes, AiSpanName, AiSpanStartAttributes, AiTelemetrySpan, HarnessSpan,
-    HarnessSpanAttributes, HarnessSpanEndAttributes, HarnessSpanName, HarnessSpanStartAttributes, HarnessTelemetrySpan,
-    agent_telemetry_schemas, ai_telemetry_schema, harness_telemetry_schema, start_ai_span, start_harness_span,
-};
-pub use harness::tools::{
-    BashExecution, BashPrepare, BashTool, BashToolOptions, EditTool, ExecutionToolContext, ImageProcessorOptions,
-    ReadImageProcessor, ReadImageProcessorResult, ReadTool, ReadToolOptions, WriteTool,
-};
 pub use harness::types::{
     AgentHarnessResources, AgentHarnessStreamOptions, AgentHarnessStreamOptionsPatch, AgentHarnessTool,
     AgentHarnessToolContextSource, AgentToolExecutionContext, BeforeToolCallResult, BranchSummaryError,
@@ -57,4 +37,3 @@ pub use harness::types::{
     Skill, ThinkingLevel, ToolExecutionMode,
 };
 pub use harness::utils::*;
-pub use search::*;

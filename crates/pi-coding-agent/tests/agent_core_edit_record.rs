@@ -1,7 +1,7 @@
 use pi_js_compat::js_json::JsString;
 use std::fmt::Debug;
 
-use pi_agent_core::harness::tools::edit_diff::Edit;
+use pi_coding_agent::core::tools::edit_primitives::Edit;
 
 fn assert_debug<T: Debug>(_: &T) {}
 

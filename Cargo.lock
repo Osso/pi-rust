@@ -2071,7 +2071,6 @@ dependencies = [
 name = "pi-agent-core"
 version = "0.0.0"
 dependencies = [
- "icu_normalizer",
  "indexmap",
  "pi-ai",
  "pi-js-compat",
@@ -2123,6 +2122,7 @@ dependencies = [
  "gethostname",
  "getrandom 0.4.3",
  "globset",
+ "icu_normalizer",
  "image 0.24.9",
  "indexmap",
  "jiff",

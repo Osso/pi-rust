@@ -310,6 +310,14 @@ fn oauth_provider(id: &str, name: &str, auth_type: &str, method: Option<&str>, s
     })
 }
 
+fn crate_auth_status(status: Option<&Value>) -> pi_coding_agent::core::auth_storage::AuthStatus {
+    pi_coding_agent::core::auth_storage::AuthStatus {
+        configured: status.and_then(|value| value["configured"].as_bool()).unwrap_or(false),
+        source: status.and_then(|value| value["source"].as_str()).map(str::to_owned),
+        label: status.and_then(|value| value["label"].as_str()).map(JsString::from),
+    }
+}
+
 fn oauth_selector_cases() -> Vec<Value> {
     let mixed = vec![
         oauth_provider(
@@ -407,7 +415,25 @@ fn oauth_selector_cases() -> Vec<Value> {
             "component": "oauth_selector",
             "props": {"mode": "login", "providers": mixed, "initialSearchInput": "zzz"},
             "width": 80,
-            "steps": [{"key": "\r"}, {"key": "\u{1b}[B"}],
+            "steps": [{"key": "z"}, {"key": "z"}, {"key": "z"}, {"key": "\r"}, {"key": "\u{1b}[B"}],
+        }),
+        json!({
+            "name": "oauth-stored-and-ambient-statuses",
+            "component": "oauth_selector",
+            "props": {"mode":"login", "providers":[
+                {"id":"stored","name":"Stored match","authType":"api_key","storedType":"api_key","status":{"source":"environment","label":"IGNORED"}},
+                {"id":"mismatch","name":"Stored mismatch","authType":"api_key","storedType":"oauth"},
+                {"id":"env","name":"Environment","authType":"api_key","status":{"source":"environment","label":"FIXTURE_TOKEN"}},
+                {"id":"env-default","name":"Environment default label","authType":"api_key","status":{"source":"environment"}},
+                {"id":"runtime","name":"Runtime","authType":"api_key","status":{"source":"runtime"}},
+                {"id":"fallback","name":"Custom","authType":"api_key","status":{"source":"fallback"}},
+                {"id":"json-key","name":"Models key","authType":"api_key","status":{"source":"models_json_key"}},
+                {"id":"json-command","name":"Models command","authType":"api_key","status":{"source":"models_json_command"}},
+                {"id":"oauth-ambient","name":"OAuth ambient excluded","authType":"oauth","status":{"source":"runtime"}},
+                {"id":"unknown","name":"Unknown source","authType":"api_key","status":{"source":"unsupported"}}
+            ]},
+            "width":100,
+            "steps":[{"key":"\u{1b}[B"},{"key":"\u{1b}[B"},{"key":"\u{1b}[B"},{"key":"\u{1b}[B"},{"key":"\u{1b}[B"},{"key":"\u{1b}[B"},{"key":"\u{1b}[B"},{"key":"\u{1b}[B"},{"key":"\r"}]
         }),
         json!({
             "name": "oauth-scroll",
@@ -451,11 +477,8 @@ fn login_dialog_cases() -> Vec<Value> {
             "props": {"providerId": "anthropic", "providerNameOverride": null, "titleOverride": "Custom Title"},
             "width": 90,
             "actions": [
-                {"kind": "show_details", "lines": ["First detail", "Second detail"]},
-                {"kind": "show_info", "message": "Provider info", "links": [
-                    {"url": "https://example.com/a", "label": "Docs"},
-                    {"url": "https://example.com/b"},
-                ], "showCloseHint": true},
+                {"kind": "show_info", "lines": ["First detail", "Second detail"]},
+                {"kind": "show_info", "lines": ["Provider info", "Docs: https://example.com/a", "https://example.com/b"]},
                 {"kind": "show_waiting", "message": "Waiting for authorization..."},
                 {"kind": "show_progress", "message": "Step 1 of 2"},
             ],
@@ -467,7 +490,7 @@ fn login_dialog_cases() -> Vec<Value> {
             "props": {"providerId": "anthropic", "providerNameOverride": null, "titleOverride": null},
             "width": 90,
             "actions": [
-                {"kind": "show_details", "lines": ["Enter your key"]},
+                {"kind": "show_info", "lines": ["Enter your key"]},
                 {"kind": "show_prompt", "message": "API key:", "placeholder": "sk-..."},
             ],
             "steps": [
@@ -1072,23 +1095,30 @@ fn run_component_case(case: &Value) -> Value {
             };
             let event_sink = Rc::clone(&events);
             let cancel_sink = Rc::clone(&events);
+            let stored_providers = props["providers"].as_array().unwrap().clone();
+            let status_providers = stored_providers.clone();
             let mut selector = OAuthSelectorComponent::new(
                 mode,
-                providers,
-                Rc::new(move |id, auth_type| {
-                    event_sink.borrow_mut().push(
-                        format!(
-                            "select:{id}:{}",
-                            match auth_type {
-                                AuthType::Oauth => "oauth",
-                                AuthType::ApiKey => "api_key",
-                            }
-                        )
-                        .into(),
-                    );
+                Rc::new(move |id| {
+                    stored_providers
+                        .iter()
+                        .find(|provider| provider["id"] == id)
+                        .and_then(|provider| match provider["storedType"].as_str() {
+                            Some("oauth") => Some(AuthType::Oauth),
+                            Some("api_key") => Some(AuthType::ApiKey),
+                            _ => None,
+                        })
                 }),
-                Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned().into())),
-                props["initialSearchInput"].as_str().map(JsString::from).as_ref(),
+                providers,
+                Rc::new(move |id| event_sink.borrow_mut().push(js_format!("select:{}", id))),
+                Rc::new(move || cancel_sink.borrow_mut().push("cancel".into())),
+                Some(Rc::new(move |id| {
+                    let status = status_providers
+                        .iter()
+                        .find(|provider| provider["id"] == id)
+                        .map(|provider| &provider["status"]);
+                    crate_auth_status(status)
+                })),
             );
             renders.push(selector.render(width));
             let mut current_width = width;
@@ -1127,32 +1157,14 @@ fn run_component_case(case: &Value) -> Value {
                         };
                         dialog.show_device_code(&info);
                     }
-                    "show_details" => {
-                        let lines: Vec<JsString> = action["lines"]
+                    "show_info" => {
+                        let lines = action["lines"]
                             .as_array()
                             .unwrap()
                             .iter()
-                            .map(|line| line.as_str().unwrap().to_owned())
-                            .map(JsString::from)
-                            .collect();
-                        dialog.show_details(&lines.iter().map(JsString::from).collect::<Vec<_>>());
-                    }
-                    "show_info" => {
-                        let links: Vec<pi_ai::auth::types::AuthInfoLink> = action["links"]
-                            .as_array()
-                            .cloned()
-                            .unwrap_or_default()
-                            .iter()
-                            .map(|link| pi_ai::auth::types::AuthInfoLink {
-                                url: JsString::from(link["url"].as_str().unwrap().to_owned()),
-                                label: link["label"].as_str().map(str::to_owned).map(JsString::from),
-                            })
-                            .collect();
-                        dialog.show_info(
-                            &JsString::from(action["message"].as_str().unwrap_or_default()),
-                            &links,
-                            action["showCloseHint"].as_bool().unwrap_or(false),
-                        );
+                            .map(|line| JsString::from(line.as_str().unwrap()))
+                            .collect::<Vec<_>>();
+                        dialog.show_info(&lines);
                     }
                     "show_waiting" => {
                         dialog.show_waiting(&JsString::from(action["message"].as_str().unwrap_or_default()))

@@ -28,8 +28,8 @@ pub struct Skill {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PromptTemplate {
     pub name: JsString,
-    pub description: Option<String>,
-    pub content: String,
+    pub description: Option<JsString>,
+    pub content: JsString,
 }
 
 /// Resources made available to explicit invocation methods and system-prompt callbacks.

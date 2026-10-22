@@ -1,7 +1,7 @@
 use pi_js_compat::js_json::JsString;
 use std::fmt::Debug;
 
-use pi_agent_core::harness::tools::edit_diff::{
+use pi_coding_agent::core::tools::edit_primitives::{
     LineEnding, detect_line_ending, normalize_to_lf, restore_line_endings, strip_bom,
 };
 

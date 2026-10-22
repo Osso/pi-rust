@@ -99,11 +99,11 @@ All direct dependencies are exact-pinned.
 - `tokio = 1.53.3` (`macros`, `rt`, `sync`, `time`, `fs`, `process`, `io-util`) — runs the agent loop, event stream notifications, scripted-stream tests, and the node execution environment's async filesystem/process I/O.
 - `tokio-util = 0.7.20` (`rt`) — `CancellationToken` as the `AbortSignal` mapping.
 - `rustix = 1.1.5` (`process`, exact) — kills shell process groups with SIGKILL for timeout, abort, and cleanup without `unsafe` or libc.
-- `icu_normalizer = 2.3.0` (exact, `compiled_data`, no default features) — the workspace's single `String.prototype.normalize` implementation for NFC/NFD/NFKC/NFKD, used by fuzzy edit matching and read-path variants; ICU4X data matches Node's ICU family.
+- Q9 moves `icu_normalizer = 2.3.0` (exact, `compiled_data`, no default features) from `pi-agent-core` to `pi-coding-agent`: NFC/NFD/NFKC/NFKD normalization belongs to the rehomed fuzzy-edit and read-path primitives. ICU4X scalar runs preserve lone-surrogate boundaries.
 - Skill loader ignore matching reuses native `pi-js-compat::node_ignore::Ignore` (npm ignore 7.0.5), preserving UTF16 paths and thrown errors. The former direct `ignore = 0.4.23` dependency is removed from pi-agent-core; coding package-manager use remains separate.
 - `indexmap = 2.14.2` (`serde`) — `IndexSet` for `AgentState.pending_tool_calls` and `FileOperations`, whose TypeScript `Set` iteration order is insertion order.
 - `serde_yaml_ng = 0.10.0` (exact) — parses skill and prompt-template YAML frontmatter in `harness::frontmatter`.
-- `pi-telemetry = { path = "../pi-telemetry", version = "=0.0.0" }` — supplies the `TelemetryContext`/`TelemetrySpan` runtime contract and the schema-definition types used by `harness::telemetry` and `AgentHarnessOptions.context`.
+- `pi-telemetry = { path = "../pi-telemetry", version = "=0.0.0" }` — temporarily retained only for the old scaffold `AgentHarnessOptions.context`; old-only telemetry schema module/root exports were removed in Q9. Remove this dependency with the scaffold replacement.
 - `tempfile = 3.27.0` (dev, exact) — creates isolated fixture trees for the node-env, tool, shell-capture, loader, and differential tests, and isolated JSONL session roots.
 - Session storage/search adds no runtime dependency: `serde`/`serde_json` (`preserve_order`) carry the durable JSONL records and search projections, `tokio` (`sync`) supplies the state/write mutexes, `tokio-util` supplies search cancellation, and `pi-ai` supplies `BoxFuture` and UUIDv7. JSONL file naming formats ISO timestamps with std only.
 

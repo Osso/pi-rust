@@ -71,7 +71,7 @@ fn template(name: &str) -> PromptTemplate {
     PromptTemplate {
         name: JsString::from(name.to_owned()),
         description: None,
-        content: "body".to_owned(),
+        content: "body".into(),
     }
 }
 

@@ -12,6 +12,8 @@ autobins = false
 default-run = "pi"
 
 [dependencies]
+# Native normalization for rehomed edit/path primitives (Node ICU semantics).
+icu_normalizer = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
 # Supplies typed agent-harness values and the shared truncation size formatter.
 pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }
 # Supplies the shared HTTP `Fetch` contract and default client.

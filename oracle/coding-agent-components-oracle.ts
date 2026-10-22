@@ -185,7 +185,10 @@ function instantiate(
 				handleInput(data: string): void;
 			})(
 				props.mode,
-				{ get: () => undefined },
+				{ get: (id: string) => {
+					const provider = (props.providers as Array<Record<string, unknown>>).find((provider) => provider.id === id);
+					return provider?.storedType ? { type: provider.storedType } : undefined;
+				} },
 				providers,
 				(id: string) => push(`select:${id}`),
 				() => push("cancel"),
@@ -217,11 +220,9 @@ function instantiate(
 						case "show_device_code":
 							instance.showDeviceCode(action.info);
 							return;
-						case "show_details":
+						case "show_info":
 							instance.showInfo(action.lines ?? []);
 							return;
-						case "show_info":
-							throw new Error("Frozen LoginDialog has no provider-owned message/link info API");
 						case "show_waiting":
 							instance.showWaiting(action.message ?? "");
 							return;
