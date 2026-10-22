@@ -27,6 +27,6 @@ fn independent_normalized_fields_format_like_source() {
 }
 
 #[test]
-fn source_surrogate_split_is_an_open_public_string_boundary() {
+fn source_surrogate_split_matches_exact_native_utf16_units() {
     error_body_oracle::run_utf16_boundary();
 }

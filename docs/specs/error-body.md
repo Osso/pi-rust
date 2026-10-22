@@ -18,9 +18,9 @@ Representable fixes in `5b3b7962` are integrated by `b85d0179`. Whole-module sta
 
 ## Existing API boundary — module remains TODO
 
-Rust retains `ProviderErrorInput::{Error, Value}`, `ErrorBody::{Text, Json}`, `Option<f64>` statuses, `String` outputs and `usize` limits. No public types change in this slice.
+Rust retains `ProviderErrorInput::{Error, Value}`, `ErrorBody::{Text, Json}`, `Option<f64>` statuses and `usize` limits. Q18 uses native `JsValue`/`JsString` for arbitrary JSON and text.
 
-**OPEN user decision:** `truncateErrorText("a🙈b", 2)` returns UTF-16 `[0x61, 0xD83D]` followed by `... [truncated 2 chars]`. `String` cannot represent this. Normalization also splits at 4000 units for `"a".repeat(3999) + "🙈b"`. Existing native scalar-safe behavior is not parity and its old trace waiver is not renewed. No replacement-character projection is approved here.
+**Q18 closed:** native `JsString` retains the exact split surrogate for `truncateErrorText("a🙈b", 2)` and normalization at 4000 units for `"a".repeat(3999) + "🙈b"`. Differential proof compares numeric UTF-16 units; no replacement-character projection is used.
 
 Source `unknown` inputs legitimately include undefined, symbols, functions, bigint, cyclic objects, toJSON behavior and runtime Error field objects/getters. `serde_json::Value` cannot supply all these values or all UTF-16 strings. They are not invalid source input types, so the standing typed-input policy alone does not waive these source branches. Their shared public representation remains OPEN; this slice neither invents SDK class exclusions nor broadens the API. JSON-backed field shapes are tested by literal source predicates, not SDK brand/class assumptions.
 

@@ -485,12 +485,12 @@ pub(crate) fn run_utf16_boundary() {
             String::from_utf16(&source_units).is_err(),
             "source returns a lone high surrogate"
         );
-        assert_ne!(
+        assert_eq!(
             source_units,
             truncate_error_text(&pi_js_compat::js_json::JsString::from(text), *cap)
                 .encode_utf16()
                 .collect::<Vec<_>>(),
-            "OPEN shared String boundary; this is not parity proof"
+            "native truncation preserves the exact source UTF-16 units"
         );
     }
     let text = format!("{}🙈b", "a".repeat(3999));
@@ -506,10 +506,10 @@ pub(crate) fn run_utf16_boundary() {
         body: Some(ErrorBody::Text((text).into())),
         ..base("failed")
     })));
-    assert_ne!(
+    assert_eq!(
         source_units,
         native.body.unwrap().encode_utf16().collect::<Vec<_>>(),
-        "OPEN normalization String boundary"
+        "native normalization preserves the exact source UTF-16 units"
     );
 }
 
