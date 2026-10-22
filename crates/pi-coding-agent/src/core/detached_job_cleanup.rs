@@ -78,9 +78,7 @@ pub fn run_detached_job_artifact_cleanup(
     artifact_root: Option<&JsString>,
     now: Option<i64>,
 ) {
-    let artifact_root = artifact_root
-        .cloned()
-        .unwrap_or_else(|| crate::config::get_agent_dir().to_string_lossy().into_owned().into());
+    let artifact_root = artifact_root.cloned().unwrap_or_else(crate::config::get_agent_dir);
     let now = now.unwrap_or_else(now_millis);
     match cleanup_expired_detached_job_artifacts(control_db_path, &artifact_root, now) {
         Ok(mut errors) => {
