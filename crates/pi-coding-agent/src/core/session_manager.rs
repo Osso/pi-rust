@@ -854,6 +854,13 @@ impl SessionEntry {
         &mut object.0
     }
 
+    fn set_parent_id(&mut self, parent_id: Option<JsString>) {
+        self.object_mut().insert(
+            "parentId".into(),
+            parent_id.map(JsValue::String).unwrap_or(JsValue::Null),
+        );
+    }
+
     fn set_id_parent(&mut self, id: JsString, parent_id: Option<JsString>) {
         let object = self.object_mut();
         object.insert("id".into(), JsValue::String(id));
@@ -1146,7 +1153,7 @@ fn build_session_path<'a>(entries: &'a [SessionEntry], leaf: LeafSelection<'_>) 
     }
     let index = build_entry_index(entries);
     let leaf_entry = match leaf {
-        LeafSelection::Id(id) => index.get(id).and_then(|position| entries.get(*position)),
+        LeafSelection::Id(id) if !id.is_empty() => index.get(id).and_then(|position| entries.get(*position)),
         _ => None,
     }
     .or_else(|| entries.last());
@@ -1158,7 +1165,7 @@ fn build_session_path<'a>(entries: &'a [SessionEntry], leaf: LeafSelection<'_>) 
     let mut seen = HashMap::new();
     loop {
         path.push(current);
-        let Some(parent_id) = current.parent_id() else {
+        let Some(parent_id) = current.parent_id().filter(|id| !id.is_empty()) else {
             break;
         };
         let Some(position) = index.get(parent_id) else {
@@ -1212,18 +1219,15 @@ fn record_timestamp_millis(timestamp: &JsString) -> Option<i64> {
         .and_then(|text| pi_js_compat::date::date_parse_millis(&text))
 }
 
-fn message_from_context_entry(entry: &SessionEntry) -> Option<AgentMessage> {
-    if let Some(message) = entry.message() {
-        return Some(message.into_owned());
-    }
-    let object = entry.object();
-    let (role, fields): (&str, &[&str]) = if entry.entry_type() == "custom_message" {
+fn context_projection_fields(
+    entry_type: &JsString,
+    object: &JsObject,
+) -> Option<(&'static str, &'static [&'static str])> {
+    let projection: (&str, &[&str]) = if entry_type == "custom_message" {
         ("custom", &["customType", "content", "display", "details"])
-    } else if entry.entry_type() == "branch_summary"
-        && object.get("summary").is_some_and(pi_js_compat::js_json::is_truthy)
-    {
+    } else if entry_type == "branch_summary" && object.get("summary").is_some_and(pi_js_compat::js_json::is_truthy) {
         ("branchSummary", &["summary", "fromId"])
-    } else if entry.entry_type() == "compaction" {
+    } else if entry_type == "compaction" {
         (
             "compactionSummary",
             &["summary", "tokensBefore", "durationMs", "providerNative"],
@@ -1231,6 +1235,15 @@ fn message_from_context_entry(entry: &SessionEntry) -> Option<AgentMessage> {
     } else {
         return None;
     };
+    Some(projection)
+}
+
+fn message_from_context_entry(entry: &SessionEntry) -> Option<AgentMessage> {
+    if let Some(message) = entry.message() {
+        return Some(message.into_owned());
+    }
+    let object = entry.object();
+    let (role, fields) = context_projection_fields(&entry.entry_type(), &object)?;
     let mut message = JsObject::new();
     message.insert("role".into(), JsValue::String(role.into()));
     for key in fields {
@@ -1744,12 +1757,14 @@ fn parse_reverse_session_entry(
 }
 
 fn cwd_from_changed_entry(entry: &SessionEntry) -> Option<JsString> {
-    let custom = entry.as_custom_message()?;
-    if custom.custom_type != "cwd_changed" {
+    if entry.entry_type() != "custom_message" {
         return None;
     }
-    let details = custom.details.as_ref()?.as_object()?;
-    details.get("cwd").and_then(JsValue::as_string).cloned()
+    let object = entry.object();
+    if object.get("customType").and_then(JsValue::as_string) != Some(&JsString::from("cwd_changed")) {
+        return None;
+    }
+    object.get("details")?.get("cwd")?.as_string().cloned()
 }
 
 fn scan_session_entry_reverse(scan: &mut ReverseSessionScan, entry: SessionEntry) -> bool {
@@ -2223,7 +2238,7 @@ fn write_fork_entries(
     for (index, entry) in entries_to_copy.into_iter().enumerate() {
         let mut entry = entry;
         if index == 0 {
-            entry.set_id_parent(entry.id().unwrap_or_else(|| empty_js_string()).to_owned(), None);
+            entry.set_parent_id(None);
         }
         let line = serialize_session_entry_for_persistence(&FileEntry::Entry(entry));
         writeln!(file, "{line}").map_err(|error| SessionManagerError::new(error.to_string()))?;
@@ -3244,7 +3259,7 @@ impl SessionManager {
     }
 
     pub fn get_leaf_entry(&self) -> Option<&SessionEntry> {
-        let id = self.leaf_id.as_ref()?;
+        let id = self.leaf_id.as_ref().filter(|id| !id.is_empty())?;
         self.get_entry(id)
     }
 
@@ -3452,7 +3467,7 @@ impl SessionManager {
 
     /// Walk from an entry to the root, returning the path in root-first order.
     pub fn get_branch(&self, from_id: Option<&JsString>) -> Vec<SessionEntry> {
-        let start_id = from_id.or(self.leaf_id.as_ref());
+        let start_id = from_id.or(self.leaf_id.as_ref()).filter(|id| !id.is_empty());
         let Some(mut current) = start_id.and_then(|id| self.get_entry(id)) else {
             return Vec::new();
         };
@@ -3460,7 +3475,7 @@ impl SessionManager {
         let mut seen: HashMap<JsString, ()> = HashMap::new();
         loop {
             path.push(current.clone());
-            let Some(parent_id) = current.parent_id() else {
+            let Some(parent_id) = current.parent_id().filter(|id| !id.is_empty()) else {
                 break;
             };
             let Some(parent) = self.get_entry(parent_id) else {
@@ -3867,14 +3882,18 @@ fn uses_default_session_dir_for(cwd: &JsString, dir: &JsString) -> bool {
 #[cfg(test)]
 mod record_identity_tests {
     use super::*;
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
 
     #[test]
     fn migration_retries_generated_id_collision_and_preserves_raw_payload() {
-        let mut entries = parse_session_entries(concat!(
+        let content = concat!(
             "{\"type\":\"session\",\"version\":1,\"id\":\"s\",\"timestamp\":\"t\"}\n",
             "{\"type\":\"custom\",\"customType\":\"first\",\"data\":{\"\\ud800\":\"\\udfff\"}}\n",
             "{\"type\":\"custom\",\"customType\":\"second\",\"data\":null}"
-        ));
+        );
+        let mut entries = parse_session_entries(content);
         let mut samples = [
             "aaaaaaaa-0000-4000-8000-000000000001",
             "aaaaaaaa-0000-4000-8000-000000000002",
@@ -3884,6 +3903,28 @@ mod record_identity_tests {
         migrate_v1_to_v2_with(&mut entries, || {
             samples.next().expect("bounded collision samples").to_owned()
         });
+        migrate_v2_to_v3(&mut entries);
+        let request = serde_json::json!({"id": 93000, "operation":"migrate_collision", "content":content});
+        let mut frozen = oracle::TsOracle::spawn(
+            "lossless-session-records-oracle.mjs",
+            "packages/coding-agent/src/core/session-manager.ts",
+        );
+        let frozen = frozen.request(&request);
+        assert_eq!(frozen["ok"], true, "{frozen:?}");
+        let duplicate = pi_js_compat::js_json::parse_lossless(frozen["output"][2].as_str().unwrap()).unwrap();
+        assert_eq!(duplicate.get("id"), Some(&JsValue::String("aaaaaaaa".into())));
+        let mut delta = oracle::TsOracle::spawn_with_environment(
+            "lossless-session-records-oracle.mjs",
+            "packages/coding-agent/src/core/session-manager.ts",
+            &[("PI_APPROVED_DELTA", "1".into())],
+        );
+        let expected = delta.request(&request);
+        assert_eq!(expected["ok"], true, "{expected:?}");
+        let actual: Vec<String> = entries
+            .iter()
+            .map(|entry| serde_json::to_string(entry).unwrap())
+            .collect();
+        assert_eq!(serde_json::json!(actual), expected["output"]);
         assert_eq!(entries[1].entry().unwrap().id(), Some(&JsString::from("aaaaaaaa")));
         assert_eq!(entries[2].entry().unwrap().id(), Some(&JsString::from("bbbbbbbb")));
         assert_eq!(

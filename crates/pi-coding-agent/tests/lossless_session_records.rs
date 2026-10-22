@@ -47,6 +47,24 @@ fn context_and_lookup_follow_raw_string_identity() {
 }
 
 #[test]
+fn empty_leaf_string_uses_the_last_entry_like_source_truthiness() {
+    let entries = parse_session_entries(concat!(
+        "{\"type\":\"custom\",\"id\":\"\",\"parentId\":null,\"timestamp\":\"t\",\"customType\":\"a\"}\n",
+        "{\"type\":\"custom\",\"id\":\"last\",\"parentId\":null,\"timestamp\":\"t\",\"customType\":\"b\"}"
+    ));
+    let entries: Vec<_> = entries
+        .into_iter()
+        .filter_map(|entry| match entry {
+            FileEntry::Entry(entry) => Some(entry),
+            _ => None,
+        })
+        .collect();
+    let empty = JsString::default();
+    let path = build_context_entries(&entries, LeafSelection::Id(&empty));
+    assert_eq!(path.last().unwrap().id(), Some(&JsString::from("last")));
+}
+
+#[test]
 fn parse_retains_non_record_json_without_inventing_a_wrapper() {
     let lines = ["null", "false", "42", r#""\ud800""#, r#"[null,{"\udfff":"\ud800"}]"#];
     let entries = parse_session_entries(&lines.join("\n"));

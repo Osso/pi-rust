@@ -99,4 +99,11 @@ fn truncating_imported_tool_result_preserves_unknown_entry_and_message_fields() 
         Some(&JsString::from("message"))
     );
     assert_eq!(serde_json::to_string(&entry).unwrap(), line);
+    let mut source = oracle::TsOracle::spawn(
+        "lossless-session-records-oracle.mjs",
+        "packages/coding-agent/src/core/session-manager.ts",
+    );
+    let expected = source.request(&serde_json::json!({"id":91020,"operation":"serialize","content":line}));
+    assert_eq!(expected["ok"], true, "{expected:?}");
+    assert_eq!(expected["output"][0].as_str(), Some(written.as_str()));
 }

@@ -180,3 +180,16 @@ collision tracking and adds a deterministic whole-migration collision/payload re
 Earlier "awaiting classification" notes above are historical, superseded by this approval.
 Full Q18/module coverage is not claimed. Exact-module harness excludes metadata/default
 live configuration and resident listing via panic-on-use stubs; no control-DB proof.
+
+Q18 follow-up regressions preserve source empty-string leaf truthiness and ensure fork
+rewiring changes only `parentId`, never synthesizing a missing imported `id`. The
+deterministic migration test now asserts frozen duplicate-ID discrepancy separately
+from exact approved-delta equality using `selectApprovedModule`. Tool capping compares
+exact pinned serializer output, not just size. Compaction updates compare TS mutation
+output and preserve raw state on filesystem rewrite failure.
+
+Reproducible standalone setup: `python oracle/lossless-session-records-harness.py`;
+manifest `/tmp/pi-rust-repin-lossless-session-records/full/crates/pi-coding-agent/Cargo.toml`.
+Target only the three new dedicated integration tests and `record_identity_tests`;
+worker location comes from `Q18_HARNESS_PACKAGE_DIR`. Metadata, resident listing and
+default live configuration are intentionally excluded via panic-on-use collaborators.

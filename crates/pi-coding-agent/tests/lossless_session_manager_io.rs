@@ -134,6 +134,31 @@ fn ts_file_load_lookup_tree_context_fork_and_write_remain_lossless() {
 }
 
 #[test]
+fn fork_unknown_record_adds_parent_link_without_inventing_identity() {
+    let sandbox = tempfile::tempdir().unwrap();
+    let dir: JsString = sandbox.path().display().to_string().into();
+    let path = dir.clone() + "/unknown.jsonl";
+    let content = concat!(
+        "{\"type\":\"session\",\"version\":3,\"id\":\"s\",\"timestamp\":\"t\",\"cwd\":\"/tmp\"}\n",
+        "{\"type\":\"extension\\ud800\",\"body\":{\"\\udfff\":null}}\n"
+    );
+    let mut source = oracle::TsOracle::spawn(
+        "lossless-session-records-oracle.mjs",
+        "packages/coding-agent/src/core/session-manager.ts",
+    );
+    let written = source
+        .request(&serde_json::json!({"id":92010,"operation":"write","path":path.to_utf8().unwrap(),"content":content}));
+    assert_eq!(written["ok"], true, "{written:?}");
+    let fork_dir = dir.clone() + "/fork";
+    let fork = SessionManager::fork_from(&path, &dir, Some(&fork_dir), None, Some(ForkEntrySelection::All)).unwrap();
+    let written = std::fs::read_to_string(encode_node_utf8(fork.get_session_file().unwrap())).unwrap();
+    assert_eq!(
+        written.lines().nth(1).unwrap(),
+        r#"{"type":"extension\ud800","body":{"\udfff":null},"parentId":null}"#
+    );
+}
+
+#[test]
 fn compressed_transcript_load_preserves_raw_records() {
     let sandbox = tempfile::tempdir().unwrap();
     let path: JsString = sandbox.path().join("source.jsonl.zst").display().to_string().into();
@@ -184,11 +209,42 @@ fn raw_provider_native_survives_compaction_context_and_rewrite_and_typed_derivat
     let error = pi_js_compat::js_json::from_value::<pi_ai::types::ProviderNativeContext>(native)
         .expect_err("opaque machine tags must error at typed derivation");
     assert!(!error.to_string().is_empty());
-    let root = JsString::from("root") + JsString::from_utf16(vec![0xd800]);
-    manager.branch(&root).unwrap();
     manager.append_custom_entry(&JsString::from("persist"), None).unwrap();
     let written = std::fs::read_to_string(encode_node_utf8(&path)).unwrap();
     assert!(written.lines().any(|line| line == lines[2]));
+    let id = JsString::from("compact") + JsString::from_utf16(vec![0xd800]);
+    let summary = JsString::from("  changed") + JsString::from_utf16(vec![0xdfff]) + "  ";
+    let mut update = JsObject::new();
+    update.insert("id".into(), JsValue::Number(92011.0));
+    update.insert("operation".into(), JsValue::String("update_summary".into()));
+    update.insert("path".into(), JsValue::String(path.clone()));
+    update.insert("entryId".into(), JsValue::String(id.clone()));
+    update.insert("summary".into(), JsValue::String(summary.clone()));
+    let expected = source.request_lossless(&JsValue::Object(update));
+    assert_eq!(expected.get("ok"), Some(&JsValue::Bool(true)), "{expected:?}");
+    manager.update_compaction_summary(&id, &summary).unwrap();
+    let before: Vec<_> = manager
+        .get_entries()
+        .iter()
+        .map(|entry| serde_json::to_string(entry).unwrap())
+        .collect();
+    assert_eq!(
+        &pi_js_compat::js_json::to_value(&before).unwrap(),
+        expected.get("output").unwrap()
+    );
+    std::fs::remove_file(encode_node_utf8(&path)).unwrap();
+    std::fs::create_dir(encode_node_utf8(&path)).unwrap();
+    assert!(
+        manager
+            .update_compaction_summary(&id, &JsString::from("rewrite fails"))
+            .is_err()
+    );
+    let restored: Vec<_> = manager
+        .get_entries()
+        .iter()
+        .map(|entry| serde_json::to_string(entry).unwrap())
+        .collect();
+    assert_eq!(restored, before);
 }
 
 #[test]

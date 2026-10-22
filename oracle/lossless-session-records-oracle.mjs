@@ -1,4 +1,7 @@
+import crypto from "node:crypto";
+import { syncBuiltinESMExports } from "node:module";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { selectApprovedModule } from "./approved-delta.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -9,7 +12,7 @@ const sandbox = mkdtempSync(join(tmpdir(), "pi-q18-record-oracle-"));
 process.env.HOME = sandbox;
 process.env.PI_CODING_AGENT_DIR = join(sandbox, "agent");
 process.env.PI_CONTROL_DB = join(sandbox, "control.sqlite");
-const modulePath = process.argv[2];
+const modulePath = selectApprovedModule(process.argv[2], "packages/coding-agent/src/core/session-manager.ts");
 const manager = await import(pathToFileURL(modulePath).href);
 const output = await import(pathToFileURL(join(dirname(modulePath), "session-tool-output.ts")).href);
 
@@ -24,8 +27,33 @@ function snapshot(session) {
 	};
 }
 
+function migrateWithCollisions(content) {
+	const samples = [
+		"aaaaaaaa-0000-4000-8000-000000000001",
+		"aaaaaaaa-0000-4000-8000-000000000002",
+		"bbbbbbbb-0000-4000-8000-000000000003",
+	];
+	const original = crypto.randomUUID;
+	crypto.randomUUID = () => {
+		const sample = samples.shift();
+		if (!sample) throw new Error("Collision fixture exhausted");
+		return sample;
+	};
+	syncBuiltinESMExports();
+	try {
+		const entries = manager.parseSessionEntries(content);
+		manager.migrateSessionEntries(entries);
+		return entries.map((entry) => JSON.stringify(entry));
+	} finally {
+		crypto.randomUUID = original;
+		syncBuiltinESMExports();
+	}
+}
+
 function handle(request) {
 	switch (request.operation) {
+		case "migrate_collision":
+			return migrateWithCollisions(request.content);
 		case "parse":
 			return manager.parseSessionEntries(request.content).map((entry) => JSON.stringify(entry));
 		case "migrate": {
@@ -40,6 +68,11 @@ function handle(request) {
 			return readFileSync(request.path, "utf8");
 		case "read":
 			return snapshot(manager.SessionManager.open(request.path, request.sessionDir));
+		case "update_summary": {
+			const session = manager.SessionManager.open(request.path, request.sessionDir);
+			session.updateCompactionSummary(request.entryId, request.summary);
+			return session.getEntries().map((entry) => JSON.stringify(entry));
+		}
 		default:
 			throw new Error(`Unknown record oracle operation: ${request.operation}`);
 	}
