@@ -4,7 +4,7 @@
 //! to `<baseUrl>/messages`, then an SSE stream of serialized assistant-message
 //! events plus a terminal `done`/`error` event.
 
-use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -15,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 use url::Url;
 
 use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
-use crate::request::{HttpRequest, ProviderStreams, SimpleStreamOptions, StreamOptions, now_millis};
+use crate::request::{HttpRequest, ProviderStreams, SimpleStreamOptions, StreamOptions, header_value, now_millis};
 use crate::types::{
     AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, Context, DoneReason, ErrorReason, Model,
     ProviderEnv, ProviderResponse, StopReason, TextContent, ThinkingContent, ThinkingLevel, ToolCall, Usage,
@@ -266,12 +266,12 @@ async fn produce_stream(
     consume_events(model, options, body, sender).await
 }
 
-fn require_api_key<'a>(model: &Model, options: &'a PiMessagesOptions) -> Result<&'a str, PiMessagesError> {
+fn require_api_key<'a>(model: &Model, options: &'a PiMessagesOptions) -> Result<&'a JsString, PiMessagesError> {
     options
         .stream
         .request
         .api_key
-        .as_deref()
+        .as_ref()
         .filter(|key| !key.is_empty())
         .ok_or_else(|| {
             PiMessagesError::Message(format!("No API key provided for provider \"{}\"", model.provider).into())
@@ -282,12 +282,12 @@ async fn send_messages_request(
     model: &Model,
     context: &Context,
     options: &PiMessagesOptions,
-    api_key: &str,
+    api_key: &JsString,
     url: &Url,
 ) -> Result<Box<dyn crate::request::HttpBody>, PiMessagesError> {
     let payload = resolve_payload(model, context, options).await?;
     let body = serde_json::to_vec(&payload).map_err(|error| PiMessagesError::Message(error.to_string().into()))?;
-    let headers = build_headers(api_key, options);
+    let headers = build_headers(api_key, options)?;
     let fetch = options
         .stream
         .request
@@ -463,7 +463,9 @@ async fn cancelled(signal: &Option<CancellationToken>) {
 }
 
 fn messages_url(model: &Model, options: &PiMessagesOptions) -> Result<Url, PiMessagesError> {
-    let base = model.base_url.trim_end_matches('/');
+    // `new URL()` takes a USVString.
+    let base_url = encode_node_utf8(&model.base_url);
+    let base = base_url.trim_end_matches('/');
     let mut url =
         Url::parse(&format!("{base}/messages")).map_err(|error| PiMessagesError::Message(error.to_string().into()))?;
     if options.debug {
@@ -520,17 +522,17 @@ fn resolve_cache_retention(
     if cache_retention.is_some() {
         return cache_retention;
     }
-    match get_provider_env_value("PI_CACHE_RETENTION", env).as_deref() {
-        Some("long") => Some(CacheRetention::Long),
-        _ => None,
-    }
+    get_provider_env_value("PI_CACHE_RETENTION", env)
+        .is_some_and(|value| value == "long")
+        .then_some(CacheRetention::Long)
 }
 
-fn build_headers(api_key: &str, options: &PiMessagesOptions) -> IndexMap<String, String> {
-    let mut headers = IndexMap::from([
-        ("authorization".to_owned(), format!("Bearer {api_key}")),
-        ("accept".to_owned(), "text/event-stream".to_owned()),
-        ("content-type".to_owned(), "application/json".to_owned()),
+/// Header values become ByteStrings when `fetch` builds its `Headers`.
+fn build_headers(api_key: &JsString, options: &PiMessagesOptions) -> Result<IndexMap<String, String>, PiMessagesError> {
+    let mut headers: IndexMap<String, JsString> = IndexMap::from([
+        ("authorization".to_owned(), JsString::from("Bearer ") + api_key),
+        ("accept".to_owned(), "text/event-stream".into()),
+        ("content-type".to_owned(), "application/json".into()),
     ]);
     if let Some(overrides) = provider_headers_to_record(options.stream.request.headers.as_ref()) {
         for (name, value) in overrides {
@@ -538,6 +540,14 @@ fn build_headers(api_key: &str, options: &PiMessagesOptions) -> IndexMap<String,
         }
     }
     headers
+        .into_iter()
+        .map(|(name, value)| {
+            Ok((
+                name,
+                header_value(&value).map_err(|error| PiMessagesError::Message(error.message))?,
+            ))
+        })
+        .collect()
 }
 
 fn parse_error_body(body: &str) -> Option<PiMessagesErrorBody> {

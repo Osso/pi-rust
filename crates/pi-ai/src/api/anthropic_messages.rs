@@ -270,7 +270,7 @@ fn get_cache_control(
     Some(Value::Object(control))
 }
 
-fn is_oauth_token(api_key: &str) -> bool {
+fn is_oauth_token(api_key: &JsString) -> bool {
     api_key.contains("sk-ant-oat")
 }
 
@@ -283,13 +283,13 @@ fn has_header(headers: Option<&ProviderHeaders>, name: &str) -> bool {
         return false;
     };
     headers.iter().any(|(key, value)| {
-        key.eq_ignore_ascii_case(name) && value.as_deref().is_some_and(|value| !js_trimmed_is_empty(value))
+        key.eq_ignore_ascii_case(name) && value.as_ref().is_some_and(|value| !js_trimmed_is_empty(value))
     })
 }
 
 fn assert_request_auth(
     provider: &str,
-    api_key: Option<&str>,
+    api_key: Option<&JsString>,
     headers: Option<&ProviderHeaders>,
 ) -> Result<(), pi_js_compat::js_json::JsString> {
     if api_key.is_some_and(|api_key| !api_key.is_empty()) {
@@ -304,10 +304,10 @@ fn assert_request_auth(
     Err(format!("No API key for provider: {provider}").into())
 }
 
-fn provider_headers(headers: &IndexMap<String, String>) -> ProviderHeaders {
+fn provider_headers<V: Clone + Into<JsString>>(headers: &IndexMap<String, V>) -> ProviderHeaders {
     headers
         .iter()
-        .map(|(name, value)| (name.clone(), Some(value.clone())))
+        .map(|(name, value)| (name.clone(), Some(value.clone().into())))
         .collect()
 }
 
@@ -321,8 +321,8 @@ fn merge_headers(sources: &[&ProviderHeaders]) -> ProviderHeaders {
     merged
 }
 
-fn beta_header(features: &[&str]) -> Option<String> {
-    (!features.is_empty()).then(|| features.join(","))
+fn beta_header(features: &[&str]) -> Option<JsString> {
+    (!features.is_empty()).then(|| features.join(",").into())
 }
 
 struct ClientHeaders {
@@ -335,7 +335,7 @@ fn create_client_headers(
     context: &Context,
     options: &StreamOptions,
     anthropic: &AnthropicOptions,
-    api_key: Option<&str>,
+    api_key: Option<&JsString>,
     is_oauth: bool,
     session_id: Option<&JsString>,
 ) -> ClientHeaders {
@@ -358,10 +358,10 @@ fn create_client_headers(
     if model.provider == "github-copilot" {
         let dynamic = build_copilot_dynamic_headers(&context.messages, has_copilot_vision_input(&context.messages));
         let mut base = ProviderHeaders::new();
-        base.insert("accept".to_owned(), Some("application/json".to_owned()));
+        base.insert("accept".to_owned(), Some("application/json".into()));
         base.insert(
             "anthropic-dangerous-direct-browser-access".to_owned(),
-            Some("true".to_owned()),
+            Some("true".into()),
         );
         if let Some(beta) = beta_header(&beta_features) {
             base.insert("anthropic-beta".to_owned(), Some(beta));
@@ -370,7 +370,7 @@ fn create_client_headers(
         let model_headers = model.headers.as_ref().map(provider_headers).unwrap_or_default();
         return ClientHeaders {
             headers: merge_headers(&[&base, &model_headers, &dynamic, options_headers]),
-            auth: api_key.map_or(Auth::None, |api_key| Auth::Bearer(api_key.to_owned())),
+            auth: api_key.map_or(Auth::None, |api_key| Auth::Bearer(api_key.clone())),
         };
     }
 
@@ -378,43 +378,40 @@ fn create_client_headers(
         let mut features = vec!["claude-code-20250219", "oauth-2025-04-20"];
         features.extend(beta_features);
         let mut base = ProviderHeaders::new();
-        base.insert("accept".to_owned(), Some("application/json".to_owned()));
+        base.insert("accept".to_owned(), Some("application/json".into()));
         base.insert(
             "anthropic-dangerous-direct-browser-access".to_owned(),
-            Some("true".to_owned()),
+            Some("true".into()),
         );
-        base.insert("anthropic-beta".to_owned(), Some(features.join(",")));
+        base.insert("anthropic-beta".to_owned(), Some(features.join(",").into()));
         base.insert(
             "user-agent".to_owned(),
-            Some(format!("claude-cli/{CLAUDE_CODE_VERSION}")),
+            Some(format!("claude-cli/{CLAUDE_CODE_VERSION}").into()),
         );
-        base.insert("x-app".to_owned(), Some("cli".to_owned()));
+        base.insert("x-app".to_owned(), Some("cli".into()));
         let model_headers = model.headers.as_ref().map(provider_headers).unwrap_or_default();
         return ClientHeaders {
             headers: merge_headers(&[&base, &model_headers, options_headers]),
-            auth: api_key.map_or(Auth::None, |api_key| Auth::Bearer(api_key.to_owned())),
+            auth: api_key.map_or(Auth::None, |api_key| Auth::Bearer(api_key.clone())),
         };
     }
 
     let mut base = ProviderHeaders::new();
-    base.insert("accept".to_owned(), Some("application/json".to_owned()));
+    base.insert("accept".to_owned(), Some("application/json".into()));
     base.insert(
         "anthropic-dangerous-direct-browser-access".to_owned(),
-        Some("true".to_owned()),
+        Some("true".into()),
     );
     if let Some(beta) = beta_header(&beta_features) {
         base.insert("anthropic-beta".to_owned(), Some(beta));
     }
     if let (Some(session_id), true) = (session_id, compat.send_session_affinity_headers) {
-        base.insert(
-            "x-session-affinity".to_owned(),
-            Some(pi_js_compat::js_json::encode_node_utf8(session_id)),
-        );
+        base.insert("x-session-affinity".to_owned(), Some(session_id.clone()));
     }
     let model_headers = model.headers.as_ref().map(provider_headers).unwrap_or_default();
     ClientHeaders {
         headers: merge_headers(&[&base, &model_headers, options_headers]),
-        auth: api_key.map_or(Auth::None, |api_key| Auth::ApiKey(api_key.to_owned())),
+        auth: api_key.map_or(Auth::None, |api_key| Auth::ApiKey(api_key.clone())),
     }
 }
 
@@ -1138,7 +1135,7 @@ async fn drive_stream(
     output: &mut AssistantMessage,
 ) -> Result<(), pi_js_compat::js_json::JsString> {
     let anthropic = AnthropicOptions::from_stream_options(options)?;
-    let api_key = options.request.api_key.as_deref().filter(|key| !key.is_empty());
+    let api_key = options.request.api_key.as_ref().filter(|key| !key.is_empty());
     assert_request_auth(&model.provider, api_key, options.request.headers.as_ref())?;
     let is_oauth = api_key.is_some_and(is_oauth_token);
     let retention = resolve_cache_retention(options.cache_retention, options.request.env.as_ref());
@@ -1779,7 +1776,7 @@ fn with_extra(mut options: StreamOptions, key: &str, value: Value) -> StreamOpti
 }
 
 pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOptions) -> AssistantMessageEventStream {
-    let api_key = options.stream.request.api_key.as_deref().filter(|key| !key.is_empty());
+    let api_key = options.stream.request.api_key.as_ref().filter(|key| !key.is_empty());
     if let Err(message) = assert_request_auth(&model.provider, api_key, options.stream.request.headers.as_ref()) {
         return crate::request::error_stream(&model, &message);
     }

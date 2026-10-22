@@ -1,6 +1,6 @@
 //! Port of `packages/ai/src/api/google-vertex.ts`.
 
-use pi_js_compat::js_json::{JsObject, JsValue};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
@@ -341,26 +341,27 @@ fn get_google_budget(
     })
 }
 
-fn resolve_api_key(options: &GoogleVertexOptions) -> Option<String> {
-    let api_key = options.stream.request.api_key.as_deref()?.trim();
-    if api_key.is_empty() || api_key == GCP_VERTEX_CREDENTIALS_MARKER || is_placeholder_api_key(api_key) {
+fn resolve_api_key(options: &GoogleVertexOptions) -> Option<JsString> {
+    let api_key = options.stream.request.api_key.as_ref()?.trim();
+    if api_key.is_empty() || api_key == GCP_VERTEX_CREDENTIALS_MARKER || is_placeholder_api_key(&api_key) {
         return None;
     }
-    Some(api_key.to_owned())
+    Some(api_key)
 }
 
-fn is_placeholder_api_key(api_key: &str) -> bool {
+fn is_placeholder_api_key(api_key: &JsString) -> bool {
     api_key
         .strip_prefix('<')
         .and_then(|rest| rest.strip_suffix('>'))
         .is_some_and(|inner| !inner.is_empty() && !inner.contains('>'))
 }
 
-fn project_from_options_or_env(options: &GoogleVertexOptions) -> Result<String, String> {
+fn project_from_options_or_env(options: &GoogleVertexOptions) -> Result<JsString, String> {
     let env: Option<&ProviderEnv> = options.stream.request.env.as_ref();
     options
         .project
         .clone()
+        .map(JsString::from)
         .or_else(|| get_provider_env_value("GOOGLE_CLOUD_PROJECT", env))
         .or_else(|| get_provider_env_value("GCLOUD_PROJECT", env))
         .ok_or_else(|| {
@@ -369,11 +370,12 @@ fn project_from_options_or_env(options: &GoogleVertexOptions) -> Result<String, 
         })
 }
 
-fn location_from_options_or_env(options: &GoogleVertexOptions) -> Result<String, String> {
+fn location_from_options_or_env(options: &GoogleVertexOptions) -> Result<JsString, String> {
     let env: Option<&ProviderEnv> = options.stream.request.env.as_ref();
     options
         .location
         .clone()
+        .map(JsString::from)
         .or_else(|| get_provider_env_value("GOOGLE_CLOUD_LOCATION", env))
         .ok_or_else(|| {
             "Vertex AI requires a location. Set GOOGLE_CLOUD_LOCATION or pass location in options.".to_owned()

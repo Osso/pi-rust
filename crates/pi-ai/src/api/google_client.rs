@@ -6,7 +6,7 @@
 //! `ApiError`-shaped HTTP failures, and ADC service-account/authorized-user
 //! access-token exchange.
 
-use pi_js_compat::js_json::{JsObject, JsString, JsValue};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -26,7 +26,7 @@ use crate::api::google_shared::{
 };
 use crate::http::default_fetch;
 use crate::models::calculate_cost;
-use crate::request::{Fetch, HttpBody, HttpRequest, HttpResponse};
+use crate::request::{Fetch, HttpBody, HttpRequest, HttpResponse, header_value};
 use crate::types::{
     AssistantContent, AssistantMessage, AssistantMessageEvent, DoneReason, Model, ProviderEnv, ProviderHeaders,
     StopReason, TextContent, ThinkingContent, ToolCall, Usage, UsageCost,
@@ -115,15 +115,17 @@ struct HeaderList {
 }
 
 impl HeaderList {
-    fn from_entries(entries: Vec<(String, String)>) -> Self {
+    fn from_entries(entries: Vec<(String, JsString)>) -> Result<Self, GoogleRequestError> {
         let mut list = Self::default();
         for (name, value) in entries {
-            list.append(&name, &value);
+            list.append(&name, &value)?;
         }
-        list
+        Ok(list)
     }
 
-    fn append(&mut self, name: &str, value: &str) {
+    /// `Headers.append`: ByteString conversion, then HTTP whitespace trim.
+    fn append(&mut self, name: &str, value: &JsString) -> Result<(), GoogleRequestError> {
+        let value = header_value(value).map_err(|error| GoogleRequestError::new(error.message, None))?;
         let name = name.to_ascii_lowercase();
         let value = value.trim_matches(|character| matches!(character, ' ' | '\t' | '\n' | '\r'));
         match self.entries.iter_mut().find(|(existing, _)| existing == &name) {
@@ -133,6 +135,7 @@ impl HeaderList {
             }
             None => self.entries.push((name, value.to_owned())),
         }
+        Ok(())
     }
 
     fn contains(&self, name: &str) -> bool {
@@ -149,11 +152,11 @@ impl HeaderList {
 #[derive(Debug, Clone)]
 struct Endpoint {
     vertexai: bool,
-    base_url: String,
+    base_url: JsString,
     api_version: String,
     collection_scope: bool,
-    project: Option<String>,
-    location: Option<String>,
+    project: Option<JsString>,
+    location: Option<JsString>,
 }
 
 /// ADC credentials accepted by the adapter.
@@ -172,10 +175,10 @@ enum Credentials {
 
 /// HTTP client stand-in shared by both Google adapters.
 pub struct GoogleClient {
-    api_key: Option<String>,
+    api_key: Option<JsString>,
     credentials: Option<Credentials>,
     endpoint: Endpoint,
-    headers: Vec<(String, String)>,
+    headers: Vec<(String, JsString)>,
     token: Mutex<Option<(String, f64)>>,
 }
 
@@ -189,19 +192,19 @@ pub struct GoogleStream {
 
 impl GoogleClient {
     /// Gemini API client (`new GoogleGenAI({apiKey, httpOptions})`).
-    pub fn generative_ai(model: &Model, api_key: &str, option_headers: Option<&ProviderHeaders>) -> Self {
+    pub fn generative_ai(model: &Model, api_key: &JsString, option_headers: Option<&ProviderHeaders>) -> Self {
         let (base_url, api_version) = if !model.base_url.is_empty() {
             (model.base_url.clone(), String::new())
         } else if let Some(base_url) = read_process_env_value("GOOGLE_GEMINI_BASE_URL") {
-            (base_url, GOOGLE_AI_DEFAULT_API_VERSION.to_owned())
+            (base_url.into(), GOOGLE_AI_DEFAULT_API_VERSION.to_owned())
         } else {
             (
-                GOOGLE_AI_DEFAULT_BASE_URL.to_owned(),
+                GOOGLE_AI_DEFAULT_BASE_URL.into(),
                 GOOGLE_AI_DEFAULT_API_VERSION.to_owned(),
             )
         };
         Self {
-            api_key: Some(api_key.to_owned()),
+            api_key: Some(api_key.clone()),
             credentials: None,
             endpoint: Endpoint {
                 vertexai: false,
@@ -217,7 +220,7 @@ impl GoogleClient {
     }
 
     /// Vertex API-key client (`new GoogleGenAI({vertexai: true, apiKey, apiVersion: "v1", ...})`).
-    pub fn vertex_api_key(model: &Model, api_key: &str, option_headers: Option<&ProviderHeaders>) -> Self {
+    pub fn vertex_api_key(model: &Model, api_key: &JsString, option_headers: Option<&ProviderHeaders>) -> Self {
         let custom_base_url = resolve_custom_base_url(&model.base_url);
         let (base_url, api_version) = match &custom_base_url {
             Some(base_url) => (
@@ -230,12 +233,12 @@ impl GoogleClient {
             ),
             None => (
                 read_process_env_value("GOOGLE_VERTEX_BASE_URL")
-                    .unwrap_or_else(|| "https://aiplatform.googleapis.com/".to_owned()),
+                    .map_or_else(|| "https://aiplatform.googleapis.com/".into(), JsString::from),
                 "v1".to_owned(),
             ),
         };
         Self {
-            api_key: Some(api_key.to_owned()),
+            api_key: Some(api_key.clone()),
             credentials: None,
             endpoint: Endpoint {
                 vertexai: true,
@@ -253,8 +256,8 @@ impl GoogleClient {
     /// Vertex ADC client (`new GoogleGenAI({vertexai: true, project, location, googleAuthOptions})`).
     pub fn vertex_adc(
         model: &Model,
-        project: &str,
-        location: &str,
+        project: &JsString,
+        location: &JsString,
         option_headers: Option<&ProviderHeaders>,
         env: Option<&ProviderEnv>,
     ) -> Result<Self, GoogleRequestError> {
@@ -269,7 +272,8 @@ impl GoogleClient {
                 },
             ),
             None => (
-                read_process_env_value("GOOGLE_VERTEX_BASE_URL").unwrap_or_else(|| vertex_default_base_url(location)),
+                read_process_env_value("GOOGLE_VERTEX_BASE_URL")
+                    .map_or_else(|| vertex_default_base_url(location), JsString::from),
                 "v1".to_owned(),
             ),
         };
@@ -282,8 +286,8 @@ impl GoogleClient {
                 base_url,
                 api_version,
                 collection_scope: custom_base_url.is_some(),
-                project: Some(project.to_owned()),
-                location: Some(location.to_owned()),
+                project: Some(project.clone()),
+                location: Some(location.clone()),
             },
             headers: merge_headers(model, option_headers),
             token: Mutex::new(None),
@@ -329,24 +333,30 @@ impl GoogleClient {
         })
     }
 
+    /// The SDK hands the URL string to `new URL()`, a USVString: the Node
+    /// UTF-8 view of the base and path is the exact parser input.
     fn request_url(&self, model: &str) -> Result<String, GoogleRequestError> {
         let model = transform_model_name(self.endpoint.vertexai, model)?;
-        let path = format!("{model}:streamGenerateContent?alt=sse");
+        let path = JsString::from(format!("{model}:streamGenerateContent?alt=sse"));
         let path = if self.endpoint.vertexai && !self.endpoint.collection_scope && self.api_key.is_none() {
-            format!(
-                "projects/{}/locations/{}/{path}",
-                self.endpoint.project.as_deref().unwrap_or_default(),
-                self.endpoint.location.as_deref().unwrap_or_default()
-            )
+            let empty = JsString::default();
+            JsString::from("projects/")
+                + self.endpoint.project.as_ref().unwrap_or(&empty)
+                + "/locations/"
+                + self.endpoint.location.as_ref().unwrap_or(&empty)
+                + "/"
+                + path
         } else {
             path
         };
-        let mut base = self.endpoint.base_url.trim_end_matches('/').to_owned();
+        let mut base = encode_node_utf8(&self.endpoint.base_url)
+            .trim_end_matches('/')
+            .to_owned();
         if !self.endpoint.api_version.is_empty() {
             base.push('/');
             base.push_str(&self.endpoint.api_version);
         }
-        Ok(format!("{base}/{}", encode_url_path(&path)))
+        Ok(format!("{base}/{}", encode_url_path(&encode_node_utf8(&path))))
     }
 
     async fn request_headers(
@@ -354,10 +364,10 @@ impl GoogleClient {
         fetch: &dyn Fetch,
         signal: Option<&CancellationToken>,
     ) -> Result<HeaderList, GoogleRequestError> {
-        let mut entries = vec![
-            ("User-Agent".to_owned(), SDK_USER_AGENT.to_owned()),
-            ("x-goog-api-client".to_owned(), SDK_USER_AGENT.to_owned()),
-            ("Content-Type".to_owned(), "application/json".to_owned()),
+        let mut entries: Vec<(String, JsString)> = vec![
+            ("User-Agent".to_owned(), SDK_USER_AGENT.into()),
+            ("x-goog-api-client".to_owned(), SDK_USER_AGENT.into()),
+            ("Content-Type".to_owned(), "application/json".into()),
         ];
         for (name, value) in &self.headers {
             match entries.iter_mut().find(|(existing, _)| existing == name) {
@@ -365,14 +375,14 @@ impl GoogleClient {
                 None => entries.push((name.clone(), value.clone())),
             }
         }
-        let mut headers = HeaderList::from_entries(entries);
+        let mut headers = HeaderList::from_entries(entries)?;
         if let Some(api_key) = &self.api_key {
             if !headers.contains("x-goog-api-key") {
-                headers.append("x-goog-api-key", api_key);
+                headers.append("x-goog-api-key", api_key)?;
             }
         } else if !headers.contains("authorization") {
             let token = self.fetch_access_token(fetch, signal).await?;
-            headers.append("authorization", &format!("Bearer {token}"));
+            headers.append("authorization", &JsString::from(format!("Bearer {token}")))?;
         }
         Ok(headers)
     }
@@ -584,8 +594,8 @@ async fn read_body_text(mut body: Box<dyn HttpBody>) -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
-fn merge_headers(model: &Model, option_headers: Option<&ProviderHeaders>) -> Vec<(String, String)> {
-    let mut merged: IndexMap<String, Option<String>> = IndexMap::new();
+fn merge_headers(model: &Model, option_headers: Option<&ProviderHeaders>) -> Vec<(String, JsString)> {
+    let mut merged: ProviderHeaders = IndexMap::new();
     for (name, value) in model.headers.iter().flatten() {
         merged.insert(name.clone(), Some(value.clone()));
     }
@@ -604,15 +614,18 @@ fn read_process_env_value(name: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn resolve_custom_base_url(base_url: &str) -> Option<String> {
+fn resolve_custom_base_url(base_url: &JsString) -> Option<JsString> {
     let trimmed = base_url.trim();
     if trimmed.is_empty() || trimmed.contains("{location}") {
         return None;
     }
-    Some(trimmed.to_owned())
+    Some(trimmed)
 }
 
-fn base_url_includes_api_version(base_url: &str) -> bool {
+/// ASCII `vN[beta[N]]` segment grammar: an unpaired unit (or its U+FFFD) can
+/// never be part of a matching segment, and the separators are ASCII.
+fn base_url_includes_api_version(base_url: &JsString) -> bool {
+    let base_url = encode_node_utf8(base_url);
     let path = base_url
         .split_once("://")
         .map(|(_, rest)| rest)
@@ -636,13 +649,13 @@ fn is_api_version_segment(segment: &str) -> bool {
             .is_some_and(|beta| beta.chars().all(|c| c.is_ascii_digit()))
 }
 
-fn vertex_default_base_url(location: &str) -> String {
+fn vertex_default_base_url(location: &JsString) -> JsString {
     if location == "global" {
-        "https://aiplatform.googleapis.com/".to_owned()
+        "https://aiplatform.googleapis.com/".into()
     } else if location == "us" || location == "eu" {
-        format!("https://aiplatform.{location}.rep.googleapis.com/")
+        JsString::from("https://aiplatform.") + location + ".rep.googleapis.com/"
     } else {
-        format!("https://{location}-aiplatform.googleapis.com/")
+        JsString::from("https://") + location + "-aiplatform.googleapis.com/"
     }
 }
 
@@ -1010,15 +1023,15 @@ fn load_credentials(env: Option<&ProviderEnv>) -> Result<Credentials, GoogleRequ
             None,
         ));
     };
-    let contents = std::fs::read_to_string(&path)
+    let contents = std::fs::read_to_string(encode_node_utf8(&path))
         .map_err(|error| GoogleRequestError::new(format!("Unable to read the credential file: {error}"), None))?;
     parse_credentials(&contents)
 }
 
-fn well_known_adc_path() -> Option<String> {
+fn well_known_adc_path() -> Option<JsString> {
     let home = pi_js_compat::process_env::get("HOME")?;
     let path = std::path::Path::new(&home).join(".config/gcloud/application_default_credentials.json");
-    path.is_file().then(|| path.to_string_lossy().into_owned())
+    path.is_file().then(|| JsString::from(path.to_string_lossy().as_ref()))
 }
 
 fn parse_credentials(contents: &str) -> Result<Credentials, GoogleRequestError> {
