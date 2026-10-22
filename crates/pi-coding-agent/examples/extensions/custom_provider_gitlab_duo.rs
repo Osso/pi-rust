@@ -123,8 +123,14 @@ impl State {
         let data = pi_js_compat::js_json::parse_lossless(&body).map_err(|e| CallbackError::new(e.to_string()))?;
         *self.cache.lock().unwrap() = None;
         Ok(OAuthCredential::new(
-            data["refresh_token"].as_str().unwrap_or_default(),
-            data["access_token"].as_str().unwrap_or_default(),
+            data["refresh_token"]
+                .as_string()
+                .cloned()
+                .unwrap_or_else(JsString::default),
+            data["access_token"]
+                .as_string()
+                .cloned()
+                .unwrap_or_else(JsString::default),
             (data["created_at"].as_f64().unwrap_or(f64::NAN) + data["expires_in"].as_f64().unwrap_or(f64::NAN))
                 * 1000.0
                 - 300000.0,
@@ -327,10 +333,7 @@ impl Provider for GitlabDuo {
                     .ok_or_else(|| CallbackError::new(format!("Unknown model: {}", model.id)))?;
                 let direct = state.direct_token(key).await?;
                 let mut headers = direct.headers;
-                headers.insert(
-                    "Authorization".into(),
-                    Some(JsString::from(format!("Bearer {}", direct.token))),
-                );
+                headers.insert("Authorization".into(), Some(js_format!("Bearer {}", direct.token)));
                 let mut inner_model = model.clone();
                 let anthropic = index < 5;
                 inner_model.base_url = if anthropic {
