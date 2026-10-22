@@ -117,3 +117,35 @@ Node reports `spawn <cmd> <ERRNO>` / `spawnSync <cmd> <ERRNO>`. Rust uses
 `utils::child_process::node_spawn_error_message` with the Linux errno-name table;
 `missing_npm_binary_reports_the_node_spawn_error_text` and
 `non_executable_npm_binary_reports_the_node_spawn_error_text` assert `ENOENT` and `EACCES`.
+
+## Q18 native package manager continuation (2026-10-22)
+
+Resource paths and PathMetadata source/baseDir, configured source identities, npm
+spec/name/version/range, progress/errors, package update labels, command argv/cwd,
+and package JSON use the single JsString/JsValue authorities. Native node path
+operations retain units; only concrete filesystem/process/crypto byte bindings
+encode. Node crypto hash update encodes the native prefix/suffix once, as Node's
+Hash.update(string) does. Process output/fs bytes decode at ingress.
+
+Patterns use native Ignore/minimatch/JsRegex; the manifest glob walk now matches
+with native minimatch rather than scalar globset. Dot-skipping traversal remains
+unchanged. No scalar projection of arbitrary path patterns is retained.
+
+### Grammar-only narrowing
+
+`node_version_range`, `installed_version_satisfies`, and `parse_native_semver`
+check UTF-8 conversion only at semver validation. Unmatched units cannot match the
+ASCII semver grammar, so failure means invalid/no match; source JsString identity
+continues unchanged. No checked conversion at other intermediate text APIs.
+`max_satisfying`/`highest_version` retain original native version strings while
+comparing parsed Version values. npm spec parsing uses native JsRegex, not a
+scalar name projection.
+
+### Proof status
+
+`lossless_package_manager` covers raw local source/npm version parsing and a raw
+extension directory's path/baseDir through resource resolution. Written but
+unexecuted while coding compilation is blocked. replacement-packages-1:141 local
+primaries; replacement-packages-2:12, subsequently addressed except queued parent
+Settings native authority and spawn-error helper dependency. No runtime PASS or
+whole-module frozen parity claim until integration compiles and fixtures execute.

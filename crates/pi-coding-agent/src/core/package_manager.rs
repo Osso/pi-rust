@@ -14,7 +14,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::future::Future;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -23,10 +23,13 @@ use futures_util::stream::{self, StreamExt};
 use pi_ai::request::BoxFuture;
 use pi_js_compat::minimatch::{MinimatchOptions, minimatch};
 use pi_js_compat::node_ignore::Ignore;
-use regex::Regex;
+use pi_js_compat::{
+    js_format,
+    js_json::{JsValue, encode_node_utf8},
+    js_regex::JsRegex,
+};
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncReadExt;
 use tokio::process::Child;
@@ -38,7 +41,8 @@ use crate::core::settings_manager::{Settings, SettingsManager, lock_settings_man
 use crate::utils::child_process::node_spawn_error_message;
 use crate::utils::git::{GitSource, parse_git_url};
 use crate::utils::paths::{
-    PathInputOptions, canonicalize_path, is_local_path, mark_path_ignored_by_cloud_sync, relative_path, resolve_path,
+    PathInputOptions, canonicalize_path, is_local_path, mark_path_ignored_by_cloud_sync, node_basename, node_dirname,
+    node_extname, node_is_absolute, node_join, relative_path, resolve_path,
 };
 use pi_js_compat::js_json;
 use pi_js_compat::js_json::JsString;
@@ -51,11 +55,15 @@ const IGNORE_FILE_NAMES: [&str; 3] = [".gitignore", ".ignore", ".fdignore"];
 /// `PackageManagerError` mirrors a thrown TypeScript `Error` message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageManagerError {
-    message: String,
+    message: JsString,
 }
 
 impl PackageManagerError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn message(&self) -> &JsString {
+        &self.message
+    }
+
+    pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
         }
@@ -64,7 +72,7 @@ impl PackageManagerError {
 
 impl std::fmt::Display for PackageManagerError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&encode_node_utf8(&self.message))
     }
 }
 
@@ -116,11 +124,11 @@ impl From<InstalledScope> for SourceScope {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PathMetadata {
-    pub source: String,
+    pub source: JsString,
     pub scope: SourceScope,
     pub origin: MetadataOrigin,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub base_dir: Option<String>,
+    pub base_dir: Option<JsString>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -132,7 +140,7 @@ pub enum MetadataOrigin {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ResolvedResource {
-    pub path: String,
+    pub path: JsString,
     pub enabled: bool,
     pub metadata: PathMetadata,
 }
@@ -176,9 +184,9 @@ pub struct ProgressEvent {
     #[serde(rename = "type")]
     pub event_type: ProgressType,
     pub action: ProgressAction,
-    pub source: String,
+    pub source: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,
+    pub message: Option<JsString>,
 }
 
 pub type ProgressCallback = Arc<dyn Fn(&ProgressEvent) + Send + Sync>;
@@ -186,8 +194,8 @@ pub type ProgressCallback = Arc<dyn Fn(&ProgressEvent) + Send + Sync>;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PackageUpdate {
-    pub source: String,
-    pub display_name: String,
+    pub source: JsString,
+    pub display_name: JsString,
     #[serde(rename = "type")]
     pub update_type: PackageUpdateType,
     pub scope: InstalledScope,
@@ -203,11 +211,11 @@ pub enum PackageUpdateType {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfiguredPackage {
-    pub source: String,
+    pub source: JsString,
     pub scope: InstalledScope,
     pub filtered: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub installed_path: Option<String>,
+    pub installed_path: Option<JsString>,
 }
 
 pub use crate::core::settings_manager::{PackageFilter, PackageSource};
@@ -244,7 +252,7 @@ pub trait PackageSettingsStore: Send + Sync {
 }
 
 pub type MissingSourceHandler<'a> =
-    Box<dyn Fn(String) -> BoxFuture<'a, Result<MissingSourceAction, PackageManagerError>> + Send + Sync + 'a>;
+    Box<dyn Fn(JsString) -> BoxFuture<'a, Result<MissingSourceAction, PackageManagerError>> + Send + Sync + 'a>;
 /// Adapter from the ported settings manager to [`PackageSettingsStore`].
 ///
 /// The settings manager owns mutable state; the package manager only needs
@@ -316,25 +324,25 @@ fn snapshot_from_settings(settings: &Settings) -> PackageSettingsSnapshot {
 fn string_list(settings: &Settings, key: &str) -> Vec<JsString> {
     settings
         .get(key)
-        .and_then(Value::as_array)
-        .and_then(|entries| entries.iter().map(|entry| entry.as_str().map(JsString::from)).collect())
+        .and_then(JsValue::as_array)
+        .and_then(|entries| entries.iter().map(|entry| entry.as_string().cloned()).collect())
         .unwrap_or_default()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct NpmSource {
-    pub spec: String,
-    pub name: String,
+    pub spec: JsString,
+    pub name: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<String>,
+    pub version: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub range: Option<String>,
+    pub range: Option<JsString>,
     pub pinned: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LocalSource {
-    pub path: String,
+    pub path: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -361,7 +369,7 @@ impl ResourceType {
         ResourceType::Themes,
     ];
 
-    fn manifest_entries(self, manifest: &PiManifest) -> Option<&Vec<String>> {
+    fn manifest_entries(self, manifest: &PiManifest) -> Option<&Vec<JsString>> {
         match self {
             ResourceType::Extensions => manifest.extensions.as_ref(),
             ResourceType::Skills => manifest.skills.as_ref(),
@@ -370,7 +378,7 @@ impl ResourceType {
         }
     }
 
-    fn matches_file_name(self, name: &str) -> bool {
+    fn matches_file_name(self, name: &JsString) -> bool {
         match self {
             ResourceType::Extensions => name.ends_with(".ts") || name.ends_with(".js"),
             ResourceType::Skills | ResourceType::Prompts => name.ends_with(".md"),
@@ -394,7 +402,7 @@ pub enum SkillDiscoveryMode {
     Agents,
 }
 
-type ResourceMap = Vec<(String, ResourceEntry)>;
+type ResourceMap = Vec<(JsString, ResourceEntry)>;
 
 #[derive(Debug, Clone)]
 struct ResourceEntry {
@@ -445,7 +453,7 @@ fn to_resolved(entries: ResourceMap) -> Vec<ResolvedResource> {
     resolved
 }
 
-fn filter_patterns(filter: &PackageFilter, resource_type: ResourceType) -> Option<&Vec<String>> {
+fn filter_patterns(filter: &PackageFilter, resource_type: ResourceType) -> Option<&Vec<JsString>> {
     match resource_type {
         ResourceType::Extensions => filter.extensions.as_ref(),
         ResourceType::Skills => filter.skills.as_ref(),
@@ -469,57 +477,61 @@ fn is_offline_mode_enabled() -> bool {
     value == "1" || value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("yes")
 }
 
-fn to_posix_path(path: &str) -> String {
+fn to_posix_path(path: &JsString) -> JsString {
     path.replace(std::path::MAIN_SEPARATOR, "/")
 }
 
-fn home_dir() -> String {
-    pi_js_compat::process_env::get("HOME").unwrap_or_default()
+fn home_dir() -> JsString {
+    pi_js_compat::process_env::get("HOME").unwrap_or_default().into()
 }
 
-fn resolve_input(input: &str, base_dir: &str) -> Result<String, PackageManagerError> {
+fn resolve_input(input: &JsString, base_dir: &JsString) -> Result<JsString, PackageManagerError> {
     let options = PathInputOptions {
         trim: true,
         home_dir: Some(home_dir()),
         ..PathInputOptions::default()
     };
-    resolve_path(input, base_dir, &options).map_err(|error| PackageManagerError::new(error.to_string()))
+    resolve_path(input, base_dir, &options).map_err(|error| PackageManagerError::new(error.message().clone()))
 }
 
 /// `getExtensionTempFolder`.
-pub fn get_extension_temp_folder(agent_dir: &str) -> Result<String, PackageManagerError> {
-    let temp_folder = Path::new(agent_dir).join("tmp").join("extensions");
-    std::fs::create_dir_all(&temp_folder)?;
+pub fn get_extension_temp_folder(agent_dir: &JsString) -> Result<JsString, PackageManagerError> {
+    let temp_folder = node_join(node_join(agent_dir, "tmp"), "extensions");
+    std::fs::create_dir_all(encode_node_utf8(&temp_folder))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&temp_folder, std::fs::Permissions::from_mode(0o700))?;
+        std::fs::set_permissions(encode_node_utf8(&temp_folder), std::fs::Permissions::from_mode(0o700))?;
     }
-    Ok(temp_folder.to_string_lossy().into_owned())
+    Ok(temp_folder)
 }
 
 struct IgnoreState(Ignore);
 
 impl IgnoreState {
-    fn new(_root_dir: &str) -> Self {
+    fn new(_root_dir: &JsString) -> Self {
         Self(Ignore::new())
     }
 
-    fn add(&mut self, patterns: &[String]) {
+    fn add(&mut self, patterns: &[JsString]) {
         for pattern in patterns {
-            self.0.add(pattern.as_str());
+            self.0.add(pattern);
         }
     }
 
-    fn ignores(&self, path: &str, is_dir: bool) -> bool {
-        let path = if is_dir { format!("{path}/") } else { path.to_owned() };
+    fn ignores(&self, path: &JsString, is_dir: bool) -> bool {
+        let path = if is_dir {
+            js_format!("{}/", path)
+        } else {
+            path.to_owned()
+        };
         self.0
             .ignores(path)
             .expect("discovery supplies a nonempty root-relative path")
     }
 }
 
-fn prefix_ignore_pattern(line: &str, prefix: &str) -> Option<String> {
+fn prefix_ignore_pattern(line: &JsString, prefix: &JsString) -> Option<JsString> {
     let trimmed = line.trim();
     if trimmed.is_empty() {
         return None;
@@ -528,7 +540,7 @@ fn prefix_ignore_pattern(line: &str, prefix: &str) -> Option<String> {
         return None;
     }
 
-    let mut pattern = line;
+    let mut pattern = line.clone();
     let mut negated = false;
     if let Some(rest) = pattern.strip_prefix('!') {
         negated = true;
@@ -540,27 +552,27 @@ fn prefix_ignore_pattern(line: &str, prefix: &str) -> Option<String> {
         pattern = rest;
     }
 
-    let prefixed = format!("{prefix}{pattern}");
-    Some(if negated { format!("!{prefixed}") } else { prefixed })
+    let prefixed = js_format!("{}{}", prefix, pattern);
+    Some(if negated { js_format!("!{}", prefixed) } else { prefixed })
 }
 
-fn add_ignore_rules(state: &mut IgnoreState, dir: &str, root_dir: &str) {
-    let relative_dir = relative_path(root_dir, dir);
+fn add_ignore_rules(state: &mut IgnoreState, dir: &JsString, root_dir: &JsString) {
+    let relative_dir = relative_path(root_dir, dir).expect("resolved discovery paths");
     let prefix = if relative_dir.is_empty() {
-        String::new()
+        JsString::default()
     } else {
-        format!("{}/", to_posix_path(&relative_dir))
+        js_format!("{}/", to_posix_path(&relative_dir))
     };
 
     for filename in IGNORE_FILE_NAMES {
-        let ignore_path = Path::new(dir).join(filename);
-        let Ok(content) = std::fs::read_to_string(&ignore_path) else {
+        let ignore_path = node_join(dir, filename);
+        let Ok(content) = read_text_file(&ignore_path) else {
             continue;
         };
-        let patterns: Vec<String> = content
+        let patterns: Vec<JsString> = content
             .split('\n')
             .map(|line| line.strip_suffix('\r').unwrap_or(line))
-            .filter_map(|line| prefix_ignore_pattern(line, &prefix))
+            .filter_map(|line| prefix_ignore_pattern(&line, &prefix))
             .collect();
         if !patterns.is_empty() {
             state.add(&patterns);
@@ -568,7 +580,7 @@ fn add_ignore_rules(state: &mut IgnoreState, dir: &str, root_dir: &str) {
     }
 }
 
-fn is_pattern(entry: &str) -> bool {
+fn is_pattern(entry: &JsString) -> bool {
     entry.starts_with('!')
         || entry.starts_with('+')
         || entry.starts_with('-')
@@ -576,15 +588,15 @@ fn is_pattern(entry: &str) -> bool {
         || entry.contains('?')
 }
 
-fn is_override_pattern(entry: &str) -> bool {
+fn is_override_pattern(entry: &JsString) -> bool {
     entry.starts_with('!') || entry.starts_with('+') || entry.starts_with('-')
 }
 
-fn has_glob_pattern(entry: &str) -> bool {
+fn has_glob_pattern(entry: &JsString) -> bool {
     entry.contains('*') || entry.contains('?')
 }
 
-fn split_patterns(entries: &[String]) -> (Vec<String>, Vec<String>) {
+fn split_patterns(entries: &[JsString]) -> (Vec<JsString>, Vec<JsString>) {
     let mut plain = Vec::new();
     let mut patterns = Vec::new();
     for entry in entries {
@@ -597,12 +609,12 @@ fn split_patterns(entries: &[String]) -> (Vec<String>, Vec<String>) {
     (plain, patterns)
 }
 
-fn minimatch_path(path: &str, pattern: &str) -> bool {
+fn minimatch_path(path: &JsString, pattern: &JsString) -> bool {
     minimatch(path, pattern, &MinimatchOptions::default())
 }
 
-fn read_dir_entries(dir: &Path) -> Vec<std::fs::DirEntry> {
-    let Ok(entries) = std::fs::read_dir(dir) else {
+fn read_dir_entries(dir: &JsString) -> Vec<std::fs::DirEntry> {
+    let Ok(entries) = std::fs::read_dir(encode_node_utf8(dir)) else {
         return Vec::new();
     };
     entries.filter_map(Result::ok).collect()
@@ -610,43 +622,43 @@ fn read_dir_entries(dir: &Path) -> Vec<std::fs::DirEntry> {
 
 /// Reads a visible directory entry, skipping dotfiles, `node_modules`, and
 /// entries whose metadata cannot be read.
-fn read_visible_entry(dir: &str, entry: &std::fs::DirEntry) -> Option<(String, String, std::fs::Metadata)> {
-    let name = entry.file_name().to_string_lossy().into_owned();
+fn read_visible_entry(dir: &JsString, entry: &std::fs::DirEntry) -> Option<(JsString, JsString, std::fs::Metadata)> {
+    let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
     if name.starts_with('.') || name == "node_modules" {
         return None;
     }
-    let path = Path::new(dir).join(&name);
-    let metadata = std::fs::metadata(&path).ok()?;
-    Some((name, path.to_string_lossy().into_owned(), metadata))
+    let path = node_join(dir, &name);
+    let metadata = std::fs::metadata(encode_node_utf8(&path)).ok()?;
+    Some((name, path, metadata))
 }
 
 fn collect_files(
-    dir: &str,
+    dir: &JsString,
     resource_type: ResourceType,
     skip_node_modules: bool,
     ignore: &mut IgnoreState,
-    root_dir: &str,
-) -> Vec<String> {
+    root_dir: &JsString,
+) -> Vec<JsString> {
     let mut files = Vec::new();
-    if !Path::new(dir).exists() {
+    if !path_exists(dir) {
         return files;
     }
     add_ignore_rules(ignore, dir, root_dir);
 
-    for entry in read_dir_entries(Path::new(dir)) {
-        let name = entry.file_name().to_string_lossy().into_owned();
+    for entry in read_dir_entries(dir) {
+        let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
         if name.starts_with('.') {
             continue;
         }
         if skip_node_modules && name == "node_modules" {
             continue;
         }
-        let full_path = Path::new(dir).join(&name);
-        let Ok(metadata) = std::fs::metadata(&full_path) else {
+        let full_path = node_join(dir, &name);
+        let Ok(metadata) = std::fs::metadata(encode_node_utf8(&full_path)) else {
             continue;
         };
-        let full_path = full_path.to_string_lossy().into_owned();
-        let rel_path = to_posix_path(&relative_path(root_dir, &full_path));
+        let full_path = full_path;
+        let rel_path = to_posix_path(&relative_path(root_dir, &full_path).expect("resolved discovery paths"));
         if ignore.ignores(&rel_path, metadata.is_dir()) {
             continue;
         }
@@ -665,24 +677,29 @@ fn collect_files(
     files
 }
 
-fn collect_skill_entries(dir: &str, mode: SkillDiscoveryMode, ignore: &mut IgnoreState, root_dir: &str) -> Vec<String> {
+fn collect_skill_entries(
+    dir: &JsString,
+    mode: SkillDiscoveryMode,
+    ignore: &mut IgnoreState,
+    root_dir: &JsString,
+) -> Vec<JsString> {
     let mut entries = Vec::new();
-    if !Path::new(dir).exists() {
+    if !path_exists(dir) {
         return entries;
     }
     add_ignore_rules(ignore, dir, root_dir);
-    let dir_entries = read_dir_entries(Path::new(dir));
+    let dir_entries = read_dir_entries(dir);
 
     for entry in &dir_entries {
         if entry.file_name().to_string_lossy() != "SKILL.md" {
             continue;
         }
-        let full_path = Path::new(dir).join(entry.file_name());
-        let Ok(metadata) = std::fs::metadata(&full_path) else {
+        let full_path = node_join(dir, JsString::from(entry.file_name().to_string_lossy().as_ref()));
+        let Ok(metadata) = std::fs::metadata(encode_node_utf8(&full_path)) else {
             continue;
         };
-        let full_path = full_path.to_string_lossy().into_owned();
-        let rel_path = to_posix_path(&relative_path(root_dir, &full_path));
+        let full_path = full_path;
+        let rel_path = to_posix_path(&relative_path(root_dir, &full_path).expect("resolved discovery paths"));
         if metadata.is_file() && !ignore.ignores(&rel_path, false) {
             entries.push(full_path);
             return entries;
@@ -693,7 +710,7 @@ fn collect_skill_entries(dir: &str, mode: SkillDiscoveryMode, ignore: &mut Ignor
         let Some((name, full_path, metadata)) = read_visible_entry(dir, entry) else {
             continue;
         };
-        let rel_path = to_posix_path(&relative_path(root_dir, &full_path));
+        let rel_path = to_posix_path(&relative_path(root_dir, &full_path).expect("resolved discovery paths"));
         if mode == SkillDiscoveryMode::Pi
             && dir == root_dir
             && metadata.is_file()
@@ -714,20 +731,17 @@ fn collect_skill_entries(dir: &str, mode: SkillDiscoveryMode, ignore: &mut Ignor
     entries
 }
 
-fn collect_auto_skill_entries(dir: &str, mode: SkillDiscoveryMode) -> Vec<String> {
+fn collect_auto_skill_entries(dir: &JsString, mode: SkillDiscoveryMode) -> Vec<JsString> {
     let mut ignore = IgnoreState::new(dir);
     collect_skill_entries(dir, mode, &mut ignore, dir)
 }
 
-fn collect_ancestor_skill_dirs(start_dir: &str, child: &str) -> Vec<String> {
+fn collect_ancestor_skill_dirs(start_dir: &JsString, child: &str) -> Vec<JsString> {
     let mut dirs = Vec::new();
     let mut dir = resolve_input(start_dir, start_dir).unwrap_or_else(|_| start_dir.to_owned());
     loop {
-        dirs.push(Path::new(&dir).join(child).to_string_lossy().into_owned());
-        let Some(parent) = Path::new(&dir).parent() else {
-            break;
-        };
-        let parent = parent.to_string_lossy().into_owned();
+        dirs.push(node_join(&dir, child));
+        let parent = node_dirname(&dir);
         if parent == dir {
             break;
         }
@@ -736,20 +750,17 @@ fn collect_ancestor_skill_dirs(start_dir: &str, child: &str) -> Vec<String> {
     dirs
 }
 
-fn collect_ancestor_agents_skill_dirs(start_dir: &str) -> Vec<String> {
+fn collect_ancestor_agents_skill_dirs(start_dir: &JsString) -> Vec<JsString> {
     collect_ancestor_skill_dirs(start_dir, ".agents/skills")
 }
 
-fn collect_ancestor_tool_skill_dirs(start_dir: &str) -> Vec<String> {
+fn collect_ancestor_tool_skill_dirs(start_dir: &JsString) -> Vec<JsString> {
     let mut dirs = Vec::new();
     let mut dir = resolve_input(start_dir, start_dir).unwrap_or_else(|_| start_dir.to_owned());
     loop {
-        dirs.push(Path::new(&dir).join(".codex/skills").to_string_lossy().into_owned());
-        dirs.push(Path::new(&dir).join(".claude/skills").to_string_lossy().into_owned());
-        let Some(parent) = Path::new(&dir).parent() else {
-            break;
-        };
-        let parent = parent.to_string_lossy().into_owned();
+        dirs.push(node_join(&dir, ".codex/skills"));
+        dirs.push(node_join(&dir, ".claude/skills"));
+        let parent = node_dirname(&dir);
         if parent == dir {
             break;
         }
@@ -758,19 +769,19 @@ fn collect_ancestor_tool_skill_dirs(start_dir: &str) -> Vec<String> {
     dirs
 }
 
-fn collect_flat_files(dir: &str, suffix: &str) -> Vec<String> {
+fn collect_flat_files(dir: &JsString, suffix: &str) -> Vec<JsString> {
     let mut entries = Vec::new();
-    if !Path::new(dir).exists() {
+    if !path_exists(dir) {
         return entries;
     }
     let mut ignore = IgnoreState::new(dir);
     add_ignore_rules(&mut ignore, dir, dir);
 
-    for entry in read_dir_entries(Path::new(dir)) {
+    for entry in read_dir_entries(dir) {
         let Some((name, full_path, metadata)) = read_visible_entry(dir, &entry) else {
             continue;
         };
-        let rel_path = to_posix_path(&relative_path(dir, &full_path));
+        let rel_path = to_posix_path(&relative_path(dir, &full_path).expect("resolved discovery paths"));
         if ignore.ignores(&rel_path, false) {
             continue;
         }
@@ -781,24 +792,24 @@ fn collect_flat_files(dir: &str, suffix: &str) -> Vec<String> {
     entries
 }
 
-fn collect_auto_prompt_entries(dir: &str) -> Vec<String> {
+fn collect_auto_prompt_entries(dir: &JsString) -> Vec<JsString> {
     collect_flat_files(dir, ".md")
 }
 
-fn collect_auto_theme_entries(dir: &str) -> Vec<String> {
+fn collect_auto_theme_entries(dir: &JsString) -> Vec<JsString> {
     collect_flat_files(dir, ".json")
 }
 
-fn resolve_extension_entries(dir: &str) -> Option<Vec<String>> {
-    let package_json_path = Path::new(dir).join("package.json");
-    if package_json_path.exists()
+fn resolve_extension_entries(dir: &JsString) -> Option<Vec<JsString>> {
+    let package_json_path = node_join(dir, "package.json");
+    if path_exists(&package_json_path)
         && let Some(manifest) = read_pi_manifest(&package_json_path)
         && let Some(extensions) = manifest.extensions.as_ref().filter(|entries| !entries.is_empty())
     {
         let mut entries = Vec::new();
         for extension in extensions {
-            let resolved = Path::new(dir).join(extension).to_string_lossy().into_owned();
-            if Path::new(&resolved).exists() {
+            let resolved = node_join(dir, extension);
+            if path_exists(&resolved) {
                 entries.push(resolved);
             }
         }
@@ -807,20 +818,20 @@ fn resolve_extension_entries(dir: &str) -> Option<Vec<String>> {
         }
     }
 
-    let index_ts = Path::new(dir).join("index.ts");
-    if index_ts.exists() {
-        return Some(vec![index_ts.to_string_lossy().into_owned()]);
+    let index_ts = node_join(dir, "index.ts");
+    if path_exists(&index_ts) {
+        return Some(vec![index_ts]);
     }
-    let index_js = Path::new(dir).join("index.js");
-    if index_js.exists() {
-        return Some(vec![index_js.to_string_lossy().into_owned()]);
+    let index_js = node_join(dir, "index.js");
+    if path_exists(&index_js) {
+        return Some(vec![index_js]);
     }
     None
 }
 
-fn collect_auto_extension_entries(dir: &str) -> Vec<String> {
+fn collect_auto_extension_entries(dir: &JsString) -> Vec<JsString> {
     let mut entries = Vec::new();
-    if !Path::new(dir).exists() {
+    if !path_exists(dir) {
         return entries;
     }
     if let Some(root_entries) = resolve_extension_entries(dir) {
@@ -830,11 +841,11 @@ fn collect_auto_extension_entries(dir: &str) -> Vec<String> {
     let mut ignore = IgnoreState::new(dir);
     add_ignore_rules(&mut ignore, dir, dir);
 
-    for entry in read_dir_entries(Path::new(dir)) {
+    for entry in read_dir_entries(dir) {
         let Some((name, full_path, metadata)) = read_visible_entry(dir, &entry) else {
             continue;
         };
-        let rel_path = to_posix_path(&relative_path(dir, &full_path));
+        let rel_path = to_posix_path(&relative_path(dir, &full_path).expect("resolved discovery paths"));
         if ignore.ignores(&rel_path, metadata.is_dir()) {
             continue;
         }
@@ -849,7 +860,7 @@ fn collect_auto_extension_entries(dir: &str) -> Vec<String> {
     entries
 }
 
-fn collect_resource_files(dir: &str, resource_type: ResourceType) -> Vec<String> {
+fn collect_resource_files(dir: &JsString, resource_type: ResourceType) -> Vec<JsString> {
     match resource_type {
         ResourceType::Skills => collect_auto_skill_entries(dir, SkillDiscoveryMode::Pi),
         ResourceType::Extensions => collect_auto_extension_entries(dir),
@@ -860,21 +871,15 @@ fn collect_resource_files(dir: &str, resource_type: ResourceType) -> Vec<String>
     }
 }
 
-fn skill_parent_paths(file_path: &str) -> Option<(String, String, String)> {
-    let parent_dir = Path::new(file_path).parent()?;
-    let parent_dir = parent_dir.to_string_lossy().into_owned();
-    let parent_name = Path::new(&parent_dir)
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())?;
+fn skill_parent_paths(file_path: &JsString) -> Option<(JsString, JsString, JsString)> {
+    let parent_dir = node_dirname(file_path);
+    let parent_name = node_basename(&parent_dir);
     Some((parent_dir.clone(), to_posix_path(&parent_dir), parent_name))
 }
 
-fn matches_any_pattern(file_path: &str, patterns: &[String], base_dir: &str) -> bool {
-    let rel = to_posix_path(&relative_path(base_dir, file_path));
-    let name = Path::new(file_path)
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
+fn matches_any_pattern(file_path: &JsString, patterns: &[JsString], base_dir: &JsString) -> bool {
+    let rel = to_posix_path(&relative_path(base_dir, file_path).expect("resolved pattern paths"));
+    let name = node_basename(file_path);
     let file_path_posix = to_posix_path(file_path);
     let is_skill_file = name == "SKILL.md";
     let parent = is_skill_file.then(|| skill_parent_paths(file_path)).flatten();
@@ -890,30 +895,27 @@ fn matches_any_pattern(file_path: &str, patterns: &[String], base_dir: &str) -> 
         let Some((parent_dir, parent_dir_posix, parent_name)) = parent.as_ref() else {
             return false;
         };
-        let parent_rel = to_posix_path(&relative_path(base_dir, parent_dir));
+        let parent_rel = to_posix_path(&relative_path(base_dir, parent_dir).expect("resolved pattern paths"));
         minimatch_path(&parent_rel, &normalized_pattern)
             || minimatch_path(parent_name, &normalized_pattern)
             || minimatch_path(parent_dir_posix, &normalized_pattern)
     })
 }
 
-fn normalize_exact_pattern(pattern: &str) -> String {
+fn normalize_exact_pattern(pattern: &JsString) -> JsString {
     let normalized = pattern
         .strip_prefix("./")
         .or_else(|| pattern.strip_prefix(".\\"))
-        .unwrap_or(pattern);
-    to_posix_path(normalized)
+        .unwrap_or_else(|| pattern.clone());
+    to_posix_path(&normalized)
 }
 
-fn matches_any_exact_pattern(file_path: &str, patterns: &[String], base_dir: &str) -> bool {
+fn matches_any_exact_pattern(file_path: &JsString, patterns: &[JsString], base_dir: &JsString) -> bool {
     if patterns.is_empty() {
         return false;
     }
-    let rel = to_posix_path(&relative_path(base_dir, file_path));
-    let name = Path::new(file_path)
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let rel = to_posix_path(&relative_path(base_dir, file_path).expect("resolved pattern paths"));
+    let name = node_basename(file_path);
     let file_path_posix = to_posix_path(file_path);
     let is_skill_file = name == "SKILL.md";
     let parent = is_skill_file.then(|| skill_parent_paths(file_path)).flatten();
@@ -926,12 +928,12 @@ fn matches_any_exact_pattern(file_path: &str, patterns: &[String], base_dir: &st
         let Some((parent_dir, parent_dir_posix, _)) = parent.as_ref() else {
             return false;
         };
-        let parent_rel = to_posix_path(&relative_path(base_dir, parent_dir));
+        let parent_rel = to_posix_path(&relative_path(base_dir, parent_dir).expect("resolved pattern paths"));
         normalized == parent_rel || normalized == *parent_dir_posix
     })
 }
 
-fn get_override_patterns(entries: &[String]) -> Vec<String> {
+fn get_override_patterns(entries: &[JsString]) -> Vec<JsString> {
     entries
         .iter()
         .filter(|entry| is_override_pattern(entry))
@@ -939,16 +941,16 @@ fn get_override_patterns(entries: &[String]) -> Vec<String> {
         .collect()
 }
 
-fn is_enabled_by_overrides(file_path: &str, patterns: &[String], base_dir: &str) -> bool {
-    let excludes: Vec<String> = get_override_patterns(patterns)
+fn is_enabled_by_overrides(file_path: &JsString, patterns: &[JsString], base_dir: &JsString) -> bool {
+    let excludes: Vec<JsString> = get_override_patterns(patterns)
         .iter()
-        .filter_map(|pattern| pattern.strip_prefix('!').map(str::to_owned))
+        .filter_map(|pattern| pattern.strip_prefix('!'))
         .collect();
     !matches_any_pattern(file_path, &excludes, base_dir)
 }
 
 /// Apply include/exclude/force patterns and return the enabled path set.
-fn apply_patterns(all_paths: &[String], patterns: &[String], base_dir: &str) -> HashSet<String> {
+fn apply_patterns(all_paths: &[JsString], patterns: &[JsString], base_dir: &JsString) -> HashSet<JsString> {
     let mut includes = Vec::new();
     let mut excludes = Vec::new();
     let mut force_includes = Vec::new();
@@ -965,7 +967,7 @@ fn apply_patterns(all_paths: &[String], patterns: &[String], base_dir: &str) -> 
         }
     }
 
-    let mut result: Vec<String> = if includes.is_empty() {
+    let mut result: Vec<JsString> = if includes.is_empty() {
         all_paths.to_vec()
     } else {
         all_paths
@@ -994,10 +996,18 @@ fn apply_patterns(all_paths: &[String], patterns: &[String], base_dir: &str) -> 
     result.into_iter().collect()
 }
 
-fn apply_autoload_disabled_patterns(all_paths: &[String], patterns: &[String], base_dir: &str) -> Vec<(String, bool)> {
-    let mut result: Vec<(String, bool)> = Vec::new();
+fn apply_autoload_disabled_patterns(
+    all_paths: &[JsString],
+    patterns: &[JsString],
+    base_dir: &JsString,
+) -> Vec<(JsString, bool)> {
+    let mut result: Vec<(JsString, bool)> = Vec::new();
     for pattern in patterns {
-        let target = pattern.strip_prefix(['+', '-', '!']).unwrap_or(pattern).to_owned();
+        let target = if ['+', '-', '!'].iter().any(|prefix| pattern.starts_with(*prefix)) {
+            pattern.slice(1, pattern.len())
+        } else {
+            pattern.clone()
+        };
         let enabled = !pattern.starts_with('-') && !pattern.starts_with('!');
         let exact = pattern.starts_with('+') || pattern.starts_with('-');
         for file_path in all_paths {
@@ -1019,8 +1029,17 @@ fn apply_autoload_disabled_patterns(all_paths: &[String], patterns: &[String], b
 }
 
 /// node-semver `validRange` text for the range forms npm packages use.
-fn node_version_range(version: Option<&str>) -> Option<String> {
+fn node_version_range(version: Option<&JsString>) -> Option<JsString> {
     let version = version?;
+    // Semver grammar is ASCII-only; unmatched units cannot form a valid range.
+    let scalar = match version.to_utf8() {
+        Ok(value) => value,
+        Err(_) => return None,
+    };
+    normalize_version_range(&scalar).map(JsString::from)
+}
+
+fn normalize_version_range(version: &str) -> Option<String> {
     if version.is_empty() {
         return None;
     }
@@ -1214,116 +1233,109 @@ fn node_range_matches(installed: &str, range: &str) -> bool {
         .any(|part| single_range_requirement(part.trim()).is_some_and(|requirement| requirement.matches(&version)))
 }
 
-fn installed_version_satisfies(installed: &str, range: &str) -> bool {
-    node_range_matches(installed, range)
+fn installed_version_satisfies(installed: &JsString, range: &JsString) -> bool {
+    let (Ok(installed), Ok(range)) = (installed.to_utf8(), range.to_utf8()) else {
+        return false;
+    };
+    node_range_matches(&installed, &range)
 }
 
-fn max_satisfying(versions: &[String], range: &str) -> Option<String> {
+fn parse_native_semver(version: &JsString) -> Option<Version> {
+    let normalized = version.strip_prefix('v').unwrap_or_else(|| version.clone());
+    let scalar = match normalized.to_utf8() {
+        Ok(value) => value,
+        Err(_) => return None,
+    };
+    match Version::parse(&scalar) {
+        Ok(version) => Some(version),
+        Err(_) => None,
+    }
+}
+
+fn max_satisfying(versions: &[JsString], range: &JsString) -> Option<JsString> {
     versions
         .iter()
-        .filter_map(|version| {
-            let normalized = version.strip_prefix('v').unwrap_or(version);
-            Version::parse(normalized).ok().map(|parsed| (parsed, version))
-        })
-        .filter(|(_, version)| node_range_matches(version, range))
+        .filter(|version| installed_version_satisfies(version, range))
+        .filter_map(|version| parse_native_semver(version).map(|parsed| (parsed, version)))
         .max_by(|left, right| left.0.cmp(&right.0))
         .map(|(_, version)| version.clone())
 }
 
-fn is_exact_npm_version(version: Option<&str>) -> bool {
-    let Some(version) = version else {
-        return false;
-    };
-    let normalized = version.strip_prefix('v').unwrap_or(version);
-    Version::parse(normalized).is_ok()
+fn is_exact_npm_version(version: Option<&JsString>) -> bool {
+    version.is_some_and(|version| parse_native_semver(version).is_some())
 }
 
-fn highest_version(versions: &[String]) -> Option<String> {
+fn highest_version(versions: &[JsString]) -> Option<JsString> {
     versions
         .iter()
-        .filter_map(|version| {
-            let normalized = version.strip_prefix('v').unwrap_or(version);
-            Version::parse(normalized).ok().map(|parsed| (parsed, version))
-        })
+        .filter_map(|version| parse_native_semver(version).map(|parsed| (parsed, version)))
         .max_by(|left, right| left.0.cmp(&right.0))
         .map(|(_, version)| version.clone())
 }
 
 /// Recursive `glob` walk used for manifest entries: dot files are skipped.
-fn glob_sync(pattern: &str, root: &str) -> Vec<String> {
-    use globset::GlobBuilder;
-
-    // `glob` normalizes a leading `./` before matching.
+fn glob_sync(pattern: &JsString, root: &JsString) -> Vec<JsString> {
     let pattern = pattern
         .strip_prefix("./")
         .or_else(|| pattern.strip_prefix(".\\"))
-        .unwrap_or(pattern);
-    let Ok(glob) = GlobBuilder::new(pattern)
-        .literal_separator(true)
-        .backslash_escape(false)
-        .build()
-    else {
-        return Vec::new();
-    };
-    let matcher = glob.compile_matcher();
+        .unwrap_or_else(|| pattern.clone());
     let mut matches = Vec::new();
-    collect_glob_matches(Path::new(root), root, &matcher, &mut matches);
+    collect_glob_matches(root, root, &pattern, &mut matches);
     matches
 }
 
-fn collect_glob_matches(dir: &Path, root: &str, matcher: &globset::GlobMatcher, matches: &mut Vec<String>) {
+fn collect_glob_matches(dir: &JsString, root: &JsString, pattern: &JsString, matches: &mut Vec<JsString>) {
     for entry in read_dir_entries(dir) {
-        let name = entry.file_name().to_string_lossy().into_owned();
+        let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
         if name.starts_with('.') {
             continue;
         }
-        let full_path = dir.join(&name);
-        let full_path_string = full_path.to_string_lossy().into_owned();
-        let relative = to_posix_path(&relative_path(root, &full_path_string));
-        if matcher.is_match(&relative) {
-            matches.push(full_path_string.clone());
+        let full_path = node_join(dir, name);
+        let relative = to_posix_path(&relative_path(root, &full_path).expect("absolute glob paths"));
+        if minimatch_path(&relative, pattern) {
+            matches.push(full_path.clone());
         }
-        if full_path.is_dir() {
-            collect_glob_matches(&full_path, root, matcher, matches);
+        if std::fs::metadata(encode_node_utf8(&full_path)).is_ok_and(|metadata| metadata.is_dir()) {
+            collect_glob_matches(&full_path, root, pattern, matches);
         }
     }
 }
 
 struct NpmCommand {
-    command: String,
-    args: Vec<String>,
+    command: JsString,
+    args: Vec<JsString>,
 }
 
 type PackageUpdateTask<'a> = std::pin::Pin<Box<dyn Future<Output = Result<(), PackageManagerError>> + 'a>>;
 
 struct ConfiguredUpdateSource {
-    source: String,
+    source: JsString,
     scope: InstalledScope,
 }
 
 struct NpmUpdateTarget {
-    source: String,
+    source: JsString,
     scope: InstalledScope,
     parsed: NpmSource,
 }
 
 struct GitUpdateTarget {
-    source: String,
+    source: JsString,
     scope: InstalledScope,
     parsed: GitSource,
 }
 
 /// Package manager backed by [`PackageSettingsStore`].
 pub struct DefaultPackageManager {
-    cwd: String,
-    agent_dir: String,
+    cwd: JsString,
+    agent_dir: JsString,
     settings: Arc<dyn PackageSettingsStore>,
-    global_npm_root: Mutex<Option<(String, String)>>,
+    global_npm_root: Mutex<Option<(JsString, JsString)>>,
     progress_callback: Mutex<Option<ProgressCallback>>,
 }
 
 impl DefaultPackageManager {
-    pub fn new(cwd: &str, agent_dir: &str, settings: Arc<dyn PackageSettingsStore>) -> Self {
+    pub fn new(cwd: &JsString, agent_dir: &JsString, settings: Arc<dyn PackageSettingsStore>) -> Self {
         Self {
             cwd: resolve_input(cwd, cwd).unwrap_or_else(|_| cwd.to_owned()),
             agent_dir: resolve_input(agent_dir, agent_dir).unwrap_or_else(|_| agent_dir.to_owned()),
@@ -1347,8 +1359,8 @@ impl DefaultPackageManager {
     async fn with_progress<F>(
         &self,
         action: ProgressAction,
-        source: &str,
-        message: String,
+        source: &JsString,
+        message: JsString,
         operation: F,
     ) -> Result<(), PackageManagerError>
     where
@@ -1382,7 +1394,7 @@ impl DefaultPackageManager {
         }
     }
 
-    pub fn add_source_to_settings(&self, source: &str, local: bool) -> Result<bool, PackageManagerError> {
+    pub fn add_source_to_settings(&self, source: &JsString, local: bool) -> Result<bool, PackageManagerError> {
         let scope = if local { SourceScope::Project } else { SourceScope::User };
         let current_settings = self.settings_for_scope(scope);
         let current_packages = current_settings.packages;
@@ -1414,7 +1426,7 @@ impl DefaultPackageManager {
         Ok(true)
     }
 
-    pub fn remove_source_from_settings(&self, source: &str, local: bool) -> bool {
+    pub fn remove_source_from_settings(&self, source: &JsString, local: bool) -> bool {
         let scope = if local { SourceScope::Project } else { SourceScope::User };
         let current_packages = self.settings_for_scope(scope).packages;
         let next_packages: Vec<PackageSource> = current_packages
@@ -1445,7 +1457,7 @@ impl DefaultPackageManager {
         }
     }
 
-    pub fn get_installed_path(&self, source: &str, scope: InstalledScope) -> Option<String> {
+    pub fn get_installed_path(&self, source: &JsString, scope: InstalledScope) -> Option<JsString> {
         let parsed = self.parse_source(source);
         let path = match &parsed {
             ParsedSource::Npm(npm) => self.get_npm_install_path(npm, scope.into()).ok()?,
@@ -1455,7 +1467,7 @@ impl DefaultPackageManager {
                 resolve_input(&local.path, &base_dir).ok()?
             }
         };
-        Path::new(&path).exists().then_some(path)
+        path_exists(&path).then_some(path)
     }
 
     pub fn list_configured_packages(&self) -> Vec<ConfiguredPackage> {
@@ -1496,10 +1508,7 @@ impl DefaultPackageManager {
             .await?;
 
         let global_base_dir = self.agent_dir.clone();
-        let project_base_dir = Path::new(&self.cwd)
-            .join(&config::package_config().config_dir_name)
-            .to_string_lossy()
-            .into_owned();
+        let project_base_dir = node_join(&self.cwd, &config::package_config().config_dir_name).clone();
 
         for resource_type in ResourceType::ALL {
             self.resolve_local_entries(
@@ -1507,7 +1516,7 @@ impl DefaultPackageManager {
                 resource_type,
                 &mut accumulator,
                 PathMetadata {
-                    source: "local".to_owned(),
+                    source: JsString::from("local"),
                     scope: SourceScope::Project,
                     origin: MetadataOrigin::TopLevel,
                     base_dir: None,
@@ -1519,7 +1528,7 @@ impl DefaultPackageManager {
                 resource_type,
                 &mut accumulator,
                 PathMetadata {
-                    source: "local".to_owned(),
+                    source: JsString::from("local"),
                     scope: SourceScope::User,
                     origin: MetadataOrigin::TopLevel,
                     base_dir: None,
@@ -1540,7 +1549,7 @@ impl DefaultPackageManager {
 
     pub async fn resolve_extension_sources(
         &self,
-        sources: &[String],
+        sources: &[JsString],
         local: bool,
         temporary: bool,
     ) -> Result<ResolvedPaths, PackageManagerError> {
@@ -1561,19 +1570,22 @@ impl DefaultPackageManager {
         Ok(accumulator.into_paths())
     }
 
-    pub async fn install(&self, source: &str, local: bool) -> Result<(), PackageManagerError> {
+    pub async fn install(&self, source: &JsString, local: bool) -> Result<(), PackageManagerError> {
         let parsed = self.parse_source(source);
         let scope = if local { SourceScope::Project } else { SourceScope::User };
         self.assert_project_trusted_for_scope(scope)?;
-        let message = format!("Installing {source}...");
+        let message = js_format!("Installing {}...", source);
         self.with_progress(ProgressAction::Install, source, message, async {
             match &parsed {
                 ParsedSource::Npm(npm) => self.install_npm(npm, scope, false).await,
                 ParsedSource::Git(git) => self.install_git(git, scope).await,
                 ParsedSource::Local(local_source) => {
                     let resolved = self.resolve_path(&local_source.path)?;
-                    if !Path::new(&resolved).exists() {
-                        return Err(PackageManagerError::new(format!("Path does not exist: {resolved}")));
+                    if !path_exists(&resolved) {
+                        return Err(PackageManagerError::new(js_format!(
+                            "Path does not exist: {}",
+                            resolved
+                        )));
                     }
                     Ok(())
                 }
@@ -1582,17 +1594,17 @@ impl DefaultPackageManager {
         .await
     }
 
-    pub async fn install_and_persist(&self, source: &str, local: bool) -> Result<(), PackageManagerError> {
+    pub async fn install_and_persist(&self, source: &JsString, local: bool) -> Result<(), PackageManagerError> {
         self.install(source, local).await?;
         self.add_source_to_settings(source, local)?;
         Ok(())
     }
 
-    pub async fn remove(&self, source: &str, local: bool) -> Result<(), PackageManagerError> {
+    pub async fn remove(&self, source: &JsString, local: bool) -> Result<(), PackageManagerError> {
         let parsed = self.parse_source(source);
         let scope = if local { SourceScope::Project } else { SourceScope::User };
         self.assert_project_trusted_for_scope(scope)?;
-        let message = format!("Removing {source}...");
+        let message = js_format!("Removing {}...", source);
         self.with_progress(ProgressAction::Remove, source, message, async {
             match &parsed {
                 ParsedSource::Npm(npm) => self.uninstall_npm(npm, scope).await,
@@ -1606,12 +1618,12 @@ impl DefaultPackageManager {
         .await
     }
 
-    pub async fn remove_and_persist(&self, source: &str, local: bool) -> Result<bool, PackageManagerError> {
+    pub async fn remove_and_persist(&self, source: &JsString, local: bool) -> Result<bool, PackageManagerError> {
         self.remove(source, local).await?;
         Ok(self.remove_source_from_settings(source, local))
     }
 
-    pub async fn update(&self, source: Option<&str>) -> Result<(), PackageManagerError> {
+    pub async fn update(&self, source: Option<&JsString>) -> Result<(), PackageManagerError> {
         let global_settings = self.settings.global_settings();
         let project_settings = self.settings.project_settings();
         let identity = source.map(|source| self.get_package_identity(source, None));
@@ -1713,7 +1725,7 @@ impl DefaultPackageManager {
                 .into_iter()
                 .map(|entry| {
                     move || async move {
-                        let message = format!("Updating {}...", entry.source);
+                        let message = js_format!("Updating {}...", entry.source);
                         self.with_progress(ProgressAction::Update, &entry.source, message, async {
                             self.update_git(&entry.parsed, entry.scope.into()).await
                         })
@@ -1740,8 +1752,7 @@ impl DefaultPackageManager {
         let Ok(installed_path) = self.get_managed_npm_install_path(source, scope.into()) else {
             return true;
         };
-        let installed_version = Path::new(&installed_path)
-            .exists()
+        let installed_version = path_exists(&installed_path)
             .then(|| self.get_installed_npm_version(&installed_path))
             .flatten();
         let Some(installed_version) = installed_version else {
@@ -1752,7 +1763,7 @@ impl DefaultPackageManager {
         } else {
             &source.name
         };
-        match self.get_latest_npm_version(spec, source.range.as_deref()).await {
+        match self.get_latest_npm_version(spec, source.range.as_ref()).await {
             Ok(target) => target != installed_version,
             Err(_) => true,
         }
@@ -1773,20 +1784,20 @@ impl DefaultPackageManager {
         let source_label = if sources.len() == 1 {
             sources[0].source.clone()
         } else {
-            format!("{scope_name} npm packages")
+            js_format!("{} npm packages", scope_name)
         };
         let message = if sources.len() == 1 {
-            format!("Updating {}...", sources[0].source)
+            js_format!("Updating {}...", sources[0].source)
         } else {
-            format!("Updating {scope_name} npm packages...")
+            js_format!("Updating {} npm packages...", scope_name)
         };
-        let specs: Vec<String> = sources
+        let specs: Vec<JsString> = sources
             .iter()
             .map(|entry| {
                 if entry.parsed.version.is_some() {
                     entry.parsed.spec.clone()
                 } else {
-                    format!("{}@latest", entry.parsed.name)
+                    js_format!("{}@latest", entry.parsed.name)
                 }
             })
             .collect();
@@ -1796,7 +1807,7 @@ impl DefaultPackageManager {
         .await
     }
 
-    async fn install_npm_batch(&self, specs: &[String], scope: InstalledScope) -> Result<(), PackageManagerError> {
+    async fn install_npm_batch(&self, specs: &[JsString], scope: InstalledScope) -> Result<(), PackageManagerError> {
         let install_root = self.get_npm_install_root(scope.into(), false)?;
         self.ensure_npm_project(&install_root)?;
         let args = self.get_npm_install_args(specs, &install_root);
@@ -1839,7 +1850,7 @@ impl DefaultPackageManager {
                     return None;
                 }
                 let installed_path = self.get_npm_install_path(&parsed, scope.into()).ok()?;
-                if !Path::new(&installed_path).exists() {
+                if !path_exists(&installed_path) {
                     return None;
                 }
                 self.npm_has_available_update(&parsed, &installed_path)
@@ -1856,14 +1867,14 @@ impl DefaultPackageManager {
                     return None;
                 }
                 let installed_path = self.get_git_install_path(&parsed, scope.into()).ok()?;
-                if !Path::new(&installed_path).exists() {
+                if !path_exists(&installed_path) {
                     return None;
                 }
                 self.git_has_available_update(&installed_path)
                     .await
                     .then_some(PackageUpdate {
                         source,
-                        display_name: format!("{}/{}", parsed.host, parsed.path),
+                        display_name: js_format!("{}/{}", parsed.host, parsed.path),
                         update_type: PackageUpdateType::Git,
                         scope,
                     })
@@ -1899,7 +1910,7 @@ impl DefaultPackageManager {
                 continue;
             }
 
-            let install_missing = |resolved_source: String, parsed: ParsedSource, scope: SourceScope| async move {
+            let install_missing = |resolved_source: JsString, parsed: ParsedSource, scope: SourceScope| async move {
                 if is_offline_mode_enabled() {
                     return Ok(false);
                 }
@@ -1909,7 +1920,10 @@ impl DefaultPackageManager {
                         return Ok(false);
                     }
                     if action == MissingSourceAction::Error {
-                        return Err(PackageManagerError::new(format!("Missing source: {resolved_source}")));
+                        return Err(PackageManagerError::new(js_format!(
+                            "Missing source: {}",
+                            resolved_source
+                        )));
                     }
                 }
                 self.install_parsed_source(&parsed, scope).await?;
@@ -1919,7 +1933,7 @@ impl DefaultPackageManager {
             match parsed.clone() {
                 ParsedSource::Npm(npm) => {
                     let mut installed_path = self.get_npm_install_path(&npm, resolved_scope)?;
-                    let needs_install = !Path::new(&installed_path).exists()
+                    let needs_install = !path_exists(&installed_path)
                         || !self.installed_npm_matches_configured_version(&npm, &installed_path);
                     if needs_install {
                         let installed = install_missing(resolved_source, parsed.clone(), resolved_scope).await?;
@@ -1933,7 +1947,7 @@ impl DefaultPackageManager {
                 }
                 ParsedSource::Git(git) => {
                     let installed_path = self.get_git_install_path(&git, resolved_scope)?;
-                    if !Path::new(&installed_path).exists() {
+                    if !path_exists(&installed_path) {
                         let installed = install_missing(resolved_source, parsed.clone(), resolved_scope).await?;
                         if !installed {
                             continue;
@@ -1955,7 +1969,7 @@ impl DefaultPackageManager {
         package: &PackageSource,
         scope: SourceScope,
         sources: &[(PackageSource, SourceScope)],
-    ) -> Option<(String, SourceScope)> {
+    ) -> Option<(JsString, SourceScope)> {
         if scope != SourceScope::Project {
             return None;
         }
@@ -1980,18 +1994,16 @@ impl DefaultPackageManager {
         accumulator: &mut ResourceAccumulator,
         filter: Option<&PackageFilter>,
         metadata: &mut PathMetadata,
-        base_dir: &str,
+        base_dir: &JsString,
     ) {
         let Ok(resolved) = resolve_input(&source.path, base_dir) else {
             return;
         };
-        let Ok(stat) = std::fs::metadata(&resolved) else {
+        let Ok(stat) = std::fs::metadata(encode_node_utf8(&resolved)) else {
             return;
         };
         if stat.is_file() {
-            metadata.base_dir = Path::new(&resolved)
-                .parent()
-                .map(|parent| parent.to_string_lossy().into_owned());
+            metadata.base_dir = Some(node_dirname(&resolved));
             add_resource(
                 accumulator.target(ResourceType::Extensions),
                 &resolved,
@@ -2026,41 +2038,45 @@ impl DefaultPackageManager {
         }
     }
 
-    fn get_source_match_key_for_input(&self, source: &str) -> Result<String, PackageManagerError> {
+    fn get_source_match_key_for_input(&self, source: &JsString) -> Result<JsString, PackageManagerError> {
         Ok(match self.parse_source(source) {
-            ParsedSource::Npm(npm) => format!("npm:{}", npm.name),
-            ParsedSource::Git(git) => format!("git:{}/{}", git.host, git.path),
-            ParsedSource::Local(local) => format!("local:{}", self.resolve_path(&local.path)?),
+            ParsedSource::Npm(npm) => js_format!("npm:{}", npm.name),
+            ParsedSource::Git(git) => js_format!("git:{}/{}", git.host, git.path),
+            ParsedSource::Local(local) => js_format!("local:{}", self.resolve_path(&local.path)?),
         })
     }
 
     fn get_source_match_key_for_settings(
         &self,
-        source: &str,
+        source: &JsString,
         scope: SourceScope,
-    ) -> Result<String, PackageManagerError> {
+    ) -> Result<JsString, PackageManagerError> {
         Ok(match self.parse_source(source) {
-            ParsedSource::Npm(npm) => format!("npm:{}", npm.name),
-            ParsedSource::Git(git) => format!("git:{}/{}", git.host, git.path),
+            ParsedSource::Npm(npm) => js_format!("npm:{}", npm.name),
+            ParsedSource::Git(git) => js_format!("git:{}/{}", git.host, git.path),
             ParsedSource::Local(local) => {
                 let base_dir = self.get_base_dir_for_scope(scope)?;
-                format!("local:{}", resolve_input(&local.path, &base_dir)?)
+                js_format!("local:{}", resolve_input(&local.path, &base_dir)?)
             }
         })
     }
 
-    fn build_no_matching_package_message(&self, source: &str, configured_packages: &[PackageSource]) -> String {
+    fn build_no_matching_package_message(&self, source: &JsString, configured_packages: &[PackageSource]) -> JsString {
         match self.find_suggested_configured_source(source, configured_packages) {
             Some(suggestion) => {
-                format!("No matching package found for {source}. Did you mean {suggestion}?")
+                js_format!("No matching package found for {}. Did you mean {}?", source, suggestion)
             }
-            None => format!("No matching package found for {source}"),
+            None => js_format!("No matching package found for {}", source),
         }
     }
 
-    fn find_suggested_configured_source(&self, source: &str, configured_packages: &[PackageSource]) -> Option<String> {
+    fn find_suggested_configured_source(
+        &self,
+        source: &JsString,
+        configured_packages: &[PackageSource],
+    ) -> Option<JsString> {
         let trimmed_source = source.trim();
-        let mut suggestions: Vec<String> = Vec::new();
+        let mut suggestions: Vec<JsString> = Vec::new();
         for package in configured_packages {
             let source_str = package.source().to_owned();
             match self.parse_source(&source_str) {
@@ -2070,11 +2086,11 @@ impl DefaultPackageManager {
                     }
                 }
                 ParsedSource::Git(parsed) => {
-                    let shorthand = format!("{}/{}", parsed.host, parsed.path);
+                    let shorthand = js_format!("{}/{}", parsed.host, parsed.path);
                     let shorthand_with_ref = parsed
                         .reference
                         .as_ref()
-                        .map(|reference| format!("{shorthand}@{reference}"));
+                        .map(|reference| js_format!("{}@{}", shorthand, reference));
                     if trimmed_source == shorthand || shorthand_with_ref.is_some_and(|value| trimmed_source == value) {
                         suggestions.push(source_str);
                     }
@@ -2085,7 +2101,7 @@ impl DefaultPackageManager {
         suggestions.into_iter().next()
     }
 
-    fn package_sources_match(&self, existing: &PackageSource, input_source: &str, scope: SourceScope) -> bool {
+    fn package_sources_match(&self, existing: &PackageSource, input_source: &JsString, scope: SourceScope) -> bool {
         let left = self.get_source_match_key_for_settings(existing.source(), scope);
         let right = self.get_source_match_key_for_input(input_source);
         matches!((left, right), (Ok(left), Ok(right)) if left == right)
@@ -2093,27 +2109,28 @@ impl DefaultPackageManager {
 
     fn normalize_package_source_for_settings(
         &self,
-        source: &str,
+        source: &JsString,
         scope: SourceScope,
-    ) -> Result<String, PackageManagerError> {
+    ) -> Result<JsString, PackageManagerError> {
         let ParsedSource::Local(local) = self.parse_source(source) else {
             return Ok(source.to_owned());
         };
         let base_dir = self.get_base_dir_for_scope(scope)?;
         let resolved = self.resolve_path(&local.path)?;
-        let rel = relative_path(&base_dir, &resolved);
-        Ok(if rel.is_empty() { ".".to_owned() } else { rel })
+        let rel =
+            relative_path(&base_dir, &resolved).map_err(|error| PackageManagerError::new(error.message().clone()))?;
+        Ok(if rel.is_empty() { JsString::from(".") } else { rel })
     }
 
-    pub fn parse_source(&self, source: &str) -> ParsedSource {
+    pub fn parse_source(&self, source: &JsString) -> ParsedSource {
         if let Some(rest) = source.strip_prefix("npm:") {
             let spec = rest.trim().to_owned();
             let (name, version) = parse_npm_spec(&spec);
             return ParsedSource::Npm(NpmSource {
                 spec,
                 name,
-                range: node_version_range(version.as_deref()),
-                pinned: is_exact_npm_version(version.as_deref()),
+                range: node_version_range(version.as_ref()),
+                pinned: is_exact_npm_version(version.as_ref()),
                 version,
             });
         }
@@ -2130,17 +2147,17 @@ impl DefaultPackageManager {
         })
     }
 
-    fn installed_npm_matches_configured_version(&self, source: &NpmSource, installed_path: &str) -> bool {
+    fn installed_npm_matches_configured_version(&self, source: &NpmSource, installed_path: &JsString) -> bool {
         let Some(installed_version) = self.get_installed_npm_version(installed_path) else {
             return false;
         };
-        match source.range.as_deref() {
+        match source.range.as_ref() {
             Some(range) => installed_version_satisfies(&installed_version, range),
             None => true,
         }
     }
 
-    async fn npm_has_available_update(&self, source: &NpmSource, installed_path: &str) -> bool {
+    async fn npm_has_available_update(&self, source: &NpmSource, installed_path: &JsString) -> bool {
         if is_offline_mode_enabled() {
             return false;
         }
@@ -2152,34 +2169,34 @@ impl DefaultPackageManager {
         } else {
             &source.name
         };
-        match self.get_latest_npm_version(spec, source.range.as_deref()).await {
+        match self.get_latest_npm_version(spec, source.range.as_ref()).await {
             Ok(target) => target != installed_version,
             Err(_) => false,
         }
     }
 
-    fn get_installed_npm_version(&self, installed_path: &str) -> Option<String> {
-        let package_json_path = Path::new(installed_path).join("package.json");
-        if !package_json_path.exists() {
+    fn get_installed_npm_version(&self, installed_path: &JsString) -> Option<JsString> {
+        let package_json_path = node_join(installed_path, "package.json");
+        if !path_exists(&package_json_path) {
             return None;
         }
-        let content = std::fs::read(&package_json_path).ok()?;
-        let parsed: Value = js_json::parse(&String::from_utf8_lossy(&content)).ok()?;
-        parsed.get("version").and_then(Value::as_str).map(str::to_owned)
+        let content = std::fs::read(encode_node_utf8(&package_json_path)).ok()?;
+        let parsed: JsValue = js_json::parse_lossless(String::from_utf8_lossy(&content).as_ref()).ok()?;
+        parsed.get("version").and_then(JsValue::as_string).cloned()
     }
 
     async fn get_latest_npm_version(
         &self,
-        package_spec: &str,
-        range: Option<&str>,
-    ) -> Result<String, PackageManagerError> {
+        package_spec: &JsString,
+        range: Option<&JsString>,
+    ) -> Result<JsString, PackageManagerError> {
         let npm = self.get_npm_command()?;
         let mut args = npm.args.clone();
         args.extend([
-            "view".to_owned(),
+            JsString::from("view"),
             package_spec.to_owned(),
-            "version".to_owned(),
-            "--json".to_owned(),
+            JsString::from("version"),
+            JsString::from("--json"),
         ]);
         let stdout = self
             .run_command_capture(&npm.command, &args, Some(&self.cwd), Some(NETWORK_TIMEOUT_MS), &[])
@@ -2188,16 +2205,17 @@ impl DefaultPackageManager {
         if raw.is_empty() {
             return Err(PackageManagerError::new("Empty response from npm view"));
         }
-        let parsed: Value = js_json::parse(raw).map_err(|error| PackageManagerError::new(error.to_string()))?;
-        if let Some(version) = parsed.as_str() {
+        let parsed: JsValue =
+            js_json::parse_lossless(raw).map_err(|error| PackageManagerError::new(error.message().clone()))?;
+        if let Some(version) = parsed.as_string() {
             return Ok(version.to_owned());
         }
         if let Some(entries) = parsed.as_array() {
-            let versions: Vec<String> = entries
+            let versions: Vec<JsString> = entries
                 .iter()
-                .filter_map(Value::as_str)
+                .filter_map(JsValue::as_string)
                 .filter(|version| !version.is_empty())
-                .map(str::to_owned)
+                .cloned()
                 .collect();
             let latest = match range {
                 Some(range) => max_satisfying(&versions, range),
@@ -2210,14 +2228,14 @@ impl DefaultPackageManager {
         Err(PackageManagerError::new("Unexpected response from npm view"))
     }
 
-    async fn git_has_available_update(&self, installed_path: &str) -> bool {
+    async fn git_has_available_update(&self, installed_path: &JsString) -> bool {
         if is_offline_mode_enabled() {
             return false;
         }
         let local_head = self
             .run_command_capture(
-                "git",
-                &["rev-parse".to_owned(), "HEAD".to_owned()],
+                &"git".into(),
+                &[JsString::from("rev-parse"), JsString::from("HEAD")],
                 Some(installed_path),
                 Some(NETWORK_TIMEOUT_MS),
                 &[],
@@ -2230,12 +2248,12 @@ impl DefaultPackageManager {
         }
     }
 
-    async fn get_remote_git_head(&self, installed_path: &str) -> Result<String, PackageManagerError> {
+    async fn get_remote_git_head(&self, installed_path: &JsString) -> Result<JsString, PackageManagerError> {
         if let Some(upstream_ref) = self.get_git_upstream_ref(installed_path).await {
             let remote_head = self
                 .run_git_remote_command(
                     installed_path,
-                    &["ls-remote".to_owned(), "origin".to_owned(), upstream_ref],
+                    &[JsString::from("ls-remote"), JsString::from("origin"), upstream_ref],
                 )
                 .await?;
             if let Some(commit) = first_remote_commit(&remote_head) {
@@ -2245,7 +2263,11 @@ impl DefaultPackageManager {
         let remote_head = self
             .run_git_remote_command(
                 installed_path,
-                &["ls-remote".to_owned(), "origin".to_owned(), "HEAD".to_owned()],
+                &[
+                    JsString::from("ls-remote"),
+                    JsString::from("origin"),
+                    JsString::from("HEAD"),
+                ],
             )
             .await?;
         first_remote_head(&remote_head).ok_or_else(|| PackageManagerError::new("Failed to determine remote HEAD"))
@@ -2253,15 +2275,15 @@ impl DefaultPackageManager {
 
     async fn get_local_git_update_target(
         &self,
-        installed_path: &str,
+        installed_path: &JsString,
     ) -> Result<GitUpdateTargetSpec, PackageManagerError> {
         let upstream = self
             .run_command_capture(
-                "git",
+                &"git".into(),
                 &[
-                    "rev-parse".to_owned(),
-                    "--abbrev-ref".to_owned(),
-                    "@{upstream}".to_owned(),
+                    JsString::from("rev-parse"),
+                    JsString::from("--abbrev-ref"),
+                    JsString::from("@{upstream}"),
                 ],
                 Some(installed_path),
                 Some(NETWORK_TIMEOUT_MS),
@@ -2276,8 +2298,8 @@ impl DefaultPackageManager {
                 }
                 let head = self
                     .run_command_capture(
-                        "git",
-                        &["rev-parse".to_owned(), "@{upstream}".to_owned()],
+                        &"git".into(),
+                        &[JsString::from("rev-parse"), JsString::from("@{upstream}")],
                         Some(installed_path),
                         Some(NETWORK_TIMEOUT_MS),
                         &[],
@@ -2285,13 +2307,13 @@ impl DefaultPackageManager {
                     .await?;
                 let _ = head;
                 return Ok(GitUpdateTargetSpec {
-                    reference: "@{upstream}".to_owned(),
+                    reference: JsString::from("@{upstream}"),
                     fetch_args: vec![
-                        "fetch".to_owned(),
-                        "--prune".to_owned(),
-                        "--no-tags".to_owned(),
-                        "origin".to_owned(),
-                        format!("+refs/heads/{branch}:refs/remotes/origin/{branch}"),
+                        JsString::from("fetch"),
+                        JsString::from("--prune"),
+                        JsString::from("--no-tags"),
+                        JsString::from("origin"),
+                        js_format!("+refs/heads/{}:refs/remotes/origin/{}", branch, branch),
                     ],
                 });
             }
@@ -2299,20 +2321,20 @@ impl DefaultPackageManager {
 
         let _ = self
             .run_command(
-                "git",
+                &"git".into(),
                 &[
-                    "remote".to_owned(),
-                    "set-head".to_owned(),
-                    "origin".to_owned(),
-                    "-a".to_owned(),
+                    JsString::from("remote"),
+                    JsString::from("set-head"),
+                    JsString::from("origin"),
+                    JsString::from("-a"),
                 ],
                 Some(installed_path),
             )
             .await;
         let head = self
             .run_command_capture(
-                "git",
-                &["rev-parse".to_owned(), "origin/HEAD".to_owned()],
+                &"git".into(),
+                &[JsString::from("rev-parse"), JsString::from("origin/HEAD")],
                 Some(installed_path),
                 Some(NETWORK_TIMEOUT_MS),
                 &[],
@@ -2320,8 +2342,11 @@ impl DefaultPackageManager {
             .await?;
         let origin_head_ref = self
             .run_command_capture(
-                "git",
-                &["symbolic-ref".to_owned(), "refs/remotes/origin/HEAD".to_owned()],
+                &"git".into(),
+                &[
+                    JsString::from("symbolic-ref"),
+                    JsString::from("refs/remotes/origin/HEAD"),
+                ],
                 Some(installed_path),
                 Some(NETWORK_TIMEOUT_MS),
                 &[],
@@ -2336,37 +2361,37 @@ impl DefaultPackageManager {
         if branch.is_empty() {
             let _ = head;
             return Ok(GitUpdateTargetSpec {
-                reference: "origin/HEAD".to_owned(),
+                reference: JsString::from("origin/HEAD"),
                 fetch_args: vec![
-                    "fetch".to_owned(),
-                    "--prune".to_owned(),
-                    "--no-tags".to_owned(),
-                    "origin".to_owned(),
-                    "+HEAD:refs/remotes/origin/HEAD".to_owned(),
+                    JsString::from("fetch"),
+                    JsString::from("--prune"),
+                    JsString::from("--no-tags"),
+                    JsString::from("origin"),
+                    JsString::from("+HEAD:refs/remotes/origin/HEAD"),
                 ],
             });
         }
         let _ = head;
         Ok(GitUpdateTargetSpec {
-            reference: "origin/HEAD".to_owned(),
+            reference: JsString::from("origin/HEAD"),
             fetch_args: vec![
-                "fetch".to_owned(),
-                "--prune".to_owned(),
-                "--no-tags".to_owned(),
-                "origin".to_owned(),
-                format!("+refs/heads/{branch}:refs/remotes/origin/{branch}"),
+                JsString::from("fetch"),
+                JsString::from("--prune"),
+                JsString::from("--no-tags"),
+                JsString::from("origin"),
+                js_format!("+refs/heads/{}:refs/remotes/origin/{}", branch, branch),
             ],
         })
     }
 
-    async fn get_git_upstream_ref(&self, installed_path: &str) -> Option<String> {
+    async fn get_git_upstream_ref(&self, installed_path: &JsString) -> Option<JsString> {
         let upstream = self
             .run_command_capture(
-                "git",
+                &"git".into(),
                 &[
-                    "rev-parse".to_owned(),
-                    "--abbrev-ref".to_owned(),
-                    "@{upstream}".to_owned(),
+                    JsString::from("rev-parse"),
+                    JsString::from("--abbrev-ref"),
+                    JsString::from("@{upstream}"),
                 ],
                 Some(installed_path),
                 Some(NETWORK_TIMEOUT_MS),
@@ -2375,44 +2400,48 @@ impl DefaultPackageManager {
             .await
             .ok()?;
         let branch = upstream.trim().strip_prefix("origin/")?;
-        (!branch.is_empty()).then(|| format!("refs/heads/{branch}"))
+        (!branch.is_empty()).then(|| js_format!("refs/heads/{}", branch))
     }
 
     async fn run_git_remote_command(
         &self,
-        installed_path: &str,
-        args: &[String],
-    ) -> Result<String, PackageManagerError> {
+        installed_path: &JsString,
+        args: &[JsString],
+    ) -> Result<JsString, PackageManagerError> {
         self.run_command_capture(
-            "git",
+            &"git".into(),
             args,
             Some(installed_path),
             Some(NETWORK_TIMEOUT_MS),
-            &[("GIT_TERMINAL_PROMPT".to_owned(), "0".to_owned())],
+            &[(JsString::from("GIT_TERMINAL_PROMPT"), JsString::from("0"))],
         )
         .await
     }
 
     /// Unique identity ignoring version/ref (`getPackageIdentity`).
-    pub fn get_package_identity(&self, source: &str, scope: Option<SourceScope>) -> String {
+    pub fn get_package_identity(&self, source: &JsString, scope: Option<SourceScope>) -> JsString {
         match self.parse_source(source) {
-            ParsedSource::Npm(npm) => format!("npm:{}", npm.name),
-            ParsedSource::Git(git) => format!("git:{}/{}", git.host, git.path),
+            ParsedSource::Npm(npm) => js_format!("npm:{}", npm.name),
+            ParsedSource::Git(git) => js_format!("git:{}/{}", git.host, git.path),
             ParsedSource::Local(local) => match scope {
                 Some(scope) => self
                     .get_base_dir_for_scope(scope)
                     .and_then(|base_dir| resolve_input(&local.path, &base_dir))
-                    .map_or_else(|_| format!("local:{}", local.path), |path| format!("local:{path}")),
-                None => self
-                    .resolve_path(&local.path)
-                    .map_or_else(|_| format!("local:{}", local.path), |path| format!("local:{path}")),
+                    .map_or_else(
+                        |_| js_format!("local:{}", local.path),
+                        |path| js_format!("local:{}", path),
+                    ),
+                None => self.resolve_path(&local.path).map_or_else(
+                    |_| js_format!("local:{}", local.path),
+                    |path| js_format!("local:{}", path),
+                ),
             },
         }
     }
 
     fn dedupe_packages(&self, packages: Vec<(PackageSource, SourceScope)>) -> Vec<(PackageSource, SourceScope)> {
         let mut result: Vec<(PackageSource, SourceScope)> = Vec::new();
-        let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+        let mut seen: BTreeMap<JsString, usize> = BTreeMap::new();
         for (package, scope) in packages {
             let identity = self.get_package_identity(package.source(), Some(scope));
             let Some(index) = seen.get(&identity).copied() else {
@@ -2444,13 +2473,13 @@ impl DefaultPackageManager {
     fn get_npm_command(&self) -> Result<NpmCommand, PackageManagerError> {
         let Some(configured) = self.settings.get_npm_command() else {
             return Ok(NpmCommand {
-                command: "npm".to_owned(),
+                command: JsString::from("npm"),
                 args: Vec::new(),
             });
         };
         if configured.is_empty() {
             return Ok(NpmCommand {
-                command: "npm".to_owned(),
+                command: JsString::from("npm"),
                 args: Vec::new(),
             });
         }
@@ -2466,7 +2495,7 @@ impl DefaultPackageManager {
         })
     }
 
-    fn get_package_manager_name(&self) -> Result<String, PackageManagerError> {
+    fn get_package_manager_name(&self) -> Result<JsString, PackageManagerError> {
         let npm = self.get_npm_command()?;
         let mut command_parts = vec![npm.command];
         command_parts.extend(npm.args);
@@ -2477,56 +2506,60 @@ impl DefaultPackageManager {
         Ok(package_manager_basename(&package_manager_command))
     }
 
-    async fn run_npm_command(&self, args: &[String], cwd: Option<&str>) -> Result<(), PackageManagerError> {
+    async fn run_npm_command(&self, args: &[JsString], cwd: Option<&JsString>) -> Result<(), PackageManagerError> {
         let npm = self.get_npm_command()?;
         let mut full_args = npm.args;
         full_args.extend(args.iter().cloned());
         self.run_command(&npm.command, &full_args, cwd).await
     }
 
-    fn get_git_dependency_install_args(&self) -> Vec<String> {
+    fn get_git_dependency_install_args(&self) -> Vec<JsString> {
         let configured = self.settings.get_npm_command();
         if configured.is_some_and(|command| !command.is_empty()) {
-            return vec!["install".to_owned()];
+            return vec![JsString::from("install")];
         }
-        vec!["install".to_owned(), "--omit=dev".to_owned()]
+        vec![JsString::from("install"), JsString::from("--omit=dev")]
     }
 
-    fn run_npm_command_sync(&self, args: &[String]) -> Result<String, PackageManagerError> {
+    fn run_npm_command_sync(&self, args: &[JsString]) -> Result<JsString, PackageManagerError> {
         let npm = self.get_npm_command()?;
         let mut full_args = npm.args;
         full_args.extend(args.iter().cloned());
         self.run_command_sync(&npm.command, &full_args)
     }
 
-    fn get_npm_install_args(&self, specs: &[String], install_root: &str) -> Vec<String> {
+    fn get_npm_install_args(&self, specs: &[JsString], install_root: &JsString) -> Vec<JsString> {
         let Ok(package_manager_name) = self.get_package_manager_name() else {
             return Vec::new();
         };
         if package_manager_name == "bun" {
-            let mut args = vec!["install".to_owned()];
-            args.extend(specs.iter().cloned());
-            args.extend(["--cwd".to_owned(), install_root.to_owned(), "--omit=peer".to_owned()]);
-            return args;
-        }
-        if package_manager_name == "pnpm" {
-            let mut args = vec!["install".to_owned()];
+            let mut args = vec![JsString::from("install")];
             args.extend(specs.iter().cloned());
             args.extend([
-                "--prefix".to_owned(),
+                JsString::from("--cwd"),
                 install_root.to_owned(),
-                "--config.auto-install-peers=false".to_owned(),
-                "--config.strict-peer-dependencies=false".to_owned(),
-                "--config.strict-dep-builds=false".to_owned(),
+                JsString::from("--omit=peer"),
             ]);
             return args;
         }
-        let mut args = vec!["install".to_owned()];
+        if package_manager_name == "pnpm" {
+            let mut args = vec![JsString::from("install")];
+            args.extend(specs.iter().cloned());
+            args.extend([
+                JsString::from("--prefix"),
+                install_root.to_owned(),
+                JsString::from("--config.auto-install-peers=false"),
+                JsString::from("--config.strict-peer-dependencies=false"),
+                JsString::from("--config.strict-dep-builds=false"),
+            ]);
+            return args;
+        }
+        let mut args = vec![JsString::from("install")];
         args.extend(specs.iter().cloned());
         args.extend([
-            "--prefix".to_owned(),
+            JsString::from("--prefix"),
             install_root.to_owned(),
-            "--legacy-peer-deps".to_owned(),
+            JsString::from("--legacy-peer-deps"),
         ]);
         args
     }
@@ -2545,7 +2578,7 @@ impl DefaultPackageManager {
 
     async fn uninstall_npm(&self, source: &NpmSource, scope: SourceScope) -> Result<(), PackageManagerError> {
         let install_root = self.get_npm_install_root(scope, false)?;
-        if !Path::new(&install_root).exists() {
+        if !path_exists(&install_root) {
             return Ok(());
         }
         let package_manager_name = self.get_package_manager_name()?;
@@ -2553,9 +2586,9 @@ impl DefaultPackageManager {
             return self
                 .run_npm_command(
                     &[
-                        "uninstall".to_owned(),
+                        JsString::from("uninstall"),
                         source.name.clone(),
-                        "--cwd".to_owned(),
+                        JsString::from("--cwd"),
                         install_root,
                     ],
                     None,
@@ -2563,26 +2596,26 @@ impl DefaultPackageManager {
                 .await;
         }
         let mut args = vec![
-            "uninstall".to_owned(),
+            JsString::from("uninstall"),
             source.name.clone(),
-            "--prefix".to_owned(),
+            JsString::from("--prefix"),
             install_root,
         ];
         if package_manager_name != "pnpm" {
-            args.push("--legacy-peer-deps".to_owned());
+            args.push(JsString::from("--legacy-peer-deps"));
         }
         self.run_npm_command(&args, None).await
     }
 
     async fn install_git(&self, source: &GitSource, scope: SourceScope) -> Result<(), PackageManagerError> {
         let target_dir = self.get_git_install_path(source, scope)?;
-        if Path::new(&target_dir).exists() {
+        if path_exists(&target_dir) {
             if let Some(reference) = &source.reference {
                 return self
                     .ensure_git_ref(
                         &target_dir,
-                        &["fetch".to_owned(), "origin".to_owned(), reference.clone()],
-                        "FETCH_HEAD",
+                        &[JsString::from("fetch"), JsString::from("origin"), reference.clone()],
+                        &"FETCH_HEAD".into(),
                     )
                     .await;
             }
@@ -2595,24 +2628,26 @@ impl DefaultPackageManager {
         if let Some(git_root) = &git_root {
             self.ensure_git_ignore(git_root)?;
         }
-        if let Some(parent) = Path::new(&target_dir).parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let _ = std::fs::remove_file(self.get_git_update_marker_path(&target_dir));
+        std::fs::create_dir_all(encode_node_utf8(&node_dirname(&target_dir)))?;
+        let _ = std::fs::remove_file(encode_node_utf8(&self.get_git_update_marker_path(&target_dir)));
 
         let result = async {
             self.run_command(
-                "git",
-                &["clone".to_owned(), source.repo.clone(), target_dir.clone()],
+                &"git".into(),
+                &[JsString::from("clone"), source.repo.clone(), target_dir.clone()],
                 None,
             )
             .await?;
             if let Some(reference) = &source.reference {
-                self.run_command("git", &["checkout".to_owned(), reference.clone()], Some(&target_dir))
-                    .await?;
+                self.run_command(
+                    &"git".into(),
+                    &[JsString::from("checkout"), reference.clone()],
+                    Some(&target_dir),
+                )
+                .await?;
             }
-            let package_json_path = Path::new(&target_dir).join("package.json");
-            if package_json_path.exists() {
+            let package_json_path = node_join(&target_dir, "package.json");
+            if path_exists(&package_json_path) {
                 let args = self.get_git_dependency_install_args();
                 self.run_npm_command(&args, Some(&target_dir)).await?;
             }
@@ -2622,7 +2657,7 @@ impl DefaultPackageManager {
 
         if let Err(error) = result {
             remove_dir_all_if_exists(&target_dir);
-            self.prune_empty_git_parents(&target_dir, git_root.as_deref());
+            self.prune_empty_git_parents(&target_dir, git_root.as_ref());
             return Err(error);
         }
         Ok(())
@@ -2630,15 +2665,15 @@ impl DefaultPackageManager {
 
     async fn update_git(&self, source: &GitSource, scope: SourceScope) -> Result<(), PackageManagerError> {
         let target_dir = self.get_git_install_path(source, scope)?;
-        if !Path::new(&target_dir).exists() {
+        if !path_exists(&target_dir) {
             return self.install_git(source, scope).await;
         }
         if let Some(reference) = &source.reference {
             return self
                 .ensure_git_ref(
                     &target_dir,
-                    &["fetch".to_owned(), "origin".to_owned(), reference.clone()],
-                    "FETCH_HEAD",
+                    &[JsString::from("fetch"), JsString::from("origin"), reference.clone()],
+                    &"FETCH_HEAD".into(),
                 )
                 .await;
         }
@@ -2647,33 +2682,33 @@ impl DefaultPackageManager {
             .await
     }
 
-    fn has_missing_git_dependencies(&self, target_dir: &str) -> bool {
-        let package_json_path = Path::new(target_dir).join("package.json");
-        if !package_json_path.exists() {
+    fn has_missing_git_dependencies(&self, target_dir: &JsString) -> bool {
+        let package_json_path = node_join(target_dir, "package.json");
+        if !path_exists(&package_json_path) {
             return false;
         }
-        let Ok(content) = std::fs::read(&package_json_path) else {
+        let Ok(content) = std::fs::read(encode_node_utf8(&package_json_path)) else {
             return false;
         };
-        let Ok(manifest) = js_json::parse(&String::from_utf8_lossy(&content)) else {
+        let Ok(manifest) = js_json::parse_lossless(String::from_utf8_lossy(&content).as_ref()) else {
             return false;
         };
-        let Some(Value::Object(dependencies)) = manifest.get("dependencies") else {
+        let Some(JsValue::Object(dependencies)) = manifest.get("dependencies") else {
             return false;
         };
-        let node_modules_dir = Path::new(target_dir).join("node_modules");
+        let node_modules_dir = node_join(target_dir, "node_modules");
         dependencies.keys().any(|name| {
-            let dependency_path = node_modules_dir.join(name);
-            let dependency_path = dependency_path.to_string_lossy().into_owned();
-            let node_modules_prefix = format!("{}/", node_modules_dir.to_string_lossy());
+            let dependency_path = node_join(&node_modules_dir, name);
+            let dependency_path = dependency_path;
+            let node_modules_prefix = js_format!("{}/", node_modules_dir.clone());
             if !dependency_path.starts_with(&node_modules_prefix) {
                 return false;
             }
-            !Path::new(&dependency_path).exists()
+            !path_exists(&dependency_path)
         })
     }
 
-    async fn repair_missing_git_dependencies(&self, target_dir: &str) -> Result<(), PackageManagerError> {
+    async fn repair_missing_git_dependencies(&self, target_dir: &JsString) -> Result<(), PackageManagerError> {
         if !self.has_missing_git_dependencies(target_dir) {
             return Ok(());
         }
@@ -2681,63 +2716,60 @@ impl DefaultPackageManager {
         self.run_npm_command(&args, Some(target_dir)).await
     }
 
-    fn get_git_update_marker_path(&self, target_dir: &str) -> String {
-        let path = Path::new(target_dir);
-        let parent = path.parent().unwrap_or(Path::new(""));
-        let name = path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        parent
-            .join(format!(".{name}.pi-update-incomplete"))
-            .to_string_lossy()
-            .into_owned()
+    fn get_git_update_marker_path(&self, target_dir: &JsString) -> JsString {
+        let parent = node_dirname(target_dir);
+        let name = node_basename(target_dir);
+        node_join(parent, js_format!(".{}.pi-update-incomplete", name))
     }
 
     async fn clean_and_install_git_dependencies(
         &self,
-        target_dir: &str,
-        marker_path: &str,
+        target_dir: &JsString,
+        marker_path: &JsString,
     ) -> Result<(), PackageManagerError> {
         if let Err(error) = self
-            .run_command("git", &["clean".to_owned(), "-fdx".to_owned()], Some(target_dir))
+            .run_command(
+                &"git".into(),
+                &[JsString::from("clean"), JsString::from("-fdx")],
+                Some(target_dir),
+            )
             .await
         {
             let _ = self.repair_missing_git_dependencies(target_dir).await;
             return Err(error);
         }
 
-        let package_json_path = Path::new(target_dir).join("package.json");
-        if package_json_path.exists() {
+        let package_json_path = node_join(target_dir, "package.json");
+        if path_exists(&package_json_path) {
             let args = self.get_git_dependency_install_args();
             self.run_npm_command(&args, Some(target_dir)).await?;
         }
-        let _ = std::fs::remove_file(marker_path);
+        let _ = std::fs::remove_file(encode_node_utf8(marker_path));
         Ok(())
     }
 
     async fn ensure_git_ref(
         &self,
-        target_dir: &str,
-        fetch_args: &[String],
-        reference: &str,
+        target_dir: &JsString,
+        fetch_args: &[JsString],
+        reference: &JsString,
     ) -> Result<(), PackageManagerError> {
-        self.run_command("git", fetch_args, Some(target_dir)).await?;
+        self.run_command(&"git".into(), fetch_args, Some(target_dir)).await?;
 
         let local_head = self
             .run_command_capture(
-                "git",
-                &["rev-parse".to_owned(), "HEAD".to_owned()],
+                &"git".into(),
+                &[JsString::from("rev-parse"), JsString::from("HEAD")],
                 Some(target_dir),
                 Some(NETWORK_TIMEOUT_MS),
                 &[],
             )
             .await?;
-        let commit_ref = format!("{reference}^{{commit}}");
+        let commit_ref = reference.clone() + "^{commit}";
         let target_head = self
             .run_command_capture(
-                "git",
-                &["rev-parse".to_owned(), commit_ref.clone()],
+                &"git".into(),
+                &[JsString::from("rev-parse"), commit_ref.clone()],
                 Some(target_dir),
                 Some(NETWORK_TIMEOUT_MS),
                 &[],
@@ -2745,27 +2777,27 @@ impl DefaultPackageManager {
             .await?;
         let marker_path = self.get_git_update_marker_path(target_dir);
         if local_head.trim() == target_head.trim() {
-            if Path::new(&marker_path).exists() {
+            if path_exists(&marker_path) {
                 return self.clean_and_install_git_dependencies(target_dir, &marker_path).await;
             }
             return self.repair_missing_git_dependencies(target_dir).await;
         }
 
-        std::fs::write(&marker_path, "")?;
+        std::fs::write(encode_node_utf8(&marker_path), "")?;
         self.run_command(
-            "git",
-            &["reset".to_owned(), "--hard".to_owned(), commit_ref],
+            &"git".into(),
+            &[JsString::from("reset"), JsString::from("--hard"), commit_ref],
             Some(target_dir),
         )
         .await?;
         self.clean_and_install_git_dependencies(target_dir, &marker_path).await
     }
 
-    async fn refresh_temporary_git_source(&self, source: &GitSource, source_str: &str) {
+    async fn refresh_temporary_git_source(&self, source: &GitSource, source_str: &JsString) {
         if is_offline_mode_enabled() {
             return;
         }
-        let message = format!("Refreshing {source_str}...");
+        let message = js_format!("Refreshing {}...", source_str);
         let _ = self
             .with_progress(ProgressAction::Pull, source_str, message, async {
                 self.update_git(source, SourceScope::Temporary).await
@@ -2776,90 +2808,80 @@ impl DefaultPackageManager {
     fn remove_git(&self, source: &GitSource, scope: SourceScope) {
         if let Ok(target_dir) = self.get_git_install_path(source, scope) {
             remove_dir_all_if_exists(&target_dir);
-            let _ = std::fs::remove_file(self.get_git_update_marker_path(&target_dir));
+            let _ = std::fs::remove_file(encode_node_utf8(&self.get_git_update_marker_path(&target_dir)));
             let git_root = self.get_git_install_root(scope).ok().flatten();
-            self.prune_empty_git_parents(&target_dir, git_root.as_deref());
+            self.prune_empty_git_parents(&target_dir, git_root.as_ref());
         }
     }
 
-    fn prune_empty_git_parents(&self, target_dir: &str, install_root: Option<&str>) {
+    fn prune_empty_git_parents(&self, target_dir: &JsString, install_root: Option<&JsString>) {
         let Some(install_root) = install_root else {
             return;
         };
         let resolved_root = resolve_input(install_root, install_root).unwrap_or_else(|_| install_root.to_owned());
-        let mut current = Path::new(target_dir)
-            .parent()
-            .map(|parent| parent.to_string_lossy().into_owned())
-            .unwrap_or_default();
+        let mut current = node_dirname(target_dir);
         while current.starts_with(&resolved_root) && current != resolved_root {
-            if !Path::new(&current).exists() {
-                current = Path::new(&current)
-                    .parent()
-                    .map(|parent| parent.to_string_lossy().into_owned())
-                    .unwrap_or_default();
+            if !path_exists(&current) {
+                current = node_dirname(&current);
                 continue;
             }
-            let empty = std::fs::read_dir(&current)
+            let empty = std::fs::read_dir(encode_node_utf8(&current))
                 .map(|mut entries| entries.next().is_none())
                 .unwrap_or(false);
             if !empty {
                 break;
             }
-            if std::fs::remove_dir_all(&current).is_err() {
+            if std::fs::remove_dir_all(encode_node_utf8(&current)).is_err() {
                 break;
             }
-            current = Path::new(&current)
-                .parent()
-                .map(|parent| parent.to_string_lossy().into_owned())
-                .unwrap_or_default();
+            current = node_dirname(&current);
         }
     }
 
-    fn ensure_npm_project(&self, install_root: &str) -> Result<(), PackageManagerError> {
-        if !Path::new(install_root).exists() {
-            std::fs::create_dir_all(install_root)?;
+    fn ensure_npm_project(&self, install_root: &JsString) -> Result<(), PackageManagerError> {
+        if !path_exists(install_root) {
+            std::fs::create_dir_all(encode_node_utf8(install_root))?;
         }
         mark_path_ignored_by_cloud_sync(install_root);
         self.ensure_git_ignore(install_root)?;
-        let package_json_path = Path::new(install_root).join("package.json");
-        if !package_json_path.exists() {
-            let package_json = json!({"name": "pi-extensions", "private": true});
-            std::fs::write(&package_json_path, js_json::stringify_pretty(&package_json))?;
+        let package_json_path = node_join(install_root, "package.json");
+        if !path_exists(&package_json_path) {
+            let package_json = pi_js_compat::js_json!({"name": "pi-extensions", "private": true});
+            std::fs::write(
+                encode_node_utf8(&package_json_path),
+                js_json::stringify_lossless_pretty(&package_json),
+            )?;
         }
         Ok(())
     }
 
-    fn ensure_git_ignore(&self, dir: &str) -> Result<(), PackageManagerError> {
-        if !Path::new(dir).exists() {
-            std::fs::create_dir_all(dir)?;
+    fn ensure_git_ignore(&self, dir: &JsString) -> Result<(), PackageManagerError> {
+        if !path_exists(dir) {
+            std::fs::create_dir_all(encode_node_utf8(dir))?;
         }
-        let ignore_path = Path::new(dir).join(".gitignore");
-        if !ignore_path.exists() {
-            std::fs::write(&ignore_path, "*\n!.gitignore\n")?;
+        let ignore_path = node_join(dir, ".gitignore");
+        if !path_exists(&ignore_path) {
+            std::fs::write(encode_node_utf8(&ignore_path), "*\n!.gitignore\n")?;
         }
         Ok(())
     }
 
-    fn get_npm_install_root(&self, scope: SourceScope, temporary: bool) -> Result<String, PackageManagerError> {
+    fn get_npm_install_root(&self, scope: SourceScope, temporary: bool) -> Result<JsString, PackageManagerError> {
         if temporary {
-            return self.get_temporary_dir("npm", None);
+            return self.get_temporary_dir(&"npm".into(), None);
         }
         if scope == SourceScope::Project {
             self.assert_project_trusted_for_scope(scope)?;
-            return Ok(Path::new(&self.cwd)
-                .join(&config::package_config().config_dir_name)
-                .join("npm")
-                .to_string_lossy()
-                .into_owned());
+            return Ok(node_join(node_join(&self.cwd, &config::package_config().config_dir_name), "npm").clone());
         }
-        Ok(Path::new(&self.agent_dir).join("npm").to_string_lossy().into_owned())
+        Ok(node_join(&self.agent_dir, "npm"))
     }
 
-    fn get_global_npm_root(&self) -> Result<String, PackageManagerError> {
+    fn get_global_npm_root(&self) -> Result<JsString, PackageManagerError> {
         let npm = self.get_npm_command()?;
         let mut command_parts = vec![npm.command.clone()];
         command_parts.extend(npm.args.clone());
-        let command_key = command_parts.join("\u{0}");
+        let command_key = JsString::join(command_parts, "\u{0}");
         {
             let cached = self.global_npm_root.lock().unwrap();
             if let Some((cached_key, root)) = cached.as_ref()
@@ -2869,14 +2891,11 @@ impl DefaultPackageManager {
             }
         }
         let root = if self.get_package_manager_name()? == "bun" {
-            let bin_dir = self.run_npm_command_sync(&["pm".to_owned(), "bin".to_owned(), "-g".to_owned()])?;
-            Path::new(bin_dir.trim())
-                .parent()
-                .map(|parent| parent.join("install/global/node_modules"))
-                .map(|path| path.to_string_lossy().into_owned())
-                .unwrap_or_default()
+            let bin_dir =
+                self.run_npm_command_sync(&[JsString::from("pm"), JsString::from("bin"), JsString::from("-g")])?;
+            node_join(node_dirname(bin_dir.trim()), "install/global/node_modules")
         } else {
-            self.run_npm_command_sync(&["root".to_owned(), "-g".to_owned()])?
+            self.run_npm_command_sync(&[JsString::from("root"), JsString::from("-g")])?
                 .trim()
                 .to_owned()
         };
@@ -2884,26 +2903,27 @@ impl DefaultPackageManager {
         Ok(root)
     }
 
-    fn get_pnpm_global_package_path(&self, package_name: &str) -> Option<String> {
+    fn get_pnpm_global_package_path(&self, package_name: &JsString) -> Option<JsString> {
         if self.get_package_manager_name().ok()? != "pnpm" {
             return None;
         }
         let output = self
             .run_npm_command_sync(&[
-                "list".to_owned(),
-                "-g".to_owned(),
-                "--depth".to_owned(),
-                "0".to_owned(),
-                "--json".to_owned(),
+                JsString::from("list"),
+                JsString::from("-g"),
+                JsString::from("--depth"),
+                JsString::from("0"),
+                JsString::from("--json"),
             ])
             .ok()?;
-        let entries: Value = js_json::parse(&output).ok()?;
+        let entries: JsValue = js_json::parse_lossless(&output).ok()?;
         for entry in entries.as_array()? {
             let path = entry
                 .get("dependencies")
+                .and_then(JsValue::as_object)
                 .and_then(|dependencies| dependencies.get(package_name))
                 .and_then(|dependency| dependency.get("path"))
-                .and_then(Value::as_str);
+                .and_then(JsValue::as_string);
             if let Some(path) = path {
                 return Some(path.to_owned());
             }
@@ -2915,53 +2935,47 @@ impl DefaultPackageManager {
         &self,
         source: &NpmSource,
         scope: SourceScope,
-    ) -> Result<String, PackageManagerError> {
+    ) -> Result<JsString, PackageManagerError> {
         if scope == SourceScope::Temporary {
-            let root = self.get_temporary_dir("npm", None)?;
-            return Ok(Path::new(&root)
-                .join("node_modules")
-                .join(&source.name)
-                .to_string_lossy()
-                .into_owned());
+            let root = self.get_temporary_dir(&"npm".into(), None)?;
+            return Ok(node_join(node_join(&root, "node_modules"), &source.name).clone());
         }
         if scope == SourceScope::Project {
             self.assert_project_trusted_for_scope(scope)?;
-            return Ok(Path::new(&self.cwd)
-                .join(&config::package_config().config_dir_name)
-                .join("npm/node_modules")
-                .join(&source.name)
-                .to_string_lossy()
-                .into_owned());
+            return Ok(node_join(
+                node_join(
+                    node_join(&self.cwd, &config::package_config().config_dir_name),
+                    "npm/node_modules",
+                ),
+                &source.name,
+            )
+            .clone());
         }
-        Ok(Path::new(&self.agent_dir)
-            .join("npm/node_modules")
-            .join(&source.name)
-            .to_string_lossy()
-            .into_owned())
+        Ok(node_join(node_join(&self.agent_dir, "npm/node_modules"), &source.name).clone())
     }
 
-    fn get_legacy_global_npm_install_path(&self, source: &NpmSource) -> Option<String> {
+    fn get_legacy_global_npm_install_path(&self, source: &NpmSource) -> Option<JsString> {
         self.get_pnpm_global_package_path(&source.name).or_else(|| {
             self.get_global_npm_root()
                 .ok()
-                .map(|root| Path::new(&root).join(&source.name).to_string_lossy().into_owned())
+                .map(|root| node_join(&root, &source.name))
         })
     }
 
-    fn get_npm_install_path(&self, source: &NpmSource, scope: SourceScope) -> Result<String, PackageManagerError> {
+    fn get_npm_install_path(&self, source: &NpmSource, scope: SourceScope) -> Result<JsString, PackageManagerError> {
         let managed_path = self.get_managed_npm_install_path(source, scope)?;
-        if scope != SourceScope::User || Path::new(&managed_path).exists() {
+        if scope != SourceScope::User || path_exists(&managed_path) {
             return Ok(managed_path);
         }
         Ok(match self.get_legacy_global_npm_install_path(source) {
-            Some(legacy) if Path::new(&legacy).exists() => legacy,
+            Some(legacy) if path_exists(&legacy) => legacy,
             _ => managed_path,
         })
     }
 
-    fn get_git_install_path(&self, source: &GitSource, scope: SourceScope) -> Result<String, PackageManagerError> {
+    fn get_git_install_path(&self, source: &GitSource, scope: SourceScope) -> Result<JsString, PackageManagerError> {
         if scope == SourceScope::Temporary {
-            return self.get_temporary_dir(&format!("git-{}", source.host), Some(&source.path));
+            return self.get_temporary_dir(&js_format!("git-{}", source.host), Some(&source.path));
         }
         let install_root = self
             .get_git_install_root(scope)?
@@ -2969,60 +2983,50 @@ impl DefaultPackageManager {
         self.resolve_managed_path(&install_root, &[&source.host, &source.path])
     }
 
-    fn get_git_install_root(&self, scope: SourceScope) -> Result<Option<String>, PackageManagerError> {
+    fn get_git_install_root(&self, scope: SourceScope) -> Result<Option<JsString>, PackageManagerError> {
         if scope == SourceScope::Temporary {
             return Ok(None);
         }
         if scope == SourceScope::Project {
             self.assert_project_trusted_for_scope(scope)?;
             return Ok(Some(
-                Path::new(&self.cwd)
-                    .join(&config::package_config().config_dir_name)
-                    .join("git")
-                    .to_string_lossy()
-                    .into_owned(),
+                node_join(node_join(&self.cwd, &config::package_config().config_dir_name), "git").clone(),
             ));
         }
-        Ok(Some(
-            Path::new(&self.agent_dir).join("git").to_string_lossy().into_owned(),
-        ))
+        Ok(Some(node_join(&self.agent_dir, "git")))
     }
 
-    fn get_temporary_dir(&self, prefix: &str, suffix: Option<&str>) -> Result<String, PackageManagerError> {
+    fn get_temporary_dir(&self, prefix: &JsString, suffix: Option<&JsString>) -> Result<JsString, PackageManagerError> {
         let temp_folder = get_extension_temp_folder(&self.agent_dir)?;
         let root = self.resolve_managed_path(&temp_folder, &[prefix])?;
         let mut hasher = Sha256::new();
-        hasher.update(format!("{prefix}-{}", suffix.unwrap_or("")).as_bytes());
-        let hash = format!("{:x}", hasher.finalize());
-        let hash = &hash[..8];
-        self.resolve_managed_path(&root, &[hash, suffix.unwrap_or("")])
+        hasher.update(encode_node_utf8(&js_format!("{}-{}", prefix, suffix.cloned().unwrap_or_default())).as_bytes());
+        let hash = JsString::from(format!("{:x}", hasher.finalize()));
+        let hash = hash.slice(0, 8);
+        self.resolve_managed_path(&root, &[&hash, &suffix.cloned().unwrap_or_default()])
     }
 
-    fn resolve_managed_path(&self, root: &str, parts: &[&str]) -> Result<String, PackageManagerError> {
+    fn resolve_managed_path(&self, root: &JsString, parts: &[&JsString]) -> Result<JsString, PackageManagerError> {
         let resolved_root = resolve_input(root, root)?;
-        let mut path = PathBuf::from(&resolved_root);
-        for part in parts {
-            path.push(part);
-        }
-        let resolved_path = path.to_string_lossy().into_owned();
+        let resolved_path = parts
+            .iter()
+            .fold(resolved_root.clone(), |path, part| node_join(path, *part));
         let resolved_path = resolve_input(&resolved_path, &resolved_root)?;
         if resolved_path != resolved_root
-            && !resolved_path.starts_with(&format!("{resolved_root}{}", std::path::MAIN_SEPARATOR))
+            && !resolved_path.starts_with(&js_format!("{}{}", resolved_root, std::path::MAIN_SEPARATOR))
         {
-            return Err(PackageManagerError::new(format!(
-                "Refusing to use path outside package install root: {resolved_path}"
+            return Err(PackageManagerError::new(js_format!(
+                "Refusing to use path outside package install root: {}",
+                resolved_path
             )));
         }
         Ok(resolved_path)
     }
 
-    fn get_base_dir_for_scope(&self, scope: SourceScope) -> Result<String, PackageManagerError> {
+    fn get_base_dir_for_scope(&self, scope: SourceScope) -> Result<JsString, PackageManagerError> {
         if scope == SourceScope::Project {
             self.assert_project_trusted_for_scope(scope)?;
-            return Ok(Path::new(&self.cwd)
-                .join(&config::package_config().config_dir_name)
-                .to_string_lossy()
-                .into_owned());
+            return Ok(node_join(&self.cwd, &config::package_config().config_dir_name).clone());
         }
         if scope == SourceScope::User {
             return Ok(self.agent_dir.clone());
@@ -3030,13 +3034,13 @@ impl DefaultPackageManager {
         Ok(self.cwd.clone())
     }
 
-    fn resolve_path(&self, input: &str) -> Result<String, PackageManagerError> {
+    fn resolve_path(&self, input: &JsString) -> Result<JsString, PackageManagerError> {
         resolve_input(input, &self.cwd)
     }
 
     fn collect_package_resources(
         &self,
-        package_root: &str,
+        package_root: &JsString,
         accumulator: &mut ResourceAccumulator,
         filter: Option<&PackageFilter>,
         metadata: PathMetadata,
@@ -3061,7 +3065,7 @@ impl DefaultPackageManager {
             return true;
         }
 
-        if let Some(manifest) = read_pi_manifest(&Path::new(package_root).join("package.json")) {
+        if let Some(manifest) = read_pi_manifest(&node_join(package_root, "package.json")) {
             for resource_type in ResourceType::ALL {
                 self.add_manifest_entries(
                     resource_type.manifest_entries(&manifest),
@@ -3076,9 +3080,9 @@ impl DefaultPackageManager {
 
         let mut has_any_dir = false;
         for resource_type in ResourceType::ALL {
-            let dir = Path::new(package_root).join(resource_type.directory_name());
-            if dir.exists() {
-                let dir = dir.to_string_lossy().into_owned();
+            let dir = node_join(package_root, resource_type.directory_name());
+            if path_exists(&dir) {
+                let dir = dir;
                 for file in collect_resource_files(&dir, resource_type) {
                     add_resource(accumulator.target(resource_type), &file, metadata.clone(), true);
                 }
@@ -3090,12 +3094,12 @@ impl DefaultPackageManager {
 
     fn collect_default_resources(
         &self,
-        package_root: &str,
+        package_root: &JsString,
         resource_type: ResourceType,
         accumulator: &mut ResourceAccumulator,
         metadata: &PathMetadata,
     ) {
-        let manifest = read_pi_manifest(&Path::new(package_root).join("package.json"));
+        let manifest = read_pi_manifest(&node_join(package_root, "package.json"));
         if let Some(entries) = manifest
             .as_ref()
             .and_then(|manifest| resource_type.manifest_entries(manifest))
@@ -3103,9 +3107,9 @@ impl DefaultPackageManager {
             self.add_manifest_entries(Some(entries), package_root, resource_type, accumulator, metadata);
             return;
         }
-        let dir = Path::new(package_root).join(resource_type.directory_name());
-        if dir.exists() {
-            let dir = dir.to_string_lossy().into_owned();
+        let dir = node_join(package_root, resource_type.directory_name());
+        if path_exists(&dir) {
+            let dir = dir;
             for file in collect_resource_files(&dir, resource_type) {
                 add_resource(accumulator.target(resource_type), &file, metadata.clone(), true);
             }
@@ -3114,8 +3118,8 @@ impl DefaultPackageManager {
 
     fn apply_package_filter(
         &self,
-        package_root: &str,
-        user_patterns: &[String],
+        package_root: &JsString,
+        user_patterns: &[JsString],
         resource_type: ResourceType,
         accumulator: &mut ResourceAccumulator,
         metadata: &PathMetadata,
@@ -3140,8 +3144,8 @@ impl DefaultPackageManager {
 
     fn apply_package_delta_filter(
         &self,
-        package_root: &str,
-        user_patterns: &[String],
+        package_root: &JsString,
+        user_patterns: &[JsString],
         resource_type: ResourceType,
         accumulator: &mut ResourceAccumulator,
         metadata: &PathMetadata,
@@ -3155,8 +3159,8 @@ impl DefaultPackageManager {
         }
     }
 
-    fn collect_manifest_files(&self, package_root: &str, resource_type: ResourceType) -> Vec<String> {
-        let manifest = read_pi_manifest(&Path::new(package_root).join("package.json"));
+    fn collect_manifest_files(&self, package_root: &JsString, resource_type: ResourceType) -> Vec<JsString> {
+        let manifest = read_pi_manifest(&node_join(package_root, "package.json"));
         if let Some(entries) = manifest
             .as_ref()
             .and_then(|manifest| resource_type.manifest_entries(manifest))
@@ -3171,17 +3175,17 @@ impl DefaultPackageManager {
             return all_files.into_iter().filter(|file| enabled.contains(file)).collect();
         }
 
-        let convention_dir = Path::new(package_root).join(resource_type.directory_name());
-        if !convention_dir.exists() {
+        let convention_dir = node_join(package_root, resource_type.directory_name());
+        if !path_exists(&convention_dir) {
             return Vec::new();
         }
-        collect_resource_files(&convention_dir.to_string_lossy(), resource_type)
+        collect_resource_files(&convention_dir, resource_type)
     }
 
     fn add_manifest_entries(
         &self,
-        entries: Option<&Vec<String>>,
-        root: &str,
+        entries: Option<&Vec<JsString>>,
+        root: &JsString,
         resource_type: ResourceType,
         accumulator: &mut ResourceAccumulator,
         metadata: &PathMetadata,
@@ -3201,11 +3205,11 @@ impl DefaultPackageManager {
 
     fn collect_files_from_manifest_entries(
         &self,
-        entries: &[String],
-        root: &str,
+        entries: &[JsString],
+        root: &JsString,
         resource_type: ResourceType,
-    ) -> Vec<String> {
-        let resolved: Vec<String> = entries
+    ) -> Vec<JsString> {
+        let resolved: Vec<JsString> = entries
             .iter()
             .filter(|entry| !is_override_pattern(entry))
             .flat_map(|entry| {
@@ -3223,17 +3227,17 @@ impl DefaultPackageManager {
 
     fn resolve_local_entries(
         &self,
-        entries: &[String],
+        entries: &[JsString],
         resource_type: ResourceType,
         accumulator: &mut ResourceAccumulator,
         metadata: PathMetadata,
-        base_dir: &str,
+        base_dir: &JsString,
     ) -> Result<(), PackageManagerError> {
         if entries.is_empty() {
             return Ok(());
         }
         let (plain, patterns) = split_patterns(entries);
-        let resolved_plain: Vec<String> = plain
+        let resolved_plain: Vec<JsString> = plain
             .iter()
             .map(|entry| resolve_input(entry, base_dir))
             .collect::<Result<_, _>>()?;
@@ -3255,17 +3259,17 @@ impl DefaultPackageManager {
         accumulator: &mut ResourceAccumulator,
         global_settings: &PackageSettingsSnapshot,
         project_settings: &PackageSettingsSnapshot,
-        global_base_dir: &str,
-        project_base_dir: &str,
+        global_base_dir: &JsString,
+        project_base_dir: &JsString,
     ) {
         let user_metadata = PathMetadata {
-            source: "auto".to_owned(),
+            source: JsString::from("auto"),
             scope: SourceScope::User,
             origin: MetadataOrigin::TopLevel,
             base_dir: Some(global_base_dir.to_owned()),
         };
         let project_metadata = PathMetadata {
-            source: "auto".to_owned(),
+            source: JsString::from("auto"),
             scope: SourceScope::Project,
             origin: MetadataOrigin::TopLevel,
             base_dir: Some(project_base_dir.to_owned()),
@@ -3274,14 +3278,14 @@ impl DefaultPackageManager {
         let user_dirs = resource_dirs(global_base_dir);
         let project_dirs = resource_dirs(project_base_dir);
         let home = home_dir();
-        let user_agents_skills_dir = Path::new(&home).join(".agents/skills").to_string_lossy().into_owned();
-        let user_tool_skill_dirs: HashSet<String> = [".codex/skills", ".claude/skills"]
+        let user_agents_skills_dir = node_join(&home, ".agents/skills");
+        let user_tool_skill_dirs: HashSet<JsString> = [".codex/skills", ".claude/skills"]
             .iter()
-            .map(|child| Path::new(&home).join(child).to_string_lossy().into_owned())
+            .map(|child| node_join(&home, *child))
             .collect();
         let project_trusted = self.settings.is_project_trusted();
         let user_agents_resolved = resolve_input(&user_agents_skills_dir, &user_agents_skills_dir).unwrap_or_default();
-        let project_agents_skill_dirs: Vec<String> = if project_trusted {
+        let project_agents_skill_dirs: Vec<JsString> = if project_trusted {
             collect_ancestor_agents_skill_dirs(&self.cwd)
                 .into_iter()
                 .filter(|dir| resolve_input(dir, dir).unwrap_or_default() != user_agents_resolved)
@@ -3289,7 +3293,7 @@ impl DefaultPackageManager {
         } else {
             Vec::new()
         };
-        let project_tool_skill_dirs: Vec<String> = if project_trusted {
+        let project_tool_skill_dirs: Vec<JsString> = if project_trusted {
             collect_ancestor_tool_skill_dirs(&self.cwd)
                 .into_iter()
                 .filter(|dir| !user_tool_skill_dirs.contains(&resolve_input(dir, dir).unwrap_or_default()))
@@ -3318,10 +3322,7 @@ impl DefaultPackageManager {
         }
 
         for agents_skills_dir in &project_agents_skill_dirs {
-            let agents_base_dir = Path::new(agents_skills_dir)
-                .parent()
-                .map(|parent| parent.to_string_lossy().into_owned())
-                .unwrap_or_default();
+            let agents_base_dir = Some(node_dirname(agents_skills_dir)).unwrap_or_default();
             let metadata = PathMetadata {
                 base_dir: Some(agents_base_dir.clone()),
                 ..project_metadata.clone()
@@ -3337,10 +3338,7 @@ impl DefaultPackageManager {
         }
 
         for tool_skills_dir in &project_tool_skill_dirs {
-            let tool_base_dir = Path::new(tool_skills_dir)
-                .parent()
-                .map(|parent| parent.to_string_lossy().into_owned())
-                .unwrap_or_default();
+            let tool_base_dir = Some(node_dirname(tool_skills_dir)).unwrap_or_default();
             let metadata = PathMetadata {
                 base_dir: Some(tool_base_dir.clone()),
                 ..project_metadata.clone()
@@ -3391,10 +3389,7 @@ impl DefaultPackageManager {
             global_base_dir,
         );
 
-        let user_agents_base_dir = Path::new(&user_agents_skills_dir)
-            .parent()
-            .map(|parent| parent.to_string_lossy().into_owned())
-            .unwrap_or_default();
+        let user_agents_base_dir = Some(node_dirname(&user_agents_skills_dir)).unwrap_or_default();
         let agents_metadata = PathMetadata {
             base_dir: Some(user_agents_base_dir.clone()),
             ..user_metadata.clone()
@@ -3430,10 +3425,10 @@ impl DefaultPackageManager {
         &self,
         accumulator: &mut ResourceAccumulator,
         resource_type: ResourceType,
-        paths: Vec<String>,
+        paths: Vec<JsString>,
         metadata: &PathMetadata,
-        overrides: &[String],
-        base_dir: &str,
+        overrides: &[JsString],
+        base_dir: &JsString,
     ) {
         for path in paths {
             let enabled = is_enabled_by_overrides(&path, overrides, base_dir);
@@ -3441,10 +3436,10 @@ impl DefaultPackageManager {
         }
     }
 
-    fn collect_files_from_paths(&self, paths: &[String], resource_type: ResourceType) -> Vec<String> {
+    fn collect_files_from_paths(&self, paths: &[JsString], resource_type: ResourceType) -> Vec<JsString> {
         let mut files = Vec::new();
         for path in paths {
-            let Ok(stat) = std::fs::metadata(path) else {
+            let Ok(stat) = std::fs::metadata(encode_node_utf8(path)) else {
                 continue;
             };
             if stat.is_file() {
@@ -3456,27 +3451,35 @@ impl DefaultPackageManager {
         files
     }
 
-    async fn run_command(&self, command: &str, args: &[String], cwd: Option<&str>) -> Result<(), PackageManagerError> {
+    async fn run_command(
+        &self,
+        command: &JsString,
+        args: &[JsString],
+        cwd: Option<&JsString>,
+    ) -> Result<(), PackageManagerError> {
         let mut child = spawn_inherit(command, args, cwd, is_stdout_taken_over())?;
         let status = child.wait().await?;
         if status.success() {
             return Ok(());
         }
-        Err(PackageManagerError::new(format!(
-            "{command} {} failed with code {}",
-            args.join(" "),
-            status.code().map_or_else(|| "null".to_owned(), |code| code.to_string())
+        Err(PackageManagerError::new(js_format!(
+            "{} {} failed with code {}",
+            command,
+            JsString::join(args.iter().cloned(), " "),
+            status
+                .code()
+                .map_or_else(|| JsString::from("null"), |code| code.to_string().into())
         )))
     }
 
     async fn run_command_capture(
         &self,
-        command: &str,
-        args: &[String],
-        cwd: Option<&str>,
+        command: &JsString,
+        args: &[JsString],
+        cwd: Option<&JsString>,
         timeout_ms: Option<u64>,
-        env: &[(String, String)],
-    ) -> Result<String, PackageManagerError> {
+        env: &[(JsString, JsString)],
+    ) -> Result<JsString, PackageManagerError> {
         let mut child = spawn_capture(command, args, cwd, env)?;
         let mut stdout = child.stdout.take();
         let mut stderr = child.stderr.take();
@@ -3511,29 +3514,33 @@ impl DefaultPackageManager {
         let stdout = String::from_utf8_lossy(&stdout_task.await.unwrap_or_default()).into_owned();
         let stderr = String::from_utf8_lossy(&stderr_task.await.unwrap_or_default()).into_owned();
         if timed_out {
-            return Err(PackageManagerError::new(format!(
-                "{command} {} timed out after {}ms",
-                args.join(" "),
+            return Err(PackageManagerError::new(js_format!(
+                "{} {} timed out after {}ms",
+                command,
+                JsString::join(args.iter().cloned(), " "),
                 timeout_ms.unwrap_or_default()
             )));
         }
         if status.success() {
-            return Ok(stdout.trim().to_owned());
+            return Ok(stdout.trim().into());
         }
         let exit_status = match status.code() {
-            Some(code) => format!("code {code}"),
-            None => format!("signal {}", crate::utils::child_process::exit_signal_name(&status)),
+            Some(code) => js_format!("code {}", code),
+            None => js_format!("signal {}", crate::utils::child_process::exit_signal_name(&status)),
         };
         let detail = if stderr.is_empty() { stdout } else { stderr };
-        Err(PackageManagerError::new(format!(
-            "{command} {} failed with {exit_status}: {detail}",
-            args.join(" ")
+        Err(PackageManagerError::new(js_format!(
+            "{} {} failed with {}: {}",
+            command,
+            JsString::join(args.iter().cloned(), " "),
+            exit_status,
+            detail
         )))
     }
 
-    fn run_command_sync(&self, command: &str, args: &[String]) -> Result<String, PackageManagerError> {
-        let output = std::process::Command::new(command)
-            .args(args)
+    fn run_command_sync(&self, command: &JsString, args: &[JsString]) -> Result<JsString, PackageManagerError> {
+        let output = std::process::Command::new(encode_node_utf8(command))
+            .args(args.iter().map(encode_node_utf8))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -3543,102 +3550,104 @@ impl DefaultPackageManager {
                 let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
                 let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
                 let value = if stdout.is_empty() { stderr } else { stdout };
-                Ok(value.trim().to_owned())
+                Ok(value.trim().into())
             }
             Ok(output) => {
                 let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
                 let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
                 let detail = if stderr.is_empty() { stdout } else { stderr };
-                Err(PackageManagerError::new(format!(
-                    "Failed to run {command} {}: {detail}",
-                    args.join(" ")
+                Err(PackageManagerError::new(js_format!(
+                    "Failed to run {} {}: {}",
+                    command,
+                    JsString::join(args.iter().cloned(), " "),
+                    detail
                 )))
             }
-            Err(error) => Err(PackageManagerError::new(format!(
-                "Failed to run {command} {}: {}",
-                args.join(" "),
-                node_spawn_error_message("spawnSync", command, &error)
+            Err(error) => Err(PackageManagerError::new(js_format!(
+                "Failed to run {} {}: {}",
+                command,
+                JsString::join(args.iter().cloned(), " "),
+                node_spawn_error_message("spawnSync", &encode_node_utf8(command), &error)
             ))),
         }
     }
 }
 
 struct GitUpdateTargetSpec {
-    reference: String,
-    fetch_args: Vec<String>,
+    reference: JsString,
+    fetch_args: Vec<JsString>,
 }
 
 struct ResourceDirs {
-    extensions: String,
-    skills: String,
-    prompts: String,
-    themes: String,
+    extensions: JsString,
+    skills: JsString,
+    prompts: JsString,
+    themes: JsString,
 }
 
-fn resource_dirs(base_dir: &str) -> ResourceDirs {
+fn resource_dirs(base_dir: &JsString) -> ResourceDirs {
     ResourceDirs {
-        extensions: Path::new(base_dir).join("extensions").to_string_lossy().into_owned(),
-        skills: Path::new(base_dir).join("skills").to_string_lossy().into_owned(),
-        prompts: Path::new(base_dir).join("prompts").to_string_lossy().into_owned(),
-        themes: Path::new(base_dir).join("themes").to_string_lossy().into_owned(),
+        extensions: node_join(base_dir, "extensions"),
+        skills: node_join(base_dir, "skills"),
+        prompts: node_join(base_dir, "prompts"),
+        themes: node_join(base_dir, "themes"),
     }
 }
 
-fn add_resource(map: &mut ResourceMap, path: &str, metadata: PathMetadata, enabled: bool) {
+fn add_resource(map: &mut ResourceMap, path: &JsString, metadata: PathMetadata, enabled: bool) {
     if path.is_empty() || map.iter().any(|(existing, _)| existing == path) {
         return;
     }
     map.push((path.to_owned(), ResourceEntry { metadata, enabled }));
 }
 
-fn remove_dir_all_if_exists(path: &str) {
-    let _ = std::fs::remove_dir_all(path);
+fn remove_dir_all_if_exists(path: &JsString) {
+    let _ = std::fs::remove_dir_all(encode_node_utf8(path));
 }
 
-fn package_manager_basename(command: &str) -> String {
-    let basename = command.rsplit('/').next().unwrap_or(command);
+fn package_manager_basename(command: &JsString) -> JsString {
+    let basename = node_basename(command);
     let lower = basename.to_lowercase();
     if lower.ends_with(".cmd") {
-        return basename[..basename.len() - 4].to_owned();
+        return basename.slice(0, basename.len() - 4);
     }
     if lower.ends_with(".exe") {
-        return basename[..basename.len() - 4].to_owned();
+        return basename.slice(0, basename.len() - 4);
     }
     basename.to_owned()
 }
 
-fn parse_npm_spec(spec: &str) -> (String, Option<String>) {
-    static PATTERN: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    let pattern =
-        PATTERN.get_or_init(|| Regex::new(r"^(@?[^@]+(?:/[^@]+)?)(?:@(.+))?$").expect("npm spec pattern must compile"));
+fn parse_npm_spec(spec: &JsString) -> (JsString, Option<JsString>) {
+    static PATTERN: std::sync::OnceLock<JsRegex> = std::sync::OnceLock::new();
+    let pattern = PATTERN
+        .get_or_init(|| JsRegex::new(r"^(@?[^@]+(?:/[^@]+)?)(?:@(.+))?$").expect("npm spec pattern must compile"));
     let Some(captures) = pattern.captures(spec) else {
         return (spec.to_owned(), None);
     };
-    let name = captures
-        .get(1)
-        .map_or_else(|| spec.to_owned(), |value| value.as_str().to_owned());
-    let version = captures.get(2).map(|value| value.as_str().to_owned());
+    let name = captures.get(1).map_or_else(|| spec.to_owned(), |value| value.text());
+    let version = captures.get(2).map(|value| value.text());
     (name, version)
 }
 
-fn first_remote_commit(output: &str) -> Option<String> {
-    static PATTERN: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    let pattern =
-        PATTERN.get_or_init(|| Regex::new(r"(?m)^([0-9a-f]{40})\s+").expect("remote commit pattern must compile"));
+fn first_remote_commit(output: &JsString) -> Option<JsString> {
+    static PATTERN: std::sync::OnceLock<JsRegex> = std::sync::OnceLock::new();
+    let pattern = PATTERN
+        .get_or_init(|| JsRegex::with_flags(r"^([0-9a-f]{40})\s+", "m").expect("remote commit pattern must compile"));
     pattern
         .captures(output)
         .and_then(|captures| captures.get(1))
-        .map(|value| value.as_str().to_owned())
+        .map(|value| value.text())
 }
 
-fn first_remote_head(output: &str) -> Option<String> {
-    static PATTERN: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    let pattern =
-        PATTERN.get_or_init(|| Regex::new(r"(?m)^([0-9a-f]{40})\s+HEAD$").expect("remote HEAD pattern must compile"));
+fn first_remote_head(output: &JsString) -> Option<JsString> {
+    static PATTERN: std::sync::OnceLock<JsRegex> = std::sync::OnceLock::new();
+    let pattern = PATTERN.get_or_init(|| {
+        JsRegex::with_flags(r"^([0-9a-f]{40})\s+HEAD$", "m").expect("remote HEAD pattern must compile")
+    });
     pattern
         .captures(output)
         .and_then(|captures| captures.get(1))
-        .map(|value| value.as_str().to_owned())
+        .map(|value| value.text())
 }
 
 async fn run_with_concurrency<F, Fut, T>(tasks: Vec<F>, limit: usize) -> Vec<T>
@@ -3660,14 +3669,14 @@ where
 }
 
 fn spawn_inherit(
-    command: &str,
-    args: &[String],
-    cwd: Option<&str>,
+    command: &JsString,
+    args: &[JsString],
+    cwd: Option<&JsString>,
     redirect_stdout: bool,
 ) -> Result<Child, PackageManagerError> {
-    let mut process = tokio::process::Command::new(command);
+    let mut process = tokio::process::Command::new(encode_node_utf8(command));
     process
-        .args(args)
+        .args(args.iter().map(encode_node_utf8))
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::inherit());
     if redirect_stdout {
@@ -3676,34 +3685,34 @@ fn spawn_inherit(
         process.stdout(std::process::Stdio::inherit());
     }
     if let Some(cwd) = cwd {
-        process.current_dir(cwd);
+        process.current_dir(encode_node_utf8(cwd));
     }
-    process
-        .spawn()
-        .map_err(|error| PackageManagerError::new(node_spawn_error_message("spawn", command, &error)))
+    process.spawn().map_err(|error| {
+        PackageManagerError::new(node_spawn_error_message("spawn", &encode_node_utf8(command), &error))
+    })
 }
 
 fn spawn_capture(
-    command: &str,
-    args: &[String],
-    cwd: Option<&str>,
-    env: &[(String, String)],
+    command: &JsString,
+    args: &[JsString],
+    cwd: Option<&JsString>,
+    env: &[(JsString, JsString)],
 ) -> Result<Child, PackageManagerError> {
-    let mut process = tokio::process::Command::new(command);
+    let mut process = tokio::process::Command::new(encode_node_utf8(command));
     process
-        .args(args)
+        .args(args.iter().map(encode_node_utf8))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     for (name, value) in env {
-        process.env(name, value);
+        process.env(encode_node_utf8(name), encode_node_utf8(value));
     }
     if let Some(cwd) = cwd {
-        process.current_dir(cwd);
+        process.current_dir(encode_node_utf8(cwd));
     }
-    process
-        .spawn()
-        .map_err(|error| PackageManagerError::new(node_spawn_error_message("spawn", command, &error)))
+    process.spawn().map_err(|error| {
+        PackageManagerError::new(node_spawn_error_message("spawn", &encode_node_utf8(command), &error))
+    })
 }
 
 #[cfg(unix)]
@@ -3730,4 +3739,11 @@ fn terminate_child(child: &mut Child) {
         return;
     }
     let _ = child.start_kill();
+}
+
+fn path_exists(path: &JsString) -> bool {
+    Path::new(&encode_node_utf8(path)).exists()
+}
+fn read_text_file(path: &JsString) -> std::io::Result<JsString> {
+    std::fs::read(encode_node_utf8(path)).map(|bytes| JsString::from(String::from_utf8_lossy(&bytes).as_ref()))
 }
