@@ -33,7 +33,6 @@ const THEME_COLORS = [
 	"dim",
 	"text",
 	"thinkingText",
-	"searchMatchText",
 	"userMessageText",
 	"customMessageText",
 	"customMessageLabel",
@@ -73,8 +72,6 @@ const THEME_COLORS = [
 
 const THEME_BACKGROUNDS = [
 	"selectedBg",
-	"scrollbarThumb",
-	"searchMatchBg",
 	"userMessageBg",
 	"customMessageBg",
 	"toolPendingBg",

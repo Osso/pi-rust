@@ -420,94 +420,6 @@ fn theme_picker_probe() {
 }
 
 #[test]
-fn applies_optional_fullscreen_color_fallbacks() {
-    let package = fixture_package_dir();
-    let agent = fixture_agent_dir();
-    run_theme_probe("theme_scrollbar_probe", package.path(), agent.path(), &[]);
-}
-
-#[test]
-#[ignore = "child process probe"]
-fn theme_scrollbar_probe() {
-    if !env_probe::in_probe() {
-        return;
-    }
-    use pi_coding_agent::modes::interactive::theme::{ColorMode, ThemeBg, ThemeColor, load_theme_from_path};
-
-    let dark_path = std::env::var("PI_PACKAGE_DIR")
-        .map(PathBuf::from)
-        .unwrap()
-        .join("theme/dark.json");
-    let dark: serde_json::Value = serde_json::from_str(&fs::read_to_string(&dark_path).unwrap()).unwrap();
-    let write_theme = |name: &str, theme: &serde_json::Value| {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join(format!("{name}.json"));
-        fs::write(&path, serde_json::to_string(theme).unwrap()).unwrap();
-        (directory, path)
-    };
-
-    let mut legacy = dark.clone();
-    legacy["name"] = serde_json::json!("legacy-scrollbar-theme");
-    legacy["colors"].as_object_mut().unwrap().remove("scrollbarThumb");
-    let (_directory, path) = write_theme("legacy", &legacy);
-    let theme = load_theme_from_path(
-        &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
-        Some(ColorMode::Truecolor),
-    )
-    .unwrap();
-    assert_eq!(
-        theme.get_bg_ansi(ThemeBg::ScrollbarThumb),
-        theme.get_bg_ansi(ThemeBg::SelectedBg)
-    );
-
-    let mut custom = dark.clone();
-    custom["name"] = serde_json::json!("custom-scrollbar-theme");
-    custom["colors"]["scrollbarThumb"] = serde_json::json!("#123456");
-    let (_directory, path) = write_theme("custom", &custom);
-    let theme = load_theme_from_path(
-        &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
-        Some(ColorMode::Truecolor),
-    )
-    .unwrap();
-    assert_eq!(theme.get_bg_ansi(ThemeBg::ScrollbarThumb), "\x1b[48;2;18;52;86m");
-
-    let mut legacy_search = dark.clone();
-    legacy_search["name"] = serde_json::json!("legacy-search-theme");
-    legacy_search["colors"].as_object_mut().unwrap().remove("searchMatchBg");
-    legacy_search["colors"]
-        .as_object_mut()
-        .unwrap()
-        .remove("searchMatchText");
-    let (_directory, path) = write_theme("legacy-search", &legacy_search);
-    let theme = load_theme_from_path(
-        &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
-        Some(ColorMode::Truecolor),
-    )
-    .unwrap();
-    assert_eq!(
-        theme.get_bg_ansi(ThemeBg::SearchMatchBg),
-        theme.get_bg_ansi(ThemeBg::SelectedBg)
-    );
-    assert_eq!(
-        theme.get_fg_ansi(ThemeColor::SearchMatchText),
-        theme.get_fg_ansi(ThemeColor::Text)
-    );
-
-    let mut custom_search = dark.clone();
-    custom_search["name"] = serde_json::json!("custom-search-theme");
-    custom_search["colors"]["searchMatchBg"] = serde_json::json!("#112233");
-    custom_search["colors"]["searchMatchText"] = serde_json::json!("#223344");
-    let (_directory, path) = write_theme("custom-search", &custom_search);
-    let theme = load_theme_from_path(
-        &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
-        Some(ColorMode::Truecolor),
-    )
-    .unwrap();
-    assert_eq!(theme.get_bg_ansi(ThemeBg::SearchMatchBg), "\x1b[48;2;17;34;51m");
-    assert_eq!(theme.get_fg_ansi(ThemeColor::SearchMatchText), "\x1b[38;2;34;51;68m");
-}
-
-#[test]
 fn loads_color_modes_and_global_theme_state() {
     let package = fixture_package_dir();
     let agent = fixture_agent_dir();
@@ -609,11 +521,11 @@ fn resolves_theme_colors_in_key_order() {
             .map(|pair| pair.as_array().unwrap()[1].as_str().unwrap().to_owned())
     };
     assert_eq!(find("thinkingMax").as_deref(), Some("#ff5fff"));
-    assert_eq!(find("scrollbarThumb").as_deref(), Some("#3a3a4a"));
-    assert_eq!(find("searchMatchBg").as_deref(), Some("#3a3a4a"));
-    assert_eq!(find("searchMatchText").as_deref(), Some("#d4d4d4"));
+    assert_eq!(find("scrollbarThumb"), None);
+    assert_eq!(find("searchMatchBg"), None);
+    assert_eq!(find("searchMatchText"), None);
     assert_eq!(find("bashMode").as_deref(), Some("#b5bd68"));
-    assert_eq!(pairs.len(), 55);
+    assert_eq!(pairs.len(), 52);
 }
 
 #[test]
