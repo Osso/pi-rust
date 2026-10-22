@@ -14,6 +14,10 @@ Rust: `crates/pi-coding-agent/src/modes/interactive/components/scoped_models_sel
 
 ## Frozen length-only enable-all behavior
 
+| Classification | Frozen branch | Decision / proof |
+|---|---|---|
+| DISCREPANCY — source bug | `enableAll` :32–39 uses length, not membership | Preserve literally (parent authorization 2026-10-22); scoped-subset exact differential RED→GREEN, `test-scoped-final-native.log` |
+
 Frozen `enableAll` :32–39 returns `null` when the resulting configured list length equals the available model count, without checking list membership. With missing configured IDs, this can clear the explicit filter before every available model was included. The existing scoped-subset differential exercises this exact boundary. Native's extra membership guard diverged (`test-differential_components-scoped-native.log`); removed under explicit whole-module frozen-alignment authorization. This records source behavior, not a correctness improvement.
 
 ## Old-only refresh removal (2026-10-22)
