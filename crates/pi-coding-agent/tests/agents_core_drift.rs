@@ -103,6 +103,73 @@ async fn public_spawn_propagates_the_accessed_malformed_model_error_before_child
 }
 
 #[tokio::test]
+async fn public_spawn_preserves_profile_context_when_unrelated_tools_are_malformed() {
+    use pi_coding_agent::bundled_extensions::agents_core::shared::SpawnContext;
+    let mut source = oracle::TsOracle::spawn(
+        "agents-core-drift-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src/runtime.ts",
+    );
+    let expected = source.request(&serde_json::json!({"kind":"profileContext"}));
+    assert_eq!(expected["context"], "fresh");
+    assert_eq!(expected["dispatched"], false);
+    let directory = tempfile::tempdir().unwrap();
+    let cwd: JsString = directory.path().to_str().unwrap().into();
+    let session_dir: JsString = directory.path().join("sessions").to_str().unwrap().into();
+    let manager = Arc::new(Mutex::new(
+        SessionManager::create(&cwd, Some(&session_dir), None).unwrap(),
+    ));
+    let db: JsString = directory.path().join("control.sqlite").to_str().unwrap().into();
+    lock_session_manager(&manager)
+        .set_metadata_control_db_path(Some(&db), Default::default())
+        .unwrap();
+    let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
+    store.set_persistence_session_manager(Some(&*lock_session_manager(&manager)));
+    let configured = js_json::parse_lossless(r#"{"agents":{"bad":{"context":"fresh","tools":7}}}"#)
+        .unwrap()
+        .as_object()
+        .unwrap()
+        .clone();
+    let settings = SettingsManager::in_memory(configured, SettingsManagerCreateOptions::default());
+    let runtime = support::runtime();
+    let journal = persisted_journal(manager.clone(), runtime.clone());
+    let mut runner = ExtensionRunner::new(
+        Vec::new(),
+        runtime,
+        &cwd,
+        manager,
+        support::model_registry().await,
+        Some(Arc::new(Mutex::new(settings))),
+    );
+    support::bind(&mut runner);
+    let observed = Arc::new(Mutex::new(None));
+    let observed_context = observed.clone();
+    let options = MultiAgentExtensionOptions {
+        store: Some(store),
+        create_child_session: Some(ChildAgentSessionFactory::new(move |request| {
+            *observed_context.lock().unwrap() = Some(request.context);
+            Box::pin(async { Err("factory observed profile context".into()) })
+        })),
+        ..Default::default()
+    };
+    let handler = create_multi_agent_pi_request_handler(&options, Some(journal));
+    let result = handler
+        .handle(
+            &pi_js_compat::js_json!({"method":"agents.spawn","params":{"agentType":"bad","prompt":"inspect fixture"}}),
+            &runner.create_context(),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(*observed.lock().unwrap(), Some(SpawnContext::Fresh));
+    assert_eq!(result["dispatched"], pi_js_compat::js_json!(false));
+    assert_eq!(
+        result["agent"]["lifecycle"],
+        pi_js_compat::js_json!(expected["lifecycle"].as_str().unwrap())
+    );
+}
+
+#[tokio::test]
 async fn public_registration_propagates_late_tool_failure_instead_of_returning_success() {
     let expected = frozen_error("registration");
     let runtime = support::runtime();

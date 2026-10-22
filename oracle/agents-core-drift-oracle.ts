@@ -137,6 +137,49 @@ async function main() {
 				} finally {
 					handler.dispose();
 				}
+			} else if (input.kind === "profileContext") {
+				const { SessionManager } = await import(
+					new URL("../../../src/core/session-manager.ts", runtimeUrl).href
+				);
+				const { MultiAgentStore } = await import(
+					new URL("../../../src/core/multi-agent-store.ts", runtimeUrl).href
+				);
+				const root = mkdtempSync(join(tmpdir(), "profile-untouched-tools-"));
+				const manager = SessionManager.create(root, join(root, "sessions"));
+				manager.setMetadataControlDbPath(join(root, "control.sqlite"));
+				const store = new MultiAgentStore();
+				store.setPersistenceSessionManager(manager);
+				let observedContext: string | undefined;
+				const handler = runtime.createMultiAgentPiRequestHandler({
+					store,
+					createChildSession: async (request: { context: string }) => {
+						observedContext = request.context;
+						throw new Error("factory observed profile context");
+					},
+				});
+				try {
+					const result = await handler(
+						{
+							method: "agents.spawn",
+							params: { agentType: "bad", prompt: "inspect fixture" },
+						},
+						{
+							cwd: root,
+							sessionManager: manager,
+							modelRegistry: { getAll: () => [] },
+							settingsManager: SettingsManager.inMemory({
+								agents: { bad: { context: "fresh", tools: 7 } },
+							}),
+						},
+					);
+					process.stdout.write(
+						`${JSON.stringify({ context: observedContext, dispatched: result.dispatched, lifecycle: result.agent.lifecycle })}\n`,
+					);
+				} finally {
+					handler.dispose();
+					rmSync(root, { recursive: true, force: true });
+				}
+				continue;
 			} else if (input.kind === "sessionGetter") {
 				const { SessionManager } = await import(
 					new URL("../../../src/core/session-manager.ts", runtimeUrl).href
