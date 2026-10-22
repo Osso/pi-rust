@@ -165,3 +165,9 @@ Direct-access response JSON is parsed with `parse_lossless`; direct token and he
 | Approved gap | Frozen reference | Native boundary |
 |---|---|---|
 | Header-name error occurs earlier | Frozen custom-provider-gitlab-duo `index.ts:205,323` would fail during later request header construction | `ProviderHeaders` names remain `String`; `key.to_utf8()` explicitly rejects unpaired units while parsing direct-token response and propagates the conversion error. Values stay native. Header names classified as protocol tokens under opaque-name approval (2026-10-22 parent decision); no replacement or shared adapter added. |
+
+### Q18 RPC client native state (2026-10-22)
+
+RPC client actions, dialog titles/input values, command JSON, streamed text and log buffers now retain `JsString`/`JsValue`. Child argv and terminal/stdout/stderr encode only at actual I/O boundaries. `example_rpc_extension_ui` exercises the same real component/client process boundaries listed above.
+
+The earlier approved OutputLog slice projection is **not retired**: `clipped` still projects unmatched units through `String::from_utf16_lossy` at the held render-slice boundary. Native buffering and JSON transport do not silently move that projection to ingress. Its expectations remain pending the user's Q18 approval decision.

@@ -3,6 +3,7 @@ mod client;
 #[path = "support/oracle.rs"]
 mod oracle;
 use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::encode_node_utf8;
 use pi_tui::{
     terminal::*,
     tui::{Component, Focusable},
@@ -62,7 +63,7 @@ fn rpc_protocol_dialogs_components_and_local_commands_match_pinned_program() {
     app.set_focused(true);
     for (i, op) in ops.iter().enumerate() {
         if let Some(event) = op.get("event") {
-            app.receive(event);
+            app.receive(&pi_js_compat::js_json::JsValue::from(event.clone()));
         }
         if let Some(input) = op["input"].as_str() {
             app.handle_input(&JsString::from(input));
@@ -133,7 +134,7 @@ async fn real_fixture_process_and_native_tui_exchange_rpc_and_clean_up() {
     };
     let invocation = client::Invocation {
         program: "python3".into(),
-        prefix: vec![script.display().to_string()],
+        prefix: vec![JsString::from(script.display().to_string())],
         extension: "<example:rpc-demo>".into(),
         cwd: temp.path().into(),
     };
@@ -150,7 +151,7 @@ async fn real_fixture_process_and_native_tui_exchange_rpc_and_clean_up() {
     let result = client::run(
         client::Invocation {
             program: "python3".into(),
-            prefix: vec![script.display().to_string()],
+            prefix: vec![JsString::from(script.display().to_string())],
             extension: "fixture".into(),
             cwd: temp.path().into(),
         },
@@ -183,7 +184,7 @@ async fn native_rpc_demo_extension_round_trip_uses_real_agent_session_harness() 
     };
     let invocation = client::Invocation {
         program: env!("CARGO_BIN_EXE_example-rpc-demo-harness").into(),
-        prefix: vec![temp.path().display().to_string()],
+        prefix: vec![JsString::from(temp.path().display().to_string())],
         extension: "rpc-demo".into(),
         cwd: temp.path().into(),
     };
@@ -252,7 +253,7 @@ async fn run_lifetime_fixture(descendant: bool) {
     };
     let invocation = client::Invocation {
         program: "python3".into(),
-        prefix: vec![script.display().to_string()],
+        prefix: vec![JsString::from(script.display().to_string())],
         extension: "fixture".into(),
         cwd: temp.path().into(),
     };
@@ -319,7 +320,7 @@ async fn invalid_utf8_stdout_line_does_not_hide_following_notification() {
     let result = client::run(
         client::Invocation {
             program: "python3".into(),
-            prefix: vec![script.display().to_string()],
+            prefix: vec![JsString::from(script.display().to_string())],
             extension: "fixture".into(),
             cwd: temp.path().into(),
         },
@@ -334,7 +335,9 @@ async fn invalid_utf8_stdout_line_does_not_hide_following_notification() {
 #[test]
 fn utf16_clipping_projects_split_surrogate_at_string_boundary() {
     let mut app = client::RpcExtensionUi::new();
-    app.receive(&json!({"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"🚀"}}));
+    app.receive(
+        &pi_js_compat::js_json!({"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"🚀"}}),
+    );
     // Raw source slices include ANSI bytes; 20 units retain half of the rocket pair.
     assert!(app.render(20).iter().any(|line| line.contains('\u{fffd}')));
 }
