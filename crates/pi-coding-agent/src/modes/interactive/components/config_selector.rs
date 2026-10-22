@@ -1224,7 +1224,7 @@ impl ResourceList {
                 ..Default::default()
             },
         )
-        .unwrap_or(source);
+        .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught("Error", error.message().clone()));
         let project_base = self.get_top_level_base_dir(SettingsScope::Project);
         let relative = relative_path(&project_base, &source_path)
             .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught("Error", error.message().clone()));
@@ -1290,7 +1290,11 @@ impl ResourceList {
         };
         let left = resolve_path(left_source, &self.get_top_level_base_dir_str(left_scope), &options);
         let right = resolve_path(right_source, &self.get_top_level_base_dir_str(right_scope), &options);
-        matches!((left, right), (Ok(left), Ok(right)) if left == right)
+        let left =
+            left.unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught("Error", error.message().clone()));
+        let right =
+            right.unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught("Error", error.message().clone()));
+        left == right
     }
 
     fn get_top_level_base_dir_str(&self, scope: &str) -> JsString {
