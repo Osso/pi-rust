@@ -83,6 +83,16 @@ fn install_theme() -> Arc<Theme> {
 }
 
 #[test]
+fn custom_messages_match_the_pinned_typescript_source() {
+    install_theme();
+    let mut oracle = oracle::TsOracle::spawn("interactive-components-oracle.ts", "packages/coding-agent/src");
+    for (request, actual) in custom_message_cases() {
+        let expected = oracle.request(&request);
+        assert_eq!(actual, expected["output"], "mismatch for {request}");
+    }
+}
+
+#[test]
 fn interactive_leaf_helpers_match_the_pinned_typescript_source() {
     install_theme();
     let mut oracle = oracle::TsOracle::spawn("interactive-components-oracle.ts", "packages/coding-agent/src");
@@ -110,7 +120,6 @@ fn requests() -> Vec<(Value, Value)> {
     cases.extend(extension_editor_cases());
     cases.extend(first_time_setup_cases());
     cases.extend(custom_entry_cases());
-    cases.extend(custom_message_cases());
     cases.extend(bash_execution_cases());
     cases.extend(tree_selector_cases());
     cases.extend(session_selector_cases());
@@ -974,21 +983,19 @@ fn custom_message_value(content: CustomMessageContent) -> CustomMessageValue {
 
 fn custom_message_cases() -> Vec<(Value, Value)> {
     let variants = [
-        (json!("hello **world**"), false, false, 1usize, 1usize, 40usize),
+        (json!("hello **world**"), false, false, false, 40usize),
         (
             json!([{"type": "text", "text": "first"}, {"type": "image", "data": "AA==", "mimeType": "image/png"}, {"type": "text", "text": "second"}]),
             false,
             false,
-            1,
-            1,
+            false,
             50,
         ),
-        (json!("custom"), true, true, 1, 0, 40),
+        (json!("custom"), true, false, true, 40),
+        (json!("renderer **failed**"), true, true, true, 40),
     ];
     let mut cases = Vec::new();
-    for (index, (content, custom_renderer, expanded, output_pad, final_output_pad, width)) in
-        variants.into_iter().enumerate()
-    {
+    for (index, (content, custom_renderer, renderer_throws, expanded, width)) in variants.into_iter().enumerate() {
         let request = json!({
             "id": 130 + index,
             "module": "modes/interactive/components/custom-message.ts",
@@ -996,9 +1003,8 @@ fn custom_message_cases() -> Vec<(Value, Value)> {
             "customType": "test",
             "content": content,
             "customRenderer": custom_renderer,
+            "rendererThrows": renderer_throws,
             "expanded": expanded,
-            "outputPad": output_pad,
-            "finalOutputPad": final_output_pad,
             "width": width,
         });
         let rust_content = match &content {
@@ -1022,21 +1028,18 @@ fn custom_message_cases() -> Vec<(Value, Value)> {
         type MessageRenderer = pi_coding_agent::core::extensions::types::MessageRenderer;
         let renderer: Option<MessageRenderer> = custom_renderer.then(|| {
             Arc::new(
-                |_message: &CustomMessageValue,
-                 options: &MessageRenderOptions,
-                 _theme: &pi_coding_agent::modes::interactive::theme::Theme| {
-                    let component: pi_tui::tui::ComponentRef =
-                        std::rc::Rc::new(std::cell::RefCell::new(pi_tui::Text::new(
-                            format!("custom pad={} expanded={}", options.output_pad, options.expanded),
-                            options.output_pad as usize,
-                            0,
-                        )));
+                move |_message: &CustomMessageValue,
+                      options: &MessageRenderOptions,
+                      _theme: &pi_coding_agent::modes::interactive::theme::Theme| {
+                    assert!(!renderer_throws, "fixture renderer throw");
+                    let component: pi_tui::tui::ComponentRef = std::rc::Rc::new(std::cell::RefCell::new(
+                        pi_tui::Text::new(format!("custom expanded={}", options.expanded), 0, 0),
+                    ));
                     Some(component)
                 },
             ) as pi_coding_agent::core::extensions::types::MessageRenderer
         });
-        let mut component = CustomMessageComponent::new(custom_message_value(rust_content), renderer, None, output_pad);
-        component.set_output_pad(final_output_pad);
+        let mut component = CustomMessageComponent::new(custom_message_value(rust_content), renderer, None);
         component.set_expanded(expanded);
         cases.push((request, json!(component.render(width))));
     }

@@ -47,7 +47,7 @@ pub fn message_renderer_extension(pi: &ExtensionApi) -> Result<(), HandlerError>
             }
             let bg_theme = theme.clone();
             let mut card = BoxComponent::new(
-                options.output_pad as usize,
+                1,
                 1,
                 Some(Rc::new(move |text| bg_theme.bg(ThemeBg::CustomMessageBg, text))),
             );

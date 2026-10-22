@@ -189,10 +189,12 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 			timestamp: 0,
 		};
 		const renderer = request.customRenderer
-			? (_message: any, options: any) => new tuiModule.Text(`custom pad=${options.outputPad} expanded=${options.expanded}`, options.outputPad, 0)
+			? (_message: unknown, options: { expanded: boolean }) => {
+				if (request.rendererThrows) throw new Error("fixture renderer throw");
+				return new tuiModule.Text(`custom expanded=${options.expanded}`, 0, 0);
+			}
 			: undefined;
-		const component = new api.CustomMessageComponent(message, renderer, undefined, request.outputPad);
-		component.setOutputPad(request.finalOutputPad);
+		const component = new api.CustomMessageComponent(message, renderer);
 		component.setExpanded(request.expanded);
 		return component.render(request.width);
 	},

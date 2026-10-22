@@ -210,7 +210,7 @@ async function run(request: any) {
      trace.push(["renderEntry",component.render(step.width)]); break;
     }
     case "renderMessage": {
-     const component = extension.messageRenderers.get(step.message.customType)(step.message, {expanded:step.expanded,outputPad:step.pad}, theme);
+     const component = extension.messageRenderers.get(step.message.customType)(step.message, {expanded:step.expanded}, theme);
      trace.push(["renderMessage",component.render(step.width)]); break;
     }
     case "renderTool": {
