@@ -802,7 +802,6 @@ pub(crate) fn get_compact_display_path_segments(resource_path: &JsString) -> Vec
     normalize_slashes(&format_display_path(resource_path))
         .split('/')
         .filter(|segment| !segment.is_empty() && *segment != "~")
-        .cloned()
         .collect()
 }
 
@@ -2736,7 +2735,7 @@ pub struct InteractiveMode {
     streaming_component: RefCell<Option<ComponentRef>>,
     streaming_message: RefCell<Option<AssistantMessage>>,
     pending_tools: RefCell<IndexMap<JsString, ComponentRef>>,
-    executing_tool_names: RefCell<IndexMap<JsString, JsString>>,
+    executing_tool_names: RefCell<IndexMap<String, String>>,
     executing_tool_started_at: RefCell<IndexMap<JsString, f64>>,
     completed_tool_timings: RefCell<IndexMap<JsString, (f64, f64)>>,
     extension_statuses: RefCell<IndexMap<JsString, JsString>>,
@@ -3339,7 +3338,8 @@ impl InteractiveMode {
 
     /// `setDefaultWorkingMessage`.
     fn set_default_working_message(&self, message: impl Into<JsString>) {
-        *self.current_working_default_message.borrow_mut() = message.into();
+        let message = message.into();
+        *self.current_working_default_message.borrow_mut() = message.clone();
         let has_loader = self.loading_animation.borrow().is_some();
         let has_override = self.working_message.borrow().is_some();
         let is_child_view = *self.working_loader_view.borrow() == Some(WorkingLoaderView::Child);
@@ -3353,8 +3353,14 @@ impl InteractiveMode {
     }
 
     /// `toolComponentOwnsElapsed`.
-    fn tool_component_owns_elapsed(&self, tool_call_id: &str) -> bool {
-        let component = self.pending_tools.borrow().get(tool_call_id).cloned();
+    fn tool_component_owns_elapsed(&self, tool_call_id: impl Into<JsString>) -> bool {
+        let tool_call_id = tool_call_id.into();
+        let component = self
+            .pending_tools
+            .borrow()
+            .iter()
+            .find(|(id, _)| tool_call_id == id.as_str())
+            .map(|(_, component)| component.clone());
         component.is_some_and(|component| {
             component
                 .borrow_mut()
@@ -4038,7 +4044,6 @@ impl InteractiveMode {
             .and_then(|settings| settings.thinking_level)
             .or_else(|| {
                 selected_agent
-                    .map(JsString::from)
                     .as_ref()
                     .and_then(|agent| agent.model.as_ref())
                     .and_then(|model| model.thinking_level.clone())
@@ -4950,7 +4955,7 @@ impl InteractiveMode {
     }
 
     /// `getPendingToolStartedAt`.
-    fn get_pending_tool_started_at(&self, tool_call_id: &str) -> Option<f64> {
+    fn get_pending_tool_started_at(&self, tool_call_id: impl Into<JsString>) -> Option<f64> {
         let Some(store) = self.multi_agent_store.as_ref() else {
             return self.executing_tool_started_at.borrow().get(tool_call_id).copied();
         };
@@ -6533,25 +6538,27 @@ impl InteractiveMode {
             with_theme(|theme| theme.bold(&theme.fg(ThemeColor::Accent, &crate::config::package_config().app_name))),
             with_theme(|theme| theme.fg(ThemeColor::Dim, &js_format!("v{}", self.version)))
         );
-        let instructions = [
-            JsString::from("Esc to interrupt"),
-            JsString::from("Ctrl+C to clear"),
-            JsString::from("Ctrl+C twice to exit"),
-            JsString::from("Ctrl+D to exit (empty)"),
-            JsString::from("Shift+Tab to cycle thinking level"),
-            JsString::from("Ctrl+P/Ctrl+N to cycle models"),
-            JsString::from("Ctrl+L to select model"),
-            JsString::from("Ctrl+O to expand tools"),
-            key_hint("app.tool.background", "to background tools"),
-            JsString::from("Ctrl+T to expand thinking"),
-            JsString::from("Ctrl+G for external editor"),
-            JsString::from("/ for commands"),
-            JsString::from("! to run bash"),
-            JsString::from("!! to run bash (no context)"),
-            JsString::from("Alt+Enter to queue follow-up"),
-            JsString::from("Alt+Up to edit queued messages"),
-        ]
-        .join("\n");
+        let instructions = JsString::join(
+            [
+                JsString::from("Esc to interrupt"),
+                JsString::from("Ctrl+C to clear"),
+                JsString::from("Ctrl+C twice to exit"),
+                JsString::from("Ctrl+D to exit (empty)"),
+                JsString::from("Shift+Tab to cycle thinking level"),
+                JsString::from("Ctrl+P/Ctrl+N to cycle models"),
+                JsString::from("Ctrl+L to select model"),
+                JsString::from("Ctrl+O to expand tools"),
+                key_hint("app.tool.background", "to background tools"),
+                JsString::from("Ctrl+T to expand thinking"),
+                JsString::from("Ctrl+G for external editor"),
+                JsString::from("/ for commands"),
+                JsString::from("! to run bash"),
+                JsString::from("!! to run bash (no context)"),
+                JsString::from("Alt+Enter to queue follow-up"),
+                JsString::from("Alt+Up to edit queued messages"),
+            ],
+            "\n",
+        );
         let onboarding = with_theme(|theme| {
             theme.fg(
                 ThemeColor::Dim,
@@ -8311,9 +8318,11 @@ impl InteractiveMode {
         self.finish_share_loader(&loader, &JsString::from(&tmp_path));
 
         if !run.status.success() {
-            let error_message = match run.stderr.trim() {
-                "" => "Unknown error",
-                message => message,
+            let stderr = run.stderr.trim();
+            let error_message = if stderr.is_empty() {
+                "Unknown error".into()
+            } else {
+                stderr
             };
             self.show_error(&js_format!("Failed to create gist: {}", error_message));
             return;
@@ -8321,7 +8330,7 @@ impl InteractiveMode {
 
         let stdout = run.stdout;
         let gist_url = stdout.trim().to_owned();
-        let gist_id = gist_url.split('/').next_back().filter(|id| !id.is_empty());
+        let gist_id = gist_url.split('/').last().filter(|id| !id.is_empty());
         let Some(gist_id) = gist_id else {
             self.show_error("Failed to parse gist ID from gh output");
             return;
@@ -8342,7 +8351,7 @@ impl InteractiveMode {
             return;
         };
         match crate::utils::clipboard::copy_to_clipboard(
-            &(&text).clone(),
+            &encode_node_utf8(&text),
             &crate::utils::clipboard_image::ClipboardEnvironment::from_process(),
             None,
         )
@@ -8651,7 +8660,7 @@ impl InteractiveMode {
                 self.adopt_session(session);
                 self.editor()
                     .borrow_mut()
-                    .set_text(&JsString::from(&(&result.selected_text.unwrap_or_default(),).clone()));
+                    .set_text(&result.selected_text.unwrap_or_default());
                 self.show_status("Forked to new session");
             }
             Ok(_) => {
@@ -8726,7 +8735,7 @@ impl InteractiveMode {
             return;
         };
         match crate::utils::clipboard::copy_to_clipboard(
-            &(&text).clone(),
+            &encode_node_utf8(&text),
             &crate::utils::clipboard_image::ClipboardEnvironment::from_process(),
             None,
         )
@@ -8744,7 +8753,11 @@ impl InteractiveMode {
         initial_filter_mode: TreeFilterMode,
     ) {
         let selected_entry = self.session().session_manager().get_entry(&entry_id).cloned();
-        if let Some(entry) = selected_entry.as_ref().and_then(SessionEntry::as_compaction).cloned() {
+        if let Some(entry) = selected_entry
+            .as_ref()
+            .and_then(SessionEntry::as_compaction)
+            .map(|entry| entry.into_owned())
+        {
             self.restore_editor();
             if entry.provider_native.is_some() {
                 self.materialize_compaction_summary_for_edit(entry, initial_filter_mode)
@@ -8754,7 +8767,7 @@ impl InteractiveMode {
             }
             return;
         }
-        if real_leaf_id.as_ref() == Some(entry_id.as_str()) {
+        if real_leaf_id.as_ref() == Some(&entry_id) {
             self.restore_editor();
             self.show_status("Already at this point");
             return;
@@ -9382,7 +9395,7 @@ impl InteractiveMode {
             return;
         }
         if provider_options.len() > 1 {
-            let unique_ids: HashSet<&JsString> = provider_options.iter().map(|option| option.id.as_str()).collect();
+            let unique_ids: HashSet<&str> = provider_options.iter().map(|option| option.id.as_str()).collect();
             if unique_ids.len() == 1 {
                 self.show_login_auth_type_selector(Some(provider_options));
                 return;
@@ -9398,7 +9411,10 @@ impl InteractiveMode {
         }
         get_login_provider_options(self.session().model_runtime(), None)
             .into_iter()
-            .filter(|provider| provider.id.to_lowercase() == normalized || provider.name.to_lowercase() == normalized)
+            .filter(|provider| {
+                JsString::from(provider.id.to_lowercase()) == normalized
+                    || JsString::from(provider.name.to_lowercase()) == normalized
+            })
             .collect()
     }
 
@@ -9408,7 +9424,9 @@ impl InteractiveMode {
         let oauth_label = provider_options
             .and_then(|options| options.iter().find(|provider| provider.auth_type == AuthType::Oauth))
             .and_then(|provider| provider.method_name.clone());
-        let subscription_label = oauth_label.unwrap_or_else(|| JsString::from("Sign in with an account"));
+        let subscription_label = oauth_label
+            .map(JsString::from)
+            .unwrap_or_else(|| JsString::from("Sign in with an account"));
         let available: Vec<AuthType> = match provider_options {
             Some(options) => options.iter().map(|provider| provider.auth_type).collect(),
             None => vec![AuthType::Oauth, AuthType::ApiKey],
@@ -9424,7 +9442,7 @@ impl InteractiveMode {
     }
 
     fn show_login_auth_type_selector(&self, provider_options: Option<Vec<AuthSelectorProvider>>) {
-        let (subscription_label, options) = Self::get_login_auth_type_selector_options(provider_options.as_ref());
+        let (subscription_label, options) = Self::get_login_auth_type_selector_options(provider_options.as_deref());
         if options.is_empty() {
             self.show_status("No login methods available.");
             return;
@@ -9500,8 +9518,8 @@ impl InteractiveMode {
         }
         let mode_id = self.ui_id.get();
         let options_for_select = provider_options.clone();
-        let on_select: Rc<dyn Fn(JsString, AuthType)> =
-            Rc::new(move |provider_id: JsString, selected_auth_type: AuthType| {
+        let on_select: Rc<dyn Fn(String, AuthType)> =
+            Rc::new(move |provider_id: String, selected_auth_type: AuthType| {
                 with_mode(mode_id, |mode| {
                     mode.restore_editor();
                     if let Some(provider_option) = options_for_select
@@ -9554,7 +9572,7 @@ impl InteractiveMode {
         }
         let mode_id = self.ui_id.get();
         let options_for_select = provider_options.clone();
-        let on_select: Rc<dyn Fn(JsString, AuthType)> = Rc::new(move |provider_id: JsString, _auth_type: AuthType| {
+        let on_select: Rc<dyn Fn(String, AuthType)> = Rc::new(move |provider_id: String, _auth_type: AuthType| {
             with_mode(mode_id, |mode| {
                 mode.restore_editor();
                 let Some(provider_option) = options_for_select
@@ -9633,7 +9651,7 @@ impl InteractiveMode {
         }
     }
 
-    async fn show_login_dialog(&self, provider_id: &JsString, provider_name: &JsString) {
+    async fn show_login_dialog(&self, provider_id: &str, provider_name: &str) {
         if let Err(error) = self
             .run_provider_login(provider_id, provider_name, AuthType::Oauth)
             .await
@@ -9651,7 +9669,7 @@ impl InteractiveMode {
         }
     }
 
-    async fn show_api_key_login_dialog(&self, provider_id: &JsString, provider_name: &JsString) {
+    async fn show_api_key_login_dialog(&self, provider_id: &str, provider_name: &str) {
         if let Err(error) = self
             .run_provider_login(provider_id, provider_name, AuthType::ApiKey)
             .await
@@ -9671,8 +9689,8 @@ impl InteractiveMode {
 
     async fn run_provider_login(
         &self,
-        provider_id: &JsString,
-        provider_name: &JsString,
+        provider_id: &str,
+        provider_name: &str,
         auth_type: AuthType,
     ) -> Result<(), crate::core::model_runtime::ModelRuntimeError> {
         let previous_model = self.session().model();
@@ -9826,8 +9844,8 @@ impl InteractiveMode {
 
     async fn complete_provider_authentication(
         &self,
-        provider_id: &JsString,
-        provider_name: &JsString,
+        provider_id: &str,
+        provider_name: &str,
         auth_type: AuthType,
         previous_model: Model,
     ) {
@@ -11733,7 +11751,7 @@ fn format_compaction_source_log_message(source: Option<&crate::core::compaction:
 /// `checkTmuxKeyboardSetup`; returns the warning to show, if any.
 pub async fn check_tmux_keyboard_setup() -> Option<JsString> {
     let tmux_env = std::env::var_os("TMUX");
-    check_tmux_keyboard_setup_with(tmux_env.as_ref(), "tmux").await
+    check_tmux_keyboard_setup_with(tmux_env.as_deref(), &"tmux".into()).await
 }
 
 /// Runs the tmux keyboard check against an explicit environment and program.
