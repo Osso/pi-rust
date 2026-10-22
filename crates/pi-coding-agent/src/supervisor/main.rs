@@ -121,11 +121,10 @@ pub fn block_supervisor_file_access(kb_dir: &str, tool_name: &str, input: &JsVal
     let Some(path) = read_tool_path(input) else {
         return Some(supervisor_file_access_block());
     };
-    let path = path.to_utf8_lossy();
     let resolved = if tool_name == "read" {
-        crate::core::tools::path_utils::resolve_read_path(&path, kb_dir)
+        crate::core::tools::path_utils::resolve_read_path(path, kb_dir)
     } else {
-        crate::core::tools::path_utils::resolve_to_cwd(&path, kb_dir)
+        crate::core::tools::path_utils::resolve_to_cwd(path, kb_dir)
     };
     let Ok(resolved_path) = resolved else {
         return Some(supervisor_file_access_block());
