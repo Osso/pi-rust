@@ -30,11 +30,12 @@ use pi_coding_agent::core::session_control_db::{
     get_control_db_path, read_runtime_mailbox_message, upsert_multi_agent_mailbox_message,
 };
 use pi_coding_agent::core::session_manager::{SessionManager, SharedSessionManager, lock_session_manager};
-use serde_json::json;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::{js_json, js_json as json};
 
 struct TestPersistence {
     control_db_path: String,
-    session_path: String,
+    session_path: JsString,
 }
 
 impl SessionPersistence for TestPersistence {
@@ -43,7 +44,7 @@ impl SessionPersistence for TestPersistence {
     }
 
     fn session_file(&self) -> Option<pi_js_compat::js_json::JsString> {
-        Some(self.session_path.as_str().into())
+        Some(self.session_path.clone())
     }
 }
 
@@ -77,7 +78,10 @@ fn faux() -> FauxProviderHandle {
 
 async fn faux_runtime(faux: &FauxProviderHandle) -> ModelRuntime {
     let mut data = serde_json::Map::new();
-    data.insert("faux".to_owned(), json!({"type": "api_key", "key": "faux-key"}));
+    data.insert(
+        "faux".to_owned(),
+        serde_json::json!({"type": "api_key", "key": "faux-key"}),
+    );
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(Arc::new(AuthStorage::in_memory(data))),
         models_path: Some(None),
@@ -100,33 +104,39 @@ async fn test_env_with_tools(
     custom_tool_definitions: Vec<pi_coding_agent::core::extensions::types::ToolDefinition>,
 ) -> TestEnv {
     let dir = tempfile::tempdir().expect("temp dir");
-    let cwd = dir.path().join("repo").display().to_string();
+    let cwd = dir.path().join("repo").to_str().expect("utf-8 test path").to_owned();
     std::fs::create_dir_all(&cwd).expect("cwd");
-    let agent_dir = dir.path().join("agent").display().to_string();
+    let agent_dir = dir.path().join("agent").to_str().expect("utf-8 test path").to_owned();
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
-    let session_dir = dir.path().join("sessions").display().to_string();
+    let session_dir = dir
+        .path()
+        .join("sessions")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let control_db = get_control_db_path(dir.path());
     let initial_control_db = get_control_db_path(&dir.path().join("initial"));
     let faux = faux();
     let runtime = faux_runtime(&faux).await;
     let model = faux.get_model(None).expect("model");
-    let mut manager = SessionManager::create(&cwd, Some(&session_dir), None).expect("session manager");
+    let mut manager = SessionManager::create(&JsString::from(&cwd), Some(&JsString::from(&session_dir)), None)
+        .expect("session manager");
     manager
-        .set_metadata_control_db_path(Some(&initial_control_db), Default::default())
+        .set_metadata_control_db_path(Some(&JsString::from(&initial_control_db)), Default::default())
         .expect("metadata control db");
     let store = with_store.then(|| Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default())));
     let session_id = manager.get_session_id().to_owned();
     let result = create_agent_session(CreateAgentSessionOptions {
-        cwd: Some(cwd.clone()),
-        agent_dir: Some(agent_dir.clone()),
+        cwd: Some(cwd.clone().into()),
+        agent_dir: Some(agent_dir.clone().into()),
         model_runtime: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(manager),
-        control_db_path: Some(initial_control_db.clone()),
+        control_db_path: Some(initial_control_db.clone().into()),
         multi_agent_store: store.clone(),
         custom_tool_definitions,
-        multi_agent_agent_id: with_store.then(|| "agent_1".to_owned()),
+        multi_agent_agent_id: with_store.then(|| "agent_1".into()),
         multi_agent_parent_session_id: with_store.then_some(session_id),
         ..Default::default()
     })
@@ -145,7 +155,7 @@ async fn test_env_with_tools(
         }));
     }
     lock_session_manager(&session_manager)
-        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .set_metadata_control_db_path(Some(&JsString::from(&control_db)), Default::default())
         .expect("target control db");
     TestEnv {
         _dir: dir,
@@ -160,34 +170,31 @@ async fn test_env_with_tools(
     }
 }
 
-fn session_id(env: &TestEnv) -> String {
+fn session_id(env: &TestEnv) -> JsString {
     lock_session_manager(&env.session_manager).get_session_id().to_owned()
 }
 
-fn session_path(env: &TestEnv) -> String {
+fn session_path(env: &TestEnv) -> JsString {
     lock_session_manager(&env.session_manager)
         .get_session_file()
         .expect("session file")
         .to_owned()
 }
 
-fn user_texts(session: &AgentSession) -> Vec<String> {
+fn user_texts(session: &AgentSession) -> Vec<JsString> {
     session
         .messages()
         .iter()
         .filter_map(|message| match message {
             AgentMessage::User(user) => match &user.content {
                 pi_ai::types::UserContent::Text(text) => Some(text.clone()),
-                pi_ai::types::UserContent::Blocks(blocks) => Some(
-                    blocks
-                        .iter()
-                        .filter_map(|block| match block {
-                            pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
-                            pi_ai::types::TextOrImageContent::Image(_) => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n"),
-                ),
+                pi_ai::types::UserContent::Blocks(blocks) => Some(JsString::join(
+                    blocks.iter().filter_map(|block| match block {
+                        pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
+                        pi_ai::types::TextOrImageContent::Image(_) => None,
+                    }),
+                    "\n",
+                )),
             },
             _ => None,
         })
@@ -217,39 +224,39 @@ fn enqueue_stored_message(env: &TestEnv, body: &str, message_id: &str, recipient
             recipient_host: None,
             kind: RuntimeMailboxMessageKind::Message,
             recipient: RuntimeMailboxAddress {
-                agent_id: recipient_agent.map(str::to_owned),
-                session_id: session_id(env),
+                agent_id: recipient_agent.map(JsString::from),
+                session_id: session_id(env).into(),
             },
             sender: RuntimeMailboxAddress {
-                agent_id: Some("agent_1".to_owned()),
-                session_id: "child-session".to_owned(),
+                agent_id: Some("agent_1".to_owned().into()),
+                session_id: "child-session".to_owned().into(),
             },
             store_ref: RuntimeMailboxStoreRef {
-                message_id: message_id.to_owned(),
-                session_path,
+                message_id: message_id.to_owned().into(),
+                session_path: session_path.into(),
             },
         },
     )
     .expect("enqueue runtime message")
 }
 
-fn enqueue_steering_transport(env: &TestEnv, message_id: &str, agent_id: &str) -> i64 {
+fn enqueue_steering_transport(env: &TestEnv, message_id: &JsString, agent_id: &str) -> i64 {
     enqueue_runtime_mailbox_message(
         &env.control_db,
         &EnqueueRuntimeMailboxMessageInput {
             recipient_host: None,
             kind: RuntimeMailboxMessageKind::Steer,
             recipient: RuntimeMailboxAddress {
-                agent_id: Some(agent_id.to_owned()),
-                session_id: session_id(env),
+                agent_id: Some(agent_id.to_owned().into()),
+                session_id: session_id(env).into(),
             },
             sender: RuntimeMailboxAddress {
                 agent_id: None,
-                session_id: session_id(env),
+                session_id: session_id(env).into(),
             },
             store_ref: RuntimeMailboxStoreRef {
-                message_id: message_id.to_owned(),
-                session_path: session_path(env),
+                message_id: message_id.to_owned().into(),
+                session_path: session_path(env).into(),
             },
         },
     )
@@ -272,11 +279,11 @@ fn reserve_agent(store: &Arc<MultiAgentStore>, env: &TestEnv, id: &str, parent_i
     let prepared = coordinator
         .prepare_child(&PrepareChildCommandInput {
             spawn: SpawnAgent {
-                parent_id: Some(parent_id.unwrap_or("main").to_owned()),
-                display_name: format!("Agent {id}"),
+                parent_id: Some(parent_id.unwrap_or("main").to_owned().into()),
+                display_name: format!("Agent {id}").into(),
                 agent_type: "worker".into(),
                 origin: None,
-                cwd: env.cwd.clone(),
+                cwd: env.cwd.clone().into(),
                 permission: AgentPermission {
                     policy: "on-request".into(),
                     inherited_from: None,
@@ -287,13 +294,13 @@ fn reserve_agent(store: &Arc<MultiAgentStore>, env: &TestEnv, id: &str, parent_i
                 account: None,
                 slot: None,
                 transcript: Some(pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata {
-                    session_id: session_id(env),
-                    path: Some(session_path(env)),
+                    session_id: session_id(env).into(),
+                    path: Some(session_path(env).into()),
                 }),
                 event_stream: None,
                 worker: None,
             },
-            agent_id: Some(id.to_owned()),
+            agent_id: Some(id.to_owned().into()),
             detached: None,
             result: None,
         })
@@ -301,7 +308,7 @@ fn reserve_agent(store: &Arc<MultiAgentStore>, env: &TestEnv, id: &str, parent_i
     let created = coordinator
         .commit_running_child(
             &prepared,
-            &session_id(env),
+            &JsString::from(&session_id(env)),
             pi_coding_agent::bundled_extensions::agents_core::lifecycle_runtime::runtime_process_identity(),
             None,
         )
@@ -325,13 +332,13 @@ async fn acceptance_tracks_distinct_messages_once_and_releases_only_unaccepted_c
     let env = test_env(false).await;
     let recipient = RuntimeMailboxAddress {
         agent_id: None,
-        session_id: session_id(&env),
+        session_id: session_id(&env).into(),
     };
     register_runtime_mailbox_listener(
         &env.control_db,
         &recipient,
         std::process::id(),
-        Some(&session_path(&env)),
+        Some(&JsString::from(&session_path(&env))),
         Default::default(),
     )
     .expect("listener");
@@ -341,16 +348,17 @@ async fn acceptance_tracks_distinct_messages_once_and_releases_only_unaccepted_c
     let refs = claims.iter().map(RuntimeMailboxAcceptanceRef::from).collect::<Vec<_>>();
     assert_eq!(refs.len(), 2);
     let first: AgentMessage =
-        serde_json::from_value(json!({"role":"user", "content":"first", "timestamp":1})).expect("first user");
+        js_json::from_value(&json!({"role":"user", "content":"first", "timestamp":1})).expect("first user");
     let second: AgentMessage =
-        serde_json::from_value(json!({"role":"user", "content":"second", "timestamp":2})).expect("second user");
+        js_json::from_value(&json!({"role":"user", "content":"second", "timestamp":2})).expect("second user");
     let mut acceptance = RuntimeMailboxAcceptance::default();
     {
         let mut manager = lock_session_manager(&env.session_manager);
         acceptance
-            .accept_messages(&mut manager, &env.control_db, &refs[..1], Some(&first))
+            .accept_messages(&mut manager, &JsString::from(&env.control_db), &refs[..1], Some(&first))
             .expect("accept first before any assistant");
-        release_unaccepted_runtime_mailbox_messages(&manager, &env.control_db, &refs).expect("release second");
+        release_unaccepted_runtime_mailbox_messages(&manager, &JsString::from(&env.control_db), &refs)
+            .expect("release second");
     }
     assert!(
         read_runtime_mailbox_message(&env.control_db, first_id)
@@ -375,7 +383,7 @@ async fn acceptance_tracks_distinct_messages_once_and_releases_only_unaccepted_c
     acceptance
         .accept_messages(
             &mut lock_session_manager(&env.session_manager),
-            &env.control_db,
+            &JsString::from(&env.control_db),
             &second_refs,
             Some(&second),
         )
@@ -384,7 +392,7 @@ async fn acceptance_tracks_distinct_messages_once_and_releases_only_unaccepted_c
     assert!(acceptance.consume_persisted_message(&second));
     assert!(!acceptance.consume_persisted_message(&second));
     let receipts = pi_coding_agent::core::runtime_mailbox_transcript::read_accepted_runtime_mailbox_store_refs(Some(
-        &session_path(&env),
+        &JsString::from(&session_path(&env)),
     ))
     .expect("receipts");
     assert_eq!(receipts.len(), 2);
@@ -401,22 +409,23 @@ async fn rejected_unpersisted_acceptance_keeps_claim_until_finally_release() {
     let env = test_env(false).await;
     let recipient = RuntimeMailboxAddress {
         agent_id: None,
-        session_id: session_id(&env),
+        session_id: session_id(&env).into(),
     };
     register_runtime_mailbox_listener(
         &env.control_db,
         &recipient,
         std::process::id(),
-        Some(&session_path(&env)),
+        Some(&JsString::from(&session_path(&env))),
         Default::default(),
     )
     .expect("listener");
     let id = enqueue_stored_message(&env, "retry me", "retry", None);
     let claims = claim_runtime_mailbox_messages(&env.control_db, &recipient, 10).expect("claim");
     let refs = claims.iter().map(RuntimeMailboxAcceptanceRef::from).collect::<Vec<_>>();
-    let mut recipient_session = SessionManager::in_memory(Some(&env.cwd), None).expect("memory session");
+    let mut recipient_session =
+        SessionManager::in_memory(Some(&JsString::from(&env.cwd)), None).expect("memory session");
     let failure = RuntimeMailboxAcceptance::default()
-        .accept_messages(&mut recipient_session, &env.control_db, &refs, None)
+        .accept_messages(&mut recipient_session, &JsString::from(&env.control_db), &refs, None)
         .expect_err("must persist receipt");
     assert_eq!(
         failure.message(),
@@ -429,7 +438,8 @@ async fn rejected_unpersisted_acceptance_keeps_claim_until_finally_release() {
             .status,
         RuntimeMailboxMessageStatus::Claimed
     );
-    release_unaccepted_runtime_mailbox_messages(&recipient_session, &env.control_db, &refs).expect("finally release");
+    release_unaccepted_runtime_mailbox_messages(&recipient_session, &JsString::from(&env.control_db), &refs)
+        .expect("finally release");
     assert_eq!(
         read_runtime_mailbox_message(&env.control_db, id)
             .expect("read release")
@@ -441,18 +451,18 @@ async fn rejected_unpersisted_acceptance_keeps_claim_until_finally_release() {
 
 #[tokio::test(start_paused = true)]
 async fn question_tool_result_persists_receipt_before_consuming_answer() {
-    let route = Arc::new(std::sync::Mutex::new((String::new(), String::new())));
+    let route = Arc::new(std::sync::Mutex::new((String::new(), JsString::default())));
     let target = route.clone();
     let mut tool = pi_coding_agent::core::tools::ask_questions::create_ask_questions_tool_definition();
     tool.name = "receive_answer".into();
-    tool.parameters = json!({"type":"object","properties":{}});
+    tool.parameters = serde_json::json!({"type":"object","properties":{}});
     tool.execute = Arc::new(move |_, _, _, _, _| {
         let (db, session) = target.lock().unwrap().clone();
         Box::pin(async move {
             let claims = pi_coding_agent::core::session_control_db::take_runtime_mailbox_messages_for_delivery(
                 &db,
                 &RuntimeMailboxAddress {
-                    session_id: session,
+                    session_id: session.into(),
                     agent_id: None,
                 },
                 |_| true,
@@ -477,11 +487,11 @@ async fn question_tool_result_persists_receipt_before_consuming_answer() {
     pi_coding_agent::core::session_control_db::register_runtime_mailbox_listener(
         &env.control_db,
         &RuntimeMailboxAddress {
-            session_id: session_id(&env),
+            session_id: session_id(&env).into(),
             agent_id: None,
         },
         std::process::id(),
-        Some(&session_path(&env)),
+        Some(&JsString::from(&session_path(&env))),
         Default::default(),
     )
     .unwrap();
@@ -501,12 +511,12 @@ async fn question_tool_result_persists_receipt_before_consuming_answer() {
     ]);
     env.session.prompt("ask", PromptOptions::default()).await.unwrap();
     let receipts = pi_coding_agent::core::runtime_mailbox_transcript::read_accepted_runtime_mailbox_store_refs(Some(
-        &session_path(&env),
+        &JsString::from(&session_path(&env)),
     ))
     .unwrap();
     assert_eq!(receipts.len(), 1, "tool result must carry durable answer receipt");
     assert!(read_runtime_mailbox_message(&env.control_db, id).unwrap().is_none());
-    let records = std::fs::read_to_string(session_path(&env)).unwrap();
+    let records = std::fs::read_to_string(pi_js_compat::js_json::encode_node_utf8(&session_path(&env))).unwrap();
     assert_eq!(
         records
             .lines()
@@ -524,18 +534,19 @@ async fn idle_mailbox_prompt_completes_tool_result_and_next_assistant_turn() {
     env.session.set_active_tools_by_name(&["read".to_owned()]);
     env.session
         .bind_extensions(ExtensionBindings {
-            control_db_path: Some(env.control_db.clone()),
+            control_db_path: Some(env.control_db.clone().into()),
             ..Default::default()
         })
-        .await;
+        .await
+        .expect("bind runtime mailbox extensions");
     pi_coding_agent::core::session_control_db::register_runtime_mailbox_listener(
         &env.control_db,
         &RuntimeMailboxAddress {
             agent_id: None,
-            session_id: session_id(&env),
+            session_id: session_id(&env).into(),
         },
         std::process::id(),
-        Some(&session_path(&env)),
+        Some(&JsString::from(&session_path(&env))),
         Default::default(),
     )
     .expect("listener ready for idle drain");
@@ -546,7 +557,7 @@ async fn idle_mailbox_prompt_completes_tool_result_and_next_assistant_turn() {
         faux_assistant_message(
             vec![pi_ai::providers::faux::faux_tool_call(
                 "read",
-                serde_json::Map::from_iter([("path".to_owned(), json!(fixture_path))]),
+                json!({"path":fixture_path}).as_object().unwrap().clone(),
                 Some("mailbox-read".to_owned()),
             )],
             FauxAssistantMessageOptions::default(),
@@ -592,7 +603,7 @@ async fn idle_mailbox_prompt_completes_tool_result_and_next_assistant_turn() {
             .is_none()
     );
     let receipts = pi_coding_agent::core::runtime_mailbox_transcript::read_accepted_runtime_mailbox_store_refs(Some(
-        &session_path(&env),
+        &JsString::from(&session_path(&env)),
     ))
     .expect("durable receipt");
     assert_eq!(receipts.len(), 1);
@@ -614,10 +625,11 @@ async fn polling_claims_mailbox_messages_only_after_listener_binding() {
 
     env.session
         .bind_extensions(ExtensionBindings {
-            control_db_path: Some(env.control_db.clone()),
+            control_db_path: Some(env.control_db.clone().into()),
             ..Default::default()
         })
-        .await;
+        .await
+        .expect("bind runtime mailbox extensions");
     env.faux.set_responses(vec![
         faux_assistant_message("mailbox reply", FauxAssistantMessageOptions::default()).into(),
     ]);
@@ -625,19 +637,20 @@ async fn polling_claims_mailbox_messages_only_after_listener_binding() {
     let second = read_runtime_mailbox_message(&env.control_db, second_id)
         .expect("read second")
         .expect("second");
-    let expected_prompt = format!(
+    let expected_prompt = pi_js_compat::js_format!(
         "{}\n\n{}",
-        format_runtime_mailbox_prompt(&message, &session_id(&env)),
-        format_runtime_mailbox_prompt(&second, &session_id(&env))
+        format_runtime_mailbox_prompt(&message, &session_id(&env)).expect("first prompt"),
+        format_runtime_mailbox_prompt(&second, &session_id(&env)).expect("second prompt")
     );
     advance(30_000).await;
     assert_eq!(user_texts(&env.session), vec![expected_prompt]);
     let accepted = pi_coding_agent::core::runtime_mailbox_transcript::read_accepted_runtime_mailbox_store_refs(Some(
-        &session_path(&env),
+        &JsString::from(&session_path(&env)),
     ))
     .expect("receipt refs");
     assert_eq!(accepted.len(), 2, "both distinct messages must have durable receipts");
-    let transcript = std::fs::read_to_string(session_path(&env)).expect("transcript");
+    let transcript =
+        std::fs::read_to_string(pi_js_compat::js_json::encode_node_utf8(&session_path(&env))).expect("transcript");
     let user_records = transcript
         .lines()
         .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("record"))
@@ -666,10 +679,11 @@ async fn polling_does_not_claim_messages_without_a_matching_listener() {
     let env = test_env(false).await;
     env.session
         .bind_extensions(ExtensionBindings {
-            control_db_path: Some(env.control_db.clone()),
+            control_db_path: Some(env.control_db.clone().into()),
             ..Default::default()
         })
-        .await;
+        .await
+        .expect("bind runtime mailbox extensions");
     let other_session = "another-session";
     let message_id = enqueue_stored_message_for(&env, "Other recipient", "runtime_test_other", None, other_session);
     advance(30_000).await;
@@ -708,16 +722,16 @@ fn enqueue_stored_message_for(
             recipient_host: None,
             kind: RuntimeMailboxMessageKind::Message,
             recipient: RuntimeMailboxAddress {
-                agent_id: recipient_agent.map(str::to_owned),
-                session_id: recipient_session.to_owned(),
+                agent_id: recipient_agent.map(JsString::from),
+                session_id: recipient_session.to_owned().into(),
             },
             sender: RuntimeMailboxAddress {
-                agent_id: Some("agent_1".to_owned()),
-                session_id: "child-session".to_owned(),
+                agent_id: Some("agent_1".to_owned().into()),
+                session_id: "child-session".to_owned().into(),
             },
             store_ref: RuntimeMailboxStoreRef {
-                message_id: message_id.to_owned(),
-                session_path,
+                message_id: message_id.to_owned().into(),
+                session_path: session_path.into(),
             },
         },
     )
@@ -729,21 +743,22 @@ async fn steering_delivery_marks_the_store_message_and_completes_the_agent() {
     let env = test_env(true).await;
     env.session
         .bind_extensions(ExtensionBindings {
-            control_db_path: Some(env.control_db.clone()),
+            control_db_path: Some(env.control_db.clone().into()),
             ..Default::default()
         })
-        .await;
+        .await
+        .expect("bind runtime mailbox extensions");
     let store = Arc::clone(env.store.as_ref().expect("store"));
     let running = reserve_agent(&store, &env, "agent_1", None);
     let sender = RuntimeMailboxAddress {
         agent_id: None,
-        session_id: session_id(&env),
+        session_id: session_id(&env).into(),
     };
     pi_coding_agent::core::session_control_db::register_runtime_mailbox_listener(
         &env.control_db,
         &sender,
         std::process::id(),
-        Some(&session_path(&env)),
+        Some(&JsString::from(&session_path(&env))),
         Default::default(),
     )
     .expect("register sender listener");
@@ -751,14 +766,14 @@ async fn steering_delivery_marks_the_store_message_and_completes_the_agent() {
         &store,
         &AgentSteeringRequest {
             agent_id: running.id.clone(),
-            message: "Continue verification".to_owned(),
+            message: "Continue verification".to_owned().into(),
             file_refs: None,
             target_checkpoint: None,
         },
         &AgentSteeringRuntimeBinding {
             actor_agent_id: None,
-            control_db_path: env.control_db.clone(),
-            session_id: session_id(&env),
+            control_db_path: env.control_db.clone().into(),
+            session_id: session_id(&env).into(),
         },
         None,
     )
@@ -788,11 +803,11 @@ async fn steering_delivery_marks_the_store_message_and_completes_the_agent() {
         .expect("steering status")
         .is_none()
     );
-    let agent = store.get_agent("agent_1").expect("agent");
+    let agent = store.get_agent(&JsString::from("agent_1")).expect("agent");
     assert_eq!(agent.lifecycle, AgentLifecycle::Completed);
     assert_eq!(
-        agent.result.as_ref().and_then(|result| result.summary.as_deref()),
-        Some("steer done")
+        agent.result.as_ref().and_then(|result| result.summary.as_ref()),
+        Some(&JsString::from("steer done"))
     );
     let status = store
         .list_mailbox_messages()
@@ -809,22 +824,23 @@ async fn steered_parent_terminal_result_waits_for_its_active_child() {
     let env = test_env(true).await;
     env.session
         .bind_extensions(ExtensionBindings {
-            control_db_path: Some(env.control_db.clone()),
+            control_db_path: Some(env.control_db.clone().into()),
             ..Default::default()
         })
-        .await;
+        .await
+        .expect("bind runtime mailbox extensions");
     let store = Arc::clone(env.store.as_ref().expect("store"));
     let parent = reserve_agent(&store, &env, "agent_1", None);
     let child = reserve_agent(&store, &env, "agent_2", Some("agent_1"));
     let sender = RuntimeMailboxAddress {
         agent_id: None,
-        session_id: session_id(&env),
+        session_id: session_id(&env).into(),
     };
     pi_coding_agent::core::session_control_db::register_runtime_mailbox_listener(
         &env.control_db,
         &sender,
         std::process::id(),
-        Some(&session_path(&env)),
+        Some(&JsString::from(&session_path(&env))),
         Default::default(),
     )
     .expect("register sender listener");
@@ -832,14 +848,14 @@ async fn steered_parent_terminal_result_waits_for_its_active_child() {
         &store,
         &AgentSteeringRequest {
             agent_id: parent.id.clone(),
-            message: "Complete after child".to_owned(),
+            message: "Complete after child".to_owned().into(),
             file_refs: None,
             target_checkpoint: None,
         },
         &AgentSteeringRuntimeBinding {
             actor_agent_id: None,
-            control_db_path: env.control_db.clone(),
-            session_id: session_id(&env),
+            control_db_path: env.control_db.clone().into(),
+            session_id: session_id(&env).into(),
         },
         None,
     )
@@ -858,7 +874,7 @@ async fn steered_parent_terminal_result_waits_for_its_active_child() {
         .await
         .expect("prompt");
     assert_eq!(
-        store.get_agent("agent_1").expect("parent").lifecycle,
+        store.get_agent(&JsString::from("agent_1")).expect("parent").lifecycle,
         AgentLifecycle::Running
     );
 
@@ -877,7 +893,7 @@ async fn steered_parent_terminal_result_waits_for_its_active_child() {
                 ownership,
                 error: None,
                 result: Some(pi_coding_agent::core::multi_agent_store::AgentResult {
-                    summary: Some("child done".to_owned()),
+                    summary: Some("child done".to_owned().into()),
                     file_refs: None,
                     duration_ms: None,
                     tool_call_id: None,
@@ -891,11 +907,11 @@ async fn steered_parent_terminal_result_waits_for_its_active_child() {
     };
     store.publish_lifecycle_coordinator_snapshot(&agent).unwrap();
 
-    let parent = store.get_agent("agent_1").expect("parent");
+    let parent = store.get_agent(&JsString::from("agent_1")).expect("parent");
     assert_eq!(parent.lifecycle, AgentLifecycle::Completed);
     assert_eq!(
-        parent.result.as_ref().and_then(|result| result.summary.as_deref()),
-        Some("preserved parent result")
+        parent.result.as_ref().and_then(|result| result.summary.as_ref()),
+        Some(&JsString::from("preserved parent result"))
     );
 }
 
@@ -904,10 +920,11 @@ async fn polling_delivers_an_idle_prompt_after_the_interval() {
     let env = test_env(false).await;
     env.session
         .bind_extensions(ExtensionBindings {
-            control_db_path: Some(env.control_db.clone()),
+            control_db_path: Some(env.control_db.clone().into()),
             ..Default::default()
         })
-        .await;
+        .await
+        .expect("bind runtime mailbox extensions");
     env.faux.set_responses(vec![
         faux_assistant_message("idle reply", FauxAssistantMessageOptions::default()).into(),
     ]);

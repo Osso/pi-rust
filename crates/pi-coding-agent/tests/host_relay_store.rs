@@ -129,7 +129,7 @@ fn ts_store_rust_sequence_ts_ack_and_lossless_inbound_replay() {
         .unwrap()
         .unwrap();
     assert_eq!(third.seq, 3);
-    assert_eq!(third.message_id.to_utf8_lossy(), "three");
+    assert_eq!(third.message_id, "three");
     assert_eq!(counter(&a, "relay-out:peer"), 3);
 }
 #[test]

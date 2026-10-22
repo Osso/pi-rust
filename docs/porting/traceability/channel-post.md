@@ -2,7 +2,7 @@
 
 Frozen source: `packages/coding-agent/src/core/tools/channel-post.ts` at `4f9e6f8a4`.
 
-Actual `differential_tools_index` Cargo RED at `23ef1259` (`tool-metadata-incrate-green.log`, despite its historical filename) exposed the old description. Source `channel-post.ts:7–9,23–33` defines the action-required schema description, description/snippet and seven coordination guidelines; native constants/schema now match them exactly. Execution is unchanged. Metadata GREEN pending.
+Actual `differential_tools_index` Cargo RED at `23ef1259` (`tool-metadata-incrate-green.log`, despite its historical filename) exposed the old description. Source `channel-post.ts:7–9,23–33` defines the action-required schema description, description/snippet and seven coordination guidelines; native constants/schema now match them exactly. Execution is unchanged. Metadata Cargo GREEN1 at `8bb3bf7d` (`tool-metadata-final-green.log`).
 
 Rust: `crates/pi-coding-agent/src/core/tools/channel_post.rs` (`ChannelPostTool`).
 
@@ -20,7 +20,7 @@ result and the channel rows/cursor on identical control DBs.
 
 ## Gaps
 
-- Current-pin execution differential remains pending; metadata proof does not close that boundary.
+- Current-pin execution/result/DB-state differential passes at `1350065f` within `differential_session_tools` GREEN12 (`fixture-session-final-test.log`). This does not replace separate renderer proof.
 
 ## Renderers
 
