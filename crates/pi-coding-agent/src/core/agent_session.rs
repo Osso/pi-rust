@@ -179,7 +179,7 @@ impl ToolDefinition {
     pub fn from_tool(tool: Arc<dyn AgentTool>) -> Self {
         Self {
             name: tool.name().to_owned(),
-            description: tool.description().to_owned(),
+            description: tool.description().into(),
             parameters: tool.parameters().clone(),
             prompt_snippet: None,
             prompt_guidelines: Vec::new(),

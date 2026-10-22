@@ -2457,8 +2457,8 @@ fn custom_grep_definition(
 ) -> pi_coding_agent::core::extensions::types::ToolDefinition {
     pi_coding_agent::core::extensions::types::ToolDefinition {
         name: "grep".to_owned(),
-        label: "Custom Grep".to_owned(),
-        description: "Custom tool using a built-in name".to_owned(),
+        label: "Custom Grep".into(),
+        description: "Custom tool using a built-in name".into(),
         prompt_snippet: None,
         prompt_guidelines: None,
         approval_required: None,

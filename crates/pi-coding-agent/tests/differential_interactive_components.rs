@@ -1717,7 +1717,7 @@ fn custom_tool_definition(call: &'static str, result: &'static str, shell: Rende
     use pi_agent_core::agent::types::AgentToolResult;
     ToolDefinition {
         name: "custom_tool".to_owned(),
-        label: "custom_tool".to_owned(),
+        label: "custom_tool".into(),
         description: String::new(),
         prompt_snippet: None,
         prompt_guidelines: None,
