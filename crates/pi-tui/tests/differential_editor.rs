@@ -41,7 +41,7 @@ impl AutocompleteProvider for ScenarioProvider {
 
     fn should_trigger_file_completion(
         &self,
-        _lines: &[String],
+        _lines: &[JsString],
         _cursor_line: usize,
         _cursor_col: usize,
     ) -> Option<bool> {
@@ -83,7 +83,7 @@ impl AutocompleteProvider for ScenarioProvider {
 
     fn apply_completion(
         &self,
-        lines: &[String],
+        lines: &[JsString],
         cursor_line: usize,
         cursor_col: usize,
         item: &AutocompleteItem,
