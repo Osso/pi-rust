@@ -4191,7 +4191,7 @@ mod lossless_integration_tests {
         let CommitMultiAgentLifecycleMutationResult::Ok { agent } = result else {
             panic!("cancellation should commit");
         };
-        let returned = js_json::to_value(&agent).unwrap();
+        let returned = JsValue::Object(agent);
         let stored = with_control_db(&database, |db| read_agent_data_row(db, &"/fixture/s".into(), "bash_1"))
             .unwrap()
             .unwrap();
