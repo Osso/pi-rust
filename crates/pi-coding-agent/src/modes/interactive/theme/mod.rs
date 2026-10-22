@@ -123,9 +123,6 @@ const COLOR_KEYS: &[&str] = &[
     "text",
     "thinkingText",
     "selectedBg",
-    "scrollbarThumb",
-    "searchMatchBg",
-    "searchMatchText",
     "userMessageBg",
     "userMessageText",
     "customMessageBg",
@@ -184,7 +181,6 @@ pub enum ThemeColor {
     Dim,
     Text,
     ThinkingText,
-    SearchMatchText,
     UserMessageText,
     CustomMessageText,
     CustomMessageLabel,
@@ -237,7 +233,6 @@ impl ThemeColor {
             "dim" => Self::Dim,
             "text" => Self::Text,
             "thinkingText" => Self::ThinkingText,
-            "searchMatchText" => Self::SearchMatchText,
             "userMessageText" => Self::UserMessageText,
             "customMessageText" => Self::CustomMessageText,
             "customMessageLabel" => Self::CustomMessageLabel,
@@ -291,7 +286,6 @@ impl ThemeColor {
             Self::Dim => "dim",
             Self::Text => "text",
             Self::ThinkingText => "thinkingText",
-            Self::SearchMatchText => "searchMatchText",
             Self::UserMessageText => "userMessageText",
             Self::CustomMessageText => "customMessageText",
             Self::CustomMessageLabel => "customMessageLabel",
@@ -335,8 +329,6 @@ impl ThemeColor {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ThemeBg {
     SelectedBg,
-    ScrollbarThumb,
-    SearchMatchBg,
     UserMessageBg,
     CustomMessageBg,
     ToolPendingBg,
@@ -349,8 +341,6 @@ impl ThemeBg {
         let key = COLOR_KEYS.iter().find(|candidate| key == **candidate).copied()?;
         let background = match key {
             "selectedBg" => Self::SelectedBg,
-            "scrollbarThumb" => Self::ScrollbarThumb,
-            "searchMatchBg" => Self::SearchMatchBg,
             "userMessageBg" => Self::UserMessageBg,
             "customMessageBg" => Self::CustomMessageBg,
             "toolPendingBg" => Self::ToolPendingBg,
@@ -364,8 +354,6 @@ impl ThemeBg {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::SelectedBg => "selectedBg",
-            Self::ScrollbarThumb => "scrollbarThumb",
-            Self::SearchMatchBg => "searchMatchBg",
             Self::UserMessageBg => "userMessageBg",
             Self::CustomMessageBg => "customMessageBg",
             Self::ToolPendingBg => "toolPendingBg",
@@ -547,12 +535,7 @@ fn resolve_theme_colors(colors: &JsObject, vars: &JsObject) -> Result<Vec<(JsStr
 
 fn with_theme_color_fallbacks(colors: &JsObject) -> JsObject {
     let mut merged = colors.clone();
-    let fallbacks = [
-        ("thinkingMax", "thinkingXhigh"),
-        ("scrollbarThumb", "selectedBg"),
-        ("searchMatchBg", "selectedBg"),
-        ("searchMatchText", "text"),
-    ];
+    let fallbacks = [("thinkingMax", "thinkingXhigh")];
     for (key, fallback_key) in fallbacks {
         if !merged.contains_key(key)
             && let Some(fallback) = colors.get(fallback_key)

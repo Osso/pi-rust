@@ -32,7 +32,6 @@ const THEME_COLORS: &[(&str, ThemeColor)] = &[
     ("dim", ThemeColor::Dim),
     ("text", ThemeColor::Text),
     ("thinkingText", ThemeColor::ThinkingText),
-    ("searchMatchText", ThemeColor::SearchMatchText),
     ("userMessageText", ThemeColor::UserMessageText),
     ("customMessageText", ThemeColor::CustomMessageText),
     ("customMessageLabel", ThemeColor::CustomMessageLabel),
@@ -72,8 +71,6 @@ const THEME_COLORS: &[(&str, ThemeColor)] = &[
 
 const THEME_BACKGROUNDS: &[(&str, ThemeBg)] = &[
     ("selectedBg", ThemeBg::SelectedBg),
-    ("scrollbarThumb", ThemeBg::ScrollbarThumb),
-    ("searchMatchBg", ThemeBg::SearchMatchBg),
     ("userMessageBg", ThemeBg::UserMessageBg),
     ("customMessageBg", ThemeBg::CustomMessageBg),
     ("toolPendingBg", ThemeBg::ToolPendingBg),
@@ -157,9 +154,6 @@ fn load_cases(package_dir: &Path) -> Vec<Value> {
     full["colors"]["text"] = json!("empty");
     full["colors"]["mdHeading"] = json!("upper");
     full["colors"]["selectedBg"] = json!(0);
-    full["colors"]["scrollbarThumb"] = json!(15);
-    full["colors"]["searchMatchBg"] = json!(231);
-    full["colors"]["searchMatchText"] = json!(232);
     full["colors"]["thinkingMax"] = json!(255);
     full["export"] = json!({"pageBg": "#112233", "cardBg": 24, "infoBg": ""});
 
@@ -168,7 +162,7 @@ fn load_cases(package_dir: &Path) -> Vec<Value> {
     fallbacks["colors"].as_object_mut().unwrap().remove("thinkingMax");
 
     let mut missing = json!({"name": "missing", "colors": required_colors()});
-    for key in ["accent", "bashMode", "thinkingMax", "scrollbarThumb"] {
+    for key in ["accent", "bashMode", "thinkingMax"] {
         missing["colors"].as_object_mut().unwrap().remove(key);
     }
 

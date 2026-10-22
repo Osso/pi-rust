@@ -13,13 +13,13 @@ Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1337 lines
 | TypeScript export | Rust item | Tests |
 |---|---|---|
 | `class Theme` | `struct Theme` | `theme.rs` probes, `differential_theme.rs` |
-| `Theme.fg/bg/bold/italic/underline/inverse/strikethrough` | same methods | `theme_scrollbar_probe`, differential fg/bg |
+| `Theme.fg/bg/bold/italic/underline/inverse/strikethrough` | same methods | `theme_global_probe`, differential fg/bg |
 | `Theme.getFgAnsi/getBgAnsi/getColorMode` | same methods | `theme_global_probe`, differential |
 | `Theme.getThinkingBorderColor(level)` | `get_thinking_border_color(ThinkingLevel) -> StyleFn` | traceability-only (callback shape); colors covered by `get_fg_ansi` differential |
 | `Theme.getBashModeBorderColor()` | `get_bash_mode_border_color() -> StyleFn` | traceability-only |
 | `getAvailableThemes()` | `get_available_themes() -> Result<Vec<String>, ThemeError>` | `theme_picker_probe` |
 | `getAvailableThemesWithPaths()` | `get_available_themes_with_paths() -> Result<Vec<ThemeInfo>, ThemeError>` | `theme_picker_probe` |
-| `loadThemeFromPath(path, mode?)` | `load_theme_from_path(&Path, Option<ColorMode>)` | `theme_validation_probe`, `theme_scrollbar_probe`, differential (22 cases) |
+| `loadThemeFromPath(path, mode?)` | `load_theme_from_path(&Path, Option<ColorMode>)` | `theme_validation_probe`, differential (22 cases) |
 | `getThemeByName(name)` | `get_theme_by_name(&str) -> Option<Arc<Theme>>` | `theme_global_probe` |
 | `parseAutoThemeSetting(setting)` | `parse_auto_theme_setting(Option<&str>)` | `theme_detection_probe`, differential helpers |
 | `resolveThemeSetting(setting, terminalTheme)` | `resolve_theme_setting(...)` | both |
@@ -53,7 +53,7 @@ Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1337 lines
 | `rgbTo256` cube/gray distance, `spread < 10` | `rgb_to_256` | differential `dark256`/`full-vars-256` |
 | `fgAnsi`/`bgAnsi`: empty, number, `#`, invalid | same match arms | differential full-vars (empty/0/15/231/232/255) |
 | `resolveVarRefs`: literal, circular, missing, recursion | same | differential `circular`, `missing-var`, `full-vars` alias chain |
-| `withThemeColorFallbacks` (`??` per optional token) | `with_theme_color_fallbacks` | `theme_scrollbar_probe`, differential `fallbacks` |
+| `withThemeColorFallbacks` (`??` per optional token) | `with_theme_color_fallbacks` | differential `fallbacks` (thinkingMax only) |
 | `createTheme` bg key partition | `create_theme` | differential all cases |
 | TypeBox validation (required + union errors, 8-error iterator cap) | `validate_theme_json` + `MAX_VALIDATION_ERRORS` | differential `missing`, `bad-types`, `many-bad`, `required-truncated`, `no-name*` |
 | `assertThemeNameIsValid` (only on parsed files/registration) | `assert_theme_name_is_valid` | differential `slash` |
@@ -81,6 +81,10 @@ Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1337 lines
 - Built-in themes are read without schema validation, exactly like `JSON.parse` in `getBuiltinThemes`.
 - `getLanguageFromPath` keeps TypeScript's extension map semantics, including `Makefile` → `makefile` and `Dockerfile` → `dockerfile` (no-dot names are treated as extensions).
 - `highlightCode`'s `try/catch` fallback is not reproduced: the Rust `syntax_highlight` port returns a `String` and cannot throw. The markdown-theme variant's styled fallback is likewise unreachable.
+
+## Common-pin token reconciliation (2026-10-22)
+
+Removed old-only `scrollbarThumb`, `searchMatchBg`, `searchMatchText` enums, schema keys, built-in asset entries and default-color mappings. Frozen `theme.ts` foreground/background token unions and assets contain none. Read-only trace across every `crates/**/src/**/*.rs` found no production consumer outside theme token conversion/default tables; no component rendering path required deletion or replacement. Removed the two old-only fullscreen-color tests and only those token requests from the differential. Other foreground/background assertions remain exact. Pre-removal differential RED was frozen `Unknown theme background color: scrollbarThumb` versus successful Rust rendering (`test-differential_theme-6183.log`).
 
 ## Gaps / exclusions
 
