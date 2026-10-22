@@ -22,7 +22,7 @@ Removed old-only global/project views, scope switching, inherited-resource dimmi
 
 - RED: `/tmp/pi-rust-repin-lossless-interactive/test-config-selector-red.log` — original selector fails frozen frames (Project Local Resources vs Resource Configuration).
 - GREEN: `test-config-selector-green-3.log` — dedicated differential 1/1 across six scenarios, exact complete frames/settings/events; includes tabs, cancel, default ctrl+c cancellation, all resource kinds/scopes, absent package and empty results.
-- Native/CLI execution tests run separately after the implementation commit; parent owns final checks/readability/independent gate.
+- Post-commit `13e744ba`: `test-config_selector-flat-config-native-2.log`4/4; `test-config_selector_cli-flat-config-6714.log`4/4 (+1 ignored probe); `test-package_command_execution-flat-config-6714.log`31/31; `test-package_manager_cli-flat-config-6714.log`8/8. Parent owns final checks/readability/independent gate.
 
 ## Remaining proof boundaries
 

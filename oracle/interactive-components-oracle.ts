@@ -54,12 +54,8 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		return component.render(request.width);
 	},
 	userMessage: (api, request) => {
-		const transformers = request.transformers.map((kind: any) => {
-			if (kind.kind === "upper") return (markdown: string) => markdown.toUpperCase();
-			if (kind.kind === "append") return (markdown: string) => `${markdown}${kind.text}`;
-			throw new Error(`unknown transformer ${kind.kind}`);
-		});
-		const component = new api.UserMessageComponent(request.text, undefined, request.outputPad, transformers);
+		const component = new api.UserMessageComponent(request.text, undefined, request.outputPad);
+		if (request.inTransit !== undefined) component.setInTransit(request.inTransit);
 		return component.render(request.width);
 	},
 	borderedLoader: async (_api, request, sourceRoot) => {

@@ -94,6 +94,31 @@ fn custom_messages_match_the_pinned_typescript_source() {
 }
 
 #[test]
+fn user_message_in_transit_matches_the_pinned_typescript_source() {
+    install_theme();
+    let mut oracle = oracle::TsOracle::spawn("interactive-components-oracle.ts", "packages/coding-agent/src");
+    let mut message = UserMessageComponent::new("hello **pending**", None, 1);
+    let request = json!({
+        "id": "in-transit", "module": "modes/interactive/components/user-message.ts",
+        "operation": "userMessage", "text": "hello **pending**", "outputPad": 1,
+        "inTransit": true, "width": 40,
+    });
+    for in_transit in [true, true, false, true, false] {
+        message.set_in_transit(in_transit);
+        let mut request = request.clone();
+        request["inTransit"] = json!(in_transit);
+        let expected = oracle.request(&request);
+        assert_eq!(expected["ok"], true, "{expected}");
+        assert_eq!(json!(message.render(40)), expected["output"]);
+    }
+    for (request, actual) in user_message_cases() {
+        let expected = oracle.request(&request);
+        assert_eq!(expected["ok"], true, "{expected}");
+        assert_eq!(actual, expected["output"]);
+    }
+}
+
+#[test]
 fn config_selector_matches_the_pinned_typescript_source() {
     install_theme();
     let mut oracle = oracle::TsOracle::spawn("interactive-components-oracle.ts", "packages/coding-agent/src");
@@ -125,7 +150,6 @@ fn requests() -> Vec<(Value, Value)> {
     cases.extend(branch_summary_cases());
     cases.extend(compaction_summary_cases());
     cases.extend(assistant_message_cases());
-    cases.extend(user_message_cases());
     cases.extend(bordered_loader_cases());
     cases.extend(status_indicator_cases());
     cases.extend(extension_input_cases());
@@ -754,42 +778,26 @@ fn assistant_message_cases() -> Vec<(Value, Value)> {
 
 fn user_message_cases() -> Vec<(Value, Value)> {
     let variants = [
-        ("hello", 1usize, 40usize, Vec::new()),
-        ("# Heading\n\nSome **bold** text.", 1, 40, Vec::new()),
-        ("1. first\n2. second", 0, 30, Vec::new()),
-        ("mixed Case", 1, 80, vec![json!({"kind": "upper"})]),
-        ("suffix", 1, 80, vec![json!({"kind": "append", "text": "!"})]),
+        ("hello", 1usize, 40usize, false),
+        ("# Heading\n\nSome **bold** text.", 1, 40, false),
+        ("1. first\n2. second", 0, 30, false),
+        ("mixed Case", 1, 80, true),
+        ("suffix", 1, 15, true),
     ];
-    let mut cases = Vec::new();
-    for (index, (text, output_pad, width, transformers)) in variants.into_iter().enumerate() {
-        let request = json!({
-            "id": 60 + index,
-            "module": "modes/interactive/components/user-message.ts",
-            "operation": "userMessage",
-            "text": text,
-            "outputPad": output_pad,
-            "transformers": transformers,
-            "width": width,
-        });
-        let rust_transformers: Vec<MarkdownTransformer> = transformers
-            .iter()
-            .map(|transformer| match transformer["kind"].as_str() {
-                Some("upper") => {
-                    Arc::new(|markdown: &str, _context: &MarkdownTransformContext| markdown.to_uppercase())
-                        as MarkdownTransformer
-                }
-                Some("append") => {
-                    let suffix = transformer["text"].as_str().unwrap_or_default().to_owned();
-                    Arc::new(move |markdown: &str, _context: &MarkdownTransformContext| format!("{markdown}{suffix}"))
-                        as MarkdownTransformer
-                }
-                other => panic!("unknown transformer {other:?}"),
-            })
-            .collect();
-        let mut component = UserMessageComponent::new(text, None, output_pad, rust_transformers);
-        cases.push((request, json!(component.render(width))));
-    }
-    cases
+    variants
+        .into_iter()
+        .enumerate()
+        .map(|(index, (text, output_pad, width, in_transit))| {
+            let request = json!({
+                "id": 60 + index, "module": "modes/interactive/components/user-message.ts",
+                "operation": "userMessage", "text": text, "outputPad": output_pad,
+                "inTransit": in_transit, "width": width,
+            });
+            let mut component = UserMessageComponent::new(text, None, output_pad);
+            component.set_in_transit(in_transit);
+            (request, json!(component.render(width)))
+        })
+        .collect()
 }
 
 fn bordered_loader_cases() -> Vec<(Value, Value)> {

@@ -347,7 +347,7 @@ fn assistant_uses_configured_output_padding() {
 #[test]
 fn user_message_keeps_height_and_zone_markers() {
     theme();
-    let mut component = UserMessageComponent::new("hello", Some(markdown_theme()), 1, Vec::new());
+    let mut component = UserMessageComponent::new("hello", Some(markdown_theme()), 1);
     let lines = component.render(20);
     assert_eq!(lines.len(), 3, "{lines:?}");
     assert!(lines[0].contains(OSC133_ZONE_START));
@@ -361,7 +361,7 @@ fn user_message_keeps_height_and_zone_markers() {
 #[test]
 fn user_message_uses_configured_output_padding() {
     theme();
-    let mut padded = UserMessageComponent::new("hello", Some(markdown_theme()), 1, Vec::new());
+    let mut padded = UserMessageComponent::new("hello", Some(markdown_theme()), 1);
     let lines: Vec<JsString> = padded
         .render(40)
         .iter()
@@ -369,7 +369,7 @@ fn user_message_uses_configured_output_padding() {
         .collect();
     assert!(lines.iter().any(|line| line.starts_with(" hello")), "{lines:?}");
 
-    let mut unpadded = UserMessageComponent::new("hello", Some(markdown_theme()), 0, Vec::new());
+    let mut unpadded = UserMessageComponent::new("hello", Some(markdown_theme()), 0);
     let lines: Vec<JsString> = unpadded
         .render(40)
         .iter()
