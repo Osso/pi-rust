@@ -10,6 +10,8 @@ use pi_js_compat::{
     js_json::{JsString, JsValue as Value, encode_node_utf8},
 };
 use tempfile::TempDir;
+#[path = "support/oracle.rs"]
+mod oracle;
 
 const EXPIRED_AT: &str = "2026-07-19T18:00:00.000Z";
 const RECENT_AT: &str = "2026-07-23T17:00:00.000Z";
@@ -26,8 +28,13 @@ struct Fixture {
 
 fn fixture() -> Fixture {
     let directory = tempfile::tempdir().expect("temp dir");
-    let root = directory.path().to_string_lossy().into_owned();
-    let control_db_path = directory.path().join("control.sqlite").to_string_lossy().into_owned();
+    let root = directory.path().to_str().expect("utf-8 test path").to_owned();
+    let control_db_path = directory
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     Fixture {
         _directory: directory,
         root,
@@ -47,10 +54,28 @@ fn persist_artifact(
         .join("sessions")
         .join("project")
         .join(format!("{session_name}.jsonl"));
-    let artifact_directory = std::path::Path::new(&fixture.root)
-        .join("detached-jobs")
-        .join(session_name)
-        .join(job_id);
+    persist_artifact_in_root(
+        fixture,
+        &session_path,
+        std::path::Path::new(&fixture.root),
+        job_id,
+        lifecycle,
+        updated_at,
+        size,
+    )
+}
+
+fn persist_artifact_in_root(
+    fixture: &Fixture,
+    session_path: &std::path::Path,
+    artifact_root: &std::path::Path,
+    job_id: &str,
+    lifecycle: &str,
+    updated_at: &str,
+    size: Option<u64>,
+) -> String {
+    let session_name = session_path.file_stem().unwrap().to_str().expect("utf-8 test path");
+    let artifact_directory = artifact_root.join("detached-jobs").join(session_name).join(job_id);
     fs::create_dir_all(&artifact_directory).expect("artifact directory");
     let output_path = artifact_directory.join("output.log");
     let file = fs::File::create(&output_path).expect("output");
@@ -73,12 +98,12 @@ fn persist_artifact(
     });
     bootstrap_multi_agent_agent(
         &fixture.control_db_path,
-        session_path.to_string_lossy().as_ref(),
+        session_path.to_str().expect("utf-8 test path"),
         &job_id.into(),
         &agent,
     )
     .expect("bootstrap agent");
-    artifact_directory.to_string_lossy().into_owned()
+    artifact_directory.to_str().expect("utf-8 test path").to_owned()
 }
 
 fn cleanup(fixture: &Fixture) -> pi_coding_agent::core::detached_job_cleanup::DetachedJobCleanupResult {
@@ -91,6 +116,56 @@ fn cleanup(fixture: &Fixture) -> pi_coding_agent::core::detached_job_cleanup::De
         },
     )
     .expect("cleanup")
+}
+
+#[test]
+fn cleanup_accepts_both_agent_and_session_artifact_roots_like_frozen_source() {
+    let fixture = fixture();
+    let session_path = std::path::Path::new(&fixture.root).join("session-side/project/beside.jsonl");
+    let session_root = session_path.parent().unwrap();
+    let bash_directory = persist_artifact(&fixture, "agent", "bash", "completed", EXPIRED_AT, Some(8));
+    let pyrun_directory = persist_artifact_in_root(
+        &fixture,
+        &session_path,
+        session_root,
+        "pyrun",
+        "completed",
+        EXPIRED_AT,
+        Some(8),
+    );
+    let mut source = oracle::TsOracle::spawn(
+        "detached-job-cleanup-oracle.ts",
+        "packages/coding-agent/src/core/detached-job-cleanup.ts",
+    );
+    let expected = source.request(&json!({
+        "id": 1, "mode": "direct", "database": fixture.control_db_path,
+        "artifactRoot": fixture.root, "now": now_millis(), "paths": [],
+    }));
+    assert_eq!(expected["ok"], json!(true), "{expected:?}");
+    assert_eq!(expected["output"]["deletedDirectories"].as_array().unwrap().len(), 2);
+    assert!(!std::path::Path::new(&bash_directory).exists());
+    assert!(!std::path::Path::new(&pyrun_directory).exists());
+    persist_artifact(&fixture, "agent", "bash", "completed", EXPIRED_AT, Some(8));
+    persist_artifact_in_root(
+        &fixture,
+        &session_path,
+        session_root,
+        "pyrun",
+        "completed",
+        EXPIRED_AT,
+        Some(8),
+    );
+    let actual = cleanup(&fixture);
+    assert!(actual.skipped_reason.is_none());
+    let actual = json!({
+        "deletedBytes": actual.deleted_bytes,
+        "deletedDirectories": actual.deleted_directories,
+        "errors": actual.errors,
+        "retainedBytes": actual.retained_bytes,
+    });
+    assert_eq!(actual, expected["output"]);
+    assert!(!std::path::Path::new(&bash_directory).exists());
+    assert!(!std::path::Path::new(&pyrun_directory).exists());
 }
 
 #[test]
@@ -131,7 +206,7 @@ fn refuses_an_artifact_path_outside_the_agent_artifact_root() {
         .join("session.jsonl");
     bootstrap_multi_agent_agent(
         &fixture.control_db_path,
-        session_path.to_string_lossy().as_ref(),
+        session_path.to_str().expect("utf-8 test path"),
         &"outside".into(),
         &json!({
             "agentType": "background",
@@ -170,7 +245,7 @@ fn refuses_a_detached_job_id_containing_path_traversal() {
         .join("session.jsonl");
     bootstrap_multi_agent_agent(
         &fixture.control_db_path,
-        session_path.to_string_lossy().as_ref(),
+        session_path.to_str().expect("utf-8 test path"),
         &"..".into(),
         &json!({
             "agentType": "background",
