@@ -219,25 +219,25 @@ impl AuthInteraction for Callbacks {
         Box::pin(async move {
             match prompt.kind {
                 AuthPromptKind::Text { message, placeholder } | AuthPromptKind::Secret { message, placeholder } => {
-                    Ok(self
-                        .0
+                    self.0
                         .on_prompt(super::OAuthPrompt {
                             message,
                             placeholder,
                             allow_empty: None,
                         })
-                        .await)
+                        .await
                 }
                 AuthPromptKind::ManualCode { message, placeholder } => match self.0.on_manual_code_input() {
-                    Some(input) => Ok(input.await),
-                    None => Ok(self
-                        .0
-                        .on_prompt(super::OAuthPrompt {
-                            message,
-                            placeholder,
-                            allow_empty: None,
-                        })
-                        .await),
+                    Some(input) => input.await,
+                    None => {
+                        self.0
+                            .on_prompt(super::OAuthPrompt {
+                                message,
+                                placeholder,
+                                allow_empty: None,
+                            })
+                            .await
+                    }
                 },
                 AuthPromptKind::Select { message, options } => self
                     .0
@@ -251,7 +251,7 @@ impl AuthInteraction for Callbacks {
                             })
                             .collect(),
                     })
-                    .await
+                    .await?
                     .ok_or_else(|| CallbackError::new("Login cancelled")),
             }
         })

@@ -3,7 +3,7 @@
 use pi_js_compat::js_json::JsString;
 use tokio_util::sync::CancellationToken;
 
-use crate::request::BoxFuture;
+use crate::request::{BoxFuture, CallbackError};
 
 /// Legacy extension OAuth prompt.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,12 +45,12 @@ pub struct OAuthSelectPrompt {
 pub trait OAuthLoginCallbacks: Send + Sync {
     fn on_auth(&self, info: OAuthAuthInfo);
     fn on_device_code(&self, info: OAuthDeviceCodeInfo);
-    fn on_prompt(&self, prompt: OAuthPrompt) -> BoxFuture<'_, JsString>;
+    fn on_prompt(&self, prompt: OAuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>>;
     fn on_progress(&self, _message: &JsString) {}
-    fn on_manual_code_input(&self) -> Option<BoxFuture<'_, JsString>> {
+    fn on_manual_code_input(&self) -> Option<BoxFuture<'_, Result<JsString, CallbackError>>> {
         None
     }
-    fn on_select(&self, prompt: OAuthSelectPrompt) -> BoxFuture<'_, Option<JsString>>;
+    fn on_select(&self, prompt: OAuthSelectPrompt) -> BoxFuture<'_, Result<Option<JsString>, CallbackError>>;
     fn signal(&self) -> Option<CancellationToken> {
         None
     }

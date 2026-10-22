@@ -1014,7 +1014,7 @@ impl OAuthLoginCallbacks for InteractionOAuthCallbacks {
         });
     }
 
-    fn on_prompt(&self, prompt: OAuthPrompt) -> BoxFuture<'_, JsString> {
+    fn on_prompt(&self, prompt: OAuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>> {
         Box::pin(async move {
             self.interaction
                 .prompt(AuthPrompt {
@@ -1025,7 +1025,6 @@ impl OAuthLoginCallbacks for InteractionOAuthCallbacks {
                     },
                 })
                 .await
-                .unwrap_or_default()
         })
     }
 
@@ -1035,7 +1034,7 @@ impl OAuthLoginCallbacks for InteractionOAuthCallbacks {
         });
     }
 
-    fn on_manual_code_input(&self) -> Option<BoxFuture<'_, JsString>> {
+    fn on_manual_code_input(&self) -> Option<BoxFuture<'_, Result<JsString, CallbackError>>> {
         Some(Box::pin(async move {
             self.interaction
                 .prompt(AuthPrompt {
@@ -1046,11 +1045,10 @@ impl OAuthLoginCallbacks for InteractionOAuthCallbacks {
                     },
                 })
                 .await
-                .unwrap_or_default()
         }))
     }
 
-    fn on_select(&self, prompt: OAuthSelectPrompt) -> BoxFuture<'_, Option<JsString>> {
+    fn on_select(&self, prompt: OAuthSelectPrompt) -> BoxFuture<'_, Result<Option<JsString>, CallbackError>> {
         Box::pin(async move {
             self.interaction
                 .prompt(AuthPrompt {
@@ -1069,7 +1067,7 @@ impl OAuthLoginCallbacks for InteractionOAuthCallbacks {
                     },
                 })
                 .await
-                .ok()
+                .map(Some)
         })
     }
 

@@ -15,3 +15,5 @@ Frozen reference: source lock in `../source-lock.json`. These checkpoints do not
 Remaining pre-existing boundary: some OAuth device/token HTTP responses still use scalar `OAuthHttpResponse.json` / `serde_json::Value`; migrating prompt answers does not establish lossless response ingress. No approval claimed for that gap.
 
 JWT decoding now passes the native token segment to atob and parses its byte-string units without a whole-token UTF-8 gate. Source `utils/oauth/openai-codex.ts:112-121` explicitly catches atob/JSON.parse errors and returns null. Pre-Q18 Rust used UTF-8 decoding of atob bytes; native propagation now follows source Latin-1 byte-string representation, not an arbitrary UTF-8 projection.
+
+Legacy OAuthLoginCallbacks prompt/manual/select methods now return explicit `Result` so Promise rejection is representable. Registry and provider-composer bridge no longer substitute empty strings or absent choices. `lossless_oauth_callbacks` compiler RED established missing Result API on the prior green pi-ai library; three actual provider login paths assert the same native message/name/code on rejection. Runtime result pending.
