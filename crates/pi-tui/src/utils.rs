@@ -379,20 +379,15 @@ impl AnsiCodeTracker {
         if !ansi_code.ends_with("m") {
             return;
         }
-        let Some(start) = ansi_code.find("\x1b[") else {
+        static SGR: std::sync::OnceLock<pi_js_compat::js_regex::JsRegex> = std::sync::OnceLock::new();
+        let regex = SGR.get_or_init(|| pi_js_compat::js_regex::JsRegex::new(r"\x1b\[([\d;]*)m").expect("SGR grammar"));
+        let Some(params) = regex
+            .captures(ansi_code)
+            .and_then(|captures| captures.get(1))
+            .map(|group| group.text())
+        else {
             return;
         };
-        let Some(end) = ansi_code.find_from("m", start + 2) else {
-            return;
-        };
-        let params = ansi_code.slice(start + 2, end);
-        if !params
-            .units()
-            .iter()
-            .all(|unit| (48..=57).contains(unit) || *unit == 59)
-        {
-            return;
-        }
         if params.is_empty() || params == "0" {
             self.reset();
             return;

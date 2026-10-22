@@ -271,3 +271,7 @@ A real PNG header represented entirely by high-surrogate base64 units decodes to
 through source Buffer semantics while Image render retains the ORIGINAL raw base64
 payload. Together with the4096-unit split-pair case this proves raw construction/cache/
 render state, not merely removal of a valid-Unicode panic. Numeric algorithms/gaps unchanged.
+
+### Nested malformed CSI / valid SGR
+
+Legacy `verifier_regressions::nested_csi_keeps_sgr_on_wrapped_line` reproduced a native tracker discrepancy: frozen `/\x1b\[([\d;]*)m/` searches past an invalid CSI prefix. The native implementation now uses the shared `JsRegex` search, retaining raw text unchanged; no source delta or sanitization. Targeted verifier, utility and raw utility proofs cover the correction.
