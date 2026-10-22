@@ -25,7 +25,7 @@ pub struct PermissionPromptInput {
     )]
     pub input: Map,
     pub tool_use_id: String,
-    pub cwd: String,
+    pub cwd: JsString,
 }
 
 /// Calls the MCP permission-prompt tool. `Err` maps a rejected promise.
@@ -48,7 +48,7 @@ pub enum PermissionPromptDecision {
 #[derive(Clone)]
 pub struct PermissionPromptHandlerOptions {
     pub permission_prompt_tool: Option<String>,
-    pub cwd: String,
+    pub cwd: JsString,
     pub call_tool: PermissionPromptCaller,
     pub desktop_notifier: Option<Arc<dyn DesktopNotifier>>,
     pub rule_store: Option<Arc<Mutex<PermissionRuleStore>>>,
@@ -166,14 +166,18 @@ pub fn parse_permission_prompt_decision(raw_response: &Value) -> Option<Permissi
 
 fn notify_permission_prompt(
     event: &ToolCallEvent,
-    cwd: &str,
+    cwd: &JsString,
     desktop_notifier: Option<&Arc<dyn DesktopNotifier>>,
 ) -> Option<Box<dyn DesktopNotificationHandle>> {
     let desktop_notifier = desktop_notifier?;
     desktop_notifier.notify(&DesktopNotification {
-        body: format!("Permission approval needed for {} in {cwd}.", event.tool_name.as_str()),
+        body: pi_js_compat::js_format!(
+            "Permission approval needed for {} in {}.",
+            event.tool_name.as_str(),
+            cwd
+        ),
         expire_time_ms: Some(PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS),
-        title: "Pi permission approval needed".to_owned(),
+        title: "Pi permission approval needed".into(),
         urgency: None,
     })
 }
