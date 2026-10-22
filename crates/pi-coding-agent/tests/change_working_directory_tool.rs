@@ -6,12 +6,12 @@ use pi_agent_core::AgentHarnessTool;
 use pi_coding_agent::core::extensions::{ExtensionContext, ExtensionRunner, RelocateCallback};
 use pi_coding_agent::core::session_manager::{NewSessionOptions, SessionManager};
 use pi_coding_agent::core::tools::change_working_directory::ChangeWorkingDirectoryTool;
-use serde_json::json;
+use pi_js_compat::js_json::{JsString, JsValue};
+use pi_js_compat::{js_json, js_json as json};
 use tempfile::TempDir;
 
 fn seed_message(text: &str, timestamp: i64) -> pi_agent_core::AgentMessage {
-    serde_json::from_value(json!({ "role": "user", "content": text, "timestamp": timestamp }))
-        .expect("seed user message")
+    js_json::from_value(&json!({ "role": "user", "content": text, "timestamp": timestamp })).expect("seed user message")
 }
 
 fn seed_assistant(text: &str, timestamp: i64) -> pi_agent_core::AgentMessage {
@@ -35,7 +35,7 @@ fn materialize(manager: &mut SessionManager) {
 
 #[derive(Default)]
 struct RelocateRecorder {
-    calls: Mutex<Vec<String>>,
+    calls: Mutex<Vec<JsString>>,
 }
 
 fn relocate_callback(recorder: Arc<RelocateRecorder>) -> RelocateCallback {
@@ -59,14 +59,24 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let temp_dir = tempfile::tempdir().expect("temp dir");
-        let session_dir = temp_dir.path().join("sessions").display().to_string();
-        let root_cwd = temp_dir.path().join("root").display().to_string();
+        let session_dir = temp_dir
+            .path()
+            .join("sessions")
+            .to_str()
+            .expect("utf-8 test path")
+            .to_owned();
+        let root_cwd = temp_dir
+            .path()
+            .join("root")
+            .to_str()
+            .expect("utf-8 test path")
+            .to_owned();
         std::fs::create_dir_all(&root_cwd).expect("root cwd");
         let mut current = SessionManager::create(
-            &root_cwd,
-            Some(&session_dir),
+            &JsString::from(&root_cwd),
+            Some(&JsString::from(&session_dir)),
             Some(NewSessionOptions {
-                id: Some("019f8def-4d62-7d88-9690-9e450ee71d64".to_owned()),
+                id: Some("019f8def-4d62-7d88-9690-9e450ee71d64".to_owned().into()),
                 ..Default::default()
             }),
         )
@@ -80,13 +90,13 @@ impl Fixture {
         }
     }
 
-    fn target_session(&self, cwd: &str, id: &str) -> SessionManager {
+    fn target_session(&self, cwd: &str, id: impl Into<JsString>) -> SessionManager {
         std::fs::create_dir_all(cwd).expect("target cwd");
         let mut manager = SessionManager::create(
-            cwd,
-            Some(&self.session_dir),
+            &JsString::from(cwd),
+            Some(&JsString::from(&self.session_dir)),
             Some(NewSessionOptions {
-                id: Some(id.to_owned()),
+                id: Some(id.into()),
                 ..Default::default()
             }),
         )
@@ -101,8 +111,8 @@ impl Fixture {
             .get_session_file()
             .expect("current session file")
             .to_owned();
-        let reader =
-            SessionManager::open(&current_path, Some(self.session_dir.as_str()), None).expect("reopen current session");
+        let reader = SessionManager::open(&current_path, Some(&JsString::from(self.session_dir.as_str())), None)
+            .expect("reopen current session");
         let (mut runner, context) =
             crate::tool_context::TestContextBuilder::new(&self.root_cwd, Arc::new(Mutex::new(reader)))
                 .build()
@@ -122,10 +132,10 @@ mod tool_context;
 
 async fn execute(
     context: ExtensionContext,
-    params: serde_json::Value,
+    params: JsValue,
 ) -> Result<pi_agent_core::AgentToolResult, pi_agent_core::ToolError> {
     ChangeWorkingDirectoryTool::new()
-        .execute("change-cwd".to_owned(), params, None, None, context, None)
+        .execute("change-cwd".to_owned(), json!(params), None, None, context, None)
         .await
 }
 
@@ -134,7 +144,7 @@ async fn changes_the_current_session_cwd_from_a_direct_directory_path() {
     let fixture = Fixture::new();
     let target_cwd = fixture.temp_dir.path().join("direct-target");
     std::fs::create_dir_all(&target_cwd).expect("target dir");
-    let target_cwd = target_cwd.display().to_string();
+    let target_cwd = target_cwd.to_str().expect("utf-8 test path").to_owned();
     let recorder = Arc::new(RelocateRecorder::default());
     let (runner, context) = fixture.context(Some(Arc::clone(&recorder))).await;
 
@@ -155,7 +165,7 @@ async fn changes_the_current_session_cwd_from_a_direct_directory_path() {
         &json!({ "previousCwd": fixture.root_cwd, "cwd": target_cwd, "source": "path" })
     );
     assert_eq!(
-        serde_json::to_value(&result.content).expect("content"),
+        js_json::to_value(&&result.content).expect("content"),
         json!([{ "type": "text", "text": format!("Changed working directory to {target_cwd}") }])
     );
     assert_eq!(result.terminate, Some(true));
@@ -166,7 +176,7 @@ async fn schedules_relocation_only_for_its_tool_call_id() {
     let fixture = Fixture::new();
     let target_cwd = fixture.temp_dir.path().join("direct-target");
     std::fs::create_dir_all(&target_cwd).expect("target dir");
-    let target_cwd = target_cwd.display().to_string();
+    let target_cwd = target_cwd.to_str().expect("utf-8 test path").to_owned();
     let recorder = Arc::new(RelocateRecorder::default());
     let (runner, context) = fixture.context(Some(Arc::clone(&recorder))).await;
 
@@ -194,7 +204,7 @@ async fn preserves_whitespace_in_a_direct_directory_path() {
     let fixture = Fixture::new();
     let target_cwd = fixture.temp_dir.path().join(" target with whitespace ");
     std::fs::create_dir_all(&target_cwd).expect("target dir");
-    let target_cwd = target_cwd.display().to_string();
+    let target_cwd = target_cwd.to_str().expect("utf-8 test path").to_owned();
     let recorder = Arc::new(RelocateRecorder::default());
     let (runner, context) = fixture.context(Some(Arc::clone(&recorder))).await;
 
@@ -212,7 +222,13 @@ async fn preserves_whitespace_in_a_direct_directory_path() {
 #[tokio::test]
 async fn resolves_a_session_id_to_its_recorded_cwd() {
     let fixture = Fixture::new();
-    let target_cwd = fixture.temp_dir.path().join("tradebot").display().to_string();
+    let target_cwd = fixture
+        .temp_dir
+        .path()
+        .join("tradebot")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let target = fixture.target_session(&target_cwd, "019f8def-1111-7000-8000-000000000001");
     let target_session_file = target.get_session_file().expect("target file").to_owned();
     let recorder = Arc::new(RelocateRecorder::default());
@@ -242,14 +258,14 @@ async fn resolves_a_session_id_to_its_recorded_cwd() {
     assert_eq!(fixture.current.get_session_id(), "019f8def-4d62-7d88-9690-9e450ee71d64");
     assert_ne!(
         fixture.current.get_session_file().expect("current file"),
-        target_session_file
+        &target_session_file
     );
 }
 
 #[tokio::test]
 async fn rejects_a_current_session_id_prefix() {
     let fixture = Fixture::new();
-    let prefix = &fixture.current.get_session_id()[..8];
+    let prefix = &fixture.current.get_session_id().slice(0, 8);
     let (_, context) = fixture.context(None).await;
     let error = execute(context, json!({ "id": prefix }))
         .await
@@ -263,8 +279,14 @@ async fn rejects_a_current_session_id_prefix() {
 #[tokio::test]
 async fn prefers_an_exact_shorter_session_id_over_a_current_session_prefix() {
     let fixture = Fixture::new();
-    let short_id = &fixture.current.get_session_id()[..8];
-    let target_cwd = fixture.temp_dir.path().join("short-id-target").display().to_string();
+    let short_id = &fixture.current.get_session_id().slice(0, 8);
+    let target_cwd = fixture
+        .temp_dir
+        .path()
+        .join("short-id-target")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     fixture.target_session(&target_cwd, short_id);
     let recorder = Arc::new(RelocateRecorder::default());
     let (runner, context) = fixture.context(Some(Arc::clone(&recorder))).await;
@@ -281,7 +303,13 @@ async fn prefers_an_exact_shorter_session_id_over_a_current_session_prefix() {
 #[tokio::test]
 async fn rejects_a_missing_directory() {
     let fixture = Fixture::new();
-    let missing_cwd = fixture.temp_dir.path().join("missing").display().to_string();
+    let missing_cwd = fixture
+        .temp_dir
+        .path()
+        .join("missing")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let (_, context) = fixture.context(None).await;
     let error = execute(context, json!({ "path": missing_cwd }))
         .await
@@ -294,7 +322,7 @@ async fn rejects_a_non_directory_path() {
     let fixture = Fixture::new();
     let file_path = fixture.temp_dir.path().join("file.txt");
     std::fs::write(&file_path, "not a directory").expect("write file");
-    let file_path = file_path.display().to_string();
+    let file_path = file_path.to_str().expect("utf-8 test path").to_owned();
     let (_, context) = fixture.context(None).await;
     let error = execute(context, json!({ "path": file_path }))
         .await
