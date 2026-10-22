@@ -346,32 +346,83 @@ fn assert_jwt_header_order(actual: &Value, expected: &Value, path: &str) {
     }
 }
 
-fn normalize_generated_tool_ids(message: &mut Value, generated: &regex::Regex) {
-    if let Some(content) = message.get_mut("content").and_then(Value::as_array_mut) {
-        for block in content {
-            if block.get("type").and_then(Value::as_str) == Some("toolCall") {
-                if let Some(Value::String(id)) = block.get_mut("id") {
-                    *id = generated.replace(id, "_<generated>").into_owned();
-                }
-            }
+fn scripted_function_call_ids(responses: &[ScriptedResponse]) -> Vec<Option<String>> {
+    let mut ids = Vec::new();
+    for response in responses {
+        let body = response.chunks.concat();
+        let text = String::from_utf8_lossy(&body);
+        for line in text.lines().filter_map(|line| line.strip_prefix("data:")) {
+            let Ok(event) = pi_js_compat::js_json::parse_lossless(line.trim()) else {
+                continue;
+            };
+            append_scripted_call_ids(&event, &mut ids);
+        }
+    }
+    ids
+}
+
+fn append_scripted_call_ids(event: &pi_js_compat::js_json::JsValue, ids: &mut Vec<Option<String>>) {
+    use pi_js_compat::js_json::JsValue;
+    let parts = event["candidates"][0]["content"]["parts"].as_array();
+    for part in parts.into_iter().flatten() {
+        if let Some(call) = part.get("functionCall") {
+            ids.push(
+                call.get("id")
+                    .and_then(JsValue::as_string)
+                    .and_then(|id| id.to_utf8().ok()),
+            );
         }
     }
 }
 
-fn normalize_events(capture: &mut Value) {
+fn normalize_tool_id(block: &mut Value, supplied: Option<&String>, generated: &regex::Regex) {
+    if let Some(Value::String(id)) = block.get_mut("id") {
+        if supplied == Some(id) {
+            return;
+        }
+        *id = generated.replace(id, "_<generated>").into_owned();
+    }
+}
+
+fn normalize_generated_tool_ids(message: &mut Value, supplied: &[Option<String>], generated: &regex::Regex) {
+    if let Some(content) = message.get_mut("content").and_then(Value::as_array_mut) {
+        let calls = content
+            .iter_mut()
+            .filter(|block| block.get("type").and_then(Value::as_str) == Some("toolCall"));
+        for (index, block) in calls.enumerate() {
+            normalize_tool_id(block, supplied.get(index).and_then(Option::as_ref), generated);
+        }
+    }
+}
+
+fn normalize_events(capture: &mut Value, supplied: &[Option<String>]) {
     provider_normalize::normalize_capture_clocks(capture);
     let generated = regex::Regex::new(r"_1\d{12}_\d+$").expect("generated id pattern");
     if let Some(events) = capture.get_mut("events").and_then(Value::as_array_mut) {
         for event in events {
             for key in ["partial", "message", "error"] {
                 if let Some(message) = event.get_mut(key) {
-                    normalize_generated_tool_ids(message, &generated);
+                    normalize_generated_tool_ids(message, supplied, &generated);
                 }
+            }
+            let ordinal = event.get("contentIndex").and_then(Value::as_u64).and_then(|index| {
+                event["partial"]["content"].as_array().map(|content| {
+                    content
+                        .iter()
+                        .take(index as usize)
+                        .filter(|block| block["type"] == "toolCall")
+                        .count()
+                })
+            });
+            if let Some(ordinal) = ordinal
+                && let Some(block) = event.get_mut("toolCall")
+            {
+                normalize_tool_id(block, supplied.get(ordinal).and_then(Option::as_ref), &generated);
             }
         }
     }
     if let Some(message) = capture.get_mut("result") {
-        normalize_generated_tool_ids(message, &generated);
+        normalize_generated_tool_ids(message, supplied, &generated);
     }
 }
 
@@ -584,6 +635,8 @@ async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
     let expected = oracle.request(&request);
     assert_eq!(expected["ok"], Value::Bool(true), "oracle failed: {expected}");
     let mut expected = expected["output"].clone();
+    let supplied = scripted_function_call_ids(&scenario.responses);
+    normalize_events(&mut expected, &supplied);
     normalize_sdk_runtime_versions(&mut expected, &scenario.model, &scenario.stream);
 
     let model: Model = serde_json::from_value(scenario.model.clone()).expect("model");
@@ -639,7 +692,7 @@ async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
     let (events, result) = collect_stream(stream).await;
     let requests = fetch.requests().iter().map(request_value).collect::<Vec<_>>();
     let mut actual = json!({"requests": requests, "events": events, "result": result});
-    normalize_events(&mut actual);
+    normalize_events(&mut actual, &supplied);
     normalize_sdk_runtime_versions(&mut actual, &scenario.model, &scenario.stream);
     assert_json_eq(&actual, &expected, &format!("google scenario {}", scenario.id));
     assert_jwt_header_order(&actual, &expected, &format!("google scenario {}", scenario.id));
@@ -1072,6 +1125,23 @@ async fn differential_google_generative_ai() {
             .responses(vec![sse_events_response(&text)]),
     )
     .await;
+}
+
+#[tokio::test]
+async fn supplied_tool_ids_that_look_generated_remain_exact() {
+    let id = "caller_1234567890123_7";
+    let events = vec![json!({"candidates":[{"content":{"parts":[{"functionCall":{
+        "id":id,"name":"lookup","args":{"id":"nested_1234567890123_7"}
+    }}]},"finishReason":"STOP"}]})];
+    let scenario = Scenario::new(200, "google-generative-ai", gemini_model("gemini-2.5-flash"))
+        .responses(vec![sse_events_response(&events)]);
+    let mut oracle = TsOracle::spawn("google-api-oracle.ts", "packages/ai/src/api");
+    let captured = oracle.request(&scenario.request());
+    assert_eq!(
+        captured["output"]["result"]["content"][0]["id"], id,
+        "source capture must not rewrite supplied IDs"
+    );
+    run_scenario(&mut oracle, scenario).await;
 }
 
 #[tokio::test]
