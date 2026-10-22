@@ -55,9 +55,7 @@ function normalizeError(error: unknown): { name: string; message: string } {
 	return { name: "UnknownError", message: String(error) };
 }
 
-function byteIndexForUtf16(text: string, utf16Index: number): number {
-	return Buffer.byteLength(text.slice(0, utf16Index), "utf8");
-}
+
 
 async function loadApi(sourceDirectory: string): Promise<{ Editor: any; TUI: any; VirtualTerminal: any }> {
 	const editor = await import(pathToFileURL(path.join(sourceDirectory, "components/editor.ts")).href);
@@ -198,12 +196,11 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
 	}
 
 	const cursor = editor.getCursor();
-	const line = editor.getLines()[cursor.line] ?? "";
 	return {
 		renders,
 		text: editor.getText(),
 		expanded: editor.getExpandedText(),
-		cursor: { line: cursor.line, col: byteIndexForUtf16(line, cursor.col) },
+		cursor: { line: cursor.line, col: cursor.col },
 		changes,
 		submissions,
 		autocomplete: editor.isShowingAutocomplete(),
