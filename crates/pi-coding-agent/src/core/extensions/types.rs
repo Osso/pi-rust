@@ -315,7 +315,6 @@ pub trait ExtensionUiTuiBackend: Send + Sync {
     fn start(&self) -> Result<(), JsString>;
     fn terminal_rows(&self) -> usize;
     fn terminal_columns(&self) -> usize;
-    fn mode(&self) -> pi_tui::tui::TuiMode;
     /// UI-thread operation; source `tui.ts:439,770–862`.
     fn show_overlay(
         &self,
@@ -370,10 +369,6 @@ impl ExtensionUiTui {
 
     pub fn terminal_columns(&self) -> usize {
         self.backend.terminal_columns()
-    }
-
-    pub fn mode(&self) -> pi_tui::tui::TuiMode {
-        self.backend.mode()
     }
 
     pub fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell> {

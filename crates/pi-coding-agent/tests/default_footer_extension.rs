@@ -92,10 +92,6 @@ impl ExtensionUiTuiBackend for StubTui {
     fn terminal_columns(&self) -> usize {
         160
     }
-
-    fn mode(&self) -> pi_tui::tui::TuiMode {
-        pi_tui::tui::TuiMode::Fullscreen
-    }
 }
 
 fn assistant_message(input: f64, output: f64, cost: f64) -> pi_agent_core::AgentMessage {

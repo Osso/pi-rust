@@ -13,7 +13,6 @@ use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRunti
 use pi_coding_agent::core::session_manager::CustomEntry;
 use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, Theme};
-use pi_tui::tui::TuiMode;
 use serde_json::{Map, Value, json};
 
 #[path = "footer_thread.rs"]
@@ -60,9 +59,6 @@ impl ExtensionUiTuiBackend for Terminal {
     }
     fn terminal_columns(&self) -> usize {
         80
-    }
-    fn mode(&self) -> TuiMode {
-        TuiMode::Regular
     }
 }
 impl ExtensionUiContext for CaptureUi {

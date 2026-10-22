@@ -19,6 +19,12 @@ Rust frozen-mapped implementation: `crates/pi-tui/src/tui.rs::TuiRenderer`, expo
 | doRender/commit frame; full/visible/differential render | frozen in-place visible repaint after upward shrink; image fallback remains full render; no full render when forbidden by flow update | full-stream shrink/resize/Termux/fixed-cell/overlay matrix + empty-flow RED/GREEN |
 | debug redraw/crash logs, PI_TUI_DEBUG dump | default HOME/.pi/agent; ISO headers; exact dump labels/JSON/output payload in /tmp/tui; append failures propagate | differential_tui_debug, differential_tui_debug_failures, tui_render logging cases |
 
+## Removal of old-only renderer mode (2026-10-22)
+
+Frozen `packages/tui/src` has no `TuiMode`, fullscreen renderer or alternate-screen 1049 sequence. Removed remaining native enum and renderer mode methods, plus stop options/preserve-screen/leading-space branches only used by that deleted renderer. Native extension UI backend no longer invents a mode property; all fixtures use the single renderer. Coding-agent assistant streaming always follows its frozen regular transcript-tail path.
+
+Frozen tui.ts:881–884 enables focus reporting whenever not already enabled, :939–942 disables it when enabled, and :1016–1040 consumes focus reports without a mode gate. Native retains those exact conditions after removing mode dispatch. PTY worker-crash tests no longer branch on unsupported fullscreen settings or assert 1049 output; raw-mode restoration, cursor/paste/keyboard restoration, exit status and crash text assertions remain.
+
 ## Representation details
 
 TuiBase/TuiExt/RendererApi composition is Rust scaffolding; it is not asserted to be a frozen exported class hierarchy. OverlayHandle::unfocus_to maps the target option. Numeric unsubscribe handles map to weak callback identities, retained for the TUI lifetime; removal upgrades the callback and compares Rc pointers against active listeners, not insertion generations. Thus any old or repeatedly invoked handle removes a re-registered identical callback without retaining inactive callback captures. Separate insertion IDs preserve live Set dispatch order. Components mutably borrowed during handle_input receive deferred focus updates before dispatch completes. Timers are driven through process_events/flush_pending; explicit setters support deterministic environment-dependent tests.

@@ -10,12 +10,12 @@ use pi_coding_agent::{
     DEFAULT_MAX_LINES, DefaultPackageManager, DefaultResourceLoader, EditDiffResult, ExtensionApi, ExtensionContext,
     ExtensionRunner, ExtensionUiContext, ExtensionUiDialogOptions, FileOperations, InteractiveMode, ModelRuntime,
     PromptOptions, ProviderConfig, RegisteredCommand, RegisteredTool, SessionEntry, SessionManager, SettingsManager,
-    Skill, SkillFrontmatter, ToolCallEvent, ToolDefinition, ToolExecutionMode, TruncationOptions, TuiMode,
-    WidgetPlacement, compact, config_dir_name, convert_to_llm, create_agent_session,
-    create_ask_architect_tool_definition, create_coding_tools, create_edit_tool, create_event_bus,
-    create_extension_runtime, create_read_only_tools, create_synthetic_source_info, discover_and_load_extensions,
-    format_size, generate_unified_patch, get_agent_dir, get_markdown_theme, load_skills_from_dir, parse_args,
-    parse_skill_block, render_diff, session_entry_to_context_messages, truncate_head, version,
+    Skill, SkillFrontmatter, ToolCallEvent, ToolDefinition, ToolExecutionMode, TruncationOptions, WidgetPlacement,
+    compact, config_dir_name, convert_to_llm, create_agent_session, create_ask_architect_tool_definition,
+    create_coding_tools, create_edit_tool, create_event_bus, create_extension_runtime, create_read_only_tools,
+    create_synthetic_source_info, discover_and_load_extensions, format_size, generate_unified_patch, get_agent_dir,
+    get_markdown_theme, load_skills_from_dir, parse_args, parse_skill_block, render_diff,
+    session_entry_to_context_messages, truncate_head, version,
 };
 use pi_js_compat::js_json::JsString;
 
@@ -61,7 +61,6 @@ fn crate_root_exposes_the_package_index_surface() {
     let _: Option<CompactionSettings> = None;
     let _: ToolExecutionMode = ToolExecutionMode::Parallel;
     let _: WidgetPlacement = WidgetPlacement::AboveEditor;
-    let _: TuiMode = TuiMode::Regular;
     let _: SkillFrontmatter = SkillFrontmatter::new();
     let _: Option<CompactOptions> = None;
     let _: Option<ContextUsage> = None;

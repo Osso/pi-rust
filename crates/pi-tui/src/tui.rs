@@ -331,19 +331,6 @@ impl std::fmt::Debug for OverlayOptions {
     }
 }
 
-/// TUI mode. Fullscreen renderers are a later slice; the core supports regular.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TuiMode {
-    Regular,
-    Fullscreen,
-}
-
-/// Stop options.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct TuiStopOptions {
-    pub preserve_screen: bool,
-}
-
 /// Rect used by render regions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RenderRegionRect {
@@ -646,14 +633,11 @@ pub trait RendererApi {
     fn do_render(&self);
     fn reset_render_state(&self);
     fn before_terminal_start(&self) {}
-    fn before_terminal_stop(&self, options: &TuiStopOptions);
-    fn after_terminal_stop(&self, _options: &TuiStopOptions) {}
+    fn before_terminal_stop(&self);
+    fn after_terminal_stop(&self) {}
     /// Stop output around `Terminal::stop`, published for cross-thread crashes.
     fn terminal_stop_output(&self) -> (JsString, JsString) {
         (JsString::default(), JsString::default())
-    }
-    fn mode(&self) -> TuiMode {
-        TuiMode::Regular
     }
 }
 
@@ -862,11 +846,7 @@ impl TuiBase {
             renderer.before_terminal_start();
         }
         self.inner.terminal.borrow_mut().start()?;
-        if self
-            .renderer()
-            .is_some_and(|renderer| renderer.mode() == TuiMode::Regular)
-            && !self.inner.focus_reporting_enabled.get()
-        {
+        if !self.inner.focus_reporting_enabled.get() {
             self.inner
                 .terminal
                 .borrow_mut()
@@ -903,16 +883,12 @@ impl TuiBase {
         restore.publish_tui(before, after);
     }
 
-    pub fn stop(&self, options: TuiStopOptions) {
+    pub fn stop(&self) {
         self.inner.stopped.set(true);
         self.cancel_render_timer();
         self.inner.render_requested.set(false);
         self.inner.force_render_requested.set(true);
-        if self
-            .renderer()
-            .is_some_and(|renderer| renderer.mode() == TuiMode::Regular)
-            && self.inner.focus_reporting_enabled.get()
-        {
+        if self.inner.focus_reporting_enabled.get() {
             self.inner
                 .terminal
                 .borrow_mut()
@@ -923,12 +899,12 @@ impl TuiBase {
             self.inner.terminal.borrow_mut().write(&JsString::from("\x1b[?2031l"));
         }
         if let Some(renderer) = self.renderer() {
-            renderer.before_terminal_stop(&options);
+            renderer.before_terminal_stop();
         }
         self.inner.terminal.borrow_mut().show_cursor();
         self.inner.terminal.borrow_mut().stop();
         if let Some(renderer) = self.renderer() {
-            renderer.after_terminal_stop(&options);
+            renderer.after_terminal_stop();
         }
     }
 
@@ -1194,9 +1170,6 @@ impl TuiBase {
     }
 
     fn consume_terminal_focus_report(&self, data: &JsString) -> bool {
-        if self.renderer().map(|renderer| renderer.mode()) != Some(TuiMode::Regular) {
-            return false;
-        }
         if data == TERMINAL_FOCUS_OUT {
             self.inner.terminal_focused.set(false);
             self.cancel_render_timer();
@@ -3001,7 +2974,7 @@ pub(crate) fn commit_rendered_frame(
         if !image && visible_width(line) > width {
             let crash_path = write_crash_log(base, width, index as usize, new_lines);
             drop(state);
-            base.stop(TuiStopOptions::default());
+            base.stop();
             panic!(
                 "Rendered line {index} exceeds terminal width ({} > {width}).\n\nThis is likely caused by a custom TUI component not truncating its output.\nUse visibleWidth() to measure and truncateToWidth() to truncate lines.\n\nDebug log written to: {}",
                 visible_width(line),
@@ -3084,13 +3057,9 @@ fn position_hardware_cursor(
     }
 }
 
-/// Common TUI surface shared by both renderer variants.
+/// Shared TUI surface.
 pub trait TuiExt: RendererApi + Sized {
     fn base(&self) -> &TuiBase;
-
-    fn mode(&self) -> TuiMode {
-        TuiMode::Regular
-    }
 
     fn terminal(&self) -> Rc<RefCell<dyn Terminal>> {
         self.base().terminal()
@@ -3169,11 +3138,7 @@ pub trait TuiExt: RendererApi + Sized {
     }
 
     fn stop(&self) {
-        self.base().stop(TuiStopOptions::default());
-    }
-
-    fn stop_with(&self, options: TuiStopOptions) {
-        self.base().stop(options);
+        self.base().stop();
     }
 
     fn render_now(&self, force: bool) {
@@ -3921,16 +3886,13 @@ impl RendererApi for TuiRenderer {
         self.cached_cursor_position.set(None);
     }
 
-    fn before_terminal_stop(&self, options: &TuiStopOptions) {
-        let sequence = frame_stop_sequence(&self.frame.borrow(), options, false);
+    fn before_terminal_stop(&self) {
+        let sequence = frame_stop_sequence(&self.frame.borrow());
         self.base.terminal().borrow_mut().write(&sequence);
     }
 
     fn terminal_stop_output(&self) -> (JsString, JsString) {
-        (
-            frame_stop_sequence(&self.frame.borrow(), &TuiStopOptions::default(), false),
-            JsString::default(),
-        )
+        (frame_stop_sequence(&self.frame.borrow()), JsString::default())
     }
 }
 
@@ -3940,15 +3902,11 @@ impl TuiExt for TuiRenderer {
     }
 }
 
-pub(crate) fn frame_stop_sequence(frame: &RenderFrameState, options: &TuiStopOptions, leading_space: bool) -> JsString {
-    if options.preserve_screen || frame.previous_lines.is_empty() {
+pub(crate) fn frame_stop_sequence(frame: &RenderFrameState) -> JsString {
+    if frame.previous_lines.is_empty() {
         return JsString::default();
     }
-    let mut sequence = if leading_space {
-        JsString::from(" ")
-    } else {
-        JsString::default()
-    };
+    let mut sequence = JsString::default();
     let line_diff = frame.previous_lines.len() as i64 - frame.hardware_cursor_row;
     if line_diff > 0 {
         sequence.push_str(&format!("\x1b[{line_diff}B"));

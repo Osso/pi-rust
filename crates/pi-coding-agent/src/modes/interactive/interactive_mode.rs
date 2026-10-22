@@ -36,7 +36,7 @@ use pi_tui::fuzzy::fuzzy_filter;
 use pi_tui::terminal::Terminal;
 use pi_tui::tui::{
     Component, ComponentRef, Container, FlowRenderRegion, Focusable, OverlayHandle, OverlayOptions, RenderRegion,
-    TuiExt, TuiInputListenerResult, TuiMode, component,
+    TuiExt, TuiInputListenerResult, component,
 };
 use pi_tui::{ProcessTerminal, TerminalRawModeError};
 
@@ -1287,12 +1287,6 @@ impl Renderer {
         }
     }
 
-    pub fn mode(&self) -> TuiMode {
-        match self {
-            Self::Main(_) => TuiMode::Regular,
-        }
-    }
-
     pub fn terminal(&self) -> Rc<RefCell<dyn Terminal>> {
         match self {
             Self::Main(tui) => TuiExt::terminal(tui.as_ref()),
@@ -1356,10 +1350,6 @@ impl InteractiveTuiHandle {
         *self.renderer.borrow_mut() = renderer;
     }
 
-    pub fn mode(&self) -> TuiMode {
-        self.renderer.borrow().clone_ref().mode()
-    }
-
     pub fn terminal(&self) -> Rc<RefCell<dyn Terminal>> {
         self.renderer.borrow().clone_ref().terminal()
     }
@@ -1412,13 +1402,6 @@ impl InteractiveTuiHandle {
 
     pub fn stop(&self) {
         self.renderer.borrow().clone_ref().stop();
-    }
-
-    pub fn stop_with(&self, options: pi_tui::tui::TuiStopOptions) {
-        let renderer = self.renderer.borrow().clone_ref();
-        match &renderer {
-            Renderer::Main(tui) => TuiExt::stop_with(tui.as_ref(), options),
-        }
     }
 
     pub fn flush_pending(&self) {
@@ -2440,10 +2423,6 @@ impl ExtensionUiTuiBackend for InteractiveUiTuiBackend {
 
     fn terminal_columns(&self) -> usize {
         self.shared.columns.load(std::sync::atomic::Ordering::Relaxed)
-    }
-
-    fn mode(&self) -> TuiMode {
-        TuiMode::Regular
     }
 }
 
@@ -10699,13 +10678,9 @@ impl InteractiveMode {
                     );
                     component_value.update_content((**assistant).clone(), true);
                     let component_ref = component(component_value);
-                    if self.ui.mode() == TuiMode::Regular {
-                        self.transcript_tail_container
-                            .borrow_mut()
-                            .add_child(Rc::clone(&component_ref));
-                    } else {
-                        self.chat_container.borrow_mut().add_child(Rc::clone(&component_ref));
-                    }
+                    self.transcript_tail_container
+                        .borrow_mut()
+                        .add_child(Rc::clone(&component_ref));
                     *self.streaming_component.borrow_mut() = Some(component_ref);
                     *self.streaming_message.borrow_mut() = Some((**assistant).clone());
                     self.ui.request_render();
