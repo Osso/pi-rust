@@ -562,28 +562,28 @@ pub struct ThemeSetResult {
 pub trait ExtensionUiContext: Send + Sync {
     fn select<'a>(
         &'a self,
-        _title: &str,
-        _options: &[String],
+        _title: &JsString,
+        _options: &[JsString],
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         Box::pin(async { Ok(None) })
     }
 
     fn confirm<'a>(
         &'a self,
-        _title: &str,
-        _message: &str,
+        _title: &JsString,
+        _message: &JsString,
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<bool, String>> {
+    ) -> BoxFuture<'a, Result<bool, JsString>> {
         Box::pin(async { Ok(false) })
     }
 
     fn input<'a>(
         &'a self,
-        _title: &str,
-        _placeholder: Option<&str>,
+        _title: &JsString,
+        _placeholder: Option<&JsString>,
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         Box::pin(async { Ok(None) })
     }
 
@@ -595,24 +595,24 @@ pub trait ExtensionUiContext: Send + Sync {
         Box::new(|| {})
     }
 
-    fn set_status(&self, _key: &str, _text: Option<&str>) {}
+    fn set_status(&self, _key: &JsString, _text: Option<&JsString>) {}
 
-    fn set_working_message(&self, _message: Option<&str>) {}
+    fn set_working_message(&self, _message: Option<&JsString>) {}
 
     fn set_working_visible(&self, _visible: bool) {}
 
     fn set_working_indicator(&self, _options: Option<&WorkingIndicatorOptions>) {}
 
-    fn set_hidden_thinking_label(&self, _label: Option<&str>) {}
+    fn set_hidden_thinking_label(&self, _label: Option<&JsString>) {}
 
     /// String-array widget overload. The component-factory overload is
     /// [`ExtensionUiContext::set_widget_component`].
-    fn set_widget(&self, _key: &str, _content: Option<&[String]>, _options: Option<&ExtensionWidgetOptions>) {}
+    fn set_widget(&self, _key: &JsString, _content: Option<&[JsString]>, _options: Option<&ExtensionWidgetOptions>) {}
 
     /// Component-factory `setWidget` overload.
     fn set_widget_component(
         &self,
-        _key: &str,
+        _key: &JsString,
         _content: Option<ExtensionUiComponentFactory>,
         _options: Option<&ExtensionWidgetOptions>,
     ) {
@@ -632,21 +632,25 @@ pub trait ExtensionUiContext: Send + Sync {
         &'a self,
         _factory: ExtensionUiCustomFactory,
         _options: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsValue>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
         Box::pin(async { Ok(None) })
     }
 
-    fn set_title(&self, _title: &str) {}
+    fn set_title(&self, _title: &JsString) {}
 
-    fn paste_to_editor(&self, _text: &str) {}
+    fn paste_to_editor(&self, _text: &JsString) {}
 
-    fn set_editor_text(&self, _text: &str) {}
+    fn set_editor_text(&self, _text: &JsString) {}
 
-    fn get_editor_text(&self) -> String {
-        String::new()
+    fn get_editor_text(&self) -> JsString {
+        JsString::default()
     }
 
-    fn editor<'a>(&'a self, _title: &str, _prefill: Option<&str>) -> BoxFuture<'a, Result<Option<String>, String>> {
+    fn editor<'a>(
+        &'a self,
+        _title: &JsString,
+        _prefill: Option<&JsString>,
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         Box::pin(async { Ok(None) })
     }
 
