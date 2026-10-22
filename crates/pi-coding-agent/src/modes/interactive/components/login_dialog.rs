@@ -105,7 +105,7 @@ impl LoginDialogComponent {
         provider_name_override: Option<&str>,
         title_override: Option<&JsString>,
     ) -> Self {
-        let provider_info = pi_ai::oauth_registry::get_oauth_provider(provider_id);
+        let provider_info = pi_ai::oauth::get_oauth_provider(provider_id);
         let provider_name = provider_name_override
             .filter(|name| !name.is_empty())
             .or_else(|| provider_info.as_ref().map(|provider| provider.name()))
