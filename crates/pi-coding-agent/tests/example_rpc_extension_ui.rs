@@ -2,6 +2,7 @@
 mod client;
 #[path = "support/oracle.rs"]
 mod oracle;
+use pi_js_compat::js_json::JsString;
 use pi_tui::{
     terminal::*,
     tui::{Component, Focusable},
@@ -64,7 +65,7 @@ fn rpc_protocol_dialogs_components_and_local_commands_match_pinned_program() {
             app.receive(event);
         }
         if let Some(input) = op["input"].as_str() {
-            app.handle_input(input);
+            app.handle_input(&JsString::from(input));
         }
         if op["tick"] == true {
             app.tick();
@@ -92,8 +93,8 @@ impl Terminal for TerminalFixture {
         self.stops += 1;
     }
     fn drain_input(&mut self, _: u64, _: u64) {}
-    fn write(&mut self, s: &str) {
-        self.written += s;
+    fn write(&mut self, s: &JsString) {
+        self.written += &pi_js_compat::js_json::encode_node_utf8(s);
     }
     fn columns(&self) -> usize {
         80
@@ -110,7 +111,7 @@ impl Terminal for TerminalFixture {
     fn clear_line(&mut self) {}
     fn clear_from_cursor(&mut self) {}
     fn clear_screen(&mut self) {}
-    fn set_title(&mut self, _: &str) {}
+    fn set_title(&mut self, _: &JsString) {}
     fn set_progress(&mut self, _: bool) {}
     fn poll_events(&mut self) -> Vec<TerminalEvent> {
         std::mem::take(&mut self.events)

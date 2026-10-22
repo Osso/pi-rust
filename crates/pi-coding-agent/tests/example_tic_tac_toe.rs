@@ -8,6 +8,8 @@ mod harness;
 mod messages;
 #[path = "support/oracle.rs"]
 mod oracle;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -163,9 +165,15 @@ async fn sibling_moves_finish_before_play_through_real_agent_scheduler() {
     let temp = tempfile::tempdir().unwrap();
     let cwd = temp.path().to_str().unwrap();
     let runtime = create_extension_runtime();
-    let extension = load_extension_from_factory(factory(), cwd, scheduler::event_bus(), runtime.clone(), "tic-tac-toe")
-        .await
-        .unwrap();
+    let extension = load_extension_from_factory(
+        factory(),
+        &JsString::from(cwd),
+        scheduler::event_bus(),
+        runtime.clone(),
+        &JsString::from("tic-tac-toe"),
+    )
+    .await
+    .unwrap();
     let model_runtime = pi_coding_agent::core::model_runtime::ModelRuntime::create(
         pi_coding_agent::core::model_runtime::CreateModelRuntimeOptions {
             models_path: Some(None),
@@ -213,7 +221,10 @@ async fn sibling_moves_finish_before_play_through_real_agent_scheduler() {
             AssistantContent::ToolCall(ToolCall::new(
                 index.to_string(),
                 "tic_tac_toe",
-                json!({"action":action}).as_object().unwrap().clone(),
+                (json!({"action":action}).as_object().unwrap().clone())
+                    .into_iter()
+                    .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                    .collect::<pi_js_compat::js_json::JsObject>(),
             ))
         })
         .collect();
@@ -236,7 +247,7 @@ async fn sibling_moves_finish_before_play_through_real_agent_scheduler() {
     let model = serde_json::from_value(json!({"id":"fixture","name":"Fixture","api":"openai-responses","provider":"fixture","baseUrl":"https://invalid.test","reasoning":false,"input":["text"],"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"contextWindow":8192,"maxTokens":1024})).unwrap();
     let mut config = AgentLoopConfig::new(
         model,
-        Arc::new(|messages| Box::pin(async move { Ok(pi_agent_core::harness::messages::convert_to_llm(&messages)) })),
+        Arc::new(|messages| Box::pin(async move { pi_agent_core::harness::messages::convert_to_llm(&messages) })),
     );
     config.tool_execution = pi_agent_core::harness::ToolExecutionMode::Parallel;
     let started = tokio::time::Instant::now();
@@ -246,7 +257,7 @@ async fn sibling_moves_finish_before_play_through_real_agent_scheduler() {
                 .unwrap(),
         ],
         AgentContext {
-            system_prompt: String::new(),
+            system_prompt: JsString::default(),
             messages: vec![],
             tools: Some(vec![tool]),
         },
@@ -273,13 +284,25 @@ async fn sibling_moves_finish_before_play_through_real_agent_scheduler() {
     let final_state = results[2].details.as_ref().unwrap();
     assert_eq!(
         final_state["board"],
-        json!([["X", " ", " "], [" ", "O", " "], [" ", " ", " "]])
+        pi_js_compat::js_json!([["X", " ", " "], [" ", "O", " "], [" ", " ", " "]])
     );
-    assert_eq!(results[0].details.as_ref().unwrap()["agentCursorRow"], 1);
-    assert_eq!(results[0].details.as_ref().unwrap()["agentCursorCol"], 0);
-    assert_eq!(results[1].details.as_ref().unwrap()["agentCursorRow"], 1);
-    assert_eq!(results[1].details.as_ref().unwrap()["agentCursorCol"], 1);
-    assert_eq!(final_state["agentCursorRow"], 0);
-    assert_eq!(final_state["agentCursorCol"], 0);
-    assert_eq!(final_state["currentTurn"], "X");
+    assert_eq!(
+        results[0].details.as_ref().unwrap()["agentCursorRow"],
+        pi_js_compat::js_json!(1)
+    );
+    assert_eq!(
+        results[0].details.as_ref().unwrap()["agentCursorCol"],
+        pi_js_compat::js_json!(0)
+    );
+    assert_eq!(
+        results[1].details.as_ref().unwrap()["agentCursorRow"],
+        pi_js_compat::js_json!(1)
+    );
+    assert_eq!(
+        results[1].details.as_ref().unwrap()["agentCursorCol"],
+        pi_js_compat::js_json!(1)
+    );
+    assert_eq!(final_state["agentCursorRow"], pi_js_compat::js_json!(0));
+    assert_eq!(final_state["agentCursorCol"], pi_js_compat::js_json!(0));
+    assert_eq!(final_state["currentTurn"], pi_js_compat::js_json!("X"));
 }

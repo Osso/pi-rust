@@ -1,10 +1,12 @@
 #[path = "../support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 
 use pi_coding_agent::core::keybindings::{KeybindingsManager, migrate_keybindings_config};
-use serde_json::{Map, Value, json};
+use pi_js_compat::js_json::JsValue;
+use serde_json::{Value, json};
 use tempfile::TempDir;
 
 pub(crate) fn run() {
@@ -30,7 +32,7 @@ fn compare_migrations(oracle: &mut oracle::TsOracle) {
         let response = oracle.request(&json!({"id": index, "operation": "migrate", "config": raw}));
         assert_eq!(response["ok"], true, "oracle failed: {response}");
 
-        let object: Map<String, Value> = raw.as_object().expect("case object").clone();
+        let object = JsValue::from(raw.clone()).as_object().expect("case object").clone();
         let actual = migrate_keybindings_config(&object);
         let actual_entries: Vec<Value> = actual.config.iter().map(|(key, value)| json!([key, value])).collect();
         assert_eq!(Value::Array(actual_entries), response["output"]["config"]);
@@ -64,11 +66,13 @@ fn compare_loaded_files(oracle: &mut oracle::TsOracle) {
         }));
         assert_eq!(response["ok"], true, "oracle failed for {name}: {response}");
 
-        let manager = KeybindingsManager::create(Some(temp.path()));
+        let manager = KeybindingsManager::create(Some(&JsString::from(
+            (temp.path()).to_str().expect("fixture path must be UTF-8"),
+        )));
         let effective = manager.get_effective_config();
-        let ids: Vec<&String> = effective.iter().map(|(id, _)| id).collect();
+        let ids: Vec<&JsString> = effective.iter().map(|(id, _)| id).collect();
         assert_eq!(json!(ids), response["output"]["ids"], "{name}");
-        let keys: Vec<&Vec<String>> = effective.iter().map(|(_, keys)| keys).collect();
+        let keys: Vec<&Vec<JsString>> = effective.iter().map(|(_, keys)| keys).collect();
         assert_eq!(json!(keys), response["output"]["keys"], "{name}");
     }
 }

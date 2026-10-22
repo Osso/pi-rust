@@ -7,6 +7,7 @@ mod oracle;
 #[path = "support/extensions.rs"]
 mod support;
 
+use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::auth::types::CredentialStore;
@@ -27,24 +28,24 @@ struct CapturedUi {
 impl ExtensionUiContext for CapturedUi {
     fn select<'a>(
         &'a self,
-        title: &str,
-        items: &[String],
+        title: &JsString,
+        items: &[JsString],
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         self.actions
             .lock()
             .unwrap()
             .push(json!({"type":"select", "title":title, "items":items}));
         let selected = self.selected.lock().unwrap().clone();
-        Box::pin(async move { Ok(selected) })
+        Box::pin(async move { Ok(selected.map(JsString::from)) })
     }
 
     fn confirm<'a>(
         &'a self,
-        title: &str,
-        message: &str,
+        title: &JsString,
+        message: &JsString,
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<bool, String>> {
+    ) -> BoxFuture<'a, Result<bool, JsString>> {
         self.actions
             .lock()
             .unwrap()
@@ -53,7 +54,7 @@ impl ExtensionUiContext for CapturedUi {
         Box::pin(async move { Ok(confirmed) })
     }
 
-    fn notify(&self, message: &str, level: Option<NotifyType>) {
+    fn notify(&self, message: &JsString, level: Option<NotifyType>) {
         self.actions
             .lock()
             .unwrap()
@@ -130,11 +131,11 @@ async fn run_native(request: &Value) -> Value {
     let mut registry = ExtensionRegistry::new();
     registry.register("<example:commands>", factory);
     let extension = load_extension_from_factory(
-        registry.get("<example:commands>").unwrap().clone(),
-        "/fixture",
+        registry.get(&JsString::from("<example:commands>")).unwrap().clone(),
+        &JsString::from("/fixture"),
         support::event_bus(),
         runtime.clone(),
-        "<example:commands>",
+        &JsString::from("<example:commands>"),
     )
     .await
     .unwrap();
@@ -190,7 +191,7 @@ async fn run_native(request: &Value) -> Value {
         *ui.confirmed.lock().unwrap() = invocation["confirm"].as_bool().unwrap();
         ui.actions.lock().unwrap().clear();
         (resolved.handler)(
-            invocation["args"].as_str().unwrap().to_owned(),
+            JsString::from(invocation["args"].as_str().unwrap().to_owned()),
             runner.create_command_context(),
         )
         .await

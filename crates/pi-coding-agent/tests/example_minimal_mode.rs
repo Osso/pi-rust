@@ -6,6 +6,8 @@ mod oracle;
 mod support;
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::theme::{ColorMode, load_theme_from_path};
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -24,11 +26,11 @@ async fn all_seven_tools_render_and_execute_like_pinned_extension() {
         }),
     );
     let extension = load_extension_from_factory(
-        registry.get("minimal-mode").unwrap().clone(),
-        cwd,
+        registry.get(&JsString::from("minimal-mode")).unwrap().clone(),
+        &JsString::from(cwd),
         support::event_bus(),
         runtime.clone(),
-        "minimal-mode",
+        &JsString::from("minimal-mode"),
     )
     .await
     .unwrap();
@@ -61,7 +63,11 @@ async fn all_seven_tools_render_and_execute_like_pinned_extension() {
     );
     support::bind(&mut runner);
     let theme = load_theme_from_path(
-        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"),
+        &JsString::from(
+            (&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"))
+                .to_str()
+                .expect("fixture path must be UTF-8"),
+        ),
         Some(ColorMode::Truecolor),
     )
     .unwrap();
@@ -86,7 +92,7 @@ async fn all_seven_tools_render_and_execute_like_pinned_extension() {
                 ] {
                     let result = json!({"content":content});
                     let context = ToolRenderContext {
-                        args: args.clone(),
+                        args: JsValue::from(args.clone()),
                         tool_call_id: "fixture".into(),
                         invalidate: Arc::new(|| {}),
                         last_component: None,
@@ -101,7 +107,7 @@ async fn all_seven_tools_render_and_execute_like_pinned_extension() {
                         is_error: false,
                     };
                     let tool = runner.get_tool_definition(name).unwrap();
-                    let call = tool.render_call.as_ref().unwrap()(&args, &theme, &context)
+                    let call = tool.render_call.as_ref().unwrap()(&JsValue::from(args.clone()), &theme, &context)
                         .unwrap()
                         .borrow_mut()
                         .render(1000);
@@ -152,7 +158,7 @@ async fn all_seven_tools_render_and_execute_like_pinned_extension() {
         executed.push(
             match (tool.execute)(
                 "fixture".into(),
-                item["args"].clone(),
+                JsValue::from(item["args"].clone()),
                 None,
                 None,
                 runner.create_context(),

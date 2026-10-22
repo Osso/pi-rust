@@ -1,6 +1,7 @@
 //! Shared delegation for the three native CustomEditor subclass examples.
 //! Expose the composed base to the host's CustomEditor callback wiring.
 use pi_coding_agent::modes::interactive::components::custom_editor::CustomEditor;
+use pi_js_compat::js_json::JsString;
 use pi_tui::EditorComponent;
 use pi_tui::autocomplete::AutocompleteProvider;
 use pi_tui::components::loader::LoaderIndicatorOptions;
@@ -9,8 +10,8 @@ use pi_tui::tui::{Component, Focusable};
 use std::rc::Rc;
 
 pub trait EditorBehavior {
-    fn input(&mut self, editor: &mut CustomEditor, data: &str) -> Vec<Rc<dyn Fn()>> {
-        editor.handle_input_deferred(data)
+    fn input(&mut self, editor: &mut CustomEditor, data: &JsString) -> Vec<Rc<dyn Fn()>> {
+        editor.handle_input_deferred(&JsString::from(data))
     }
     fn render(&mut self, editor: &mut CustomEditor, width: usize) -> Vec<String>;
 }
@@ -20,11 +21,15 @@ pub struct ComposedEditor<B> {
     pub behavior: B,
 }
 impl<B: EditorBehavior> Component for ComposedEditor<B> {
-    fn render(&mut self, width: usize) -> Vec<String> {
-        self.behavior.render(&mut self.editor, width)
+    fn render(&mut self, width: usize) -> Vec<JsString> {
+        self.behavior
+            .render(&mut self.editor, width)
+            .into_iter()
+            .map(JsString::from)
+            .collect::<Vec<_>>()
     }
-    fn handle_input(&mut self, data: &str) {
-        for callback in self.handle_input_deferred(data) {
+    fn handle_input(&mut self, data: &JsString) {
+        for callback in self.handle_input_deferred(&JsString::from(data)) {
             callback();
         }
     }
@@ -47,22 +52,22 @@ impl<B: EditorBehavior> Focusable for ComposedEditor<B> {
     }
 }
 impl<B: EditorBehavior> EditorComponent for ComposedEditor<B> {
-    fn get_text(&self) -> String {
+    fn get_text(&self) -> JsString {
         self.editor.get_text()
     }
-    fn set_text(&mut self, text: &str) {
-        self.editor.set_text(text);
+    fn set_text(&mut self, text: &JsString) {
+        self.editor.set_text(&JsString::from(text));
     }
-    fn handle_input_deferred(&mut self, data: &str) -> Vec<Rc<dyn Fn()>> {
+    fn handle_input_deferred(&mut self, data: &JsString) -> Vec<Rc<dyn Fn()>> {
         self.behavior.input(&mut self.editor, data)
     }
-    fn add_to_history(&mut self, text: &str) {
-        EditorComponent::add_to_history(&mut self.editor, text);
+    fn add_to_history(&mut self, text: &JsString) {
+        EditorComponent::add_to_history(&mut self.editor, &JsString::from(text));
     }
-    fn insert_text_at_cursor(&mut self, text: &str) {
-        self.editor.insert_text_at_cursor(text);
+    fn insert_text_at_cursor(&mut self, text: &JsString) {
+        self.editor.insert_text_at_cursor(&JsString::from(text));
     }
-    fn get_expanded_text(&self) -> String {
+    fn get_expanded_text(&self) -> JsString {
         self.editor.get_expanded_text()
     }
     fn set_autocomplete_provider(&mut self, provider: Rc<dyn AutocompleteProvider>) {

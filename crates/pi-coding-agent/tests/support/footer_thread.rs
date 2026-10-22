@@ -4,7 +4,7 @@ use std::sync::mpsc::{Sender, channel};
 
 enum Request {
     Mount(Option<(ExtensionUiFooterFactory, ExtensionUiFooterContext)>, Sender<()>),
-    Render(usize, Sender<Vec<String>>),
+    Render(usize, Sender<Vec<pi_js_compat::js_json::JsString>>),
     Stop,
 }
 
@@ -49,7 +49,7 @@ impl FooterThread {
         self.sender.send(Request::Mount(factory, sender)).unwrap();
         receiver.recv().unwrap();
     }
-    pub fn render(&self, width: usize) -> Vec<String> {
+    pub fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let (sender, receiver) = channel();
         self.sender.send(Request::Render(width, sender)).unwrap();
         receiver.recv().unwrap()

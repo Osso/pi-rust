@@ -5,6 +5,7 @@ use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_js_compat::js_json::JsString;
 use serde_json::{Map, Value, json};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -20,28 +21,28 @@ struct Ui {
     note: Mutex<Option<String>>,
 }
 impl ExtensionUiContext for Ui {
-    fn notify(&self, text: &str, level: Option<NotifyType>) {
+    fn notify(&self, text: &JsString, level: Option<NotifyType>) {
         self.calls.lock().unwrap().push(json!(["notify", text, level]));
     }
     fn select<'a>(
         &'a self,
-        title: &str,
-        items: &[String],
+        title: &JsString,
+        items: &[JsString],
         _: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         self.calls.lock().unwrap().push(json!(["select", title, items]));
         let value = self.selected.lock().unwrap().clone();
-        Box::pin(async move { Ok(value) })
+        Box::pin(async move { Ok(value.map(JsString::from)) })
     }
     fn input<'a>(
         &'a self,
-        title: &str,
-        placeholder: Option<&str>,
+        title: &JsString,
+        placeholder: Option<&JsString>,
         _: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         self.calls.lock().unwrap().push(json!(["input", title, placeholder]));
         let value = self.note.lock().unwrap().clone();
-        Box::pin(async move { Ok(value) })
+        Box::pin(async move { Ok(value.map(JsString::from)) })
     }
 }
 
@@ -60,11 +61,11 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
     let mut registry = ExtensionRegistry::new();
     registry.register(name, factory);
     let extension = load_extension_from_factory(
-        registry.get(name).unwrap().clone(),
-        cwd,
+        registry.get(&JsString::from(name)).unwrap().clone(),
+        &JsString::from(cwd),
         support::event_bus(),
         runtime.clone(),
-        name,
+        &JsString::from(name),
     )
     .await
     .unwrap();
@@ -101,7 +102,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
             .push(json!(["compact", options.custom_instructions]));
         if outcome == "error" {
             if let Some(callback) = options.on_error {
-                callback("fixture compaction failure");
+                callback(&JsString::from("fixture compaction failure"));
             }
         } else if let Some(callback) = options.on_complete {
             callback(
@@ -131,9 +132,9 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
             "before" => json!(
                 runner
                     .emit_before_agent_start(
-                        "task",
+                        &JsString::from("task"),
                         None,
-                        step["prompt"].as_str().unwrap_or("base"),
+                        &JsString::from(step["prompt"].as_str().unwrap_or("base")),
                         serde_json::from_value(step.get("options").cloned().unwrap_or(json!({}))).unwrap()
                     )
                     .await
@@ -165,7 +166,10 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
             }
             "resources" => json!(
                 runner
-                    .emit_resources_discover(cwd, serde_json::from_value(step["reason"].clone()).unwrap())
+                    .emit_resources_discover(
+                        &JsString::from(cwd),
+                        serde_json::from_value(step["reason"].clone()).unwrap()
+                    )
                     .await
             ),
             "command" => {

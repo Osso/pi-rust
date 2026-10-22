@@ -9,7 +9,7 @@ pub fn system_prompt_header_extension(pi: &ExtensionApi) -> Result<(), HandlerEr
                 let length = ctx.get_system_prompt()?.encode_utf16().count();
                 ctx.ui()?.set_status(
                     &JsString::from("system-prompt"),
-                    Some(&format!("System: {length} chars")),
+                    Some(&JsString::from(format!("System: {length} chars"))),
                 );
                 Ok(None)
             })

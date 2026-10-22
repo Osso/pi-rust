@@ -1,5 +1,7 @@
 //! Opt-in native `timed-confirm.ts`; embed and register explicitly.
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use std::{sync::Arc, time::Duration};
 use tokio_util::sync::CancellationToken;
 
@@ -17,17 +19,17 @@ pub fn timed_confirm_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 };
                 let confirmed = ui
                     .confirm(
-                        "Timed Confirmation",
-                        "This dialog will auto-cancel in 5 seconds. Confirm?",
+                        &JsString::from("Timed Confirmation"),
+                        &JsString::from("This dialog will auto-cancel in 5 seconds. Confirm?"),
                         Some(&options),
                     )
                     .await?;
                 ui.notify(
-                    if confirmed {
+                    &JsString::from(if confirmed {
                         "Confirmed by user!"
                     } else {
                         "Cancelled or timed out"
-                    },
+                    }),
                     Some(NotifyType::Info),
                 );
                 Ok(())
@@ -47,16 +49,16 @@ pub fn timed_confirm_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 };
                 let choice = ui
                     .select(
-                        "Pick an option",
+                        &JsString::from("Pick an option"),
                         &["Option A".into(), "Option B".into(), "Option C".into()],
                         Some(&options),
                     )
                     .await?;
                 let message = match choice.filter(|choice| !choice.is_empty()) {
-                    Some(choice) => format!("Selected: {choice}"),
+                    Some(choice) => js_format!("Selected: {}", choice),
                     None => "Selection cancelled or timed out".into(),
                 };
-                ui.notify(&message, Some(NotifyType::Info));
+                ui.notify(&JsString::from(&message), Some(NotifyType::Info));
                 Ok(())
             })
         }),
@@ -79,15 +81,18 @@ async fn confirm_with_signal(ctx: ExtensionCommandContext) -> Result<(), Handler
         abort.cancel();
     });
     let ui = ctx.ui()?;
-    ui.notify("Dialog will auto-cancel in 5 seconds...", Some(NotifyType::Info));
+    ui.notify(
+        &JsString::from("Dialog will auto-cancel in 5 seconds..."),
+        Some(NotifyType::Info),
+    );
     let options = ExtensionUiDialogOptions {
         signal: Some(signal.clone()),
         ..Default::default()
     };
     let confirmed = ui
         .confirm(
-            "Timed Confirmation",
-            "This dialog will auto-cancel in 5 seconds. Confirm?",
+            &JsString::from("Timed Confirmation"),
+            &JsString::from("This dialog will auto-cancel in 5 seconds. Confirm?"),
             Some(&options),
         )
         .await?;
@@ -99,6 +104,6 @@ async fn confirm_with_signal(ctx: ExtensionCommandContext) -> Result<(), Handler
     } else {
         ("Cancelled by user", NotifyType::Info)
     };
-    ui.notify(message, Some(level));
+    ui.notify(&JsString::from(message), Some(level));
     Ok(())
 }

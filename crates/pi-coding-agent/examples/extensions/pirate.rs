@@ -1,4 +1,6 @@
 //! Opt-in native `pirate.ts`; each explicit factory owns its toggle state.
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -26,11 +28,11 @@ pub fn pirate_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             let enabled = !toggle.fetch_xor(true, Ordering::SeqCst);
             Box::pin(async move {
                 ctx.ui()?.notify(
-                    if enabled {
+                    &JsString::from(if enabled {
                         "Arrr! Pirate mode enabled!"
                     } else {
                         "Pirate mode disabled"
-                    },
+                    }),
                     Some(NotifyType::Info),
                 );
                 Ok(())
@@ -44,7 +46,7 @@ pub fn pirate_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             let enabled = mode.load(Ordering::SeqCst);
             Box::pin(async move {
                 Ok(enabled.then(|| BeforeAgentStartEventResult {
-                    system_prompt: Some(format!("{}{PIRATE_PROMPT}", event.system_prompt)),
+                    system_prompt: Some(js_format!("{}{}", event.system_prompt, PIRATE_PROMPT)),
                     message: None,
                 }))
             })
