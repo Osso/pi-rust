@@ -25,10 +25,10 @@ pub enum GoalReviewEvidenceEvent {
 #[serde(rename_all = "camelCase")]
 pub struct Goal {
     pub objective: JsString,
-    pub branch: String,
-    pub created_at: String,
+    pub branch: JsString,
+    pub created_at: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub completed_at: Option<String>,
+    pub completed_at: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completion_reason: Option<JsString>,
     #[serde(
@@ -37,7 +37,7 @@ pub struct Goal {
     )]
     pub continuation_turns: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub paused_at: Option<String>,
+    pub paused_at: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pause_reason: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
