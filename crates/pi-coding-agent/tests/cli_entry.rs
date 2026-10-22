@@ -9,6 +9,7 @@ use pi_coding_agent::cli_entry::{CLI_PROCESS_ENV, CliMain, run_cli_entry, run_cl
 use pi_coding_agent::internal_runner::{
     DETACHED_BASH_RUNNER_MODE, DETACHED_PYRUN_RUNNER_MODE, DetachedRunnerHost, run_internal_detached_runner,
 };
+use pi_js_compat::js_json::JsString;
 
 fn temp_dir(name: &str) -> PathBuf {
     let unique = std::time::SystemTime::now()
@@ -21,9 +22,9 @@ fn temp_dir(name: &str) -> PathBuf {
 }
 
 struct ScriptedHost {
-    bash: Result<(), String>,
-    pyrun: Result<(), String>,
-    calls: Mutex<Vec<String>>,
+    bash: Result<(), JsString>,
+    pyrun: Result<(), JsString>,
+    calls: Mutex<Vec<JsString>>,
 }
 
 impl ScriptedHost {
@@ -35,20 +36,23 @@ impl ScriptedHost {
         }
     }
 
-    fn calls(&self) -> Vec<String> {
+    fn calls(&self) -> Vec<JsString> {
         self.calls.lock().unwrap().clone()
     }
 }
 
 impl DetachedRunnerHost for ScriptedHost {
-    fn run_bash<'a>(&'a self, manifest_path: &'a str) -> BoxFuture<'a, Result<(), String>> {
-        self.calls.lock().unwrap().push(format!("bash:{manifest_path}"));
+    fn run_bash<'a>(&'a self, manifest_path: &'a JsString) -> BoxFuture<'a, Result<(), JsString>> {
+        self.calls.lock().unwrap().push(JsString::from("bash:") + manifest_path);
         let result = self.bash.clone();
         Box::pin(async move { result })
     }
 
-    fn run_pyrun<'a>(&'a self, manifest_path: &'a str) -> BoxFuture<'a, Result<(), String>> {
-        self.calls.lock().unwrap().push(format!("pyrun:{manifest_path}"));
+    fn run_pyrun<'a>(&'a self, manifest_path: &'a JsString) -> BoxFuture<'a, Result<(), JsString>> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(JsString::from("pyrun:") + manifest_path);
         let result = self.pyrun.clone();
         Box::pin(async move { result })
     }
@@ -107,7 +111,7 @@ async fn runner_failure_writes_a_private_runner_error_file() {
     let manifest = dir.join("launch.json");
     fs::write(&manifest, "{}").unwrap();
     let host = ScriptedHost {
-        bash: Err("runner exploded".to_owned()),
+        bash: Err("runner exploded".into()),
         pyrun: Ok(()),
         calls: Mutex::new(Vec::new()),
     };
@@ -121,7 +125,7 @@ async fn runner_failure_writes_a_private_runner_error_file() {
     .expect("bash runner is handled");
 
     assert_eq!(outcome.exit_code, Some(1));
-    assert_eq!(outcome.runner_error.as_deref(), Some("runner exploded"));
+    assert_eq!(outcome.runner_error, Some(JsString::from("runner exploded")));
     let error_path = format!("{}.runner-error", manifest.display());
     assert_eq!(fs::read_to_string(&error_path).unwrap(), "runner exploded\n");
     #[cfg(unix)]

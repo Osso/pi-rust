@@ -23,8 +23,8 @@ fn literals_and_commands_are_configured_without_execution() {
 #[test]
 fn explicit_values_use_nonempty_truthiness_and_preserve_bytes() {
     let mut values = HashMap::new();
-    values.insert(ENV_A.to_owned(), "0".to_owned());
-    values.insert(ENV_B.to_owned(), " \t".to_owned());
+    values.insert(ENV_A.to_owned(), "0".into());
+    values.insert(ENV_B.to_owned(), " \t".into());
     assert_eq!(
         normalized_status(
             "$PI_RUST_CONFIG_STATUS_A_7D9F-$PI_RUST_CONFIG_STATUS_B_7D9F-$PI_RUST_CONFIG_STATUS_A_7D9F",
@@ -33,8 +33,8 @@ fn explicit_values_use_nonempty_truthiness_and_preserve_bytes() {
         json!({"missing": [], "configured": true})
     );
 
-    values.insert(ENV_A.to_owned(), "é世界🙂\0".to_owned());
-    values.insert(ENV_B.to_owned(), "尾\0".to_owned());
+    values.insert(ENV_A.to_owned(), "é世界🙂\0".into());
+    values.insert(ENV_B.to_owned(), "尾\0".into());
     assert_eq!(
         normalized_status(
             "$PI_RUST_CONFIG_STATUS_A_7D9F${PI_RUST_CONFIG_STATUS_B_7D9F}",

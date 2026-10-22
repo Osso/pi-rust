@@ -64,13 +64,17 @@ async fn queue_subscription_rebinds_without_duplicate_or_stale_output() {
         },
     ));
     let mut runtime = example::create_runtime(fixture.options).await.unwrap();
-    let first = example::bind_session(&runtime, None, std::sync::Arc::clone(&output)).await;
+    let first = example::bind_session(&runtime, None, std::sync::Arc::clone(&output))
+        .await
+        .unwrap();
     assert_eq!(starts.load(std::sync::atomic::Ordering::SeqCst), 1);
     first.0.steer("first", &[]).await.unwrap();
     let replacement_fixture = support::fixture().await;
     let mut replacement = example::create_runtime(replacement_fixture.options).await.unwrap();
     let old = first.0.clone();
-    let second = example::bind_session(&replacement, Some(first), std::sync::Arc::clone(&output)).await;
+    let second = example::bind_session(&replacement, Some(first), std::sync::Arc::clone(&output))
+        .await
+        .unwrap();
     let live_events = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let observed = std::sync::Arc::clone(&live_events);
     old.subscribe(std::sync::Arc::new(move |_| {

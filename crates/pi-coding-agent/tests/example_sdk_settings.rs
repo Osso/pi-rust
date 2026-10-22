@@ -4,6 +4,7 @@ mod example;
 mod oracle;
 #[path = "support/sdk_examples.rs"]
 mod support;
+use pi_js_compat::js_json::JsValue;
 use serde_json::json;
 
 #[tokio::test]
@@ -23,8 +24,8 @@ async fn prints_disk_settings_flushes_low_and_keeps_overrides_ephemeral() {
     );
     let expected = source.request(&json!({"settings":{"defaultThinkingLevel":"high","custom":{"2":2.0,"1":1.0}}}));
     assert_eq!(output.text(), expected["stdout"]);
-    assert_eq!(settings["compaction"]["enabled"], false);
-    assert_eq!(settings["retry"]["maxRetries"], 5);
+    assert_eq!(settings["compaction"]["enabled"], JsValue::Bool(false));
+    assert_eq!(settings["retry"]["maxRetries"], JsValue::Number(5.0));
     let persisted: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     assert_eq!(persisted["defaultThinkingLevel"], "low");
     assert!(persisted.get("retry").is_none());

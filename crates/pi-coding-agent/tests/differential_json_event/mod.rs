@@ -2,6 +2,7 @@
 mod oracle;
 
 use pi_coding_agent::modes::json_event::to_json_event;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
 
 fn partial() -> Value {
@@ -127,8 +128,8 @@ pub(crate) fn run() {
         "packages/coding-agent/src/modes/json-event.ts",
     );
     let fixtures = events();
-    let response = oracle.request(&json!({"id": 1, "events": fixtures}));
-    assert_eq!(response["ok"], true, "oracle failed: {response}");
+    let response = oracle.request(&JsValue::from(json!({"id": 1, "events": fixtures})));
+    assert_eq!(response["ok"], JsValue::Bool(true), "oracle failed: {response:?}");
 
     let expected = response["output"]["events"]
         .as_array()

@@ -7,6 +7,7 @@ use pi_coding_agent::bun::cli::run_bun_cli_entry;
 use pi_coding_agent::bun::register_bedrock::register_bedrock;
 use pi_coding_agent::cli_entry::CliMain;
 use pi_coding_agent::internal_runner::{DETACHED_BASH_RUNNER_MODE, DetachedRunnerHost};
+use pi_js_compat::js_json::JsString;
 
 /// `registerBedrock` installs the real module; the override slot itself is
 /// covered by `pi-ai`'s `bedrock_provider` tests. This asserts the shim is
@@ -18,17 +19,20 @@ fn register_bedrock_is_idempotent() {
 }
 
 struct RecordingRunner {
-    calls: Mutex<Vec<String>>,
+    calls: Mutex<Vec<JsString>>,
 }
 
 impl DetachedRunnerHost for RecordingRunner {
-    fn run_bash<'a>(&'a self, manifest_path: &'a str) -> BoxFuture<'a, Result<(), String>> {
-        self.calls.lock().unwrap().push(format!("bash:{manifest_path}"));
+    fn run_bash<'a>(&'a self, manifest_path: &'a JsString) -> BoxFuture<'a, Result<(), JsString>> {
+        self.calls.lock().unwrap().push(JsString::from("bash:") + manifest_path);
         Box::pin(async { Ok(()) })
     }
 
-    fn run_pyrun<'a>(&'a self, manifest_path: &'a str) -> BoxFuture<'a, Result<(), String>> {
-        self.calls.lock().unwrap().push(format!("pyrun:{manifest_path}"));
+    fn run_pyrun<'a>(&'a self, manifest_path: &'a JsString) -> BoxFuture<'a, Result<(), JsString>> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(JsString::from("pyrun:") + manifest_path);
         Box::pin(async { Ok(()) })
     }
 }
