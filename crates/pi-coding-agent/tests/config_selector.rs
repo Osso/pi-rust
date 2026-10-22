@@ -126,7 +126,10 @@ fn raw_resource_name_query_and_persisted_pattern_keep_exact_units() {
     selector.handle_input(&" ".into());
     assert_eq!(
         manager.borrow().get_global_settings().get("extensions"),
-        Some(&JsValue::from(vec![js_format!("-extensions/{}.ts", raw)]))
+        Some(&JsValue::Array(vec![JsValue::String(js_format!(
+            "-extensions/{}.ts",
+            raw
+        ))]))
     );
     selector.invalidate();
     assert!(
