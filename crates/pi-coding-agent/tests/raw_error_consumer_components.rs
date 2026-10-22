@@ -270,3 +270,30 @@ fn agent_switcher_main_thread_selection_is_native() {
     switcher.handle_input(&"\r".into());
     assert_eq!(*selected.borrow(), Some(JsString::from("main")));
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn bash_execution_keeps_raw_command_and_streamed_output() {
+    use pi_coding_agent::modes::interactive::components::bash_execution::{
+        BashExecutionComponent, BashExecutionOptions,
+    };
+    init_theme();
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let mut view = BashExecutionComponent::new(
+        raw.clone(),
+        Rc::new(|| {}),
+        false,
+        BashExecutionOptions {
+            show_elapsed: Some(false),
+        },
+    );
+    view.append_output(JsString::from("out ") + &raw);
+    view.append_output("\nnext");
+    assert_eq!(view.get_output(), JsString::from("out ") + &raw + "\nnext");
+    view.set_complete(Some(0), false, None, None);
+    for expanded in [false, true] {
+        view.set_expanded(expanded);
+        assert!(JsString::join(view.render(80), "\n").contains(JsString::from("out ") + &raw));
+        assert_eq!(view.get_command(), &raw);
+    }
+    view.dispose();
+}

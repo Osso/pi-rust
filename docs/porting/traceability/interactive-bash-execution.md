@@ -31,3 +31,7 @@ Tests: `interactive_components_c.rs::bash_execution_*`, differential `bashExecut
 ## Discrepancies
 
 None found.
+
+## Q18 native UTF-16
+
+Command/output, truncation preview, loader/status/path labels and cached visual lines use `JsString`. No encoding at component construction. `raw_error_consumer_components::bash_execution_keeps_raw_command_and_streamed_output` written **unexecuted**, coding-agent blocked.

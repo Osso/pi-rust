@@ -18,7 +18,7 @@ use crate::core::tools::truncate::{
 };
 use crate::modes::interactive::theme::{ThemeColor, with_theme};
 use crate::utils::ansi::strip_ansi_js;
-use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::{js_format, js_json::JsString};
 
 const BASH_TIMER_INTERVAL_MS: u64 = 1000;
 const PREVIEW_LINES: usize = 20;
@@ -45,7 +45,7 @@ pub struct BashExecutionComponent {
     exit_code: Option<i32>,
     loader: ComponentRef,
     truncation_result: Option<TruncationResult>,
-    full_output_path: Option<String>,
+    full_output_path: Option<JsString>,
     expanded: bool,
     content_container: ComponentRef,
     started_at: Instant,
@@ -71,7 +71,7 @@ impl BashExecutionComponent {
             ThemeColor::BashMode
         };
         let border_color: pi_tui::components::dynamic_border::BorderFormatter =
-            Rc::new(move |text: &str| with_theme(|theme| theme.fg(color_key, text)));
+            Rc::new(move |text: &JsString| with_theme(|theme| theme.fg(color_key, text)));
 
         let mut container = Container::new();
         container.add_child(component(Spacer::new(1)));
@@ -82,9 +82,9 @@ impl BashExecutionComponent {
 
         let loader = Loader::new(
             Rc::clone(&request_render),
-            Rc::new(move |text: &str| with_theme(|theme| theme.fg(color_key, text))),
-            Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Muted, text))),
-            format!("Running... ({} to cancel)", key_text("tui.select.cancel")),
+            Rc::new(move |text: &JsString| with_theme(|theme| theme.fg(color_key, text))),
+            Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Muted, text))),
+            js_format!("Running... ({} to cancel)", key_text("tui.select.cancel")),
             Some(LoaderIndicatorOptions {
                 frames: Some(Vec::new()),
                 interval_ms: None,
@@ -144,7 +144,7 @@ impl BashExecutionComponent {
         exit_code: Option<i32>,
         cancelled: bool,
         truncation_result: Option<TruncationResult>,
-        full_output_path: Option<String>,
+        full_output_path: Option<JsString>,
     ) {
         self.exit_code = exit_code;
         self.status = if cancelled {
@@ -197,13 +197,13 @@ impl BashExecutionComponent {
         self.next_timer_tick = None;
     }
 
-    fn format_timer(&self) -> Option<String> {
+    fn format_timer(&self) -> Option<JsString> {
         let end_time = self.finished_at.unwrap_or_else(Instant::now);
         let elapsed_ms = end_time.duration_since(self.started_at).as_secs_f64() * 1000.0;
         if elapsed_ms < MIN_VISIBLE_ELAPSED_MS {
             return None;
         }
-        Some(format_elapsed_duration(elapsed_ms))
+        Some(format_elapsed_duration(elapsed_ms).into())
     }
 
     pub fn dispose(&mut self) {
@@ -220,7 +220,7 @@ impl BashExecutionComponent {
                 max_bytes: DEFAULT_MAX_BYTES,
             },
         );
-        let available_lines: Vec<String> = if context_truncation.content.is_empty() {
+        let available_lines: Vec<JsString> = if context_truncation.content.is_empty() {
             Vec::new()
         } else {
             context_truncation
@@ -235,32 +235,29 @@ impl BashExecutionComponent {
 
         let mut children: Vec<ComponentRef> = Vec::new();
         children.push(component(Text::new(
-            with_theme(|theme| {
-                theme.fg(
-                    ThemeColor::BashMode,
-                    &theme.bold(&format!("$ {}", encode_node_utf8(&self.command))),
-                )
-            }),
+            with_theme(|theme| theme.fg(ThemeColor::BashMode, &theme.bold(&js_format!("$ {}", &self.command)))),
             1,
             0,
         )));
 
         if !available_lines.is_empty() {
             if self.expanded {
-                let display_text = available_lines
-                    .iter()
-                    .map(|line| with_theme(|theme| theme.fg(ThemeColor::Muted, line)))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                children.push(component(Text::new(format!("\n{display_text}"), 1, 0)));
+                let display_text = JsString::join(
+                    available_lines
+                        .iter()
+                        .map(|line| with_theme(|theme| theme.fg(ThemeColor::Muted, line))),
+                    "\n",
+                );
+                children.push(component(Text::new(js_format!("\n{}", display_text), 1, 0)));
             } else {
-                let styled_output = preview_logical_lines
-                    .iter()
-                    .map(|line| with_theme(|theme| theme.fg(ThemeColor::Muted, line)))
-                    .collect::<Vec<_>>()
-                    .join("\n");
+                let styled_output = JsString::join(
+                    preview_logical_lines
+                        .iter()
+                        .map(|line| with_theme(|theme| theme.fg(ThemeColor::Muted, line))),
+                    "\n",
+                );
                 children.push(component(VisualPreview::new(
-                    format!("\n{styled_output}"),
+                    js_format!("\n{}", styled_output),
                     PREVIEW_LINES,
                     1,
                 )));
@@ -269,43 +266,46 @@ impl BashExecutionComponent {
 
         if self.status == BashStatus::Running {
             let elapsed = self.show_elapsed.then(|| self.format_timer()).flatten();
-            let running_prefix =
-                elapsed.map_or_else(|| "Running...".to_owned(), |elapsed| format!("Running {elapsed}..."));
+            let running_prefix = elapsed.map_or_else(
+                || JsString::from("Running..."),
+                |elapsed| js_format!("Running {}...", elapsed),
+            );
             if let Some(loader) = self
                 .loader
                 .borrow_mut()
                 .as_any_mut()
                 .and_then(|any| any.downcast_mut::<Loader>())
             {
-                loader.set_message(format!(
-                    "{running_prefix} ({} to cancel)",
+                loader.set_message(js_format!(
+                    "{} ({} to cancel)",
+                    running_prefix,
                     key_text("tui.select.cancel")
                 ));
             }
             children.push(Rc::clone(&self.loader));
         } else {
             let elapsed = self.show_elapsed.then(|| self.format_timer()).flatten();
-            let mut status_parts: Vec<String> = elapsed
+            let mut status_parts: Vec<JsString> = elapsed
                 .map(|elapsed| {
                     vec![with_theme(|theme| {
-                        theme.fg(ThemeColor::Muted, &format!("(elapsed {elapsed})"))
+                        theme.fg(ThemeColor::Muted, &js_format!("(elapsed {})", elapsed))
                     })]
                 })
                 .unwrap_or_default();
 
             if hidden_line_count > 0 {
                 if self.expanded {
-                    status_parts.push(format!(
+                    status_parts.push(js_format!(
                         "{}{}{}",
                         with_theme(|theme| theme.fg(ThemeColor::Muted, "(")),
                         key_hint("app.tools.expand", "to collapse"),
                         with_theme(|theme| theme.fg(ThemeColor::Muted, ")"))
                     ));
                 } else {
-                    status_parts.push(format!(
+                    status_parts.push(js_format!(
                         "{}{}{}",
                         with_theme(
-                            |theme| theme.fg(ThemeColor::Muted, &format!("... {hidden_line_count} more lines ("))
+                            |theme| theme.fg(ThemeColor::Muted, &js_format!("... {} more lines (", hidden_line_count))
                         ),
                         key_hint("app.tools.expand", "to expand"),
                         with_theme(|theme| theme.fg(ThemeColor::Muted, ")"))
@@ -321,7 +321,7 @@ impl BashExecutionComponent {
                     status_parts.push(with_theme(|theme| {
                         theme.fg(
                             ThemeColor::Error,
-                            &format!("(exit {})", self.exit_code.unwrap_or_default()),
+                            &js_format!("(exit {})", self.exit_code.unwrap_or_default()),
                         )
                     }));
                 }
@@ -334,13 +334,17 @@ impl BashExecutionComponent {
                 status_parts.push(with_theme(|theme| {
                     theme.fg(
                         ThemeColor::Warning,
-                        &format!("Output truncated. Full output: {full_output_path}"),
+                        &js_format!("Output truncated. Full output: {}", full_output_path),
                     )
                 }));
             }
 
             if !status_parts.is_empty() {
-                children.push(component(Text::new(format!("\n{}", status_parts.join("\n")), 1, 0)));
+                children.push(component(Text::new(
+                    js_format!("\n{}", JsString::join(status_parts, "\n")),
+                    1,
+                    0,
+                )));
             }
         }
 
@@ -369,14 +373,14 @@ impl BashExecutionComponent {
 
 /// Width-aware visual preview matching the source's cached render closure.
 struct VisualPreview {
-    input: String,
+    input: JsString,
     max_lines: usize,
     padding_x: usize,
-    cache: RefCell<Option<(usize, Vec<String>)>>,
+    cache: RefCell<Option<(usize, Vec<JsString>)>>,
 }
 
 impl VisualPreview {
-    fn new(input: String, max_lines: usize, padding_x: usize) -> Self {
+    fn new(input: JsString, max_lines: usize, padding_x: usize) -> Self {
         Self {
             input,
             max_lines,
@@ -387,7 +391,7 @@ impl VisualPreview {
 }
 
 impl Component for VisualPreview {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut cache = self.cache.borrow_mut();
         if let Some((cached_width, lines)) = cache.as_ref()
             && *cached_width == width
@@ -413,7 +417,7 @@ impl Component for BashExecutionComponent {
         Some(self)
     }
 
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.container.render(width)
     }
 
