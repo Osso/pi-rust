@@ -4,6 +4,8 @@ Pinned source: `packages/coding-agent/src/cli/list-models.ts` at `532f7d12cd1923
 
 Rust: `crates/pi-coding-agent/src/cli/list_models.rs`.
 
+Q18 native provider errors: ListModelsRuntime get_error and get_available failures, list_models errors, and captured warning retain JsString. ModelRuntime ResolveError uses its native human field, not Display. `lossless_provider_errors::list_models_preserves_native_availability_error` exercises the error boundary; coding execution remains blocked by concurrent native UI/session dependencies, so no new-pin pass claim.
+
 Differential: `tests/differential_list_models.rs` drives the real TS module with a duck-typed runtime and compares warning + stdout byte-for-byte across 9 fixtures (`28300..=28308`). The only substitution replaces the install directory inside the no-models guidance text.
 
 | TypeScript source | Observable behavior | Rust proof |

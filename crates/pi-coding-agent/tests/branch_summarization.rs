@@ -231,7 +231,7 @@ fn response(text: &str) -> AssistantMessage {
 fn failure(stop_reason: StopReason, error_message: &str) -> AssistantMessage {
     let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 0);
     message.stop_reason = stop_reason;
-    message.error_message = Some(error_message.to_owned());
+    message.error_message = Some(error_message.into());
     message
 }
 

@@ -66,6 +66,24 @@ async fn coding_compaction_keeps_failed_stream_message_with_source_prefix() {
     );
 }
 
+#[tokio::test]
+async fn list_models_preserves_native_availability_error() {
+    use pi_coding_agent::cli::list_models::{ListModelsRuntime, list_models};
+    struct FailedRuntime;
+    impl ListModelsRuntime for FailedRuntime {
+        fn get_error(&self) -> Option<JsString> {
+            None
+        }
+        fn get_available(
+            &self,
+            _: pi_ai::auth::types::AuthOperationOptions,
+        ) -> pi_ai::request::BoxFuture<'_, Result<Vec<pi_ai::types::Model>, JsString>> {
+            Box::pin(async { Err(raw_error()) })
+        }
+    }
+    assert_eq!(list_models(&FailedRuntime, None, None).await.unwrap_err(), raw_error());
+}
+
 #[test]
 fn extension_custom_message_payload_keeps_raw_kind_through_wire() {
     use pi_coding_agent::core::extensions::types::{CustomMessageContent, CustomMessagePayload};
