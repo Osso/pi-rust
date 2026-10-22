@@ -37,7 +37,6 @@ use pi_js_compat::number::js_number_value;
 
 const OPENAI_TOOL_CALL_PROVIDERS: [&str; 3] = ["openai", "openai-codex", "opencode"];
 // OpenAI Responses rejects max_output_tokens below 16.
-const OPENAI_RESPONSES_MIN_OUTPUT_TOKENS: f64 = 16.0;
 
 /// `OpenAIResponsesOptions`.
 #[derive(Debug, Clone, Default)]
@@ -244,12 +243,9 @@ pub fn build_params(
 
     if let Some(max_tokens) = stream_options
         .max_tokens
-        .filter(|max_tokens| *max_tokens != 0.0 && max_tokens.is_finite())
+        .filter(|max_tokens| *max_tokens != 0.0 && !max_tokens.is_nan())
     {
-        params.insert(
-            "max_output_tokens".into(),
-            js_number_value(max_tokens.max(OPENAI_RESPONSES_MIN_OUTPUT_TOKENS)).into(),
-        );
+        params.insert("max_output_tokens".into(), js_number_value(max_tokens).into());
     }
     if let Some(temperature) = stream_options.temperature {
         params.insert("temperature".into(), js_number_value(temperature).into());
@@ -538,7 +534,7 @@ fn run_and_emit(
     let context = context.clone();
     tokio::spawn(async move {
         let options = OpenAIResponsesOptions::from_stream_options(&stream_options);
-        let mut output = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis());
+        let mut output = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis() as f64);
         let result = run_stream(&model, &context, &stream_options, &options, &mut output, &sender).await;
         if let Err(failure) = result {
             output.stop_reason = if stream_options

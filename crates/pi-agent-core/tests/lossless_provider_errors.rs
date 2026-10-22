@@ -207,7 +207,7 @@ async fn tool_hook_failures_keep_native_units_in_result_messages() {
         let stream_fn: StreamFn = Arc::new(move |model, _, _| {
             let first = turn.fetch_add(1, Ordering::SeqCst) == 0;
             Box::pin(async move {
-                let mut message = AssistantMessage::empty(model.api, model.provider, model.id, 0);
+                let mut message = AssistantMessage::empty(model.api, model.provider, model.id, 0.0);
                 let reason = if first {
                     message.content.push(AssistantContent::ToolCall(ToolCall::new(
                         "call",
@@ -352,7 +352,7 @@ fn provider_native_summary_sink_keeps_original_payload_and_valid_raw_value() {
 
 #[test]
 fn persisted_provider_failure_keeps_native_units() {
-    let mut message = AssistantMessage::empty("openai-responses", "openai", "probe", 0);
+    let mut message = AssistantMessage::empty("openai-responses", "openai", "probe", 0.0);
     message.stop_reason = StopReason::Error;
     message.error_message = Some(raw_error());
     let wire = serde_json::to_string(&AgentMessage::Assistant(Box::new(message))).unwrap();

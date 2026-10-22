@@ -50,7 +50,7 @@ fn assistant(content: Vec<AssistantContent>, provider: &str, api: &str, id: &str
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
-        timestamp: 1,
+        timestamp: 1.0,
     }
 }
 
@@ -60,7 +60,7 @@ fn user_text(text: &str) -> Message {
         content: UserContent::Text(text.into()),
         input_source: None,
         provider_native: None,
-        timestamp: 1,
+        timestamp: 1.0,
     })
 }
 
@@ -113,7 +113,7 @@ fn tool_result(id: &str, name: &str, content: pi_ai::types::ToolResultContent) -
         usage: None,
         added_tool_names: None,
         is_error: false,
-        timestamp: 1,
+        timestamp: 1.0,
     })
 }
 
@@ -134,7 +134,7 @@ fn function_responses(contents: &[Value]) -> Vec<Value> {
 }
 
 fn contents(model: &Model, context: &Context) -> Vec<Value> {
-    convert_messages(model, context, 1_700_000_000_000)
+    convert_messages(model, context, 1_700_000_000_000.0)
         .into_iter()
         .map(|content| serde_json::to_value(content).expect("content serializes"))
         .collect()
@@ -511,7 +511,7 @@ fn user_image_blocks_become_inline_data() {
         ]),
         input_source: None,
         provider_native: None,
-        timestamp: 1,
+        timestamp: 1.0,
     });
     let converted = contents(&model, &context(vec![message]));
     assert_eq!(converted.len(), 1);
@@ -529,7 +529,7 @@ fn empty_user_block_lists_are_skipped() {
         content: UserContent::Blocks(vec![]),
         input_source: None,
         provider_native: None,
-        timestamp: 1,
+        timestamp: 1.0,
     });
     assert!(contents(&model, &context(vec![message])).is_empty());
 }
@@ -576,7 +576,7 @@ fn tool_result_errors_use_the_error_response_key() {
         usage: None,
         added_tool_names: None,
         is_error: true,
-        timestamp: 1,
+        timestamp: 1.0,
     };
     let converted = contents(&model, &context(vec![Message::ToolResult(result)]));
     assert_eq!(

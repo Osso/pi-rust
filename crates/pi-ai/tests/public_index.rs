@@ -72,14 +72,14 @@ fn crate_root_reexports_are_usable() {
     );
     assert!(pi_ai::get_overflow_patterns().len() > 1);
     assert!(!pi_ai::is_context_overflow(
-        &pi_ai::AssistantMessage::empty("api", "provider", "model", 0),
+        &pi_ai::AssistantMessage::empty("api", "provider", "model", 0.0),
         Some(1.0)
     ));
     assert!(!pi_ai::is_codex_cybersecurity_restriction(
-        &pi_ai::AssistantMessage::empty("api", "provider", "model", 0)
+        &pi_ai::AssistantMessage::empty("api", "provider", "model", 0.0)
     ));
     assert!(!pi_ai::is_retryable_assistant_error(&pi_ai::AssistantMessage::empty(
-        "api", "provider", "model", 0
+        "api", "provider", "model", 0.0
     )));
     assert_eq!(
         pi_ai::format_thrown_value(&pi_ai::ThrownValue::Text(("x".to_owned()).into())),

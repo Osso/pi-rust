@@ -8,7 +8,7 @@ use pi_ai::utils::retry::{is_codex_cybersecurity_restriction, is_retryable_assis
 use serde_json::{Value, json};
 
 fn response(stop_reason: &str, error_message: Option<&str>, _text: &str) -> Value {
-    let mut value = serde_json::to_value(AssistantMessage::empty("openai-completions", "test", "model", 1)).unwrap();
+    let mut value = serde_json::to_value(AssistantMessage::empty("openai-completions", "test", "model", 1.0)).unwrap();
     value["stopReason"] = json!(stop_reason);
     if let Some(error) = error_message {
         value["errorMessage"] = json!(error);

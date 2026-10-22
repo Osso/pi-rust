@@ -46,7 +46,7 @@ fn context() -> Context {
 }
 
 fn done_message(model: &Model, text: &str) -> AssistantMessage {
-    let mut message = AssistantMessage::empty(&model.api, &model.provider, &model.id, 1);
+    let mut message = AssistantMessage::empty(&model.api, &model.provider, &model.id, 1.0);
     message.content = vec![pi_ai::types::AssistantContent::Text(pi_ai::types::TextContent::new(
         text,
     ))];

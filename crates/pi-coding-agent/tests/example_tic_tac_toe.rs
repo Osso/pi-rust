@@ -212,7 +212,7 @@ async fn sibling_moves_finish_before_play_through_real_agent_scheduler() {
         runner.get_tool_definition("tic_tac_toe").unwrap(),
         &runner,
     );
-    let mut turn = AssistantMessage::empty("openai-responses", "fixture", "fixture", 0);
+    let mut turn = AssistantMessage::empty("openai-responses", "fixture", "fixture", 0.0);
     turn.stop_reason = StopReason::ToolUse;
     turn.content = ["move_down", "move_right", "play"]
         .into_iter()
@@ -237,7 +237,7 @@ async fn sibling_moves_finish_before_play_through_real_agent_scheduler() {
                 Some(turn) => (DoneReason::ToolUse, turn),
                 None => (
                     DoneReason::Stop,
-                    AssistantMessage::empty("openai-responses", "fixture", "fixture", 0),
+                    AssistantMessage::empty("openai-responses", "fixture", "fixture", 0.0),
                 ),
             };
             sender.push(AssistantMessageEvent::Done { reason, message });

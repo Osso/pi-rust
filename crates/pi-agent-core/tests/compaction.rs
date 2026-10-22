@@ -56,12 +56,12 @@ fn user_message(text: &str) -> AgentMessage {
         content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(text))]),
         input_source: None,
         provider_native: None,
-        timestamp: 1,
+        timestamp: 1.0,
     })
 }
 
 fn assistant_message_with(content: Vec<AssistantContent>, usage: Usage) -> AgentMessage {
-    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 1);
+    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 1.0);
     message.content = content;
     message.usage = usage;
     message.stop_reason = StopReason::Stop;
@@ -99,7 +99,7 @@ fn tool_result_message(tool_call_id: &str, tool_name: &str, text: &str) -> Agent
         usage: None,
         added_tool_names: None,
         is_error: false,
-        timestamp: 1,
+        timestamp: 1.0,
     })
 }
 
@@ -557,7 +557,7 @@ fn estimates_tokens_and_context_usage_across_supported_message_roles() {
         usage: None,
         added_tool_names: None,
         is_error: false,
-        timestamp: 1,
+        timestamp: 1.0,
     });
     let bash_execution = AgentMessage::Custom(
         (Map::from_iter([

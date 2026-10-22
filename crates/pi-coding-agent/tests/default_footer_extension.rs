@@ -95,7 +95,7 @@ impl ExtensionUiTuiBackend for StubTui {
 }
 
 fn assistant_message(input: f64, output: f64, cost: f64) -> pi_agent_core::AgentMessage {
-    let mut message = pi_ai::types::AssistantMessage::empty("openai-responses", "openai", "test-model", 1);
+    let mut message = pi_ai::types::AssistantMessage::empty("openai-responses", "openai", "test-model", 1.0);
     message.usage.input = input;
     message.usage.output = output;
     message.usage.cost.total = cost;

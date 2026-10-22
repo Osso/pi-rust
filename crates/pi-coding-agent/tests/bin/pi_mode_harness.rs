@@ -335,7 +335,7 @@ async fn main() {
                     )]),
                     input_source: None,
                     provider_native: None,
-                    timestamp: 1,
+                    timestamp: 1.0,
                 },
             )]);
     }

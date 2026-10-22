@@ -663,7 +663,7 @@ fn assistant_fixture(content: Vec<AssistantContent>, stop_reason: StopReason) ->
         model: "gpt-4o-mini".to_owned(),
         usage: Usage::default(),
         stop_reason,
-        timestamp: 1_700_000_000_000,
+        timestamp: 1_700_000_000_000.0,
         response_model: None,
         response_id: None,
         image_generation_result: None,
@@ -1330,7 +1330,7 @@ fn tree_entries_user(
             content: UserContent::Text(JsString::from(content.to_owned())),
             input_source: None,
             provider_native: None,
-            timestamp: 0,
+            timestamp: 0.0,
         })),
     }))
 }
@@ -1343,7 +1343,7 @@ fn tree_entries_assistant(
     use pi_agent_core::agent::AgentMessage;
     use pi_ai::types::{AssistantContent, AssistantMessage, StopReason, TextContent};
     use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry, SessionMessageEntry};
-    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4", 0);
+    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4", 0.0);
     message.content = vec![AssistantContent::Text(TextContent::new(text))];
     message.stop_reason = StopReason::Stop;
     SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
@@ -2125,7 +2125,7 @@ fn footer_cases() -> Vec<(Value, Value)> {
                 manager
                     .set_session_name(Some(&JsString::from("Test Session")))
                     .expect("session name");
-                let mut assistant = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux-1", 0);
+                let mut assistant = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux-1", 0.0);
                 assistant.usage.input = input;
                 assistant.usage.output = output;
                 assistant.usage.cache_read = cache_read;
@@ -2150,7 +2150,7 @@ fn footer_cases() -> Vec<(Value, Value)> {
                             }),
                             added_tool_names: None,
                             is_error: false,
-                            timestamp: 0,
+                            timestamp: 0.0,
                         },
                     ))
                     .expect("tool result");
@@ -2169,7 +2169,7 @@ fn footer_cases() -> Vec<(Value, Value)> {
                 manager
                     .set_session_name(Some(&JsString::from("Override Session")))
                     .expect("override name");
-                let mut assistant = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux-1", 0);
+                let mut assistant = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux-1", 0.0);
                 assistant.usage.input = 7000.0;
                 assistant.usage.output = 8000.0;
                 assistant.usage.cache_read = 9000.0;

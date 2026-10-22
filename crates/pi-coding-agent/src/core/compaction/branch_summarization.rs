@@ -302,7 +302,7 @@ pub async fn generate_branch_summary<C: RetryCallbacks + ?Sized>(
         ))]),
         input_source: None,
         provider_native: None,
-        timestamp: super::now_millis(),
+        timestamp: pi_js_compat::date::js_now_millis(),
     });
 
     let context = pi_ai::types::Context {

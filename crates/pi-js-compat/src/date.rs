@@ -45,6 +45,15 @@ pub fn to_locale_string(millis: i64) -> Option<String> {
     ))
 }
 
+/// JavaScript `TimeClip`: integral epoch milliseconds, or `None` for Invalid Date.
+/// Call only at an actual `new Date(number)` boundary, not on message timestamps.
+pub fn time_clip_millis(millis: f64) -> Option<i64> {
+    if !millis.is_finite() || millis.abs() > MAX_DATE_MILLIS as f64 {
+        return None;
+    }
+    Some(millis.trunc() as i64)
+}
+
 /// [`date_parse`] as integral epoch milliseconds; `None` where JavaScript returns `NaN`.
 pub fn date_parse_millis(input: &str) -> Option<i64> {
     let millis = date_parse(input);

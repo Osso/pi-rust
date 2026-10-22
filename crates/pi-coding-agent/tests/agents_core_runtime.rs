@@ -350,7 +350,7 @@ impl ChildAgentSession for FakeSession {
             "timestamp": 0
         }))
         .expect("user message");
-        let mut assistant = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux", 1);
+        let mut assistant = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux", 1.0);
         assistant
             .content
             .push(pi_ai::types::AssistantContent::Text(pi_ai::types::TextContent::new(
@@ -810,7 +810,7 @@ async fn request_handler_returns_last_session_message_summary() {
     options.runtime_handles = Some(create_multi_agent_runtime_handles());
     let handler = create_multi_agent_pi_request_handler(&options, None);
     let mut session_manager = SessionManager::in_memory(Some(&JsString::from(&test.cwd)), None).expect("session");
-    let mut assistant = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux", 2);
+    let mut assistant = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux", 2.0);
     assistant
         .content
         .push(pi_ai::types::AssistantContent::Text(pi_ai::types::TextContent::new(

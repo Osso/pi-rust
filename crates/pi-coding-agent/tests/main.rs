@@ -47,7 +47,7 @@ fn user_message(text: &str, timestamp: i64) -> AgentMessage {
         content: UserContent::Text(JsString::from(text.to_owned())),
         input_source: None,
         provider_native: None,
-        timestamp,
+        timestamp: timestamp as f64,
     })
 }
 
@@ -71,7 +71,7 @@ fn create_session(cwd: &str, session_dir: &str, text: &str) -> SessionManager {
             error_message: None,
             raw_stop_reason: None,
             end_turn: None,
-            timestamp: 2,
+            timestamp: 2.0,
         })))
         .expect("append assistant message");
     session

@@ -50,7 +50,7 @@ fn context() -> Context {
             content: pi_ai::types::UserContent::Text(("hello".to_owned()).into()),
             input_source: None,
             provider_native: None,
-            timestamp: 1,
+            timestamp: 1.0,
         })],
         tools: None,
     }

@@ -65,7 +65,7 @@ async fn faux_stream_matches_frozen_utf16_chunks_and_zero_timestamp() {
         faux_assistant_message(
             content,
             FauxAssistantMessageOptions {
-                timestamp: Some(0),
+                timestamp: Some(0.0),
                 ..Default::default()
             },
         )
@@ -107,7 +107,7 @@ fn context() -> Context {
             content: UserContent::Text(("hi".to_owned()).into()),
             input_source: None,
             provider_native: None,
-            timestamp: 1,
+            timestamp: 1.0,
         })],
         tools: None,
     }
@@ -467,7 +467,7 @@ async fn faux_provider_estimates_prompt_and_output_tokens_from_serialized_contex
                 ]),
                 input_source: None,
                 provider_native: None,
-                timestamp: 1,
+                timestamp: 1.0,
             }),
             Message::Assistant(Box::new(prior)),
             Message::ToolResult(ToolResultMessage {
@@ -479,7 +479,7 @@ async fn faux_provider_estimates_prompt_and_output_tokens_from_serialized_contex
                 usage: None,
                 added_tool_names: None,
                 is_error: false,
-                timestamp: 2,
+                timestamp: 2.0,
             }),
         ],
         tools: Some(vec![tool.clone()]),
@@ -557,7 +557,7 @@ async fn faux_provider_caches_prompts_per_session_and_honors_cache_retention_non
         content: UserContent::Text(("follow up".to_owned()).into()),
         input_source: None,
         provider_native: None,
-        timestamp: 2,
+        timestamp: 2.0,
     }));
     let second = models
         .complete_simple(
@@ -584,7 +584,7 @@ async fn faux_provider_caches_prompts_per_session_and_honors_cache_retention_non
         content: UserContent::Text(("follow up".to_owned()).into()),
         input_source: None,
         provider_native: None,
-        timestamp: 3,
+        timestamp: 3.0,
     }));
     let third = models
         .complete_simple(

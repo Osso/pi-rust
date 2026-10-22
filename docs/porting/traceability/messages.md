@@ -87,7 +87,7 @@ strings/`false`/`0`, and content blocks that do not deserialize as text/image ar
 
 `session/context.ts` needs `createBranchSummaryMessage` and `createCompactionSummaryMessage`. The Rust port adds both to
 `harness/messages.rs` as `AgentMessage::Custom` builders using the same field order and JS-number formatting.
-String timestamps (`new Date(value).getTime()`) are excluded by the typed boundary; callers pass `i64` milliseconds.
+Creators accept native string timestamps and use Date.parse, preserving NaN from invalid dates. Provider-message conversions retain f64; [integration proof](message-timestamps.md).
 
 ## Conversion helpers (`convertToLlm` / `bashExecutionToText`)
 
@@ -104,7 +104,7 @@ Added for `harness/compaction`; tested by `messages_convert.rs` and the
 
 - Custom messages are raw JSON objects. `excludeFromContext` uses JavaScript truthiness; unknown block types and malformed payloads are dropped by the typed `UserContent` boundary.
 - Bash execution `exitCode` uses `Option<f64>`; a missing value suppresses the exit marker, matching `null`/`undefined` in the source.
-- Custom/branch/compaction timestamps are read as JS numbers and narrowed to `i64` milliseconds; string timestamps stay excluded.
+- Custom/branch/compaction timestamps are read as JS numbers and retained as f64, without finite/integer filtering or narrowing.
 - Numeric `bashExecutionToText` exit codes use `f64` display, which matches JS integer rendering for real exit codes.
 
 ### Conversion proof status

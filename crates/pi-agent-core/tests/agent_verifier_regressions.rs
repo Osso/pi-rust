@@ -60,7 +60,7 @@ mod steering {
                             content: UserContent::Text("new user request".into()),
                             input_source: None,
                             provider_native: None,
-                            timestamp: 0,
+                            timestamp: 0.0,
                         }
                         .into(),
                     ]
@@ -83,7 +83,7 @@ mod steering {
                 .push(serde_json::to_value(context.messages).unwrap());
             Box::pin(async move {
                 let (sender, stream) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
-                let mut msg = AssistantMessage::empty(model.api, model.provider, model.id, 0);
+                let mut msg = AssistantMessage::empty(model.api, model.provider, model.id, 0.0);
                 msg.stop_reason = StopReason::Stop;
                 msg.content = vec![AssistantContent::Text(TextContent::new("text without end_turn"))];
                 sender.push(AssistantMessageEvent::Done {
@@ -178,7 +178,7 @@ mod lifetime {
         let stream: StreamFn = Arc::new(|m, _, _| {
             Box::pin(async move {
                 let (sender, stream) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
-                let mut msg = AssistantMessage::empty(m.api, m.provider, m.id, 0);
+                let mut msg = AssistantMessage::empty(m.api, m.provider, m.id, 0.0);
                 msg.stop_reason = StopReason::ToolUse;
                 msg.content = vec![AssistantContent::ToolCall(ToolCall::new(
                     "call",

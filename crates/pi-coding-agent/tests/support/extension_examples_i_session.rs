@@ -197,7 +197,7 @@ fn assistant(content: Value) -> Value {
     let mut message = serde_json::to_value(faux_assistant_message(
         "",
         FauxAssistantMessageOptions {
-            timestamp: Some(0),
+            timestamp: Some(0.0),
             ..Default::default()
         },
     ))
@@ -281,7 +281,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
   let mut context=serde_json::to_value(context).unwrap();context["messages"][0]["timestamp"]=json!("<clock>");
   log.lock().unwrap().push(json!({"model":[model.provider,model.id],"context":context,"options":{"cacheRetention":options.stream.cache_retention,"sessionId":session_id,"reasoningEffort":options.stream.extra.get("reasoningEffort")}}));
   started.notify_one();
-  let response=response.clone();let error=error.clone();Box::pin(async move{if let Some(error)=error{return Err(pi_ai::request::CallbackError::new(error));}let mut message=faux_assistant_message("",FauxAssistantMessageOptions{timestamp:Some(0),..Default::default()});message.content=serde_json::from_value(response).unwrap();if aborted {message.stop_reason=pi_ai::types::StopReason::Aborted;}Ok(message)})
+  let response=response.clone();let error=error.clone();Box::pin(async move{if let Some(error)=error{return Err(pi_ai::request::CallbackError::new(error));}let mut message=faux_assistant_message("",FauxAssistantMessageOptions{timestamp:Some(0.0),..Default::default()});message.content=serde_json::from_value(response).unwrap();if aborted {message.stop_reason=pi_ai::types::StopReason::Aborted;}Ok(message)})
  }))]);
     let manager = Arc::new(Mutex::new(
         SessionManager::in_memory(Some(&JsString::from("/fixture")), None).unwrap(),

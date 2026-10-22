@@ -155,7 +155,7 @@ fn run_stream(model: Model, context: Context, options: GoogleOptions) -> Assista
             "google-generative-ai",
             model.provider.clone(),
             model.id.clone(),
-            now_millis(),
+            now_millis() as f64,
         );
         match run(&sender, &mut output, &model, &context, &options, signal.as_ref()).await {
             Ok(()) => {}
@@ -250,7 +250,7 @@ fn build_params(model: &Model, context: &Context, options: &GoogleOptions) -> Re
         tool_choice: options.tool_choice.as_deref(),
         thinking_config: thinking_config(model, options.thinking.as_ref()),
         request_aborted,
-        now: now_millis(),
+        now: now_millis() as f64,
     })
 }
 

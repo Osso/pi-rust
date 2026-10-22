@@ -11,18 +11,35 @@ use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
 
+#[test]
+fn custom_conversion_keeps_fractional_nonfinite_and_signed_zero_times() {
+    for timestamp in [12.75, -0.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let message = AgentMessage::Custom(
+            [
+                ("role".into(), JsValue::String("custom".into())),
+                ("content".into(), JsValue::String("hi".into())),
+                ("timestamp".into(), JsValue::Number(timestamp)),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let converted = convert_to_llm(&[message]).unwrap();
+        assert_eq!(message_timestamp(&converted[0]).to_bits(), timestamp.to_bits());
+    }
+}
+
 fn user(text: &str) -> AgentMessage {
     AgentMessage::User(UserMessage {
         role: UserRole::Tag,
         content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(text))]),
         input_source: None,
         provider_native: None,
-        timestamp: 1,
+        timestamp: 1.0,
     })
 }
 
 fn assistant(text: &str) -> AgentMessage {
-    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 1);
+    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 1.0);
     message.content = vec![AssistantContent::Text(TextContent::new(text))];
     message.stop_reason = StopReason::Stop;
     AgentMessage::Assistant(Box::new(message))
@@ -38,7 +55,7 @@ fn tool_result(text: &str) -> AgentMessage {
         usage: None,
         added_tool_names: None,
         is_error: false,
-        timestamp: 1,
+        timestamp: 1.0,
     })
 }
 
@@ -54,7 +71,7 @@ fn custom(object: Value) -> AgentMessage {
     )
 }
 
-fn message_timestamp(message: &Message) -> i64 {
+fn message_timestamp(message: &Message) -> f64 {
     match message {
         Message::User(user) => user.timestamp,
         Message::Assistant(assistant) => assistant.timestamp,
@@ -230,7 +247,7 @@ fn converts_custom_string_and_block_content_to_user_messages() {
             content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new("custom content"))]),
             input_source: None,
             provider_native: None,
-            timestamp: 7,
+            timestamp: 7.0,
         })
     );
     assert_eq!(
@@ -243,7 +260,7 @@ fn converts_custom_string_and_block_content_to_user_messages() {
             ]),
             input_source: None,
             provider_native: None,
-            timestamp: 8,
+            timestamp: 8.0,
         })
     );
 }
@@ -272,7 +289,7 @@ fn frames_branch_and_compaction_summaries_as_user_messages() {
         user_text(&converted[1]),
         pi_js_compat::js_format!("{}compact text{}", COMPACTION_SUMMARY_PREFIX, COMPACTION_SUMMARY_SUFFIX)
     );
-    assert_eq!(message_timestamp(&converted[1]), 4);
+    assert_eq!(message_timestamp(&converted[1]), 4.0);
 }
 
 #[test]

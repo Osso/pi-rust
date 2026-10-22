@@ -2152,7 +2152,7 @@ async fn context_session_manager_is_the_live_shared_handle() {
             content: pi_ai::types::UserContent::Text(JsString::from("appended by session")),
             input_source: None,
             provider_native: None,
-            timestamp: 1_700_000_000_000,
+            timestamp: 1_700_000_000_000.0,
         }))
         .expect("session append");
     let entries = lock_session_manager(&extension_handle).get_entries();

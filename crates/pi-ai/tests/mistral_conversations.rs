@@ -100,7 +100,7 @@ fn user(text: &str) -> UserMessage {
         content: UserContent::Text((text.to_owned()).into()),
         input_source: None,
         provider_native: None,
-        timestamp: 1,
+        timestamp: 1.0,
     }
 }
 
@@ -192,7 +192,7 @@ async fn serializes_sdk_style_payloads_to_the_mistral_wire_format() {
         ]),
         input_source: None,
         provider_native: None,
-        timestamp: 1,
+        timestamp: 1.0,
     })];
     context.tools = Some(vec![Tool::new(
         "lookup",
@@ -378,7 +378,7 @@ async fn serializes_assistant_thinking_tool_calls_and_tool_results_for_replay() 
         ],
         stop_reason: StopReason::ToolUse,
         usage: empty_usage(),
-        ..AssistantMessage::empty("mistral-conversations", "mistral", "mistral-large-latest", 1)
+        ..AssistantMessage::empty("mistral-conversations", "mistral", "mistral-large-latest", 1.0)
     };
     let tool_result = ToolResultMessage {
         role: ToolResultRole::Tag,
@@ -392,7 +392,7 @@ async fn serializes_assistant_thinking_tool_calls_and_tool_results_for_replay() 
         usage: None,
         added_tool_names: None,
         is_error: false,
-        timestamp: 2,
+        timestamp: 2.0,
     };
     let context = Context {
         system_prompt: None,
@@ -696,7 +696,7 @@ async fn normalizes_invalid_tool_call_ids_for_replay() {
         ],
         stop_reason: StopReason::ToolUse,
         usage: empty_usage(),
-        ..AssistantMessage::empty("mistral-conversations", "mistral", "mistral-large-latest", 1)
+        ..AssistantMessage::empty("mistral-conversations", "mistral", "mistral-large-latest", 1.0)
     };
     let tool_result = ToolResultMessage {
         role: ToolResultRole::Tag,
@@ -707,7 +707,7 @@ async fn normalizes_invalid_tool_call_ids_for_replay() {
         usage: None,
         added_tool_names: None,
         is_error: false,
-        timestamp: 2,
+        timestamp: 2.0,
     };
     let context = Context {
         system_prompt: None,

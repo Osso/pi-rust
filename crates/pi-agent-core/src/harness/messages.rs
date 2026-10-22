@@ -211,7 +211,7 @@ fn custom_content_message(object: &JsObject) -> Result<Message, AgentError> {
         content: custom_content(object.get("content")),
         input_source: None,
         provider_native: None,
-        timestamp: checked_provider_timestamp(timestamp_field(object)?)?,
+        timestamp: timestamp_field(object)?,
     }))
 }
 
@@ -225,7 +225,7 @@ fn summary_message(object: &JsObject, prefix: &str, suffix: &str) -> Result<Mess
         )))]),
         input_source: None,
         provider_native: None,
-        timestamp: checked_provider_timestamp(timestamp_field(object)?)?,
+        timestamp: timestamp_field(object)?,
     }))
 }
 
@@ -248,7 +248,7 @@ fn compaction_summary_message(object: &JsObject) -> Result<Message, AgentError> 
         )))]),
         input_source: None,
         provider_native,
-        timestamp: checked_provider_timestamp(timestamp_field(object)?)?,
+        timestamp: timestamp_field(object)?,
     }))
 }
 
@@ -258,7 +258,7 @@ fn text_message(text: JsString, message: &BashExecutionMessage) -> Result<Messag
         content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(text))]),
         input_source: None,
         provider_native: None,
-        timestamp: checked_provider_timestamp(message.timestamp)?,
+        timestamp: message.timestamp,
     }))
 }
 
@@ -291,24 +291,6 @@ fn timestamp_field(object: &JsObject) -> Result<f64, AgentError> {
         .get("timestamp")
         .and_then(Value::as_f64)
         .ok_or_else(|| AgentError::new("Message timestamp must be a JavaScript number"))
-}
-
-/// Temporary dependency boundary: removed by the pending pi-ai f64 timestamp migration.
-/// Reject unsupported values explicitly; never clamp, round, or substitute them.
-pub(crate) fn checked_provider_timestamp(timestamp: f64) -> Result<i64, AgentError> {
-    const I64_EXCLUSIVE_UPPER_BOUND: f64 = 9_223_372_036_854_775_808.0;
-    let signed_zero = timestamp == 0.0 && timestamp.is_sign_negative();
-    let representable = timestamp.is_finite()
-        && timestamp.fract() == 0.0
-        && timestamp >= i64::MIN as f64
-        && timestamp < I64_EXCLUSIVE_UPPER_BOUND
-        && !signed_zero;
-    if !representable {
-        return Err(AgentError::new(
-            "Provider message timestamp requires the pending pi-ai f64 timestamp integration",
-        ));
-    }
-    Ok(timestamp as i64)
 }
 
 /// Build the custom `branchSummary` message for a branch summary entry.

@@ -317,14 +317,14 @@ fn claude_line_to_message(line: &JsValue) -> Result<Vec<ImportedMessage>, Sessio
 }
 
 /// `new Date(timestamp).getTime()`, or `Date.now()` without a timestamp.
-fn unix_timestamp(timestamp: Option<&JsString>) -> Result<i64, InvalidTimestamp> {
+fn unix_timestamp(timestamp: Option<&JsString>) -> Result<f64, InvalidTimestamp> {
     let Some(timestamp) = timestamp else {
-        return Ok(pi_js_compat::date::js_now_millis() as i64);
+        return Ok(pi_js_compat::date::js_now_millis());
     };
     timestamp
         .to_utf8()
         .ok()
-        .and_then(|text| pi_js_compat::date::date_parse_millis(&text))
+        .and_then(|text| pi_js_compat::date::date_parse_millis(&text).map(|millis| millis as f64))
         .ok_or(InvalidTimestamp)
 }
 
@@ -348,7 +348,7 @@ fn message_like_to_agent_messages(
     vec![message]
 }
 
-fn user_message(content: Vec<TextContent>, timestamp: i64) -> AgentMessage {
+fn user_message(content: Vec<TextContent>, timestamp: f64) -> AgentMessage {
     AgentMessage::User(UserMessage {
         role: UserRole::Tag,
         content: UserContent::Blocks(content.into_iter().map(TextOrImageContent::Text).collect()),
@@ -358,7 +358,7 @@ fn user_message(content: Vec<TextContent>, timestamp: i64) -> AgentMessage {
     })
 }
 
-fn assistant_message(content: Vec<TextContent>, timestamp: i64, provider: &str) -> AgentMessage {
+fn assistant_message(content: Vec<TextContent>, timestamp: f64, provider: &str) -> AgentMessage {
     AgentMessage::Assistant(Box::new(AssistantMessage {
         role: AssistantRole::Tag,
         content: content.into_iter().map(AssistantContent::Text).collect(),
@@ -422,10 +422,14 @@ fn write_imported_session(
         let message = message
             .as_ref()
             .map_err(|_| SessionManagerError::new("Invalid time value"))?;
-        let timestamp = message
-            .timestamp()
-            .map(iso_time::format_iso_millis)
-            .unwrap_or_else(iso_time::now_iso_string);
+        let timestamp = match message.timestamp() {
+            Some(timestamp) => {
+                let millis = pi_js_compat::date::time_clip_millis(timestamp)
+                    .ok_or_else(|| SessionManagerError::new("Invalid time value"))?;
+                iso_time::format_iso_millis(millis)
+            }
+            None => iso_time::now_iso_string(),
+        };
         entries.push(FileEntry::Entry(SessionEntry::Known(KnownSessionEntry::Message(
             SessionMessageEntry {
                 mailbox_store_refs: None,
