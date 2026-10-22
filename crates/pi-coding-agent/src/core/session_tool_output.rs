@@ -4,14 +4,10 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use pi_agent_core::agent::AgentMessage;
-use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_ai::utils::uuid::random_uuid;
-use pi_js_compat::js_json::{JsString, JsValue as Value, encode_node_utf8};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value, encode_node_utf8, stringify_lossless};
 
-use crate::core::session_manager::{
-    FileEntry, KnownSessionEntry, SessionEntry, SessionMessageEntry, parse_session_file_entry,
-};
+use crate::core::session_manager::{FileEntry, SessionEntry, UnknownSessionEntry, parse_session_file_entry};
 use crate::utils::iso_time;
 
 /// Maximum UTF-8 byte length persisted for a tool result's content.
@@ -50,69 +46,67 @@ fn utf8_prefix(text: impl Into<JsString>, max_bytes: usize) -> JsString {
     encoded[..end].into()
 }
 
-fn text_block(item: &TextOrImageContent) -> Option<&TextContent> {
-    match item {
-        TextOrImageContent::Text(text) => Some(text),
-        TextOrImageContent::Image(_) => None,
-    }
+fn text_block(item: &Value) -> Option<&JsString> {
+    (item.get("type").and_then(Value::as_string) == Some(&JsString::from("text")))
+        .then(|| item.get("text").and_then(Value::as_string))
+        .flatten()
 }
 
-fn text_content_bytes(content: &[TextOrImageContent]) -> usize {
-    content
-        .iter()
-        .filter_map(text_block)
-        .map(|text| utf8_bytes(&text.text))
-        .sum()
+fn text_value(text: JsString) -> Value {
+    let mut object = JsObject::new();
+    object.insert("type".into(), Value::String("text".into()));
+    object.insert("text".into(), Value::String(text));
+    Value::Object(object)
 }
 
-fn cap_text_content(content: &[TextOrImageContent]) -> Vec<TextOrImageContent> {
-    let total_bytes = text_content_bytes(content);
+fn serialized_content_bytes(content: &[Value]) -> usize {
+    stringify_lossless(&Value::Array(content.to_vec())).len()
+}
+
+fn cap_text_content(content: &[Value]) -> Vec<Value> {
+    let total_bytes: usize = content.iter().filter_map(text_block).map(utf8_bytes).sum();
     if total_bytes <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES {
         return content.to_vec();
     }
-
-    let mut remaining_bytes =
-        MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES as i64 - utf8_bytes(TOOL_RESULT_TRUNCATION_MARKER) as i64;
+    let mut remaining_bytes = MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES - utf8_bytes(TOOL_RESULT_TRUNCATION_MARKER);
     content
         .iter()
-        .map(|item| match item {
-            TextOrImageContent::Image(_) => item.clone(),
-            TextOrImageContent::Text(text) => {
-                if remaining_bytes <= 0 {
-                    return TextOrImageContent::Text(TextContent::new(""));
-                }
-                let item_bytes = utf8_bytes(&text.text) as i64;
-                if item_bytes <= remaining_bytes {
-                    remaining_bytes -= item_bytes;
-                    return item.clone();
-                }
-                let prefix = utf8_prefix(&text.text, remaining_bytes as usize);
-                remaining_bytes = 0;
-                TextOrImageContent::Text(TextContent::new(prefix + TOOL_RESULT_TRUNCATION_MARKER))
+        .map(|item| {
+            let Some(text) = text_block(item) else {
+                return item.clone();
+            };
+            let item_bytes = utf8_bytes(text);
+            if item_bytes <= remaining_bytes {
+                remaining_bytes -= item_bytes;
+                return item.clone();
             }
+            let replacement = if remaining_bytes == 0 {
+                JsString::default()
+            } else {
+                utf8_prefix(text, remaining_bytes) + TOOL_RESULT_TRUNCATION_MARKER
+            };
+            remaining_bytes = 0;
+            let mut item = item.clone();
+            item.as_object_mut()
+                .expect("text block is an object")
+                .insert("text".into(), Value::String(replacement));
+            item
         })
         .collect()
 }
 
-fn serialized_content_bytes(content: &[TextOrImageContent]) -> usize {
-    serde_json::to_vec(content).map(|bytes| bytes.len()).unwrap_or(0)
-}
-
-fn cap_serialized_content(content: &[TextOrImageContent]) -> Vec<TextOrImageContent> {
+fn cap_serialized_content(content: &[Value]) -> Vec<Value> {
     if serialized_content_bytes(content) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES {
         return content.to_vec();
     }
-
-    let text = JsString::join(content.iter().filter_map(text_block).map(|text| &text.text), "\n");
-    let marker = TOOL_RESULT_TRUNCATION_MARKER;
-    let mut low = 0_usize;
+    let text = JsString::join(content.iter().filter_map(text_block), "\n");
+    let mut low = 0;
     let mut high = utf8_bytes(&text);
-    let mut best = JsString::from(marker);
+    let mut best = JsString::from(TOOL_RESULT_TRUNCATION_MARKER);
     while low <= high {
         let middle = (low + high) / 2;
-        let candidate = utf8_prefix(&text, middle) + marker;
-        let blocks = vec![TextOrImageContent::Text(TextContent::new(candidate.clone()))];
-        if serialized_content_bytes(&blocks) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES {
+        let candidate = utf8_prefix(&text, middle) + TOOL_RESULT_TRUNCATION_MARKER;
+        if serialized_content_bytes(&[text_value(candidate.clone())]) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES {
             best = candidate;
             low = middle + 1;
         } else {
@@ -122,151 +116,118 @@ fn cap_serialized_content(content: &[TextOrImageContent]) -> Vec<TextOrImageCont
             high = middle - 1;
         }
     }
-    vec![TextOrImageContent::Text(TextContent::new(best))]
+    vec![text_value(best)]
 }
 
-fn cap_tool_result_content(content: &[TextOrImageContent]) -> Vec<TextOrImageContent> {
-    cap_serialized_content(&cap_text_content(content))
-}
-
-fn serialized_entry_bytes(entry: &SessionMessageEntry) -> usize {
-    serde_json::to_string(&KnownSessionEntry::Message(entry.clone()))
-        .expect("lossless session message entry serialization must succeed")
-        .len()
-}
-
-fn build_tool_result_candidate(
-    entry: &SessionMessageEntry,
-    content: Vec<TextOrImageContent>,
-    details: Option<Value>,
-) -> SessionMessageEntry {
+fn build_tool_result_candidate(entry: &JsObject, message: &JsObject, content: Vec<Value>) -> JsObject {
     let mut candidate = entry.clone();
-    if let AgentMessage::ToolResult(message) = candidate.message.as_mut() {
-        message.content = content;
-        message.details = details;
-    }
+    let mut message = message.clone();
+    message.insert("content".into(), Value::Array(content));
+    candidate.insert("message".into(), Value::Object(message));
     candidate
 }
 
-fn cap_tool_result_entry(entry: &SessionMessageEntry) -> SessionMessageEntry {
-    let AgentMessage::ToolResult(message) = entry.message.as_ref() else {
-        return entry.clone();
-    };
-    if serialized_entry_bytes(entry) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES {
-        return entry.clone();
-    }
+fn entry_bytes(entry: &JsObject) -> usize {
+    stringify_lossless(&Value::Object(entry.clone())).len()
+}
 
-    let initial_content = cap_tool_result_content(&message.content);
-    let initial_entry = build_tool_result_candidate(entry, initial_content, message.details.clone());
-    if serialized_entry_bytes(&initial_entry) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES {
-        return initial_entry;
-    }
-
-    let text = JsString::join(
-        message.content.iter().filter_map(text_block).map(|text| &text.text),
-        "\n",
-    );
-    let non_text_content: Vec<TextOrImageContent> = message
-        .content
+fn fit_tool_result_candidate(entry: &JsObject, message: &JsObject, content: &[Value]) -> JsObject {
+    let text = JsString::join(content.iter().filter_map(text_block), "\n");
+    let non_text: Vec<Value> = content
         .iter()
         .filter(|item| text_block(item).is_none())
         .cloned()
         .collect();
-    let marker = TOOL_RESULT_TRUNCATION_MARKER;
-    let message_variants = [message.details.clone(), None];
-    for details in message_variants {
-        let mut low = 0_usize;
-        let mut high = utf8_bytes(&text);
-        let mut best_content = non_text_content.clone();
-        best_content.push(TextOrImageContent::Text(TextContent::new(marker)));
-        let mut best = build_tool_result_candidate(entry, best_content, details.clone());
-        while low <= high {
-            let middle = (low + high) / 2;
-            let mut content = non_text_content.clone();
-            content.push(TextOrImageContent::Text(TextContent::new(
-                utf8_prefix(&text, middle) + marker,
-            )));
-            let candidate = build_tool_result_candidate(entry, content, details.clone());
-            if serialized_entry_bytes(&candidate) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES {
-                best = candidate;
-                low = middle + 1;
-            } else {
-                if middle == 0 {
-                    break;
-                }
-                high = middle - 1;
+    let mut low = 0;
+    let mut high = utf8_bytes(&text);
+    let mut initial = non_text.clone();
+    initial.push(text_value(TOOL_RESULT_TRUNCATION_MARKER.into()));
+    let mut best = build_tool_result_candidate(entry, message, initial);
+    while low <= high {
+        let middle = (low + high) / 2;
+        let mut blocks = non_text.clone();
+        blocks.push(text_value(utf8_prefix(&text, middle) + TOOL_RESULT_TRUNCATION_MARKER));
+        let candidate = build_tool_result_candidate(entry, message, blocks);
+        if entry_bytes(&candidate) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES {
+            best = candidate;
+            low = middle + 1;
+        } else {
+            if middle == 0 {
+                break;
             }
-        }
-        if serialized_entry_bytes(&best) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES {
-            return best;
+            high = middle - 1;
         }
     }
-
-    let minimal_content = vec![TextOrImageContent::Text(TextContent::new(marker))];
-    let mut minimal = entry.clone();
-    if let AgentMessage::ToolResult(message) = minimal.message.as_mut() {
-        message.tool_call_id = utf8_prefix(&message.tool_call_id, 128)
-            .to_utf8()
-            .expect("UTF-8 id prefix");
-        message.tool_name = utf8_prefix(&message.tool_name, 128)
-            .to_utf8()
-            .expect("UTF-8 name prefix");
-        message.content = minimal_content;
-        message.details = None;
-    }
-    minimal
+    best
 }
 
-fn truncate_session_message_entry(entry: &SessionMessageEntry) -> (SessionMessageEntry, bool) {
-    if !matches!(*entry.message, AgentMessage::ToolResult(_)) {
-        return (entry.clone(), false);
+fn cap_tool_result_entry(entry: &JsObject, message: &JsObject, content: &[Value]) -> JsObject {
+    let capped_content = cap_serialized_content(&cap_text_content(content));
+    let initial = build_tool_result_candidate(entry, message, capped_content);
+    if entry_bytes(&initial) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES {
+        return initial;
     }
-    if serialized_entry_bytes(entry) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES {
-        return (entry.clone(), false);
+    let mut without_details = message.clone();
+    without_details.shift_remove("details");
+    for variant in [message, &without_details] {
+        let candidate = fit_tool_result_candidate(entry, variant, content);
+        if entry_bytes(&candidate) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES {
+            return candidate;
+        }
     }
-    (cap_tool_result_entry(entry), true)
+    let mut minimal = JsObject::new();
+    minimal.insert("role".into(), Value::String("toolResult".into()));
+    for key in ["toolCallId", "toolName"] {
+        if let Some(text) = message.get(key).and_then(Value::as_string) {
+            minimal.insert(key.into(), Value::String(utf8_prefix(text, 128)));
+        }
+    }
+    let blocks = vec![text_value(TOOL_RESULT_TRUNCATION_MARKER.into())];
+    minimal.insert("content".into(), Value::Array(blocks.clone()));
+    for key in ["isError", "timestamp"] {
+        if let Some(value) = message.get(key) {
+            minimal.insert(key.into(), value.clone());
+        }
+    }
+    build_tool_result_candidate(entry, &minimal, blocks)
 }
 
-/// Return a persistence-only copy of a session message entry with capped tool output.
+/// Return a persistence-only copy; arbitrary raw entry/message fields remain authoritative.
 pub fn truncate_tool_result_for_persistence(entry: &SessionEntry) -> (SessionEntry, bool) {
-    let SessionEntry::Known(KnownSessionEntry::Message(message)) = entry else {
+    if entry.entry_type() != "message" {
+        return (entry.clone(), false);
+    }
+    let value = pi_js_compat::js_json::to_value(entry).expect("session entry serializes losslessly");
+    let object = value.as_object().expect("session entry is an object");
+    let Some(message) = object.get("message").and_then(Value::as_object) else {
         return (entry.clone(), false);
     };
-    let (truncated, changed) = truncate_session_message_entry(message);
-    if changed {
-        (SessionEntry::Known(KnownSessionEntry::Message(truncated)), true)
-    } else {
-        (entry.clone(), false)
+    let Some(content) = message.get("content").and_then(Value::as_array) else {
+        return (entry.clone(), false);
+    };
+    if message.get("role").and_then(Value::as_string) != Some(&JsString::from("toolResult"))
+        || entry_bytes(object) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES
+    {
+        return (entry.clone(), false);
     }
-}
-
-fn serialize_entry(entry: &SessionEntry) -> String {
-    match entry {
-        SessionEntry::Known(KnownSessionEntry::Message(message)) => {
-            let (truncated, _) = truncate_session_message_entry(message);
-            serde_json::to_string(&KnownSessionEntry::Message(truncated))
-        }
-        _ => serde_json::to_string(entry),
-    }
-    .map(|json| {
-        let value = pi_js_compat::js_json::parse_lossless(&json).expect("typed entry serialization is valid JSON");
-        pi_js_compat::js_json::stringify_lossless(&value)
-    })
-    .expect("session entry must serialize")
+    (
+        SessionEntry::Unknown(UnknownSessionEntry(cap_tool_result_entry(object, message, content))),
+        true,
+    )
 }
 
 /// Serialize one session entry while applying persistence-only tool-result truncation.
 pub fn serialize_session_entry(entry: &SessionEntry) -> String {
-    serialize_entry(entry)
+    let (persisted, _) = truncate_tool_result_for_persistence(entry);
+    serde_json::to_string(&persisted).expect("session entry serializes losslessly")
 }
 
-/// Serialize a header or entry while applying persistence-only tool-result truncation.
+/// Serialize a header or entry without projecting through scalar JSON.
 pub fn serialize_session_entry_for_persistence(entry: &FileEntry) -> String {
     match entry {
-        FileEntry::Header(header) => serde_json::to_value(header)
-            .map(|value| pi_js_compat::js_json::stringify(&value))
-            .unwrap_or_default(),
-        FileEntry::Entry(entry) => serialize_entry(entry),
+        FileEntry::Header(header) => serde_json::to_string(header).expect("header serializes losslessly"),
+        FileEntry::Entry(entry) => serialize_session_entry(entry),
+        FileEntry::Json(value) => serde_json::to_string(value).expect("JSON value serializes losslessly"),
     }
 }
 
@@ -352,7 +313,7 @@ fn read_session_file_for_migration(file_path: &str) -> SessionFileParseResult {
     let Some(FileEntry::Header(header)) = entries.first() else {
         return SessionFileParseResult::NonSession;
     };
-    if header.id.is_empty() {
+    if header.id().is_empty() {
         return SessionFileParseResult::NonSession;
     }
     SessionFileParseResult::Session(ParsedSessionFile {
@@ -471,7 +432,7 @@ pub fn migrate_tool_result_session_files(agent_dir: &str, now: impl Fn() -> i64)
                     }
                     FileEntry::Entry(truncated)
                 }
-                FileEntry::Header(_) => entry.clone(),
+                FileEntry::Header(_) | FileEntry::Json(_) => entry.clone(),
             };
             capped_entries.push(capped);
         }

@@ -13,6 +13,7 @@ pub mod js_json;
 mod js_json_macros;
 pub mod minimatch;
 pub mod node_fs;
+pub mod node_ignore;
 pub mod node_timers;
 pub mod number;
 pub mod process_env;

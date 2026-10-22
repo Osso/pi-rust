@@ -20,9 +20,9 @@ use std::time::Duration;
 
 use futures_util::future::join_all;
 use futures_util::stream::{self, StreamExt};
-use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use pi_ai::request::BoxFuture;
 use pi_js_compat::minimatch::{MinimatchOptions, minimatch};
+use pi_js_compat::node_ignore::Ignore;
 use regex::Regex;
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
@@ -497,33 +497,24 @@ pub fn get_extension_temp_folder(agent_dir: &str) -> Result<String, PackageManag
     Ok(temp_folder.to_string_lossy().into_owned())
 }
 
-struct IgnoreState {
-    builder: GitignoreBuilder,
-    compiled: Option<Gitignore>,
-}
+struct IgnoreState(Ignore);
 
 impl IgnoreState {
-    fn new(root_dir: &str) -> Self {
-        Self {
-            builder: GitignoreBuilder::new(root_dir),
-            compiled: None,
-        }
+    fn new(_root_dir: &str) -> Self {
+        Self(Ignore::new())
     }
 
     fn add(&mut self, patterns: &[String]) {
         for pattern in patterns {
-            let _ = self.builder.add_line(None, pattern);
+            self.0.add(pattern.as_str());
         }
-        self.compiled = None;
     }
 
-    fn ignores(&mut self, path: &str, is_dir: bool) -> bool {
-        if self.compiled.is_none() {
-            self.compiled = self.builder.build().ok();
-        }
-        self.compiled
-            .as_ref()
-            .is_some_and(|matcher| matcher.matched(path, is_dir).is_ignore())
+    fn ignores(&self, path: &str, is_dir: bool) -> bool {
+        let path = if is_dir { format!("{path}/") } else { path.to_owned() };
+        self.0
+            .ignores(path)
+            .expect("discovery supplies a nonempty root-relative path")
     }
 }
 
@@ -654,7 +645,8 @@ fn collect_files(
             continue;
         };
         let full_path = full_path.to_string_lossy().into_owned();
-        if ignore.ignores(&full_path, metadata.is_dir()) {
+        let rel_path = to_posix_path(&relative_path(root_dir, &full_path));
+        if ignore.ignores(&rel_path, metadata.is_dir()) {
             continue;
         }
         if metadata.is_dir() {

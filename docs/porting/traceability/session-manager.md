@@ -124,3 +124,96 @@ Authorized frozen selector delta: SessionInfo has first_message only; removed so
 Metadata listing now consumes canonical control API (c7248cac via0063fe60): absent table alone returns None; populated-but-filtered-empty returns Some(empty) without filesystem scan/cache. Scope resolves cwd and directory prefix exactly at consumer boundary; DB owns query/subagent/order semantics. Actual-source scoped-empty RED at0063fe60, GREEN12b382a9. No duplicated SQL or compatibility query path.
 
 Bounded merged evidence and unresolved consumer/classification limits: [session storage integration](session-storage-integration.md). No fresh gate or whole-module promotion.
+
+## Q18 record authority (in progress)
+
+Imported headers and entry objects now keep one `JsObject` authority; typed known-entry
+views are transient `Cow` projections. Header mutations preserve unknown UTF-16 keys,
+explicit nulls and insertion order. Known record strings use `JsString`, including
+imported identities, labels and timestamps. Dedicated regressions: `lossless_session_records`.
+Initial exact-record harness RED: both raw fixtures were silently discarded by the old
+scalar deserializers. Full module/integration proof remains pending; this is not new-pin
+whole-module parity evidence. Path API integration and persistence round trips remain open.
+
+Q18 persistence serializer now serializes the raw header directly. Tool-output capping
+mutates a persistence-only raw object copy, retaining arbitrary entry/message/content
+fields and raw keys unless the pinned truncation algorithm explicitly removes them.
+Dedicated `lossless_session_persistence` tests reproduced empty raw-header output and
+uncapped imported tool results before implementation. Integration proof remains pending.
+
+Q18 imported identity uses UTF-16 lookup/index keys and transient typed projections.
+`FileEntry::Json` retains valid JSON primitives/arrays without invented wrappers. Such
+values are parse/serialization proof only, not typed runtime-record inputs.
+
+The v1 migration now resolves `firstKeptEntryIndex` in the original single-pass mutation
+order and deletes the legacy field only for compaction records; a pinned differential
+reproduced the former two-pass mismatch with a future raw target ID. The pinned TS
+collision Set is never populated, whereas Rust currently tracks generated IDs: this
+source discrepancy is awaiting user classification, not new-pin parity evidence.
+
+Raw imported common-role messages remain complete objects in the context projection;
+this proof does not establish downstream agent/provider interpretation of those raw
+objects. Main integration owns that consumer gate. Native path integration remains open.
+
+### Q18 native identity/path integration and provider payloads
+
+SessionManager's session identity, leaf/index/tree identities, paths and cwd are now
+`JsString`; pure path operations use the native Node-compatible path helpers. Filesystem
+arguments encode at the actual binding. Legacy metadata API encoding is blocked below. `SessionHeader.fields` and
+imported entry objects remain single authorities through fork/rechain/write.
+
+`lossless_session_manager_io` exercises TS-created raw paths and records → Rust load,
+lookup, tree, context, fork and append → TS reads, plus archived `.jsonl.zst` reads via
+the real internal spool worker. Its non-compaction/empty-summary mutation case reproduced
+the wrong validation order; the Rust mutation now follows the pinned source ordering.
+
+The compaction record's `provider_native` is raw `Option<Box<JsValue>>`. Context projection
+passes the object unchanged, retaining raw provider/api tags, null duration and invalid
+date serialization as null. A TS-created raw provider payload reproduced silent context
+loss before this correction. Typed `ProviderNativeContext` derivation explicitly returns
+an error for opaque surrogate-containing tags under the approved scalar-metadata gap;
+actual provider-consumer error propagation remains main-owned integration proof.
+
+User approved the collision-set fix on 2026-10-21: TS delta commit
+`6573c7139c4b1ab2215f4fb2defd717072e37cbc`; frozen source remains unchanged. Rust retains
+collision tracking and adds a deterministic whole-migration collision/payload regression.
+Earlier "awaiting classification" notes above are historical, superseded by this approval.
+Full Q18/module coverage is not claimed. Exact-module harness excludes metadata/default
+live configuration and resident listing via panic-on-use stubs; no control-DB proof.
+
+Q18 follow-up regressions preserve source empty-string leaf truthiness and ensure fork
+rewiring changes only `parentId`, never synthesizing a missing imported `id`. The
+deterministic migration test now asserts frozen duplicate-ID discrepancy separately
+from exact approved-delta equality using `selectApprovedModule`. Tool capping compares
+exact pinned serializer output, not just size. Compaction updates compare TS mutation
+output and preserve raw state on filesystem rewrite failure.
+
+Reproducible standalone setup: `python oracle/lossless-session-records-harness.py`;
+manifest `/tmp/pi-rust-repin-lossless-session-records/full/crates/pi-coding-agent/Cargo.toml`.
+Target only the three new dedicated integration tests and `record_identity_tests`;
+worker location comes from `Q18_HARNESS_PACKAGE_DIR`. Metadata, resident listing and
+default live configuration are intentionally excluded via panic-on-use collaborators.
+
+Native parser input accepts `impl Into<JsString>` and splits/trims UTF-16 directly;
+no UTF-8 conversion is needed for literal unpaired units inside JSON strings/keys.
+The new differential proves this source-valid API input (the previous scalar API
+rejected it at compile time). Tree timestamp comparison now keeps JavaScript's NaN
+comparator equality instead of replacing invalid raw timestamps with epoch zero;
+a two-sibling pinned differential reproduced and covers the ordering correction.
+
+### Unapproved metadata-boundary blocker (main-owned handoff)
+
+The legacy `session_control_db` API still takes scalar path/ID/text arguments and
+scalar `WritableSessionMetadata` fields. Manager-side encoding at those calls occurs
+before that module's pure normalization/error construction, earlier than the actual
+SQLite binding. This is **not an approved gap** and is not raw-path/error parity. Main
+will widen those shared APIs and remove caller-side encodings, preserving raw strings
+until DB-open/rusqlite params. The exact call-site inventory and proof ledger live in
+`/tmp/pi-rust-repin-lossless-session-records/REPORT.md` for integration handoff.
+
+Final bounded proof at `7219e8ab`: 17 dedicated exact-module tests pass, including
+NaN-comparator timestamp RED→GREEN. This excludes actual metadata/default config and
+provider-consumer execution. Standalone compilation emits two unused-function warnings
+from unexercised shared paths/transcript exports; no warnings were suppressed. Manual
+Rust/JS readability audit used because `rust-code-analysis-cli` is unavailable; inherited
+long orchestration functions remain, so no whole-module readability pass is claimed.

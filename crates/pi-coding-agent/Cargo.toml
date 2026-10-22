@@ -66,7 +66,6 @@ semver = "=1.0.28"
 # `glob` manifest-entry expansion in `core::package_manager`.
 globset = "=0.4.20"
 # `.gitignore`/`.ignore`/`.fdignore` matching for package resource discovery.
-ignore = "=0.4.23"
 # `createHash("sha256")` for temporary install directory names.
 sha2 = "=0.10.9"
 # Bounded-concurrency update checks and git updates.
