@@ -264,9 +264,9 @@ pub(crate) fn get_directory_completions(prefix: &JsString, cwd: &JsString) -> Ve
 
 fn directory_root_completion(normalized_prefix: &JsString, quoted: bool) -> Option<AutocompleteItem> {
     match normalized_prefix {
-        value if value == "~" => Some(directory_completion_value("~/", quoted, "~/")),
-        value if value == ".." => Some(directory_completion_value("../", quoted, "../")),
-        value if value == "." => Some(directory_completion_value("./", quoted, "./")),
+        value if value == "~" => Some(directory_completion_value(&"~/".into(), quoted, &"~/".into())),
+        value if value == ".." => Some(directory_completion_value(&"../".into(), quoted, &"../".into())),
+        value if value == "." => Some(directory_completion_value(&"./".into(), quoted, &"./".into())),
         _ => None,
     }
 }
@@ -2100,7 +2100,7 @@ fn register_mode(mode: &Rc<InteractiveMode>) -> usize {
 
 /// `resolveEnabledModelsPersistTarget`.
 fn resolve_enabled_models_persist_target(
-    project_enabled_models: Option<&Value>,
+    project_enabled_models: Option<&JsValue>,
     patterns: Option<Vec<JsString>>,
 ) -> (Option<Vec<JsString>>, crate::core::settings_manager::SettingsScope) {
     use crate::core::settings_manager::SettingsScope;
@@ -2813,7 +2813,7 @@ struct ChildAgentView {
 }
 
 /// Agent slot selection keybindings (`AGENT_SLOT_KEYBINDINGS`).
-const AGENT_SLOT_KEYBINDINGS: [(&JsString, i64); 9] = [
+const AGENT_SLOT_KEYBINDINGS: [(&str, i64); 9] = [
     ("app.agent.slot1", 0),
     ("app.agent.slot2", 1),
     ("app.agent.slot3", 2),
@@ -3348,7 +3348,7 @@ impl InteractiveMode {
             && !is_child_view
             && let Some(loader) = self.loading_animation.borrow().as_ref()
         {
-            set_loader_message(loader, message);
+            set_loader_message(loader, message.clone());
         }
     }
 
@@ -4038,6 +4038,7 @@ impl InteractiveMode {
             .and_then(|settings| settings.thinking_level)
             .or_else(|| {
                 selected_agent
+                    .map(JsString::from)
                     .as_ref()
                     .and_then(|agent| agent.model.as_ref())
                     .and_then(|model| model.thinking_level.clone())
@@ -4416,7 +4417,8 @@ impl InteractiveMode {
             return;
         }
         *self.terminal_current_directory.borrow_mut() = Some(cwd.clone());
-        let sequence = crate::utils::terminal_current_directory::format_terminal_current_directory_sequence(&cwd);
+        let sequence = crate::utils::terminal_current_directory::format_terminal_current_directory_sequence(&cwd)
+            .unwrap_or_else(|error| throw_uncaught(ERROR, error.message().clone()));
         let terminal = self.ui.terminal();
         terminal.borrow_mut().write(&JsString::from(&sequence));
     }
@@ -4783,6 +4785,7 @@ impl InteractiveMode {
     fn render_project_trust_warning_if_needed(&self) {
         if self.settings(|settings| settings.is_project_trusted())
             || !crate::core::trust_manager::has_trust_requiring_project_resources(&self.cwd())
+                .unwrap_or_else(|error| throw_uncaught(ERROR, error.message().clone()))
         {
             return;
         }
@@ -5048,13 +5051,12 @@ impl InteractiveMode {
                     .add_child(component(Spacer::new(1)));
             }
             if !context_files.is_empty() {
-                let expanded_body = context_files
-                    .iter()
-                    .map(|path| {
+                let expanded_body = JsString::join(
+                    context_files.iter().map(|path| {
                         with_theme(|theme| theme.fg(ThemeColor::Dim, &js_format!("  {}", format_display_path(path))))
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
+                    }),
+                    "\n",
+                );
                 let compact_items = context_files
                     .iter()
                     .map(|path| format_context_path(path, &cwd))
@@ -5068,16 +5070,14 @@ impl InteractiveMode {
                 );
             }
             if !rules_files.rules_files.is_empty() {
-                let expanded_body = rules_files
-                    .rules_files
-                    .iter()
-                    .map(|file| {
+                let expanded_body = JsString::join(
+                    rules_files.rules_files.iter().map(|file| {
                         with_theme(|theme| {
                             theme.fg(ThemeColor::Dim, &js_format!("  {}", format_display_path(&file.path)))
                         })
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
+                    }),
+                    "\n",
+                );
                 let compact_items = rules_files
                     .rules_files
                     .iter()
@@ -5137,7 +5137,7 @@ impl InteractiveMode {
                 );
                 let by_path: HashMap<&JsString, &JsString> = prompt_templates
                     .iter()
-                    .map(|template| (template.file_ & path, &template.name))
+                    .map(|template| (&template.file_path, &template.name))
                     .collect();
                 let expanded_body = format_scope_groups(
                     &groups,
@@ -5363,7 +5363,7 @@ impl InteractiveMode {
             SourceScope::Temporary => "t",
         };
         let source = source_info.source.trim();
-        if matches!(source, "auto" | "local" | "cli") {
+        if ["auto", "local", "cli"].iter().any(|tag| source == *tag) {
             return Some((scope_prefix.to_owned()).into());
         }
         if source.starts_with("npm:") {
@@ -7577,7 +7577,7 @@ impl InteractiveMode {
             self.settings(|settings| settings.get_project_settings().get("enabledModels").cloned());
         let (patterns, scope) =
             resolve_enabled_models_persist_target(project_enabled_models.as_ref(), enabled_patterns);
-        if let Err(error) = self.settings_mut(|settings| settings.set_enabled_models(patterns.as_ref(), scope)) {
+        if let Err(error) = self.settings_mut(|settings| settings.set_enabled_models(patterns.as_deref(), scope)) {
             self.show_error(&error.to_string());
             return;
         }
@@ -9968,7 +9968,8 @@ impl InteractiveMode {
     fn show_trust_selector(&self) {
         let session = self.session();
         let cwd = session.cwd().to_owned();
-        let trust_store = ProjectTrustStore::new(session.agent_dir());
+        let trust_store = ProjectTrustStore::new(session.agent_dir())
+            .unwrap_or_else(|error| throw_uncaught(ERROR, error.message().clone()));
         let saved_decision = match trust_store.get_entry(&cwd) {
             Ok(decision) => decision,
             Err(error) => {
@@ -9983,7 +9984,8 @@ impl InteractiveMode {
             project_trusted: self.settings(|settings| settings.is_project_trusted()),
             on_select: Rc::new(move |selection| {
                 with_mode(mode_id, |mode| {
-                    let trust_store = ProjectTrustStore::new(mode.session().agent_dir());
+                    let trust_store = ProjectTrustStore::new(mode.session().agent_dir())
+                        .unwrap_or_else(|error| throw_uncaught(ERROR, error.message().clone()));
                     if let Err(error) = trust_store.set_many(&selection.updates) {
                         mode.show_error(&error.to_string());
                         return;
@@ -9997,7 +9999,9 @@ impl InteractiveMode {
             }),
             on_cancel: cancel_restores_editor(mode_id),
         };
-        self.show_selector(component(TrustSelectorComponent::new(options)));
+        self.show_selector(component(
+            TrustSelectorComponent::new(options).unwrap_or_else(|error| throw_uncaught(ERROR, error.message().clone())),
+        ));
     }
 
     fn show_approval_selector(&self) {
@@ -10111,7 +10115,8 @@ impl InteractiveMode {
         if let Some(resume_command) = resume_command {
             use std::io::Write;
             let hint = crate::utils::chalk::Chalk::stdout().dim("To resume this session:");
-            let _ = std::io::stdout().write_all(js_format!("{} {}\n", hint, resume_command).as_bytes());
+            let _ =
+                std::io::stdout().write_all(encode_node_utf8(&js_format!("{} {}\n", hint, resume_command)).as_bytes());
         }
     }
 
@@ -11737,9 +11742,11 @@ pub async fn check_tmux_keyboard_setup_with(
     program: &JsString,
 ) -> Option<JsString> {
     tmux_env?;
+    let keys_option = JsString::from("extended-keys");
+    let format_option = JsString::from("extended-keys-format");
     let (extended_keys, extended_keys_format) = tokio::join!(
-        run_tmux_show(program, &JsString::from("extended-keys")),
-        run_tmux_show(program, &JsString::from("extended-keys-format")),
+        run_tmux_show(program, &keys_option),
+        run_tmux_show(program, &format_option),
     );
     tmux_keyboard_warning(extended_keys.as_ref(), extended_keys_format.as_ref())
 }
