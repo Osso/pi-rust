@@ -1,7 +1,9 @@
 use pi_coding_agent::core::package_manager::{
     DefaultPackageManager, PackageSettingsSnapshot, PackageSettingsStore, PackageSource, ParsedSource,
 };
-use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
+#[path = "support/oracle.rs"]
+mod oracle;
 struct Settings;
 impl PackageSettingsStore for Settings {
     fn global_settings(&self) -> PackageSettingsSnapshot {
@@ -34,8 +36,31 @@ async fn local_extension_directory_keeps_source_and_base_dir_identity() {
         .resolve_extension_sources(&[raw.clone()], false, true)
         .await
         .unwrap();
+    // Frozen package-manager.ts:1297-1302,2074-2086: a directory without a `pi` manifest or
+    // resource subdirectories resolves to the directory itself, not its index.ts.
+    let mut scenario = JsObject::new();
+    scenario.insert("cwd".into(), JsValue::String(raw.clone()));
+    scenario.insert("agentDir".into(), JsValue::String(raw.clone()));
+    scenario.insert("trusted".into(), JsValue::Bool(true));
+    let mut request = JsObject::new();
+    request.insert("id".into(), JsValue::Number(1.0));
+    request.insert("operation".into(), JsValue::String("resolve_extension_sources".into()));
+    request.insert("scenario".into(), JsValue::Object(scenario));
+    request.insert("sources".into(), JsValue::Array(vec![JsValue::String(raw.clone())]));
+    request.insert("local".into(), JsValue::Bool(false));
+    request.insert("temporary".into(), JsValue::Bool(true));
+    let mut source = oracle::TsOracle::spawn(
+        "package-manager-oracle.ts",
+        "packages/coding-agent/src/core/package-manager.ts",
+    );
+    let response = source.request(&JsValue::Object(request));
+    assert_eq!(response.get("ok"), Some(&JsValue::Bool(true)), "{response:?}");
+    assert_eq!(
+        pi_js_compat::js_json::to_value(&result).unwrap(),
+        response["output"]["resolved"]
+    );
     assert_eq!(result.extensions.len(), 1);
-    assert_eq!(result.extensions[0].path, raw.clone() + "/index.ts");
+    assert_eq!(result.extensions[0].path, raw);
     assert_eq!(result.extensions[0].metadata.base_dir, Some(raw));
 }
 
