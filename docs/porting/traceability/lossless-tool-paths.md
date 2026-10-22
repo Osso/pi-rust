@@ -51,6 +51,14 @@ Artifacts: `/tmp/pi-rust-repin-lossless-tools/`.
 
 `utils::ansi::strip_ansi` is the single native UTF-16 API; removed `strip_ansi_js` and its surrogate sentinel/offset projection. Shared JsRegex removes ANSI ranges directly. `utils::shell::sanitize_binary_output` filters UTF-16 units, preserving retained unmatched units and pairs. `ansi-red.log` is compiler RED for the old API. `ansi-green.log`: 1/1 native cleanup test PASS using actual ANSI, shell and child-process modules, zero warnings. Frozen cleanup comparison was added after that log and remains pending execution.
 
+## Shell configuration checkpoint
+
+Main granted the whole shell module. `ShellConfig.shell/args` and `ShellError` messages are native; `get_shell_config` accepts `Option<&JsString>`; `ShellError::message` exposes the raw error while Display alone encodes. Shell lookup tests existence at the actual filesystem boundary, retains raw custom paths in diagnostics, and uses native lexical Windows-shim matching. `get_shell_env` returns `BTreeMap<JsString,JsString>`; consumers must encode keys/values only at spawn. External process lookup stdout is decoded into the native authority on entry.
+
+Recorded Rust-only discrepancy: previous `Some("")` tried an empty custom path; frozen TS treats it as no override. Native selection now follows frozen truthiness. Source shell-search order remains unchanged. `shell-path-red.log`: missing native API compiler RED. `shell-path-green.log`: **1/1 actual-module frozen TS missing-shell raw-error differential PASS, zero warnings**. Default shell/Windows search/env process-boundary regression execution remains pending.
+
+Outside source callers: `core/bash_executor.rs`, `core/config_value.rs`, `lib.rs` reexports; own `core/tools/bash.rs` is migrated in the next chain. Existing `tests/shell.rs` and shell differentials require fixture/type adaptation.
+
 ## Code-index checkpoint
 
 `CodeIndexOperations::run` now receives `&[JsString]` argv and `&JsString` cwd; `CodeIndexCommandResult` stdout/stderr are native. Only LocalCodeIndexOperations encodes argv/cwd and decodes stream bytes. All three tool constructors/factories and render targets/suffixes are native. `lossless_code_index.rs` tests custom raw cwd/path/show arguments and retained output. `code-index-red.log`: compiler RED. `code-index-green.log`: **1/1 actual-module test PASS, zero warnings**. Existing trait-based code-index tests need signature/fixture adaptation; no real-process proof from this custom test.
