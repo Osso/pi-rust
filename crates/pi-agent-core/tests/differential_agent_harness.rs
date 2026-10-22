@@ -50,6 +50,7 @@ fn error_value(error: AgentHarnessError) -> JsValue {
         AgentHarnessErrorCode::Compaction => "compaction",
         AgentHarnessErrorCode::BranchSummary => "branch_summary",
         AgentHarnessErrorCode::Hook => "hook",
+        AgentHarnessErrorCode::Auth => "auth",
         AgentHarnessErrorCode::Unknown => "unknown",
     };
     json!({"error":{"code":code,"message":error.message}})
@@ -231,9 +232,9 @@ async fn run(request: &JsValue) -> JsValue {
             let first = if once { let mut flag = flag.lock().unwrap(); let first = !*flag; *flag = true; first } else { false };
             if first && kind == "writes" { harness.append_message(user(JsString::from_utf16("deferred".encode_utf16().chain([0xd800]).collect()))).await?; let mut model = model; model.name = "renamed".into(); harness.set_model(model).await?; harness.set_thinking_level(ThinkingLevel::High).await?; harness.set_active_tools(vec![]).await?; }
             if first && kind == "queues" { harness.steer("steer-1".into(),None).await?; harness.steer("steer-2".into(),None).await?; harness.follow_up("follow-1".into(),None).await?; harness.follow_up("follow-2".into(),None).await?; }
-            if kind == "rollback" && matches!(&event,HarnessEvent::QueueUpdate {..}) && std::mem::take(&mut *reject.lock().unwrap()) { return Err(AgentError::new(JsString::from_utf16("queue".encode_utf16().chain([0xd800]).collect()))); }
-            if kind == "failure-report" && matches!(&event,HarnessEvent::Agent(pi_agent_core::AgentEvent::MessageEnd {message}) if message.as_assistant().is_some()) { return Err(AgentError::new(JsString::from_utf16("report".encode_utf16().chain([0xd800]).collect()))); }
-            if first && kind == "turn-listener-error" { harness.set_thinking_level(ThinkingLevel::High).await?; return Err(AgentError::new(JsString::from_utf16("turn".encode_utf16().chain([0xd800]).collect()))); }
+            if kind == "rollback" && matches!(&event,HarnessEvent::QueueUpdate {..}) && std::mem::take(&mut *reject.lock().unwrap()) { return Err(AgentError::new(JsString::from_utf16("queue".encode_utf16().chain([0xd800]).collect())).into()); }
+            if kind == "failure-report" && matches!(&event,HarnessEvent::Agent(pi_agent_core::AgentEvent::MessageEnd {message}) if message.as_assistant().is_some()) { return Err(AgentError::new(JsString::from_utf16("report".encode_utf16().chain([0xd800]).collect())).into()); }
+            if first && kind == "turn-listener-error" { harness.set_thinking_level(ThinkingLevel::High).await?; return Err(AgentError::new(JsString::from_utf16("turn".encode_utf16().chain([0xd800]).collect())).into()); }
             Ok(())
         })
     }));
@@ -243,9 +244,10 @@ async fn run(request: &JsValue) -> JsValue {
             HarnessHookKind::BeforeProviderRequest,
             Arc::new(|_| {
                 Box::pin(async {
-                    Err(AgentError::new(JsString::from_utf16(
-                        "request".encode_utf16().chain([0xd800]).collect(),
-                    )))
+                    Err(
+                        AgentError::new(JsString::from_utf16("request".encode_utf16().chain([0xd800]).collect()))
+                            .into(),
+                    )
                 })
             }),
         ));
@@ -255,9 +257,7 @@ async fn run(request: &JsValue) -> JsValue {
             HarnessHookKind::BeforeAgentStart,
             Arc::new(|_| {
                 Box::pin(async {
-                    Err(AgentError::new(JsString::from_utf16(
-                        "start".encode_utf16().chain([0xd800]).collect(),
-                    )))
+                    Err(AgentError::new(JsString::from_utf16("start".encode_utf16().chain([0xd800]).collect())).into())
                 })
             }),
         ));

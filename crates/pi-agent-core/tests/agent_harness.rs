@@ -33,7 +33,7 @@ async fn rejected_before_provider_request_is_persisted_as_exact_failure_message(
         HarnessHookKind::BeforeProviderRequest,
         Arc::new(move |_| {
             let error = hook_error.clone();
-            Box::pin(async move { Err(AgentError::new(error)) })
+            Box::pin(async move { Err(AgentError::new(error).into()) })
         }),
     );
     let events = Arc::new(Mutex::new(Vec::new()));
@@ -66,4 +66,55 @@ async fn unpaired_header_name_rejects_before_provider_dispatch() {
     assert_eq!(result.stop_reason, StopReason::Error);
     assert!(result.error_message.unwrap().to_utf8().unwrap().contains("surrogate"));
     assert!(matches!(result.content.as_slice(), [AssistantContent::Text(text)] if text.text.is_empty()));
+}
+
+#[tokio::test]
+async fn harness_preserves_classified_hook_error_before_loop_acquisition() {
+    let harness = harness();
+    let _remove = harness.on(
+        HarnessHookKind::BeforeAgentStart,
+        Arc::new(|_| Box::pin(async { Err(AgentHarnessError::new(AgentHarnessErrorCode::Auth, "auth\u{10000}")) })),
+    );
+    let error = harness.prompt("hello".into(), None).await.unwrap_err();
+    assert_eq!(error.code, AgentHarnessErrorCode::Auth);
+    assert_eq!(error.name, "AgentHarnessError");
+    assert!(harness.session().get_entries().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn jsonl_harness_persists_failure_across_storage_reopen() {
+    use pi_agent_core::harness::session::jsonl::*;
+    let temp = tempfile::tempdir().unwrap();
+    let path: JsString = temp.path().join("session.jsonl").to_str().unwrap().into();
+    let env = Arc::new(NodeExecutionEnv::new(NodeExecutionEnvOptions {
+        cwd: temp.path().to_str().unwrap().into(),
+        ..Default::default()
+    }));
+    let storage = JsonlSessionStorage::create(
+        env.clone(),
+        path.clone(),
+        JsonlSessionStorageCreateOptions {
+            cwd: env.cwd().clone(),
+            session_id: "disk".into(),
+            parent_session_path: None,
+        },
+    )
+    .await
+    .unwrap();
+    let harness = AgentHarness::new(AgentHarnessOptions::new(
+        env.clone(),
+        Session::new(Arc::new(storage)),
+        Arc::new(create_models(Default::default())),
+        faux_provider(Default::default()).get_model(None).unwrap(),
+    ))
+    .unwrap();
+    let _remove = harness.on(
+        HarnessHookKind::BeforeProviderRequest,
+        Arc::new(|_| Box::pin(async { Err(AgentError::new(JsString::from_utf16(vec![0xd800])).into()) })),
+    );
+    let result = harness.prompt("disk request".into(), None).await.unwrap();
+    let reopened = Session::new(Arc::new(JsonlSessionStorage::open(env, path).await.unwrap()));
+    let context = reopened.build_context().await.unwrap();
+    assert_eq!(context.messages.len(), 2);
+    assert_eq!(context.messages[1].as_assistant(), Some(&result));
 }

@@ -5,7 +5,7 @@ use super::*;
 use pi_ai::types::{TextOrImageContent, UserContent};
 use pi_js_compat::js_format;
 
-impl AgentHarness {
+impl<M: SessionMetadataValue> AgentHarness<M> {
     fn begin_idle_operation(&self, phase: AgentHarnessPhase, message: &str) -> Result<(), AgentHarnessError> {
         let mut state = self.state();
         if state.phase != AgentHarnessPhase::Idle {

@@ -1,6 +1,6 @@
 //! Native contracts for frozen harness/types.ts:493–839.
 use super::compaction::CompactionPreparation;
-use super::session::{Session, SessionTreeEntry};
+use super::session::{Session, SessionMetadata, SessionMetadataValue, SessionTreeEntry};
 use super::{
     AgentHarnessResources, AgentHarnessStreamOptions, AgentHarnessStreamOptionsPatch, ExecutionEnv, QueueMode,
     ThinkingLevel,
@@ -29,20 +29,35 @@ pub enum AgentHarnessErrorCode {
     Compaction,
     BranchSummary,
     Hook,
+    Auth,
     Unknown,
 }
 #[derive(Debug, Clone)]
 pub struct AgentHarnessError {
+    pub name: &'static str,
     pub code: AgentHarnessErrorCode,
     pub message: JsString,
-    pub causes: Vec<JsString>,
+    pub cause: Option<Arc<dyn std::error::Error + Send + Sync>>,
 }
 impl AgentHarnessError {
+    pub fn aggregate(
+        code: AgentHarnessErrorCode,
+        message: &str,
+        errors: Vec<Arc<dyn std::error::Error + Send + Sync>>,
+    ) -> Self {
+        let mut result = Self::new(code, message);
+        result.cause = Some(Arc::new(HarnessAggregateError {
+            message: message.into(),
+            errors,
+        }));
+        result
+    }
     pub fn new(code: AgentHarnessErrorCode, message: impl Into<JsString>) -> Self {
         Self {
+            name: "AgentHarnessError",
             code,
             message: message.into(),
-            causes: Vec::new(),
+            cause: None,
         }
     }
 }
@@ -51,20 +66,56 @@ impl std::fmt::Display for AgentHarnessError {
         f.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message))
     }
 }
-impl std::error::Error for AgentHarnessError {}
+impl std::error::Error for AgentHarnessError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.cause
+            .as_deref()
+            .map(|cause| cause as &(dyn std::error::Error + 'static))
+    }
+}
+#[derive(Debug, Clone)]
+pub struct HarnessAggregateError {
+    pub message: JsString,
+    pub errors: Vec<Arc<dyn std::error::Error + Send + Sync>>,
+}
+impl std::fmt::Display for HarnessAggregateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message))
+    }
+}
+impl std::error::Error for HarnessAggregateError {}
+impl From<AgentError> for AgentHarnessError {
+    fn from(error: AgentError) -> Self {
+        let mut result = Self::new(AgentHarnessErrorCode::Hook, error.message().clone());
+        result.cause = Some(Arc::new(error));
+        result
+    }
+}
 impl From<super::session::SessionError> for AgentHarnessError {
     fn from(error: super::session::SessionError) -> Self {
-        Self::new(AgentHarnessErrorCode::Session, error.message)
+        {
+            let mut result = Self::new(AgentHarnessErrorCode::Session, error.message.clone());
+            result.cause = Some(Arc::new(error));
+            result
+        }
     }
 }
 impl From<super::CompactionError> for AgentHarnessError {
     fn from(error: super::CompactionError) -> Self {
-        Self::new(AgentHarnessErrorCode::Compaction, error.message)
+        {
+            let mut result = Self::new(AgentHarnessErrorCode::Compaction, error.message.clone());
+            result.cause = Some(Arc::new(error));
+            result
+        }
     }
 }
 impl From<super::BranchSummaryError> for AgentHarnessError {
     fn from(error: super::BranchSummaryError) -> Self {
-        Self::new(AgentHarnessErrorCode::BranchSummary, error.message)
+        {
+            let mut result = Self::new(AgentHarnessErrorCode::BranchSummary, error.message.clone());
+            result.cause = Some(Arc::new(error));
+            result
+        }
     }
 }
 impl From<AgentHarnessError> for AgentError {
@@ -74,37 +125,37 @@ impl From<AgentHarnessError> for AgentError {
 }
 
 #[derive(Clone)]
-pub struct SystemPromptContext {
+pub struct SystemPromptContext<M: SessionMetadataValue = SessionMetadata> {
     pub env: Arc<dyn ExecutionEnv>,
-    pub session: Session,
+    pub session: Session<M>,
     pub model: Model,
     pub thinking_level: ThinkingLevel,
     pub active_tools: Vec<Arc<dyn AgentTool>>,
     pub resources: AgentHarnessResources,
 }
-pub type SystemPromptCallback =
-    Arc<dyn Fn(SystemPromptContext) -> BoxFuture<'static, Result<JsString, AgentHarnessError>> + Send + Sync>;
+pub type SystemPromptCallback<M = SessionMetadata> =
+    Arc<dyn Fn(SystemPromptContext<M>) -> BoxFuture<'static, Result<JsString, AgentHarnessError>> + Send + Sync>;
 #[derive(Clone)]
-pub enum HarnessSystemPrompt {
+pub enum HarnessSystemPrompt<M: SessionMetadataValue = SessionMetadata> {
     Text(JsString),
-    Callback(SystemPromptCallback),
+    Callback(SystemPromptCallback<M>),
 }
-pub struct AgentHarnessOptions {
+pub struct AgentHarnessOptions<M: SessionMetadataValue = SessionMetadata> {
     pub env: Arc<dyn ExecutionEnv>,
-    pub session: Session,
+    pub session: Session<M>,
     pub models: Arc<dyn Models>,
     pub model: Model,
     pub tools: Vec<Arc<dyn AgentTool>>,
     pub resources: AgentHarnessResources,
-    pub system_prompt: Option<HarnessSystemPrompt>,
+    pub system_prompt: Option<HarnessSystemPrompt<M>>,
     pub stream_options: AgentHarnessStreamOptions,
     pub thinking_level: ThinkingLevel,
     pub active_tool_names: Option<Vec<String>>,
     pub steering_mode: QueueMode,
     pub follow_up_mode: QueueMode,
 }
-impl AgentHarnessOptions {
-    pub fn new(env: Arc<dyn ExecutionEnv>, session: Session, models: Arc<dyn Models>, model: Model) -> Self {
+impl<M: SessionMetadataValue> AgentHarnessOptions<M> {
+    pub fn new(env: Arc<dyn ExecutionEnv>, session: Session<M>, models: Arc<dyn Models>, model: Model) -> Self {
         Self {
             env,
             session,
@@ -329,7 +380,8 @@ pub enum HarnessHookResult {
     SessionBeforeTree(SessionBeforeTreeResult),
 }
 pub type HarnessHook =
-    Arc<dyn Fn(HarnessEvent) -> BoxFuture<'static, Result<Option<HarnessHookResult>, AgentError>> + Send + Sync>;
-pub type HarnessListener =
-    Arc<dyn Fn(HarnessEvent, Option<CancellationToken>) -> BoxFuture<'static, Result<(), AgentError>> + Send + Sync>;
+    Arc<dyn Fn(HarnessEvent) -> BoxFuture<'static, Result<Option<HarnessHookResult>, AgentHarnessError>> + Send + Sync>;
+pub type HarnessListener = Arc<
+    dyn Fn(HarnessEvent, Option<CancellationToken>) -> BoxFuture<'static, Result<(), AgentHarnessError>> + Send + Sync,
+>;
 pub type Unsubscribe = Box<dyn Fn() + Send + Sync>;
