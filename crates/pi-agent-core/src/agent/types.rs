@@ -332,7 +332,7 @@ pub trait AgentTool: Send + Sync {
 /// Context snapshot passed into the low-level agent loop.
 #[derive(Clone)]
 pub struct AgentContext {
-    pub system_prompt: String,
+    pub system_prompt: JsString,
     pub messages: Vec<AgentMessage>,
     pub tools: Option<Vec<Arc<dyn AgentTool>>>,
 }
@@ -576,7 +576,7 @@ pub fn reasoning_for(level: ThinkingLevel) -> Option<pi_ai::types::ThinkingLevel
 /// Public agent state snapshot.
 #[derive(Clone)]
 pub struct AgentState {
-    pub system_prompt: String,
+    pub system_prompt: JsString,
     pub model: Model,
     pub thinking_level: ThinkingLevel,
     pub tools: Vec<Arc<dyn AgentTool>>,

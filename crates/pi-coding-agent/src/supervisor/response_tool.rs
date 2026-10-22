@@ -5,6 +5,7 @@ use std::sync::Arc;
 use pi_agent_core::agent::AgentToolResult;
 use pi_agent_core::harness::ToolExecutionMode;
 use pi_ai::types::TextOrImageContent;
+use pi_js_compat::js_json::{JsString, JsValue};
 use serde_json::{Value, json};
 
 use crate::core::extensions::types::ToolDefinition;
@@ -45,14 +46,16 @@ pub fn supervisor_response_parameters() -> Value {
 }
 
 /// Text returned by the tool for one parameter object.
-pub fn supervisor_response_text(params: &Value) -> String {
-    let answer = params.get("answer").and_then(Value::as_str);
-    match params.get("kind").and_then(Value::as_str) {
-        Some("advisory") if answer.is_some_and(|answer| !pi_js_compat::string::js_trim(answer).is_empty()) => {
-            answer.unwrap_or_default().to_owned()
-        }
-        _ => "Supervisor response recorded.".to_owned(),
+pub fn supervisor_response_text(params: &JsValue) -> JsString {
+    let answer = params.get("answer").and_then(JsValue::as_string);
+    let advisory = params
+        .get("kind")
+        .and_then(JsValue::as_string)
+        .is_some_and(|kind| kind == "advisory");
+    if advisory && answer.is_some_and(|answer| !answer.trim().is_empty()) {
+        return answer.cloned().unwrap_or_default();
     }
+    "Supervisor response recorded.".into()
 }
 
 /// `createSupervisorResponseTool`.

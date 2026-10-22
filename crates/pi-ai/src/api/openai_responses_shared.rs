@@ -484,7 +484,7 @@ pub fn convert_responses_messages(
     );
 
     let include_system_prompt = options.include_system_prompt.unwrap_or(true);
-    if include_system_prompt && let Some(system_prompt) = context.system_prompt.as_deref() {
+    if include_system_prompt && let Some(system_prompt) = context.system_prompt.as_ref() {
         let supports_developer_role = match &model.compat {
             Some(ModelCompat::OpenAIResponses(compat)) => compat.supports_developer_role != Some(false),
             _ => true,

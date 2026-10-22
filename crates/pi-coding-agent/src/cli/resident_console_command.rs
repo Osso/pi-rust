@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use pi_agent_core::agent::types::AgentMessage;
 use pi_ai::types::{TextOrImageContent, UserContent};
+use pi_js_compat::js_json::{JsValue, encode_node_utf8};
 use pi_js_compat::string::js_trim;
 use pi_tui::components::input::InputOptions;
 use pi_tui::tui::{ComponentRef, TuiExt, TuiMainScreen, component};
@@ -451,7 +452,7 @@ impl ResidentConsoleUi {
 
 fn read_user_content(content: &UserContent) -> String {
     match content {
-        UserContent::Text(text) => text.clone(),
+        UserContent::Text(text) => encode_node_utf8(text),
         UserContent::Blocks(blocks) => read_blocks(blocks),
     }
 }
@@ -460,24 +461,24 @@ fn read_blocks(blocks: &[TextOrImageContent]) -> String {
     blocks
         .iter()
         .filter_map(|block| match block {
-            TextOrImageContent::Text(text) => Some(text.text.clone()),
+            TextOrImageContent::Text(text) => Some(encode_node_utf8(&text.text)),
             TextOrImageContent::Image(_) => None,
         })
         .collect::<Vec<_>>()
         .join("\n")
 }
 
-fn read_value_content(content: &Value) -> String {
+fn read_value_content(content: &JsValue) -> String {
     match content {
-        Value::String(text) => text.clone(),
-        Value::Array(parts) => parts
+        JsValue::String(text) => encode_node_utf8(text),
+        JsValue::Array(parts) => parts
             .iter()
             .filter_map(|part| {
                 let object = part.as_object()?;
-                if object.get("type")?.as_str()? != "text" {
+                if object.get("type")?.as_string()? != "text" {
                     return None;
                 }
-                object.get("text")?.as_str().map(str::to_owned)
+                object.get("text")?.as_string().map(encode_node_utf8)
             })
             .collect::<Vec<_>>()
             .join("\n"),

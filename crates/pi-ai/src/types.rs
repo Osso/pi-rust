@@ -849,7 +849,7 @@ impl Tool {
 #[serde(rename_all = "camelCase")]
 pub struct Context {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub system_prompt: Option<String>,
+    pub system_prompt: Option<JsString>,
     pub messages: Vec<Message>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<Tool>>,

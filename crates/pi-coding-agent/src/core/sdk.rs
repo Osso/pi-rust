@@ -476,7 +476,7 @@ async fn create_agent_session_internal(options: CreateAgentSessionOptions) -> Re
     };
     let agent = Agent::new(AgentOptions {
         initial_state: Some(AgentInitialState {
-            system_prompt: Some(String::new()),
+            system_prompt: Some(Default::default()),
             model: model.clone(),
             thinking_level: Some(thinking_level),
             tools: Some(Vec::new()),

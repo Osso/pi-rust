@@ -146,7 +146,10 @@ impl AgentTool for ConstrainedSamplingTool {
         self.inner.execution_mode()
     }
 
-    fn prepare_arguments(&self, args: Value) -> Result<Value, pi_agent_core::agent::ToolError> {
+    fn prepare_arguments(
+        &self,
+        args: pi_js_compat::js_json::JsValue,
+    ) -> Result<pi_js_compat::js_json::JsValue, pi_agent_core::agent::ToolError> {
         self.inner.prepare_arguments(args)
     }
 
@@ -161,7 +164,7 @@ impl AgentTool for ConstrainedSamplingTool {
     fn execute(
         &self,
         tool_call_id: String,
-        params: Value,
+        params: pi_js_compat::js_json::JsValue,
         signal: Option<CancellationToken>,
         on_update: AgentToolUpdateCallback,
         execution: Option<AgentToolExecutionContext>,

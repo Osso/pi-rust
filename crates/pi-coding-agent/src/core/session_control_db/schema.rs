@@ -899,11 +899,11 @@ fn migrate_legacy_runtime_mailbox_row(
     now_iso: &str,
 ) -> Result<(), ControlDbError> {
     let store_ref = super::RuntimeMailboxStoreRef {
-        message_id: row.store_message_id.clone(),
-        session_path: row.store_session_path.clone(),
+        message_id: row.store_message_id.clone().into(),
+        session_path: row.store_session_path.clone().into(),
     };
     // Legacy payload validation precedes retention cleanup, as in frozen TS.
-    let canonical=db.query_row("SELECT rowid,session_path,message_id,data,updated_at FROM multi_agent_mailbox_messages WHERE session_path=? AND message_id=?",params![store_ref.session_path,store_ref.message_id],|r|Ok(super::RuntimeMailboxRow{id:r.get(0)?,session_path:r.get(1)?,message_id:r.get(2)?,data:r.get(3)?,updated_at:r.get(4)?})).optional()?;
+    let canonical=db.query_row("SELECT rowid,session_path,message_id,data,updated_at FROM multi_agent_mailbox_messages WHERE session_path=? AND message_id=?",params![store_ref.session_path.to_utf8_lossy(),store_ref.message_id.to_utf8_lossy()],|r|Ok(super::RuntimeMailboxRow{id:r.get(0)?,session_path:r.get(1)?,message_id:r.get(2)?,data:r.get(3)?,updated_at:r.get(4)?})).optional()?;
     let Some(canonical) = canonical else {
         return Ok(());
     };
@@ -917,36 +917,28 @@ fn migrate_legacy_runtime_mailbox_row(
         recipient_host: None,
         kind: to_runtime_mailbox_message_kind(&row.kind),
         recipient: super::RuntimeMailboxAddress {
-            agent_id: row.recipient_agent_id.clone(),
-            session_id: row.recipient_session_id.clone(),
+            agent_id: row.recipient_agent_id.clone().map(Into::into),
+            session_id: row.recipient_session_id.clone().into(),
         },
         sender: super::RuntimeMailboxAddress {
-            agent_id: row.sender_agent_id.clone(),
-            session_id: row.sender_session_id.clone().unwrap_or_default(),
+            agent_id: row.sender_agent_id.clone().map(Into::into),
+            session_id: row.sender_session_id.clone().unwrap_or_default().into(),
         },
         store_ref,
     };
-    let mut updated = super::parse_canonical_mailbox_payload_lossless(&canonical)?;
-    assert_runtime_mailbox_routing(&updated, &input)?;
-    let routed = add_runtime_mailbox_routing(&message, &input)?;
-    for key in [
-        "recipientSessionId",
-        "recipientAgentId",
-        "senderSessionId",
-        "senderAgentId",
-    ] {
-        if let Some(value) = routed.get(key) {
-            updated.insert(js_json::JsString::from(key), js_json::JsValue::from(value));
-        }
-    }
-    if routed.get("status").and_then(Value::as_str) == Some("delivered") || row.status == "delivered" {
+    let mut updated =
+        add_runtime_mailbox_routing(&super::parse_canonical_mailbox_payload_lossless(&canonical)?, &input)?;
+    if message.get("status").and_then(Value::as_str) == Some("delivered") || row.status == "delivered" {
         db.execute(
             "DELETE FROM multi_agent_mailbox_messages WHERE session_path=? AND message_id=?",
-            params![input.store_ref.session_path, input.store_ref.message_id],
+            params![
+                input.store_ref.session_path.to_utf8_lossy(),
+                input.store_ref.message_id.to_utf8_lossy()
+            ],
         )?;
         return Ok(());
     }
-    let canonical_status = to_runtime_mailbox_message_status(&require_string_field(&routed, "status", &context)?);
+    let canonical_status = to_runtime_mailbox_message_status(&require_string_field(&message, "status", &context)?);
     let status = migrated_mailbox_status(row, canonical_status);
     apply_migrated_mailbox_fields(&mut updated, row, status, now_iso);
     write_canonical_mailbox_payload(
@@ -1024,38 +1016,40 @@ fn status_name(status: super::RuntimeMailboxMessageStatus) -> &'static str {
 }
 
 pub(crate) fn add_runtime_mailbox_routing(
-    message: &serde_json::Map<String, Value>,
+    message: &js_json::JsObject,
     input: &super::EnqueueRuntimeMailboxMessageInput,
-) -> Result<serde_json::Map<String, Value>, ControlDbError> {
-    let lossless = message
-        .iter()
-        .map(|(key, value)| (js_json::JsString::from(key.as_str()), js_json::JsValue::from(value)))
-        .collect();
-    assert_runtime_mailbox_routing(&lossless, input)?;
+) -> Result<js_json::JsObject, ControlDbError> {
+    use js_json::JsValue;
+    assert_runtime_mailbox_routing(message, input)?;
     let mut routed = message.clone();
     if let Some(host) = input.recipient_host.as_ref().filter(|host| !host.is_empty()) {
-        routed.insert("recipientHost".into(), Value::String(host.clone()));
+        routed.insert("recipientHost".into(), JsValue::String(host.clone().into()));
     }
     routed.insert(
-        "recipientSessionId".to_owned(),
-        Value::String(input.recipient.session_id.clone()),
+        "recipientSessionId".into(),
+        JsValue::String(input.recipient.session_id.clone()),
     );
     routed.insert(
-        "recipientAgentId".to_owned(),
+        "recipientAgentId".into(),
         input
             .recipient
             .agent_id
             .clone()
-            .map(Value::String)
-            .unwrap_or(Value::Null),
+            .map(JsValue::String)
+            .unwrap_or(JsValue::Null),
     );
     routed.insert(
-        "senderSessionId".to_owned(),
-        Value::String(input.sender.session_id.clone()),
+        "senderSessionId".into(),
+        JsValue::String(input.sender.session_id.clone()),
     );
     routed.insert(
-        "senderAgentId".to_owned(),
-        input.sender.agent_id.clone().map(Value::String).unwrap_or(Value::Null),
+        "senderAgentId".into(),
+        input
+            .sender
+            .agent_id
+            .clone()
+            .map(JsValue::String)
+            .unwrap_or(JsValue::Null),
     );
     Ok(routed)
 }
@@ -1067,14 +1061,14 @@ pub(crate) fn assert_runtime_mailbox_routing(
     use js_json::{JsString, JsValue};
     let field = |key: &str| message.get(&JsString::from(key));
     let text = |text: &str| JsValue::String(JsString::from(text));
-    let nullable_text = |value: Option<&str>| value.map(text).unwrap_or(JsValue::Null);
+    let nullable_text = |value: Option<&JsString>| value.cloned().map(JsValue::String).unwrap_or(JsValue::Null);
     if !matches!(field("recipientSessionId"), Some(JsValue::String(_))) {
         return Ok(());
     }
-    let same_recipient = field("recipientSessionId") == Some(&text(&input.recipient.session_id))
-        && field("recipientAgentId") == Some(&nullable_text(input.recipient.agent_id.as_deref()));
-    let same_sender = field("senderSessionId") == Some(&text(&input.sender.session_id))
-        && field("senderAgentId") == Some(&nullable_text(input.sender.agent_id.as_deref()));
+    let same_recipient = field("recipientSessionId") == Some(&JsValue::String(input.recipient.session_id.clone()))
+        && field("recipientAgentId") == Some(&nullable_text(input.recipient.agent_id.as_ref()));
+    let same_sender = field("senderSessionId") == Some(&JsValue::String(input.sender.session_id.clone()))
+        && field("senderAgentId") == Some(&nullable_text(input.sender.agent_id.as_ref()));
     let same_kind = field("kind") == Some(&text(kind_name(input.kind)));
     let host = gethostname::gethostname().to_string_lossy().into_owned();
     let default_host = text(&host);
@@ -1093,7 +1087,8 @@ pub(crate) fn assert_runtime_mailbox_routing(
     }
     Err(ControlDbError::new(format!(
         "Runtime mailbox store reference conflicts with canonical mailbox row: {}#{}",
-        input.store_ref.session_path, input.store_ref.message_id
+        input.store_ref.session_path.to_utf8_lossy(),
+        input.store_ref.message_id.to_utf8_lossy()
     )))
 }
 

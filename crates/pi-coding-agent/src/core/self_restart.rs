@@ -9,6 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use pi_agent_core::harness::messages::CustomMessageContent;
 use pi_ai::request::BoxFuture;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 
 use crate::cli::args::Args;
 use crate::core::session_manager::{SessionManager, SessionManagerError};
@@ -30,7 +31,7 @@ const BUN_VIRTUAL_ENTRYPOINT_PREFIXES: [&str; 3] = ["/$bunfs/root/", "/~BUN/root
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelfRestartRequest {
     pub session_file: String,
-    pub prompt: Option<String>,
+    pub prompt: Option<pi_js_compat::js_json::JsString>,
     pub old_pid: Option<u32>,
 }
 
@@ -38,7 +39,7 @@ pub struct SelfRestartRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelfRestartHandoff {
     pub session_file: String,
-    pub prompt: Option<String>,
+    pub prompt: Option<pi_js_compat::js_json::JsString>,
     pub old_pid: Option<u32>,
 }
 
@@ -93,7 +94,7 @@ pub fn consume_self_restart_request(
     };
     Some(SelfRestartHandoff {
         session_file,
-        prompt: prompt.filter(|prompt| !prompt.is_empty()),
+        prompt: prompt.filter(|prompt| !prompt.is_empty()).map(JsString::from),
         old_pid,
     })
 }
@@ -191,22 +192,16 @@ pub fn append_self_restart_notice(
         return Ok(());
     };
     let notice = format_restart_notice(prompt, handoff.old_pid, current_pid);
-    session_manager.append_custom_message_entry(
-        "self_restart",
-        CustomMessageContent::Text(notice.into()),
-        true,
-        None,
-    )?;
+    session_manager.append_custom_message_entry("self_restart", CustomMessageContent::Text(notice), true, None)?;
     Ok(())
 }
 
-fn format_restart_notice(prompt: &str, old_pid: Option<u32>, current_pid: u32) -> String {
-    match old_pid {
-        Some(old_pid) if old_pid != current_pid => {
-            format!("{prompt} PID {old_pid} -> {current_pid}.")
-        }
-        _ => format!("{prompt} PID: {current_pid}."),
-    }
+fn format_restart_notice(prompt: &JsString, old_pid: Option<u32>, current_pid: u32) -> JsString {
+    let suffix = match old_pid {
+        Some(old_pid) if old_pid != current_pid => format!(" PID {old_pid} -> {current_pid}."),
+        _ => format!(" PID: {current_pid}."),
+    };
+    prompt.clone() + suffix
 }
 
 /// `getSelfRestartArgs`.
@@ -233,17 +228,20 @@ pub fn build_self_restart_env(
     request: &SelfRestartRequest,
     base: &BTreeMap<String, String>,
     current_pid: u32,
-) -> BTreeMap<String, String> {
-    let mut env = base.clone();
-    env.insert(ENV_SELF_RESTART_REQUEST.to_owned(), "1".to_owned());
-    env.insert(ENV_SELF_RESTART_SESSION.to_owned(), request.session_file.clone());
+) -> BTreeMap<String, JsString> {
+    let mut env = base
+        .iter()
+        .map(|(name, value)| (name.clone(), JsString::from(value)))
+        .collect::<BTreeMap<_, _>>();
+    env.insert(ENV_SELF_RESTART_REQUEST.to_owned(), "1".into());
+    env.insert(ENV_SELF_RESTART_SESSION.to_owned(), request.session_file.clone().into());
     env.insert(
         ENV_SELF_RESTART_PROMPT.to_owned(),
         request.prompt.clone().unwrap_or_default(),
     );
     env.insert(
         ENV_SELF_RESTART_OLD_PID.to_owned(),
-        request.old_pid.unwrap_or(current_pid).to_string(),
+        request.old_pid.unwrap_or(current_pid).to_string().into(),
     );
     env
 }
@@ -278,7 +276,7 @@ fn execve(
     executable: &str,
     argv0: Option<&str>,
     args: &[String],
-    env: &BTreeMap<String, String>,
+    env: &BTreeMap<String, JsString>,
 ) -> io::Result<std::convert::Infallible> {
     let path = nul_terminated(executable)?;
     let mut argv = Vec::with_capacity(args.len() + 1);
@@ -288,7 +286,7 @@ fn execve(
     }
     let mut environment = Vec::with_capacity(env.len());
     for (name, value) in env {
-        environment.push(nul_terminated(&format!("{name}={value}"))?);
+        environment.push(nul_terminated(&format!("{name}={}", encode_node_utf8(value)))?);
     }
     nix::unistd::execve(&path, &argv, &environment).map_err(|errno| io::Error::from_raw_os_error(errno as i32))
 }
@@ -321,7 +319,7 @@ pub fn spawn_self_restart(
     command
         .args(get_self_restart_args(&target.exec_argv, &target.argv))
         .current_dir(std::env::current_dir()?)
-        .envs(env)
+        .envs(env.into_iter().map(|(name, value)| (name, encode_node_utf8(&value))))
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());

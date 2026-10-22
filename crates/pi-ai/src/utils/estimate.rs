@@ -151,8 +151,8 @@ fn estimate_added_tools_tokens(tools: Option<&[Tool]>, added_names: &BTreeSet<St
 fn add_prefix_tokens(context: &Context, estimate: ContextUsageEstimate) -> ContextUsageEstimate {
     let system_tokens = context
         .system_prompt
-        .as_deref()
-        .map(estimate_text_tokens)
+        .as_ref()
+        .map(|text| (text.len() as f64 / CHARS_PER_TOKEN).ceil())
         .unwrap_or(0.0);
     let tool_tokens = estimate_tools_tokens(context.tools.as_deref());
     estimate.with_extra_tokens(system_tokens + tool_tokens)

@@ -413,7 +413,7 @@ pub fn convert_messages(
     };
     let transformed_messages = transform_messages_with(&context.messages, model, Some(&normalizer), now_millis());
 
-    if let Some(system_prompt) = context.system_prompt.as_deref() {
+    if let Some(system_prompt) = context.system_prompt.as_ref() {
         let role = if model.reasoning && compat.supports_developer_role {
             "developer"
         } else {
