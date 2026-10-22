@@ -1,11 +1,16 @@
 //! UTF-16 mailbox content must survive both persistent and in-memory public APIs.
 use pi_coding_agent::core::session_control_db::*;
-use pi_js_compat::js_json::{self, JsValue};
+use pi_js_compat::js_json::{self, JsString, JsValue};
 
 #[test]
 fn enqueue_retry_restore_retains_raw_payload_and_rejects_replacement_collision() {
     let directory = tempfile::tempdir().unwrap();
-    let database = directory.path().join("control.sqlite").display().to_string();
+    let database = directory
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let wire = r#"{"recipient":{"sessionId":"to","agentId":null},"sender":{"sessionId":"from","agentId":null},"kind":"message","storeRef":{"sessionPath":"/fixture/s","messageId":"m"},"message":{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"before\ud800after","updatedAt":"\udfff","fileRefs":[{"path":"/raw/\udfff","label":"\ud800"}],"unknown":{"\ud800":"high","�":"replacement"}}}"#;
     let input: EnqueueStoredRuntimeMailboxMessageInput =
         js_json::from_value(&js_json::parse_lossless(wire).unwrap()).unwrap();
@@ -62,7 +67,12 @@ fn enqueue_retry_restore_retains_raw_payload_and_rejects_replacement_collision()
 #[test]
 fn supervisor_request_and_response_preserve_raw_content() {
     let directory = tempfile::tempdir().unwrap();
-    let database = directory.path().join("control.sqlite").display().to_string();
+    let database = directory
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let payload = js_json::parse_lossless(r#"{"question":"why\ud800","\udfff":"low","�":"replacement"}"#).unwrap();
     let input = PostSupervisorRequestInput {
         sender_session_id: "from".into(),
@@ -75,7 +85,8 @@ fn supervisor_request_and_response_preserve_raw_content() {
     let restored = read_supervisor_request(&database, id).unwrap().unwrap();
     assert_eq!(restored.payload, input.payload);
     let prompt = pi_coding_agent::supervisor::service::build_supervisor_prompt(&restored);
-    let request_json = prompt.split_once("Request:\n").unwrap().1;
+    let request_start = prompt.find("Request:\n").unwrap() + "Request:\n".len();
+    let request_json = prompt.slice(request_start, prompt.len());
     let request = js_json::parse_lossless(request_json).unwrap();
     assert_eq!(request.get("payload"), Some(&payload));
 
@@ -107,8 +118,8 @@ fn terminal_notifications_keep_content_units_and_duration() {
     let now = pi_coding_agent::utils::iso_time::now_iso_string();
     let raw = js_json::parse_lossless(r#"{"id":"agent_1","displayName":"Scout","agentType":"scout","lifecycle":"completed","revision":2,"createdAt":"","updatedAt":"","cwd":"/repo","permission":{"policy":"on-request","narrowed":true},"result":{"summary":"  raw\ud800  ","durationMs":42}}"#).unwrap();
     let mut agent: AgentSnapshot = js_json::from_value(&raw).unwrap();
-    agent.created_at = now.clone();
-    agent.updated_at = now;
+    agent.created_at = now.clone().into();
+    agent.updated_at = now.into();
     assert_eq!(agent_to_value(&agent).unwrap().get("result"), raw.get("result"));
     let store = MultiAgentStore::new(Default::default());
     store.publish_terminal_outbox_snapshot(&agent).unwrap();
@@ -126,7 +137,12 @@ fn terminal_notifications_keep_content_units_and_duration() {
         code: None,
     });
     let directory = tempfile::tempdir().unwrap();
-    let database = directory.path().join("control.sqlite").display().to_string();
+    let database = directory
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     bootstrap_multi_agent_agent(&database, "/fixture/s", &agent.id, &agent_to_value(&agent).unwrap()).unwrap();
     let stored = read_multi_agent_agent(&database, "/fixture/s", &agent.id)
         .unwrap()
@@ -144,14 +160,19 @@ fn session_name_normalization_retains_units_until_sql_text_binding() {
     use pi_js_compat::js_json::JsString;
     let input = JsString::from_utf16(vec![0xfeff, 0xd800, 13, 10, 13, 9, 98, 0xdcff, 0x3000]);
     let expected = JsString::from_utf16(vec![0xd800, 32, 9, 98, 0xdcff]);
-    assert_eq!(normalize_session_name_utf16(Some(&input)), Some(expected.clone()));
-    assert_eq!(normalize_session_name_utf16(Some(&JsString::from("\r\n "))), None);
+    assert_eq!(normalize_session_name(Some(&input)), Some(expected.clone()));
+    assert_eq!(normalize_session_name(Some(&JsString::from("\r\n "))), None);
     assert_eq!(
-        normalize_session_name(Some("\u{feff}A\r\n\rB \u{3000}")),
+        normalize_session_name(Some(&JsString::from("\u{feff}A\r\n\rB \u{3000}"))),
         Some("A B".into())
     );
     let directory = tempfile::tempdir().unwrap();
-    let database = directory.path().join("control.sqlite").display().to_string();
+    let database = directory
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let now = pi_coding_agent::utils::iso_time::now_iso_string();
     let metadata: WritableSessionMetadata = serde_json::from_value(serde_json::json!({
         "sessionPath":"/fixture/s","id":"s","cwd":"/repo","createdAt":now,"modifiedAt":now,
@@ -162,7 +183,7 @@ fn session_name_normalization_retains_units_until_sql_text_binding() {
     write_session_name(&database, "/fixture/s", Some(&input)).unwrap();
     assert_eq!(
         read_session_name_state(&database, "/fixture/s").unwrap().name,
-        Some(expected.to_utf8_lossy())
+        Some("\u{fffd} \tb\u{fffd}".into())
     );
     assert_eq!(input.units()[1], 0xd800);
 }
@@ -174,7 +195,12 @@ fn detached_control_delivery_keeps_result_error_and_cancel_reason() {
         enqueue_detached_job_status_response,
     };
     let directory = tempfile::tempdir().unwrap();
-    let database = directory.path().join("control.sqlite").display().to_string();
+    let database = directory
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let recipient = RuntimeMailboxAddress {
         session_id: "to".into(),
         agent_id: None,
@@ -195,7 +221,7 @@ fn detached_control_delivery_keeps_result_error_and_cancel_reason() {
     };
     let result = js_json::parse_lossless(r#"{"\ud800":["\udfff",null],"�":"replacement"}"#).unwrap();
     enqueue_detached_job_status_response(&EnqueueDetachedJobStatusResponseInput {
-        control_db_path: database.clone(),
+        control_db_path: database.clone().into(),
         identity: identity.clone(),
         reply_to: recipient.clone(),
         request_id: "request".into(),
@@ -215,7 +241,7 @@ fn detached_control_delivery_keeps_result_error_and_cancel_reason() {
             updated_at: None,
         }).unwrap();
     }
-    let commands = claim_detached_job_runtime_commands(&database, &recipient, &identity).unwrap();
+    let commands = claim_detached_job_runtime_commands(&JsString::from(&database), &recipient, &identity).unwrap();
     assert_eq!(commands.len(), 3);
     let DetachedJobRuntimeCommand::Response(response) = &commands[0] else {
         panic!("response");
