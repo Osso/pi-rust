@@ -53,3 +53,9 @@ display-only parity gap, not a lossless rendering claim.
 
 `FooterContextUsage` mirrors the two fields the renderer consumes
 (`contextWindow`, `percent`); the unused `tokens` field is not carried.
+
+## Q18 native UTF-16 integration (2026-10-22)
+
+Owned interactive APIs, selector state and frames now retain `JsString`; session search uses unit-based whitespace/token/phrase matching and shared `JsRegex`. Paths remain native through lexical operations and encode at filesystem/argv writes. Theme load errors use the original raw path. No terminal-display projection is used for lookup or stored text.
+
+`lossless_interactive_selectors` covers raw picker selection/validation and unmatched-unit token/regex input. Tests are **unexecuted**: coding-agent library compilation is blocked. `/tmp/pi-rust-repin-lossless-interactive/interactive4.{json,log}` records compiler-only evidence (178 total errors, 77 in interactive_mode; other owned files zero primary errors), not behavioral parity or acceptance. Whole-mode migration and integration remain open; historical module “done” labels do not apply to this gate.
