@@ -9,6 +9,7 @@ fn unusable_fd_fails_instead_of_skipping() {
     required_fd::assert_unusable_fd_fails("autocomplete_matches_the_pinned_typescript_source");
 }
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::Path;
 
@@ -71,13 +72,13 @@ fn build_fixture(base: &Path) {
 
 fn rust_commands() -> Vec<CommandEntry> {
     let mut model = SlashCommand::new("model");
-    model.description = Some("Select a model".to_string());
+    model.description = Some("Select a model".into());
     let mut cd = SlashCommand::new("cd");
-    cd.argument_hint = Some("<dir>".to_string());
-    cd.description = Some("Change directory".to_string());
+    cd.argument_hint = Some("<dir>".into());
+    cd.description = Some("Change directory".into());
     cd.get_argument_completions = Some(Box::new(|_| Some(vec![AutocompleteItem::new("src/", "src/")])));
     let mut plain = AutocompleteItem::new("help", "help");
-    plain.description = Some("Show help".to_string());
+    plain.description = Some("Show help".into());
 
     vec![
         CommandEntry::Command(model),
@@ -251,7 +252,7 @@ fn autocomplete_matches_the_pinned_typescript_source() {
             json!({
                 "lines": [case.line],
                 "cursorLine": 0,
-                "cursorCol": case.line.len(),
+                "cursorCol": JsString::from(case.line).len(),
                 "force": case.force,
             })
         })
@@ -275,14 +276,14 @@ fn autocomplete_matches_the_pinned_typescript_source() {
         .enable_all()
         .build()
         .expect("runtime");
-    let provider = CombinedAutocompleteProvider::new(rust_commands(), base.to_str().unwrap(), Some(fd));
+    let provider = CombinedAutocompleteProvider::new(rust_commands(), base.to_str().unwrap(), Some(fd.into()));
 
     for (case, expected) in SUGGESTION_CASES.iter().zip(results) {
-        let lines = vec![case.line.to_string()];
+        let lines = vec![JsString::from(case.line)];
         let actual = runtime.block_on(provider.get_suggestions(
             &lines,
             0,
-            case.line.len(),
+            JsString::from(case.line).len(),
             SuggestionsOptions {
                 signal: None,
                 force: case.force,
@@ -412,7 +413,8 @@ fn apply_completion_matches_the_pinned_typescript_source() {
     let provider = CombinedAutocompleteProvider::new(Vec::new(), base.to_str().unwrap(), None);
     for (case, expected) in cases.iter().zip(results) {
         let item = AutocompleteItem::new(case.value, case.label);
-        let actual = provider.apply_completion(&[case.line.to_string()], 0, case.cursor, &item, case.prefix);
+        let actual =
+            provider.apply_completion(&[JsString::from(case.line)], 0, case.cursor, &item, &case.prefix.into());
         assert_eq!(
             actual.lines,
             expected["lines"]
