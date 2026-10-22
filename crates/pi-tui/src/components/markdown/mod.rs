@@ -58,18 +58,10 @@ pub trait MarkdownTheme {
 }
 
 /// Options mirroring `MarkdownOptions`.
+#[derive(Default)]
 pub struct MarkdownOptions {
     pub preserve_ordered_list_markers: bool,
     pub preserve_backslash_escapes: bool,
-}
-
-impl Default for MarkdownOptions {
-    fn default() -> Self {
-        Self {
-            preserve_ordered_list_markers: false,
-            preserve_backslash_escapes: false,
-        }
-    }
 }
 
 struct InlineStyleContext<'a> {

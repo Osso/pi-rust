@@ -37,6 +37,24 @@ fn identity() -> StyleFn {
 }
 
 #[test]
+fn spacer_default_and_explicit_zero_match_typescript() {
+    let mut oracle = TsOracle::spawn("tui-components-oracle.ts", SOURCE_DIRECTORY);
+    let output = run(
+        &mut oracle,
+        "spacer",
+        json!([
+            {"width": 8, "setLines": null}, {"width": 8, "lines": 0, "setLines": null}
+        ]),
+    );
+    assert_eq!(
+        output["results"],
+        json!([
+            {"snapshots": [Spacer::default().render(8)]}, {"snapshots": [Spacer::new(0).render(8)]}
+        ])
+    );
+}
+
+#[test]
 fn text_render_matches_typescript() {
     let cases: &[(&str, usize, usize, bool, usize)] = &[
         ("", 0, 0, false, 10),

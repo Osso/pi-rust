@@ -23,3 +23,7 @@ The Rust marked lexer is an internal implementation of the frozen third-party pa
 Typed boundaries: Rust UTF8 strings/byte offsets replace JS UTF16; Intl dictionary segmentation uses approved ICU4X adaptation. Theme functions remain typed callbacks. Driver-owned animation concerns belong to editor/loader, not Markdown.
 
 Mutants disabling reuse, invalidating on edits, violating theme identity, or eagerly invoking default foreground styling are killed by lifecycle behavioral tests. Full Q2 evidence and approved domain exclusions are linked above.
+
+## Q2 findings correction
+
+`MarkdownOptions` derives Default: both frozen booleans remain false; no rendering semantics changed. Mandatory clippy derivable_impls failure removed.

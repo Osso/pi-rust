@@ -212,7 +212,7 @@ impl SettingsList {
         if let Some(selected_item) = display_indices
             .get(state.selected_index)
             .map(|index| &state.items[*index])
-            && let Some(description) = &selected_item.description
+            && let Some(description) = selected_item.description.as_ref().filter(|text| !text.is_empty())
         {
             lines.push(String::new());
             for line in wrap_text_with_ansi(description, width.saturating_sub(4)) {
