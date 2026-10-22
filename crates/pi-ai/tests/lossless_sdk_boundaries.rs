@@ -122,6 +122,7 @@ async fn vertex_login_retains_raw_project_location_and_credential_path() {
     let credential = provider
         .auth()
         .api_key
+        .as_ref()
         .unwrap()
         .login(interaction)
         .unwrap()
