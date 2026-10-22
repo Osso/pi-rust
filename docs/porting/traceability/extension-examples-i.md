@@ -5,8 +5,11 @@ Frozen handoff.ts:136–139 passes only resolved auth and loader signal, no cach
 
 Frozen summarize.ts:163 selects the static catalog openai/gpt-5.2; native now uses compat.get_model, not registry.find. `missingModel` removes the custom runtime catalog model only; the frozen built-in still exists, so that fixture must exercise static-catalog behavior rather than retain the obsolete no-model expectation. Source :181–189 also omits generated session ID and cache retention; native extras removed. Assertions remain full-result comparisons.
 
+Direct completion resolves auth then dispatches the registered provider, matching source compat.complete rather than ModelRuntime.prepare_request's pre-dispatch cancellation. The native fixture now models stored-key auth separately from the faux provider's intentionally keyless auth; its one-shot UI thread waits for explicit dispatch notification before closing after Escape, matching Node's still-live host. Cancellation remains immediate; no timer delay or cancelled-result assertion is removed.
 
-Pinned source: `532f7d12`, `packages/coding-agent/examples/extensions/`.
+Proof: `test-example_summarize-stored-auth-public.log` GREEN 1/1 (ten scenarios); handoff reaches final rich-compaction scenario after cancellation passes. Remaining rich image marker RED belongs to shared coding-agent convertToLlm and is main-owned, not patched into this example.
+
+Historical pinned source: `532f7d12`, `packages/coding-agent/examples/extensions/`.
 Native sources are embeddable `#[path]` modules, explicitly factory-registered;
 none loads by default. Only JavaScript stack frames may be omitted.
 

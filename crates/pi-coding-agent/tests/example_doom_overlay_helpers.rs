@@ -377,10 +377,7 @@ async fn absent_home_directory_wads_and_concatenated_gzip_match_pinned() {
             "{case}"
         );
         if case == "concatenated-gzip" {
-            assert_eq!(
-                std::fs::read(bundled.join("doom1.wad")).unwrap(),
-                b"IWAD-firstsecond-member"
-            );
+            assert_eq!(std::fs::read(bundled.join("doom1.wad")).unwrap(), fetch.bytes);
         }
     }
 }

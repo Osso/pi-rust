@@ -24,6 +24,65 @@ use serde_json::{Map, Value, json};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 type Trace = Arc<Mutex<Vec<Value>>>;
+
+// Source compat auth reads stored keys independently of the faux stream API.
+struct StoredFixtureKey;
+impl pi_ai::auth::types::ApiKeyAuth for StoredFixtureKey {
+    fn name(&self) -> &str {
+        "Fixture"
+    }
+    fn resolve(
+        &self,
+        input: pi_ai::auth::types::ApiKeyResolveInput,
+    ) -> BoxFuture<'static, Result<Option<pi_ai::auth::types::AuthResult>, pi_ai::auth::types::AuthError>> {
+        Box::pin(async move {
+            Ok(input
+                .credential
+                .and_then(|credential| credential.key)
+                .map(|key| pi_ai::auth::types::AuthResult {
+                    auth: pi_ai::auth::types::ModelAuth {
+                        api_key: Some(key),
+                        ..Default::default()
+                    },
+                    env: None,
+                    source: None,
+                }))
+        })
+    }
+}
+struct FixtureStreams(Arc<dyn pi_ai::models::Provider>);
+impl pi_ai::request::ProviderStreams for FixtureStreams {
+    fn stream(
+        &self,
+        model: pi_ai::types::Model,
+        context: pi_ai::types::Context,
+        options: pi_ai::request::StreamOptions,
+    ) -> pi_ai::utils::event_stream::AssistantMessageEventStream {
+        self.0.stream(model, context, options)
+    }
+    fn stream_simple(
+        &self,
+        model: pi_ai::types::Model,
+        context: pi_ai::types::Context,
+        options: pi_ai::request::SimpleStreamOptions,
+    ) -> pi_ai::utils::event_stream::AssistantMessageEventStream {
+        self.0.stream_simple(model, context, options)
+    }
+}
+fn provider_with_stored_key_auth(provider: Arc<dyn pi_ai::models::Provider>) -> Arc<dyn pi_ai::models::Provider> {
+    pi_ai::models::create_provider(pi_ai::models::CreateProviderOptions {
+        id: provider.id().to_owned(),
+        name: None,
+        base_url: None,
+        headers: None,
+        auth: pi_ai::auth::types::ProviderAuth::api_key(Arc::new(StoredFixtureKey)),
+        models: provider.get_models(),
+        fetch_models: None,
+        filter_models: None,
+        api: pi_ai::models::ProviderApi::Single(Arc::new(FixtureStreams(provider))),
+    })
+}
+
 struct Backend;
 impl ExtensionUiTuiBackend for Backend {
     fn show_overlay(
@@ -60,6 +119,7 @@ impl ExtensionUiTuiBackend for Backend {
 }
 struct Ui {
     trace: Trace,
+    generation_started: Arc<tokio::sync::Notify>,
     theme: Arc<Theme>,
     request: Value,
 }
@@ -90,6 +150,7 @@ impl ExtensionUiContext for Ui {
         let trace = self.trace.clone();
         let theme = self.theme.clone();
         let request = self.request.clone();
+        let generation_started = self.generation_started.clone();
         ui_thread::run(move || {
             Box::pin(async move {
                 set_theme_instance(theme.clone());
@@ -124,6 +185,11 @@ impl ExtensionUiContext for Ui {
                     .await
                     .expect("custom UI did not complete")
                     .expect("done sender dropped");
+                if request["key"] == "\x1b" && request["noAuth"] != true {
+                    tokio::time::timeout(std::time::Duration::from_secs(3), generation_started.notified())
+                        .await
+                        .expect("source generation must dispatch even after loader cancellation");
+                }
                 component.dispose();
                 Ok(result)
             })
@@ -202,12 +268,14 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     })
     .await
     .unwrap();
-    models.register_native_provider(faux.provider.clone());
+    models.register_native_provider(provider_with_stored_key_auth(faux.provider.clone()));
     if request["noAuth"] != true {
         models.refresh(Default::default()).await.unwrap();
     }
     let calls: Trace = Arc::default();
     let log = calls.clone();
+    let generation_started = Arc::new(tokio::sync::Notify::new());
+    let started = generation_started.clone();
     let response=request.get("response").cloned().unwrap_or(json!([{"type":"text","text":"## Summary\n\nDone **one**."},{"type":"thinking","thinking":"hidden"},{"type":"text","text":"Next: `two`."}]));
     let error = request["error"].as_str().map(str::to_owned);
     let aborted = request["aborted"] == true;
@@ -215,6 +283,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
   let options=options.unwrap_or_default();let session_id=options.stream.session_id.as_ref().map(|id| {assert_eq!(id.len(),36);assert_eq!(id.slice(14, 15),"7");"<uuidv7>"});
   let mut context=serde_json::to_value(context).unwrap();context["messages"][0]["timestamp"]=json!("<clock>");
   log.lock().unwrap().push(json!({"model":[model.provider,model.id],"context":context,"options":{"cacheRetention":options.stream.cache_retention,"sessionId":session_id,"reasoningEffort":options.stream.extra.get("reasoningEffort")}}));
+  started.notify_one();
   let response=response.clone();let error=error.clone();Box::pin(async move{if let Some(error)=error{return Err(pi_ai::request::CallbackError::new(error));}let mut message=faux_assistant_message("",FauxAssistantMessageOptions{timestamp:Some(0),..Default::default()});message.content=serde_json::from_value(response).unwrap();if aborted {message.stop_reason=pi_ai::types::StopReason::Aborted;}Ok(message)})
  }))]);
     let manager = Arc::new(Mutex::new(
@@ -287,6 +356,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     let trace: Trace = Arc::default();
     let ui = Arc::new(Ui {
         trace: trace.clone(),
+        generation_started: generation_started.clone(),
         theme: theme.clone(),
         request: request.clone(),
     });
@@ -305,6 +375,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     replacement.set_ui_context(
         Some(Arc::new(Ui {
             trace: replacements.clone(),
+            generation_started,
             theme,
             request: request.clone(),
         })),

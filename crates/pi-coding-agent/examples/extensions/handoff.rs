@@ -217,14 +217,43 @@ async fn complete_draft(
         ],
         tools: None,
     };
-    let options = StreamOptions {
-        request: ProviderRequestOptions {
-            signal: Some(signal),
+    let response = async {
+        let auth = registry.get_api_key_and_headers(&model).await;
+        let (api_key, headers, env) = match auth {
+            pi_coding_agent::core::model_registry::ResolvedRequestAuth::Ok {
+                api_key: Some(key),
+                headers,
+                env,
+                ..
+            } if !key.is_empty() => (key, headers, env),
+            pi_coding_agent::core::model_registry::ResolvedRequestAuth::Ok { .. } => {
+                return Err(HandlerError::new(js_format!("No API key for {}", model.provider)));
+            }
+            pi_coding_agent::core::model_registry::ResolvedRequestAuth::Err { error } => {
+                return Err(HandlerError::new(error));
+            }
+        };
+        let provider = registry
+            .get_provider(&model.provider)
+            .ok_or_else(|| HandlerError::new(js_format!("No provider for {}", model.provider)))?;
+        let options = StreamOptions {
+            request: ProviderRequestOptions {
+                signal: Some(signal),
+                api_key: Some(api_key),
+                headers,
+                env,
+                ..Default::default()
+            },
             ..Default::default()
-        },
-        ..Default::default()
-    };
-    let result = match registry.complete(model, context, options).await {
+        };
+        provider
+            .stream(model, context, options)
+            .result()
+            .await
+            .map_err(|error| HandlerError::new(error.to_string()))
+    }
+    .await;
+    let result = match response {
         Ok(response) if response.stop_reason != StopReason::Aborted => {
             let text = JsString::join(
                 response
