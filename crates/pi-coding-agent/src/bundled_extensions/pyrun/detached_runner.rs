@@ -77,21 +77,24 @@ pub struct DetachedPyrunLaunchManifest {
     pub checksum: String,
 }
 
-fn fsync_file(path: &str) -> Result<(), String> {
-    let file = std::fs::File::open(path).map_err(|error| error.to_string())?;
-    file.sync_all().map_err(|error| error.to_string())
+fn fsync_file(path: &str) -> Result<(), JsString> {
+    let file = std::fs::File::open(path).map_err(|error| JsString::from(error.to_string()))?;
+    file.sync_all().map_err(|error| JsString::from(error.to_string()))
 }
 
-fn fsync_directory(path: &str) -> Result<(), String> {
-    let file = std::fs::File::open(path).map_err(|error| error.to_string())?;
-    file.sync_all().map_err(|error| error.to_string())
+fn fsync_directory(path: &str) -> Result<(), JsString> {
+    let file = std::fs::File::open(path).map_err(|error| JsString::from(error.to_string()))?;
+    file.sync_all().map_err(|error| JsString::from(error.to_string()))
 }
 
 /// `writeDetachedPyrunLaunchManifest`.
-pub fn write_detached_pyrun_launch_manifest(path: &str, data: &DetachedPyrunLaunchManifestData) -> Result<(), String> {
-    let mut unsigned = js_json::to_value(data).map_err(|error| error.to_string())?;
+pub fn write_detached_pyrun_launch_manifest(
+    path: &str,
+    data: &DetachedPyrunLaunchManifestData,
+) -> Result<(), JsString> {
+    let mut unsigned = js_json::to_value(data).map_err(|error| JsString::from(error.to_string()))?;
     let Some(object) = unsigned.as_object_mut() else {
-        return Err("detached Pyrun manifest must serialize to an object".to_owned());
+        return Err("detached Pyrun manifest must serialize to an object".into());
     };
     object.insert(
         "version".into(),
@@ -103,7 +106,7 @@ pub fn write_detached_pyrun_launch_manifest(path: &str, data: &DetachedPyrunLaun
     let serialized = format!("{}\n", js_json::stringify_lossless(&unsigned));
     write_private(&temporary_path, &serialized)?;
     fsync_file(&temporary_path)?;
-    std::fs::rename(&temporary_path, path).map_err(|error| error.to_string())?;
+    std::fs::rename(&temporary_path, path).map_err(|error| JsString::from(error.to_string()))?;
     let directory = Path::new(path)
         .parent()
         .map(|path| path.display().to_string())
@@ -111,7 +114,7 @@ pub fn write_detached_pyrun_launch_manifest(path: &str, data: &DetachedPyrunLaun
     fsync_directory(&directory)
 }
 
-fn write_private(path: &str, content: &str) -> Result<(), String> {
+fn write_private(path: &str, content: &str) -> Result<(), JsString> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -120,20 +123,21 @@ fn write_private(path: &str, content: &str) -> Result<(), String> {
         options.mode(0o600);
     }
     use std::io::Write;
-    let mut file = options.open(path).map_err(|error| error.to_string())?;
-    file.write_all(content.as_bytes()).map_err(|error| error.to_string())
+    let mut file = options.open(path).map_err(|error| JsString::from(error.to_string()))?;
+    file.write_all(content.as_bytes())
+        .map_err(|error| JsString::from(error.to_string()))
 }
 
 /// `writeDetachedPyrunActivation`.
-pub fn write_detached_pyrun_activation(path: &str, identity: &DetachedJobOwnershipIdentity) -> Result<(), String> {
+pub fn write_detached_pyrun_activation(path: &str, identity: &DetachedJobOwnershipIdentity) -> Result<(), JsString> {
     let temporary_path = format!("{path}.tmp");
     let serialized = format!(
         "{}\n",
-        serde_json::to_string(identity).map_err(|error| error.to_string())?
+        serde_json::to_string(identity).map_err(|error| JsString::from(error.to_string()))?
     );
     write_private(&temporary_path, &serialized)?;
     fsync_file(&temporary_path)?;
-    std::fs::rename(&temporary_path, path).map_err(|error| error.to_string())?;
+    std::fs::rename(&temporary_path, path).map_err(|error| JsString::from(error.to_string()))?;
     let directory = Path::new(path)
         .parent()
         .map(|path| path.display().to_string())
@@ -142,23 +146,25 @@ pub fn write_detached_pyrun_activation(path: &str, identity: &DetachedJobOwnersh
 }
 
 /// `readDetachedPyrunActivation`.
-pub fn read_detached_pyrun_activation(path: &str) -> Result<Option<DetachedJobOwnershipIdentity>, String> {
+pub fn read_detached_pyrun_activation(path: &str) -> Result<Option<DetachedJobOwnershipIdentity>, JsString> {
     if !Path::new(path).exists() {
         return Ok(None);
     }
-    let content = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
-    let value = js_json::parse_lossless(&content).map_err(|error| error.to_string())?;
-    js_json::from_value(&value).map(Some).map_err(|error| error.to_string())
+    let content = std::fs::read_to_string(path).map_err(|error| JsString::from(error.to_string()))?;
+    let value = js_json::parse_lossless(&content).map_err(|error| error.into_message())?;
+    js_json::from_value(&value)
+        .map(Some)
+        .map_err(|error| JsString::from(error.to_string()))
 }
 
 /// `readDetachedPyrunLaunchManifest`.
-pub fn read_detached_pyrun_launch_manifest(path: &str) -> Result<DetachedPyrunLaunchManifest, String> {
-    let content = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
-    let parsed: Value = js_json::parse_lossless(&content).map_err(|error| error.to_string())?;
+pub fn read_detached_pyrun_launch_manifest(path: &str) -> Result<DetachedPyrunLaunchManifest, JsString> {
+    let content = std::fs::read_to_string(path).map_err(|error| JsString::from(error.to_string()))?;
+    let parsed: Value = js_json::parse_lossless(&content).map_err(|error| error.into_message())?;
     let original = parsed.clone();
     let mut unsigned = parsed;
     let Some(object) = unsigned.as_object_mut() else {
-        return Err(format!("Invalid detached Pyrun launch manifest: {path}"));
+        return Err(format!("Invalid detached Pyrun launch manifest: {path}").into());
     };
     let checksum = object
         .shift_remove(&JsString::from("checksum"))
@@ -169,9 +175,9 @@ pub fn read_detached_pyrun_launch_manifest(path: &str) -> Result<DetachedPyrunLa
         && started_at.is_some_and(f64::is_finite)
         && checksum.as_deref() == Some(hash_json(&unsigned).as_str());
     if !valid {
-        return Err(format!("Invalid detached Pyrun launch manifest: {path}"));
+        return Err(format!("Invalid detached Pyrun launch manifest: {path}").into());
     }
-    js_json::from_value(&original).map_err(|error| error.to_string())
+    js_json::from_value(&original).map_err(|error| JsString::from(error.to_string()))
 }
 
 /// Rust replacement for the TypeScript entry-script invocation. The compiled
@@ -194,11 +200,11 @@ pub struct DetachedPyrunRunnerInvocationOptions {
 pub fn get_detached_pyrun_runner_invocation(
     manifest_path: &str,
     options: &DetachedPyrunRunnerInvocationOptions,
-) -> Result<DetachedPyrunRunnerInvocation, String> {
+) -> Result<DetachedPyrunRunnerInvocation, JsString> {
     let executable = match &options.executable_path {
         Some(executable) => executable.clone(),
         None => std::env::current_exe()
-            .map_err(|error| error.to_string())?
+            .map_err(|error| JsString::from(error.to_string()))?
             .to_string_lossy()
             .into_owned(),
     };
@@ -209,7 +215,7 @@ pub fn get_detached_pyrun_runner_invocation(
         });
     }
     let Some(entry_path) = &options.entry_path else {
-        return Err("Detached Pyrun runner entry path is required".to_owned());
+        return Err("Detached Pyrun runner entry path is required".into());
     };
     let args = if Path::new(entry_path)
         .extension()
@@ -227,7 +233,7 @@ pub fn get_detached_pyrun_runner_invocation(
 }
 
 /// `launchDetachedPyrunRunner`.
-pub fn launch_detached_pyrun_runner(manifest_path: &str) -> Result<u32, String> {
+pub fn launch_detached_pyrun_runner(manifest_path: &str) -> Result<u32, JsString> {
     let invocation = get_detached_pyrun_runner_invocation(
         manifest_path,
         &DetachedPyrunRunnerInvocationOptions {
@@ -252,7 +258,7 @@ pub fn launch_detached_pyrun_runner(manifest_path: &str) -> Result<u32, String> 
     }
     let mut child = command
         .spawn()
-        .map_err(|_| "Could not launch detached Pyrun runner".to_owned())?;
+        .map_err(|_| JsString::from("Could not launch detached Pyrun runner"))?;
     let pid = child
         .id()
         .ok_or_else(|| "Could not launch detached Pyrun runner".to_owned())?;
@@ -281,10 +287,10 @@ struct PyrunSettlement {
 }
 
 /// `runDetachedPyrunRunner`.
-pub async fn run_detached_pyrun_runner(manifest_path: &str) -> Result<Option<i64>, String> {
+pub async fn run_detached_pyrun_runner(manifest_path: &str) -> Result<Option<i64>, JsString> {
     let manifest = wait_for_detached_pyrun_launch_manifest(manifest_path).await?;
-    let release_control_db =
-        retain_control_db_connection(&manifest.data.control_db_path).map_err(|error| error.to_string())?;
+    let release_control_db = retain_control_db_connection(&manifest.data.control_db_path)
+        .map_err(|error| JsString::from(error.to_string()))?;
     let runner_options = PyrunRunnerOptions {
         detached: Some(false),
         ..manifest.data.runner_options.clone()
@@ -299,7 +305,7 @@ pub async fn run_detached_pyrun_runner(manifest_path: &str) -> Result<Option<i64
 async fn run_detached_pyrun_settlement(
     manifest: &DetachedPyrunLaunchManifest,
     runner: &PyrunRunnerClient,
-) -> Result<Option<i64>, String> {
+) -> Result<Option<i64>, JsString> {
     let settlement = wait_for_detached_pyrun_settlement(manifest, runner).await?;
     append_pyrun_settlement_record(manifest, &settlement)?;
     let identity = match settlement.identity.clone() {
@@ -314,11 +320,11 @@ async fn run_detached_pyrun_settlement(
         .map(Some)
 }
 
-async fn wait_for_detached_pyrun_launch_manifest(path: &str) -> Result<DetachedPyrunLaunchManifest, String> {
+async fn wait_for_detached_pyrun_launch_manifest(path: &str) -> Result<DetachedPyrunLaunchManifest, JsString> {
     let deadline = std::time::Instant::now() + Duration::from_millis(LAUNCH_MANIFEST_TIMEOUT_MS);
     while !Path::new(path).exists() {
         if std::time::Instant::now() >= deadline {
-            return Err(format!("Timed out waiting for detached Pyrun launch manifest: {path}"));
+            return Err(format!("Timed out waiting for detached Pyrun launch manifest: {path}").into());
         }
         tokio::time::sleep(Duration::from_millis(LAUNCH_MANIFEST_POLL_MS)).await;
     }
@@ -328,7 +334,7 @@ async fn wait_for_detached_pyrun_launch_manifest(path: &str) -> Result<DetachedP
 async fn wait_for_detached_pyrun_settlement(
     manifest: &DetachedPyrunLaunchManifest,
     runner: &PyrunRunnerClient,
-) -> Result<PyrunSettlement, String> {
+) -> Result<PyrunSettlement, JsString> {
     let abort = CancellationToken::new();
     let control = Arc::new(Mutex::new(ControlState {
         cancel: None,
@@ -370,7 +376,7 @@ async fn wait_for_detached_pyrun_settlement(
         Some(Arc::new(move |update: CanonicalPyrunProgressUpdate| {
             let record = pi_js_compat::js_json!({"kind": "progress", "update": update.raw});
             append_artifact_record(&manifest_for_progress.data.artifacts.output_path, &record)
-                .map_err(|error| super::runner::PyrunRunnerError::new(error.to_string()))
+                .map_err(|error| super::runner::PyrunRunnerError::new(JsString::from(error.to_string())))
         })),
         Some(abort.clone()),
         Some(dispatch_pi_request),
@@ -492,7 +498,7 @@ async fn dispatch_detached_pyrun_bridge_request(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .insert(request_id, PendingBridgeRequest { resolve: sender });
-    receiver.await.map_err(|error| error.to_string())?
+    receiver.await.map_err(|error| JsString::from(error.to_string()))?
 }
 
 async fn dispatch_foreground_pyrun_bridge_request(
@@ -506,11 +512,11 @@ async fn dispatch_foreground_pyrun_bridge_request(
     record.insert("params".into(), request.params.clone());
     record.insert("requestId".into(), Value::String(request_id.clone().into()));
     append_artifact_record(&manifest.data.bridge_request_path, &Value::Object(record))
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| JsString::from(error.to_string()))?;
     let mut offset = 0;
     loop {
-        let records =
-            read_json_lines(&manifest.data.bridge_response_path, offset).map_err(|error| error.to_string())?;
+        let records = read_json_lines(&manifest.data.bridge_response_path, offset)
+            .map_err(|error| JsString::from(error.to_string()))?;
         offset = records.offset;
         for response in &records.values {
             if !response
@@ -543,7 +549,7 @@ async fn dispatch_foreground_pyrun_bridge_request(
 }
 
 /// `claimForegroundBridgeRequest` (identical in both TypeScript modules).
-pub(crate) fn claim_foreground_bridge_request(directory: &str, request_id: &str) -> Result<bool, String> {
+pub(crate) fn claim_foreground_bridge_request(directory: &str, request_id: &str) -> Result<bool, JsString> {
     let path = Path::new(directory).join(format!("bridge-claim-{request_id}"));
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
@@ -555,14 +561,14 @@ pub(crate) fn claim_foreground_bridge_request(directory: &str, request_id: &str)
     match options.open(path) {
         Ok(_) => Ok(true),
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
-        Err(error) => Err(error.to_string()),
+        Err(error) => Err(JsString::from(error.to_string())),
     }
 }
 
 fn append_pyrun_settlement_record(
     manifest: &DetachedPyrunLaunchManifest,
     settlement: &PyrunSettlement,
-) -> Result<(), String> {
+) -> Result<(), JsString> {
     let record = match (&settlement.result, &settlement.error) {
         (Some(result), _) => pi_js_compat::js_json!({"kind": "result", "result": result}),
         (None, error) => pi_js_compat::js_json!({
@@ -570,12 +576,13 @@ fn append_pyrun_settlement_record(
             "kind": "error"
         }),
     };
-    append_artifact_record(&manifest.data.artifacts.output_path, &record).map_err(|error| error.to_string())
+    append_artifact_record(&manifest.data.artifacts.output_path, &record)
+        .map_err(|error| JsString::from(error.to_string()))
 }
 
 async fn wait_for_pyrun_ownership_decision(
     manifest: &DetachedPyrunLaunchManifest,
-) -> Result<Option<DetachedJobOwnershipIdentity>, String> {
+) -> Result<Option<DetachedJobOwnershipIdentity>, JsString> {
     loop {
         if let Some(identity) = read_detached_pyrun_activation(&manifest.data.activation_path)? {
             return Ok(Some(identity));
@@ -594,7 +601,7 @@ async fn finalize_detached_pyrun_settlement(
     manifest: &DetachedPyrunLaunchManifest,
     settlement: PyrunSettlement,
     identity: DetachedJobOwnershipIdentity,
-) -> Result<i64, String> {
+) -> Result<i64, JsString> {
     let outcome = pyrun_settlement_outcome(&settlement);
     let terminal_at = crate::core::compaction::now_millis();
     let terminal_at_iso = crate::utils::iso_time::format_iso_millis(terminal_at);
@@ -606,7 +613,7 @@ async fn finalize_detached_pyrun_settlement(
         Some((terminal_at - manifest.data.started_at as i64).max(0)),
         manifest.data.tool_call_id.as_deref(),
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| JsString::from(error.to_string()))?;
     let control_db_path = manifest.data.control_db_path.clone();
     let session_path = manifest.data.session_path.clone();
     let finalized = finalize_detached_job_with_retry(&terminal, move |terminal| {
@@ -621,8 +628,8 @@ async fn finalize_detached_pyrun_settlement(
     .await;
     match finalized {
         Ok(FinalizeDetachedJobResult::Ok { terminal_revision, .. }) => Ok(terminal_revision),
-        Ok(other) => Err(format!("Could not finalize detached Pyrun job: {other:?}")),
-        Err(error) => Err(format!("Could not finalize detached Pyrun job: {error}")),
+        Ok(other) => Err(format!("Could not finalize detached Pyrun job: {other:?}").into()),
+        Err(error) => Err(format!("Could not finalize detached Pyrun job: {error}").into()),
     }
 }
 

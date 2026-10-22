@@ -169,7 +169,7 @@ fn launch_foreground_pyrun_runner(
     persistence: &PersistenceTarget,
     controller: &DetachedJobLifecycleController,
     started_at: f64,
-) -> Result<LaunchedRunner, String> {
+) -> Result<LaunchedRunner, JsString> {
     let job_id = input
         .agent_id
         .clone()
@@ -193,8 +193,8 @@ fn launch_foreground_pyrun_runner(
     write_durable_pyrun_script(&script_path, &input.params.code)?;
     let runner_pid = launch_detached_pyrun_runner(&manifest_path)?;
     let process_identity = read_process_identity(runner_pid).map_err(|error| error.to_string())?;
-    let session = input.ctx.session_manager().map_err(|error| error.to_string())?;
-    let eval_context = eval_context(&input.ctx).map_err(|error| error.to_string())?;
+    let session = input.ctx.session_manager().map_err(|error| error.message)?;
+    let eval_context = eval_context(&input.ctx).map_err(|error| error.message)?;
     let supervisor_identity = read_process_identity(std::process::id()).map_err(|error| error.to_string())?;
     write_detached_pyrun_launch_manifest(
         &manifest_path,
@@ -251,11 +251,11 @@ fn read_new_json_lines(
     path: &str,
     cursor: &mut JsonLineCursor,
     byte_limit: Option<usize>,
-) -> Result<Vec<Value>, String> {
+) -> Result<Vec<Value>, JsString> {
     let data = match std::fs::read(path) {
         Ok(data) => data,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(error.to_string()),
+        Err(error) => return Err(error.to_string().into()),
     };
     let size = data.len() as u64;
     if size <= cursor.offset {
@@ -278,7 +278,8 @@ fn read_new_json_lines(
         line.extend_from_slice(&chunk[line_start..index]);
         line_start = index + 1;
         if !line.is_empty() {
-            values.push(serde_json::from_slice(&line).map_err(|error| error.to_string())?);
+            let text = String::from_utf8_lossy(&line);
+            values.push(js_json::parse_lossless(text.as_ref()).map_err(|error| error.into_message())?);
         }
     }
     if line_start < chunk.len() {
@@ -622,7 +623,7 @@ fn read_pyrun_manifest_candidate(directory: &str) -> Result<Option<PyrunManifest
     }))
 }
 
-fn read_complete_artifact_records(path: &str) -> Result<Vec<Value>, String> {
+fn read_complete_artifact_records(path: &str) -> Result<Vec<Value>, JsString> {
     if !Path::new(path).exists() {
         return Ok(Vec::new());
     }
@@ -632,7 +633,7 @@ fn read_complete_artifact_records(path: &str) -> Result<Vec<Value>, String> {
     };
     let mut records = Vec::new();
     for line in text[..last_newline].split('\n').filter(|line| !line.is_empty()) {
-        records.push(js_json::parse_lossless(line).map_err(|error| error.to_string())?);
+        records.push(js_json::parse_lossless(line).map_err(|error| error.into_message())?);
     }
     Ok(records)
 }
@@ -1049,6 +1050,24 @@ pub async fn run_durable_detachable_pyrun_evaluation(
 #[cfg(test)]
 mod js_value_tests {
     use super::*;
+
+    #[test]
+    fn fragmented_artifact_lines_keep_unpaired_units() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("output.jsonl");
+        std::fs::write(&path, b"{\"value\":\"\\ud800\"}\n").unwrap();
+        let mut cursor = JsonLineCursor::new();
+        assert!(
+            read_new_json_lines(path.to_str().unwrap(), &mut cursor, Some(12))
+                .unwrap()
+                .is_empty()
+        );
+        let records = read_new_json_lines(path.to_str().unwrap(), &mut cursor, None).unwrap();
+        assert_eq!(
+            records,
+            vec![pi_js_compat::js_json!({"value": JsString::from_utf16(vec![0xd800])})]
+        );
+    }
 
     #[test]
     fn persisted_js_equivalent_params_do_not_report_a_collision() {
