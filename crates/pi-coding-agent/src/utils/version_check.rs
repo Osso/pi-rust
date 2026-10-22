@@ -4,7 +4,10 @@
 //! goes through the injected `Fetch` contract.
 
 use pi_ai::request::{Fetch, HttpRequest};
-use serde_json::Value;
+use pi_js_compat::{
+    js_format,
+    js_json::{self, JsString, JsValue, encode_node_utf8},
+};
 
 use crate::config::package_config;
 use crate::utils::management_http::{FetchRetryOptions, fetch_with_retry};
@@ -18,21 +21,21 @@ const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 /// One nested network failure cause.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ErrorCause {
-    pub message: Option<String>,
-    pub code: Option<String>,
+    pub message: Option<JsString>,
+    pub code: Option<JsString>,
 }
 
 /// The parts of a fetch failure that `formatVersionCheckError` reports.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VersionCheckError {
-    pub message: String,
+    pub message: JsString,
     pub causes: Vec<ErrorCause>,
 }
 
 /// `formatVersionCheckError`: include errno codes or the first cause message.
-pub fn format_version_check_error(error: &VersionCheckError) -> String {
+pub fn format_version_check_error(error: &VersionCheckError) -> JsString {
     let root_message = &error.message;
-    let mut codes: Vec<String> = Vec::new();
+    let mut codes: Vec<JsString> = Vec::new();
     for cause in &error.causes {
         if let Some(code) = &cause.code
             && !codes.contains(code)
@@ -41,14 +44,14 @@ pub fn format_version_check_error(error: &VersionCheckError) -> String {
         }
     }
     if !codes.is_empty() {
-        return format!("{root_message} ({})", codes.join(", "));
+        return js_format!("{} ({})", root_message, JsString::join(codes, ", "));
     }
     match error
         .causes
         .iter()
         .find_map(|cause| cause.message.as_ref().filter(|message| !message.is_empty()))
     {
-        Some(cause_message) => format!("{root_message} (cause: {cause_message})"),
+        Some(cause_message) => js_format!("{} (cause: {})", root_message, cause_message),
         None => root_message.clone(),
     }
 }
@@ -105,8 +108,14 @@ fn valid_build_identifier(identifier: &str) -> bool {
 }
 
 /// `semver.valid`: strict parse, `v` prefix allowed, leading zeros rejected.
-pub fn parse_semver(version: &str) -> Option<Semver> {
+pub fn parse_semver(version: &JsString) -> Option<Semver> {
     let trimmed = version.trim();
+    // Valid semver is ASCII; unmatched units cannot match the grammar.
+    let scalar = match trimmed.to_utf8() {
+        Ok(scalar) => scalar,
+        Err(_) => return None,
+    };
+    let trimmed = scalar.as_str();
     if trimmed.len() > MAX_SEMVER_LENGTH {
         return None;
     }
@@ -219,14 +228,14 @@ pub fn compare_semver(left: &Semver, right: &Semver) -> i32 {
 }
 
 /// `comparePackageVersions`: `None` when either side is not a valid version.
-pub fn compare_package_versions(left_version: &str, right_version: &str) -> Option<i32> {
-    let left = parse_semver(left_version.trim())?;
-    let right = parse_semver(right_version.trim())?;
+pub fn compare_package_versions(left_version: &JsString, right_version: &JsString) -> Option<i32> {
+    let left = parse_semver(left_version)?;
+    let right = parse_semver(right_version)?;
     Some(compare_semver(&left, &right))
 }
 
 /// `isNewerPackageVersion`: semver comparison, falling back to trimmed string inequality.
-pub fn is_newer_package_version(candidate_version: &str, current_version: &str) -> bool {
+pub fn is_newer_package_version(candidate_version: &JsString, current_version: &JsString) -> bool {
     match compare_package_versions(candidate_version, current_version) {
         Some(comparison) => comparison > 0,
         None => candidate_version.trim() != current_version.trim(),
@@ -236,9 +245,9 @@ pub fn is_newer_package_version(candidate_version: &str, current_version: &str) 
 /// `LatestPiRelease`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LatestPiRelease {
-    pub version: String,
-    pub package_name: Option<String>,
-    pub note: Option<String>,
+    pub version: JsString,
+    pub package_name: Option<JsString>,
+    pub note: Option<JsString>,
 }
 
 /// Options for the release check.
@@ -255,19 +264,22 @@ fn offline_mode_enabled() -> bool {
 /// `getLatestPiRelease`: one request, optionally retried, `None` when offline or unusable.
 pub async fn get_latest_pi_release(
     fetch: &dyn Fetch,
-    current_version: &str,
+    current_version: &JsString,
     options: &LatestPiReleaseOptions,
 ) -> Option<LatestPiRelease> {
     if offline_mode_enabled() {
         return None;
     }
-    let response = fetch_with_retry(
+    let response = match fetch_with_retry(
         fetch,
         HttpRequest {
             method: "GET".to_owned(),
             url: LATEST_VERSION_URL.to_owned(),
             headers: vec![
-                ("user-agent".to_owned(), get_pi_user_agent(current_version)),
+                (
+                    "user-agent".to_owned(),
+                    encode_node_utf8(&get_pi_user_agent(current_version)),
+                ),
                 ("accept".to_owned(), "application/json".to_owned()),
             ],
             body: None,
@@ -280,7 +292,10 @@ pub async fn get_latest_pi_release(
         },
     )
     .await
-    .ok()?;
+    {
+        Ok(response) => response,
+        Err(_) => return None,
+    };
     if !(200..300).contains(&response.status) {
         return None;
     }
@@ -288,9 +303,12 @@ pub async fn get_latest_pi_release(
     parse_release_payload(&body)
 }
 
-fn parse_release_payload(body: &str) -> Option<LatestPiRelease> {
-    let data: Value = serde_json::from_str(body).ok()?;
-    let version = data.get("version").and_then(Value::as_str)?.trim().to_owned();
+fn parse_release_payload(body: &JsString) -> Option<LatestPiRelease> {
+    let data = match js_json::parse_lossless(body) {
+        Ok(data) => data,
+        Err(_) => return None,
+    };
+    let version = data.get("version").and_then(JsValue::as_string)?.trim().to_owned();
     if version.is_empty() {
         return None;
     }
@@ -303,27 +321,26 @@ fn parse_release_payload(body: &str) -> Option<LatestPiRelease> {
     })
 }
 
-fn trimmed_string_field(data: &Value, field: &str) -> Option<String> {
+fn trimmed_string_field(data: &JsValue, field: &str) -> Option<JsString> {
     data.get(field)
-        .and_then(Value::as_str)
-        .map(str::trim)
+        .and_then(JsValue::as_string)
+        .map(JsString::trim)
         .filter(|value| !value.is_empty())
-        .map(str::to_owned)
 }
 
 /// `getLatestPiVersion`.
 pub async fn get_latest_pi_version(
     fetch: &dyn Fetch,
-    current_version: &str,
+    current_version: &JsString,
     options: &LatestPiReleaseOptions,
-) -> Option<String> {
+) -> Option<JsString> {
     get_latest_pi_release(fetch, current_version, options)
         .await
         .map(|release| release.version)
 }
 
 /// `checkForNewPiVersion`: automatic check honoring `PI_SKIP_VERSION_CHECK`; errors are swallowed.
-pub async fn check_for_new_pi_version(fetch: &dyn Fetch, current_version: &str) -> Option<LatestPiRelease> {
+pub async fn check_for_new_pi_version(fetch: &dyn Fetch, current_version: &JsString) -> Option<LatestPiRelease> {
     if pi_js_compat::process_env::get("PI_SKIP_VERSION_CHECK").is_some_and(|value| !value.is_empty()) {
         return None;
     }
@@ -331,20 +348,35 @@ pub async fn check_for_new_pi_version(fetch: &dyn Fetch, current_version: &str) 
     is_newer_package_version(&release.version, current_version).then_some(release)
 }
 
-async fn read_body(mut body: Box<dyn pi_ai::request::HttpBody>) -> Option<String> {
+async fn read_body(mut body: Box<dyn pi_ai::request::HttpBody>) -> Option<JsString> {
     let mut bytes = Vec::new();
     while let Some(chunk) = body.next_chunk().await {
         bytes.extend_from_slice(&chunk.ok()?);
     }
-    Some(String::from_utf8_lossy(&bytes).into_owned())
+    Some(JsString::from(String::from_utf8_lossy(&bytes).as_ref()))
 }
 
 /// User agent used for version checks.
-pub fn version_check_user_agent(current_version: &str) -> String {
+pub fn version_check_user_agent(current_version: &JsString) -> JsString {
     get_pi_user_agent(current_version)
 }
 
 /// Package version used by default callers.
-pub fn current_package_version() -> String {
-    package_config().version.clone()
+pub fn current_package_version() -> JsString {
+    package_config().version.clone().into()
+}
+
+#[cfg(test)]
+mod native_release_tests {
+    use super::*;
+    #[test]
+    fn release_json_preserves_unpaired_version_package_and_note() {
+        let release = parse_release_payload(&JsString::from(
+            r#"{"version":"\ud800","packageName":"pkg\udc00","note":"note\ud800"}"#,
+        ))
+        .unwrap();
+        assert_eq!(release.version.units(), &[0xd800]);
+        assert_eq!(release.package_name.unwrap().units(), &[112, 107, 103, 0xdc00]);
+        assert_eq!(release.note.unwrap().units(), &[110, 111, 116, 101, 0xd800]);
+    }
 }
