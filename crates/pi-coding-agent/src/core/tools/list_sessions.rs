@@ -4,8 +4,9 @@ use pi_js_compat::js_format;
 use pi_js_compat::js_json::{self, JsString, JsValue};
 use std::sync::{Arc, OnceLock};
 
+use crate::core::extensions::types::ContextTool;
 use pi_agent_core::{
-    AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
+    AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
 use pi_tui::tui::ComponentRef;
@@ -112,7 +113,7 @@ mod native_output_tests {
     }
 }
 
-impl AgentHarnessTool<ExtensionContext> for ListSessionsTool {
+impl ContextTool<ExtensionContext> for ListSessionsTool {
     fn name(&self) -> &str {
         NAME
     }
@@ -193,7 +194,7 @@ pub fn render_result(
 
 /// `create_list_sessions_tool_definition()`.
 pub fn create_list_sessions_tool_definition() -> ToolDefinition {
-    let mut definition = crate::core::extensions::wrapper::harness_tool_definition(Arc::new(ListSessionsTool::new()));
+    let mut definition = crate::core::extensions::wrapper::context_tool_definition(Arc::new(ListSessionsTool::new()));
     definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
     definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
     definition.render_call = Some(infallible_render_call(render_call));

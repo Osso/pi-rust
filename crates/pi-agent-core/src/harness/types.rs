@@ -8,11 +8,9 @@ use indexmap::IndexMap;
 use pi_ai::request::BoxFuture;
 use pi_ai::request::OnRetry;
 use pi_ai::types::{CacheRetention, Transport};
-use pi_js_compat::js_json::{JsString, JsValue};
+use pi_js_compat::js_json::JsString;
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
-
-use crate::agent::{AgentToolResult, AgentToolUpdateCallback, ToolError};
 
 /// Skill loaded from a `SKILL.md` file or provided by an application.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,48 +35,6 @@ pub struct PromptTemplate {
 pub struct AgentHarnessResources {
     pub prompt_templates: Option<Vec<PromptTemplate>>,
     pub skills: Option<Vec<Skill>>,
-}
-
-/// Static tool context or zero-argument provider resolved for each turn snapshot.
-pub enum AgentHarnessToolContextSource<TContext> {
-    Static(TContext),
-    Provider(Arc<dyn Fn() -> BoxFuture<'static, TContext> + Send + Sync>),
-}
-
-/// Tool definition executed by a harness with an application-defined context.
-pub trait AgentHarnessTool<TContext>: Send + Sync {
-    fn name(&self) -> &str;
-    fn description(&self) -> &str;
-    /// JSON Schema for the tool arguments.
-    fn parameters(&self) -> &Value;
-    /// Human-readable label for UI display.
-    fn label(&self) -> &str;
-    /// Per-tool execution mode override.
-    fn execution_mode(&self) -> Option<ToolExecutionMode> {
-        None
-    }
-    /// Compatibility shim for raw tool-call arguments before schema validation.
-    fn prepare_arguments(&self, args: JsValue) -> JsValue {
-        args
-    }
-    /// Prepare durable execution metadata before the assistant tool call is persisted.
-    fn prepare_execution(
-        &self,
-        _tool_call_id: String,
-        _signal: Option<CancellationToken>,
-    ) -> BoxFuture<'static, Option<pi_ai::types::ToolCallExecution>> {
-        Box::pin(async { None })
-    }
-    /// Execute the tool call with the context resolved for the current turn snapshot.
-    fn execute(
-        &self,
-        tool_call_id: String,
-        params: JsValue,
-        signal: Option<CancellationToken>,
-        on_update: Option<AgentToolUpdateCallback>,
-        context: TContext,
-        execution: Option<AgentToolExecutionContext>,
-    ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>>;
 }
 
 /// Curated provider request options owned by the harness and snapshotted per turn.

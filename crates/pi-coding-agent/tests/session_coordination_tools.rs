@@ -3,8 +3,8 @@
 #[path = "support/tool_context.rs"]
 mod tool_context;
 
-use pi_agent_core::AgentHarnessTool;
 use pi_coding_agent::core::extensions::ExtensionContext;
+use pi_coding_agent::core::extensions::types::ContextTool;
 use pi_coding_agent::core::session_control_db::{
     RuntimeMailboxAddress, SupervisorResponse, WritableSessionMetadata, archive_session, claim_next_supervisor_request,
     complete_supervisor_request, get_control_db_path, list_pending_architect_requests,
@@ -91,7 +91,7 @@ async fn subagent_context(control_db_path: &str, session_id: &str, agent_id: &st
         .1
 }
 
-async fn execute<T: AgentHarnessTool<ExtensionContext>>(
+async fn execute<T: ContextTool<ExtensionContext>>(
     tool: &T,
     params: JsValue,
     context: ExtensionContext,
