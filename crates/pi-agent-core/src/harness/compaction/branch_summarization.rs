@@ -293,7 +293,7 @@ pub async fn generate_branch_summary_with_callbacks<C: RetryCallbacks + ?Sized>(
     let response = complete_simple_with_retries(
         options.models,
         options.model,
-        branch_summary_context(&messages, options),
+        branch_summary_context(&messages, options)?,
         branch_summary_completion_options(options),
         options.retry,
         callbacks,
@@ -321,8 +321,17 @@ fn no_content_branch_summary() -> BranchSummaryResult {
     }
 }
 
-fn branch_summary_context(messages: &[AgentMessage], options: &GenerateBranchSummaryOptions<'_>) -> Context {
-    let conversation_text = serialize_conversation(&convert_to_llm(messages));
+fn branch_summary_context(
+    messages: &[AgentMessage],
+    options: &GenerateBranchSummaryOptions<'_>,
+) -> Result<Context, BranchSummaryError> {
+    let conversation_text = serialize_conversation(&convert_to_llm(messages).map_err(|error| {
+        BranchSummaryError::new(
+            BranchSummaryErrorCode::SummarizationFailed,
+            error.message().clone(),
+            Some(Box::new(error)),
+        )
+    })?);
     let prompt_text =
         JsString::from("<conversation>\n") + conversation_text + "\n</conversation>\n\n" + branch_instructions(options);
     let summarization_message = Message::User(UserMessage {
@@ -332,11 +341,11 @@ fn branch_summary_context(messages: &[AgentMessage], options: &GenerateBranchSum
         provider_native: None,
         timestamp: now_ms(),
     });
-    Context {
+    Ok(Context {
         system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.into()),
         messages: vec![summarization_message],
         tools: None,
-    }
+    })
 }
 
 fn branch_summary_completion_options(options: &GenerateBranchSummaryOptions<'_>) -> SimpleStreamOptions {

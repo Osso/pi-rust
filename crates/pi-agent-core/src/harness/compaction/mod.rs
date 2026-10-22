@@ -761,7 +761,7 @@ pub(super) fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-fn build_summary_prompt(options: &GenerateSummaryOptions<'_>) -> JsString {
+fn build_summary_prompt(options: &GenerateSummaryOptions<'_>) -> Result<JsString, CompactionError> {
     let summary_prompt = if options.previous_summary.is_some() {
         UPDATE_SUMMARIZATION_PROMPT
     } else {
@@ -772,14 +772,14 @@ fn build_summary_prompt(options: &GenerateSummaryOptions<'_>) -> JsString {
         None => summary_prompt.into(),
     };
     let conversation = truncate_utf16(
-        &serialize_conversation(&convert_to_llm(options.current_messages)),
+        &serialize_conversation(&convert_to_llm(options.current_messages).map_err(message_conversion_failure)?),
         MAX_COMPACTION_CONTEXT_CHARS,
     );
     let previous = match options.previous_summary {
         Some(summary) => JsString::from("<previous-summary>\n") + summary + "\n</previous-summary>\n\n",
         None => JsString::default(),
     };
-    JsString::from("<conversation>\n") + conversation + "\n</conversation>\n\n" + previous + focused
+    Ok(JsString::from("<conversation>\n") + conversation + "\n</conversation>\n\n" + previous + focused)
 }
 
 fn truncate_utf16(text: &JsString, max_chars: usize) -> JsString {
@@ -803,13 +803,15 @@ fn reasoning_option(model: &Model, thinking_level: Option<ThinkingLevel>) -> Opt
     }
 }
 
-fn build_summary_request(options: &GenerateSummaryOptions<'_>) -> (Context, SimpleStreamOptions) {
+fn build_summary_request(
+    options: &GenerateSummaryOptions<'_>,
+) -> Result<(Context, SimpleStreamOptions), CompactionError> {
     let max_tokens = output_token_cap(options.model, 0.8, options.reserve_tokens);
     let message = Message::User(UserMessage {
         role: UserRole::Tag,
         content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(build_summary_prompt(
             options,
-        )))]),
+        )?))]),
         input_source: None,
         provider_native: None,
         timestamp: now_ms(),
@@ -826,14 +828,14 @@ fn build_summary_request(options: &GenerateSummaryOptions<'_>) -> (Context, Simp
         reasoning: reasoning_option(options.model, options.thinking_level),
         ..Default::default()
     };
-    (
+    Ok((
         Context {
             system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.into()),
             messages: vec![message],
             tools: None,
         },
         completion_options,
-    )
+    ))
 }
 
 fn stream_failure_message(model: &Model, failure: pi_ai::utils::event_stream::StreamFailure) -> AssistantMessage {
@@ -901,7 +903,7 @@ async fn generate_summary_with_options<C: RetryCallbacks + ?Sized>(
     options: &GenerateSummaryOptions<'_>,
     callbacks: Option<&mut C>,
 ) -> Result<SummaryWithUsage, CompactionError> {
-    let (context, completion_options) = build_summary_request(options);
+    let (context, completion_options) = build_summary_request(options)?;
     let response = complete_simple_with_retries(
         options.models,
         options.model,
@@ -1083,7 +1085,7 @@ async fn generate_turn_prefix_summary<C: RetryCallbacks + ?Sized>(
     callbacks: Option<&mut C>,
 ) -> Result<(JsString, Usage), CompactionError> {
     let max_tokens = output_token_cap(model, 0.5, reserve_tokens);
-    let conversation_text = serialize_conversation(&convert_to_llm(messages));
+    let conversation_text = serialize_conversation(&convert_to_llm(messages).map_err(message_conversion_failure)?);
     let prompt_text = JsString::from("<conversation>\n")
         + conversation_text
         + "\n</conversation>\n\n"
@@ -1118,5 +1120,13 @@ async fn generate_turn_prefix_summary<C: RetryCallbacks + ?Sized>(
         &response,
         "Turn prefix summarization aborted",
         "Turn prefix summarization failed: ",
+    )
+}
+
+fn message_conversion_failure(error: crate::agent::AgentError) -> CompactionError {
+    CompactionError::new(
+        CompactionErrorCode::SummarizationFailed,
+        error.message().clone(),
+        Some(Box::new(error)),
     )
 }

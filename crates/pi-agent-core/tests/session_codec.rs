@@ -2,6 +2,7 @@ use pi_agent_core::harness::session::jsonl::codec::{
     encode_header, encode_mutation, metadata_from_header, parse_header, parse_mutation,
 };
 use pi_agent_core::harness::session::types::{JsonlDecodeKind, SessionMutation};
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 fn mutation(value: Value) -> SessionMutation {
@@ -44,8 +45,8 @@ fn header_round_trips_an_unresolved_legacy_parent_path() {
     });
     let parsed = parse_header(&header.to_string()).unwrap();
     assert_eq!(
-        parsed.legacy_parent_session_path.as_deref(),
-        Some("/sessions/missing-parent.jsonl")
+        parsed.legacy_parent_session_path.as_ref(),
+        Some(&JsString::from("/sessions/missing-parent.jsonl"))
     );
     assert_eq!(encode_header(&parsed), format!("{header}\n"));
 }
@@ -62,7 +63,7 @@ fn header_projects_filesystem_fields_into_metadata() {
         "metadata": {"owner": "agent"},
     });
     let parsed = parse_header(&header.to_string()).unwrap();
-    let metadata = metadata_from_header(&parsed, "/sessions/session.jsonl".to_owned(), 1_700_000_000_100.0);
+    let metadata = metadata_from_header(&parsed, "/sessions/session.jsonl".into(), 1_700_000_000_100.0);
     assert_eq!(metadata.id, "session");
     assert_eq!(metadata.created_at, 1_700_000_000_000);
     assert_eq!(metadata.cwd, "/workspace/project");
@@ -70,8 +71,8 @@ fn header_projects_filesystem_fields_into_metadata() {
     assert_eq!(metadata.modified_at, 1_700_000_000_100.0);
     assert_eq!(metadata.source_format, 4);
     assert_eq!(
-        metadata.legacy_parent_session_path.as_deref(),
-        Some("/sessions/missing-parent.jsonl")
+        metadata.legacy_parent_session_path.as_ref(),
+        Some(&JsString::from("/sessions/missing-parent.jsonl"))
     );
     assert_eq!(metadata.metadata.as_ref().unwrap()["owner"], json!("agent"));
     assert_eq!(

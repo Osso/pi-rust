@@ -1,6 +1,12 @@
 # Agent-core messages
 
-This document covers the completed summary framing constants and value-only message records from `packages/agent/src/harness/messages.ts:19-29,40-45`. Constructors, conversion, unions, and serialization remain deferred. See [message traceability](../porting/traceability/messages.md).
+This document covers the completed summary framing constants and value-only message records from `packages/agent/src/harness/messages.ts:19-29,40-45`. Earlier constant/record evidence below is separate from the bounded Q18 constructor/conversion work.
+
+## Q18 native compaction context
+
+- CompactionSummaryOptions.provider_native retains the original JsValue through message construction and serialization.
+- convert_to_llm returns Result<Vec<Message>, AgentError>. Unsupported scalar opaque provider metadata is rejected explicitly at typed ProviderNativeContext conversion; a present value is never silently omitted on parse failure.
+- Valid context value payloads retain native UTF16 strings and keys. The approved scalar-metadata gap does not authorize replacement or silent drops. See [message traceability](../porting/traceability/messages.md).
 
 ## What it must do
 

@@ -1,5 +1,7 @@
 # Agent-core message traceability
 
+Q18: CompactionSummaryOptions.provider_native is JsValue and construction forwards it unchanged. convert_to_llm returns Result<Vec<Message>, AgentError>; typed ProviderNativeContext parse errors are explicit, never `.ok()` omission. `lossless_provider_errors::invalid_provider_native_metadata_is_not_silently_discarded` reproduces the old silent drop; `provider_native_summary_sink_keeps_original_payload_and_valid_raw_value` covers the raw sink plus valid native payload conversion. Earlier source evidence below retains its original pin.
+
 Pinned source: `packages/agent/src/harness/messages.ts:4-17,19-29,40-45` and package export `packages/agent/src/index.ts:76` at commit `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 | TypeScript source | Observable contract | Rust proof or gap |

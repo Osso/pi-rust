@@ -592,8 +592,20 @@ impl ModelRuntime {
         self.inner.models.get_models(provider_id)
     }
 
-    pub fn get_model(&self, provider_id: &str, model_id: &str) -> Option<Model> {
-        self.inner.models.get_model(provider_id, model_id)
+    pub fn get_model(&self, provider_id: impl Into<JsString>, model_id: impl Into<JsString>) -> Option<Model> {
+        let provider_id = provider_id.into();
+        let model_id = model_id.into();
+        let provider = self
+            .inner
+            .models
+            .get_providers()
+            .into_iter()
+            .find(|provider| JsString::from(provider.id()) == provider_id)?;
+        self.inner
+            .models
+            .get_models(Some(provider.id()))
+            .into_iter()
+            .find(|model| JsString::from(&model.id) == model_id)
     }
 
     pub async fn check_auth(
