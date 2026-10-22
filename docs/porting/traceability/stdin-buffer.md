@@ -21,3 +21,7 @@ Rust: `crates/pi-tui/src/stdin_buffer.rs`. [Q1 proof](../q1-tui-core-proof.md).
 Removed later `escapeTimeout`/`escape_timeout` option and 50ms sequence default. Frozen applies the same timeout to lone ESC and all other incomplete sequences.
 
 Representation boundary: Rust owns timer driving and returns events instead of using EventEmitter. Rust String cannot contain lone surrogates; frozen emits non-escape astral text as individual UTF-16 units, whereas Rust emits scalar strings. This existing typed-string boundary is not claimed as byte parity. Whole paste payloads preserve astral text in both implementations. Invalid JS runtime input types are outside the typed Rust API.
+
+## Native UTF-16 buffer
+
+Process/paste/flush events and persistent buffers use `JsString`; extraction increments UTF-16 units exactly like the frozen source (including pair splitting for plain text and ESC-meta). Actual Buffer input conversion remains at `process_bytes`. `raw_stdin` reproduces the prior astral single-event discrepancy, then compares raw unit/chunk boundaries, OSC/DCS/APC/mouse, paste and Kitty duplicate events/state against frozen source. ProcessTerminal native forwarding is covered through its actual buffer and public feed/poll path.

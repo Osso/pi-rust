@@ -91,10 +91,19 @@ pub enum KeyboardProtocolNegotiationSequence {
 }
 
 /// Parse `CSI ? <flags> u` or `CSI ? <params> c`.
-pub fn parse_keyboard_protocol_negotiation_sequence(sequence: &str) -> Option<KeyboardProtocolNegotiationSequence> {
+pub fn parse_keyboard_protocol_negotiation_sequence(
+    sequence: impl Into<JsString>,
+) -> Option<KeyboardProtocolNegotiationSequence> {
+    let sequence = sequence.into();
     if let Some(body) = sequence.strip_prefix("\x1b[?").and_then(|rest| rest.strip_suffix('u')) {
-        if !body.is_empty() && body.bytes().all(|byte| byte.is_ascii_digit()) {
-            let flags = pi_js_compat::number::parse_number(body);
+        if !body.is_empty() && body.units().iter().all(|unit| (48..=57).contains(unit)) {
+            let flags = pi_js_compat::number::parse_number(
+                &body
+                    .units()
+                    .iter()
+                    .map(|unit| char::from_u32(u32::from(*unit)).expect("ASCII flags"))
+                    .collect::<String>(),
+            );
             return flags
                 .is_finite()
                 .then_some(KeyboardProtocolNegotiationSequence::KittyFlags { flags });
@@ -102,20 +111,20 @@ pub fn parse_keyboard_protocol_negotiation_sequence(sequence: &str) -> Option<Ke
         return None;
     }
     if let Some(body) = sequence.strip_prefix("\x1b[?").and_then(|rest| rest.strip_suffix('c'))
-        && body.bytes().all(|byte| byte.is_ascii_digit() || byte == b';')
+        && body.units().iter().all(|unit| (48..=57).contains(unit) || *unit == 59)
     {
         return Some(KeyboardProtocolNegotiationSequence::DeviceAttributes);
     }
     None
 }
 
-fn is_keyboard_protocol_negotiation_sequence_prefix(sequence: &str) -> bool {
+fn is_keyboard_protocol_negotiation_sequence_prefix(sequence: &JsString) -> bool {
     if sequence == "\x1b[" {
         return true;
     }
     sequence
         .strip_prefix("\x1b[?")
-        .is_some_and(|body| body.bytes().all(|byte| byte.is_ascii_digit() || byte == b';'))
+        .is_some_and(|body| body.units().iter().all(|unit| (48..=57).contains(unit) || *unit == 59))
 }
 
 /// Whether the process is Apple Terminal (`platform` is a Rust `consts::OS` value).
@@ -124,11 +133,16 @@ pub fn is_apple_terminal_session(platform: &str, term_program: Option<&str>) -> 
 }
 
 /// Rewrite bare Return only for Apple Terminal with native Shift pressed.
-pub fn normalize_apple_terminal_input(data: &str, is_apple_terminal: bool, is_shift_pressed: bool) -> String {
+pub fn normalize_apple_terminal_input(
+    data: impl Into<JsString>,
+    is_apple_terminal: bool,
+    is_shift_pressed: bool,
+) -> JsString {
+    let data = data.into();
     if is_apple_terminal && data == "\r" && is_shift_pressed {
-        return APPLE_TERMINAL_SHIFT_ENTER_SEQUENCE.to_string();
+        return APPLE_TERMINAL_SHIFT_ENTER_SEQUENCE.into();
     }
-    data.to_string()
+    data
 }
 
 /// Raw-mode switch failure with the source message.
@@ -374,7 +388,7 @@ pub struct ProcessTerminal {
     kitty_protocol_active: bool,
     modify_other_keys_active: bool,
     keyboard_protocol_pushed: bool,
-    keyboard_protocol_negotiation_buffer: String,
+    keyboard_protocol_negotiation_buffer: JsString,
     keyboard_protocol_flush_deadline: Option<Instant>,
     stdin_buffer: Option<StdinBuffer>,
     stdin_utf8_buffer: Vec<u8>,
@@ -405,7 +419,7 @@ impl ProcessTerminal {
             kitty_protocol_active: false,
             modify_other_keys_active: false,
             keyboard_protocol_pushed: false,
-            keyboard_protocol_negotiation_buffer: String::new(),
+            keyboard_protocol_negotiation_buffer: JsString::default(),
             keyboard_protocol_flush_deadline: None,
             stdin_buffer: None,
             stdin_utf8_buffer: Vec::new(),
@@ -454,7 +468,7 @@ impl ProcessTerminal {
     /// Feed raw input through the same path as the stdin reader thread.
     ///
     /// Public so tests and embedders can drive the terminal without a real TTY.
-    pub fn feed_stdin(&mut self, data: &str) {
+    pub fn feed_stdin(&mut self, data: impl Into<JsString>) {
         self.feed_stdin_at(data, Instant::now());
     }
 
@@ -475,7 +489,7 @@ impl ProcessTerminal {
     }
 
     /// Feed input with an explicit clock, for deterministic timer tests.
-    pub fn feed_stdin_at(&mut self, data: &str, now: Instant) {
+    pub fn feed_stdin_at(&mut self, data: impl Into<JsString>, now: Instant) {
         self.clock_now = now;
         if let Some(buffer) = self.stdin_buffer.as_mut() {
             let events = buffer.process(data);
@@ -505,13 +519,13 @@ impl ProcessTerminal {
             match event {
                 StdinBufferEvent::Data(sequence) => self.handle_data_sequence(&sequence),
                 StdinBufferEvent::Paste(content) => {
-                    self.forward_input_sequence(&format!("\x1b[200~{content}\x1b[201~"));
+                    self.forward_input_sequence(&(JsString::from("\x1b[200~") + content + "\x1b[201~"));
                 }
             }
         }
     }
 
-    fn handle_data_sequence(&mut self, sequence: &str) {
+    fn handle_data_sequence(&mut self, sequence: &JsString) {
         match self.read_keyboard_protocol_negotiation_sequence(sequence) {
             KeyboardProtocolRead::Pending => {
                 self.schedule_keyboard_protocol_buffer_flush();
@@ -527,9 +541,9 @@ impl ProcessTerminal {
         self.forward_input_sequence(sequence);
     }
 
-    fn read_keyboard_protocol_negotiation_sequence(&mut self, sequence: &str) -> KeyboardProtocolRead {
+    fn read_keyboard_protocol_negotiation_sequence(&mut self, sequence: &JsString) -> KeyboardProtocolRead {
         if !self.keyboard_protocol_negotiation_buffer.is_empty() {
-            let buffered = format!("{}{}", self.keyboard_protocol_negotiation_buffer, sequence);
+            let buffered = self.keyboard_protocol_negotiation_buffer.clone() + sequence;
             if let Some(negotiation) = parse_keyboard_protocol_negotiation_sequence(&buffered) {
                 self.clear_keyboard_protocol_negotiation_buffer();
                 return KeyboardProtocolRead::Sequence(Some(negotiation));
@@ -545,20 +559,20 @@ impl ProcessTerminal {
             return KeyboardProtocolRead::Sequence(Some(negotiation));
         }
         if is_keyboard_protocol_negotiation_sequence_prefix(sequence) {
-            self.set_keyboard_protocol_negotiation_buffer(sequence.to_string());
+            self.set_keyboard_protocol_negotiation_buffer(sequence.clone());
             return KeyboardProtocolRead::Pending;
         }
         KeyboardProtocolRead::None
     }
 
-    fn set_keyboard_protocol_negotiation_buffer(&mut self, sequence: String) {
+    fn set_keyboard_protocol_negotiation_buffer(&mut self, sequence: JsString) {
         self.clear_keyboard_protocol_negotiation_flush_deadline();
         self.keyboard_protocol_negotiation_buffer = sequence;
     }
 
     fn clear_keyboard_protocol_negotiation_buffer(&mut self) {
         self.clear_keyboard_protocol_negotiation_flush_deadline();
-        self.keyboard_protocol_negotiation_buffer.clear();
+        self.keyboard_protocol_negotiation_buffer = JsString::default();
     }
 
     fn flush_keyboard_protocol_negotiation_buffer_as_input(&mut self) {
@@ -591,7 +605,7 @@ impl ProcessTerminal {
         self.flush_keyboard_protocol_negotiation_buffer_as_input();
     }
 
-    fn forward_input_sequence(&mut self, sequence: &str) {
+    fn forward_input_sequence(&mut self, sequence: &JsString) {
         let is_apple_terminal =
             sequence == "\r" && is_apple_terminal_session(std::env::consts::OS, environment("TERM_PROGRAM").as_deref());
         let input = normalize_apple_terminal_input(

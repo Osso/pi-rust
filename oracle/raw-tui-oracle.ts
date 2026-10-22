@@ -14,7 +14,19 @@ async function main(): Promise<void> {
 		try {
 			const request = JSON.parse(line);
 			let output: unknown;
-			if (request.operation === "keybindings_native") {
+			if (request.operation === "stdin_native") {
+                const {StdinBuffer} = await import(pathToFileURL(path.join(source,"stdin-buffer.ts")).href);
+                const buffer = new StdinBuffer();
+                const events: [string,string][] = [];
+                buffer.on("data", (data: string)=>events.push(["data",data]));
+                buffer.on("paste", (data: string)=>events.push(["paste",data]));
+                const states = request.chunks.map((units: number[]) => {
+                    buffer.process(native(units));
+                    return [events.splice(0),buffer.getBuffer()];
+                });
+                output = [states,buffer.flush()];
+                buffer.destroy();
+            } else if (request.operation === "keybindings_native") {
                 const { KeybindingsManager } = await import(pathToFileURL(path.join(source,"keybindings.ts")).href);
                 const raw = native(request.units);
                 const first = raw+"first";
