@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -22,12 +23,12 @@ struct TestAuthContext {
 
 impl AuthContext for TestAuthContext {
     fn env(&self, name: &str) -> BoxFuture<'_, Option<pi_js_compat::js_json::JsString>> {
-        let value = self.env.get(name).cloned();
+        let value = self.env.get(name).cloned().map(JsString::from);
         Box::pin(async move { value })
     }
 
     fn file_exists(&self, path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
-        let exists = self.files.iter().any(|file| file == path);
+        let exists = self.files.iter().any(|file| JsString::from(file) == *path);
         Box::pin(async move { exists })
     }
 }
@@ -44,7 +45,7 @@ fn auth_context(env: &[(&str, &str)], files: &[&str]) -> Arc<dyn AuthContext> {
 
 struct TestInteraction {
     signal: CancellationToken,
-    answer: String,
+    answer: JsString,
     prompts: Arc<Mutex<Vec<AuthPrompt>>>,
     events: Arc<Mutex<Vec<AuthEvent>>>,
 }
@@ -53,7 +54,7 @@ impl TestInteraction {
     fn new(signal: CancellationToken, answer: &str) -> Self {
         Self {
             signal,
-            answer: answer.to_owned(),
+            answer: answer.into(),
             prompts: Arc::new(Mutex::new(Vec::new())),
             events: Arc::new(Mutex::new(Vec::new())),
         }
@@ -65,7 +66,7 @@ impl AuthInteraction for TestInteraction {
         self.signal.clone()
     }
 
-    fn prompt(&self, prompt: AuthPrompt) -> BoxFuture<'_, Result<String, pi_ai::request::CallbackError>> {
+    fn prompt(&self, prompt: AuthPrompt) -> BoxFuture<'_, Result<JsString, pi_ai::request::CallbackError>> {
         self.prompts
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -111,7 +112,7 @@ impl OAuthAuth for TestOAuth {
     fn to_auth(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<pi_ai::auth::ModelAuth, AuthError>> {
         Box::pin(async move {
             Ok(pi_ai::auth::ModelAuth {
-                api_key: Some(credential.access_utf8()?),
+                api_key: Some(credential.access.clone()),
                 headers: None,
                 base_url: None,
             })
@@ -230,7 +231,7 @@ async fn aborted_queued_mutation_never_runs() {
                             first_blocked.notify_one();
                             release_first.notified().await;
                             Ok(Some(Credential::ApiKey(pi_ai::auth::ApiKeyCredential {
-                                key: Some("first".to_owned()),
+                                key: Some(("first".to_owned()).into()),
                                 env: None,
                             })))
                         })
@@ -275,7 +276,7 @@ async fn aborted_queued_mutation_never_runs() {
     assert_eq!(
         credentials.read("p1", AuthOperationOptions::default()).await.unwrap(),
         Some(Credential::ApiKey(pi_ai::auth::ApiKeyCredential {
-            key: Some("first".to_owned()),
+            key: Some(("first".to_owned()).into()),
             env: None,
         }))
     );
@@ -288,7 +289,7 @@ async fn env_api_key_auth_prefers_stored_key_then_env_order() {
         .resolve(pi_ai::auth::ApiKeyResolveInput {
             ctx: auth_context(&[("FIRST_KEY", "env")], &[]),
             credential: Some(pi_ai::auth::ApiKeyCredential {
-                key: Some("stored".to_owned()),
+                key: Some(("stored".to_owned()).into()),
                 env: None,
             }),
             signal: CancellationToken::new(),
@@ -354,7 +355,7 @@ async fn resolve_provider_auth_honors_explicit_key_stored_credentials_and_ambien
         Arc::clone(&credentials) as Arc<dyn CredentialStore>,
         Arc::clone(&ctx),
         pi_ai::auth::AuthResolutionOverrides {
-            api_key: Some("explicit".to_owned()),
+            api_key: Some(("explicit".to_owned()).into()),
             env: Some(indexmap::IndexMap::from([("ACCOUNT_ID".to_owned(), "acct".to_owned())])),
             ..Default::default()
         },
@@ -588,12 +589,12 @@ async fn lazy_oauth_loads_implementation_once_and_delegates() {
 async fn auth_result_serializes_provider_env_and_source() {
     let result = AuthResult {
         auth: pi_ai::auth::ModelAuth {
-            api_key: Some("k".to_owned()),
+            api_key: Some(("k".to_owned()).into()),
             headers: None,
             base_url: None,
         },
         env: Some(ProviderEnv::from([("ACCOUNT".to_owned(), "a".to_owned())])),
-        source: Some("stored credential".to_owned()),
+        source: Some(("stored credential".to_owned()).into()),
     };
     assert_eq!(
         serde_json::to_value(result).unwrap(),
@@ -657,7 +658,7 @@ fn models_error_with_cause_keeps_detail_once() {
     assert_eq!(error.message, "OAuth refresh failed for p1: bad token");
     assert_eq!(error.code.as_str(), "oauth");
     let value: Value = serde_json::to_value(pi_ai::auth::AuthCheck {
-        source: Some("OAuth".to_owned()),
+        source: Some(("OAuth".to_owned()).into()),
         auth_type: pi_ai::auth::AuthType::Oauth,
     })
     .unwrap();

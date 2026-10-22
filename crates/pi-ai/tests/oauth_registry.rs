@@ -124,7 +124,7 @@ fn outbound_json_form_and_header_match_node_without_mutating_tokens() {
     use pi_ai::auth::oauth::support::{form_encode, json_request, to_form_usv_string};
     use pi_js_compat::js_json::{JsObject, JsString, JsValue};
     for units in [vec![65, 0xdfff], vec![65, 10], vec![65, 255], vec![0xd83d, 0xde00]] {
-        let output = std::process::Command::new("node").args(["-e",r#"const units=JSON.parse(process.argv[1]);const text=String.fromCharCode(...units);let header=null;try{require('node:http').validateHeaderValue('authorization',text)}catch(e){header={name:e.name,message:e.message,code:e.code}};console.log(JSON.stringify({json:JSON.stringify({refresh_token:text}),form:new URLSearchParams({refresh_token:text}).toString(),header}));"#,&serde_json::to_string(&units).unwrap()]).output().unwrap();
+        let output = std::process::Command::new("node").args(["-e",r#"const units=JSON.parse(process.argv[1]);const text=String.fromCharCode(...units);let header=null;try{new Headers({authorization:text})}catch(e){header={name:e.name,message:e.message,code:e.code}};console.log(JSON.stringify({json:JSON.stringify({refresh_token:text}),form:new URLSearchParams({refresh_token:text}).toString(),header}));"#,&serde_json::to_string(&units).unwrap()]).output().unwrap();
         assert!(output.status.success());
         let source: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
         let token = JsString::from_utf16(units.clone());
@@ -139,14 +139,13 @@ fn outbound_json_form_and_header_match_node_without_mutating_tokens() {
             source["form"]
         );
         let credential = OAuthCredential::new(token, "unused", 0.0);
-        match credential.refresh_header_value("authorization") {
+        match pi_ai::request::header_value(&credential.refresh) {
             Ok(_) => assert_eq!(source["header"], serde_json::Value::Null),
-            Err(AuthError::Failed(error)) => {
+            Err(error) => {
                 assert_eq!(error.name, source["header"]["name"]);
-                assert_eq!(error.message, source["header"]["message"]);
+                assert_eq!(error.message, source["header"]["message"].as_str().unwrap());
                 assert_eq!(error.code.as_deref(), source["header"]["code"].as_str());
             }
-            Err(error) => panic!("unexpected error: {error}"),
         }
         assert_eq!(credential.refresh.units(), units);
     }
