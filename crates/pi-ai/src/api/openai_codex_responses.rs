@@ -393,7 +393,7 @@ async fn execute_stream(
         .stream
         .request
         .api_key
-        .as_deref()
+        .as_ref()
         .filter(|key| !key.is_empty())
         .ok_or_else(|| CodexStreamError::Transport(format!("No API key for provider: {}", model.provider).into()))?;
     let account_id = extract_account_id(api_key)?;
@@ -734,11 +734,11 @@ fn is_aborted(signal: Option<&CancellationToken>) -> bool {
     signal.is_some_and(CancellationToken::is_cancelled)
 }
 
-fn set_header(headers: &mut IndexMap<String, String>, name: &str, value: impl Into<String>) {
+fn set_header(headers: &mut IndexMap<String, JsString>, name: &str, value: impl Into<JsString>) {
     headers.insert(name.to_ascii_lowercase(), value.into());
 }
 
-fn delete_header(headers: &mut IndexMap<String, String>, name: &str) {
+fn delete_header(headers: &mut IndexMap<String, JsString>, name: &str) {
     headers.shift_remove(&name.to_ascii_lowercase());
 }
 
@@ -746,7 +746,10 @@ fn header_value<'a>(headers: &'a IndexMap<String, String>, name: &str) -> Option
     headers.get(&name.to_ascii_lowercase()).map(String::as_str)
 }
 
-fn apply_provider_headers(headers: &mut IndexMap<String, String>, additional: Option<&crate::types::ProviderHeaders>) {
+fn apply_provider_headers(
+    headers: &mut IndexMap<String, JsString>,
+    additional: Option<&crate::types::ProviderHeaders>,
+) {
     for (key, value) in additional.into_iter().flatten() {
         match value {
             None => delete_header(headers, key),
@@ -756,17 +759,21 @@ fn apply_provider_headers(headers: &mut IndexMap<String, String>, additional: Op
 }
 
 fn build_base_codex_headers(
-    init_headers: Option<&IndexMap<String, String>>,
+    init_headers: Option<&IndexMap<String, JsString>>,
     additional_headers: Option<&crate::types::ProviderHeaders>,
     account_id: &str,
-    token: &str,
-) -> IndexMap<String, String> {
+    token: &JsString,
+) -> IndexMap<String, JsString> {
     let mut headers = IndexMap::new();
     for (name, value) in init_headers.into_iter().flatten() {
         set_header(&mut headers, name, value.clone());
     }
     apply_provider_headers(&mut headers, additional_headers);
-    set_header(&mut headers, "authorization", format!("Bearer {token}"));
+    set_header(
+        &mut headers,
+        "authorization",
+        pi_js_compat::js_format!("Bearer {}", token),
+    );
     set_header(&mut headers, "chatgpt-account-id", account_id);
     set_header(&mut headers, "originator", "pi");
     set_header(&mut headers, "user-agent", codex_user_agent());
@@ -797,90 +804,76 @@ fn platform_release() -> String {
 }
 
 fn build_sse_headers(
-    init_headers: Option<&IndexMap<String, String>>,
+    init_headers: Option<&IndexMap<String, JsString>>,
     additional_headers: Option<&crate::types::ProviderHeaders>,
     account_id: &str,
-    token: &str,
+    token: &JsString,
     session_id: Option<&JsString>,
-) -> IndexMap<String, String> {
+) -> IndexMap<String, JsString> {
     let mut headers = build_base_codex_headers(init_headers, additional_headers, account_id, token);
     set_header(&mut headers, "openai-beta", "responses=experimental");
     set_header(&mut headers, "accept", "text/event-stream");
     set_header(&mut headers, "content-type", "application/json");
     if let Some(session_id) = session_id {
-        set_header(
-            &mut headers,
-            "session-id",
-            &pi_js_compat::js_json::encode_node_utf8(session_id),
-        );
-        set_header(
-            &mut headers,
-            "x-client-request-id",
-            &pi_js_compat::js_json::encode_node_utf8(session_id),
-        );
+        set_header(&mut headers, "session-id", session_id);
+        set_header(&mut headers, "x-client-request-id", session_id);
     }
     headers
 }
 
 fn build_websocket_headers(
-    init_headers: Option<&IndexMap<String, String>>,
+    init_headers: Option<&IndexMap<String, JsString>>,
     additional_headers: Option<&crate::types::ProviderHeaders>,
     account_id: &str,
-    token: &str,
+    token: &JsString,
     request_id: &JsString,
-) -> IndexMap<String, String> {
+) -> IndexMap<String, JsString> {
     let mut headers = build_base_codex_headers(init_headers, additional_headers, account_id, token);
     delete_header(&mut headers, "accept");
     delete_header(&mut headers, "content-type");
     delete_header(&mut headers, "openai-beta");
     set_header(&mut headers, "openai-beta", OPENAI_BETA_RESPONSES_WEBSOCKETS);
-    set_header(
-        &mut headers,
-        "x-client-request-id",
-        &pi_js_compat::js_json::encode_node_utf8(request_id),
-    );
-    set_header(
-        &mut headers,
-        "session-id",
-        &pi_js_compat::js_json::encode_node_utf8(request_id),
-    );
+    set_header(&mut headers, "x-client-request-id", request_id);
+    set_header(&mut headers, "session-id", request_id);
     headers
 }
 
-fn resolve_codex_url(base_url: &str) -> String {
-    let raw = if base_url.trim().is_empty() {
-        DEFAULT_CODEX_BASE_URL
+fn resolve_codex_url(base_url: &JsString) -> JsString {
+    let mut normalized = if base_url.trim().is_empty() {
+        DEFAULT_CODEX_BASE_URL.into()
     } else {
-        base_url
+        base_url.clone()
     };
-    let normalized = raw.trim_end_matches('/');
+    while normalized.ends_with('/') {
+        normalized = normalized.slice(0, normalized.len() - 1);
+    }
     if normalized.ends_with("/codex/responses") {
-        normalized.to_owned()
+        normalized
     } else if normalized.ends_with("/codex") {
-        format!("{normalized}/responses")
+        normalized + "/responses"
     } else {
-        format!("{normalized}/codex/responses")
+        normalized + "/codex/responses"
     }
 }
 
-fn resolve_codex_websocket_url(base_url: &str) -> String {
+fn resolve_codex_websocket_url(base_url: &JsString) -> JsString {
     let url = resolve_codex_url(base_url);
     if let Some(rest) = url.strip_prefix("https://") {
-        format!("wss://{rest}")
+        JsString::from("wss://") + rest
     } else if let Some(rest) = url.strip_prefix("http://") {
-        format!("ws://{rest}")
+        JsString::from("ws://") + rest
     } else {
         url
     }
 }
 
-fn extract_account_id(token: &str) -> Result<String, CodexStreamError> {
+fn extract_account_id(token: &JsString) -> Result<String, CodexStreamError> {
     let failure = || CodexStreamError::Transport("Failed to extract accountId from token".to_owned().into());
-    let parts: Vec<&str> = token.split('.').collect();
+    let parts: Vec<JsString> = token.split('.').collect();
     if parts.len() != 3 {
         return Err(failure());
     }
-    let payload = pi_js_compat::base64::atob(parts[1]).map_err(|_| failure())?;
+    let payload = pi_js_compat::base64::atob(&parts[1]).map_err(|_| failure())?;
     let payload: Value = serde_json::from_slice(&payload).map_err(|_| failure())?;
     payload
         .get(JWT_CLAIM_PATH)
@@ -1092,7 +1085,7 @@ async fn sleep_abortable(ms: f64, signal: Option<&CancellationToken>) -> Result<
 async fn fetch_sse_with_retries(
     model: &Model,
     options: &OpenAICodexResponsesOptions,
-    headers: &IndexMap<String, String>,
+    headers: &IndexMap<String, JsString>,
     body: Vec<u8>,
     http_timeout_ms: Option<f64>,
 ) -> Result<(HttpResponse, CancellationToken), CodexStreamError> {
@@ -1109,11 +1102,12 @@ async fn fetch_sse_with_retries(
 
         let request = HttpRequest {
             method: "POST".to_owned(),
-            url: url.clone(),
+            url: crate::request::request_url(&url).map_err(|error| CodexStreamError::Transport(error.message))?,
             headers: headers
                 .iter()
-                .map(|(name, value)| (name.clone(), value.clone()))
-                .collect(),
+                .map(|(name, value)| crate::request::header_value(value).map(|value| (name.clone(), value)))
+                .collect::<Result<_, _>>()
+                .map_err(|error| CodexStreamError::Transport(error.message))?,
             body: Some(body.clone()),
         };
         let response = fetch_with_header_timeout(
@@ -1845,22 +1839,24 @@ async fn close_websocket(mut connection: WsConnection, code: u16, reason: &str) 
 }
 
 async fn connect_websocket(
-    url: &str,
-    headers: &IndexMap<String, String>,
+    url: &JsString,
+    headers: &IndexMap<String, JsString>,
     signal: Option<CancellationToken>,
     connect_timeout_ms: Option<f64>,
 ) -> Result<WsConnection, CodexStreamError> {
     if is_aborted(signal.as_ref()) {
         return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
     }
+    let url = crate::request::request_url(url).map_err(|error| CodexStreamError::Transport(error.message))?;
     let mut request = url
         .into_client_request()
         .map_err(|error| CodexStreamError::Transport(error.to_string().into()))?;
     for (name, value) in headers {
         let name = HeaderName::from_bytes(name.as_bytes())
             .map_err(|error| CodexStreamError::Transport(error.to_string().into()))?;
+        let value = crate::request::header_value(value).map_err(|error| CodexStreamError::Transport(error.message))?;
         let value =
-            HeaderValue::from_str(value).map_err(|error| CodexStreamError::Transport(error.to_string().into()))?;
+            HeaderValue::from_str(&value).map_err(|error| CodexStreamError::Transport(error.to_string().into()))?;
         request.headers_mut().insert(name, value);
     }
 
@@ -1965,8 +1961,8 @@ fn take_cached_connection(session_id: &JsString, account_id: &str) -> AcquireDec
 }
 
 async fn acquire_websocket(
-    url: &str,
-    headers: &IndexMap<String, String>,
+    url: &JsString,
+    headers: &IndexMap<String, JsString>,
     session_id: Option<&JsString>,
     account_id: &str,
     signal: Option<CancellationToken>,
@@ -2132,7 +2128,7 @@ struct WebSocketExecution<'a> {
     options: &'a OpenAICodexResponsesOptions,
     body: JsValue,
     body_json: &'a str,
-    headers: IndexMap<String, String>,
+    headers: IndexMap<String, JsString>,
     http_timeout_ms: Option<f64>,
     websocket_connect_timeout_ms: Option<f64>,
     cache_session_id: Option<&'a JsString>,
