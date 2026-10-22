@@ -497,7 +497,7 @@ pub async fn fetch_native(url: &str) -> Result<HttpResponse, GeneratorError> {
 fn transport_error(error: crate::request::CallbackError) -> GeneratorError {
     GeneratorError {
         name: error.name,
-        message: JsString::from(error.message.as_str()),
+        message: error.message,
         details: error
             .cause
             .map(|cause| Box::new(GeneratorErrorDetails::Transport(cause))),

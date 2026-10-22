@@ -1,14 +1,14 @@
-use serde_json::Value;
+use pi_js_compat::js_json::{JsString, JsValue as Value};
 
-use pi_js_compat::{js_json, number::js_number_to_string, string::js_trim};
+use pi_js_compat::{js_json, number::js_number_to_string};
 
 pub const MAX_PROVIDER_ERROR_BODY_CHARS: usize = 4000;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct NormalizedProviderError {
     pub status: Option<f64>,
-    pub body: Option<String>,
-    pub message: String,
+    pub body: Option<JsString>,
+    pub message: JsString,
     pub message_carries_body: bool,
 }
 
@@ -18,13 +18,13 @@ pub struct NormalizedProviderError {
 /// selection semantics as `Text`; JSON arrays and objects retain their shape.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ErrorBody {
-    Text(String),
+    Text(JsString),
     Json(Value),
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ProviderError {
-    pub message: String,
+    pub message: JsString,
     pub status_code: Option<f64>,
     pub status: Option<f64>,
     pub body: Option<ErrorBody>,
@@ -70,16 +70,16 @@ fn extract_status(error: &ProviderError) -> Option<f64> {
         .or(error.response_status_code)
 }
 
-fn extract_body(error: &ProviderError) -> Option<String> {
+fn extract_body(error: &ProviderError) -> Option<JsString> {
     let body_text = pick_body_text(error)?;
-    let trimmed = js_trim(&body_text);
+    let trimmed = body_text.trim();
     if trimmed.is_empty() {
         return None;
     }
-    Some(truncate_error_text(trimmed, MAX_PROVIDER_ERROR_BODY_CHARS))
+    Some(truncate_error_text(&trimmed, MAX_PROVIDER_ERROR_BODY_CHARS))
 }
 
-fn pick_body_text(error: &ProviderError) -> Option<String> {
+fn pick_body_text(error: &ProviderError) -> Option<JsString> {
     if let Some(ErrorBody::Text(text) | ErrorBody::Json(Value::String(text))) = &error.body {
         return Some(text.clone());
     }
@@ -103,49 +103,55 @@ fn is_non_empty_object(value: &Value) -> bool {
     }
 }
 
-pub fn format_provider_error(normalized: &NormalizedProviderError, prefix: Option<&str>) -> String {
+pub fn format_provider_error(normalized: &NormalizedProviderError, prefix: Option<&str>) -> JsString {
     let carries_body = normalized.message_carries_body || normalized.status.is_none() || normalized.body.is_none();
 
     if carries_body {
         return match (prefix, normalized.status) {
-            (Some(prefix), Some(status)) => {
-                format!("{prefix} ({}): {}", js_number_to_string(status), normalized.message)
-            }
+            (Some(prefix), Some(status)) => JsString::join(
+                [
+                    JsString::from(format!("{prefix} ({}): ", js_number_to_string(status))),
+                    normalized.message.clone(),
+                ],
+                "",
+            ),
             _ => normalized.message.clone(),
         };
     }
 
     let status = normalized.status.expect("status is present when the body is surfaced");
-    let body = normalized.body.as_deref().expect("body is present when it is surfaced");
+    let body = normalized.body.as_ref().expect("body is present when it is surfaced");
     match prefix {
-        Some(prefix) => format!("{prefix} ({}): {body}", js_number_to_string(status)),
-        None => format!("{}: {body}", js_number_to_string(status)),
+        Some(prefix) => JsString::join(
+            [
+                JsString::from(format!("{prefix} ({}): ", js_number_to_string(status))),
+                body.clone(),
+            ],
+            "",
+        ),
+        None => JsString::join(
+            [
+                JsString::from(format!("{}: ", js_number_to_string(status))),
+                body.clone(),
+            ],
+            "",
+        ),
     }
 }
 
-pub fn truncate_error_text(text: &str, max_chars: usize) -> String {
-    let length = text.encode_utf16().count();
-    if length <= max_chars {
-        return text.to_owned();
+pub fn truncate_error_text(text: &JsString, max_chars: usize) -> JsString {
+    if text.len() <= max_chars {
+        return text.clone();
     }
-    let prefix = take_utf16_units(text, max_chars);
-    format!("{prefix}... [truncated {} chars]", length - max_chars)
+    JsString::join(
+        [
+            text.slice(0, max_chars),
+            format!("... [truncated {} chars]", text.len() - max_chars).into(),
+        ],
+        "",
+    )
 }
 
-fn take_utf16_units(text: &str, max_units: usize) -> String {
-    let mut units = 0;
-    text.chars()
-        .take_while(|character| {
-            let width = character.len_utf16();
-            if units + width > max_units {
-                return false;
-            }
-            units += width;
-            true
-        })
-        .collect()
-}
-
-pub fn safe_json_stringify(value: &Value) -> String {
-    js_json::stringify(value)
+pub fn safe_json_stringify(value: &Value) -> JsString {
+    js_json::stringify_lossless(value).into()
 }

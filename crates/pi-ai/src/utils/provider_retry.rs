@@ -35,31 +35,42 @@ impl ProviderErrorHeaders {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProviderError {
-    pub message: String,
+    pub message: pi_js_compat::js_json::JsString,
     pub status: Option<f64>,
     pub headers: ProviderErrorHeaders,
     /// SDK-parsed body object text (`normalizeProviderError`'s `error` field).
-    pub body: Option<String>,
+    pub body: Option<pi_js_compat::js_json::JsString>,
     /// SDK-parsed inner `error` object, retained for provider-specific metadata.
-    pub inner_error: Option<Box<serde_json::Value>>,
+    pub inner_error: Option<Box<pi_js_compat::js_json::JsValue>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RetryDelayLimitError {
     pub delay_ms: f64,
     pub max_ms: f64,
-    pub provider_message: String,
+    pub provider_message: pi_js_compat::js_json::JsString,
+}
+
+impl RetryDelayLimitError {
+    pub fn message(&self) -> pi_js_compat::js_json::JsString {
+        pi_js_compat::js_json::JsString::join(
+            [
+                format!(
+                    "Server requested {}s retry delay (max: {}s). ",
+                    js_number_to_string((self.delay_ms / 1000.0).ceil()),
+                    js_number_to_string((self.max_ms / 1000.0).ceil())
+                )
+                .into(),
+                self.provider_message.clone(),
+            ],
+            "",
+        )
+    }
 }
 
 impl fmt::Display for RetryDelayLimitError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "Server requested {}s retry delay (max: {}s). {}",
-            js_number_to_string((self.delay_ms / 1000.0).ceil()),
-            js_number_to_string((self.max_ms / 1000.0).ceil()),
-            self.provider_message
-        )
+        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message()))
     }
 }
 
@@ -162,7 +173,7 @@ fn get_retry_delay_ms(
 fn validate_server_retry_delay_ms(
     delay_ms: f64,
     max_retry_delay_ms: Option<f64>,
-    provider_message: &str,
+    provider_message: &pi_js_compat::js_json::JsString,
 ) -> Result<f64, RetryDelayLimitError> {
     let max_ms = max_retry_delay_ms.unwrap_or(DEFAULT_MAX_RETRY_DELAY_MS);
     if max_ms > 0.0 && delay_ms > max_ms {

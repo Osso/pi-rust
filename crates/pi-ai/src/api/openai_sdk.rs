@@ -2,7 +2,7 @@
 //! URL/header construction, JSON body encoding, HTTP error mapping, and SSE
 //! decoding. All provider modules send through [`SdkClient::create_stream`].
 
-use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::{JsString, JsValue};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
@@ -58,7 +58,7 @@ pub enum SdkError {
     /// SDK/API error carrying the fields `normalizeProviderError` probes.
     Provider(Box<ProviderError>),
     /// Non-`Error` failure text (JSON syntax errors, connection text).
-    Message(String),
+    Message(JsString),
 }
 
 impl SdkClient {
@@ -161,7 +161,7 @@ impl SdkClient {
             }
             Err(_) => {
                 return Err(ProviderRequestError::Provider(ProviderError {
-                    message: "Connection error.".to_owned(),
+                    message: "Connection error.".to_owned().into(),
                     status: None,
                     headers: ProviderErrorHeaders::new(),
                     body: None,
@@ -315,13 +315,13 @@ async fn read_http_error(response: HttpResponse, signal: Option<CancellationToke
         }
     }
     let text = String::from_utf8_lossy(&bytes).into_owned();
-    let parsed = serde_json::from_str::<Value>(&text).ok();
-    let inner_error = parsed.as_ref().and_then(|value| value.get("error")).cloned();
-    let message = error_message(response.status, inner_error.as_ref(), &text, parsed.is_some());
+    let parsed = pi_js_compat::js_json::parse_lossless(text.as_str());
+    let inner_error = parsed.as_ref().ok().and_then(|value| value.get("error")).cloned();
+    let message = error_message(response.status, inner_error.as_ref(), &text, parsed.is_ok());
     let body = inner_error
         .as_ref()
         .filter(|error| is_plain_non_empty_object(error))
-        .map(|error| error.to_string());
+        .map(|error| pi_js_compat::js_json::stringify_lossless(error).into());
     let mut headers = ProviderErrorHeaders::new();
     for (name, value) in &response.headers {
         headers.insert(name, value);
@@ -335,27 +335,27 @@ async fn read_http_error(response: HttpResponse, signal: Option<CancellationToke
     }
 }
 
-fn is_plain_non_empty_object(value: &Value) -> bool {
-    matches!(value, Value::Object(object) if !object.is_empty())
+fn is_plain_non_empty_object(value: &JsValue) -> bool {
+    matches!(value, JsValue::Object(object) if !object.is_empty())
 }
 
-fn error_message(status: u16, inner_error: Option<&Value>, raw_text: &str, parsed: bool) -> String {
+fn error_message(status: u16, inner_error: Option<&JsValue>, raw_text: &str, parsed: bool) -> JsString {
     let message = match inner_error {
         Some(error) => Some(api_error_detail(error)),
         None if parsed => None,
-        None => Some(raw_text.to_owned()),
+        None => Some(JsString::from(raw_text)),
     };
     match message {
-        Some(message) if !message.is_empty() => format!("{status} {message}"),
-        _ => format!("{status} status code (no body)"),
+        Some(message) if !message.is_empty() => JsString::join([format!("{status} ").into(), message], ""),
+        _ => format!("{status} status code (no body)").into(),
     }
 }
 
-fn api_error_detail(error: &Value) -> String {
+fn api_error_detail(error: &JsValue) -> JsString {
     match error.get("message") {
-        Some(Value::String(message)) => message.clone(),
-        Some(message) => message.to_string(),
-        None => error.to_string(),
+        Some(JsValue::String(message)) => message.clone(),
+        Some(message) => pi_js_compat::js_json::stringify_lossless(message).into(),
+        None => pi_js_compat::js_json::stringify_lossless(error).into(),
     }
 }
 
@@ -402,12 +402,10 @@ impl SseJsonStream {
             self.done = true;
             return Ok(None);
         }
-        let value: JsValue =
-            pi_js_compat::js_json::parse_lossless(&event.data).map_err(|error| SdkError::Message(error.to_string()))?;
+        let value: JsValue = pi_js_compat::js_json::parse_lossless(&event.data)
+            .map_err(|error| SdkError::Message(error.into_message()))?;
         if let Some(error) = value.get("error").filter(|error| is_truthy_ingress(error)) {
-            let scalar_error = serde_json::from_str::<Value>(&pi_js_compat::js_json::stringify_lossless(error))
-                .map_err(|error| SdkError::Message(error.to_string()))?;
-            let message = api_error_detail(&scalar_error);
+            let message = api_error_detail(error);
             let mut headers = ProviderErrorHeaders::new();
             for (name, value) in &self.headers {
                 headers.insert(name, value);
@@ -416,8 +414,8 @@ impl SseJsonStream {
                 message,
                 status: None,
                 headers,
-                body: is_plain_non_empty_object(&scalar_error).then(|| scalar_error.to_string()),
-                inner_error: Some(Box::new(scalar_error)),
+                body: is_plain_non_empty_object(error).then(|| pi_js_compat::js_json::stringify_lossless(error).into()),
+                inner_error: Some(Box::new(error.clone())),
             })));
         }
         Ok(Some(value))
@@ -582,7 +580,7 @@ impl crate::api::openai_responses_shared::ResponsesEventSource for SseJsonStream
 
 /// Format an SDK failure the way the provider modules do: SDK errors go through
 /// `normalizeProviderError` + `formatProviderError`, other messages verbatim.
-pub fn format_sdk_error(error: &SdkError, prefix: Option<&str>) -> String {
+pub fn format_sdk_error(error: &SdkError, prefix: Option<&str>) -> JsString {
     match error {
         SdkError::Provider(error) => {
             let normalized = normalized_provider_error(error);
@@ -593,22 +591,22 @@ pub fn format_sdk_error(error: &SdkError, prefix: Option<&str>) -> String {
 }
 
 /// Format a retry-layer failure (`ProviderRequestError<CallbackError>`).
-pub fn format_request_error(error: &ProviderRequestError<CallbackError>, prefix: Option<&str>) -> String {
+pub fn format_request_error(error: &ProviderRequestError<CallbackError>, prefix: Option<&str>) -> JsString {
     match error {
         ProviderRequestError::Provider(error) => {
             let normalized = normalized_provider_error(error);
             crate::utils::error_body::format_provider_error(&normalized, prefix)
         }
         ProviderRequestError::Other(error) => error.message.clone(),
-        ProviderRequestError::Abort(_) => "Request aborted".to_owned(),
-        ProviderRequestError::RetryDelayLimit(error) => error.to_string(),
+        ProviderRequestError::Abort(_) => "Request aborted".into(),
+        ProviderRequestError::RetryDelayLimit(error) => error.message(),
     }
 }
 
 fn normalized_provider_error(error: &ProviderError) -> crate::utils::error_body::NormalizedProviderError {
     let body = error.body.as_ref().map(|body| {
         crate::utils::error_body::truncate_error_text(
-            body.trim(),
+            &body.trim(),
             crate::utils::error_body::MAX_PROVIDER_ERROR_BODY_CHARS,
         )
     });
@@ -622,7 +620,7 @@ fn normalized_provider_error(error: &ProviderError) -> crate::utils::error_body:
 }
 
 /// Inner `error` object from an SDK HTTP error, used for OpenRouter `metadata.raw`.
-pub fn sdk_error_inner(error: &SdkError) -> Option<&Value> {
+pub fn sdk_error_inner(error: &SdkError) -> Option<&JsValue> {
     match error {
         SdkError::Provider(error) => error.inner_error.as_deref(),
         SdkError::Message(_) => None,
@@ -631,16 +629,16 @@ pub fn sdk_error_inner(error: &SdkError) -> Option<&Value> {
 
 /// Parse a raw JSON object body into an SDK-shaped error (used for tests).
 pub fn provider_error_from_body(status: u16, body: &str) -> ProviderError {
-    let parsed = serde_json::from_str::<Value>(body).ok();
-    let inner = parsed.as_ref().and_then(|value| value.get("error")).cloned();
+    let parsed = pi_js_compat::js_json::parse_lossless(body);
+    let inner = parsed.as_ref().ok().and_then(|value| value.get("error")).cloned();
     ProviderError {
-        message: error_message(status, inner.as_ref(), body, parsed.is_some()),
+        message: error_message(status, inner.as_ref(), body, parsed.is_ok()),
         status: Some(f64::from(status)),
         headers: ProviderErrorHeaders::new(),
         body: inner
             .as_ref()
             .filter(|error| is_plain_non_empty_object(error))
-            .map(|error| error.to_string()),
+            .map(|error| pi_js_compat::js_json::stringify_lossless(error).into()),
         inner_error: inner.map(Box::new),
     }
 }

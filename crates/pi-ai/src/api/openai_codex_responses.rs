@@ -218,7 +218,7 @@ pub struct OpenAICodexWebSocketDebugStats {
     pub last_previous_response_id: Option<JsString>,
     pub websocket_failures: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_websocket_error: Option<String>,
+    pub last_websocket_error: Option<JsString>,
 }
 
 /// `stream`.
@@ -301,7 +301,7 @@ async fn run_stream(
             }
             Err(message) => fail_stream(&mut output, &options, &sender, &message),
         },
-        Err(error) => fail_stream(&mut output, &options, &sender, &error.to_string()),
+        Err(error) => fail_stream(&mut output, &options, &sender, error.message()),
     }
 }
 
@@ -309,7 +309,7 @@ fn fail_stream(
     output: &mut AssistantMessage,
     options: &OpenAICodexResponsesOptions,
     sender: &AssistantMessageEventSender,
-    message: &str,
+    message: impl Into<JsString>,
 ) {
     let aborted = is_aborted(options.stream.request.signal.as_ref());
     output.stop_reason = if aborted {
@@ -317,7 +317,7 @@ fn fail_stream(
     } else {
         StopReason::Error
     };
-    output.error_message = Some(message.to_owned());
+    output.error_message = Some(message.into());
     sender.push(AssistantMessageEvent::Error {
         reason: if aborted {
             ErrorReason::Aborted
@@ -395,11 +395,11 @@ async fn execute_stream(
         .api_key
         .as_deref()
         .filter(|key| !key.is_empty())
-        .ok_or_else(|| CodexStreamError::Transport(format!("No API key for provider: {}", model.provider)))?;
+        .ok_or_else(|| CodexStreamError::Transport(format!("No API key for provider: {}", model.provider).into()))?;
     let account_id = extract_account_id(api_key)?;
     let grammar_tool_input_properties =
         create_grammar_tool_input_properties(context.tools.as_deref(), supports_grammar_tools(model))
-            .map_err(|error| CodexStreamError::Transport(error.to_string()))?;
+            .map_err(|error| CodexStreamError::Transport(error.to_string().into()))?;
     let cache_session_id = if options.stream.cache_retention == Some(crate::types::CacheRetention::None) {
         None
     } else {
@@ -436,7 +436,8 @@ async fn execute_stream(
         api_key,
         &websocket_request_id,
     );
-    let body_json = serde_json::to_string(&body).map_err(|error| CodexStreamError::Transport(error.to_string()))?;
+    let body_json =
+        serde_json::to_string(&body).map_err(|error| CodexStreamError::Transport(error.to_string().into()))?;
     let http_timeout_ms = normalize_timeout_ms(options.stream.request.timeout_ms)?;
     let websocket_connect_timeout_ms = normalize_timeout_ms(options.stream.websocket_connect_timeout_ms)?;
     let transport = options.stream.transport.unwrap_or(Transport::Auto);
@@ -548,7 +549,7 @@ fn build_request_body(
             }),
         }),
     )
-    .map_err(CodexStreamError::Transport)?;
+    .map_err(|error| CodexStreamError::Transport(error.into()))?;
 
     let mut body = JsObject::new();
     body.insert("model".into(), JsValue::String(model.id.clone().into()));
@@ -616,7 +617,7 @@ fn build_request_body(
                     defer_loading: None,
                 }),
             )
-            .map_err(|error: ConstrainedSamplingError| CodexStreamError::Transport(error.to_string()))?,
+            .map_err(|error: ConstrainedSamplingError| CodexStreamError::Transport(error.to_string().into()))?,
         );
     }
     if let Some(reasoning_effort) = options.reasoning_effort {
@@ -718,7 +719,9 @@ fn normalize_timeout_ms(value: Option<f64>) -> Result<Option<f64>, CodexStreamEr
         return Ok(None);
     };
     if !value.is_finite() || value < 0.0 {
-        return Err(CodexStreamError::Transport(format!("Invalid timeoutMs: {}", value)));
+        return Err(CodexStreamError::Transport(
+            format!("Invalid timeoutMs: {}", value).into(),
+        ));
     }
     Ok(Some(value.floor()))
 }
@@ -856,7 +859,7 @@ fn resolve_codex_websocket_url(base_url: &str) -> String {
 }
 
 fn extract_account_id(token: &str) -> Result<String, CodexStreamError> {
-    let failure = || CodexStreamError::Transport("Failed to extract accountId from token".to_owned());
+    let failure = || CodexStreamError::Transport("Failed to extract accountId from token".to_owned().into());
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() != 3 {
         return Err(failure());
@@ -875,13 +878,13 @@ fn extract_account_id(token: &str) -> Result<String, CodexStreamError> {
 fn assert_successful_output(output: &AssistantMessage) -> Result<(), CodexStreamError> {
     match output.stop_reason {
         StopReason::Pending => Err(CodexStreamError::Transport(
-            "Codex stream ended without a stop reason".to_owned(),
+            "Codex stream ended without a stop reason".to_owned().into(),
         )),
         StopReason::Error | StopReason::Aborted => Err(CodexStreamError::Transport(
             output
                 .error_message
                 .clone()
-                .unwrap_or_else(|| "An unknown error occurred".to_owned()),
+                .unwrap_or_else(|| "An unknown error occurred".to_owned().into()),
         )),
         _ => Ok(()),
     }
@@ -892,14 +895,14 @@ fn assert_successful_output(output: &AssistantMessage) -> Result<(), CodexStream
 pub enum CodexStreamError {
     Api {
         code: Option<String>,
-        message: String,
+        message: JsString,
         payload: Option<JsValue>,
     },
     Protocol {
-        message: String,
+        message: JsString,
         payload: Option<JsValue>,
     },
-    Transport(String),
+    Transport(JsString),
 }
 
 impl CodexStreamError {
@@ -910,6 +913,12 @@ impl CodexStreamError {
         match failure {
             ResponsesStreamFailure::Source(error) => error.into(),
             ResponsesStreamFailure::Message(message) => Self::Transport(message),
+        }
+    }
+
+    pub fn message(&self) -> &JsString {
+        match self {
+            Self::Api { message, .. } | Self::Protocol { message, .. } | Self::Transport(message) => message,
         }
     }
 
@@ -965,7 +974,7 @@ impl std::fmt::Display for CodexStreamError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Api { message, .. } | Self::Protocol { message, .. } | Self::Transport(message) => {
-                formatter.write_str(message)
+                formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(message))
             }
         }
     }
@@ -1035,24 +1044,27 @@ fn validate_retry_delay_ms(delay_ms: f64, options: &OpenAICodexResponsesOptions)
         .max_retry_delay_ms
         .unwrap_or(DEFAULT_MAX_RETRY_DELAY_MS);
     if max_retry_delay_ms > 0.0 && delay_ms > max_retry_delay_ms {
-        return Err(CodexStreamError::Transport(format!(
-            "Server requested {}s retry delay (max: {}s)",
-            (delay_ms / 1000.0).ceil(),
-            (max_retry_delay_ms / 1000.0).ceil()
-        )));
+        return Err(CodexStreamError::Transport(
+            format!(
+                "Server requested {}s retry delay (max: {}s)",
+                (delay_ms / 1000.0).ceil(),
+                (max_retry_delay_ms / 1000.0).ceil()
+            )
+            .into(),
+        ));
     }
     Ok(delay_ms)
 }
 
 async fn sleep_abortable(ms: f64, signal: Option<&CancellationToken>) -> Result<(), CodexStreamError> {
     if is_aborted(signal) {
-        return Err(CodexStreamError::Transport("Request was aborted".to_owned()));
+        return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
     }
     let delay = Duration::from_secs_f64(ms.max(0.0) / 1000.0);
     match signal {
         Some(signal) => tokio::select! {
             () = tokio::time::sleep(delay) => Ok(()),
-            () = signal.cancelled() => Err(CodexStreamError::Transport("Request was aborted".to_owned())),
+            () = signal.cancelled() => Err(CodexStreamError::Transport("Request was aborted".to_owned().into())),
         },
         None => {
             tokio::time::sleep(delay).await;
@@ -1076,7 +1088,7 @@ async fn fetch_sse_with_retries(
 
     while attempt <= max_retries {
         if is_aborted(options.stream.request.signal.as_ref()) {
-            return Err(CodexStreamError::Transport("Request was aborted".to_owned()));
+            return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
         }
 
         let request = HttpRequest {
@@ -1100,7 +1112,7 @@ async fn fetch_sse_with_retries(
             Ok(pair) => pair,
             Err(error) => {
                 if is_aborted(options.stream.request.signal.as_ref()) {
-                    return Err(CodexStreamError::Transport("Request was aborted".to_owned()));
+                    return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
                 }
                 last_error = Some(error.clone());
                 if attempt < max_retries {
@@ -1160,11 +1172,11 @@ async fn fetch_sse_with_retries(
 
         let info = parse_error_response(response.status, &response.status_text, &error_text);
         return Err(CodexStreamError::Transport(
-            info.friendly_message.unwrap_or(info.message),
+            info.friendly_message.unwrap_or(info.message).into(),
         ));
     }
 
-    Err(last_error.unwrap_or_else(|| CodexStreamError::Transport("Failed after retries".to_owned())))
+    Err(last_error.unwrap_or_else(|| CodexStreamError::Transport("Failed after retries".to_owned().into())))
 }
 
 fn notify_retry(
@@ -1196,7 +1208,7 @@ async fn fetch_with_header_timeout(
     timeout_ms: Option<f64>,
 ) -> Result<(HttpResponse, CancellationToken), CodexStreamError> {
     if is_aborted(signal.as_ref()) {
-        return Err(CodexStreamError::Transport("Request was aborted".to_owned()));
+        return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
     }
     let request_token = signal.as_ref().map(CancellationToken::child_token).unwrap_or_default();
     let future = fetch.fetch(request, Some(request_token.clone()));
@@ -1216,11 +1228,11 @@ async fn fetch_with_header_timeout(
                     request_token.cancel();
                     Err(CodexStreamError::Transport(format!(
                         "Codex SSE response headers timed out after {timeout_ms}ms"
-                    )))
+                    ).into()))
                 }
                 () = abort => {
                     request_token.cancel();
-                    Err(CodexStreamError::Transport("Request was aborted".to_owned()))
+                    Err(CodexStreamError::Transport("Request was aborted".to_owned().into()))
                 }
             }
         }
@@ -1235,7 +1247,7 @@ async fn fetch_with_header_timeout(
                 result = &mut future => map_fetch_result(result, signal.as_ref()).map(|response| (response, request_token)),
                 () = abort => {
                     request_token.cancel();
-                    Err(CodexStreamError::Transport("Request was aborted".to_owned()))
+                    Err(CodexStreamError::Transport("Request was aborted".to_owned().into()))
                 }
             }
         }
@@ -1250,7 +1262,7 @@ fn map_fetch_result(
         Ok(response) => Ok(response),
         Err(error) => {
             if is_aborted(signal) || error.message == crate::http::ABORT_ERROR_MESSAGE {
-                Err(CodexStreamError::Transport("Request was aborted".to_owned()))
+                Err(CodexStreamError::Transport("Request was aborted".to_owned().into()))
             } else {
                 Err(CodexStreamError::Transport(error.message))
             }
@@ -1382,7 +1394,7 @@ impl SseEventSource {
         pi_js_compat::js_json::parse_lossless(data)
             .map(SseStep::Event)
             .map_err(|error| CodexStreamError::Protocol {
-                message: format!("Invalid Codex SSE JSON: {error}"),
+                message: format!("Invalid Codex SSE JSON: {error}").into(),
                 payload: Some(JsValue::String(data.into())),
             })
     }
@@ -1407,11 +1419,11 @@ impl SseEventSource {
                         self.request_token.cancel();
                         return Err(CodexStreamError::Transport(format!(
                             "Codex SSE body read timed out after {timeout_ms}ms"
-                        )));
+                        ).into()));
                     }
                     () = abort => {
                         self.request_token.cancel();
-                        return Err(CodexStreamError::Transport("Request was aborted".to_owned()));
+                        return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
                     }
                 }
             }
@@ -1420,7 +1432,7 @@ impl SseEventSource {
                     chunk = &mut read => chunk,
                     () = abort => {
                         self.request_token.cancel();
-                        return Err(CodexStreamError::Transport("Request was aborted".to_owned()));
+                        return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
                     }
                 }
             }
@@ -1430,7 +1442,7 @@ impl SseEventSource {
             Some(Ok(bytes)) => Ok(Some(bytes)),
             Some(Err(error)) => {
                 if is_aborted(self.signal.as_ref()) {
-                    Err(CodexStreamError::Transport("Request was aborted".to_owned()))
+                    Err(CodexStreamError::Transport("Request was aborted".to_owned().into()))
                 } else {
                     Err(CodexStreamError::Transport(error.message))
                 }
@@ -1454,7 +1466,7 @@ impl ResponsesEventSource for SseEventSource {
             loop {
                 if is_aborted(self.signal.as_ref()) {
                     self.request_token.cancel();
-                    return Err(CodexStreamError::Transport("Request was aborted".to_owned()));
+                    return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
                 }
                 match self.take_event()? {
                     SseStep::Event(event) => return Ok(Some(event)),
@@ -1529,7 +1541,8 @@ fn map_codex_event(
     mut event: JsValue,
     end_turn: &Arc<Mutex<Option<bool>>>,
 ) -> Result<Option<JsValue>, CodexStreamError> {
-    crate::api::openai_responses_shared::validate_responses_metadata(&event).map_err(CodexStreamError::Transport)?;
+    crate::api::openai_responses_shared::validate_responses_metadata(&event)
+        .map_err(|error| CodexStreamError::Transport(error.into()))?;
     let Some(event_type) = event
         .get("type")
         .and_then(ingress_metadata_text)
@@ -1543,11 +1556,14 @@ fn map_codex_event(
         "error" => {
             let (code, message) = extract_codex_event_error(&event);
             Err(CodexStreamError::Api {
-                message: format!(
-                    "Codex error: {}",
-                    message
-                        .or(code.clone())
-                        .unwrap_or_else(|| serde_json::to_string(&event).unwrap_or_default())
+                message: JsString::join(
+                    [
+                        "Codex error: ".into(),
+                        message
+                            .or_else(|| code.clone().map(Into::into))
+                            .unwrap_or_else(|| pi_js_compat::js_json::stringify_lossless(&event).into()),
+                    ],
+                    "",
                 ),
                 code,
                 payload: Some(event),
@@ -1564,10 +1580,9 @@ fn map_codex_event(
             let message = response
                 .get("error")
                 .and_then(|error| error.get("message"))
-                .and_then(ingress_metadata_text)
-                .as_deref()
-                .map(str::to_owned)
-                .unwrap_or_else(|| "Codex response failed".to_owned());
+                .and_then(JsValue::as_string)
+                .cloned()
+                .unwrap_or_else(|| "Codex response failed".to_owned().into());
             Err(CodexStreamError::Api {
                 message,
                 code,
@@ -1620,17 +1635,18 @@ fn normalize_codex_response(response: JsValue) -> JsValue {
     JsValue::Object(object)
 }
 
-fn extract_codex_event_error(event: &JsValue) -> (Option<String>, Option<String>) {
+fn extract_codex_event_error(event: &JsValue) -> (Option<String>, Option<JsString>) {
     let nested = event.get("error").filter(|error| error.is_object());
     let code = event.get("code").and_then(ingress_metadata_text).or_else(|| {
         nested
             .and_then(|error| error.get("code"))
             .and_then(ingress_metadata_text)
     });
-    let message = event.get("message").and_then(ingress_metadata_text).or_else(|| {
+    let message = event.get("message").and_then(JsValue::as_string).cloned().or_else(|| {
         nested
             .and_then(|error| error.get("message"))
-            .and_then(ingress_metadata_text)
+            .and_then(JsValue::as_string)
+            .cloned()
     });
     (code, message)
 }
@@ -1815,15 +1831,16 @@ async fn connect_websocket(
     connect_timeout_ms: Option<f64>,
 ) -> Result<WsConnection, CodexStreamError> {
     if is_aborted(signal.as_ref()) {
-        return Err(CodexStreamError::Transport("Request was aborted".to_owned()));
+        return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
     }
     let mut request = url
         .into_client_request()
-        .map_err(|error| CodexStreamError::Transport(error.to_string()))?;
+        .map_err(|error| CodexStreamError::Transport(error.to_string().into()))?;
     for (name, value) in headers {
-        let name =
-            HeaderName::from_bytes(name.as_bytes()).map_err(|error| CodexStreamError::Transport(error.to_string()))?;
-        let value = HeaderValue::from_str(value).map_err(|error| CodexStreamError::Transport(error.to_string()))?;
+        let name = HeaderName::from_bytes(name.as_bytes())
+            .map_err(|error| CodexStreamError::Transport(error.to_string().into()))?;
+        let value =
+            HeaderValue::from_str(value).map_err(|error| CodexStreamError::Transport(error.to_string().into()))?;
         request.headers_mut().insert(name, value);
     }
 
@@ -1843,17 +1860,17 @@ async fn connect_websocket(
             () = tokio::time::sleep(Duration::from_secs_f64(timeout_ms / 1000.0)) => {
                 return Err(CodexStreamError::Transport(format!(
                     "WebSocket connect timeout after {timeout_ms}ms"
-                )));
+                ).into()));
             }
             () = abort => {
-                return Err(CodexStreamError::Transport("Request was aborted".to_owned()));
+                return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
             }
         }
     } else {
         tokio::select! {
             result = &mut connect => Some(result),
             () = abort => {
-                return Err(CodexStreamError::Transport("Request was aborted".to_owned()));
+                return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
             }
         }
     };
@@ -1862,12 +1879,12 @@ async fn connect_websocket(
         Some(Ok((stream, _response))) => Ok(WsConnection::new(stream)),
         Some(Err(error)) => {
             if is_aborted(signal.as_ref()) {
-                Err(CodexStreamError::Transport("Request was aborted".to_owned()))
+                Err(CodexStreamError::Transport("Request was aborted".to_owned().into()))
             } else {
-                Err(CodexStreamError::Transport(websocket_error_message(&error)))
+                Err(CodexStreamError::Transport(websocket_error_message(&error).into()))
             }
         }
-        None => Err(CodexStreamError::Transport("WebSocket error".to_owned())),
+        None => Err(CodexStreamError::Transport("WebSocket error".to_owned().into())),
     }
 }
 
@@ -2132,7 +2149,7 @@ async fn execute_websocket(
         match result {
             Ok(()) => {
                 if is_aborted(execution.options.stream.request.signal.as_ref()) {
-                    return Err(CodexStreamError::Transport("Request was aborted".to_owned()));
+                    return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
                 }
                 return assert_successful_output(output);
             }
@@ -2162,7 +2179,7 @@ async fn execute_websocket(
                 }
                 if aborted || (error.is_non_transport() && !connection_limit_before_start) {
                     return Err(if aborted {
-                        CodexStreamError::Transport("Request was aborted".to_owned())
+                        CodexStreamError::Transport("Request was aborted".to_owned().into())
                     } else {
                         error
                     });
@@ -2281,18 +2298,19 @@ async fn process_websocket_stream(
     }
 
     let mut connection = lease.take_connection().ok_or_else(|| {
-        CodexStreamError::Transport("WebSocket transport is not available in this runtime".to_owned())
+        CodexStreamError::Transport("WebSocket transport is not available in this runtime".to_owned().into())
     })?;
     let stream = connection.take_stream().ok_or_else(|| {
-        CodexStreamError::Transport("WebSocket transport is not available in this runtime".to_owned())
+        CodexStreamError::Transport("WebSocket transport is not available in this runtime".to_owned().into())
     })?;
     let (mut sink, split_stream) = stream.split();
     let frame = response_create_frame(&request_body);
-    let frame_json = serde_json::to_string(&frame).map_err(|error| CodexStreamError::Transport(error.to_string()))?;
+    let frame_json =
+        serde_json::to_string(&frame).map_err(|error| CodexStreamError::Transport(error.to_string().into()))?;
     if let Err(error) = sink.send(Message::text(frame_json)).await {
         connection.closed = true;
         release_websocket(lease, None, false).await;
-        return Err(CodexStreamError::Transport(websocket_error_message(&error)));
+        return Err(CodexStreamError::Transport(websocket_error_message(&error).into()));
     }
 
     let end_turn = Arc::new(Mutex::new(None));
@@ -2332,7 +2350,9 @@ async fn process_websocket_stream(
         Ok(()) => {
             if output.raw_stop_reason.as_deref() == Some("incomplete.max_output_tokens") {
                 failure = Some(CodexStreamError::Transport(
-                    "Incomplete response returned, reason: max_output_tokens".to_owned(),
+                    "Incomplete response returned, reason: max_output_tokens"
+                        .to_owned()
+                        .into(),
                 ));
             } else if is_aborted(execution.options.stream.request.signal.as_ref()) {
                 keep_connection = false;
@@ -2592,14 +2612,14 @@ impl WsEventSource {
             Ok(parsed) => parsed,
             Err(error) => {
                 self.fail(CodexStreamError::Protocol {
-                    message: format!("Invalid Codex WebSocket JSON: {error}"),
+                    message: format!("Invalid Codex WebSocket JSON: {error}").into(),
                     payload: Some(JsValue::String(text.into())),
                 });
                 return;
             }
         };
         if let Err(error) = crate::api::openai_responses_shared::validate_responses_metadata(&parsed) {
-            self.fail(CodexStreamError::Transport(error));
+            self.fail(CodexStreamError::Transport(error.into()));
             return;
         }
         let event_type = parsed.get("type").and_then(ingress_metadata_text).unwrap_or_default();
@@ -2667,7 +2687,7 @@ impl ResponsesEventSource for WsEventSource {
             loop {
                 if is_aborted(self.signal.as_ref()) {
                     self.closed = true;
-                    return Err(CodexStreamError::Transport("Request was aborted".to_owned()));
+                    return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
                 }
                 if let Some(event) = self.queue.pop_front() {
                     self.emit_start_if_needed();
@@ -2704,12 +2724,12 @@ impl ResponsesEventSource for WsEventSource {
                     | WsWait::Message(Some(Ok(Message::Frame(_)))) => {}
                     WsWait::Message(Some(Err(error))) => {
                         self.closed = true;
-                        self.fail(CodexStreamError::Transport(format!("WebSocket error: {error}")));
+                        self.fail(CodexStreamError::Transport(format!("WebSocket error: {error}").into()));
                     }
                     WsWait::Message(None) => {
                         self.closed = true;
                         if !self.saw_completion {
-                            self.fail(CodexStreamError::Transport("WebSocket closed".to_owned()));
+                            self.fail(CodexStreamError::Transport("WebSocket closed".to_owned().into()));
                         }
                         self.done = true;
                     }
@@ -2719,13 +2739,13 @@ impl ResponsesEventSource for WsEventSource {
                     WsWait::Idle => {
                         let timeout_ms = self.idle_timeout_ms.unwrap_or_default();
                         self.close_with(1000, "idle_timeout").await;
-                        self.fail(CodexStreamError::Transport(format!(
-                            "WebSocket idle timeout after {timeout_ms}ms"
-                        )));
+                        self.fail(CodexStreamError::Transport(
+                            format!("WebSocket idle timeout after {timeout_ms}ms").into(),
+                        ));
                     }
                     WsWait::Aborted => {
                         self.closed = true;
-                        self.fail(CodexStreamError::Transport("Request was aborted".to_owned()));
+                        self.fail(CodexStreamError::Transport("Request was aborted".to_owned().into()));
                     }
                 }
             }
@@ -2735,7 +2755,7 @@ impl ResponsesEventSource for WsEventSource {
 
 fn close_error(frame: Option<&CloseFrame>) -> CodexStreamError {
     let Some(frame) = frame else {
-        return CodexStreamError::Transport("WebSocket closed".to_owned());
+        return CodexStreamError::Transport("WebSocket closed".to_owned().into());
     };
     let code: u16 = frame.code.into();
     let reason = frame.reason.as_str();
@@ -2748,5 +2768,10 @@ fn close_error(frame: Option<&CloseFrame>) -> CodexStreamError {
     if reason_text.is_empty() && code == WEBSOCKET_MESSAGE_TOO_BIG_CLOSE_CODE {
         reason_text = " message too big".to_owned();
     }
-    CodexStreamError::Transport(format!("WebSocket closed{code_text}{reason_text}").trim().to_owned())
+    CodexStreamError::Transport(
+        format!("WebSocket closed{code_text}{reason_text}")
+            .trim()
+            .to_owned()
+            .into(),
+    )
 }

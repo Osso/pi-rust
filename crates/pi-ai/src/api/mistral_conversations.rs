@@ -6,6 +6,7 @@
 //! identical camelCase-to-snake_case remapping.
 
 use crate::api::openai_sdk::{ingress_metadata_text, validate_metadata_fields};
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::{JsObject, JsValue};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -219,7 +220,7 @@ async fn produce_stream(
             output
                 .error_message
                 .clone()
-                .unwrap_or_else(|| "An unknown error occurred".to_owned()),
+                .unwrap_or_else(|| "An unknown error occurred".to_owned().into()),
         ));
     }
 
@@ -358,7 +359,7 @@ fn derive_mistral_tool_call_id(id: &str, attempt: u32) -> String {
 
 #[derive(Debug, Clone)]
 enum MistralError {
-    Message(String),
+    Message(JsString),
     Http {
         status: u16,
         status_text: String,
@@ -367,12 +368,12 @@ enum MistralError {
 }
 
 impl MistralError {
-    fn message(message: impl Into<String>) -> Self {
+    fn message(message: impl Into<JsString>) -> Self {
         Self::Message(message.into())
     }
 }
 
-fn format_mistral_error(error: &MistralError) -> String {
+fn format_mistral_error(error: &MistralError) -> JsString {
     match error {
         MistralError::Http {
             status,
@@ -386,12 +387,13 @@ fn format_mistral_error(error: &MistralError) -> String {
                 } else {
                     status_text.clone()
                 };
-                return format!("Mistral API error ({status}): {message}");
+                return format!("Mistral API error ({status}): {message}").into();
             }
             format!(
                 "Mistral API error ({status}): {}",
                 truncate_error_text(body_text, MAX_MISTRAL_ERROR_BODY_CHARS)
             )
+            .into()
         }
         MistralError::Message(message) => message.clone(),
     }
@@ -935,7 +937,7 @@ async fn consume_chat_stream(
             Some(Ok(bytes)) => buffer.push_str(&decoder.push(&bytes, false)),
             Some(Err(error)) => {
                 return Err(MistralError::message(if signal.is_cancelled() {
-                    signal.error_message()
+                    signal.error_message().into()
                 } else {
                     error.message
                 }));
@@ -1367,11 +1369,11 @@ fn apply_finish_reason(output: &mut AssistantMessage, choice: &JsValue) {
         "tool_calls" => output.stop_reason = StopReason::ToolUse,
         "error" => {
             output.stop_reason = StopReason::Error;
-            output.error_message = Some("Provider stopped with: error".to_owned());
+            output.error_message = Some("Provider stopped with: error".to_owned().into());
         }
         other => {
             output.stop_reason = StopReason::Error;
-            output.error_message = Some(format!("Provider stopped with: {other}"));
+            output.error_message = Some(format!("Provider stopped with: {other}").into());
         }
     }
 }
@@ -1462,7 +1464,7 @@ fn parse_mistral_event(raw: &str) -> Result<ParsedEvent, MistralError> {
         return Ok(ParsedEvent::Done);
     }
     let parsed: JsValue =
-        pi_js_compat::js_json::parse_lossless(&data).map_err(|error| MistralError::message(error.to_string()))?;
+        pi_js_compat::js_json::parse_lossless(&data).map_err(|error| MistralError::message(error.into_message()))?;
     if !parsed.is_object() || !parsed.get("choices").is_some_and(JsValue::is_array) {
         return Err(MistralError::message("Invalid Mistral streaming event"));
     }
@@ -1489,7 +1491,7 @@ async fn read_response_text(
             Some(Ok(bytes)) => text.push_str(&decoder.push(&bytes, false)),
             Some(Err(error)) => {
                 return Err(MistralError::message(if signal.is_cancelled() {
-                    signal.error_message()
+                    signal.error_message().into()
                 } else {
                     error.message
                 }));
@@ -1578,7 +1580,7 @@ fn spawn_signal_watcher(
     })
 }
 
-fn signal_error(signal: &RequestSignal, fallback: String) -> MistralError {
+fn signal_error(signal: &RequestSignal, fallback: JsString) -> MistralError {
     if signal.is_cancelled() {
         MistralError::message(signal.error_message())
     } else {

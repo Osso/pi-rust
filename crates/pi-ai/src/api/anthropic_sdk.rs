@@ -9,7 +9,6 @@
 
 use std::sync::Arc;
 
-use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::request::{CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
@@ -162,7 +161,7 @@ pub async fn execute(
                 return Err(ProviderRequestError::Abort(AbortError::new()));
             }
             return Err(ProviderRequestError::Provider(ProviderError {
-                message: "Connection error.".to_owned(),
+                message: "Connection error.".to_owned().into(),
                 status: None,
                 headers: ProviderErrorHeaders::new(),
                 body: None,
@@ -184,7 +183,7 @@ pub async fn execute(
     Err(ProviderRequestError::Provider(status_error(status, &text, &headers)))
 }
 
-async fn read_text(body: &mut dyn HttpBody) -> String {
+async fn read_text(body: &mut dyn HttpBody) -> pi_js_compat::js_json::JsString {
     let mut bytes = Vec::new();
     loop {
         match body.next_chunk().await {
@@ -193,57 +192,51 @@ async fn read_text(body: &mut dyn HttpBody) -> String {
             Some(Err(error)) => return error.message,
         }
     }
-    String::from_utf8_lossy(&bytes).into_owned()
+    String::from_utf8_lossy(&bytes).into_owned().into()
 }
 
-fn status_error(status: u16, text: &str, headers: &[(String, String)]) -> ProviderError {
-    let parsed = serde_json::from_str::<Value>(text).ok();
-    let inner_error = parsed.as_ref().and_then(|value| value.get("error")).cloned();
-    let message = parsed
-        .as_ref()
-        .and_then(error_message)
-        .unwrap_or_else(|| text.to_owned());
+fn status_error(status: u16, text: &pi_js_compat::js_json::JsString, headers: &[(String, String)]) -> ProviderError {
+    let parsed = pi_js_compat::js_json::parse_lossless(text);
+    let inner_error = match &parsed {
+        Ok(value) => value.get("error").cloned(),
+        Err(_) => None,
+    };
+    let message = match &parsed {
+        Ok(value) => error_message(value).unwrap_or_else(|| text.clone()),
+        Err(_) => text.clone(),
+    };
     let message = if message.is_empty() {
-        format!("{status} status code (no body)")
+        format!("{status} status code (no body)").into()
     } else {
-        format!("{status} {message}")
+        pi_js_compat::js_json::JsString::join([format!("{status} ").into(), message], "")
     };
     let body = inner_error
         .as_ref()
-        .filter(|error| matches!(error, Value::Object(object) if !object.is_empty()))
-        .map(Value::to_string);
+        .filter(|error| matches!(error, pi_js_compat::js_json::JsValue::Object(object) if !object.is_empty()))
+        .map(|error| pi_js_compat::js_json::stringify_lossless(error).into());
     let mut error_headers = ProviderErrorHeaders::new();
     for (name, value) in headers_to_record(headers.iter().cloned()) {
         error_headers.insert(name, value);
     }
     ProviderError {
-        message,
+        message: message.into(),
         status: Some(f64::from(status)),
         headers: error_headers,
         body,
-        inner_error: inner_error.map(Box::new),
+        inner_error: inner_error.map(|error| Box::new(error.into())),
     }
 }
 
-fn error_message(value: &Value) -> Option<String> {
-    let Value::Object(object) = value else {
-        return js_truthy(value).then(|| serde_json::to_string(value).unwrap_or_default());
+fn error_message(value: &pi_js_compat::js_json::JsValue) -> Option<pi_js_compat::js_json::JsString> {
+    use pi_js_compat::js_json::{JsValue, is_truthy, stringify_lossless};
+    let JsValue::Object(object) = value else {
+        return is_truthy(value).then(|| stringify_lossless(value).into());
     };
-    if let Some(message) = object.get("message").filter(|message| js_truthy(message)) {
+    if let Some(message) = object.get("message").filter(|message| is_truthy(message)) {
         return Some(match message {
-            Value::String(message) => message.clone(),
-            other => serde_json::to_string(other).unwrap_or_default(),
+            JsValue::String(message) => message.clone(),
+            other => stringify_lossless(other).into(),
         });
     }
-    js_truthy(value).then(|| serde_json::to_string(value).unwrap_or_default())
-}
-
-fn js_truthy(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::Bool(value) => *value,
-        Value::Number(number) => number.as_f64().is_some_and(|number| number != 0.0),
-        Value::String(value) => !value.is_empty(),
-        Value::Array(_) | Value::Object(_) => true,
-    }
+    object.get("error").and_then(error_message)
 }

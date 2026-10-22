@@ -61,10 +61,22 @@ fn compile(pattern: &str) -> Regex {
 /// Check if an assistant message represents a context overflow error.
 pub fn is_context_overflow(message: &AssistantMessage, context_window: Option<f64>) -> bool {
     if let (StopReason::Error, Some(error_message)) = (message.stop_reason, &message.error_message) {
-        let is_non_overflow = non_overflow_regexes()
-            .iter()
-            .any(|pattern| pattern.is_match(error_message));
-        if !is_non_overflow && overflow_regexes().iter().any(|pattern| pattern.is_match(error_message)) {
+        let is_non_overflow = non_overflow_regexes().iter().any(|pattern| {
+            regress::Regex::with_flags(pattern.as_str().trim_start_matches("(?i)"), "i")
+                .expect("overflow regex is valid")
+                .find_from_ucs2(error_message.units(), 0)
+                .next()
+                .is_some()
+        });
+        if !is_non_overflow
+            && overflow_regexes().iter().any(|pattern| {
+                regress::Regex::with_flags(pattern.as_str().trim_start_matches("(?i)"), "i")
+                    .expect("overflow regex is valid")
+                    .find_from_ucs2(error_message.units(), 0)
+                    .next()
+                    .is_some()
+            })
+        {
             return true;
         }
     }

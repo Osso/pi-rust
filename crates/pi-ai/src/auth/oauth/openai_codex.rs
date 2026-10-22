@@ -211,9 +211,12 @@ async fn refresh_access_token(
         ("client_id", CLIENT_ID),
     ]);
     let request = form_request(TOKEN_URL, body, false);
-    let response = send(&runtime.fetch, request, Some(signal))
-        .await
-        .map_err(|error| CallbackError::new(format!("OpenAI Codex token refresh error: {}", error.message)))?;
+    let response = send(&runtime.fetch, request, Some(signal)).await.map_err(|error| {
+        CallbackError::new(pi_js_compat::js_json::JsString::join(
+            ["OpenAI Codex token refresh error: ".into(), error.message],
+            "",
+        ))
+    })?;
     let mut token = read_token_response(response, "refresh")?;
     token.expires += now;
     Ok(token)
@@ -283,7 +286,7 @@ async fn start_device_auth(runtime: &OAuthRuntime, signal: CancellationToken) ->
     else {
         return Err(CallbackError::new(format!(
             "Invalid OpenAI Codex device code response: {}",
-            crate::utils::error_body::safe_json_stringify(&json)
+            pi_js_compat::js_json::stringify(&json)
         )));
     };
     Ok(DeviceAuthInfo {
@@ -321,7 +324,7 @@ async fn poll_device_auth(
                 Ok(response) => response,
                 Err(_error) if signal_for_error.is_cancelled() => {
                     return OAuthDeviceCodePollResult::Failed {
-                        message: "Login cancelled".to_owned(),
+                        message: "Login cancelled".to_owned().into(),
                     };
                 }
                 Err(error) => {
@@ -336,8 +339,9 @@ async fn poll_device_auth(
                     return OAuthDeviceCodePollResult::Failed {
                         message: format!(
                             "Invalid OpenAI Codex device auth token response: {}",
-                            crate::utils::error_body::safe_json_stringify(&json)
-                        ),
+                            pi_js_compat::js_json::stringify(&json)
+                        )
+                        .into(),
                     };
                 };
                 return OAuthDeviceCodePollResult::Complete(DeviceTokenSuccess {
@@ -370,7 +374,8 @@ async fn poll_device_auth(
                         message: format!(
                             "OpenAI Codex device auth failed with status {}{suffix}",
                             response.status
-                        ),
+                        )
+                        .into(),
                     }
                 }
             }

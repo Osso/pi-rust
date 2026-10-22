@@ -293,7 +293,13 @@ async fn start_callback(
                 Err(error) => {
                     let message = error.message.clone();
                     finish(&settle, &state, Err(error));
-                    CallbackReply::no_store(502, oauth_error_html("OpenRouter key exchange failed.", Some(&message)))
+                    CallbackReply::no_store(
+                        502,
+                        oauth_error_html(
+                            "OpenRouter key exchange failed.",
+                            Some(&pi_js_compat::js_json::encode_node_utf8(&message)),
+                        ),
+                    )
                 }
             }
         }) as crate::request::BoxFuture<'static, CallbackReply>

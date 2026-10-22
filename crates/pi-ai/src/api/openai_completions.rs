@@ -1357,11 +1357,11 @@ struct ToolState {
 pub enum CompletionsFailure {
     Sdk(SdkError),
     Request(Box<ProviderRequestError<CallbackError>>),
-    Message(String),
+    Message(pi_js_compat::js_json::JsString),
 }
 
 impl CompletionsFailure {
-    fn format(self) -> String {
+    fn format(self) -> pi_js_compat::js_json::JsString {
         match self {
             Self::Sdk(error) => format_sdk_error(&error, None),
             Self::Request(error) => format_request_error(&error, None),
@@ -1369,7 +1369,7 @@ impl CompletionsFailure {
         }
     }
 
-    fn raw_metadata(&self) -> Option<&str> {
+    fn raw_metadata(&self) -> Option<&pi_js_compat::js_json::JsString> {
         let provider = match self {
             Self::Sdk(SdkError::Provider(error)) => Some(error.as_ref()),
             Self::Request(error) => match error.as_ref() {
@@ -1383,7 +1383,7 @@ impl CompletionsFailure {
             .as_deref()
             .and_then(|error| error.get("metadata"))
             .and_then(|metadata| metadata.get("raw"))
-            .and_then(Value::as_str)
+            .and_then(JsValue::as_string)
     }
 }
 
@@ -1606,7 +1606,8 @@ pub async fn process_completions_stream(
         if !chunk.is_object() {
             continue;
         }
-        crate::api::openai_sdk::validate_chat_metadata(&chunk).map_err(CompletionsFailure::Message)?;
+        crate::api::openai_sdk::validate_chat_metadata(&chunk)
+            .map_err(|error| CompletionsFailure::Message(error.into()))?;
 
         if output.response_id.as_deref().is_none_or(str::is_empty)
             && let Some(id) = chunk.get("id").and_then(ingress_metadata_text).as_deref()
@@ -1793,7 +1794,7 @@ pub async fn process_completions_stream(
                     };
                     let next_input = custom_tool_call_input(block, state) + input;
                     let delta = append_custom_tool_call_input(block, state, &next_input, false)
-                        .map_err(CompletionsFailure::Message)?;
+                        .map_err(|error| CompletionsFailure::Message(error.into()))?;
                     delta_text = delta.unwrap_or_default().into();
                 }
                 sender.push(AssistantMessageEvent::ToolCallDelta {
@@ -1862,7 +1863,7 @@ fn parse_chunk_usage(usage: &JsValue, model: &Model) -> Usage {
 
 struct MappedStopReason {
     stop_reason: StopReason,
-    error_message: Option<String>,
+    error_message: Option<pi_js_compat::js_json::JsString>,
 }
 
 fn map_stop_reason(reason: &str) -> MappedStopReason {
@@ -1881,15 +1882,15 @@ fn map_stop_reason(reason: &str) -> MappedStopReason {
         },
         "content_filter" => MappedStopReason {
             stop_reason: StopReason::Error,
-            error_message: Some("Provider finish_reason: content_filter".to_owned()),
+            error_message: Some("Provider finish_reason: content_filter".to_owned().into()),
         },
         "network_error" => MappedStopReason {
             stop_reason: StopReason::Error,
-            error_message: Some("Provider finish_reason: network_error".to_owned()),
+            error_message: Some("Provider finish_reason: network_error".to_owned().into()),
         },
         other => MappedStopReason {
             stop_reason: StopReason::Error,
-            error_message: Some(format!("Provider finish_reason: {other}")),
+            error_message: Some(format!("Provider finish_reason: {other}").into()),
         },
     }
 }
@@ -1933,11 +1934,11 @@ async fn run_stream(
         stream_options.request.api_key.as_deref(),
         stream_options.request.headers.as_ref(),
     )
-    .map_err(CompletionsFailure::Message)?;
+    .map_err(|error| CompletionsFailure::Message(error.into()))?;
     let compat = get_compat(model);
     let grammar_tool_input_properties =
         create_grammar_tool_input_properties(context.tools.as_deref(), compat.supports_openai_grammar_tools)
-            .map_err(|error| CompletionsFailure::Message(error.message))?;
+            .map_err(|error| CompletionsFailure::Message(error.message.into()))?;
     let cache_retention = resolve_cache_retention(stream_options.cache_retention, stream_options.request.env.as_ref());
     let cache_session_id = (cache_retention != CacheRetention::None)
         .then_some(stream_options.session_id.as_deref())
@@ -1995,10 +1996,10 @@ async fn run_stream(
         .as_ref()
         .is_some_and(CancellationToken::is_cancelled)
     {
-        return Err(CompletionsFailure::Message("Request was aborted".to_owned()));
+        return Err(CompletionsFailure::Message("Request was aborted".to_owned().into()));
     }
     if output.stop_reason == StopReason::Aborted {
-        return Err(CompletionsFailure::Message("Request was aborted".to_owned()));
+        return Err(CompletionsFailure::Message("Request was aborted".to_owned().into()));
     }
     if !has_finish_reason && !compat.supports_finish_reason {
         output.stop_reason = if output
@@ -2016,17 +2017,17 @@ async fn run_stream(
             output
                 .error_message
                 .clone()
-                .unwrap_or_else(|| "Provider returned an error stop reason".to_owned()),
+                .unwrap_or_else(|| "Provider returned an error stop reason".to_owned().into()),
         ));
     }
     if (compat.supports_finish_reason && !has_finish_reason) || output.stop_reason == StopReason::Pending {
         return Err(CompletionsFailure::Message(
-            "Stream ended without finish_reason".to_owned(),
+            "Stream ended without finish_reason".to_owned().into(),
         ));
     }
     let Some(reason) = done_reason(output.stop_reason) else {
         return Err(CompletionsFailure::Message(
-            "Stream ended without finish_reason".to_owned(),
+            "Stream ended without finish_reason".to_owned().into(),
         ));
     };
     sender.push(AssistantMessageEvent::Done {
@@ -2059,12 +2060,12 @@ fn run_and_emit(
             } else {
                 StopReason::Error
             };
-            let raw_metadata = failure.raw_metadata().map(str::to_owned);
+            let raw_metadata = failure.raw_metadata().cloned();
             let mut message = failure.format();
             if let Some(raw) = raw_metadata
                 && !message.contains(&raw)
             {
-                message.push('\n');
+                message.push_str("\n");
                 message.push_str(&raw);
             }
             output.error_message = Some(message);
