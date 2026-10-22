@@ -82,6 +82,14 @@ pub enum ResolveError {
 }
 
 impl ResolveError {
+    pub fn message(&self) -> pi_js_compat::js_json::JsString {
+        match self {
+            Self::Aborted => "The operation was aborted".into(),
+            Self::Models(error) => error.message.clone(),
+            Self::Callback(error) => error.message.clone(),
+        }
+    }
+
     pub fn models(code: ModelsErrorCode, message: impl Into<pi_js_compat::js_json::JsString>) -> Self {
         Self::Models(ModelsError::new(code, message))
     }

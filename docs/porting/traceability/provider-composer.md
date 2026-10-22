@@ -47,3 +47,5 @@ None found.
 ## Q18 native auth configuration
 
 Stored apiKey/baseUrl/header values and composed auth environment use `JsString`. `models.json` parsing stores one `JsObject`; provider IDs reject unmatched units explicitly under the scalar opaque-provider approval. Typed auth config decodes directly from that authority. `raw_error_consumer_components::model_config_keeps_raw_provider_credentials_and_url` written **unexecuted**; coding-agent compilation blocked. No request-boundary conversion occurs in composition.
+
+Q18 auth consumer propagation retains native key/base URL/env/header values; native errors avoid Display except explicit formatting. Tests/proof status: [lossless auth](lossless-auth.md).

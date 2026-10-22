@@ -13,8 +13,8 @@ const CLOUDFLARE_API_HOST: &str = "api.cloudflare.com";
 const CLOUDFLARE_AI_GATEWAY_HOST: &str = "gateway.ai.cloudflare.com";
 const OPENCODE_HOST: &str = "opencode.ai";
 
-fn matches_host(base_url: &str, expected_host: &str) -> bool {
-    Url::parse(base_url)
+fn matches_host(base_url: &JsString, expected_host: &str) -> bool {
+    Url::parse(&encode_node_utf8(base_url))
         .ok()
         .and_then(|url| url.host_str().map(str::to_owned))
         .is_some_and(|host| host == expected_host)
@@ -55,7 +55,7 @@ fn get_default_attribution_headers(model: &Model, settings_manager: &SettingsMan
     Some(
         headers
             .iter()
-            .map(|(name, value)| ((*name).to_owned(), Some((*value).to_owned())))
+            .map(|(name, value)| ((*name).to_owned(), Some(JsString::from(*value))))
             .collect(),
     )
 }
@@ -68,8 +68,8 @@ fn get_session_headers(model: &Model, session_id: Option<&JsString>) -> Option<P
     }
     Some(
         [
-            ("x-opencode-session".to_owned(), Some(encode_node_utf8(session_id))),
-            ("x-opencode-client".to_owned(), Some("pi".to_owned())),
+            ("x-opencode-session".to_owned(), Some(session_id.clone())),
+            ("x-opencode-client".to_owned(), Some("pi".into())),
         ]
         .into_iter()
         .collect(),

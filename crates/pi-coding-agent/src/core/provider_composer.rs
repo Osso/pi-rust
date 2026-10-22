@@ -736,7 +736,7 @@ impl ApiKeyAuth for ComposedApiKeyAuth {
                 .prompt(AuthPrompt {
                     signal: None,
                     kind: AuthPromptKind::Secret {
-                        message: "Enter API key".to_owned(),
+                        message: "Enter API key".into(),
                         placeholder: None,
                     },
                 })
@@ -764,7 +764,7 @@ impl ApiKeyAuth for ComposedApiKeyAuth {
                 }
                 if credential.key.as_ref().is_some_and(|key| !key.is_empty()) {
                     return Ok(Some(AuthCheck {
-                        source: Some("stored credential".to_owned()),
+                        source: Some("stored credential".into()),
                         auth_type: AuthType::ApiKey,
                     }));
                 }
@@ -786,7 +786,7 @@ impl ApiKeyAuth for ComposedApiKeyAuth {
             if let Some(raw_key) = &raw_key {
                 if is_command_config_value(raw_key) {
                     return Ok(Some(AuthCheck {
-                        source: Some("configured API key".to_owned()),
+                        source: Some("configured API key".into()),
                         auth_type: AuthType::ApiKey,
                     }));
                 }
@@ -796,7 +796,7 @@ impl ApiKeyAuth for ComposedApiKeyAuth {
                     }
                 }
                 return Ok(Some(AuthCheck {
-                    source: Some("configured API key".to_owned()),
+                    source: Some("configured API key".into()),
                     auth_type: AuthType::ApiKey,
                 }));
             }
@@ -849,7 +849,7 @@ impl ApiKeyAuth for ComposedApiKeyAuth {
                     }
                     None => credential
                         .key
-                        .as_deref()
+                        .as_ref()
                         .filter(|key| !key.is_empty())
                         .map(|key| AuthResult {
                             auth: ModelAuth {
@@ -858,14 +858,14 @@ impl ApiKeyAuth for ComposedApiKeyAuth {
                                 base_url: None,
                             },
                             env: credential.env.clone(),
-                            source: Some("stored credential".to_owned()),
+                            source: Some("stored credential".into()),
                         }),
                 }
             } else if let Some(raw_key) = &raw_key {
                 let env = config_context_env(std::slice::from_ref(raw_key), ctx.as_ref(), None).await;
                 let key = resolve_config_value_or_throw(
                     raw_key,
-                    &format!("API key for provider \"{provider_id}\""),
+                    &js_format!("API key for provider \"{}\"", provider_id),
                     env.as_ref(),
                 )
                 .map_err(|error| AuthError::failed(error.message().clone()))?;
@@ -889,7 +889,7 @@ impl ApiKeyAuth for ComposedApiKeyAuth {
                             base_url: None,
                         },
                         env: None,
-                        source: Some("configured API key".to_owned()),
+                        source: Some("configured API key".into()),
                     }),
                 }
             } else if let Some(inherited) = &inherited {
@@ -920,7 +920,7 @@ impl ApiKeyAuth for ComposedApiKeyAuth {
             let header_env = config_context_env(&header_values, ctx.as_ref(), explicit_env.as_ref()).await;
             let headers = resolve_headers_or_throw(
                 raw_headers.as_ref(),
-                &format!("provider \"{provider_id}\""),
+                &js_format!("provider \"{}\"", provider_id),
                 header_env.as_ref(),
             )
             .map_err(|error| AuthError::failed(error.message().clone()))?;
@@ -1040,7 +1040,7 @@ impl OAuthLoginCallbacks for InteractionOAuthCallbacks {
                 .prompt(AuthPrompt {
                     signal: None,
                     kind: AuthPromptKind::ManualCode {
-                        message: "Paste the authorization code".to_owned(),
+                        message: "Paste the authorization code".into(),
                         placeholder: None,
                     },
                 })
@@ -1118,16 +1118,12 @@ impl OAuthAuth for ComposedOAuthAuth {
             let env = credential
                 .extra
                 .get(&pi_js_compat::js_json::JsString::from("env"))
-                .map(|value| {
-                    value
-                        .to_serde()
-                        .and_then(serde_json::from_value::<HashMap<String, JsString>>)
-                })
+                .map(js_json::from_value::<HashMap<String, JsString>>)
                 .transpose()
-                .map_err(|error| AuthError::failed(error.message().clone()))?;
+                .map_err(|error| AuthError::failed(error.to_string()))?;
             let headers = resolve_headers_or_throw(
                 raw_headers.as_ref(),
-                &format!("provider \"{provider_id}\""),
+                &js_format!("provider \"{}\"", provider_id),
                 env.as_ref(),
             )
             .map_err(|error| AuthError::failed(error.message().clone()))?;
@@ -1594,7 +1590,7 @@ pub fn resolve_configured_model_headers(
     }
     Ok(resolve_headers_or_throw(
         (!headers.is_empty()).then_some(&headers),
-        &format!("model \"{}/{}\"", model.provider, model.id),
+        &js_format!("model \"{}/{}\"", &model.provider, &model.id),
         env,
     )?)
 }
@@ -1618,7 +1614,7 @@ pub fn resolve_compatibility_request_config(
     }
     let configured = resolve_headers_or_throw(
         (!configured.is_empty()).then_some(&configured),
-        &format!("model \"{}/{}\"", model.provider, model.id),
+        &js_format!("model \"{}/{}\"", &model.provider, &model.id),
         None,
     )?;
     let headers = if model.headers.is_some() || configured.is_some() {
