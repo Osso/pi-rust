@@ -20,9 +20,10 @@ pub const LABEL: &str = "end_turn";
 pub const DESCRIPTION: &str =
     "End the current model turn. Provide a concise reason explaining why the turn is finished.";
 pub const PROMPT_SNIPPET: &str = "End the current model turn with a required reason";
-pub const PROMPT_GUIDELINES: [&str; 2] = [
+pub const PROMPT_GUIDELINES: [&str; 3] = [
     "Call end_turn only when the task is complete, progress requires user input, or the user explicitly asks you to stop. If work remains and progress is possible, continue working instead of calling end_turn. Assistant text alone does not finish the turn.",
     "Provide one concise, non-empty reason.",
+    "Thinking is never shown to the user. When responding to the user, write the reply as assistant text before calling end_turn; never leave an answer only in thinking.",
 ];
 
 #[derive(Debug, Deserialize)]

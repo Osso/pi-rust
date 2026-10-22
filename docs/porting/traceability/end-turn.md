@@ -1,6 +1,8 @@
 # coding-agent end-turn traceability
 
-Pinned source: `packages/coding-agent/src/core/tools/end-turn.ts` at `532f7d12`.
+Frozen source: `packages/coding-agent/src/core/tools/end-turn.ts` at `4f9e6f8a4`.
+
+Actual `differential_tools_index` Cargo RED after `a53245d9` (`bash-metadata-incrate-green.log`, despite its historical filename) reports two native guidelines versus three frozen guidelines. Source `end-turn.ts:20–24` includes the assistant-text-before-end_turn instruction; `PROMPT_GUIDELINES` now includes that third entry. Metadata GREEN pending. Native raw-reason execution remains a separate boundary.
 
 Rust: `crates/pi-coding-agent/src/core/tools/end_turn.rs` (`EndTurnTool: AgentHarnessTool<ExtensionContext>`).
 
