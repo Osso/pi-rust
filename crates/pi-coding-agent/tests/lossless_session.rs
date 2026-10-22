@@ -4,6 +4,31 @@ use pi_coding_agent::core::session_tool_output::serialize_session_entry;
 use pi_js_compat::js_json::parse_lossless;
 
 #[test]
+fn shared_channel_encodes_raw_body_only_at_sql_binding() {
+    use pi_coding_agent::core::session_control_db::{
+        PostSharedChannelMessageInput, RuntimeMailboxAddress, list_shared_channel_messages_after,
+        post_shared_channel_message,
+    };
+    use pi_js_compat::js_json::JsString;
+    let directory = tempfile::tempdir().unwrap();
+    let db = directory.path().join("control.sqlite");
+    let db = db.to_str().unwrap();
+    let body = JsString::from_utf16(vec![0x20, 0xd800, 0x78, 0xdfff, 0x20]);
+    let input = PostSharedChannelMessageInput {
+        body: body.clone(),
+        sender: RuntimeMailboxAddress {
+            session_id: "session".into(),
+            agent_id: None,
+        },
+    };
+    let id = post_shared_channel_message(db, &input).unwrap();
+    assert_eq!(input.body, body);
+    let rows = list_shared_channel_messages_after(db, 0, 10, id).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].body, "�x�");
+}
+
+#[test]
 fn steering_and_cancellation_params_keep_raw_human_content() {
     use pi_coding_agent::bundled_extensions::agents_core::control_runtime::{CancelAgentParams, SteerAgentParams};
     let cancel: CancelAgentParams = serde_json::from_str(r#"{"agentId":"agent_1","reason":"\ud800"}"#).unwrap();

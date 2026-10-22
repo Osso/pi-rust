@@ -200,7 +200,7 @@ pub struct SharedChannelMessage {
 #[serde(rename_all = "camelCase")]
 pub struct PostSharedChannelMessageInput {
     pub sender: RuntimeMailboxAddress,
-    pub body: String,
+    pub body: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

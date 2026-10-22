@@ -14,6 +14,10 @@ Contract: [lossless content](../../specs/lossless-content.md). Frozen source: `4
 | Questions / mailbox / session name | raw contracts and consumers integrated; see checkpoints below | compilation and runtime acceptance pending | compiler-blocked; no end-to-end PASS |
 | Provider ingress | [SSE and Codex WebSocket](lossless-provider-ingress.md) merged at `5909f149` | human errors, scalar metadata and non-stream images remain gaps | six sandbox tests PASS at lane executable revision; not parent integration acceptance |
 
+## Shared-channel input checkpoint
+
+The channel tool and `PostSharedChannelMessageInput.body` retain `JsString` through source trimming. Only the SQLite binding encodes Node UTF-8; reading that SQL TEXT returns the source-replaced string. `shared_channel_encodes_raw_body_only_at_sql_binding` checks unchanged input plus stored output; `shared-channel-red.jsonl` is compiler-blocked, with no runtime PASS.
+
 ## Steering input checkpoint
 
 Cancellation reasons and steering `fileRefs` use native `JsString`/`JsValue` through lifecycle requests; file-reference extras and unmatched keys are not projected through typed scalar vectors. New `steering_and_cancellation_params_keep_raw_human_content` is compiler-blocked (`steering-params-red.jsonl`), not a runtime PASS. Agent target IDs still use generated scalar snapshot contracts; arbitrary persisted IDs and their not-found presentation remain an explicit open boundary, not an approved restriction.

@@ -1,13 +1,12 @@
 //! `channel_post` tool (`core/tools/channel-post.ts`).
 
-use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::{JsString, JsValue};
 use std::sync::{Arc, OnceLock};
 
 use pi_agent_core::{
     AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
-use pi_js_compat::string::js_trim;
 use pi_tui::tui::ComponentRef;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -35,7 +34,7 @@ pub const PROMPT_GUIDELINES: [&str; 2] = [
 
 #[derive(Debug, Deserialize)]
 struct ChannelPostParams {
-    message: String,
+    message: JsString,
 }
 
 /// `createChannelPostToolDefinition()`.
@@ -110,7 +109,7 @@ impl AgentHarnessTool<ExtensionContext> for ChannelPostTool {
                 .ok_or_else(|| ToolError::new("channel_post requires a control database path"))?;
             let params: ChannelPostParams =
                 pi_js_compat::js_json::from_value(&params).map_err(|error| ToolError::new(error.to_string()))?;
-            let message = js_trim(&params.message);
+            let message = params.message.trim();
             if message.is_empty() {
                 return Err(ToolError::new("channel_post requires a non-empty message"));
             }
