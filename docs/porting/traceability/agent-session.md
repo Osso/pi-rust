@@ -208,3 +208,8 @@ check exact raw units. Written but unexecuted while coding compilation is blocke
 Remaining diagnostic dependencies at replacement-adapters-1: parent native Bash
 executor/controlDB/mailbox APIs, UI theme-name result, and209 claim ID; parent
 already has several of these awaiting the lane's next clean refresh.
+
+RPC-request ID follow-up: ExecuteBashOptions.id and BashExecutionUpdateEvent.id
+are Option<JsString> (client request IDs are echoed user data, not approved opaque
+provider tool-call IDs). Exact raw wire-echo fixture written, library-blocked.
+UserBashEvent.cwd is native through extension dispatch.

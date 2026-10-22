@@ -1,6 +1,16 @@
 use pi_coding_agent::core::trust_manager::{ProjectTrustDecision, ProjectTrustStore};
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 #[test]
+fn unreadable_trust_store_error_keeps_raw_path_units() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = JsString::from(temporary.path().to_str().unwrap()) + "/" + JsString::from_utf16(vec![0xd800]);
+    let store = ProjectTrustStore::new(&root).unwrap();
+    std::fs::create_dir_all(encode_node_utf8(store.trust_path())).unwrap();
+    let error = store.get(&root).unwrap_err();
+    assert!(error.message().contains(&root));
+}
+
+#[test]
 fn trust_store_persists_native_project_key_through_reopen() {
     let temp = tempfile::tempdir().unwrap();
     let base = JsString::from(temp.path().to_str().unwrap());

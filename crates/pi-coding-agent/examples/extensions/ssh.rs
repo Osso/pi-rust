@@ -35,7 +35,7 @@ struct Remote {
     local: String,
 }
 impl Remote {
-    fn path(&self, path: &str) -> String {
+    fn path(&self, path: impl Into<pi_js_compat::js_json::JsString>) -> pi_js_compat::js_json::JsString {
         pi_js_compat::string::replace(path, &self.local, &self.cwd)
     }
     fn quote_path(&self, path: &str) -> String {
@@ -59,8 +59,9 @@ impl Remote {
         Ok(output.stdout)
     }
 }
-fn quote(value: &str) -> String {
-    pi_js_compat::js_json::stringify(&serde_json::Value::String(value.into()))
+fn quote(value: impl Into<pi_js_compat::js_json::JsString>) -> String {
+    // JSON.stringify produces a scalar wire literal even for unmatched input units.
+    pi_js_compat::js_json::stringify_lossless(&pi_js_compat::js_json::JsValue::String(value.into()))
 }
 fn command_for(host: &str, command: &str) -> Command {
     let mut child = Command::new("ssh");

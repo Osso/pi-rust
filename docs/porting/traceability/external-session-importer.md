@@ -30,3 +30,10 @@ Focused tests: `crates/pi-coding-agent/tests/external_session_importer.rs` (6), 
 ## Discrepancies
 
 None.
+
+## Q18 native NodeFS error identity (2026-10-22)
+
+Importer read/scandir/mkdir/open error helpers receive original native path/dir;
+only the concrete FS operation uses its encoded argument. A missing raw-name
+import file fixture checks error text retains original units. Written but
+unexecuted while coding compilation remains blocked.

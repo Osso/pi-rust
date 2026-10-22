@@ -73,7 +73,14 @@ type Base64Request = {
 	bytes: string[];
 };
 
+type ReplaceUnitsRequest = {
+	id: RequestId;
+	operation: "replace_units";
+	cases: Array<{ input: number[]; search: number[]; replacement: number[]; global: boolean }>;
+};
+
 type Request =
+	| ReplaceUnitsRequest
 	| LocaleCompareRequest
 	| MinimatchRequest
 	| BraceExpandRequest
@@ -141,6 +148,16 @@ function executeLocaleCompare(request: LocaleCompareRequest): Response {
 }
 
 async function execute(request: Request): Promise<Response> {
+	if (request.operation === "replace_units") {
+		const results = request.cases.map((item) => {
+			const input = String.fromCharCode(...item.input);
+			const search = String.fromCharCode(...item.search);
+			const replacement = String.fromCharCode(...item.replacement);
+			const result = item.global ? input.replaceAll(search, replacement) : input.replace(search, replacement);
+			return Array.from({ length: result.length }, (_, index) => result.charCodeAt(index));
+		});
+		return { id: request.id, ok: true, output: { results } };
+	}
 	if (request.operation === "locale_compare") {
 		return executeLocaleCompare(request);
 	}
