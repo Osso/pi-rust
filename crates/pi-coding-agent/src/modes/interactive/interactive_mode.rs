@@ -123,6 +123,7 @@ use crate::utils::git::parse_git_url;
 use crate::utils::paths::{PathInputOptions, get_cwd_relative_path, relative_path, resolve_path};
 use crate::utils::shell::kill_tracked_detached_children;
 use crate::utils::uncaught::{ERROR, format_uncaught, set_process_crash_handler, swallow_panics, throw_uncaught};
+use pi_js_compat::js_json::{self, JsObject, JsString, JsValue, encode_node_utf8};
 use serde_json::Value;
 
 pub(crate) const PARTIAL_UPDATE_RENDER_THROTTLE_MS: u64 = 50;
@@ -376,7 +377,7 @@ pub(crate) fn is_skill_invocation(
         return true;
     }
     crate::parse_skill_block(&crate::core::prompt_templates::expand_prompt_template(
-        text,
+        &JsString::from(text),
         prompt_templates,
     ))
     .is_some()
@@ -407,36 +408,57 @@ pub fn format_resume_command(session_manager: &crate::core::session_manager::Ses
     Some(args.join(" "))
 }
 
-pub(crate) fn format_follow_up_preview(message: &str) -> String {
-    let sender = agent_sender(message)
-        .map(|sender| sender.trim().to_owned())
-        .unwrap_or_else(|| {
-            if message.trim() == "Continue working toward the active goal." {
-                "goal".to_owned()
-            } else {
-                "unknown".to_owned()
-            }
-        });
-    let body_marker = "\nMessage:\n";
-    let body_text = message.split_once(body_marker).map(|(_, rest)| rest).unwrap_or(message);
-    let body = body_text.split('\n').next().unwrap_or_default().trim();
-    let body_preview = if body.chars().count() > FOLLOW_UP_BODY_PREVIEW_LENGTH {
-        format!(
-            "{}…",
-            body.chars().take(FOLLOW_UP_BODY_PREVIEW_LENGTH).collect::<String>()
-        )
+pub(crate) fn format_follow_up_preview(message: impl Into<JsString>) -> String {
+    let message = message.into();
+    let sender = agent_sender(&message).unwrap_or_else(|| {
+        if message.trim() == "Continue working toward the active goal." {
+            "goal".into()
+        } else {
+            "unknown".into()
+        }
+    });
+    let marker = "\nMessage:\n";
+    let body = message
+        .find(marker)
+        .map(|index| {
+            let remainder = message.slice(index + marker.len(), message.len());
+            remainder
+                .find(marker)
+                .map_or_else(|| remainder.clone(), |end| remainder.slice(0, end))
+        })
+        .unwrap_or_else(|| message.clone());
+    let body = body.split('\n').next().unwrap_or_default().trim();
+    let preview = if body.len() > FOLLOW_UP_BODY_PREVIEW_LENGTH {
+        body.slice(0, FOLLOW_UP_BODY_PREVIEW_LENGTH) + "…"
     } else {
-        body.to_owned()
+        body
     };
-    format!("Follow-up from {sender}: {body_preview}")
+    encode_node_utf8(&(JsString::from("Follow-up from ") + sender + ": " + preview))
 }
 
-fn agent_sender(message: &str) -> Option<String> {
-    static AGENT_LINE: OnceLock<Regex> = OnceLock::new();
-    let regex = AGENT_LINE.get_or_init(|| Regex::new(r"^- agent:\s*(.+)$").expect("valid agent-line regex"));
-    for line in message.split('\n') {
-        if let Some(captures) = regex.captures(line) {
-            return captures.get(1).map(|capture| capture.as_str().to_owned());
+fn agent_sender(message: &JsString) -> Option<JsString> {
+    let units = message.units();
+    let is_line_end = |unit: u16| matches!(unit, 0x000a | 0x000d | 0x2028 | 0x2029);
+    for start in 0..units.len() {
+        if start > 0 && !is_line_end(units[start - 1]) {
+            continue;
+        }
+        const PREFIX: &[u16] = &[45, 32, 97, 103, 101, 110, 116, 58];
+        if !units[start..].starts_with(PREFIX) {
+            continue;
+        }
+        let line = message.slice(start + PREFIX.len(), message.len());
+        let trimmed = line.trim_start();
+        let end = trimmed
+            .units()
+            .iter()
+            .position(|unit| is_line_end(*unit))
+            .unwrap_or(trimmed.len());
+        if end > 0 {
+            return Some(trimmed.slice(0, end).trim());
+        }
+        if line.units().iter().any(|unit| !is_line_end(*unit)) {
+            return Some(JsString::default());
         }
     }
     None
@@ -1936,7 +1958,7 @@ pub type InputCallback = Rc<dyn Fn(String)>;
 
 /// `InteractiveModeOptions`.
 pub type SteerMultiAgent = Arc<dyn Fn(String, String, String) -> BoxFuture<'static, Result<(), String>> + Send + Sync>;
-pub type CancelMultiAgent = Arc<dyn Fn(String) -> BoxFuture<'static, Result<(), String>> + Send + Sync>;
+pub type CancelMultiAgent = Arc<dyn Fn(String) -> BoxFuture<'static, Result<(), JsString>> + Send + Sync>;
 pub type AgentViewSelectorSlot =
     Arc<std::sync::Mutex<Option<crate::bundled_extensions::agents_core::runtime::SelectAgentView>>>;
 
@@ -1945,9 +1967,9 @@ pub struct InteractiveModeOptions {
     pub migrated_providers: Vec<String>,
     pub model_fallback_message: Option<String>,
     pub auto_trust_on_reload_cwd: Option<String>,
-    pub initial_message: Option<String>,
+    pub initial_message: Option<JsString>,
     pub initial_images: Vec<ImageContent>,
-    pub initial_messages: Vec<String>,
+    pub initial_messages: Vec<JsString>,
     pub control_message: Option<crate::core::session_control_db::IncomingControlMessage>,
     pub verbose: bool,
     pub tui_mode: Option<TuiMode>,
@@ -1976,7 +1998,7 @@ enum PromptActivitySource {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CompactionQueuedMessage {
-    text: String,
+    text: JsString,
     mode: &'static str,
 }
 
@@ -2075,7 +2097,7 @@ enum UiRequest {
     Custom {
         factory: ExtensionUiCustomFactory,
         options: Option<ExtensionUiCustomOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<Option<Value>, String>>,
+        respond: tokio::sync::oneshot::Sender<Result<Option<JsValue>, String>>,
     },
     AddTerminalInput {
         handler: TerminalInputHandler,
@@ -2088,21 +2110,21 @@ enum UiRequest {
     ShowSandboxSelector,
     RuntimeNewSession {
         options: Option<crate::core::extensions::types::NewSessionOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, String>>,
+        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, JsString>>,
     },
     RuntimeFork {
         entry_id: String,
         options: Option<crate::core::extensions::types::ForkOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, String>>,
+        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, JsString>>,
     },
     RuntimeNavigateTree {
         entry_id: String,
         options: Option<crate::core::extensions::types::NavigateTreeOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, String>>,
+        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, JsString>>,
     },
     RuntimeSwitchSession {
         path: String,
-        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, String>>,
+        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, JsString>>,
     },
     RuntimeReload {
         respond: tokio::sync::oneshot::Sender<()>,
@@ -2189,7 +2211,9 @@ fn with_mode<R>(id: usize, f: impl FnOnce(Rc<InteractiveMode>) -> R) -> Option<R
 }
 
 /// Completes an extension UI request with the value the mode sends back.
-async fn await_ui_response<T>(receiver: tokio::sync::oneshot::Receiver<Result<T, String>>) -> Result<T, HandlerError> {
+async fn await_ui_response<T, E: Into<JsString>>(
+    receiver: tokio::sync::oneshot::Receiver<Result<T, E>>,
+) -> Result<T, HandlerError> {
     receiver
         .await
         .map_err(|error| HandlerError::new(error.to_string()))?
@@ -2364,7 +2388,7 @@ impl ExtensionUiContext for InteractiveUiContext {
         &'a self,
         factory: ExtensionUiCustomFactory,
         options: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<Value>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, String>> {
         let (respond, receiver) = tokio::sync::oneshot::channel();
         self.send(UiRequest::Custom {
             factory,
@@ -4346,7 +4370,9 @@ impl InteractiveMode {
             with_mode(id, |mode| {
                 match cancelled {
                     Ok(()) => mode.show_status(&format!("Cancellation requested for {display_name}.")),
-                    Err(error) => mode.show_status(&format!("Could not cancel {display_name}: {error}")),
+                    Err(error) => {
+                        mode.show_status(JsString::from(format!("Could not cancel {display_name}: ")) + error)
+                    }
                 }
                 mode.ui.request_render();
             });
@@ -4641,7 +4667,11 @@ impl InteractiveMode {
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| cwd.clone());
         let title = match self.session.borrow().session_name() {
-            Some(name) => format!("{} - {name} - {basename}", crate::config::package_config().app_title),
+            Some(name) => format!(
+                "{} - {} - {basename}",
+                crate::config::package_config().app_title,
+                encode_node_utf8(&name.into())
+            ),
             None => format!("{} - {basename}", crate::config::package_config().app_title),
         };
         self.ui.terminal().borrow_mut().set_title(&title);
@@ -4652,7 +4682,8 @@ impl InteractiveMode {
         self.options.verbose || self.tool_output_expanded.get()
     }
 
-    fn show_status(&self, message: &str) {
+    fn show_status(&self, message: impl Into<JsString>) {
+        let message = encode_node_utf8(&message.into());
         let last = self.chat_container.borrow().children().last().cloned();
         let second_last = {
             let container = self.chat_container.borrow();
@@ -4671,14 +4702,14 @@ impl InteractiveMode {
                 .as_any_mut()
                 .and_then(|any| any.downcast_mut::<Text>())
             {
-                text.set_text(with_theme(|theme| theme.fg(ThemeColor::Dim, message)));
+                text.set_text(with_theme(|theme| theme.fg(ThemeColor::Dim, &message)));
             }
             self.ui.request_render();
             return;
         }
 
         let spacer = component(Spacer::new(1));
-        let text = component(Text::new(with_theme(|theme| theme.fg(ThemeColor::Dim, message)), 1, 0));
+        let text = component(Text::new(with_theme(|theme| theme.fg(ThemeColor::Dim, &message)), 1, 0));
         {
             let mut chat = self.chat_container.borrow_mut();
             chat.add_child(Rc::clone(&spacer));
@@ -4689,9 +4720,10 @@ impl InteractiveMode {
         self.ui.request_render();
     }
 
-    fn show_error(&self, message: &str) {
+    fn show_error(&self, message: impl Into<JsString>) {
+        let message = encode_node_utf8(&message.into());
         let text = component(Text::new(
-            with_theme(|theme| theme.fg(ThemeColor::Error, message)),
+            with_theme(|theme| theme.fg(ThemeColor::Error, &message)),
             1,
             0,
         ));
@@ -4699,9 +4731,10 @@ impl InteractiveMode {
         self.ui.request_render();
     }
 
-    fn show_warning(&self, message: &str) {
+    fn show_warning(&self, message: impl Into<JsString>) {
+        let message = encode_node_utf8(&message.into());
         let text = component(Text::new(
-            with_theme(|theme| theme.fg(ThemeColor::Warning, message)),
+            with_theme(|theme| theme.fg(ThemeColor::Warning, &message)),
             1,
             0,
         ));
@@ -4709,20 +4742,19 @@ impl InteractiveMode {
         self.ui.request_render();
     }
 
-    fn get_user_message_text(message: &AgentMessage) -> String {
+    fn get_user_message_text(message: &AgentMessage) -> JsString {
         let AgentMessage::User(user) = message else {
-            return String::new();
+            return JsString::default();
         };
         match &user.content {
             pi_ai::types::UserContent::Text(text) => text.clone(),
-            pi_ai::types::UserContent::Blocks(blocks) => blocks
-                .iter()
-                .filter_map(|block| match block {
+            pi_ai::types::UserContent::Blocks(blocks) => JsString::join(
+                blocks.iter().filter_map(|block| match block {
                     pi_ai::types::UserContentBlock::Text(text) => Some(text.text.clone()),
                     _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join(""),
+                }),
+                "",
+            ),
         }
     }
 
@@ -4772,7 +4804,7 @@ impl InteractiveMode {
                     && user.input_source != Some(pi_ai::types::InputSource::Extension)
                     && !is_skill_block
                 {
-                    self.add_rendered_message_to_editor_history(&text);
+                    self.add_rendered_message_to_editor_history(&encode_node_utf8(&text));
                 }
             }
             AgentMessage::Assistant(assistant) => {
@@ -4864,19 +4896,26 @@ impl InteractiveMode {
         removed
     }
 
-    fn add_custom_message_to_chat(&self, object: &serde_json::Map<String, Value>) {
-        let role = object.get("role").and_then(Value::as_str).unwrap_or_default();
+    fn add_custom_message_to_chat(&self, object: &JsObject) {
+        let role = object
+            .get("role")
+            .and_then(JsValue::as_string)
+            .cloned()
+            .unwrap_or_default();
         match role {
-            "bashExecution" => {
+            role if role == "bashExecution" => {
                 let command = json_string(object, "command");
                 let output = json_string(object, "output");
-                let exit_code = object.get("exitCode").and_then(Value::as_f64);
-                let cancelled = object.get("cancelled").and_then(Value::as_bool).unwrap_or(false);
-                let truncated = object.get("truncated").and_then(Value::as_bool).unwrap_or(false);
-                let full_output_path = object.get("fullOutputPath").and_then(Value::as_str).map(str::to_owned);
+                let exit_code = object.get("exitCode").and_then(JsValue::as_f64);
+                let cancelled = object.get("cancelled").and_then(JsValue::as_bool).unwrap_or(false);
+                let truncated = object.get("truncated").and_then(JsValue::as_bool).unwrap_or(false);
+                let full_output_path = object
+                    .get("fullOutputPath")
+                    .and_then(JsValue::as_string)
+                    .map(encode_node_utf8);
                 let exclude_from_context = object
                     .get("excludeFromContext")
-                    .and_then(Value::as_bool)
+                    .and_then(JsValue::as_bool)
                     .unwrap_or(false);
                 let mut component_value = BashExecutionComponent::new(
                     command,
@@ -4896,7 +4935,7 @@ impl InteractiveMode {
                     exit_code.map(|code| code as i32),
                     cancelled,
                     truncated.then(|| crate::core::tools::truncate::TruncationResult {
-                        content: String::new(),
+                        content: JsString::default(),
                         truncated: true,
                         truncated_by: None,
                         total_lines: 0,
@@ -4912,9 +4951,9 @@ impl InteractiveMode {
                 );
                 self.chat_container.borrow_mut().add_child(component(component_value));
             }
-            "compactionSummary" => {
-                let Ok(message) = serde_json::from_value::<crate::core::messages::CompactionSummaryMessage>(
-                    Value::Object(object.clone()),
+            role if role == "compactionSummary" => {
+                let Ok(message) = js_json::from_value::<crate::core::messages::CompactionSummaryMessage>(
+                    &JsValue::Object(object.clone()),
                 ) else {
                     return;
                 };
@@ -4923,12 +4962,12 @@ impl InteractiveMode {
                 summary.set_expanded(self.tool_output_expanded.get());
                 self.chat_container.borrow_mut().add_child(component(summary));
             }
-            "branchSummary" => {
+            role if role == "branchSummary" => {
                 let message = crate::core::messages::BranchSummaryMessage {
                     role: pi_agent_core::harness::messages::BranchSummaryRole::BranchSummary,
                     summary: json_string(object, "summary"),
-                    from_id: json_string(object, "fromId"),
-                    timestamp: object.get("timestamp").and_then(Value::as_f64).unwrap_or_default(),
+                    from_id: encode_node_utf8(&json_string(object, "fromId")),
+                    timestamp: object.get("timestamp").and_then(JsValue::as_f64).unwrap_or_default(),
                 };
                 self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
                 let mut summary = BranchSummaryMessageComponent::new(message, Some(self.markdown_theme()));
@@ -4936,24 +4975,24 @@ impl InteractiveMode {
                 self.chat_container.borrow_mut().add_child(component(summary));
             }
             _ => {
-                if object.get("display").and_then(Value::as_bool) == Some(true) {
-                    let renderer = self.session.borrow().extension_runner().get_message_renderer(role);
+                if object.get("display").and_then(JsValue::as_bool) == Some(true) {
+                    let renderer = self.session.borrow().extension_runner().get_message_renderer(&role);
                     let content = match object.get("content") {
-                        Some(Value::String(text)) => {
+                        Some(JsValue::String(text)) => {
                             crate::core::extensions::types::CustomMessageContent::Text(text.clone())
                         }
-                        Some(Value::Array(_)) => crate::core::extensions::types::CustomMessageContent::Blocks(
-                            serde_json::from_value(object.get("content").cloned().unwrap_or_default())
+                        Some(JsValue::Array(_)) => crate::core::extensions::types::CustomMessageContent::Blocks(
+                            js_json::from_value(&object.get("content").cloned().unwrap_or_default())
                                 .unwrap_or_default(),
                         ),
-                        _ => crate::core::extensions::types::CustomMessageContent::Text(String::new()),
+                        _ => crate::core::extensions::types::CustomMessageContent::Text(JsString::default()),
                     };
                     let message = crate::core::extensions::types::CustomMessageValue {
-                        custom_type: role.to_owned(),
+                        custom_type: role.clone(),
                         content,
                         display: true,
                         details: object.get("details").cloned(),
-                        timestamp: object.get("timestamp").and_then(Value::as_f64).unwrap_or_default(),
+                        timestamp: object.get("timestamp").and_then(JsValue::as_f64).unwrap_or_default(),
                     };
                     let mut custom =
                         CustomMessageComponent::new(message, renderer, Some(self.markdown_theme()), self.output_pad());
@@ -5064,7 +5103,7 @@ impl InteractiveMode {
                     let component_ref = self.create_tool_component(
                         &call.name,
                         &call.id,
-                        Value::Object(call.arguments.clone()),
+                        JsValue::Object(call.arguments.clone()),
                         tool_cwd,
                     );
                     if let Some(component_value) = component_ref
@@ -5475,7 +5514,7 @@ impl InteractiveMode {
                 .iter()
                 .map(|error| ResourceDiagnostic {
                     diagnostic_type: ResourceDiagnosticType::Error,
-                    message: error.error.clone(),
+                    message: encode_node_utf8(&error.error),
                     path: Some(error.path.clone()),
                     collision: None,
                 })
@@ -5900,7 +5939,7 @@ impl InteractiveMode {
                         &format!(
                             "  {} {}",
                             with_theme(|theme| theme.fg(ThemeColor::Accent, "Steering:")),
-                            message
+                            encode_node_utf8(&message)
                         ),
                     )
                 }),
@@ -6457,8 +6496,12 @@ async fn run_gh_gist(
     })
 }
 
-fn json_string(object: &serde_json::Map<String, Value>, key: &str) -> String {
-    object.get(key).and_then(Value::as_str).unwrap_or_default().to_owned()
+fn json_string(object: &JsObject, key: &str) -> JsString {
+    object
+        .get(key)
+        .and_then(JsValue::as_string)
+        .cloned()
+        .unwrap_or_default()
 }
 
 /// Result of [`changelog_display_for`]: the markdown to show, and whether the
@@ -6986,12 +7029,16 @@ impl InteractiveMode {
         };
         let result = match self.session().prompt(&message.content, PromptOptions::default()).await {
             Ok(()) => crate::core::session_control_db::complete_incoming_message(control_db_path, message.id)
-                .map_err(|error| error.to_string()),
+                .map_err(|error| JsString::from(error.to_string())),
             Err(error) => Err(error.message().to_owned()),
         };
         if let Err(error_message) = result {
-            crate::core::session_control_db::fail_incoming_message(control_db_path, message.id, &error_message)
-                .map_err(|error| error.to_string())?;
+            crate::core::session_control_db::fail_incoming_message(
+                control_db_path,
+                message.id,
+                &encode_node_utf8(&error_message),
+            )
+            .map_err(|error| error.to_string())?;
             self.show_error(&error_message);
         }
         Ok(())
@@ -7109,7 +7156,10 @@ impl InteractiveMode {
             } else {
                 self.compaction_queued_messages
                     .borrow_mut()
-                    .push(CompactionQueuedMessage { text, mode: "steer" });
+                    .push(CompactionQueuedMessage {
+                        text: text.into(),
+                        mode: "steer",
+                    });
             }
             return;
         }
@@ -7230,7 +7280,7 @@ impl InteractiveMode {
                 }
             }
             "compact" => {
-                let instructions = (!args.is_empty()).then(|| args.to_owned());
+                let instructions = (!args.is_empty()).then(|| JsString::from(args));
                 self.handle_compact_command(instructions).await;
             }
             "reload" => self.handle_reload_command().await,
@@ -8173,7 +8223,7 @@ impl InteractiveMode {
             if !text.is_empty() {
                 text.push('\n');
             }
-            text.push_str(&message);
+            text.push_str(&encode_node_utf8(&message));
         }
         self.editor().borrow_mut().set_text(&text);
         self.update_pending_messages_display();
@@ -8189,6 +8239,7 @@ impl InteractiveMode {
     }
 
     async fn handle_bash_command(&self, command: String, exclude_from_context: bool) {
+        let command = JsString::from(command);
         let mode = self.ui_id.get();
         let session = self.session();
         let render: Rc<dyn Fn()> = Rc::new({
@@ -8232,7 +8283,7 @@ impl InteractiveMode {
                         result
                             .truncated
                             .then(|| crate::core::tools::truncate::TruncationResult {
-                                content: String::new(),
+                                content: JsString::default(),
                                 truncated: true,
                                 truncated_by: None,
                                 total_lines: 0,
@@ -8266,9 +8317,9 @@ impl InteractiveMode {
         self.ui.request_render();
     }
 
-    async fn handle_compact_command(&self, custom_instructions: Option<String>) {
+    async fn handle_compact_command(&self, custom_instructions: Option<JsString>) {
         let session = self.session();
-        let result = session.compact(custom_instructions.as_deref()).await;
+        let result = session.compact(custom_instructions.as_ref()).await;
         match result {
             Ok(result) => {
                 self.rebuild_chat_after_compaction(&result);
@@ -8429,7 +8480,7 @@ impl InteractiveMode {
         let tmp_file = std::env::temp_dir().join("session.html");
         let tmp_path = tmp_file.display().to_string();
         if let Err(error) = self.session().export_to_html(Some(&tmp_path)).await {
-            self.show_error(&format!("Failed to export session: {}", error.message()));
+            self.show_error(&(JsString::from("Failed to export session: ") + error.message()));
             return;
         }
 
@@ -8520,7 +8571,7 @@ impl InteractiveMode {
             return;
         };
         match crate::utils::clipboard::copy_to_clipboard(
-            &text,
+            &encode_node_utf8(&text),
             &crate::utils::clipboard_image::ClipboardEnvironment::from_process(),
             None,
         )
@@ -8543,8 +8594,8 @@ impl InteractiveMode {
             self.show_error("Usage: /name <name>");
             return;
         }
-        if let Err(error) = self.session.borrow().set_session_name(name) {
-            self.show_error(&format!("Failed to set session name: {}", error.message()));
+        if let Err(error) = self.session.borrow().set_session_name(&JsString::from(name)) {
+            self.show_error(&(JsString::from("Failed to set session name: ") + error.message()));
             return;
         }
         self.update_terminal_title();
@@ -8553,7 +8604,7 @@ impl InteractiveMode {
 
     fn handle_unname_command(&self) {
         if let Err(error) = self.session.borrow().clear_session_name() {
-            self.show_error(&format!("Failed to clear session name: {}", error.message()));
+            self.show_error(&(JsString::from("Failed to clear session name: ") + error.message()));
             return;
         }
         self.update_terminal_title();
@@ -8826,7 +8877,7 @@ impl InteractiveMode {
                 self.adopt_session(session);
                 self.editor()
                     .borrow_mut()
-                    .set_text(result.selected_text.as_deref().unwrap_or_default());
+                    .set_text(&encode_node_utf8(&result.selected_text.unwrap_or_default()));
                 self.show_status("Forked to new session");
             }
             Ok(_) => {
@@ -8885,7 +8936,7 @@ impl InteractiveMode {
             initial_selected_id,
             Some(tree_filter_mode(initial_filter_mode)),
         );
-        selector.set_on_copy(Some(Rc::new(move |text: Option<String>| {
+        selector.set_on_copy(Some(Rc::new(move |text: Option<JsString>| {
             with_mode(mode_id, |mode| {
                 tokio::task::spawn_local(async move {
                     mode.copy_tree_selection(text).await;
@@ -8895,13 +8946,13 @@ impl InteractiveMode {
         self.show_selector(component(selector));
     }
 
-    async fn copy_tree_selection(&self, text: Option<String>) {
+    async fn copy_tree_selection(&self, text: Option<JsString>) {
         let Some(text) = text.filter(|text| !text.is_empty()) else {
             self.show_error("Selected entry has no text to copy");
             return;
         };
         match crate::utils::clipboard::copy_to_clipboard(
-            &text,
+            &encode_node_utf8(&text),
             &crate::utils::clipboard_image::ClipboardEnvironment::from_process(),
             None,
         )
@@ -8937,7 +8988,7 @@ impl InteractiveMode {
 
         self.restore_editor();
         let mut wants_summary = false;
-        let mut custom_instructions: Option<String> = None;
+        let mut custom_instructions: Option<JsString> = None;
         if !self.settings(|settings| settings.get_branch_summary_skip_prompt()) {
             loop {
                 let choice = self
@@ -8960,7 +9011,7 @@ impl InteractiveMode {
                         .show_extension_editor("Custom summarization instructions", None)
                         .await
                     {
-                        Some(text) => custom_instructions = Some(text),
+                        Some(text) => custom_instructions = Some(text.into()),
                         None => continue,
                     }
                 }
@@ -9038,7 +9089,7 @@ impl InteractiveMode {
                 if let Some(editor_text) = &result.editor_text
                     && self.editor().borrow().get_text().trim().is_empty()
                 {
-                    self.editor().borrow_mut().set_text(editor_text);
+                    self.editor().borrow_mut().set_text(&encode_node_utf8(editor_text));
                 }
                 self.show_status("Navigated to selected point");
                 self.flush_compaction_queue(false).await;
@@ -9060,13 +9111,13 @@ impl InteractiveMode {
         self.default_editor.borrow_mut().on_escape = original_on_escape;
     }
 
-    fn start_compaction_summary_edit(&self, entry: &CompactionEntry, summary: String) {
+    fn start_compaction_summary_edit(&self, entry: &CompactionEntry, summary: JsString) {
         if !self.editor().borrow().get_text().trim().is_empty() {
             self.show_warning("Clear the editor before editing a compaction summary");
             return;
         }
         *self.pending_compaction_summary_edit_id.borrow_mut() = Some(entry.id.clone());
-        self.editor().borrow_mut().set_text(&summary);
+        self.editor().borrow_mut().set_text(&encode_node_utf8(&summary));
         self.show_status("Editing compaction summary");
         self.ui.request_render();
     }
@@ -9075,7 +9126,7 @@ impl InteractiveMode {
         let Some(entry_id) = self.pending_compaction_summary_edit_id.borrow().clone() else {
             return false;
         };
-        if let Err(error) = self.session().update_compaction_summary(&entry_id, summary) {
+        if let Err(error) = self.session().update_compaction_summary(&entry_id, &summary.into()) {
             self.show_error(error.message());
             return true;
         }
@@ -9129,7 +9180,7 @@ impl InteractiveMode {
         let outcome = match self.session().materialize_compaction_summary(&entry.id).await {
             Ok(crate::core::compaction::MaterializeCompactionSummaryResult::Summary(summary)) => Ok(summary),
             Ok(crate::core::compaction::MaterializeCompactionSummaryResult::Aborted) => {
-                Err(Some("Compaction summary loading cancelled".to_owned()))
+                Err(Some(JsString::from("Compaction summary loading cancelled")))
             }
             Err(error) => Err(Some(error.message().to_owned())),
         };
@@ -9281,12 +9332,13 @@ impl InteractiveMode {
         let rename_session: RenameSessionFn = {
             let control_db_path = control_db_path.clone();
             Rc::new(move |path: String, next_name: Option<String>| {
+                let next_name = next_name.map(JsString::from);
                 let control_db_path = control_db_path.clone();
                 Box::pin(async move {
                     let Some(control_db_path) = control_db_path else {
                         return Ok(());
                     };
-                    crate::core::session_control_db::write_session_name(&control_db_path, &path, next_name.as_deref())
+                    crate::core::session_control_db::write_session_name(&control_db_path, &path, next_name.as_ref())
                         .map_err(|error| error.to_string())?;
                     Ok(())
                 })
@@ -10038,7 +10090,7 @@ impl InteractiveMode {
                                 selected_model = None;
                                 selection_error = Some(format!(
                                     "{action_label}, but selecting its default model failed: {}. Use /model to select a model.",
-                                    error.message()
+                                    encode_node_utf8(error.message())
                                 ));
                             }
                         }
@@ -10777,9 +10829,11 @@ impl InteractiveMode {
                 if let Ok(result) = &result {
                     self.adopt_transitioned_session(&runtime, result.cancelled);
                 }
-                let transition = result.map(|result| SessionTransitionResult {
-                    cancelled: result.cancelled,
-                });
+                let transition = result
+                    .map(|result| SessionTransitionResult {
+                        cancelled: result.cancelled,
+                    })
+                    .map_err(JsString::from);
                 let _ = respond.send(transition);
             }
             UiRequest::RuntimeReload { respond } => {
@@ -10789,7 +10843,7 @@ impl InteractiveMode {
             UiRequest::RuntimeRestart { options, respond } => {
                 let mut runtime = self.runtime.lock().await;
                 let result = runtime
-                    .restart(options.as_ref().and_then(|options| options.notice.as_deref()), true)
+                    .restart(options.as_ref().and_then(|options| options.notice.as_ref()), true)
                     .await
                     .map_err(crate::core::extensions::types::HandlerError::new);
                 let _ = respond.send(result);
@@ -10881,7 +10935,7 @@ impl InteractiveMode {
         &self,
         factory: LocalExtensionUiCustomFactory,
         options: Option<ExtensionUiCustomOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<Option<Value>, String>>,
+        respond: tokio::sync::oneshot::Sender<Result<Option<JsValue>, String>>,
     ) {
         let context = self.extension_factory_context();
         let respond = Arc::new(std::sync::Mutex::new(Some(respond)));
@@ -11165,10 +11219,14 @@ impl InteractiveMode {
                                         .as_any_mut()
                                         .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
                                 {
-                                    component_value.update_args(Value::Object(call.arguments.clone()));
+                                    component_value.update_args(JsValue::Object(call.arguments.clone()));
                                 }
                             } else {
-                                self.ensure_tool_component(&call.name, &call.id, Value::Object(call.arguments.clone()));
+                                self.ensure_tool_component(
+                                    &call.name,
+                                    &call.id,
+                                    JsValue::Object(call.arguments.clone()),
+                                );
                             }
                         }
                     }
@@ -11249,7 +11307,11 @@ impl InteractiveMode {
                     } else {
                         for content in &assistant.content {
                             if let pi_ai::types::AssistantContent::ToolCall(call) = content {
-                                self.ensure_tool_component(&call.name, &call.id, Value::Object(call.arguments.clone()));
+                                self.ensure_tool_component(
+                                    &call.name,
+                                    &call.id,
+                                    JsValue::Object(call.arguments.clone()),
+                                );
                             }
                         }
                         for component in self.pending_tools.borrow().values() {
@@ -11451,7 +11513,7 @@ impl InteractiveMode {
                     } else {
                         self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
                         self.chat_container.borrow_mut().add_child(component(Text::new(
-                            with_theme(|theme| theme.fg(ThemeColor::Error, &failure_message)),
+                            with_theme(|theme| theme.fg(ThemeColor::Error, &encode_node_utf8(&failure_message))),
                             1,
                             0,
                         )));
@@ -11555,7 +11617,7 @@ impl InteractiveMode {
         }
     }
 
-    fn ensure_tool_component(&self, tool_name: &str, tool_call_id: &str, args: Value) {
+    fn ensure_tool_component(&self, tool_name: &str, tool_call_id: &str, args: JsValue) {
         if let Some(existing) = self.pending_tools.borrow().get(tool_call_id).cloned() {
             if let Some(component_value) = existing
                 .borrow_mut()
@@ -11574,7 +11636,7 @@ impl InteractiveMode {
     }
 
     /// Builds a tool execution component without mounting it.
-    fn create_tool_component(&self, tool_name: &str, tool_call_id: &str, args: Value, cwd: &str) -> ComponentRef {
+    fn create_tool_component(&self, tool_name: &str, tool_call_id: &str, args: JsValue, cwd: &str) -> ComponentRef {
         let request_render: Arc<dyn Fn() + Send + Sync> = {
             let sender = self.ui_sender.clone();
             Arc::new(move || {
@@ -11746,78 +11808,77 @@ fn format_compaction_source_progress_suffix(source: Option<&crate::core::compact
 
 /// `formatCompactionFailureMessage`.
 pub fn format_compaction_failure_message(
-    error_message: &str,
+    error_message: impl Into<JsString>,
     reason: &str,
     source_hint: Option<&crate::core::compaction::CompactionSourceInfo>,
-) -> String {
+) -> JsString {
     use crate::core::compaction::CompactionSourceType;
+    let error_message = error_message.into();
+    let error_message = &error_message;
     let original_error = format_compaction_original_error(error_message, reason);
     let mut lines = vec![format_compaction_failure_summary(error_message, reason)];
     if let Some(source) = source_hint
         && source.r#type == CompactionSourceType::Local
     {
-        lines.push(format!("Model: {}/{}.", source.provider, source.model));
+        lines.push(format!("Model: {}/{}.", source.provider, source.model).into());
     }
     if is_compaction_timeout(error_message) {
-        lines.push("The compaction request did not finish before the timeout.".to_owned());
+        lines.push("The compaction request did not finish before the timeout.".into());
     }
     lines.push(format_compaction_save_impact(reason));
-    lines.push(format!(
-        "Original error: {}",
-        format_compaction_sentence(&original_error)
-    ));
-    lines.join("\n")
+    lines.push(JsString::from("Original error: ") + format_compaction_sentence(&original_error));
+    JsString::join(lines, "\n")
 }
 
-fn is_compaction_timeout(error_message: &str) -> bool {
+fn is_compaction_timeout(error_message: &JsString) -> bool {
     error_message.to_lowercase().contains("timed out")
 }
 
-fn format_compaction_save_impact(reason: &str) -> String {
+fn format_compaction_save_impact(reason: &str) -> JsString {
     if reason == "manual" {
-        "No compaction was saved; context remains unchanged.".to_owned()
+        "No compaction was saved; context remains unchanged.".into()
     } else {
-        "No compaction was saved; the previous context is still too large.".to_owned()
+        "No compaction was saved; the previous context is still too large.".into()
     }
 }
 
-fn format_compaction_sentence(text: &str) -> String {
-    if text.ends_with('.') || text.ends_with('!') || text.ends_with('?') {
-        text.to_owned()
+fn format_compaction_sentence(text: &JsString) -> JsString {
+    if text.ends_with(".") || text.ends_with("!") || text.ends_with("?") {
+        text.into()
     } else {
-        format!("{text}.")
+        text.clone() + "."
     }
 }
 
-fn format_compaction_failure_summary(error_message: &str, reason: &str) -> String {
+fn format_compaction_failure_summary(error_message: &JsString, reason: &str) -> JsString {
     if is_compaction_timeout(error_message) {
         return if reason == "overflow" {
             "Context overflow recovery failed after compaction timeout."
         } else {
             "Compaction failed after timeout."
         }
-        .to_owned();
+        .into();
     }
     if reason == "overflow" {
         "Context overflow recovery failed during compaction."
     } else {
         "Compaction failed."
     }
-    .to_owned()
+    .into()
 }
 
-fn format_compaction_original_error(error_message: &str, reason: &str) -> String {
+fn format_compaction_original_error(error_message: &JsString, reason: &str) -> JsString {
     let prefixes: &[&str] = if reason == "overflow" {
         &["Context overflow recovery failed: "]
     } else {
         &["Compaction failed: ", "Auto-compaction failed: "]
     };
     for prefix in prefixes {
-        if let Some(rest) = error_message.strip_prefix(prefix) {
-            return rest.to_owned();
+        if let Some(rest) = error_message.strip_prefix(*prefix) {
+            return rest.into();
         }
     }
-    error_message.to_owned()
+    error_message.into()
 }
 
 /// `formatCompactionSourceLogMessage`.
@@ -12216,7 +12277,7 @@ mod ui_tests {
                         extension_runner_ref: None,
                         session_start_event: None,
                     })
-                    .map_err(|error| error.message().to_owned())?;
+                    .map_err(|error| error.to_string())?;
                     Ok(CreateAgentSessionRuntimeResult {
                         session,
                         services: AgentSessionServices {
@@ -12872,7 +12933,7 @@ mod ui_tests {
                     .append_message(pi_agent_core::agent::types::AgentMessage::User(
                         pi_ai::types::UserMessage {
                             role: pi_ai::types::UserRole::Tag,
-                            content: pi_ai::types::UserContent::Text("resume target prompt".to_owned()),
+                            content: pi_ai::types::UserContent::Text("resume target prompt".into()),
                             input_source: None,
                             provider_native: None,
                             timestamp: 1,
@@ -13042,10 +13103,7 @@ mod ui_tests {
                 .await;
                 assert!(output.contains("Navigated to selected point"));
                 assert_eq!(mode.session().messages().len(), 2);
-                assert_eq!(
-                    mode.session().get_last_assistant_text().as_deref(),
-                    Some("hello from faux")
-                );
+                assert_eq!(mode.session().get_last_assistant_text(), Some("hello from faux".into()));
             })
             .await;
     }
@@ -13643,7 +13701,7 @@ mod ui_tests {
             manager
                 .append_message(AgentMessage::User(pi_ai::types::UserMessage {
                     role: pi_ai::types::UserRole::Tag,
-                    content: pi_ai::types::UserContent::Text((*text).to_owned()),
+                    content: pi_ai::types::UserContent::Text((*text).into()),
                     input_source: None,
                     provider_native: None,
                     timestamp: 0,
@@ -13787,7 +13845,7 @@ mod ui_tests {
                         attempt: 1,
                         max_attempts: 3,
                         delay_ms: 3_000.0,
-                        error_message: "boom".to_owned(),
+                        error_message: "boom".into(),
                     },
                 ))
                 .await;
@@ -13840,7 +13898,7 @@ mod ui_tests {
         source: Option<crate::core::compaction::CompactionSourceInfo>,
     ) -> crate::core::compaction::CompactionResult {
         crate::core::compaction::CompactionResult {
-            summary: "summary".to_owned(),
+            summary: "summary".into(),
             first_kept_entry_id: "entry-1".to_owned(),
             tokens_before: 123.0,
             duration_ms: None,
@@ -14062,7 +14120,7 @@ mod ui_tests {
                         aborted: false,
                         will_retry: false,
                         error_message: Some(
-                            "Auto-compaction failed: Turn prefix summarization failed: Request timed out.".to_owned(),
+                            "Auto-compaction failed: Turn prefix summarization failed: Request timed out.".into(),
                         ),
                     },
                 )))
@@ -14098,7 +14156,7 @@ mod ui_tests {
                         result: None,
                         aborted: false,
                         will_retry: false,
-                        error_message: Some("Compaction failed: boom".to_owned()),
+                        error_message: Some("Compaction failed: boom".into()),
                     },
                 )))
                 .await;
@@ -14227,7 +14285,7 @@ mod ui_tests {
                 manager
                     .append_message(AgentMessage::User(pi_ai::types::UserMessage {
                         role: pi_ai::types::UserRole::Tag,
-                        content: pi_ai::types::UserContent::Text("second child message".to_owned()),
+                        content: pi_ai::types::UserContent::Text("second child message".into()),
                         input_source: None,
                         provider_native: None,
                         timestamp: 0,
@@ -14485,7 +14543,8 @@ mod ui_tests {
     impl ExtensionUiComponent for SizedExtensionInput {
         fn handle_input(&self, data: &str) {
             if data == "\r" {
-                self.done.call(Some(serde_json::json!({"action":"Search","query":"x"})));
+                self.done
+                    .call(Some(pi_js_compat::js_json!({"action":"Search","query":"x"})));
             }
         }
         fn width(&self) -> Option<pi_tui::tui::SizeValue> {
@@ -14523,7 +14582,8 @@ mod ui_tests {
         }
         fn handle_input(&self, data: &str) {
             if data == "\r" {
-                self.done.call(Some(serde_json::json!(self.editor.borrow().get_text())));
+                self.done
+                    .call(Some(pi_js_compat::js_json!(self.editor.borrow().get_text())));
             } else {
                 self.editor.borrow_mut().handle_input(data);
             }
@@ -14722,7 +14782,10 @@ mod ui_tests {
                 mode.ui.process_events();
                 terminal.borrow_mut().send_input("\r");
                 mode.ui.process_events();
-                assert_eq!(receive.await.unwrap().unwrap(), Some(serde_json::json!("typed 🚀")));
+                assert_eq!(
+                    receive.await.unwrap().unwrap(),
+                    Some(pi_js_compat::js_json!("typed 🚀"))
+                );
                 assert!(!mode.ui.has_overlay_entries());
             })
             .await;
@@ -14763,7 +14826,7 @@ mod ui_tests {
                     assert_eq!(mode.editor().borrow().get_text(), "during");
                     terminal.borrow_mut().send_input("\r");
                     mode.ui.process_events();
-                    assert_eq!(receive.await.unwrap().unwrap(), Some(serde_json::json!("")));
+                    assert_eq!(receive.await.unwrap().unwrap(), Some(pi_js_compat::js_json!("")));
                     assert_eq!(
                         mode.editor().borrow().get_text(),
                         if overlay { "during" } else { "before" }
@@ -14811,7 +14874,7 @@ mod ui_tests {
                                 let pending = pending.lock().unwrap().take().unwrap();
                                 let disposed = counted_disposal.clone();
                                 if early {
-                                    done.call(Some(serde_json::json!("early")));
+                                    done.call(Some(pi_js_compat::js_json!("early")));
                                 }
                                 Ok(Box::pin(async move {
                                     pending.await.unwrap()?;
@@ -14865,7 +14928,7 @@ mod ui_tests {
                         tokio::task::yield_now().await;
                         tokio::task::yield_now().await;
                         if early {
-                            assert_eq!(early_result.unwrap().unwrap(), Some(serde_json::json!("early")));
+                            assert_eq!(early_result.unwrap().unwrap(), Some(pi_js_compat::js_json!("early")));
                             assert!(!mode.ui.has_overlay_entries());
                             assert!(Rc::ptr_eq(&editor, &mode.ui.get_focused_component().unwrap()));
                             assert_eq!(
@@ -14888,7 +14951,7 @@ mod ui_tests {
                             mode.ui.render_now();
                             terminal.borrow_mut().send_input("\r");
                             mode.ui.process_events();
-                            assert_eq!(result.take().unwrap().await.unwrap(), Some(serde_json::json!("")));
+                            assert_eq!(result.take().unwrap().await.unwrap(), Some(pi_js_compat::js_json!("")));
                             assert_eq!(
                                 mode.editor().borrow().get_text(),
                                 if overlay { "during" } else { "before" }
@@ -15033,13 +15096,13 @@ mod ui_tests {
                 let ui = mode.ui_context();
                 let result = ui.custom(
                     Arc::new(|_, done| {
-                        done.call(Some(serde_json::json!("closed first")));
+                        done.call(Some(pi_js_compat::js_json!("closed first")));
                         Err("too late".to_owned())
                     }),
                     None,
                 );
                 mode.handle_ui_requests().await;
-                assert_eq!(result.await.unwrap(), Some(serde_json::json!("closed first")));
+                assert_eq!(result.await.unwrap(), Some(pi_js_compat::js_json!("closed first")));
                 assert!(!mode.ui.has_overlay_entries());
             })
             .await;
@@ -15090,7 +15153,7 @@ mod ui_tests {
                 mode.ui.process_events();
                 assert_eq!(
                     receive.await.unwrap().unwrap(),
-                    Some(serde_json::json!({"action":"Search","query":"x"}))
+                    Some(pi_js_compat::js_json!({"action":"Search","query":"x"}))
                 );
                 assert!(!mode.ui.has_overlay_entries());
                 assert_eq!(disposed.load(std::sync::atomic::Ordering::SeqCst), 1);
@@ -15147,7 +15210,7 @@ mod ui_tests {
                 let (send, receive) = tokio::sync::oneshot::channel();
                 mode.show_extension_custom(
                     Rc::new(|_, done| {
-                        done.call(Some(serde_json::json!("immediate")));
+                        done.call(Some(pi_js_compat::js_json!("immediate")));
                         crate::core::extensions::ready_custom_component(Box::new(StaticWidget))
                     }),
                     Some(ExtensionUiCustomOptions {
@@ -15157,7 +15220,10 @@ mod ui_tests {
                     send,
                 );
                 tokio::task::yield_now().await;
-                assert_eq!(receive.await.unwrap().unwrap(), Some(serde_json::json!("immediate")));
+                assert_eq!(
+                    receive.await.unwrap().unwrap(),
+                    Some(pi_js_compat::js_json!("immediate"))
+                );
                 assert!(
                     !mode.ui.has_overlay_entries(),
                     "factory completed synchronously: do not mount"
@@ -15238,10 +15304,15 @@ mod ui_tests {
                         .data
                         .as_ref()
                         .and_then(|data| data.get("message"))
-                        .and_then(Value::as_str)
+                        .and_then(JsValue::as_string)
+                        .cloned()
                         .unwrap_or_default()
                         .to_owned();
-                    Some(component(Text::new(format!("[Custom]\n{message}"), 0, 0)))
+                    Some(component(Text::new(
+                        encode_node_utf8(&(JsString::from("[Custom]\n") + message)),
+                        0,
+                        0,
+                    )))
                 }),
             )
             .expect("entry renderer");
@@ -15267,10 +15338,73 @@ mod ui_tests {
         build_mode_with_loader(loader, None).await
     }
 
+    async fn render_lossless_custom_role(role: JsString) -> String {
+        let runtime = crate::core::extensions::create_extension_runtime();
+        let factory: crate::core::extensions::ExtensionFactory = Arc::new(|api| {
+            api.register_message_renderer(
+                JsString::from_utf16(vec![0xd800]),
+                Arc::new(|message, _, _| {
+                    assert_eq!(message.custom_type.units(), &[0xd800]);
+                    Some(component(Text::new("surrogate-handler", 0, 0)))
+                }),
+            )
+            .unwrap();
+            api.register_message_renderer(
+                "�",
+                Arc::new(|message, _, _| {
+                    assert_eq!(message.custom_type.units(), &[0xfffd]);
+                    Some(component(Text::new("replacement-handler", 0, 0)))
+                }),
+            )
+            .unwrap();
+            Box::pin(async { Ok(()) })
+        });
+        let extension = crate::core::extensions::load_extension_from_factory(
+            factory,
+            "/tmp",
+            Arc::new(crate::core::event_bus::EventBusController::new()),
+            runtime.clone(),
+            "/tmp/raw-role-extension",
+        )
+        .await
+        .unwrap();
+        let loader = Arc::new(StaticResourceLoader {
+            extensions: Some(crate::core::extensions::LoadExtensionsResult {
+                extensions: vec![extension],
+                errors: vec![],
+                runtime,
+            }),
+            ..Default::default()
+        }) as Arc<dyn crate::core::resource_loader::ResourceLoader>;
+        let (mode, _, _, _temp) = build_mode_with_loader(loader, None).await;
+        let _events = start(&mode).await;
+        let value = pi_js_compat::js_json!({"role": role, "content": "raw-role-content", "display": true});
+        mode.add_custom_message_to_chat(value.as_object().unwrap());
+        mode.chat_container.borrow_mut().render(80).join("\n")
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn lossless_surrogate_role_selects_its_distinct_callback() {
+        let output = tokio::task::LocalSet::new()
+            .run_until(render_lossless_custom_role(JsString::from_utf16(vec![0xd800])))
+            .await;
+        assert!(output.contains("surrogate-handler"));
+        assert!(!output.contains("replacement-handler"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn lossless_replacement_role_selects_its_distinct_callback() {
+        let output = tokio::task::LocalSet::new()
+            .run_until(render_lossless_custom_role("�".into()))
+            .await;
+        assert!(output.contains("replacement-handler"));
+        assert!(!output.contains("surrogate-handler"));
+    }
+
     fn custom_entry(message: &str) -> crate::core::session_manager::CustomEntry {
         crate::core::session_manager::CustomEntry {
             custom_type: "test-entry".to_owned(),
-            data: Some(serde_json::json!({"message": message})),
+            data: Some(pi_js_compat::js_json!({"message": message})),
             id: "entry-1".to_owned(),
             parent_id: None,
             timestamp: "2026-06-27T00:00:00.000Z".to_owned(),
@@ -15309,7 +15443,7 @@ mod ui_tests {
                 let user = |text: &str, input_source| {
                     AgentMessage::User(pi_ai::types::UserMessage {
                         role: pi_ai::types::UserRole::Tag,
-                        content: pi_ai::types::UserContent::Text(text.to_owned()),
+                        content: pi_ai::types::UserContent::Text(text.into()),
                         input_source,
                         provider_native: None,
                         timestamp: 1,
@@ -15411,7 +15545,7 @@ mod ui_tests {
                 let mut assistant = faux_assistant_message(
                     pi_ai::providers::faux::FauxContent::Blocks(vec![pi_ai::providers::faux::faux_tool_call(
                         "bash",
-                        serde_json::Map::from_iter([("command".to_owned(), Value::String("echo replayed".to_owned()))]),
+                        JsObject::from_iter([("command".into(), JsValue::String("echo replayed".into()))]),
                         Some("call-1".to_owned()),
                     )]),
                     pi_ai::providers::faux::FauxAssistantMessageOptions::default(),
@@ -15562,7 +15696,7 @@ mod ui_tests {
                 None,
                 None,
                 Arc::new(
-                    move |_args: String, ctx: crate::core::extensions::ExtensionCommandContext| {
+                    move |_args: JsString, ctx: crate::core::extensions::ExtensionCommandContext| {
                         let command_outcome = Arc::clone(&command_outcome);
                         Box::pin(async move {
                             let result = match ctx.restart(Some(crate::core::extensions::types::RestartOptions {
@@ -15714,7 +15848,7 @@ mod ui_tests {
                 let _events = start(&mode).await;
                 let message = AgentMessage::User(pi_ai::types::UserMessage {
                     role: pi_ai::types::UserRole::Tag,
-                    content: pi_ai::types::UserContent::Text("prepared-bubble-marker".to_owned()),
+                    content: pi_ai::types::UserContent::Text("prepared-bubble-marker".into()),
                     input_source: None,
                     provider_native: None,
                     timestamp: 1,
@@ -16178,5 +16312,18 @@ mod tests {
             Path::new("/tmp/a").components().next(),
             Some(std::path::Component::RootDir)
         ));
+    }
+}
+
+#[cfg(test)]
+mod lossless_preview_tests {
+    use super::*;
+    #[test]
+    fn followup_slices_raw_units_before_display_encoding() {
+        let input = JsString::from(format!("- agent: helper\nMessage:\n{}😀", "x".repeat(49)));
+        assert_eq!(
+            format_follow_up_preview(&input),
+            format!("Follow-up from helper: {}�…", "x".repeat(49))
+        );
     }
 }

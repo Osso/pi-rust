@@ -20,7 +20,6 @@ use pi_tui::components::input::InputOptions;
 use pi_tui::tui::{ComponentRef, TuiExt, TuiMainScreen, component};
 use pi_tui::{Component, Container, Focusable, Input, Spacer, Text};
 use serde::Deserialize;
-use serde_json::Value;
 
 use crate::cli::startup_ui::{create_startup_tui, start_startup_tui};
 use crate::config::{get_agent_dir, get_user_state_root};

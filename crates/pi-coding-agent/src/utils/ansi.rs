@@ -23,3 +23,42 @@ pub fn strip_ansi(value: &str) -> String {
 
     ansi_regex().replace_all(value, "").into_owned()
 }
+
+/// Strip the same ANSI ranges without decoding or replacing source content.
+pub fn strip_ansi_js(value: &pi_js_compat::js_json::JsString) -> pi_js_compat::js_json::JsString {
+    use pi_js_compat::js_json::JsString;
+    // ANSI syntax tests only ASCII/C1 units; OSC payloads accept every unit.
+    // One scalar per unit gives the shared regex a view, never a content authority.
+    const SURROGATE_MATCH_UNIT: char = '\u{e000}';
+    let view: String = value
+        .units()
+        .iter()
+        .map(|unit| char::from_u32(u32::from(*unit)).unwrap_or(SURROGATE_MATCH_UNIT))
+        .collect();
+    let mut offsets: Vec<usize> = view.char_indices().map(|(byte, _)| byte).collect();
+    offsets.push(view.len());
+    let mut output = JsString::default();
+    let mut previous = 0;
+    for matched in ansi_regex().find_iter(&view) {
+        let start = offsets.binary_search(&matched.start()).expect("match starts on a unit");
+        let end = offsets.binary_search(&matched.end()).expect("match ends on a unit");
+        output.push_str(value.slice(previous, start));
+        previous = end;
+    }
+    output.push_str(value.slice(previous, value.len()));
+    output
+}
+
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    use pi_js_compat::js_json::JsString;
+    #[test]
+    fn ansi_removal_preserves_distinct_surrogates_and_pairs() {
+        let content = JsString::from_utf16(vec![0xd800, 0xd801, 0xd83d, 0xde00, 0xfffd]);
+        let decorated = JsString::from("\x1b[31m") + &content + "\x1b[0m";
+        assert_eq!(strip_ansi_js(&decorated), content);
+        let osc = JsString::from("\x1b]0;") + JsString::from_utf16(vec![0xd800]) + "\x07" + &content;
+        assert_eq!(strip_ansi_js(&osc), content);
+    }
+}

@@ -217,7 +217,8 @@ pub fn notify_runtime_mailbox_recipient(
         Ok(())
     })
 }
-pub fn is_known_local_session(control_db_path: &str, session_id: &str) -> Result<bool, ControlDbError> {
+pub fn is_known_local_session(control_db_path: &str, session_id: impl Into<JsString>) -> Result<bool, ControlDbError> {
+    let session_id = encode_node_utf8(&session_id.into());
     with_control_db(control_db_path, |db| {
         Ok(db.query_row("SELECT 1 FROM session_metadata WHERE id = ? UNION ALL SELECT 1 FROM session_health WHERE session_id = ? LIMIT 1",params![session_id,session_id],|row|row.get::<_,i64>(0)).optional()?.is_some())
     })
@@ -1241,8 +1242,9 @@ pub struct RuntimeMailboxListenerRecord {
 /// `readLiveRuntimeMailboxSessionAgentIds`.
 pub fn read_live_runtime_mailbox_session_agent_ids(
     control_db_path: &str,
-    session_id: &str,
+    session_id: impl Into<JsString>,
 ) -> Result<Vec<Option<String>>, ControlDbError> {
+    let session_id = encode_node_utf8(&session_id.into());
     with_control_db(control_db_path, |db| {
         let mut statement=db.prepare("SELECT recipient_agent_id_key,runtime_instance_id FROM runtime_mailbox_listeners WHERE recipient_session_id = ?")?;
         let rows = statement

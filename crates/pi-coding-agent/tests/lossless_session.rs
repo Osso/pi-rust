@@ -4,6 +4,21 @@ use pi_coding_agent::core::session_tool_output::serialize_session_entry;
 use pi_js_compat::js_json::parse_lossless;
 
 #[test]
+fn detached_outcome_tagged_decode_keeps_summary_reason_and_error() {
+    use pi_coding_agent::core::detached_job_runner::DetachedJobOutcome;
+
+    for wire in [
+        r#"{"kind":"completed","summary":"\ud800"}"#,
+        r#"{"kind":"aborted","reason":"\udfff"}"#,
+        r#"{"kind":"failed","error":{"message":"\ud800"}}"#,
+    ] {
+        let result: DetachedJobOutcome = serde_json::from_str(wire).unwrap();
+        let output = serde_json::to_string(&result).unwrap();
+        assert_eq!(parse_lossless(&output).unwrap(), parse_lossless(wire).unwrap());
+    }
+}
+
+#[test]
 fn bash_replacement_result_keeps_raw_output() {
     let result: pi_coding_agent::core::bash_executor::BashResult =
         serde_json::from_str(r#"{"output":"\ud800","exitCode":0,"cancelled":false,"truncated":false}"#).unwrap();

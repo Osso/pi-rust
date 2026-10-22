@@ -4,6 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use pi_ai::types::Model;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use pi_js_compat::number::{js_number_to_string, to_fixed};
 use pi_tui::tui::Component;
 use pi_tui::utils::{truncate_to_width_with, visible_width};
@@ -83,7 +84,7 @@ struct SessionFooterData {
     cost: f64,
     latest_cache_hit_rate: Option<f64>,
     context_usage: Option<FooterContextUsage>,
-    session_name: Option<String>,
+    session_name: Option<JsString>,
 }
 
 fn add_entry_usage(totals: &mut UsageTotals, entry: &SessionEntry) {
@@ -260,7 +261,7 @@ impl Component for FooterComponent {
             pwd = format!("{pwd} ({branch})");
         }
         if let Some(session_name) = &session_data.session_name {
-            pwd = format!("{pwd} • {session_name}");
+            pwd = format!("{pwd} • {}", encode_node_utf8(session_name));
         }
 
         let mut stats_parts: Vec<String> = Vec::new();

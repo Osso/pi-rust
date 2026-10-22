@@ -2,6 +2,18 @@
 
 Ported to `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs`.
 
+## Lossless checkpoint (2026-10-21)
+
+Compaction and branch-summary custom instructions retain `JsString` through
+session calls; scalar editor input is promoted at ingress. Session-selector
+rename input is promoted before the raw control-DB call. Cached footer names
+remain raw until rendering ([footer boundary](interactive-footer.md#lossless-checkpoint-2026-10-21)).
+The historical completion claims below do not establish this migration's proof:
+Rust tests remain blocked by out-of-lane library diagnostics. Existing raw
+renderer/RPC/parser tests are retained, not duplicated. Scalar Text/Markdown,
+editor/select/input and TUI-internal truncation remain an unapproved surrogate
+display gap; no raw lookup or stored content may use that display projection.
+
 Status: **done** for this module. The mode core (construction, TUI layout,
 startup resources, session event rendering, editor submission, key handlers,
 slash commands, extension UI dialogs, selector components, login/logout,

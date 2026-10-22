@@ -15,9 +15,9 @@ use std::time::{Duration, Instant};
 use pi_agent_core::AgentToolResult;
 use pi_ai::types::TextOrImageContent;
 use pi_js_compat::date::js_now_millis;
+use pi_js_compat::js_json::{JsString, JsValue};
 use pi_tui::tui::{Component, ComponentRef, Container};
 use pi_tui::{Box as BoxComponent, Image, ImageOptions, ImageProtocol, ImageTheme, Spacer, Text, get_capabilities};
-use serde_json::Value;
 
 use crate::core::extensions::types::{RenderShell, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
 use crate::core::tools::render_utils;
@@ -43,11 +43,11 @@ pub struct ToolExecutionOptions {
 #[derive(Debug, Clone)]
 pub struct ToolExecutionResult {
     pub content: Vec<TextOrImageContent>,
-    pub details: Option<Value>,
+    pub details: Option<JsValue>,
     pub is_error: bool,
 }
 
-fn limit_tool_output_lines(lines: &[String]) -> Vec<String> {
+fn limit_tool_output_lines(lines: &[JsString]) -> Vec<JsString> {
     if lines.len() <= MAX_TOOL_OUTPUT_LINES {
         return lines.to_vec();
     }
@@ -55,7 +55,7 @@ fn limit_tool_output_lines(lines: &[String]) -> Vec<String> {
     let tail_line_count = MAX_TOOL_OUTPUT_LINES - head_line_count;
     let hidden_line_count = lines.len() - MAX_TOOL_OUTPUT_LINES;
     let mut limited = lines[..head_line_count].to_vec();
-    limited.push(format!("... ({hidden_line_count} more lines hidden)"));
+    limited.push(format!("... ({hidden_line_count} more lines hidden)").into());
     limited.extend_from_slice(&lines[lines.len() - tail_line_count..]);
     limited
 }
@@ -70,21 +70,18 @@ pub fn limit_tool_result_content(content: &[TextOrImageContent]) -> Vec<TextOrIm
     let Some(first_text_block_index) = text_block_indexes.first().copied() else {
         return content.to_vec();
     };
-    let output_lines = text_block_indexes
-        .iter()
-        .map(|index| match &content[*index] {
-            TextOrImageContent::Text(text) => text.text.as_str(),
-            TextOrImageContent::Image(_) => "",
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-        .split('\n')
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
+    let joined = JsString::join(
+        text_block_indexes.iter().filter_map(|index| match &content[*index] {
+            TextOrImageContent::Text(text) => Some(&text.text),
+            TextOrImageContent::Image(_) => None,
+        }),
+        "\n",
+    );
+    let output_lines = joined.split('\n').collect::<Vec<_>>();
     if output_lines.len() <= MAX_TOOL_OUTPUT_LINES {
         return content.to_vec();
     }
-    let limited_text = limit_tool_output_lines(&output_lines).join("\n");
+    let limited_text = JsString::join(limit_tool_output_lines(&output_lines), "\n");
     content
         .iter()
         .enumerate()
@@ -131,7 +128,7 @@ pub struct ToolExecutionComponent {
     image_spacers: Vec<ComponentRef>,
     tool_name: String,
     tool_call_id: String,
-    args: Value,
+    args: JsValue,
     expanded: bool,
     show_images: bool,
     image_width_cells: usize,
@@ -156,7 +153,7 @@ impl ToolExecutionComponent {
     pub fn new(
         tool_name: impl Into<String>,
         tool_call_id: impl Into<String>,
-        args: Value,
+        args: JsValue,
         options: ToolExecutionOptions,
         tool_definition: Option<ToolDefinition>,
         request_render: Arc<dyn Fn() + Send + Sync>,
@@ -338,7 +335,7 @@ impl ToolExecutionComponent {
         ))))
     }
 
-    pub fn update_args(&mut self, args: Value) {
+    pub fn update_args(&mut self, args: JsValue) {
         self.args = args;
         self.update_display();
     }
@@ -487,7 +484,7 @@ impl ToolExecutionComponent {
 
     fn format_tool_execution(&self) -> String {
         let mut text = with_theme(|theme| theme.fg(ThemeColor::ToolTitle, &theme.bold(&self.tool_name)));
-        let content = js_json::stringify_pretty(&self.args);
+        let content = js_json::stringify_lossless_pretty(&self.args);
         if !content.is_empty() {
             text.push_str("\n\n");
             text.push_str(&content);
@@ -695,5 +692,26 @@ impl Component for ToolExecutionComponent {
 
     fn invalidate(&mut self) {
         self.update_display();
+    }
+}
+
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    use pi_js_compat::js_json::JsString;
+    #[test]
+    fn output_limit_retains_surrogates_and_original_result() {
+        let raw = JsString::join((0..101).map(|_| JsString::from_utf16(vec![0xd800])), "\n");
+        let original = vec![TextOrImageContent::Text(pi_ai::types::TextContent::new(raw.clone()))];
+        let output = limit_tool_result_content(&original);
+        let TextOrImageContent::Text(text) = &output[0] else {
+            panic!("text")
+        };
+        assert_eq!(text.text.units()[0], 0xd800);
+        assert!(text.text.contains("... (1 more lines hidden)"));
+        assert_eq!(
+            original[0],
+            TextOrImageContent::Text(pi_ai::types::TextContent::new(raw))
+        );
     }
 }

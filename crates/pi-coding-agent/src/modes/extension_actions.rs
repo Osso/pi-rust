@@ -105,7 +105,7 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
                         },
                     )
                     .await
-                    .map_err(|error| HandlerError::new(error.message()))?;
+                    .map_err(|error| HandlerError::new(pi_js_compat::js_json::encode_node_utf8(error.message())))?;
                 Ok(SessionTransitionResult {
                     cancelled: result.cancelled,
                 })
@@ -135,7 +135,7 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
             Box::pin(async move {
                 let session = lock(&session).clone();
                 if let Err(error) = session.reload(None).await {
-                    eprintln!("{}", error.message());
+                    eprintln!("{}", pi_js_compat::js_json::encode_node_utf8(error.message()));
                 }
             })
         }),
@@ -147,7 +147,7 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
                 });
                 let mut runtime = runtime.lock().await;
                 runtime
-                    .restart(notice.as_deref(), process)
+                    .restart(notice.as_ref(), process)
                     .await
                     .map_err(HandlerError::new)
             })

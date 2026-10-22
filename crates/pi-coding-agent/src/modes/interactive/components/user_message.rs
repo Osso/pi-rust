@@ -1,5 +1,6 @@
 //! Ported from `coding-agent/src/modes/interactive/components/user-message.ts`.
 
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::rc::Rc;
 
 use pi_tui::components::r#box::BoxComponent;
@@ -17,7 +18,7 @@ const OSC133_ZONE_FINAL: &str = "\u{1b}]133;C\u{7}";
 
 /// Renders a user message.
 pub struct UserMessageComponent {
-    text: String,
+    text: JsString,
     markdown_theme: Rc<dyn MarkdownTheme>,
     output_pad: usize,
     markdown_transformers: Vec<MarkdownTransformer>,
@@ -26,7 +27,7 @@ pub struct UserMessageComponent {
 
 impl UserMessageComponent {
     pub fn new(
-        text: impl Into<String>,
+        text: impl Into<JsString>,
         markdown_theme: Option<Rc<dyn MarkdownTheme>>,
         output_pad: usize,
         markdown_transformers: Vec<MarkdownTransformer>,
@@ -59,7 +60,7 @@ impl UserMessageComponent {
         let color: StyleFn =
             Rc::new(|content: &str| with_theme(|theme| theme.fg(ThemeColor::UserMessageText, content)));
         content_box.add_child(component(Markdown::with_shared_theme(
-            self.text.clone(),
+            encode_node_utf8(&self.text),
             0,
             0,
             self.markdown_theme.clone(),

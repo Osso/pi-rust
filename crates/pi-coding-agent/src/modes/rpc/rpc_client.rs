@@ -15,10 +15,10 @@ use std::time::Duration;
 
 use pi_agent_core::harness::ThinkingLevel;
 use pi_ai::types::{ImageContent, Model};
+use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
 use rustix::process::Signal;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde_json::Value;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::{ChildStdin, Command};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -44,7 +44,7 @@ const STDERR_CHUNK_BYTES: usize = 8192;
 /// `RpcEventListener`: receives each non-correlated event line as JSON.
 ///
 /// `on_event` accepts any compatible closure; this alias names the shared form.
-pub type RpcEventListener = Arc<dyn Fn(&Value) + Send + Sync>;
+pub type RpcEventListener = Arc<dyn Fn(&JsValue) + Send + Sync>;
 
 /// Options for [`RpcClient::start`].
 #[derive(Debug, Clone, Default)]
@@ -96,7 +96,7 @@ pub struct ExportHtmlResult {
 /// `fork` data.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct ForkResult {
-    pub text: String,
+    pub text: JsString,
     pub cancelled: bool,
 }
 
@@ -105,7 +105,7 @@ pub struct ForkResult {
 #[serde(rename_all = "camelCase")]
 pub struct ForkMessage {
     pub entry_id: String,
-    pub text: String,
+    pub text: JsString,
 }
 
 /// `get_entries` data.
@@ -168,7 +168,7 @@ pub enum RpcClientError {
         stderr: String,
     },
     CommandFailed {
-        message: String,
+        message: JsString,
     },
     MissingData {
         command: String,
@@ -222,7 +222,7 @@ impl fmt::Display for RpcClientError {
             Self::CollectTimeout { stderr } => {
                 write!(formatter, "Timeout collecting events. Stderr: {stderr}")
             }
-            Self::CommandFailed { message } => formatter.write_str(message),
+            Self::CommandFailed { message } => formatter.write_str(&encode_node_utf8(message)),
             Self::MissingData { command } => {
                 write!(formatter, "Missing response data for {command}")
             }
@@ -280,7 +280,7 @@ fn kill_process(pid: u32, signal: Signal) -> std::io::Result<()> {
 #[derive(Clone)]
 struct Listener {
     id: u64,
-    callback: Arc<dyn Fn(&Value) + Send + Sync>,
+    callback: Arc<dyn Fn(&JsValue) + Send + Sync>,
 }
 
 struct SyncState {
@@ -324,15 +324,15 @@ struct ClientInner {
 
 impl ClientInner {
     fn handle_line(&self, line: &str) {
-        let Ok(value) = serde_json::from_str::<Value>(line) else {
+        let Ok(value) = js_json::parse_lossless(line) else {
             return;
         };
 
         if let Some(id) = response_id(&value) {
-            let sender = self.sync.lock().expect("sync state poisoned").pending.remove(id);
+            let sender = self.sync.lock().expect("sync state poisoned").pending.remove(&id);
             if let Some(sender) = sender {
                 let response =
-                    serde_json::from_value::<RpcResponse>(value).map_err(|error| RpcClientError::MalformedResponse {
+                    js_json::from_value::<RpcResponse>(&value).map_err(|error| RpcClientError::MalformedResponse {
                         message: error.to_string(),
                     });
                 let _ = sender.send(response);
@@ -351,11 +351,15 @@ impl ClientInner {
     }
 }
 
-fn response_id(value: &Value) -> Option<&str> {
-    if value.get("type").and_then(Value::as_str) != Some("response") {
+fn response_id(value: &JsValue) -> Option<String> {
+    if value.get("type").and_then(JsValue::as_string) != Some(&"response".into()) {
         return None;
     }
-    value.get("id").and_then(Value::as_str).filter(|id| !id.is_empty())
+    value
+        .get("id")
+        .and_then(JsValue::as_string)
+        .and_then(|id| id.to_utf8().ok())
+        .filter(|id| !id.is_empty())
 }
 
 fn reject_pending(state: &mut SyncState, error: RpcClientError) {
@@ -509,7 +513,7 @@ impl RpcClient {
     /// Subscribes to agent events. Dropping the subscription unsubscribes.
     pub fn on_event<F>(&self, listener: F) -> RpcEventSubscription
     where
-        F: Fn(&Value) + Send + Sync + 'static,
+        F: Fn(&JsValue) + Send + Sync + 'static,
     {
         let mut sync = self.inner.sync.lock().expect("sync state poisoned");
         sync.next_listener_id += 1;
@@ -628,7 +632,7 @@ impl RpcClient {
 
     pub async fn prompt(
         &self,
-        message: impl Into<String>,
+        message: impl Into<JsString>,
         images: Option<Vec<ImageContent>>,
     ) -> Result<(), RpcClientError> {
         self.send(RpcCommandBody::Prompt {
@@ -642,7 +646,7 @@ impl RpcClient {
 
     pub async fn steer(
         &self,
-        message: impl Into<String>,
+        message: impl Into<JsString>,
         images: Option<Vec<ImageContent>>,
     ) -> Result<(), RpcClientError> {
         self.send(RpcCommandBody::Steer {
@@ -655,7 +659,7 @@ impl RpcClient {
 
     pub async fn follow_up(
         &self,
-        message: impl Into<String>,
+        message: impl Into<JsString>,
         images: Option<Vec<ImageContent>>,
     ) -> Result<(), RpcClientError> {
         self.send(RpcCommandBody::FollowUp {
@@ -742,7 +746,7 @@ impl RpcClient {
         Ok(())
     }
 
-    pub async fn compact(&self, custom_instructions: Option<String>) -> Result<CompactionResult, RpcClientError> {
+    pub async fn compact(&self, custom_instructions: Option<JsString>) -> Result<CompactionResult, RpcClientError> {
         let response = self.send(RpcCommandBody::Compact { custom_instructions }).await?;
         response_data(response, "compact")
     }
@@ -757,7 +761,7 @@ impl RpcClient {
         Ok(())
     }
 
-    pub async fn bash(&self, command: impl Into<String>) -> Result<BashResult, RpcClientError> {
+    pub async fn bash(&self, command: impl Into<JsString>) -> Result<BashResult, RpcClientError> {
         let response = self
             .send(RpcCommandBody::Bash {
                 command: command.into(),
@@ -821,13 +825,13 @@ impl RpcClient {
         response_data(response, "get_tree")
     }
 
-    pub async fn get_last_assistant_text(&self) -> Result<Option<String>, RpcClientError> {
+    pub async fn get_last_assistant_text(&self) -> Result<Option<JsString>, RpcClientError> {
         let response = self.send(RpcCommandBody::GetLastAssistantText).await?;
         let data: LastAssistantText = response_data(response, "get_last_assistant_text")?;
         Ok(data.text)
     }
 
-    pub async fn set_session_name(&self, name: impl Into<String>) -> Result<(), RpcClientError> {
+    pub async fn set_session_name(&self, name: impl Into<JsString>) -> Result<(), RpcClientError> {
         self.send(RpcCommandBody::SetSessionName { name: name.into() }).await?;
         Ok(())
     }
@@ -866,17 +870,17 @@ impl RpcClient {
     }
 
     /// Collects events until the agent becomes idle.
-    pub async fn collect_events(&self, timeout: Duration) -> Result<Vec<Value>, RpcClientError> {
+    pub async fn collect_events(&self, timeout: Duration) -> Result<Vec<JsValue>, RpcClientError> {
         self.start_collector().finish(timeout).await
     }
 
     /// Sends a prompt and waits for completion, returning all events.
     pub async fn prompt_and_wait(
         &self,
-        message: impl Into<String>,
+        message: impl Into<JsString>,
         images: Option<Vec<ImageContent>>,
         timeout: Duration,
-    ) -> Result<Vec<Value>, RpcClientError> {
+    ) -> Result<Vec<JsValue>, RpcClientError> {
         let collector = self.start_collector();
         self.prompt(message, images).await?;
         collector.finish(timeout).await
@@ -892,7 +896,7 @@ impl RpcClient {
         }
     }
 
-    fn subscribe_sender(&self, sender: mpsc::UnboundedSender<Value>) -> RpcEventSubscription {
+    fn subscribe_sender(&self, sender: mpsc::UnboundedSender<JsValue>) -> RpcEventSubscription {
         self.on_event(move |event| {
             let _ = sender.send(event.clone());
         })
@@ -917,7 +921,7 @@ struct ForkMessages {
 #[derive(serde::Deserialize)]
 struct LastAssistantText {
     #[serde(default)]
-    text: Option<String>,
+    text: Option<JsString>,
 }
 
 #[derive(serde::Deserialize)]
@@ -931,13 +935,13 @@ struct Commands {
 }
 
 struct EventCollector {
-    receiver: mpsc::UnboundedReceiver<Value>,
+    receiver: mpsc::UnboundedReceiver<JsValue>,
     subscription: RpcEventSubscription,
     inner: Arc<ClientInner>,
 }
 
 impl EventCollector {
-    async fn finish(mut self, timeout: Duration) -> Result<Vec<Value>, RpcClientError> {
+    async fn finish(mut self, timeout: Duration) -> Result<Vec<JsValue>, RpcClientError> {
         let mut events = Vec::new();
         let outcome = tokio::time::timeout(timeout, async {
             while let Some(event) = self.receiver.recv().await {
@@ -976,9 +980,9 @@ impl Drop for RpcEventSubscription {
     }
 }
 
-fn is_final_agent_end(event: &Value) -> bool {
-    event.get("type").and_then(Value::as_str) == Some("agent_end")
-        && !event.get("willRetry").and_then(Value::as_bool).unwrap_or(false)
+fn is_final_agent_end(event: &JsValue) -> bool {
+    event.get("type").and_then(JsValue::as_string) == Some(&"agent_end".into())
+        && !event.get("willRetry").and_then(JsValue::as_bool).unwrap_or(false)
 }
 
 fn response_data<T: DeserializeOwned>(response: RpcResponse, command: &str) -> Result<T, RpcClientError> {
@@ -990,7 +994,7 @@ fn response_data<T: DeserializeOwned>(response: RpcResponse, command: &str) -> R
     let data = response.data.ok_or_else(|| RpcClientError::MissingData {
         command: command.to_owned(),
     })?;
-    serde_json::from_value(data).map_err(|error| RpcClientError::InvalidData {
+    js_json::from_value(&data).map_err(|error| RpcClientError::InvalidData {
         command: command.to_owned(),
         message: error.to_string(),
     })

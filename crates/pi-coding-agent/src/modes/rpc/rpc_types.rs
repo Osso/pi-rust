@@ -7,8 +7,8 @@
 pub use pi_agent_core::harness::QueueMode;
 use pi_agent_core::harness::ThinkingLevel;
 use pi_ai::types::{ImageContent, Model};
+use pi_js_compat::js_json::{JsString, JsValue};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 pub use crate::core::extensions::types::{NotifyType, StreamingBehavior, WidgetPlacement};
 use crate::core::slash_commands::{SlashCommandInfo, SlashCommandSource};
@@ -22,24 +22,24 @@ pub type RpcSlashCommandSource = SlashCommandSource;
 ///
 /// `DistributiveOmit<RpcCommand, "id">` in TypeScript: the client sends these
 /// bodies and appends `id` after the body fields.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
 pub enum RpcCommandBody {
     // Prompting
     Prompt {
-        message: String,
+        message: JsString,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         images: Option<Vec<ImageContent>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         streaming_behavior: Option<StreamingBehavior>,
     },
     Steer {
-        message: String,
+        message: JsString,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         images: Option<Vec<ImageContent>>,
     },
     FollowUp {
-        message: String,
+        message: JsString,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         images: Option<Vec<ImageContent>>,
     },
@@ -79,7 +79,7 @@ pub enum RpcCommandBody {
     // Compaction
     Compact {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        custom_instructions: Option<String>,
+        custom_instructions: Option<JsString>,
     },
     SetAutoCompaction {
         enabled: bool,
@@ -93,7 +93,7 @@ pub enum RpcCommandBody {
 
     // Bash
     Bash {
-        command: String,
+        command: JsString,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         exclude_from_context: Option<bool>,
     },
@@ -120,7 +120,7 @@ pub enum RpcCommandBody {
     GetTree,
     GetLastAssistantText,
     SetSessionName {
-        name: String,
+        name: JsString,
     },
 
     // Messages
@@ -128,6 +128,109 @@ pub enum RpcCommandBody {
 
     // Commands
     GetCommands,
+}
+
+// Tagged/flattened serde derives buffer strings before field visitors run.
+// Decode the raw tree first so escaped unpaired units reach JsString intact.
+impl<'de> Deserialize<'de> for RpcCommandBody {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = JsValue::deserialize(deserializer)?;
+        decode_command_body(&value).map_err(serde::de::Error::custom)
+    }
+}
+
+fn command_field<T: serde::de::DeserializeOwned>(value: &JsValue, key: &str) -> Result<T, String> {
+    let field = value.get(key).ok_or_else(|| format!("missing field `{key}`"))?;
+    pi_js_compat::js_json::from_value(field).map_err(|error| error.to_string())
+}
+
+fn optional_command_field<T: serde::de::DeserializeOwned>(value: &JsValue, key: &str) -> Result<Option<T>, String> {
+    value
+        .get(key)
+        .filter(|field| !field.is_null())
+        .map(|field| pi_js_compat::js_json::from_value(field).map_err(|error| error.to_string()))
+        .transpose()
+}
+
+fn decode_command_body(value: &JsValue) -> Result<RpcCommandBody, String> {
+    use RpcCommandBody as Body;
+    let kind: String = command_field(value, "type")?;
+    Ok(match kind.as_str() {
+        "prompt" => Body::Prompt {
+            message: command_field(value, "message")?,
+            images: optional_command_field(value, "images")?,
+            streaming_behavior: optional_command_field(value, "streamingBehavior")?,
+        },
+        "steer" => Body::Steer {
+            message: command_field(value, "message")?,
+            images: optional_command_field(value, "images")?,
+        },
+        "follow_up" => Body::FollowUp {
+            message: command_field(value, "message")?,
+            images: optional_command_field(value, "images")?,
+        },
+        "abort" => Body::Abort,
+        "interrupt" => Body::Interrupt,
+        "new_session" => Body::NewSession {
+            parent_session: optional_command_field(value, "parentSession")?,
+        },
+        "get_state" => Body::GetState,
+        "set_model" => Body::SetModel {
+            provider: command_field(value, "provider")?,
+            model_id: command_field(value, "modelId")?,
+        },
+        "cycle_model" => Body::CycleModel,
+        "get_available_models" => Body::GetAvailableModels,
+        "set_thinking_level" => Body::SetThinkingLevel {
+            level: command_field(value, "level")?,
+        },
+        "cycle_thinking_level" => Body::CycleThinkingLevel,
+        "get_available_thinking_levels" => Body::GetAvailableThinkingLevels,
+        "set_steering_mode" => Body::SetSteeringMode {
+            mode: command_field(value, "mode")?,
+        },
+        "set_follow_up_mode" => Body::SetFollowUpMode {
+            mode: command_field(value, "mode")?,
+        },
+        "compact" => Body::Compact {
+            custom_instructions: optional_command_field(value, "customInstructions")?,
+        },
+        "set_auto_compaction" => Body::SetAutoCompaction {
+            enabled: command_field(value, "enabled")?,
+        },
+        "set_auto_retry" => Body::SetAutoRetry {
+            enabled: command_field(value, "enabled")?,
+        },
+        "abort_retry" => Body::AbortRetry,
+        "bash" => Body::Bash {
+            command: command_field(value, "command")?,
+            exclude_from_context: optional_command_field(value, "excludeFromContext")?,
+        },
+        "abort_bash" => Body::AbortBash,
+        "get_session_stats" => Body::GetSessionStats,
+        "export_html" => Body::ExportHtml {
+            output_path: optional_command_field(value, "outputPath")?,
+        },
+        "switch_session" => Body::SwitchSession {
+            session_path: command_field(value, "sessionPath")?,
+        },
+        "fork" => Body::Fork {
+            entry_id: command_field(value, "entryId")?,
+        },
+        "clone" => Body::Clone,
+        "get_fork_messages" => Body::GetForkMessages,
+        "get_entries" => Body::GetEntries {
+            since: optional_command_field(value, "since")?,
+        },
+        "get_tree" => Body::GetTree,
+        "get_last_assistant_text" => Body::GetLastAssistantText,
+        "set_session_name" => Body::SetSessionName {
+            name: command_field(value, "name")?,
+        },
+        "get_messages" => Body::GetMessages,
+        "get_commands" => Body::GetCommands,
+        _ => return Err(format!("unknown command `{kind}`")),
+    })
 }
 
 impl RpcCommandBody {
@@ -176,12 +279,21 @@ impl RpcCommandBody {
 /// Serialization emits the body fields first and `id` last, matching the
 /// client's `{ ...command, id }` object literal. `id` is omitted when absent,
 /// matching `JSON.stringify` dropping `undefined`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RpcCommand {
     #[serde(flatten)]
     pub body: RpcCommandBody,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for RpcCommand {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = JsValue::deserialize(deserializer)?;
+        let body = decode_command_body(&value).map_err(serde::de::Error::custom)?;
+        let id = optional_command_field(&value, "id").map_err(serde::de::Error::custom)?;
+        Ok(Self { body, id })
+    }
 }
 
 impl RpcCommand {
@@ -205,7 +317,7 @@ pub struct RpcSessionState {
     pub session_file: Option<String>,
     pub session_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub session_name: Option<String>,
+    pub session_name: Option<JsString>,
     pub auto_compaction_enabled: bool,
     pub message_count: u64,
     pub pending_message_count: u64,
@@ -235,9 +347,10 @@ pub struct RpcResponse {
     pub command: Option<String>,
     pub success: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub data: Option<Value>,
+    #[serde(deserialize_with = "pi_js_compat::js_json::deserialize_present")]
+    pub data: Option<JsValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
+    pub error: Option<JsString>,
 }
 
 impl RpcResponse {
@@ -254,7 +367,7 @@ impl RpcResponse {
     }
 
     /// `success(id, command, data)`; `data` may be `Value::Null` to emit an explicit `null`.
-    pub fn success_with_data(id: Option<String>, command: impl Into<String>, data: Value) -> Self {
+    pub fn success_with_data(id: Option<String>, command: impl Into<String>, data: JsValue) -> Self {
         Self {
             id,
             kind: RpcResponseTag::Response,
@@ -266,13 +379,13 @@ impl RpcResponse {
     }
 
     /// `error(id, command, message)`.
-    pub fn error(id: Option<String>, command: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn error(id: Option<String>, command: impl Into<String>, message: impl Into<JsString>) -> Self {
         Self::error_optional(id, Some(command.into()), message)
     }
 
     /// `error(id, command, message)` with an absent `command` (unknown or
     /// non-string `type`), which `JSON.stringify` omits.
-    pub fn error_optional(id: Option<String>, command: Option<String>, message: impl Into<String>) -> Self {
+    pub fn error_optional(id: Option<String>, command: Option<String>, message: impl Into<JsString>) -> Self {
         Self {
             id,
             kind: RpcResponseTag::Response,
@@ -437,4 +550,54 @@ pub struct RpcExtensionUiResponse {
     pub id: String,
     #[serde(flatten)]
     pub payload: RpcExtensionUiResponsePayload,
+}
+
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    #[test]
+    fn rpc_null_data_is_present_not_missing() {
+        let raw = pi_js_compat::js_json::parse_lossless(
+            r#"{"type":"response","command":"cycle_model","success":true,"data":null}"#,
+        )
+        .unwrap();
+        let response: RpcResponse = pi_js_compat::js_json::from_value(&raw).unwrap();
+        assert_eq!(response.data, Some(JsValue::Null));
+    }
+
+    #[test]
+    fn rpc_command_content_fields_decode_raw_units() {
+        for (kind, field) in [
+            ("prompt", "message"),
+            ("steer", "message"),
+            ("follow_up", "message"),
+            ("bash", "command"),
+            ("set_session_name", "name"),
+        ] {
+            let raw = pi_js_compat::js_json!({"type": kind, field: JsString::from_utf16(vec![0xd800])});
+            let command: RpcCommand = pi_js_compat::js_json::from_value(&raw).unwrap();
+            let text = match command.body {
+                RpcCommandBody::Prompt { message, .. }
+                | RpcCommandBody::Steer { message, .. }
+                | RpcCommandBody::FollowUp { message, .. } => message,
+                RpcCommandBody::Bash { command, .. } => command,
+                RpcCommandBody::SetSessionName { name } => name,
+                _ => panic!("unexpected command"),
+            };
+            assert_eq!(text.units(), &[0xd800]);
+        }
+    }
+
+    #[test]
+    fn rpc_prompt_and_error_keep_unpaired_utf16_on_wire() {
+        let raw = pi_js_compat::js_json::parse_lossless(r#"{"type":"prompt","message":"\ud800"}"#).unwrap();
+        let command: RpcCommand = pi_js_compat::js_json::from_value(&raw).unwrap();
+        let RpcCommandBody::Prompt { message, .. } = command.body else {
+            panic!("prompt")
+        };
+        assert_eq!(message.units(), &[0xd800]);
+        let response = RpcResponse::error(None, "prompt", message);
+        let wire = crate::modes::rpc::serialize_json_line(&response).unwrap();
+        assert!(wire.contains(r#""error":"\ud800""#));
+    }
 }

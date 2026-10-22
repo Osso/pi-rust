@@ -2479,10 +2479,10 @@ pub enum ApprovalReviewerResult {
     },
     Ask {
         #[serde(skip_serializing_if = "Option::is_none")]
-        reason: Option<String>,
+        reason: Option<JsString>,
     },
     Deny {
-        reason: String,
+        reason: JsString,
     },
 }
 

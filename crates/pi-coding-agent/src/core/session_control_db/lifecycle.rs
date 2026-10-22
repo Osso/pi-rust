@@ -35,7 +35,7 @@ pub struct DetachedJobTerminalOutput {
     pub sha256: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", rename_all_fields = "camelCase")]
 pub enum DetachedJobOutcome {
     Completed {
@@ -51,8 +51,50 @@ pub enum DetachedJobOutcome {
     },
     Aborted {
         #[serde(skip_serializing_if = "Option::is_none")]
-        reason: Option<String>,
+        reason: Option<JsString>,
     },
+}
+
+impl<'de> Deserialize<'de> for DetachedJobOutcome {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = JsValue::deserialize(deserializer)?;
+        let kind = value.get("kind").and_then(JsValue::as_string);
+        if kind.is_some_and(|kind| kind == "completed") {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Completed {
+                exit_code: Option<i64>,
+                summary: Option<JsString>,
+            }
+            let data: Completed = js_json::from_value(&value).map_err(serde::de::Error::custom)?;
+            return Ok(Self::Completed {
+                exit_code: data.exit_code,
+                summary: data.summary,
+            });
+        }
+        if kind.is_some_and(|kind| kind == "failed") {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Failed {
+                error: AgentError,
+                exit_code: Option<i64>,
+            }
+            let data: Failed = js_json::from_value(&value).map_err(serde::de::Error::custom)?;
+            return Ok(Self::Failed {
+                error: data.error,
+                exit_code: data.exit_code,
+            });
+        }
+        if kind.is_some_and(|kind| kind == "aborted") {
+            #[derive(Deserialize)]
+            struct Aborted {
+                reason: Option<JsString>,
+            }
+            let data: Aborted = js_json::from_value(&value).map_err(serde::de::Error::custom)?;
+            return Ok(Self::Aborted { reason: data.reason });
+        }
+        Err(serde::de::Error::custom("unknown detached job outcome kind"))
+    }
 }
 
 impl DetachedJobOutcome {

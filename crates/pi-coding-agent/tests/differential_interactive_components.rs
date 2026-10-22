@@ -347,7 +347,7 @@ fn diff_cases() -> Vec<(Value, Value)> {
         " 1 same\n-2\n+2\n 3 end",
         "",
     ];
-    let output: Vec<String> = cases.iter().map(|value| render_diff(value)).collect();
+    let output: Vec<String> = cases.iter().map(|value| render_diff(&value.into())).collect();
     vec![(
         json!({
             "id": 6,

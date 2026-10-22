@@ -9,7 +9,8 @@ use std::time::{Duration, Instant};
 use pi_agent_core::agent::AgentMessage;
 use pi_ai::types::{AssistantContent, AssistantMessage, StopReason, TextOrImageContent, UserContent};
 use pi_js_compat::date::{date_parse_millis, local_date_fields};
-use pi_js_compat::string::{js_trim, utf16_len};
+use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
+use pi_js_compat::string::js_trim;
 use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
@@ -17,7 +18,6 @@ use pi_tui::keybindings::{KeyId, get_keybindings};
 use pi_tui::tui::{Component, ComponentRef, Container, Focusable, component};
 use pi_tui::utils::{slice_by_column, truncate_to_width_with, visible_width, wrap_text_with_ansi};
 use regex::Regex;
-use serde_json::Value;
 
 use super::dynamic_border::dynamic_border;
 use super::keybinding_hints::{format_key_text, key_hint};
@@ -28,7 +28,7 @@ use crate::core::session_manager::{
 use crate::modes::interactive::theme::{ThemeBg, ThemeColor, with_theme};
 
 /// Called with the selected entry's copy text.
-pub type CopyHandler = Rc<dyn Fn(Option<String>)>;
+pub type CopyHandler = Rc<dyn Fn(Option<JsString>)>;
 /// Called with `(entryId, label)` when a label is edited.
 pub type LabelEditHandler = Rc<dyn Fn(&str, Option<&str>)>;
 
@@ -91,7 +91,7 @@ impl FilterMode {
 #[derive(Clone, Debug)]
 struct ToolCallInfo {
     name: String,
-    arguments: Value,
+    arguments: JsValue,
 }
 
 struct HorizontalViewportRow {
@@ -146,29 +146,16 @@ fn split_js_whitespace(text: &str) -> Vec<&str> {
         .collect()
 }
 
-fn slice_utf16(text: &str, limit: usize) -> String {
-    if utf16_len(text) <= limit {
-        return text.to_owned();
-    }
-    let mut units = 0;
-    let mut result = String::new();
-    for character in text.chars() {
-        let width = character.len_utf16();
-        if units + width > limit {
-            break;
-        }
-        units += width;
-        result.push(character);
-    }
-    result
+fn slice_utf16(text: &JsString, limit: usize) -> JsString {
+    text.slice(0, limit.min(text.len()))
 }
 
-fn normalize(text: &str) -> String {
-    js_trim(&text.replace(['\n', '\t'], " ")).to_owned()
+fn normalize(text: &JsString) -> JsString {
+    text.replace("\n", " ").replace("\t", " ").trim()
 }
 
-fn extract_blocks_content(blocks: &[TextOrImageContent]) -> String {
-    let mut result = String::new();
+fn extract_blocks_content(blocks: &[TextOrImageContent]) -> JsString {
+    let mut result = JsString::default();
     for block in blocks {
         if let TextOrImageContent::Text(text) = block {
             result.push_str(&text.text);
@@ -177,63 +164,69 @@ fn extract_blocks_content(blocks: &[TextOrImageContent]) -> String {
     result
 }
 
-fn extract_value_content(value: &Value) -> String {
+fn extract_value_content(value: &JsValue) -> JsString {
     match value {
-        Value::String(text) => text.clone(),
-        Value::Array(blocks) => blocks
-            .iter()
-            .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
-            .map(|block| block.get("text").and_then(Value::as_str).unwrap_or_default().to_owned())
-            .collect(),
-        _ => String::new(),
+        JsValue::String(text) => text.clone(),
+        JsValue::Array(blocks) => JsString::join(
+            blocks
+                .iter()
+                .filter(|block| block.get("type").and_then(JsValue::as_string) == Some(&"text".into()))
+                .map(|block| {
+                    block
+                        .get("text")
+                        .and_then(JsValue::as_string)
+                        .cloned()
+                        .unwrap_or_default()
+                }),
+            "",
+        ),
+        _ => JsString::default(),
     }
 }
 
-fn extract_message_full_content(message: &AgentMessage) -> String {
+fn extract_message_full_content(message: &AgentMessage) -> JsString {
     match message {
         AgentMessage::User(user) => match &user.content {
             UserContent::Text(text) => text.clone(),
             UserContent::Blocks(blocks) => extract_blocks_content(blocks),
         },
-        AgentMessage::Assistant(assistant) => assistant
-            .content
-            .iter()
-            .filter_map(|content| match content {
+        AgentMessage::Assistant(assistant) => JsString::join(
+            assistant.content.iter().filter_map(|content| match content {
                 AssistantContent::Text(text) => Some(text.text.clone()),
                 _ => None,
-            })
-            .collect(),
+            }),
+            "",
+        ),
         AgentMessage::ToolResult(result) => extract_blocks_content(&result.content),
         AgentMessage::Custom(object) => object.get("content").map(extract_value_content).unwrap_or_default(),
     }
 }
 
-fn extract_assistant_content(message: &AssistantMessage) -> String {
-    message
-        .content
-        .iter()
-        .filter_map(|content| match content {
+fn extract_assistant_content(message: &AssistantMessage) -> JsString {
+    JsString::join(
+        message.content.iter().filter_map(|content| match content {
             AssistantContent::Text(text) => Some(text.text.clone()),
             _ => None,
-        })
-        .collect()
+        }),
+        "",
+    )
 }
 
-fn extract_custom_message_content(content: &CustomMessageContent) -> String {
+fn extract_custom_message_content(content: &CustomMessageContent) -> JsString {
     match content {
         CustomMessageContent::Text(text) => text.clone(),
         CustomMessageContent::Blocks(blocks) => extract_blocks_content(blocks),
     }
 }
 
-fn shorten_path(path: &str) -> String {
+fn shorten_path(path: &JsString) -> JsString {
     let home = pi_js_compat::process_env::get("HOME")
         .or_else(|| pi_js_compat::process_env::get("USERPROFILE"))
         .unwrap_or_default();
     if !home.is_empty() && path.starts_with(&home) {
-        return format!("~{}", &path[home.len()..]);
+        return JsString::from("~") + path.slice(home.encode_utf16().count(), path.len());
     }
-    path.to_owned()
+    path.clone()
 }
 
 #[cfg(test)]
@@ -247,31 +240,31 @@ mod js_value_tests {
     }
 }
 
-fn format_tool_call(name: &str, args: &Value) -> String {
-    let string_arg = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or_default();
+fn format_tool_call(name: &str, args: &JsValue) -> String {
+    let string_arg = |key: &str| args.get(key).and_then(JsValue::as_string).cloned().unwrap_or_default();
     let path = || {
         let path = args
             .get("path")
-            .and_then(Value::as_str)
+            .and_then(JsValue::as_string)
             .filter(|path| !path.is_empty())
             .or_else(|| {
                 args.get("file_path")
-                    .and_then(Value::as_str)
+                    .and_then(JsValue::as_string)
                     .filter(|path| !path.is_empty())
             })
+            .cloned()
             .unwrap_or_default();
-        shorten_path(path)
+        shorten_path(&path)
     };
-    match name {
+    let text = match name {
         "read" => {
-            let path = path();
-            let offset = args.get("offset").and_then(Value::as_f64);
-            let limit = args.get("limit").and_then(Value::as_f64);
-            let mut display = path;
+            let mut display = path();
+            let offset = args.get("offset").and_then(JsValue::as_f64);
+            let limit = args.get("limit").and_then(JsValue::as_f64);
             if offset.is_some() || limit.is_some() {
                 let start = offset.unwrap_or(1.0);
                 let end = limit.map(|limit| start + limit - 1.0);
-                display.push_str(&format!(
+                display.push_str(format!(
                     ":{}{}",
                     pi_js_compat::number::js_number_to_string(start),
                     end.map_or_else(String::new, |end| format!(
@@ -280,53 +273,37 @@ fn format_tool_call(name: &str, args: &Value) -> String {
                     ))
                 ));
             }
-            format!("[read: {display}]")
+            JsString::from("[read: ") + display + "]"
         }
-        "write" => format!("[write: {}]", path()),
-        "edit" => format!("[edit: {}]", path()),
+        "write" | "edit" => JsString::from(format!("[{name}: ")) + path() + "]",
         "bash" => {
-            let raw_command = string_arg("command");
-            let command = slice_utf16(&normalize_script(raw_command), 50);
-            let suffix = if utf16_len(raw_command) > 50 { "..." } else { "" };
-            format!("[bash: {command}{suffix}]")
+            let raw = string_arg("command");
+            let command = slice_utf16(&normalize(&raw), 50);
+            JsString::from("[bash: ") + command + if raw.len() > 50 { "...]" } else { "]" }
         }
-        "grep" => {
-            let pattern = string_arg("pattern");
+        "grep" | "find" | "ls" => {
             let path = args
                 .get("path")
-                .and_then(Value::as_str)
+                .and_then(JsValue::as_string)
                 .filter(|path| !path.is_empty())
-                .unwrap_or(".");
-            format!("[grep: /{pattern}/ in {}]", shorten_path(path))
-        }
-        "find" => {
-            let pattern = string_arg("pattern");
-            let path = args
-                .get("path")
-                .and_then(Value::as_str)
-                .filter(|path| !path.is_empty())
-                .unwrap_or(".");
-            format!("[find: {pattern} in {}]", shorten_path(path))
-        }
-        "ls" => {
-            let path = args
-                .get("path")
-                .and_then(Value::as_str)
-                .filter(|path| !path.is_empty())
-                .unwrap_or(".");
-            format!("[ls: {}]", shorten_path(path))
+                .cloned()
+                .unwrap_or_else(|| ".".into());
+            let prefix = if name == "ls" {
+                JsString::from("[ls: ")
+            } else if name == "grep" {
+                JsString::from("[grep: /") + string_arg("pattern") + "/ in "
+            } else {
+                JsString::from("[find: ") + string_arg("pattern") + " in "
+            };
+            prefix + shorten_path(&path) + "]"
         }
         _ => {
-            let serialized = pi_js_compat::js_json::stringify(args);
+            let serialized = JsString::from(js_json::stringify_lossless(args));
             let short = slice_utf16(&serialized, 40);
-            let suffix = if utf16_len(&serialized) > 40 { "..." } else { "" };
-            format!("[{name}: {short}{suffix}]")
+            JsString::from(format!("[{name}: ")) + short + if serialized.len() > 40 { "...]" } else { "]" }
         }
-    }
-}
-
-fn normalize_script(text: &str) -> String {
-    js_trim(&text.replace(['\n', '\t'], " ")).to_owned()
+    };
+    encode_node_utf8(&text)
 }
 
 fn format_label_timestamp(timestamp: &str, now_millis: i64) -> String {
@@ -363,7 +340,7 @@ fn assistant_message(entry: &SessionEntry) -> Option<&AssistantMessage> {
 
 fn has_text_content(message: &AssistantMessage) -> bool {
     message.content.iter().any(|content| match content {
-        AssistantContent::Text(text) => !js_trim(&text.text).is_empty(),
+        AssistantContent::Text(text) => !text.text.trim().is_empty(),
         _ => false,
     })
 }
@@ -563,7 +540,7 @@ impl TreeList {
                             tool_call.id.clone(),
                             ToolCallInfo {
                                 name: tool_call.name.clone(),
-                                arguments: Value::Object(tool_call.arguments.clone()),
+                                arguments: JsValue::Object(tool_call.arguments.clone()),
                             },
                         );
                     }
@@ -914,11 +891,11 @@ impl TreeList {
         self.visible_children_map = visible_children;
     }
 
-    fn get_searchable_text(&self, node: &SessionTreeNode) -> String {
+    fn get_searchable_text(&self, node: &SessionTreeNode) -> JsString {
         let entry = &node.entry;
-        let mut parts: Vec<String> = Vec::new();
+        let mut parts: Vec<JsString> = Vec::new();
         if let Some(label) = &node.label {
-            parts.push(label.clone());
+            parts.push(label.clone().into());
         }
 
         match entry {
@@ -928,49 +905,49 @@ impl TreeList {
                 parts.push(extract_message_full_content(message));
                 if message.role() == "bashExecution"
                     && let AgentMessage::Custom(object) = message
-                    && let Some(command) = object.get("command").and_then(Value::as_str)
+                    && let Some(command) = object.get("command").and_then(JsValue::as_string)
                 {
                     parts.push(command.to_owned());
                 }
             }
             SessionEntry::Known(KnownSessionEntry::CustomMessage(entry)) => {
-                parts.push(entry.custom_type.clone());
+                parts.push(entry.custom_type.clone().into());
                 parts.push(extract_custom_message_content(&entry.content));
             }
             SessionEntry::Known(KnownSessionEntry::Compaction(entry)) => {
-                parts.push("compaction".to_owned());
+                parts.push("compaction".to_owned().into());
                 parts.push(entry.summary.clone());
             }
             SessionEntry::Known(KnownSessionEntry::BranchSummary(entry)) => {
-                parts.push("branch summary".to_owned());
+                parts.push("branch summary".to_owned().into());
                 parts.push(entry.summary.clone());
             }
             SessionEntry::Known(KnownSessionEntry::SessionInfo(entry)) => {
-                parts.push("title".to_owned());
+                parts.push("title".to_owned().into());
                 if let Some(name) = &entry.name {
-                    parts.push(name.clone());
+                    parts.push(name.clone().into());
                 }
             }
             SessionEntry::Known(KnownSessionEntry::ModelChange(entry)) => {
-                parts.push("model".to_owned());
-                parts.push(entry.model_id.clone());
+                parts.push("model".to_owned().into());
+                parts.push(entry.model_id.clone().into());
             }
             SessionEntry::Known(KnownSessionEntry::ThinkingLevelChange(entry)) => {
-                parts.push("thinking".to_owned());
-                parts.push(entry.thinking_level.clone());
+                parts.push("thinking".to_owned().into());
+                parts.push(entry.thinking_level.clone().into());
             }
             SessionEntry::Known(KnownSessionEntry::Custom(entry)) => {
-                parts.push("custom".to_owned());
-                parts.push(entry.custom_type.clone());
+                parts.push("custom".to_owned().into());
+                parts.push(entry.custom_type.clone().into());
             }
             SessionEntry::Known(KnownSessionEntry::Label(entry)) => {
-                parts.push("label".to_owned());
-                parts.push(entry.label.clone().unwrap_or_default());
+                parts.push("label".to_owned().into());
+                parts.push(entry.label.clone().unwrap_or_default().into());
             }
             SessionEntry::Unknown(_) => {}
         }
 
-        parts.join(" ")
+        JsString::join(parts, " ")
     }
 
     pub fn get_search_query(&self) -> &str {
@@ -1020,22 +997,20 @@ impl TreeList {
         labels
     }
 
-    fn get_entry_copy_text(&self, node: &SessionTreeNode) -> Option<String> {
+    fn get_entry_copy_text(&self, node: &SessionTreeNode) -> Option<JsString> {
         let entry = &node.entry;
         let text = match entry {
             SessionEntry::Known(KnownSessionEntry::Message(message)) => {
                 let message = message.message.as_ref();
                 if message.role() == "bashExecution" {
                     match message {
-                        AgentMessage::Custom(object) => {
-                            object.get("command").and_then(Value::as_str).map(str::to_owned)
-                        }
+                        AgentMessage::Custom(object) => object.get("command").and_then(JsValue::as_string).cloned(),
                         _ => None,
                     }
                 } else {
                     let text = extract_message_full_content(message);
                     if text.is_empty() {
-                        assistant_message(entry).and_then(|message| message.error_message.clone())
+                        assistant_message(entry).and_then(|message| message.error_message.clone().map(JsString::from))
                     } else {
                         Some(text)
                     }
@@ -1048,7 +1023,7 @@ impl TreeList {
             SessionEntry::Known(KnownSessionEntry::BranchSummary(entry)) => Some(entry.summary.clone()),
             _ => None,
         };
-        text.filter(|text| !js_trim(text).is_empty())
+        text.filter(|text| !text.trim().is_empty())
     }
 
     fn get_entry_display_text(&self, node: &SessionTreeNode, is_selected: bool) -> String {
@@ -1057,28 +1032,29 @@ impl TreeList {
             SessionEntry::Known(KnownSessionEntry::Message(message)) => {
                 let message = message.message.as_ref();
                 match message.role() {
-                    "user" => {
+                    role if role == "user" => {
                         with_theme(|theme| theme.fg(ThemeColor::Accent, "user: "))
-                            + &normalize(&slice_utf16(&extract_message_full_content(message), 200))
+                            + &encode_node_utf8(&normalize(&slice_utf16(&extract_message_full_content(message), 200)))
                     }
-                    "assistant" => {
+                    role if role == "assistant" => {
                         let message = assistant_message(entry).expect("assistant entry");
                         let text_content = normalize(&slice_utf16(&extract_assistant_content(message), 200));
                         if !text_content.is_empty() {
-                            with_theme(|theme| theme.fg(ThemeColor::Success, "assistant: ")) + &text_content
+                            with_theme(|theme| theme.fg(ThemeColor::Success, "assistant: "))
+                                + &encode_node_utf8(&text_content)
                         } else if message.stop_reason == StopReason::Aborted {
                             with_theme(|theme| theme.fg(ThemeColor::Success, "assistant: "))
                                 + &with_theme(|theme| theme.fg(ThemeColor::Muted, "(aborted)"))
                         } else if let Some(error_message) = &message.error_message {
-                            let error = slice_utf16(&normalize(error_message), 80);
+                            let error = slice_utf16(&normalize(&error_message.clone().into()), 80);
                             with_theme(|theme| theme.fg(ThemeColor::Success, "assistant: "))
-                                + &with_theme(|theme| theme.fg(ThemeColor::Error, &error))
+                                + &with_theme(|theme| theme.fg(ThemeColor::Error, &encode_node_utf8(&error)))
                         } else {
                             with_theme(|theme| theme.fg(ThemeColor::Success, "assistant: "))
                                 + &with_theme(|theme| theme.fg(ThemeColor::Muted, "(no content)"))
                         }
                     }
-                    "toolResult" => {
+                    role if role == "toolResult" => {
                         let tool_call = match message {
                             AgentMessage::ToolResult(result) => self.tool_call_map.get(&result.tool_call_id),
                             _ => None,
@@ -1098,29 +1074,37 @@ impl TreeList {
                             with_theme(|theme| theme.fg(ThemeColor::Muted, &format!("[{tool_name}]")))
                         }
                     }
-                    "bashExecution" => {
+                    role if role == "bashExecution" => {
                         let command = match message {
-                            AgentMessage::Custom(object) => {
-                                object.get("command").and_then(Value::as_str).unwrap_or_default()
-                            }
-                            _ => "",
+                            AgentMessage::Custom(object) => object
+                                .get("command")
+                                .and_then(JsValue::as_string)
+                                .cloned()
+                                .unwrap_or_default(),
+                            _ => JsString::default(),
                         };
-                        with_theme(|theme| theme.fg(ThemeColor::Dim, &format!("[bash]: {}", normalize(command))))
+                        with_theme(|theme| {
+                            theme.fg(
+                                ThemeColor::Dim,
+                                &format!("[bash]: {}", encode_node_utf8(&normalize(&command))),
+                            )
+                        })
                     }
-                    role => with_theme(|theme| theme.fg(ThemeColor::Dim, &format!("[{role}]"))),
+                    role => with_theme(|theme| theme.fg(ThemeColor::Dim, &format!("[{}]", encode_node_utf8(&role)))),
                 }
             }
             SessionEntry::Known(KnownSessionEntry::CustomMessage(entry)) => {
                 with_theme(|theme| theme.fg(ThemeColor::CustomMessageLabel, &format!("[{}]: ", entry.custom_type)))
-                    + &normalize(&extract_custom_message_content(&entry.content))
+                    + &encode_node_utf8(&normalize(&extract_custom_message_content(&entry.content)))
             }
             SessionEntry::Known(KnownSessionEntry::Compaction(entry)) => {
                 let tokens = js_round(entry.tokens_before / 1000.0);
                 with_theme(|theme| theme.fg(ThemeColor::BorderAccent, &format!("[compaction: {tokens}k tokens]: ")))
-                    + &normalize(&entry.summary)
+                    + &encode_node_utf8(&normalize(&entry.summary))
             }
             SessionEntry::Known(KnownSessionEntry::BranchSummary(entry)) => {
-                with_theme(|theme| theme.fg(ThemeColor::Warning, "[branch summary]: ")) + &normalize(&entry.summary)
+                with_theme(|theme| theme.fg(ThemeColor::Warning, "[branch summary]: "))
+                    + &encode_node_utf8(&normalize(&entry.summary))
             }
             SessionEntry::Known(KnownSessionEntry::ModelChange(entry)) => {
                 with_theme(|theme| theme.fg(ThemeColor::Dim, &format!("[model: {}]", entry.model_id)))
@@ -2011,7 +1995,7 @@ impl TreeSelectorComponent {
         self.tree_list.borrow_mut().on_copy = on_copy.map(|on_copy| {
             let tree_list = Rc::clone(&tree_list);
             let _ = tree_list;
-            Rc::new(move |text: Option<String>| on_copy(text)) as CopyHandler
+            Rc::new(move |text: Option<JsString>| on_copy(text)) as CopyHandler
         });
     }
 
@@ -2066,5 +2050,18 @@ impl Focusable for TreeSelectorComponent {
         {
             label_input.set_focused(focused);
         }
+    }
+}
+
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    use pi_js_compat::js_json::JsString;
+    #[test]
+    fn preview_slice_splits_utf16_before_display_encoding() {
+        let text = JsString::from("x😀");
+        assert_eq!(slice_utf16(&text, 2).units(), &[0x78, 0xd83d]);
+        let raw = JsString::from_utf16(vec![0xd800, 10, 0xfffd]);
+        assert_eq!(normalize(&raw).units(), &[0xd800, 32, 0xfffd]);
     }
 }

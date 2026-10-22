@@ -242,7 +242,7 @@ struct ToolDefinitionEntry {
 pub type SupervisorDecisionRequester = Arc<
     dyn Fn(
             crate::supervisor::client::RequestSupervisorDecisionInput,
-        ) -> BoxFuture<'static, Result<crate::core::session_control_db::SupervisorResponse, String>>
+        ) -> BoxFuture<'static, Result<crate::core::session_control_db::SupervisorResponse, JsString>>
         + Send
         + Sync,
 >;
@@ -252,7 +252,7 @@ fn default_supervisor_decision_requester() -> SupervisorDecisionRequester {
         Box::pin(async move {
             crate::supervisor::client::request_supervisor_decision(&input)
                 .await
-                .map_err(|error| error.to_string())
+                .map_err(|error| JsString::from(error.message))
         })
     })
 }
@@ -285,7 +285,7 @@ pub struct AgentSessionConfig {
     pub multi_agent_parent_session_id: Option<String>,
     pub multi_agent_requires_agent_id: bool,
     pub disable_runtime_coordination_inbound: bool,
-    pub on_shared_channel_message_delivered: Option<Arc<dyn Fn(String) + Send + Sync>>,
+    pub on_shared_channel_message_delivered: Option<Arc<dyn Fn(JsString) + Send + Sync>>,
     pub extension_runner_ref: Option<Arc<Mutex<Option<ExtensionRunner>>>>,
     pub session_start_event: Option<SessionStartEvent>,
 }
@@ -562,7 +562,7 @@ pub struct BashMessagesCommittedEvent {
 pub struct SessionInfoChangedEvent {
     #[serde(rename = "type")]
     pub event_type: &'static str,
-    pub name: Option<String>,
+    pub name: Option<JsString>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -964,7 +964,7 @@ struct Inner {
     thinking_phase_timer: Mutex<Option<tokio::task::JoinHandle<()>>>,
     thinking_phase_timeout_error: Mutex<Option<AgentSessionError>>,
     disable_runtime_coordination_inbound: bool,
-    on_shared_channel_message_delivered: Option<Arc<dyn Fn(String) + Send + Sync>>,
+    on_shared_channel_message_delivered: Option<Arc<dyn Fn(JsString) + Send + Sync>>,
     terminal_outbox_claim_id: String,
     terminal_outbox_last_cleanup_at: Mutex<Option<i64>>,
     multi_agent_active_tools: Mutex<Vec<(String, ActiveTool)>>,
@@ -2109,7 +2109,7 @@ impl AgentSession {
         &self,
         event: &ToolCallEvent,
         runner: &ExtensionRunner,
-        reason: Option<String>,
+        reason: Option<JsString>,
         force: bool,
     ) -> Option<crate::core::permissions::orchestrator::ApprovalReviewer> {
         let approval_preset = lock(&self.inner.settings_manager).get_approval_preset();
@@ -2131,13 +2131,14 @@ impl AgentSession {
             Box::pin(async move {
                 let reason_text = reason
                     .as_ref()
-                    .map(|reason| format!("\nReason: {reason}"))
+                    .map(|reason| JsString::from("\nReason: ") + reason)
                     .unwrap_or_default();
                 let input = pi_js_compat::js_json::stringify_lossless_pretty(&JsValue::Object(event.input.clone()));
-                let title = format!("Approve {}?{reason_text}\n{input}", event.tool_name.as_str());
+                let title =
+                    JsString::from(format!("Approve {}?", event.tool_name.as_str())) + reason_text + "\n" + input;
                 let selection = ui
                     .select(
-                        &title,
+                        &pi_js_compat::js_json::encode_node_utf8(&title),
                         &["Allow once".to_owned(), "Allow always".to_owned(), "Deny".to_owned()],
                         None,
                     )
@@ -2262,7 +2263,7 @@ impl AgentSession {
                 let human_event = event.clone();
                 let ask_human: Option<crate::supervisor::approval_reviewer::SupervisorHumanReviewer> =
                     if human_session.runner().has_ui() {
-                        Some(Arc::new(move |reason: String| {
+                        Some(Arc::new(move |reason: JsString| {
                             let human_session = human_session.clone();
                             let human_event = human_event.clone();
                             Box::pin(async move {
@@ -2351,7 +2352,7 @@ impl AgentSession {
     }
 
     /// Callback fired after a shared-channel message is delivered.
-    pub fn on_shared_channel_message_delivered(&self) -> Option<Arc<dyn Fn(String) + Send + Sync>> {
+    pub fn on_shared_channel_message_delivered(&self) -> Option<Arc<dyn Fn(JsString) + Send + Sync>> {
         self.inner.on_shared_channel_message_delivered.clone()
     }
 
@@ -2477,8 +2478,8 @@ impl AgentSession {
 
     fn runtime_mailbox_recipient(&self) -> crate::core::session_control_db::RuntimeMailboxAddress {
         crate::core::session_control_db::RuntimeMailboxAddress {
-            agent_id: self.inner.multi_agent_agent_id.clone(),
-            session_id: self.session_id(),
+            agent_id: self.inner.multi_agent_agent_id.clone().map(JsString::from),
+            session_id: self.session_id().into(),
         }
     }
 
@@ -2573,7 +2574,7 @@ impl AgentSession {
     async fn deliver_claimed_runtime_mailbox_messages(
         &self,
         messages: Vec<RuntimeMailboxMessage>,
-        recipient_session_id: &str,
+        recipient_session_id: &JsString,
         mode: MailboxDeliveryMode,
         guard: Option<tokio::sync::MutexGuard<'_, ()>>,
         drain_guard: tokio::sync::MutexGuard<'_, ()>,
@@ -2582,13 +2583,14 @@ impl AgentSession {
         if prompt_messages.is_empty() {
             return Ok(false);
         }
-        let prompt = prompt_messages
+        let formatted = prompt_messages
             .iter()
             .map(|message| {
                 crate::core::runtime_coordination_format::format_runtime_mailbox_prompt(message, recipient_session_id)
             })
-            .collect::<Vec<_>>()
-            .join("\n\n");
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(error)?;
+        let prompt = JsString::join(formatted, "\n\n");
         if mode == MailboxDeliveryMode::Steer {
             let message = runtime_mailbox_user_message(&prompt, &[], Some(InputSource::Extension));
             self.steer_agent(message.clone());
@@ -2616,7 +2618,7 @@ impl AgentSession {
 
     async fn prompt_mailbox_messages(
         &self,
-        prompt: &str,
+        prompt: &JsString,
         messages: &[RuntimeMailboxMessage],
         guard: Option<tokio::sync::MutexGuard<'_, ()>>,
         drain_guard: tokio::sync::MutexGuard<'_, ()>,
@@ -3203,7 +3205,7 @@ impl AgentSession {
 
     async fn send_shared_channel_prompt(
         &self,
-        prompt: &str,
+        prompt: &JsString,
         options: DrainCoordinationOptions,
     ) -> Result<bool, AgentSessionError> {
         if options.trigger_if_idle && !self.is_streaming() {
@@ -7586,7 +7588,7 @@ impl AgentSession {
         self.runner().emit(&mut event).await;
     }
 
-    async fn emit_session_info_changed(&self, name: Option<String>) {
+    async fn emit_session_info_changed(&self, name: Option<JsString>) {
         let mut event =
             ExtensionEvent::SessionInfoChanged(crate::core::extensions::types::SessionInfoChangedEvent { name });
         self.runner().emit(&mut event).await;

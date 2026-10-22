@@ -23,7 +23,7 @@ fn message(sender_session: &str, sender_agent: Option<&str>, body: &str, file_re
         "kind": "system",
         "body": body,
         "storeRef": {"messageId": "message_1", "sessionPath": "/tmp/session.jsonl"},
-        "status": "delivered",
+        "status": "claimed",
         "createdAt": "2026-07-11T22:00:00.000Z",
         "updatedAt": "2026-07-11T22:00:00.000Z"
     });
@@ -116,18 +116,22 @@ fn runtime_coordination_format_matches_the_pinned_typescript_source() {
     for (case, result) in cases.iter().zip(results) {
         let prompt = if let Some(messages) = case.get("messages") {
             let messages: Vec<SharedChannelMessage> =
-                serde_json::from_value(messages.clone()).expect("shared messages");
+                pi_js_compat::js_json::from_value(&pi_js_compat::js_json::JsValue::from(messages))
+                    .expect("shared messages");
             format_shared_channel_prompt(&messages, case["recipientSessionId"].as_str().expect("recipient"))
         } else {
             let message: RuntimeMailboxMessage =
-                serde_json::from_value(case["message"].clone()).expect("mailbox message");
-            format_runtime_mailbox_prompt(&message, case["recipientSessionId"].as_str().expect("recipient"))
+                pi_js_compat::js_json::from_value(&pi_js_compat::js_json::JsValue::from(&case["message"]))
+                    .expect("mailbox message");
+            format_runtime_mailbox_prompt(&message, case["recipientSessionId"].as_str().expect("recipient")).unwrap()
         };
         assert_eq!(case["name"], result["name"]);
         assert_eq!(
-            prompt, result["prompt"],
+            prompt,
+            pi_js_compat::js_json::JsString::from(result["prompt"].as_str().unwrap()),
             "case {} diverged: rust={prompt:?} ts={}",
-            case["name"], result["prompt"]
+            case["name"],
+            result["prompt"]
         );
     }
 }
