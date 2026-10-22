@@ -14,6 +14,10 @@ Rust: `crates/pi-js-compat/src/node_fs.rs`. Pure compatibility prerequisite for 
 | Unproven descriptions | ETXTBSY retains std text; no full libuv strerror expansion |
 | Pathless `uv_cwd` / deleted current directory | `node_fs_errors.rs::removed_current_directory_error_has_node_message_and_pathless_own_fields`; actual generator original-source/real-native-binary deleted-CWD differential preserves message, negative errno, code and syscall before fetching |
 
+## Q18 close-error prerequisite
+
+Main granted pathless close and raw OS EIO formatting for spill-close propagation. `node_fs_errors::pathless_close_and_eio_messages_match_nodes_uv_exception` invokes the actual Node `internal/errors` UVException constructor for `close` without a path and `open` with a path. `node-close-red.log` proves the prior erroneous empty quoted path and std EIO description. Native OS EIO now uses `i/o error`; a constructed ErrorKind-only custom diagnostic is not overwritten. Close with an empty path omits both metadata and quoted suffix. GREEN and existing constructed-kind regression execution pending at this checkpoint; no broad strerror claim.
+
 ## Classified conformance fixes
 
 Earlier Node RED proved pathless **synchronous** EISDIR/read and the ELOOP description. That fix overgeneralized EISDIR/read to promises.readFile, causing the edit-diff regression introduced by e897a4d. Runner-backed RED now proves promises.readFile must retain both path metadata and message suffix. `NodeReadApi` distinguishes the originating whole-file API in the shared formatter; raw syscall/synchronous callers remain pathless. EISDIR/open retains path. No pinned TS source bug changed.

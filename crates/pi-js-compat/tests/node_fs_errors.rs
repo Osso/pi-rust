@@ -10,6 +10,18 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 
+#[test]
+fn pathless_close_and_eio_messages_match_nodes_uv_exception() {
+    for (syscall, path) in [("close", ""), ("open", "fixture")] {
+        let input = json!({"errno":-5,"syscall":syscall,"path":path});
+        let output=std::process::Command::new("node").args(["--expose-internals","-e",r#"const p=JSON.parse(process.argv[1]);const {UVException}=require('internal/errors');const ctx={errno:p.errno,syscall:p.syscall};if(p.path)ctx.path=p.path;const e=new UVException(ctx);console.log(JSON.stringify({message:e.message,path:e.path??null}));"#]).arg(input.to_string()).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let expected: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        let record = node_fs_error_record(&io::Error::from_raw_os_error(5), syscall, path);
+        assert_eq!(json!({"message":record.message,"path":record.path}), expected);
+    }
+}
+
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
