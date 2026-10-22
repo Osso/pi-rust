@@ -1,3 +1,5 @@
+#[path = "../../pi-ai/tests/support/oracle.rs"]
+mod oracle;
 use pi_coding_agent::core::resident_console_transport::{
     ResidentConsoleClient, ResidentConsoleHost, ResidentConsoleServer, ResidentConsoleServerOptions,
     ResidentConsoleService, ResidentConsoleSnapshot, Unsubscribe,
@@ -94,6 +96,13 @@ async fn client_preserves_snapshot_events_prompt_errors_and_raw_socket_path() {
     );
     client.close().await;
     server.close().await.unwrap();
+    let actual = pi_js_compat::js_json!({"snapshot": client.snapshot(), "event": received, "error": rejection, "prompts": host.prompts.lock().unwrap().clone()});
+    let mut source = oracle::TsOracle::spawn(
+        "lossless-resident-console-oracle.ts",
+        "packages/coding-agent/src/core/resident-console-transport.ts",
+    );
+    let expected = source.request_lossless(&pi_js_compat::js_json!({"socketPath":path,"snapshot":host.get_snapshot(),"event":event,"rejection":rejection,"id":JsString::from("request-")+&raw,"text":JsString::from("text-")+&raw}));
+    assert_eq!(actual, expected);
 }
 
 #[tokio::test]
