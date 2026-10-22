@@ -208,3 +208,7 @@ outside frontmatter remains native.
 ## Exact native example previews (2026-10-22)
 
 - [x] Preserve frozen UTF-16 units in subagent previews (including Text padding), question/questionnaire answers and frames, and RPC OutputLog clipping. Native `JsString` components admit unmatched units; no String-boundary U+FFFD exception applies. [Differential evidence](../porting/traceability/extension-examples-n.md).
+
+## Native usage bridge requests (approved 2026-10-22)
+
+Frozen codex-usage mutates request promise fields on `claude-bridge:usage-all-request` and `claude-bridge:usage-request`. Rust exposes a synchronous claim slot through the native event bus instead: `JsValue` data, optional type-erased native context, and an optional future yielding `Result<JsValue, JsString>`. All listeners run in registration order; the last synchronous assignment wins; handler errors remain isolated and reported. Unclaimed requests retain frozen `bridge not loaded` / `Claude bridge usage handler unavailable.` behavior. See [event bus](../porting/traceability/event-bus.md) and [codex-usage](../porting/traceability/codex-usage.md).
