@@ -14,7 +14,27 @@ async function main(): Promise<void> {
 		try {
 			const request = JSON.parse(line);
 			let output: unknown;
-			if (request.operation === "utils") {
+			if (request.operation === "markdown_tokens") {
+                const { Marked,Tokenizer } = await import(pathToFileURL(path.join(source,"../../../node_modules/marked/lib/marked.esm.js")).href);
+                class Strict extends Tokenizer {
+                    override del(src: string) {
+                        const match = /^(~~)(?=[^\s~])((?:\\.|[^\\])*?(?:\\.|[^\s~\\]))\1(?=[^~]|$)/.exec(src);
+                        if (!match) return undefined;
+                        return {type:"del",raw:match[0],text:match[2],tokens:this.lexer.inlineTokens(match[2])};
+                    }
+                }
+                output = new Marked({tokenizer:new Strict()}).lexer(native(request.units));
+            } else if (request.operation === "markdown") {
+                const module = await import(pathToFileURL(path.join(source, "components/markdown.ts")).href);
+                const images = await import(pathToFileURL(path.join(source, "terminal-image.ts")).href);
+                images.setCapabilities({images:null,trueColor:false,hyperlinks:false});
+                const identity = (text: string): string => text;
+                const theme = Object.fromEntries(["heading","link","linkUrl","code","codeBlock","codeBlockBorder","quote","quoteBorder","hr","listBullet","bold","italic","strikethrough","underline"].map(key => [key,identity]));
+                const text = native(request.units);
+                const md = new module.Markdown(text,0,0,theme);
+                output = [md.render(request.width),md.render(request.width)];
+                images.resetCapabilitiesCache();
+            } else if (request.operation === "utils") {
 				const text = native(request.units);
 				output = {
 					width: utils.visibleWidth(text),

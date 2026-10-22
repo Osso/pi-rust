@@ -20,10 +20,14 @@ Authority: [4f9e6f8a4](../source-lock.json), 937 lines. Rust: `crates/pi-tui/src
 
 The Rust marked lexer is an internal implementation of the frozen third-party parser, not an exported Marked facade. Tokens are serialized only for differential tests. Removed later-only LaTeX tokens/extensions/renderer, public Marked/Tokens facade, transform/renderLatex options and obsolete math/transform tests. Frozen `$x$` is literal Markdown text. User/assistant consumers no longer install transforms; broader consumer lifetime re-pin remains Q13.
 
-Typed boundaries: Rust UTF8 strings/byte offsets replace JS UTF16; Intl dictionary segmentation uses approved ICU4X adaptation. Theme functions remain typed callbacks. Driver-owned animation concerns belong to editor/loader, not Markdown.
+Native boundaries: token fields, source/mask/link keys, regex captures, renderer/cache lines and theme inputs/outputs use `JsString`; cursors/ranges are UTF-16 units. The shared `JsRegex` preserves legacy/Unicode rule flags. JSON token fingerprints match the source-defined `JSON.stringify` cache key, not a rendering encoding. Intl dictionary segmentation retains its approved ICU4X adaptation. Driver-owned animation concerns belong to editor/loader, not Markdown.
 
 Mutants disabling reuse, invalidating on edits, violating theme identity, or eagerly invoking default foreground styling are killed by lifecycle behavioral tests. Full Q2 evidence and approved domain exclusions are linked above.
 
 ## Q2 findings correction
 
 `MarkdownOptions` derives Default: both frozen booleans remain false; no rendering semantics changed. Mandatory clippy derivable_impls failure removed.
+
+## Native UTF-16 migration
+
+`raw_markdown` compares 64 frozen marked token streams and 176 frozen Markdown scenarios (including cached renders): high/low surrogates, astral pairs, mixed combining text, heading/strong/em/strict-del/code, links/definitions, lists/tasks, tables/escaped pipes, HTML, indented code and breaks. Source RED: astral strong text retained literal `**` until code-point delimiter lengths were restored; native cursor/range arithmetic stays in units. Actual `cargo test -j4 -p pi-tui --test raw_markdown` compiles the whole library and passes. Dedicated raw styling/highlighter callback/cross-update cache scenarios and legacy test consumers remain pending; older scalar proofs above are not native proof.
