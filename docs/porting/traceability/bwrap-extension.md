@@ -39,7 +39,7 @@ Observed pre-existing source drift, not silently corrected by this native checkp
   is not re-applied here.
 - `find`/`grep` matching now uses raw UTF-16 minimatch AST and the shared native
   ECMAScript regex adapter. Actual frozen worker/Node options, exact tested
-  failure branches, engine provenance, and remaining unapproved limits are in
+  failure branches, engine provenance, and explicit approved limits are in
   [worker matching](worker-matching.md); no scalar-only matcher is retained.
 - `fs-worker.cjs` reads files as UTF-8 for grep; the Rust worker uses
   `read_to_string` and skips the same expected read-error codes.

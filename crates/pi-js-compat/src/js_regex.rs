@@ -4,6 +4,9 @@ use std::sync::Arc;
 
 use crate::js_json::JsString;
 
+mod error;
+pub use error::JsRegexError;
+
 #[derive(Clone, Debug)]
 pub struct JsRegex {
     regex: regress::Regex,
@@ -65,16 +68,17 @@ impl JsCaptures {
 }
 
 impl JsRegex {
-    pub fn new(pattern: impl Into<JsString>) -> Result<Self, regress::Error> {
+    pub fn new(pattern: impl Into<JsString>) -> Result<Self, JsRegexError> {
         Self::with_flags(pattern, "")
     }
-    pub fn unicode(pattern: impl Into<JsString>) -> Result<Self, regress::Error> {
+    pub fn unicode(pattern: impl Into<JsString>) -> Result<Self, JsRegexError> {
         Self::with_flags(pattern, "u")
     }
 
-    pub fn with_flags(pattern: impl Into<JsString>, flags: &str) -> Result<Self, regress::Error> {
+    pub fn with_flags(pattern: impl Into<JsString>, flags: &str) -> Result<Self, JsRegexError> {
+        error::validate_flags(flags)?;
         let pattern = pattern.into();
-        let unicode = flags.contains('u');
+        let unicode = flags.contains('u') || flags.contains('v');
         let points: Vec<u32> = if unicode {
             char::decode_utf16(pattern.units().iter().copied())
                 .map(|point| {
@@ -86,7 +90,8 @@ impl JsRegex {
         } else {
             pattern.units().iter().copied().map(u32::from).collect()
         };
-        let regex = regress::Regex::from_unicode(points.into_iter(), flags)?;
+        let regex = regress::Regex::from_unicode(points.into_iter(), flags)
+            .map_err(|error| JsRegexError::from_parser(&pattern, flags, &error.text))?;
         Ok(Self { regex, unicode })
     }
 

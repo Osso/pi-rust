@@ -142,7 +142,7 @@ pub fn parse_search_query(query: &JsString) -> ParsedSearchQuery {
                 mode: SearchMode::Regex,
                 tokens: Vec::new(),
                 regex: None,
-                error: Some(error.to_string().into()),
+                error: Some(error.message().clone()),
             },
         };
     }
