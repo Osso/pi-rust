@@ -593,7 +593,7 @@ async fn handle_usage_command(
     }
     if !command_args.is_empty() {
         ctx.ui()?
-            .notify(&"Usage: /usage [reset]".into(), Some(NotifyType::Warning));
+            .notify(&"Usage: /usage [all|reset]".into(), Some(NotifyType::Warning));
         return Ok(());
     }
     read_and_send_codex_usage(ctx, pi, fetch).await
@@ -602,7 +602,7 @@ async fn handle_usage_command(
 fn argument_completions(
     prefix: &pi_js_compat::js_json::JsString,
 ) -> Result<Option<Vec<pi_js_compat::js_json::JsValue>>, pi_js_compat::js_json::JsString> {
-    let matches: Vec<pi_js_compat::js_json::JsValue> = ["reset"]
+    let matches: Vec<pi_js_compat::js_json::JsValue> = ["all", "reset"]
         .into_iter()
         .filter(|option| pi_js_compat::js_json::JsString::from(*option).starts_with(prefix))
         .map(|value| pi_js_compat::js_json!({"value": value, "label": value}))
@@ -616,7 +616,7 @@ pub fn codex_usage_extension(pi: &ExtensionApi, options: &CodexUsageOptions) -> 
     let command_pi = pi.clone();
     pi.register_command(
         "usage",
-        Some("Show OpenAI Codex account usage and optionally consume a reset credit".into()),
+        Some("Show Codex or Claude usage, all accounts, or reset Codex usage".into()),
         Some(Arc::new(argument_completions)),
         Arc::new(move |args, ctx| {
             let pi = command_pi.clone();

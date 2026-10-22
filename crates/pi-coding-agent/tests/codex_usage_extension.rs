@@ -242,6 +242,10 @@ async fn usage_command_argument_completions() {
         completions(&"re".into()).unwrap(),
         Some(vec![pi_js_compat::js_json!({"value": "reset", "label": "reset"})])
     );
+    assert_eq!(
+        completions(&"a".into()).unwrap(),
+        Some(vec![pi_js_compat::js_json!({"value": "all", "label": "all"})])
+    );
     assert_eq!(completions(&"x".into()).unwrap(), None);
 }
 
@@ -265,7 +269,7 @@ async fn usage_command_rejects_extra_arguments() {
 
     assert_eq!(
         harness.ui.last_notification(),
-        Some((JsString::from("Usage: /usage [reset]"), Some(NotifyType::Warning)))
+        Some((JsString::from("Usage: /usage [all|reset]"), Some(NotifyType::Warning)))
     );
 }
 
