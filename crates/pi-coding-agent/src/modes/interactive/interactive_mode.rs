@@ -1621,10 +1621,6 @@ impl crate::modes::interactive::theme::ThemeUi for InteractiveThemeUi {
         }))
     }
 
-    fn remove_terminal_color_scheme_listener(&self, id: usize) {
-        self.0.remove_terminal_color_scheme_listener(id);
-    }
-
     fn query_terminal_background_color(
         &self,
         timeout: Duration,

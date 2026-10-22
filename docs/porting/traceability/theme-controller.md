@@ -1,40 +1,24 @@
-# theme-controller.ts traceability
+# theme-controller.ts
 
-Source: `packages/coding-agent/src/modes/interactive/theme/theme-controller.ts` (139 lines). Rust: `crates/pi-coding-agent/src/modes/interactive/theme/theme_controller.rs`.
+Frozen `4f9e6f8a4`, `packages/coding-agent/src/modes/interactive/theme/theme-controller.ts:1–126`.
+Rust: `crates/pi-coding-agent/src/modes/interactive/theme/theme_controller.rs`.
 
-## Exported symbols
-
-| TypeScript export | Rust item | Tests |
+| Frozen symbol / branch | Rust | Proof |
 |---|---|---|
-| `class InteractiveThemeController` | `struct InteractiveThemeController` | `tests/theme_controller.rs` (fake `ThemeUi` + real `SettingsManager`) |
-| `constructor(ui, settingsManager, showError, onChanged)` | `new(Rc<dyn ThemeUi>, Rc<RefCell<SettingsManager>>, show_error, on_changed)` | `applies_explicit_and_preview_themes` |
-| `rebindTui()` | `rebind_tui()` | `rebinds_tui_listeners` |
-| `applyFromSettings()` | `apply_from_settings()` | `auto_sync_follows_terminal_color_scheme`, `detects_and_persists_terminal_theme` |
-| `setThemeName(name, showError?)` | `set_theme_name(&str, bool)` | `applies_explicit_and_preview_themes` |
-| `setThemeInstance(theme)` | `set_theme_instance(Arc<Theme>)` | traceability-only |
-| `preview(settingOrName)` | `preview(&str)` | `applies_explicit_and_preview_themes` |
-| `disableAutoSync()` | `disable_auto_sync()` | `auto_sync_follows_terminal_color_scheme` |
-| `getTerminalTheme()` | `get_terminal_theme()` | traceability-only |
+| constructor environment resolution/init/listener, 27–34 | `new`, `bind_terminal_color_scheme_listener` | `differential_theme_controller` compares UI events and theme/terminal/settings snapshots |
+| auto setting/query/notifications/pick theme, 37–44 | `apply_from_settings` auto branch | differential: scheme success, background unavailable, settings edited before terminal event |
+| explicit setting, 47–51 | explicit branch | differential explicit dark/light/missing |
+| unset setting/background/persist high confidence, 54–60 | detection branch | differential white background then second application; `theme_controller::detects_and_persists_terminal_theme` real settings persistence |
+| setThemeName, 64–67 | `set_theme_name` | differential success/failure, showError true/false, disables auto-sync once |
+| setThemeInstance, 69–76 | `set_theme_instance` | differential active light instance, notifications/invalidations/changed order |
+| preview resolved setting/active name, 78–85 | `preview` | differential explicit/auto preview: requestRender without onChanged |
+| disableAutoSync/getTerminalTheme, 88–94 | matching methods | differential repeated disable, terminal state after disabled events |
+| applyThemeName fallback/error, 97–105 | `apply_theme_name` | exact error event and fallback dark snapshot |
+| notifyChanged, 108–111; idempotent auto-sync, 113–117 | matching core methods | full event-order comparison |
+| terminal listener disabled/missing auto/current theme, 120–125 | `apply_terminal_theme` | differential: disabled event ignored, same-name no notification, changed setting disables auto |
 
-## Branches
+Removed old-only rebind API and listener-unsubscribe-on-drop behavior. Frozen constructor retains the controller through the registered callback. `registered_ui_listener_retains_controller` drops the Rust handle, emits light, and observes the active theme change. Initial RED observed dark instead.
 
-| TypeScript branch | Rust branch |
-|---|---|
-| auto setting → detect color scheme, enable sync, pick light/dark | `apply_from_settings` first arm |
-| explicit setting → apply with error display | second arm |
-| no setting → OSC 11/COLORFGBG detection, persist on high confidence | third arm |
-| `applyThemeName` fallback to `dark` + error text | `ControllerCore::apply_theme_name` |
-| `setAutoSync` early return | `ControllerCore::set_auto_sync` |
-| color-scheme listener only when auto-sync enabled | `ControllerCore::apply_terminal_theme` |
-| `preview` uses resolved setting, falls back to active name | `preview` |
+Theme detection helper is **sequential** at frozen theme.ts:771–782: await optional scheme; return immediately on a value; only then query background on unsupported/empty/rejected scheme. The former traceability statement about frozen concurrency was incorrect. `differential_auto_theme` compares six real pinned traces with delayed completion: scheme success never starts background; empty/error/missing scheme reaches background; background value/error/empty resolves through the environment. Both timed queries consume their own budget. Rust synchronous poll-query adapters preserve this ordering, not a concurrent-query deviation.
 
-## Behavioral notes
-
-- `ui` is represented by the `ThemeUi` trait: `invalidate`, `request_render`, color-scheme notification toggling, listener registration/removal, and the two OSC queries. The TypeScript object is duck-typed, so this is a structural mapping, not a new abstraction.
-- `queryTerminalColorScheme` remains optional through the defaulted trait method, matching `ui.queryTerminalColorScheme?.()`.
-- Detection calls are synchronous in Rust (the pi-tui query API is poll-based), so the "start both queries, prefer color scheme" concurrency is expressed as a sequential color-scheme query followed by background detection. Result selection is identical.
-
-## Gaps / exclusions
-
-- `setThemeInstance` and `getTerminalTheme` are exercised only through the shared fake-TUI probe; the TypeScript package has no dedicated controller test.
-- The `ThemeUi` implementation for the real TUI belongs to the interactive-mode slice.
+Proof ledger `/tmp/pi-rust-repin-lossless-interactive/`: `test-theme-controller-lifetime-red.log`, `test-auto-theme-early-return-red.log`, `test-theme-controller-differential-red.log`; GREEN `test-theme-controller-green-1.log`: controller differential 1/1 (four scenarios), detection differential 1/1 (six scenarios), native probes 4/4 (+4 child probes ignored in parent runner and executed by wrappers).
