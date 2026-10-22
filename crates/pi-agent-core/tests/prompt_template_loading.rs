@@ -34,8 +34,8 @@ fn write(root: &Path, path: &str, content: &str) {
 fn template(name: &str, description: Option<&str>, content: &str) -> PromptTemplate {
     PromptTemplate {
         name: JsString::from(name.to_owned()),
-        description: description.map(str::to_owned),
-        content: content.to_owned(),
+        description: description.map(JsString::from),
+        content: content.into(),
     }
 }
 

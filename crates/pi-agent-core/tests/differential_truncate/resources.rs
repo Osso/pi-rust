@@ -198,8 +198,8 @@ fn build_prompt_templates(array: &PromptTemplateArray) -> Option<Vec<PromptTempl
 fn build_prompt_template(fixture: &PromptTemplateFixture) -> PromptTemplate {
     PromptTemplate {
         name: JsString::from(fixture.name.to_owned()),
-        description: fixture.description.rust_value().map(str::to_owned),
-        content: fixture.content.to_owned(),
+        description: fixture.description.rust_value().map(JsString::from),
+        content: fixture.content.into(),
     }
 }
 

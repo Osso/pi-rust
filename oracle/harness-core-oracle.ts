@@ -1,37 +1,7 @@
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { StringDecoder } from "node:string_decoder";
+import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
-
-type RequestId = string | number | null;
-
-type HarnessEvent = Record<string, unknown>;
-
-type ScriptOperation =
-	| { op: "on"; tag: string; type: "run_start" | "run_end"; thenEmit?: HarnessEvent }
-	| { op: "off"; tag: string }
-	| { op: "watch"; tag: string; snapshot: unknown; emitDuringSnapshot?: HarnessEvent }
-	| { op: "start"; tag: string }
-	| { op: "unsubscribe"; tag: string }
-	| { op: "emit"; event: HarnessEvent };
-
-type Request = {
-	id: RequestId;
-	operation: string;
-	script?: ScriptOperation[];
-	messages?: unknown[];
-	bash?: Record<string, unknown>;
-	customMessage?: {
-		customType: string;
-		content: unknown;
-		display: boolean;
-		details?: unknown;
-		timestamp: number | string;
-	};
-	fixture?: Fixture;
-	slice?: unknown;
-	input?: unknown;
-};
 
 type Fixture = {
 	root: string;
@@ -41,151 +11,42 @@ type Fixture = {
 	inputs?: Array<{ path: string; source: unknown }>;
 	paths?: string[];
 };
-
-type NodeExecutionEnvApi = {
-	NodeExecutionEnv: new (options: { cwd: string }) => unknown;
+type Request = {
+	id: number | string | null;
+	operation: string;
+	fixture?: Fixture;
+	messages?: unknown[];
+	argsString?: number[];
+	contentUnits?: number[];
+	bash?: unknown;
+	customMessage?: { customType: string; content: unknown; display: boolean; details: unknown; timestamp: string };
 };
-
-type SkillsApi = {
-	loadSkills(env: unknown, dirs: string | string[]): Promise<{ skills: unknown[]; diagnostics: unknown[] }>;
-	loadSourcedSkills(
-		env: unknown,
-		inputs: Array<{ path: string; source: unknown }>,
-	): Promise<{ skills: unknown[]; diagnostics: unknown[] }>;
-};
-
-type PromptTemplatesApi = {
-	loadPromptTemplates(
-		env: unknown,
-		paths: string | string[],
-	): Promise<{ promptTemplates: unknown[]; diagnostics: unknown[] }>;
-	loadSourcedPromptTemplates(
-		env: unknown,
-		inputs: Array<{ path: string; source: unknown }>,
-	): Promise<{ promptTemplates: unknown[]; diagnostics: unknown[] }>;
-};
-
-type EventsApi = {
-	HarnessEventBus: new () => {
-		on(type: string, listener: (event: HarnessEvent) => void): () => void;
-		emit(event: HarnessEvent): void;
-		watch<TSnapshot>(captureSnapshot: () => TSnapshot): WatchHandle;
-	};
-};
-
-type WatchHandle = {
-	snapshot: unknown;
-	start(listener: (event: HarnessEvent) => void): void;
-	unsubscribe(): void;
-};
-
-type MessagesApi = {
-	bashExecutionToText(message: Record<string, unknown>): string;
-	convertToLlm(messages: unknown[]): unknown[];
-	createCustomMessage(
-		customType: string,
-		content: unknown,
-		display: boolean,
-		details: unknown,
-		timestamp: number | string,
-	): unknown;
-};
-
-type ReducerApi = {
-	validateRecordLog(input: unknown): void;
-	reduceLaneState(input: unknown): unknown;
-};
-
 type Api = {
-	events: EventsApi;
-	messages: MessagesApi;
-	skills: SkillsApi;
-	promptTemplates: PromptTemplatesApi;
-	nodeEnv: NodeExecutionEnvApi;
-	reducer: ReducerApi;
-};
-
-type Response =
-	| { id: RequestId; ok: true; output: unknown }
-	| { id: RequestId; ok: false; error: { name: string; message: string; reason?: string } };
-
-function normalizeError(error: unknown): { name: string; message: string; reason?: string } {
-	if (error instanceof Error) {
-		const normalized: { name: string; message: string; reason?: string } = {
-			name: error.name,
-			message: error.message,
-		};
-		const reason = (error as { reason?: unknown }).reason;
-		if (typeof reason === "string") normalized.reason = reason;
-		return normalized;
-	}
-	return { name: "UnknownError", message: String(error) };
-}
-
-function executeEventScript(api: EventsApi, script: ScriptOperation[]): unknown {
-	const bus = new api.HarnessEventBus();
-	const direct = new Map<string, HarnessEvent[]>();
-	const watched = new Map<string, HarnessEvent[]>();
-	const snapshots = new Map<string, unknown>();
-	const unsubscribes = new Map<string, () => void>();
-	const watches = new Map<string, WatchHandle>();
-
-	for (const operation of script) {
-		switch (operation.op) {
-			case "on": {
-				const events: HarnessEvent[] = [];
-				direct.set(operation.tag, events);
-				unsubscribes.set(
-					operation.tag,
-					bus.on(operation.type, (event) => {
-						events.push(event);
-						if (operation.thenEmit) bus.emit(operation.thenEmit);
-					}),
-				);
-				break;
-			}
-			case "off":
-				unsubscribes.get(operation.tag)?.();
-				break;
-			case "watch": {
-				const events: HarnessEvent[] = [];
-				watched.set(operation.tag, events);
-				const watch = bus.watch(() => {
-					if (operation.emitDuringSnapshot) bus.emit(operation.emitDuringSnapshot);
-					return operation.snapshot;
-				});
-				snapshots.set(operation.tag, watch.snapshot);
-				watches.set(operation.tag, watch);
-				break;
-			}
-			case "start": {
-				const events = watched.get(operation.tag);
-				watches.get(operation.tag)?.start((event) => events?.push(event));
-				break;
-			}
-			case "unsubscribe":
-				watches.get(operation.tag)?.unsubscribe();
-				break;
-			case "emit":
-				bus.emit(operation.event);
-				break;
-		}
-	}
-
-	return {
-		direct: Object.fromEntries(direct),
-		watched: Object.fromEntries(watched),
-		snapshots: Object.fromEntries(snapshots),
+	messages: {
+		bashExecutionToText(message: unknown): string;
+		convertToLlm(messages: unknown[]): unknown[];
+		createCustomMessage(type: string, content: unknown, display: boolean, details: unknown, timestamp: string): unknown;
 	};
-}
+	skills: {
+		loadSkills(env: unknown, paths: string[]): Promise<unknown>;
+		loadSourcedSkills(env: unknown, inputs: unknown[]): Promise<unknown>;
+	};
+	promptTemplates: {
+		parseCommandArgs(input: string): string[];
+		substituteArgs(content: string, args: string[]): string;
+		loadPromptTemplates(env: unknown, paths: string[]): Promise<unknown>;
+		loadSourcedPromptTemplates(env: unknown, inputs: unknown[]): Promise<unknown>;
+	};
+	nodeEnv: { NodeExecutionEnv: new (options: { cwd: string }) => unknown };
+};
 
 function createFixture(fixture: Fixture, api: Api): unknown {
-	for (const [relativePath, content] of Object.entries(fixture.files ?? {})) {
-		const fullPath = join(fixture.root, relativePath);
+	for (const [path, content] of Object.entries(fixture.files ?? {})) {
+		const fullPath = join(fixture.root, path);
 		mkdirSync(dirname(fullPath), { recursive: true });
 		writeFileSync(fullPath, content);
 	}
-	for (const directory of fixture.dirs ?? []) mkdirSync(join(fixture.root, directory), { recursive: true });
+	for (const dir of fixture.dirs ?? []) mkdirSync(join(fixture.root, dir), { recursive: true });
 	for (const link of fixture.symlinks ?? []) {
 		mkdirSync(dirname(join(fixture.root, link.path)), { recursive: true });
 		symlinkSync(join(fixture.root, link.target), join(fixture.root, link.path));
@@ -197,124 +58,74 @@ function normalizeValue(value: unknown, root: string): unknown {
 	if (typeof value === "string") return value.split(root).join("<root>");
 	if (Array.isArray(value)) return value.map((item) => normalizeValue(item, root));
 	if (value && typeof value === "object") {
-		return Object.fromEntries(
-			Object.entries(value).map(([key, item]) => [key, normalizeValue(item, root)]),
-		);
+		return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalizeValue(item, root)]));
 	}
 	return value;
 }
 
-async function executeFixtureOperation(request: Request, api: Api): Promise<Response> {
+async function executeFixture(request: Request, api: Api): Promise<unknown> {
 	const fixture = request.fixture;
 	if (!fixture) throw new Error(`${request.operation} requires fixture`);
 	const env = createFixture(fixture, api);
+	let result: unknown;
 	switch (request.operation) {
-		case "skills_load": {
-			const result = await api.skills.loadSkills(env, fixture.paths ?? []);
-			return { id: request.id, ok: true, output: normalizeValue(result, fixture.root) };
-		}
-		case "skills_load_sourced": {
-			const result = await api.skills.loadSourcedSkills(env, fixture.inputs ?? []);
-			return { id: request.id, ok: true, output: normalizeValue(result, fixture.root) };
-		}
-		case "prompt_templates_load": {
-			const result = await api.promptTemplates.loadPromptTemplates(env, fixture.paths ?? []);
-			return { id: request.id, ok: true, output: normalizeValue(result, fixture.root) };
-		}
-		case "prompt_templates_load_sourced": {
-			const result = await api.promptTemplates.loadSourcedPromptTemplates(env, fixture.inputs ?? []);
-			return { id: request.id, ok: true, output: normalizeValue(result, fixture.root) };
-		}
-		default:
-			throw new Error(`unsupported operation: ${request.operation}`);
+		case "skills_load": result = await api.skills.loadSkills(env, fixture.paths ?? []); break;
+		case "skills_load_sourced": result = await api.skills.loadSourcedSkills(env, fixture.inputs ?? []); break;
+		case "prompt_templates_load": result = await api.promptTemplates.loadPromptTemplates(env, fixture.paths ?? []); break;
+		case "prompt_templates_load_sourced": result = await api.promptTemplates.loadSourcedPromptTemplates(env, fixture.inputs ?? []); break;
+		default: throw new Error(`unsupported operation: ${request.operation}`);
 	}
+	return normalizeValue(result, fixture.root);
 }
 
-async function execute(request: Request, api: Api): Promise<Response> {
+async function execute(request: Request, api: Api): Promise<unknown> {
+	if (request.operation === "argument_units") {
+		const args = api.promptTemplates.parseCommandArgs(String.fromCharCode(...(request.argsString ?? [])));
+		const output = api.promptTemplates.substituteArgs(String.fromCharCode(...(request.contentUnits ?? [])), args);
+		return { args: args.map(codeUnits), output: codeUnits(output) };
+	}
+	if (request.operation === "prompt_template_units") {
+		const result = await executeFixture({ ...request, operation: "prompt_templates_load" }, api) as { promptTemplates: Array<{ description: string }> };
+		return result.promptTemplates.map((template) => Array.from({ length: template.description.length }, (_, index) => template.description.charCodeAt(index)));
+	}
 	if (request.operation.startsWith("skills_") || request.operation.startsWith("prompt_templates_")) {
-		return executeFixtureOperation(request, api);
+		return executeFixture(request, api);
 	}
 	switch (request.operation) {
-		case "event_bus":
-			return { id: request.id, ok: true, output: executeEventScript(api.events, request.script ?? []) };
-		case "bash_execution_to_text":
-			return { id: request.id, ok: true, output: api.messages.bashExecutionToText(request.bash ?? {}) };
-		case "convert_to_llm":
-			return { id: request.id, ok: true, output: api.messages.convertToLlm(request.messages ?? []) };
-		case "validate_record_log":
-			api.reducer.validateRecordLog(request.slice);
-			return { id: request.id, ok: true, output: null };
-		case "reduce_lane_state":
-			return { id: request.id, ok: true, output: api.reducer.reduceLaneState(request.input) };
+		case "bash_execution_to_text": return api.messages.bashExecutionToText(request.bash ?? {});
+		case "convert_to_llm": return api.messages.convertToLlm(request.messages ?? []);
 		case "create_custom_message": {
-			const message = request.customMessage;
-			if (!message) throw new Error("create_custom_message requires customMessage");
-			return {
-				id: request.id,
-				ok: true,
-				output: api.messages.createCustomMessage(
-					message.customType,
-					message.content,
-					message.display,
-					message.details,
-					message.timestamp,
-				),
-			};
+			const m = request.customMessage;
+			if (!m) throw new Error("create_custom_message requires customMessage");
+			return api.messages.createCustomMessage(m.customType, m.content, m.display, m.details, m.timestamp);
 		}
-		default:
-			throw new Error(`unsupported operation: ${request.operation}`);
+		default: throw new Error(`unsupported operation: ${request.operation}`);
 	}
 }
 
-async function executeRequestLine(line: string, api: Api): Promise<void> {
-	let id: RequestId = null;
-	try {
-		const request = JSON.parse(line) as Request;
-		id = request.id;
-		process.stdout.write(`${JSON.stringify(await execute(request, api))}\n`);
-	} catch (error) {
-		const response: Response = { id, ok: false, error: normalizeError(error) };
-		process.stdout.write(`${JSON.stringify(response)}\n`);
-	}
-}
-
-function serveRequests(api: Api): void {
-	const decoder = new StringDecoder("utf8");
-	let buffer = "";
-	let queue = Promise.resolve();
-	process.stdin.on("data", (chunk: string | Buffer) => {
-		buffer += typeof chunk === "string" ? chunk : decoder.write(chunk);
-		while (true) {
-			const lineFeed = buffer.indexOf("\n");
-			if (lineFeed === -1) return;
-			const line = buffer.slice(0, lineFeed);
-			buffer = buffer.slice(lineFeed + 1);
-			queue = queue.then(() => executeRequestLine(line, api));
-		}
-	});
-}
-
-function readSourceModules(): string[] {
-	const modules = process.argv.slice(2);
-	if (modules.length === 0) throw new Error("harness core oracle requires source module paths");
-	return modules;
+function codeUnits(value: string): number[] {
+	return Array.from({ length: value.length }, (_, index) => value.charCodeAt(index));
 }
 
 async function main(): Promise<void> {
-	const [eventsPath, messagesPath, skillsPath, promptTemplatesPath, nodeEnvPath, reducerPath] = readSourceModules();
-	if (!eventsPath || !messagesPath || !skillsPath || !promptTemplatesPath || !nodeEnvPath || !reducerPath) {
-		throw new Error("harness core oracle requires events, messages, skills, prompt-templates, node-env and reducer modules");
+	const paths = process.argv.slice(2);
+	if (paths.length !== 4) throw new Error("requires messages, skills, prompt templates and node env modules");
+	const [messages, skills, promptTemplates, nodeEnv] = await Promise.all(paths.map((path) => import(pathToFileURL(path).href)));
+	const api = { messages, skills, promptTemplates, nodeEnv } as Api;
+	for await (const line of createInterface({ input: process.stdin })) {
+		let id: Request["id"] = null;
+		try {
+			const request = JSON.parse(line) as Request;
+			id = request.id;
+			process.stdout.write(`${JSON.stringify({ id, ok: true, output: await execute(request, api) })}\n`);
+		} catch (error) {
+			const normalized = error instanceof Error ? { name: error.name, message: error.message } : { name: "UnknownError", message: String(error) };
+			process.stdout.write(`${JSON.stringify({ id, ok: false, error: normalized })}\n`);
+		}
 	}
-	const events = (await import(pathToFileURL(eventsPath).href)) as EventsApi;
-	const messages = (await import(pathToFileURL(messagesPath).href)) as MessagesApi;
-	const skills = (await import(pathToFileURL(skillsPath).href)) as SkillsApi;
-	const promptTemplates = (await import(pathToFileURL(promptTemplatesPath).href)) as PromptTemplatesApi;
-	const nodeEnv = (await import(pathToFileURL(nodeEnvPath).href)) as NodeExecutionEnvApi;
-	const reducer = (await import(pathToFileURL(reducerPath).href)) as ReducerApi;
-	serveRequests({ events, messages, skills, promptTemplates, nodeEnv, reducer });
 }
 
 void main().catch((error: unknown) => {
-	process.stderr.write(`harness core oracle startup failed: ${normalizeError(error).message}\n`);
+	process.stderr.write(`harness core oracle startup failed: ${String(error)}\n`);
 	process.exitCode = 1;
 });
