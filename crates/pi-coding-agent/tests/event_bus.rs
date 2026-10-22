@@ -110,3 +110,31 @@ fn event_bus_controller_is_an_event_bus() {
     let bus: EventBusController = create_event_bus();
     takes_bus(&bus);
 }
+
+/// `emitter.emit(channel, data)` passes JS strings through unchanged, including lone surrogates.
+#[test]
+fn channel_and_payload_keep_raw_utf16_units() {
+    use pi_js_compat::js_json::{JsString, JsValue};
+    let bus = create_event_bus();
+    let channel = JsString::from("raw:") + JsString::from_utf16(vec![0xd800]);
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&received);
+    let _subscription = bus.on_handler(&channel, move |data: &JsValue| {
+        sink.lock().unwrap().push(data.clone());
+        Err(JsString::from_utf16(vec![0x65, 0xdfff]))
+    });
+    let payload = JsValue::object([("text", JsValue::String(JsString::from_utf16(vec![0xdc00, 0x61])))]);
+
+    assert!(
+        bus.emit(
+            &(JsString::from("raw:") + JsString::from_utf16(vec![0xfffd])),
+            payload.clone()
+        )
+        .is_empty()
+    );
+    let errors = bus.emit(&channel, payload.clone());
+
+    assert_eq!(*received.lock().unwrap(), vec![payload]);
+    assert_eq!(errors[0].channel, channel);
+    assert_eq!(errors[0].message.units(), [0x65, 0xdfff]);
+}
