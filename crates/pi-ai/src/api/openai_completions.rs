@@ -1219,11 +1219,6 @@ pub fn build_params(
         );
     }
 
-    if let Some(sampling_params) = &stream_options.sampling_params {
-        for (key, value) in sampling_params {
-            params.insert(key.clone().into(), value.clone().into());
-        }
-    }
     JsValue::Object(params)
 }
 
