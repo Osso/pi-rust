@@ -1,7 +1,9 @@
 use std::sync::Mutex;
 
-use ignore::gitignore::{Gitignore, GitignoreBuilder};
-use pi_js_compat::locale_compare;
+use pi_js_compat::collator::locale_compare_utf16;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::node_ignore::{Ignore, IgnoreError};
 
 use super::frontmatter::parse_frontmatter;
 use super::types::{ExecutionEnv, FileError, FileErrorCode, FileInfo, FileKind, Skill};
@@ -13,54 +15,45 @@ const IGNORE_FILE_NAMES: [&str; 3] = [".gitignore", ".ignore", ".fdignore"];
 /// Formats one skill invocation with optional additional instructions.
 ///
 /// Skill fields are interpolated without XML escaping.
-pub fn format_skill_invocation(skill: &Skill, additional_instructions: Option<&str>) -> String {
+pub fn format_skill_invocation(skill: &Skill, additional_instructions: Option<&JsString>) -> JsString {
     let dirname = dirname_env_path(&skill.file_path);
-    let skill_block = format!(
+    let skill_block = js_format!(
         "<skill name=\"{}\" location=\"{}\">\nReferences are relative to {}.\n\n{}\n</skill>",
-        skill.name, skill.file_path, dirname, skill.content
+        &skill.name,
+        &skill.file_path,
+        dirname,
+        &skill.content
     );
 
     match additional_instructions {
         Some(instructions) if !instructions.is_empty() => {
-            format!("{skill_block}\n\n{instructions}")
+            js_format!("{}\n\n{}", skill_block, instructions)
         }
         _ => skill_block,
     }
 }
 
-fn dirname_env_path(path: &str) -> String {
-    let normalized = path.trim_end_matches(is_path_separator);
-    let Some((separator_byte_index, separator_utf16_index)) = last_separator(normalized) else {
-        return "/".to_owned();
+fn dirname_env_path(path: &JsString) -> JsString {
+    let end = path
+        .units()
+        .iter()
+        .rposition(|unit| !is_path_separator(*unit))
+        .map_or(0, |index| index + 1);
+    let normalized = path.slice(0, end);
+    let Some(index) = normalized.units().iter().rposition(|unit| is_path_separator(*unit)) else {
+        return "/".into();
     };
-
-    if separator_utf16_index == 2 && second_utf16_unit_is_colon(normalized) {
-        return normalized[..separator_byte_index + 1].to_owned();
+    if index == 2 && normalized.units().get(1) == Some(&0x3a) {
+        return normalized.slice(0, index + 1);
     }
-    if separator_utf16_index == 0 {
-        return "/".to_owned();
+    if index == 0 {
+        return "/".into();
     }
-    normalized[..separator_byte_index].to_owned()
+    normalized.slice(0, index)
 }
 
-fn last_separator(path: &str) -> Option<(usize, usize)> {
-    let mut last = None;
-    let mut utf16_index = 0;
-    for (byte_index, character) in path.char_indices() {
-        if is_path_separator(character) {
-            last = Some((byte_index, utf16_index));
-        }
-        utf16_index += character.len_utf16();
-    }
-    last
-}
-
-fn is_path_separator(character: char) -> bool {
-    character == '/' || character == '\\'
-}
-
-fn second_utf16_unit_is_colon(value: &str) -> bool {
-    value.encode_utf16().nth(1) == Some(':' as u16)
+fn is_path_separator(unit: u16) -> bool {
+    unit == 0x2f || unit == 0x5c
 }
 
 /// Stable diagnostic codes emitted while loading skills.
@@ -106,8 +99,8 @@ impl SkillDiagnosticType {
 pub struct SkillDiagnostic {
     pub r#type: SkillDiagnosticType,
     pub code: SkillDiagnosticCode,
-    pub message: String,
-    pub path: String,
+    pub message: JsString,
+    pub path: JsString,
 }
 
 /// Skills and diagnostics produced by [`load_skills`].
@@ -145,7 +138,7 @@ pub type SkillMapper<'a, TSource> = dyn Fn(&Skill, &TSource) -> Skill + Sync + '
 ///
 /// Traverses directories recursively, loads `SKILL.md` files and direct root `.md` files, honors
 /// `.gitignore`/`.ignore`/`.fdignore` rules, and reports diagnostics for invalid skill files.
-pub async fn load_skills(env: &dyn ExecutionEnv, dirs: &[&str]) -> SkillLoadResult {
+pub async fn load_skills(env: &dyn ExecutionEnv, dirs: &[&JsString]) -> Result<SkillLoadResult, IgnoreError> {
     let mut result = SkillLoadResult::default();
     for dir in dirs {
         let root_info = match env.file_info(dir).await {
@@ -160,11 +153,11 @@ pub async fn load_skills(env: &dyn ExecutionEnv, dirs: &[&str]) -> SkillLoadResu
         }
         let root_dir = root_info.path.clone();
         let mut loader = Loader::new(env, &root_dir);
-        loader.load(&root_dir).await;
+        loader.load(&root_dir).await?;
         result.skills.extend(loader.skills);
         result.diagnostics.extend(loader.diagnostics);
     }
-    result
+    Ok(result)
 }
 
 /// Load skills from source-tagged directories.
@@ -172,13 +165,13 @@ pub async fn load_skills(env: &dyn ExecutionEnv, dirs: &[&str]) -> SkillLoadResu
 /// `map_skill` maps each loaded skill into an application subtype while preserving its source.
 pub async fn load_sourced_skills<TSource: Clone>(
     env: &dyn ExecutionEnv,
-    inputs: &[(String, TSource)],
+    inputs: &[(JsString, TSource)],
     map_skill: Option<&SkillMapper<'_, TSource>>,
-) -> SourcedSkillLoadResult<TSource> {
+) -> Result<SourcedSkillLoadResult<TSource>, IgnoreError> {
     let mut skills = Vec::new();
     let mut diagnostics = Vec::new();
     for (path, source) in inputs {
-        let result = load_skills(env, &[path.as_str()]).await;
+        let result = load_skills(env, &[path]).await?;
         for skill in result.skills {
             let mapped = match map_skill {
                 Some(map) => map(&skill, source),
@@ -196,72 +189,63 @@ pub async fn load_sourced_skills<TSource: Clone>(
             });
         }
     }
-    SourcedSkillLoadResult { skills, diagnostics }
+    Ok(SourcedSkillLoadResult { skills, diagnostics })
 }
 
 /// Gitignore-style matcher accumulating rules from every visited directory.
 pub struct IgnoreMatcher {
-    state: Mutex<IgnoreMatcherState>,
-}
-
-struct IgnoreMatcherState {
-    builder: GitignoreBuilder,
-    compiled: Option<Gitignore>,
+    root_dir: JsString,
+    state: Mutex<Ignore>,
 }
 
 impl IgnoreMatcher {
-    /// Creates a matcher rooted at `root_dir`.
-    pub fn new(root_dir: &str) -> Self {
+    pub fn new(root_dir: impl Into<JsString>) -> Self {
         Self {
-            state: Mutex::new(IgnoreMatcherState {
-                builder: GitignoreBuilder::new(root_dir),
-                compiled: None,
-            }),
+            root_dir: root_dir.into(),
+            state: Mutex::new(Ignore::new()),
         }
     }
 
-    /// Adds gitignore-style patterns accumulated for one visited directory.
-    pub fn add(&self, patterns: &[String]) {
-        let mut state = lock_matcher(&self.state);
+    pub fn add(&self, patterns: &[JsString]) {
+        let mut matcher = self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         for pattern in patterns {
-            let _ = state.builder.add_line(None, pattern);
+            matcher.add(pattern.clone());
         }
-        state.compiled = None;
     }
 
-    /// Matches one path, mirroring the source `ignore().ignores(path)` single-path check.
-    /// Matches one path, mirroring the source `ignore().ignores(path)` single-path check.
-    pub fn ignores(&self, path: &str, is_dir: bool) -> bool {
-        let mut state = lock_matcher(&self.state);
-        if state.compiled.is_none() {
-            state.compiled = state.builder.build().ok();
+    pub fn ignores(&self, path: impl Into<JsString>, is_dir: bool) -> Result<bool, IgnoreError> {
+        let mut relative = relative_env_path(&self.root_dir, &path.into());
+        if is_dir && !relative.ends_with('/') {
+            relative.push_str("/");
         }
-        state
-            .compiled
-            .as_ref()
-            .is_some_and(|matcher| matcher.matched(path, is_dir).is_ignore())
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .ignores(relative)
     }
-}
-
-fn lock_matcher(state: &Mutex<IgnoreMatcherState>) -> std::sync::MutexGuard<'_, IgnoreMatcherState> {
-    state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 struct Loader<'a> {
     env: &'a dyn ExecutionEnv,
-    root_dir: &'a str,
+    root_dir: &'a JsString,
     matcher: IgnoreMatcher,
     skills: Vec<Skill>,
     diagnostics: Vec<SkillDiagnostic>,
 }
 
 enum Action {
-    LoadDir { dir: String, include_root_files: bool },
-    LoadFile { file_path: String, parent_dir_name: String },
+    LoadDir {
+        dir: JsString,
+        include_root_files: bool,
+    },
+    LoadFile {
+        file_path: JsString,
+        parent_dir_name: JsString,
+    },
 }
 
 impl<'a> Loader<'a> {
-    fn new(env: &'a dyn ExecutionEnv, root_dir: &'a str) -> Self {
+    fn new(env: &'a dyn ExecutionEnv, root_dir: &'a JsString) -> Self {
         Self {
             env,
             root_dir,
@@ -271,7 +255,7 @@ impl<'a> Loader<'a> {
         }
     }
 
-    async fn load(&mut self, root: &str) {
+    async fn load(&mut self, root: &JsString) -> Result<(), IgnoreError> {
         let mut actions = vec![Action::LoadDir {
             dir: root.to_owned(),
             include_root_files: true,
@@ -281,7 +265,7 @@ impl<'a> Loader<'a> {
                 Action::LoadDir {
                     dir,
                     include_root_files,
-                } => actions.extend(self.prepare_dir(&dir, include_root_files).await),
+                } => actions.extend(self.prepare_dir(&dir, include_root_files).await?),
                 Action::LoadFile {
                     file_path,
                     parent_dir_name,
@@ -294,19 +278,20 @@ impl<'a> Loader<'a> {
                 }
             }
         }
+        Ok(())
     }
 
     /// Lists one directory and returns its follow-up actions in source order.
-    async fn prepare_dir(&mut self, dir: &str, include_root_files: bool) -> Vec<Action> {
+    async fn prepare_dir(&mut self, dir: &JsString, include_root_files: bool) -> Result<Vec<Action>, IgnoreError> {
         let dir_info = match self.env.file_info(dir).await {
             Ok(info) => info,
             Err(error) => {
                 push_file_info_diagnostic(&mut self.diagnostics, &error, dir);
-                return Vec::new();
+                return Ok(Vec::new());
             }
         };
         if resolve_kind(self.env, &dir_info, &mut self.diagnostics).await != Some(FileKind::Directory) {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         self.add_ignore_rules(dir).await;
 
@@ -319,17 +304,21 @@ impl<'a> Loader<'a> {
                     message: error.message,
                     path: dir.to_owned(),
                 });
-                return Vec::new();
+                return Ok(Vec::new());
             }
         };
 
-        if let Some(action) = self.skill_file_action(&entries, &dir_info.name).await {
-            return vec![action];
+        if let Some(action) = self.skill_file_action(&entries, &dir_info.name).await? {
+            return Ok(vec![action]);
         }
         self.child_actions(entries, &dir_info.name, include_root_files).await
     }
 
-    async fn skill_file_action(&mut self, entries: &[FileInfo], parent_dir_name: &str) -> Option<Action> {
+    async fn skill_file_action(
+        &mut self,
+        entries: &[FileInfo],
+        parent_dir_name: &JsString,
+    ) -> Result<Option<Action>, IgnoreError> {
         for entry in entries {
             if entry.name != "SKILL.md" {
                 continue;
@@ -337,25 +326,25 @@ impl<'a> Loader<'a> {
             if resolve_kind(self.env, entry, &mut self.diagnostics).await != Some(FileKind::File) {
                 continue;
             }
-            if self.matcher.ignores(&entry.path, false) {
+            if self.matcher.ignores(&entry.path, false)? {
                 continue;
             }
-            return Some(Action::LoadFile {
+            return Ok(Some(Action::LoadFile {
                 file_path: entry.path.clone(),
                 parent_dir_name: parent_dir_name.to_owned(),
-            });
+            }));
         }
-        None
+        Ok(None)
     }
 
     async fn child_actions(
         &mut self,
         entries: Vec<FileInfo>,
-        parent_dir_name: &str,
+        parent_dir_name: &JsString,
         include_root_files: bool,
-    ) -> Vec<Action> {
+    ) -> Result<Vec<Action>, IgnoreError> {
         let mut sorted = entries;
-        sorted.sort_by(|left, right| locale_compare(&left.name, &right.name));
+        sorted.sort_by(|left, right| locale_compare_utf16(left.name.units(), right.name.units()));
 
         let mut actions = Vec::new();
         for entry in sorted {
@@ -365,7 +354,7 @@ impl<'a> Loader<'a> {
             let Some(kind) = resolve_kind(self.env, &entry, &mut self.diagnostics).await else {
                 continue;
             };
-            if self.matcher.ignores(&entry.path, kind == FileKind::Directory) {
+            if self.matcher.ignores(&entry.path, kind == FileKind::Directory)? {
                 continue;
             }
             if kind == FileKind::Directory {
@@ -384,19 +373,19 @@ impl<'a> Loader<'a> {
             });
         }
         actions.reverse();
-        actions
+        Ok(actions)
     }
 
-    async fn add_ignore_rules(&mut self, dir: &str) {
+    async fn add_ignore_rules(&mut self, dir: &JsString) {
         let relative_dir = relative_env_path(self.root_dir, dir);
         let prefix = if relative_dir.is_empty() {
-            String::new()
+            JsString::default()
         } else {
-            format!("{relative_dir}/")
+            relative_dir + "/"
         };
 
         for filename in IGNORE_FILE_NAMES {
-            let parts = [dir.to_owned(), filename.to_owned()];
+            let parts = [dir.to_owned(), JsString::from(filename)];
             let ignore_path = match self.env.join_path(&parts, None).await {
                 Ok(path) => path,
                 Err(error) => {
@@ -426,7 +415,7 @@ impl<'a> Loader<'a> {
                     continue;
                 }
             };
-            let patterns: Vec<String> = content
+            let patterns: Vec<JsString> = content
                 .split('\n')
                 .filter_map(|line| prefix_ignore_pattern(line, &prefix))
                 .collect();
@@ -436,7 +425,11 @@ impl<'a> Loader<'a> {
         }
     }
 
-    async fn load_skill_file(&self, file_path: &str, parent_dir_name: &str) -> (Option<Skill>, Vec<SkillDiagnostic>) {
+    async fn load_skill_file(
+        &self,
+        file_path: &JsString,
+        parent_dir_name: &JsString,
+    ) -> (Option<Skill>, Vec<SkillDiagnostic>) {
         let mut diagnostics = Vec::new();
         let content = match self.env.read_text_file(file_path, None).await {
             Ok(content) => content,
@@ -456,7 +449,7 @@ impl<'a> Loader<'a> {
                 diagnostics.push(SkillDiagnostic {
                     r#type: SkillDiagnosticType::Warning,
                     code: SkillDiagnosticCode::ParseFailed,
-                    message: error.message().to_owned(),
+                    message: error.message().into(),
                     path: file_path.to_owned(),
                 });
                 return (None, diagnostics);
@@ -471,8 +464,9 @@ impl<'a> Loader<'a> {
             .get("name")
             .and_then(|value| value.as_str())
             .filter(|name| !name.is_empty())
-            .unwrap_or(parent_dir_name);
-        for error in validate_name(name, parent_dir_name) {
+            .map(JsString::from)
+            .unwrap_or_else(|| parent_dir_name.clone());
+        for error in validate_name(&name, parent_dir_name) {
             diagnostics.push(invalid_metadata(&error, file_path));
         }
         let Some(description) = description.filter(|description| !description.trim().is_empty()) else {
@@ -481,7 +475,7 @@ impl<'a> Loader<'a> {
 
         (
             Some(Skill {
-                name: name.to_owned(),
+                name,
                 description: description.to_owned(),
                 content: parsed.body,
                 file_path: file_path.to_owned(),
@@ -494,7 +488,7 @@ impl<'a> Loader<'a> {
     }
 }
 
-fn push_file_info_diagnostic(diagnostics: &mut Vec<SkillDiagnostic>, error: &FileError, path: &str) {
+fn push_file_info_diagnostic(diagnostics: &mut Vec<SkillDiagnostic>, error: &FileError, path: &JsString) {
     if error.code == FileErrorCode::NotFound {
         return;
     }
@@ -506,11 +500,11 @@ fn push_file_info_diagnostic(diagnostics: &mut Vec<SkillDiagnostic>, error: &Fil
     });
 }
 
-fn invalid_metadata(message: &str, path: &str) -> SkillDiagnostic {
+fn invalid_metadata(message: impl Into<JsString>, path: &JsString) -> SkillDiagnostic {
     SkillDiagnostic {
         r#type: SkillDiagnosticType::Warning,
         code: SkillDiagnosticCode::InvalidMetadata,
-        message: message.to_owned(),
+        message: message.into(),
         path: path.to_owned(),
     }
 }
@@ -543,12 +537,11 @@ async fn resolve_kind(
     }
 }
 
-fn prefix_ignore_pattern(line: &str, prefix: &str) -> Option<String> {
+fn prefix_ignore_pattern(line: &str, prefix: &JsString) -> Option<JsString> {
     let trimmed = line.trim();
     if trimmed.is_empty() || (trimmed.starts_with('#') && !trimmed.starts_with("\\#")) {
         return None;
     }
-
     let mut pattern = line;
     let mut negated = false;
     if let Some(rest) = pattern.strip_prefix('!') {
@@ -560,39 +553,41 @@ fn prefix_ignore_pattern(line: &str, prefix: &str) -> Option<String> {
     if let Some(rest) = pattern.strip_prefix('/') {
         pattern = rest;
     }
-    let prefixed = if prefix.is_empty() {
-        pattern.to_owned()
+    let prefixed = prefix.clone() + pattern;
+    Some(if negated {
+        JsString::from("!") + prefixed
     } else {
-        format!("{prefix}{pattern}")
-    };
-    Some(if negated { format!("!{prefixed}") } else { prefixed })
+        prefixed
+    })
 }
 
-fn validate_name(name: &str, parent_dir_name: &str) -> Vec<String> {
+fn validate_name(name: &JsString, parent_dir_name: &JsString) -> Vec<JsString> {
     let mut errors = Vec::new();
     if name != parent_dir_name {
-        errors.push(format!(
-            "name \"{name}\" does not match parent directory \"{parent_dir_name}\""
+        errors.push(js_format!(
+            "name \"{}\" does not match parent directory \"{}\"",
+            name,
+            parent_dir_name
         ));
     }
-    let length = name.encode_utf16().count();
+    let length = name.len();
     if length > MAX_NAME_LENGTH {
-        errors.push(format!("name exceeds {MAX_NAME_LENGTH} characters ({length})"));
+        errors.push(format!("name exceeds {MAX_NAME_LENGTH} characters ({length})").into());
     }
-    if !name.chars().all(is_name_character) {
-        errors.push("name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)".to_owned());
+    if !name
+        .units()
+        .iter()
+        .all(|unit| matches!(*unit, 0x61..=0x7a | 0x30..=0x39 | 0x2d))
+    {
+        errors.push("name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)".into());
     }
     if name.starts_with('-') || name.ends_with('-') {
-        errors.push("name must not start or end with a hyphen".to_owned());
+        errors.push("name must not start or end with a hyphen".into());
     }
     if name.contains("--") {
-        errors.push("name must not contain consecutive hyphens".to_owned());
+        errors.push("name must not contain consecutive hyphens".into());
     }
     errors
-}
-
-fn is_name_character(character: char) -> bool {
-    character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
 }
 
 fn validate_description(description: Option<&str>) -> Vec<String> {
@@ -612,16 +607,29 @@ fn validate_description(description: Option<&str>) -> Vec<String> {
     errors
 }
 
-fn relative_env_path(root: &str, path: &str) -> String {
-    let normalized_root = root.replace('\\', "/");
-    let normalized_root = normalized_root.trim_end_matches('/');
-    let normalized_path = path.replace('\\', "/");
-    let normalized_path = normalized_path.trim_end_matches('/');
-    if normalized_path == normalized_root {
-        return String::new();
+fn relative_env_path(root: &JsString, path: &JsString) -> JsString {
+    let root = root.replace('\\', "/");
+    let path = path.replace('\\', "/");
+    let root_end = root
+        .units()
+        .iter()
+        .rposition(|unit| *unit != 0x2f)
+        .map_or(0, |index| index + 1);
+    let path_end = path
+        .units()
+        .iter()
+        .rposition(|unit| *unit != 0x2f)
+        .map_or(0, |index| index + 1);
+    let root = root.slice(0, root_end);
+    let path = path.slice(0, path_end);
+    if path == root {
+        return JsString::default();
     }
-    match normalized_path.strip_prefix(normalized_root) {
-        Some(rest) if rest.starts_with('/') => rest[1..].to_owned(),
-        _ => normalized_path.trim_start_matches('/').to_owned(),
+    if let Some(rest) = path.strip_prefix(&root)
+        && rest.starts_with('/')
+    {
+        return rest.slice(1, rest.len());
     }
+    let start = path.units().iter().position(|unit| *unit != 0x2f).unwrap_or(path.len());
+    path.slice(start, path.len())
 }

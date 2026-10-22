@@ -12,6 +12,41 @@ use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
 #[tokio::test]
+async fn ts_created_raw_loader_paths_keep_names_locations_and_diagnostics_native() {
+    use pi_agent_core::harness::prompt_templates::load_prompt_templates;
+    use pi_agent_core::harness::skills::load_skills;
+    use pi_agent_core::harness::system_prompt::format_skills_for_system_prompt;
+    let root = tempfile::tempdir().unwrap();
+    let mut oracle = oracle::TsOracle::spawn(
+        "harness-raw-path-oracle.ts",
+        "packages/ai/src/utils/sanitize-unicode.ts",
+    );
+    let reference = oracle.request_lossless(&pi_js_compat::js_json!({"root": root.path().to_str().unwrap()}));
+    let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
+        cwd: root.path().to_str().unwrap().into(),
+        ..Default::default()
+    });
+    let prompts = load_prompt_templates(&env, &[reference["prompt"].as_string().unwrap()]).await;
+    assert!(prompts.prompt_templates[0].name.units().contains(&0xd800));
+    let skills = load_skills(&env, &[reference["skillRoot"].as_string().unwrap()])
+        .await
+        .unwrap();
+    assert!(skills.skills[0].name.units().contains(&0xdfff));
+    assert!(skills.skills[0].file_path.units().contains(&0xdfff));
+    assert!(
+        skills
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.path.units().contains(&0xdfff))
+    );
+    assert!(
+        format_skills_for_system_prompt(&skills.skills)
+            .units()
+            .contains(&0xdfff)
+    );
+}
+
+#[tokio::test]
 async fn ts_raw_path_stays_native_through_read_variants_env_and_tool() {
     let root = tempfile::tempdir().unwrap();
     let mut oracle = oracle::TsOracle::spawn(

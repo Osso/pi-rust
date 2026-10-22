@@ -1,9 +1,9 @@
 //! Port of `packages/agent/src/harness/session/jsonl/types.ts` plus the
 //! filesystem capability subset required by the JSONL backend.
 
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
 
 use pi_ai::request::BoxFuture;
 use pi_ai::types::JsonObject;
@@ -15,29 +15,33 @@ use crate::harness::types::{FileError, FileErrorCode, FileInfo, FileKind};
 
 /// Filesystem operations used by the JSONL session backend.
 pub trait JsonlSessionRepoFileSystem: Send + Sync {
-    fn absolute_path<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Result<String, FileError>>;
-    fn join_path<'a>(&'a self, parts: &'a [String]) -> BoxFuture<'a, Result<String, FileError>>;
-    fn read_text_file<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Result<String, FileError>>;
+    fn absolute_path<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<JsString, FileError>>;
+    fn join_path<'a>(&'a self, parts: &'a [JsString]) -> BoxFuture<'a, Result<JsString, FileError>>;
+    fn read_text_file<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<String, FileError>>;
     fn read_text_lines<'a>(
         &'a self,
-        path: &'a str,
+        path: &'a JsString,
         max_lines: Option<usize>,
     ) -> BoxFuture<'a, Result<Vec<String>, FileError>>;
-    fn write_file<'a>(&'a self, path: &'a str, content: &'a str) -> BoxFuture<'a, Result<(), FileError>>;
-    fn append_file<'a>(&'a self, path: &'a str, content: &'a str) -> BoxFuture<'a, Result<(), FileError>>;
-    fn rename_file<'a>(&'a self, source: &'a str, destination: &'a str) -> BoxFuture<'a, Result<(), FileError>>;
-    fn file_info<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Result<FileInfo, FileError>>;
-    fn list_dir<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Result<Vec<FileInfo>, FileError>>;
-    fn exists<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Result<bool, FileError>>;
-    fn create_dir<'a>(&'a self, path: &'a str, recursive: bool) -> BoxFuture<'a, Result<(), FileError>>;
-    fn remove<'a>(&'a self, path: &'a str, recursive: bool, force: bool) -> BoxFuture<'a, Result<(), FileError>>;
+    fn write_file<'a>(&'a self, path: &'a JsString, content: &'a str) -> BoxFuture<'a, Result<(), FileError>>;
+    fn append_file<'a>(&'a self, path: &'a JsString, content: &'a str) -> BoxFuture<'a, Result<(), FileError>>;
+    fn rename_file<'a>(
+        &'a self,
+        source: &'a JsString,
+        destination: &'a JsString,
+    ) -> BoxFuture<'a, Result<(), FileError>>;
+    fn file_info<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<FileInfo, FileError>>;
+    fn list_dir<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<Vec<FileInfo>, FileError>>;
+    fn exists<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<bool, FileError>>;
+    fn create_dir<'a>(&'a self, path: &'a JsString, recursive: bool) -> BoxFuture<'a, Result<(), FileError>>;
+    fn remove<'a>(&'a self, path: &'a JsString, recursive: bool, force: bool) -> BoxFuture<'a, Result<(), FileError>>;
 }
 
 /// JSONL repository options.
 #[derive(Clone)]
 pub struct JsonlSessionRepoOptions {
     pub fs: std::sync::Arc<dyn JsonlSessionRepoFileSystem>,
-    pub sessions_root: String,
+    pub sessions_root: JsString,
 }
 
 /// Session metadata projected from a JSONL header plus filesystem state.
@@ -46,15 +50,15 @@ pub struct JsonlSessionRepoOptions {
 pub struct JsonlSessionMetadata {
     pub id: String,
     pub created_at: i64,
-    pub cwd: String,
-    pub path: String,
+    pub cwd: JsString,
+    pub path: JsString,
     #[serde(serialize_with = "js_number::serialize")]
     pub modified_at: f64,
     pub source_format: u8,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub legacy_parent_session_path: Option<String>,
+    pub legacy_parent_session_path: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<JsonObject>,
 }
@@ -70,7 +74,7 @@ impl crate::harness::session::types::SessionMetadataValue for JsonlSessionMetada
 pub struct JsonlSessionCreateOptions {
     pub id: Option<String>,
     pub parent_session_id: Option<String>,
-    pub cwd: String,
+    pub cwd: JsString,
     pub metadata: Option<JsonObject>,
 }
 
@@ -86,7 +90,7 @@ impl JsonlSessionCreateOptions {
 /// JSONL list options.
 #[derive(Debug, Clone, Default)]
 pub struct JsonlSessionListOptions {
-    pub cwd: Option<String>,
+    pub cwd: Option<JsString>,
 }
 
 /// Version 4 session header.
@@ -97,11 +101,11 @@ pub struct JsonlV4Header {
     pub version: u8,
     pub id: String,
     pub created_at: i64,
-    pub cwd: String,
+    pub cwd: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub legacy_parent_session_path: Option<String>,
+    pub legacy_parent_session_path: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<JsonObject>,
 }
@@ -116,62 +120,66 @@ pub enum HeaderKind {
 /// Native filesystem adapter used by tests and Rust-only callers.
 #[derive(Debug, Clone)]
 pub struct NativeFileSystem {
-    cwd: PathBuf,
+    cwd: JsString,
 }
 
 impl NativeFileSystem {
-    pub fn new(cwd: impl Into<PathBuf>) -> Self {
+    pub fn new(cwd: impl Into<JsString>) -> Self {
         Self { cwd: cwd.into() }
     }
-
-    pub fn cwd(&self) -> &Path {
+    pub fn cwd(&self) -> &JsString {
         &self.cwd
     }
-
-    fn resolve(&self, path: &str) -> PathBuf {
+    fn resolve(&self, path: &JsString) -> JsString {
         let expanded = expand_home(path);
-        let candidate = Path::new(&expanded);
-        if candidate.is_absolute() {
-            normalize(candidate)
+        let joined = if expanded.starts_with('/') {
+            expanded
         } else {
-            normalize(&self.cwd.join(candidate))
-        }
+            self.cwd.clone() + "/" + expanded
+        };
+        normalize(&joined)
     }
-
-    fn info(&self, path: &str) -> Result<FileInfo, FileError> {
-        let resolved = self.resolve(path);
-        file_info_from_path(&resolved)
+    fn info(&self, path: &JsString) -> Result<FileInfo, FileError> {
+        file_info_from_path(&self.resolve(path))
     }
 }
 
-fn expand_home(path: &str) -> String {
+fn expand_home(path: &JsString) -> JsString {
+    let Some(home) = pi_js_compat::process_env::get("HOME") else {
+        return path.clone();
+    };
     if path == "~" {
-        return pi_js_compat::process_env::get("HOME").unwrap_or_else(|| path.to_owned());
+        return home.into();
     }
     match path.strip_prefix("~/") {
-        Some(rest) => match pi_js_compat::process_env::get("HOME") {
-            Some(home) => format!("{home}/{rest}"),
-            None => path.to_owned(),
-        },
-        None => path.to_owned(),
+        Some(rest) => JsString::from(home) + "/" + rest,
+        None => path.clone(),
     }
 }
 
-fn normalize(path: &Path) -> PathBuf {
-    let mut parts: Vec<std::ffi::OsString> = Vec::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                parts.pop();
-            }
-            std::path::Component::CurDir => {}
-            other => parts.push(other.as_os_str().to_owned()),
+fn normalize(path: &JsString) -> JsString {
+    let mut parts = Vec::new();
+    for part in path.split('/') {
+        if part == ".." {
+            parts.pop();
+        } else if !part.is_empty() && part != "." {
+            parts.push(part);
         }
     }
-    parts.iter().collect()
+    let joined = JsString::join(parts, "/");
+    if path.starts_with('/') {
+        JsString::from("/") + joined
+    } else {
+        joined
+    }
 }
 
-fn file_kind(metadata: &fs::Metadata, path: &Path) -> Result<FileKind, FileError> {
+fn parent_path(path: &JsString) -> Option<JsString> {
+    let index = path.units().iter().rposition(|unit| *unit == 0x2f)?;
+    (path != "/").then(|| path.slice(0, index.max(1)))
+}
+
+fn file_kind(metadata: &fs::Metadata, path: &JsString) -> Result<FileKind, FileError> {
     let file_type = metadata.file_type();
     if file_type.is_symlink() {
         return Ok(FileKind::Symlink);
@@ -185,13 +193,13 @@ fn file_kind(metadata: &fs::Metadata, path: &Path) -> Result<FileKind, FileError
     Err(FileError::new(
         FileErrorCode::Invalid,
         "Unsupported file type",
-        Some(path.to_string_lossy().into_owned()),
+        Some(path.clone()),
         None,
     ))
 }
 
-fn file_info_from_path(path: &Path) -> Result<FileInfo, FileError> {
-    let metadata = fs::symlink_metadata(path).map_err(|error| file_error(&error, path))?;
+fn file_info_from_path(path: &JsString) -> Result<FileInfo, FileError> {
+    let metadata = fs::symlink_metadata(encode_node_utf8(path)).map_err(|error| file_error(&error, path))?;
     let kind = file_kind(&metadata, path)?;
     let mtime_ms = metadata
         .modified()
@@ -200,18 +208,15 @@ fn file_info_from_path(path: &Path) -> Result<FileInfo, FileError> {
         .map(|duration| duration.as_secs_f64() * 1000.0)
         .unwrap_or(0.0);
     Ok(FileInfo {
-        name: path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default(),
-        path: path.to_string_lossy().into_owned(),
+        name: path.split('/').last().unwrap_or_default(),
+        path: path.clone(),
         kind,
         size: metadata.len() as f64,
         mtime_ms,
     })
 }
 
-fn file_error(error: &std::io::Error, path: &Path) -> FileError {
+fn file_error(error: &std::io::Error, path: &JsString) -> FileError {
     let code = match error.kind() {
         std::io::ErrorKind::NotFound => FileErrorCode::NotFound,
         std::io::ErrorKind::PermissionDenied => FileErrorCode::PermissionDenied,
@@ -221,35 +226,42 @@ fn file_error(error: &std::io::Error, path: &Path) -> FileError {
         std::io::ErrorKind::Unsupported => FileErrorCode::NotSupported,
         _ => FileErrorCode::Unknown,
     };
-    FileError::new(code, error.to_string(), Some(path.to_string_lossy().into_owned()), None)
+    FileError::new(code, error.to_string(), Some(path.clone()), None)
 }
 
 impl JsonlSessionRepoFileSystem for NativeFileSystem {
-    fn absolute_path<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Result<String, FileError>> {
-        Box::pin(async move { Ok(self.resolve(path).to_string_lossy().into_owned()) })
+    fn absolute_path<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<JsString, FileError>> {
+        Box::pin(async move { Ok(self.resolve(path)) })
     }
 
-    fn join_path<'a>(&'a self, parts: &'a [String]) -> BoxFuture<'a, Result<String, FileError>> {
+    fn join_path<'a>(&'a self, parts: &'a [JsString]) -> BoxFuture<'a, Result<JsString, FileError>> {
         Box::pin(async move {
-            let mut joined = PathBuf::new();
+            let mut joined = JsString::default();
             for part in parts {
-                joined.push(part);
+                if part.starts_with('/') {
+                    joined = part.clone();
+                } else if !part.is_empty() {
+                    if !joined.is_empty() {
+                        joined.push_str("/");
+                    }
+                    joined.push_str(part);
+                }
             }
-            Ok(normalize(&joined).to_string_lossy().into_owned())
+            Ok(normalize(&joined))
         })
     }
 
-    fn read_text_file<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Result<String, FileError>> {
+    fn read_text_file<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<String, FileError>> {
         Box::pin(async move {
             let resolved = self.resolve(path);
-            let bytes = fs::read(&resolved).map_err(|error| file_error(&error, &resolved))?;
+            let bytes = fs::read(&encode_node_utf8(&resolved)).map_err(|error| file_error(&error, &resolved))?;
             Ok(String::from_utf8_lossy(&bytes).into_owned())
         })
     }
 
     fn read_text_lines<'a>(
         &'a self,
-        path: &'a str,
+        path: &'a JsString,
         max_lines: Option<usize>,
     ) -> BoxFuture<'a, Result<Vec<String>, FileError>> {
         Box::pin(async move {
@@ -271,52 +283,58 @@ impl JsonlSessionRepoFileSystem for NativeFileSystem {
         })
     }
 
-    fn write_file<'a>(&'a self, path: &'a str, content: &'a str) -> BoxFuture<'a, Result<(), FileError>> {
+    fn write_file<'a>(&'a self, path: &'a JsString, content: &'a str) -> BoxFuture<'a, Result<(), FileError>> {
         Box::pin(async move {
             let resolved = self.resolve(path);
-            if let Some(parent) = resolved.parent() {
-                fs::create_dir_all(parent).map_err(|error| file_error(&error, parent))?;
+            if let Some(parent) = parent_path(&resolved) {
+                fs::create_dir_all(encode_node_utf8(&parent)).map_err(|error| file_error(&error, &parent))?;
             }
-            fs::write(&resolved, content).map_err(|error| file_error(&error, &resolved))
+            fs::write(&encode_node_utf8(&resolved), content).map_err(|error| file_error(&error, &resolved))
         })
     }
 
-    fn append_file<'a>(&'a self, path: &'a str, content: &'a str) -> BoxFuture<'a, Result<(), FileError>> {
+    fn append_file<'a>(&'a self, path: &'a JsString, content: &'a str) -> BoxFuture<'a, Result<(), FileError>> {
         Box::pin(async move {
             let resolved = self.resolve(path);
-            if let Some(parent) = resolved.parent() {
-                fs::create_dir_all(parent).map_err(|error| file_error(&error, parent))?;
+            if let Some(parent) = parent_path(&resolved) {
+                fs::create_dir_all(encode_node_utf8(&parent)).map_err(|error| file_error(&error, &parent))?;
             }
             let mut file = fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(&resolved)
+                .open(encode_node_utf8(&resolved))
                 .map_err(|error| file_error(&error, &resolved))?;
             file.write_all(content.as_bytes())
                 .map_err(|error| file_error(&error, &resolved))
         })
     }
 
-    fn rename_file<'a>(&'a self, source: &'a str, destination: &'a str) -> BoxFuture<'a, Result<(), FileError>> {
+    fn rename_file<'a>(
+        &'a self,
+        source: &'a JsString,
+        destination: &'a JsString,
+    ) -> BoxFuture<'a, Result<(), FileError>> {
         Box::pin(async move {
             let source = self.resolve(source);
             let destination = self.resolve(destination);
-            fs::rename(&source, &destination).map_err(|error| file_error(&error, &source))
+            fs::rename(encode_node_utf8(&source), encode_node_utf8(&destination))
+                .map_err(|error| file_error(&error, &source))
         })
     }
 
-    fn file_info<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Result<FileInfo, FileError>> {
+    fn file_info<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<FileInfo, FileError>> {
         Box::pin(async move { self.info(path) })
     }
 
-    fn list_dir<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Result<Vec<FileInfo>, FileError>> {
+    fn list_dir<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<Vec<FileInfo>, FileError>> {
         Box::pin(async move {
             let resolved = self.resolve(path);
-            let entries = fs::read_dir(&resolved).map_err(|error| file_error(&error, &resolved))?;
+            let entries = fs::read_dir(&encode_node_utf8(&resolved)).map_err(|error| file_error(&error, &resolved))?;
             let mut infos = Vec::new();
             for entry in entries {
                 let entry = entry.map_err(|error| file_error(&error, &resolved))?;
-                let entry_path = resolved.join(entry.file_name());
+                let entry_path =
+                    normalize(&(resolved.clone() + "/" + entry.file_name().to_string_lossy().into_owned()));
                 let info = file_info_from_path(&entry_path)?;
                 infos.push(info);
             }
@@ -324,7 +342,7 @@ impl JsonlSessionRepoFileSystem for NativeFileSystem {
         })
     }
 
-    fn exists<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Result<bool, FileError>> {
+    fn exists<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<bool, FileError>> {
         Box::pin(async move {
             match self.info(path) {
                 Ok(_) => Ok(true),
@@ -334,25 +352,25 @@ impl JsonlSessionRepoFileSystem for NativeFileSystem {
         })
     }
 
-    fn create_dir<'a>(&'a self, path: &'a str, recursive: bool) -> BoxFuture<'a, Result<(), FileError>> {
+    fn create_dir<'a>(&'a self, path: &'a JsString, recursive: bool) -> BoxFuture<'a, Result<(), FileError>> {
         Box::pin(async move {
             let resolved = self.resolve(path);
             let result = if recursive {
-                fs::create_dir_all(&resolved)
+                fs::create_dir_all(&encode_node_utf8(&resolved))
             } else {
-                fs::create_dir(&resolved)
+                fs::create_dir(&encode_node_utf8(&resolved))
             };
             result.map_err(|error| file_error(&error, &resolved))
         })
     }
 
-    fn remove<'a>(&'a self, path: &'a str, recursive: bool, force: bool) -> BoxFuture<'a, Result<(), FileError>> {
+    fn remove<'a>(&'a self, path: &'a JsString, recursive: bool, force: bool) -> BoxFuture<'a, Result<(), FileError>> {
         Box::pin(async move {
             let resolved = self.resolve(path);
             let result = if recursive {
-                fs::remove_dir_all(&resolved)
+                fs::remove_dir_all(&encode_node_utf8(&resolved))
             } else {
-                fs::remove_file(&resolved)
+                fs::remove_file(&encode_node_utf8(&resolved))
             };
             match result {
                 Ok(()) => Ok(()),

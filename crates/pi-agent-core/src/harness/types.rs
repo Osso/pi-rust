@@ -17,17 +17,17 @@ use crate::agent::{AgentToolResult, AgentToolUpdateCallback, ToolError};
 /// Skill loaded from a `SKILL.md` file or provided by an application.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Skill {
-    pub name: String,
+    pub name: JsString,
     pub description: String,
     pub content: String,
-    pub file_path: String,
+    pub file_path: JsString,
     pub disable_model_invocation: Option<bool>,
 }
 
 /// Prompt template that can be formatted into a prompt for explicit invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PromptTemplate {
-    pub name: String,
+    pub name: JsString,
     pub description: Option<String>,
     pub content: String,
 }

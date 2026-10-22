@@ -1,6 +1,7 @@
 use super::frontmatter::parse_frontmatter;
 use super::types::{ExecutionEnv, FileError, FileErrorCode, FileInfo, FileKind, PromptTemplate};
-use pi_js_compat::locale_compare;
+use pi_js_compat::collator::locale_compare_utf16;
+use pi_js_compat::js_json::JsString;
 
 /// Stable diagnostic codes emitted while loading prompt templates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,8 +44,8 @@ impl PromptTemplateDiagnosticType {
 pub struct PromptTemplateDiagnostic {
     pub r#type: PromptTemplateDiagnosticType,
     pub code: PromptTemplateDiagnosticCode,
-    pub message: String,
-    pub path: String,
+    pub message: JsString,
+    pub path: JsString,
 }
 
 /// Prompt templates and diagnostics produced by [`load_prompt_templates`].
@@ -83,7 +84,7 @@ pub type PromptTemplateMapper<'a, TSource> = dyn Fn(&PromptTemplate, &TSource) -
 /// Directory inputs load direct `.md` children non-recursively; file inputs load explicit `.md`
 /// files. Missing paths and non-markdown files are skipped; read and parse failures become
 /// diagnostics.
-pub async fn load_prompt_templates(env: &dyn ExecutionEnv, paths: &[&str]) -> PromptTemplateLoadResult {
+pub async fn load_prompt_templates(env: &dyn ExecutionEnv, paths: &[&JsString]) -> PromptTemplateLoadResult {
     let mut result = PromptTemplateLoadResult::default();
     for path in paths {
         let info = match env.file_info(path).await {
@@ -118,13 +119,13 @@ pub async fn load_prompt_templates(env: &dyn ExecutionEnv, paths: &[&str]) -> Pr
 /// its source.
 pub async fn load_sourced_prompt_templates<TSource: Clone>(
     env: &dyn ExecutionEnv,
-    inputs: &[(String, TSource)],
+    inputs: &[(JsString, TSource)],
     map_prompt_template: Option<&PromptTemplateMapper<'_, TSource>>,
 ) -> SourcedPromptTemplateLoadResult<TSource> {
     let mut prompt_templates = Vec::new();
     let mut diagnostics = Vec::new();
     for (path, source) in inputs {
-        let result = load_prompt_templates(env, &[path.as_str()]).await;
+        let result = load_prompt_templates(env, &[path]).await;
         for prompt_template in result.prompt_templates {
             let mapped = match map_prompt_template {
                 Some(map) => map(&prompt_template, source),
@@ -148,7 +149,7 @@ pub async fn load_sourced_prompt_templates<TSource: Clone>(
     }
 }
 
-async fn load_templates_from_dir(env: &dyn ExecutionEnv, dir: &str) -> PromptTemplateLoadResult {
+async fn load_templates_from_dir(env: &dyn ExecutionEnv, dir: &JsString) -> PromptTemplateLoadResult {
     let mut result = PromptTemplateLoadResult::default();
     let entries = match env.list_dir(dir, None).await {
         Ok(entries) => entries,
@@ -164,7 +165,7 @@ async fn load_templates_from_dir(env: &dyn ExecutionEnv, dir: &str) -> PromptTem
     };
 
     let mut sorted = entries;
-    sorted.sort_by(|left, right| locale_compare(&left.name, &right.name));
+    sorted.sort_by(|left, right| locale_compare_utf16(left.name.units(), right.name.units()));
     for entry in sorted {
         if resolve_kind(env, &entry, &mut result.diagnostics).await != Some(FileKind::File)
             || !entry.name.ends_with(".md")
@@ -182,8 +183,8 @@ async fn load_templates_from_dir(env: &dyn ExecutionEnv, dir: &str) -> PromptTem
 
 async fn load_template_from_file(
     env: &dyn ExecutionEnv,
-    file_path: &str,
-    file_name: &str,
+    file_path: &JsString,
+    file_name: &JsString,
 ) -> (Option<PromptTemplate>, Vec<PromptTemplateDiagnostic>) {
     let mut diagnostics = Vec::new();
     let content = match env.read_text_file(file_path, None).await {
@@ -204,7 +205,7 @@ async fn load_template_from_file(
             diagnostics.push(PromptTemplateDiagnostic {
                 r#type: PromptTemplateDiagnosticType::Warning,
                 code: PromptTemplateDiagnosticCode::ParseFailed,
-                message: error.message().to_owned(),
+                message: error.message().into(),
                 path: file_path.to_owned(),
             });
             return (None, diagnostics);
@@ -236,15 +237,12 @@ async fn load_template_from_file(
     )
 }
 
-fn strip_markdown_extension(file_name: &str) -> String {
+fn strip_markdown_extension(file_name: &JsString) -> JsString {
     let suffix_start = file_name.len().saturating_sub(3);
-    if file_name.len() >= 3
-        && file_name.is_char_boundary(suffix_start)
-        && file_name[suffix_start..].eq_ignore_ascii_case(".md")
-    {
-        return file_name[..suffix_start].to_owned();
+    if file_name.len() >= 3 && file_name.slice(suffix_start, file_name.len()).to_lowercase() == ".md" {
+        return file_name.slice(0, suffix_start);
     }
-    file_name.to_owned()
+    file_name.clone()
 }
 
 /// `String.prototype.slice(0, length)` over UTF-16 code units.
@@ -280,7 +278,7 @@ async fn resolve_kind(
     }
 }
 
-fn push_file_info_diagnostic(diagnostics: &mut Vec<PromptTemplateDiagnostic>, error: &FileError, path: &str) {
+fn push_file_info_diagnostic(diagnostics: &mut Vec<PromptTemplateDiagnostic>, error: &FileError, path: &JsString) {
     if error.code == FileErrorCode::NotFound {
         return;
     }

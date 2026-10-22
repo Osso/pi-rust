@@ -817,8 +817,8 @@ impl SessionErrorCode {
 pub enum SessionErrorCause {
     File {
         code: crate::harness::types::FileErrorCode,
-        message: String,
-        path: Option<String>,
+        message: JsString,
+        path: Option<JsString>,
     },
     Decode {
         kind: JsonlDecodeKind,
@@ -831,12 +831,12 @@ pub enum SessionErrorCause {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionError {
     code: SessionErrorCode,
-    message: String,
+    message: JsString,
     cause: Option<SessionErrorCause>,
 }
 
 impl SessionError {
-    pub fn new(code: SessionErrorCode, message: impl Into<String>) -> Self {
+    pub fn new(code: SessionErrorCode, message: impl Into<JsString>) -> Self {
         Self {
             code,
             message: message.into(),
@@ -844,7 +844,7 @@ impl SessionError {
         }
     }
 
-    pub fn with_cause(code: SessionErrorCode, message: impl Into<String>, cause: SessionErrorCause) -> Self {
+    pub fn with_cause(code: SessionErrorCode, message: impl Into<JsString>, cause: SessionErrorCause) -> Self {
         Self {
             code,
             message: message.into(),
@@ -856,7 +856,7 @@ impl SessionError {
         self.code
     }
 
-    pub fn message(&self) -> &str {
+    pub fn message(&self) -> &JsString {
         &self.message
     }
 
@@ -867,7 +867,7 @@ impl SessionError {
 
 impl Display for SessionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message))
     }
 }
 

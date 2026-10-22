@@ -1,5 +1,8 @@
 //! Port of `packages/agent/src/harness/session/jsonl/repo.ts`.
 
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
+
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -44,16 +47,22 @@ fn is_valid_session_id(id: &str) -> bool {
 }
 
 /// Encode a working directory the way coding-agent session directories are named.
-pub fn jsonl_session_directory_name(cwd: &str) -> String {
-    let without_root = cwd.strip_prefix('/').or_else(|| cwd.strip_prefix('\\')).unwrap_or(cwd);
-    let encoded: String = without_root
-        .chars()
-        .map(|character| match character {
-            '/' | '\\' | ':' => '-',
-            other => other,
-        })
-        .collect();
-    format!("--{encoded}--")
+pub fn jsonl_session_directory_name(cwd: &JsString) -> JsString {
+    let without_root = cwd
+        .strip_prefix('/')
+        .or_else(|| cwd.strip_prefix('\\'))
+        .unwrap_or_else(|| cwd.clone());
+    let encoded = JsString::from_utf16(
+        without_root
+            .units()
+            .iter()
+            .map(|unit| match *unit {
+                0x2f | 0x5c | 0x3a => 0x2d,
+                other => other,
+            })
+            .collect(),
+    );
+    JsString::from("--") + encoded + "--"
 }
 
 fn iso_timestamp(created_at: i64) -> String {
@@ -61,33 +70,33 @@ fn iso_timestamp(created_at: i64) -> String {
 }
 
 /// Build the durable session file name.
-pub fn session_file_name(created_at: i64, id: &str) -> String {
-    format!("{}_{id}.jsonl", iso_timestamp(created_at))
+pub fn session_file_name(created_at: i64, id: &str) -> JsString {
+    js_format!("{}_{}.jsonl", iso_timestamp(created_at), id)
 }
 
-async fn jsonl_sessions_root(options: &JsonlSessionRepoOptions) -> Result<String, SessionError> {
+async fn jsonl_sessions_root(options: &JsonlSessionRepoOptions) -> Result<JsString, SessionError> {
     file_result(
         options.fs.absolute_path(&options.sessions_root).await,
-        &format!("Failed to resolve sessions root {}", options.sessions_root),
+        &js_format!("Failed to resolve sessions root {}", &options.sessions_root),
     )
 }
 
 async fn jsonl_session_directory(
     fs: &Arc<dyn JsonlSessionRepoFileSystem>,
-    sessions_root: &str,
-    cwd: &str,
-) -> Result<String, SessionError> {
+    sessions_root: &JsString,
+    cwd: &JsString,
+) -> Result<JsString, SessionError> {
     file_result(
         fs.join_path(&[sessions_root.to_owned(), jsonl_session_directory_name(cwd)])
             .await,
-        &format!("Failed to resolve sessions directory for {cwd}"),
+        &js_format!("Failed to resolve sessions directory for {}", &cwd),
     )
 }
 
 async fn jsonl_session_directories(
     options: &JsonlSessionRepoOptions,
-    cwd: Option<&str>,
-) -> Result<Vec<String>, SessionError> {
+    cwd: Option<&JsString>,
+) -> Result<Vec<JsString>, SessionError> {
     let sessions_root = jsonl_sessions_root(options).await?;
     match cwd {
         Some(cwd) => session_directory_for_cwd(options, &sessions_root, cwd).await,
@@ -97,35 +106,35 @@ async fn jsonl_session_directories(
 
 async fn session_directory_for_cwd(
     options: &JsonlSessionRepoOptions,
-    sessions_root: &str,
-    cwd: &str,
-) -> Result<Vec<String>, SessionError> {
+    sessions_root: &JsString,
+    cwd: &JsString,
+) -> Result<Vec<JsString>, SessionError> {
     let resolved_cwd = file_result(
         options.fs.absolute_path(cwd).await,
-        &format!("Failed to resolve session cwd {cwd}"),
+        &js_format!("Failed to resolve session cwd {}", &cwd),
     )?;
     let directory = jsonl_session_directory(&options.fs, sessions_root, &resolved_cwd).await?;
     let exists = file_result(
         options.fs.exists(&directory).await,
-        &format!("Failed to check sessions directory {directory}"),
+        &js_format!("Failed to check sessions directory {}", &directory),
     )?;
     Ok(if exists { vec![directory] } else { Vec::new() })
 }
 
 async fn child_session_directories(
     options: &JsonlSessionRepoOptions,
-    sessions_root: &str,
-) -> Result<Vec<String>, SessionError> {
+    sessions_root: &JsString,
+) -> Result<Vec<JsString>, SessionError> {
     let exists = file_result(
         options.fs.exists(sessions_root).await,
-        &format!("Failed to check sessions directory {sessions_root}"),
+        &js_format!("Failed to check sessions directory {}", &sessions_root),
     )?;
     if !exists {
         return Ok(Vec::new());
     }
     let entries = file_result(
         options.fs.list_dir(sessions_root).await,
-        &format!("Failed to list sessions directory {sessions_root}"),
+        &js_format!("Failed to list sessions directory {}", &sessions_root),
     )?;
     Ok(entries
         .into_iter()
@@ -145,7 +154,7 @@ pub async fn list_jsonl_session_metadata(
     query: &JsonlSessionListOptions,
 ) -> Result<Vec<JsonlSessionMetadata>, SessionError> {
     let mut metadata = Vec::new();
-    for directory in jsonl_session_directories(options, query.cwd.as_deref()).await? {
+    for directory in jsonl_session_directories(options, query.cwd.as_ref()).await? {
         for file in list_jsonl_files(options, &directory).await? {
             if let Some(listed) = read_listed_header(options, &file).await? {
                 metadata.push(listed);
@@ -163,11 +172,11 @@ pub async fn list_jsonl_session_metadata(
 
 async fn list_jsonl_files(
     options: &JsonlSessionRepoOptions,
-    directory: &str,
+    directory: &JsString,
 ) -> Result<Vec<crate::harness::types::FileInfo>, SessionError> {
     let files = file_result(
         options.fs.list_dir(directory).await,
-        &format!("Failed to list sessions directory {directory}"),
+        &js_format!("Failed to list sessions directory {}", &directory),
     )?;
     Ok(files
         .into_iter()
@@ -181,7 +190,7 @@ async fn read_listed_header(
 ) -> Result<Option<JsonlSessionMetadata>, SessionError> {
     let lines = file_result(
         options.fs.read_text_lines(&file.path, Some(1)).await,
-        &format!("Failed to read session header {}", file.path),
+        &js_format!("Failed to read session header {}", &file.path),
     )?;
     let Some(first_line) = lines.first() else {
         return Ok(None);
@@ -208,7 +217,7 @@ pub async fn load_jsonl_session_storage_with_clock(
 ) -> Result<JsonlSessionStorage, SessionError> {
     let exists = file_result(
         options.fs.exists(&metadata.path).await,
-        &format!("Failed to check session {}", metadata.path),
+        &js_format!("Failed to check session {}", &metadata.path),
     )?;
     if !exists {
         return Err(SessionError::new(
@@ -230,8 +239,8 @@ pub async fn load_jsonl_session_storage_with_clock(
 /// JSONL session repository.
 pub struct JsonlSessionRepo {
     fs: Arc<dyn JsonlSessionRepoFileSystem>,
-    sessions_root_input: String,
-    active_create_destinations: Mutex<HashSet<String>>,
+    sessions_root_input: JsString,
+    active_create_destinations: Mutex<HashSet<JsString>>,
     clock: Clock,
     id_generator: Arc<dyn IdGenerator>,
 }
@@ -295,7 +304,7 @@ impl JsonlSessionRepo {
     pub async fn delete(&self, metadata: &JsonlSessionMetadata) -> Result<(), SessionError> {
         file_result(
             self.fs.remove(&metadata.path, false, true).await,
-            &format!("Failed to delete session {}", metadata.path),
+            &js_format!("Failed to delete session {}", &metadata.path),
         )
     }
 
@@ -330,13 +339,13 @@ impl JsonlSessionRepo {
         validate_session_id(&id)?;
         let cwd = file_result(
             self.fs.absolute_path(&options.cwd).await,
-            &format!("Failed to resolve session cwd {}", options.cwd),
+            &js_format!("Failed to resolve session cwd {}", &options.cwd),
         )?;
         Ok(CreateDestination { id, cwd })
     }
 
-    async fn claim(&self, destination: &CreateDestination) -> Result<String, SessionError> {
-        let key = format!("{}\0{}", destination.cwd, destination.id);
+    async fn claim(&self, destination: &CreateDestination) -> Result<JsString, SessionError> {
+        let key = js_format!("{}\0{}", &destination.cwd, &destination.id);
         let mut active = self.active_create_destinations.lock().await;
         if active.contains(&key) {
             return Err(SessionError::new(
@@ -348,7 +357,7 @@ impl JsonlSessionRepo {
         Ok(key)
     }
 
-    async fn release(&self, key: &str) {
+    async fn release(&self, key: &JsString) {
         self.active_create_destinations.lock().await.remove(key);
     }
 
@@ -356,7 +365,7 @@ impl JsonlSessionRepo {
         &self,
         destination: &CreateDestination,
         options: &JsonlSessionCreateOptions,
-    ) -> Result<(JsonlV4Header, String), SessionError> {
+    ) -> Result<(JsonlV4Header, JsString), SessionError> {
         if self.session_id_exists(&destination.id, &destination.cwd).await? {
             return Err(SessionError::new(
                 SessionErrorCode::AlreadyExists,
@@ -382,26 +391,26 @@ impl JsonlSessionRepo {
         Ok((header, path))
     }
 
-    async fn session_id_exists(&self, id: &str, cwd: &str) -> Result<bool, SessionError> {
+    async fn session_id_exists(&self, id: &str, cwd: &JsString) -> Result<bool, SessionError> {
         let suffix = format!("_{id}.jsonl");
         let directory = self.session_directory(cwd).await?;
         let exists = file_result(
             self.fs.exists(&directory).await,
-            &format!("Failed to check sessions directory {directory}"),
+            &js_format!("Failed to check sessions directory {}", &directory),
         )?;
         if !exists {
             return Ok(false);
         }
         let files = file_result(
             self.fs.list_dir(&directory).await,
-            &format!("Failed to list sessions directory {directory}"),
+            &js_format!("Failed to list sessions directory {}", &directory),
         )?;
         Ok(files
             .iter()
             .any(|entry| entry.kind != crate::harness::types::FileKind::Directory && entry.name.ends_with(&suffix)))
     }
 
-    async fn session_directory(&self, cwd: &str) -> Result<String, SessionError> {
+    async fn session_directory(&self, cwd: &JsString) -> Result<JsString, SessionError> {
         let root = jsonl_sessions_root(&self.options()).await?;
         jsonl_session_directory(&self.fs, &root, cwd).await
     }
@@ -426,5 +435,5 @@ fn build_header(
 
 struct CreateDestination {
     id: String,
-    cwd: String,
+    cwd: JsString,
 }
