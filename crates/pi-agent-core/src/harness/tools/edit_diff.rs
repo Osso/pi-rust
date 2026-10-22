@@ -148,7 +148,7 @@ pub fn strip_bom(content: impl Into<JsString>) -> StripBomResult {
 /// Normalizes text for fuzzy matching: NFKC, trailing whitespace, quotes, dashes, and spaces.
 pub fn normalize_for_fuzzy_match(text: impl Into<JsString>) -> JsString {
     let text = text.into();
-    let normalized = normalize_nfkc_utf16(&text);
+    let normalized = normalize_nfkc(&text);
     let lines = normalized.split('\n').map(|line| line.trim_end());
     let joined = JsString::join(lines, "\n");
     JsString::from_utf16(
@@ -160,23 +160,6 @@ pub fn normalize_for_fuzzy_match(text: impl Into<JsString>) -> JsString {
             })
             .collect(),
     )
-}
-
-fn normalize_nfkc_utf16(text: &JsString) -> JsString {
-    let mut output = JsString::default();
-    let mut chunk = std::string::String::new();
-    for decoded in char::decode_utf16(text.units().iter().copied()) {
-        match decoded {
-            Ok(character) => chunk.push(character),
-            Err(error) => {
-                output.push_str(normalize_nfkc(&chunk));
-                chunk.clear();
-                output.push_unit(error.unpaired_surrogate());
-            }
-        }
-    }
-    output.push_str(normalize_nfkc(&chunk));
-    output
 }
 
 fn normalize_fuzzy_character(character: char) -> char {
