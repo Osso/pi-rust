@@ -4,9 +4,9 @@
 
 use std::sync::{Arc, Mutex};
 
+use crate::core::messages::convert_to_llm;
 use pi_agent_core::agent::types::{AgentError, AgentMessage, ConvertToLlm, StreamFn, TransformContext};
 use pi_agent_core::agent::{Agent, AgentInitialState, AgentOptions};
-use pi_agent_core::harness::messages::convert_to_llm;
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::request::SimpleStreamOptions;
 use pi_ai::types::{Message, Model, ProviderHeaders, TextContent, TextOrImageContent, UserContent};

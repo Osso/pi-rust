@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use pi_agent_core::harness::messages::convert_to_llm;
+use crate::core::messages::convert_to_llm;
 use pi_ai::request::{BoxFuture, HttpRequest};
 use pi_ai::types::{
     AssistantContent, Message, Modality, Model, ProviderHeaders, ProviderNativeContext, ProviderNativeFormat,
