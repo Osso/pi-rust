@@ -47,7 +47,7 @@ async fn callback_login_exchanges_the_code_for_a_permanent_key() {
     });
 
     let auth_url = wait_for_auth_url(&interaction).await;
-    let parsed = url::Url::parse(&auth_url).expect("authorize URL");
+    let parsed = url::Url::parse(&pi_js_compat::js_json::encode_node_utf8(&auth_url)).expect("authorize URL");
     assert_eq!(parsed.origin().ascii_serialization(), "https://openrouter.ai");
     assert_eq!(parsed.path(), "/auth");
     assert_eq!(
@@ -113,7 +113,7 @@ async fn callback_exchange_failures_reach_the_page_and_the_login() {
     });
 
     let auth_url = wait_for_auth_url(&interaction).await;
-    let callback_url = url::Url::parse(&auth_url)
+    let callback_url = url::Url::parse(&pi_js_compat::js_json::encode_node_utf8(&auth_url))
         .unwrap()
         .query_pairs()
         .find(|(name, _)| name == "callback_url")
