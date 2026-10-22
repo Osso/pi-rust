@@ -158,6 +158,10 @@ Native subagent request/result text, JSON values, rendering and UTF-16 preview s
 |---|---|---|
 | Inherited model/thinking child invocation flags | Frozen subagent `index.ts:295-298` adds `--model` only for explicit `agent.model`, with no inherited `--thinking` injection | Native `run_single` still adds host defaults; real Python child journal compares native/frozen `model` and `thinking` in `modes_dispatch_and_streaming_match_pinned_real_extension_runtime` (RED). Result-model metadata is independently fixed above. |
 
+### GitLab refresh request cancellation (2026-10-22)
+
+Frozen `custom-provider-gitlab-duo/index.ts:277–286` supplies no fetch signal when refreshing OAuth credentials. Native `refresh` now passes `None` at that request boundary; the required native trait token is intentionally unused. Existing full registration/login/refresh differential reproduced `signal:true` versus frozen `false` before the fix (`test-example_gitlab_duo-direct-green-2.log`); assertions are unchanged.
+
 ### GitLab direct-token native JSON boundary (2026-10-22)
 
 Direct-access response JSON is parsed with `parse_lossless`; direct token and header values retain raw `JsString` units. `native_direct_token_tests` uses actual injected HTTP body bytes to prove unmatched token/value retention and rejection of unmatched header-name units before caching (both RED before migration).
