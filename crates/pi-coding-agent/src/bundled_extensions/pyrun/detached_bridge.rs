@@ -116,7 +116,7 @@ pub fn validate_detached_pyrun_bridge_request(
     };
     Ok(
         agent.lifecycle == crate::core::multi_agent_store::AgentLifecycle::Running
-            && identity.owner.session_id == input.supervisor_session_id
+            && &identity.owner.session_id == input.supervisor_session_id
             && ownership.owner.session_id.as_ref() == Some(&identity.owner.session_id)
             && ownership.owner.agent_id == identity.owner.agent_id
             && process_identity.pid == identity.process_identity.pid

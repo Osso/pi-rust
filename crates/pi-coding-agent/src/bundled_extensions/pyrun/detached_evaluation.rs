@@ -694,7 +694,7 @@ async fn settle_cancelling_pyrun_job(
             .map_err(|error| HandlerError::new(error.to_string()))?;
     }
     let terminal_at = now_millis();
-    let terminal_at_iso = crate::utils::iso_time::format_iso_millis(terminal_at);
+    let terminal_at_iso = JsString::from(crate::utils::iso_time::format_iso_millis(terminal_at));
     let terminal = create_detached_job_terminal_input(
         &manifest.data.artifacts,
         &identity,

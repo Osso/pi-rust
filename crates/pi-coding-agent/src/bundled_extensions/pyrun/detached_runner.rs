@@ -603,7 +603,7 @@ async fn finalize_detached_pyrun_settlement(
 ) -> Result<i64, JsString> {
     let outcome = pyrun_settlement_outcome(&settlement);
     let terminal_at = crate::core::compaction::now_millis();
-    let terminal_at_iso = crate::utils::iso_time::format_iso_millis(terminal_at);
+    let terminal_at_iso = JsString::from(crate::utils::iso_time::format_iso_millis(terminal_at));
     let terminal = create_detached_job_terminal_input(
         &manifest.data.artifacts,
         &identity,

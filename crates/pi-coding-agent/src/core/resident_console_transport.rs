@@ -2,14 +2,17 @@
 
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use pi_js_compat::{
+    js_format, js_json as json,
+    js_json::{self, JsString, JsValue as Value, encode_node_utf8},
+};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{UnixListener, UnixStream};
@@ -30,8 +33,8 @@ pub enum ResidentConsoleService {
 #[serde(rename_all = "camelCase")]
 pub struct ResidentConsoleSnapshot<Entry> {
     pub service: ResidentConsoleService,
-    pub session_id: String,
-    pub cwd: String,
+    pub session_id: JsString,
+    pub cwd: JsString,
     pub generation: u64,
     pub branch: Vec<Entry>,
 }
@@ -48,26 +51,26 @@ pub type Unsubscribe = Box<dyn FnOnce() + Send>;
 pub type EventListener<Event> = Arc<dyn Fn(&ResidentConsoleEvent<Event>) + Send + Sync>;
 
 /// Disconnect listener handed to [`ResidentConsoleClient::on_disconnect`].
-pub type DisconnectListener = Arc<dyn Fn(Option<String>) + Send + Sync>;
+pub type DisconnectListener = Arc<dyn Fn(Option<JsString>) + Send + Sync>;
 
 type EventListeners<Event> = Arc<Mutex<Vec<(u64, EventListener<Event>)>>>;
 type DisconnectListeners = Arc<Mutex<Vec<(u64, DisconnectListener)>>>;
-type HostFuture = Pin<Box<dyn Future<Output = Result<(), String>> + Send>>;
+type HostFuture = Pin<Box<dyn Future<Output = Result<(), JsString>> + Send>>;
 
 /// Host services the transport calls into.
 pub trait ResidentConsoleHost<Entry, Event>: Send + Sync {
     fn get_snapshot(&self) -> ResidentConsoleSnapshot<Entry>;
-    fn enqueue_prompt(&self, text: String, id: String) -> HostFuture;
+    fn enqueue_prompt(&self, text: JsString, id: JsString) -> HostFuture;
     fn subscribe(&self, listener: Arc<dyn Fn(Event) + Send + Sync>) -> Unsubscribe;
 }
 
 pub struct ResidentConsoleServerOptions<Entry, Event> {
-    pub socket_path: PathBuf,
+    pub socket_path: JsString,
     pub service: ResidentConsoleService,
     pub host: Arc<dyn ResidentConsoleHost<Entry, Event>>,
 }
 
-type LineSender = mpsc::UnboundedSender<String>;
+type LineSender = mpsc::UnboundedSender<Option<Value>>;
 
 struct Owner<Event> {
     connection_id: u64,
@@ -86,7 +89,7 @@ struct ServerState<Entry, Event> {
 }
 
 pub struct ResidentConsoleServer<Entry, Event> {
-    socket_path: PathBuf,
+    socket_path: JsString,
     state: Arc<ServerState<Entry, Event>>,
     accept_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
@@ -111,20 +114,21 @@ where
         }
     }
 
-    pub fn socket_path(&self) -> &Path {
+    pub fn socket_path(&self) -> &JsString {
         &self.socket_path
     }
 
-    pub async fn start(&self) -> Result<(), String> {
+    pub async fn start(&self) -> Result<(), JsString> {
         if self.accept_task().is_some() {
             return Ok(());
         }
         assert_unix_socket_support()?;
-        if let Some(directory) = self.socket_path.parent() {
+        let socket_path = encode_node_utf8(&self.socket_path);
+        if let Some(directory) = Path::new(&socket_path).parent() {
             create_private_directory(directory)?;
         }
         let listener = listen_with_stale_socket_recovery(&self.socket_path, "Resident console socket").await?;
-        set_private_socket_mode(&self.socket_path)?;
+        set_private_socket_mode(Path::new(&encode_node_utf8(&self.socket_path)))?;
         let state = Arc::clone(&self.state);
         let task = tokio::spawn(async move {
             while let Ok((stream, _address)) = listener.accept().await {
@@ -135,15 +139,15 @@ where
         Ok(())
     }
 
-    pub async fn close(&self) -> Result<(), String> {
+    pub async fn close(&self) -> Result<(), JsString> {
         if let Some(task) = self.accept_task().take() {
             task.abort();
         }
         self.state.release_owner();
         for (_, sender) in self.state.connections().drain(..) {
-            let _ = sender.send(String::new());
+            let _ = sender.send(None);
         }
-        remove_socket_file_if_present(&self.socket_path);
+        remove_socket_file_if_present(Path::new(&encode_node_utf8(&self.socket_path)));
         Ok(())
     }
 
@@ -164,7 +168,7 @@ impl<Entry, Event> Drop for ResidentConsoleServer<Entry, Event> {
         {
             task.abort();
         }
-        remove_socket_file_if_present(&self.socket_path);
+        remove_socket_file_if_present(Path::new(&encode_node_utf8(&self.socket_path)));
     }
 }
 
@@ -188,15 +192,16 @@ where
             if let Some(unsubscribe) = owner.unsubscribe.take() {
                 unsubscribe();
             }
-            let _ = owner.sender.send(String::new());
+            let _ = owner.sender.send(None);
         }
     }
 
     fn write(&self, sender: &LineSender, message: Value) {
-        let _ = sender.send(message.to_string());
+        let _ = sender.send(Some(message));
     }
 
-    fn send_error(&self, sender: &LineSender, code: &str, message: &str, id: Option<&str>) {
+    fn send_error(&self, sender: &LineSender, code: &str, message: impl Into<JsString>, id: Option<&JsString>) {
+        let message = message.into();
         let mut payload = json!({"type": "error", "code": code, "message": message});
         if let Some(id) = id {
             payload["id"] = json!(id);
@@ -232,12 +237,10 @@ where
 }
 
 fn spawn_writer(mut write_half: OwnedWriteHalf) -> LineSender {
-    let (sender, mut receiver) = mpsc::unbounded_channel::<String>();
+    let (sender, mut receiver) = mpsc::unbounded_channel::<Option<Value>>();
     tokio::spawn(async move {
-        while let Some(line) = receiver.recv().await {
-            if line.is_empty() {
-                break;
-            }
+        while let Some(Some(message)) = receiver.recv().await {
+            let line = js_json::stringify_lossless(&message);
             if write_half.write_all(line.as_bytes()).await.is_err() {
                 break;
             }
@@ -262,12 +265,12 @@ async fn handle_line<Entry, Event>(
     Entry: Serialize + Send + Sync + 'static,
     Event: Serialize + Send + Sync + 'static,
 {
-    let Ok(message) = serde_json::from_str::<Value>(line) else {
+    let Ok(message) = js_json::parse_lossless(line) else {
         state.send_error(sender, "invalid_message", "Invalid resident console message", None);
         return;
     };
-    match message["type"].as_str() {
-        Some("attach") => attach(state, connection_id, sender, &message),
+    match message["type"].as_string() {
+        Some(kind) if kind == "attach" => attach(state, connection_id, sender, &message),
         _ => handle_owned_message(state, connection_id, sender, &message).await,
     }
 }
@@ -290,7 +293,7 @@ fn attach<Entry, Event>(
         );
         return;
     }
-    let service = serde_json::from_value::<ResidentConsoleService>(message["service"].clone()).ok();
+    let service = js_json::from_value::<ResidentConsoleService>(&message["service"]).ok();
     if service != Some(state.service) {
         state.send_error(sender, "service_mismatch", "Resident console service mismatch", None);
         return;
@@ -302,7 +305,7 @@ fn attach<Entry, Event>(
     let unsubscribe = state.host.subscribe(Arc::new(move |event: Event| {
         let mut sequence = sequence.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         *sequence += 1;
-        let _ = event_sender.send(json!({"type": "event", "sequence": *sequence, "event": event}).to_string());
+        let _ = event_sender.send(Some(json!({"type": "event", "sequence": *sequence, "event": event})));
     }));
     *state.owner() = Some(Owner {
         connection_id,
@@ -341,12 +344,12 @@ async fn handle_owned_message<Entry, Event>(
         state.send_error(sender, "missing_attach", "Resident console attach is required", None);
         return;
     }
-    match message["type"].as_str() {
-        Some("disconnect") => {
-            let _ = sender.send(String::new());
+    match message["type"].as_string() {
+        Some(kind) if kind == "disconnect" => {
+            let _ = sender.send(None);
         }
-        Some("prompt") => {
-            let (Some(id), Some(text)) = (message["id"].as_str(), message["text"].as_str()) else {
+        Some(kind) if kind == "prompt" => {
+            let (Some(id), Some(text)) = (message["id"].as_string(), message["text"].as_string()) else {
                 state.send_error(sender, "invalid_message", "Invalid resident console message", None);
                 return;
             };
@@ -360,8 +363,12 @@ async fn handle_owned_message<Entry, Event>(
     }
 }
 
-fn enqueue_prompt<Entry, Event>(state: &Arc<ServerState<Entry, Event>>, sender: LineSender, id: String, text: String)
-where
+fn enqueue_prompt<Entry, Event>(
+    state: &Arc<ServerState<Entry, Event>>,
+    sender: LineSender,
+    id: JsString,
+    text: JsString,
+) where
     Entry: Serialize + Send + Sync + 'static,
     Event: Serialize + Send + Sync + 'static,
 {
@@ -377,29 +384,29 @@ where
     });
 }
 
-fn assert_unix_socket_support() -> Result<(), String> {
+fn assert_unix_socket_support() -> Result<(), JsString> {
     if cfg!(windows) {
-        return Err("Resident console requires Unix domain sockets".to_owned());
+        return Err("Resident console requires Unix domain sockets".into());
     }
     Ok(())
 }
 
-async fn listen_with_stale_socket_recovery(socket_path: &Path, label: &str) -> Result<UnixListener, String> {
-    match UnixListener::bind(socket_path) {
+async fn listen_with_stale_socket_recovery(socket_path: &JsString, label: &str) -> Result<UnixListener, JsString> {
+    match UnixListener::bind(encode_node_utf8(socket_path)) {
         Ok(listener) => Ok(listener),
         Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
             if socket_accepts_connections(socket_path).await? {
-                return Err(format!("{label} is already active: {}", socket_path.display()));
+                return Err(js_format!("{} is already active: {}", label, socket_path));
             }
-            remove_socket_file_if_present(socket_path);
-            UnixListener::bind(socket_path).map_err(|error| error.to_string())
+            remove_socket_file_if_present(Path::new(&encode_node_utf8(socket_path)));
+            UnixListener::bind(encode_node_utf8(socket_path)).map_err(|error| JsString::from(error.to_string()))
         }
-        Err(error) => Err(error.to_string()),
+        Err(error) => Err(error.to_string().into()),
     }
 }
 
-async fn socket_accepts_connections(socket_path: &Path) -> Result<bool, String> {
-    match UnixStream::connect(socket_path).await {
+async fn socket_accepts_connections(socket_path: &JsString) -> Result<bool, JsString> {
+    match UnixStream::connect(encode_node_utf8(socket_path)).await {
         Ok(stream) => {
             drop(stream);
             Ok(true)
@@ -412,12 +419,12 @@ async fn socket_accepts_connections(socket_path: &Path) -> Result<bool, String> 
         {
             Ok(false)
         }
-        Err(error) => Err(error.to_string()),
+        Err(error) => Err(error.to_string().into()),
     }
 }
 
 struct ClientState<Event> {
-    pending: Mutex<HashMap<String, oneshot::Sender<Result<(), String>>>>,
+    pending: Mutex<HashMap<JsString, oneshot::Sender<Result<(), JsString>>>>,
     listeners: EventListeners<Event>,
     close_listeners: DisconnectListeners,
     next_listener: AtomicU64,
@@ -428,7 +435,7 @@ struct ClientState<Event> {
 
 pub struct ResidentConsoleClient<Entry, Event> {
     snapshot: ResidentConsoleSnapshot<Entry>,
-    sender: mpsc::UnboundedSender<String>,
+    sender: LineSender,
     state: Arc<ClientState<Event>>,
 }
 
@@ -437,21 +444,18 @@ where
     Entry: DeserializeOwned + Send + 'static,
     Event: DeserializeOwned + Send + 'static,
 {
-    pub async fn connect(socket_path: &str, service: ResidentConsoleService) -> Result<Self, String> {
+    pub async fn connect(socket_path: impl Into<JsString>, service: ResidentConsoleService) -> Result<Self, JsString> {
+        let socket_path = socket_path.into();
         assert_unix_socket_support()?;
-        let stream = connect_resident_console(socket_path).await?;
+        let stream = connect_resident_console(&socket_path).await?;
         let (read_half, write_half) = stream.into_split();
         let mut reader = BufReader::new(read_half);
-        let (sender, receiver) = mpsc::unbounded_channel::<String>();
-        spawn_client_writer(write_half, receiver);
-        let _ = sender.send(
-            json!({
-                "type": "attach",
-                "version": RESIDENT_CONSOLE_PROTOCOL_VERSION,
-                "service": service,
-            })
-            .to_string(),
-        );
+        let sender = spawn_writer(write_half);
+        let _ = sender.send(Some(json!({
+            "type": "attach",
+            "version": RESIDENT_CONSOLE_PROTOCOL_VERSION,
+            "service": service,
+        })));
         let mut line = String::new();
         reader.read_line(&mut line).await.map_err(|error| error.to_string())?;
         let snapshot = parse_attach_response::<Entry>(&line, service)?;
@@ -477,27 +481,29 @@ where
         &self.snapshot
     }
 
-    pub async fn prompt(&self, id: &str, text: &str) -> Result<(), String> {
+    pub async fn prompt(&self, id: impl Into<JsString>, text: impl Into<JsString>) -> Result<(), JsString> {
+        let id = id.into();
+        let text = text.into();
         if self.state.closed.load(Ordering::SeqCst) {
-            return Err("Resident console is closed".to_owned());
+            return Err("Resident console is closed".into());
         }
         if id.is_empty() || text.is_empty() {
-            return Err("Resident console prompt id and text are required".to_owned());
+            return Err("Resident console prompt id and text are required".into());
         }
         let (result_sender, result_receiver) = oneshot::channel();
         {
             let mut pending = self.state.pending();
-            if pending.contains_key(id) {
-                return Err(format!("Resident console prompt already pending: {id}"));
+            if pending.contains_key(&id) {
+                return Err(js_format!("Resident console prompt already pending: {}", id));
             }
             pending.insert(id.to_owned(), result_sender);
         }
         let _ = self
             .sender
-            .send(json!({"type": "prompt", "id": id, "text": text}).to_string());
+            .send(Some(json!({"type": "prompt", "id": id, "text": text})));
         match result_receiver.await {
             Ok(result) => result,
-            Err(_) => Err("Resident console disconnected".to_owned()),
+            Err(_) => Err("Resident console disconnected".into()),
         }
     }
 
@@ -524,14 +530,14 @@ where
             return;
         }
         let mut finished = self.state.finished.subscribe();
-        let _ = self.sender.send(json!({"type": "disconnect"}).to_string());
-        let _ = self.sender.send(String::new());
+        let _ = self.sender.send(Some(json!({"type": "disconnect"})));
+        let _ = self.sender.send(None);
         let _ = finished.wait_for(|value| *value).await;
     }
 }
 
 impl<Event> ClientState<Event> {
-    fn pending(&self) -> MutexGuard<'_, HashMap<String, oneshot::Sender<Result<(), String>>>> {
+    fn pending(&self) -> MutexGuard<'_, HashMap<JsString, oneshot::Sender<Result<(), JsString>>>> {
         self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
@@ -545,13 +551,11 @@ impl<Event> ClientState<Event> {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    fn finish(&self, error: Option<String>) {
+    fn finish(&self, error: Option<JsString>) {
         if self.finish_guard.swap(true, Ordering::SeqCst) {
             return;
         }
-        let failure = error
-            .clone()
-            .unwrap_or_else(|| "Resident console disconnected".to_owned());
+        let failure = error.clone().unwrap_or_else(|| "Resident console disconnected".into());
         for (_, sender) in self.pending().drain() {
             let _ = sender.send(Err(failure.clone()));
         }
@@ -565,54 +569,38 @@ impl<Event> ClientState<Event> {
 fn parse_attach_response<Entry>(
     line: &str,
     service: ResidentConsoleService,
-) -> Result<ResidentConsoleSnapshot<Entry>, String>
+) -> Result<ResidentConsoleSnapshot<Entry>, JsString>
 where
     Entry: DeserializeOwned,
 {
-    let Ok(message) = serde_json::from_str::<Value>(line) else {
-        return Err("Invalid resident console attach response".to_owned());
+    let Ok(message) = js_json::parse_lossless(line) else {
+        return Err("Invalid resident console attach response".into());
     };
-    if message["type"] == "error" {
+    if message["type"].as_string().is_some_and(|kind| kind == "error") {
         return Err(message["message"]
-            .as_str()
-            .map_or_else(|| "Resident attach failed".to_owned(), str::to_owned));
+            .as_string()
+            .cloned()
+            .unwrap_or_else(|| "Resident attach failed".into()));
     }
-    let valid = message["type"] == "attached"
+    let valid = message["type"].as_string().is_some_and(|kind| kind == "attached")
         && message["version"].as_u64() == Some(u64::from(RESIDENT_CONSOLE_PROTOCOL_VERSION))
-        && serde_json::from_value::<ResidentConsoleService>(message["service"].clone()).ok() == Some(service)
+        && js_json::from_value::<ResidentConsoleService>(&message["service"]).ok() == Some(service)
         && message["sessionId"].is_string()
         && message["cwd"].is_string()
-        && message["generation"].is_u64()
+        && message["generation"].as_u64().is_some()
         && message["branch"].is_array();
     if !valid {
-        return Err("Invalid resident console attach response".to_owned());
+        return Err("Invalid resident console attach response".into());
     }
-    let branch: Vec<Entry> = serde_json::from_value(message["branch"].clone())
-        .map_err(|_| "Invalid resident console attach response".to_owned())?;
+    let branch: Vec<Entry> = js_json::from_value(&message["branch"])
+        .map_err(|_| JsString::from("Invalid resident console attach response"))?;
     Ok(ResidentConsoleSnapshot {
         service,
-        session_id: message["sessionId"].as_str().unwrap_or_default().to_owned(),
-        cwd: message["cwd"].as_str().unwrap_or_default().to_owned(),
+        session_id: message["sessionId"].as_string().cloned().unwrap_or_default(),
+        cwd: message["cwd"].as_string().cloned().unwrap_or_default(),
         generation: message["generation"].as_u64().unwrap_or_default(),
         branch,
     })
-}
-
-fn spawn_client_writer(mut write_half: OwnedWriteHalf, mut receiver: mpsc::UnboundedReceiver<String>) {
-    tokio::spawn(async move {
-        while let Some(line) = receiver.recv().await {
-            if line.is_empty() {
-                break;
-            }
-            if write_half.write_all(format!("{line}\n").as_bytes()).await.is_err() {
-                break;
-            }
-            if write_half.flush().await.is_err() {
-                break;
-            }
-        }
-        let _ = write_half.shutdown().await;
-    });
 }
 
 fn spawn_client_reader<Event>(reader: BufReader<tokio::net::unix::OwnedReadHalf>, state: Arc<ClientState<Event>>)
@@ -626,7 +614,7 @@ where
                 Ok(Some(line)) => handle_client_line(&state, &line),
                 Ok(None) => break,
                 Err(_) => {
-                    state.finish(Some("Resident console disconnected".to_owned()));
+                    state.finish(Some("Resident console disconnected".into()));
                     return;
                 }
             }
@@ -642,14 +630,14 @@ where
     if line.is_empty() {
         return;
     }
-    let Ok(message) = serde_json::from_str::<Value>(line) else {
-        state.finish(Some("Invalid resident console response".to_owned()));
+    let Ok(message) = js_json::parse_lossless(line) else {
+        state.finish(Some("Invalid resident console response".into()));
         return;
     };
-    match message["type"].as_str() {
-        Some("event") if message["sequence"].is_u64() && message.get("event").is_some() => {
-            let Ok(event) = serde_json::from_value::<Event>(message["event"].clone()) else {
-                state.finish(Some("Invalid resident console response".to_owned()));
+    match message["type"].as_string() {
+        Some(kind) if kind == "event" && message["sequence"].as_u64().is_some() && message.get("event").is_some() => {
+            let Ok(event) = js_json::from_value::<Event>(&message["event"]) else {
+                state.finish(Some("Invalid resident console response".into()));
                 return;
             };
             let event = ResidentConsoleEvent {
@@ -660,19 +648,23 @@ where
                 listener(&event);
             }
         }
-        Some("prompt_accepted" | "error") => {
-            let Some(id) = message["id"].as_str() else {
+        Some(kind) if kind == "prompt_accepted" || kind == "error" => {
+            let Some(id) = message["id"].as_string() else {
                 return;
             };
             let Some(pending) = state.pending().remove(id) else {
                 return;
             };
-            if message["type"] == "prompt_accepted" {
+            if message["type"]
+                .as_string()
+                .is_some_and(|kind| kind == "prompt_accepted")
+            {
                 let _ = pending.send(Ok(()));
             } else {
                 let error = message["message"]
-                    .as_str()
-                    .map_or_else(|| "Resident prompt rejected".to_owned(), str::to_owned);
+                    .as_string()
+                    .cloned()
+                    .unwrap_or_else(|| "Resident prompt rejected".into());
                 let _ = pending.send(Err(error));
             }
         }
@@ -680,8 +672,8 @@ where
     }
 }
 
-async fn connect_resident_console(socket_path: &str) -> Result<UnixStream, String> {
-    match UnixStream::connect(socket_path).await {
+async fn connect_resident_console(socket_path: &JsString) -> Result<UnixStream, JsString> {
+    match UnixStream::connect(encode_node_utf8(socket_path)).await {
         Ok(stream) => Ok(stream),
         Err(error)
             if matches!(
@@ -689,8 +681,8 @@ async fn connect_resident_console(socket_path: &str) -> Result<UnixStream, Strin
                 std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
             ) =>
         {
-            Err(format!("Resident console is unavailable: {socket_path}"))
+            Err(js_format!("Resident console is unavailable: {}", socket_path))
         }
-        Err(error) => Err(error.to_string()),
+        Err(error) => Err(error.to_string().into()),
     }
 }
