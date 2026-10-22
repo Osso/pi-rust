@@ -120,7 +120,7 @@ pub enum RpcCommandBody {
     GetTree,
     GetLastAssistantText,
     SetSessionName {
-        name: String,
+        name: JsString,
     },
 
     // Messages
@@ -205,7 +205,7 @@ pub struct RpcSessionState {
     pub session_file: Option<String>,
     pub session_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub session_name: Option<String>,
+    pub session_name: Option<JsString>,
     pub auto_compaction_enabled: bool,
     pub message_count: u64,
     pub pending_message_count: u64,

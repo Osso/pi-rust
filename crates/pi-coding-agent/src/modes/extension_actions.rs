@@ -147,7 +147,7 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
                 });
                 let mut runtime = runtime.lock().await;
                 runtime
-                    .restart(notice.as_deref(), process)
+                    .restart(notice.as_ref(), process)
                     .await
                     .map_err(HandlerError::new)
             })

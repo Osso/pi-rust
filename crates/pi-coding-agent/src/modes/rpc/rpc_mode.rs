@@ -14,7 +14,6 @@ use pi_ai::request::BoxFuture;
 use pi_ai::types::InputSource;
 use pi_ai::utils::uuid::random_uuid;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
-use pi_js_compat::string::js_trim;
 use serde::Serialize;
 use tokio::sync::oneshot;
 use tokio::task::{JoinHandle, LocalSet};
@@ -574,12 +573,12 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             )))
         }
         RpcCommandBody::SetSessionName { name } => {
-            let name = js_trim(name);
+            let name = name.trim();
             if name.is_empty() {
                 return Err("Session name cannot be empty".into());
             }
             session
-                .set_session_name(name)
+                .set_session_name(&name)
                 .map_err(|failure| failure.message().to_owned())?;
             Ok(Some(RpcResponse::success(id, "set_session_name")))
         }
@@ -616,7 +615,7 @@ fn session_state(session: &AgentSession) -> RpcSessionState {
         follow_up_mode: session.follow_up_mode(),
         session_file: session.session_file(),
         session_id: session.session_id(),
-        session_name: session.session_name(),
+        session_name: session.session_name().map(Into::into),
         auto_compaction_enabled: session.auto_compaction_enabled(),
         message_count: session.messages().len() as u64,
         pending_message_count: session.pending_message_count() as u64,
@@ -641,7 +640,7 @@ async fn run_bash(
 
     if let Some(result) = event_result.as_ref().and_then(|result| result.result.clone()) {
         let result: BashResult =
-            serde_json::from_value(result).map_err(|error| format!("Invalid user_bash result: {error}"))?;
+            js_json::from_value(&result).map_err(|error| format!("Invalid user_bash result: {error}"))?;
         session.record_bash_result(command, &result, exclude_from_context);
         return Ok(result);
     }
@@ -1245,11 +1244,11 @@ mod tests {
         });
         let resolver = async {
             let request = receiver.recv().await.expect("request line");
-            assert_eq!(request["type"], "extension_ui_request");
-            assert_eq!(request["method"], "select");
-            assert_eq!(request["title"], "Pick");
+            assert_eq!(request["type"], pi_js_compat::js_json!("extension_ui_request"));
+            assert_eq!(request["method"], pi_js_compat::js_json!("select"));
+            assert_eq!(request["title"], pi_js_compat::js_json!("Pick"));
             assert_eq!(request["options"], pi_js_compat::js_json!(["one", "two"]));
-            let id = request["id"].as_str().expect("request id").to_owned();
+            let id = request["id"].as_string().expect("request id").to_utf8().unwrap();
             assert!(broker.resolve(value_response(&id, "two")));
         };
         let (result, ()) = tokio::join!(promise, resolver);
@@ -1280,8 +1279,8 @@ mod tests {
         assert_eq!(result, Some("default".to_owned()));
         assert!(started.elapsed() >= Duration::from_millis(10));
         let request = receiver.recv().await.expect("request line");
-        let id = request["id"].as_str().expect("request id");
-        assert!(!broker.resolve(value_response(id, "late")));
+        let id = request["id"].as_string().expect("request id").to_utf8().unwrap();
+        assert!(!broker.resolve(value_response(&id, "late")));
     }
 
     #[tokio::test]

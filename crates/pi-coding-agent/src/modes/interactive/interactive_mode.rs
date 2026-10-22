@@ -8588,7 +8588,7 @@ impl InteractiveMode {
             self.show_error("Usage: /name <name>");
             return;
         }
-        if let Err(error) = self.session.borrow().set_session_name(name) {
+        if let Err(error) = self.session.borrow().set_session_name(&name.into()) {
             self.show_error(&(JsString::from("Failed to set session name: ") + error.message()));
             return;
         }
@@ -10836,7 +10836,7 @@ impl InteractiveMode {
             UiRequest::RuntimeRestart { options, respond } => {
                 let mut runtime = self.runtime.lock().await;
                 let result = runtime
-                    .restart(options.as_ref().and_then(|options| options.notice.as_deref()), true)
+                    .restart(options.as_ref().and_then(|options| options.notice.as_ref()), true)
                     .await
                     .map_err(crate::core::extensions::types::HandlerError::new);
                 let _ = respond.send(result);
@@ -12270,7 +12270,7 @@ mod ui_tests {
                         extension_runner_ref: None,
                         session_start_event: None,
                     })
-                    .map_err(|error| error.message().to_owned())?;
+                    .map_err(|error| error.to_string())?;
                     Ok(CreateAgentSessionRuntimeResult {
                         session,
                         services: AgentSessionServices {
@@ -12926,7 +12926,7 @@ mod ui_tests {
                     .append_message(pi_agent_core::agent::types::AgentMessage::User(
                         pi_ai::types::UserMessage {
                             role: pi_ai::types::UserRole::Tag,
-                            content: pi_ai::types::UserContent::Text("resume target prompt".to_owned()),
+                            content: pi_ai::types::UserContent::Text("resume target prompt".into()),
                             input_source: None,
                             provider_native: None,
                             timestamp: 1,
@@ -13096,10 +13096,7 @@ mod ui_tests {
                 .await;
                 assert!(output.contains("Navigated to selected point"));
                 assert_eq!(mode.session().messages().len(), 2);
-                assert_eq!(
-                    mode.session().get_last_assistant_text().as_deref(),
-                    Some("hello from faux")
-                );
+                assert_eq!(mode.session().get_last_assistant_text(), Some("hello from faux".into()));
             })
             .await;
     }
@@ -13697,7 +13694,7 @@ mod ui_tests {
             manager
                 .append_message(AgentMessage::User(pi_ai::types::UserMessage {
                     role: pi_ai::types::UserRole::Tag,
-                    content: pi_ai::types::UserContent::Text((*text).to_owned()),
+                    content: pi_ai::types::UserContent::Text((*text).into()),
                     input_source: None,
                     provider_native: None,
                     timestamp: 0,
@@ -13841,7 +13838,7 @@ mod ui_tests {
                         attempt: 1,
                         max_attempts: 3,
                         delay_ms: 3_000.0,
-                        error_message: "boom".to_owned(),
+                        error_message: "boom".into(),
                     },
                 ))
                 .await;
@@ -13894,7 +13891,7 @@ mod ui_tests {
         source: Option<crate::core::compaction::CompactionSourceInfo>,
     ) -> crate::core::compaction::CompactionResult {
         crate::core::compaction::CompactionResult {
-            summary: "summary".to_owned(),
+            summary: "summary".into(),
             first_kept_entry_id: "entry-1".to_owned(),
             tokens_before: 123.0,
             duration_ms: None,
@@ -14116,7 +14113,7 @@ mod ui_tests {
                         aborted: false,
                         will_retry: false,
                         error_message: Some(
-                            "Auto-compaction failed: Turn prefix summarization failed: Request timed out.".to_owned(),
+                            "Auto-compaction failed: Turn prefix summarization failed: Request timed out.".into(),
                         ),
                     },
                 )))
@@ -14152,7 +14149,7 @@ mod ui_tests {
                         result: None,
                         aborted: false,
                         will_retry: false,
-                        error_message: Some("Compaction failed: boom".to_owned()),
+                        error_message: Some("Compaction failed: boom".into()),
                     },
                 )))
                 .await;
@@ -14281,7 +14278,7 @@ mod ui_tests {
                 manager
                     .append_message(AgentMessage::User(pi_ai::types::UserMessage {
                         role: pi_ai::types::UserRole::Tag,
-                        content: pi_ai::types::UserContent::Text("second child message".to_owned()),
+                        content: pi_ai::types::UserContent::Text("second child message".into()),
                         input_source: None,
                         provider_native: None,
                         timestamp: 0,
@@ -14539,7 +14536,8 @@ mod ui_tests {
     impl ExtensionUiComponent for SizedExtensionInput {
         fn handle_input(&self, data: &str) {
             if data == "\r" {
-                self.done.call(Some(serde_json::json!({"action":"Search","query":"x"})));
+                self.done
+                    .call(Some(pi_js_compat::js_json!({"action":"Search","query":"x"})));
             }
         }
         fn width(&self) -> Option<pi_tui::tui::SizeValue> {
@@ -14577,7 +14575,8 @@ mod ui_tests {
         }
         fn handle_input(&self, data: &str) {
             if data == "\r" {
-                self.done.call(Some(serde_json::json!(self.editor.borrow().get_text())));
+                self.done
+                    .call(Some(pi_js_compat::js_json!(self.editor.borrow().get_text())));
             } else {
                 self.editor.borrow_mut().handle_input(data);
             }
@@ -14776,7 +14775,10 @@ mod ui_tests {
                 mode.ui.process_events();
                 terminal.borrow_mut().send_input("\r");
                 mode.ui.process_events();
-                assert_eq!(receive.await.unwrap().unwrap(), Some(serde_json::json!("typed 🚀")));
+                assert_eq!(
+                    receive.await.unwrap().unwrap(),
+                    Some(pi_js_compat::js_json!("typed 🚀"))
+                );
                 assert!(!mode.ui.has_overlay_entries());
             })
             .await;
@@ -14817,7 +14819,7 @@ mod ui_tests {
                     assert_eq!(mode.editor().borrow().get_text(), "during");
                     terminal.borrow_mut().send_input("\r");
                     mode.ui.process_events();
-                    assert_eq!(receive.await.unwrap().unwrap(), Some(serde_json::json!("")));
+                    assert_eq!(receive.await.unwrap().unwrap(), Some(pi_js_compat::js_json!("")));
                     assert_eq!(
                         mode.editor().borrow().get_text(),
                         if overlay { "during" } else { "before" }
@@ -14865,7 +14867,7 @@ mod ui_tests {
                                 let pending = pending.lock().unwrap().take().unwrap();
                                 let disposed = counted_disposal.clone();
                                 if early {
-                                    done.call(Some(serde_json::json!("early")));
+                                    done.call(Some(pi_js_compat::js_json!("early")));
                                 }
                                 Ok(Box::pin(async move {
                                     pending.await.unwrap()?;
@@ -14919,7 +14921,7 @@ mod ui_tests {
                         tokio::task::yield_now().await;
                         tokio::task::yield_now().await;
                         if early {
-                            assert_eq!(early_result.unwrap().unwrap(), Some(serde_json::json!("early")));
+                            assert_eq!(early_result.unwrap().unwrap(), Some(pi_js_compat::js_json!("early")));
                             assert!(!mode.ui.has_overlay_entries());
                             assert!(Rc::ptr_eq(&editor, &mode.ui.get_focused_component().unwrap()));
                             assert_eq!(
@@ -14942,7 +14944,7 @@ mod ui_tests {
                             mode.ui.render_now();
                             terminal.borrow_mut().send_input("\r");
                             mode.ui.process_events();
-                            assert_eq!(result.take().unwrap().await.unwrap(), Some(serde_json::json!("")));
+                            assert_eq!(result.take().unwrap().await.unwrap(), Some(pi_js_compat::js_json!("")));
                             assert_eq!(
                                 mode.editor().borrow().get_text(),
                                 if overlay { "during" } else { "before" }
@@ -15087,13 +15089,13 @@ mod ui_tests {
                 let ui = mode.ui_context();
                 let result = ui.custom(
                     Arc::new(|_, done| {
-                        done.call(Some(serde_json::json!("closed first")));
+                        done.call(Some(pi_js_compat::js_json!("closed first")));
                         Err("too late".to_owned())
                     }),
                     None,
                 );
                 mode.handle_ui_requests().await;
-                assert_eq!(result.await.unwrap(), Some(serde_json::json!("closed first")));
+                assert_eq!(result.await.unwrap(), Some(pi_js_compat::js_json!("closed first")));
                 assert!(!mode.ui.has_overlay_entries());
             })
             .await;
@@ -15144,7 +15146,7 @@ mod ui_tests {
                 mode.ui.process_events();
                 assert_eq!(
                     receive.await.unwrap().unwrap(),
-                    Some(serde_json::json!({"action":"Search","query":"x"}))
+                    Some(pi_js_compat::js_json!({"action":"Search","query":"x"}))
                 );
                 assert!(!mode.ui.has_overlay_entries());
                 assert_eq!(disposed.load(std::sync::atomic::Ordering::SeqCst), 1);
@@ -15201,7 +15203,7 @@ mod ui_tests {
                 let (send, receive) = tokio::sync::oneshot::channel();
                 mode.show_extension_custom(
                     Rc::new(|_, done| {
-                        done.call(Some(serde_json::json!("immediate")));
+                        done.call(Some(pi_js_compat::js_json!("immediate")));
                         crate::core::extensions::ready_custom_component(Box::new(StaticWidget))
                     }),
                     Some(ExtensionUiCustomOptions {
@@ -15211,7 +15213,10 @@ mod ui_tests {
                     send,
                 );
                 tokio::task::yield_now().await;
-                assert_eq!(receive.await.unwrap().unwrap(), Some(serde_json::json!("immediate")));
+                assert_eq!(
+                    receive.await.unwrap().unwrap(),
+                    Some(pi_js_compat::js_json!("immediate"))
+                );
                 assert!(
                     !mode.ui.has_overlay_entries(),
                     "factory completed synchronously: do not mount"
@@ -15292,7 +15297,8 @@ mod ui_tests {
                         .data
                         .as_ref()
                         .and_then(|data| data.get("message"))
-                        .and_then(Value::as_str)
+                        .and_then(JsValue::as_string)
+                        .cloned()
                         .unwrap_or_default()
                         .to_owned();
                     Some(component(Text::new(format!("[Custom]\n{message}"), 0, 0)))
@@ -15324,7 +15330,7 @@ mod ui_tests {
     fn custom_entry(message: &str) -> crate::core::session_manager::CustomEntry {
         crate::core::session_manager::CustomEntry {
             custom_type: "test-entry".to_owned(),
-            data: Some(serde_json::json!({"message": message})),
+            data: Some(pi_js_compat::js_json!({"message": message})),
             id: "entry-1".to_owned(),
             parent_id: None,
             timestamp: "2026-06-27T00:00:00.000Z".to_owned(),
@@ -15363,7 +15369,7 @@ mod ui_tests {
                 let user = |text: &str, input_source| {
                     AgentMessage::User(pi_ai::types::UserMessage {
                         role: pi_ai::types::UserRole::Tag,
-                        content: pi_ai::types::UserContent::Text(text.to_owned()),
+                        content: pi_ai::types::UserContent::Text(text.into()),
                         input_source,
                         provider_native: None,
                         timestamp: 1,
@@ -15465,7 +15471,7 @@ mod ui_tests {
                 let mut assistant = faux_assistant_message(
                     pi_ai::providers::faux::FauxContent::Blocks(vec![pi_ai::providers::faux::faux_tool_call(
                         "bash",
-                        serde_json::Map::from_iter([("command".to_owned(), Value::String("echo replayed".to_owned()))]),
+                        JsObject::from_iter([("command".into(), JsValue::String("echo replayed".into()))]),
                         Some("call-1".to_owned()),
                     )]),
                     pi_ai::providers::faux::FauxAssistantMessageOptions::default(),
@@ -15616,7 +15622,7 @@ mod ui_tests {
                 None,
                 None,
                 Arc::new(
-                    move |_args: String, ctx: crate::core::extensions::ExtensionCommandContext| {
+                    move |_args: JsString, ctx: crate::core::extensions::ExtensionCommandContext| {
                         let command_outcome = Arc::clone(&command_outcome);
                         Box::pin(async move {
                             let result = match ctx.restart(Some(crate::core::extensions::types::RestartOptions {
@@ -15768,7 +15774,7 @@ mod ui_tests {
                 let _events = start(&mode).await;
                 let message = AgentMessage::User(pi_ai::types::UserMessage {
                     role: pi_ai::types::UserRole::Tag,
-                    content: pi_ai::types::UserContent::Text("prepared-bubble-marker".to_owned()),
+                    content: pi_ai::types::UserContent::Text("prepared-bubble-marker".into()),
                     input_source: None,
                     provider_native: None,
                     timestamp: 1,

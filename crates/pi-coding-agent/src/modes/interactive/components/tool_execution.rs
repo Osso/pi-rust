@@ -712,13 +712,16 @@ mod lossless_tests {
     #[test]
     fn output_limit_retains_surrogates_and_original_result() {
         let raw = JsString::join((0..101).map(|_| JsString::from_utf16(vec![0xd800])), "\n");
-        let original = vec![TextOrImageContent::text(raw.clone())];
+        let original = vec![TextOrImageContent::Text(pi_ai::types::TextContent::new(raw.clone()))];
         let output = limit_tool_result_content(&original);
         let TextOrImageContent::Text(text) = &output[0] else {
             panic!("text")
         };
         assert_eq!(text.text.units()[0], 0xd800);
         assert!(text.text.contains("... (1 more lines hidden)"));
-        assert_eq!(original[0], TextOrImageContent::text(raw));
+        assert_eq!(
+            original[0],
+            TextOrImageContent::Text(pi_ai::types::TextContent::new(raw))
+        );
     }
 }

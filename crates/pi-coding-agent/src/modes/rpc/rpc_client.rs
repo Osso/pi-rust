@@ -831,7 +831,7 @@ impl RpcClient {
         Ok(data.text)
     }
 
-    pub async fn set_session_name(&self, name: impl Into<String>) -> Result<(), RpcClientError> {
+    pub async fn set_session_name(&self, name: impl Into<JsString>) -> Result<(), RpcClientError> {
         self.send(RpcCommandBody::SetSessionName { name: name.into() }).await?;
         Ok(())
     }
