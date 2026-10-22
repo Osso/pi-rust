@@ -543,7 +543,7 @@ impl Drop for RetainedControlDbGuard {
     }
 }
 
-pub(crate) fn parse_json_object_lossless(value: &str) -> Option<JsObject> {
+pub(crate) fn parse_json_object_lossless(value: impl Into<JsString>) -> Option<JsObject> {
     match js_json::parse_lossless(value).ok()? {
         JsValue::Object(object) => Some(object),
         _ => None,
@@ -845,7 +845,7 @@ pub fn serialize_process_identity(identity: &ProcessIdentity) -> String {
     js_json::stringify_lossless(&JsValue::Object(object))
 }
 
-pub(crate) fn parse_process_identity(value: &str) -> Result<ProcessIdentity, ControlDbError> {
+pub(crate) fn parse_process_identity(value: impl Into<JsString>) -> Result<ProcessIdentity, ControlDbError> {
     let parsed = js_json::parse_lossless(value).map_err(|error| ControlDbError::new(error.to_string()))?;
     let JsValue::Object(parsed) = parsed else {
         return Err(ControlDbError::new("Persisted process identity is invalid"));

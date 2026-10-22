@@ -3,11 +3,11 @@
 use pi_js_compat::js_format;
 use std::collections::HashSet;
 
+use pi_js_compat::js_json::JsValue as Value;
 use rusqlite::{Connection, OptionalExtension, params};
-use serde_json::Value;
 
 use super::{
-    ControlDbError, parse_stored_json_object, require_string_field, to_runtime_mailbox_message_kind,
+    ControlDbError, parse_stored_json_object_lossless, require_native_string_field, to_runtime_mailbox_message_kind,
     to_runtime_mailbox_message_status, validate_mailbox_payload, with_immediate_transaction,
     write_canonical_mailbox_payload,
 };
@@ -660,19 +660,26 @@ fn migrate_legacy_lifecycle_rows(db: &Connection, now_iso: &str) -> Result<(), C
         .collect::<Result<Vec<_>, _>>()?;
     for (session_path, agent_id, data) in rows {
         let context = js_format!("multi_agent_agents:{}#{}", session_path, agent_id);
-        let agent = parse_stored_json_object(&data, &context)?;
-        let lifecycle = agent.get("lifecycle").and_then(Value::as_str);
-        if lifecycle == Some("queued") {
+        let agent = parse_stored_json_object_lossless(&data, &context)?;
+        let lifecycle = agent.get("lifecycle").and_then(Value::as_string);
+        if lifecycle.is_some_and(|value| value == "queued") {
             db.execute(
                 "INSERT OR IGNORE INTO multi_agent_runtime_owners (session_path, agent_id) VALUES (?, ?)",
                 params![session_path, agent_id],
             )?;
             continue;
         }
-        if !matches!(
-            lifecycle,
-            Some("starting" | "running" | "waiting_for_input" | "steering_pending" | "cancelling")
-        ) {
+        if !lifecycle.is_some_and(|value| {
+            [
+                "starting",
+                "running",
+                "waiting_for_input",
+                "steering_pending",
+                "cancelling",
+            ]
+            .iter()
+            .any(|candidate| value == *candidate)
+        }) {
             continue;
         }
         let terminal_revision = agent
@@ -681,20 +688,20 @@ fn migrate_legacy_lifecycle_rows(db: &Connection, now_iso: &str) -> Result<(), C
             .map_or(1, |revision| revision + 1);
         let mut updated = agent.clone();
         updated.insert(
-            "error".to_owned(),
-            serde_json::json!({
+            "error".into(),
+            js_json::json!({
                 "code": "lost_runtime",
                 "message": "Legacy active agent had no fenced runtime ownership during protocol migration.",
             }),
         );
-        updated.insert("lifecycle".to_owned(), Value::String("failed".to_owned()));
-        updated.insert("revision".to_owned(), Value::from(terminal_revision));
-        updated.insert("updatedAt".to_owned(), Value::String(now_iso.to_owned()));
-        updated.remove("worker");
+        updated.insert("lifecycle".into(), Value::String("failed".into()));
+        updated.insert("revision".into(), Value::from(terminal_revision));
+        updated.insert("updatedAt".into(), Value::String(now_iso.into()));
+        updated.shift_remove("worker");
         db.execute(
             "UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
             params![
-                js_json::stringify(&Value::Object(updated)),
+                js_json::stringify_lossless(&Value::Object(updated)),
                 now_iso,
                 session_path,
                 agent_id
@@ -913,7 +920,7 @@ fn migrate_legacy_runtime_mailbox_row(
         row.store_session_path,
         row.store_message_id
     );
-    let message = parse_stored_json_object(&canonical.data, &context)?;
+    let message = parse_stored_json_object_lossless(&canonical.data, &context)?;
     validate_mailbox_payload(&Value::Object(message.clone()), &context)?;
     let input = super::EnqueueRuntimeMailboxMessageInput {
         recipient_host: None,
@@ -928,17 +935,24 @@ fn migrate_legacy_runtime_mailbox_row(
         },
         store_ref,
     };
-    let mut updated =
-        add_runtime_mailbox_routing(&super::parse_canonical_mailbox_payload_lossless(&canonical)?, &input)?;
-    if message.get("status").and_then(Value::as_str) == Some("delivered") || row.status == "delivered" {
+    let mut updated = add_runtime_mailbox_routing(&message, &input)?;
+    if message
+        .get("status")
+        .and_then(Value::as_string)
+        .is_some_and(|status| status == "delivered")
+        || row.status == "delivered"
+    {
         db.execute(
             "DELETE FROM multi_agent_mailbox_messages WHERE session_path=? AND message_id=?",
             params![input.store_ref.session_path, input.store_ref.message_id],
         )?;
         return Ok(());
     }
-    let canonical_status =
-        to_runtime_mailbox_message_status(&require_string_field(&message, "status", &JsString::from(&context))?);
+    let canonical_status = to_runtime_mailbox_message_status(&require_native_string_field(
+        &message,
+        "status",
+        &JsString::from(&context),
+    )?);
     let status = migrated_mailbox_status(row, canonical_status);
     apply_migrated_mailbox_fields(&mut updated, row, status, now_iso);
     write_canonical_mailbox_payload(

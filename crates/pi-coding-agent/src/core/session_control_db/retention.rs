@@ -1,9 +1,8 @@
 //! Frozen mailbox-retention.ts and control DB creation-age predicates.
 use super::ControlDbError;
 use pi_js_compat::js_format;
-use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use rusqlite::{Connection, params};
-use serde_json::{Map, Value};
 pub const MAILBOX_MESSAGE_RETENTION_MS: i64 = 86_400_000;
 pub(crate) const MAILBOX_CREATED_AT_MS_SQL: &str = "COALESCE(CASE WHEN json_valid(data) THEN
 	CASE WHEN json_type(data, '$.createdAt') = 'text' THEN
@@ -18,16 +17,9 @@ pub fn is_mailbox_message_expired(created_at: Option<&JsString>, now_ms: f64) ->
         .filter(|birth| !birth.is_nan())
         .is_none_or(|birth| now_ms - birth >= MAILBOX_MESSAGE_RETENTION_MS as f64)
 }
-pub(crate) fn assert_mailbox_message_fresh(
-    message: &Map<String, Value>,
-    context: &JsString,
-) -> Result<(), ControlDbError> {
+pub(crate) fn assert_mailbox_message_fresh(message: &JsObject, context: &JsString) -> Result<(), ControlDbError> {
     if is_mailbox_message_expired(
-        message
-            .get("createdAt")
-            .and_then(Value::as_str)
-            .map(JsString::from)
-            .as_ref(),
+        message.get("createdAt").and_then(JsValue::as_string),
         pi_js_compat::date::js_now_millis(),
     ) {
         return Err(ControlDbError::new(js_format!(
