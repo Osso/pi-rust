@@ -1,15 +1,11 @@
-//! Port of `packages/agent/src/harness/session/jsonl.ts`.
+//! Frozen v3 JSONL session storage and repository.
 
-pub mod codec;
-mod codec_records;
-pub mod errors;
 pub mod repo;
 pub mod storage;
 pub mod types;
-
-pub use repo::{
-    JsonlSessionRepo, jsonl_session_directory_name, list_jsonl_session_metadata, load_jsonl_session_storage,
-    session_file_name,
+pub use repo::{JsonlSessionForkOptions, JsonlSessionRepo, jsonl_session_directory_name};
+pub use storage::{JsonlSessionStorage, load_jsonl_session_metadata};
+pub use types::{
+    JsonlSessionCreateOptions, JsonlSessionListOptions, JsonlSessionMetadata, JsonlSessionRepoFileSystem,
+    JsonlSessionRepoOptions, JsonlSessionStorageCreateOptions,
 };
-pub use storage::JsonlSessionStorage;
-pub use types::*;

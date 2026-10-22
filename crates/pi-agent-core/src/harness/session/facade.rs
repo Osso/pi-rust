@@ -1,441 +1,207 @@
-//! Port of `packages/agent/src/harness/session/session.ts`.
+//! Frozen session/session.ts facade; no lanes, sequence numbers or retained-tail records.
 
+use super::context::{SessionContext, build_session_context};
+use super::types::*;
+use crate::agent::AgentMessage;
+use crate::harness::messages::CustomMessageContent;
+use pi_js_compat::js_json::{JsString, JsValue};
+use pi_js_compat::js_regex::JsRegex;
 use std::sync::Arc;
 
-use pi_ai::types::Usage;
-use pi_js_compat::js_json::JsValue as Value;
-
-use crate::agent::AgentMessage;
-use crate::harness::session::state::{assert_valid_cursor, assert_valid_limit};
-use crate::harness::session::types::{
-    BranchQuery, Entry, EntryBody, EntryQuery, IdGenerator, LanePointer, LaneRecord, LogItem, LogOptions,
-    OptionalValue, RecordBody, RecordQuery, SessionError, SessionErrorCode, SessionMetadataValue, SessionStats,
-    SessionStorage, StorageBranchQuery, UuidV7IdGenerator,
-};
-
-/// Optional metadata recorded with a compaction entry.
 #[derive(Debug, Clone, Default)]
 pub struct CompactionAppendOptions {
+    pub details: Option<JsValue>,
+    pub from_hook: Option<bool>,
     pub duration_ms: Option<f64>,
-    pub details: OptionalValue,
-    pub usage: Option<Usage>,
+}
+#[derive(Debug, Clone)]
+pub struct MoveSummary {
+    pub summary: JsString,
+    pub details: Option<JsValue>,
+    pub from_hook: Option<bool>,
 }
 
-/// Session facade over a storage backend.
 #[derive(Clone)]
-pub struct Session<M: SessionMetadataValue> {
+pub struct Session<M: SessionMetadataValue = SessionMetadata> {
     storage: Arc<dyn SessionStorage<M>>,
-    id_generator: Arc<dyn IdGenerator>,
+    clock: Clock,
 }
-
 impl<M: SessionMetadataValue> std::fmt::Debug for Session<M> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str("Session")
     }
 }
-
 impl<M: SessionMetadataValue> Session<M> {
     pub fn new(storage: Arc<dyn SessionStorage<M>>) -> Self {
-        Self {
-            storage,
-            id_generator: Arc::new(UuidV7IdGenerator),
-        }
+        Self::with_clock(storage, system_clock())
     }
-
-    pub fn with_id_generator(storage: Arc<dyn SessionStorage<M>>, id_generator: Arc<dyn IdGenerator>) -> Self {
-        Self { storage, id_generator }
+    pub fn with_clock(storage: Arc<dyn SessionStorage<M>>, clock: Clock) -> Self {
+        Self { storage, clock }
     }
-
-    pub fn id_generator(&self) -> &Arc<dyn IdGenerator> {
-        &self.id_generator
+    pub fn get_storage(&self) -> &dyn SessionStorage<M> {
+        self.storage.as_ref()
     }
-
     pub async fn get_metadata(&self) -> Result<M, SessionError> {
         self.storage.get_metadata().await
     }
-
-    /// Bind a lane view. `main` views behave like the session itself.
-    pub fn view(&self, lane: &str) -> SessionView<M> {
-        SessionView {
-            session: self.clone(),
-            lane: lane.to_owned(),
-        }
+    pub async fn get_leaf_id(&self) -> Result<Option<JsString>, SessionError> {
+        self.storage.get_leaf_id().await
     }
-
-    pub async fn get_leaf_id(&self) -> Result<Option<String>, SessionError> {
-        self.get_leaf_id_for_lane("main").await
-    }
-
-    pub async fn get_entry(&self, id: &str) -> Result<Option<Entry>, SessionError> {
+    pub async fn get_entry(&self, id: &JsString) -> Result<Option<SessionTreeEntry>, SessionError> {
         self.storage.get_entry(id).await
     }
-
-    pub async fn get_stats(&self) -> Result<SessionStats, SessionError> {
-        self.storage.get_stats().await
+    pub async fn get_entries(&self) -> Result<Vec<SessionTreeEntry>, SessionError> {
+        self.storage.get_entries().await
     }
-
-    pub async fn get_name(&self) -> Result<Option<String>, SessionError> {
-        self.storage.get_name().await
+    pub async fn get_branch(&self, from_id: Option<&JsString>) -> Result<Vec<SessionTreeEntry>, SessionError> {
+        let current = if from_id.is_none() {
+            self.storage.get_leaf_id().await?
+        } else {
+            None
+        };
+        self.storage.get_path_to_root(from_id.or(current.as_ref())).await
     }
-
-    pub async fn set_name(&self, name: Option<&str>) -> Result<(), SessionError> {
-        self.storage.set_name(name).await
+    pub async fn build_context(&self) -> Result<SessionContext, SessionError> {
+        build_session_context(&self.get_branch(None).await?)
     }
-
-    pub async fn get_label(&self, target_id: &str) -> Result<Option<String>, SessionError> {
-        self.storage.get_label(target_id).await
+    pub async fn get_label(&self, id: &JsString) -> Result<Option<JsString>, SessionError> {
+        self.storage.get_label(id).await
     }
-
-    pub async fn set_label(&self, target_id: &str, label: Option<&str>) -> Result<(), SessionError> {
-        self.storage.set_label(target_id, label).await
+    pub async fn get_session_name(&self) -> Result<Option<JsString>, SessionError> {
+        let entries = self.storage.find_entries(&"session_info".into()).await?;
+        Ok(entries.last().and_then(|entry| match entry.known() {
+            Some(KnownSessionEntry::SessionInfo { name, .. }) => {
+                name.as_ref().map(JsString::trim).filter(|name| !name.is_empty())
+            }
+            _ => None,
+        }))
     }
-
-    pub async fn find_entries(&self, query: EntryQuery) -> Result<Vec<Entry>, SessionError> {
-        self.query_entries(query, None).await
+    async fn append_typed_entry(
+        &self,
+        build: impl FnOnce(SessionTreeEntryBase) -> KnownSessionEntry,
+    ) -> Result<JsString, SessionError> {
+        let id = self.storage.create_entry_id().await?;
+        let parent_id = self.storage.get_leaf_id().await?;
+        let entry = build(SessionTreeEntryBase {
+            id: id.clone(),
+            parent_id,
+            timestamp: (self.clock)(),
+        });
+        self.storage.append_entry(SessionTreeEntry::from_known(entry)).await?;
+        Ok(id)
     }
-
-    pub async fn find_entry(&self, query: EntryQuery) -> Result<Option<Entry>, SessionError> {
-        Ok(self.query_entries(query, Some(1)).await?.into_iter().next())
+    pub async fn append_message(&self, message: AgentMessage) -> Result<JsString, SessionError> {
+        self.append_typed_entry(|base| KnownSessionEntry::Message { base, message })
+            .await
     }
-
-    pub async fn find_entries_on_branch(&self, query: BranchQuery) -> Result<Vec<Entry>, SessionError> {
-        self.query_branch_entries("main", query, None).await
+    pub async fn append_thinking_level_change(&self, thinking_level: JsString) -> Result<JsString, SessionError> {
+        self.append_typed_entry(|base| KnownSessionEntry::ThinkingLevelChange { base, thinking_level })
+            .await
     }
-
-    pub async fn find_entry_on_branch(&self, query: BranchQuery) -> Result<Option<Entry>, SessionError> {
-        Ok(self
-            .query_branch_entries("main", query, Some(1))
-            .await?
-            .into_iter()
-            .next())
+    pub async fn append_model_change(&self, provider: JsString, model_id: JsString) -> Result<JsString, SessionError> {
+        self.append_typed_entry(|base| KnownSessionEntry::ModelChange {
+            base,
+            provider,
+            model_id,
+        })
+        .await
     }
-
-    pub async fn append_message(&self, message: AgentMessage) -> Result<String, SessionError> {
-        self.append_message_to_lane("main", message).await
+    pub async fn append_active_tools_change(&self, active_tool_names: Vec<JsString>) -> Result<JsString, SessionError> {
+        self.append_typed_entry(|base| KnownSessionEntry::ActiveToolsChange {
+            base,
+            active_tool_names,
+        })
+        .await
     }
-
     pub async fn append_compaction(
         &self,
-        summary: &str,
+        summary: JsString,
+        first_kept_entry_id: JsString,
         tokens_before: f64,
-        retained_tail: Vec<AgentMessage>,
         options: CompactionAppendOptions,
-    ) -> Result<String, SessionError> {
-        self.append_compaction_to_lane("main", summary, tokens_before, retained_tail, options)
-            .await
-    }
-
-    pub async fn append_custom_entry(&self, custom_type: &str, data: Option<Value>) -> Result<String, SessionError> {
-        self.append_custom_entry_to_lane("main", custom_type, data).await
-    }
-
-    pub async fn get_lanes(&self) -> Result<Vec<LanePointer>, SessionError> {
-        self.storage.get_lanes().await
-    }
-
-    pub async fn create_lane(&self, lane: &str, at: Option<&str>) -> Result<(), SessionError> {
-        self.storage.create_lane(lane, at).await
-    }
-
-    pub async fn move_lane(&self, lane: &str, to: Option<&str>) -> Result<(), SessionError> {
-        self.storage.move_lane(lane, to).await
-    }
-
-    pub async fn append_entry(&self, entry: EntryBody, lane: &str) -> Result<Entry, SessionError> {
-        validate_entry_payload(&entry)?;
-        self.storage.append_entry(entry, lane).await
-    }
-
-    pub async fn append_record(&self, record: RecordBody) -> Result<LaneRecord, SessionError> {
-        validate_record_payload(&record)?;
-        self.storage.append_record(record).await
-    }
-
-    pub async fn find_records(&self, query: RecordQuery) -> Result<Vec<LaneRecord>, SessionError> {
-        assert_valid_limit(query.limit)?;
-        assert_valid_cursor(query.after_seq)?;
-        if query.operation_kind.is_some()
-            && query.record_type != Some(crate::harness::session::types::RecordType::OperationStarted)
-        {
-            return Err(SessionError::new(
-                SessionErrorCode::InvalidQuery,
-                "operationKind requires type \"operation_started\"",
-            ));
-        }
-        self.storage.find_records(query).await
-    }
-
-    pub async fn find_open_operations(
-        &self,
-        lane: &str,
-        limit: Option<usize>,
-    ) -> Result<Vec<LaneRecord>, SessionError> {
-        assert_valid_limit(limit)?;
-        self.storage.find_open_operations(lane, limit).await
-    }
-
-    pub async fn get_log(&self, options: LogOptions) -> Result<Vec<LogItem>, SessionError> {
-        assert_valid_limit(options.limit)?;
-        assert_valid_cursor(options.after_seq)?;
-        self.storage.get_log(options).await
-    }
-
-    async fn get_leaf_id_for_lane(&self, lane: &str) -> Result<Option<String>, SessionError> {
-        match self.get_lanes().await?.into_iter().find(|pointer| pointer.lane == lane) {
-            Some(pointer) => Ok(pointer.leaf_id),
-            None => Err(SessionError::new(
-                SessionErrorCode::InvalidLane,
-                format!("Lane not found: {lane}"),
-            )),
-        }
-    }
-
-    async fn query_entries(
-        &self,
-        mut query: EntryQuery,
-        result_limit: Option<usize>,
-    ) -> Result<Vec<Entry>, SessionError> {
-        assert_valid_limit(query.limit)?;
-        assert_valid_cursor(query.cursor.map(|cursor| cursor.after_seq))?;
-        if let Some(limit) = result_limit {
-            query.limit = Some(limit);
-        }
-        self.storage.find_entries(query).await
-    }
-
-    async fn query_branch_entries(
-        &self,
-        default_lane: &str,
-        mut query: BranchQuery,
-        result_limit: Option<usize>,
-    ) -> Result<Vec<Entry>, SessionError> {
-        assert_valid_limit(query.entry.limit)?;
-        assert_valid_cursor(query.entry.cursor.map(|cursor| cursor.after_seq))?;
-        let start = match query.bounds.start.take() {
-            Some(start) => Some(start),
-            None => self.get_leaf_id_for_lane(default_lane).await?,
-        };
-        let Some(start) = start else {
-            return Ok(Vec::new());
-        };
-        if let Some(limit) = result_limit {
-            query.entry.limit = Some(limit);
-        }
-        self.storage
-            .find_entries_on_branch(StorageBranchQuery {
-                entry: query.entry,
-                start,
-                stop_at_type: query.bounds.stop_at_type,
-                stop_at_id: query.bounds.stop_at_id,
-            })
-            .await
-    }
-
-    async fn append_message_to_lane(&self, lane: &str, message: AgentMessage) -> Result<String, SessionError> {
-        let entry = self
-            .append_entry(
-                EntryBody::Message {
-                    id: self.id_generator.next(),
-                    message,
-                    terminate: None,
-                },
-                lane,
-            )
-            .await?;
-        Ok(entry.id().to_owned())
-    }
-
-    async fn append_compaction_to_lane(
-        &self,
-        lane: &str,
-        summary: &str,
-        tokens_before: f64,
-        retained_tail: Vec<AgentMessage>,
-        options: CompactionAppendOptions,
-    ) -> Result<String, SessionError> {
-        let entry = self
-            .append_entry(
-                EntryBody::Compaction {
-                    id: self.id_generator.next(),
-                    summary: summary.to_owned().into(),
-                    tokens_before,
-                    retained_tail,
-                    duration_ms: options.duration_ms,
-                    details: options.details,
-                    usage: options.usage,
-                },
-                lane,
-            )
-            .await?;
-        Ok(entry.id().to_owned())
-    }
-
-    async fn append_custom_entry_to_lane(
-        &self,
-        lane: &str,
-        custom_type: &str,
-        data: Option<Value>,
-    ) -> Result<String, SessionError> {
-        let entry = self
-            .append_entry(
-                EntryBody::Custom {
-                    id: self.id_generator.next(),
-                    custom_type: custom_type.to_owned(),
-                    data: data.into(),
-                },
-                lane,
-            )
-            .await?;
-        Ok(entry.id().to_owned())
-    }
-}
-
-/// Lane-bound view of a session.
-pub struct SessionView<M: SessionMetadataValue> {
-    session: Session<M>,
-    lane: String,
-}
-
-impl<M: SessionMetadataValue> SessionView<M> {
-    pub async fn get_leaf_id(&self) -> Result<Option<String>, SessionError> {
-        self.session.get_leaf_id_for_lane(&self.lane).await
-    }
-
-    pub async fn get_entry(&self, id: &str) -> Result<Option<Entry>, SessionError> {
-        self.session.get_entry(id).await
-    }
-
-    pub async fn get_stats(&self) -> Result<SessionStats, SessionError> {
-        self.session.get_stats().await
-    }
-
-    pub async fn get_name(&self) -> Result<Option<String>, SessionError> {
-        self.session.get_name().await
-    }
-
-    pub async fn set_name(&self, name: Option<&str>) -> Result<(), SessionError> {
-        self.session.set_name(name).await
-    }
-
-    pub async fn get_label(&self, target_id: &str) -> Result<Option<String>, SessionError> {
-        self.session.get_label(target_id).await
-    }
-
-    pub async fn set_label(&self, target_id: &str, label: Option<&str>) -> Result<(), SessionError> {
-        self.session.set_label(target_id, label).await
-    }
-
-    pub async fn find_entries(&self, query: EntryQuery) -> Result<Vec<Entry>, SessionError> {
-        self.session.query_entries(query, None).await
-    }
-
-    pub async fn find_entry(&self, query: EntryQuery) -> Result<Option<Entry>, SessionError> {
-        Ok(self.session.query_entries(query, Some(1)).await?.into_iter().next())
-    }
-
-    pub async fn find_entries_on_branch(&self, query: BranchQuery) -> Result<Vec<Entry>, SessionError> {
-        self.session.query_branch_entries(&self.lane, query, None).await
-    }
-
-    pub async fn find_entry_on_branch(&self, query: BranchQuery) -> Result<Option<Entry>, SessionError> {
-        Ok(self
-            .session
-            .query_branch_entries(&self.lane, query, Some(1))
-            .await?
-            .into_iter()
-            .next())
-    }
-
-    pub async fn append_message(&self, message: AgentMessage) -> Result<String, SessionError> {
-        self.session.append_message_to_lane(&self.lane, message).await
-    }
-
-    pub async fn append_compaction(
-        &self,
-        summary: &str,
-        tokens_before: f64,
-        retained_tail: Vec<AgentMessage>,
-        options: CompactionAppendOptions,
-    ) -> Result<String, SessionError> {
-        self.session
-            .append_compaction_to_lane(&self.lane, summary, tokens_before, retained_tail, options)
-            .await
-    }
-
-    pub async fn append_custom_entry(&self, custom_type: &str, data: Option<Value>) -> Result<String, SessionError> {
-        self.session
-            .append_custom_entry_to_lane(&self.lane, custom_type, data)
-            .await
-    }
-}
-
-fn validate_entry_payload(entry: &EntryBody) -> Result<(), SessionError> {
-    match entry {
-        EntryBody::Compaction {
+    ) -> Result<JsString, SessionError> {
+        self.append_typed_entry(|base| KnownSessionEntry::Compaction {
+            base,
+            summary,
+            first_kept_entry_id,
             tokens_before,
-            duration_ms,
-            usage,
-            ..
-        } => {
-            require_finite(*tokens_before)?;
-            if let Some(duration_ms) = duration_ms {
-                require_finite(*duration_ms)?;
-            }
-            if let Some(usage) = usage {
-                validate_usage(usage)?;
-            }
+            duration_ms: options.duration_ms,
+            details: options.details,
+            from_hook: options.from_hook,
+        })
+        .await
+    }
+    pub async fn append_custom_entry(
+        &self,
+        custom_type: JsString,
+        data: Option<JsValue>,
+    ) -> Result<JsString, SessionError> {
+        self.append_typed_entry(|base| KnownSessionEntry::Custom {
+            base,
+            custom_type,
+            data,
+        })
+        .await
+    }
+    pub async fn append_custom_message_entry(
+        &self,
+        custom_type: JsString,
+        content: CustomMessageContent,
+        display: bool,
+        details: Option<JsValue>,
+    ) -> Result<JsString, SessionError> {
+        self.append_typed_entry(|base| KnownSessionEntry::CustomMessage {
+            base,
+            custom_type,
+            content,
+            display,
+            details,
+        })
+        .await
+    }
+    pub async fn append_label(&self, target_id: JsString, label: Option<JsString>) -> Result<JsString, SessionError> {
+        if self.storage.get_entry(&target_id).await?.is_none() {
+            return Err(SessionError::missing(SessionErrorCode::NotFound, &target_id));
         }
-        EntryBody::BranchSummary { usage: Some(usage), .. } => validate_usage(usage)?,
-        _ => {}
+        self.append_typed_entry(|base| KnownSessionEntry::Label { base, target_id, label })
+            .await
     }
-    Ok(())
-}
-
-fn validate_record_payload(record: &RecordBody) -> Result<(), SessionError> {
-    match record {
-        RecordBody::StepAttempt { attempt, .. } => require_finite(*attempt)?,
-        RecordBody::ToolStarted { tool_index, .. } => require_finite(*tool_index)?,
-        RecordBody::Usage { attempt, usage, .. } => {
-            if let Some(attempt) = attempt {
-                require_finite(*attempt)?;
-            }
-            validate_usage(usage)?;
+    pub async fn append_session_name(&self, name: &JsString) -> Result<JsString, SessionError> {
+        let name = JsRegex::new(r"[\r\n]+")
+            .expect("valid session-name whitespace regex")
+            .replace_all(name, " ")
+            .trim();
+        self.append_typed_entry(|base| KnownSessionEntry::SessionInfo { base, name: Some(name) })
+            .await
+    }
+    pub async fn move_to(
+        &self,
+        entry_id: Option<&JsString>,
+        summary: Option<MoveSummary>,
+    ) -> Result<Option<JsString>, SessionError> {
+        if let Some(id) = entry_id
+            && self.storage.get_entry(id).await?.is_none()
+        {
+            return Err(SessionError::missing(SessionErrorCode::NotFound, id));
         }
-        _ => {}
+        self.storage.set_leaf_id(entry_id).await?;
+        let Some(summary) = summary else {
+            return Ok(None);
+        };
+        let id = self.storage.create_entry_id().await?;
+        let base = SessionTreeEntryBase {
+            id: id.clone(),
+            parent_id: entry_id.cloned(),
+            timestamp: (self.clock)(),
+        };
+        let entry = KnownSessionEntry::BranchSummary {
+            base,
+            from_id: entry_id.cloned().unwrap_or_else(|| "root".into()),
+            summary: summary.summary,
+            details: summary.details,
+            from_hook: summary.from_hook,
+        };
+        self.storage.append_entry(SessionTreeEntry::from_known(entry)).await?;
+        Ok(Some(id))
     }
-    Ok(())
-}
-
-fn validate_usage(usage: &Usage) -> Result<(), SessionError> {
-    for value in [
-        usage.input,
-        usage.output,
-        usage.cache_read,
-        usage.cache_write,
-        usage.total_tokens,
-        usage.cost.input,
-        usage.cost.output,
-        usage.cost.cache_read,
-        usage.cost.cache_write,
-        usage.cost.total,
-    ] {
-        require_finite(value)?;
-    }
-    if let Some(value) = usage.cache_write_1h {
-        require_finite(value)?;
-    }
-    if let Some(value) = usage.reasoning {
-        require_finite(value)?;
-    }
-    Ok(())
-}
-
-fn require_finite(value: f64) -> Result<(), SessionError> {
-    if value.is_finite() {
-        return Ok(());
-    }
-    Err(SessionError::new(
-        SessionErrorCode::InvalidPayload,
-        "Durable payload contains a non-finite number",
-    ))
 }

@@ -11,7 +11,6 @@ publish = false
 # OS entropy for the frozen agent-core UUIDv7 generator.
 getrandom = "=0.4.3"
 pi-ai = { version = "=0.0.0", path = "../pi-ai" }
-pi-telemetry = { version = "=0.0.0", path = "../pi-telemetry" }
 # Shared localeCompare/Base64/JS number semantics.
 pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat" }
 serde = { version = "=1.0.229", features = ["derive"] }

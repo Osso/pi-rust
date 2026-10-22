@@ -1,4 +1,3 @@
-pub mod agent_harness;
 pub mod compaction;
 pub mod env;
 mod frontmatter;
@@ -28,7 +27,6 @@ pub mod system_prompt;
 pub mod types;
 pub mod utils;
 
-pub use agent_harness::*;
 pub use env::{NodeExecutionEnv, NodeExecutionEnvOptions};
 pub use messages::{
     BRANCH_SUMMARY_PREFIX, BRANCH_SUMMARY_SUFFIX, BashExecutionMessage, BashExecutionRole, BranchSummaryMessage,
