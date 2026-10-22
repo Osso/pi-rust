@@ -91,7 +91,7 @@ fn format_session_line(session: &SessionDirectoryEntry) -> JsString {
         session.session_id,
         session.status.as_str(),
         session.check_status.as_str(),
-        session.eligible_to_receive,
+        session.eligible_to_receive.to_string(),
         pid,
         name,
         goal,
