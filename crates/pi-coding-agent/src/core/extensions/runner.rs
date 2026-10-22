@@ -239,7 +239,7 @@ impl ExtensionRunner {
     pub fn new(
         extensions: Vec<Extension>,
         runtime: ExtensionRuntime,
-        cwd: impl Into<String>,
+        cwd: impl Into<JsString>,
         session_manager: SharedSessionManager,
         model_registry: Arc<ModelRegistry>,
         settings_manager: Option<Arc<Mutex<SettingsManager>>>,
@@ -488,7 +488,7 @@ impl ExtensionRunner {
     }
 
     /// Update the working directory reported by live contexts.
-    pub fn set_cwd(&mut self, cwd: impl Into<String>) {
+    pub fn set_cwd(&mut self, cwd: impl Into<JsString>) {
         self.live().cwd = cwd.into();
     }
 
@@ -1576,7 +1576,11 @@ impl ExtensionRunner {
         })
     }
 
-    pub async fn emit_resources_discover(&self, cwd: &str, reason: ResourcesDiscoverReason) -> ResourcesDiscoverPaths {
+    pub async fn emit_resources_discover(
+        &self,
+        cwd: &JsString,
+        reason: ResourcesDiscoverReason,
+    ) -> ResourcesDiscoverPaths {
         let ctx = self.create_context();
         let mut result = ResourcesDiscoverPaths::default();
         for extension in &self.extensions {

@@ -73,9 +73,9 @@ pub struct CreateAgentSessionOptions {
     pub multi_agent_runtime_role: Option<MultiAgentRuntimeRole>,
     pub multi_agent_execution_capability: Option<MultiAgentExecutionCapability>,
     /// Current multi-agent runtime agent identity, when resuming or running as a child agent.
-    pub multi_agent_agent_id: Option<String>,
+    pub multi_agent_agent_id: Option<JsString>,
     /// Parent runtime session ID for supervisor-directed messages from attached agents.
-    pub multi_agent_parent_session_id: Option<String>,
+    pub multi_agent_parent_session_id: Option<JsString>,
     /// Whether this runtime must have an explicit multi-agent identity to send agent messages.
     pub multi_agent_requires_agent_id: bool,
     pub disable_runtime_coordination_inbound: bool,

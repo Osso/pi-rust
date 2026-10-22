@@ -89,7 +89,7 @@ fn build_resource_loader(
     loader_options.cwd = cwd.to_owned();
     loader_options.agent_dir = agent_dir.to_owned();
     loader_options.settings_manager = Some(Arc::clone(settings_manager));
-    let loader = DefaultResourceLoader::new(loader_options).map_err(|error| error.message().clone())?;
+    let loader = DefaultResourceLoader::new(loader_options).map_err(JsString::from)?;
     Ok(Arc::new(loader))
 }
 
