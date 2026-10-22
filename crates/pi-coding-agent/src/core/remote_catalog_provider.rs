@@ -338,7 +338,10 @@ fn catalog_is_fresh(context: &RefreshModelsContext, stored: Option<&ModelsStoreE
 fn catalog_request_headers(stored: Option<&ModelsStoreEntry>) -> Vec<(String, String)> {
     let mut headers = vec![
         ("accept".to_owned(), "application/json".to_owned()),
-        ("user-agent".to_owned(), get_pi_user_agent(&package_config().version)),
+        (
+            "user-agent".to_owned(),
+            pi_js_compat::js_json::encode_node_utf8(&get_pi_user_agent(&package_config().version.clone().into())),
+        ),
     ];
     let validator = stored
         .filter(|entry| !entry.models.is_empty())

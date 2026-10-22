@@ -105,8 +105,8 @@ pub struct BeforeAgentStartCombinedResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscoveredPath {
-    pub path: String,
-    pub extension_path: String,
+    pub path: JsString,
+    pub extension_path: JsString,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

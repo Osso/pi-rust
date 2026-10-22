@@ -42,3 +42,11 @@ Pinned source: commit `532f7d12cd19235081bd4d6e425bde185652d86f`.
 - `PermissionPromptDecision` deliberately has no serde derive: the source type is
   internal, and `PermissionRuleUpdate` (rule-store port) has no `type` field to
   serialize. Parsing builds the typed decision directly.
+
+## Q18 native permission cwd (2026-10-22)
+
+PermissionPromptInput/HandlerOptions cwd and notification body are native. MCP
+callback receives original units; notification text encodes only at the notifier
+implementation's argv boundary. Raw cwd callback fixture written but unexecuted
+while coding compilation is blocked. Tool names/call IDs stay approved scalar
+metadata.

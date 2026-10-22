@@ -188,3 +188,23 @@ Shared JS stringify/object enumeration is used at this module's audited observab
 
 ## Q18 native consumer follow-up
 Control DB, model/runtime and session-manager errors propagate message authorities rather than Display encoding. Native skill/template names and paths flow through slash commands and skill invocation. Skill expansion now follows frozen `_expandSkillCommand`: parse/read failure emits `skill_expansion` and preserves the original command; the old Rust parser-to-original-file fallback was an implementation discrepancy, not a frozen-source behavior. `invalid_skill_frontmatter_emits_native_path_error_and_keeps_original_command` was added before replacing the fallback; `skill-expansion-red.jsonl` remains library-compiler-blocked. Runtime acceptance not claimed.
+
+## Q18 remaining native adapters (2026-10-22)
+
+Tool prompt snippets/guidelines and stored maps, discovered extension resources/
+source labels/baseDir, Bash shell options, and settings-backed theme selection
+retain native text. Permission tool names remain approved opaque scalar metadata;
+unpaired settings values reject explicitly at narrowing. SDK default provider/
+model IDs use the same explicit rejection. No Display round trip.
+
+Supervisor project resolution and goal/request construction now occur inside
+SupervisorApprovalCall. Frozen agent-session.ts:1389 and approval-reviewer.ts:12
+propagate thrown request-callback failures; there is no catch or human/deny
+fallback for thrown errors. The old default project ID is removed. An isolated
+process test constructs a real session with invalid raw-key project config and
+asserts native error plus no requester invocation. Snippet/resource-label fixtures
+check exact raw units. Written but unexecuted while coding compilation is blocked.
+
+Remaining diagnostic dependencies at replacement-adapters-1: parent native Bash
+executor/controlDB/mailbox APIs, UI theme-name result, and209 claim ID; parent
+already has several of these awaiting the lane's next clean refresh.

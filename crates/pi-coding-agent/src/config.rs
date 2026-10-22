@@ -45,6 +45,10 @@ pub struct ConfigError {
 }
 
 impl ConfigError {
+    pub fn message(&self) -> &JsString {
+        &self.message
+    }
+
     fn new(message: impl Into<JsString>) -> Self {
         Self {
             label: ERROR,

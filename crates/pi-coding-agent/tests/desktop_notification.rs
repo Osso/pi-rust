@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::{JsString, JsValue, parse_lossless, stringify_lossless};
 #[path = "support/env_probe.rs"]
 mod env_probe;
 #[path = "support/executable_script.rs"]
@@ -39,8 +40,14 @@ fn probe(notification: DesktopNotification, close_immediately: bool) -> (Vec<Str
             "PI_CLOSE_IMMEDIATELY",
             OsString::from(if close_immediately { "1" } else { "0" }),
         ),
-        ("PI_NOTIFY_BODY", OsString::from(notification.body)),
-        ("PI_NOTIFY_TITLE", OsString::from(notification.title)),
+        (
+            "PI_NOTIFY_BODY",
+            OsString::from(stringify_lossless(&JsValue::String(notification.body))),
+        ),
+        (
+            "PI_NOTIFY_TITLE",
+            OsString::from(stringify_lossless(&JsValue::String(notification.title))),
+        ),
         (
             "PI_NOTIFY_EXPIRE",
             OsString::from(notification.expire_time_ms.unwrap_or(i64::MIN).to_string()),
@@ -152,9 +159,17 @@ fn desktop_notification_probe_child() {
     let expire = std::env::var("PI_NOTIFY_EXPIRE").unwrap();
     let urgency = std::env::var("PI_NOTIFY_URGENCY").unwrap();
     let notification = DesktopNotification {
-        body: std::env::var("PI_NOTIFY_BODY").unwrap(),
+        body: parse_lossless(std::env::var("PI_NOTIFY_BODY").unwrap())
+            .unwrap()
+            .as_string()
+            .unwrap()
+            .clone(),
         expire_time_ms: (expire != i64::MIN.to_string()).then(|| expire.parse().unwrap()),
-        title: std::env::var("PI_NOTIFY_TITLE").unwrap(),
+        title: parse_lossless(std::env::var("PI_NOTIFY_TITLE").unwrap())
+            .unwrap()
+            .as_string()
+            .unwrap()
+            .clone(),
         urgency: match urgency.as_str() {
             "critical" => Some(DesktopNotificationUrgency::Critical),
             "low" => Some(DesktopNotificationUrgency::Low),
@@ -186,4 +201,19 @@ fn wait_for_file(log: &Path, also: Option<&Path>) {
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
+}
+
+#[test]
+fn notification_encodes_raw_title_and_body_only_at_notify_send_argv() {
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let (argv, _) = probe(
+        DesktopNotification {
+            title: raw.clone(),
+            body: raw,
+            expire_time_ms: None,
+            urgency: None,
+        },
+        false,
+    );
+    assert_eq!(&argv[4..], &["�", "�"]);
 }

@@ -60,12 +60,18 @@ pub struct WritePermissionRulesOptions {
 /// Failure writing permission rules.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuleStoreError {
-    message: String,
+    message: JsString,
+}
+
+impl RuleStoreError {
+    pub fn message(&self) -> &JsString {
+        &self.message
+    }
 }
 
 impl std::fmt::Display for RuleStoreError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&encode_node_utf8(&self.message))
     }
 }
 
@@ -105,7 +111,7 @@ impl PermissionRuleStore {
         }
     }
 
-    pub fn from_settings(settings: Option<&serde_json::Value>) -> Self {
+    pub fn from_settings(settings: Option<&Value>) -> Self {
         let mut store = Self::new();
         store.add_settings_rules(settings);
         store
@@ -127,10 +133,8 @@ impl PermissionRuleStore {
         self.add_rules(tool_name, rules);
     }
 
-    pub fn add_settings_rules(&mut self, settings: Option<&serde_json::Value>) {
-        let settings = settings.map(Value::from);
-        let permission_rules =
-            read_permission_rules(settings.as_ref().and_then(|settings| settings.get("permissionRules")));
+    pub fn add_settings_rules(&mut self, settings: Option<&Value>) {
+        let permission_rules = read_permission_rules(settings.and_then(|settings| settings.get("permissionRules")));
         for (tool_name, rules) in permission_rules {
             self.add_rules(&tool_name, &rules);
         }
@@ -191,12 +195,14 @@ pub fn build_permission_rule_content(tool_name: &str, input: &Map) -> JsString {
 /// Persists an allow rule, preserving the rest of the settings file.
 pub fn write_permission_rules(options: &WritePermissionRulesOptions) -> Result<(), RuleStoreError> {
     let settings_path = resolve_settings_path(options);
-    let current_content = match std::fs::read_to_string(encode_node_utf8(&settings_path)) {
+    let current_content = match std::fs::read(encode_node_utf8(&settings_path))
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+    {
         Ok(content) => Some(content),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(error) => {
             return Err(RuleStoreError {
-                message: error.to_string(),
+                message: error.to_string().into(),
             });
         }
     };
@@ -220,12 +226,12 @@ pub fn write_permission_rules(options: &WritePermissionRulesOptions) -> Result<(
 
     if let Some(parent) = Path::new(&encode_node_utf8(&settings_path)).parent() {
         std::fs::create_dir_all(parent).map_err(|error| RuleStoreError {
-            message: error.to_string(),
+            message: error.to_string().into(),
         })?;
     }
     let content = update_permission_rules_content(current_content.as_deref(), &permission_rules_value)?;
     std::fs::write(encode_node_utf8(&settings_path), content).map_err(|error| RuleStoreError {
-        message: error.to_string(),
+        message: error.to_string().into(),
     })
 }
 
@@ -251,11 +257,13 @@ fn read_settings(path: &JsString) -> Result<Map, RuleStoreError> {
     if !Path::new(&encode_node_utf8(path)).exists() {
         return Ok(Map::new());
     }
-    let content = std::fs::read_to_string(encode_node_utf8(path)).map_err(|error| RuleStoreError {
-        message: error.to_string(),
-    })?;
+    let content = std::fs::read(encode_node_utf8(path))
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        .map_err(|error| RuleStoreError {
+            message: error.to_string().into(),
+        })?;
     let parsed = js_json::parse_lossless(&content).map_err(|error| RuleStoreError {
-        message: error.to_string(),
+        message: error.message().clone(),
     })?;
     Ok(match parsed {
         Value::Object(object) => object,
@@ -362,10 +370,10 @@ fn find_top_level_property_value_range(
         if character == b'"' {
             let end_quote = find_string_end(content, index);
             let literal = &content[index..=end_quote];
-            let name = js_json::parse(literal).map_err(|error| RuleStoreError {
-                message: error.to_string(),
+            let name = js_json::parse_lossless(literal).map_err(|error| RuleStoreError {
+                message: error.message().clone(),
             })?;
-            if depth == 1 && name.as_str() == Some(property_name) {
+            if depth == 1 && name.as_string().is_some_and(|name| name == property_name) {
                 let Some(colon_offset) = content[end_quote + 1..].find(':') else {
                     return Ok(None);
                 };

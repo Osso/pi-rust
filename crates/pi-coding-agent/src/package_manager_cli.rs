@@ -59,35 +59,35 @@ impl PackageCommand {
 pub enum UpdateTarget {
     All,
     SelfUpdate,
-    Extensions { source: Option<String> },
+    Extensions { source: Option<JsString> },
     Models,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageCommandOptions {
     pub command: PackageCommand,
-    pub source: Option<String>,
+    pub source: Option<JsString>,
     pub update_target: Option<UpdateTarget>,
     pub show_extensions_skipped_note: bool,
     pub local: bool,
     pub force: bool,
     pub project_trust_override: Option<bool>,
     pub help: bool,
-    pub invalid_option: Option<String>,
-    pub invalid_argument: Option<String>,
-    pub missing_option_value: Option<String>,
-    pub conflicting_options: Option<String>,
+    pub invalid_option: Option<JsString>,
+    pub invalid_argument: Option<JsString>,
+    pub missing_option_value: Option<JsString>,
+    pub conflicting_options: Option<JsString>,
 }
 
 /// Parsed command handed to the runtime.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PackageAction {
     Install {
-        source: String,
+        source: JsString,
         local: bool,
     },
     Remove {
-        source: String,
+        source: JsString,
         local: bool,
     },
     List,
@@ -111,39 +111,40 @@ pub struct CommandOutcome {
     pub project_trust_override: Option<bool>,
 }
 
-fn app_name() -> String {
-    config::package_config().app_name.clone()
+fn app_name() -> JsString {
+    config::package_config().app_name.clone().into()
 }
 
-fn config_dir_name() -> String {
-    config::package_config().config_dir_name.clone()
+fn config_dir_name() -> JsString {
+    config::package_config().config_dir_name.clone().into()
 }
 
 /// `getPackageCommandUsage`.
-pub fn package_command_usage(command: PackageCommand) -> String {
+pub fn package_command_usage(command: PackageCommand) -> JsString {
     let app_name = app_name();
     match command {
         PackageCommand::Install => {
-            format!("{app_name} install <source> [-l] [--approve|--no-approve]")
+            pi_js_compat::js_format!("{} install <source> [-l] [--approve|--no-approve]", app_name)
         }
         PackageCommand::Remove => {
-            format!("{app_name} remove <source> [-l] [--approve|--no-approve]")
+            pi_js_compat::js_format!("{} remove <source> [-l] [--approve|--no-approve]", app_name)
         }
-        PackageCommand::Update => format!(
-            "{app_name} update [source|self|pi] [--self|--extensions|--models|--all] [--extension <source>] [--approve|--no-approve] [--force]"
+        PackageCommand::Update => pi_js_compat::js_format!(
+            "{} update [source|self|pi] [--self|--extensions|--models|--all] [--extension <source>] [--approve|--no-approve] [--force]",
+            app_name
         ),
-        PackageCommand::List => format!("{app_name} list [--approve|--no-approve]"),
+        PackageCommand::List => pi_js_compat::js_format!("{} list [--approve|--no-approve]", app_name),
     }
 }
 
-fn config_command_usage() -> String {
-    format!("{} config [-l] [--approve|--no-approve]", app_name())
+fn config_command_usage() -> JsString {
+    pi_js_compat::js_format!("{} config [-l] [--approve|--no-approve]", app_name())
 }
 
 /// `printConfigCommandHelp` text, including the trailing newline from `console.log`.
 pub fn config_command_help() -> JsString {
     let chalk = Chalk::stdout();
-    let text = format!(
+    let text = pi_js_compat::js_format!(
         "\n  {}
 
 Open the resource configuration TUI to enable or disable package resources.
@@ -157,7 +158,7 @@ Options:
 ",
         config_command_usage(),
         config_dir_name(),
-        config_dir_name(),
+        config_dir_name()
     );
     chalk.bold("Usage:") + text
 }
@@ -168,44 +169,55 @@ pub fn package_command_help(command: PackageCommand) -> JsString {
     let app_name = app_name();
     let config_dir_name = config_dir_name();
     let body = match command {
-        PackageCommand::Install => format!(
+        PackageCommand::Install => pi_js_compat::js_format!(
             "{}
 
 Install a package and add it to settings.
 
 Options:
-  -l, --local       Install project-locally ({config_dir_name}/settings.json)
+  -l, --local       Install project-locally ({}/settings.json)
   -a, --approve     Trust project-local files for this command
   -na, --no-approve Ignore project-local files for this command
 
 Examples:
-  {app_name} install npm:@foo/bar
-  {app_name} install git:github.com/user/repo
-  {app_name} install git:git@github.com:user/repo
-  {app_name} install https://github.com/user/repo
-  {app_name} install ssh://git@github.com/user/repo
-  {app_name} install ./local/path
+  {} install npm:@foo/bar
+  {} install git:github.com/user/repo
+  {} install git:git@github.com:user/repo
+  {} install https://github.com/user/repo
+  {} install ssh://git@github.com/user/repo
+  {} install ./local/path
 ",
-            package_command_usage(command)
+            package_command_usage(command),
+            config_dir_name,
+            app_name,
+            app_name,
+            app_name,
+            app_name,
+            app_name,
+            app_name
         ),
-        PackageCommand::Remove => format!(
+        PackageCommand::Remove => pi_js_compat::js_format!(
             "{}
 
 Remove a package and its source from settings.
-Alias: {app_name} uninstall <source> [-l]
+Alias: {} uninstall <source> [-l]
 
 Options:
-  -l, --local       Remove from project settings ({config_dir_name}/settings.json)
+  -l, --local       Remove from project settings ({}/settings.json)
   -a, --approve     Trust project-local files for this command
   -na, --no-approve Ignore project-local files for this command
 
 Examples:
-  {app_name} remove npm:@foo/bar
-  {app_name} uninstall npm:@foo/bar
+  {} remove npm:@foo/bar
+  {} uninstall npm:@foo/bar
 ",
-            package_command_usage(command)
+            package_command_usage(command),
+            app_name,
+            config_dir_name,
+            app_name,
+            app_name
         ),
-        PackageCommand::Update => format!(
+        PackageCommand::Update => pi_js_compat::js_format!(
             "{}
 
 Update pi, installed packages, or model catalogs.
@@ -221,15 +233,20 @@ Options:
   --force                 Reinstall pi even if the current version is latest
 
 Short forms:
-  {app_name} update                Update pi only
-  {app_name} update --all          Update pi and all extensions
-  {app_name} update --models       Refresh model catalogs only
-  {app_name} update <source>       Update one package
-  {app_name} update pi             Update pi only (self works as alias to pi)
+  {} update                Update pi only
+  {} update --all          Update pi and all extensions
+  {} update --models       Refresh model catalogs only
+  {} update <source>       Update one package
+  {} update pi             Update pi only (self works as alias to pi)
 ",
-            package_command_usage(command)
+            package_command_usage(command),
+            app_name,
+            app_name,
+            app_name,
+            app_name,
+            app_name
         ),
-        PackageCommand::List => format!(
+        PackageCommand::List => pi_js_compat::js_format!(
             "{}
 
 List installed packages from user and project settings.
@@ -245,9 +262,13 @@ Options:
 }
 
 /// `parsePackageCommand`.
-pub fn parse_package_command(args: &[String]) -> Option<PackageCommandOptions> {
+pub fn parse_package_command(args: &[JsString]) -> Option<PackageCommandOptions> {
     let (raw_command, rest) = args.split_first()?;
-    let command = match raw_command.as_str() {
+    let command_tag = match raw_command.to_utf8() {
+        Ok(tag) => tag,
+        Err(_) => return None,
+    };
+    let command = match command_tag.as_str() {
         "uninstall" => PackageCommand::Remove,
         "install" => PackageCommand::Install,
         "remove" => PackageCommand::Remove,
@@ -274,11 +295,11 @@ pub fn parse_package_command(args: &[String]) -> Option<PackageCommandOptions> {
     let mut extensions_flag = false;
     let mut models_flag = false;
     let mut all_flag = false;
-    let mut extension_flag_source: Option<String> = None;
+    let mut extension_flag_source: Option<JsString> = None;
 
     let mut index = 0;
     while index < rest.len() {
-        let arg = rest[index].as_str();
+        let arg = &rest[index];
         if arg == "-h" || arg == "--help" {
             options.help = true;
         } else if arg == "-l" || arg == "--local" {
@@ -369,7 +390,7 @@ struct UpdateFlags {
     extensions_flag: bool,
     models_flag: bool,
     all_flag: bool,
-    extension_flag_source: Option<String>,
+    extension_flag_source: Option<JsString>,
 }
 
 fn resolve_update_target(options: &mut PackageCommandOptions, flags: UpdateFlags) {
@@ -448,9 +469,9 @@ fn resolve_update_target(options: &mut PackageCommandOptions, flags: UpdateFlags
     };
 }
 
-fn set_once(slot: &mut Option<String>, value: &str) {
+fn set_once(slot: &mut Option<JsString>, value: impl Into<JsString>) {
     if slot.is_none() {
-        *slot = Some(value.to_owned());
+        *slot = Some(value.into());
     }
 }
 
@@ -467,7 +488,7 @@ pub fn update_target_includes_extensions(target: &UpdateTarget) -> bool {
 /// Returns `None` when `args` is not a package command. Help and validation
 /// failures return an outcome with no action; valid commands return the action
 /// for the runtime to execute.
-pub fn handle_package_command(args: &[String]) -> Option<CommandOutcome> {
+pub fn handle_package_command(args: &[JsString]) -> Option<CommandOutcome> {
     let options = parse_package_command(args)?;
     let mut outcome = CommandOutcome {
         stdout: Vec::new(),
@@ -484,45 +505,57 @@ pub fn handle_package_command(args: &[String]) -> Option<CommandOutcome> {
     let usage = package_command_usage(options.command);
 
     if let Some(invalid_option) = &options.invalid_option {
-        outcome.stderr.push(chalk_stderr.red(&format!(
-            "Unknown option {invalid_option} for \"{}\".",
+        outcome.stderr.push(chalk_stderr.red(&pi_js_compat::js_format!(
+            "Unknown option {} for \"{}\".",
+            invalid_option,
             options.command.as_str()
         )));
-        outcome
-            .stderr
-            .push(chalk_stderr.dim(&format!("Use \"{} --help\" or \"{usage}\".", app_name())));
+        outcome.stderr.push(chalk_stderr.dim(&pi_js_compat::js_format!(
+            "Use \"{} --help\" or \"{}\".",
+            app_name(),
+            usage
+        )));
         outcome.exit_code = Some(1);
         return Some(outcome);
     }
     if let Some(missing_option_value) = &options.missing_option_value {
         outcome
             .stderr
-            .push(chalk_stderr.red(&format!("Missing value for {missing_option_value}.")));
-        outcome.stderr.push(chalk_stderr.dim(&format!("Usage: {usage}")));
+            .push(chalk_stderr.red(&pi_js_compat::js_format!("Missing value for {}.", missing_option_value)));
+        outcome
+            .stderr
+            .push(chalk_stderr.dim(&pi_js_compat::js_format!("Usage: {}", usage)));
         outcome.exit_code = Some(1);
         return Some(outcome);
     }
     if let Some(invalid_argument) = &options.invalid_argument {
         outcome
             .stderr
-            .push(chalk_stderr.red(&format!("Unexpected argument {invalid_argument}.")));
-        outcome.stderr.push(chalk_stderr.dim(&format!("Usage: {usage}")));
+            .push(chalk_stderr.red(&pi_js_compat::js_format!("Unexpected argument {}.", invalid_argument)));
+        outcome
+            .stderr
+            .push(chalk_stderr.dim(&pi_js_compat::js_format!("Usage: {}", usage)));
         outcome.exit_code = Some(1);
         return Some(outcome);
     }
     if let Some(conflicting_options) = &options.conflicting_options {
         outcome.stderr.push(chalk_stderr.red(conflicting_options));
-        outcome.stderr.push(chalk_stderr.dim(&format!("Usage: {usage}")));
+        outcome
+            .stderr
+            .push(chalk_stderr.dim(&pi_js_compat::js_format!("Usage: {}", usage)));
         outcome.exit_code = Some(1);
         return Some(outcome);
     }
 
     let source = options.source.clone();
     if matches!(options.command, PackageCommand::Install | PackageCommand::Remove) && source.is_none() {
+        outcome.stderr.push(chalk_stderr.red(&pi_js_compat::js_format!(
+            "Missing {} source.",
+            options.command.as_str()
+        )));
         outcome
             .stderr
-            .push(chalk_stderr.red(&format!("Missing {} source.", options.command.as_str())));
-        outcome.stderr.push(chalk_stderr.dim(&format!("Usage: {usage}")));
+            .push(chalk_stderr.dim(&pi_js_compat::js_format!("Usage: {}", usage)));
         outcome.exit_code = Some(1);
         return Some(outcome);
     }
@@ -547,7 +580,7 @@ pub fn handle_package_command(args: &[String]) -> Option<CommandOutcome> {
 }
 
 /// `handleConfigCommand` argument validation; `None` when the command differs.
-pub fn handle_config_command(args: &[String]) -> Option<CommandOutcome> {
+pub fn handle_config_command(args: &[JsString]) -> Option<CommandOutcome> {
     let (command, rest) = args.split_first()?;
     if command != "config" {
         return None;
@@ -576,8 +609,8 @@ pub fn handle_config_command(args: &[String]) -> Option<CommandOutcome> {
         } else if arg.starts_with('-') {
             outcome
                 .stderr
-                .push(chalk_stderr.red(&format!("Unknown option {arg} for \"config\".")));
-            outcome.stderr.push(chalk_stderr.dim(&format!(
+                .push(chalk_stderr.red(&pi_js_compat::js_format!("Unknown option {} for \"config\".", arg)));
+            outcome.stderr.push(chalk_stderr.dim(&pi_js_compat::js_format!(
                 "Use \"{} --help\" or \"{}\".",
                 app_name(),
                 config_command_usage()
@@ -587,10 +620,10 @@ pub fn handle_config_command(args: &[String]) -> Option<CommandOutcome> {
         } else {
             outcome
                 .stderr
-                .push(chalk_stderr.red(&format!("Unexpected argument {arg}.")));
+                .push(chalk_stderr.red(&pi_js_compat::js_format!("Unexpected argument {}.", arg)));
             outcome
                 .stderr
-                .push(chalk_stderr.dim(&format!("Usage: {}", config_command_usage())));
+                .push(chalk_stderr.dim(&pi_js_compat::js_format!("Usage: {}", config_command_usage())));
             outcome.exit_code = Some(1);
             return Some(outcome);
         }
@@ -618,13 +651,13 @@ pub fn format_package_list(packages: &[crate::core::package_manager::ConfiguredP
 
     let format_package = |package: &crate::core::package_manager::ConfiguredPackage, lines: &mut Vec<JsString>| {
         let display = if package.filtered {
-            format!("{} (filtered)", package.source)
+            pi_js_compat::js_format!("{} (filtered)", package.source)
         } else {
             package.source.clone()
         };
-        lines.push(format!("  {display}").into());
+        lines.push(pi_js_compat::js_format!("  {}", display).into());
         if let Some(installed_path) = &package.installed_path {
-            lines.push(chalk.dim(&format!("    {installed_path}")));
+            lines.push(chalk.dim(&pi_js_compat::js_format!("    {}", installed_path)));
         }
     };
 
@@ -647,24 +680,24 @@ pub fn format_package_list(packages: &[crate::core::package_manager::ConfiguredP
 }
 
 /// `reportProjectTrustWarnings`.
-pub fn report_project_trust_warnings(warnings: &[String]) -> Vec<JsString> {
+pub fn report_project_trust_warnings(warnings: &[JsString]) -> Vec<JsString> {
     let chalk = Chalk::stderr();
     warnings
         .iter()
-        .map(|warning| chalk.yellow(&format!("Warning: {warning}")))
+        .map(|warning| chalk.yellow(&pi_js_compat::js_format!("Warning: {}", warning)))
         .collect()
 }
 
 /// `CommandSettingsResult`.
 pub struct CommandSettings {
     pub store: Arc<SettingsManagerStore>,
-    pub project_trust_warnings: Vec<String>,
+    pub project_trust_warnings: Vec<JsString>,
 }
 
 /// Options for `createCommandSettingsManager`.
 pub struct CreateCommandSettingsOptions {
-    pub cwd: String,
-    pub agent_dir: String,
+    pub cwd: JsString,
+    pub agent_dir: JsString,
     pub project_trust_override: Option<bool>,
     pub use_saved_project_trust_only: bool,
     /// Inline extension factories loaded before the trust prompt resolves.
@@ -678,11 +711,11 @@ pub struct CreateCommandSettingsOptions {
 pub trait ProjectTrustExtensionsLoader: Send + Sync {
     fn load<'a>(
         &'a self,
-        cwd: &'a str,
-        agent_dir: &'a str,
+        cwd: &'a JsString,
+        agent_dir: &'a JsString,
         settings_manager: &'a Arc<std::sync::Mutex<SettingsManager>>,
         extension_factories: &'a [crate::core::resource_loader::InlineExtension],
-    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, String>>;
+    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, JsString>>;
 }
 
 /// Concrete loader backed by [`DefaultResourceLoader`].
@@ -697,11 +730,11 @@ pub struct DefaultProjectTrustExtensionsLoader {
 impl ProjectTrustExtensionsLoader for DefaultProjectTrustExtensionsLoader {
     fn load<'a>(
         &'a self,
-        cwd: &'a str,
-        agent_dir: &'a str,
+        cwd: &'a JsString,
+        agent_dir: &'a JsString,
         settings_manager: &'a Arc<std::sync::Mutex<SettingsManager>>,
         extension_factories: &'a [crate::core::resource_loader::InlineExtension],
-    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, String>> {
+    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, JsString>> {
         Box::pin(async move {
             let loader = crate::core::resource_loader::DefaultResourceLoader::new(
                 crate::core::resource_loader::DefaultResourceLoaderOptions {
@@ -735,22 +768,22 @@ fn process_command_app_mode() -> AppMode {
 pub async fn create_command_settings_manager(
     options: CreateCommandSettingsOptions,
     extensions_loader: &dyn ProjectTrustExtensionsLoader,
-) -> Result<CommandSettings, String> {
+) -> Result<CommandSettings, JsString> {
     let settings_manager = Arc::new(std::sync::Mutex::new(
         SettingsManager::create(
             &options.cwd,
-            Some(std::path::Path::new(&options.agent_dir)),
+            Some(&options.agent_dir),
             SettingsManagerCreateOptions {
                 project_trusted: Some(false),
             },
         )
-        .map_err(|error| error.to_string())?,
+        .map_err(|error| error.message().clone())?,
     ));
-    let project_trust_warnings: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-    let trust_store = ProjectTrustStore::new(&options.agent_dir);
+    let project_trust_warnings: Arc<Mutex<Vec<JsString>>> = Arc::new(Mutex::new(Vec::new()));
+    let trust_store = ProjectTrustStore::new(&options.agent_dir).map_err(|error| error.message().clone())?;
 
     if options.use_saved_project_trust_only {
-        let saved_project_trusted = trust_store.get(&options.cwd).map_err(|error| error.to_string())?
+        let saved_project_trusted = trust_store.get(&options.cwd).map_err(|error| error.message().clone())?
             == crate::core::trust_manager::ProjectTrustDecision::Trusted;
         settings_manager
             .lock()
@@ -763,25 +796,26 @@ pub async fn create_command_settings_manager(
     }
 
     let app_mode = process_command_app_mode();
-    let extensions_result =
-        if options.project_trust_override.is_none() && has_trust_requiring_project_resources(&options.cwd) {
-            extensions_loader
-                .load(
-                    &options.cwd,
-                    &options.agent_dir,
-                    &settings_manager,
-                    &options.extension_factories,
-                )
-                .await?
-        } else {
-            None
-        };
+    let extensions_result = if options.project_trust_override.is_none()
+        && has_trust_requiring_project_resources(&options.cwd).map_err(|error| error.message().clone())?
+    {
+        extensions_loader
+            .load(
+                &options.cwd,
+                &options.agent_dir,
+                &settings_manager,
+                &options.extension_factories,
+            )
+            .await?
+    } else {
+        None
+    };
     if let Some(result) = &extensions_result {
         for error in &result.errors {
-            project_trust_warnings.lock().unwrap().push(format!(
+            project_trust_warnings.lock().unwrap().push(pi_js_compat::js_format!(
                 "Failed to load extension \"{}\": {}",
                 error.path,
-                pi_js_compat::js_json::encode_node_utf8(&error.error)
+                error.error.clone()
             ));
         }
     }
@@ -796,7 +830,7 @@ pub async fn create_command_settings_manager(
     );
     let default_project_trust = settings_manager.lock().unwrap().get_default_project_trust();
     let warnings_for_trust = Arc::clone(&project_trust_warnings);
-    let on_extension_error = move |message: String| {
+    let on_extension_error = move |message: JsString| {
         warnings_for_trust.lock().unwrap().push(message);
     };
     let project_trusted = resolve_project_trusted(ResolveProjectTrustedOptions {
@@ -809,7 +843,7 @@ pub async fn create_command_settings_manager(
         on_extension_error: Some(&on_extension_error),
     })
     .await
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| error.message().clone())?;
     settings_manager.lock().unwrap().set_project_trusted(project_trusted);
     Ok(CommandSettings {
         store: Arc::new(SettingsManagerStore::from_shared(settings_manager)),
@@ -824,25 +858,29 @@ pub fn report_settings_errors(store: &Arc<SettingsManagerStore>, context: &str) 
     let mut lines = Vec::new();
     for error in errors {
         lines.push(chalk.yellow(
-            JsString::from(format!("Warning ({context}, {} settings): ", error.scope.as_str())) + error.message,
+            JsString::from(pi_js_compat::js_format!(
+                "Warning ({}, {} settings): ",
+                context,
+                error.scope.as_str()
+            )) + error.message,
         ));
     }
     lines
 }
 
 /// `reportProjectTrustWarnings`.
-pub fn report_project_trust_warnings_lines(warnings: &[String]) -> Vec<JsString> {
+pub fn report_project_trust_warnings_lines(warnings: &[JsString]) -> Vec<JsString> {
     let chalk = Chalk::stderr();
     warnings
         .iter()
-        .map(|warning| chalk.yellow(&format!("Warning: {warning}")))
+        .map(|warning| chalk.yellow(&pi_js_compat::js_format!("Warning: {}", warning)))
         .collect()
 }
 
 const MODEL_CATALOG_REFRESH_TIMEOUT_MS: u64 = 15_000;
 
 /// `refreshModelCatalogs`.
-pub async fn refresh_model_catalogs(agent_dir: &str) -> Result<(), JsString> {
+pub async fn refresh_model_catalogs(agent_dir: &JsString) -> Result<(), JsString> {
     let signal = CancellationToken::new();
     let timeout_signal = signal.clone();
     let timer = tokio::spawn(async move {
@@ -854,11 +892,11 @@ pub async fn refresh_model_catalogs(agent_dir: &str) -> Result<(), JsString> {
     result
 }
 
-async fn refresh_model_catalogs_inner(agent_dir: &str, signal: CancellationToken) -> Result<(), JsString> {
-    let agent_dir_path = std::path::Path::new(agent_dir);
+async fn refresh_model_catalogs_inner(agent_dir: &JsString, signal: CancellationToken) -> Result<(), JsString> {
+    let agent_dir_path = agent_dir;
     let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        auth_path: Some(agent_dir_path.join("auth.json").display().to_string()),
-        models_path: Some(Some(agent_dir_path.join("models.json").display().to_string())),
+        auth_path: Some(crate::utils::paths::node_join(agent_dir_path, "auth.json")),
+        models_path: Some(Some(crate::utils::paths::node_join(agent_dir_path, "models.json"))),
         allow_model_network: false,
         signal: Some(signal.clone()),
         ..Default::default()
@@ -896,11 +934,11 @@ pub fn model_catalog_refresh_outcome(result: pi_ai::models::ModelsRefreshResult)
 /// `SelfUpdatePlan`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelfUpdatePlan {
-    pub package_name: String,
-    pub install_spec: String,
-    pub version: String,
+    pub package_name: JsString,
+    pub install_spec: JsString,
+    pub version: JsString,
     pub should_run: bool,
-    pub note: Option<String>,
+    pub note: Option<JsString>,
 }
 
 /// Decision half of `getSelfUpdatePlan`; the second value is the
@@ -908,22 +946,22 @@ pub struct SelfUpdatePlan {
 pub fn self_update_plan(
     force: bool,
     release: &LatestPiRelease,
-    current_version: &str,
+    current_version: &JsString,
 ) -> (SelfUpdatePlan, Option<JsString>) {
     let package_name = release
         .package_name
         .clone()
-        .unwrap_or_else(|| config::package_config().package_name.clone());
-    let install_spec = format!("{package_name}@{}", release.version);
+        .unwrap_or_else(|| config::package_config().package_name.clone().into());
+    let install_spec = pi_js_compat::js_format!("{}@{}", package_name, release.version);
     if force
         || package_name != config::package_config().package_name
         || is_newer_package_version(&release.version, current_version)
     {
         return (
             SelfUpdatePlan {
-                package_name,
+                package_name: package_name.into(),
                 install_spec,
-                version: release.version.clone(),
+                version: release.version.clone().into(),
                 should_run: true,
                 note: release.note.clone(),
             },
@@ -933,15 +971,16 @@ pub fn self_update_plan(
     let chalk = Chalk::stdout();
     (
         SelfUpdatePlan {
-            package_name,
+            package_name: package_name.into(),
             install_spec,
-            version: release.version.clone(),
+            version: release.version.clone().into(),
             should_run: false,
             note: None,
         },
-        Some(chalk.green(&format!(
-            "{} is already up to date (v{current_version})",
-            config::package_config().app_name
+        Some(chalk.green(&pi_js_compat::js_format!(
+            "{} is already up to date (v{})",
+            config::package_config().app_name,
+            current_version
         ))),
     )
 }
@@ -949,9 +988,9 @@ pub fn self_update_plan(
 /// `getSelfUpdatePlan` including the release lookup and its error mapping.
 pub async fn get_self_update_plan(
     fetch: &dyn pi_ai::request::Fetch,
-    current_version: &str,
+    current_version: &JsString,
     force: bool,
-) -> Result<(SelfUpdatePlan, Option<JsString>), String> {
+) -> Result<(SelfUpdatePlan, Option<JsString>), JsString> {
     let release = get_latest_pi_release(
         fetch,
         current_version,
@@ -963,7 +1002,7 @@ pub async fn get_self_update_plan(
     .await;
     match release {
         Some(release) => Ok(self_update_plan(force, &release, current_version)),
-        None => Err(format!(
+        None => Err(pi_js_compat::js_format!(
             "Could not determine latest {} version.",
             config::package_config().app_name
         )),
@@ -971,8 +1010,8 @@ pub async fn get_self_update_plan(
 }
 
 /// Release lookup failure text used by the command path.
-pub fn self_update_release_error(error: &crate::utils::version_check::VersionCheckError) -> String {
-    format!(
+pub fn self_update_release_error(error: &crate::utils::version_check::VersionCheckError) -> JsString {
+    pi_js_compat::js_format!(
         "Could not determine latest {} version: {}",
         config::package_config().app_name,
         format_version_check_error(error)
@@ -982,29 +1021,30 @@ pub fn self_update_release_error(error: &crate::utils::version_check::VersionChe
 /// `printSelfUpdateUnavailable` stderr lines.
 pub fn self_update_unavailable_lines(
     context: &config::InstallContext,
-    npm_command: Option<&[String]>,
+    npm_command: Option<&[JsString]>,
     target: &config::SelfUpdatePackageTarget,
-    entrypoint: Option<&str>,
-) -> Vec<JsString> {
-    let package_name = config::package_config().package_name.clone();
+    entrypoint: Option<&JsString>,
+) -> Result<Vec<JsString>, JsString> {
+    let package_name = JsString::from(config::package_config().package_name.clone());
     let mut lines = vec![
-        format!(
+        pi_js_compat::js_format!(
             "error: {} cannot self-update this installation.",
             config::package_config().app_name
         )
         .into(),
-        config::get_self_update_unavailable_instruction(context, &package_name, npm_command, Some(target)).into(),
+        config::get_self_update_unavailable_instruction(context, &package_name, npm_command, Some(target))
+            .map_err(|error| error.message().clone())?,
     ];
     if let Some(entrypoint) = entrypoint {
         lines.push(JsString::default());
-        lines.push(format!("Location of pi executable: {entrypoint}").into());
+        lines.push(pi_js_compat::js_format!("Location of pi executable: {}", entrypoint).into());
     }
-    lines
+    Ok(lines)
 }
 
 /// `printSelfUpdateFallback` stderr line.
 pub fn self_update_fallback_line(command: &config::SelfUpdateCommand) -> JsString {
-    Chalk::stderr().dim(&format!(
+    Chalk::stderr().dim(&pi_js_compat::js_format!(
         "If this keeps failing, run this command yourself: {}",
         command.display
     ))
@@ -1015,7 +1055,7 @@ pub fn pnpm_self_update_metadata_hint_lines() -> Vec<JsString> {
     let chalk = Chalk::stderr();
     vec![
         chalk.yellow("If pnpm reports missing package versions, its cached registry metadata may be stale."),
-        chalk.yellow(&format!(
+        chalk.yellow(&pi_js_compat::js_format!(
             "Run `pnpm store prune` and retry `{} update --self`.",
             config::package_config().app_name
         )),
@@ -1023,7 +1063,7 @@ pub fn pnpm_self_update_metadata_hint_lines() -> Vec<JsString> {
 }
 
 /// `printSelfUpdateNote` stdout lines, including the surrounding blank lines.
-pub fn self_update_note_lines(note: &str, columns: Option<usize>) -> Vec<JsString> {
+pub fn self_update_note_lines(note: &JsString, columns: Option<usize>) -> Vec<JsString> {
     let trimmed_note = note.trim();
     if trimmed_note.is_empty() {
         return Vec::new();
@@ -1111,7 +1151,7 @@ impl pi_tui::MarkdownTheme for SelfUpdateNoteMarkdownTheme {
 }
 
 /// `runSelfUpdate`: one inherited-stdio child per step, in order.
-pub async fn run_self_update(command: &config::SelfUpdateCommand) -> Result<(), String> {
+pub async fn run_self_update(command: &config::SelfUpdateCommand) -> Result<(), JsString> {
     let steps: Vec<config::SelfUpdateCommandStep> = command.steps.clone().unwrap_or_else(|| {
         vec![config::SelfUpdateCommandStep {
             command: command.command.clone(),
@@ -1120,14 +1160,14 @@ pub async fn run_self_update(command: &config::SelfUpdateCommand) -> Result<(), 
         }]
     });
     for step in steps {
-        let status = tokio::process::Command::new(&step.command)
-            .args(&step.args)
+        let status = tokio::process::Command::new(pi_js_compat::js_json::encode_node_utf8(&step.command))
+            .args(step.args.iter().map(pi_js_compat::js_json::encode_node_utf8))
             .stdin(std::process::Stdio::inherit())
             .stdout(std::process::Stdio::inherit())
             .stderr(std::process::Stdio::inherit())
             .status()
             .await
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| JsString::from(error.to_string()))?;
         if status.success() {
             continue;
         }
@@ -1135,15 +1175,19 @@ pub async fn run_self_update(command: &config::SelfUpdateCommand) -> Result<(), 
         {
             use std::os::unix::process::ExitStatusExt;
             if let Some(signal) = status.signal() {
-                return Err(format!("{} terminated by signal {signal}", step.display));
+                return Err(pi_js_compat::js_format!(
+                    "{} terminated by signal {}",
+                    step.display,
+                    signal
+                ));
             }
         }
-        return Err(format!(
+        return Err(pi_js_compat::js_format!(
             "{} exited with code {}",
             step.display,
             status
                 .code()
-                .map_or_else(|| "unknown".to_owned(), |code| code.to_string())
+                .map_or_else(|| JsString::from("unknown"), |code| code.to_string().into())
         ));
     }
     Ok(())
@@ -1154,8 +1198,8 @@ pub struct SelectConfigRequest {
     pub global: ResolvedPaths,
     pub project: ResolvedPaths,
     pub settings: Arc<SettingsManagerStore>,
-    pub cwd: String,
-    pub agent_dir: String,
+    pub cwd: JsString,
+    pub agent_dir: JsString,
     pub write_scope: ConfigWriteScope,
     pub project_mode_available: bool,
 }
@@ -1168,7 +1212,7 @@ pub enum ConfigWriteScope {
 }
 
 /// Progress sink: one line per `start` event.
-pub type PackageProgressSink = Arc<dyn Fn(String) + Send + Sync>;
+pub type PackageProgressSink = Arc<dyn Fn(JsString) + Send + Sync>;
 
 /// Non-`Send` future used by effects that wrap `DefaultPackageManager::update`
 /// (the package manager's own fan-out futures are not `Send`).
@@ -1176,10 +1220,10 @@ pub type LocalBoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 
 /// Environment-bound operations behind the package and config commands.
 pub trait PackageCommandEffects {
-    fn cwd(&self) -> String;
-    fn agent_dir(&self) -> String;
+    fn cwd(&self) -> JsString;
+    fn agent_dir(&self) -> JsString;
     fn stdout_columns(&self) -> Option<usize>;
-    fn entrypoint(&self) -> Option<String>;
+    fn entrypoint(&self) -> Option<JsString>;
     fn install_context(&self) -> config::InstallContext;
     /// Inline factories loaded before the project-trust prompt resolves.
     fn extension_factories(&self) -> Vec<crate::core::resource_loader::InlineExtension> {
@@ -1189,33 +1233,36 @@ pub trait PackageCommandEffects {
     fn create_settings<'a>(
         &'a self,
         options: CreateCommandSettingsOptions,
-    ) -> LocalBoxFuture<'a, Result<CommandSettings, String>>;
-    fn refresh_model_catalogs<'a>(&'a self, agent_dir: &'a str) -> LocalBoxFuture<'a, Result<(), JsString>>;
-    fn latest_release<'a>(&'a self) -> LocalBoxFuture<'a, Result<LatestPiRelease, String>>;
-    fn run_self_update<'a>(&'a self, command: &'a config::SelfUpdateCommand) -> LocalBoxFuture<'a, Result<(), String>>;
-    fn select_config<'a>(&'a self, request: SelectConfigRequest) -> LocalBoxFuture<'a, Result<(), String>>;
+    ) -> LocalBoxFuture<'a, Result<CommandSettings, JsString>>;
+    fn refresh_model_catalogs<'a>(&'a self, agent_dir: &'a JsString) -> LocalBoxFuture<'a, Result<(), JsString>>;
+    fn latest_release<'a>(&'a self) -> LocalBoxFuture<'a, Result<LatestPiRelease, JsString>>;
+    fn run_self_update<'a>(
+        &'a self,
+        command: &'a config::SelfUpdateCommand,
+    ) -> LocalBoxFuture<'a, Result<(), JsString>>;
+    fn select_config<'a>(&'a self, request: SelectConfigRequest) -> LocalBoxFuture<'a, Result<(), JsString>>;
 
     fn install_packages<'a>(
         &'a self,
         settings: &'a Arc<SettingsManagerStore>,
-        source: &'a str,
+        source: &'a JsString,
         local: bool,
         progress: PackageProgressSink,
-    ) -> LocalBoxFuture<'a, Result<(), String>>;
+    ) -> LocalBoxFuture<'a, Result<(), JsString>>;
     fn remove_packages<'a>(
         &'a self,
         settings: &'a Arc<SettingsManagerStore>,
-        source: &'a str,
+        source: &'a JsString,
         local: bool,
         progress: PackageProgressSink,
-    ) -> LocalBoxFuture<'a, Result<bool, String>>;
+    ) -> LocalBoxFuture<'a, Result<bool, JsString>>;
     fn list_packages(&self, settings: &Arc<SettingsManagerStore>) -> Vec<ConfiguredPackage>;
     fn update_packages<'a>(
         &'a self,
         settings: &'a Arc<SettingsManagerStore>,
-        source: Option<&'a str>,
+        source: Option<&'a JsString>,
         progress: PackageProgressSink,
-    ) -> LocalBoxFuture<'a, Result<(), String>>;
+    ) -> LocalBoxFuture<'a, Result<(), JsString>>;
 }
 
 /// `executePackageCommand`: the execution half of `handlePackageCommand`.
@@ -1223,9 +1270,9 @@ pub trait PackageCommandEffects {
 /// `Err` carries an exception that escapes the TypeScript function (settings
 /// creation and trust-store failures).
 pub async fn execute_package_command(
-    args: &[String],
+    args: &[JsString],
     effects: &dyn PackageCommandEffects,
-) -> Result<Option<CommandOutcome>, String> {
+) -> Result<Option<CommandOutcome>, JsString> {
     let Some(mut outcome) = handle_package_command(args) else {
         return Ok(None);
     };
@@ -1291,7 +1338,9 @@ pub async fn execute_package_command(
                 .await;
             outcome.stdout.extend(drain_progress(&buffer));
             match result {
-                Ok(()) => outcome.stdout.push(chalk_out.green(&format!("Installed {source}"))),
+                Ok(()) => outcome
+                    .stdout
+                    .push(chalk_out.green(&pi_js_compat::js_format!("Installed {}", source))),
                 Err(message) => package_error(&mut outcome, &message),
             }
         }
@@ -1300,11 +1349,13 @@ pub async fn execute_package_command(
             let result = effects.remove_packages(&settings.store, &source, local, progress).await;
             outcome.stdout.extend(drain_progress(&buffer));
             match result {
-                Ok(true) => outcome.stdout.push(chalk_out.green(&format!("Removed {source}"))),
+                Ok(true) => outcome
+                    .stdout
+                    .push(chalk_out.green(&pi_js_compat::js_format!("Removed {}", source))),
                 Ok(false) => {
                     outcome
                         .stderr
-                        .push(chalk_err.red(&format!("No matching package found for {source}")));
+                        .push(chalk_err.red(&pi_js_compat::js_format!("No matching package found for {}", source)));
                     outcome.exit_code = Some(1);
                 }
                 Err(message) => package_error(&mut outcome, &message),
@@ -1320,7 +1371,7 @@ pub async fn execute_package_command(
             show_extensions_skipped_note,
         } => {
             if show_extensions_skipped_note {
-                outcome.stdout.push(chalk_out.dim(&format!(
+                outcome.stdout.push(chalk_out.dim(&pi_js_compat::js_format!(
                     "Extensions are skipped. Run {} update --extensions to update extensions.",
                     config::package_config().app_name
                 )));
@@ -1332,12 +1383,14 @@ pub async fn execute_package_command(
                 };
                 let (progress, buffer) = progress_buffer();
                 let result = effects
-                    .update_packages(&settings.store, update_source.as_deref(), progress)
+                    .update_packages(&settings.store, update_source.as_ref(), progress)
                     .await;
                 outcome.stdout.extend(drain_progress(&buffer));
                 match result {
                     Ok(()) => match &update_source {
-                        Some(source) => outcome.stdout.push(chalk_out.green(&format!("Updated {source}"))),
+                        Some(source) => outcome
+                            .stdout
+                            .push(chalk_out.green(&pi_js_compat::js_format!("Updated {}", source))),
                         None => outcome.stdout.push(chalk_out.green("Updated packages")),
                     },
                     Err(message) => {
@@ -1359,7 +1412,7 @@ fn progress_buffer() -> (PackageProgressSink, Arc<Mutex<Vec<JsString>>>) {
     let lines: Arc<Mutex<Vec<JsString>>> = Arc::new(Mutex::new(Vec::new()));
     let sink_lines = Arc::clone(&lines);
     let chalk = Chalk::stdout();
-    let sink: PackageProgressSink = Arc::new(move |message: String| {
+    let sink: PackageProgressSink = Arc::new(move |message: JsString| {
         sink_lines.lock().unwrap().push(chalk.dim(&message));
     });
     (sink, lines)
@@ -1369,30 +1422,34 @@ fn drain_progress(lines: &Arc<Mutex<Vec<JsString>>>) -> Vec<JsString> {
     lines.lock().unwrap().drain(..).collect()
 }
 
-fn package_error(outcome: &mut CommandOutcome, message: &str) {
-    outcome.stderr.push(Chalk::stderr().red(&format!("Error: {message}")));
+fn package_error(outcome: &mut CommandOutcome, message: &JsString) {
+    outcome
+        .stderr
+        .push(Chalk::stderr().red(&pi_js_compat::js_format!("Error: {}", message)));
     outcome.exit_code = Some(1);
 }
 
 async fn run_self_update_target(
     outcome: &mut CommandOutcome,
     effects: &dyn PackageCommandEffects,
-    _agent_dir: &str,
+    _agent_dir: &JsString,
     force: bool,
-    npm_command: Option<&[String]>,
-) -> Result<(), String> {
+    npm_command: Option<&[JsString]>,
+) -> Result<(), JsString> {
     let chalk_out = Chalk::stdout();
     let chalk_err = Chalk::stderr();
     let current_version = config::package_config().version.clone();
     let release = match effects.latest_release().await {
         Ok(release) => release,
         Err(message) => {
-            outcome.stderr.push(chalk_err.red(&format!("Error: {message}")));
+            outcome
+                .stderr
+                .push(chalk_err.red(&pi_js_compat::js_format!("Error: {}", message)));
             outcome.exit_code = Some(1);
             return Ok(());
         }
     };
-    let (plan, up_to_date_line) = self_update_plan(force, &release, &current_version);
+    let (plan, up_to_date_line) = self_update_plan(force, &release, &current_version.into());
     if let Some(line) = up_to_date_line {
         outcome.stdout.push(line);
         return Ok(());
@@ -1406,11 +1463,11 @@ async fn run_self_update_target(
         && install_method != config::InstallMethod::Npm
         && install_method != config::InstallMethod::Pnpm
     {
-        outcome.stderr.push(chalk_err.red(&format!(
+        outcome.stderr.push(chalk_err.red(&pi_js_compat::js_format!(
             "{} self-update on Windows is only supported for npm and pnpm installs.",
             config::package_config().app_name
         )));
-        outcome.stderr.push(chalk_err.dim(&format!(
+        outcome.stderr.push(chalk_err.dim(&pi_js_compat::js_format!(
             "Detected install method: {}. Update {} manually.",
             install_method.as_str(),
             config::package_config().app_name
@@ -1423,14 +1480,20 @@ async fn run_self_update_target(
         package_name: plan.package_name.clone(),
         install_spec: Some(plan.install_spec.clone()),
     };
-    let Some(command) = config::get_self_update_command(&install_context, &package_name, npm_command, Some(&target))
+    let Some(command) = config::get_self_update_command(
+        &install_context,
+        &package_name.clone().into(),
+        npm_command,
+        Some(&target),
+    )
+    .map_err(|error| error.message().clone())?
     else {
         outcome.stderr.extend(self_update_unavailable_lines(
             &install_context,
             npm_command,
             &target,
-            effects.entrypoint().as_deref(),
-        ));
+            effects.entrypoint().as_ref(),
+        )?);
         outcome.exit_code = Some(1);
         return Ok(());
     };
@@ -1442,19 +1505,22 @@ async fn run_self_update_target(
     if install_method == config::InstallMethod::Npm {
         prepare_windows_npm_self_update(&install_context);
     }
-    outcome.stdout.push(chalk_out.dim(&format!(
+    outcome.stdout.push(chalk_out.dim(&pi_js_compat::js_format!(
         "Updating {} with {}...",
         config::package_config().app_name,
         command.display
     )));
     match effects.run_self_update(&command).await {
-        Ok(()) => outcome.stdout.push(chalk_out.green(&format!(
-            "Updated {} from {current_version} to {}",
+        Ok(()) => outcome.stdout.push(chalk_out.green(&pi_js_compat::js_format!(
+            "Updated {} from {} to {}",
             config::package_config().app_name,
+            current_version,
             plan.version
         ))),
         Err(message) => {
-            outcome.stderr.push(chalk_err.red(&format!("Error: {message}")));
+            outcome
+                .stderr
+                .push(chalk_err.red(&pi_js_compat::js_format!("Error: {}", message)));
             if install_method == config::InstallMethod::Pnpm {
                 outcome.stderr.extend(pnpm_self_update_metadata_hint_lines());
             }
@@ -1477,9 +1543,9 @@ fn prepare_windows_npm_self_update(context: &config::InstallContext) {
 
 /// `executeConfigCommand`: the execution half of `handleConfigCommand`.
 pub async fn execute_config_command(
-    args: &[String],
+    args: &[JsString],
     effects: &dyn PackageCommandEffects,
-) -> Result<Option<CommandOutcome>, String> {
+) -> Result<Option<CommandOutcome>, JsString> {
     let Some(mut outcome) = handle_config_command(args) else {
         return Ok(None);
     };
@@ -1516,12 +1582,12 @@ pub async fn execute_config_command(
 
     let global_settings_manager = SettingsManager::create(
         &cwd,
-        Some(std::path::Path::new(&agent_dir)),
+        Some(&agent_dir),
         SettingsManagerCreateOptions {
             project_trusted: Some(false),
         },
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| error.message().clone())?;
     let global_manager = DefaultPackageManager::new(
         &cwd,
         &agent_dir,
@@ -1530,7 +1596,7 @@ pub async fn execute_config_command(
     let global_resolved_paths = global_manager
         .resolve(Some(skip_missing_source()))
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.message().clone())?;
     let project_resolved_paths = if trusted {
         let project_manager = DefaultPackageManager::new(
             &cwd,
@@ -1540,7 +1606,7 @@ pub async fn execute_config_command(
         project_manager
             .resolve(Some(skip_missing_source()))
             .await
-            .map_err(|error| error.to_string())?
+            .map_err(|error| error.message().clone())?
     } else {
         global_resolved_paths.clone()
     };
@@ -1565,15 +1631,15 @@ pub async fn execute_config_command(
 }
 
 fn skip_missing_source() -> crate::core::package_manager::MissingSourceHandler<'static> {
-    Box::new(|_source: String| Box::pin(async { Ok(MissingSourceAction::Skip) }))
+    Box::new(|_source: JsString| Box::pin(async { Ok(MissingSourceAction::Skip) }))
 }
 
 /// `DefaultPackageCommandEffects`: the real host wiring.
 pub struct DefaultPackageCommandEffects {
-    pub cwd: String,
-    pub agent_dir: String,
+    pub cwd: JsString,
+    pub agent_dir: JsString,
     pub install_context: config::InstallContext,
-    pub entrypoint: Option<String>,
+    pub entrypoint: Option<JsString>,
     pub extensions_loader: Arc<dyn ProjectTrustExtensionsLoader>,
     pub config_selector: Rc<dyn ConfigSelector>,
     pub fetch: Arc<dyn pi_ai::request::Fetch>,
@@ -1582,11 +1648,11 @@ pub struct DefaultPackageCommandEffects {
 
 /// `selectConfig` for the real host.
 pub trait ConfigSelector {
-    fn select<'a>(&'a self, request: SelectConfigRequest) -> LocalBoxFuture<'a, Result<(), String>>;
+    fn select<'a>(&'a self, request: SelectConfigRequest) -> LocalBoxFuture<'a, Result<(), JsString>>;
 }
 
 impl PackageCommandEffects for DefaultPackageCommandEffects {
-    fn cwd(&self) -> String {
+    fn cwd(&self) -> JsString {
         self.cwd.clone()
     }
 
@@ -1594,7 +1660,7 @@ impl PackageCommandEffects for DefaultPackageCommandEffects {
         self.extension_factories.clone()
     }
 
-    fn agent_dir(&self) -> String {
+    fn agent_dir(&self) -> JsString {
         self.agent_dir.clone()
     }
 
@@ -1602,7 +1668,7 @@ impl PackageCommandEffects for DefaultPackageCommandEffects {
         None
     }
 
-    fn entrypoint(&self) -> Option<String> {
+    fn entrypoint(&self) -> Option<JsString> {
         self.entrypoint.clone()
     }
 
@@ -1613,19 +1679,19 @@ impl PackageCommandEffects for DefaultPackageCommandEffects {
     fn create_settings<'a>(
         &'a self,
         options: CreateCommandSettingsOptions,
-    ) -> LocalBoxFuture<'a, Result<CommandSettings, String>> {
+    ) -> LocalBoxFuture<'a, Result<CommandSettings, JsString>> {
         Box::pin(async move { create_command_settings_manager(options, self.extensions_loader.as_ref()).await })
     }
 
-    fn refresh_model_catalogs<'a>(&'a self, agent_dir: &'a str) -> LocalBoxFuture<'a, Result<(), JsString>> {
+    fn refresh_model_catalogs<'a>(&'a self, agent_dir: &'a JsString) -> LocalBoxFuture<'a, Result<(), JsString>> {
         Box::pin(refresh_model_catalogs(agent_dir))
     }
 
-    fn latest_release<'a>(&'a self) -> LocalBoxFuture<'a, Result<LatestPiRelease, String>> {
+    fn latest_release<'a>(&'a self) -> LocalBoxFuture<'a, Result<LatestPiRelease, JsString>> {
         Box::pin(async move {
             get_latest_pi_release(
                 self.fetch.as_ref(),
-                &config::package_config().version,
+                &config::package_config().version.clone().into(),
                 &LatestPiReleaseOptions {
                     retry: true,
                     ..Default::default()
@@ -1633,7 +1699,7 @@ impl PackageCommandEffects for DefaultPackageCommandEffects {
             )
             .await
             .ok_or_else(|| {
-                format!(
+                pi_js_compat::js_format!(
                     "Could not determine latest {} version.",
                     config::package_config().app_name
                 )
@@ -1641,43 +1707,46 @@ impl PackageCommandEffects for DefaultPackageCommandEffects {
         })
     }
 
-    fn run_self_update<'a>(&'a self, command: &'a config::SelfUpdateCommand) -> LocalBoxFuture<'a, Result<(), String>> {
+    fn run_self_update<'a>(
+        &'a self,
+        command: &'a config::SelfUpdateCommand,
+    ) -> LocalBoxFuture<'a, Result<(), JsString>> {
         Box::pin(run_self_update(command))
     }
 
-    fn select_config<'a>(&'a self, request: SelectConfigRequest) -> LocalBoxFuture<'a, Result<(), String>> {
+    fn select_config<'a>(&'a self, request: SelectConfigRequest) -> LocalBoxFuture<'a, Result<(), JsString>> {
         Box::pin(async move { self.config_selector.select(request).await })
     }
 
     fn install_packages<'a>(
         &'a self,
         settings: &'a Arc<SettingsManagerStore>,
-        source: &'a str,
+        source: &'a JsString,
         local: bool,
         progress: PackageProgressSink,
-    ) -> LocalBoxFuture<'a, Result<(), String>> {
+    ) -> LocalBoxFuture<'a, Result<(), JsString>> {
         Box::pin(async move {
             let manager = self.package_manager(settings, progress);
             manager
                 .install_and_persist(source, local)
                 .await
-                .map_err(|error| error.to_string())
+                .map_err(|error| error.message().clone())
         })
     }
 
     fn remove_packages<'a>(
         &'a self,
         settings: &'a Arc<SettingsManagerStore>,
-        source: &'a str,
+        source: &'a JsString,
         local: bool,
         progress: PackageProgressSink,
-    ) -> LocalBoxFuture<'a, Result<bool, String>> {
+    ) -> LocalBoxFuture<'a, Result<bool, JsString>> {
         Box::pin(async move {
             let manager = self.package_manager(settings, progress);
             manager
                 .remove_and_persist(source, local)
                 .await
-                .map_err(|error| error.to_string())
+                .map_err(|error| error.message().clone())
         })
     }
 
@@ -1693,12 +1762,12 @@ impl PackageCommandEffects for DefaultPackageCommandEffects {
     fn update_packages<'a>(
         &'a self,
         settings: &'a Arc<SettingsManagerStore>,
-        source: Option<&'a str>,
+        source: Option<&'a JsString>,
         progress: PackageProgressSink,
-    ) -> LocalBoxFuture<'a, Result<(), String>> {
+    ) -> LocalBoxFuture<'a, Result<(), JsString>> {
         Box::pin(async move {
             let manager = self.package_manager(settings, progress);
-            manager.update(source).await.map_err(|error| error.to_string())
+            manager.update(source).await.map_err(|error| error.message().clone())
         })
     }
 }

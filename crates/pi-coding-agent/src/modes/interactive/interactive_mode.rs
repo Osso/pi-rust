@@ -8407,7 +8407,7 @@ impl InteractiveMode {
             "https://pi.dev/api/report-install?version={}",
             crate::utils::url_encoding::encode_uri_component(version)
         );
-        let user_agent = crate::utils::pi_user_agent::get_pi_user_agent(version);
+        let user_agent = crate::utils::pi_user_agent::get_pi_user_agent(&version.into());
         tokio::task::spawn_local(async move {
             let abort = tokio_util::sync::CancellationToken::new();
             let timeout = abort.clone();
@@ -13068,7 +13068,7 @@ mod ui_tests {
                         recorded[0].headers,
                         vec![(
                             "User-Agent".to_owned(),
-                            crate::utils::pi_user_agent::get_pi_user_agent("0.84.1")
+                            crate::utils::pi_user_agent::get_pi_user_agent(&"0.84.1".into())
                         )]
                     );
                 }

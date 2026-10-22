@@ -8,8 +8,11 @@
 use pi_agent_core::harness::ThinkingLevel;
 use pi_ai::models::models_are_equal;
 use pi_ai::types::Model;
-use pi_js_compat::js_json::JsString;
 use pi_js_compat::minimatch::{MinimatchOptions, minimatch};
+use pi_js_compat::{
+    js_format,
+    js_json::{JsString, encode_node_utf8},
+};
 
 use crate::cli::args::is_valid_thinking_level;
 use crate::core::defaults::DEFAULT_THINKING_LEVEL;
@@ -80,7 +83,7 @@ pub struct ScopedModel {
 pub struct ParsedModelResult {
     pub model: Option<Model>,
     pub thinking_level: Option<ThinkingLevel>,
-    pub warning: Option<String>,
+    pub warning: Option<JsString>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -93,8 +96,8 @@ pub struct ParseModelPatternOptions {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelScopeDiagnostic {
     pub code: ModelScopeCode,
-    pub message: String,
-    pub pattern: String,
+    pub message: JsString,
+    pub pattern: JsString,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,7 +136,12 @@ fn has_date_suffix(id: &str) -> bool {
     suffix.len() == 8 && suffix.bytes().all(|byte| byte.is_ascii_digit())
 }
 
-fn parse_thinking_level(value: &str) -> Option<ThinkingLevel> {
+fn parse_thinking_level(value: &JsString) -> Option<ThinkingLevel> {
+    let scalar = match value.to_utf8() {
+        Ok(scalar) => scalar,
+        Err(_) => return None,
+    };
+    let value = scalar.as_str();
     if !is_valid_thinking_level(value) {
         return None;
     }
@@ -161,7 +169,7 @@ pub fn find_exact_model_reference_match(model_reference: &JsString, available_mo
 
     let canonical: Vec<&Model> = available_models
         .iter()
-        .filter(|model| JsString::from(format!("{}/{}", model.provider, model.id)).to_lowercase() == normalized)
+        .filter(|model| JsString::from(js_format!("{}/{}", model.provider, model.id)).to_lowercase() == normalized)
         .collect();
     match canonical.len() {
         1 => return Some(canonical[0].clone()),
@@ -196,14 +204,17 @@ pub fn find_exact_model_reference_match(model_reference: &JsString, available_mo
 }
 
 /// Exact match first, then partial id/name matching with alias preference.
-fn try_match_model(model_pattern: &str, available_models: &[Model]) -> Option<Model> {
-    if let Some(exact) = find_exact_model_reference_match(&model_pattern.into(), available_models) {
+fn try_match_model(model_pattern: &JsString, available_models: &[Model]) -> Option<Model> {
+    if let Some(exact) = find_exact_model_reference_match(model_pattern, available_models) {
         return Some(exact);
     }
     let needle = model_pattern.to_lowercase();
     let matches: Vec<&Model> = available_models
         .iter()
-        .filter(|model| model.id.to_lowercase().contains(&needle) || model.name.to_lowercase().contains(&needle))
+        .filter(|model| {
+            JsString::from(&model.id).to_lowercase().contains(&needle)
+                || JsString::from(&model.name).to_lowercase().contains(&needle)
+        })
         .collect();
     if matches.is_empty() {
         return None;
@@ -237,7 +248,7 @@ fn build_fallback_model(provider: &str, model_id: &str, available_models: &[Mode
 
 /// Parses `pattern[:thinking]`, tolerating colons inside model ids.
 pub fn parse_model_pattern(
-    pattern: &str,
+    pattern: &JsString,
     available_models: &[Model],
     options: ParseModelPatternOptions,
 ) -> ParsedModelResult {
@@ -248,18 +259,18 @@ pub fn parse_model_pattern(
             warning: None,
         };
     }
-    let Some(last_colon_index) = pattern.rfind(':') else {
+    let Some(last_colon_index) = pattern.units().iter().rposition(|unit| *unit == b':' as u16) else {
         return ParsedModelResult {
             model: None,
             thinking_level: None,
             warning: None,
         };
     };
-    let prefix = &pattern[..last_colon_index];
-    let suffix = &pattern[last_colon_index + 1..];
+    let prefix = pattern.slice(0, last_colon_index);
+    let suffix = pattern.slice(last_colon_index + 1, pattern.len());
 
-    if let Some(level) = parse_thinking_level(suffix) {
-        let result = parse_model_pattern(prefix, available_models, options);
+    if let Some(level) = parse_thinking_level(&suffix) {
+        let result = parse_model_pattern(&prefix, available_models, options);
         if result.model.is_some() {
             return ParsedModelResult {
                 model: result.model,
@@ -277,24 +288,26 @@ pub fn parse_model_pattern(
             warning: None,
         };
     }
-    let result = parse_model_pattern(prefix, available_models, options);
+    let result = parse_model_pattern(&prefix, available_models, options);
     if result.model.is_some() {
         return ParsedModelResult {
             model: result.model,
             thinking_level: None,
-            warning: Some(format!(
-                "Invalid thinking level \"{suffix}\" in pattern \"{pattern}\". Using default instead."
+            warning: Some(js_format!(
+                "Invalid thinking level \"{}\" in pattern \"{}\". Using default instead.",
+                suffix,
+                pattern
             )),
         };
     }
     result
 }
 
-fn contains_glob_characters(pattern: &str) -> bool {
-    pattern.contains(['*', '?', '['])
+fn contains_glob_characters(pattern: &JsString) -> bool {
+    ['*', '?', '['].iter().any(|unit| pattern.contains(*unit))
 }
 
-fn glob_matches(path: &str, pattern: &str) -> bool {
+fn glob_matches(path: impl Into<JsString>, pattern: &JsString) -> bool {
     minimatch(
         path,
         pattern,
@@ -306,22 +319,22 @@ fn glob_matches(path: &str, pattern: &str) -> bool {
 }
 
 /// Resolves scope patterns against a fixed model list.
-pub fn resolve_model_scope_from_models(patterns: &[String], models: &[Model]) -> ResolveModelScopeResult {
+pub fn resolve_model_scope_from_models(patterns: &[JsString], models: &[Model]) -> ResolveModelScopeResult {
     let mut scoped_models: Vec<ScopedModel> = Vec::new();
     let mut diagnostics: Vec<ModelScopeDiagnostic> = Vec::new();
 
     for pattern in patterns {
         if contains_glob_characters(pattern) {
             let (glob_pattern, thinking_level) = split_glob_thinking_suffix(pattern);
-            if let Some(exact) = find_exact_model_reference_match(&glob_pattern.into(), models) {
+            if let Some(exact) = find_exact_model_reference_match(&glob_pattern, models) {
                 push_unique(&mut scoped_models, exact, thinking_level);
                 continue;
             }
             let matching: Vec<&Model> = models
                 .iter()
                 .filter(|model| {
-                    glob_matches(&format!("{}/{}", model.provider, model.id), glob_pattern)
-                        || glob_matches(&model.id, glob_pattern)
+                    glob_matches(js_format!("{}/{}", model.provider, model.id), &glob_pattern)
+                        || glob_matches(&model.id, &glob_pattern)
                 })
                 .collect();
             if matching.is_empty() {
@@ -354,21 +367,21 @@ pub fn resolve_model_scope_from_models(patterns: &[String], models: &[Model]) ->
     }
 }
 
-fn split_glob_thinking_suffix(pattern: &str) -> (&str, Option<ThinkingLevel>) {
-    let Some(colon_index) = pattern.rfind(':') else {
-        return (pattern, None);
+fn split_glob_thinking_suffix(pattern: &JsString) -> (JsString, Option<ThinkingLevel>) {
+    let Some(colon_index) = pattern.units().iter().rposition(|unit| *unit == b':' as u16) else {
+        return (pattern.clone(), None);
     };
-    let suffix = &pattern[colon_index + 1..];
-    match parse_thinking_level(suffix) {
-        Some(level) => (&pattern[..colon_index], Some(level)),
-        None => (pattern, None),
+    let suffix = pattern.slice(colon_index + 1, pattern.len());
+    match parse_thinking_level(&suffix) {
+        Some(level) => (pattern.slice(0, colon_index), Some(level)),
+        None => (pattern.clone(), None),
     }
 }
 
-fn no_match_diagnostic(pattern: &str) -> ModelScopeDiagnostic {
+fn no_match_diagnostic(pattern: &JsString) -> ModelScopeDiagnostic {
     ModelScopeDiagnostic {
         code: ModelScopeCode::NoMatch,
-        message: format!("No models match pattern \"{pattern}\""),
+        message: js_format!("No models match pattern \"{}\"", pattern),
         pattern: pattern.to_owned(),
     }
 }
@@ -385,7 +398,7 @@ fn push_unique(scoped_models: &mut Vec<ScopedModel>, model: Model, thinking_leve
 
 /// Resolves scope patterns against the runtime's available models.
 pub async fn resolve_model_scope_with_diagnostics(
-    patterns: &[String],
+    patterns: &[JsString],
     runtime: &dyn ModelResolverRuntime,
     options: pi_ai::auth::types::AuthOperationOptions,
 ) -> ResolveModelScopeResult {
@@ -395,13 +408,13 @@ pub async fn resolve_model_scope_with_diagnostics(
 
 /// Resolves scope patterns and prints each diagnostic like the CLI.
 pub async fn resolve_model_scope(
-    patterns: &[String],
+    patterns: &[JsString],
     runtime: &dyn ModelResolverRuntime,
     options: pi_ai::auth::types::AuthOperationOptions,
 ) -> Vec<ScopedModel> {
     let result = resolve_model_scope_with_diagnostics(patterns, runtime, options).await;
     for diagnostic in &result.diagnostics {
-        eprintln!("Warning: {}", diagnostic.message);
+        eprintln!("{}", encode_node_utf8(&js_format!("Warning: {}", diagnostic.message)));
     }
     result.scoped_models
 }
@@ -410,15 +423,15 @@ pub async fn resolve_model_scope(
 pub struct ResolveCliModelResult {
     pub model: Option<Model>,
     pub thinking_level: Option<ThinkingLevel>,
-    pub warning: Option<String>,
+    pub warning: Option<JsString>,
     /// Set when `model` is `None` because resolution failed.
-    pub error: Option<String>,
+    pub error: Option<JsString>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct ResolveCliModelOptions {
     pub cli_provider: Option<String>,
-    pub cli_model: Option<String>,
+    pub cli_model: Option<JsString>,
     pub cli_thinking: Option<ThinkingLevel>,
 }
 
@@ -428,12 +441,12 @@ pub fn resolve_cli_model(
     runtime: &dyn ModelResolverRuntime,
 ) -> ResolveCliModelResult {
     let available_models = runtime.get_models();
-    let Some(cli_model) = options.cli_model.as_deref() else {
+    let Some(cli_model) = options.cli_model.as_ref() else {
         return ResolveCliModelResult::default();
     };
     if available_models.is_empty() {
         return ResolveCliModelResult {
-            error: Some("No models available. Check your installation or add models to models.json.".to_owned()),
+            error: Some("No models available. Check your installation or add models to models.json.".into()),
             ..Default::default()
         };
     }
@@ -462,10 +475,10 @@ pub fn resolve_cli_model(
     if provider.is_none()
         && let Some(slash_index) = cli_model.find('/')
     {
-        let maybe_provider = &cli_model[..slash_index];
+        let maybe_provider = &cli_model.slice(0, slash_index);
         if let Some(canonical) = find_provider(&provider_map, maybe_provider) {
             provider = Some(canonical);
-            pattern = cli_model[slash_index + 1..].to_owned();
+            pattern = cli_model.slice(slash_index + 1, cli_model.len());
             inferred_provider = true;
         }
     }
@@ -475,7 +488,8 @@ pub fn resolve_cli_model(
         let exact_matches: Vec<&Model> = available_models
             .iter()
             .filter(|model| {
-                model.id.to_lowercase() == lower || format!("{}/{}", model.provider, model.id).to_lowercase() == lower
+                JsString::from(&model.id).to_lowercase() == lower
+                    || js_format!("{}/{}", model.provider, model.id).to_lowercase() == lower
             })
             .collect();
         if exact_matches.len() == 1 {
@@ -492,9 +506,9 @@ pub fn resolve_cli_model(
     if options.cli_provider.is_some()
         && let Some(provider) = &provider
     {
-        let prefix = format!("{provider}/");
+        let prefix = js_format!("{}/", provider);
         if cli_model.to_lowercase().starts_with(&prefix.to_lowercase()) {
-            pattern = cli_model[prefix.len()..].to_owned();
+            pattern = cli_model.slice(prefix.len(), cli_model.len());
         }
     }
 
@@ -519,7 +533,7 @@ pub fn resolve_cli_model(
             let raw_exact_matches: Vec<&Model> = available_models
                 .iter()
                 .filter(|candidate| {
-                    candidate.id.to_lowercase() == cli_model.to_lowercase()
+                    JsString::from(&candidate.id).to_lowercase() == cli_model.to_lowercase()
                         && !models_are_equal(Some(candidate), Some(&model))
                 })
                 .collect();
@@ -547,8 +561,8 @@ pub fn resolve_cli_model(
     if inferred_provider {
         let lower = cli_model.to_lowercase();
         if let Some(exact) = available_models.iter().find(|candidate| {
-            candidate.id.to_lowercase() == lower
-                || format!("{}/{}", candidate.provider, candidate.id).to_lowercase() == lower
+            JsString::from(&candidate.id).to_lowercase() == lower
+                || js_format!("{}/{}", candidate.provider, candidate.id).to_lowercase() == lower
         }) {
             return ResolveCliModelResult {
                 model: Some(exact.clone()),
@@ -574,18 +588,35 @@ pub fn resolve_cli_model(
 
     if let Some(provider) = &provider {
         let (fallback_pattern, fallback_thinking) = split_fallback_thinking(&pattern, options.cli_thinking.is_none());
-        if let Some(fallback_model) = build_fallback_model(provider, fallback_pattern, &available_models) {
+        if let Some(fallback_model) = build_fallback_model(
+            provider,
+            &match fallback_pattern.to_utf8() {
+                Ok(id) => id,
+                Err(_) => {
+                    return ResolveCliModelResult {
+                        error: Some("Model ID contains unpaired UTF-16 units".into()),
+                        ..Default::default()
+                    };
+                }
+            },
+            &available_models,
+        ) {
             let requested_thinking = options.cli_thinking.or(fallback_thinking);
             let mut model = fallback_model;
             if requested_thinking.is_some_and(|level| level != ThinkingLevel::Off) {
                 model.reasoning = true;
             }
             let fallback_warning = match &warning {
-                Some(warning) => format!(
-                    "{warning} Model \"{fallback_pattern}\" not found for provider \"{provider}\". Using custom model id."
+                Some(warning) => js_format!(
+                    "{} Model \"{}\" not found for provider \"{}\". Using custom model id.",
+                    warning,
+                    fallback_pattern,
+                    provider
                 ),
-                None => format!(
-                    "Model \"{fallback_pattern}\" not found for provider \"{provider}\". Using custom model id."
+                None => js_format!(
+                    "Model \"{}\" not found for provider \"{}\". Using custom model id.",
+                    fallback_pattern,
+                    provider
                 ),
             };
             return ResolveCliModelResult {
@@ -598,38 +629,39 @@ pub fn resolve_cli_model(
     }
 
     let display = match &provider {
-        Some(provider) => format!("{provider}/{pattern}"),
+        Some(provider) => js_format!("{}/{}", provider, pattern),
         None => cli_model.to_owned(),
     };
     ResolveCliModelResult {
         model: None,
         thinking_level: None,
         warning,
-        error: Some(format!(
-            "Model \"{display}\" not found. Use --list-models to see available models."
+        error: Some(js_format!(
+            "Model \"{}\" not found. Use --list-models to see available models.",
+            display
         )),
     }
 }
 
-fn find_provider(provider_map: &[(String, String)], requested: &str) -> Option<String> {
-    let lower = requested.to_lowercase();
+fn find_provider(provider_map: &[(String, String)], requested: impl Into<JsString>) -> Option<String> {
+    let lower = requested.into().to_lowercase();
     provider_map
         .iter()
-        .find(|(key, _)| *key == lower)
+        .find(|(key, _)| JsString::from(key).to_lowercase() == lower)
         .map(|(_, canonical)| canonical.clone())
 }
 
-fn split_fallback_thinking(pattern: &str, allow_suffix: bool) -> (&str, Option<ThinkingLevel>) {
+fn split_fallback_thinking(pattern: &JsString, allow_suffix: bool) -> (JsString, Option<ThinkingLevel>) {
     if !allow_suffix {
-        return (pattern, None);
+        return (pattern.clone(), None);
     }
-    let Some(last_colon) = pattern.rfind(':') else {
-        return (pattern, None);
+    let Some(last_colon) = pattern.units().iter().rposition(|unit| *unit == b':' as u16) else {
+        return (pattern.clone(), None);
     };
-    let suffix = &pattern[last_colon + 1..];
-    match parse_thinking_level(suffix) {
-        Some(level) => (&pattern[..last_colon], Some(level)),
-        None => (pattern, None),
+    let suffix = pattern.slice(last_colon + 1, pattern.len());
+    match parse_thinking_level(&suffix) {
+        Some(level) => (pattern.slice(0, last_colon), Some(level)),
+        None => (pattern.clone(), None),
     }
 }
 
@@ -649,7 +681,7 @@ pub trait ModelResolverRuntime: Send + Sync {
 #[derive(Debug, Clone, Default)]
 pub struct FindInitialModelOptions {
     pub cli_provider: Option<String>,
-    pub cli_model: Option<String>,
+    pub cli_model: Option<JsString>,
     pub scoped_models: Vec<ScopedModel>,
     pub is_continuing: bool,
     pub default_provider: Option<String>,
@@ -661,7 +693,7 @@ pub struct FindInitialModelOptions {
 pub struct InitialModelResult {
     pub model: Option<Model>,
     pub thinking_level: ThinkingLevel,
-    pub fallback_message: Option<String>,
+    pub fallback_message: Option<JsString>,
 }
 
 /// Picks the initial model: CLI flags, scoped models, saved default, first available.
@@ -671,7 +703,7 @@ pub struct InitialModelResult {
 pub async fn find_initial_model(
     options: &FindInitialModelOptions,
     runtime: &dyn ModelResolverRuntime,
-) -> Result<InitialModelResult, String> {
+) -> Result<InitialModelResult, JsString> {
     if let (Some(cli_provider), Some(cli_model)) = (&options.cli_provider, &options.cli_model) {
         let resolved = resolve_cli_model(
             &ResolveCliModelOptions {
@@ -746,7 +778,7 @@ fn preferred_available_model(available: &[Model]) -> Option<Model> {
 }
 
 fn ambiguous_model_error(
-    cli_model: &str,
+    cli_model: &JsString,
     matches: &[&Model],
     runtime: &dyn ModelResolverRuntime,
 ) -> ResolveCliModelResult {
@@ -760,20 +792,22 @@ fn ambiguous_model_error(
             ..Default::default()
         };
     }
-    let mut rendered: Vec<String> = matches
+    let mut rendered: Vec<JsString> = matches
         .iter()
-        .map(|model| format!("{}/{}", model.provider, model.id))
+        .map(|model| js_format!("{}/{}", model.provider, model.id))
         .collect();
-    rendered.sort_by(|left, right| pi_js_compat::locale_compare(left, right));
+    rendered.sort_by(|left, right| pi_js_compat::collator::locale_compare_utf16(left.units(), right.units()));
     let auth_hint = if authenticated.is_empty() {
         "No matching provider is authenticated."
     } else {
         "More than one matching provider is authenticated."
     };
     ResolveCliModelResult {
-        error: Some(format!(
-            "Model \"{cli_model}\" is ambiguous across providers: {}. {auth_hint} Use --provider or provider/model.",
-            rendered.join(", ")
+        error: Some(js_format!(
+            "Model \"{}\" is ambiguous across providers: {}. {} Use --provider or provider/model.",
+            cli_model,
+            JsString::join(rendered, ", "),
+            auth_hint
         )),
         ..Default::default()
     }
@@ -786,7 +820,7 @@ pub async fn restore_model_from_session(
     current_model: Option<&Model>,
     should_print_messages: bool,
     runtime: &dyn ModelResolverRuntime,
-) -> (Option<Model>, Option<String>) {
+) -> (Option<Model>, Option<JsString>) {
     let restored = runtime.get_model(saved_provider, saved_model_id);
     let has_configured_auth = restored
         .as_ref()
@@ -814,9 +848,13 @@ pub async fn restore_model_from_session(
         }
         return (
             Some(current.clone()),
-            Some(format!(
-                "Could not restore model {saved_provider}/{saved_model_id} ({reason}). Using {}/{}.",
-                current.provider, current.id
+            Some(js_format!(
+                "Could not restore model {}/{} ({}). Using {}/{}.",
+                saved_provider,
+                saved_model_id,
+                reason,
+                current.provider,
+                current.id
             )),
         );
     }
@@ -828,9 +866,13 @@ pub async fn restore_model_from_session(
         }
         return (
             Some(model.clone()),
-            Some(format!(
-                "Could not restore model {saved_provider}/{saved_model_id} ({reason}). Using {}/{}.",
-                model.provider, model.id
+            Some(js_format!(
+                "Could not restore model {}/{} ({}). Using {}/{}.",
+                saved_provider,
+                saved_model_id,
+                reason,
+                model.provider,
+                model.id
             )),
         );
     }

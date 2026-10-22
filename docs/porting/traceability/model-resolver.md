@@ -37,3 +37,13 @@ Tests: `crates/pi-coding-agent/tests/model_resolver.rs` (ports
 ## Discrepancies
 
 None found.
+
+## Q18 native pattern continuation (2026-10-22)
+
+Scope/CLI patterns, warnings/errors/fallback messages, colon slicing, fuzzy text
+matching, and glob matching use native UTF-16. Model/provider IDs remain approved
+scalar metadata. Custom fallback model IDs reject unpaired units explicitly before
+construction. Thinking-level recognition checks only its ASCII enum grammar;
+unknown suffixes retain the original native pattern in diagnostics. Native raw
+no-match fixture written but unexecuted. replacement-adapters-1 found one typo in
+a macro name, corrected afterward; no runtime PASS.

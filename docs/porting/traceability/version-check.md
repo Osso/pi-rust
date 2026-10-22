@@ -36,3 +36,19 @@ the error-formatting fixtures. The network path is proven behaviorally with an i
 
 - Differential: 676 comparison requests + 676 newer requests + error-formatting fixtures.
 - Behavioral cases: 6.
+
+## Q18 native version/release continuation (2026-10-22)
+
+Version inputs, release version/packageName/note, and nested diagnostic text use
+JsString. Release response parses through JsValue; network body bytes decode only
+at ingress. User-agent text encodes only at HttpRequest header construction.
+
+Strict semver parsing checks UTF-8 only at its ASCII grammar: unmatched units
+mean invalid semver. `is_newer_package_version` then performs the source's native
+trimmed-string inequality fallback; invalid strings are not silently equated.
+Parsed Semver numeric/prerelease/build internals remain validated ASCII data.
+
+Raw semver fallback, raw error text, raw user-agent version, and escaped raw release
+fields have fixtures; written but unexecuted while coding compilation is blocked.
+replacement-version-1/replacement-adapters-1 show zero version/user-agent primaries.
+No runtime PASS or renewed frozen differential claim.

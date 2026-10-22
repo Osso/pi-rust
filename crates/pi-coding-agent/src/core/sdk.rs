@@ -239,8 +239,22 @@ async fn create_agent_session_internal(
             FindInitialModelOptions {
                 scoped_models: Vec::new(),
                 is_continuing: has_existing_session,
-                default_provider: settings.get_default_provider().map(str::to_owned),
-                default_model_id: settings.get_default_model().map(str::to_owned),
+                default_provider: settings
+                    .get_default_provider()
+                    .map(|value| {
+                        value
+                            .to_utf8()
+                            .map_err(|_| JsString::from("Default provider ID contains unpaired UTF-16 units"))
+                    })
+                    .transpose()?,
+                default_model_id: settings
+                    .get_default_model()
+                    .map(|value| {
+                        value
+                            .to_utf8()
+                            .map_err(|_| JsString::from("Default model ID contains unpaired UTF-16 units"))
+                    })
+                    .transpose()?,
                 default_thinking_level: settings.get_default_thinking_level(),
                 ..Default::default()
             }
