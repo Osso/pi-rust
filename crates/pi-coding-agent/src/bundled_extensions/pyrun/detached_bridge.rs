@@ -102,9 +102,9 @@ pub fn validate_detached_pyrun_bridge_request(
         return Ok(false);
     }
     let agent = read_multi_agent_agent(input.control_db_path, input.session_path, &identity.job_id)
-        .map_err(|error| error.message())?;
+        .map_err(|error| error.message().clone())?;
     let ownership = read_multi_agent_runtime_ownership(input.control_db_path, input.session_path, &identity.job_id)
-        .map_err(|error| error.message())?;
+        .map_err(|error| error.message().clone())?;
     let Some(agent) = agent else {
         return Ok(false);
     };
@@ -205,6 +205,6 @@ fn persist_bridge_message(input: PersistBridgeMessageInput) -> Result<(), JsStri
             updated_at: None,
         },
     )
-    .map_err(|error| error.message())?;
+    .map_err(|error| error.message().clone())?;
     Ok(())
 }

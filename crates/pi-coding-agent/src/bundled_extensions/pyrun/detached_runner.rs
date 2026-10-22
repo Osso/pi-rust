@@ -549,7 +549,7 @@ async fn dispatch_foreground_pyrun_bridge_request(
 
 /// `claimForegroundBridgeRequest` (identical in both TypeScript modules).
 pub(crate) fn claim_foreground_bridge_request(directory: &JsString, request_id: &JsString) -> Result<bool, JsString> {
-    let path = node_join(&[directory.clone(), js_format!("bridge-claim-{request_id}")]);
+    let path = node_join(directory, js_format!("bridge-claim-{request_id}"));
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -557,7 +557,7 @@ pub(crate) fn claim_foreground_bridge_request(directory: &JsString, request_id: 
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    match options.open(&encode_node_utf8(path)) {
+    match options.open(encode_node_utf8(&path)) {
         Ok(_) => Ok(true),
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
         Err(error) => Err(JsString::from(error.to_string())),

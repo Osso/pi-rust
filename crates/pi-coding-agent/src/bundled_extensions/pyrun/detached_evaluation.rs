@@ -69,11 +69,10 @@ fn pyrun_artifact_root(session_path: &JsString) -> Result<JsString, JsString> {
     if session_name.is_empty() {
         return Err("Pyrun session path must have a file name".into());
     }
-    Ok(node_join(&[
-        node_dirname(session_path),
-        "detached-jobs".into(),
+    Ok(node_join(
+        node_join(node_dirname(session_path), "detached-jobs"),
         session_name,
-    ]))
+    ))
 }
 
 fn create_lifecycle_controller(
@@ -167,12 +166,12 @@ fn launch_foreground_pyrun_runner(
         .ok_or_else(|| "Detached Pyrun requires a persisted tool execution agent ID".to_owned())?;
     let artifacts = controller.create_artifacts(&job_id).map_err(|error| error.message())?;
     let directory = artifacts.directory.clone();
-    let activation_path = node_join(&[directory.clone(), "activation.json".into()]);
-    let bridge_request_path = node_join(&[directory.clone(), "foreground-bridge-requests.jsonl".into()]);
-    let bridge_response_path = node_join(&[directory.clone(), "foreground-bridge-responses.jsonl".into()]);
-    let foreground_completion_path = node_join(&[directory.clone(), "foreground-completed".into()]);
-    let manifest_path = node_join(&[directory.clone(), "launch.json".into()]);
-    let script_path = node_join(&[directory, "script.py".into()]);
+    let activation_path = node_join(&directory, "activation.json");
+    let bridge_request_path = node_join(&directory, "foreground-bridge-requests.jsonl");
+    let bridge_response_path = node_join(&directory, "foreground-bridge-responses.jsonl");
+    let foreground_completion_path = node_join(&directory, "foreground-completed");
+    let manifest_path = node_join(&directory, "launch.json");
+    let script_path = node_join(&directory, "script.py");
     write_durable_pyrun_script(&script_path, &input.params.code)?;
     let runner_pid = launch_detached_pyrun_runner(&manifest_path)?;
     let process_identity = read_process_identity(runner_pid).map_err(|error| error.message)?;
@@ -599,7 +598,7 @@ struct PyrunManifestCandidate {
 }
 
 fn read_pyrun_manifest_candidate(directory: &JsString) -> Result<Option<PyrunManifestCandidate>, HandlerError> {
-    let manifest_path = node_join(&[directory.clone(), "launch.json".into()]);
+    let manifest_path = node_join(directory, "launch.json");
     if !Path::new(&js_json::encode_node_utf8(&manifest_path)).exists() {
         return Ok(None);
     }
@@ -775,7 +774,7 @@ fn restore_pyrun_candidate(
     if !is_process_identity_alive(&manifest.data.runner_process_identity) {
         return Ok(RestoredRunner::Lost(records, manifest.data.artifacts.output_path));
     }
-    let script_path = node_join(&[candidate.directory, "script.py".into()]);
+    let script_path = node_join(&candidate.directory, "script.py");
     if !Path::new(&js_json::encode_node_utf8(&script_path)).exists() {
         return Err(HandlerError::new(js_format!(
             "Pyrun script artifact is missing: {script_path}"
@@ -803,7 +802,7 @@ async fn restore_foreground_pyrun_runner(
         .clone()
         .ok_or_else(|| HandlerError::new("Detached Pyrun requires a persisted tool execution agent ID"))?;
     let root = pyrun_artifact_root(&persistence.session_path).map_err(HandlerError::new)?;
-    let directory = node_join(&[root, agent_id.clone()]);
+    let directory = node_join(&root, &agent_id);
     let Some(candidate) = read_pyrun_manifest_candidate(&directory)? else {
         return Ok(None);
     };
