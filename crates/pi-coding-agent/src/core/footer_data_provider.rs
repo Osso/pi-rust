@@ -5,7 +5,8 @@
 //! directly and falls back to `git symbolic-ref` for reftable repos, whose HEAD
 //! contains the `.invalid` placeholder.
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
+use pi_js_compat::js_json::JsString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -269,7 +270,7 @@ fn should_poll_git_head(repo_dir: &Path) -> bool {
 
 struct FooterState {
     cwd: Mutex<PathBuf>,
-    extension_statuses: Mutex<BTreeMap<String, String>>,
+    extension_statuses: Mutex<IndexMap<JsString, JsString>>,
     /// `None` = not computed yet, `Some(None)` = not a repo / detached.
     cached_branch: Mutex<Option<Option<String>>>,
     git_paths: Mutex<Option<GitPaths>>,
@@ -354,7 +355,7 @@ impl FooterDataProvider {
         let state = Arc::new(FooterState {
             git_paths: Mutex::new(find_git_paths(&cwd)),
             cwd: Mutex::new(cwd),
-            extension_statuses: Mutex::new(BTreeMap::new()),
+            extension_statuses: Mutex::new(IndexMap::new()),
             cached_branch: Mutex::new(None),
             branch_change_callbacks: Mutex::new(Vec::new()),
             next_callback_id: AtomicUsize::new(0),
@@ -392,7 +393,7 @@ impl FooterDataProvider {
         resolve_footer_executable_name()
     }
 
-    pub fn get_extension_statuses(&self) -> BTreeMap<String, String> {
+    pub fn get_extension_statuses(&self) -> IndexMap<JsString, JsString> {
         lock(&self.state.extension_statuses).clone()
     }
 
@@ -418,14 +419,14 @@ impl FooterDataProvider {
         *lock(&self.state.session_override) = None;
     }
 
-    pub fn set_extension_status(&self, key: &str, text: Option<&str>) {
+    pub fn set_extension_status(&self, key: &JsString, text: Option<&JsString>) {
         let mut statuses = lock(&self.state.extension_statuses);
         match text {
             Some(text) => {
                 statuses.insert(key.to_owned(), text.to_owned());
             }
             None => {
-                statuses.remove(key);
+                statuses.shift_remove(key);
             }
         }
     }

@@ -27,3 +27,5 @@ Differential proof: request `26004` executes the real pinned module across 6 san
 `formatExtensionStatusTextLines` sorts non-goal keys with `pi_js_compat::locale_compare`, matching
 `localeCompare`; the `BTreeMap` input order is therefore not observable. Differential `26004` covers the
 resulting lines.
+
+Native status text uses `JsString`, with native IndexMap input and ICU UTF16 locale comparison. Control whitespace flattening and repeated-space collapse retain every other native unit; final trim follows JS, not Rust Unicode whitespace. `raw_footer_statuses` compares high/low/pair formatting, goal-line separation and sort output to frozen helpers. The pre-migration sanitizer removed U+0085 although JS trim preserves it (behavioral RED), now corrected. Direct renderer consumers must remain native; no encoding adapter is provided.
