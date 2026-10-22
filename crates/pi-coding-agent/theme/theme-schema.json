@@ -34,7 +34,7 @@
 		},
 		"colors": {
 			"type": "object",
-			"description": "Theme color definitions (thinkingMax is optional and defaults to thinkingXhigh)",
+			"description": "Theme color definitions",
 			"required": [
 				"accent",
 				"border",
@@ -288,10 +288,6 @@
 				"thinkingXhigh": {
 					"$ref": "#/$defs/colorValue",
 					"description": "Thinking level border: xhigh"
-				},
-				"thinkingMax": {
-					"$ref": "#/$defs/colorValue",
-					"description": "Thinking level border: max and ultra (falls back to thinkingXhigh when omitted)"
 				},
 				"bashMode": {
 					"$ref": "#/$defs/colorValue",

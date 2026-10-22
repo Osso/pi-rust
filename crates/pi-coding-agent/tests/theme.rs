@@ -520,12 +520,12 @@ fn resolves_theme_colors_in_key_order() {
             .find(|pair| pair.as_array().unwrap()[0] == key)
             .map(|pair| pair.as_array().unwrap()[1].as_str().unwrap().to_owned())
     };
-    assert_eq!(find("thinkingMax").as_deref(), Some("#ff5fff"));
+    assert_eq!(find("thinkingMax"), None);
     assert_eq!(find("scrollbarThumb"), None);
     assert_eq!(find("searchMatchBg"), None);
     assert_eq!(find("searchMatchText"), None);
     assert_eq!(find("bashMode").as_deref(), Some("#b5bd68"));
-    assert_eq!(pairs.len(), 52);
+    assert_eq!(pairs.len(), 51);
 }
 
 #[test]

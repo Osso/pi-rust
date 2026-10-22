@@ -66,7 +66,6 @@ const THEME_COLORS = [
 	"thinkingMedium",
 	"thinkingHigh",
 	"thinkingXhigh",
-	"thinkingMax",
 	"bashMode",
 ] as const;
 
@@ -115,6 +114,7 @@ function loadTheme(api: ThemeApi, themeCase: LoadThemeCase, directory: string): 
 			theme: {
 				name: theme.name ?? null,
 				colorMode: theme.getColorMode(),
+				thinkingBorders: ["xhigh", "max", "ultra"].map((level) => [level, theme.getThinkingBorderColor(level)("border")]),
 				fg: THEME_COLORS.map((color) => [color, theme.getFgAnsi(color)]),
 				bg: THEME_BACKGROUNDS.map((background) => [background, theme.getBgAnsi(background)]),
 			},

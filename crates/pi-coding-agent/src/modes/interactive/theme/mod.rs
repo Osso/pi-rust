@@ -161,7 +161,6 @@ const COLOR_KEYS: &[&str] = &[
     "thinkingMedium",
     "thinkingHigh",
     "thinkingXhigh",
-    "thinkingMax",
     "bashMode",
 ];
 
@@ -214,7 +213,6 @@ pub enum ThemeColor {
     ThinkingMedium,
     ThinkingHigh,
     ThinkingXhigh,
-    ThinkingMax,
     BashMode,
 }
 
@@ -266,7 +264,6 @@ impl ThemeColor {
             "thinkingMedium" => Self::ThinkingMedium,
             "thinkingHigh" => Self::ThinkingHigh,
             "thinkingXhigh" => Self::ThinkingXhigh,
-            "thinkingMax" => Self::ThinkingMax,
             "bashMode" => Self::BashMode,
             _ => return None,
         };
@@ -319,7 +316,6 @@ impl ThemeColor {
             Self::ThinkingMedium => "thinkingMedium",
             Self::ThinkingHigh => "thinkingHigh",
             Self::ThinkingXhigh => "thinkingXhigh",
-            Self::ThinkingMax => "thinkingMax",
             Self::BashMode => "bashMode",
         }
     }
@@ -533,19 +529,6 @@ fn resolve_theme_colors(colors: &JsObject, vars: &JsObject) -> Result<Vec<(JsStr
         .collect()
 }
 
-fn with_theme_color_fallbacks(colors: &JsObject) -> JsObject {
-    let mut merged = colors.clone();
-    let fallbacks = [("thinkingMax", "thinkingXhigh")];
-    for (key, fallback_key) in fallbacks {
-        if !merged.contains_key(key)
-            && let Some(fallback) = colors.get(fallback_key)
-        {
-            merged.insert(key.into(), fallback.clone());
-        }
-    }
-    merged
-}
-
 // ============================================================================
 // Theme Class
 // ============================================================================
@@ -659,8 +642,7 @@ impl Theme {
             ThinkingLevel::Low => ThemeColor::ThinkingLow,
             ThinkingLevel::Medium => ThemeColor::ThinkingMedium,
             ThinkingLevel::High => ThemeColor::ThinkingHigh,
-            ThinkingLevel::XHigh => ThemeColor::ThinkingXhigh,
-            ThinkingLevel::Max | ThinkingLevel::Ultra => ThemeColor::ThinkingMax,
+            ThinkingLevel::XHigh | ThinkingLevel::Max | ThinkingLevel::Ultra => ThemeColor::ThinkingXhigh,
         };
         let theme = Arc::clone(self);
         Rc::new(move |text: &JsString| theme.fg(color, text))
@@ -1083,8 +1065,7 @@ fn create_theme(
     } else {
         ColorMode::Color256
     });
-    let colors = with_theme_color_fallbacks(&theme_json.colors);
-    let resolved = resolve_theme_colors(&colors, &theme_json.vars)?;
+    let resolved = resolve_theme_colors(&theme_json.colors, &theme_json.vars)?;
     let mut fg_colors = Vec::new();
     let mut bg_colors = Vec::new();
     for (key, value) in resolved {
@@ -1613,8 +1594,7 @@ pub fn get_resolved_theme_colors(theme_name: Option<&JsString>) -> Result<Vec<(J
     };
     let is_light = name == "light";
     let theme_json = load_theme_json(&name)?;
-    let colors = with_theme_color_fallbacks(&theme_json.colors);
-    let resolved = resolve_theme_colors(&colors, &theme_json.vars)?;
+    let resolved = resolve_theme_colors(&theme_json.colors, &theme_json.vars)?;
     let default_text = if is_light { "#000000" } else { "#e5e5e7" };
     Ok(resolved
         .into_iter()
