@@ -930,7 +930,36 @@ fn split_chunks(body: Vec<u8>, sizes: &[usize]) -> Vec<Vec<u8>> {
     chunks
 }
 
-fn normalize_request_headers(headers: &Map<String, Value>) -> Map<String, Value> {
+#[test]
+fn host_version_masking_keeps_sdk_build_language_and_feature_identity() {
+    let value = "aws-sdk-js/9 ua/2.1 os/linux#7 lang/rust md/nodejs#26 md/tsc#9 api/bedrock-runtime#9 m/E,e";
+    assert_eq!(
+        normalize_sdk_host_versions(value),
+        "aws-sdk-js/9 ua/2.1 os/linux#<host-version> lang/rust md/nodejs#<host-version> md/tsc#9 api/bedrock-runtime#9 m/E,e"
+    );
+    let headers = json!({"user-agent":value}).as_object().unwrap().clone();
+    assert_eq!(normalize_request_headers(&headers, false), headers);
+}
+
+fn normalize_sdk_host_versions(value: &str) -> String {
+    value
+        .split(' ')
+        .map(|component| {
+            if component.starts_with("os/") {
+                if let Some((platform, _version)) = component.split_once('#') {
+                    return format!("{platform}#<host-version>");
+                }
+            }
+            if component.starts_with("md/nodejs#") {
+                return "md/nodejs#<host-version>".to_owned();
+            }
+            component.to_owned()
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn normalize_request_headers(headers: &Map<String, Value>, default_user_agent: bool) -> Map<String, Value> {
     headers
         .iter()
         .map(|(name, value)| {
@@ -938,6 +967,10 @@ fn normalize_request_headers(headers: &Map<String, Value>) -> Map<String, Value>
             let value = match name.as_str() {
                 "x-amz-date" => json!("<clock>"),
                 "amz-sdk-invocation-id" => json!("<generated>"),
+                "user-agent" if default_user_agent => value
+                    .as_str()
+                    .map(|value| json!(normalize_sdk_host_versions(value)))
+                    .unwrap_or_else(|| value.clone()),
                 "authorization" => {
                     match value
                         .as_str()
@@ -1101,9 +1134,15 @@ async fn bedrock_converse_stream_matches_the_pinned_typescript_module() {
                 scenario.name
             );
             let oracle_headers = oracle_request["headers"].as_object().expect("headers");
+            let default_user_agent = !scenario
+                .options
+                .request
+                .headers
+                .as_ref()
+                .is_some_and(|headers| headers.keys().any(|name| name.eq_ignore_ascii_case("user-agent")));
             assert_eq!(
-                normalize_request_headers(&headers_map(&rust_request.headers)),
-                normalize_request_headers(oracle_headers),
+                normalize_request_headers(&headers_map(&rust_request.headers), default_user_agent),
+                normalize_request_headers(oracle_headers, default_user_agent),
                 "headers mismatch for {}",
                 scenario.name
             );

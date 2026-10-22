@@ -5,6 +5,10 @@ Source: `packages/ai/src/api/bedrock-converse-stream.ts` (pinned revision in
 plus the Rust-only helpers `bedrock_sigv4.rs`, `bedrock_eventstream.rs`,
 `bedrock_credentials.rs`, and `utils/base64.rs`.
 
+## Q4 SDK identity boundary
+
+Unmasked source request headers exposed native lang/rust and missing SDK language/compiler/feature labels. Native now retains frozen aws-sdk-js3.1048.0, ua2.1, lang/js, md/tsc5.9.3, Bedrock API version and retry/credential feature labels (standardE, directe, profilen). Host kernel/Node versions are unavailable in Rust and emitted as unknown; only those version substrings are masked at captured default User-Agent. Explicit caller User-Agent remains exact. A concrete helper test preserves changed SDK/compiler/language/feature values. The first signed source request now matches all headers/signature inputs; next RED exposes start/delta index, empty-start ordering and source-absent rawStopReason (`bedrock-sdk-identity-{red,green-1}.log`). No full-provider acceptance yet.
+
 ## Exported symbols
 
 | TypeScript | Rust | Tests |

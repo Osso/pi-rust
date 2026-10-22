@@ -1280,6 +1280,7 @@ struct RuntimeConfig {
     endpoint: JsString,
     credentials: Option<AwsCredentials>,
     bearer_token: Option<JsString>,
+    sdk_features: &'static str,
 }
 
 async fn resolve_runtime_config(model: &Model, options: &BedrockOptions) -> Result<RuntimeConfig, BedrockError> {
@@ -1322,6 +1323,15 @@ async fn resolve_runtime_config(model: &Model, options: &BedrockOptions) -> Resu
         default_endpoint(&region)
     };
 
+    let configured_credentials = env_credentials(env);
+    let direct_credentials = skip_auth || (options_profile.is_none() && configured_credentials.is_some());
+    let sdk_features = if use_bearer {
+        "E"
+    } else if direct_credentials {
+        "E,e"
+    } else {
+        "E,n"
+    };
     let credentials = if skip_auth {
         Some(AwsCredentials {
             access_key_id: "dummy-access-key".into(),
@@ -1331,7 +1341,7 @@ async fn resolve_runtime_config(model: &Model, options: &BedrockOptions) -> Resu
     } else if use_bearer {
         None
     } else if options_profile.is_none() {
-        match env_credentials(env) {
+        match configured_credentials {
             Some(credentials) => Some(credentials),
             None => {
                 let fetch = options.stream.request.fetch.clone().unwrap_or_else(default_fetch);
@@ -1357,6 +1367,7 @@ async fn resolve_runtime_config(model: &Model, options: &BedrockOptions) -> Resu
         endpoint,
         credentials,
         bearer_token: use_bearer.then_some(bearer_token).flatten(),
+        sdk_features,
     })
 }
 
@@ -1422,7 +1433,7 @@ async fn execute_request(
     let url = endpoint + "/model/" + crate::api::bedrock_sigv4::aws_escape_uri(&model.id) + "/converse-stream";
     let url = request_url(&url).map_err(|error| BedrockError::other(error.message))?;
     let invocation_id = random_uuid_v4();
-    let mut headers = base_headers(&url, &body, &invocation_id, 1);
+    let mut headers = base_headers(&url, &body, &invocation_id, 1, config.sdk_features);
     apply_custom_headers(&mut headers, options.stream.request.headers.as_ref())
         .map_err(|error| BedrockError::other(error.message))?;
     let fetch = options.stream.request.fetch.clone().unwrap_or_else(default_fetch);
@@ -1491,7 +1502,13 @@ async fn execute_request(
     }
 }
 
-fn base_headers(url: &str, body: &[u8], invocation_id: &str, attempt: usize) -> Vec<(String, String)> {
+fn base_headers(
+    url: &str,
+    body: &[u8],
+    invocation_id: &str,
+    attempt: usize,
+    sdk_features: &str,
+) -> Vec<(String, String)> {
     let host = url
         .split_once("://")
         .map(|(_, rest)| rest.split('/').next().unwrap_or(rest))
@@ -1502,7 +1519,9 @@ fn base_headers(url: &str, body: &[u8], invocation_id: &str, attempt: usize) -> 
         ("x-amz-user-agent".to_owned(), AWS_SDK_USER_AGENT.to_owned()),
         (
             "user-agent".to_owned(),
-            format!("{AWS_SDK_USER_AGENT} ua/2.1 os/linux lang/rust api/bedrock-runtime#3.1048.0"),
+            format!(
+                "{AWS_SDK_USER_AGENT} ua/2.1 os/linux#unknown lang/js md/nodejs#unknown md/tsc#5.9.3 api/bedrock-runtime#3.1048.0 m/{sdk_features}"
+            ),
         ),
         ("host".to_owned(), host.to_owned()),
         ("amz-sdk-invocation-id".to_owned(), invocation_id.to_owned()),
