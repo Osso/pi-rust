@@ -4,7 +4,7 @@ Frozen source: `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`.
 
 ## Local path argument validation
 
-Actual Cargo RED at `4cffa3fe` (`queued-drift-incrate-red.log`) showed local Operations turning a raw NUL path into an errno diagnostic after OS encoding. Read/range/stat/access, write/mkdir, edit read/write/access, ls stat/readdir and grep stat/read now invoke the shared Node path validator before filesystem entry. `lossless_local_path_validation` compares all 13 Operations against frozen Node for short and truncated raw-unit paths, asserts no errno and verifies no file mutation. GREEN pending.
+Actual Cargo RED at `4cffa3fe` (`queued-drift-incrate-red.log`) showed local Operations turning a raw NUL path into an errno diagnostic after OS encoding. Read/range/stat/access, write/mkdir, edit read/write/access, ls stat/readdir and grep stat/read now invoke the shared Node path validator before filesystem entry. `lossless_local_path_validation` compares all 13 Operations against frozen Node for short and truncated raw-unit paths, asserts no errno and verifies no file mutation. Actual Cargo GREEN1 at `422bacdc` (`local-path-incrate-green.log`), covering all 26 operation/input combinations.
 
 ## Write and shared rendering checkpoint
 
