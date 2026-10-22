@@ -91,8 +91,8 @@ fn sse(events: &[serde_json::Value]) -> Vec<u8> {
 
 fn options(fetch: Arc<dyn Fetch>, signal: Option<CancellationToken>) -> ProxyStreamOptions {
     ProxyStreamOptions {
-        auth_token: "test-token".to_owned(),
-        proxy_url: "https://proxy.example.com".to_owned(),
+        auth_token: "test-token".into(),
+        proxy_url: "https://proxy.example.com".into(),
         signal,
         fetch: Some(fetch),
         ..Default::default()
@@ -673,5 +673,114 @@ async fn proxy_event_matrix_matches_frozen_module() {
             pi_js_compat::js_json::stringify_lossless(&actual),
             pi_js_compat::js_json::stringify_lossless(&expected)
         );
+    }
+}
+
+#[tokio::test]
+async fn proxy_auth_url_and_option_headers_match_node_boundaries() {
+    use pi_js_compat::{
+        js_json as native_json,
+        js_json::{JsValue, parse_lossless, to_value},
+    };
+    let mut oracle = oracle::TsOracle::spawn("proxy-stream-oracle.ts", "packages/agent-core/src/proxy.ts");
+    let done = json!({"type":"done","reason":"stop","usage":pi_ai::types::Usage::default()});
+    for (auth, url) in [
+        (
+            JsString::from_utf16(vec![0xd800]),
+            JsString::from("https://proxy.invalid"),
+        ),
+        ("abc".into(), "invalid-url".into()),
+        ("abc ".into(), "https://proxy.invalid".into()),
+        ("ab\ncd".into(), "https://proxy.invalid".into()),
+        (
+            "abc".into(),
+            JsString::from_utf16("https://proxy.invalid/".encode_utf16().chain([0xd800]).collect()),
+        ),
+    ] {
+        let case = native_json!({"boundary":true,"model":model(),"events":[done],"options":{"authToken":auth,"proxyUrl":url,"headers":{"keep":"value","remove":"old"}},"headerDeletes":["remove"]});
+        let expected: JsValue = oracle.request(&case);
+        let requests = Arc::new(Mutex::new(vec![]));
+        let fetch = Arc::new(ScriptedFetch {
+            status: 200,
+            status_text: "OK".into(),
+            chunks: vec![sse(&[done.clone()])],
+            requests: requests.clone(),
+            honour_cancel: false,
+        });
+        let mut opts = options(fetch, None);
+        opts.auth_token = auth;
+        opts.proxy_url = url;
+        opts.stream_options.stream.request.headers =
+            Some([("keep".into(), Some("value".into())), ("remove".into(), None)].into());
+        let (events, result) = collect(stream_proxy(
+            model(),
+            Context {
+                system_prompt: None,
+                messages: vec![],
+                tools: None,
+            },
+            opts,
+        ))
+        .await;
+        let captured: Vec<_> = requests.lock().unwrap().iter().map(|request| {let headers: pi_js_compat::js_json::JsObject = request.headers.iter().map(|(key,value)| (key.to_ascii_lowercase().into(),JsValue::String(value.clone().into()))).collect(); native_json!({"url":request.url,"headers":JsValue::Object(headers),"body":parse_lossless(std::str::from_utf8(request.body.as_ref().unwrap()).unwrap()).unwrap()})}).collect();
+        let mut actual = native_json!({"events":to_value(&events).unwrap(),"result":to_value(&result).unwrap(),"requests":captured,"warnings":[]});
+        normalize_proxy(&mut actual);
+        assert!(
+            actual == expected,
+            "case {}\nactual {}\nexpected {}",
+            pi_js_compat::js_json::stringify_lossless(&case),
+            pi_js_compat::js_json::stringify_lossless(&actual),
+            pi_js_compat::js_json::stringify_lossless(&expected)
+        );
+    }
+}
+
+#[tokio::test]
+async fn unterminated_proxy_stream_keeps_result_pending_like_frozen() {
+    use pi_js_compat::{
+        js_json as native_json,
+        js_json::{JsValue, parse_lossless, to_value},
+    };
+    let mut oracle = oracle::TsOracle::spawn("proxy-stream-oracle.ts", "packages/agent-core/src/proxy.ts");
+    for wire in [
+        "",
+        "data: {\"type\":\"start\"}\ndata: {\"type\":\"text_start\",\"contentIndex\":0}\ndata: {unparsed",
+    ] {
+        let case = native_json!({"expectPending":true,"model":model(),"wire":wire});
+        let expected: JsValue = oracle.request(&case);
+        let requests = Arc::new(Mutex::new(vec![]));
+        let fetch = Arc::new(ScriptedFetch {
+            status: 200,
+            status_text: "OK".into(),
+            chunks: vec![wire.as_bytes().to_vec()],
+            requests: requests.clone(),
+            honour_cancel: false,
+        });
+        let mut stream = stream_proxy(
+            model(),
+            Context {
+                system_prompt: None,
+                messages: vec![],
+                tools: None,
+            },
+            options(fetch, None),
+        );
+        let mut events = vec![];
+        while let Some(event) = stream.next().await {
+            events.push(event.unwrap());
+        }
+        let pending = tokio::time::timeout(std::time::Duration::from_millis(10), stream.result())
+            .await
+            .is_err();
+        let captured: Vec<_> = requests
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|request| parse_lossless(std::str::from_utf8(request.body.as_ref().unwrap()).unwrap()).unwrap())
+            .collect();
+        let mut actual =
+            native_json!({"events":to_value(&events).unwrap(),"pending":pending,"requests":captured,"warnings":[]});
+        normalize_proxy(&mut actual);
+        assert_eq!(actual, expected);
     }
 }

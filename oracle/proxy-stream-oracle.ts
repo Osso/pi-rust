@@ -12,8 +12,20 @@ async function main(): Promise<void> {
 		console.warn = (...args: unknown[]) => {
 			warnings.push(args.map(String).join(" "));
 		};
+		if (input.headerDeletes)
+			for (const key of input.headerDeletes)
+				input.options.headers[key] = undefined;
 		globalThis.fetch = async (_url, init) => {
-			requests.push(JSON.parse(String(init?.body)));
+			const validated = new Request(_url, init);
+			requests.push(
+				input.boundary
+					? {
+							url: validated.url,
+							headers: Object.fromEntries(validated.headers),
+							body: JSON.parse(String(init?.body)),
+						}
+					: JSON.parse(String(init?.body)),
+			);
 			const wire =
 				input.wire ??
 				input.events
@@ -50,9 +62,18 @@ async function main(): Promise<void> {
 		};
 		for await (const _event of stream) {
 		}
-		const result = await stream.result();
-		console.warn = originalWarn;
-		console.log(JSON.stringify({ events, result, requests, warnings }));
+		if (input.expectPending) {
+			const pending = await Promise.race([
+				stream.result().then(() => false),
+				new Promise<boolean>((resolve) => setImmediate(() => resolve(true))),
+			]);
+			console.warn = originalWarn;
+			console.log(JSON.stringify({ events, pending, requests, warnings }));
+		} else {
+			const result = await stream.result();
+			console.warn = originalWarn;
+			console.log(JSON.stringify({ events, result, requests, warnings }));
+		}
 	}
 }
 main().catch((error) => {

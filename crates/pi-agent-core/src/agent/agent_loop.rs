@@ -827,6 +827,8 @@ fn llm_tool(tool: &Arc<dyn AgentTool>) -> Tool {
         tool.description(),
         pi_ai::types::TypeBoxSchema::new(tool.parameters().clone()),
     );
+    llm_tool.label = Some(tool.label().into());
+    llm_tool.execution_mode = tool.execution_mode().map(|mode| mode.as_str().into());
     llm_tool.constrained_sampling = tool.constrained_sampling();
     llm_tool
 }
