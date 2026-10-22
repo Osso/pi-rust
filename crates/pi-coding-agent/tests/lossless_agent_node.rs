@@ -12,3 +12,11 @@ fn agent_node_and_store_round_trip_raw_type_policy_and_extra_keys() {
     let stored = store.get_agent(&agent.id).unwrap();
     assert_eq!(js_json::to_value(&stored).unwrap(), expected);
 }
+
+#[test]
+fn agent_current_activity_tagged_fields_round_trip_raw_units() {
+    use pi_coding_agent::core::multi_agent_store::AgentCurrentActivity;
+    let expected = js_json::parse_lossless(r#"{"phase":"tool","startedAt":"time-\ud800","toolCallId":"call-\udfff","toolName":"tool-\ud801","detail":"detail-\ud802"}"#).unwrap();
+    let activity: AgentCurrentActivity = js_json::from_value(&expected).unwrap();
+    assert_eq!(js_json::to_value(&activity).unwrap(), expected);
+}

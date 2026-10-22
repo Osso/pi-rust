@@ -15,14 +15,15 @@ use pi_coding_agent::core::extensions::{
 use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_coding_agent::core::session_manager::{SessionManager, SharedSessionManager};
-use serde_json::{Map, Value, json};
+use pi_js_compat::js_json::{self, JsObject, JsString, JsValue};
+use serde_json::Value;
 
 pub fn event_bus() -> Arc<dyn EventBus> {
     Arc::new(EventBusController::new())
 }
 
 pub async fn model_registry() -> Arc<ModelRegistry> {
-    let storage = Arc::new(AuthStorage::in_memory(Map::new()));
+    let storage = Arc::new(AuthStorage::in_memory(JsObject::new()));
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(storage as Arc<dyn CredentialStore>),
         models_path: None,
@@ -35,7 +36,7 @@ pub async fn model_registry() -> Arc<ModelRegistry> {
 
 pub fn session_manager(cwd: &str) -> SharedSessionManager {
     Arc::new(Mutex::new(
-        SessionManager::in_memory(Some(cwd), None).expect("in-memory session manager"),
+        SessionManager::in_memory(Some(&JsString::from(cwd)), None).expect("in-memory session manager"),
     ))
 }
 
@@ -61,7 +62,7 @@ pub fn actions() -> ExtensionActions {
                 })
             })
         }),
-        call_command: Arc::new(|_, _| Box::pin(async { Ok(Value::Null) })),
+        call_command: Arc::new(|_, _| Box::pin(async { Ok(JsValue::Null) })),
         refresh_tools: Arc::new(|| {}),
         get_commands: Arc::new(|| Ok(Vec::new())),
         set_model: Arc::new(|_| Box::pin(async { Ok(false) })),
@@ -93,7 +94,7 @@ pub fn context_actions() -> ExtensionContextActions {
         get_multi_agent_store: None,
         get_tool_detach_registry: None,
         compact: Arc::new(|_| {}),
-        get_system_prompt: Arc::new(String::new),
+        get_system_prompt: Arc::new(JsString::default),
         get_system_prompt_options: None,
     }
 }
@@ -118,9 +119,15 @@ pub async fn extension(
         setup(api);
         Box::pin(async { Ok(()) })
     });
-    load_extension_from_factory(factory, cwd, event_bus(), runtime.clone(), path)
-        .await
-        .expect("extension factory succeeds")
+    load_extension_from_factory(
+        factory,
+        &JsString::from(cwd),
+        event_bus(),
+        runtime.clone(),
+        &JsString::from(path),
+    )
+    .await
+    .expect("extension factory succeeds")
 }
 
 pub fn normalize_string(value: &str, temp_dir: &str) -> String {
@@ -160,7 +167,7 @@ pub fn custom_message_with(
     content: &str,
     timestamp: i64,
 ) -> pi_agent_core::AgentMessage {
-    serde_json::from_value(json!({
+    js_json::from_value(&pi_js_compat::js_json!({
         "role": role,
         "customType": custom_type,
         "content": content,
