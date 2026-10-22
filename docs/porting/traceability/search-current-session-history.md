@@ -18,4 +18,10 @@ Assistant match reproduced RED before production edits. `differential_session_to
 
 Verifier corrections at `9bb38edf`: 30 reopened-session queries plus three live-manager numeric queries pass frozen differential. Numeric-format mutant killed by live `1.0` false positive; fixed-point false negative reproduced RED independently. Four-target evidence: [updated proof](../session-archive-history-proof.md#verifier-corrections-2026-10-21).
 
+## Q18 native metadata checkpoint
+
+Search-entry IDs/timestamps/type tags, context-ID sets and pagination cursor strings now use `JsString`. Cursor text deserializes losslessly, is explicitly rejected unless its UTF-16 units are ASCII digits, then crosses the numeric-offset boundary through the native number parser. Native history errors propagate through `SessionManagerError::message`; call rendering no longer formats native theme text with scalar `format!`.
+
+`js_value_tests::raw_cursor_reaches_explicit_numeric_validation_without_json_narrowing` is added but unexecuted pending coding-library compilation. Earlier source proof above does not cover this checkpoint yet.
+
 Typed Rust input exclusions remain explicit in [compatibility spec](../../specs/compatibility.md). Lowercasing remains inherited Unicode default mapping; no new locale waiver is claimed. Native generic serde UTF-16 representation edges are not expanded by this lane.
