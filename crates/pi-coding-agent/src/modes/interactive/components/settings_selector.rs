@@ -1377,7 +1377,10 @@ fn build_change_handler(callbacks: Rc<SettingsCallbacks>) -> SettingsChangeHandl
         match id {
             "autocompact" => (callbacks.on_auto_compact_change)(boolean),
             "show-images" => (callbacks.on_show_images_change)(boolean),
-            "image-width-cells" => (callbacks.on_image_width_cells_change)(parse_int(new_value, 10) as i64),
+            "image-width-cells" => (callbacks.on_image_width_cells_change)(parse_int(
+                &new_value.encode_utf16().collect::<Vec<_>>(),
+                10,
+            ) as i64),
             "auto-resize-images" => (callbacks.on_auto_resize_images_change)(boolean),
             "block-images" => (callbacks.on_block_images_change)(boolean),
             "skill-commands" => (callbacks.on_enable_skill_commands_change)(boolean),
@@ -1427,10 +1430,16 @@ fn build_change_handler(callbacks: Rc<SettingsCallbacks>) -> SettingsChangeHandl
                 }
             }
             "show-hardware-cursor" => (callbacks.on_show_hardware_cursor_change)(boolean),
-            "editor-padding" => (callbacks.on_editor_padding_x_change)(parse_int(new_value, 10) as i64),
+            "editor-padding" => (callbacks.on_editor_padding_x_change)(parse_int(
+                &new_value.encode_utf16().collect::<Vec<_>>(),
+                10,
+            ) as i64),
             "output-padding" => (callbacks.on_output_pad_change)(if new_value == "0" { 0 } else { 1 }),
             "autocomplete-max-visible" => {
-                (callbacks.on_autocomplete_max_visible_change)(parse_int(new_value, 10) as i64);
+                (callbacks.on_autocomplete_max_visible_change)(parse_int(
+                    &new_value.encode_utf16().collect::<Vec<_>>(),
+                    10,
+                ) as i64);
             }
             "clear-on-shrink" => (callbacks.on_clear_on_shrink_change)(boolean),
             "terminal-progress" => (callbacks.on_show_terminal_progress_change)(boolean),

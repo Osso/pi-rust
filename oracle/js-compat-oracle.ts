@@ -37,6 +37,7 @@ type NumberRequest = {
 	number_values: string[];
 	float_values: string[];
 	int_values: Array<[string, number]>;
+	int_utf16_values?: Array<[number[], number]>;
 	number_strings: string[];
 };
 
@@ -151,6 +152,7 @@ async function execute(request: Request): Promise<Response> {
 				number: request.number_values.map((value) => normalizeParsed(Number(value))),
 				float: request.float_values.map((value) => normalizeParsed(parseFloat(value))),
 				int: request.int_values.map(([value, radix]) => normalizeParsed(parseInt(value, radix))),
+				int_utf16: (request.int_utf16_values ?? []).map(([units, radix]) => normalizeParsed(parseInt(String.fromCharCode(...units), radix))),
 				strings: request.number_strings.map((value) => String(Number(value))),
 			},
 		};

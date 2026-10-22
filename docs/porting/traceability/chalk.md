@@ -43,8 +43,7 @@ Differential proof:
 - chalk levels outside `0..=3` (and `NaN`/negative `FORCE_COLOR` results below 0) are excluded by
   the typed `Level` API. JavaScript clamps those to "no styling" at use time; `level_from_min`
   maps every value <= 0 to `Level::Plain`, so the observable output is identical.
-- `parse_int` saturates at `i64::MAX`/`i64::MIN` while `Number.parseInt` yields a double; every
-  consumer compares the result against `0`/`1`/`2`/`3` (or `>= 3`), so both give the same level.
+- `FORCE_COLOR` uses the sole shared native-unit parseInt API. Its binary64 result is converted to the typed i64 level only after parsing; level consumers compare against `0`/`1`/`2`/`3`, preserving the observable clamp.
 
 ## Gaps
 

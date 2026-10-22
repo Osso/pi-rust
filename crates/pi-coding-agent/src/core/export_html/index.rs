@@ -166,16 +166,16 @@ fn rgb_color_pattern() -> &'static Regex {
 fn parse_color(color: &str) -> Option<Rgb> {
     if let Some(captures) = hex_color_pattern().captures(color) {
         return Some(Rgb {
-            r: parse_int(&captures[1], 16),
-            g: parse_int(&captures[2], 16),
-            b: parse_int(&captures[3], 16),
+            r: parse_int(&captures[1].encode_utf16().collect::<Vec<_>>(), 16),
+            g: parse_int(&captures[2].encode_utf16().collect::<Vec<_>>(), 16),
+            b: parse_int(&captures[3].encode_utf16().collect::<Vec<_>>(), 16),
         });
     }
     let captures = rgb_color_pattern().captures(color)?;
     Some(Rgb {
-        r: parse_int(&captures[1], 10),
-        g: parse_int(&captures[2], 10),
-        b: parse_int(&captures[3], 10),
+        r: parse_int(&captures[1].encode_utf16().collect::<Vec<_>>(), 10),
+        g: parse_int(&captures[2].encode_utf16().collect::<Vec<_>>(), 10),
+        b: parse_int(&captures[3].encode_utf16().collect::<Vec<_>>(), 10),
     })
 }
 

@@ -425,28 +425,15 @@ fn env_force_color(env: &BTreeMap<String, String>) -> Option<ForceColor> {
         "true" => Some(ForceColor::Level(1)),
         "false" => Some(ForceColor::Level(0)),
         "" => Some(ForceColor::Level(1)),
-        _ => Some(match parse_int(value) {
-            Some(parsed) => ForceColor::Level(parsed.min(MAX_COLOR_LEVEL)),
-            None => ForceColor::Invalid,
-        }),
+        _ => {
+            let parsed = pi_js_compat::number::parse_int(&value.encode_utf16().collect::<Vec<_>>(), 10);
+            Some(if parsed.is_nan() {
+                ForceColor::Invalid
+            } else {
+                ForceColor::Level((parsed as i64).min(MAX_COLOR_LEVEL))
+            })
+        }
     }
-}
-
-/// `Number.parseInt(value, 10)`: optional sign, leading digits, `None` for `NaN`.
-fn parse_int(value: &str) -> Option<i64> {
-    let trimmed = value.trim_start();
-    let (sign, rest) = match trimmed.as_bytes().first() {
-        Some(b'-') => (-1, &trimmed[1..]),
-        Some(b'+') => (1, &trimmed[1..]),
-        Some(_) => (1, trimmed),
-        None => return None,
-    };
-    let digits = rest.chars().take_while(char::is_ascii_digit).collect::<String>();
-    if digits.is_empty() {
-        return None;
-    }
-    let magnitude = digits.parse::<i64>().unwrap_or(i64::MAX);
-    Some(sign * magnitude)
 }
 
 fn has_flag(argv: &[String], flag: &str) -> bool {

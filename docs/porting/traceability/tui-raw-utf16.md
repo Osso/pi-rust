@@ -138,7 +138,7 @@ submission; previous 108 histories remain included and pass after decoder migrat
 ## Terminal color response parsing
 
 OSC11 payload/frame/trim/RGB slices and OSC997 matching accept native strings.
-Only validated ASCII hex digits are projected for existing numeric parseInt semantics;
+Validated ASCII hex digits pass as native units to the shared parseInt API;
 raw framing payloads remain native and invalid RGB payloads are not sanitized.
 `raw_terminal_colors` compares frozen final-newline framing, Unicode trim, uppercase
 RGB, and high/low/pair payload framing (6 cases). Raw-interface RED then GREEN.
