@@ -13,6 +13,7 @@ pub use pi_agent_core::harness::messages::{
 
 use pi_agent_core::agent::AgentMessage;
 use pi_ai::types::ProviderNativeContext;
+use pi_js_compat::js_json::JsString;
 use serde::{Deserialize, Serialize};
 
 /// Role tag for compaction-summary messages.
@@ -36,7 +37,7 @@ impl CompactionSummaryRole {
 pub struct CompactionSummaryMessage {
     #[serde(skip, default = "compaction_summary_role")]
     pub role: CompactionSummaryRole,
-    pub summary: String,
+    pub summary: JsString,
     pub tokens_before: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tokens_after: Option<f64>,

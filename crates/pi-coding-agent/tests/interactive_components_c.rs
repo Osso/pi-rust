@@ -199,7 +199,7 @@ fn branch_summary_collapsed_and_expanded() {
 fn compaction(tokens_before: f64) -> CompactionSummaryMessage {
     CompactionSummaryMessage {
         role: CompactionSummaryRole::CompactionSummary,
-        summary: "summary".to_owned(),
+        summary: "summary".into(),
         tokens_before,
         tokens_after: None,
         kept_from_previous_context_tokens: None,
