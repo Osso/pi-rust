@@ -1,5 +1,7 @@
 //! Explicitly registered native interactive-shell example; never autoloaded.
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use pi_js_compat::string::js_trim;
 use serde_json::json;
 use std::{
@@ -69,8 +71,8 @@ const DEFAULT_COMMANDS: &[&str] = &[
     "screen",
     "ncdu",
 ];
-fn is_interactive(command: &str, env: &Environment) -> bool {
-    let command = js_trim(command).to_lowercase();
+fn is_interactive(command: &JsString, env: &Environment) -> bool {
+    let command = command.trim().to_lowercase();
     let additional = env("INTERACTIVE_COMMANDS").unwrap_or_default();
     let excluded: Vec<_> = env("INTERACTIVE_EXCLUDE")
         .unwrap_or_default()
@@ -89,8 +91,8 @@ fn is_interactive(command: &str, env: &Environment) -> bool {
         if command == cmd || command.starts_with(&format!("{cmd} ")) || command.starts_with(&format!("{cmd}\t")) {
             return true;
         }
-        if let Some((_, tail)) = command.rsplit_once('|') {
-            let tail = js_trim(tail);
+        if command.contains('|') {
+            let tail = command.split('|').last().expect("split yields a final command").trim();
             if tail == cmd || tail.starts_with(&format!("{cmd} ")) {
                 return true;
             }
@@ -109,25 +111,25 @@ pub(crate) fn interactive_shell_extension_with_environment(
         let env=env.clone();
         Box::pin(async move {
             let force=event.command.starts_with("i ") || event.command.starts_with("i\t");
-            let command=if force {js_trim(&event.command[2..]).to_owned()} else {event.command};
+            let command=if force {event.command.slice(2, event.command.len()).trim()} else {event.command};
             if !force && !is_interactive(&command,&env) {return Ok(None);}
-            if ctx.mode()? != ExtensionMode::Tui {return Ok(Some(UserBashEventResult {operations:None,result:Some(json!({"output":"(interactive commands require TUI)","exitCode":1,"cancelled":false,"truncated":false}))}));}
+            if ctx.mode()? != ExtensionMode::Tui {return Ok(Some(UserBashEventResult {operations:None,result:Some(JsValue::from(json!({"output":"(interactive commands require TUI)","exitCode":1,"cancelled":false,"truncated":false})))}));}
             let error=Arc::new(Mutex::new(None));let captured=error.clone();
             let result=ctx.ui()?.custom(Arc::new(move |context,done| {
                 match run_inherited(&context.tui,&command,&env) {
-                    Ok(status)=>done.call(Some(json!(status))),
+                    Ok(status)=>done.call(Some(JsValue::from(json!(status)))),
                     Err(error)=>{*captured.lock().unwrap()=Some(error);done.call(None);}
                 }
                 pi_coding_agent::core::extensions::ready_custom_component(Box::new(Empty))
             }),None).await?;
             if let Some(error)=error.lock().unwrap().take() {return Err(HandlerError::new(error));}
-            let code=result.as_ref().and_then(|v|v.as_i64());
+            let code=result.as_ref().and_then(|v|v.as_f64().map(|code| code as i64));
             let output=if code==Some(0) {"(interactive command completed successfully)".into()} else {format!("(interactive command exited with code {})",code.map_or("null".into(),|c|c.to_string()))};
-            Ok(Some(UserBashEventResult {operations:None,result:Some(json!({"output":output,"exitCode":code.unwrap_or(1),"cancelled":false,"truncated":false}))}))
+            Ok(Some(UserBashEventResult {operations:None,result:Some(JsValue::from(json!({"output":output,"exitCode":code.unwrap_or(1),"cancelled":false,"truncated":false})))}))
         })
     }).map_err(HandlerError::new)
 }
-fn run_inherited(tui: &ExtensionUiTui, command: &str, env: &Environment) -> Result<Option<i32>, String> {
+fn run_inherited(tui: &ExtensionUiTui, command: &JsString, env: &Environment) -> Result<Option<i32>, JsString> {
     tui.stop();
     let mut stdout = std::io::stdout();
     stdout
@@ -140,13 +142,15 @@ fn run_inherited(tui: &ExtensionUiTui, command: &str, env: &Environment) -> Resu
     // spawnSync returns status=null on spawn failure or signal; its `error` is
     // deliberately ignored by the pinned example (interactive-shell.ts:165-174).
     let status = Command::new(shell)
-        .args(["-c", command])
+        .args(["-c", &pi_js_compat::js_json::encode_node_utf8(command)])
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
-        .status()
-        .ok()
-        .and_then(|s| s.code());
+        .status();
+    let status = match status {
+        Ok(status) => status.code(),
+        Err(_) => None,
+    };
     tui.start()?;
     tui.request_render_force();
     Ok(status)

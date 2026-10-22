@@ -15,9 +15,13 @@ use pi_coding_agent::{
     },
     modes::interactive::components::bordered_loader::{BorderedLoader, BorderedLoaderOptions},
 };
+use pi_js_compat::js_format;
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::JsValue as Value;
 use pi_js_compat::string::js_trim;
 use pi_tui::tui::Component;
-use serde_json::{Value, json};
 use std::{rc::Rc, sync::Arc};
 use tokio_util::sync::CancellationToken;
 
@@ -43,20 +47,17 @@ Files involved:
 ## Task
 [Clear description of what to do next based on user's goal]"#;
 fn entry_message(entry: &SessionEntry) -> Result<Option<AgentMessage>, HandlerError> {
-    let value = serde_json::to_value(entry).map_err(|e| HandlerError::new(e.to_string()))?;
-    let message = match value["type"].as_str() {
-        Some("message") => Some(value["message"].clone()),
-        Some("compaction") => Some(
-            json!({"role":"compactionSummary","summary":value["summary"],"tokensBefore":value["tokensBefore"],"timestamp":pi_js_compat::date::date_parse(value["timestamp"].as_str().unwrap())}),
+    let value = pi_js_compat::js_json::to_value(&entry).map_err(|e| HandlerError::new(e.to_string()))?;
+    let message = match value["type"].as_string() {
+        Some(kind) if kind == "message" => Some(value["message"].clone()),
+        Some(kind) if kind == "compaction" => Some(
+            json!({"role":"compactionSummary","summary":value["summary"],"tokensBefore":value["tokensBefore"],"timestamp":pi_js_compat::date::date_parse_utf16(value["timestamp"].as_string().unwrap().units())}),
         ),
         _ => None,
     };
     // Session JSON objects enumerate numeric keys in JS order before conversation serialization.
     message
-        .map(|message| {
-            serde_json::from_str(&pi_js_compat::js_json::stringify(&message))
-                .map_err(|e| HandlerError::new(e.to_string()))
-        })
+        .map(|message| pi_js_compat::js_json::from_value(&message).map_err(|e| HandlerError::new(e.to_string())))
         .transpose()
 }
 fn handoff_messages(branch: &[SessionEntry]) -> Result<Vec<AgentMessage>, HandlerError> {
@@ -100,7 +101,7 @@ impl Loader {
         let signal = self.signal.clone();
         loader.set_on_abort(Some(Rc::new(move || {
             signal.cancel();
-            done.call(Some(Value::Null));
+            done.call(Some(JsValue::from(Value::Null)));
         })));
         loader
     }
@@ -124,35 +125,51 @@ pub fn handoff_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     .map_err(HandlerError::new)
 }
 
-async fn run_handoff(args: String, ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
+async fn run_handoff(args: JsString, ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
     let ui = ctx.ui()?;
     if ctx.mode()? != ExtensionMode::Tui {
-        ui.notify("handoff requires interactive mode", Some(NotifyType::Error));
+        ui.notify(
+            &JsString::from("handoff requires interactive mode"),
+            Some(NotifyType::Error),
+        );
         return Ok(());
     }
     let Some(model) = ctx.model()? else {
-        ui.notify("No model selected", Some(NotifyType::Error));
+        ui.notify(&JsString::from("No model selected"), Some(NotifyType::Error));
         return Ok(());
     };
-    let goal = js_trim(&args);
+    let goal = args.trim();
     if goal.is_empty() {
-        ui.notify("Usage: /handoff <goal for new thread>", Some(NotifyType::Error));
+        ui.notify(
+            &JsString::from("Usage: /handoff <goal for new thread>"),
+            Some(NotifyType::Error),
+        );
         return Ok(());
     }
     let manager = ctx.session_manager()?;
     let (branch, parent) = {
         let manager = manager.lock().map_err(|error| HandlerError::new(error.to_string()))?;
-        (manager.get_branch(None), manager.get_session_file().map(str::to_owned))
+        (manager.get_branch(None), manager.get_session_file().cloned())
     };
     let messages = handoff_messages(&branch)?;
     if messages.is_empty() {
-        ui.notify("No conversation to hand off", Some(NotifyType::Error));
+        ui.notify(&JsString::from("No conversation to hand off"), Some(NotifyType::Error));
         return Ok(());
     }
-    let conversation = serialize_conversation_with_arguments(&convert_to_llm(&messages), &|value| {
-        truncate_for_summary(&pi_js_compat::js_json::stringify(value), TOOL_CALL_ARGUMENT_MAX_CHARS)
-    });
-    let prompt = format!("## Conversation History\n\n{conversation}\n\n## User's Goal for New Thread\n\n{goal}");
+    let conversation = serialize_conversation_with_arguments(
+        &convert_to_llm(&messages).map_err(|error| HandlerError::new(error.message()))?,
+        &|value| {
+            truncate_for_summary(
+                &JsString::from(pi_js_compat::js_json::stringify_lossless(value)),
+                TOOL_CALL_ARGUMENT_MAX_CHARS,
+            )
+        },
+    );
+    let prompt = js_format!(
+        "## Conversation History\n\n{}\n\n## User's Goal for New Thread\n\n{}",
+        conversation,
+        goal
+    );
     let draft = generate_draft(&ctx, model, prompt).await?;
     edit_draft_and_replace(&ctx, draft, parent).await
 }
@@ -160,8 +177,8 @@ async fn run_handoff(args: String, ctx: ExtensionCommandContext) -> Result<(), H
 async fn generate_draft(
     ctx: &ExtensionCommandContext,
     model: pi_ai::types::Model,
-    prompt: String,
-) -> Result<Option<String>, HandlerError> {
+    prompt: JsString,
+) -> Result<Option<JsString>, HandlerError> {
     let registry = ctx.model_registry()?;
     let result = ctx
         .ui()?
@@ -182,20 +199,20 @@ async fn generate_draft(
         )
         .await
         .map_err(HandlerError::new)?;
-    Ok(result.and_then(|value| value.as_str().map(str::to_owned)))
+    Ok(result.and_then(|value| value.as_string().cloned()))
 }
 
 async fn complete_draft(
     registry: Arc<pi_coding_agent::core::model_registry::ModelRegistry>,
     model: pi_ai::types::Model,
-    prompt: String,
+    prompt: JsString,
     signal: CancellationToken,
     done: ExtensionUiDone,
 ) {
     let context = Context {
         system_prompt: Some(SYSTEM_PROMPT.into()),
         messages: vec![
-            serde_json::from_value(json!({
+            pi_js_compat::js_json::from_value(&json!({
                 "role":"user", "content":[{"type":"text","text":prompt}], "timestamp":now_millis()
             }))
             .expect("valid user message"),
@@ -208,20 +225,22 @@ async fn complete_draft(
             ..Default::default()
         },
         cache_retention: Some(CacheRetention::None),
-        session_id: Some(uuidv7()),
+        session_id: Some(JsString::from(uuidv7())),
         ..Default::default()
     };
     let result = match registry.complete(model, context, options).await {
         Ok(response) if response.stop_reason != StopReason::Aborted => {
-            let text = response
-                .content
-                .iter()
-                .filter_map(|content| match content {
-                    AssistantContent::Text(text) => Some(text.text.as_str()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
+            let text = JsString::join(
+                response
+                    .content
+                    .iter()
+                    .filter_map(|content| match content {
+                        AssistantContent::Text(text) => Some(text.text.clone()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+                "\n",
+            );
             json!(text)
         }
         Ok(_) => Value::Null,
@@ -230,36 +249,39 @@ async fn complete_draft(
             Value::Null
         }
     };
-    done.call(Some(result));
+    done.call(Some(JsValue::from(result)));
 }
 
 async fn edit_draft_and_replace(
     ctx: &ExtensionCommandContext,
-    draft: Option<String>,
-    parent_session: Option<String>,
+    draft: Option<JsString>,
+    parent_session: Option<JsString>,
 ) -> Result<(), HandlerError> {
     let ui = ctx.ui()?;
     let Some(draft) = draft else {
-        ui.notify("Cancelled", Some(NotifyType::Info));
+        ui.notify(&JsString::from("Cancelled"), Some(NotifyType::Info));
         return Ok(());
     };
     let Some(edited) = ui
-        .editor("Edit handoff prompt", Some(&draft))
+        .editor(&JsString::from("Edit handoff prompt"), Some(&JsString::from(&draft)))
         .await
         .map_err(HandlerError::new)?
     else {
-        ui.notify("Cancelled", Some(NotifyType::Info));
+        ui.notify(&JsString::from("Cancelled"), Some(NotifyType::Info));
         return Ok(());
     };
     let result = ctx
         .new_session(Some(NewSessionOptions {
-            parent_session,
+            parent_session: parent_session.map(JsString::from),
             with_session: Some(Arc::new(move |replacement| {
                 let edited = edited.clone();
                 Box::pin(async move {
                     let ui = replacement.ui()?;
                     ui.set_editor_text(&edited);
-                    ui.notify("Handoff ready. Submit when ready.", Some(NotifyType::Info));
+                    ui.notify(
+                        &JsString::from("Handoff ready. Submit when ready."),
+                        Some(NotifyType::Info),
+                    );
                     Ok(())
                 })
             })),
@@ -267,7 +289,7 @@ async fn edit_draft_and_replace(
         }))
         .await?;
     if result.cancelled {
-        ui.notify("New session cancelled", Some(NotifyType::Info));
+        ui.notify(&JsString::from("New session cancelled"), Some(NotifyType::Info));
     }
     Ok(())
 }

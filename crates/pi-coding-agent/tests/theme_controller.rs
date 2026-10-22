@@ -6,6 +6,7 @@
 #[path = "support/env_probe.rs"]
 mod env_probe;
 
+use pi_js_compat::js_json::JsString;
 use std::ffi::OsString;
 use std::fs;
 use std::path::Path;
@@ -55,29 +56,34 @@ fn theme_controller_explicit_probe() {
     let (mut controller, ui, changed, _settings) = build_controller(Some("light"));
     use pi_coding_agent::modes::interactive::theme::current_theme;
 
-    assert_eq!(current_theme().name.as_deref(), Some("light"));
+    assert_eq!(current_theme().name.as_ref(), Some(&JsString::from("light")));
 
-    let result = controller.set_theme_name("dark", false);
+    let result = controller.set_theme_name(&JsString::from("dark"), false);
     assert!(result.success);
     assert_eq!(result.error, None);
-    assert_eq!(current_theme().name.as_deref(), Some("dark"));
+    assert_eq!(current_theme().name.as_ref(), Some(&JsString::from("dark")));
     assert_eq!(ui.invalidations.get(), 1);
     assert_eq!(changed.get(), 1);
     assert!(ui.notifications.borrow().is_empty());
 
-    controller.preview("light");
-    assert_eq!(current_theme().name.as_deref(), Some("light"));
+    controller.preview(&JsString::from("light"));
+    assert_eq!(current_theme().name.as_ref(), Some(&JsString::from("light")));
     assert_eq!(ui.render_requests.get(), 1);
     assert_eq!(ui.invalidations.get(), 2);
 
-    let failure = controller.set_theme_name("missing-theme", true);
+    let failure = controller.set_theme_name(&JsString::from("missing-theme"), true);
     assert!(!failure.success);
-    assert_eq!(failure.error.as_deref(), Some("Theme not found: missing-theme"));
-    assert_eq!(current_theme().name.as_deref(), Some("dark"));
+    assert_eq!(
+        failure.error.as_ref(),
+        Some(&JsString::from("Theme not found: missing-theme"))
+    );
+    assert_eq!(current_theme().name.as_ref(), Some(&JsString::from("dark")));
     let errors = ui.errors.borrow();
     assert_eq!(
-        errors.last().map(String::as_str),
-        Some("Failed to load theme \"missing-theme\": Theme not found: missing-theme\nFell back to dark theme.")
+        errors.last().cloned(),
+        Some(JsString::from(
+            "Failed to load theme \"missing-theme\": Theme not found: missing-theme\nFell back to dark theme."
+        ))
     );
 }
 
@@ -99,18 +105,18 @@ fn theme_controller_auto_probe() {
     let (mut controller, ui, _changed, _settings) = build_controller(Some("light/dark"));
     ui.background.set(Some(Ok(Some(RgbColor { r: 250, g: 250, b: 250 }))));
     controller.apply_from_settings();
-    assert_eq!(current_theme().name.as_deref(), Some("light"));
+    assert_eq!(current_theme().name.as_ref(), Some(&JsString::from("light")));
     assert_eq!(ui.notifications.borrow().last(), Some(&true));
     assert_eq!(controller.get_terminal_theme(), TerminalTheme::Light);
 
     ui.emit_color_scheme(TerminalTheme::Dark);
-    assert_eq!(current_theme().name.as_deref(), Some("dark"));
+    assert_eq!(current_theme().name.as_ref(), Some(&JsString::from("dark")));
     assert_eq!(controller.get_terminal_theme(), TerminalTheme::Dark);
 
     controller.disable_auto_sync();
     assert_eq!(ui.notifications.borrow().last(), Some(&false));
     ui.emit_color_scheme(TerminalTheme::Light);
-    assert_eq!(current_theme().name.as_deref(), Some("dark"));
+    assert_eq!(current_theme().name.as_ref(), Some(&JsString::from("dark")));
 }
 
 #[test]
@@ -133,12 +139,15 @@ fn theme_controller_detect_probe() {
     let (mut controller, ui, _changed, settings) = build_controller(None);
     ui.background.set(Some(Ok(Some(RgbColor { r: 8, g: 8, b: 8 }))));
     controller.apply_from_settings();
-    assert_eq!(current_theme().name.as_deref(), Some("dark"));
-    assert_eq!(lock_settings_manager(&settings).get_theme_setting(), Some("dark"));
+    assert_eq!(current_theme().name.as_ref(), Some(&JsString::from("dark")));
+    assert_eq!(
+        lock_settings_manager(&settings).get_theme_setting(),
+        Some(&JsString::from("dark"))
+    );
 
     ui.background.set(Some(Ok(None)));
     controller.apply_from_settings();
-    assert_eq!(current_theme().name.as_deref(), Some("dark"));
+    assert_eq!(current_theme().name.as_ref(), Some(&JsString::from("dark")));
 }
 
 #[test]
@@ -178,7 +187,7 @@ struct FakeUi {
     listeners: std::cell::RefCell<Vec<(usize, SchemeListener)>>,
     next_id: std::cell::Cell<usize>,
     background: std::cell::Cell<Option<BackgroundResult>>,
-    errors: std::cell::RefCell<Vec<String>>,
+    errors: std::cell::RefCell<Vec<JsString>>,
 }
 
 impl FakeUi {
@@ -254,13 +263,17 @@ fn build_controller(theme_setting: Option<&str>) -> ControllerParts {
     let agent_dir = std::env::var("PI_CODING_AGENT_DIR").expect("PI_CODING_AGENT_DIR");
     let cwd = std::env::temp_dir().display().to_string();
     let mut settings = SettingsManager::create(
-        &cwd,
-        Some(std::path::Path::new(&agent_dir)),
+        &JsString::from(&cwd),
+        Some(&JsString::from(
+            (std::path::Path::new(&agent_dir))
+                .to_str()
+                .expect("fixture path must be UTF-8"),
+        )),
         SettingsManagerCreateOptions { project_trusted: None },
     )
     .expect("settings manager");
     if let Some(theme_setting) = theme_setting {
-        settings.set_theme(theme_setting);
+        settings.set_theme(&JsString::from(theme_setting));
     }
     let settings = Arc::new(Mutex::new(settings));
 
@@ -272,7 +285,7 @@ fn build_controller(theme_setting: Option<&str>) -> ControllerParts {
     let controller = InteractiveThemeController::new(
         ui_handle,
         Arc::clone(&settings),
-        Rc::new(move |message: &str| error_ui.errors.borrow_mut().push(message.to_owned())),
+        Rc::new(move |message: &JsString| error_ui.errors.borrow_mut().push(message.clone())),
         Rc::new(move || changed_sink.set(changed_sink.get() + 1)),
     )
     .expect("theme controller");

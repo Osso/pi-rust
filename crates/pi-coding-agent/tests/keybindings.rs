@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::fs;
 
 use pi_coding_agent::core::keybindings::KeybindingsManager;
@@ -12,13 +13,15 @@ fn loads_legacy_key_names_before_the_file_is_rewritten() {
     )
     .unwrap();
 
-    let keybindings = KeybindingsManager::create(Some(temp.path()));
+    let keybindings = KeybindingsManager::create(Some(&JsString::from(
+        (temp.path()).to_str().expect("fixture path must be UTF-8"),
+    )));
 
     assert_eq!(
         keybindings.get_user_bindings(),
         vec![
-            ("tui.select.confirm".to_owned(), vec!["enter".to_owned()]),
-            ("app.interrupt".to_owned(), vec!["ctrl+x".to_owned()]),
+            (JsString::from("tui.select.confirm"), vec![JsString::from("enter")]),
+            (JsString::from("app.interrupt"), vec![JsString::from("ctrl+x")]),
         ]
     );
     assert_eq!(keybindings.get_keys("tui.select.confirm"), vec!["enter"]);
@@ -52,7 +55,9 @@ fn reload_rereads_the_keybindings_file() {
     let temp = TempDir::new().unwrap();
     let path = temp.path().join("keybindings.json");
     fs::write(&path, r#"{"app.tools.expand":"ctrl+x"}"#).unwrap();
-    let mut keybindings = KeybindingsManager::create(Some(temp.path()));
+    let mut keybindings = KeybindingsManager::create(Some(&JsString::from(
+        (temp.path()).to_str().expect("fixture path must be UTF-8"),
+    )));
     assert_eq!(keybindings.get_keys("app.tools.expand"), vec!["ctrl+x"]);
 
     fs::write(&path, r#"{"app.tools.expand":"ctrl+y"}"#).unwrap();

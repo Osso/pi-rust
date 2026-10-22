@@ -1,6 +1,9 @@
 //! Opt-in native port of `overlay-qa-tests.ts`. Register the factory explicitly.
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::theme::{Theme, ThemeColor};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use pi_tui::tui::{OverlayAnchor as Anchor, OverlayMargin, SizeValue};
 use pi_tui::{matches_key, visible_width};
 use serde_json::{Value, json};
@@ -196,7 +199,7 @@ fn overlay_options(demo: Demo, index: usize) -> ExtensionUiOverlayOptions {
     }
     o
 }
-async fn show(ui: &Arc<dyn ExtensionUiContext>, demo: Demo, index: usize) -> Result<Option<Value>, HandlerError> {
+async fn show(ui: &Arc<dyn ExtensionUiContext>, demo: Demo, index: usize) -> Result<Option<JsValue>, HandlerError> {
     ui.custom(
         Arc::new(move |ctx, done| {
             pi_coding_agent::core::extensions::ready_custom_component(Box::new(QaComponent(Model::new(
@@ -222,7 +225,7 @@ pub fn overlay_qa_tests_extension(api: &ExtensionApi) -> Result<(), HandlerError
                 Box::pin(async move {
                     let ui = ctx.ui()?;
                     if matches!(demo, Demo::Passive | Demo::Focus | Demo::Streaming) {
-                        ui.set_editor_text("");
+                        ui.set_editor_text(&JsString::from(""));
                     }
                     if demo == Demo::Stack {
                         return stack(ui).await;
@@ -235,12 +238,17 @@ pub fn overlay_qa_tests_extension(api: &ExtensionApi) -> Result<(), HandlerError
                     let mut index = 0;
                     loop {
                         let result = show(&ui, demo, index).await?;
-                        if result.as_ref().and_then(Value::as_str) == Some("next") {
+                        if result.as_ref().and_then(JsValue::as_string) == Some(&JsString::from("next")) {
                             index = (index + 1) % count;
                             continue;
                         }
-                        if demo == Demo::Anchors && result.as_ref().and_then(Value::as_str) == Some("confirm") {
-                            ui.notify(&format!("Selected: {}", ANCHORS[index].1), Some(NotifyType::Info));
+                        if demo == Demo::Anchors
+                            && result.as_ref().and_then(JsValue::as_string) == Some(&JsString::from("confirm"))
+                        {
+                            ui.notify(
+                                &JsString::from(format!("Selected: {}", ANCHORS[index].1)),
+                                Some(NotifyType::Info),
+                            );
                         }
                         break;
                     }
@@ -252,7 +260,7 @@ pub fn overlay_qa_tests_extension(api: &ExtensionApi) -> Result<(), HandlerError
     Ok(())
 }
 async fn stack(ui: Arc<dyn ExtensionUiContext>) -> Result<(), HandlerError> {
-    ui.notify("Showing overlay 1 (back)...", Some(NotifyType::Info));
+    ui.notify(&JsString::from("Showing overlay 1 (back)..."), Some(NotifyType::Info));
     let p1 = show(&ui, Demo::Stack, 0);
     tokio::pin!(p1);
     let deadline = tokio::time::Instant::now() + Duration::from_millis(400);
@@ -260,7 +268,7 @@ async fn stack(ui: Arc<dyn ExtensionUiContext>) -> Result<(), HandlerError> {
     if first.is_some() {
         tokio::time::sleep_until(deadline).await;
     }
-    ui.notify("Showing overlay 2 (middle)...", Some(NotifyType::Info));
+    ui.notify(&JsString::from("Showing overlay 2 (middle)..."), Some(NotifyType::Info));
     let p2 = show(&ui, Demo::Stack, 1);
     tokio::pin!(p2);
     let deadline = tokio::time::Instant::now() + Duration::from_millis(400);
@@ -268,7 +276,7 @@ async fn stack(ui: Arc<dyn ExtensionUiContext>) -> Result<(), HandlerError> {
     if second.is_some() {
         tokio::time::sleep_until(deadline).await;
     }
-    ui.notify("Showing overlay 3 (front)...", Some(NotifyType::Info));
+    ui.notify(&JsString::from("Showing overlay 3 (front)..."), Some(NotifyType::Info));
     let p3 = show(&ui, Demo::Stack, 2);
     let (a, b, c) = tokio::join!(
         async {
@@ -285,12 +293,14 @@ async fn stack(ui: Arc<dyn ExtensionUiContext>) -> Result<(), HandlerError> {
         },
         p3
     );
-    let results = [a?, b?, c?]
-        .iter()
-        .map(|v| v.as_ref().and_then(Value::as_str).unwrap_or(""))
-        .collect::<Vec<_>>()
-        .join(", ");
-    ui.notify(&format!("Closed in order: {results}"), Some(NotifyType::Info));
+    let results = [a?, b?, c?];
+    let results = JsString::join(
+        results
+            .iter()
+            .map(|v| v.as_ref().and_then(JsValue::as_string).cloned().unwrap_or_default()),
+        ", ",
+    );
+    ui.notify(&js_format!("Closed in order: {}", results), Some(NotifyType::Info));
     Ok(())
 }
 
@@ -320,7 +330,7 @@ struct State {
     toggling: bool,
     typed: Vec<u16>,
     inputs: usize,
-    last_input: String,
+    last_input: JsString,
     seconds: usize,
     focus_index: isize,
     stream_lines: Vec<String>,
@@ -424,18 +434,18 @@ impl Model {
         self.cleanup();
         self.done.call(None);
     }
-    fn input(self: &Rc<Self>, data: &str) {
+    fn input(self: &Rc<Self>, data: &JsString) {
         if self.demo == Demo::Passive {
             let mut s = self.state.borrow_mut();
             s.inputs += 1;
-            s.last_input = format!(
+            s.last_input = JsString::from(format!(
                 "len={} c0={}",
                 data.encode_utf16().count(),
                 data.encode_utf16()
                     .next()
                     .map(|u| u.to_string())
                     .unwrap_or("NaN".into())
-            );
+            ));
         }
         if matches_key(data, "escape") || matches_key(data, "ctrl+c") {
             if self.demo == Demo::Focus {
@@ -449,19 +459,19 @@ impl Model {
                 _ => None,
             };
             self.cleanup();
-            self.done.call(value);
+            self.done.call(value.map(JsValue::from));
             return;
         }
         match self.demo {
-            Demo::Anchors if matches_key(data, "return") => self.done.call(Some(json!("confirm"))),
+            Demo::Anchors if matches_key(data, "return") => self.done.call(Some(JsValue::from(json!("confirm")))),
             Demo::Anchors | Demo::Margins | Demo::Percent
                 if matches_key(data, "space") || matches_key(data, "right") =>
             {
-                self.done.call(Some(json!("next")))
+                self.done.call(Some(JsValue::from(json!("next"))))
             }
-            Demo::Stack if matches_key(data, "return") => {
-                self.done.call(Some(json!(format!("Overlay {}", self.index + 1))))
-            }
+            Demo::Stack if matches_key(data, "return") => self
+                .done
+                .call(Some(JsValue::from(json!(format!("Overlay {}", self.index + 1))))),
             Demo::Sidepanel => self.menu_input(data),
             Demo::Toggle if matches_key(data, "t") => self.toggle(),
             Demo::Passive => edit_text(&mut self.state.borrow_mut().typed, data),
@@ -478,7 +488,7 @@ impl Model {
             _ => {}
         }
     }
-    fn menu_input(&self, data: &str) {
+    fn menu_input(&self, data: &JsString) {
         let mut s = self.state.borrow_mut();
         if matches_key(data, "up") {
             s.selected = s.selected.saturating_sub(1);
@@ -563,7 +573,7 @@ impl Model {
         self.tui.request_render();
     }
 }
-fn edit_text(text: &mut Vec<u16>, data: &str) {
+fn edit_text(text: &mut Vec<u16>, data: &JsString) {
     if matches_key(data, "backspace") {
         text.pop();
     } else {
@@ -583,6 +593,9 @@ impl ExtensionUiComponent for QaComponent {
     }
     fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         render::render(&self.0, width)
+            .into_iter()
+            .map(JsString::from)
+            .collect::<Vec<_>>()
     }
     fn handle_input(&self, data: &pi_js_compat::js_json::JsString) {
         self.0.input(data);

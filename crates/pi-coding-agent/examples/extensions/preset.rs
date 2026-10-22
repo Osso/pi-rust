@@ -7,6 +7,10 @@ use pi_coding_agent::{
     core::extensions::*,
     modes::interactive::theme::{Theme, ThemeColor},
 };
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::encode_node_utf8;
 use pi_js_compat::{
     js_json,
     string::{js_trim, utf16_len, utf16_slice_to_utf8},
@@ -19,13 +23,13 @@ use pi_tui::{
     },
 };
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::json;
 use std::{
     path::Path,
     rc::Rc,
     sync::{Arc, Mutex},
 };
-type Logger = Arc<dyn Fn(String) + Send + Sync>;
+type Logger = Arc<dyn Fn(JsString) + Send + Sync>;
 #[derive(Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Preset {
@@ -33,7 +37,7 @@ struct Preset {
     model: Option<String>,
     thinking_level: Option<ThinkingLevel>,
     tools: Option<Vec<String>>,
-    instructions: Option<String>,
+    instructions: Option<JsString>,
 }
 #[derive(Clone)]
 struct Original {
@@ -43,14 +47,14 @@ struct Original {
 }
 #[derive(Default)]
 struct State {
-    presets: IndexMap<String, Preset>,
-    active: Option<String>,
+    presets: IndexMap<JsString, Preset>,
+    active: Option<JsString>,
     preset: Option<Preset>,
     original: Option<Original>,
 }
 type Shared = Arc<Mutex<State>>;
 pub fn preset_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
-    register_with_logger(pi, Arc::new(|message| eprintln!("{message}")))
+    register_with_logger(pi, Arc::new(|message| eprintln!("{}", encode_node_utf8(&message))))
 }
 pub(crate) fn register_with_logger(pi: &ExtensionApi, logger: Logger) -> Result<(), HandlerError> {
     let state: Shared = Arc::default();
@@ -81,20 +85,22 @@ pub(crate) fn register_with_logger(pi: &ExtensionApi, logger: Logger) -> Result<
             let api = api.clone();
             let shared = shared.clone();
             Box::pin(async move {
-                let name = js_trim(&args);
+                let name = (&args).trim();
                 if name.is_empty() {
                     return select(&api, &shared, &ctx).await;
                 }
-                let preset = shared.lock().unwrap().presets.get(name).cloned();
+                let preset = shared.lock().unwrap().presets.get(&name).cloned();
                 if let Some(preset) = preset {
-                    apply(&api, &shared, name, preset, &ctx).await?;
-                    ctx.ui()?
-                        .notify(&format!("Preset \"{name}\" activated"), Some(NotifyType::Info));
+                    apply(&api, &shared, &name, preset, &ctx).await?;
+                    ctx.ui()?.notify(
+                        &JsString::from(js_format!("Preset \"{}\" activated", name)),
+                        Some(NotifyType::Info),
+                    );
                     status(&shared, &ctx)?;
                 } else {
                     let available = available(&shared);
                     ctx.ui()?.notify(
-                        &format!("Unknown preset \"{name}\". Available: {available}"),
+                        &JsString::from(js_format!("Unknown preset \"{}\". Available: {}", name, available)),
                         Some(NotifyType::Error),
                     );
                 }
@@ -117,7 +123,7 @@ pub(crate) fn register_with_logger(pi: &ExtensionApi, logger: Logger) -> Result<
             Box::pin(async move {
                 Ok(instructions.map(|instructions| BeforeAgentStartEventResult {
                     message: None,
-                    system_prompt: Some(format!("{}\n\n{instructions}", event.system_prompt)),
+                    system_prompt: Some(js_format!("{}\n\n{}", event.system_prompt, instructions)),
                 }))
             })
         },
@@ -137,12 +143,18 @@ pub(crate) fn register_with_logger(pi: &ExtensionApi, logger: Logger) -> Result<
                 if let Some(name) = name {
                     let preset = shared.lock().unwrap().presets.get(name).cloned();
                     if let Some(preset) = preset {
-                        apply(&api, &shared, name, preset, &ctx).await?;
-                        ctx.ui()?
-                            .notify(&format!("Preset \"{name}\" activated"), Some(NotifyType::Info));
+                        apply(&api, &shared, &JsString::from(name), preset, &ctx).await?;
+                        ctx.ui()?.notify(
+                            &JsString::from(format!("Preset \"{name}\" activated")),
+                            Some(NotifyType::Info),
+                        );
                     } else {
                         ctx.ui()?.notify(
-                            &format!("Unknown preset \"{name}\". Available: {}", available(&shared)),
+                            &JsString::from(js_format!(
+                                "Unknown preset \"{}\". Available: {}",
+                                name,
+                                available(&shared)
+                            )),
                             Some(NotifyType::Warning),
                         );
                     }
@@ -189,7 +201,10 @@ pub(crate) fn register_with_logger(pi: &ExtensionApi, logger: Logger) -> Result<
         move |_: TurnStartEvent, _: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
             let result = (|| {
                 if let Some(name) = &shared.lock().unwrap().active {
-                    api.append_entry("preset-state", Some(json!({"name":name})))?;
+                    api.append_entry(
+                        &JsString::from("preset-state"),
+                        Some(JsValue::from(json!({"name":name}))),
+                    )?;
                 }
                 Ok(None)
             })();
@@ -198,48 +213,54 @@ pub(crate) fn register_with_logger(pi: &ExtensionApi, logger: Logger) -> Result<
     )?;
     Ok(())
 }
-fn load_file(path: &Path, label: &str, logger: &Logger) -> Result<IndexMap<String, Preset>, HandlerError> {
+fn load_file(path: &Path, label: &str, logger: &Logger) -> Result<IndexMap<JsString, Preset>, HandlerError> {
     if !path.exists() {
         return Ok(IndexMap::new());
     }
     let content = match std::fs::read(path) {
         Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
         Err(error) => {
-            logger(format!(
-                "Failed to load {label} presets from {}: Error: {}",
-                path.display(),
-                pi_js_compat::node_fs::node_read_error(&error, &path.to_string_lossy())
+            logger(js_format!(
+                "Failed to load {} presets from {}: Error: {}",
+                label,
+                path.to_str().expect("preset path must be UTF-8"),
+                pi_js_compat::node_fs::node_read_error(
+                    &error,
+                    &JsString::from(path.to_str().expect("preset path must be UTF-8"))
+                )
             ));
             return Ok(IndexMap::new());
         }
     };
-    let data = match js_json::parse(&content) {
+    let data = match js_json::parse_lossless(&content) {
         Ok(data) => data,
         Err(error) => {
-            logger(format!(
+            logger(JsString::from(format!(
                 "Failed to load {label} presets from {}: SyntaxError: {error}",
                 path.display()
-            ));
+            )));
             return Ok(IndexMap::new());
         }
     };
     let object = data
         .as_object()
         .ok_or_else(|| HandlerError::new("presets must be an object"))?;
-    js_json::object_entries(object)
+    js_json::object_entries_lossless(object)
         .into_iter()
         .map(|(key, value)| {
             Ok((
                 key.clone(),
-                serde_json::from_value(value.clone()).map_err(|e| HandlerError::new(e.to_string()))?,
+                js_json::from_value(value).map_err(|e| HandlerError::new(e.to_string()))?,
             ))
         })
         .collect()
 }
-fn load_presets(cwd: &str, logger: &Logger) -> Result<IndexMap<String, Preset>, HandlerError> {
+fn load_presets(cwd: &JsString, logger: &Logger) -> Result<IndexMap<JsString, Preset>, HandlerError> {
     let mut presets = load_file(&get_agent_dir().join("presets.json"), "global", logger)?;
     presets.extend(load_file(
-        &Path::new(cwd).join(config_dir_name()).join("presets.json"),
+        &Path::new(&encode_node_utf8(&cwd))
+            .join(config_dir_name())
+            .join("presets.json"),
         "project",
         logger,
     )?);
@@ -248,23 +269,21 @@ fn load_presets(cwd: &str, logger: &Logger) -> Result<IndexMap<String, Preset>, 
     entries.sort_by_key(|(key, _)| index_key(key).map_or((1, 0), |index| (0, index)));
     Ok(entries.into_iter().collect())
 }
-fn index_key(key: &str) -> Option<u32> {
-    let number = key.parse::<u32>().ok()?;
-    if number == u32::MAX || number.to_string() != key {
-        None
-    } else {
-        Some(number)
+fn index_key(key: &JsString) -> Option<u32> {
+    if key.is_empty() || (key.len() > 1 && key.units()[0] == u16::from(b'0')) {
+        return None;
     }
+    let number = key.units().iter().try_fold(0u32, |number, unit| {
+        if !(u16::from(b'0')..=u16::from(b'9')).contains(unit) {
+            return None;
+        }
+        number.checked_mul(10)?.checked_add(u32::from(*unit - u16::from(b'0')))
+    })?;
+    (number != u32::MAX).then_some(number)
 }
-fn available(shared: &Shared) -> String {
-    let names = shared
-        .lock()
-        .unwrap()
-        .presets
-        .keys()
-        .cloned()
-        .collect::<Vec<_>>()
-        .join(", ");
+
+fn available(shared: &Shared) -> JsString {
+    let names = JsString::join(shared.lock().unwrap().presets.keys().cloned().collect::<Vec<_>>(), ", ");
     if names.is_empty() {
         "(none defined)".into()
     } else {
@@ -276,14 +295,14 @@ fn status(shared: &Shared, ctx: &ExtensionContext) -> Result<(), HandlerError> {
     let name = shared.lock().unwrap().active.clone();
     let text = name
         .filter(|s| !s.is_empty())
-        .map(|name| ui.theme().fg(ThemeColor::Accent, &format!("preset:{name}")));
-    ui.set_status("preset", text.as_deref());
+        .map(|name| ui.theme().fg(ThemeColor::Accent, &js_format!("preset:{}", name)));
+    ui.set_status(&JsString::from("preset"), text.as_ref());
     Ok(())
 }
 async fn apply(
     pi: &ExtensionApi,
     shared: &Shared,
-    name: &str,
+    name: &JsString,
     preset: Preset,
     ctx: &ExtensionContext,
 ) -> Result<(), HandlerError> {
@@ -302,13 +321,13 @@ async fn apply(
         if let Some(model) = ctx.model_registry()?.find(provider, id) {
             if !pi.set_model(model).await? {
                 ctx.ui()?.notify(
-                    &format!("Preset \"{name}\": No API key for {provider}/{id}"),
+                    &JsString::from(js_format!("Preset \"{}\": No API key for {}/{}", name, provider, id)),
                     Some(NotifyType::Warning),
                 );
             }
         } else {
             ctx.ui()?.notify(
-                &format!("Preset \"{name}\": Model {provider}/{id} not found"),
+                &JsString::from(js_format!("Preset \"{}\": Model {}/{} not found", name, provider, id)),
                 Some(NotifyType::Warning),
             );
         }
@@ -323,7 +342,7 @@ async fn apply(
         let (valid, invalid): (Vec<_>, Vec<_>) = tools.iter().cloned().partition(|name| all.contains(name));
         if !invalid.is_empty() {
             ctx.ui()?.notify(
-                &format!("Preset \"{name}\": Unknown tools: {}", invalid.join(", ")),
+                &JsString::from(js_format!("Preset \"{}\": Unknown tools: {}", name, invalid.join(", "))),
                 Some(NotifyType::Warning),
             );
         }
@@ -352,20 +371,22 @@ async fn clear(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> Re
     } else {
         pi.set_active_tools(["read", "bash", "edit", "write"].map(str::to_owned).into())?;
     }
-    ctx.ui()?
-        .notify("Preset cleared, defaults restored", Some(NotifyType::Info));
+    ctx.ui()?.notify(
+        &JsString::from("Preset cleared, defaults restored"),
+        Some(NotifyType::Info),
+    );
     status(shared, ctx)
 }
 fn no_presets(ctx: &ExtensionContext) -> Result<(), HandlerError> {
     ctx.ui()?.notify(
-        &format!(
+        &JsString::from(format!(
             "No presets defined. Add presets to {} or {}",
             get_agent_dir().join("presets.json").display(),
-            Path::new(&ctx.cwd()?)
+            Path::new(&encode_node_utf8(&ctx.cwd()?))
                 .join(config_dir_name())
                 .join("presets.json")
                 .display()
-        ),
+        )),
         Some(NotifyType::Warning),
     );
     Ok(())
@@ -380,10 +401,10 @@ async fn cycle(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> Re
     }
     names.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
     names.insert(0, "(none)".into());
-    let current = current.as_deref().unwrap_or("(none)");
+    let current = current.unwrap_or_else(|| JsString::from("(none)"));
     let next = names
         .iter()
-        .position(|name| name == current)
+        .position(|name| name == &current)
         .map_or(0, |i| (i + 1) % names.len());
     let name = &names[next];
     if name == "(none)" {
@@ -391,9 +412,11 @@ async fn cycle(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> Re
     }
     let preset = shared.lock().unwrap().presets.get(name).cloned();
     if let Some(preset) = preset {
-        apply(pi, shared, name, preset, ctx).await?;
-        ctx.ui()?
-            .notify(&format!("Preset \"{name}\" activated"), Some(NotifyType::Info));
+        apply(pi, shared, &JsString::from(name), preset, ctx).await?;
+        ctx.ui()?.notify(
+            &JsString::from(js_format!("Preset \"{}\" activated", name)),
+            Some(NotifyType::Info),
+        );
         status(shared, ctx)?;
     }
     Ok(())
@@ -421,12 +444,12 @@ fn description(preset: &Preset) -> String {
     if let Some(instructions) = &preset.instructions
         && !instructions.is_empty()
     {
-        let text = if utf16_len(instructions) > 30 {
-            format!("{}...", utf16_slice_to_utf8(instructions, 0, 27))
+        let text = if instructions.len() > 30 {
+            js_format!("{}...", instructions.slice(0, 27))
         } else {
             instructions.clone()
         };
-        parts.push(format!("\"{text}\""));
+        parts.push(js_format!("\"{}\"", text));
     }
     parts.join(" | ")
 }
@@ -437,13 +460,13 @@ async fn select(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> R
             .presets
             .iter()
             .map(|(name, preset)| SelectItem {
-                value: name.clone(),
+                value: JsString::from(name.clone()),
                 label: if state.active.as_ref() == Some(name) {
-                    format!("{name} (active)")
+                    JsString::from(js_format!("{} (active)", name))
                 } else {
-                    name.clone()
+                    JsString::from(name.clone())
                 },
-                description: Some(description(preset)),
+                description: Some(JsString::from(description(preset))),
             })
             .collect::<Vec<_>>()
     };
@@ -466,7 +489,7 @@ async fn select(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> R
             None,
         )
         .await?;
-    let Some(name) = value.as_ref().and_then(Value::as_str).filter(|s| !s.is_empty()) else {
+    let Some(name) = value.as_ref().and_then(JsValue::as_string).filter(|s| !s.is_empty()) else {
         return Ok(());
     };
     if name == "(none)" {
@@ -476,7 +499,7 @@ async fn select(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> R
     if let Some(preset) = preset {
         apply(pi, shared, name, preset, ctx).await?;
         ctx.ui()?
-            .notify(&format!("Preset \"{name}\" activated"), Some(NotifyType::Info));
+            .notify(&js_format!("Preset \"{}\" activated", name), Some(NotifyType::Info));
         status(shared, ctx)?;
     }
     Ok(())
@@ -493,7 +516,7 @@ impl Selector {
     fn list(&self) -> SelectList {
         let fg = |color| {
             let theme = self.context.theme.clone();
-            Rc::new(move |text: &str| theme.fg(color, text)) as pi_tui::components::text::StyleFn
+            Rc::new(move |text: &JsString| theme.fg(color, text)) as pi_tui::components::text::StyleFn
         };
         let mut list = SelectList::new(
             self.items.clone(),
@@ -509,12 +532,12 @@ impl Selector {
         );
         list.set_selected_index(*self.selected.lock().unwrap() as isize);
         let done = self.done.clone();
-        list.on_select = Some(Rc::new(move |item| done.call(Some(json!(item.value)))));
+        list.on_select = Some(Rc::new(move |item| done.call(Some(JsValue::from(json!(item.value))))));
         let done = self.done.clone();
         list.on_cancel = Some(Rc::new(move || done.call(None)));
         list
     }
-    fn border(&self, width: usize) -> Vec<String> {
+    fn border(&self, width: usize) -> Vec<JsString> {
         let theme = self.context.theme.clone();
         DynamicBorder::new(Rc::new(move |s| theme.fg(ThemeColor::Accent, s))).render(width)
     }
@@ -534,7 +557,7 @@ impl ExtensionUiComponent for Selector {
             .render(width),
         );
         lines.extend(self.border(width));
-        lines
+        lines.into_iter().map(JsString::from).collect::<Vec<_>>()
     }
     fn handle_input(&self, data: &pi_js_compat::js_json::JsString) {
         let mut list = self.list();

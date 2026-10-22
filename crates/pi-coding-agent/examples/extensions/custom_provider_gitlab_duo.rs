@@ -77,7 +77,7 @@ impl State {
                 format!("Failed to get direct access token: {status} {body}")
             }));
         }
-        let data = pi_js_compat::js_json::parse_lossless(&body).map_err(|e| CallbackError::new(e.to_string()))?;
+        let data = pi_js_compat::js_json::parse_lossless(&body).map_err(|e| CallbackError::new(e.into_message()))?;
         let headers = data["headers"]
             .as_object()
             .into_iter()
@@ -120,7 +120,7 @@ impl State {
         if !ok {
             return Err(CallbackError::new(format!("{failure}: {body}")));
         }
-        let data = pi_js_compat::js_json::parse_lossless(&body).map_err(|e| CallbackError::new(e.to_string()))?;
+        let data = pi_js_compat::js_json::parse_lossless(&body).map_err(|e| CallbackError::new(e.into_message()))?;
         *self.cache.lock().unwrap() = None;
         Ok(OAuthCredential::new(
             data["refresh_token"]

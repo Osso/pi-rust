@@ -17,6 +17,8 @@ use pi_coding_agent::{
     utils::child_process::node_spawn_error_message,
 };
 use pi_js_compat::base64::buffer_to_base64;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::{number::js_number_to_string, string::js_trim};
 use std::{
     io,
@@ -31,24 +33,27 @@ use tokio::{
 #[derive(Clone)]
 struct Remote {
     host: String,
-    cwd: String,
-    local: String,
+    cwd: JsString,
+    local: JsString,
 }
 impl Remote {
     fn path(&self, path: impl Into<pi_js_compat::js_json::JsString>) -> pi_js_compat::js_json::JsString {
         pi_js_compat::string::replace(path, &self.local, &self.cwd)
     }
-    fn quote_path(&self, path: &str) -> String {
+    fn quote_path(&self, path: &JsString) -> String {
         quote(&self.path(path))
     }
     async fn run(&self, command: String) -> io::Result<Vec<u8>> {
-        let output = command_for(&self.host, &command).output().await.map_err(|error| {
-            io::Error::other(node_spawn_error_message(
-                "spawn",
-                &pi_js_compat::js_json::JsString::from("ssh"),
-                &error,
-            ))
-        })?;
+        let output = command_for(&self.host, &JsString::from(&command))
+            .output()
+            .await
+            .map_err(|error| {
+                io::Error::other(
+                    node_spawn_error_message("spawn", &pi_js_compat::js_json::JsString::from("ssh"), &error)
+                        .to_utf8()
+                        .expect("fixed ssh spawn error contains Unicode scalar text"),
+                )
+            })?;
         if !output.status.success() {
             let code = output.status.code().map_or_else(|| "null".into(), |n| n.to_string());
             return Err(io::Error::other(format!(
@@ -63,23 +68,23 @@ fn quote(value: impl Into<pi_js_compat::js_json::JsString>) -> String {
     // JSON.stringify produces a scalar wire literal even for unmatched input units.
     pi_js_compat::js_json::stringify_lossless(&pi_js_compat::js_json::JsValue::String(value.into()))
 }
-fn command_for(host: &str, command: &str) -> Command {
+fn command_for(host: &str, command: &JsString) -> Command {
     let mut child = Command::new("ssh");
     child
-        .args([host, command])
+        .args([host, &pi_js_compat::js_json::encode_node_utf8(command)])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     child
 }
 impl ReadOperations for Remote {
-    fn read_file<'a>(&'a self, path: &'a str) -> BoxFuture<'a, io::Result<Vec<u8>>> {
+    fn read_file<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, io::Result<Vec<u8>>> {
         Box::pin(async move { self.run(format!("cat {}", self.quote_path(path))).await })
     }
-    fn access<'a>(&'a self, path: &'a str) -> BoxFuture<'a, io::Result<()>> {
+    fn access<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async move { self.run(format!("test -r {}", self.quote_path(path))).await.map(|_| ()) })
     }
-    fn detect_image_mime_type<'a>(&'a self, path: &'a str) -> BoxFuture<'a, io::Result<Option<String>>> {
+    fn detect_image_mime_type<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, io::Result<Option<String>>> {
         Box::pin(async move {
             let Ok(bytes) = self.run(format!("file --mime-type -b {}", self.quote_path(path))).await else {
                 return Ok(None);
@@ -92,18 +97,20 @@ impl ReadOperations for Remote {
     }
 }
 impl WriteOperations for Remote {
-    fn mkdir<'a>(&'a self, path: &'a str) -> BoxFuture<'a, io::Result<()>> {
+    fn mkdir<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async move {
             self.run(format!("mkdir -p {}", self.quote_path(path)))
                 .await
                 .map(|_| ())
         })
     }
-    fn write_file<'a>(&'a self, path: &'a str, content: &'a str) -> BoxFuture<'a, io::Result<()>> {
+    fn write_file<'a>(&'a self, path: &'a JsString, content: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async move {
             self.run(format!(
                 "echo {} | base64 -d > {}",
-                quote(&buffer_to_base64(content.as_bytes())),
+                quote(&buffer_to_base64(
+                    pi_js_compat::js_json::encode_node_utf8(content).as_bytes()
+                )),
                 self.quote_path(path)
             ))
             .await
@@ -112,13 +119,13 @@ impl WriteOperations for Remote {
     }
 }
 impl EditOperations for Remote {
-    fn read_file<'a>(&'a self, path: &'a str) -> BoxFuture<'a, io::Result<Vec<u8>>> {
+    fn read_file<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, io::Result<Vec<u8>>> {
         ReadOperations::read_file(self, path)
     }
-    fn access<'a>(&'a self, path: &'a str) -> BoxFuture<'a, io::Result<()>> {
+    fn access<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
         ReadOperations::access(self, path)
     }
-    fn write_file<'a>(&'a self, path: &'a str, content: &'a str) -> BoxFuture<'a, io::Result<()>> {
+    fn write_file<'a>(&'a self, path: &'a JsString, content: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
         WriteOperations::write_file(self, path, content)
     }
 }
@@ -138,18 +145,18 @@ async fn forward(
 impl BashOperations for Remote {
     fn exec<'a>(
         &'a self,
-        command: &'a str,
-        cwd: &'a str,
+        command: &'a JsString,
+        cwd: &'a JsString,
         options: BashExecOptions,
     ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
         Box::pin(async move {
-            let command = format!("cd {} && {command}", self.quote_path(cwd));
+            let command = js_format!("cd {} && {}", self.quote_path(cwd), command);
             let mut child = command_for(&self.host, &command).spawn().map_err(|error| {
-                ToolError::new(node_spawn_error_message(
-                    "spawn",
-                    &pi_js_compat::js_json::JsString::from("ssh"),
-                    &error,
-                ))
+                ToolError::new(
+                    node_spawn_error_message("spawn", &pi_js_compat::js_json::JsString::from("ssh"), &error)
+                        .to_utf8()
+                        .expect("fixed ssh spawn error contains Unicode scalar text"),
+                )
             })?;
             let stdout = child.stdout.take().expect("piped stdout");
             let stderr = child.stderr.take().expect("piped stderr");
@@ -310,15 +317,15 @@ async fn fetch_remote_config(arg: &str, local: String) -> Result<Remote, Handler
     let path = parts.next();
     let mut remote = Remote {
         host,
-        cwd: path.unwrap_or_default().to_owned(),
-        local,
+        cwd: JsString::from(path.unwrap_or_default().to_owned()),
+        local: JsString::from(local),
     };
     if path.is_none() {
         let bytes = remote
             .run("pwd".into())
             .await
             .map_err(|error| HandlerError::new(error.to_string()))?;
-        remote.cwd = js_trim(&String::from_utf8_lossy(&bytes)).to_owned();
+        remote.cwd = JsString::from(js_trim(&String::from_utf8_lossy(&bytes)).to_owned());
     }
     Ok(remote)
 }
@@ -337,14 +344,14 @@ fn register_session_start(pi: &ExtensionApi, local: String, state: RemoteState) 
                 return Ok(None);
             }
             let remote = fetch_remote_config(&arg, local).await?;
-            let label = format!("{}:{}", remote.host, remote.cwd);
+            let label = js_format!("{}:{}", remote.host, remote.cwd);
             *state.lock().expect("SSH state") = Some(remote);
             let ui = ctx.ui()?;
             ui.set_status(
-                "ssh",
-                Some(&ui.theme().fg(ThemeColor::Accent, &format!("SSH: {label}"))),
+                &JsString::from("ssh"),
+                Some(&ui.theme().fg(ThemeColor::Accent, &js_format!("SSH: {}", label))),
             );
-            ui.notify(&format!("SSH mode: {label}"), Some(NotifyType::Info));
+            ui.notify(&js_format!("SSH mode: {}", label), Some(NotifyType::Info));
             Ok(None)
         }) as BoxFuture<'static, Result<Option<()>, HandlerError>>
     })?;
@@ -371,8 +378,8 @@ fn register_prompt(pi: &ExtensionApi, resolved: RemoteState) -> Result<(), Handl
             Ok(remote.map(|r| BeforeAgentStartEventResult {
                 system_prompt: Some(pi_js_compat::string::replace(
                     &event.system_prompt,
-                    &format!("Current working directory: {}", r.local),
-                    &format!("Current working directory: {} (via SSH: {})", r.cwd, r.host),
+                    &js_format!("Current working directory: {}", r.local),
+                    &js_format!("Current working directory: {} (via SSH: {})", r.cwd, r.host),
                 )),
                 ..Default::default()
             }))

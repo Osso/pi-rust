@@ -1,5 +1,7 @@
 //! Behavioral tests for `coding-agent/src/core/export-html/tool-renderer.ts`.
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -16,13 +18,18 @@ use pi_coding_agent::core::extensions::types::{
 };
 use pi_coding_agent::modes::interactive::theme::Theme;
 use pi_tui::tui::{Component, ComponentRef};
-use serde_json::{Value, json};
+use serde_json::json;
 
 fn dark_theme() -> std::sync::Arc<pi_coding_agent::modes::interactive::theme::Theme> {
     use pi_coding_agent::modes::interactive::theme::{ColorMode, load_theme_from_path, set_theme_instance};
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json");
-    let theme =
-        std::sync::Arc::new(load_theme_from_path(&path, Some(ColorMode::Truecolor)).expect("built-in dark theme"));
+    let theme = std::sync::Arc::new(
+        load_theme_from_path(
+            &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+            Some(ColorMode::Truecolor),
+        )
+        .expect("built-in dark theme"),
+    );
     set_theme_instance(std::sync::Arc::clone(&theme));
     theme
 }
@@ -33,9 +40,9 @@ struct TestComponent {
 }
 
 impl Component for TestComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.widths.lock().unwrap().push(width);
-        self.lines.clone()
+        self.lines.clone().into_iter().map(JsString::from).collect::<Vec<_>>()
     }
 }
 
@@ -43,7 +50,7 @@ fn make_component(lines: Vec<String>, widths: Arc<Mutex<Vec<usize>>>) -> Compone
     Rc::new(RefCell::new(TestComponent { lines, widths }))
 }
 
-type RenderCall = Arc<dyn Fn(&Value, &Theme, &ToolRenderContext) -> Result<ComponentRef, HandlerError> + Send + Sync>;
+type RenderCall = Arc<dyn Fn(&JsValue, &Theme, &ToolRenderContext) -> Result<ComponentRef, HandlerError> + Send + Sync>;
 type RenderResult = Arc<
     dyn Fn(&AgentToolResult, &ToolRenderResultOptions, &Theme, &ToolRenderContext) -> Result<ComponentRef, HandlerError>
         + Send
@@ -67,7 +74,7 @@ fn tool_definition(render_call: Option<RenderCall>, render_result: Option<Render
         execution_mode: None,
         execute: Arc::new(
             |_id: String,
-             _params: Value,
+             _params: JsValue,
              _signal: Option<tokio_util::sync::CancellationToken>,
              _on_update: Option<AgentToolUpdateCallback>,
              _context: ExtensionContext| {
@@ -83,7 +90,7 @@ fn make_renderer(tool: Option<ToolDefinition>, width: Option<usize>) -> Rc<dyn T
     create_tool_html_renderer(ToolHtmlRendererDeps {
         get_tool_definition: Arc::new(move |name: &str| tool.clone().filter(|definition| definition.name == name)),
         theme: dark_theme(),
-        cwd: "/tmp".to_owned(),
+        cwd: JsString::from("/tmp"),
         width,
     })
 }
@@ -105,21 +112,29 @@ fn trims_tui_spacing_lines_from_custom_tool_result_html() {
         .render_result("id", "custom", &[], None, false)
         .expect("render result");
     assert_eq!(
-        rendered.expanded.as_deref(),
-        Some(
+        rendered.expanded.as_ref(),
+        (Some(
             "<div class=\"ansi-line\"><span style=\"color:#800000\">one</span></div><div class=\"ansi-line\">two</div>"
-        )
+        ))
+        .map(JsString::from)
+        .as_ref()
     );
 }
 
 #[test]
 fn returns_none_without_a_custom_renderer() {
     let renderer = make_renderer(Some(tool_definition(None, None)), None);
-    assert_eq!(renderer.render_call("id", "custom", &json!({})), None);
+    assert_eq!(
+        renderer.render_call("id", "custom", &JsValue::from(json!({}).clone())),
+        None
+    );
     assert_eq!(renderer.render_result("id", "custom", &[], None, false), None);
 
     let missing = make_renderer(None, None);
-    assert_eq!(missing.render_call("id", "custom", &json!({})), None);
+    assert_eq!(
+        missing.render_call("id", "custom", &JsValue::from(json!({}).clone())),
+        None
+    );
 }
 
 #[test]
@@ -131,7 +146,7 @@ fn renders_call_html_with_the_default_width() {
     let renderer = make_renderer(Some(tool_definition(Some(render_call), None)), None);
 
     let html = renderer
-        .render_call("id", "custom", &json!({ "path": "a.ts" }))
+        .render_call("id", "custom", &JsValue::from(json!({ "path": "a.ts" }).clone()))
         .expect("render call");
     assert_eq!(html, "<div class=\"ansi-line\">call</div>");
     assert_eq!(*widths.lock().unwrap(), vec![100]);
@@ -160,12 +175,21 @@ fn passes_args_and_previous_component_identity() {
     });
     let renderer = make_renderer(Some(tool_definition(Some(render_call), None)), Some(40));
 
-    let first = renderer.render_call("id", "custom", &json!({ "n": 1 }));
-    let second = renderer.render_call("id", "custom", &json!({ "n": 2 }));
+    let first = renderer.render_call("id", "custom", &JsValue::from(json!({ "n": 1 }).clone()));
+    let second = renderer.render_call("id", "custom", &JsValue::from(json!({ "n": 2 }).clone()));
 
-    assert_eq!(first.as_deref(), Some("<div class=\"ansi-line\">first</div>"));
-    assert_eq!(second.as_deref(), Some("<div class=\"ansi-line\">first</div>"));
-    assert_eq!(*seen_args.lock().unwrap(), vec![json!({ "n": 1 }), json!({ "n": 2 })]);
+    assert_eq!(
+        first.as_ref(),
+        Some(&JsString::from("<div class=\"ansi-line\">first</div>"))
+    );
+    assert_eq!(
+        second.as_ref(),
+        Some(&JsString::from("<div class=\"ansi-line\">first</div>"))
+    );
+    assert_eq!(
+        *seen_args.lock().unwrap(),
+        vec![JsValue::from(json!({ "n": 1 })), JsValue::from(json!({ "n": 2 }))]
+    );
     let seen_last = seen_last.lock().unwrap();
     assert!(seen_last[0].is_none());
     assert!(seen_last[1].is_some());
@@ -183,11 +207,11 @@ fn shares_render_state_between_calls() {
     });
     let renderer = make_renderer(Some(tool_definition(Some(render_call), None)), None);
 
-    let _ = renderer.render_call("id", "custom", &json!({}));
-    let _ = renderer.render_call("id", "custom", &json!({}));
+    let _ = renderer.render_call("id", "custom", &JsValue::from(json!({}).clone()));
+    let _ = renderer.render_call("id", "custom", &JsValue::from(json!({}).clone()));
     let observed = observed.lock().unwrap();
-    assert_eq!(observed[0], json!({}));
-    assert_eq!(observed[1], json!({}));
+    assert_eq!(observed[0], pi_js_compat::js_json!({}));
+    assert_eq!(observed[1], pi_js_compat::js_json!({}));
 }
 
 #[test]
@@ -205,7 +229,7 @@ fn omits_collapsed_html_when_it_equals_expanded_html() {
         rendered,
         RenderedToolResult {
             collapsed: None,
-            expanded: Some("<div class=\"ansi-line\">same</div>".to_owned()),
+            expanded: Some(JsString::from("<div class=\"ansi-line\">same</div>")),
         }
     );
 }
@@ -223,12 +247,12 @@ fn includes_collapsed_html_when_it_differs() {
         .render_result("id", "custom", &[], None, false)
         .expect("render result");
     assert_eq!(
-        rendered.collapsed.as_deref(),
-        Some("<div class=\"ansi-line\">short</div>")
+        rendered.collapsed.as_ref(),
+        Some(&JsString::from("<div class=\"ansi-line\">short</div>"))
     );
     assert_eq!(
-        rendered.expanded.as_deref(),
-        Some("<div class=\"ansi-line\">full</div>")
+        rendered.expanded.as_ref(),
+        Some(&JsString::from("<div class=\"ansi-line\">full</div>"))
     );
 }
 
@@ -245,12 +269,12 @@ fn forwards_content_details_and_error_state() {
 
     let content = vec![TextOrImageContent::Text(pi_ai::types::TextContent::new("body"))];
     let details = json!({ "path": "a.ts" });
-    let _ = renderer.render_result("id", "custom", &content, Some(&details), true);
+    let _ = renderer.render_result("id", "custom", &content, Some(&JsValue::from(details.clone())), true);
 
     let captured = captured.lock().unwrap();
     assert_eq!(captured.len(), 2);
     assert_eq!(captured[0].content, content);
-    assert_eq!(captured[0].details, Some(details));
+    assert_eq!(captured[0].details, Some(details).map(JsValue::from));
     assert_eq!(captured[0].is_error, Some(true));
 }
 

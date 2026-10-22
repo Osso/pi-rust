@@ -38,7 +38,7 @@ fn start_animation(timer: &Timer, pi: &ExtensionApi, ctx: &ExtensionContext) -> 
         loop {
             ticks.tick().await;
             match read_base_title(&api) {
-                Ok(base) => ui.set_title(&format!("{} {base}", FRAMES[frame % FRAMES.len()])),
+                Ok(base) => ui.set_title(&JsString::from(format!("{} {base}", FRAMES[frame % FRAMES.len()]))),
                 Err(error) => {
                     eprintln!("titlebar-spinner: {error}");
                     return;

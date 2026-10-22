@@ -3,6 +3,9 @@ use pi_agent_core::{AgentToolResult, harness::types::ToolExecutionMode};
 use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::theme::{Theme, ThemeColor as C};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use pi_tui::{
     Text,
     keys::matches_key,
@@ -78,7 +81,7 @@ struct ComponentData {
     version: u64,
     cached_version: Option<u64>,
     cached_width: usize,
-    cached_lines: Vec<String>,
+    cached_lines: Vec<JsString>,
 }
 struct GameComponent {
     data: Arc<Mutex<ComponentData>>,
@@ -105,7 +108,7 @@ fn update_component(game: &SharedGame) {
     }
 }
 fn persist(api: &ExtensionApi, game: &SharedGame) -> Result<(), HandlerError> {
-    api.append_entry(SAVE_TYPE, Some(json!(details(game))))
+    api.append_entry(&JsString::from(SAVE_TYPE), Some(JsValue::from(json!(details(game)))))
 }
 fn win_line(board: &Board) -> Option<[(usize, usize); 3]> {
     WIN_LINES.into_iter().find(|line| {
@@ -181,9 +184,9 @@ fn send_over(api: &ExtensionApi, game: &SharedGame) -> Result<(), HandlerError> 
     api.send_message(
         CustomMessagePayload {
             custom_type: OVER_TYPE.into(),
-            content: CustomMessageContent::Text(format!("Game over: {label}.")),
+            content: CustomMessageContent::Text(JsString::from(format!("Game over: {label}."))),
             display: true,
-            details: Some(json!(d)),
+            details: Some(JsValue::from(json!(d))),
         },
         None,
     )
@@ -209,9 +212,9 @@ fn user_play(api: &ExtensionApi, game: &SharedGame, row: usize, col: usize) -> R
     }
     let board = board_ascii(&d);
     let (r, c) = (d.agent_cursor_row, d.agent_cursor_col);
-    api.send_message(CustomMessagePayload {custom_type:MOVE_TYPE.into(),display:true,details:Some(json!(d)),content:CustomMessageContent::Text(format!(
+    api.send_message(CustomMessagePayload {custom_type:MOVE_TYPE.into(),display:true,details:Some(JsValue::from(json!(d))),content:CustomMessageContent::Text(JsString::from(format!(
         "Player X played at (row={row}, col={col}). It is now Player O's turn.\n\nBoard (your cursor marked with <>):\n{board}\n\nYour cursor is at (row={r}, col={c}). Decide your target cell, then emit every move_* and the final play as separate tic_tac_toe tool calls in THIS response."
-    ))},Some(SendMessageOptions {trigger_turn:Some(true),..Default::default()}))
+    )))},Some(SendMessageOptions {trigger_turn:Some(true),..Default::default()}))
 }
 impl GameComponent {
     fn close(&self) {
@@ -226,17 +229,22 @@ impl ExtensionUiComponent for GameComponent {
     fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let mut data = self.data.lock().unwrap();
         if data.cached_width == width && data.cached_version == Some(data.version) {
-            return data.cached_lines.clone();
+            return data
+                .cached_lines
+                .clone()
+                .into_iter()
+                .map(JsString::from)
+                .collect::<Vec<_>>();
         }
         let state = data.state.lock().unwrap().clone();
         let lines = render_game(&state, width);
         data.cached_width = width;
         data.cached_version = Some(data.version);
         data.cached_lines = lines.clone();
-        lines
+        lines.into_iter().map(JsString::from).collect::<Vec<_>>()
     }
     fn handle_input(&self, key: &pi_js_compat::js_json::JsString) {
-        if matches_key(key, "escape") || matches!(key, "q" | "Q") {
+        if matches_key(key, "escape") || (key == "q" || key == "Q") {
             self.close();
             return;
         }
@@ -246,7 +254,7 @@ impl ExtensionUiComponent for GameComponent {
         if state.details.status != "playing" {
             drop(state);
             drop(data);
-            if matches!(key, "r" | "R") {
+            if key == "r" || key == "R" {
                 self.close();
             }
             return;
@@ -286,26 +294,26 @@ impl ExtensionUiComponent for GameComponent {
 fn text_result(text: String, d: Details) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
-        details: Some(json!(d)),
+        details: Some(JsValue::from(json!(d))),
         is_error: None,
         terminate: None,
     }
 }
-fn move_cursor(d: &mut Details, action: &str) -> String {
+fn move_cursor(d: &mut Details, action: &JsString) -> String {
     let direction = match action {
-        "move_up" => {
+        action if action == "move_up" => {
             d.agent_cursor_row = d.agent_cursor_row.saturating_sub(1);
             "up"
         }
-        "move_down" => {
+        action if action == "move_down" => {
             d.agent_cursor_row = (d.agent_cursor_row + 1).min(2);
             "down"
         }
-        "move_left" => {
+        action if action == "move_left" => {
             d.agent_cursor_col = d.agent_cursor_col.saturating_sub(1);
             "left"
         }
-        "move_right" => {
+        action if action == "move_right" => {
             d.agent_cursor_col = (d.agent_cursor_col + 1).min(2);
             "right"
         }
@@ -349,7 +357,11 @@ fn agent_play(d: &mut Details) -> Result<String, HandlerError> {
         format!("Placed O at ({r},{c}). {suffix}")
     })
 }
-async fn execute_action(api: &ExtensionApi, game: &SharedGame, action: &str) -> Result<AgentToolResult, HandlerError> {
+async fn execute_action(
+    api: &ExtensionApi,
+    game: &SharedGame,
+    action: &JsString,
+) -> Result<AgentToolResult, HandlerError> {
     if action != "play" {
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     }
@@ -397,13 +409,13 @@ fn see_board(game: &SharedGame) -> AgentToolResult {
     );
     text_result(text, d)
 }
-fn text_component(text: String) -> ComponentRef {
+fn text_component(text: JsString) -> ComponentRef {
     component(Text::new(text, 0, 0))
 }
-fn first_text(result: &AgentToolResult) -> &str {
+fn first_text(result: &AgentToolResult) -> JsString {
     match result.content.first() {
-        Some(TextOrImageContent::Text(t)) => &t.text,
-        _ => "",
+        Some(TextOrImageContent::Text(t)) => t.text.clone(),
+        _ => JsString::default(),
     }
 }
 fn result_details(result: &AgentToolResult) -> Option<Details> {
@@ -411,7 +423,7 @@ fn result_details(result: &AgentToolResult) -> Option<Details> {
         .details
         .as_ref()
         .filter(|v| !v.is_null())
-        .map(|v| serde_json::from_value(v.clone()).expect("persisted board details"))
+        .map(|v| pi_js_compat::js_json::from_value(v).expect("persisted board details"))
 }
 
 pub fn tic_tac_toe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
@@ -460,16 +472,17 @@ pub fn tic_tac_toe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 .details
                 .as_ref()
                 .filter(|v| !v.is_null())
-                .map(|v| serde_json::from_value::<Details>(v.clone()).expect("persisted board details"));
+                .map(|v| pi_js_compat::js_json::from_value::<Details>(v).expect("persisted board details"));
             let turn = if d.as_ref().is_some_and(|d| d.current_turn == 'O') {
-                format!("{} (Agent)", theme.fg(C::Warning, &theme.bold("O")))
+                js_format!("{} (Agent)", theme.fg(C::Warning, &theme.bold("O")))
             } else {
-                format!("{} (You)", theme.fg(C::Accent, &theme.bold("X")))
+                js_format!("{} (You)", theme.fg(C::Accent, &theme.bold("X")))
             };
-            let title = format!(
-                "{}  {}  next: {turn}",
+            let title = js_format!(
+                "{}  {}  next: {}",
                 theme.fg(C::Accent, &theme.bold("Player X played")),
-                theme.fg(C::Dim, "→")
+                theme.fg(C::Dim, "→"),
+                turn
             );
             Some(component(Banner {
                 title,
@@ -486,7 +499,7 @@ pub fn tic_tac_toe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 .details
                 .as_ref()
                 .filter(|v| !v.is_null())
-                .map(|v| serde_json::from_value::<Details>(v.clone()).expect("persisted board details"));
+                .map(|v| pi_js_compat::js_json::from_value::<Details>(v).expect("persisted board details"));
             Some(component(GameOver {
                 status: d.as_ref().map_or("draw", |d| d.status.as_str()).into(),
                 details: d,
@@ -505,8 +518,10 @@ pub fn tic_tac_toe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             let api = api.clone();
             Box::pin(async move {
                 if ctx.mode()? != ExtensionMode::Tui {
-                    ctx.ui()?
-                        .notify("Tic-tac-toe requires interactive mode", Some(NotifyType::Error));
+                    ctx.ui()?.notify(
+                        &JsString::from("Tic-tac-toe requires interactive mode"),
+                        Some(NotifyType::Error),
+                    );
                     return Ok(());
                 }
                 restore(&game, &ctx)?;
@@ -514,7 +529,7 @@ pub fn tic_tac_toe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     *current_state(&game).lock().unwrap() = State::default();
                 }
                 game.lock().unwrap().active = true;
-                api.set_session_name("Tic-Tac-Toe")?;
+                api.set_session_name(&JsString::from("Tic-Tac-Toe"))?;
                 ctx.ui()?
                     .custom(
                         Arc::new(move |context, done| {
@@ -549,8 +564,8 @@ pub fn tic_tac_toe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         prompt_guidelines:Some(vec!["When it is your tic-tac-toe turn, decide the target cell first, then emit every move_* plus the final play as separate tic_tac_toe tool calls in a SINGLE assistant response. Never split them across responses or wait for intermediate results.".into(),"Never ask the user for the board. The board and your cursor position are included in the user's move message; use tic_tac_toe_see_board if you need them restated.".into()]),
         parameters:json!({"type":"object","properties":{"action":{"type":"string","enum":["move_up","move_down","move_left","move_right","play"],"description":"The single action to perform this call. Emit multiple tic_tac_toe calls in one response to string actions together."}},"required":["action"]}),
         constrained_sampling:None,approval_required:None,approval_kind:None,render_shell:None,prepare_arguments:None,prepare_execution:None,execution_mode:Some(ToolExecutionMode::Sequential),
-        execute:Arc::new(move|_,params,_,_,_| {let game=state.clone();let api=api.clone();Box::pin(async move{execute_action(&api,&game,params["action"].as_str().expect("validated action")).await})}),
-        render_call:Some(infallible_render_call(|args,theme,_|text_component(theme.fg(C::ToolTitle,&theme.bold("tic_tac_toe "))+&theme.fg(C::Muted,args["action"].as_str().unwrap_or(""))))),
+        execute:Arc::new(move|_,params,_,_,_| {let game=state.clone();let api=api.clone();Box::pin(async move{execute_action(&api,&game,params["action"].as_string().expect("validated action")).await})}),
+        render_call:Some(infallible_render_call(|args,theme,_|text_component(theme.fg(C::ToolTitle,&theme.bold("tic_tac_toe "))+&theme.fg(C::Muted,args["action"].as_string().unwrap_or(&JsString::from("")))))),
         render_result:Some(infallible_render_result(|result,options,theme,context| {
             let prefix=if context.is_error {theme.fg(C::Error,"✗ ")} else {theme.fg(C::Success,"✓ ")};
             let summary=prefix+&theme.fg(C::Muted,first_text(result));
@@ -571,7 +586,7 @@ pub fn tic_tac_toe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         })),
     }).map_err(HandlerError::new)
 }
-fn render_tool_result(summary: String, result: &AgentToolResult, expanded: bool, theme: &Theme) -> ComponentRef {
+fn render_tool_result(summary: JsString, result: &AgentToolResult, expanded: bool, theme: &Theme) -> ComponentRef {
     if let Some(details) = result_details(result).filter(|_| expanded) {
         return component(Banner {
             title: summary,
@@ -589,13 +604,19 @@ fn sgr(code: &str, text: &str) -> String {
 fn dim(text: &str) -> String {
     format!("\x1b[2m{text}\x1b[22m")
 }
-fn center(text: &str, width: usize) -> String {
-    let len = visible_width(text);
+fn center(text: impl Into<JsString>, width: usize) -> JsString {
+    let text = text.into();
+    let len = visible_width(&text);
     if len >= width {
-        return truncate_to_width(text, width);
+        return truncate_to_width(&text, width);
     }
     let padding = width - len;
-    format!("{}{text}{}", " ".repeat(padding / 2), " ".repeat(padding - padding / 2))
+    js_format!(
+        "{}{}{}",
+        " ".repeat(padding / 2),
+        text,
+        " ".repeat(padding - padding / 2)
+    )
 }
 fn cell_color(board: &Board, win: &Option<[(usize, usize); 3]>, r: usize, c: usize) -> Option<&'static str> {
     if board[r][c] == ' ' {
@@ -664,7 +685,7 @@ fn cell_content(board: &Board, win: &Option<[(usize, usize); 3]>, r: usize, c: u
         " ".repeat(len - left)
     )
 }
-fn render_board(board: &Board, width: usize, cursor: Option<(usize, usize, bool)>) -> Vec<String> {
+fn render_board(board: &Board, width: usize, cursor: Option<(usize, usize, bool)>) -> Vec<JsString> {
     let win = win_line(board);
     let mut lines = vec![];
     for gr in 0..=3 {
@@ -715,7 +736,7 @@ fn render_board(board: &Board, width: usize, cursor: Option<(usize, usize, bool)
     }
     lines
 }
-fn render_game(state: &State, width: usize) -> Vec<String> {
+fn render_game(state: &State, width: usize) -> Vec<JsString> {
     let title = " Tic-Tac-Toe ";
     let fill = width.saturating_sub(visible_width(title));
     let d = &state.details;
@@ -741,7 +762,9 @@ fn render_game(state: &State, width: usize) -> Vec<String> {
         )
     };
     let mut lines = vec![
-        sgr("2", &"─".repeat(fill / 2)) + &sgr("1", &sgr("34", title)) + &sgr("2", &"─".repeat(fill - fill / 2)),
+        JsString::from(
+            sgr("2", &"─".repeat(fill / 2)) + &sgr("1", &sgr("34", title)) + &sgr("2", &"─".repeat(fill - fill / 2)),
+        ),
         "".into(),
         center(&status, width),
         "".into(),
@@ -776,20 +799,24 @@ fn render_game(state: &State, width: usize) -> Vec<String> {
             sgr("1", "ESC")
         )
     };
-    lines.extend([center(&footer, width), "".into(), sgr("2", &"─".repeat(width))]);
+    lines.extend([
+        center(&footer, width),
+        "".into(),
+        JsString::from(sgr("2", &"─".repeat(width))),
+    ]);
     lines
 }
 struct Banner {
-    title: String,
+    title: JsString,
     details: Option<Details>,
     expanded: bool,
     theme: Theme,
 }
 impl Component for Banner {
     fn invalidate(&mut self) {}
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let fill = width.saturating_sub(visible_width(&self.title) + 2);
-        let mut lines = vec![format!(
+        let mut lines = vec![js_format!(
             "{} {} {}",
             self.theme.fg(C::Dim, &"─".repeat(fill / 2)),
             self.title,
@@ -809,7 +836,7 @@ struct GameOver {
 }
 impl Component for GameOver {
     fn invalidate(&mut self) {}
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let hr = self.theme.fg(C::Dim, &"─".repeat(width));
         let (title, sub) = match self.status.as_str() {
             "win_X" => (
@@ -825,7 +852,9 @@ impl Component for GameOver {
         };
         let mut lines = vec![hr.clone(), "".into()];
         for text in [title, self.theme.fg(C::Dim, sub)] {
-            lines.push(" ".repeat(width.saturating_sub(visible_width(&text)) / 2) + &text);
+            lines.push(JsString::from(
+                JsString::from(" ".repeat(width.saturating_sub(visible_width(&text)) / 2)) + &text,
+            ));
         }
         lines.push("".into());
         if let Some(d) = &self.details {

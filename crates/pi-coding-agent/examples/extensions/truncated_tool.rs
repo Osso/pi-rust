@@ -6,42 +6,53 @@ use pi_coding_agent::core::{
     tools::{file_mutation_queue::with_file_mutation_queue, truncate::*},
 };
 use pi_coding_agent::modes::interactive::theme::{Theme, ThemeColor as C};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::JsValue as Value;
 use pi_tui::{
     Text,
     tui::{ComponentRef, component},
 };
-use serde_json::{Value, json};
 use std::sync::Arc;
 
 pub fn truncated_tool_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     pi.register_tool(ToolDefinition {
         name:"rg".into(),label:"ripgrep".into(),
-        description:format!("Search file contents using ripgrep. Output is truncated to {DEFAULT_MAX_LINES} lines or {} (whichever is hit first). If truncated, full output is saved to a temp file.",format_size(DEFAULT_MAX_BYTES)),
-        parameters:json!({"type":"object","properties":{"pattern":{"type":"string","description":"Search pattern (regex)"},"path":{"type":"string","description":"Directory to search (default: current directory)"},"glob":{"type":"string","description":"File glob pattern, e.g. '*.ts'"}},"required":["pattern"]}),
+        description:js_format!("Search file contents using ripgrep. Output is truncated to {} lines or {} (whichever is hit first). If truncated, full output is saved to a temp file.", DEFAULT_MAX_LINES, format_size(DEFAULT_MAX_BYTES)),
+        parameters:serde_json::json!({"type":"object","properties":{"pattern":{"type":"string","description":"Search pattern (regex)"},"path":{"type":"string","description":"Directory to search (default: current directory)"},"glob":{"type":"string","description":"File glob pattern, e.g. '*.ts'"}},"required":["pattern"]}),
         prompt_snippet:None,prompt_guidelines:None,approval_required:None,approval_kind:None,constrained_sampling:None,render_shell:None,prepare_arguments:None,prepare_execution:None,execution_mode:None,
         execute:Arc::new(|_,params,_,_,ctx|Box::pin(async move {execute(&params,&ctx.cwd()?).await})),
         render_call:Some(infallible_render_call(|args,theme,_|{
-            let mut text=theme.fg(C::ToolTitle,&theme.bold("rg "))+&theme.fg(C::Accent,&format!("\"{}\"",args["pattern"].as_str().unwrap_or("undefined")));
-            if let Some(path)=nonempty(args,"path"){text+=&theme.fg(C::Muted,&format!(" in {path}"));}
-            if let Some(glob)=nonempty(args,"glob"){text+=&theme.fg(C::Dim,&format!(" --glob {glob}"));}
+            let mut text=theme.fg(C::ToolTitle,&theme.bold("rg "))+&theme.fg(C::Accent,&js_format!("\"{}\"", args["pattern"].as_string().unwrap_or(&JsString::from("undefined"))));
+            if let Some(path)=nonempty(args,"path"){text.push_str(&theme.fg(C::Muted,&js_format!(" in {}", path)));}
+            if let Some(glob)=nonempty(args,"glob"){text.push_str(&theme.fg(C::Dim,&js_format!(" --glob {}", glob)));}
             text_component(text)
         })),
         render_result:Some(infallible_render_result(|result,options,theme,_|text_component(render_result(result,options,theme)))),
     }).map_err(HandlerError::new)
 }
-fn nonempty<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
-    args[key].as_str().filter(|s| !s.is_empty())
+fn nonempty<'a>(args: &'a Value, key: &str) -> Option<&'a JsString> {
+    args[key].as_string().filter(|s| !s.is_empty())
 }
-async fn execute(params: &Value, cwd: &str) -> Result<AgentToolResult, HandlerError> {
+async fn execute(params: &Value, cwd: &JsString) -> Result<AgentToolResult, HandlerError> {
     let pattern = params["pattern"]
-        .as_str()
+        .as_string()
         .ok_or_else(|| HandlerError::new("pattern must be a string"))?;
-    let mut args = vec!["rg", "--line-number", "--color=never"];
+    let mut args = vec![
+        JsString::from("rg"),
+        JsString::from("--line-number"),
+        JsString::from("--color=never"),
+    ];
     if let Some(glob) = nonempty(params, "glob") {
-        args.extend(["--glob", glob]);
+        args.extend([JsString::from("--glob"), glob.clone()]);
     }
-    args.extend([pattern, nonempty(params, "path").unwrap_or(".")]);
-    let command = args.join(" ");
+    args.extend([
+        pattern.clone(),
+        nonempty(params, "path").cloned().unwrap_or_else(|| JsString::from(".")),
+    ]);
+    let command = JsString::join(args, " ");
     let output = run_search(&command, cwd).await?;
     let mut details = json!({"pattern":pattern});
     for key in ["path", "glob"] {
@@ -54,9 +65,10 @@ async fn execute(params: &Value, cwd: &str) -> Result<AgentToolResult, HandlerEr
         return Ok(result("No matches found".into(), details));
     }
     if !output.status.success() {
-        return Err(HandlerError::new(format!(
-            "ripgrep failed: Command failed: {command}\n{}",
-            String::from_utf8_lossy(&output.stderr)
+        return Err(HandlerError::new(js_format!(
+            "ripgrep failed: Command failed: {}\n{}",
+            command,
+            String::from_utf8_lossy(&output.stderr).as_ref()
         )));
     }
     let output = String::from_utf8_lossy(&output.stdout);
@@ -65,7 +77,7 @@ async fn execute(params: &Value, cwd: &str) -> Result<AgentToolResult, HandlerEr
         return Ok(result("No matches found".into(), details));
     }
     let truncation = truncate_head(
-        &output,
+        &JsString::from(output.as_ref()),
         TruncationOptions {
             max_lines: DEFAULT_MAX_LINES,
             max_bytes: DEFAULT_MAX_BYTES,
@@ -85,36 +97,31 @@ async fn execute(params: &Value, cwd: &str) -> Result<AgentToolResult, HandlerEr
             .map_err(|e| HandlerError::new(e.to_string()))?
             .keep();
         let path = directory.join("output.txt").display().to_string();
-        with_file_mutation_queue(&path, || async { std::fs::write(&path, output.as_bytes()) })
-            .await
-            .map_err(|e| HandlerError::new(e.to_string()))?
-            .map_err(|e| HandlerError::new(e.to_string()))?;
-        details["truncation"] = serde_json::to_value(&truncation).map_err(|e| HandlerError::new(e.to_string()))?;
+        with_file_mutation_queue(&JsString::from(&path), || async {
+            std::fs::write(&path, output.as_bytes())
+        })
+        .await
+        .map_err(|e| HandlerError::new(e.to_string()))?
+        .map_err(|e| HandlerError::new(e.to_string()))?;
+        details["truncation"] =
+            JsValue::from(serde_json::to_value(&truncation).map_err(|e| HandlerError::new(e.to_string()))?);
         details["fullOutputPath"] = json!(path);
-        text += &format!(
-            "\n\n[Output truncated: showing {} of {} lines ({} of {}). {} lines ({}) omitted. Full output saved to: {path}]",
-            truncation.output_lines,
-            truncation.total_lines,
-            format_size(truncation.output_bytes),
-            format_size(truncation.total_bytes),
-            truncation.total_lines - truncation.output_lines,
-            format_size(truncation.total_bytes - truncation.output_bytes)
-        );
+        text.push_str(&js_format!("\n\n[Output truncated: showing {} of {} lines ({} of {}). {} lines ({}) omitted. Full output saved to: {}]", truncation.output_lines, truncation.total_lines, format_size(truncation.output_bytes), format_size(truncation.total_bytes), truncation.total_lines - truncation.output_lines, format_size(truncation.total_bytes - truncation.output_bytes), path));
     }
     Ok(result(text, details))
 }
-fn result(text: String, details: Value) -> AgentToolResult {
+fn result(text: JsString, details: Value) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
-        details: Some(details),
+        details: Some(JsValue::from(details)),
         is_error: None,
         terminate: None,
     }
 }
-fn text_component(text: String) -> ComponentRef {
+fn text_component(text: JsString) -> ComponentRef {
     component(Text::new(text, 0, 0))
 }
-fn render_result(result: &AgentToolResult, options: &ToolRenderResultOptions, theme: &Theme) -> String {
+fn render_result(result: &AgentToolResult, options: &ToolRenderResultOptions, theme: &Theme) -> JsString {
     if options.is_partial {
         return theme.fg(C::Warning, "Searching...");
     }
@@ -127,13 +134,13 @@ fn render_result(result: &AgentToolResult, options: &ToolRenderResultOptions, th
     };
     let mut text = theme.fg(
         C::Success,
-        &format!(
+        &js_format!(
             "{} matches",
             pi_js_compat::number::js_number_to_string(details["matchCount"].as_f64().expect("numeric match count"))
         ),
     );
-    if details["truncation"]["truncated"] == true {
-        text += &theme.fg(C::Warning, " (truncated)");
+    if details["truncation"]["truncated"] == pi_js_compat::js_json!(true) {
+        text.push_str(&theme.fg(C::Warning, " (truncated)"));
     }
     if !options.expanded {
         return text;
@@ -141,32 +148,38 @@ fn render_result(result: &AgentToolResult, options: &ToolRenderResultOptions, th
     if let Some(TextOrImageContent::Text(content)) = result.content.first() {
         let lines: Vec<_> = content.text.split('\n').collect();
         for line in lines.iter().take(20) {
-            text += &format!("\n{}", theme.fg(C::Dim, line));
+            text.push_str(&js_format!("\n{}", theme.fg(C::Dim, line)));
         }
         if lines.len() > 20 {
-            text += &format!("\n{}", theme.fg(C::Muted, "... (use read tool to see full output)"));
+            text.push_str(&js_format!(
+                "\n{}",
+                theme.fg(C::Muted, "... (use read tool to see full output)")
+            ));
         }
     }
-    if let Some(path) = details["fullOutputPath"].as_str().filter(|p| !p.is_empty()) {
-        text += &format!("\n{}", theme.fg(C::Dim, &format!("Full output: {path}")));
+    if let Some(path) = details["fullOutputPath"].as_string().filter(|p| !p.is_empty()) {
+        text.push_str(&js_format!(
+            "\n{}",
+            theme.fg(C::Dim, &js_format!("Full output: {}", path))
+        ));
     }
     text
 }
 
-async fn run_search(command: &str, cwd: &str) -> Result<std::process::Output, HandlerError> {
+async fn run_search(command: &JsString, cwd: &JsString) -> Result<std::process::Output, HandlerError> {
     use std::{os::unix::process::CommandExt, process::Stdio};
     use tokio::io::AsyncReadExt;
     let mut process = tokio::process::Command::new("/bin/sh");
     process
-        .args(["-c", command])
-        .current_dir(cwd)
+        .args(["-c", &pi_js_compat::js_json::encode_node_utf8(command)])
+        .current_dir(pi_js_compat::js_json::encode_node_utf8(cwd))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
     process.as_std_mut().process_group(0);
     let mut child = process
         .spawn()
-        .map_err(|e| HandlerError::new(format!("ripgrep failed: {e}")))?;
+        .map_err(|e| HandlerError::new(js_format!("ripgrep failed: {}", e.to_string())))?;
     let mut out = child.stdout.take().expect("piped stdout");
     let mut err = child.stderr.take().expect("piped stderr");
     let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
@@ -181,7 +194,12 @@ async fn run_search(command: &str, cwd: &str) -> Result<std::process::Output, Ha
             if let Some(pid) = child.id().and_then(|id| rustix::process::Pid::from_raw(id as i32)) {
                 match rustix::process::kill_process_group(pid, rustix::process::Signal::KILL) {
                     Ok(()) | Err(rustix::io::Errno::SRCH) => {}
-                    Err(e) => return Err(HandlerError::new(format!("ripgrep buffer cleanup failed: {e}"))),
+                    Err(e) => {
+                        return Err(HandlerError::new(js_format!(
+                            "ripgrep buffer cleanup failed: {}",
+                            e.to_string()
+                        )));
+                    }
                 }
             }
             child.wait().await.map_err(|e| HandlerError::new(e.to_string()))?;

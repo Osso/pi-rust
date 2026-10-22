@@ -11,6 +11,8 @@ use futures_util::FutureExt;
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::core::keybindings::KeybindingsManager;
 use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, Theme};
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
 use std::{
     cell::{Cell, RefCell},
@@ -141,7 +143,12 @@ fn theme() -> Arc<Theme> {
             &roles
                 .into_iter()
                 .enumerate()
-                .map(|(i, r)| (r.to_owned(), ColorValue::Text(format!("#{:02x}2020", 50 + i))))
+                .map(|(i, r)| {
+                    (
+                        JsString::from(r),
+                        ColorValue::Text(JsString::from(format!("#{:02x}2020", 50 + i))),
+                    )
+                })
                 .collect::<Vec<_>>(),
             &[],
             ColorMode::Truecolor,
@@ -224,17 +231,17 @@ struct Ui {
     mount_clock: Option<tokio::time::Instant>,
 }
 impl ExtensionUiContext for Ui {
-    fn set_editor_text(&self, text: &str) {
+    fn set_editor_text(&self, text: &JsString) {
         self.calls.lock().unwrap().push(json!(["editorText", text]));
     }
-    fn notify(&self, message: &str, level: Option<NotifyType>) {
+    fn notify(&self, message: &JsString, level: Option<NotifyType>) {
         self.calls.lock().unwrap().push(json!(["notify", message, level]));
     }
     fn custom<'a>(
         &'a self,
         factory: ExtensionUiCustomFactory,
         opts: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<Value>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
         let script = self.scripts.lock().unwrap().pop_front().unwrap_or(json!({}));
         let delay = script["delay"].as_u64().unwrap_or(0);
         let calls = self.calls.clone();
@@ -257,7 +264,7 @@ impl ExtensionUiContext for Ui {
             .now_or_never()
             .expect("stack factory resolves immediately")
             .unwrap();
-            component.handle_input("\r");
+            component.handle_input(&JsString::from("\r"));
             component.dispose();
             let value = value.borrow().clone();
             return Box::pin(async move {
@@ -330,10 +337,10 @@ impl ExtensionUiContext for Ui {
                         tokio::task::yield_now().await;
                     }
                     if step["running"] == true {
-                        let frame = component.render(width).join("\n");
+                        let frame = JsString::join(component.render(width), "\n");
                         assert!(
                             frame.contains("● Running"),
-                            "exit must not finish before stdio closes: {frame}"
+                            "exit must not finish before stdio closes: {frame:?}"
                         );
                         assert!(!frame.contains("✓ Done"));
                     }
@@ -344,7 +351,7 @@ impl ExtensionUiContext for Ui {
                     if let Some(text) = step["waitFor"].as_str() {
                         let mut ready = false;
                         for _ in 0..2000 {
-                            if component.render(width).join("\n").contains(text) {
+                            if JsString::join(component.render(width), "\n").contains(text) {
                                 ready = true;
                                 break;
                             }
@@ -372,9 +379,9 @@ impl ExtensionUiContext for Ui {
                     if let Some(key) = step["key"].as_str().or(projected.as_deref()) {
                         if let Some(index) = step["panel"].as_u64() {
                             let p = PANELS.with(|ps| ps.borrow()[index as usize].clone());
-                            p.component.handle_input(key);
+                            p.component.handle_input(&JsString::from(key));
                         } else {
-                            component.handle_input(key);
+                            component.handle_input(&JsString::from(key));
                         }
                     }
                     tokio::task::yield_now().await;
@@ -431,11 +438,14 @@ async fn native(request: &Value) -> Value {
         }),
     );
     let extension = load_extension_from_factory(
-        registry.get("<example:overlay-qa-tests>").unwrap().clone(),
-        "/fixture",
+        registry
+            .get(&JsString::from("<example:overlay-qa-tests>"))
+            .unwrap()
+            .clone(),
+        &JsString::from("/fixture"),
         support::event_bus(),
         runtime.clone(),
-        "<example:overlay-qa-tests>",
+        &JsString::from("<example:overlay-qa-tests>"),
     )
     .await
     .unwrap();
@@ -454,7 +464,7 @@ async fn native(request: &Value) -> Value {
     });
     runner.set_ui_context(Some(ui.clone()), ExtensionMode::Tui);
     let command = runner.get_command(request["command"].as_str().unwrap()).unwrap();
-    (command.handler)(String::new(), runner.create_command_context())
+    (command.handler)(JsString::default(), runner.create_command_context())
         .await
         .unwrap();
     json!({"commands":commands,"calls":ui.calls.lock().unwrap().clone()})

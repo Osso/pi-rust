@@ -1,6 +1,8 @@
 //! Opt-in native `prompt-customizer.ts`; embed and register explicitly.
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::core::system_prompt::BuildSystemPromptOptions;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 
 pub fn prompt_customizer_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     pi.on_before_agent_start(|event: BeforeAgentStartEvent, _: ExtensionContext| -> BoxFuture<'static, Result<Option<BeforeAgentStartEventResult>, HandlerError>> {
@@ -8,15 +10,15 @@ pub fn prompt_customizer_extension(pi: &ExtensionApi) -> Result<(), HandlerError
             let options=&event.system_prompt_options;
             let custom=add_tool_guidance(options,&event.system_prompt);
             let extra="\n## Extension-Added Context\n\nThis prompt includes tool guidance and skill information loaded dynamically.\nIf you have additional requirements, configure them via --append-system-prompt or project context files.\n";
-            let append=match options.append_system_prompt.as_deref().filter(|s|!s.is_empty()) {
-                Some(user)=>format!("{user}\n\n{extra}"), None=>extra.into()
+            let append=match options.append_system_prompt.as_ref().filter(|s|!s.is_empty()) {
+                Some(user)=>js_format!("{}\n\n{}", user, extra), None=>extra.into()
             };
-            Ok(Some(BeforeAgentStartEventResult {system_prompt:Some(format!("{custom}{append}")),message:None}))
+            Ok(Some(BeforeAgentStartEventResult {system_prompt:Some(js_format!("{}{}", custom, append)),message:None}))
         })
     }).map_err(HandlerError::new)
 }
 
-fn add_tool_guidance(options: &BuildSystemPromptOptions, base: &str) -> String {
+fn add_tool_guidance(options: &BuildSystemPromptOptions, base: &JsString) -> JsString {
     let has_tool = |name: &str| {
         options
             .selected_tools
@@ -45,15 +47,15 @@ fn add_tool_guidance(options: &BuildSystemPromptOptions, base: &str) -> String {
         parts.push("• Use the `write` tool to create new files or overwrite existing ones completely.".into());
     }
     if let Some(skills) = options.skills.as_ref().filter(|skills| !skills.is_empty()) {
-        let names = skills.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(", ");
+        let names = JsString::join(skills.iter().map(|skill| &skill.name), ", ");
         parts.extend([
-            format!("\nAvailable skills: {names}"),
+            js_format!("\nAvailable skills: {}", names),
             "Use skill documentation for best practices on specific tools.".into(),
         ]);
     }
     if parts.is_empty() {
         base.into()
     } else {
-        format!("{base}\n\n## Tool Guidance\n\n{}\n", parts.join("\n"))
+        js_format!("{}\n\n## Tool Guidance\n\n{}\n", base, JsString::join(parts, "\n"))
     }
 }
