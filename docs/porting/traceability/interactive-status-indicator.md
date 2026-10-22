@@ -24,3 +24,9 @@ Tests: `interactive_components_c.rs::idle_status_*`, `working_status_*`, `retry_
 ## Discrepancies
 
 None found.
+
+## Native status text
+
+Working frame options, status messages, style inputs/outputs, render lines and input forwarding retain `JsString`. Retry/compaction/branch labels use shared `js_format!`, formatting only primitive numeric values before native interpolation; no native text encoding. Idle rows are native spaces.
+
+`raw_status_indicator` compares actual frozen StatusIndicator with raw high/low/pair messages, direct custom callbacks, setter updates, six width/update snapshots and request-render side effects. The standalone proof imports the actual production module and actual CountdownTimer; unused ambient theme/retry-hint dependencies deliberately panic. It proves the direct-callback base class, not themed subclass/timer raw behavior; existing broader component tests remain the source for those branches until full coding integration compiles.

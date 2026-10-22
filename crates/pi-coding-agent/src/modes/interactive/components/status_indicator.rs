@@ -1,5 +1,6 @@
 //! Ported from `coding-agent/src/modes/interactive/components/status-indicator.ts`.
 
+use pi_js_compat::{js_format, js_json::JsString};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -14,7 +15,7 @@ use crate::modes::interactive::theme::{ThemeColor, with_theme};
 /// `WorkingIndicatorOptions`: spinner frames and interval.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WorkingIndicatorOptions {
-    pub frames: Option<Vec<String>>,
+    pub frames: Option<Vec<JsString>>,
     pub interval_ms: Option<u64>,
 }
 
@@ -39,7 +40,7 @@ impl StatusIndicator {
         request_render: Rc<dyn Fn()>,
         spinner_color_fn: StyleFn,
         message_color_fn: StyleFn,
-        message: impl Into<String>,
+        message: impl Into<JsString>,
         indicator: Option<WorkingIndicatorOptions>,
     ) -> Self {
         let indicator = Some(LoaderIndicatorOptions {
@@ -62,7 +63,7 @@ impl StatusIndicator {
         self.kind
     }
 
-    pub fn set_message(&mut self, message: impl Into<String>) {
+    pub fn set_message(&mut self, message: impl Into<JsString>) {
         self.loader.borrow_mut().set_message(message);
     }
 
@@ -76,11 +77,11 @@ impl StatusIndicator {
 }
 
 impl Component for StatusIndicator {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.loader.borrow_mut().render(width)
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         self.loader.borrow_mut().handle_input(data);
     }
 
@@ -89,15 +90,15 @@ impl Component for StatusIndicator {
     }
 }
 
-fn accent(text: &str) -> String {
+fn accent(text: &JsString) -> JsString {
     with_theme(|theme| theme.fg(ThemeColor::Accent, text))
 }
 
-fn warning(text: &str) -> String {
+fn warning(text: &JsString) -> JsString {
     with_theme(|theme| theme.fg(ThemeColor::Warning, text))
 }
 
-fn muted(text: &str) -> String {
+fn muted(text: &JsString) -> JsString {
     with_theme(|theme| theme.fg(ThemeColor::Muted, text))
 }
 
@@ -109,7 +110,7 @@ pub struct WorkingStatusIndicator {
 impl WorkingStatusIndicator {
     pub fn new(
         request_render: Rc<dyn Fn()>,
-        message: impl Into<String>,
+        message: impl Into<JsString>,
         indicator: Option<WorkingIndicatorOptions>,
     ) -> Self {
         Self {
@@ -130,11 +131,11 @@ impl WorkingStatusIndicator {
 }
 
 impl Component for WorkingStatusIndicator {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.indicator.render(width)
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         self.indicator.handle_input(data);
     }
 
@@ -152,8 +153,11 @@ pub struct RetryStatusIndicator {
 impl RetryStatusIndicator {
     pub fn new(request_render: Rc<dyn Fn()>, attempt: u64, max_attempts: u64, delay_ms: u64) -> Self {
         let retry_message = move |seconds: i64| {
-            format!(
-                "Retrying ({attempt}/{max_attempts}) in {seconds}s... ({} to cancel)",
+            js_format!(
+                "Retrying ({}/{}) in {}s... ({} to cancel)",
+                attempt.to_string(),
+                max_attempts.to_string(),
+                seconds.to_string(),
                 key_text("app.interrupt")
             )
         };
@@ -194,11 +198,11 @@ impl RetryStatusIndicator {
 }
 
 impl Component for RetryStatusIndicator {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.indicator.render(width)
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         self.indicator.handle_input(data);
     }
 
@@ -221,12 +225,12 @@ pub struct CompactionStatusIndicator {
 
 impl CompactionStatusIndicator {
     pub fn new(request_render: Rc<dyn Fn()>, reason: CompactionStatusReason) -> Self {
-        let cancel_hint = format!("({} to cancel)", key_text("app.interrupt"));
+        let cancel_hint = js_format!("({} to cancel)", key_text("app.interrupt"));
         let label = match reason {
-            CompactionStatusReason::Manual => format!("Compacting context... {cancel_hint}"),
-            CompactionStatusReason::Threshold => format!("Auto-compacting... {cancel_hint}"),
+            CompactionStatusReason::Manual => js_format!("Compacting context... {}", cancel_hint),
+            CompactionStatusReason::Threshold => js_format!("Auto-compacting... {}", cancel_hint),
             CompactionStatusReason::Overflow => {
-                format!("Context overflow detected, Auto-compacting... {cancel_hint}")
+                js_format!("Context overflow detected, Auto-compacting... {}", cancel_hint)
             }
         };
         Self {
@@ -247,11 +251,11 @@ impl CompactionStatusIndicator {
 }
 
 impl Component for CompactionStatusIndicator {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.indicator.render(width)
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         self.indicator.handle_input(data);
     }
 
@@ -273,7 +277,7 @@ impl BranchSummaryStatusIndicator {
                 request_render,
                 Rc::new(accent),
                 Rc::new(muted),
-                format!("Summarizing branch... ({} to cancel)", key_text("app.interrupt")),
+                js_format!("Summarizing branch... ({} to cancel)", key_text("app.interrupt")),
                 None,
             ),
         }
@@ -285,11 +289,11 @@ impl BranchSummaryStatusIndicator {
 }
 
 impl Component for BranchSummaryStatusIndicator {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.indicator.render(width)
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         self.indicator.handle_input(data);
     }
 
@@ -303,8 +307,8 @@ impl Component for BranchSummaryStatusIndicator {
 pub struct IdleStatus;
 
 impl Component for IdleStatus {
-    fn render(&mut self, width: usize) -> Vec<String> {
-        let empty_line = " ".repeat(width);
+    fn render(&mut self, width: usize) -> Vec<JsString> {
+        let empty_line = JsString::from(" ".repeat(width));
         vec![empty_line.clone(), empty_line]
     }
 
