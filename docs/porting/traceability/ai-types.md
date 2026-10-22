@@ -50,6 +50,8 @@ Contract: [content stream scratch](../../specs/content-stream-scratch.md).
 
 ## Request contracts (`crates/pi-ai/src/request.rs`, `crates/pi-ai/src/http.rs`)
 
+Approved deviation (2026-10-22), binding rule in AGENTS.md: `options.request.fetch` remains a Rust-only injection seam for tests/embedders. Frozen has no such option; unset must behave exactly like frozen default fetch. This closes the prior pending interface delta. Source-side recorded SDK oracles intercept global fetch or the SDK transport instead; never pass this native option as frozen proof. [Current oracle boundary](../ai-scripted-provider-oracles.md).
+
 Bounded native fetch error identity and approved native cause diagnostics: [shared HTTP failure traceability](native-http-failure-identity.md).
 | TS | Rust | Proof |
 |---|---|---|
