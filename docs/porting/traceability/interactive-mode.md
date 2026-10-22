@@ -344,6 +344,4 @@ The overlay example also requires source `showExtensionCustom` semantics (intera
 
 ## Q18 native UTF-16 integration (2026-10-22)
 
-Owned interactive APIs, selector state and frames now retain `JsString`; session search uses unit-based whitespace/token/phrase matching and shared `JsRegex`. Paths remain native through lexical operations and encode at filesystem/argv writes. Theme load errors use the original raw path. No terminal-display projection is used for lookup or stored text.
-
-`lossless_interactive_selectors` covers raw picker selection/validation and unmatched-unit token/regex input. Tests are **unexecuted**: coding-agent library compilation is blocked. `/tmp/pi-rust-repin-lossless-interactive/interactive4.{json,log}` records compiler-only evidence (178 total errors, 77 in interactive_mode; other owned files zero primary errors), not behavioral parity or acceptance. Whole-mode migration and integration remain open; historical module “done” labels do not apply to this gate.
+`InteractiveModeOptions`, UI text/input/rendering, error presentation and editor/history content now retain JsString. Selector/command matching is unit-native; paths encode only for filesystem access or actual output. The provider-scoped integration `lossless_sdk_boundaries` passed 2/2 real sandbox tests at44a5d91d; this does not establish coding-agent runtime proof. `interactive6` at71cbce6e records 87 total library errors, four owned primary locations, with external accessor/SQL-contract blockers still open.

@@ -50,10 +50,4 @@ None found.
 
 ## Q18 native UTF-16 integration (2026-10-22)
 
-Owned interactive APIs, selector state and frames now retain `JsString`; session search uses unit-based whitespace/token/phrase matching and shared `JsRegex`. Paths remain native through lexical operations and encode at filesystem/argv writes. Theme load errors use the original raw path. No terminal-display projection is used for lookup or stored text.
-
-`lossless_interactive_selectors` covers raw picker selection/validation and unmatched-unit token/regex input. Tests are **unexecuted**: coding-agent library compilation is blocked. `/tmp/pi-rust-repin-lossless-interactive/interactive4.{json,log}` records compiler-only evidence (178 total errors, 77 in interactive_mode; other owned files zero primary errors), not behavioral parity or acceptance. Whole-mode migration and integration remain open; historical module “done” labels do not apply to this gate.
-
-### Search regex error text gap
-
-Frozen `session-selector-search.ts:59–62` exposes JavaScript RegExp construction error text. Native matching now uses shared `JsRegex` over exact UTF-16 units; engine error wording is not proven byte-identical to Node. Invalid-pattern error text remains a re-pin proof gap; matching does not fall back to scalar text. `lossless_interactive_selectors` adds raw token/regex, session-name render/path selection and tree label editor/render regressions; all remain unexecuted while compilation is blocked.
+Session names/paths, rename/status/error callbacks and rendered frames use JsString. Search tokens, phrases, whitespace normalization and regex input are unit-native. `lossless_interactive_selectors` covers raw name render/path selection and raw query units; authored, unexecuted while coding-agent does not compile. No primary diagnostics at interactive6.

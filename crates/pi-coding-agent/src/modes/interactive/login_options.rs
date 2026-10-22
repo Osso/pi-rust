@@ -83,6 +83,7 @@ pub fn get_login_provider_options(runtime: &ModelRuntime, auth_type: Option<Auth
                 source: auth_status
                     .label
                     .clone()
+                    .map(JsString::from)
                     .or_else(|| auth_status.source.map(|source| JsString::from(source.as_str()))),
             });
             create_login_options_for_provider(provider.as_ref(), auth_type, status)
