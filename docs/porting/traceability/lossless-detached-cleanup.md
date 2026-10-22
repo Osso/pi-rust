@@ -6,7 +6,7 @@ Cleanup DB/session/artifact paths, process-reference sets, quarantine callbacks,
 
 Proof: existing real DB and process-reference tests in `tests/detached_job_cleanup.rs` adapted to native APIs; execution pending coding-library compilation. No mock/copied control-DB harness.
 
-The optional default root is converted from the configuration's OS `PathBuf` once at that boundary; a non-UTF-8 host directory is reported and cleanup returns rather than substituting a lossy path. Detached Bash's injected timestamp callback now returns a native string, matching terminal input; generated OS timestamps convert at their producer. Runner ownership compares native IDs directly. These API corrections remain unexecuted while the coding library is blocked.
+The optional default root is `getAgentDir()`, a JS string: the configuration's OS `PathBuf` is decoded once as UTF-8 with replacement, as Node decodes env/home paths (same rule as `sdk.rs`/`settings_manager.rs`). Detached Bash's injected timestamp callback now returns a native string, matching terminal input; generated OS timestamps convert at their producer. Runner ownership compares native IDs directly. These API corrections remain unexecuted while the coding library is blocked.
 
 ## Source drift (authorized corrections pending)
 
