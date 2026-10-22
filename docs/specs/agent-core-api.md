@@ -19,6 +19,7 @@ Reference: immutable `4f9e6f8a4`, `packages/agent-core/src/{agent-loop,agent,typ
 - Agent constructor exposes onPayload/onResponse/onRetry rather than an unrestricted stream-options bag. Mutable provider functions, callbacks, budgets and retry cap use Rust setters; each run snapshots provider configuration. Existing prepareNextTurn wrappers read the current hook after turn listeners, preserving context-hook precedence.
 - Agent listeners use live set iteration and deduplicate identical listeners. Await each listener; log rejection and continue without failing the run. Low-level event sinks still propagate rejection.
 - The default stream uses `pi-ai/compat.streamSimple`; no process-global stream registration API exists.
+- Stream acquisition may reject before a stream exists. Preserve the original error and event boundary; never substitute a fabricated provider-error assistant. Coding summarization propagates acquisition and result rejection, without old-only summary retries or generated request session IDs.
 - Stop hooks observe context replaced by `prepareNextTurn`, including restored tool batches.
 - Argument preparation affects validated execution arguments, not the raw tool call passed to hooks.
 - Execution metadata preparation uses the last tool definition for duplicate names; execution lookup retains first-match behavior.

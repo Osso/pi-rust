@@ -182,8 +182,8 @@ pub fn scripted_stream_fn(scripts: Vec<Script>) -> StreamFn {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .pop_front();
         match next {
-            Some(behavior) => behavior(model, context, options),
-            None => Box::pin(async move { pi_ai::request::error_stream(&model, "Unexpected stream call") }),
+            Some(behavior) => Box::pin(async move { Ok(behavior(model, context, options).await) }),
+            None => Box::pin(async move { Ok(pi_ai::request::error_stream(&model, "Unexpected stream call")) }),
         }
     })
 }

@@ -8,7 +8,7 @@
 - Return owned getter values (approved 2026-10-22); JavaScript mutation-through-reference is excluded.
 - Expose memory/JSONL create, list, open, delete and fork behavior with frozen errors. Preserve classified frozen duplicate-ID behavior rather than introducing uniqueness repairs.
 - Compaction retains history by `firstKeptEntryId`; no embedded retained tails, lane records, retry extension or usage-returning core summary API.
-- Timestamp-string summary/custom creators apply native Date.parse, including NaN. Provider message timestamps must eventually preserve the full JavaScript numeric domain; the temporary checked i64 conversion is a dependency gap, not parity.
+- Timestamp-string summary/custom creators apply native Date.parse, including NaN. Provider message timestamps preserve the full JavaScript numeric domain through f64; no checked i64 conversion remains.
 
 ## Proof
 

@@ -23,6 +23,7 @@ pub use skills::{
     SkillDiagnostic, SkillDiagnosticCode, SkillDiagnosticType, SkillLoadResult, SourcedSkill, SourcedSkillDiagnostic,
     SourcedSkillLoadResult, load_skills, load_sourced_skills,
 };
+mod stream_options;
 pub mod system_prompt;
 pub mod types;
 pub mod utils;

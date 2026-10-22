@@ -90,7 +90,7 @@ mod steering {
                     reason: DoneReason::Stop,
                     message: msg,
                 });
-                stream
+                Ok(stream)
             })
         });
         let ctx = AgentContext {
@@ -192,7 +192,7 @@ mod lifetime {
                     reason: DoneReason::ToolUse,
                     message: msg,
                 });
-                stream
+                Ok(stream)
             })
         });
         let updates = Arc::new(AtomicUsize::new(0));

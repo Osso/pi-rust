@@ -25,14 +25,14 @@ pub use crate::harness::types::{
 
 /// `StreamFn`: produces an assistant message event stream for one request.
 ///
-/// Contract: must not reject; request failures are encoded in the stream as a
-/// final `error`/`aborted` assistant message.
+/// Acquisition can reject before a stream exists; provider failures after
+/// acquisition remain encoded in the returned stream.
 pub type StreamFn = Arc<
     dyn Fn(
             Model,
             Context,
             SimpleStreamOptions,
-        ) -> BoxFuture<'static, pi_ai::utils::event_stream::AssistantMessageEventStream>
+        ) -> BoxFuture<'static, Result<pi_ai::utils::event_stream::AssistantMessageEventStream, AgentError>>
         + Send
         + Sync,
 >;

@@ -10,7 +10,6 @@ use pi_agent_core::agent::{Agent, AgentInitialState, AgentOptions};
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::request::SimpleStreamOptions;
 use pi_ai::types::{Message, Model, ProviderHeaders, TextContent, TextOrImageContent, UserContent};
-use pi_ai::utils::event_stream::StreamFailure;
 use pi_js_compat::js_json::JsString;
 
 use crate::config::get_agent_dir;
@@ -342,14 +341,9 @@ async fn create_agent_session_internal(
             let extension_runner_ref = Arc::clone(&extension_runner_ref);
             Box::pin(async move {
                 let provider_retry = lock(&settings).get_provider_retry_settings();
-                let http_idle_timeout_ms = match lock(&settings).get_http_idle_timeout_ms() {
-                    Ok(timeout) => timeout,
-                    Err(error) => {
-                        let (sender, stream) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
-                        sender.fail(StreamFailure::new(error.message().to_owned()));
-                        return stream;
-                    }
-                };
+                let http_idle_timeout_ms = lock(&settings)
+                    .get_http_idle_timeout_ms()
+                    .map_err(|error| AgentError::new(error.message().clone()))?;
                 let effective_timeout_ms = if http_idle_timeout_ms == 0 {
                     2_147_483_647
                 } else {
@@ -363,14 +357,10 @@ async fn create_agent_session_internal(
                     .unwrap_or(effective_timeout_ms as f64);
                 let websocket_connect_timeout_ms = match options.stream.websocket_connect_timeout_ms {
                     Some(timeout) => Some(timeout),
-                    None => match lock(&settings).get_websocket_connect_timeout_ms() {
-                        Ok(timeout) => timeout.map(|timeout| timeout as f64),
-                        Err(error) => {
-                            let (sender, stream) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
-                            sender.fail(StreamFailure::new(error.message().to_owned()));
-                            return stream;
-                        }
-                    },
+                    None => lock(&settings)
+                        .get_websocket_connect_timeout_ms()
+                        .map_err(|error| AgentError::new(error.message().clone()))?
+                        .map(|timeout| timeout as f64),
                 };
                 options.stream.request.timeout_ms = Some(timeout_ms);
                 options.stream.websocket_connect_timeout_ms = websocket_connect_timeout_ms;
@@ -455,7 +445,7 @@ async fn create_agent_session_internal(
                         }
                     },
                 ));
-                model_runtime.stream_simple(model, context, options)
+                Ok(model_runtime.stream_simple(model, context, options))
             })
         })
     };

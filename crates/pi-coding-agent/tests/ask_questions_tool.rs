@@ -340,7 +340,7 @@ async fn agent_abort_keeps_pending_panel_fifo_until_settlement() {
                     reason: DoneReason::ToolUse,
                     message,
                 });
-                stream
+                Ok(stream)
             })
         })),
         ..Default::default()

@@ -1,6 +1,5 @@
 //! Port of `packages/coding-agent/src/core/compaction/branch-summarization.ts`.
 
-use crate::core::compaction::NoRetryCallbacks;
 use pi_agent_core::agent::{AgentMessage, StreamFn};
 use pi_agent_core::harness::compaction::utils::{
     FileOperations, compute_file_lists, create_file_ops, extract_file_ops_from_message, format_file_operations,
@@ -13,7 +12,6 @@ use pi_ai::request::{ProviderRequestOptions, SimpleStreamOptions, StreamOptions}
 use pi_ai::types::{
     Model, ProviderEnv, ProviderHeaders, StopReason, TextOrImageContent, Usage, UserContent, UserMessage, UserRole,
 };
-use pi_ai::utils::retry::{RetryCallbacks, RetryPolicy};
 use pi_ai::utils::text::{ContentText, content_text};
 use pi_js_compat::js_json::{JsString, JsValue};
 use serde::{Deserialize, Serialize};
@@ -82,7 +80,6 @@ pub struct GenerateBranchSummaryOptions<'a> {
     /// Tokens reserved for prompt + LLM response (default 16384).
     pub reserve_tokens: Option<f64>,
     pub stream_fn: Option<&'a StreamFn>,
-    pub retry: Option<&'a RetryPolicy>,
 }
 
 /// Collect entries to summarize when navigating from one position to another.
@@ -255,11 +252,10 @@ Use this EXACT format:
 Keep each section concise. Preserve exact file paths, function names, and error messages.";
 
 /// Generate a summary of abandoned branch entries.
-pub async fn generate_branch_summary<C: RetryCallbacks + ?Sized>(
+pub async fn generate_branch_summary(
     entries: &[SessionEntry],
     options: &GenerateBranchSummaryOptions<'_>,
-    callbacks: Option<&mut C>,
-) -> BranchSummaryResult {
+) -> Result<BranchSummaryResult, pi_agent_core::AgentError> {
     let reserve_tokens = options.reserve_tokens.unwrap_or(16_384.0);
     let context_window = if options.model.context_window > 0.0 {
         options.model.context_window
@@ -271,21 +267,13 @@ pub async fn generate_branch_summary<C: RetryCallbacks + ?Sized>(
     let BranchPreparation { messages, file_ops, .. } = prepare_branch_entries(entries, token_budget);
 
     if messages.is_empty() {
-        return BranchSummaryResult {
+        return Ok(BranchSummaryResult {
             summary: Some("No content to summarize".into()),
             ..BranchSummaryResult::default()
-        };
+        });
     }
 
-    let converted = match convert_to_llm(&messages) {
-        Ok(messages) => messages,
-        Err(error) => {
-            return BranchSummaryResult {
-                error: Some(error.message().clone()),
-                ..Default::default()
-            };
-        }
-    };
+    let converted = convert_to_llm(&messages)?;
     let conversation_text = serialize_conversation(&converted);
 
     let instructions = match (options.replace_instructions, options.custom_instructions) {
@@ -324,24 +312,16 @@ pub async fn generate_branch_summary<C: RetryCallbacks + ?Sized>(
         },
         ..SimpleStreamOptions::default()
     };
-    let response = complete_summarization(
-        options.model,
-        context,
-        request_options,
-        options.stream_fn,
-        options.retry,
-        callbacks,
-    )
-    .await;
+    let response = complete_summarization(options.model, context, request_options, options.stream_fn).await?;
 
     if response.stop_reason == StopReason::Aborted {
-        return BranchSummaryResult {
+        return Ok(BranchSummaryResult {
             aborted: Some(true),
             ..BranchSummaryResult::default()
-        };
+        });
     }
     if response.stop_reason == StopReason::Error {
-        return BranchSummaryResult {
+        return Ok(BranchSummaryResult {
             error: Some(
                 response
                     .error_message
@@ -350,7 +330,7 @@ pub async fn generate_branch_summary<C: RetryCallbacks + ?Sized>(
                     .unwrap_or_else(|| "Summarization failed".into()),
             ),
             ..BranchSummaryResult::default()
-        };
+        });
     }
 
     let mut summary = content_text(ContentText::Assistant(&response.content), "\n");
@@ -362,7 +342,7 @@ pub async fn generate_branch_summary<C: RetryCallbacks + ?Sized>(
         &file_lists.modified_files,
     ));
 
-    BranchSummaryResult {
+    Ok(BranchSummaryResult {
         summary: Some(if summary.is_empty() {
             "No summary generated".into()
         } else {
@@ -372,13 +352,5 @@ pub async fn generate_branch_summary<C: RetryCallbacks + ?Sized>(
         read_files: Some(file_lists.read_files),
         modified_files: Some(file_lists.modified_files),
         ..BranchSummaryResult::default()
-    }
-}
-
-/// Convenience wrapper matching the TypeScript call shape with no retry callbacks.
-pub async fn generate_branch_summary_default(
-    entries: &[SessionEntry],
-    options: &GenerateBranchSummaryOptions<'_>,
-) -> BranchSummaryResult {
-    generate_branch_summary(entries, options, None::<&mut NoRetryCallbacks>).await
+    })
 }

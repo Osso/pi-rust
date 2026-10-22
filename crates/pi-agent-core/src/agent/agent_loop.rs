@@ -596,7 +596,7 @@ async fn stream_assistant_response(
     options.stream.request.api_key = resolved_api_key.or_else(|| options.stream.request.api_key.clone());
     options.stream.request.signal = signal.clone();
 
-    let mut response = await_with_abort(stream_fn(config.model.clone(), llm_context, options), signal).await?;
+    let mut response = await_with_abort(stream_fn(config.model.clone(), llm_context, options), signal).await??;
     let streamed = consume_assistant_stream(&mut response, context, signal, emit).await?;
     finish_assistant_message(context, signal, emit, streamed.message, streamed.added_partial).await
 }

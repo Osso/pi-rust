@@ -58,7 +58,7 @@ pub async fn fixture(cwd: &std::path::Path, thinking_level: ThinkingLevel) -> Se
     let stream_fn: pi_agent_core::agent::types::StreamFn =
         Arc::new(move |model: Model, context: Context, options: SimpleStreamOptions| {
             let runtime = runtime_for_stream.clone();
-            Box::pin(async move { runtime.stream_simple(model, context, options) })
+            Box::pin(async move { Ok(runtime.stream_simple(model, context, options)) })
         });
     let agent = Agent::new(AgentOptions {
         initial_state: Some(AgentInitialState {

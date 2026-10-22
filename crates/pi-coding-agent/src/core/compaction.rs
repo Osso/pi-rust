@@ -10,14 +10,11 @@ pub mod utils;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use pi_agent_core::agent::{AgentMessage, StreamFn};
-pub struct NoRetryCallbacks;
-impl pi_ai::utils::retry::RetryCallbacks for NoRetryCallbacks {}
 pub use pi_agent_core::harness::compaction::{ContextUsageEstimate, estimate_context_tokens, estimate_tokens};
 use pi_agent_core::harness::messages::{
     CompactionSummaryOptions as MessageCompactionSummaryOptions, convert_to_llm, create_branch_summary_message,
     create_compaction_summary_message, create_custom_message,
 };
-use pi_agent_core::uuidv7;
 use pi_ai::compat::complete_simple;
 use pi_ai::request::{ProviderRequestOptions, SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{
@@ -25,7 +22,6 @@ use pi_ai::types::{
     TextContent, TextOrImageContent, Usage, UserContent, UserMessage, UserRole,
 };
 pub use pi_ai::utils::estimate::calculate_context_tokens;
-use pi_ai::utils::retry::{RetryCallbacks, RetryPolicy, retry_assistant_call};
 use pi_ai::utils::text::{ContentText, content_text};
 use pi_js_compat::js_json::{JsString, JsValue as Value};
 use serde::{Deserialize, Serialize};
@@ -615,69 +611,19 @@ fn create_summarization_options(
     }
 }
 
-fn stream_failure_message(model: &Model, failure: pi_ai::utils::event_stream::StreamFailure) -> AssistantMessage {
-    let mut message = AssistantMessage::empty(
-        model.api.clone(),
-        model.provider.clone(),
-        model.id.clone(),
-        pi_js_compat::date::js_now_millis(),
-    );
-    message.stop_reason = StopReason::Error;
-    message.error_message = Some(failure.message().to_owned());
-    message
-}
-
-async fn complete_request(
+/// Complete one frozen summary request; acquisition and result rejection escape unchanged.
+pub(crate) async fn complete_summarization(
     model: &Model,
     context: Context,
-    options: SimpleStreamOptions,
+    mut options: SimpleStreamOptions,
     stream_fn: Option<&StreamFn>,
-) -> AssistantMessage {
-    match stream_fn {
-        Some(stream_fn) => match stream_fn(model.clone(), context, options).await.result().await {
-            Ok(message) => message,
-            Err(failure) => stream_failure_message(model, failure),
-        },
-        None => complete_simple(model.clone(), context, options)
-            .await
-            .unwrap_or_else(|failure| stream_failure_message(model, failure)),
-    }
-}
-
-/// Shared choke point for every compaction/branch-summary summarization call.
-pub async fn complete_summarization<C: RetryCallbacks + ?Sized>(
-    model: &Model,
-    context: Context,
-    options: SimpleStreamOptions,
-    stream_fn: Option<&StreamFn>,
-    retry: Option<&RetryPolicy>,
-    callbacks: Option<&mut C>,
-) -> AssistantMessage {
-    // Summaries are standalone requests, so isolate routing and avoid cache writes that cannot be reused.
-    let mut request_options = options;
-    request_options.stream.cache_retention = Some(CacheRetention::None);
-    request_options.stream.session_id = Some(uuidv7().into());
-    let signal = request_options.stream.request.signal.clone();
-
-    let model = model.clone();
-    let stream_fn = stream_fn.cloned();
-    let produce = || {
-        let model = model.clone();
-        let context = context.clone();
-        let options = request_options.clone();
-        let stream_fn = stream_fn.clone();
-        async move { complete_request(&model, context, options, stream_fn.as_ref()).await }
+) -> Result<AssistantMessage, pi_agent_core::AgentError> {
+    options.stream.cache_retention = Some(CacheRetention::None);
+    let result = match stream_fn {
+        Some(stream_fn) => stream_fn(model.clone(), context, options).await?.result().await,
+        None => complete_simple(model.clone(), context, options).await,
     };
-    retry_assistant_call(produce, retry, signal.as_ref(), callbacks).await
-}
-
-async fn complete_summarization_without_callbacks(
-    model: &Model,
-    context: Context,
-    options: SimpleStreamOptions,
-    stream_fn: Option<&StreamFn>,
-) -> AssistantMessage {
-    complete_summarization(model, context, options, stream_fn, None, None::<&mut NoRetryCallbacks>).await
+    result.map_err(|failure| pi_agent_core::AgentError::new(failure.message().clone()))
 }
 
 /// Options for generating or updating a conversation summary.
@@ -693,7 +639,6 @@ pub struct GenerateSummaryWithUsageOptions<'a> {
     pub thinking_level: Option<pi_agent_core::harness::types::ThinkingLevel>,
     pub stream_fn: Option<&'a StreamFn>,
     pub env: Option<pi_ai::types::ProviderEnv>,
-    pub retry: Option<&'a RetryPolicy>,
 }
 
 /// Result of materializing a provider-native compaction checkpoint into plaintext.
@@ -794,7 +739,7 @@ pub async fn materialize_compaction_summary(
             &entry.id
         )));
     }
-    let response = complete_summarization_without_callbacks(
+    let response = complete_summarization(
         model,
         Context {
             system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.into()),
@@ -810,7 +755,8 @@ pub async fn materialize_compaction_summary(
         ),
         options.stream_fn,
     )
-    .await;
+    .await
+    .map_err(|error| CompactionError::new(error.message()))?;
     read_compaction_materialization_response(&response)
 }
 
@@ -875,20 +821,13 @@ pub struct SummaryWithUsage {
     pub usage: Usage,
 }
 
-async fn generate_summary_with_options<C: RetryCallbacks + ?Sized>(
+async fn generate_summary_with_options(
     options: &GenerateSummaryWithUsageOptions<'_>,
-    callbacks: Option<&mut C>,
 ) -> Result<SummaryWithUsage, CompactionError> {
     let (context, completion_options) = build_summary_request(options)?;
-    let response = complete_summarization(
-        options.model,
-        context,
-        completion_options,
-        options.stream_fn,
-        options.retry,
-        callbacks,
-    )
-    .await;
+    let response = complete_summarization(options.model, context, completion_options, options.stream_fn)
+        .await
+        .map_err(|error| CompactionError::new(error.message()))?;
     if response.stop_reason == StopReason::Error {
         let detail = response
             .error_message
@@ -905,16 +844,14 @@ async fn generate_summary_with_options<C: RetryCallbacks + ?Sized>(
 
 /// Generate a summary of the conversation using the LLM.
 pub async fn generate_summary(options: &GenerateSummaryWithUsageOptions<'_>) -> Result<JsString, CompactionError> {
-    generate_summary_with_options(options, None::<&mut NoRetryCallbacks>)
-        .await
-        .map(|summary| summary.text)
+    generate_summary_with_options(options).await.map(|summary| summary.text)
 }
 
 /// Generate or update a conversation summary and return its provider usage.
 pub async fn generate_summary_with_usage(
     options: &GenerateSummaryWithUsageOptions<'_>,
 ) -> Result<SummaryWithUsage, CompactionError> {
-    generate_summary_with_options(options, None::<&mut NoRetryCallbacks>).await
+    generate_summary_with_options(options).await
 }
 
 /// Data prepared for compaction, before any LLM call.
@@ -1053,7 +990,6 @@ pub struct CompactionSummaryOptions<'a> {
     pub thinking_level: Option<pi_agent_core::harness::types::ThinkingLevel>,
     pub stream_fn: Option<&'a StreamFn>,
     pub env: Option<pi_ai::types::ProviderEnv>,
-    pub retry: Option<&'a RetryPolicy>,
 }
 
 fn build_history_summary_options<'a>(
@@ -1072,7 +1008,6 @@ fn build_history_summary_options<'a>(
         thinking_level: options.thinking_level,
         stream_fn: options.stream_fn,
         env: options.env.clone(),
-        retry: options.retry,
     }
 }
 
@@ -1143,28 +1078,27 @@ fn interpret_turn_prefix_summary_response(response: &AssistantMessage) -> Result
     })
 }
 
-async fn generate_turn_prefix_summary<C: RetryCallbacks + ?Sized>(
+async fn generate_turn_prefix_summary(
     options: &TurnPrefixSummaryRequestOptions<'_>,
     stream_fn: Option<&StreamFn>,
-    retry: Option<&RetryPolicy>,
-    callbacks: Option<&mut C>,
 ) -> Result<SummaryWithUsage, CompactionError> {
     let (context, request_options) = build_turn_prefix_summary_request(options)?;
-    let response = complete_summarization(options.model, context, request_options, stream_fn, retry, callbacks).await;
+    let response = complete_summarization(options.model, context, request_options, stream_fn)
+        .await
+        .map_err(|error| CompactionError::new(error.message()))?;
     interpret_turn_prefix_summary_response(&response)
 }
 
-async fn generate_split_turn_summary<C: RetryCallbacks + ?Sized>(
+async fn generate_split_turn_summary(
     preparation: &CompactionPreparation,
     options: &CompactionSummaryOptions<'_>,
-    callbacks: Option<&mut C>,
 ) -> Result<SummaryWithUsage, CompactionError> {
     let mut history_text = JsString::from("No prior history.");
     let mut history_usage = None;
 
     if !preparation.messages_to_summarize.is_empty() {
         let history_result =
-            generate_summary_with_options(&build_history_summary_options(preparation, options), None::<&mut C>).await?;
+            generate_summary_with_options(&build_history_summary_options(preparation, options)).await?;
         history_text = history_result.text;
         history_usage = Some(history_result.usage);
     }
@@ -1180,8 +1114,6 @@ async fn generate_split_turn_summary<C: RetryCallbacks + ?Sized>(
             signal: options.signal.clone(),
         },
         options.stream_fn,
-        options.retry,
-        callbacks,
     )
     .await?;
     let text = history_text + "\n\n---\n\n**Turn Context (split turn):**\n\n" + turn_prefix_result.text;
@@ -1192,26 +1124,24 @@ async fn generate_split_turn_summary<C: RetryCallbacks + ?Sized>(
     Ok(SummaryWithUsage { text, usage })
 }
 
-async fn generate_compaction_summary<C: RetryCallbacks + ?Sized>(
+async fn generate_compaction_summary(
     preparation: &CompactionPreparation,
     options: &CompactionSummaryOptions<'_>,
-    callbacks: Option<&mut C>,
 ) -> Result<SummaryWithUsage, CompactionError> {
     if preparation.is_split_turn && !preparation.turn_prefix_messages.is_empty() {
-        return generate_split_turn_summary(preparation, options, callbacks).await;
+        return generate_split_turn_summary(preparation, options).await;
     }
-    generate_summary_with_options(&build_history_summary_options(preparation, options), None::<&mut C>).await
+    generate_summary_with_options(&build_history_summary_options(preparation, options)).await
 }
 
 /// Generate summaries for compaction using prepared data.
-pub async fn compact<C: RetryCallbacks + ?Sized>(
+pub async fn compact(
     preparation: &CompactionPreparation,
     model: &Model,
     options: &CompactionSummaryOptions<'_>,
-    callbacks: Option<&mut C>,
 ) -> Result<CompactionResult, CompactionError> {
     let started_at = now_millis();
-    let summary_result = generate_compaction_summary(preparation, options, callbacks).await?;
+    let summary_result = generate_compaction_summary(preparation, options).await?;
     let file_lists = compute_file_lists(&preparation.file_ops);
     let summary = summary_result.text + format_file_operations(&file_lists.read_files, &file_lists.modified_files);
 
@@ -1249,6 +1179,5 @@ pub async fn compact<C: RetryCallbacks + ?Sized>(
 
 pub use branch_summarization::{
     BranchPreparation, BranchSummaryDetails, BranchSummaryResult, CollectEntriesResult, GenerateBranchSummaryOptions,
-    collect_entries_for_branch_summary, generate_branch_summary, generate_branch_summary_default,
-    prepare_branch_entries,
+    collect_entries_for_branch_summary, generate_branch_summary, prepare_branch_entries,
 };

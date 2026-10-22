@@ -25,7 +25,7 @@ async fn processes_agent_end_follow_up_before_continuing_terminal_tool_result_ta
                     reason: pi_ai::types::DoneReason::Stop,
                     message: text_assistant("Processed"),
                 });
-                stream
+                Ok(stream)
             })
         })),
         ..Default::default()

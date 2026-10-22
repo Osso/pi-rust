@@ -643,7 +643,8 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 			return { ...(await collect(stream)), requests };
 		}
 		case "steering_error":
-		case "follow_up_error": {
+		case "follow_up_error":
+		case "stream_acquisition_error": {
 			const events: any[] = [];
 			const hook = async () => {
 				throw new Error("queue hook failed");
@@ -651,7 +652,17 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 			const overrides =
 				scenario === "steering_error"
 					? { getSteeringMessages: hook }
-					: { getFollowUpMessages: hook };
+					: scenario === "follow_up_error"
+						? { getFollowUpMessages: hook }
+						: {};
+			const streamFn =
+				scenario === "stream_acquisition_error"
+					? async () => {
+							throw new Error("stream acquisition failed");
+						}
+					: scriptStream([
+							() => [done("stop", assistant([textBlock("answer")]))],
+						]);
 			try {
 				await api.runAgentLoop(
 					[user("work")],
@@ -661,9 +672,7 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 						events.push(normalize(snapshot(event)));
 					},
 					undefined,
-					scriptStream([
-						() => [done("stop", assistant([textBlock("answer")]))],
-					]),
+					streamFn,
 				);
 				throw new Error("queue rejection must escape");
 			} catch (error) {
