@@ -6,6 +6,8 @@ use pi_ai::types::{
     UserRole,
 };
 use pi_coding_agent::core::compaction::serialize_conversation;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
 
 fn tool_result(text: &str, details: Option<Value>) -> Message {
@@ -14,7 +16,7 @@ fn tool_result(text: &str, details: Option<Value>) -> Message {
         tool_call_id: "tc1".to_owned(),
         tool_name: "read".to_owned(),
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
-        details,
+        details: details.map(JsValue::from),
         usage: None,
         added_tool_names: None,
         is_error: false,
@@ -79,7 +81,12 @@ fn truncates_long_tool_call_arguments() {
         .expect("object")
         .clone();
     let result = serialize_conversation(&[assistant(vec![AssistantContent::ToolCall(ToolCall::new(
-        "tc1", "write", arguments,
+        "tc1",
+        "write",
+        arguments
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>(),
     ))])]);
 
     assert!(result.contains("[Assistant tool calls]: write("));
@@ -101,7 +108,7 @@ fn omits_assistant_thinking() {
     let result = serialize_conversation(&[assistant(vec![
         AssistantContent::Thinking(ThinkingContent {
             r#type: ThinkingTag::Tag,
-            thinking: "private chain of thought".to_owned(),
+            thinking: JsString::from("private chain of thought"),
             thinking_signature: None,
             redacted: None,
             index: None,
@@ -151,12 +158,18 @@ fn joins_text_blocks_and_tool_calls_in_source_order() {
             AssistantContent::ToolCall(ToolCall::new(
                 "a",
                 "read",
-                json!({ "path": "a.ts" }).as_object().expect("object").clone(),
+                (json!({ "path": "a.ts" }).as_object().expect("object").clone())
+                    .into_iter()
+                    .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                    .collect::<pi_js_compat::js_json::JsObject>(),
             )),
             AssistantContent::ToolCall(ToolCall::new(
                 "b",
                 "edit",
-                json!({ "path": "b.ts" }).as_object().expect("object").clone(),
+                (json!({ "path": "b.ts" }).as_object().expect("object").clone())
+                    .into_iter()
+                    .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                    .collect::<pi_js_compat::js_json::JsObject>(),
             )),
         ]),
     ];
@@ -172,7 +185,12 @@ fn serializes_numeric_keys_and_nested_values_in_js_order() {
     let arguments: serde_json::Map<String, Value> =
         serde_json::from_str(r#"{"nested":{"2":2.0,"1":1.0,"01":3},"2":2.0,"1":1.0,"4294967295":4,"01":5}"#).unwrap();
     let messages = [assistant(vec![AssistantContent::ToolCall(ToolCall::new(
-        "id", "inspect", arguments,
+        "id",
+        "inspect",
+        arguments
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>(),
     ))])];
     assert_eq!(
         serialize_conversation(&messages),

@@ -117,7 +117,7 @@ fn attaches_to_the_debug_socket_owned_by_the_exact_live_session() {
         write_session_health(
             &harness.control_db_path,
             &SessionHealthRecord {
-                session_id: session_id.to_owned(),
+                session_id: JsString::from(session_id.to_owned()),
                 agent_generation: 1,
                 pid: Some(1131255),
                 last_active_at: Some("2026-07-16T00:00:00.000Z".to_owned()),
@@ -195,7 +195,7 @@ fn reports_attach_failures_with_the_source_message() {
         write_session_health(
             &harness.control_db_path,
             &SessionHealthRecord {
-                session_id: session_id.to_owned(),
+                session_id: JsString::from(session_id.to_owned()),
                 agent_generation: 1,
                 pid: Some(77),
                 last_active_at: None,

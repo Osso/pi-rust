@@ -3,6 +3,9 @@
 #[path = "support/image_fixtures.rs"]
 mod image_fixtures;
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::encode_node_utf8;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -80,10 +83,13 @@ async fn jsonl_export_preserves_javascript_value_bytes() {
     fixture
         .session
         .session_manager()
-        .append_custom_entry("numeric", Some(value))
+        .append_custom_entry(&JsString::from("numeric"), Some(value))
         .unwrap();
     let path = fixture._temp_dir.path().join("export.jsonl");
-    fixture.session.export_to_jsonl(Some(path.to_str().unwrap())).unwrap();
+    fixture
+        .session
+        .export_to_jsonl(Some(&JsString::from(path.to_str().unwrap())))
+        .unwrap();
     let bytes = std::fs::read_to_string(path).unwrap();
     assert!(
         bytes.contains(r#""data":{"1":1,"2":2,"x":9007199254740992}"#),
@@ -149,7 +155,7 @@ async fn fixture_with_multi_agent(
     let agent = Agent::new(AgentOptions {
         initial_state: Some(AgentInitialState {
             model: Some(model),
-            system_prompt: Some(String::new()),
+            system_prompt: Some(JsString::default()),
             thinking_level: Some(ThinkingLevel::Off),
             tools: Some(Vec::new()),
             messages: None,
@@ -161,16 +167,17 @@ async fn fixture_with_multi_agent(
     let cwd = temp_dir.path().display().to_string();
     let session_manager = if persist_session {
         let session_dir = temp_dir.path().join("sessions").display().to_string();
-        SessionManager::create(&cwd, Some(&session_dir), None).expect("persisted session")
+        SessionManager::create(&JsString::from(&cwd), Some(&JsString::from(&session_dir)), None)
+            .expect("persisted session")
     } else {
-        SessionManager::in_memory(Some(&cwd), None).expect("in-memory session")
+        SessionManager::in_memory(Some(&JsString::from(&cwd)), None).expect("in-memory session")
     };
     let settings_manager = SettingsManager::in_memory(settings, SettingsManagerCreateOptions::default());
     let session = AgentSession::new(AgentSessionConfig {
         agent,
         session_manager: Arc::new(std::sync::Mutex::new(session_manager)),
         settings_manager: Arc::new(std::sync::Mutex::new(settings_manager)),
-        cwd: temp_dir.path().display().to_string(),
+        cwd: JsString::from(temp_dir.path().display().to_string()),
         scoped_models: Vec::new(),
         resource_loader: Arc::new(pi_coding_agent::core::resource_loader::StaticResourceLoader {
             extensions,
@@ -181,8 +188,8 @@ async fn fixture_with_multi_agent(
         allowed_tool_names,
         excluded_tool_names: None,
         permission_prompt_tool: None,
-        agent_dir: Some(temp_dir.path().display().to_string()),
-        control_db_path: Some(temp_dir.path().join("control.db").display().to_string()),
+        agent_dir: Some(JsString::from(temp_dir.path().display().to_string())),
+        control_db_path: Some(JsString::from(temp_dir.path().join("control.db").display().to_string())),
         base_tools,
         custom_tool_definitions,
         custom_tools: Vec::<ToolDefinition>::new(),
@@ -191,7 +198,7 @@ async fn fixture_with_multi_agent(
         thinking_phase_timeout_ms,
         supervisor_decision_requester,
         multi_agent_store: multi_agent.as_ref().map(|(store, _)| Arc::clone(store)),
-        multi_agent_agent_id: multi_agent.as_ref().map(|(_, agent_id)| agent_id.clone()),
+        multi_agent_agent_id: (multi_agent.as_ref().map(|(_, agent_id)| agent_id.clone())).map(JsString::from),
         multi_agent_parent_session_id: None,
         multi_agent_requires_agent_id: multi_agent.is_some(),
         disable_runtime_coordination_inbound: false,
@@ -280,7 +287,10 @@ fn retry_completion_response() -> pi_ai::types::AssistantMessage {
     faux_assistant_message(
         vec![pi_ai::providers::faux::faux_tool_call(
             "end_turn",
-            serde_json::Map::from_iter([("reason".to_owned(), json!("done"))]),
+            serde_json::Map::from_iter([("reason".to_owned(), json!("done"))])
+                .into_iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect::<pi_js_compat::js_json::JsObject>(),
             Some("retry-complete".to_owned()),
         )],
         FauxAssistantMessageOptions::default(),
@@ -358,7 +368,10 @@ async fn prompt_persists_user_and_assistant_messages() {
                 pi_ai::providers::faux::faux_text("hello"),
                 pi_ai::providers::faux::faux_tool_call(
                     "end_turn",
-                    serde_json::Map::from_iter([("reason".to_owned(), serde_json::json!("done"))]),
+                    serde_json::Map::from_iter([("reason".to_owned(), serde_json::json!("done"))])
+                        .into_iter()
+                        .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                        .collect::<pi_js_compat::js_json::JsObject>(),
                     Some("call-end".to_owned()),
                 ),
             ],
@@ -613,8 +626,14 @@ async fn set_model_updates_state_for_authenticated_model() {
 async fn session_name_round_trips_through_session_metadata_state() {
     let fixture = fixture().await;
     let events = record_events(&fixture.session);
-    fixture.session.set_session_name("My session").expect("set name");
-    assert_eq!(fixture.session.session_name().as_deref(), Some("My session"));
+    fixture
+        .session
+        .set_session_name(&JsString::from("My session"))
+        .expect("set name");
+    assert_eq!(
+        fixture.session.session_name().as_ref(),
+        Some(&JsString::from("My session"))
+    );
     assert!(
         fixture
             .session
@@ -643,7 +662,10 @@ async fn session_stats_count_messages_tools_and_usage() {
                 pi_ai::providers::faux::faux_text("hello"),
                 pi_ai::providers::faux::faux_tool_call(
                     "end_turn",
-                    serde_json::Map::from_iter([("reason".to_owned(), serde_json::json!("done"))]),
+                    serde_json::Map::from_iter([("reason".to_owned(), serde_json::json!("done"))])
+                        .into_iter()
+                        .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                        .collect::<pi_js_compat::js_json::JsObject>(),
                     Some("call-end".to_owned()),
                 ),
             ],
@@ -673,7 +695,10 @@ async fn get_last_assistant_text_skips_empty_aborted_messages() {
                 pi_ai::providers::faux::faux_text("  final answer  "),
                 pi_ai::providers::faux::faux_tool_call(
                     "end_turn",
-                    serde_json::Map::from_iter([("reason".to_owned(), serde_json::json!("done"))]),
+                    serde_json::Map::from_iter([("reason".to_owned(), serde_json::json!("done"))])
+                        .into_iter()
+                        .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                        .collect::<pi_js_compat::js_json::JsObject>(),
                     Some("call-end".to_owned()),
                 ),
             ],
@@ -687,8 +712,8 @@ async fn get_last_assistant_text_skips_empty_aborted_messages() {
         .await
         .expect("prompt");
     assert_eq!(
-        fixture.session.get_last_assistant_text().as_deref(),
-        Some("final answer")
+        fixture.session.get_last_assistant_text().as_ref(),
+        Some(&JsString::from("final answer"))
     );
 }
 
@@ -711,7 +736,7 @@ async fn navigate_tree_moves_leaf_and_returns_editor_text() {
         .await
         .expect("navigate");
     assert!(!result.cancelled);
-    assert_eq!(result.editor_text.as_deref(), Some("first"));
+    assert_eq!(result.editor_text.as_ref(), Some(&JsString::from("first")));
     assert_eq!(fixture.session.session_manager().get_leaf_id(), None);
     assert!(fixture.session.messages().is_empty());
 }
@@ -749,14 +774,14 @@ async fn navigate_tree_summarizes_the_abandoned_branch_and_attaches_the_summary(
             &first_user_entry,
             NavigateTreeOptions {
                 summarize: Some(true),
-                label: Some("abandoned".to_owned()),
+                label: Some(JsString::from("abandoned")),
                 ..Default::default()
             },
         )
         .await
         .expect("navigate with summary");
     assert!(!result.cancelled);
-    assert_eq!(result.editor_text.as_deref(), Some("first"));
+    assert_eq!(result.editor_text.as_ref(), Some(&JsString::from("first")));
     let summary_entry = result.summary_entry.expect("branch summary entry");
     let SessionEntry::Known(KnownSessionEntry::BranchSummary(summary)) = &summary_entry else {
         panic!("expected a branch summary entry");
@@ -766,7 +791,7 @@ async fn navigate_tree_summarizes_the_abandoned_branch_and_attaches_the_summary(
     assert_eq!(summary.from_id, "root");
     assert_eq!(summary.from_hook, Some(false));
     let manager = fixture.session.session_manager();
-    assert_eq!(manager.get_label(&summary.id), Some("abandoned"));
+    assert_eq!(manager.get_label(&summary.id), Some(&JsString::from("abandoned")));
     let leaf = manager.get_leaf_entry().expect("label entry leaf");
     assert_eq!(leaf.entry_type(), "label");
     assert_eq!(leaf.id(), manager.get_leaf_id());
@@ -800,7 +825,7 @@ impl pi_agent_core::agent::types::AgentTool for EchoTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: serde_json::Value,
+        params: JsValue,
         _signal: Option<tokio_util::sync::CancellationToken>,
         _on_update: pi_agent_core::agent::types::AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -822,16 +847,16 @@ impl pi_agent_core::agent::types::AgentTool for EchoTool {
 fn running_agent(id: &str) -> pi_coding_agent::core::multi_agent_store::AgentSnapshot {
     use pi_coding_agent::core::multi_agent_store::{AgentLifecycle, AgentPermission, AgentSnapshot};
     AgentSnapshot {
-        id: id.to_owned(),
+        id: JsString::from(id.to_owned()),
         parent_id: None,
-        display_name: "Child".to_owned(),
+        display_name: JsString::from("Child"),
         agent_type: "worker".into(),
         origin: None,
         lifecycle: AgentLifecycle::Running,
         revision: 1,
-        created_at: "2026-06-21T00:00:00.000Z".to_owned(),
-        updated_at: "2026-06-21T00:00:00.000Z".to_owned(),
-        cwd: "/repo".to_owned(),
+        created_at: JsString::from("2026-06-21T00:00:00.000Z"),
+        updated_at: JsString::from("2026-06-21T00:00:00.000Z"),
+        cwd: JsString::from("/repo"),
         worktree: None,
         model: None,
         account: None,
@@ -886,7 +911,10 @@ async fn publishes_multi_agent_activity_across_agent_and_tool_events() {
                 pi_ai::providers::faux::faux_text("working"),
                 pi_ai::providers::faux::faux_tool_call(
                     "echo",
-                    json!({"text": "hi"}).as_object().cloned().expect("arguments"),
+                    (json!({"text": "hi"}).as_object().cloned().expect("arguments"))
+                        .into_iter()
+                        .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                        .collect::<pi_js_compat::js_json::JsObject>(),
                     Some("call-1".to_owned()),
                 ),
             ],
@@ -948,7 +976,7 @@ async fn binds_extension_relocation_handlers_on_the_session() {
     let runner = fixture.session.extension_runner();
     runner
         .create_context()
-        .relocate_after_tool_result("call-1", "/next")
+        .relocate_after_tool_result("call-1", &JsString::from("/next"))
         .expect("schedule relocation");
     runner
         .deliver_tool_result_relocation("call-1")
@@ -985,7 +1013,7 @@ async fn runtime_mailbox_delivery_prompts_the_session_and_removes_the_accepted_r
     let control_db_path = fixture.session.control_db_path().expect("control db");
     let session_id = fixture.session.session_id();
     let store_ref = RuntimeMailboxStoreRef {
-        message_id: "mailbox-1".to_owned(),
+        message_id: JsString::from("mailbox-1"),
         session_path: session_file,
     };
     let created_at = pi_coding_agent::utils::iso_time::now_iso_string();
@@ -997,8 +1025,8 @@ async fn runtime_mailbox_delivery_prompts_the_session_and_removes_the_accepted_r
                 session_id,
             },
             sender: RuntimeMailboxAddress {
-                agent_id: Some("parent".to_owned()),
-                session_id: "parent-session".to_owned(),
+                agent_id: Some(JsString::from("parent")),
+                session_id: JsString::from("parent-session"),
             },
             kind: RuntimeMailboxMessageKind::Message,
             store_ref,
@@ -1038,14 +1066,16 @@ async fn runtime_mailbox_delivery_prompts_the_session_and_removes_the_accepted_r
         .find_map(|message| match message {
             AgentMessage::User(user) => Some(match &user.content {
                 pi_ai::types::UserContent::Text(text) => text.clone(),
-                pi_ai::types::UserContent::Blocks(blocks) => blocks
-                    .iter()
-                    .filter_map(|block| match block {
-                        pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.as_str()),
-                        pi_ai::types::TextOrImageContent::Image(_) => None,
-                    })
-                    .collect::<Vec<_>>()
-                    .join(""),
+                pi_ai::types::UserContent::Blocks(blocks) => JsString::from(
+                    blocks
+                        .iter()
+                        .filter_map(|block| match block {
+                            pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.as_str()),
+                            pi_ai::types::TextOrImageContent::Image(_) => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join(""),
+                ),
             }),
             _ => None,
         })
@@ -1092,9 +1122,9 @@ async fn shared_channel_delivery_formats_and_queues_messages_after_the_initial_c
         &PostSharedChannelMessageInput {
             sender: RuntimeMailboxAddress {
                 agent_id: None,
-                session_id: "other-session".to_owned(),
+                session_id: JsString::from("other-session"),
             },
-            body: "hello channel".to_owned(),
+            body: JsString::from("hello channel"),
         },
     )
     .expect("post channel message");
@@ -1161,7 +1191,7 @@ async fn execute_bash_records_streams_and_commits() {
 
     let result = fixture
         .session
-        .execute_bash("printf 'hello'", None, ExecuteBashOptions::default())
+        .execute_bash(&JsString::from("printf 'hello'"), None, ExecuteBashOptions::default())
         .await
         .expect("bash succeeds");
 
@@ -1188,9 +1218,9 @@ async fn record_bash_result_commits_immediately_without_message_end() {
     }));
 
     fixture.session.record_bash_result(
-        "echo hi",
+        &JsString::from("echo hi"),
         &BashResult {
-            output: "hi".to_owned(),
+            output: JsString::from("hi"),
             exit_code: Some(0),
             cancelled: false,
             truncated: false,
@@ -1210,8 +1240,8 @@ struct BlockingBashOperations;
 impl pi_coding_agent::core::tools::bash::BashOperations for BlockingBashOperations {
     fn exec<'a>(
         &'a self,
-        _command: &'a str,
-        _cwd: &'a str,
+        _command: &'a JsString,
+        _cwd: &'a JsString,
         options: pi_coding_agent::core::tools::bash::BashExecOptions,
     ) -> pi_ai::request::BoxFuture<
         'a,
@@ -1236,7 +1266,7 @@ async fn abort_bash_cancels_running_execution() {
     let task = tokio::spawn(async move {
         session
             .execute_bash(
-                "sleep",
+                &JsString::from("sleep"),
                 None,
                 ExecuteBashOptions {
                     operations: Some(operations),
@@ -1325,7 +1355,10 @@ async fn normalizes_oversized_tool_result_images() {
         faux_assistant_message(
             vec![pi_ai::providers::faux::faux_tool_call(
                 "screenshot",
-                serde_json::Map::new(),
+                serde_json::Map::new()
+                    .into_iter()
+                    .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                    .collect::<pi_js_compat::js_json::JsObject>(),
                 Some("call-1".to_owned()),
             )],
             FauxAssistantMessageOptions {
@@ -1353,7 +1386,10 @@ async fn normalizes_oversized_tool_result_images() {
 #[tokio::test]
 async fn keeps_oversized_tool_result_images_when_auto_resize_is_disabled() {
     let mut settings = pi_coding_agent::core::settings_manager::Settings::new();
-    settings.insert("images".to_owned(), serde_json::json!({"autoResize": false}));
+    settings.insert(
+        JsString::from("images"),
+        JsValue::from(serde_json::json!({"autoResize": false})),
+    );
     let fixture = fixture_with(
         settings,
         vec![Arc::new(ScreenshotTool)],
@@ -1365,7 +1401,10 @@ async fn keeps_oversized_tool_result_images_when_auto_resize_is_disabled() {
         faux_assistant_message(
             vec![pi_ai::providers::faux::faux_tool_call(
                 "screenshot",
-                serde_json::Map::new(),
+                serde_json::Map::new()
+                    .into_iter()
+                    .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                    .collect::<pi_js_compat::js_json::JsObject>(),
                 Some("call-1".to_owned()),
             )],
             FauxAssistantMessageOptions {
@@ -1427,7 +1466,7 @@ impl pi_agent_core::agent::types::AgentTool for ScreenshotTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        _params: serde_json::Value,
+        _params: JsValue,
         _signal: Option<tokio_util::sync::CancellationToken>,
         _on_update: pi_agent_core::agent::types::AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -1470,7 +1509,7 @@ impl pi_agent_core::agent::types::AgentTool for PermissionEchoTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: serde_json::Value,
+        params: JsValue,
         _signal: Option<tokio_util::sync::CancellationToken>,
         _on_update: pi_agent_core::agent::types::AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -1526,7 +1565,7 @@ impl pi_agent_core::agent::types::AgentTool for ApprovalPromptTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        params: serde_json::Value,
+        params: JsValue,
         _signal: Option<tokio_util::sync::CancellationToken>,
         _on_update: pi_agent_core::agent::types::AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -1591,7 +1630,10 @@ async fn permission_prompt_tool_updates_input_before_execution() {
         response: json!({"behavior":"allow","updatedInput":{"text":"approved"}}),
     });
     let mut settings = pi_coding_agent::core::settings_manager::Settings::new();
-    settings.insert("permissionPromptTool".to_owned(), json!("mcp__approval__prompt"));
+    settings.insert(
+        JsString::from("permissionPromptTool"),
+        JsValue::from(json!("mcp__approval__prompt")),
+    );
     let fixture = permission_fixture(
         settings,
         vec![
@@ -1720,7 +1762,10 @@ async fn denied_permission_prompt_blocks_tool_execution() {
     let executed = Arc::new(std::sync::Mutex::new(Vec::new()));
     let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
     let mut settings = pi_coding_agent::core::settings_manager::Settings::new();
-    settings.insert("permissionPromptTool".to_owned(), json!("mcp__approval__prompt"));
+    settings.insert(
+        JsString::from("permissionPromptTool"),
+        JsValue::from(json!("mcp__approval__prompt")),
+    );
     let fixture = permission_fixture(
         settings,
         vec![
@@ -1762,10 +1807,13 @@ async fn persisted_allow_rule_skips_permission_prompt_tool() {
     let executed = Arc::new(std::sync::Mutex::new(Vec::new()));
     let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
     let mut settings = pi_coding_agent::core::settings_manager::Settings::new();
-    settings.insert("permissionPromptTool".to_owned(), json!("mcp__approval__prompt"));
     settings.insert(
-        "permissionRules".to_owned(),
-        json!({"allow":{"echo":[json!({"text":"original"}).to_string()]}}),
+        JsString::from("permissionPromptTool"),
+        JsValue::from(json!("mcp__approval__prompt")),
+    );
+    settings.insert(
+        JsString::from("permissionRules"),
+        JsValue::from(json!({"allow":{"echo":[json!({"text":"original"}).to_string()]}})),
     );
     let fixture = permission_fixture(
         settings,
@@ -1807,7 +1855,7 @@ async fn binds_detached_job_lifecycle_when_a_store_is_configured() {
     let agent = Agent::new(AgentOptions {
         initial_state: Some(AgentInitialState {
             model: Some(model),
-            system_prompt: Some(String::new()),
+            system_prompt: Some(JsString::default()),
             thinking_level: Some(ThinkingLevel::Off),
             tools: Some(Vec::new()),
             messages: None,
@@ -1819,14 +1867,15 @@ async fn binds_detached_job_lifecycle_when_a_store_is_configured() {
     let cwd = temp_dir.path().display().to_string();
     let session_dir = temp_dir.path().join("sessions").display().to_string();
     let control_db = temp_dir.path().join("control.db").display().to_string();
-    let mut session_manager = SessionManager::create(&cwd, Some(&session_dir), None).expect("session manager");
+    let mut session_manager = SessionManager::create(&JsString::from(&cwd), Some(&JsString::from(&session_dir)), None)
+        .expect("session manager");
     session_manager
-        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .set_metadata_control_db_path(Some(&JsString::from(&control_db)), Default::default())
         .expect("metadata control db");
     session_manager
         .append_message(AgentMessage::User(pi_ai::types::UserMessage {
             role: pi_ai::types::UserRole::Tag,
-            content: pi_ai::types::UserContent::Text("hello".to_owned()),
+            content: pi_ai::types::UserContent::Text(JsString::from("hello")),
             input_source: None,
             provider_native: None,
             timestamp: 1_700_000_000_000,
@@ -1841,7 +1890,7 @@ async fn binds_detached_job_lifecycle_when_a_store_is_configured() {
         agent,
         session_manager: Arc::new(std::sync::Mutex::new(session_manager)),
         settings_manager: Arc::new(std::sync::Mutex::new(settings_manager)),
-        cwd: cwd.clone(),
+        cwd: JsString::from(cwd.clone()),
         scoped_models: Vec::new(),
         resource_loader: pi_coding_agent::core::resource_loader::StaticResourceLoader::new(),
         model_runtime: runtime,
@@ -1849,8 +1898,8 @@ async fn binds_detached_job_lifecycle_when_a_store_is_configured() {
         allowed_tool_names: None,
         excluded_tool_names: None,
         permission_prompt_tool: None,
-        agent_dir: Some(cwd),
-        control_db_path: Some(control_db),
+        agent_dir: Some(JsString::from(cwd)),
+        control_db_path: Some(JsString::from(control_db)),
         base_tools: Vec::new(),
         custom_tool_definitions: Vec::new(),
         custom_tools: Vec::<ToolDefinition>::new(),
@@ -1951,9 +2000,9 @@ async fn bash_tool_exposes_live_session_environment_variables() {
         .tool
         .execute(
             "call-1".to_owned(),
-            json!({
+            JsValue::from(json!({
                 "command": "printf '%s|%s|%s|%s|%s' \"$PI_SESSION_ID\" \"$PI_SESSION_FILE\" \"$PI_PROVIDER\" \"$PI_MODEL\" \"$PI_REASONING_LEVEL\""
-            }),
+            })),
             None,
             Arc::new(|_result| {}),
             None,
@@ -1999,7 +2048,7 @@ async fn update_compaction_summary_returns_the_persistence_error() {
         let first_kept = manager
             .append_message(AgentMessage::User(UserMessage {
                 role: UserRole::Tag,
-                content: UserContent::Text("kept".to_owned()),
+                content: UserContent::Text(JsString::from("kept")),
                 input_source: None,
                 provider_native: None,
                 timestamp: 1,
@@ -2007,7 +2056,7 @@ async fn update_compaction_summary_returns_the_persistence_error() {
             .expect("user message");
         let id = manager
             .append_compaction(
-                "original summary",
+                &JsString::from("original summary"),
                 &first_kept,
                 42_000.0,
                 pi_coding_agent::core::session_manager::CompactionAppendOptions {
@@ -2022,14 +2071,14 @@ async fn update_compaction_summary_returns_the_persistence_error() {
             manager.get_session_file().expect("persisted session file").to_owned(),
         )
     };
-    if std::path::Path::new(&session_file).exists() {
-        std::fs::remove_file(&session_file).expect("remove session file");
+    if std::path::Path::new(&encode_node_utf8(&session_file)).exists() {
+        std::fs::remove_file(&encode_node_utf8(&session_file)).expect("remove session file");
     }
-    std::fs::create_dir(&session_file).expect("replace with directory");
+    std::fs::create_dir(&encode_node_utf8(&session_file)).expect("replace with directory");
 
     let before = session.messages();
     let error = session
-        .update_compaction_summary(&compaction_id, "edited summary")
+        .update_compaction_summary(&compaction_id, &JsString::from("edited summary"))
         .expect_err("persistence failure must surface");
     assert!(!error.message().is_empty());
     assert_eq!(session.messages(), before);
@@ -2064,10 +2113,10 @@ impl ScriptedApprovalUi {
 impl ExtensionUiContext for ScriptedApprovalUi {
     fn select<'a>(
         &'a self,
-        title: &str,
-        options: &[String],
+        title: &JsString,
+        options: &[JsString],
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> pi_ai::request::BoxFuture<'a, Result<Option<String>, String>> {
+    ) -> pi_ai::request::BoxFuture<'a, Result<Option<JsString>, String>> {
         self.titles.lock().unwrap().push(title.to_owned());
         self.options.lock().unwrap().push(options.to_vec());
         let selection = self.selections.lock().unwrap().pop_front().flatten();
@@ -2110,7 +2159,7 @@ impl pi_agent_core::agent::types::AgentTool for SpawnRecorderTool {
     fn execute(
         &self,
         tool_call_id: String,
-        params: serde_json::Value,
+        params: JsValue,
         _signal: Option<tokio_util::sync::CancellationToken>,
         _on_update: pi_agent_core::agent::types::AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -2129,8 +2178,8 @@ async fn human_allow_always_spawns_the_permission_config_agent() {
     let spawned = Arc::new(std::sync::Mutex::new(Vec::new()));
     let ui = Arc::new(ScriptedApprovalUi::with_selection("Allow always"));
     let mut settings = pi_coding_agent::core::settings_manager::Settings::new();
-    settings.insert("approvalPolicy".to_owned(), json!("on-request"));
-    settings.insert("approvalPreset".to_owned(), json!("ask-me"));
+    settings.insert(JsString::from("approvalPolicy"), JsValue::from(json!("on-request")));
+    settings.insert(JsString::from("approvalPreset"), JsValue::from(json!("ask-me")));
     let fixture = fixture_with(
         settings,
         vec![
@@ -2239,11 +2288,14 @@ fn recording_supervisor(
 async fn llm_reviewer_auto_approves_read_only_builtin_tools() {
     let (requester, supervisor_calls) =
         recording_supervisor(pi_coding_agent::core::session_control_db::SupervisorResponse::Reject {
-            reason: "should not be consulted".to_owned(),
+            reason: JsString::from("should not be consulted"),
         });
     let mut settings = pi_coding_agent::core::settings_manager::Settings::new();
-    settings.insert("approvalPolicy".to_owned(), json!("on-request"));
-    settings.insert("approvalPreset".to_owned(), json!("llm-approved-ask"));
+    settings.insert(JsString::from("approvalPolicy"), JsValue::from(json!("on-request")));
+    settings.insert(
+        JsString::from("approvalPreset"),
+        JsValue::from(json!("llm-approved-ask")),
+    );
     let fixture = fixture_with_multi_agent(
         settings,
         Vec::new(),
@@ -2260,7 +2312,10 @@ async fn llm_reviewer_auto_approves_read_only_builtin_tools() {
         faux_assistant_message(
             pi_ai::providers::faux::FauxContent::Blocks(vec![pi_ai::providers::faux::faux_tool_call(
                 "grep",
-                json!({"pattern": "phpstan"}).as_object().cloned().expect("arguments"),
+                (json!({"pattern": "phpstan"}).as_object().cloned().expect("arguments"))
+                    .into_iter()
+                    .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                    .collect::<pi_js_compat::js_json::JsObject>(),
                 Some("call-1".to_owned()),
             )]),
             FauxAssistantMessageOptions {
@@ -2335,11 +2390,14 @@ async fn llm_reviewer_does_not_auto_approve_extension_tools_reusing_a_read_only_
     let executed = Arc::new(std::sync::Mutex::new(Vec::new()));
     let (requester, supervisor_calls) =
         recording_supervisor(pi_coding_agent::core::session_control_db::SupervisorResponse::Reject {
-            reason: "custom tool".to_owned(),
+            reason: JsString::from("custom tool"),
         });
     let mut settings = pi_coding_agent::core::settings_manager::Settings::new();
-    settings.insert("approvalPolicy".to_owned(), json!("on-request"));
-    settings.insert("approvalPreset".to_owned(), json!("llm-approved-deny"));
+    settings.insert(JsString::from("approvalPolicy"), JsValue::from(json!("on-request")));
+    settings.insert(
+        JsString::from("approvalPreset"),
+        JsValue::from(json!("llm-approved-deny")),
+    );
     let fixture = fixture_with_multi_agent(
         settings,
         Vec::new(),
@@ -2356,7 +2414,10 @@ async fn llm_reviewer_does_not_auto_approve_extension_tools_reusing_a_read_only_
         faux_assistant_message(
             pi_ai::providers::faux::FauxContent::Blocks(vec![pi_ai::providers::faux::faux_tool_call(
                 "grep",
-                json!({"pattern": "phpstan"}).as_object().cloned().expect("arguments"),
+                (json!({"pattern": "phpstan"}).as_object().cloned().expect("arguments"))
+                    .into_iter()
+                    .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                    .collect::<pi_js_compat::js_json::JsObject>(),
                 Some("call-1".to_owned()),
             )]),
             FauxAssistantMessageOptions {
@@ -2408,7 +2469,7 @@ impl pi_agent_core::agent::types::AgentTool for GatedTool {
     fn execute(
         &self,
         _tool_call_id: String,
-        _params: serde_json::Value,
+        _params: JsValue,
         _signal: Option<tokio_util::sync::CancellationToken>,
         _on_update: pi_agent_core::agent::types::AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
@@ -2436,7 +2497,13 @@ fn tool_call_response(name: &str, arguments: serde_json::Value, id: &str) -> pi_
     faux_assistant_message(
         pi_ai::providers::faux::FauxContent::Blocks(vec![pi_ai::providers::faux::faux_tool_call(
             name,
-            arguments.as_object().cloned().unwrap_or_default(),
+            arguments
+                .as_object()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect::<pi_js_compat::js_json::JsObject>(),
             Some(id.to_owned()),
         )]),
         FauxAssistantMessageOptions {
@@ -2626,10 +2693,10 @@ struct FailingApprovalUi;
 impl ExtensionUiContext for FailingApprovalUi {
     fn select<'a>(
         &'a self,
-        _title: &str,
-        _options: &[String],
+        _title: &JsString,
+        _options: &[JsString],
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> pi_ai::request::BoxFuture<'a, Result<Option<String>, String>> {
+    ) -> pi_ai::request::BoxFuture<'a, Result<Option<JsString>, String>> {
         Box::pin(async { Err("dialog failed".to_owned()) })
     }
 }
@@ -2657,8 +2724,8 @@ fn tool_result_text(fixture: &Fixture) -> (bool, String) {
 async fn human_approval_ui_errors_abort_the_tool_call() {
     let executed = Arc::new(std::sync::Mutex::new(Vec::new()));
     let mut settings = pi_coding_agent::core::settings_manager::Settings::new();
-    settings.insert("approvalPolicy".to_owned(), json!("on-request"));
-    settings.insert("approvalPreset".to_owned(), json!("ask-me"));
+    settings.insert(JsString::from("approvalPolicy"), JsValue::from(json!("on-request")));
+    settings.insert(JsString::from("approvalPreset"), JsValue::from(json!("ask-me")));
     let fixture = fixture_with(
         settings,
         vec![Arc::new(PermissionEchoTool {
@@ -2706,8 +2773,11 @@ async fn supervisor_requester_errors_abort_the_tool_call() {
     let requester: SupervisorDecisionRequester =
         Arc::new(|_input| Box::pin(async { Err("supervisor unavailable".to_owned()) }));
     let mut settings = pi_coding_agent::core::settings_manager::Settings::new();
-    settings.insert("approvalPolicy".to_owned(), json!("on-request"));
-    settings.insert("approvalPreset".to_owned(), json!("llm-approved-deny"));
+    settings.insert(JsString::from("approvalPolicy"), JsValue::from(json!("on-request")));
+    settings.insert(
+        JsString::from("approvalPreset"),
+        JsValue::from(json!("llm-approved-deny")),
+    );
     let fixture = fixture_with_multi_agent(
         settings,
         vec![Arc::new(PermissionEchoTool {
@@ -2830,9 +2900,15 @@ async fn fixture_with_test_command() -> Fixture {
         Box::pin(async { Ok(()) })
     });
     let event_bus: Arc<dyn EventBus> = Arc::new(EventBusController::new());
-    let extension = load_extension_from_factory(factory, "/tmp", event_bus, runtime.clone(), "/tmp/testcmd.ts")
-        .await
-        .expect("extension factory succeeds");
+    let extension = load_extension_from_factory(
+        factory,
+        &JsString::from("/tmp"),
+        event_bus,
+        runtime.clone(),
+        &JsString::from("/tmp/testcmd.ts"),
+    )
+    .await
+    .expect("extension factory succeeds");
     fixture_with_multi_agent(
         Default::default(),
         Vec::new(),

@@ -3,6 +3,8 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::collections::HashSet;
 
 use pi_agent_core::agent::AgentMessage;
@@ -202,7 +204,10 @@ fn openai_remote_compact_helpers_match_typescript() {
         let expected = &results[index]["value"];
         match case["kind"].as_str().unwrap() {
             "instructions" => {
-                let actual = build_openai_compact_instructions(case["base"].as_str().unwrap(), case["custom"].as_str());
+                let actual = build_openai_compact_instructions(
+                    &JsString::from(case["base"].as_str().unwrap()),
+                    case["custom"].as_str().map(JsString::from).as_ref(),
+                );
                 assert_eq!(Value::String(actual), *expected, "{name}");
             }
             "endpoint" => {
@@ -221,7 +226,7 @@ fn openai_remote_compact_helpers_match_typescript() {
                 let actual = headers_value(
                     build_openai_request_headers(
                         &parse_model(&case["model"]),
-                        case["apiKey"].as_str(),
+                        case["apiKey"].as_str().map(JsString::from).as_ref(),
                         headers.as_ref(),
                     )
                     .unwrap(),
@@ -238,14 +243,18 @@ fn openai_remote_compact_helpers_match_typescript() {
                     .as_array()
                     .map(|indices| indices.iter().map(|index| index.as_u64().unwrap() as usize).collect())
                     .unwrap_or_default();
-                let actual = Value::Array(limit_openai_compact_input(items, &pinned, &native));
+                let actual = Value::Array(limit_openai_compact_input(
+                    items.into_iter().map(JsValue::from).collect::<Vec<_>>(),
+                    &pinned,
+                    &native,
+                ));
                 assert_eq!(actual, *expected, "{name}");
             }
             "extract" => {
                 let details = extract_openai_compact_details(
                     &parse_model(&case["model"]),
                     &case["response"],
-                    case["endpoint"].as_str().unwrap(),
+                    &JsString::from(case["endpoint"].as_str().unwrap()),
                 )
                 .expect("details");
                 let actual = serde_json::to_value(details).expect("details json");
@@ -272,7 +281,7 @@ fn openai_remote_compact_helpers_match_typescript() {
                 let payload = build_openai_compact_payload(
                     &parse_model(&case["model"]),
                     &messages,
-                    case["instructions"].as_str().unwrap(),
+                    &JsString::from(case["instructions"].as_str().unwrap()),
                     &previous,
                     pinned,
                 )
@@ -304,7 +313,7 @@ fn numeric_properties_consume_compaction_budget_in_javascript_order() {
         expected[0]["1"]["text"].as_str().unwrap().len(),
         expected[0]["2"]["text"].as_str().unwrap().len()
     );
-    let actual = limit_openai_compact_input(vec![item], &HashSet::new(), &HashSet::new());
+    let actual = limit_openai_compact_input(vec![JsValue::from(item)], &HashSet::new(), &HashSet::new());
     assert!(
         serde_json::to_value(actual).unwrap() == *expected,
         "full compacted output differs from pinned TS"

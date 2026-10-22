@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::time::{Duration, Instant};
 
 use pi_coding_agent::core::exec::{ExecOptions, exec_command};

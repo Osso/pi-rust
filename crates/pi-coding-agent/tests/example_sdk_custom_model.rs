@@ -1,3 +1,5 @@
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 #[path = "../examples/sdk/02_custom_model.rs"]
 mod example;
 #[path = "support/oracle.rs"]
@@ -134,7 +136,10 @@ async fn streaming_stops_after_first_writer_error() {
             faux_text("second"),
             faux_tool_call(
                 "end_turn",
-                serde_json::Map::from_iter([("reason".into(), serde_json::json!("done"))]),
+                serde_json::Map::from_iter([("reason".into(), serde_json::json!("done"))])
+                    .into_iter()
+                    .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                    .collect::<pi_js_compat::js_json::JsObject>(),
                 Some("done".into()),
             ),
         ],

@@ -16,6 +16,7 @@ use pi_coding_agent::core::{
     session_manager::{SessionManager, get_default_session_dir},
     settings_manager::SettingsManager,
 };
+use pi_js_compat::js_json::JsString;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
@@ -133,7 +134,7 @@ pub async fn run(
     writeln!(
         output.lock().expect("output mutex poisoned"),
         "Initial session: {}",
-        original.as_deref().unwrap_or("undefined")
+        original.as_ref().unwrap_or(&JsString::from("undefined"))
     )
     .map_err(|e| e.to_string())?;
     let mut files = vec![original.clone()];
@@ -146,7 +147,7 @@ pub async fn run(
     writeln!(
         output.lock().expect("output mutex poisoned"),
         "After newSession(): {}",
-        files[1].as_deref().unwrap_or("undefined")
+        files[1].as_ref().unwrap_or(&JsString::from("undefined"))
     )
     .map_err(|e| e.to_string())?;
     if let Some(original) = original {
@@ -159,7 +160,7 @@ pub async fn run(
         writeln!(
             output.lock().expect("output mutex poisoned"),
             "After switchSession(): {}",
-            files[2].as_deref().unwrap_or("undefined")
+            files[2].as_ref().unwrap_or(&JsString::from("undefined"))
         )
         .map_err(|e| e.to_string())?;
     }

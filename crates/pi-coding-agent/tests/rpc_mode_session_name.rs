@@ -4,6 +4,7 @@
 #[path = "support/mode_harness.rs"]
 mod mode_harness;
 
+use pi_js_compat::js_json::JsString;
 use std::path::Path;
 
 use mode_harness::ModeHarness;
@@ -56,8 +57,8 @@ fn set_session_name_persists_metadata_without_jsonl_session_info() {
             .expect("metadata")
             .expect("session metadata")
             .name
-            .as_deref(),
-        Some("my-test-session")
+            .as_ref(),
+        Some(&JsString::from("my-test-session"))
     );
     let entry_types: Vec<String> = std::fs::read_to_string(&session_file)
         .expect("session file")

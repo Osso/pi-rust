@@ -7,6 +7,7 @@ use pi_coding_agent::modes::rpc::{
     RpcResponse, RpcSessionState, RpcSlashCommand, RpcSlashCommandSource, StreamingBehavior, WidgetPlacement,
 };
 use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
 
 fn parse(line: &str) -> RpcCommand {
@@ -19,8 +20,8 @@ fn serialize_command(body: RpcCommandBody, id: Option<&str>) -> String {
 
 fn source_info() -> SourceInfo {
     SourceInfo {
-        path: "/tmp/command.ts".to_owned(),
-        source: "test".to_owned(),
+        path: JsString::from("/tmp/command.ts"),
+        source: JsString::from("test"),
         scope: SourceScope::Project,
         origin: SourceOrigin::TopLevel,
         base_dir: None,
@@ -33,7 +34,7 @@ fn model() -> Model {
         name: "Claude Sonnet 4.5".to_owned(),
         api: "anthropic-messages".to_owned(),
         provider: ProviderId::from("anthropic"),
-        base_url: "https://api.anthropic.com".to_owned(),
+        base_url: JsString::from("https://api.anthropic.com"),
         reasoning: true,
         thinking_level_map: None,
         input: vec![Modality::Text],
@@ -60,7 +61,7 @@ fn parses_every_prompting_command() {
     let prompt = parse(
         r#"{"id":"a","type":"prompt","message":"hi","images":[{"type":"image","data":"AA==","mimeType":"image/png"}],"streamingBehavior":"followUp"}"#,
     );
-    assert_eq!(prompt.id.as_deref(), Some("a"));
+    assert_eq!(prompt.id.as_ref(), Some(&JsString::from("a")));
     assert_eq!(
         prompt.body,
         RpcCommandBody::Prompt {
@@ -144,7 +145,7 @@ fn parses_every_queue_compaction_retry_and_bash_command() {
     assert_eq!(
         parse(r#"{"type":"compact","customInstructions":"focus"}"#).body,
         RpcCommandBody::Compact {
-            custom_instructions: Some("focus".to_owned()),
+            custom_instructions: Some(JsString::from("focus")),
         }
     );
     assert_eq!(
@@ -165,7 +166,7 @@ fn parses_every_queue_compaction_retry_and_bash_command() {
     assert_eq!(
         parse(r#"{"type":"bash","command":"echo hi","excludeFromContext":true}"#).body,
         RpcCommandBody::Bash {
-            command: "echo hi".to_owned(),
+            command: JsString::from("echo hi"),
             exclude_from_context: Some(true),
         }
     );
@@ -217,7 +218,7 @@ fn parses_every_session_message_and_command_query() {
     assert_eq!(
         parse(r#"{"type":"set_session_name","name":"Name"}"#).body,
         RpcCommandBody::SetSessionName {
-            name: "Name".to_owned(),
+            name: JsString::from("Name"),
         }
     );
     assert_eq!(parse(r#"{"type":"get_messages"}"#).body, RpcCommandBody::GetMessages);
@@ -260,7 +261,7 @@ fn serializes_command_bodies_with_ts_field_order_and_omits_undefined_fields() {
     assert_eq!(
         serialize_command(
             RpcCommandBody::Bash {
-                command: "ls".to_owned(),
+                command: JsString::from("ls"),
                 exclude_from_context: Some(false),
             },
             None,
@@ -289,7 +290,7 @@ fn serializes_session_state_in_ts_field_order_and_omits_undefined_fields() {
         follow_up_mode: QueueMode::OneAtATime,
         session_file: Some("/tmp/session.jsonl".into()),
         session_id: "session-1".into(),
-        session_name: Some("Name".to_owned()),
+        session_name: Some(JsString::from("Name")),
         auto_compaction_enabled: true,
         message_count: 3,
         pending_message_count: 2,
@@ -340,8 +341,8 @@ fn serializes_session_state_in_ts_field_order_and_omits_undefined_fields() {
 #[test]
 fn serializes_slash_commands_and_omits_absent_descriptions() {
     let command = RpcSlashCommand {
-        name: "skill:review".to_owned(),
-        description: Some("Review code".to_owned()),
+        name: JsString::from("skill:review"),
+        description: Some(JsString::from("Review code")),
         source: RpcSlashCommandSource::Skill,
         source_info: source_info(),
     };
@@ -364,7 +365,7 @@ fn serializes_slash_commands_and_omits_absent_descriptions() {
 #[test]
 fn serializes_response_envelopes_in_ts_field_order() {
     assert_eq!(
-        serde_json::to_string(&RpcResponse::success(Some("req_1".to_owned()), "prompt"))
+        serde_json::to_string(&RpcResponse::success(Some(JsString::from("req_1")), "prompt"))
             .expect("response must serialize"),
         r#"{"id":"req_1","type":"response","command":"prompt","success":true}"#
     );
@@ -374,15 +375,15 @@ fn serializes_response_envelopes_in_ts_field_order() {
     );
     assert_eq!(
         serde_json::to_string(&RpcResponse::success_with_data(
-            Some("req_2".to_owned()),
+            Some(JsString::from("req_2")),
             "cycle_model",
-            Value::Null,
+            JsValue::from(Value::Null),
         ))
         .expect("response must serialize"),
         r#"{"id":"req_2","type":"response","command":"cycle_model","success":true,"data":null}"#
     );
     assert_eq!(
-        serde_json::to_string(&RpcResponse::error(Some("req_3".to_owned()), "fork", "boom",))
+        serde_json::to_string(&RpcResponse::error(Some(JsString::from("req_3")), "fork", "boom",))
             .expect("response must serialize"),
         r#"{"id":"req_3","type":"response","command":"fork","success":false,"error":"boom"}"#
     );
@@ -398,10 +399,10 @@ fn parses_response_lines() {
         r#"{"id":"req_1","type":"response","command":"get_state","success":false,"error":"nope"}"#,
     )
     .expect("response must parse");
-    assert_eq!(response.id.as_deref(), Some("req_1"));
+    assert_eq!(response.id.as_ref(), Some(&JsString::from("req_1")));
     assert_eq!(response.command.as_deref(), Some("get_state"));
     assert!(!response.success);
-    assert_eq!(response.error.as_deref(), Some("nope"));
+    assert_eq!(response.error.as_ref(), Some(&JsString::from("nope")));
     assert_eq!(response.kind, pi_coding_agent::modes::rpc::RpcResponseTag::Response);
 }
 

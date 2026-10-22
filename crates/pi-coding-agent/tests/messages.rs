@@ -1,12 +1,14 @@
 use pi_agent_core::agent::AgentMessage;
 use pi_ai::types::{AssistantContent, TextContent, UserContent, UserMessage, UserRole};
 use pi_coding_agent::core::messages::{convert_to_llm, is_cut_point_message};
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 
 #[test]
 fn accepts_conversational_boundaries_and_rejects_continuation_messages() {
     let user = AgentMessage::User(UserMessage {
         role: UserRole::Tag,
-        content: UserContent::Text("continue".to_owned()),
+        content: UserContent::Text(JsString::from("continue")),
         input_source: None,
         provider_native: None,
         timestamp: 1,
@@ -28,13 +30,18 @@ fn accepts_conversational_boundaries_and_rejects_continuation_messages() {
         is_error: false,
         timestamp: 1,
     });
-    let custom = AgentMessage::Custom(serde_json::Map::from_iter([
-        ("role".to_owned(), serde_json::json!("custom")),
-        ("customType".to_owned(), serde_json::json!("context")),
-        ("content".to_owned(), serde_json::json!("extension context")),
-        ("display".to_owned(), serde_json::json!(true)),
-        ("timestamp".to_owned(), serde_json::json!(1)),
-    ]));
+    let custom = AgentMessage::Custom(
+        (serde_json::Map::from_iter([
+            ("role".to_owned(), serde_json::json!("custom")),
+            ("customType".to_owned(), serde_json::json!("context")),
+            ("content".to_owned(), serde_json::json!("extension context")),
+            ("display".to_owned(), serde_json::json!(true)),
+            ("timestamp".to_owned(), serde_json::json!(1)),
+        ]))
+        .into_iter()
+        .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+        .collect::<pi_js_compat::js_json::JsObject>(),
+    );
 
     assert!(is_cut_point_message(&user));
     assert!(is_cut_point_message(&assistant));
@@ -44,13 +51,18 @@ fn accepts_conversational_boundaries_and_rejects_continuation_messages() {
 
 #[test]
 fn converts_extension_custom_messages_to_user_text() {
-    let custom = AgentMessage::Custom(serde_json::Map::from_iter([
-        ("role".to_owned(), serde_json::json!("custom")),
-        ("customType".to_owned(), serde_json::json!("context")),
-        ("content".to_owned(), serde_json::json!("extension context")),
-        ("display".to_owned(), serde_json::json!(true)),
-        ("timestamp".to_owned(), serde_json::json!(7)),
-    ]));
+    let custom = AgentMessage::Custom(
+        (serde_json::Map::from_iter([
+            ("role".to_owned(), serde_json::json!("custom")),
+            ("customType".to_owned(), serde_json::json!("context")),
+            ("content".to_owned(), serde_json::json!("extension context")),
+            ("display".to_owned(), serde_json::json!(true)),
+            ("timestamp".to_owned(), serde_json::json!(7)),
+        ]))
+        .into_iter()
+        .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+        .collect::<pi_js_compat::js_json::JsObject>(),
+    );
     let messages = convert_to_llm(&[custom]);
     assert_eq!(messages.len(), 1);
     match &messages[0] {

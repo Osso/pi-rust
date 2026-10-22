@@ -1,10 +1,11 @@
 use pi_coding_agent::{ParsedSkillBlock, parse_skill_block};
+use pi_js_compat::js_json::JsString;
 
 fn assert_block(block: ParsedSkillBlock, name: &str, location: &str, content: &str, user_message: Option<&str>) {
     assert_eq!(block.name, name);
     assert_eq!(block.location, location);
     assert_eq!(block.content, content);
-    assert_eq!(block.user_message.as_deref(), user_message);
+    assert_eq!(block.user_message.as_ref(), user_message.map(JsString::from).as_ref());
 }
 
 #[test]
@@ -93,7 +94,7 @@ fn backtracks_to_a_later_closing_delimiter_when_the_first_remainder_is_invalid()
 fn accepts_only_a_nonempty_double_lf_message_suffix() {
     let message = parse_skill_block("<skill name=\"n\" location=\"l\">\nx\n</skill>\n\ny")
         .expect("double-LF message suffix should parse");
-    assert_eq!(message.user_message.as_deref(), Some("y"));
+    assert_eq!(message.user_message.as_ref(), Some(&JsString::from("y")));
 
     for malformed in [
         "<skill name=\"n\" location=\"l\">\nx\n</skill>\ny",

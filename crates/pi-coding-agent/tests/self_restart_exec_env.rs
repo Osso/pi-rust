@@ -6,6 +6,7 @@
 //! uses `execve` with an explicit environment, so the global environ is never
 //! touched.
 
+use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -15,7 +16,7 @@ const NON_UNICODE_CHILD: &str = "PI_SELF_RESTART_NON_UNICODE_CHILD";
 
 fn request() -> SelfRestartRequest {
     SelfRestartRequest {
-        session_file: "/tmp/session.jsonl".to_owned(),
+        session_file: JsString::from("/tmp/session.jsonl"),
         prompt: None,
         old_pid: None,
     }
@@ -85,7 +86,7 @@ fn failed_self_restart_exec_never_corrupts_the_environment() {
         ..RestartTarget::default()
     };
     let request = SelfRestartRequest {
-        session_file: "/tmp/session.jsonl".to_owned(),
+        session_file: JsString::from("/tmp/session.jsonl"),
         prompt: None,
         old_pid: None,
     };

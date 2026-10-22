@@ -7,6 +7,9 @@ use pi_coding_agent::core::{
     session_manager::SessionManager,
     settings_manager::SettingsManager,
 };
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::encode_node_utf8;
 use serde_json::{Value, json};
 use std::io::Write;
 use std::path::Path;
@@ -19,16 +22,24 @@ pub async fn run(
 ) -> Result<Value, String> {
     let [mut custom, mut test] = options;
     let paths = resources::options(&custom)?;
-    let from_disk = SettingsManager::create(&paths.cwd, Some(Path::new(&paths.agent_dir)), Default::default())
-        .map_err(|e| e.to_string())?;
+    let from_disk = SettingsManager::create(
+        &paths.cwd,
+        Some(Path::new(&encode_node_utf8(&paths.agent_dir))),
+        Default::default(),
+    )
+    .map_err(|e| e.to_string())?;
     writeln!(
         output,
         "Current settings: {}",
         pi_js_compat::js_json::stringify_pretty(&Value::Object(from_disk.get_global_settings()))
     )
     .map_err(|e| e.to_string())?;
-    let mut manager = SettingsManager::create(&paths.cwd, Some(Path::new(&paths.agent_dir)), Default::default())
-        .map_err(|e| e.to_string())?;
+    let mut manager = SettingsManager::create(
+        &paths.cwd,
+        Some(Path::new(&encode_node_utf8(&paths.agent_dir))),
+        Default::default(),
+    )
+    .map_err(|e| e.to_string())?;
     manager.apply_overrides(
         json!({"compaction":{"enabled":false},"retry":{"enabled":true,"maxRetries":5,"baseDelayMs":1000}})
             .as_object()
@@ -36,7 +47,7 @@ pub async fn run(
     );
     let manager = Arc::new(Mutex::new(manager));
     custom.settings_manager = Some(Arc::clone(&manager));
-    custom.session_manager = Some(SessionManager::in_memory(custom.cwd.as_deref(), None).map_err(|e| e.to_string())?);
+    custom.session_manager = Some(SessionManager::in_memory(custom.cwd.as_ref(), None).map_err(|e| e.to_string())?);
     let session = create_agent_session(custom).await?.session;
     writeln!(output, "Session created with custom settings").map_err(|e| e.to_string())?;
     session.dispose();
@@ -57,13 +68,16 @@ pub async fn run(
         snapshot
     };
     test.settings_manager = Some(Arc::new(Mutex::new(SettingsManager::in_memory(
-        json!({"compaction":{"enabled":false},"retry":{"enabled":false}})
+        (json!({"compaction":{"enabled":false},"retry":{"enabled":false}})
             .as_object()
             .expect("settings object")
-            .clone(),
+            .clone())
+        .into_iter()
+        .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+        .collect::<pi_js_compat::js_json::JsObject>(),
         Default::default(),
     ))));
-    test.session_manager = Some(SessionManager::in_memory(test.cwd.as_deref(), None).map_err(|e| e.to_string())?);
+    test.session_manager = Some(SessionManager::in_memory(test.cwd.as_ref(), None).map_err(|e| e.to_string())?);
     let session = create_agent_session(test).await?.session;
     writeln!(output, "Test session created with in-memory settings").map_err(|e| e.to_string())?;
     session.dispose();

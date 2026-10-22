@@ -4,6 +4,7 @@ mod example;
 mod oracle;
 #[path = "support/sdk_examples.rs"]
 mod support;
+use pi_js_compat::js_json::encode_node_utf8;
 use serde_json::json;
 
 #[tokio::test]
@@ -15,7 +16,7 @@ async fn native_inline_extension_runs_before_streaming() {
     let mut registry = pi_coding_agent::core::extensions::loader::ExtensionRegistry::new();
     let loaded = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     for id in ["my-logging-extension.ts", "my-safety-extension.ts"] {
-        let path = std::path::Path::new(fixture.options.cwd.as_ref().unwrap())
+        let path = std::path::Path::new(&encode_node_utf8(&fixture.options.cwd.as_ref().unwrap()))
             .join(id)
             .display()
             .to_string();

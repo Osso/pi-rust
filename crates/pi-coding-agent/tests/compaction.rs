@@ -13,6 +13,8 @@ use pi_coding_agent::core::compaction::{
 use pi_coding_agent::core::session_manager::{
     LeafSelection, SessionEntry, build_session_context, migrate_session_entries, parse_session_entries,
 };
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
 
 const TIMESTAMP: &str = "2026-01-01T00:00:00.000Z";
@@ -33,7 +35,7 @@ fn usage(input: f64, output: f64, cache_read: f64, cache_write: f64) -> Usage {
 fn user(text: &str) -> AgentMessage {
     AgentMessage::User(UserMessage {
         role: UserRole::Tag,
-        content: UserContent::Text(text.to_owned()),
+        content: UserContent::Text(JsString::from(text.to_owned())),
         input_source: None,
         provider_native: None,
         timestamp: 0,
@@ -336,7 +338,10 @@ fn retains_latest_user_when_active_tool_suffix_exceeds_token_cap() {
         content: vec![AssistantContent::ToolCall(pi_ai::types::ToolCall::new(
             "tool-1",
             "read",
-            json!({ "path": "large.txt" }).as_object().expect("object").clone(),
+            (json!({ "path": "large.txt" }).as_object().expect("object").clone())
+                .into_iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect::<pi_js_compat::js_json::JsObject>(),
         ))],
         ..match default_assistant("calling tool") {
             AgentMessage::Assistant(message) => *message,
@@ -496,8 +501,8 @@ fn loads_all_messages_when_no_compaction() {
     assert_eq!(
         loaded.model,
         Some(pi_coding_agent::core::session_manager::SessionModel {
-            provider: "anthropic".to_owned(),
-            model_id: "claude-sonnet-4-5".to_owned(),
+            provider: JsString::from("anthropic"),
+            model_id: JsString::from("claude-sonnet-4-5"),
         })
     );
 }
@@ -588,8 +593,8 @@ fn tracks_model_and_thinking_level_changes() {
     assert_eq!(
         loaded.model,
         Some(pi_coding_agent::core::session_manager::SessionModel {
-            provider: "anthropic".to_owned(),
-            model_id: "claude-sonnet-4-5".to_owned(),
+            provider: JsString::from("anthropic"),
+            model_id: JsString::from("claude-sonnet-4-5"),
         })
     );
     assert_eq!(loaded.thinking_level, "high");
@@ -610,7 +615,10 @@ fn prepares_repeated_compactions_past_previously_kept_messages() {
     let entries = vec![u1, a1, u2, a2, u3, a3, compaction1, u4, a4];
 
     let preparation = prepare_compaction(&entries, DEFAULT_COMPACTION_SETTINGS).expect("compaction prepared");
-    assert_eq!(preparation.previous_summary.as_deref(), Some("First summary"));
+    assert_eq!(
+        preparation.previous_summary.as_ref(),
+        Some(&JsString::from("First summary"))
+    );
     assert!(message_text(&preparation.messages_to_summarize).contains("user msg 2 - kept by compaction1"));
 }
 
@@ -643,7 +651,10 @@ fn re_summarizes_previously_kept_messages_when_recent_window_moves_past_them() {
     assert!(summarized.contains("user msg 2 - kept by compaction1"));
     assert!(summarized.contains("user msg 3 - kept by compaction1"));
     assert!(!summarized.contains("First summary"));
-    assert_eq!(preparation.previous_summary.as_deref(), Some("First summary"));
+    assert_eq!(
+        preparation.previous_summary.as_ref(),
+        Some(&JsString::from("First summary"))
+    );
 }
 
 #[test]

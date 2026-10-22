@@ -13,9 +13,9 @@ fn metadata_name_lookup_encodes_only_at_sql_binding() {
     let db = directory.path().join("control.sqlite");
     let db = db.to_str().unwrap();
     for unit in [0xd800, 0xdfff] {
-        let mut manager = SessionManager::create(root, Some(root), None).unwrap();
+        let mut manager = SessionManager::create(&JsString::from(root), Some(&JsString::from(root)), None).unwrap();
         manager
-            .set_metadata_control_db_path(Some(db), SetMetadataControlDbPathOptions::default())
+            .set_metadata_control_db_path(Some(&JsString::from(db)), SetMetadataControlDbPathOptions::default())
             .unwrap();
         manager
             .set_session_name(Some(&JsString::from_utf16(vec![unit])))
@@ -24,7 +24,7 @@ fn metadata_name_lookup_encodes_only_at_sql_binding() {
     let name = JsString::from_utf16(vec![0xd800]);
     let rows = find_active_session_metadata_by_name(db, &name).unwrap();
     assert_eq!(rows.len(), 2);
-    assert!(rows.iter().all(|row| row.name.as_deref() == Some("�")));
+    assert!(rows.iter().all(|row| row.name.as_ref() == Some(&JsString::from("�"))));
     assert_eq!(name.units(), &[0xd800]);
 }
 
@@ -78,7 +78,7 @@ async fn custom_find_operation_receives_original_pattern_units() {
 
     struct FindPattern(Mutex<Option<JsString>>);
     impl FindOperations for FindPattern {
-        fn exists<'a>(&'a self, _path: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+        fn exists<'a>(&'a self, _path: &'a JsString) -> BoxFuture<'a, io::Result<bool>> {
             Box::pin(async { Ok(true) })
         }
         fn supports_glob(&self) -> bool {
@@ -87,10 +87,10 @@ async fn custom_find_operation_receives_original_pattern_units() {
         fn glob<'a>(
             &'a self,
             pattern: &'a JsString,
-            _cwd: &'a str,
-            _ignore: &'a [String],
+            _cwd: &'a JsString,
+            _ignore: &'a [JsString],
             _limit: usize,
-        ) -> BoxFuture<'a, io::Result<Vec<String>>> {
+        ) -> BoxFuture<'a, io::Result<Vec<JsString>>> {
             *self.0.lock().unwrap() = Some(pattern.clone());
             Box::pin(async { Ok(vec!["hit.txt".into()]) })
         }
@@ -142,10 +142,10 @@ async fn custom_write_operation_error_keeps_raw_units() {
 
     struct FailingWrite;
     impl WriteOperations for FailingWrite {
-        fn mkdir<'a>(&'a self, _path: &'a str) -> BoxFuture<'a, io::Result<()>> {
+        fn mkdir<'a>(&'a self, _path: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
             Box::pin(async { Ok(()) })
         }
-        fn write_file<'a>(&'a self, _path: &'a str, _content: &'a str) -> BoxFuture<'a, io::Result<()>> {
+        fn write_file<'a>(&'a self, _path: &'a JsString, _content: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
             Box::pin(async {
                 Err(io::Error::other(HandlerError::new(JsString::from_utf16(vec![
                     0xd800, 0x78, 0xdfff,
@@ -235,11 +235,11 @@ fn artifact_json_lines_and_hashes_distinguish_raw_surrogates() {
     assert_ne!(hash_json(&high), hash_json(&low));
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("events.jsonl");
-    append_artifact_record(path.to_str().unwrap(), &high).unwrap();
-    let first = read_json_lines(path.to_str().unwrap(), 0).unwrap();
+    append_artifact_record(&JsString::from(path.to_str().unwrap()), &high).unwrap();
+    let first = read_json_lines(&JsString::from(path.to_str().unwrap()), 0).unwrap();
     assert_eq!(first.values, vec![high]);
-    append_artifact_record(path.to_str().unwrap(), &low).unwrap();
-    let second = read_json_lines(path.to_str().unwrap(), first.offset).unwrap();
+    append_artifact_record(&JsString::from(path.to_str().unwrap()), &low).unwrap();
+    let second = read_json_lines(&JsString::from(path.to_str().unwrap()), first.offset).unwrap();
     assert_eq!(second.values, vec![low]);
     assert!(second.offset > first.offset);
 }
@@ -349,7 +349,7 @@ fn prompt_template_arguments_retain_surrogates_and_quote_boundaries() {
         args,
         vec![JsString::from_utf16(vec![0xd800, 0x20, 0xdfff]), JsString::from("x")]
     );
-    let expanded = substitute_args("[$1][$@]", &args);
+    let expanded = substitute_args(&JsString::from("[$1][$@]"), &args);
     assert_eq!(
         expanded.units(),
         &[

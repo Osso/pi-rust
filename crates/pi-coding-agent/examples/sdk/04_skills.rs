@@ -9,6 +9,7 @@ use pi_coding_agent::core::{
     skills::Skill,
     source_info::{SyntheticSourceInfoOptions, create_synthetic_source_info},
 };
+use pi_js_compat::js_json::JsString;
 use std::io::Write;
 use std::sync::Arc;
 
@@ -27,7 +28,7 @@ pub async fn run(
             file_path: "/virtual/SKILL.md".into(),
             base_dir: "/virtual".into(),
             source_info: create_synthetic_source_info(
-                "/virtual/SKILL.md",
+                &JsString::from("/virtual/SKILL.md"),
                 &SyntheticSourceInfoOptions {
                     source: "sdk".into(),
                     scope: None,
@@ -58,7 +59,7 @@ pub async fn run(
         .map_err(|e| e.to_string())?;
     }
     options.resource_loader = Some(loader);
-    options.session_manager = Some(SessionManager::in_memory(options.cwd.as_deref(), None).map_err(|e| e.to_string())?);
+    options.session_manager = Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.to_string())?);
     let session = create_agent_session(options).await?.session;
     writeln!(output, "Session created with filtered skills").map_err(|e| e.to_string())?;
     session.dispose();

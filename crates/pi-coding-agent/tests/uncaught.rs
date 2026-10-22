@@ -1,5 +1,6 @@
 //! Process-level uncaught errors (`utils/uncaught.rs`).
 
+use pi_js_compat::js_json::JsString;
 use std::any::Any;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::process::Command;
@@ -21,7 +22,7 @@ fn formats_a_plain_error_like_node() {
 fn formats_a_named_error_like_node() {
     let payload: Box<dyn Any + Send> = Box::new(UncaughtError {
         label: "SyntaxError",
-        message: "Unexpected token".to_owned(),
+        message: JsString::from("Unexpected token"),
     });
     assert_eq!(format_uncaught(payload.as_ref()), "SyntaxError: Unexpected token");
 }

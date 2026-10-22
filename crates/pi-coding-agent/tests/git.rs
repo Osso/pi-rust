@@ -1,13 +1,14 @@
 use pi_coding_agent::utils::git::{GitSource, GitSourceType, parse_git_url};
+use pi_js_compat::js_json::JsString;
 use serde_json::json;
 
 fn source(repo: &str, host: &str, path: &str, reference: Option<&str>) -> GitSource {
     GitSource {
         source_type: GitSourceType::Git,
-        repo: repo.to_owned(),
-        host: host.to_owned(),
-        path: path.to_owned(),
-        reference: reference.map(str::to_owned),
+        repo: JsString::from(repo.to_owned()),
+        host: JsString::from(host.to_owned()),
+        path: JsString::from(path.to_owned()),
+        reference: reference.map(str::to_owned).map(JsString::from),
         pinned: reference.is_some(),
     }
 }
@@ -100,7 +101,7 @@ fn parses_explicit_protocol_urls() {
     ];
 
     for (input, expected) in cases {
-        assert_eq!(parse_git_url(input), Some(expected), "{input}");
+        assert_eq!(parse_git_url(&JsString::from(input)), Some(expected), "{input}");
     }
 }
 
@@ -160,14 +161,14 @@ fn parses_git_prefixed_shorthands() {
     ];
 
     for (input, expected) in cases {
-        assert_eq!(parse_git_url(input), Some(expected), "{input}");
+        assert_eq!(parse_git_url(&JsString::from(input)), Some(expected), "{input}");
     }
 }
 
 #[test]
 fn rejects_unsupported_shorthands_without_git_prefix() {
     for input in ["git@github.com:user/repo", "github.com/user/repo", "user/repo"] {
-        assert_eq!(parse_git_url(input), None, "{input}");
+        assert_eq!(parse_git_url(&JsString::from(input)), None, "{input}");
     }
 }
 
@@ -181,7 +182,7 @@ fn rejects_unsafe_git_install_paths() {
         "git:git@evil.example:user\\repo/name",
         "git:git@evil.example:user/repo\0name",
     ] {
-        assert_eq!(parse_git_url(input), None, "{input}");
+        assert_eq!(parse_git_url(&JsString::from(input)), None, "{input}");
     }
 }
 
@@ -192,7 +193,7 @@ fn rejects_incomplete_repositories() {
         "https://github.com/",
         "git:example/user/repo",
     ] {
-        assert_eq!(parse_git_url(input), None, "{input}");
+        assert_eq!(parse_git_url(&JsString::from(input)), None, "{input}");
     }
 }
 
@@ -201,7 +202,7 @@ fn preserves_source_bug_for_git_protocol_repo_url() {
     // Discrepancy: the pinned source emits four slashes for a `git://` URL
     // because the generic parser reparses it with the https prefix.
     assert_eq!(
-        parse_git_url("git://github.com/user/repo"),
+        parse_git_url(&JsString::from("git://github.com/user/repo")),
         Some(source(
             "https:////github.com/user/repo",
             "github.com",
@@ -214,7 +215,7 @@ fn preserves_source_bug_for_git_protocol_repo_url() {
 #[test]
 fn preserves_hash_and_ref_interaction_from_source() {
     assert_eq!(
-        parse_git_url("https://github.com/user/repo@main#x"),
+        parse_git_url(&JsString::from("https://github.com/user/repo@main#x")),
         Some(source(
             "https://github.com/user/repo#x",
             "github.com",
@@ -223,7 +224,7 @@ fn preserves_hash_and_ref_interaction_from_source() {
         ))
     );
     assert_eq!(
-        parse_git_url("https://github.com/user/repo@"),
+        parse_git_url(&JsString::from("https://github.com/user/repo@")),
         Some(source(
             "https://github.com/user/repo@",
             "github.com",

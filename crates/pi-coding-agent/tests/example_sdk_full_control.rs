@@ -4,6 +4,7 @@ mod example;
 mod oracle;
 #[path = "support/sdk_examples.rs"]
 mod support;
+use pi_js_compat::js_json::JsString;
 use serde_json::json;
 
 #[tokio::test]
@@ -58,7 +59,7 @@ async fn defaults_use_private_runtime_paths_sonnet_and_environment_key() {
     let options = example::configure_options(fixture.options, key.as_deref())
         .await
         .unwrap();
-    assert_eq!(options.agent_dir.as_deref(), agent.to_str());
+    assert_eq!(options.agent_dir.as_ref(), agent.to_str().map(JsString::from).as_ref());
     let model = options.model.unwrap();
     assert_eq!(
         (model.provider.as_str(), model.id.as_str()),
@@ -91,8 +92,8 @@ async fn defaults_use_private_runtime_paths_sonnet_and_environment_key() {
                 .unwrap()
                 .auth
                 .api_key
-                .as_deref(),
-            Some(expected_key.as_str())
+                .as_ref(),
+            Some(expected_key.as_str()).map(JsString::from).as_ref()
         );
     }
     assert_eq!(

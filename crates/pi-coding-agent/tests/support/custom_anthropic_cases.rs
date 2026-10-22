@@ -1,10 +1,14 @@
 use super::*;
 use pi_ai::request::{SimpleStreamOptions, StreamOptions};
+use pi_js_compat::js_json::JsString;
 
 fn options(input: &Value, signal: CancellationToken) -> SimpleStreamOptions {
     let mut options = SimpleStreamOptions::default();
     options.stream.request.signal = Some(signal);
-    options.stream.request.api_key = input["options"]["apiKey"].as_str().map(str::to_owned);
+    options.stream.request.api_key = input["options"]["apiKey"]
+        .as_str()
+        .map(str::to_owned)
+        .map(JsString::from);
     options.stream.max_tokens = input["options"]["maxTokens"].as_f64();
     options.reasoning = input["options"]
         .get("reasoning")
@@ -112,12 +116,12 @@ fn result(id: &str, content: Value, error: bool) -> Value {
 
 struct Env(Value);
 impl AuthContext for Env {
-    fn env(&self, name: &str) -> BoxFuture<'_, Option<String>> {
+    fn env(&self, name: &str) -> BoxFuture<'_, Option<JsString>> {
         assert_eq!(name, "CUSTOM_ANTHROPIC_API_KEY");
         let value = self.0[name].as_str().map(str::to_owned);
         Box::pin(async move { value })
     }
-    fn file_exists(&self, _: &str) -> BoxFuture<'_, bool> {
+    fn file_exists(&self, _: &JsString) -> BoxFuture<'_, bool> {
         panic!("env auth must not read files")
     }
 }

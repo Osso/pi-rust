@@ -8,6 +8,7 @@ mod frozen_delta;
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::os::unix::fs::{PermissionsExt, symlink};
 
@@ -195,10 +196,10 @@ fn seed_native(f: &Value) {
             f["db"].as_str().unwrap(),
             &RuntimeMailboxAddress {
                 session_id: f["role"].as_str().unwrap().into(),
-                agent_id: listener["agentId"].as_str().map(str::to_owned),
+                agent_id: listener["agentId"].as_str().map(str::to_owned).map(JsString::from),
             },
             std::process::id(),
-            listener["path"].as_str(),
+            listener["path"].as_str().map(JsString::from).as_ref(),
             RuntimeMailboxRegistrationOptions {
                 reconcile_runtime_replacement: Some(false),
                 ..Default::default()
@@ -224,7 +225,11 @@ fn prepare_native(f: &Value) -> Value {
         "architect" => ResidentRole::Architect,
         _ => ResidentRole::Supervisor,
     };
-    match prepare_resident_session_file(f["agentDir"].as_str().unwrap(), role, f["db"].as_str().unwrap()) {
+    match prepare_resident_session_file(
+        &JsString::from(f["agentDir"].as_str().unwrap()),
+        role,
+        &JsString::from(f["db"].as_str().unwrap()),
+    ) {
         Ok(result) => json!({"ok": true, "value": result}),
         Err(ResidentSessionError::PathArgument(error)) => json!({"ok": false, "error": {
             "name": error.name, "message": error.message.to_utf8_lossy(), "code": error.code
@@ -643,7 +648,7 @@ fn nul_path_shared_argument_validation_boundary_is_explicit() {
             "validation precedes mkdir"
         );
     }
-    assert!(pi_js_compat::node_fs::node_path_argument_error("/tmp/valid-path").is_none());
+    assert!(pi_js_compat::node_fs::node_path_argument_error(&JsString::from("/tmp/valid-path")).is_none());
 }
 
 // Only these tests select the resident delta; frozen tests keep the common pin.

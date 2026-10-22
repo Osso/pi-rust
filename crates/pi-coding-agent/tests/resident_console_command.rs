@@ -93,7 +93,7 @@ fn user_entry(text: &str) -> SessionEntry {
 
 /// Theme state is thread-local, so each test thread installs its own theme.
 fn init_theme_once() {
-    pi_coding_agent::modes::interactive::theme::init_theme(Some("dark"), false).expect("dark theme");
+    pi_coding_agent::modes::interactive::theme::init_theme(Some(&JsString::from("dark")), false).expect("dark theme");
 }
 
 fn rendered(console: &ResidentConsoleUi) -> String {

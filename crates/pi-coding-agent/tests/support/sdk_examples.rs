@@ -10,6 +10,8 @@ use pi_coding_agent::core::{
     session_manager::SessionManager,
     settings_manager::SettingsManager,
 };
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
@@ -79,7 +81,10 @@ pub async fn fixture() -> Fixture {
                     faux_text("Hello!"),
                     faux_tool_call(
                         "end_turn",
-                        serde_json::Map::from_iter([("reason".into(), json!("done"))]),
+                        serde_json::Map::from_iter([("reason".into(), json!("done"))])
+                            .into_iter()
+                            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                            .collect::<pi_js_compat::js_json::JsObject>(),
                         Some("done".into()),
                     ),
                 ],
@@ -92,17 +97,22 @@ pub async fn fixture() -> Fixture {
     }));
     faux.set_responses(vec![step.clone(), step.clone(), step.clone(), step]);
     let options = CreateAgentSessionOptions {
-        cwd: Some(cwd.display().to_string()),
-        agent_dir: Some(agent_dir.display().to_string()),
+        cwd: Some(JsString::from(cwd.display().to_string())),
+        agent_dir: Some(JsString::from(agent_dir.display().to_string())),
         model: Some(model),
         model_runtime: Some(runtime),
         resource_loader: Some(Arc::new(StaticResourceLoader::default())),
-        session_manager: Some(SessionManager::in_memory(Some(&cwd.display().to_string()), None).unwrap()),
+        session_manager: Some(
+            SessionManager::in_memory(Some(&JsString::from(&cwd.display().to_string())), None).unwrap(),
+        ),
         settings_manager: Some(Arc::new(Mutex::new(SettingsManager::in_memory(
-            serde_json::Map::new(),
+            serde_json::Map::new()
+                .into_iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect::<pi_js_compat::js_json::JsObject>(),
             Default::default(),
         )))),
-        control_db_path: Some(home.path().join("control.sqlite").display().to_string()),
+        control_db_path: Some(JsString::from(home.path().join("control.sqlite").display().to_string())),
         disable_runtime_coordination_inbound: true,
         ..Default::default()
     };

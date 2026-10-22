@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -283,7 +284,7 @@ lines.on("line", (line) => {
 
     let (send_result, idle_result) = tokio::join!(
         client.send(RpcCommandBody::Prompt {
-            message: "Hello".to_owned(),
+            message: JsString::from("Hello"),
             images: None,
             streaming_behavior: None,
         }),
@@ -473,7 +474,7 @@ lines.on("line", (line) => {
     client.start().await.expect("client must start");
 
     let result = client
-        .compact(Some("Keep decisions".to_owned()))
+        .compact(Some(JsString::from("Keep decisions")))
         .await
         .expect("compact must succeed");
     assert_eq!(result.summary, "Condensed");
@@ -578,7 +579,7 @@ lines.on("line", (line) => {
     client.start().await.expect("client must start");
 
     let stats = client.get_session_stats().await.expect("stats must succeed");
-    assert_eq!(stats.session_file.as_deref(), Some("/tmp/session.jsonl"));
+    assert_eq!(stats.session_file.as_ref(), Some(&JsString::from("/tmp/session.jsonl")));
     assert_eq!(stats.session_id, "session-1");
     assert_eq!(stats.user_messages, 2);
     assert_eq!(stats.assistant_messages, 1);

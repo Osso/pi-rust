@@ -12,15 +12,17 @@ use pi_coding_agent::core::tools::{
     read::{ReadOperations, ReadTool, ReadToolOptions},
     write::{WriteOperations, WriteTool, WriteToolOptions},
 };
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
 use std::{io, sync::Arc};
 
 struct Fault(&'static str);
 impl GrepOperations for Fault {
-    fn is_directory<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+    fn is_directory<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<bool>> {
         Box::pin(async { self.result("directory", true) })
     }
-    fn read_file<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<String>> {
+    fn read_file<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<JsString>> {
         Box::pin(async { self.result("readFile", String::new()) })
     }
 }
@@ -28,15 +30,15 @@ impl FindOperations for Fault {
     fn supports_glob(&self) -> bool {
         true
     }
-    fn exists<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+    fn exists<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<bool>> {
         Box::pin(async { Ok(false) })
     }
 }
 impl BashOperations for Fault {
     fn exec<'a>(
         &'a self,
-        _: &'a str,
-        _: &'a str,
+        _: &'a JsString,
+        _: &'a JsString,
         _: BashExecOptions,
     ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
         Box::pin(async { Err(ToolError::new(self.0)) })
@@ -52,13 +54,13 @@ impl Fault {
     }
 }
 impl ReadOperations for Fault {
-    fn access<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<()>> {
+    fn access<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async { self.result("access", ()) })
     }
-    fn read_file<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<Vec<u8>>> {
+    fn read_file<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<Vec<u8>>> {
         Box::pin(async { self.result(if self.0 == "image" { "image" } else { "readFile" }, b"old".to_vec()) })
     }
-    fn detect_image_mime_type<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<Option<String>>> {
+    fn detect_image_mime_type<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<Option<String>>> {
         Box::pin(async {
             self.result(
                 "mime",
@@ -73,45 +75,45 @@ impl ReadOperations for Fault {
     fn supports_read_range(&self) -> bool {
         self.0 == "range"
     }
-    fn stat<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<Option<u64>>> {
+    fn stat<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<Option<u64>>> {
         Box::pin(async { self.result("stat", Some(100_000)) })
     }
-    fn read_range<'a>(&'a self, _: &'a str, _: u64, _: u64) -> BoxFuture<'a, io::Result<Vec<u8>>> {
+    fn read_range<'a>(&'a self, _: &'a JsString, _: u64, _: u64) -> BoxFuture<'a, io::Result<Vec<u8>>> {
         Box::pin(async { self.result("range", Vec::new()) })
     }
 }
 impl WriteOperations for Fault {
-    fn mkdir<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<()>> {
+    fn mkdir<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async { self.result("mkdir", ()) })
     }
-    fn write_file<'a>(&'a self, _: &'a str, _: &'a str) -> BoxFuture<'a, io::Result<()>> {
+    fn write_file<'a>(&'a self, _: &'a JsString, _: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async { self.result("writeFile", ()) })
     }
 }
 impl EditOperations for Fault {
-    fn access<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<()>> {
-        ReadOperations::access(self, "")
+    fn access<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
+        ReadOperations::access(self, &JsString::from(""))
     }
-    fn read_file<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<Vec<u8>>> {
-        ReadOperations::read_file(self, "")
+    fn read_file<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<Vec<u8>>> {
+        ReadOperations::read_file(self, &JsString::from(""))
     }
-    fn write_file<'a>(&'a self, _: &'a str, _: &'a str) -> BoxFuture<'a, io::Result<()>> {
-        WriteOperations::write_file(self, "", "")
+    fn write_file<'a>(&'a self, _: &'a JsString, _: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
+        WriteOperations::write_file(self, &JsString::from(""), &JsString::from(""))
     }
 }
 impl LsOperations for Fault {
-    fn exists<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+    fn exists<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<bool>> {
         Box::pin(async { Ok(true) })
     }
-    fn is_directory<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+    fn is_directory<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<bool>> {
         Box::pin(async { self.result("stat", true) })
     }
-    fn readdir<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<Vec<String>>> {
+    fn readdir<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<Vec<JsString>>> {
         Box::pin(async { self.result("readdir", Vec::new()) })
     }
 }
 async fn error(tool: &dyn AgentTool, params: Value) -> String {
-    tool.execute("fault".into(), params, None, Arc::new(|_| {}), None)
+    tool.execute("fault".into(), JsValue::from(params), None, Arc::new(|_| {}), None)
         .await
         .err()
         .map(|e: ToolError| e.message)
@@ -227,13 +229,13 @@ impl RejectingOperations {
     }
 }
 impl LsOperations for RejectingOperations {
-    fn exists<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+    fn exists<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<bool>> {
         Box::pin(async { self.reject("exists", true).await })
     }
-    fn is_directory<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+    fn is_directory<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<bool>> {
         Box::pin(async { Err(io::Error::other("later stat failure")) })
     }
-    fn readdir<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<Vec<String>>> {
+    fn readdir<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<Vec<JsString>>> {
         Box::pin(async { Err(io::Error::other("later readdir failure")) })
     }
 }
@@ -241,10 +243,16 @@ impl FindOperations for RejectingOperations {
     fn supports_glob(&self) -> bool {
         true
     }
-    fn exists<'a>(&'a self, _: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+    fn exists<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<bool>> {
         Box::pin(async { self.reject("exists", self.stage != "missing").await })
     }
-    fn glob<'a>(&'a self, _: &'a str, _: &'a str, _: &'a [String], _: usize) -> BoxFuture<'a, io::Result<Vec<String>>> {
+    fn glob<'a>(
+        &'a self,
+        _: &'a JsString,
+        _: &'a JsString,
+        _: &'a [JsString],
+        _: usize,
+    ) -> BoxFuture<'a, io::Result<Vec<String>>> {
         Box::pin(async { self.reject("glob", Vec::new()).await })
     }
 }
@@ -280,7 +288,13 @@ async fn compare_rejection(tool_name: &str, stage: &'static str, abort: &'static
         oracle.request(&json!({"tool":tool_name,"stage":stage,"message":message,"abort":abort,"params":params}));
     let outcome = tokio::time::timeout(
         std::time::Duration::from_secs(2),
-        tool.execute("fault".into(), params, Some(signal), Arc::new(|_| {}), None),
+        tool.execute(
+            "fault".into(),
+            JsValue::from(params),
+            Some(signal),
+            Arc::new(|_| {}),
+            None,
+        ),
     )
     .await;
     let actual = outcome

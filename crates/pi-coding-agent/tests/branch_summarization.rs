@@ -1,5 +1,7 @@
 //! Behavioral tests for `coding-agent/src/core/compaction/branch-summarization.ts`.
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::agent::{AgentMessage, StreamFn};
@@ -17,7 +19,7 @@ use serde_json::{Value, json};
 fn user(text: &str) -> AgentMessage {
     AgentMessage::User(UserMessage {
         role: UserRole::Tag,
-        content: UserContent::Text(text.to_owned()),
+        content: UserContent::Text(JsString::from(text.to_owned())),
         input_source: None,
         provider_native: None,
         timestamp: 0,
@@ -43,7 +45,13 @@ fn tool_call_message(name: &str, id: &str, arguments: Value) -> AgentMessage {
     assistant_with(vec![AssistantContent::ToolCall(pi_ai::types::ToolCall::new(
         id,
         name,
-        arguments.as_object().cloned().expect("arguments must be an object"),
+        arguments
+            .as_object()
+            .cloned()
+            .expect("arguments must be an object")
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>(),
     ))])
 }
 
@@ -151,7 +159,7 @@ fn model(context_window: f64) -> Model {
         name: "Claude".to_owned(),
         api: "anthropic-messages".to_owned(),
         provider: "anthropic".to_owned(),
-        base_url: "https://example.invalid".to_owned(),
+        base_url: JsString::from("https://example.invalid"),
         reasoning: false,
         thinking_level_map: None,
         input: vec![pi_ai::types::Modality::Text],
@@ -271,10 +279,10 @@ fn collects_the_abandoned_side_of_a_branch_in_chronological_order() {
     )
     .expect("write session");
 
-    let session = SessionManager::open(&path.display().to_string(), None, None).expect("open session");
-    let result = collect_entries_for_branch_summary(&session, Some("4"), "5");
+    let session = SessionManager::open(&JsString::from(&path.display().to_string()), None, None).expect("open session");
+    let result = collect_entries_for_branch_summary(&session, Some(&JsString::from("4")), &JsString::from("5"));
 
-    assert_eq!(result.common_ancestor_id.as_deref(), Some("2"));
+    assert_eq!(result.common_ancestor_id.as_ref(), Some(&JsString::from("2")));
     assert_eq!(
         result.entries.iter().filter_map(SessionEntry::id).collect::<Vec<_>>(),
         ["3", "4"]
@@ -283,8 +291,8 @@ fn collects_the_abandoned_side_of_a_branch_in_chronological_order() {
 
 #[test]
 fn returns_no_entries_when_there_was_no_previous_leaf() {
-    let session = SessionManager::in_memory(Some("/tmp"), None).expect("session");
-    let result = collect_entries_for_branch_summary(&session, None, "target");
+    let session = SessionManager::in_memory(Some(&JsString::from("/tmp")), None).expect("session");
+    let result = collect_entries_for_branch_summary(&session, None, &JsString::from("target"));
     assert!(result.entries.is_empty());
     assert_eq!(result.common_ancestor_id, None);
 }
@@ -408,7 +416,10 @@ async fn returns_no_content_when_there_are_no_messages() {
         None::<&mut pi_agent_core::harness::compaction::NoRetryCallbacks>,
     )
     .await;
-    assert_eq!(result.summary.as_deref(), Some("No content to summarize"));
+    assert_eq!(
+        result.summary.as_ref(),
+        Some(&JsString::from("No content to summarize"))
+    );
     assert_eq!(result.usage, None);
 }
 
@@ -431,10 +442,10 @@ async fn generates_a_preambled_summary_with_usage_and_file_lists() {
     .await;
 
     assert_eq!(
-        result.summary.as_deref(),
-        Some(
+        result.summary.as_ref(),
+        (Some(
             "The user explored a different conversation branch before returning here.\nSummary of that exploration:\n\n## Goal\nExplore\n\n<modified-files>\nsrc/a.ts\n</modified-files>"
-        )
+        )).map(JsString::from).as_ref()
     );
     assert_eq!(result.usage.expect("usage").total_tokens, 7.0);
     assert_eq!(result.read_files, Some(Vec::new()));
@@ -459,7 +470,7 @@ async fn appends_custom_instructions_to_the_default_prompt() {
     let model = model(128_000.0);
     let stream_fn = stream_fn(Arc::clone(&log), response("summary"));
     let mut options = options(&model, Some(&stream_fn));
-    options.custom_instructions = Some("focus on files");
+    options.custom_instructions = Some(&JsString::from("focus on files"));
 
     let _ = generate_branch_summary(
         &entries,
@@ -479,7 +490,7 @@ async fn replaces_the_default_prompt_when_requested() {
     let model = model(128_000.0);
     let stream_fn = stream_fn(Arc::clone(&log), response("summary"));
     let mut options = options(&model, Some(&stream_fn));
-    options.custom_instructions = Some("only this");
+    options.custom_instructions = Some(&JsString::from("only this"));
     options.replace_instructions = true;
 
     let _ = generate_branch_summary(
@@ -524,5 +535,5 @@ async fn reports_provider_errors_with_a_fallback_message() {
         None::<&mut pi_agent_core::harness::compaction::NoRetryCallbacks>,
     )
     .await;
-    assert_eq!(result.error.as_deref(), Some("Summarization failed"));
+    assert_eq!(result.error.as_ref(), Some(&JsString::from("Summarization failed")));
 }

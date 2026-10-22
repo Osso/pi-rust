@@ -34,7 +34,7 @@ pub async fn run(
         .map_err(|e| e.to_string())?;
     }
     options.resource_loader = Some(loader);
-    options.session_manager = Some(SessionManager::in_memory(options.cwd.as_deref(), None).map_err(|e| e.to_string())?);
+    options.session_manager = Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.to_string())?);
     let session = create_agent_session(options).await?.session;
     // Source already appended the inline file, then adds one again in its label.
     writeln!(output, "Session created with {} context files", discovered.len() + 1).map_err(|e| e.to_string())?;

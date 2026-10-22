@@ -9,6 +9,7 @@ use pi_coding_agent::core::session_manager::SessionInfo;
 use pi_coding_agent::modes::interactive::components::session_selector_search::{
     NameFilter, SortMode, filter_and_sort_sessions,
 };
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 const SOURCE_MODULE: &str = "packages/coding-agent/src/modes/interactive/components/session-selector-search.ts";
@@ -16,15 +17,15 @@ const SOURCE_MODULE: &str = "packages/coding-agent/src/modes/interactive/compone
 fn session(id: &str, modified: i64, first_message: &str) -> SessionInfo {
     SessionInfo {
         path: format!("/tmp/{id}.jsonl"),
-        id: id.to_owned(),
-        cwd: String::new(),
+        id: JsString::from(id.to_owned()),
+        cwd: JsString::default(),
         name: None,
         is_archived: None,
         parent_session_path: None,
         created: 0,
         modified,
         message_count: 1,
-        first_message: first_message.to_owned(),
+        first_message: JsString::from(first_message.to_owned()),
     }
 }
 
@@ -36,9 +37,9 @@ fn search_cases() -> Vec<Value> {
         session("candidate-d", 1, "replacement chair ordered"),
     ];
     let mut named = session("named", 9, "blueberry pie");
-    named.name = Some("My Project".to_owned());
+    named.name = Some(JsString::from("My Project"));
     let mut whitespace_named = session("whitespace", 8, "blueberry pie");
-    whitespace_named.name = Some("   ".to_owned());
+    whitespace_named.name = Some(JsString::from("   "));
     let mut empty = session("empty", 7, "blueberry pie");
     empty.message_count = 0;
 
@@ -106,7 +107,7 @@ fn search_cases() -> Vec<Value> {
         session("early", 3, "brave xxxx"),
         session("cjk", 2, "日本語 brave"),
     ];
-    unicode[0].name = Some("Émile".to_owned());
+    unicode[0].name = Some(JsString::from("Émile"));
     push("unicode-sessions", &unicode, "\"brave\"", "relevance", "all");
     push("unicode-name", &unicode, "émile", "recent", "all");
     cases
@@ -134,15 +135,15 @@ fn rust_sessions(value: &Value) -> Vec<SessionInfo> {
         .iter()
         .map(|session| SessionInfo {
             path: format!("/tmp/{}.jsonl", session["id"].as_str().unwrap()),
-            id: session["id"].as_str().unwrap().to_owned(),
-            cwd: session["cwd"].as_str().unwrap().to_owned(),
-            name: session["name"].as_str().map(str::to_owned),
+            id: JsString::from(session["id"].as_str().unwrap().to_owned()),
+            cwd: JsString::from(session["cwd"].as_str().unwrap().to_owned()),
+            name: session["name"].as_str().map(str::to_owned).map(JsString::from),
             is_archived: None,
             parent_session_path: None,
             created: 0,
             modified: session["modified"].as_i64().unwrap(),
             message_count: session["messageCount"].as_u64().unwrap() as usize,
-            first_message: session["firstMessage"].as_str().unwrap().to_owned(),
+            first_message: JsString::from(session["firstMessage"].as_str().unwrap().to_owned()),
         })
         .collect()
 }
@@ -161,7 +162,7 @@ fn session_search_matches_typescript() {
             let sessions = rust_sessions(&case["sessions"]);
             let result = filter_and_sort_sessions(
                 &sessions,
-                case["query"].as_str().unwrap(),
+                &JsString::from(case["query"].as_str().unwrap()),
                 sort_mode(case["sortMode"].as_str().unwrap()),
                 name_filter(case["nameFilter"].as_str().unwrap()),
             );

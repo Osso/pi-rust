@@ -1,5 +1,6 @@
 use super::*;
 use pi_ai::request::SimpleStreamOptions;
+use pi_js_compat::js_json::JsString;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread::JoinHandle;
@@ -100,7 +101,7 @@ async fn compare_wire(key: &str, status: u16, body: String, truncated: bool) {
     );
     let provider = provider(&input, Arc::new(Mutex::new(vec![]))).await;
     let mut model = provider.get_models()[0].clone();
-    model.base_url = server.url;
+    model.base_url = JsString::from(server.url);
     let mut options = SimpleStreamOptions::default();
     options.stream.request.api_key = Some(key.into());
     options.stream.request.signal = Some(CancellationToken::new());

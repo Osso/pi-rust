@@ -4,6 +4,7 @@ use pi_coding_agent::core::cache_stats::{
     CacheWasteTotals, ModelPrice, ModelPriceSource, collect_cache_misses, compute_cache_waste, detect_cache_miss,
 };
 use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry, SessionMessageEntry};
+use pi_js_compat::js_json::JsString;
 
 struct Models;
 
@@ -67,9 +68,9 @@ fn assistant(options: Options) -> AgentMessage {
 fn entry(message: AgentMessage) -> SessionEntry {
     SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
         mailbox_store_refs: None,
-        id: "x".to_owned(),
+        id: JsString::from("x"),
         parent_id: None,
-        timestamp: String::new(),
+        timestamp: JsString::default(),
         message: Box::new(message),
     }))
 }
@@ -130,11 +131,11 @@ fn counts_nothing_for_healthy_sessions() {
 fn skips_the_turn_after_a_compaction_reset() {
     let reset = SessionEntry::Known(KnownSessionEntry::Compaction(
         pi_coding_agent::core::session_manager::CompactionEntry {
-            id: "c".to_owned(),
+            id: JsString::from("c"),
             parent_id: None,
-            timestamp: String::new(),
-            summary: String::new(),
-            first_kept_entry_id: String::new(),
+            timestamp: JsString::default(),
+            summary: JsString::default(),
+            first_kept_entry_id: JsString::default(),
             tokens_before: 0.0,
             extra: Default::default(),
             duration_ms: None,

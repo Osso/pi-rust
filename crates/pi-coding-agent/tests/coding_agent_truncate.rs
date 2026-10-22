@@ -2,6 +2,7 @@ use pi_coding_agent::core::tools::truncate::{
     GREP_MAX_LINE_LENGTH, TruncatedBy, TruncatedLine, TruncationOptions, TruncationResult, truncate_head,
     truncate_line, truncate_tail,
 };
+use pi_js_compat::js_json::JsString;
 
 fn options(max_lines: usize, max_bytes: usize) -> TruncationOptions {
     TruncationOptions { max_lines, max_bytes }
@@ -14,7 +15,7 @@ fn head_keeps_complete_leading_lines_within_the_byte_limit() {
     assert_eq!(
         result,
         TruncationResult {
-            content: "aaa\nbbb".to_owned(),
+            content: JsString::from("aaa\nbbb"),
             truncated: true,
             truncated_by: Some(TruncatedBy::Bytes),
             total_lines: 3,
@@ -78,7 +79,7 @@ fn line_truncation_appends_the_source_marker() {
     assert_eq!(
         truncate_line("abcdef", Some(3)),
         TruncatedLine {
-            text: "abc... [truncated]".to_owned(),
+            text: JsString::from("abc... [truncated]"),
             was_truncated: true
         }
     );

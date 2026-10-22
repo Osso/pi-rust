@@ -1,6 +1,8 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::fs;
 use std::path::PathBuf;
 
@@ -30,7 +32,7 @@ fn temp_dir(name: &str) -> PathBuf {
 fn user_message(text: &str, timestamp: i64) -> AgentMessage {
     AgentMessage::User(UserMessage {
         role: UserRole::Tag,
-        content: UserContent::Text(text.to_owned()),
+        content: UserContent::Text(JsString::from(text.to_owned())),
         input_source: None,
         provider_native: None,
         timestamp,
@@ -235,7 +237,7 @@ fn parses_and_builds_context_identically() {
         assert_eq!(response["ok"], true, "{response}");
         let rust_leaf = match leaf {
             None | Some("") => LeafSelection::Last,
-            Some(id) => LeafSelection::Id(id),
+            Some(id) => LeafSelection::Id(&JsString::from(id)),
         };
         let rust_ids: Vec<String> = build_context_entries(&entries, rust_leaf)
             .iter()
@@ -283,7 +285,7 @@ fn reads_files_and_headers_identically() {
 
     let response = oracle
         .request(&json!({"id": REQUEST_BASE + 10, "operation": "load_entries", "path": file.display().to_string()}));
-    let loaded = load_entries_from_file(&file.display().to_string()).unwrap();
+    let loaded = load_entries_from_file(&JsString::from(&file.display().to_string())).unwrap();
     let rust_entries: Vec<Value> = loaded
         .iter()
         .map(|entry| serde_json::to_value(entry).unwrap())
@@ -296,7 +298,7 @@ fn reads_files_and_headers_identically() {
 
     let response = oracle
         .request(&json!({"id": REQUEST_BASE + 11, "operation": "read_header", "path": file.display().to_string()}));
-    let header = read_session_header(&file.display().to_string()).unwrap();
+    let header = read_session_header(&JsString::from(&file.display().to_string())).unwrap();
     assert_eq!(serde_json::to_value(&header).unwrap(), response["output"]["header"]);
     assert_eq!(
         serde_json::to_string(&header).unwrap(),
@@ -306,7 +308,10 @@ fn reads_files_and_headers_identically() {
     let response = oracle
         .request(&json!({"id": REQUEST_BASE + 12, "operation": "find_most_recent", "dir": dir.display().to_string()}));
     assert_eq!(
-        json!(find_most_recent_session(&dir.display().to_string(), None)),
+        json!(find_most_recent_session(
+            &JsString::from(&dir.display().to_string()),
+            None
+        )),
         response["output"]["path"]
     );
 
@@ -317,15 +322,21 @@ fn reads_files_and_headers_identically() {
     assert_eq!(
         json!(
             pi_coding_agent::core::session_manager::get_default_session_dir(
-                &cwd.display().to_string(),
-                Some(&agent_dir.display().to_string())
+                &JsString::from(&cwd.display().to_string()),
+                Some(&JsString::from(&agent_dir.display().to_string()))
             )
             .unwrap()
         ),
         response["output"]["path"]
     );
     assert_eq!(
-        json!(get_default_session_dir_path(&cwd.display().to_string(), &agent_dir.display().to_string()).unwrap()),
+        json!(
+            get_default_session_dir_path(
+                &JsString::from(&cwd.display().to_string()),
+                &JsString::from(&agent_dir.display().to_string())
+            )
+            .unwrap()
+        ),
         response["output"]["path"]
     );
 }
@@ -348,7 +359,12 @@ fn reads_typescript_written_sessions_and_appends_visible_to_typescript() {
     assert_eq!(response["ok"], true, "{response}");
     let path = response["output"]["path"].as_str().unwrap().to_owned();
 
-    let rust = SessionManager::open(&path, Some(&dir.display().to_string()), None).unwrap();
+    let rust = SessionManager::open(
+        &JsString::from(&path),
+        Some(&JsString::from(&dir.display().to_string())),
+        None,
+    )
+    .unwrap();
     let rust_entries: Vec<Value> = rust
         .get_entries()
         .iter()
@@ -401,19 +417,23 @@ fn typescript_reads_rust_written_sessions() {
     );
     let dir = temp_dir("cross-rust-write");
     let mut manager = SessionManager::create(
-        &dir.display().to_string(),
-        Some(&dir.display().to_string()),
+        &JsString::from(&dir.display().to_string()),
+        Some(&JsString::from(&dir.display().to_string())),
         Some(pi_coding_agent::core::session_manager::NewSessionOptions {
-            id: Some("rust-session".to_owned()),
+            id: Some(JsString::from("rust-session")),
             ..pi_coding_agent::core::session_manager::NewSessionOptions::default()
         }),
     )
     .unwrap();
     manager.append_message(user_message("hello from rust", 1)).unwrap();
     manager.append_message(assistant_message("hi from rust", 2)).unwrap();
-    manager.append_custom_entry("state", Some(json!({"k":"v"}))).unwrap();
+    manager
+        .append_custom_entry(&JsString::from("state"), Some(JsValue::from(json!({"k":"v"}))))
+        .unwrap();
     let leaf_id = manager.get_leaf_id().unwrap().to_owned();
-    manager.append_label_change(&leaf_id, Some("checkpoint")).unwrap();
+    manager
+        .append_label_change(&leaf_id, Some(&JsString::from("checkpoint")))
+        .unwrap();
     let path = manager.get_session_file().unwrap().to_owned();
 
     let response = oracle.request(&json!({"id": REQUEST_BASE + 30, "operation": "read_session", "path": path, "sessionDir": dir.display().to_string()}));
@@ -514,13 +534,23 @@ fn cross_implementation_appends_round_trip() {
         "messages": [user_message("first", 1), assistant_message("second", 2)],
     }));
     let path = response["output"]["path"].as_str().unwrap().to_owned();
-    let mut manager = SessionManager::open(&path, Some(&dir.display().to_string()), None).unwrap();
+    let mut manager = SessionManager::open(
+        &JsString::from(&path),
+        Some(&JsString::from(&dir.display().to_string())),
+        None,
+    )
+    .unwrap();
     manager.append_message(user_message("third", 3)).unwrap();
     manager.append_message(assistant_message("fourth", 4)).unwrap();
     let response = oracle.request(&json!({"id": REQUEST_BASE + 61, "operation": "append_message", "path": path, "sessionDir": dir.display().to_string(), "message": user_message("fifth", 5)}));
     assert_eq!(response["ok"], true, "{response}");
     manager.append_message(assistant_message("sixth", 6)).unwrap();
-    let reopened = SessionManager::open(&path, Some(&dir.display().to_string()), None).unwrap();
+    let reopened = SessionManager::open(
+        &JsString::from(&path),
+        Some(&JsString::from(&dir.display().to_string())),
+        None,
+    )
+    .unwrap();
     assert_eq!(reopened.get_entries().len(), 6);
     let context = reopened.build_session_context();
     let roles: Vec<&str> = context.messages.iter().map(AgentMessage::role).collect();
@@ -558,15 +588,19 @@ fn in_memory_goal_accessors_match_typescript() {
     assert_eq!(response["ok"], true, "{response}");
     let expected = response["output"]["values"].clone();
 
-    let mut manager = SessionManager::create(&rust_cwd, Some(&rust_dir.join("sessions").display().to_string()), None)
-        .expect("session manager");
+    let mut manager = SessionManager::create(
+        &JsString::from(&rust_cwd),
+        Some(&JsString::from(&rust_dir.join("sessions").display().to_string())),
+        None,
+    )
+    .expect("session manager");
     manager
-        .set_session_goal_json("{\"goal\":1}")
+        .set_session_goal_json(&JsString::from("{\"goal\":1}"))
         .expect("set in-memory goal");
     let set = json!(manager.get_session_goal_json().expect("read goal"));
     let for_session = json!(
         manager
-            .get_session_goal_json_for_session("/tmp/other-session.jsonl")
+            .get_session_goal_json_for_session(&JsString::from("/tmp/other-session.jsonl"))
             .expect("read other goal")
     );
     let persisted = match manager.read_persisted_session_settings().expect("read settings") {
@@ -584,7 +618,7 @@ fn in_memory_goal_accessors_match_typescript() {
             None,
             pi_coding_agent::core::session_manager::SetMetadataControlDbPathOptions {
                 index_message_text: None,
-                cwd_override: Some(String::new()),
+                cwd_override: Some(JsString::default()),
             },
         )
         .expect("empty cwd override");

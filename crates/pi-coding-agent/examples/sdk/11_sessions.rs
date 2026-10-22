@@ -5,6 +5,7 @@ use pi_coding_agent::core::{
     sdk::{CreateAgentSessionOptions, create_agent_session},
     session_manager::{SessionInfo, SessionManager, get_default_session_dir},
 };
+use pi_js_compat::js_json::JsString;
 use std::io::Write;
 
 pub async fn run(
@@ -25,7 +26,7 @@ pub async fn run(
     writeln!(
         output,
         "In-memory session: {}",
-        session.session_file().as_deref().unwrap_or("(none)")
+        session.session_file().as_ref().unwrap_or(&JsString::from("(none)"))
     )
     .map_err(|e| e.to_string())?;
     session.dispose();
@@ -35,7 +36,7 @@ pub async fn run(
     writeln!(
         output,
         "New session file: {}",
-        session.session_file().as_deref().unwrap_or("undefined")
+        session.session_file().as_ref().unwrap_or(&JsString::from("undefined"))
     )
     .map_err(|e| e.to_string())?;
     session.dispose();
@@ -48,11 +49,15 @@ pub async fn run(
     writeln!(
         output,
         "Continued session: {}",
-        result.session.session_file().as_deref().unwrap_or("undefined")
+        result
+            .session
+            .session_file()
+            .as_ref()
+            .unwrap_or(&JsString::from("undefined"))
     )
     .map_err(|e| e.to_string())?;
     result.session.dispose();
-    let sessions = SessionManager::list(&cwd, Some(&dir), None, control_db.as_deref()).map_err(|e| e.to_string())?;
+    let sessions = SessionManager::list(&cwd, Some(&dir), None, control_db.as_ref()).map_err(|e| e.to_string())?;
     writeln!(output, "\nFound {} sessions:", sessions.len()).map_err(|e| e.to_string())?;
     for info in sessions.iter().take(3) {
         writeln!(

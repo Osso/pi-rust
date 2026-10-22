@@ -28,7 +28,7 @@ pub async fn run(
         }
         options.tools = Some(names.iter().map(|name| (*name).into()).collect());
         options.session_manager =
-            Some(SessionManager::in_memory(options.cwd.as_deref(), None).map_err(|e| e.to_string())?);
+            Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.to_string())?);
         let session = create_agent_session(options).await?.session;
         writeln!(output, "{message}").map_err(|e| e.to_string())?;
         selections.push((session.cwd().to_owned(), session.get_active_tool_names()));

@@ -4,6 +4,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -59,7 +60,11 @@ impl ResidentConsoleHost<Value, Value> for CrossHost {
         self.snapshot.clone()
     }
 
-    fn enqueue_prompt(&self, text: String, id: String) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>> {
+    fn enqueue_prompt(
+        &self,
+        text: JsString,
+        id: JsString,
+    ) -> Pin<Box<dyn Future<Output = Result<(), JsString>> + Send>> {
         self.prompts.lock().unwrap().push((id, text));
         self.publish(json!({"type": "agent_start"}));
         self.publish(json!({"type": "agent_end"}));

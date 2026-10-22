@@ -6,6 +6,7 @@ use pi_coding_agent::core::{
     sdk::{CreateAgentSessionOptions, create_agent_session},
     session_manager::SessionManager,
 };
+use pi_js_compat::js_json::JsString;
 use std::io::Write;
 
 pub async fn run(options: [CreateAgentSessionOptions; 3], mut output: impl Write) -> Result<[AgentSession; 3], String> {
@@ -19,7 +20,7 @@ pub async fn run(options: [CreateAgentSessionOptions; 3], mut output: impl Write
     default.model_runtime = Some(runtime.clone());
     let first = print_session(default, "Session with default model runtime", &mut output).await?;
     if custom.model_runtime.is_none() {
-        let agent_dir = custom.agent_dir.as_deref().unwrap_or("/tmp/my-app");
+        let agent_dir = custom.agent_dir.as_ref().unwrap_or(&JsString::from("/tmp/my-app"));
         custom.model_runtime = Some(
             ModelRuntime::create(CreateModelRuntimeOptions {
                 auth_path: Some(format!("{agent_dir}/auth.json")),
@@ -32,7 +33,7 @@ pub async fn run(options: [CreateAgentSessionOptions; 3], mut output: impl Write
     }
     let second = print_session(custom, "Session with custom auth and models locations", &mut output).await?;
     runtime
-        .set_runtime_api_key("anthropic", "sk-my-temp-key", Default::default())
+        .set_runtime_api_key("anthropic", &JsString::from("sk-my-temp-key"), Default::default())
         .await
         .map_err(|e| e.to_string())?;
     overridden.model_runtime = Some(runtime);
@@ -44,7 +45,7 @@ async fn print_session(
     message: &str,
     output: &mut impl Write,
 ) -> Result<AgentSession, String> {
-    options.session_manager = Some(SessionManager::in_memory(options.cwd.as_deref(), None).map_err(|e| e.to_string())?);
+    options.session_manager = Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.to_string())?);
     let session = create_agent_session(options).await?.session;
     writeln!(output, "{message}").map_err(|e| e.to_string())?;
     session.dispose();

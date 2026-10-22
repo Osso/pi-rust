@@ -1,5 +1,6 @@
 //! Minimal `AgentSession` fixture for interactive component tests.
 
+use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
 use pi_agent_core::agent::{Agent, AgentInitialState, AgentOptions};
@@ -62,7 +63,7 @@ pub async fn fixture(cwd: &std::path::Path, thinking_level: ThinkingLevel) -> Se
     let agent = Agent::new(AgentOptions {
         initial_state: Some(AgentInitialState {
             model: Some(model),
-            system_prompt: Some(String::new()),
+            system_prompt: Some(JsString::default()),
             thinking_level: Some(thinking_level),
             tools: Some(Vec::new()),
             messages: None,
@@ -72,13 +73,13 @@ pub async fn fixture(cwd: &std::path::Path, thinking_level: ThinkingLevel) -> Se
     })
     .expect("agent");
     let cwd = cwd.display().to_string();
-    let session_manager = SessionManager::in_memory(Some(&cwd), None).expect("in-memory session");
+    let session_manager = SessionManager::in_memory(Some(&JsString::from(&cwd)), None).expect("in-memory session");
     let settings_manager = SettingsManager::in_memory(Default::default(), SettingsManagerCreateOptions::default());
     let session = AgentSession::new(AgentSessionConfig {
         agent,
         session_manager: Arc::new(std::sync::Mutex::new(session_manager)),
         settings_manager: Arc::new(std::sync::Mutex::new(settings_manager)),
-        cwd: cwd.clone(),
+        cwd: JsString::from(cwd.clone()),
         scoped_models: Vec::new(),
         resource_loader: pi_coding_agent::core::resource_loader::StaticResourceLoader::new(),
         model_runtime: runtime,
@@ -86,7 +87,7 @@ pub async fn fixture(cwd: &std::path::Path, thinking_level: ThinkingLevel) -> Se
         allowed_tool_names: None,
         excluded_tool_names: None,
         permission_prompt_tool: None,
-        agent_dir: Some(cwd),
+        agent_dir: Some(JsString::from(cwd)),
         control_db_path: None,
         base_tools: Vec::new(),
         custom_tool_definitions: Vec::new(),

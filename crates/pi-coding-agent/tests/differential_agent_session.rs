@@ -6,6 +6,9 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::encode_node_utf8;
 use std::sync::Arc;
 
 use pi_ai::providers::faux::{
@@ -72,7 +75,7 @@ impl pi_agent_core::agent::types::AgentTool for EndTurnTool {
                 .unwrap_or_default()
                 .to_owned();
             let mut result = pi_agent_core::agent::types::AgentToolResult::text(format!("Turn ended: {reason}"));
-            result.details = Some(json!({"reason": reason}));
+            result.details = Some(JsValue::from(json!({"reason": reason})));
             result.terminate = Some(true);
             Ok(result)
         })
@@ -109,7 +112,10 @@ async fn run_rust(dir: &str) -> Value {
             r#type: pi_ai::types::ToolCallTag::Tag,
             id: id.to_owned(),
             name: "end_turn".to_owned(),
-            arguments: json!({"reason": "done"}).as_object().cloned().unwrap_or_default(),
+            arguments: (json!({"reason": "done"}).as_object().cloned().unwrap_or_default())
+                .into_iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect::<pi_js_compat::js_json::JsObject>(),
             execution: None,
             thought_signature: None,
             namespace: None,
@@ -153,21 +159,28 @@ async fn run_rust(dir: &str) -> Value {
     .expect("runtime");
     runtime.register_native_provider(Arc::clone(&faux.provider));
     let session_dir = std::path::Path::new(dir).join("sessions").display().to_string();
-    let session_manager = SessionManager::create(dir, Some(&session_dir), None).expect("session manager");
-    let settings_manager =
-        SettingsManager::create(dir, Some(std::path::Path::new(dir)), Default::default()).expect("settings");
+    let session_manager = SessionManager::create(&JsString::from(dir), Some(&JsString::from(&session_dir)), None)
+        .expect("session manager");
+    let settings_manager = SettingsManager::create(
+        &JsString::from(dir),
+        Some(std::path::Path::new(dir)),
+        Default::default(),
+    )
+    .expect("settings");
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
-        cwd: Some(dir.to_owned()),
-        agent_dir: Some(dir.to_owned()),
+        cwd: Some(JsString::from(dir.to_owned())),
+        agent_dir: Some(JsString::from(dir.to_owned())),
         model_runtime: Some(runtime),
         model: Some(model),
         resource_loader: Some(std::sync::Arc::new(StaticResourceLoader {
-            system_prompt: Some("Differential system prompt".to_owned()),
+            system_prompt: Some(JsString::from("Differential system prompt")),
             ..Default::default()
         })),
         session_manager: Some(session_manager),
         settings_manager: Some(Arc::new(std::sync::Mutex::new(settings_manager))),
-        control_db_path: Some(std::path::Path::new(dir).join("control.db").display().to_string()),
+        control_db_path: Some(JsString::from(
+            std::path::Path::new(dir).join("control.db").display().to_string(),
+        )),
         base_tools: vec![Arc::new(EndTurnTool)],
         tools: Some(vec!["end_turn".to_owned()]),
         ..Default::default()
@@ -209,9 +222,9 @@ async fn run_rust(dir: &str) -> Value {
     let context_usage = session.get_context_usage();
     let forking = session.get_user_messages_for_forking();
     session.record_bash_result(
-        "echo hi",
+        &JsString::from("echo hi"),
         &pi_coding_agent::core::bash_executor::BashResult {
-            output: "hi".to_owned(),
+            output: JsString::from("hi"),
             exit_code: Some(0),
             cancelled: false,
             truncated: false,
@@ -221,11 +234,11 @@ async fn run_rust(dir: &str) -> Value {
     );
     let stats_after_bash = session.get_session_stats();
     let export_path = session
-        .export_to_jsonl(Some(
+        .export_to_jsonl(Some(&JsString::from(
             &std::path::Path::new(dir).join("export.jsonl").display().to_string(),
-        ))
+        )))
         .expect("export jsonl");
-    let export_lines: Vec<Value> = std::fs::read_to_string(&export_path)
+    let export_lines: Vec<Value> = std::fs::read_to_string(&encode_node_utf8(&export_path))
         .expect("export file")
         .lines()
         .filter(|line| !line.trim().is_empty())
@@ -259,14 +272,16 @@ async fn run_rust(dir: &str) -> Value {
         .expect("navigate");
     let stats = session.get_session_stats();
     let session_file = session.session_file().expect("session file");
-    let lines: Vec<Value> = std::fs::read_to_string(&session_file)
+    let lines: Vec<Value> = std::fs::read_to_string(&encode_node_utf8(&session_file))
         .expect("session file")
         .lines()
         .filter(|line| !line.trim().is_empty())
         .map(|line| serde_json::from_str(line).expect("jsonl line"))
         .collect();
     let messages: Vec<Value> = session.messages().iter().map(message_summary).collect();
-    session.set_session_name("Named session").expect("name");
+    session
+        .set_session_name(&JsString::from("Named session"))
+        .expect("name");
     session.abort().await.expect("abort");
     session.dispose();
     let events = events.lock().unwrap().clone();

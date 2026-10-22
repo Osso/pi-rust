@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::fs;
 
 use pi_coding_agent::migrations::{
@@ -102,11 +103,17 @@ fn no_providers_does_not_create_auth_json() {
 #[test]
 fn session_directory_encoding_matches_session_manager() {
     assert_eq!(
-        encode_session_directory_name("/home/user/project"),
+        encode_session_directory_name(&JsString::from("/home/user/project")),
         "--home-user-project--"
     );
-    assert_eq!(encode_session_directory_name(r"C:\work:dir"), "--C--work-dir--");
-    assert_eq!(encode_session_directory_name("relative"), "--relative--");
+    assert_eq!(
+        encode_session_directory_name(&JsString::from(r"C:\work:dir")),
+        "--C--work-dir--"
+    );
+    assert_eq!(
+        encode_session_directory_name(&JsString::from("relative")),
+        "--relative--"
+    );
 }
 
 #[test]
@@ -176,7 +183,11 @@ fn keybindings_file_is_rewritten_only_when_migration_applies() {
     let temp = TempDir::new().unwrap();
     let path = temp.path().join("keybindings.json");
     fs::write(&path, r#"{"submit":"enter","cursorUp":"k"}"#).unwrap();
-    run_migrations_in(temp.path(), &temp.path().join("bin"), temp.path().to_str().unwrap());
+    run_migrations_in(
+        temp.path(),
+        &temp.path().join("bin"),
+        &JsString::from(temp.path().to_str().unwrap()),
+    );
 
     assert_eq!(
         read(&path),
@@ -189,11 +200,19 @@ fn keybindings_file_is_untouched_for_malformed_or_unchanged_content() {
     let temp = TempDir::new().unwrap();
     let path = temp.path().join("keybindings.json");
     fs::write(&path, "[1,2]").unwrap();
-    run_migrations_in(temp.path(), &temp.path().join("bin"), temp.path().to_str().unwrap());
+    run_migrations_in(
+        temp.path(),
+        &temp.path().join("bin"),
+        &JsString::from(temp.path().to_str().unwrap()),
+    );
     assert_eq!(read(&path), "[1,2]");
 
     fs::write(&path, r#"{"tui.input.submit":"enter"}"#).unwrap();
-    run_migrations_in(temp.path(), &temp.path().join("bin"), temp.path().to_str().unwrap());
+    run_migrations_in(
+        temp.path(),
+        &temp.path().join("bin"),
+        &JsString::from(temp.path().to_str().unwrap()),
+    );
     assert_eq!(read(&path), r#"{"tui.input.submit":"enter"}"#);
 }
 
@@ -209,7 +228,11 @@ fn reports_deprecated_hook_and_tool_directories() {
     fs::create_dir_all(project_dir.join("tools")).unwrap();
     fs::write(project_dir.join("tools/custom.ts"), "tool").unwrap();
 
-    let result = run_migrations_in(&agent_dir, &temp.path().join("bin"), temp.path().to_str().unwrap());
+    let result = run_migrations_in(
+        &agent_dir,
+        &temp.path().join("bin"),
+        &JsString::from(temp.path().to_str().unwrap()),
+    );
 
     assert_eq!(
         result.deprecation_warnings,
@@ -228,7 +251,11 @@ fn migrates_commands_directories_for_agent_and_project() {
     fs::write(agent_dir.join("commands/a.md"), "a").unwrap();
     fs::create_dir_all(temp.path().join(".pi/commands")).unwrap();
 
-    run_migrations_in(&agent_dir, &temp.path().join("bin"), temp.path().to_str().unwrap());
+    run_migrations_in(
+        &agent_dir,
+        &temp.path().join("bin"),
+        &JsString::from(temp.path().to_str().unwrap()),
+    );
 
     assert!(agent_dir.join("prompts/a.md").exists());
     assert!(temp.path().join(".pi/prompts").is_dir());

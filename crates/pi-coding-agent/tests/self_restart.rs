@@ -1,5 +1,7 @@
 //! `core/self-restart.ts` behavioral tests.
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::collections::BTreeMap;
 use std::fs;
 use std::sync::Arc;
@@ -63,8 +65,8 @@ fn consumes_an_exec_in_place_restart_request_and_removes_it_from_the_environment
     assert_eq!(
         handoff,
         SelfRestartHandoff {
-            session_file: "/tmp/session.jsonl".to_owned(),
-            prompt: Some("Restarted.".to_owned()),
+            session_file: JsString::from("/tmp/session.jsonl"),
+            prompt: Some(JsString::from("Restarted.")),
             old_pid: Some(100),
         }
     );
@@ -108,8 +110,8 @@ fn resumes_the_requested_session_without_submitting_the_restart_notice_as_a_prom
     apply_self_restart_request(
         &mut args,
         Some(&SelfRestartHandoff {
-            session_file: "/tmp/session.jsonl".to_owned(),
-            prompt: Some("Restarted.".to_owned()),
+            session_file: JsString::from("/tmp/session.jsonl"),
+            prompt: Some(JsString::from("Restarted.")),
             old_pid: None,
         }),
     );
@@ -126,7 +128,8 @@ fn resumes_the_requested_session_without_submitting_the_restart_notice_as_a_prom
 fn create_session(directory: &TempDir) -> (SessionManager, String) {
     let root = directory.path().to_string_lossy().into_owned();
     let sessions = directory.path().join("sessions").to_string_lossy().into_owned();
-    let session = SessionManager::create(&root, Some(&sessions), None).expect("session manager");
+    let session = SessionManager::create(&JsString::from(&root), Some(&JsString::from(&sessions)), None)
+        .expect("session manager");
     let session_file = session.get_session_file().expect("session file").to_owned();
     (session, session_file)
 }
@@ -139,8 +142,8 @@ fn appends_a_restarted_notice_with_the_current_pid_after_an_exec_in_place_restar
     append_self_restart_notice(
         &mut session,
         Some(&SelfRestartHandoff {
-            session_file,
-            prompt: Some("Restarted.".to_owned()),
+            session_file: JsString::from(session_file),
+            prompt: Some(JsString::from("Restarted.")),
             old_pid: Some(current_pid),
         }),
         current_pid,
@@ -165,8 +168,8 @@ fn appends_a_restarted_notice_with_the_old_and_new_pid_after_a_spawn_handoff() {
     append_self_restart_notice(
         &mut session,
         Some(&SelfRestartHandoff {
-            session_file,
-            prompt: Some("Restarted.".to_owned()),
+            session_file: JsString::from(session_file),
+            prompt: Some(JsString::from("Restarted.")),
             old_pid: Some(1234),
         }),
         current_pid,
@@ -188,7 +191,7 @@ fn skips_the_notice_without_a_prompt() {
     append_self_restart_notice(
         &mut session,
         Some(&SelfRestartHandoff {
-            session_file,
+            session_file: JsString::from(session_file),
             prompt: None,
             old_pid: None,
         }),
@@ -230,7 +233,7 @@ async fn waits_for_the_old_parent_process_before_continuing_restarted_startup() 
     };
     wait_for_self_restart_parent_exit(
         Some(&SelfRestartHandoff {
-            session_file: "/tmp/session.jsonl".to_owned(),
+            session_file: JsString::from("/tmp/session.jsonl"),
             prompt: None,
             old_pid: Some(1234),
         }),
@@ -255,7 +258,7 @@ async fn skips_the_parent_exit_wait_after_an_exec_in_place_restart() {
     };
     wait_for_self_restart_parent_exit(
         Some(&SelfRestartHandoff {
-            session_file: "/tmp/session.jsonl".to_owned(),
+            session_file: JsString::from("/tmp/session.jsonl"),
             prompt: None,
             old_pid: Some(100),
         }),
@@ -315,8 +318,8 @@ fn does_not_pass_bun_virtual_entrypoint_paths_back_to_compiled_binaries() {
 fn builds_restart_environment_with_the_requested_values() {
     let environment = build_self_restart_env(
         &SelfRestartRequest {
-            session_file: "/tmp/session.jsonl".to_owned(),
-            prompt: Some("Restarted.".to_owned()),
+            session_file: JsString::from("/tmp/session.jsonl"),
+            prompt: Some(JsString::from("Restarted.")),
             old_pid: None,
         },
         &env(&[("KEEP", "value")]),
@@ -332,10 +335,13 @@ fn builds_restart_environment_with_the_requested_values() {
 fn flush_session(session: &mut SessionManager) {
     session
         .append_message(pi_agent_core::agent::AgentMessage::Custom(
-            serde_json::json!({"role": "assistant", "content": [], "timestamp": 0})
+            (serde_json::json!({"role": "assistant", "content": [], "timestamp": 0})
                 .as_object()
                 .expect("assistant object")
-                .clone(),
+                .clone())
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>(),
         ))
         .expect("flush assistant message");
 }
@@ -369,8 +375,8 @@ fn self_restart_exec_entry() {
     };
     let error = restart_current_process(
         SelfRestartRequest {
-            session_file: "/tmp/session.jsonl".to_owned(),
-            prompt: Some("Restarted.".to_owned()),
+            session_file: JsString::from("/tmp/session.jsonl"),
+            prompt: Some(JsString::from("Restarted.")),
             old_pid: None,
         },
         &target,
@@ -410,7 +416,7 @@ fn replaces_the_process_image_in_place_with_the_same_argv_and_a_restart_request_
 fn rejects_an_exec_restart_when_the_target_cannot_start() {
     let error = exec_self_restart(
         &SelfRestartRequest {
-            session_file: "/tmp/session.jsonl".to_owned(),
+            session_file: JsString::from("/tmp/session.jsonl"),
             prompt: None,
             old_pid: None,
         },
@@ -437,8 +443,8 @@ async fn spawns_a_replacement_process_and_waits_for_its_exit() {
     };
     let exit_code = spawn_self_restart(
         &SelfRestartRequest {
-            session_file: "/tmp/session.jsonl".to_owned(),
-            prompt: Some("Restarted.".to_owned()),
+            session_file: JsString::from("/tmp/session.jsonl"),
+            prompt: Some(JsString::from("Restarted.")),
             old_pid: None,
         },
         &target,
@@ -467,7 +473,7 @@ fn can_return_immediately_after_spawning_the_restarted_child() {
     let started = Instant::now();
     let exit_code = spawn_self_restart(
         &SelfRestartRequest {
-            session_file: "/tmp/session.jsonl".to_owned(),
+            session_file: JsString::from("/tmp/session.jsonl"),
             prompt: None,
             old_pid: None,
         },
@@ -489,7 +495,7 @@ fn can_return_immediately_after_spawning_the_restarted_child() {
 fn rejects_when_the_restarted_child_fails_to_spawn() {
     let error = spawn_self_restart(
         &SelfRestartRequest {
-            session_file: "/tmp/session.jsonl".to_owned(),
+            session_file: JsString::from("/tmp/session.jsonl"),
             prompt: None,
             old_pid: None,
         },

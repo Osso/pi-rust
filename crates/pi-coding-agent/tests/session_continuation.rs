@@ -6,6 +6,8 @@ use pi_ai::types::{
     ToolResultRole, Usage, UserContent, UserMessage, UserRole,
 };
 use pi_coding_agent::core::agent_session::should_continue_interrupted_session;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::json;
 
 fn user_message(text: &str) -> AgentMessage {
@@ -31,7 +33,10 @@ fn end_turn_call() -> AssistantContent {
         r#type: ToolCallTag::Tag,
         id: "call-1".to_owned(),
         name: "end_turn".to_owned(),
-        arguments: json!({"reason": "done"}).as_object().cloned().unwrap_or_default(),
+        arguments: (json!({"reason": "done"}).as_object().cloned().unwrap_or_default())
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>(),
         execution: None,
         thought_signature: None,
         namespace: None,
@@ -103,6 +108,14 @@ fn self_restart_messages_are_skipped_before_the_check() {
     restart.insert("role".to_owned(), json!("custom"));
     restart.insert("customType".to_owned(), json!("self_restart"));
     restart.insert("content".to_owned(), json!("restarting"));
-    let messages = [user_message("hello"), AgentMessage::Custom(restart)];
+    let messages = [
+        user_message("hello"),
+        AgentMessage::Custom(
+            restart
+                .into_iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect::<pi_js_compat::js_json::JsObject>(),
+        ),
+    ];
     assert!(should_continue_interrupted_session(&messages));
 }

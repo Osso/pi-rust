@@ -9,6 +9,8 @@ use pi_coding_agent::core::{
     session_manager::SessionManager,
     settings_manager::SettingsManager,
 };
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::json;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
@@ -34,7 +36,7 @@ pub async fn configure_options(
     };
     if let Some(key) = api_key.filter(|key| !key.is_empty()) {
         runtime
-            .set_runtime_api_key("anthropic", key, Default::default())
+            .set_runtime_api_key("anthropic", &JsString::from(key), Default::default())
             .await
             .map_err(|e| e.to_string())?;
     }
@@ -53,13 +55,16 @@ pub async fn configure_options(
         ..Default::default()
     }));
     options.settings_manager = Some(Arc::new(Mutex::new(SettingsManager::in_memory(
-        json!({"compaction":{"enabled":false},"retry":{"enabled":true,"maxRetries":2}})
+        (json!({"compaction":{"enabled":false},"retry":{"enabled":true,"maxRetries":2}})
             .as_object()
             .expect("settings object")
-            .clone(),
+            .clone())
+        .into_iter()
+        .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+        .collect::<pi_js_compat::js_json::JsObject>(),
         Default::default(),
     ))));
-    options.session_manager = Some(SessionManager::in_memory(options.cwd.as_deref(), None).map_err(|e| e.to_string())?);
+    options.session_manager = Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.to_string())?);
     Ok(options)
 }
 

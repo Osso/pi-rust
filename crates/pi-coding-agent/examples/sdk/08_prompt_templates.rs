@@ -9,6 +9,7 @@ use pi_coding_agent::core::{
     session_manager::SessionManager,
     source_info::{SyntheticSourceInfoOptions, create_synthetic_source_info},
 };
+use pi_js_compat::js_json::JsString;
 use std::io::Write;
 use std::sync::Arc;
 
@@ -24,7 +25,7 @@ pub async fn run(
             file_path: "/virtual/prompts/deploy.md".into(),
             argument_hint: None,
             source_info: create_synthetic_source_info(
-                "/virtual/prompts/deploy.md",
+                &JsString::from("/virtual/prompts/deploy.md"),
                 &SyntheticSourceInfoOptions {
                     source: "sdk".into(),
                     scope: None,
@@ -45,7 +46,7 @@ pub async fn run(
         writeln!(output, "  /{}: {}", template.name, template.description).map_err(|e| e.to_string())?;
     }
     options.resource_loader = Some(loader);
-    options.session_manager = Some(SessionManager::in_memory(options.cwd.as_deref(), None).map_err(|e| e.to_string())?);
+    options.session_manager = Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.to_string())?);
     let session = create_agent_session(options).await?.session;
     // Preserve the source's double-counted inline template in the printed label.
     writeln!(output, "Session created with {} prompt templates", discovered.len() + 1).map_err(|e| e.to_string())?;

@@ -1,5 +1,7 @@
 //! Behavioral tests for compaction summary generation, materialization and `compact`.
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::agent::{AgentMessage, StreamFn};
@@ -21,7 +23,7 @@ use serde_json::{Value, json};
 fn user(text: &str) -> AgentMessage {
     AgentMessage::User(UserMessage {
         role: UserRole::Tag,
-        content: UserContent::Text(text.to_owned()),
+        content: UserContent::Text(JsString::from(text.to_owned())),
         input_source: None,
         provider_native: None,
         timestamp: 0,
@@ -34,7 +36,7 @@ fn model() -> Model {
         name: "Claude".to_owned(),
         api: "anthropic-messages".to_owned(),
         provider: "anthropic".to_owned(),
-        base_url: "https://example.invalid".to_owned(),
+        base_url: JsString::from("https://example.invalid"),
         reasoning: false,
         thinking_level_map: None,
         input: vec![pi_ai::types::Modality::Text],
@@ -59,7 +61,7 @@ fn response(stop_reason: StopReason, text: &str, error_message: Option<&str>) ->
         ..Usage::default()
     };
     message.stop_reason = stop_reason;
-    message.error_message = error_message.map(str::to_owned);
+    message.error_message = error_message.map(str::to_owned).map(JsString::from);
     message
 }
 
@@ -127,15 +129,15 @@ fn scripted_stream(log: Arc<Mutex<Vec<CapturedCall>>>, responses: Vec<AssistantM
 
 fn compaction_entry(provider_native: Option<ProviderNativeContext>) -> CompactionEntry {
     CompactionEntry {
-        id: "compaction-1".to_owned(),
-        parent_id: Some("message-1".to_owned()),
-        timestamp: "2026-08-08T00:00:00.000Z".to_owned(),
-        summary: "OpenAI native compaction stored in session entry details.".to_owned(),
-        first_kept_entry_id: "message-2".to_owned(),
+        id: JsString::from("compaction-1"),
+        parent_id: Some(JsString::from("message-1")),
+        timestamp: JsString::from("2026-08-08T00:00:00.000Z"),
+        summary: JsString::from("OpenAI native compaction stored in session entry details."),
+        first_kept_entry_id: JsString::from("message-2"),
         tokens_before: 42_000.0,
         extra: Default::default(),
         duration_ms: None,
-        details: Some(Box::new(json!({"type": "openai-remote-compaction"}))),
+        details: Some(Box::new(JsValue::from(json!({"type": "openai-remote-compaction"})))),
         provider_native: provider_native.map(Box::new),
         from_hook: None,
         first_kept_entry_index: None,
@@ -153,10 +155,10 @@ fn native_context() -> ProviderNativeContext {
 
 fn preparation() -> CompactionPreparation {
     let mut file_ops = pi_coding_agent::core::compaction::create_file_ops();
-    file_ops.read.insert("read.ts".to_owned());
-    file_ops.edited.insert("edited.ts".to_owned());
+    file_ops.read.insert(JsString::from("read.ts"));
+    file_ops.edited.insert(JsString::from("edited.ts"));
     CompactionPreparation {
-        first_kept_entry_id: "kept-1".to_owned(),
+        first_kept_entry_id: JsString::from("kept-1"),
         messages_to_summarize: vec![user("Summarize this.")],
         turn_prefix_messages: Vec::new(),
         is_split_turn: false,
@@ -190,7 +192,7 @@ async fn materializes_native_context_and_returns_the_summary() {
         &model,
         &MaterializeCompactionSummaryOptions {
             reserve_tokens: 16_384.0,
-            api_key: Some("test-key".to_owned()),
+            api_key: Some(JsString::from("test-key")),
             headers: None,
             env: None,
             signal: None,
@@ -202,7 +204,9 @@ async fn materializes_native_context_and_returns_the_summary() {
 
     assert_eq!(
         result,
-        MaterializeCompactionSummaryResult::Summary("## Goal\n\nContinue from the encrypted checkpoint.".to_owned())
+        MaterializeCompactionSummaryResult::Summary(JsString::from(
+            "## Goal\n\nContinue from the encrypted checkpoint."
+        ))
     );
     let calls = log.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
     assert_eq!(calls.len(), 1);
@@ -226,7 +230,7 @@ async fn materialization_reports_aborted_responses() {
         &model,
         &MaterializeCompactionSummaryOptions {
             reserve_tokens: 16_384.0,
-            api_key: Some("test-key".to_owned()),
+            api_key: Some(JsString::from("test-key")),
             headers: None,
             env: None,
             signal: None,
@@ -294,7 +298,7 @@ async fn generates_a_summary_with_the_exact_request_shape() {
         current_messages: &messages,
         model: &model,
         reserve_tokens: 2000.0,
-        api_key: Some("test-key".to_owned()),
+        api_key: Some(JsString::from("test-key")),
         headers: None,
         signal: None,
         custom_instructions: None,
@@ -334,8 +338,8 @@ async fn uses_the_update_prompt_with_a_previous_summary_and_custom_focus() {
         api_key: None,
         headers: None,
         signal: None,
-        custom_instructions: Some("focus"),
-        previous_summary: Some("previous"),
+        custom_instructions: Some(&JsString::from("focus")),
+        previous_summary: Some(&JsString::from("previous")),
         thinking_level: None,
         stream_fn: Some(&stream_fn),
         env: None,
@@ -375,7 +379,7 @@ async fn retries_a_transient_summary_failure() {
         current_messages: &messages,
         model: &model,
         reserve_tokens: 2000.0,
-        api_key: Some("test-key".to_owned()),
+        api_key: Some(JsString::from("test-key")),
         headers: None,
         signal: None,
         custom_instructions: None,
@@ -458,14 +462,14 @@ async fn compacts_with_file_operations_and_source_details() {
     assert_eq!(result.usage.expect("usage").total_tokens, 20.0);
     assert_eq!(
         result.details,
-        Some(json!({"readFiles": ["read.ts"], "modifiedFiles": ["edited.ts"]}))
+        (Some(json!({"readFiles": ["read.ts"], "modifiedFiles": ["edited.ts"]}))).map(JsValue::from)
     );
 }
 
 #[tokio::test]
 async fn compact_rejects_an_empty_first_kept_entry_id() {
     let mut preparation = preparation();
-    preparation.first_kept_entry_id = String::new();
+    preparation.first_kept_entry_id = JsString::default();
     let log = Arc::new(Mutex::new(Vec::new()));
     let stream_fn = scripted_stream(Arc::clone(&log), vec![response(StopReason::Stop, "Summary", None)]);
     let model = model();

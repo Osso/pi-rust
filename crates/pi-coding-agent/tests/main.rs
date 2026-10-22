@@ -1,5 +1,6 @@
 //! Behavioral tests for the `main.ts` startup helpers.
 
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -43,7 +44,7 @@ fn args(values: &[&str]) -> Vec<String> {
 fn user_message(text: &str, timestamp: i64) -> AgentMessage {
     AgentMessage::User(UserMessage {
         role: UserRole::Tag,
-        content: UserContent::Text(text.to_owned()),
+        content: UserContent::Text(JsString::from(text.to_owned())),
         input_source: None,
         provider_native: None,
         timestamp,
@@ -51,7 +52,8 @@ fn user_message(text: &str, timestamp: i64) -> AgentMessage {
 }
 
 fn create_session(cwd: &str, session_dir: &str, text: &str) -> SessionManager {
-    let mut session = SessionManager::create(cwd, Some(session_dir), None).expect("session");
+    let mut session =
+        SessionManager::create(&JsString::from(cwd), Some(&JsString::from(session_dir)), None).expect("session");
     session.append_message(user_message(text, 1)).expect("append message");
     session
         .append_message(AgentMessage::Assistant(Box::new(AssistantMessage {
@@ -78,7 +80,7 @@ fn create_session(cwd: &str, session_dir: &str, text: &str) -> SessionManager {
 
 fn settings_manager(cwd: &str, agent_dir: &Path) -> SettingsManager {
     SettingsManager::create(
-        cwd,
+        &JsString::from(cwd),
         Some(agent_dir),
         SettingsManagerCreateOptions {
             project_trusted: Some(false),
@@ -242,37 +244,79 @@ fn session_paths_resolve_locally_globally_and_by_prefix() {
     let session_id = session.get_session_id().to_owned();
     let session_file = session.get_session_file().expect("session file").to_owned();
     assert_eq!(
-        SessionManager::list_all(Some(&session_dir), None, None)
+        SessionManager::list_all(Some(&JsString::from(&session_dir)), None, None)
             .expect("all")
             .len(),
         1
     );
-    let listed = SessionManager::list(&project_a, Some(&session_dir), None, None).expect("list");
+    let listed = SessionManager::list(
+        &JsString::from(&project_a),
+        Some(&JsString::from(&session_dir)),
+        None,
+        None,
+    )
+    .expect("list");
     assert_eq!(listed.len(), 1, "cwd={project_a} sessions={listed:?}");
-    let listed = SessionManager::list(&project_a, Some(&session_dir), None, None).expect("list");
+    let listed = SessionManager::list(
+        &JsString::from(&project_a),
+        Some(&JsString::from(&session_dir)),
+        None,
+        None,
+    )
+    .expect("list");
     assert_eq!(listed.len(), 1, "cwd={project_a} sessions={listed:?}");
 
-    let resolved = resolve_session_path(&session_id[..6], &project_a, Some(&session_dir), None).expect("resolved");
+    let resolved = resolve_session_path(
+        &session_id[..6],
+        &JsString::from(&project_a),
+        Some(&JsString::from(&session_dir)),
+        None,
+    )
+    .expect("resolved");
     assert_eq!(resolved, ResolvedSession::Local(session_file.clone()));
 
-    let resolved = resolve_session_path(&session_id, &project_b, Some(&session_dir), None).expect("resolved");
+    let resolved = resolve_session_path(
+        &session_id,
+        &JsString::from(&project_b),
+        Some(&JsString::from(&session_dir)),
+        None,
+    )
+    .expect("resolved");
     assert_eq!(
         resolved,
         ResolvedSession::Global {
             path: session_file.clone(),
-            cwd: project_a.clone()
+            cwd: JsString::from(project_a.clone())
         }
     );
 
-    let resolved = resolve_session_path(&session_file, &project_b, Some(&session_dir), None).expect("resolved");
+    let resolved = resolve_session_path(
+        &session_file,
+        &JsString::from(&project_b),
+        Some(&JsString::from(&session_dir)),
+        None,
+    )
+    .expect("resolved");
     assert_eq!(resolved, ResolvedSession::Path(session_file.clone()));
 
     let missing_jsonl = root.path().join("missing.jsonl").display().to_string();
-    let resolved = resolve_session_path(&missing_jsonl, &project_b, Some(&session_dir), None).expect("resolved");
-    assert_eq!(resolved, ResolvedSession::Path(missing_jsonl));
+    let resolved = resolve_session_path(
+        &JsString::from(&missing_jsonl),
+        &JsString::from(&project_b),
+        Some(&JsString::from(&session_dir)),
+        None,
+    )
+    .expect("resolved");
+    assert_eq!(resolved, ResolvedSession::Path(JsString::from(missing_jsonl)));
 
-    let resolved = resolve_session_path("does-not-exist", &project_a, Some(&session_dir), None).expect("resolved");
-    assert_eq!(resolved, ResolvedSession::NotFound("does-not-exist".to_owned()));
+    let resolved = resolve_session_path(
+        &JsString::from("does-not-exist"),
+        &JsString::from(&project_a),
+        Some(&JsString::from(&session_dir)),
+        None,
+    )
+    .expect("resolved");
+    assert_eq!(resolved, ResolvedSession::NotFound(JsString::from("does-not-exist")));
 }
 
 #[test]
@@ -295,9 +339,18 @@ fn session_project_membership_uses_the_git_common_directory() {
     let repo = repo.display().to_string();
     let worktree = worktree.display().to_string();
     let sibling = sibling.display().to_string();
-    assert!(session_belongs_to_project(&repo, &repo));
-    assert!(session_belongs_to_project(&worktree, &repo));
-    assert!(!session_belongs_to_project(&sibling, &repo));
+    assert!(session_belongs_to_project(
+        &JsString::from(&repo),
+        &JsString::from(&repo)
+    ));
+    assert!(session_belongs_to_project(
+        &JsString::from(&worktree),
+        &JsString::from(&repo)
+    ));
+    assert!(!session_belongs_to_project(
+        &JsString::from(&sibling),
+        &JsString::from(&repo)
+    ));
 }
 
 #[test]
@@ -305,7 +358,7 @@ fn cli_paths_resolve_local_entries_only() {
     let root = tempfile::tempdir().expect("temp dir");
     let cwd = root.path().display().to_string();
     let resolved = resolve_cli_paths(
-        &cwd,
+        &JsString::from(&cwd),
         Some(&[
             "./skills".to_owned(),
             "npm:package".to_owned(),
@@ -322,7 +375,7 @@ fn cli_paths_resolve_local_entries_only() {
             "/absolute/path".to_owned(),
         ]
     );
-    assert_eq!(resolve_cli_paths(&cwd, None).expect("paths"), None);
+    assert_eq!(resolve_cli_paths(&JsString::from(&cwd), None).expect("paths"), None);
 }
 
 #[tokio::test]
@@ -331,7 +384,7 @@ async fn initial_message_concatenates_stdin_and_the_first_cli_message() {
     let result = prepare_initial_message(&mut parsed, true, Some("piped\n"))
         .await
         .expect("initial message");
-    assert_eq!(result.initial_message.as_deref(), Some("piped\nhello"));
+    assert_eq!(result.initial_message.as_ref(), Some(&JsString::from("piped\nhello")));
     assert_eq!(parsed.messages, vec!["second".to_owned()]);
 
     let mut parsed = parse_args(&args(&[]));
@@ -409,23 +462,41 @@ async fn create_session_manager_honors_help_in_memory_and_session_ids() {
     let settings = settings_manager(&cwd, &agent_dir);
 
     let parsed = parse_args(&args(&["--help"]));
-    let manager = create_session_manager(&parsed, &cwd, Some(&session_dir), &settings, None)
-        .await
-        .expect("manager");
+    let manager = create_session_manager(
+        &parsed,
+        &JsString::from(&cwd),
+        Some(&JsString::from(&session_dir)),
+        &settings,
+        None,
+    )
+    .await
+    .expect("manager");
     assert!(manager.get_session_file().is_none());
 
     let parsed = parse_args(&args(&["--session-id", "chosen-id"]));
-    let manager = create_session_manager(&parsed, &cwd, Some(&session_dir), &settings, None)
-        .await
-        .expect("manager");
+    let manager = create_session_manager(
+        &parsed,
+        &JsString::from(&cwd),
+        Some(&JsString::from(&session_dir)),
+        &settings,
+        None,
+    )
+    .await
+    .expect("manager");
     assert_eq!(manager.get_session_id(), "chosen-id");
     assert!(manager.get_session_file().is_some());
 
     let parsed = parse_args(&args(&["--fork", "missing-session"]));
     assert_eq!(
-        create_session_manager(&parsed, &cwd, Some(&session_dir), &settings, None)
-            .await
-            .err(),
+        create_session_manager(
+            &parsed,
+            &JsString::from(&cwd),
+            Some(&JsString::from(&session_dir)),
+            &settings,
+            None
+        )
+        .await
+        .err(),
         Some(MainExit(1))
     );
 }
@@ -471,7 +542,7 @@ fn list_models_parse_variants_are_preserved() {
 fn diagnostics_are_serialized_with_the_ts_type_field() {
     let diagnostic = AgentSessionRuntimeDiagnostic {
         diagnostic_type: "error".to_owned(),
-        message: "broken".to_owned(),
+        message: JsString::from("broken"),
     };
     assert_eq!(
         serde_json::to_string(&diagnostic).expect("json"),
@@ -488,7 +559,7 @@ fn first_party_factory_list_partitions_the_source_names() {
         store,
         handles,
         fetch,
-        "/tmp/pi-test-agent".to_owned(),
+        JsString::from("/tmp/pi-test-agent"),
         std::sync::Arc::new(Vec::new),
         None,
     );
@@ -526,13 +597,13 @@ async fn first_party_factories_load_and_register_agent_tools() {
         store,
         handles,
         fetch,
-        "/tmp/pi-test-agent".to_owned(),
+        JsString::from("/tmp/pi-test-agent"),
         std::sync::Arc::new(Vec::new),
         None,
     );
     let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
-        cwd: cwd.clone(),
-        agent_dir: cwd,
+        cwd: JsString::from(cwd.clone()),
+        agent_dir: JsString::from(cwd),
         extension_factories: factories,
         no_skills: true,
         no_prompt_templates: true,
@@ -589,12 +660,12 @@ async fn runtime_factory_creates_services_and_reports_missing_models() {
     let agent_dir_string = agent_dir.display().to_string();
 
     let parsed = parse_args(&args(&["--no-session"]));
-    let session_manager = SessionManager::in_memory(Some(&cwd_string), None).expect("session manager");
-    let trust_store = Arc::new(ProjectTrustStore::new(&agent_dir_string));
+    let session_manager = SessionManager::in_memory(Some(&JsString::from(&cwd_string)), None).expect("session manager");
+    let trust_store = Arc::new(ProjectTrustStore::new(&JsString::from(&agent_dir_string)));
     let project_trust_by_cwd = Arc::new(Mutex::new(HashMap::new()));
     let factory = create_runtime_factory(RuntimeFactoryOptions {
         parsed,
-        agent_dir: agent_dir_string.clone(),
+        agent_dir: JsString::from(agent_dir_string.clone()),
         startup_default_project_trust: DefaultProjectTrust::Ask,
         trust_store,
         trust_prompt_mode: AppMode::Print,
@@ -610,8 +681,8 @@ async fn runtime_factory_creates_services_and_reports_missing_models() {
             pi_coding_agent::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles(),
     });
     let result = factory(CreateAgentSessionRuntimeOptions {
-        cwd: cwd_string.clone(),
-        agent_dir: agent_dir_string,
+        cwd: JsString::from(cwd_string.clone()),
+        agent_dir: JsString::from(agent_dir_string),
         session_manager,
         session_start_reason: "startup".to_owned(),
         previous_session_file: None,
@@ -620,20 +691,29 @@ async fn runtime_factory_creates_services_and_reports_missing_models() {
     .expect("runtime");
 
     assert_eq!(
-        result.model_fallback_message.as_deref(),
+        result.model_fallback_message.as_ref(),
         Some(format_no_models_available_message().as_str())
+            .map(JsString::from)
+            .as_ref()
     );
     assert_eq!(result.services.cwd, cwd_string);
     assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
     assert!(result.session.messages().is_empty());
-    assert_eq!(project_trust_by_cwd.lock().unwrap().get(&cwd_string), Some(&false));
+    assert_eq!(
+        project_trust_by_cwd.lock().unwrap().get(&JsString::from(&cwd_string)),
+        Some(&false)
+    );
 }
 
 #[tokio::test]
 async fn debug_repl_provider_reports_the_documented_gap() {
     let controller = (debug_repl_gap_provider())();
     assert_eq!(
-        controller.enable("session-1").await.unwrap_err().message,
+        controller
+            .enable(&JsString::from("session-1"))
+            .await
+            .unwrap_err()
+            .message,
         DEBUG_REPL_GAP
     );
     assert_eq!(controller.disable().await.unwrap_err().message, DEBUG_REPL_GAP);

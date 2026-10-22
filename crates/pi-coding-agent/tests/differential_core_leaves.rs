@@ -826,7 +826,7 @@ fn detached_job_retention_matches_typescript() {
                 .unwrap()
                 .iter()
                 .map(|candidate| DetachedArtifactRetentionCandidate {
-                    directory_path: candidate["directoryPath"].as_str().unwrap().to_owned(),
+                    directory_path: JsString::from(candidate["directoryPath"].as_str().unwrap().to_owned()),
                     byte_size: candidate["byteSize"].as_f64().unwrap(),
                     terminal_at: candidate["terminalAt"].as_f64().unwrap(),
                     protected_by_live_reference: candidate["protectedByLiveReference"].as_bool().unwrap(),

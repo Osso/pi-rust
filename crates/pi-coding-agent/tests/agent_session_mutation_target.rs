@@ -2,6 +2,7 @@
 //! (`core/agent-session.ts` `bindAgentSessionMutationTargetResolver` and the
 //! agents-core `resolveSelectedSessionMutationTarget`).
 
+use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::providers::faux::{FauxModelDefinition, FauxProviderHandle, RegisterFauxProviderOptions, faux_provider};
@@ -132,18 +133,19 @@ async fn test_env() -> TestEnv {
     let faux = faux();
     let runtime = faux_runtime(&faux).await;
     let model = faux.get_model(Some("faux-1")).expect("model");
-    let mut manager = SessionManager::create(&cwd, Some(&session_dir), None).expect("session manager");
+    let mut manager = SessionManager::create(&JsString::from(&cwd), Some(&JsString::from(&session_dir)), None)
+        .expect("session manager");
     manager
-        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .set_metadata_control_db_path(Some(&JsString::from(&control_db)), Default::default())
         .expect("metadata control db");
     let result = create_agent_session(CreateAgentSessionOptions {
-        cwd: Some(cwd.clone()),
-        agent_dir: Some(agent_dir),
+        cwd: Some(JsString::from(cwd.clone())),
+        agent_dir: Some(JsString::from(agent_dir)),
         model_runtime: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(manager),
-        control_db_path: Some(control_db),
+        control_db_path: Some(JsString::from(control_db)),
         ..Default::default()
     })
     .await
@@ -157,16 +159,16 @@ async fn test_env() -> TestEnv {
 
 fn agent(id: &str, agent_type: &str, lifecycle: AgentLifecycle) -> AgentSnapshot {
     AgentSnapshot {
-        id: id.to_owned(),
-        parent_id: Some("main".to_owned()),
+        id: JsString::from(id.to_owned()),
+        parent_id: Some(JsString::from("main")),
         display_name: format!("Agent {id}"),
         agent_type: agent_type.into(),
         origin: None,
         lifecycle,
         revision: 1,
-        created_at: "2026-06-21T00:00:00.000Z".to_owned(),
-        updated_at: "2026-06-21T00:00:00.000Z".to_owned(),
-        cwd: "/repo".to_owned(),
+        created_at: JsString::from("2026-06-21T00:00:00.000Z"),
+        updated_at: JsString::from("2026-06-21T00:00:00.000Z"),
+        cwd: JsString::from("/repo"),
         worktree: None,
         model: None,
         account: None,
@@ -219,26 +221,26 @@ fn resolve_selected_session_mutation_target_reports_source_errors() {
             .expect("none")
             .is_none()
     );
-    store.select_agent_view("main");
+    store.select_agent_view(&JsString::from("main"));
     assert!(
         resolve_selected_session_mutation_target(&store, &handles)
             .expect("main")
             .is_none()
     );
 
-    store.select_agent_view("agent_bg");
+    store.select_agent_view(&JsString::from("agent_bg"));
     assert_eq!(
         error_text(resolve_selected_session_mutation_target(&store, &handles)),
         "Agent agent_bg is detached and not a live child session"
     );
 
-    store.select_agent_view("agent_done");
+    store.select_agent_view(&JsString::from("agent_done"));
     assert_eq!(
         error_text(resolve_selected_session_mutation_target(&store, &handles)),
         "Agent is not active: Agent agent_done (completed)"
     );
 
-    store.select_agent_view("agent_live");
+    store.select_agent_view(&JsString::from("agent_live"));
     assert_eq!(
         error_text(resolve_selected_session_mutation_target(&store, &handles)),
         "Agent agent_live is not a live child session"
@@ -250,7 +252,7 @@ async fn resolve_selected_session_mutation_target_requires_a_live_mutable_sessio
     let env = test_env().await;
     let handles = create_multi_agent_runtime_handles();
     let store = store_with(&[agent("agent_live", "worker", AgentLifecycle::Running)]);
-    store.select_agent_view("agent_live");
+    store.select_agent_view(&JsString::from("agent_live"));
 
     // A session without a mutation surface is rejected like the TS structural check.
     struct PlainSession;
@@ -258,7 +260,7 @@ async fn resolve_selected_session_mutation_target_requires_a_live_mutable_sessio
         fn messages(&self) -> Vec<pi_agent_core::agent::types::AgentMessage> {
             Vec::new()
         }
-        fn prompt(&self, _text: String) -> BoxFuture<'static, Result<(), String>> {
+        fn prompt(&self, _text: JsString) -> BoxFuture<'static, Result<(), JsString>> {
             Box::pin(async { Ok(()) })
         }
         fn transcript(&self) -> Option<pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata> {
@@ -269,7 +271,7 @@ async fn resolve_selected_session_mutation_target_requires_a_live_mutable_sessio
         .sessions
         .lock()
         .expect("sessions")
-        .insert("agent_live".to_owned(), Arc::new(PlainSession));
+        .insert(JsString::from("agent_live"), Arc::new(PlainSession));
     assert_eq!(
         error_text(resolve_selected_session_mutation_target(&store, &handles)),
         "Agent agent_live does not support live session mutation"
@@ -280,7 +282,7 @@ async fn resolve_selected_session_mutation_target_requires_a_live_mutable_sessio
         .sessions
         .lock()
         .expect("sessions")
-        .insert("agent_live".to_owned(), Arc::new(adapter));
+        .insert(JsString::from("agent_live"), Arc::new(adapter));
     let target = resolve_selected_session_mutation_target(&store, &handles)
         .expect("target")
         .expect("target");

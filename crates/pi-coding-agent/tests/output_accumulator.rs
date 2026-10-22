@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::fs;
 
 use pi_coding_agent::core::tools::output_accumulator::{OutputAccumulator, OutputAccumulatorOptions, SnapshotOptions};
@@ -119,7 +120,10 @@ fn persists_truncated_output_to_the_configured_temp_file() {
         persist_if_truncated: true,
     });
 
-    assert_eq!(snapshot.full_output_path.as_deref(), Some(path.to_str().unwrap()));
+    assert_eq!(
+        snapshot.full_output_path.as_ref(),
+        Some(path.to_str().unwrap()).map(JsString::from).as_ref()
+    );
     assert_eq!(fs::read(&path).unwrap(), b"a\nb\nc\n");
 }
 
@@ -159,7 +163,10 @@ fn persists_all_raw_chunks_once_the_output_exceeds_the_limits() {
         persist_if_truncated: true,
     });
 
-    assert_eq!(snapshot.full_output_path.as_deref(), Some(path.to_str().unwrap()));
+    assert_eq!(
+        snapshot.full_output_path.as_ref(),
+        Some(path.to_str().unwrap()).map(JsString::from).as_ref()
+    );
     assert_eq!(fs::read(&path).unwrap(), b"a\nb\n");
 }
 

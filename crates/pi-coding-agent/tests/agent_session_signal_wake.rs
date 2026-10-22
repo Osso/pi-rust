@@ -4,6 +4,7 @@
 //! Kept in its own test binary: the signal handler is process-global, so a
 //! second session in the same process would receive the wake too.
 
+use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -60,18 +61,19 @@ async fn sigusr2_wakes_the_idle_session_without_the_poll_interval() {
     runtime.register_native_provider(Arc::clone(&faux.provider));
     runtime.refresh(Default::default()).await.expect("refresh");
     let model = faux.get_model(None).expect("model");
-    let mut manager = SessionManager::create(&cwd, Some(&session_dir), None).expect("session manager");
+    let mut manager = SessionManager::create(&JsString::from(&cwd), Some(&JsString::from(&session_dir)), None)
+        .expect("session manager");
     manager
-        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .set_metadata_control_db_path(Some(&JsString::from(&control_db)), Default::default())
         .expect("metadata control db");
     let result = create_agent_session(CreateAgentSessionOptions {
-        cwd: Some(cwd.clone()),
-        agent_dir: Some(agent_dir),
+        cwd: Some(JsString::from(cwd.clone())),
+        agent_dir: Some(JsString::from(agent_dir)),
         model_runtime: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(manager),
-        control_db_path: Some(control_db.clone()),
+        control_db_path: Some(JsString::from(control_db.clone())),
         ..Default::default()
     })
     .await
@@ -88,7 +90,7 @@ async fn sigusr2_wakes_the_idle_session_without_the_poll_interval() {
 
     session
         .bind_extensions(ExtensionBindings {
-            control_db_path: Some(control_db.clone()),
+            control_db_path: Some(JsString::from(control_db.clone())),
             ..Default::default()
         })
         .await;
@@ -120,11 +122,11 @@ async fn sigusr2_wakes_the_idle_session_without_the_poll_interval() {
                 session_id: session_id.clone(),
             },
             sender: RuntimeMailboxAddress {
-                agent_id: Some("agent_1".to_owned()),
-                session_id: "child-session".to_owned(),
+                agent_id: Some(JsString::from("agent_1")),
+                session_id: JsString::from("child-session"),
             },
             store_ref: RuntimeMailboxStoreRef {
-                message_id: message_id.to_owned(),
+                message_id: JsString::from(message_id.to_owned()),
                 session_path,
             },
         },

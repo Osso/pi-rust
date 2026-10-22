@@ -2,6 +2,8 @@
 //! `core/agent-session.ts`: the `session_before_compact` preflight, the
 //! `compaction` provider event, and the background-cache `compaction` override.
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::harness::types::ThinkingLevel;
@@ -55,7 +57,9 @@ async fn model_runtime(faux: &FauxProviderHandle) -> ModelRuntime {
 fn settings(compaction: serde_json::Value) -> Settings {
     let mut map = serde_json::Map::new();
     map.insert("compaction".to_owned(), compaction);
-    map
+    map.into_iter()
+        .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+        .collect::<pi_js_compat::js_json::JsObject>()
 }
 
 struct Captured {
@@ -77,7 +81,7 @@ fn extension_result(
     preparation: &pi_coding_agent::core::compaction::CompactionPreparation,
 ) -> CompactionResult {
     CompactionResult {
-        summary: summary.to_owned(),
+        summary: JsString::from(summary.to_owned()),
         first_kept_entry_id: preparation.first_kept_entry_id.clone(),
         tokens_before: preparation.tokens_before,
         duration_ms: None,
@@ -93,7 +97,7 @@ fn extension_result(
         }),
         usage: None,
         provider_native: None,
-        details: Some(json!({"origin": "extension"})),
+        details: Some(JsValue::from(json!({"origin": "extension"}))),
     }
 }
 
@@ -110,7 +114,7 @@ fn seed_compactable_session(manager: &mut SessionManager) {
         .append_message(pi_agent_core::agent::types::AgentMessage::User(
             pi_ai::types::UserMessage {
                 role: pi_ai::types::UserRole::Tag,
-                content: pi_ai::types::UserContent::Text("older message to compact".to_owned()),
+                content: pi_ai::types::UserContent::Text(JsString::from("older message to compact")),
                 input_source: None,
                 provider_native: None,
                 timestamp: 0,
@@ -145,7 +149,8 @@ async fn env_with(
     });
     let runtime = model_runtime(&faux).await;
     let model = faux.get_model(None).expect("model");
-    let mut manager = SessionManager::create(&cwd, Some(&session_dir), None).expect("session manager");
+    let mut manager = SessionManager::create(&JsString::from(&cwd), Some(&JsString::from(&session_dir)), None)
+        .expect("session manager");
     seed_compactable_session(&mut manager);
 
     let captured = Captured::new();
@@ -193,8 +198,8 @@ async fn env_with(
 
     let settings_manager = SettingsManager::in_memory(settings(compaction), SettingsManagerCreateOptions::default());
     let result = create_agent_session(CreateAgentSessionOptions {
-        cwd: Some(cwd.clone()),
-        agent_dir: Some(agent_dir),
+        cwd: Some(JsString::from(cwd.clone())),
+        agent_dir: Some(JsString::from(agent_dir)),
         model_runtime: Some(runtime),
         model: Some(model),
         thinking_level: Some(ThinkingLevel::Off),
@@ -202,7 +207,7 @@ async fn env_with(
         session_manager: Some(manager),
         settings_manager: Some(Arc::new(Mutex::new(settings_manager))),
         extension_factories: vec![InlineExtension::Factory {
-            extension_path: Some("<inline:compaction-test>".to_owned()),
+            extension_path: Some(JsString::from("<inline:compaction-test>")),
             factory,
         }],
         ..Default::default()
@@ -262,7 +267,10 @@ async fn manual_compaction_uses_the_compaction_hook_and_marks_from_hook() {
             endpoint: None,
         })
     );
-    assert_eq!(result.details, Some(json!({"origin": "extension"})));
+    assert_eq!(
+        result.details,
+        (Some(json!({"origin": "extension"}))).map(JsValue::from)
+    );
 
     let entry = compaction_entry(&env.session);
     let SessionEntry::Known(pi_coding_agent::core::session_manager::KnownSessionEntry::Compaction(entry)) = entry
@@ -287,7 +295,10 @@ async fn manual_compaction_preflight_overrides_and_forwards_custom_instructions(
     let env = env_with(
         json!({"keepRecentTokens": 1}),
         Some(Arc::new(|event: &SessionBeforeCompactEvent| {
-            assert_eq!(event.custom_instructions.as_deref(), Some("keep decisions"));
+            assert_eq!(
+                event.custom_instructions.as_ref(),
+                Some(&JsString::from("keep decisions"))
+            );
             Some(SessionBeforeCompactResult {
                 cancel: None,
                 compaction: Some(extension_result("preflight summary", &event.preparation)),
@@ -297,7 +308,11 @@ async fn manual_compaction_preflight_overrides_and_forwards_custom_instructions(
     )
     .await;
 
-    let result = env.session.compact(Some("keep decisions")).await.expect("compact");
+    let result = env
+        .session
+        .compact(Some(&JsString::from("keep decisions")))
+        .await
+        .expect("compact");
     assert_eq!(result.summary, "preflight summary");
     let SessionEntry::Known(pi_coding_agent::core::session_manager::KnownSessionEntry::Compaction(entry)) =
         compaction_entry(&env.session)
@@ -448,7 +463,10 @@ async fn auto_compaction_reports_the_disabled_message_when_no_extension_result_e
         })
         .expect("compaction_end");
     let expected = format!("Auto-compaction failed: {DISABLED_MESSAGE}");
-    assert_eq!(end.error_message.as_deref(), Some(expected.as_str()));
+    assert_eq!(
+        end.error_message.as_ref(),
+        Some(expected.as_str()).map(JsString::from).as_ref()
+    );
 }
 
 #[tokio::test]

@@ -1,6 +1,7 @@
 //! Startup `--name` writes session metadata only
 //! (`test/startup-session-name.test.ts`).
 
+use pi_js_compat::js_json::JsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -122,8 +123,8 @@ fn startup_name_writes_session_metadata_only() {
             .expect("metadata")
             .expect("session metadata")
             .name
-            .as_deref(),
-        Some("CLI Named Session")
+            .as_ref(),
+        Some(&JsString::from("CLI Named Session"))
     );
     assert!(
         !session_entry_types(&dirs.session_file)

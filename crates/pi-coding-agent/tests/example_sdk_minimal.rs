@@ -4,6 +4,8 @@ mod minimal;
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 
@@ -90,7 +92,10 @@ async fn fixture(authenticated: bool) -> Fixture {
                         faux_text(TEXT),
                         faux_tool_call(
                             "end_turn",
-                            serde_json::Map::from_iter([("reason".into(), json!("done"))]),
+                            serde_json::Map::from_iter([("reason".into(), json!("done"))])
+                                .into_iter()
+                                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                                .collect::<pi_js_compat::js_json::JsObject>(),
                             Some("done".into()),
                         ),
                     ],
@@ -104,17 +109,21 @@ async fn fixture(authenticated: bool) -> Fixture {
     ))]);
     // Explicit empty registry: never load bundled host hooks, even with private HOME.
     let extensions = ExtensionRegistry::new()
-        .load_extensions(&[], &cwd.display().to_string(), None, None)
+        .load_extensions(&[], &JsString::from(&cwd.display().to_string()), None, None)
         .await;
     let loader = Arc::new(StaticResourceLoader {
         extensions: Some(extensions),
         ..Default::default()
     });
     let control_db = home.path().join("control.sqlite").display().to_string();
-    let mut manager =
-        SessionManager::create(&cwd.display().to_string(), Some(&sessions.display().to_string()), None).unwrap();
+    let mut manager = SessionManager::create(
+        &JsString::from(&cwd.display().to_string()),
+        Some(&JsString::from(&sessions.display().to_string())),
+        None,
+    )
+    .unwrap();
     manager
-        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .set_metadata_control_db_path(Some(&JsString::from(&control_db)), Default::default())
         .unwrap();
     let session_id = manager.get_session_id().to_owned();
     let session_file = manager.get_session_file().unwrap().to_owned();
@@ -129,15 +138,18 @@ async fn fixture(authenticated: bool) -> Fixture {
     Fixture {
         _home: home,
         options: CreateAgentSessionOptions {
-            cwd: Some(cwd.display().to_string()),
-            agent_dir: Some(agent_dir.display().to_string()),
+            cwd: Some(JsString::from(cwd.display().to_string())),
+            agent_dir: Some(JsString::from(agent_dir.display().to_string())),
             model: Some(model),
             model_runtime: Some(runtime),
             resource_loader: Some(loader),
             session_manager: Some(manager),
-            control_db_path: Some(control_db),
+            control_db_path: Some(JsString::from(control_db)),
             settings_manager: Some(Arc::new(Mutex::new(SettingsManager::in_memory(
-                serde_json::Map::new(),
+                serde_json::Map::new()
+                    .into_iter()
+                    .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                    .collect::<pi_js_compat::js_json::JsObject>(),
                 Default::default(),
             )))),
             disable_runtime_coordination_inbound: true,
@@ -223,7 +235,7 @@ async fn native_example_streams_then_prints_every_message_and_releases_resources
         .lines()
         .map(|line| serde_json::from_str(line).expect("JSON, not Rust Debug"))
         .collect();
-    let persisted = SessionManager::open(&session_file, None, None)
+    let persisted = SessionManager::open(&JsString::from(&session_file), None, None)
         .unwrap()
         .build_session_context();
     assert_eq!(json!(messages), serde_json::to_value(persisted.messages).unwrap());

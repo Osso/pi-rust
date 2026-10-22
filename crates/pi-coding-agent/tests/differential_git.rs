@@ -2,6 +2,7 @@
 mod oracle;
 
 use pi_coding_agent::utils::git::parse_git_url;
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 const REQUEST_ID: u64 = 26_008;
@@ -100,7 +101,7 @@ fn response() -> Value {
         .iter()
         .enumerate()
         .map(|(index, source)| {
-            let value = parse_git_url(source)
+            let value = parse_git_url(&JsString::from(source))
                 .map(|parsed| serde_json::to_value(parsed).expect("GitSource must serialize"))
                 .unwrap_or(Value::Null);
             json!({"name": format!("case {index}"), "value": value})

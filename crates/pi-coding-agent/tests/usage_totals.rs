@@ -7,13 +7,14 @@ use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry, Se
 use pi_coding_agent::core::usage_totals::{
     UsageTotals, add_usage_to_totals, create_usage_totals, get_usage_cost_breakdown,
 };
+use pi_js_compat::js_json::JsString;
 
 fn message_entry(message: AgentMessage) -> SessionEntry {
     SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
         mailbox_store_refs: None,
-        id: "x".to_owned(),
+        id: JsString::from("x"),
         parent_id: None,
-        timestamp: String::new(),
+        timestamp: JsString::default(),
         message: Box::new(message),
     }))
 }

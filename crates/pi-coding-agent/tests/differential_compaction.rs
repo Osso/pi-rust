@@ -4,6 +4,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 
 use pi_agent_core::agent::AgentMessage;
@@ -675,8 +676,8 @@ fn differential_collect_entries_for_branch_summary() {
         "collectEntries",
         json!({ "sessionPath": path.display().to_string(), "oldLeafId": "4", "targetId": "5", "module2": "core/session-manager.ts" }),
     );
-    let session = SessionManager::open(&path.display().to_string(), None, None).expect("open session");
-    let result = collect_entries_for_branch_summary(&session, Some("4"), "5");
+    let session = SessionManager::open(&JsString::from(&path.display().to_string()), None, None).expect("open session");
+    let result = collect_entries_for_branch_summary(&session, Some(&JsString::from("4")), &JsString::from("5"));
     assert_eq!(
         expected,
         json!({

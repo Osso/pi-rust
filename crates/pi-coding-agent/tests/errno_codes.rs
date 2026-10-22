@@ -91,7 +91,7 @@ fn reports_etxtbsy_while_the_script_is_open_for_writing() {
         node_spawn_error_message("spawn", &pi_js_compat::js_json::JsString::from("busy"), &error),
         "spawn busy ETXTBSY"
     );
-    assert!(node_fs_error(&error, "open", "busy").starts_with("ETXTBSY: "));
+    assert!(node_fs_error(&error, "open", &JsString::from("busy")).starts_with("ETXTBSY: "));
 }
 
 #[test]
@@ -107,7 +107,7 @@ fn reports_enotdir_when_a_path_component_is_a_file() {
         node_spawn_error_message("spawn", &pi_js_compat::js_json::JsString::from("child"), &error),
         "spawn child ENOTDIR"
     );
-    assert!(node_fs_error(&error, "open", "child").starts_with("ENOTDIR: "));
+    assert!(node_fs_error(&error, "open", &JsString::from("child")).starts_with("ENOTDIR: "));
 }
 
 #[test]
@@ -116,7 +116,8 @@ fn reports_etxtbsy_for_the_bwrap_availability_check() {
     let path = script(dir.path(), "bwrap", 0o755);
     let _open_for_writing = fs::OpenOptions::new().write(true).open(&path).expect("open for write");
 
-    let error = run_bwrap_availability_check(&path.display().to_string()).expect_err("bwrap must fail");
+    let error =
+        run_bwrap_availability_check(&JsString::from(&path.display().to_string())).expect_err("bwrap must fail");
     assert_eq!(
         error,
         format!(
@@ -132,7 +133,7 @@ async fn reports_etxtbsy_for_the_pyrun_runner_spawn() {
     let path = script(dir.path(), "fake-pyrun", 0o755);
     let _open_for_writing = fs::OpenOptions::new().write(true).open(&path).expect("open for write");
     let runner = PyrunRunnerClient::new(PyrunRunnerOptions {
-        command: Some(path.display().to_string()),
+        command: Some(JsString::from(path.display().to_string())),
         args: Some(Vec::new()),
         detached: Some(false),
         ..Default::default()
@@ -141,7 +142,7 @@ async fn reports_etxtbsy_for_the_pyrun_runner_spawn() {
     let error = runner
         .evaluate(
             CanonicalPyrunEvalParams {
-                code: "print(1)".to_owned(),
+                code: JsString::from("print(1)"),
                 pi: None,
                 pi_bridge: Some(false),
                 session_id: None,

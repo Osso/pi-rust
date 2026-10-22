@@ -52,7 +52,7 @@ pub async fn run(
     loader.reload().await?;
     let mut options = options;
     options.resource_loader = Some(loader);
-    options.session_manager = Some(SessionManager::in_memory(options.cwd.as_deref(), None).map_err(|e| e.to_string())?);
+    options.session_manager = Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.to_string())?);
     common::stream(options, "List files in the current directory.", "", "\n", output).await
 }
 #[tokio::main(flavor = "current_thread")]

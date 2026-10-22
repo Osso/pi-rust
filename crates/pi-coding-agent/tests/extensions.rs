@@ -9,6 +9,9 @@ mod oracle;
 #[path = "support/extensions.rs"]
 mod support;
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::encode_node_utf8;
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::harness::types::ThinkingLevel;
@@ -122,7 +125,7 @@ async fn dispatch(temp_dir: &str) -> Value {
             content.push(TextOrImageContent::Text(TextContent::new("e1")));
             Ok(Some(ToolResultEventResult {
                 content: Some(content),
-                details: Some(json!({"e1": true})),
+                details: Some(JsValue::from(json!({"e1": true}))),
                 is_error: None,
                 usage: None,
             }))
@@ -149,21 +152,21 @@ async fn dispatch(temp_dir: &str) -> Value {
         .unwrap();
         api.on_tool_call(h!(ToolCallEvent, |_e, _c| {
             Ok(Some(ToolCallEventResult {
-                reason: Some("e1".to_owned()),
+                reason: Some(JsString::from("e1")),
                 ..Default::default()
             }))
         }))
         .unwrap();
         api.on_before_provider_headers(h!(BeforeProviderHeadersEvent, |e, _c| {
             let mut headers = e.headers;
-            headers.insert("X-E1".to_owned(), Some("1".to_owned()));
+            headers.insert("X-E1".to_owned(), Some(JsString::from("1")));
             Ok(Some(headers))
         }))
         .unwrap();
         api.on_resources_discover(h!(ResourcesDiscoverEvent, |_e, _c| {
             Ok(Some(ResourcesDiscoverResult {
-                skill_paths: Some(vec!["s1".to_owned()]),
-                prompt_paths: Some(vec!["p1".to_owned()]),
+                skill_paths: Some(vec![JsString::from("s1")]),
+                prompt_paths: Some(vec![JsString::from("p1")]),
                 theme_paths: None,
             }))
         }))
@@ -173,7 +176,9 @@ async fn dispatch(temp_dir: &str) -> Value {
             support::log(&l6, format!("e1:user_bash:{}", e.command));
             Ok(Some(UserBashEventResult {
                 operations: None,
-                result: Some(json!({"output": "r1", "exitCode": 0, "cancelled": false, "truncated": false})),
+                result: Some(JsValue::from(
+                    json!({"output": "r1", "exitCode": 0, "cancelled": false, "truncated": false}),
+                )),
             }))
         }))
         .unwrap();
@@ -234,7 +239,7 @@ async fn dispatch(temp_dir: &str) -> Value {
         api.on_tool_call(h!(ToolCallEvent, |_e, _c| Ok(None))).unwrap();
         api.on_before_provider_headers(h!(BeforeProviderHeadersEvent, |e, _c| {
             let mut headers = e.headers;
-            headers.insert("X-E2".to_owned(), Some("2".to_owned()));
+            headers.insert("X-E2".to_owned(), Some(JsString::from("2")));
             Ok(Some(headers))
         }))
         .unwrap();
@@ -242,7 +247,7 @@ async fn dispatch(temp_dir: &str) -> Value {
             Ok(Some(ResourcesDiscoverResult {
                 skill_paths: None,
                 prompt_paths: None,
-                theme_paths: Some(vec!["t2".to_owned()]),
+                theme_paths: Some(vec![JsString::from("t2")]),
             }))
         }))
         .unwrap();
@@ -265,9 +270,12 @@ async fn dispatch(temp_dir: &str) -> Value {
         .emit_tool_result(ToolResultEvent {
             tool_name: ToolName::Custom("my_tool".to_owned()),
             tool_call_id: "call-1".to_owned(),
-            input: Map::new(),
+            input: Map::new()
+                .into_iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect::<pi_js_compat::js_json::JsObject>(),
             content: vec![TextOrImageContent::Text(TextContent::new("base"))],
-            details: Some(json!({"initial": true})),
+            details: Some(JsValue::from(json!({"initial": true}))),
             is_error: false,
             usage: None,
         })
@@ -276,25 +284,30 @@ async fn dispatch(temp_dir: &str) -> Value {
 
     let before_agent_start = runner
         .emit_before_agent_start(
-            "p",
+            &JsString::from("p"),
             None,
-            "base",
+            &JsString::from("base"),
             pi_coding_agent::core::system_prompt::BuildSystemPromptOptions {
-                cwd: temp_dir.to_owned(),
+                cwd: JsString::from(temp_dir.to_owned()),
                 ..Default::default()
             },
         )
         .await;
     steps.push(json!({"beforeAgentStart": before_agent_start}));
 
-    let input = runner.emit_input("x", None, InputSource::Interactive, None).await;
+    let input = runner
+        .emit_input(&JsString::from("x"), None, InputSource::Interactive, None)
+        .await;
     steps.push(json!({"input": input}));
 
     let mut tool_call = ToolCallEvent {
         tool_name: ToolName::Bash,
         tool_call_id: "call-2".to_owned(),
         bypass_permissions: false,
-        input: Map::from_iter([("command".to_owned(), json!("pwd"))]),
+        input: Map::from_iter([("command".to_owned(), json!("pwd"))])
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>(),
     };
     let tool_call_result = runner.emit_tool_call(&mut tool_call).await.unwrap();
     steps.push(json!({"toolCall": tool_call_result}));
@@ -308,15 +321,15 @@ async fn dispatch(temp_dir: &str) -> Value {
     steps.push(json!({"headers": headers}));
 
     let resources = runner
-        .emit_resources_discover(temp_dir, ResourcesDiscoverReason::Startup)
+        .emit_resources_discover(&JsString::from(temp_dir), ResourcesDiscoverReason::Startup)
         .await;
     steps.push(json!({"resources": resources}));
 
     let user_bash = runner
         .emit_user_bash(&UserBashEvent {
-            command: "ls".to_owned(),
+            command: JsString::from("ls"),
             exclude_from_context: false,
-            cwd: temp_dir.to_owned(),
+            cwd: JsString::from(temp_dir.to_owned()),
         })
         .await;
     let user_bash = user_bash.map(|result| match result.result {
@@ -375,7 +388,10 @@ async fn errors_scenario(temp_dir: &str) -> Value {
         tool_name: ToolName::Bash,
         tool_call_id: "call-1".to_owned(),
         bypass_permissions: false,
-        input: Map::from_iter([("command".to_owned(), json!("pwd"))]),
+        input: Map::from_iter([("command".to_owned(), json!("pwd"))])
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>(),
     };
     match runner.emit_tool_call(&mut tool_call).await {
         Ok(_) => steps.push(json!({"toolCall": "no-error"})),
@@ -418,7 +434,7 @@ async fn shortcuts_scenario(temp_dir: &str) -> Value {
         extensions.push(
             support::extension(&runtime, temp_dir, &path_in(temp_dir, name), move |api| {
                 api.register_shortcut(
-                    shortcut.clone(),
+                    JsString::from(shortcut.clone()),
                     None,
                     Arc::new(|_ctx: ExtensionContext| {
                         Box::pin(async { Ok(()) })
@@ -441,7 +457,7 @@ async fn shortcuts_scenario(temp_dir: &str) -> Value {
     let mut rebound = default_keybindings.clone();
     for (keybinding, keys) in &mut rebound {
         if keybinding == "app.interrupt" {
-            *keys = vec!["ctrl+x".to_owned()];
+            *keys = vec![JsString::from("ctrl+x")];
         }
     }
     let rebound_shortcuts = runner.get_shortcuts(&rebound);
@@ -600,9 +616,9 @@ async fn input_scenario(temp_dir: &str) -> Value {
     let images = vec![pi_ai::types::ImageContent::new("orig", "image/png")];
     json!({
         "steps": [
-            {"continue": runner.emit_input("x", None, InputSource::Interactive, None).await},
-            {"transform": runner.emit_input("hi", Some(InputImages::new(images)), InputSource::Interactive, None).await},
-            {"handled": runner.emit_input("h", None, InputSource::Interactive, None).await},
+            {"continue": runner.emit_input(&JsString::from("x"), None, InputSource::Interactive, None).await},
+            {"transform": runner.emit_input(&JsString::from("hi"), Some(InputImages::new(images)), InputSource::Interactive, None).await},
+            {"handled": runner.emit_input(&JsString::from("h"), None, InputSource::Interactive, None).await},
         ],
         "errors": []
     })
@@ -635,8 +651,8 @@ async fn input_images_scenario(temp_dir: &str) -> Value {
     let images = vec![pi_ai::types::ImageContent::new("orig", "image/png")];
     json!({
         "steps": [
-            {"same": runner.emit_input("same", Some(InputImages::new(images.clone())), InputSource::Interactive, None).await},
-            {"copy": runner.emit_input("copy", Some(InputImages::new(images)), InputSource::Interactive, None).await},
+            {"same": runner.emit_input(&JsString::from("same"), Some(InputImages::new(images.clone())), InputSource::Interactive, None).await},
+            {"copy": runner.emit_input(&JsString::from("copy"), Some(InputImages::new(images)), InputSource::Interactive, None).await},
         ],
         "errors": []
     })
@@ -676,7 +692,7 @@ async fn project_trust_scenario(temp_dir: &str) -> Value {
         runtime,
     };
     let ctx = ProjectTrustContext {
-        cwd: temp_dir.to_owned(),
+        cwd: JsString::from(temp_dir.to_owned()),
         mode: ExtensionMode::Tui,
         has_ui: false,
         ui: Arc::new(NoOpUiContext),
@@ -684,7 +700,7 @@ async fn project_trust_scenario(temp_dir: &str) -> Value {
     let (decision, errors) = emit_project_trust_event(
         &result,
         ProjectTrustEvent {
-            cwd: temp_dir.to_owned(),
+            cwd: JsString::from(temp_dir.to_owned()),
         },
         &ctx,
     )
@@ -713,8 +729,8 @@ fn provider_config() -> ProviderConfigInput {
     }))
     .unwrap();
     ProviderConfigInput {
-        base_url: Some("https://provider.test/v1".to_owned()),
-        api_key: Some("provider-test-key".to_owned()),
+        base_url: Some(JsString::from("https://provider.test/v1")),
+        api_key: Some(JsString::from("provider-test-key")),
         api: Some("openai-completions".to_owned()),
         models: Some(vec![model]),
         ..Default::default()
@@ -740,8 +756,8 @@ async fn providers_scenario(temp_dir: &str) -> Value {
     let runtime = support::runtime();
     let a = support::extension(&runtime, temp_dir, &path_in(temp_dir, "a.ts"), |api| {
         let config = ProviderConfigInput {
-            base_url: Some("https://queued.test".to_owned()),
-            api_key: Some("k".to_owned()),
+            base_url: Some(JsString::from("https://queued.test")),
+            api_key: Some(JsString::from("k")),
             api: Some("openai-completions".to_owned()),
             models: Some(vec![
                 serde_json::from_value(json!({
@@ -794,10 +810,14 @@ async fn providers_scenario(temp_dir: &str) -> Value {
         json!({"calls": calls.lock().unwrap().clone()}),
         json!({"pending": runtime.pending_provider_registrations().len()}),
     ];
-    let _ = runtime.register_provider("instant-provider", provider_config(), Some("<inline:test>"));
+    let _ = runtime.register_provider(
+        "instant-provider",
+        provider_config(),
+        Some(&JsString::from("<inline:test>")),
+    );
     steps.push(json!({"calls": calls.lock().unwrap().clone()}));
     runtime
-        .unregister_provider("instant-provider", Some("<inline:test>"))
+        .unregister_provider("instant-provider", Some(&JsString::from("<inline:test>")))
         .unwrap();
     steps.push(json!({"calls": calls.lock().unwrap().clone()}));
     json!({"steps": steps, "errors": []})
@@ -841,7 +861,7 @@ async fn mailbox_scenario(temp_dir: &str) -> Value {
 
 fn compaction_preparation() -> CompactionPreparation {
     CompactionPreparation {
-        first_kept_entry_id: "e1".to_owned(),
+        first_kept_entry_id: JsString::from("e1"),
         messages_to_summarize: Vec::new(),
         turn_prefix_messages: Vec::new(),
         is_split_turn: false,
@@ -901,8 +921,8 @@ async fn session_events_scenario(temp_dir: &str) -> Value {
             Ok(Some(CompactionEventResult {
                 cancel: None,
                 compaction: Some(CompactionResult {
-                    summary: "s".to_owned(),
-                    first_kept_entry_id: "e1".to_owned(),
+                    summary: JsString::from("s"),
+                    first_kept_entry_id: JsString::from("e1"),
                     tokens_before: 3.0,
                     duration_ms: None,
                     estimated_tokens_after: None,
@@ -940,7 +960,7 @@ async fn session_events_scenario(temp_dir: &str) -> Value {
                     r#type: CompactionSourceType::OpenAiRemote,
                     provider: "p2".to_owned(),
                     model: "m2".to_owned(),
-                    endpoint: Some("https://e".to_owned()),
+                    endpoint: Some(JsString::from("https://e")),
                 }),
             }))
         }))
@@ -953,12 +973,12 @@ async fn session_events_scenario(temp_dir: &str) -> Value {
 
     let mut switch = ExtensionEvent::SessionBeforeSwitch(SessionBeforeSwitchEvent {
         reason: SessionSwitchReason::New,
-        target_session_file: Some("/tmp/s.jsonl".to_owned()),
+        target_session_file: Some(JsString::from("/tmp/s.jsonl")),
     });
     steps.push(json!({"switch": runner.emit(&mut switch).await.session_before_switch()}));
 
     let mut fork = ExtensionEvent::SessionBeforeFork(SessionBeforeForkEvent {
-        entry_id: "e".to_owned(),
+        entry_id: JsString::from("e"),
         position: ForkPosition::At,
     });
     steps.push(json!({"fork": runner.emit(&mut fork).await.session_before_fork()}));
@@ -999,7 +1019,7 @@ async fn mutations_scenario(temp_dir: &str) -> Value {
     let a = support::extension(&runtime, temp_dir, &path_in(temp_dir, "a.ts"), |api| {
         api.on_tool_call(h!(ToolCallEvent, |e, _c| {
             let mut input = e.input;
-            input.insert("a".to_owned(), json!(1));
+            input.insert(JsString::from("a"), JsValue::from(json!(1)));
             Ok(Some(ToolCallEventResult {
                 input: Some(input),
                 ..Default::default()
@@ -1009,9 +1029,9 @@ async fn mutations_scenario(temp_dir: &str) -> Value {
         api.on_tool_call(h!(ToolCallEvent, |e, _c| {
             let mut input = e.input;
             let next = input.get("a").and_then(Value::as_i64).unwrap_or_default() + 1;
-            input.insert("b".to_owned(), json!(next));
+            input.insert(JsString::from("b"), JsValue::from(json!(next)));
             Ok(Some(ToolCallEventResult {
-                reason: Some("mut".to_owned()),
+                reason: Some(JsString::from("mut")),
                 input: Some(input),
                 ..Default::default()
             }))
@@ -1019,7 +1039,7 @@ async fn mutations_scenario(temp_dir: &str) -> Value {
         .unwrap();
         api.on_before_provider_headers(h!(BeforeProviderHeadersEvent, |e, _c| {
             let mut headers = e.headers;
-            headers.insert("X-1".to_owned(), Some("1".to_owned()));
+            headers.insert("X-1".to_owned(), Some(JsString::from("1")));
             Ok(Some(headers))
         }))
         .unwrap();
@@ -1038,7 +1058,10 @@ async fn mutations_scenario(temp_dir: &str) -> Value {
         tool_name: ToolName::Bash,
         tool_call_id: "call-mut".to_owned(),
         bypass_permissions: false,
-        input: Map::new(),
+        input: Map::new()
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>(),
     };
     let tool_call = runner.emit_tool_call(&mut event).await.unwrap();
     let headers = runner
@@ -1123,9 +1146,15 @@ async fn context_live_scenario(temp_dir: &str) -> Value {
             get_model: Arc::new(move || model_getter.lock().unwrap().clone()),
             get_thinking_level: Some(Arc::new(move || *thinking_getter.lock().unwrap())),
             get_scoped_models: Some(Arc::new(move || scoped_getter.lock().unwrap().clone())),
-            get_control_db_path: Some(Arc::new(move || control_getter.lock().unwrap().clone())),
-            get_multi_agent_agent_id: Some(Arc::new(move || agent_getter.lock().unwrap().clone())),
-            get_multi_agent_parent_session_id: Some(Arc::new(move || parent_getter.lock().unwrap().clone())),
+            get_control_db_path: Some(Arc::new(move || {
+                control_getter.lock().unwrap().clone().map(JsString::from)
+            })),
+            get_multi_agent_agent_id: Some(Arc::new(move || {
+                agent_getter.lock().unwrap().clone().map(JsString::from)
+            })),
+            get_multi_agent_parent_session_id: Some(Arc::new(move || {
+                parent_getter.lock().unwrap().clone().map(JsString::from)
+            })),
             get_multi_agent_requires_agent_id: Some(Arc::new(move || *requires_getter.lock().unwrap())),
             ..support::context_actions()
         },
@@ -1195,7 +1224,9 @@ async fn provider_request_scenario(temp_dir: &str) -> Value {
     .await;
     let mut runner = support::runner_for(vec![a], temp_dir, runtime, support::model_registry().await);
     support::bind(&mut runner);
-    let payload = runner.emit_before_provider_request(json!({"base": true})).await;
+    let payload = runner
+        .emit_before_provider_request(JsValue::from(json!({"base": true})))
+        .await;
     json!({"steps": [{"payload": payload}, {"log": []}], "errors": []})
 }
 
@@ -1387,12 +1418,12 @@ async fn command_context_passes_fork_options_through() {
     }));
 
     let context = runner.create_command_context();
-    context.fork("entry-1".to_owned(), None).await.unwrap();
+    context.fork(JsString::from("entry-1"), None).await.unwrap();
     let options = ForkOptions {
         position: Some(ForkPosition::At),
         with_session: None,
     };
-    context.fork("entry-2".to_owned(), Some(options)).await.unwrap();
+    context.fork(JsString::from("entry-2"), Some(options)).await.unwrap();
 
     let calls = calls.lock().unwrap();
     assert_eq!(calls[0].0, "entry-1");
@@ -1519,7 +1550,7 @@ async fn gates_and_reviewers_patch_tool_input() {
         api.register_tool_gate(Arc::new(|event: ToolCallEvent, _ctx: ExtensionContext| {
             Box::pin(async move {
                 let mut input = event.input.clone();
-                input.insert("gate".to_owned(), json!(true));
+                input.insert(JsString::from("gate"), JsValue::from(json!(true)));
                 Ok(Some(ToolCallEventResult {
                     input: Some(input),
                     ..Default::default()
@@ -1530,7 +1561,12 @@ async fn gates_and_reviewers_patch_tool_input() {
         api.register_approval_reviewer(Arc::new(|_event: ToolCallEvent, _ctx: ExtensionContext| {
             Box::pin(async {
                 Ok(Some(ApprovalReviewerResult::Allow {
-                    updated_input: Some(Map::from_iter([("approved".to_owned(), json!(true))])),
+                    updated_input: Some(
+                        Map::from_iter([("approved".to_owned(), json!(true))])
+                            .into_iter()
+                            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                            .collect::<pi_js_compat::js_json::JsObject>(),
+                    ),
                 }))
             }) as BoxFuture<'static, Result<Option<ApprovalReviewerResult>, HandlerError>>
         }))
@@ -1544,7 +1580,10 @@ async fn gates_and_reviewers_patch_tool_input() {
         tool_name: ToolName::Bash,
         tool_call_id: "call".to_owned(),
         bypass_permissions: false,
-        input: Map::from_iter([("command".to_owned(), json!("pwd"))]),
+        input: Map::from_iter([("command".to_owned(), json!("pwd"))])
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>(),
     };
     runner.emit_tool_gates(&mut event).await.unwrap();
     assert_eq!(event.input.get("gate"), Some(&json!(true)));
@@ -1585,7 +1624,13 @@ async fn wrapper_does_not_inject_old_added_tool_names() {
     let registered = runner.get_all_registered_tools();
     let tools = wrap_registered_tools(registered, &runner);
     let result = tools[0]
-        .execute("call".to_owned(), json!({}), None, Arc::new(|_| {}), None)
+        .execute(
+            "call".to_owned(),
+            JsValue::from(json!({})),
+            None,
+            Arc::new(|_| {}),
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(serde_json::to_value(result).unwrap().get("addedToolNames"), None);
@@ -1724,13 +1769,19 @@ async fn project_trust_collects_handler_errors_and_keeps_scanning() {
         runtime,
     };
     let ctx = ProjectTrustContext {
-        cwd: "/tmp".to_owned(),
+        cwd: JsString::from("/tmp"),
         mode: ExtensionMode::Print,
         has_ui: false,
         ui: Arc::new(NoOpUiContext),
     };
-    let (decision, errors) =
-        emit_project_trust_event(&result, ProjectTrustEvent { cwd: "/tmp".to_owned() }, &ctx).await;
+    let (decision, errors) = emit_project_trust_event(
+        &result,
+        ProjectTrustEvent {
+            cwd: JsString::from("/tmp"),
+        },
+        &ctx,
+    )
+    .await;
     assert_eq!(decision.unwrap().trusted, ProjectTrustEventDecision::Yes);
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].error, "trust boom");
@@ -1757,7 +1808,10 @@ async fn tool_result_usage_is_not_forwarded() {
         .emit_tool_result(ToolResultEvent {
             tool_name: ToolName::Custom("x".to_owned()),
             tool_call_id: "c".to_owned(),
-            input: Map::new(),
+            input: Map::new()
+                .into_iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect::<pi_js_compat::js_json::JsObject>(),
             content: Vec::new(),
             details: None,
             is_error: false,
@@ -1813,11 +1867,15 @@ fn discovers_direct_files_and_index_entries() {
         "export default function() {}",
     );
 
-    let paths = discover_extension_paths(&[], dir.to_str().unwrap(), dir.to_str().unwrap());
+    let paths = discover_extension_paths(
+        &[],
+        &JsString::from(dir.to_str().unwrap()),
+        &JsString::from(dir.to_str().unwrap()),
+    );
     let names: Vec<String> = paths
         .iter()
         .map(|path| {
-            Path::new(path)
+            Path::new(&encode_node_utf8(&path))
                 .strip_prefix(&dir)
                 .unwrap()
                 .to_string_lossy()
@@ -1850,10 +1908,20 @@ fn package_manifest_entries_keep_declared_order() {
     write(&package.join("first.ts"), "export default function() {}");
     write(&package.join("second.ts"), "export default function() {}");
 
-    let paths = discover_extension_paths(&[], dir.to_str().unwrap(), dir.to_str().unwrap());
+    let paths = discover_extension_paths(
+        &[],
+        &JsString::from(dir.to_str().unwrap()),
+        &JsString::from(dir.to_str().unwrap()),
+    );
     let names: Vec<String> = paths
         .iter()
-        .map(|path| Path::new(path).file_name().unwrap().to_string_lossy().into_owned())
+        .map(|path| {
+            Path::new(&encode_node_utf8(&path))
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        })
         .collect();
     assert_eq!(names, vec!["second.ts", "first.ts"]);
     fs::remove_dir_all(dir).ok();
@@ -1869,16 +1937,16 @@ fn configured_directories_use_manifest_or_index() {
 
     let paths = discover_extension_paths(
         &[
-            configured.to_string_lossy().into_owned(),
-            other.to_string_lossy().into_owned(),
+            JsString::from(configured.to_string_lossy().into_owned()),
+            JsString::from(other.to_string_lossy().into_owned()),
         ],
-        dir.to_str().unwrap(),
-        dir.to_str().unwrap(),
+        &JsString::from(dir.to_str().unwrap()),
+        &JsString::from(dir.to_str().unwrap()),
     );
     let names: Vec<String> = paths
         .iter()
         .map(|path| {
-            Path::new(path)
+            Path::new(&encode_node_utf8(&path))
                 .strip_prefix(&dir)
                 .unwrap()
                 .to_string_lossy()
@@ -1892,14 +1960,38 @@ fn configured_directories_use_manifest_or_index() {
 #[test]
 fn disabled_extension_names_filter_paths_and_inline_ids() {
     let disabled = vec![" foo.ts ".to_owned(), "<first-party:goal>".to_owned(), String::new()];
-    assert!(is_extension_path_disabled(&disabled, "/tmp/foo.ts", "/tmp/foo.ts"));
-    assert!(is_extension_path_disabled(&disabled, "foo.ts", "/tmp/foo.ts"));
-    assert!(!is_extension_path_disabled(&disabled, "/tmp/bar.ts", "/tmp/bar.ts"));
-    assert!(is_extension_factory_disabled(&disabled, "<first-party:goal>"));
-    assert!(!is_extension_factory_disabled(&disabled, "<first-party:loop>"));
-    assert_eq!(inline_extension_name("<first-party:goal>"), Some("goal".to_owned()));
-    assert_eq!(inline_extension_name("<inline:1>"), Some("inline:1".to_owned()));
-    assert_eq!(inline_extension_name("/tmp/a.ts"), None);
+    assert!(is_extension_path_disabled(
+        &disabled,
+        &JsString::from("/tmp/foo.ts"),
+        &JsString::from("/tmp/foo.ts")
+    ));
+    assert!(is_extension_path_disabled(
+        &disabled,
+        &JsString::from("foo.ts"),
+        &JsString::from("/tmp/foo.ts")
+    ));
+    assert!(!is_extension_path_disabled(
+        &disabled,
+        &JsString::from("/tmp/bar.ts"),
+        &JsString::from("/tmp/bar.ts")
+    ));
+    assert!(is_extension_factory_disabled(
+        &disabled,
+        &JsString::from("<first-party:goal>")
+    ));
+    assert!(!is_extension_factory_disabled(
+        &disabled,
+        &JsString::from("<first-party:loop>")
+    ));
+    assert_eq!(
+        inline_extension_name(&JsString::from("<first-party:goal>")),
+        Some("goal".to_owned()).map(JsString::from)
+    );
+    assert_eq!(
+        inline_extension_name(&JsString::from("<inline:1>")),
+        Some("inline:1".to_owned()).map(JsString::from)
+    );
+    assert_eq!(inline_extension_name(&JsString::from("/tmp/a.ts")), None);
 }
 
 #[tokio::test]
@@ -1908,7 +2000,11 @@ async fn registry_loads_enabled_factories_in_registration_order() {
     let extensions = dir.join(".pi").join("extensions");
     write(&extensions.join("a.ts"), "export default function() {}");
     write(&extensions.join("b.ts"), "export default function() {}");
-    let paths = discover_extension_paths(&[], dir.to_str().unwrap(), dir.to_str().unwrap());
+    let paths = discover_extension_paths(
+        &[],
+        &JsString::from(dir.to_str().unwrap()),
+        &JsString::from(dir.to_str().unwrap()),
+    );
     assert_eq!(paths.len(), 2);
 
     let mut registry = ExtensionRegistry::new();
@@ -1918,16 +2014,22 @@ async fn registry_loads_enabled_factories_in_registration_order() {
     let result = registry
         .discover_and_load_extensions(
             &[],
-            dir.to_str().unwrap(),
-            dir.to_str().unwrap(),
+            &JsString::from(dir.to_str().unwrap()),
+            &JsString::from(dir.to_str().unwrap()),
             None,
-            &[Path::new(&paths[1]).file_name().unwrap().to_string_lossy().into_owned()],
+            &[JsString::from(
+                Path::new(&encode_node_utf8(&paths[1]))
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            )],
         )
         .await;
     assert!(result.errors.is_empty(), "{:?}", result.errors);
     assert_eq!(result.extensions.len(), 1);
     assert_eq!(
-        Path::new(&result.extensions[0].read().path)
+        Path::new(&encode_node_utf8(&result.extensions[0].read().path))
             .file_name()
             .unwrap()
             .to_string_lossy(),
@@ -1942,7 +2044,12 @@ async fn registry_reports_missing_and_failing_factories() {
     let mut registry = ExtensionRegistry::new();
     let missing = format!("{}/missing.ts", dir.to_string_lossy());
     let result = registry
-        .load_extensions(std::slice::from_ref(&missing), dir.to_str().unwrap(), None, None)
+        .load_extensions(
+            std::slice::from_ref(&JsString::from(&missing)),
+            &JsString::from(dir.to_str().unwrap()),
+            None,
+            None,
+        )
         .await;
     assert_eq!(result.extensions.len(), 0);
     assert_eq!(
@@ -1956,7 +2063,12 @@ async fn registry_reports_missing_and_failing_factories() {
         Arc::new(|_api| Box::pin(async { Err(HandlerError::new("boom")) })),
     );
     let result = registry
-        .load_extensions(&[failing_path], dir.to_str().unwrap(), None, None)
+        .load_extensions(
+            &[JsString::from(failing_path)],
+            &JsString::from(dir.to_str().unwrap()),
+            None,
+            None,
+        )
         .await;
     assert_eq!(result.errors[0].error, "Failed to load extension: boom");
     fs::remove_dir_all(dir).ok();
@@ -1969,7 +2081,12 @@ async fn registered_extensions_honor_hidden_and_disabled_ids() {
     registry.register_hidden("<first-party:b>", factory());
     let runtime = support::runtime();
     let (extensions, errors) = registry
-        .load_registered(&["<first-party:b>".to_owned()], "/tmp", support::event_bus(), runtime)
+        .load_registered(
+            &[JsString::from("<first-party:b>")],
+            &JsString::from("/tmp"),
+            support::event_bus(),
+            runtime,
+        )
         .await;
     assert!(errors.is_empty());
     assert_eq!(extensions.len(), 1);
@@ -1985,11 +2102,15 @@ async fn context_session_manager_is_the_live_shared_handle() {
     let session_dir = temp.path().join("sessions").display().to_string();
     let control_db = temp.path().join("control.db").display().to_string();
     let manager = Arc::new(Mutex::new(
-        pi_coding_agent::core::session_manager::SessionManager::create(&cwd, Some(&session_dir), None)
-            .expect("session manager"),
+        pi_coding_agent::core::session_manager::SessionManager::create(
+            &JsString::from(&cwd),
+            Some(&JsString::from(&session_dir)),
+            None,
+        )
+        .expect("session manager"),
     ));
     lock_session_manager(&manager)
-        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .set_metadata_control_db_path(Some(&JsString::from(&control_db)), Default::default())
         .expect("metadata control db");
     let runner = support::runner_for_session(
         &cwd,
@@ -2004,20 +2125,20 @@ async fn context_session_manager_is_the_live_shared_handle() {
     {
         let mut extension_manager = lock_session_manager(&extension_handle);
         extension_manager
-            .set_session_goal_json("{\"objective\":\"shared\"}")
+            .set_session_goal_json(&JsString::from("{\"objective\":\"shared\"}"))
             .expect("extension goal write");
     }
     assert_eq!(
         lock_session_manager(&manager)
             .get_session_goal_json()
             .expect("session goal read"),
-        Some("{\"objective\":\"shared\"}".to_owned())
+        (Some("{\"objective\":\"shared\"}".to_owned())).map(JsString::from)
     );
 
     lock_session_manager(&manager)
         .append_message(pi_agent_core::agent::AgentMessage::User(pi_ai::types::UserMessage {
             role: pi_ai::types::UserRole::Tag,
-            content: pi_ai::types::UserContent::Text("appended by session".to_owned()),
+            content: pi_ai::types::UserContent::Text(JsString::from("appended by session")),
             input_source: None,
             provider_native: None,
             timestamp: 1_700_000_000_000,
@@ -2101,7 +2222,7 @@ async fn wrapped_definitions_inject_execution_identity_and_cap_output() {
     let result = tool
         .execute(
             "call-1".to_owned(),
-            json!({}),
+            JsValue::from(json!({})),
             None,
             Arc::new(move |result| update_hook.lock().unwrap().push(result)),
             Some(AgentToolExecutionContext {
@@ -2158,7 +2279,8 @@ async fn wrapped_definitions_forward_prepare_arguments_and_prepare_execution() {
     let tool = wrap_definition_tool(definition, &runner);
 
     assert_eq!(
-        tool.prepare_arguments(json!({"value": 1})).expect("prepared arguments"),
+        tool.prepare_arguments(JsValue::from(json!({"value": 1})))
+            .expect("prepared arguments"),
         json!({"value": 1, "prepared": true})
     );
     let prepared = tool
@@ -2210,7 +2332,7 @@ async fn runtime_registration_from_command_is_visible_to_runner() {
                         None,
                         command_handler(|_, ctx| {
                             Box::pin(async move {
-                                ctx.ui()?.notify("late command ran", None);
+                                ctx.ui()?.notify(&JsString::from("late command ran"), None);
                                 Ok(())
                             })
                         }),
@@ -2221,7 +2343,7 @@ async fn runtime_registration_from_command_is_visible_to_runner() {
                     live.register_entry_renderer("late", Arc::new(|_, _, _| None))?;
                     live.register_markdown_transformer(Arc::new(|text, _| format!("{text}!")))?;
                     live.register_tool_gate(Arc::new(|mut event: ToolCallEvent, _: ExtensionContext| {
-                        event.input.insert("late_gate".into(), json!(true));
+                        event.input.insert("late_gate".into(), JsValue::from(json!(true)));
                         Box::pin(async move {
                             Ok(Some(ToolCallEventResult {
                                 input: Some(event.input),
@@ -2233,13 +2355,18 @@ async fn runtime_registration_from_command_is_visible_to_runner() {
                     live.register_approval_reviewer(Arc::new(|_: ToolCallEvent, _: ExtensionContext| {
                         Box::pin(async {
                             Ok(Some(ApprovalReviewerResult::Allow {
-                                updated_input: Some(Map::from_iter([("late_review".into(), json!(true))])),
+                                updated_input: Some(
+                                    Map::from_iter([("late_review".into(), json!(true))])
+                                        .into_iter()
+                                        .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                                        .collect::<pi_js_compat::js_json::JsObject>(),
+                                ),
                             }))
                         })
                             as BoxFuture<'static, Result<Option<ApprovalReviewerResult>, HandlerError>>
                     }))?;
                     live.on_agent_start(h!(AgentStartEvent, |_event, ctx| {
-                        ctx.ui()?.notify("late handler ran", None);
+                        ctx.ui()?.notify(&JsString::from("late handler ran"), None);
                         Ok(None)
                     }))?;
                     Ok(())
@@ -2252,7 +2379,7 @@ async fn runtime_registration_from_command_is_visible_to_runner() {
     let mut runner = support::runner_for(vec![extension], "/tmp", runtime, support::model_registry().await);
     support::bind(&mut runner);
     let command = runner.get_prompt_command("install").unwrap();
-    (command.handler)(String::new(), runner.create_command_context())
+    (command.handler)(JsString::default(), runner.create_command_context())
         .await
         .unwrap();
     assert_eq!(runner.get_all_registered_tools()[0].definition.name, "late");
@@ -2261,7 +2388,7 @@ async fn runtime_registration_from_command_is_visible_to_runner() {
         "registered after load"
     );
     let command = runner.get_prompt_command("late-command").unwrap();
-    (command.handler)(String::new(), runner.create_command_context())
+    (command.handler)(JsString::default(), runner.create_command_context())
         .await
         .unwrap();
     assert!(runner.get_flags().contains_key("late-flag"));
@@ -2277,7 +2404,10 @@ async fn runtime_registration_from_command_is_visible_to_runner() {
         tool_name: ToolName::Bash,
         tool_call_id: "late".into(),
         bypass_permissions: false,
-        input: Map::new(),
+        input: Map::new()
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>(),
     };
     runner.emit_tool_gates(&mut event).await.unwrap();
     assert_eq!(event.input["late_gate"], true);

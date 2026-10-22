@@ -56,10 +56,15 @@ async fn build_extension(spec: &ExtensionSpec) -> Extension {
         }
         Box::pin(async { Ok(()) })
     });
-    let extension =
-        load_extension_from_factory(factory, "/tmp", Arc::new(EventBusController::new()), runtime, spec.path)
-            .await
-            .expect("extension factory succeeds");
+    let extension = load_extension_from_factory(
+        factory,
+        &JsString::from("/tmp"),
+        Arc::new(EventBusController::new()),
+        runtime,
+        &JsString::from(spec.path),
+    )
+    .await
+    .expect("extension factory succeeds");
     extension.read().source_info.scope = match spec.scope {
         "user" => pi_coding_agent::core::source_info::SourceScope::User,
         "project" => pi_coding_agent::core::source_info::SourceScope::Project,

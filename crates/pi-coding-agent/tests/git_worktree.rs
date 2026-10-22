@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -55,8 +56,8 @@ fn success(stdout: &str) -> Result<GitOutput, GitExecError> {
 
 fn failure(message: &str, stderr: &str) -> Result<GitOutput, GitExecError> {
     Err(GitExecError {
-        message: message.to_owned(),
-        stderr: Some(stderr.to_owned()),
+        message: JsString::from(message.to_owned()),
+        stderr: Some(JsString::from(stderr.to_owned())),
         stdout: None,
     })
 }
@@ -68,7 +69,8 @@ fn reuses_an_existing_sibling_worktree() {
         success("worktree /repo/project\nHEAD abc\n\nworktree /repo/project-feature\nHEAD def\n"),
     ]);
 
-    let worktree = resolve_worktree_with_exec("feature", Path::new("/repo/project"), &git).expect("existing worktree");
+    let worktree = resolve_worktree_with_exec(&JsString::from("feature"), Path::new("/repo/project"), &git)
+        .expect("existing worktree");
     assert_eq!(worktree, PathBuf::from("/repo/project-feature"));
     assert_eq!(
         git.calls(),
@@ -88,8 +90,8 @@ fn creates_a_new_sibling_worktree_from_origin_main() {
         success(""),
     ]);
 
-    let worktree =
-        resolve_worktree_with_exec("feature", Path::new("/repo/project/subdir"), &git).expect("created worktree");
+    let worktree = resolve_worktree_with_exec(&JsString::from("feature"), Path::new("/repo/project/subdir"), &git)
+        .expect("created worktree");
     assert_eq!(worktree, PathBuf::from("/repo/project-feature"));
     assert_eq!(
         git.calls(),
@@ -113,7 +115,7 @@ fn falls_back_to_origin_master() {
         success("/repo/project\n"),
         success("worktree /repo/project\nHEAD abc\n"),
         Err(GitExecError {
-            message: "missing main".to_owned(),
+            message: JsString::from("missing main"),
             stderr: None,
             stdout: None,
         }),
@@ -121,7 +123,8 @@ fn falls_back_to_origin_master() {
         success(""),
     ]);
 
-    let worktree = resolve_worktree_with_exec("feature", Path::new("/repo/project"), &git).expect("worktree");
+    let worktree =
+        resolve_worktree_with_exec(&JsString::from("feature"), Path::new("/repo/project"), &git).expect("worktree");
     assert_eq!(worktree, PathBuf::from("/repo/project-feature"));
     assert!(git.calls().contains(&vec![
         "worktree".to_owned(),
@@ -140,7 +143,8 @@ fn reports_missing_supported_remote_base() {
         failure("missing master", ""),
     ]);
 
-    let error = resolve_worktree_with_exec("feature", Path::new("/repo/project"), &git).expect_err("missing base");
+    let error = resolve_worktree_with_exec(&JsString::from("feature"), Path::new("/repo/project"), &git)
+        .expect_err("missing base");
     assert_eq!(
         error,
         WorktreeStartupError::new("No origin/main or origin/master ref found for worktree creation")
@@ -154,7 +158,8 @@ fn surfaces_git_stderr_when_the_startup_directory_is_not_a_repository() {
         "fatal: not a git repository",
     )]);
 
-    let error = resolve_worktree_with_exec("feature", Path::new("/repo/project"), &git).expect_err("not a repository");
+    let error = resolve_worktree_with_exec(&JsString::from("feature"), Path::new("/repo/project"), &git)
+        .expect_err("not a repository");
     assert!(error.to_string().contains("fatal: not a git repository"), "{error}");
 }
 
@@ -170,7 +175,8 @@ fn surfaces_git_stderr_when_worktree_creation_fails() {
         ),
     ]);
 
-    let error = resolve_worktree_with_exec("feature", Path::new("/repo/project"), &git).expect_err("creation failure");
+    let error = resolve_worktree_with_exec(&JsString::from("feature"), Path::new("/repo/project"), &git)
+        .expect_err("creation failure");
     assert!(
         error.to_string().contains("fatal: 'feature' is already checked out"),
         "{error}"
@@ -211,11 +217,11 @@ fn creates_and_reuses_a_real_worktree() {
     ]);
     git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
 
-    let worktree = resolve_worktree("feature", &repo).expect("create worktree");
+    let worktree = resolve_worktree(&JsString::from("feature"), &repo).expect("create worktree");
     assert_eq!(worktree, dir.path().join("project-feature"));
     assert!(worktree.is_dir());
 
-    let reused = resolve_worktree("feature", &repo).expect("reuse worktree");
+    let reused = resolve_worktree(&JsString::from("feature"), &repo).expect("reuse worktree");
     assert_eq!(reused, worktree);
 }
 
@@ -231,14 +237,21 @@ fn real_git_reports_missing_origin_refs() {
         .expect("git init");
     assert!(status.success());
 
-    let error = resolve_worktree("feature", &repo).expect_err("missing origin refs");
+    let error = resolve_worktree(&JsString::from("feature"), &repo).expect_err("missing origin refs");
     assert!(error.to_string().contains("No origin/main or origin/master"), "{error}");
 }
 
 #[test]
 fn process_exec_reports_non_zero_exit_status() {
     let error = ProcessGitExec
-        .exec(&["rev-parse", "--verify", "definitely-missing-ref"], Path::new("/tmp"))
+        .exec(
+            &[
+                JsString::from("rev-parse"),
+                JsString::from("--verify"),
+                JsString::from("definitely-missing-ref"),
+            ],
+            Path::new("/tmp"),
+        )
         .expect_err("git failure");
     assert!(error.message.contains("git rev-parse"), "{}", error.message);
 }

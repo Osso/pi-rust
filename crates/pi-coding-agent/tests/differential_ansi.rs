@@ -2,6 +2,7 @@
 mod oracle;
 
 use pi_coding_agent::utils::ansi::strip_ansi;
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 const REQUEST_ID: u64 = 26_001;
@@ -68,7 +69,7 @@ fn response(inputs: &[String]) -> Value {
     let results = inputs
         .iter()
         .enumerate()
-        .map(|(index, input)| json!({"name": format!("case {index}"), "value": strip_ansi(input)}))
+        .map(|(index, input)| json!({"name": format!("case {index}"), "value": strip_ansi(&JsString::from(input))}))
         .collect::<Vec<_>>();
     json!({"id": REQUEST_ID, "ok": true, "output": {"results": results}})
 }

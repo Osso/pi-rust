@@ -5,6 +5,8 @@ mod oracle;
 #[path = "support/sdk_examples.rs"]
 mod support;
 use pi_coding_agent::core::session_manager::SessionManager;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::encode_node_utf8;
 use serde_json::json;
 
 #[tokio::test]
@@ -21,11 +23,11 @@ async fn lists_only_three_of_four_persisted_sessions_and_reopens_latest() {
     let cwd = a.options.cwd.clone().unwrap();
     let dir = a.home.path().join("sessions").display().to_string();
     for index in 0..4 {
-        let mut session = SessionManager::create(&cwd, Some(&dir), None).unwrap();
+        let mut session = SessionManager::create(&cwd, Some(&JsString::from(&dir)), None).unwrap();
         session.persist_for_recovery().unwrap();
         let file = std::fs::File::options()
             .write(true)
-            .open(session.get_session_file().unwrap())
+            .open(encode_node_utf8(&session.get_session_file().unwrap()))
             .unwrap();
         file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(10 - index))
             .unwrap();
@@ -43,7 +45,7 @@ async fn lists_only_three_of_four_persisted_sessions_and_reopens_latest() {
         "packages/coding-agent/src/core/session-manager.ts",
     );
     let ts_continued = state_source.request(&json!({"operation":"continue","cwd":cwd,"dir":dir}));
-    let rs_continued = SessionManager::continue_recent(&cwd, Some(&dir)).unwrap();
+    let rs_continued = SessionManager::continue_recent(&cwd, Some(&JsString::from(&dir))).unwrap();
     assert_eq!(
         json!(rs_continued.get_session_file()),
         ts_continued["path"],
@@ -51,7 +53,7 @@ async fn lists_only_three_of_four_persisted_sessions_and_reopens_latest() {
     );
     let ts_list = state_source
         .request(&json!({"operation":"list","cwd":cwd,"dir":dir,"db":a.home.path().join("ts-list.sqlite")}));
-    let rs_list = SessionManager::list(&cwd, Some(&dir), None, None).unwrap();
+    let rs_list = SessionManager::list(&cwd, Some(&JsString::from(&dir)), None, None).unwrap();
     let rs_list: Vec<_> = rs_list
         .iter()
         .map(|s| json!({"path":s.path,"id":s.id,"firstMessage":s.first_message}))

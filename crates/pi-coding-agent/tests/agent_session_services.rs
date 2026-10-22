@@ -1,5 +1,6 @@
 //! Behavioral tests for the `agent-session-services` extension wiring.
 
+use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
@@ -36,7 +37,7 @@ async fn faux_runtime() -> ModelRuntime {
 
 fn flag_extension() -> InlineExtension {
     InlineExtension::Named {
-        name: "flag-test".to_owned(),
+        name: JsString::from("flag-test"),
         factory: Arc::new(|pi| {
             let result = (|| {
                 pi.register_flag("verbose", None, FlagType::Boolean, None)?;
@@ -60,8 +61,8 @@ async fn extension_flags_are_applied_and_unknown_flags_reported() {
     values.insert("missing".to_owned(), UnknownFlagValue::Boolean(true));
 
     let services = create_agent_session_services(CreateAgentSessionServicesOptions {
-        cwd: cwd.clone(),
-        agent_dir: Some(cwd.clone()),
+        cwd: JsString::from(cwd.clone()),
+        agent_dir: Some(JsString::from(cwd.clone())),
         settings_manager: None,
         model_runtime: Some(runtime),
         model_runtime_signal: None,
@@ -81,7 +82,7 @@ async fn extension_flags_are_applied_and_unknown_flags_reported() {
         vec![
             pi_coding_agent::core::agent_session_services::AgentSessionRuntimeDiagnostic {
                 diagnostic_type: "error".to_owned(),
-                message: "Unknown option: --missing".to_owned(),
+                message: JsString::from("Unknown option: --missing"),
             }
         ]
     );
@@ -102,8 +103,8 @@ async fn string_extension_flag_without_a_value_is_rejected() {
     values.insert("label".to_owned(), UnknownFlagValue::Boolean(true));
 
     let services = create_agent_session_services(CreateAgentSessionServicesOptions {
-        cwd: cwd.clone(),
-        agent_dir: Some(cwd.clone()),
+        cwd: JsString::from(cwd.clone()),
+        agent_dir: Some(JsString::from(cwd.clone())),
         settings_manager: None,
         model_runtime: Some(runtime),
         model_runtime_signal: None,
@@ -123,7 +124,7 @@ async fn string_extension_flag_without_a_value_is_rejected() {
         vec![
             pi_coding_agent::core::agent_session_services::AgentSessionRuntimeDiagnostic {
                 diagnostic_type: "error".to_owned(),
-                message: "Extension flag \"--label\" requires a value".to_owned(),
+                message: JsString::from("Extension flag \"--label\" requires a value"),
             }
         ]
     );
@@ -140,8 +141,8 @@ async fn default_resource_loader_options_build_a_loader() {
     let runtime = faux_runtime().await;
 
     let services = create_agent_session_services(CreateAgentSessionServicesOptions {
-        cwd: cwd.clone(),
-        agent_dir: Some(cwd.clone()),
+        cwd: JsString::from(cwd.clone()),
+        agent_dir: Some(JsString::from(cwd.clone())),
         settings_manager: None,
         model_runtime: Some(runtime),
         model_runtime_signal: None,

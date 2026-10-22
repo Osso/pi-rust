@@ -3,6 +3,9 @@
 #[path = "support/extensions.rs"]
 mod extensions_support;
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::encode_node_utf8;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::providers::faux::{
@@ -62,15 +65,19 @@ async fn create_agent_session_uses_explicit_model_and_persists_prompt() {
         faux_assistant_message("hello", FauxAssistantMessageOptions::default()).into(),
     ]);
     let session_dir = temp.path().join("sessions").display().to_string();
-    let mut session_manager =
-        SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+    let mut session_manager = SessionManager::create(
+        &JsString::from(&temp.path().display().to_string()),
+        Some(&JsString::from(&session_dir)),
+        None,
+    )
+    .expect("session manager");
     let control_db = temp.path().join("control.db").display().to_string();
     session_manager
-        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .set_metadata_control_db_path(Some(&JsString::from(&control_db)), Default::default())
         .expect("metadata control db");
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
-        cwd: Some(temp.path().display().to_string()),
-        agent_dir: Some(temp.path().display().to_string()),
+        cwd: Some(JsString::from(temp.path().display().to_string())),
+        agent_dir: Some(JsString::from(temp.path().display().to_string())),
         model_runtime: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
@@ -86,7 +93,7 @@ async fn create_agent_session_uses_explicit_model_and_persists_prompt() {
         .await
         .expect("prompt");
     let file = result.session.session_file().expect("persisted session file");
-    let content = std::fs::read_to_string(file).expect("session file");
+    let content = std::fs::read_to_string(encode_node_utf8(&file)).expect("session file");
     assert!(
         content.contains("\"role\":\"user\""),
         "user message persisted: {content}"
@@ -109,15 +116,19 @@ async fn create_agent_session_keeps_running_without_models() {
     .await
     .expect("runtime");
     let session_dir = temp.path().join("sessions").display().to_string();
-    let mut session_manager =
-        SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+    let mut session_manager = SessionManager::create(
+        &JsString::from(&temp.path().display().to_string()),
+        Some(&JsString::from(&session_dir)),
+        None,
+    )
+    .expect("session manager");
     let control_db = temp.path().join("control.db").display().to_string();
     session_manager
-        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .set_metadata_control_db_path(Some(&JsString::from(&control_db)), Default::default())
         .expect("metadata control db");
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
-        cwd: Some(temp.path().display().to_string()),
-        agent_dir: Some(temp.path().display().to_string()),
+        cwd: Some(JsString::from(temp.path().display().to_string())),
+        agent_dir: Some(JsString::from(temp.path().display().to_string())),
         model_runtime: Some(runtime),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(session_manager),
@@ -126,8 +137,10 @@ async fn create_agent_session_keeps_running_without_models() {
     .await
     .expect("session without a model");
     assert_eq!(
-        result.model_fallback_message.as_deref(),
+        result.model_fallback_message.as_ref(),
         Some(pi_coding_agent::core::auth_guidance::format_no_models_available_message().as_str())
+            .map(JsString::from)
+            .as_ref()
     );
     assert_eq!(result.session.model().id, "unknown");
     assert_eq!(
@@ -158,7 +171,10 @@ async fn services_and_from_services_create_a_working_session() {
                 pi_ai::providers::faux::faux_text("service hello"),
                 pi_ai::providers::faux::faux_tool_call(
                     "end_turn",
-                    serde_json::Map::from_iter([("reason".to_owned(), serde_json::json!("done"))]),
+                    serde_json::Map::from_iter([("reason".to_owned(), serde_json::json!("done"))])
+                        .into_iter()
+                        .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                        .collect::<pi_js_compat::js_json::JsObject>(),
                     Some("call-end".to_owned()),
                 ),
             ],
@@ -167,8 +183,8 @@ async fn services_and_from_services_create_a_working_session() {
         .into(),
     ]);
     let services = create_agent_session_services(CreateAgentSessionServicesOptions {
-        cwd: temp.path().display().to_string(),
-        agent_dir: Some(temp.path().display().to_string()),
+        cwd: JsString::from(temp.path().display().to_string()),
+        agent_dir: Some(JsString::from(temp.path().display().to_string())),
         settings_manager: None,
         model_runtime: Some(runtime),
         model_runtime_signal: None,
@@ -180,11 +196,15 @@ async fn services_and_from_services_create_a_working_session() {
     .await
     .expect("services");
     let session_dir = temp.path().join("sessions").display().to_string();
-    let mut session_manager =
-        SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+    let mut session_manager = SessionManager::create(
+        &JsString::from(&temp.path().display().to_string()),
+        Some(&JsString::from(&session_dir)),
+        None,
+    )
+    .expect("session manager");
     let control_db = temp.path().join("control.db").display().to_string();
     session_manager
-        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .set_metadata_control_db_path(Some(&JsString::from(&control_db)), Default::default())
         .expect("metadata control db");
     let result = create_agent_session_from_services(CreateAgentSessionFromServicesOptions {
         services,
@@ -221,15 +241,19 @@ async fn excluded_tools_are_removed_from_initial_active_names() {
     let runtime = faux_runtime(&faux).await;
     let model = faux.get_model(None).expect("model");
     let session_dir = temp.path().join("sessions").display().to_string();
-    let mut session_manager =
-        SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+    let mut session_manager = SessionManager::create(
+        &JsString::from(&temp.path().display().to_string()),
+        Some(&JsString::from(&session_dir)),
+        None,
+    )
+    .expect("session manager");
     let control_db = temp.path().join("control.db").display().to_string();
     session_manager
-        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .set_metadata_control_db_path(Some(&JsString::from(&control_db)), Default::default())
         .expect("metadata control db");
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
-        cwd: Some(temp.path().display().to_string()),
-        agent_dir: Some(temp.path().display().to_string()),
+        cwd: Some(JsString::from(temp.path().display().to_string())),
+        agent_dir: Some(JsString::from(temp.path().display().to_string())),
         model_runtime: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
@@ -249,12 +273,16 @@ async fn create_agent_session_propagates_path_resolution_errors() {
     let runtime = faux_runtime(&faux).await;
     let model = faux.get_model(None).expect("model");
     let session_dir = temp.path().join("sessions").display().to_string();
-    let session_manager =
-        SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+    let session_manager = SessionManager::create(
+        &JsString::from(&temp.path().display().to_string()),
+        Some(&JsString::from(&session_dir)),
+        None,
+    )
+    .expect("session manager");
 
     let cwd_error = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
-        cwd: Some("file://otherhost/project".to_owned()),
-        agent_dir: Some(temp.path().display().to_string()),
+        cwd: Some(JsString::from("file://otherhost/project")),
+        agent_dir: Some(JsString::from(temp.path().display().to_string())),
         model_runtime: Some(runtime.clone()),
         model: Some(model.clone()),
         resource_loader: Some(StaticResourceLoader::new()),
@@ -265,11 +293,15 @@ async fn create_agent_session_propagates_path_resolution_errors() {
     assert!(cwd_error.is_err(), "cwd resolve errors must propagate");
 
     let session_dir = temp.path().join("sessions").display().to_string();
-    let session_manager =
-        SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+    let session_manager = SessionManager::create(
+        &JsString::from(&temp.path().display().to_string()),
+        Some(&JsString::from(&session_dir)),
+        None,
+    )
+    .expect("session manager");
     let agent_dir_error = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
-        cwd: Some(temp.path().display().to_string()),
-        agent_dir: Some("file://otherhost/agent".to_owned()),
+        cwd: Some(JsString::from(temp.path().display().to_string())),
+        agent_dir: Some(JsString::from("file://otherhost/agent")),
         model_runtime: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
@@ -300,17 +332,27 @@ async fn stream_function_forwards_websocket_connect_timeout_from_settings() {
     let mut settings = serde_json::Map::new();
     settings.insert("websocketConnectTimeoutMs".to_owned(), json!(1234));
     let session_dir = temp.path().join("sessions").display().to_string();
-    let session_manager =
-        SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+    let session_manager = SessionManager::create(
+        &JsString::from(&temp.path().display().to_string()),
+        Some(&JsString::from(&session_dir)),
+        None,
+    )
+    .expect("session manager");
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
-        cwd: Some(temp.path().display().to_string()),
-        agent_dir: Some(temp.path().display().to_string()),
+        cwd: Some(JsString::from(temp.path().display().to_string())),
+        agent_dir: Some(JsString::from(temp.path().display().to_string())),
         model_runtime: Some(runtime),
         model: Some(model.clone()),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(session_manager),
         settings_manager: Some(Arc::new(Mutex::new(
-            pi_coding_agent::core::settings_manager::SettingsManager::in_memory(settings, Default::default()),
+            pi_coding_agent::core::settings_manager::SettingsManager::in_memory(
+                settings
+                    .into_iter()
+                    .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                    .collect::<pi_js_compat::js_json::JsObject>(),
+                Default::default(),
+            ),
         ))),
         ..Default::default()
     })
@@ -350,17 +392,27 @@ async fn stream_function_fails_when_the_websocket_connect_timeout_setting_is_inv
     let mut settings = serde_json::Map::new();
     settings.insert("websocketConnectTimeoutMs".to_owned(), json!("bad"));
     let session_dir = temp.path().join("sessions").display().to_string();
-    let session_manager =
-        SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+    let session_manager = SessionManager::create(
+        &JsString::from(&temp.path().display().to_string()),
+        Some(&JsString::from(&session_dir)),
+        None,
+    )
+    .expect("session manager");
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
-        cwd: Some(temp.path().display().to_string()),
-        agent_dir: Some(temp.path().display().to_string()),
+        cwd: Some(JsString::from(temp.path().display().to_string())),
+        agent_dir: Some(JsString::from(temp.path().display().to_string())),
         model_runtime: Some(runtime),
         model: Some(model.clone()),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(session_manager),
         settings_manager: Some(Arc::new(Mutex::new(
-            pi_coding_agent::core::settings_manager::SettingsManager::in_memory(settings, Default::default()),
+            pi_coding_agent::core::settings_manager::SettingsManager::in_memory(
+                settings
+                    .into_iter()
+                    .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                    .collect::<pi_js_compat::js_json::JsObject>(),
+                Default::default(),
+            ),
         ))),
         ..Default::default()
     })
@@ -388,18 +440,22 @@ async fn create_agent_session_forwards_observer_coordination_options() {
     let runtime = faux_runtime(&faux).await;
     let model = faux.get_model(None).expect("model");
     let session_dir = temp.path().join("sessions").display().to_string();
-    let mut session_manager =
-        SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+    let mut session_manager = SessionManager::create(
+        &JsString::from(&temp.path().display().to_string()),
+        Some(&JsString::from(&session_dir)),
+        None,
+    )
+    .expect("session manager");
     let control_db = temp.path().join("control.db").display().to_string();
     session_manager
-        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .set_metadata_control_db_path(Some(&JsString::from(&control_db)), Default::default())
         .expect("metadata control db");
     let store = std::sync::Arc::new(pi_coding_agent::core::multi_agent_store::MultiAgentStore::new(
         pi_coding_agent::core::multi_agent_store::MultiAgentStoreOptions::default(),
     ));
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
-        cwd: Some(temp.path().display().to_string()),
-        agent_dir: Some(temp.path().display().to_string()),
+        cwd: Some(JsString::from(temp.path().display().to_string())),
+        agent_dir: Some(JsString::from(temp.path().display().to_string())),
         model_runtime: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
@@ -420,21 +476,25 @@ async fn create_agent_session_forwards_multi_agent_identity_to_extensions() {
     let runtime = faux_runtime(&faux).await;
     let model = faux.get_model(None).expect("model");
     let session_dir = temp.path().join("sessions").display().to_string();
-    let mut session_manager =
-        SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+    let mut session_manager = SessionManager::create(
+        &JsString::from(&temp.path().display().to_string()),
+        Some(&JsString::from(&session_dir)),
+        None,
+    )
+    .expect("session manager");
     let control_db = temp.path().join("control.db").display().to_string();
     session_manager
-        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .set_metadata_control_db_path(Some(&JsString::from(&control_db)), Default::default())
         .expect("metadata control db");
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
-        cwd: Some(temp.path().display().to_string()),
-        agent_dir: Some(temp.path().display().to_string()),
+        cwd: Some(JsString::from(temp.path().display().to_string())),
+        agent_dir: Some(JsString::from(temp.path().display().to_string())),
         model_runtime: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(session_manager),
-        multi_agent_agent_id: Some("agent_child".to_owned()),
-        multi_agent_parent_session_id: Some("parent-session".to_owned()),
+        multi_agent_agent_id: Some(JsString::from("agent_child")),
+        multi_agent_parent_session_id: Some(JsString::from("parent-session")),
         multi_agent_requires_agent_id: true,
         multi_agent_runtime_role: Some(pi_coding_agent::core::agent_session::MultiAgentRuntimeRole::Child),
         ..Default::default()
@@ -444,11 +504,11 @@ async fn create_agent_session_forwards_multi_agent_identity_to_extensions() {
     let context = result.session.extension_runner().create_context();
     assert_eq!(
         context.multi_agent_agent_id().expect("agent id"),
-        Some("agent_child".to_owned())
+        Some("agent_child".to_owned()).map(JsString::from)
     );
     assert_eq!(
         context.multi_agent_parent_session_id().expect("parent session"),
-        Some("parent-session".to_owned())
+        (Some("parent-session".to_owned())).map(JsString::from)
     );
     assert!(context.multi_agent_requires_agent_id().expect("requires agent id"));
 }
@@ -491,7 +551,7 @@ async fn create_agent_session_wires_extension_provider_hooks() {
                 Box::pin(async move {
                     logs.lock().unwrap().push(format!("headers:{}", event.headers.len()));
                     let mut headers = event.headers;
-                    headers.insert("x-extension".to_owned(), Some("yes".to_owned()));
+                    headers.insert("x-extension".to_owned(), Some(JsString::from("yes")));
                     Ok(Some(headers))
                 }) as BoxFuture<'static, Result<Option<ProviderHeaders>, HandlerError>>
             })
@@ -533,15 +593,19 @@ async fn create_agent_session_wires_extension_provider_hooks() {
         ..Default::default()
     });
     let session_dir = temp.path().join("sessions").display().to_string();
-    let mut session_manager =
-        SessionManager::create(&temp.path().display().to_string(), Some(&session_dir), None).expect("session manager");
+    let mut session_manager = SessionManager::create(
+        &JsString::from(&temp.path().display().to_string()),
+        Some(&JsString::from(&session_dir)),
+        None,
+    )
+    .expect("session manager");
     let control_db = temp.path().join("control.db").display().to_string();
     session_manager
-        .set_metadata_control_db_path(Some(&control_db), Default::default())
+        .set_metadata_control_db_path(Some(&JsString::from(&control_db)), Default::default())
         .expect("metadata control db");
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
-        cwd: Some(temp.path().display().to_string()),
-        agent_dir: Some(temp.path().display().to_string()),
+        cwd: Some(JsString::from(temp.path().display().to_string())),
+        agent_dir: Some(JsString::from(temp.path().display().to_string())),
         model_runtime: Some(runtime),
         model: Some(model),
         resource_loader: Some(loader),
@@ -602,7 +666,7 @@ async fn custom_provider_response_preserves_header_order_through_sdk_and_json() 
                     "ordered-custom",
                     ProviderConfigInput {
                         api: Some(model.api.clone()),
-                        api_key: Some("private-fixture-key".to_owned()),
+                        api_key: Some(JsString::from("private-fixture-key")),
                         models: Some(vec![model]),
                         stream_simple: Some(Arc::new(|model, _context, options| {
                             let (sender, stream) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
@@ -666,16 +730,21 @@ async fn custom_provider_response_preserves_header_order_through_sdk_and_json() 
         ..Default::default()
     });
     let session_dir = temp.path().join("sessions").display().to_string();
-    let mut manager = SessionManager::create(&extension_cwd, Some(&session_dir), None).unwrap();
+    let mut manager = SessionManager::create(
+        &JsString::from(&extension_cwd),
+        Some(&JsString::from(&session_dir)),
+        None,
+    )
+    .unwrap();
     manager
         .set_metadata_control_db_path(
-            Some(&temp.path().join("control.db").display().to_string()),
+            Some(&JsString::from(&temp.path().join("control.db").display().to_string())),
             Default::default(),
         )
         .unwrap();
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
-        cwd: Some(extension_cwd.clone()),
-        agent_dir: Some(extension_cwd),
+        cwd: Some(JsString::from(extension_cwd.clone())),
+        agent_dir: Some(JsString::from(extension_cwd)),
         model_runtime: Some(runtime),
         model: Some(model),
         resource_loader: Some(loader),

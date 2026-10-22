@@ -7,6 +7,7 @@ use pi_coding_agent::bundled_extensions::openai_remote_compact::{
 use pi_coding_agent::core::resource_loader::{
     DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension, ResourceLoader,
 };
+use pi_js_compat::js_json::JsString;
 use serde_json::json;
 
 fn model(provider: &str, api: &str) -> Model {
@@ -48,10 +49,10 @@ fn recognizes_openai_responses_models() {
 async fn registers_a_compaction_handler() {
     let temp = tempfile::tempdir().unwrap();
     let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
-        cwd: temp.path().display().to_string(),
-        agent_dir: temp.path().display().to_string(),
+        cwd: JsString::from(temp.path().display().to_string()),
+        agent_dir: JsString::from(temp.path().display().to_string()),
         extension_factories: vec![InlineExtension::Factory {
-            extension_path: Some("<first-party:openai-remote-compact>".to_owned()),
+            extension_path: Some(JsString::from("<first-party:openai-remote-compact>")),
             factory: openai_remote_compact_extension_factory(),
         }],
         no_extensions: true,

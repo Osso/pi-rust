@@ -1,4 +1,5 @@
 use pi_coding_agent::utils::ansi::strip_ansi;
+use pi_js_compat::js_json::JsString;
 
 struct Case {
     name: &'static str,
@@ -102,7 +103,7 @@ const CASES: [Case; 18] = [
 #[test]
 fn strips_every_source_case() {
     for case in &CASES {
-        assert_eq!(strip_ansi(case.input), case.expected, "{}", case.name);
+        assert_eq!(strip_ansi(&JsString::from(case.input)), case.expected, "{}", case.name);
     }
 }
 
@@ -119,5 +120,5 @@ fn strips_each_single_byte_esc_final_from_g_through_m() {
 #[test]
 fn preserves_text_without_escape_introducers() {
     let input = "no escapes here \u{9c} but no introducer";
-    assert_eq!(strip_ansi(input), input);
+    assert_eq!(strip_ansi(&JsString::from(input)), input);
 }

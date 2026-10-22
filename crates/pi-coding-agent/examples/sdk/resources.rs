@@ -3,15 +3,18 @@ use pi_coding_agent::{
     config::get_agent_dir,
     core::{resource_loader::DefaultResourceLoaderOptions, sdk::CreateAgentSessionOptions},
 };
+use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
 pub fn options(session: &CreateAgentSessionOptions) -> Result<DefaultResourceLoaderOptions, String> {
     let cwd = match &session.cwd {
         Some(cwd) => cwd.clone(),
-        None => std::env::current_dir()
-            .map_err(|e| e.to_string())?
-            .display()
-            .to_string(),
+        None => JsString::from(
+            std::env::current_dir()
+                .map_err(|e| e.to_string())?
+                .display()
+                .to_string(),
+        ),
     };
     let extensions_override = session.resource_loader.as_ref().map(|loader| {
         let extensions = loader.get_extensions();
@@ -22,7 +25,7 @@ pub fn options(session: &CreateAgentSessionOptions) -> Result<DefaultResourceLoa
         agent_dir: session
             .agent_dir
             .clone()
-            .unwrap_or_else(|| get_agent_dir().display().to_string()),
+            .unwrap_or_else(|| JsString::from(get_agent_dir().display().to_string())),
         settings_manager: session.settings_manager.clone(),
         extensions_override,
         ..Default::default()

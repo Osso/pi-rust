@@ -35,7 +35,7 @@ pub async fn run(options: [CreateAgentSessionOptions; 2], output: impl Write + S
         loader.reload().await?;
         session.resource_loader = Some(loader);
         session.session_manager =
-            Some(SessionManager::in_memory(session.cwd.as_deref(), None).map_err(|e| e.to_string())?);
+            Some(SessionManager::in_memory(session.cwd.as_ref(), None).map_err(|e| e.to_string())?);
         let (prompt, prefix, suffix) = if index == 0 {
             ("What is 2 + 2?", "=== Replace prompt ===\n", "\n\n")
         } else {

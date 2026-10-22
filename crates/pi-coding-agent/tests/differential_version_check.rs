@@ -4,6 +4,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -59,7 +60,8 @@ fn semver_comparison_matches_node_semver() {
             id += 1;
             let response = oracle.request(&json!({"id": id, "op": "compare", "left": left, "right": right}));
             assert_eq!(response["ok"], true, "{response}");
-            let comparison = compare_package_versions(left, right).map(|value| value.signum());
+            let comparison =
+                compare_package_versions(&JsString::from(left), &JsString::from(right)).map(|value| value.signum());
             assert_eq!(
                 json!(comparison),
                 response["output"]["comparison"],
@@ -69,7 +71,7 @@ fn semver_comparison_matches_node_semver() {
             id += 1;
             let response = oracle.request(&json!({"id": id, "op": "newer", "candidate": left, "current": right}));
             assert_eq!(
-                json!(is_newer_package_version(left, right)),
+                json!(is_newer_package_version(&JsString::from(left), &JsString::from(right))),
                 response["output"]["newer"],
                 "newer {left:?} {right:?}"
             );
@@ -90,15 +92,15 @@ fn version_check_error_formatting_matches() {
                 {"message": "network unreachable", "code": "ENETUNREACH"}
             ]}),
             VersionCheckError {
-                message: "fetch failed".to_owned(),
+                message: JsString::from("fetch failed"),
                 causes: vec![
                     ErrorCause {
-                        message: Some("connect timeout".to_owned()),
-                        code: Some("ETIMEDOUT".to_owned()),
+                        message: Some(JsString::from("connect timeout")),
+                        code: Some(JsString::from("ETIMEDOUT")),
                     },
                     ErrorCause {
-                        message: Some("network unreachable".to_owned()),
-                        code: Some("ENETUNREACH".to_owned()),
+                        message: Some(JsString::from("network unreachable")),
+                        code: Some(JsString::from("ENETUNREACH")),
                     },
                 ],
             },
@@ -106,19 +108,19 @@ fn version_check_error_formatting_matches() {
         (
             json!({"message": "fetch failed", "causes": [{"message": "socket hang up", "code": "ECONNRESET"}]}),
             VersionCheckError {
-                message: "fetch failed".to_owned(),
+                message: JsString::from("fetch failed"),
                 causes: vec![ErrorCause {
-                    message: Some("socket hang up".to_owned()),
-                    code: Some("ECONNRESET".to_owned()),
+                    message: Some(JsString::from("socket hang up")),
+                    code: Some(JsString::from("ECONNRESET")),
                 }],
             },
         ),
         (
             json!({"message": "fetch failed", "causes": [{"message": "dns failure"}]}),
             VersionCheckError {
-                message: "fetch failed".to_owned(),
+                message: JsString::from("fetch failed"),
                 causes: vec![ErrorCause {
-                    message: Some("dns failure".to_owned()),
+                    message: Some(JsString::from("dns failure")),
                     code: None,
                 }],
             },
@@ -126,7 +128,7 @@ fn version_check_error_formatting_matches() {
         (
             json!({"message": "fetch failed"}),
             VersionCheckError {
-                message: "fetch failed".to_owned(),
+                message: JsString::from("fetch failed"),
                 causes: Vec::new(),
             },
         ),
@@ -135,15 +137,15 @@ fn version_check_error_formatting_matches() {
                 {"code": "ETIMEDOUT"}, {"code": "ETIMEDOUT"}
             ]}),
             VersionCheckError {
-                message: "fetch failed".to_owned(),
+                message: JsString::from("fetch failed"),
                 causes: vec![
                     ErrorCause {
-                        message: Some(String::new()),
-                        code: Some("ETIMEDOUT".to_owned()),
+                        message: Some(JsString::default()),
+                        code: Some(JsString::from("ETIMEDOUT")),
                     },
                     ErrorCause {
-                        message: Some(String::new()),
-                        code: Some("ETIMEDOUT".to_owned()),
+                        message: Some(JsString::default()),
+                        code: Some(JsString::from("ETIMEDOUT")),
                     },
                 ],
             },
@@ -217,14 +219,14 @@ fn runtime() -> tokio::runtime::Runtime {
 fn returns_only_newer_versions() {
     let fetch = StubFetch::new(vec![Ok((200, "{\"version\":\"1.2.3\"}".to_owned()))]);
     runtime().block_on(async {
-        assert_eq!(check_for_new_pi_version(&fetch, "1.2.3").await, None);
+        assert_eq!(check_for_new_pi_version(&fetch, &JsString::from("1.2.3")).await, None);
     });
     let fetch = StubFetch::new(vec![Ok((200, "{\"version\":\"1.2.3\"}".to_owned()))]);
     runtime().block_on(async {
         assert_eq!(
-            check_for_new_pi_version(&fetch, "1.2.2").await,
+            check_for_new_pi_version(&fetch, &JsString::from("1.2.2")).await,
             Some(LatestPiRelease {
-                version: "1.2.3".to_owned(),
+                version: JsString::from("1.2.3"),
                 package_name: None,
                 note: None,
             })
@@ -237,10 +239,10 @@ fn uses_the_version_check_api_with_a_pi_user_agent() {
     let fetch = StubFetch::new(vec![Ok((200, "{\"version\":\"1.2.4\"}".to_owned()))]);
     let version = runtime().block_on(get_latest_pi_version(
         &fetch,
-        "1.2.3",
+        &JsString::from("1.2.3"),
         &LatestPiReleaseOptions::default(),
     ));
-    assert_eq!(version.as_deref(), Some("1.2.4"));
+    assert_eq!(version.as_ref(), Some(&JsString::from("1.2.4")));
     let requests = fetch.requests.lock().unwrap();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].url, "https://pi.dev/api/latest-version");
@@ -268,17 +270,23 @@ fn retries_only_when_requested() {
     ]);
     let release = runtime().block_on(get_latest_pi_release(
         &fetch,
-        "1.2.3",
+        &JsString::from("1.2.3"),
         &LatestPiReleaseOptions {
             timeout_ms: None,
             retry: true,
         },
     ));
-    assert_eq!(release.map(|release| release.version).as_deref(), Some("1.2.4"));
+    assert_eq!(
+        release.map(|release| release.version).as_ref(),
+        Some(&JsString::from("1.2.4"))
+    );
     assert_eq!(fetch.requests.lock().unwrap().len(), 3);
 
     let fetch = StubFetch::new(vec![Err("fetch failed".to_owned()), Err("fetch failed".to_owned())]);
-    assert_eq!(runtime().block_on(check_for_new_pi_version(&fetch, "1.2.3")), None);
+    assert_eq!(
+        runtime().block_on(check_for_new_pi_version(&fetch, &JsString::from("1.2.3"))),
+        None
+    );
     assert_eq!(
         fetch.requests.lock().unwrap().len(),
         1,
@@ -294,14 +302,14 @@ fn returns_package_metadata_and_notes() {
     ))]);
     let release = runtime().block_on(get_latest_pi_release(
         &fetch,
-        "1.2.3",
+        &JsString::from("1.2.3"),
         &LatestPiReleaseOptions::default(),
     ));
     assert_eq!(
         release,
         Some(LatestPiRelease {
-            version: "1.2.4".to_owned(),
-            package_name: Some("@new-scope/pi".to_owned()),
+            version: JsString::from("1.2.4"),
+            package_name: Some(JsString::from("@new-scope/pi")),
             note: None,
         })
     );
@@ -312,19 +320,19 @@ fn returns_package_metadata_and_notes() {
     ))]);
     let release = runtime().block_on(get_latest_pi_release(
         &fetch,
-        "1.2.3",
+        &JsString::from("1.2.3"),
         &LatestPiReleaseOptions::default(),
     ));
     assert_eq!(
-        release.and_then(|release| release.note).as_deref(),
-        Some("**Read this**")
+        release.and_then(|release| release.note).as_ref(),
+        Some(&JsString::from("**Read this**"))
     );
 
     let fetch = StubFetch::new(vec![Ok((200, "{\"version\":\"   \"}".to_owned()))]);
     assert_eq!(
         runtime().block_on(get_latest_pi_release(
             &fetch,
-            "1.2.3",
+            &JsString::from("1.2.3"),
             &LatestPiReleaseOptions::default()
         )),
         None
@@ -334,7 +342,7 @@ fn returns_package_metadata_and_notes() {
     assert_eq!(
         runtime().block_on(get_latest_pi_release(
             &fetch,
-            "1.2.3",
+            &JsString::from("1.2.3"),
             &LatestPiReleaseOptions::default()
         )),
         None
@@ -346,14 +354,17 @@ fn timeouts_are_configurable() {
     let fetch = StubFetch::new(vec![Ok((200, "{\"version\":\"1.2.4\"}".to_owned()))]);
     let release = runtime().block_on(get_latest_pi_release(
         &fetch,
-        "1.2.3",
+        &JsString::from("1.2.3"),
         &LatestPiReleaseOptions {
             timeout_ms: Some(1),
             retry: false,
         },
     ));
     // The stub answers immediately, so the tiny timeout does not abort this request.
-    assert_eq!(release.map(|release| release.version).as_deref(), Some("1.2.4"));
+    assert_eq!(
+        release.map(|release| release.version).as_ref(),
+        Some(&JsString::from("1.2.4"))
+    );
     std::thread::sleep(Duration::from_millis(1));
 }
 

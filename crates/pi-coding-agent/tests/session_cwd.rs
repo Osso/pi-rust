@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::PathBuf;
 
@@ -38,9 +39,9 @@ fn detects_missing_session_cwd_from_persisted_sessions() {
     let session_file = session_dir.join("session.jsonl");
     write_session_file(&session_file, &missing.display().to_string());
 
-    let manager = SessionManager::open(&session_file.display().to_string(), None, None).unwrap();
-    let issue = get_missing_session_cwd_issue(&manager, &fallback.display().to_string()).unwrap();
-    assert_eq!(issue.session_file.as_deref(), manager.get_session_file());
+    let manager = SessionManager::open(&JsString::from(&session_file.display().to_string()), None, None).unwrap();
+    let issue = get_missing_session_cwd_issue(&manager, &JsString::from(&fallback.display().to_string())).unwrap();
+    assert_eq!(issue.session_file.as_ref(), manager.get_session_file());
     assert_eq!(issue.session_cwd, missing.display().to_string());
     assert_eq!(issue.fallback_cwd, fallback.display().to_string());
 }
@@ -55,8 +56,8 @@ fn uses_nearest_existing_parent_when_cwd_was_deleted() {
     write_session_file(&session_file, &deleted.display().to_string());
     fs::remove_dir_all(&deleted).unwrap();
 
-    let manager = SessionManager::open(&session_file.display().to_string(), None, None).unwrap();
-    let issue = get_missing_session_cwd_issue(&manager, &deleted.display().to_string()).unwrap();
+    let manager = SessionManager::open(&JsString::from(&session_file.display().to_string()), None, None).unwrap();
+    let issue = get_missing_session_cwd_issue(&manager, &JsString::from(&deleted.display().to_string())).unwrap();
     assert_eq!(issue.fallback_cwd, fallback_parent.display().to_string());
 }
 
@@ -69,21 +70,21 @@ fn supports_overriding_effective_cwd_when_opening() {
     write_session_file(&session_file, &missing.display().to_string());
 
     let manager = SessionManager::open(
-        &session_file.display().to_string(),
+        &JsString::from(&session_file.display().to_string()),
         None,
-        Some(&fallback.display().to_string()),
+        Some(&JsString::from(&fallback.display().to_string())),
     )
     .unwrap();
     assert_eq!(manager.get_cwd(), fallback.display().to_string());
-    assert!(get_missing_session_cwd_issue(&manager, &fallback.display().to_string()).is_none());
+    assert!(get_missing_session_cwd_issue(&manager, &JsString::from(&fallback.display().to_string())).is_none());
 }
 
 #[test]
 fn formats_errors_and_prompts() {
     let issue = pi_coding_agent::core::session_cwd::SessionCwdIssue {
-        session_file: Some("/sessions/a.jsonl".to_owned()),
-        session_cwd: "/missing".to_owned(),
-        fallback_cwd: "/current".to_owned(),
+        session_file: Some(JsString::from("/sessions/a.jsonl")),
+        session_cwd: JsString::from("/missing"),
+        fallback_cwd: JsString::from("/current"),
     };
     assert_eq!(
         format_missing_session_cwd_error(&issue),
@@ -105,21 +106,24 @@ fn asserts_and_reopens_with_selected_cwd() {
     let session_dir = temp_dir("cwd-assert-session-dir");
     let session_file = session_dir.join("session.jsonl");
     write_session_file(&session_file, &missing.display().to_string());
-    let manager = SessionManager::open(&session_file.display().to_string(), None, None).unwrap();
+    let manager = SessionManager::open(&JsString::from(&session_file.display().to_string()), None, None).unwrap();
 
-    let error = assert_session_cwd_exists(&manager, &fallback.display().to_string()).unwrap_err();
+    let error = assert_session_cwd_exists(&manager, &JsString::from(&fallback.display().to_string())).unwrap_err();
     assert_eq!(error.issue.session_cwd, missing.display().to_string());
 
     let control_db_path = session_dir.join("control.sqlite").display().to_string();
     let reopened = reopen_session_with_cwd(
         &error.issue,
-        Some(&session_dir.display().to_string()),
-        &fallback.display().to_string(),
-        &control_db_path,
+        Some(&JsString::from(&session_dir.display().to_string())),
+        &JsString::from(&fallback.display().to_string()),
+        &JsString::from(&control_db_path),
     )
     .unwrap();
     assert_eq!(reopened.get_cwd(), fallback.display().to_string());
-    assert_eq!(reopened.get_metadata_control_db_path(), Some(control_db_path.as_str()));
+    assert_eq!(
+        reopened.get_metadata_control_db_path(),
+        Some(control_db_path.as_str()).map(JsString::from).as_ref()
+    );
     let metadata = pi_coding_agent::core::session_control_db::read_session_metadata(
         &control_db_path,
         &session_file.display().to_string(),
