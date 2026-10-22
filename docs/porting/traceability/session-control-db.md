@@ -2,7 +2,7 @@
 
 ## Q18 single JSON authority slice
 
-Stored agent/mailbox/request/schema JSON must use one `JsObject`/`JsValue` parser and lossless serializer, without a parallel scalar parsed object. `lossless_control_json_authority` adds source-written raw name/parentId/distinct-key metadata-patch byte preservation and native parent-request match/replacement-rejection regressions. Both are RED-intent, committed unexecuted while the coding library is blocked; no implementation or acceptance proof yet.
+Stored agent/mailbox/request/schema JSON must use one `JsObject`/`JsValue` parser and lossless serializer, without a parallel scalar parsed object. `lossless_control_json_authority` adds source-written raw name/parentId/distinct-key metadata-patch byte preservation and native parent-request match/replacement-rejection regressions. Both are RED-intent, committed unexecuted while the coding library is blocked. `mod.rs` now removes the scalar parsed-object helpers; validators/native string-field extraction and mailbox/agent projection consume the single lossless object. Module callers are migrating separately; no runtime or acceptance proof yet.
 
 Main decision (2026-10-22): process identity JSON is internal ASCII; not part of the lossless text authority. Preserve its existing serialized `String` carrier and SQL bindings; its escaped JSON representation is distinct from parsed human text/IDs.
 
