@@ -316,7 +316,7 @@ mod tests {
         let content = supervisor_instruction_content("do work");
         assert_eq!(content, "<supervisor-instruction>\ndo work\n</supervisor-instruction>");
         assert_eq!(supervisor_instruction_body(&content), "do work");
-        assert_eq!(supervisor_instruction_body("plain"), "plain");
+        assert_eq!(supervisor_instruction_body(&"plain".into()), "plain");
     }
 
     #[test]
