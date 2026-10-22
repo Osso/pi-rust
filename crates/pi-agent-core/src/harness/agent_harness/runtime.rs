@@ -342,7 +342,6 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
                 harness
                     .provider_payload(model, payload)
                     .await
-                    .map(Some)
                     .map_err(|error| CallbackError::new(error.message))
             })
         }));
@@ -366,7 +365,8 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
         }));
         Ok(options)
     }
-    async fn provider_payload(&self, model: Model, mut payload: JsValue) -> Result<JsValue, AgentHarnessError> {
+    async fn provider_payload(&self, model: Model, payload: JsValue) -> Result<Option<JsValue>, AgentHarnessError> {
+        let mut payload = Some(payload);
         let mut cursor = None;
         while let Some((id, hook)) = self.next_hook(HarnessHookKind::BeforeProviderPayload, cursor) {
             cursor = Some(id);

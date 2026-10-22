@@ -2,7 +2,71 @@
 mod oracle;
 use pi_agent_core::harness::session::*;
 use pi_agent_core::harness::*;
-use pi_agent_core::{AgentError, AgentMessage};
+use pi_agent_core::{
+    AgentError, AgentMessage, AgentTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError,
+};
+use pi_ai::request::BoxFuture;
+use pi_ai::types::TextOrImageContent;
+use tokio_util::sync::CancellationToken;
+
+struct FixtureTool {
+    name: String,
+    schema: serde_json::Value,
+}
+impl AgentTool for FixtureTool {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn label(&self) -> &str {
+        &self.name
+    }
+    fn description(&self) -> &str {
+        "fixture"
+    }
+    fn parameters(&self) -> &serde_json::Value {
+        &self.schema
+    }
+    fn execute(
+        &self,
+        _id: String,
+        args: JsValue,
+        _signal: Option<CancellationToken>,
+        _update: AgentToolUpdateCallback,
+        _execution: Option<AgentToolExecutionContext>,
+    ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
+        Box::pin(async move {
+            Ok(AgentToolResult {
+                content: vec![TextOrImageContent::Text(pi_ai::types::TextContent::new(string(
+                    &args["value"],
+                )))],
+                details: Some(json!({"native":JsString::from_utf16(vec![0xd800])})),
+                is_error: None,
+                terminate: None,
+            })
+        })
+    }
+}
+fn tool(name: &str) -> Arc<dyn AgentTool> {
+    Arc::new(FixtureTool {
+        name: name.into(),
+        schema: serde_json::json!({"type":"object","properties":{"value":{"type":"string"}},"required":["value"]}),
+    })
+}
+fn entry_value(entry: &SessionTreeEntry) -> JsValue {
+    let mut object = entry.object().clone();
+    for key in ["id", "parentId", "timestamp"] {
+        object.shift_remove(key);
+    }
+    clean(JsValue::Object(object))
+}
+fn compact_value(value: &HarnessCompactResult) -> JsValue {
+    let mut result = json!({"summary":value.summary,"firstKeptEntryId":value.first_kept_entry_id,"tokensBefore":value.tokens_before});
+    if let Some(details) = &value.details {
+        result["details"] = details.clone();
+    }
+    optional(&mut result, "durationMs", &value.duration_ms);
+    result
+}
 use pi_ai::models::{CreateModelsOptions, MutableModels, create_models};
 use pi_ai::providers::faux::*;
 use pi_js_compat::{
@@ -120,9 +184,11 @@ async fn run(request: &JsValue) -> JsValue {
             .map(|index| {
                 let requests = requests.clone();
                 let model = model.clone();
+                let scenario = scenario.clone();
                 FauxResponseStep::Factory(Arc::new(move |context, options, _, _| {
                     let requests = requests.clone();
                     let model = model.clone();
+                    let scenario = scenario.clone();
                     Box::pin(async move {
                         let options = options.unwrap();
                         let mut captured = json!({});
@@ -154,6 +220,24 @@ async fn run(request: &JsValue) -> JsValue {
                             entry["systemPrompt"] = JsValue::String(prompt);
                         }
                         requests.lock().unwrap().push(entry);
+                        if scenario.starts_with("payload") {
+                            let payload = options.stream.request.on_payload.unwrap()(
+                                json!({"native":JsString::from_utf16(vec![0xd800])}),
+                                model.clone(),
+                            )
+                            .await?;
+                            let mut result = json!({});
+                            if let Some(payload) = payload {
+                                result["payloadResult"] = payload;
+                            }
+                            requests.lock().unwrap().push(result);
+                        }
+                        if scenario.starts_with("tool") && index == 0 {
+                            return Ok(faux_assistant_message(
+                                faux_tool_call("lookup", [("value".into(), json!("raw"))].into(), Some("call".into())),
+                                Default::default(),
+                            ));
+                        }
                         Ok(faux_assistant_message(
                             format!("reply-{}", index + 1),
                             Default::default(),
@@ -212,6 +296,9 @@ async fn run(request: &JsValue) -> JsValue {
             content: "$1 $@".into(),
         }]),
     };
+    if scenario.starts_with("tool") {
+        options.tools = vec![tool("lookup")];
+    }
     let harness = AgentHarness::new(options).unwrap();
     let events = Arc::new(Mutex::new(Vec::new()));
     let results = Arc::new(Mutex::new(Vec::new()));
@@ -374,6 +461,142 @@ async fn run(request: &JsValue) -> JsValue {
             }),
         ));
     }
+    if scenario.starts_with("payload") {
+        let fail = scenario == "payload-error";
+        removals.push(harness.on(
+            HarnessHookKind::BeforeProviderPayload,
+            Arc::new(move |_| {
+                Box::pin(async move {
+                    if fail {
+                        return Err(AgentError::new(JsString::from_utf16(
+                            "payload".encode_utf16().chain([0xd800]).collect(),
+                        ))
+                        .into());
+                    }
+                    Ok(Some(HarnessHookResult::BeforeProviderPayload(None)))
+                })
+            }),
+        ));
+        let recorded = results.clone();
+        removals.push(harness.on(
+            HarnessHookKind::BeforeProviderPayload,
+            Arc::new(move |event| {
+                let HarnessEvent::BeforeProviderPayload { payload, .. } = event else {
+                    panic!("payload")
+                };
+                recorded
+                    .lock()
+                    .unwrap()
+                    .push(json!({"payloadStage":2,"present":payload.is_some()}));
+                Box::pin(async {
+                    Ok(Some(HarnessHookResult::BeforeProviderPayload(Some(
+                        json!({"finish":JsString::from_utf16(vec![0xdc00])}),
+                    ))))
+                })
+            }),
+        ));
+    }
+    if let Some(value) = request.get("treeHook") {
+        let value = value.clone();
+        removals.push(harness.on(
+            HarnessHookKind::SessionBeforeTree,
+            Arc::new(move |_| {
+                let value = value.clone();
+                Box::pin(async move {
+                    Ok(Some(HarnessHookResult::SessionBeforeTree(SessionBeforeTreeResult {
+                        cancel: value.get("cancel").and_then(JsValue::as_bool).unwrap_or(false),
+                        summary: value
+                            .get("summary")
+                            .map(|summary| (string(&summary["summary"]), summary.get("details").cloned())),
+                        custom_instructions: value.get("customInstructions").map(string),
+                        replace_instructions: value.get("replaceInstructions").and_then(JsValue::as_bool),
+                        label: value.get("label").map(string),
+                    })))
+                })
+            }),
+        ));
+    }
+    if let Some(value) = request.get("compactHook") {
+        let value = value.clone();
+        removals.push(harness.on(
+            HarnessHookKind::SessionBeforeCompact,
+            Arc::new(move |_| {
+                let value = value.clone();
+                Box::pin(async move {
+                    Ok(Some(HarnessHookResult::SessionBeforeCompact {
+                        cancel: value.get("cancel").and_then(JsValue::as_bool).unwrap_or(false),
+                        compaction: value.get("compaction").map(|value| HarnessCompactResult {
+                            summary: string(&value["summary"]),
+                            first_kept_entry_id: string(&value["firstKeptEntryId"]),
+                            tokens_before: value["tokensBefore"].as_f64().unwrap(),
+                            duration_ms: value.get("durationMs").and_then(JsValue::as_f64),
+                            details: value.get("details").cloned(),
+                        }),
+                    }))
+                })
+            }),
+        ));
+    }
+    if scenario.starts_with("tool") {
+        let recorded = results.clone();
+        let scenario = scenario.clone();
+        removals.push(harness.on(
+            HarnessHookKind::ToolCall,
+            Arc::new(move |event| {
+                let HarnessEvent::ToolCall { input, .. } = event else {
+                    panic!("call")
+                };
+                recorded.lock().unwrap().push(json!({"hook":"call","input":input}));
+                let block = scenario == "tool-block";
+                Box::pin(async move {
+                    Ok(if block {
+                        Some(HarnessHookResult::ToolCall(BeforeToolCallResult {
+                            block: Some(true),
+                            reason: Some(JsString::from_utf16("blocked".encode_utf16().chain([0xd800]).collect())),
+                        }))
+                    } else {
+                        None
+                    })
+                })
+            }),
+        ));
+        let recorded = results.clone();
+        let terminate = request["scenario"].as_string().unwrap() == "tool-terminate";
+        removals.push(harness.on(
+            HarnessHookKind::ToolResult,
+            Arc::new(move |event| {
+                let HarnessEvent::ToolResult {
+                    input,
+                    content,
+                    details,
+                    is_error,
+                    ..
+                } = event
+                else {
+                    panic!("result")
+                };
+                let mut value = json!({"hook":"result","input":input,"content":native(&content),"isError":is_error});
+                if let Some(details) = details {
+                    value["details"] = details;
+                }
+                recorded.lock().unwrap().push(value);
+                Box::pin(async move {
+                    Ok(if terminate {
+                        Some(HarnessHookResult::ToolResult(pi_agent_core::AfterToolCallResult {
+                            content: Some(vec![TextOrImageContent::Text(pi_ai::types::TextContent::new(
+                                JsString::from_utf16("patched".encode_utf16().chain([0xdc00]).collect()),
+                            ))]),
+                            details: Some(JsValue::Null),
+                            is_error: Some(true),
+                            terminate: Some(true),
+                        }))
+                    } else {
+                        None
+                    })
+                })
+            }),
+        ));
+    }
     let default =
         vec![json!({"op":"prompt","text":JsString::from_utf16("hello".encode_utf16().chain([0xd800]).collect())})];
     for operation in request
@@ -389,8 +612,17 @@ async fn run(request: &JsValue) -> JsValue {
             "steer" => harness.steer(string(&operation["text"]),None).await.map(|_| JsValue::Null),
             "follow" => harness.follow_up(string(&operation["text"]),None).await.map(|_| JsValue::Null),
             "abort" => harness.abort().await.map(|value| json!({"clearedSteer":native(&value.cleared_steer),"clearedFollowUp":native(&value.cleared_follow_up)})),
-            "compact" => harness.compact(None).await.map(|_| panic!("empty compaction fixture must fail")),
-            "navigate" => harness.navigate_tree(string(&operation["id"]),None).await.map(|value| json!({"cancelled":value.cancelled})),
+            "compact" => harness.compact(operation.get("instructions").map(string)).await.map(|value| compact_value(&value)),
+            "navigate" => {
+                let options = operation.get("options").map(|value| NavigateTreeOptions {summarize:value.get("summarize").and_then(JsValue::as_bool).unwrap_or(false),custom_instructions:value.get("customInstructions").map(string),replace_instructions:value.get("replaceInstructions").and_then(JsValue::as_bool).unwrap_or(false),label:value.get("label").map(string)});
+                harness.navigate_tree(string(&operation["id"]),options).await.map(|value| {let mut result = json!({"cancelled":value.cancelled}); if let Some(text) = value.editor_text {result["editorText"] = JsValue::String(text);} if let Some(entry) = value.summary_entry {result["summaryEntry"] = entry_value(&entry);} result})
+            },
+            "active" => harness.set_active_tools(operation["names"].as_array().unwrap().iter().map(|name| string(name).to_utf8().unwrap()).collect()).await.map(|_| JsValue::Null),
+            "tools" => harness.set_tools(operation["names"].as_array().unwrap().iter().map(|name| tool(&string(name).to_utf8().unwrap())).collect(),operation.get("active").and_then(JsValue::as_array).map(|names| names.iter().map(|name| string(name).to_utf8().unwrap()).collect())).await.map(|_| JsValue::Null),
+            "settings" => {
+                let mut model = harness.get_model(); model.name = "changed".into(); harness.set_model(model).await.unwrap(); harness.set_thinking_level(ThinkingLevel::Low).await.unwrap(); harness.set_resources(AgentHarnessResources {skills:None,prompt_templates:Some(vec![PromptTemplate {name:"new".into(),description:None,content:JsString::from_utf16("native".encode_utf16().chain([0xdc00]).collect())}])}).await.unwrap(); harness.set_steering_mode(QueueMode::All).await; harness.set_follow_up_mode(QueueMode::All).await;
+                Ok(json!({"modelName":harness.get_model().name,"tools":harness.get_tools().iter().map(|tool| tool.name()).collect::<Vec<_>>(),"active":harness.get_active_tools().iter().map(|tool| tool.name()).collect::<Vec<_>>(),"resources":{"promptTemplates":[{"name":"new","content":harness.get_resources().prompt_templates.unwrap()[0].content.clone()}]},"streamOptions":options_value(&harness.get_stream_options()),"steering":harness.get_steering_mode().as_str(),"followUp":harness.get_follow_up_mode().as_str()}))
+            },
             _ => panic!("unsupported fixture operation"),
         };
         results.lock().unwrap().push(match result {
@@ -434,6 +666,8 @@ async fn working_harness_matches_frozen_turn_and_queue_matrix() {
         "turn-listener-error",
         "queues",
         "live-hooks",
+        "payload",
+        "payload-error",
     ]
     .into_iter()
     .map(|scenario| json!({"scenario":scenario}))
@@ -448,6 +682,87 @@ async fn working_harness_matches_frozen_turn_and_queue_matrix() {
         assert!(
             expected.get("fixtureError").is_none(),
             "oracle fixture failed: {expected:?}"
+        );
+        let actual = run(&case).await;
+        assert!(
+            actual == expected,
+            "case {}\nactual {}\nexpected {}",
+            json::stringify_lossless(&case),
+            json::stringify_lossless(&actual),
+            json::stringify_lossless(&expected)
+        );
+    }
+}
+
+#[tokio::test]
+async fn working_harness_matches_frozen_navigation_and_settings() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "agent-harness-oracle.ts",
+        "packages/agent-core/src/harness/agent-harness.ts",
+    );
+    let assistant = json!({"role":"assistant","content":[{"type":"text","text":"answer"}],"api":"fixture-api","provider":"fixture","model":"faux-1","stopReason":"stop","timestamp":0,"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}}});
+    let mut entries = vec![];
+    for (id, parent, message) in [
+        ("u", None, to_value(&user("first")).unwrap()),
+        ("a", Some("u"), assistant.clone()),
+        ("v", Some("a"), to_value(&user("second")).unwrap()),
+        ("b", Some("v"), assistant),
+    ] {
+        entries.push(json!({"type":"message","id":id,"parentId":parent,"timestamp":"now","message":message}));
+    }
+    let mut cases = vec![];
+    for target in ["b", "a", "v", "u", "missing"] {
+        cases.push(json!({"scenario":"basic","entries":entries,"operations":[{"op":"navigate","id":target}]}));
+    }
+    for tree_hook in [
+        json!({"cancel":true}),
+        json!({"summary":{"summary":"provided","details":[null,JsString::from_utf16(vec![0xd800])]},"label":"ignored"}),
+        json!({"summary":{"summary":""}}),
+    ] {
+        cases.push(json!({"scenario":"basic","entries":entries,"treeHook":tree_hook,"operations":[{"op":"navigate","id":"a","options":{"label":"also ignored"}}]}));
+    }
+    cases.push(json!({"scenario":"basic","entries":entries,"treeHook":{"customInstructions":"custom","replaceInstructions":true},"operations":[{"op":"navigate","id":"a","options":{"summarize":true,"customInstructions":"old"}}]}));
+    let mut custom = entries.clone();
+    custom.push(json!({"type":"custom_message","id":"custom","parentId":"u","timestamp":"now","customType":"fixture","content":[{"type":"text","text":JsString::from_utf16(vec![0xd800])},{"type":"text","text":"tail"}],"display":true}));
+    cases.push(json!({"scenario":"basic","entries":custom,"operations":[{"op":"navigate","id":"a"},{"op":"navigate","id":"custom"}]}));
+    for compact_hook in [
+        json!({"cancel":true}),
+        json!({"compaction":{"summary":JsString::from_utf16(vec![0xd800]),"firstKeptEntryId":"v","tokensBefore":12.5,"durationMs":3.25,"details":[null,JsString::from_utf16(vec![0xdc00])]}}),
+    ] {
+        cases.push(json!({"scenario":"basic","entries":entries,"compactHook":compact_hook,"operations":[{"op":"compact","instructions":"custom"}]}));
+    }
+    cases.push(json!({"scenario":"basic","operations":[{"op":"tools","names":["x","x"]},{"op":"active","names":["missing","missing"]},{"op":"active","names":["missing"]},{"op":"tools","names":["x","y"],"active":["x"]},{"op":"tools","names":["z"]},{"op":"tools","names":["z"],"active":["z"]},{"op":"settings"}]}));
+    for case in cases {
+        let expected: JsValue = oracle.request(&case);
+        assert!(
+            expected.get("fixtureError").is_none(),
+            "oracle fixture failed: {}",
+            json::stringify_lossless(&expected)
+        );
+        let actual = run(&case).await;
+        assert!(
+            actual == expected,
+            "case {}\nactual {}\nexpected {}",
+            json::stringify_lossless(&case),
+            json::stringify_lossless(&actual),
+            json::stringify_lossless(&expected)
+        );
+    }
+}
+
+#[tokio::test]
+async fn working_harness_matches_frozen_tool_hooks() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "agent-harness-oracle.ts",
+        "packages/agent-core/src/harness/agent-harness.ts",
+    );
+    for scenario in ["tool", "tool-block", "tool-terminate"] {
+        let case = json!({"scenario":scenario});
+        let expected: JsValue = oracle.request(&case);
+        assert!(
+            expected.get("fixtureError").is_none(),
+            "oracle fixture failed: {}",
+            json::stringify_lossless(&expected)
         );
         let actual = run(&case).await;
         assert!(

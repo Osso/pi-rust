@@ -278,7 +278,7 @@ pub enum HarnessEvent {
     },
     BeforeProviderPayload {
         model: Model,
-        payload: JsValue,
+        payload: Option<JsValue>,
     },
     AfterProviderResponse {
         status: f64,
@@ -370,7 +370,7 @@ pub enum HarnessHookResult {
     },
     Context(Vec<AgentMessage>),
     BeforeProviderRequest(AgentHarnessStreamOptionsPatch),
-    BeforeProviderPayload(JsValue),
+    BeforeProviderPayload(Option<JsValue>),
     ToolCall(super::BeforeToolCallResult),
     ToolResult(AfterToolCallResult),
     SessionBeforeCompact {
