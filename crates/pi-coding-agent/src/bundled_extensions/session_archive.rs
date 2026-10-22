@@ -1,6 +1,9 @@
 //! Frozen `extensions/session-archive/src/index.ts`: destructive work runs only at quit.
 use std::sync::{Arc, Mutex};
 
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
+
 use crate::core::extensions::types::{
     ExtensionApi, ExtensionCommandContext, HandlerError, NotifyType, SessionShutdownEvent, SessionShutdownReason,
 };
@@ -10,8 +13,8 @@ use crate::core::session_delete::delete_session_tree;
 use crate::core::session_manager::lock_session_manager;
 
 struct CurrentSession {
-    db: String,
-    path: String,
+    db: JsString,
+    path: JsString,
 }
 
 enum QuitAction {
@@ -38,7 +41,7 @@ fn read_current_session_and_notify(
     };
     let path = lock_session_manager(&ctx.session_manager()?)
         .get_session_file()
-        .map(str::to_owned);
+        .cloned();
     let Some(path) = path.filter(|path| !path.is_empty()) else {
         ctx.ui()?.notify(
             &"The current session is not persisted.".into(),
@@ -51,14 +54,14 @@ fn read_current_session_and_notify(
 
 fn unarchive_current_session(session: CurrentSession, ctx: &ExtensionCommandContext) -> Result<(), HandlerError> {
     let archived = read_session_metadata(&session.db, &session.path)
-        .map_err(|error| HandlerError::new(error.to_string()))?
+        .map_err(|error| HandlerError::new(error.message().clone()))?
         .is_some_and(|row| row.is_archived == Some(true));
     if !archived {
         ctx.ui()?
             .notify(&"Current session is already unarchived.".into(), Some(NotifyType::Info));
         return Ok(());
     }
-    unarchive_session(&session.db, &session.path).map_err(|error| HandlerError::new(error.to_string()))?;
+    unarchive_session(&session.db, &session.path).map_err(|error| HandlerError::new(error.message().clone()))?;
     ctx.ui()?
         .notify(&"Unarchived current session.".into(), Some(NotifyType::Info));
     Ok(())
@@ -99,23 +102,23 @@ async fn confirm_delete(ctx: &ExtensionCommandContext) -> Result<bool, HandlerEr
     }
     ctx.ui()?
         .confirm(
-            "Delete session?",
-            "Delete the current session and its child agent sessions, then quit.",
+            &"Delete session?".into(),
+            &"Delete the current session and its child agent sessions, then quit.".into(),
             None,
         )
         .await
         .map_err(HandlerError::new)
 }
 
-async fn run_quit_action(action: QuitAction) -> Result<(), pi_js_compat::js_json::JsString> {
+async fn run_quit_action(action: QuitAction) -> Result<(), JsString> {
     match action {
         QuitAction::Archive(session) => archive_persisted_session(&session.db, &session.path)
             .map(|_| ())
-            .map_err(|error| format!("Failed to archive session: {error}").into()),
+            .map_err(|error| js_format!("Failed to archive session: {}", error.message())),
         QuitAction::Delete(session) => match delete_session_tree(&session.path, Some(&session.db)).await {
             crate::core::session_delete::SessionDeleteResult::Success { .. } => Ok(()),
             crate::core::session_delete::SessionDeleteResult::Failure { error, .. } => {
-                Err(pi_js_compat::js_json::JsString::from("Failed to delete session: ") + error)
+                Err(JsString::from("Failed to delete session: ") + error)
             }
         },
     }
