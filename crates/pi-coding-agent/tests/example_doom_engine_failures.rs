@@ -2,6 +2,7 @@
 mod engine;
 #[path = "support/oracle.rs"]
 mod oracle;
+use pi_js_compat::{js_format, js_json::JsString};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 
@@ -93,7 +94,7 @@ fn compare(ts: &mut oracle::TsOracle, operations: Value) -> Value {
     let mut engine = engine::DoomEngine::new(wad.clone());
     let mut results = Vec::new();
     for op in operations.as_array().unwrap() {
-        let result: Result<Value, String> = match op["op"].as_str().unwrap() {
+        let result: Result<Value, JsString> = match op["op"].as_str().unwrap() {
             "init" => {
                 let fault = Arc::new(Mutex::new(Fault {
                     calls: 0,
@@ -108,7 +109,7 @@ fn compare(ts: &mut oracle::TsOracle, operations: Value) -> Value {
                         fault,
                     }))
                     .map(|_| Value::Null)
-                    .map_err(|e| e.to_string())
+                    .map_err(|e| e.message())
             }
             "remove" => {
                 std::fs::remove_file(&wad).unwrap();
@@ -124,18 +125,20 @@ fn compare(ts: &mut oracle::TsOracle, operations: Value) -> Value {
                 Ok(Value::Null)
             }
             "state" => Ok(json!([engine.is_initialized(), engine.width(), engine.height()])),
-            "tick" => engine.tick().map(|_| Value::Null),
+            "tick" => engine.tick().map(|_| Value::Null).map_err(JsString::from),
             "key" => engine
                 .push_key(op["pressed"].as_bool().unwrap(), op["key"].as_u64().unwrap() as u32)
-                .map(|_| Value::Null),
+                .map(|_| Value::Null)
+                .map_err(JsString::from),
             "frame" => engine
                 .get_frame_rgba()
-                .map(|bytes| json!({"length":bytes.len(),"head":bytes.iter().take(12).collect::<Vec<_>>()})),
+                .map(|bytes| json!({"length":bytes.len(),"head":bytes.iter().take(12).collect::<Vec<_>>()}))
+                .map_err(JsString::from),
             name => panic!("unknown operation {name}"),
         };
         results.push(json!([
             op["op"],
-            result.unwrap_or_else(|error| json!({"error":format!("Error: {error}")}))
+            result.unwrap_or_else(|error| json!({"error":js_format!("Error: {}", error)}))
         ]));
     }
     let actual = json!({"trace":trace.lock().unwrap().clone(),"results":results});

@@ -43,6 +43,10 @@ constructs the actual stack components, not private UI-thread elapsed time.
 
 RED evidence: missing module (01); streaming post-close label (08); source-global toggle target (10); incorrect early-close stack mounting deadline (11); missing overflow scroll redraw (13); child omitted process.env overlay (15). GREEN: 07 initial 13 commands; 09 expanded timers/wrap/input; 12 shared-toggle and stack fixes; 16 complete subprocess and render-request proof. Setup failures (02–06,14) are not behavioral passes. Initial `cargo fmt` failed on fixture escape syntax before the first commit; corrected in `9eb93d6d`; subsequent commits used successful fmt/check. No failed run is claimed as proof.
 
+## Common-pin native streaming input (2026-10-22)
+
+Frozen `4f9e6f8a4` `overlay-qa-tests.ts:1409–1428` appends one UTF-16 unit, removes one unit on backspace, and passes typed text directly to width truncation. No scalar projection or render-slice boundary exists there. Native `panels.rs::streaming_render` now constructs `JsString` directly from its stored units. `streaming_panel_retains_raw_typed_units_until_backspace` exercises the real extension command/factory and nested panel: both U+D800 and U+DC00 must remain in rendered output, then disappear on backspace. RED `/tmp/pi-rust-repin-lossless-interactive/test-overlay-typed-red.log` observed U+FFFD. Historical passive differential projection below remains a separately recorded old fixture boundary, not evidence for streaming replacement.
+
 ## Boundaries and pending cases
 
 - String boundary: request UTF-16 unit `[55296]` projects to U+FFFD before the existing String component API, matching [compatibility](../../specs/compatibility.md#out-of-scope). The passive fixture renders the replacement character; source receives `toWellFormed()` at the same boundary. Ordinary text/frames are unchanged.

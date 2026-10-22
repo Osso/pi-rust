@@ -313,6 +313,22 @@ impl ExtensionUiContext for Ui {
                     cloned.on_overlay_handle(Rc::new(MainHandle(calls.clone(), true)));
                     cloned
                 });
+                if script["rawPanelProbe"] == true {
+                    let panel = PANELS.with(|ps| ps.borrow()[0].clone());
+                    for unit in [0xd800, 0xdc00] {
+                        let raw = JsString::from_utf16(vec![unit]);
+                        panel.component.handle_input(&raw);
+                        let frame = JsString::join(panel.component.render(35), "\n");
+                        assert!(frame.contains(&raw), "typed unit lost in panel frame: {frame:?}");
+                        assert!(!frame.contains("\u{fffd}"), "typed unit replaced: {frame:?}");
+                        panel.component.handle_input(&JsString::from("\x7f"));
+                        let frame = JsString::join(panel.component.render(35), "\n");
+                        assert!(!frame.contains(&raw), "backspace retained typed unit: {frame:?}");
+                    }
+                    component.dispose();
+                    PANELS.with(|ps| ps.borrow_mut().clear());
+                    return Ok(None);
+                }
                 let opts = opts.unwrap();
                 assert_eq!(opts.overlay, Some(true));
                 calls
@@ -469,6 +485,11 @@ async fn native(request: &Value) -> Value {
         .unwrap();
     json!({"commands":commands,"calls":ui.calls.lock().unwrap().clone()})
 }
+#[tokio::test]
+async fn streaming_panel_retains_raw_typed_units_until_backspace() {
+    native(&json!({"command":"overlay-streaming","scripts":[{"rawPanelProbe":true}]})).await;
+}
+
 #[tokio::test]
 async fn thirteen_commands_match_pinned_runtime_options_keys_and_ansi_frames() {
     let process_fixture = process_fixture();
