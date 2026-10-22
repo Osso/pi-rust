@@ -19,3 +19,14 @@ Differential proof: request `27006` reads 16 fixture paths — all four resource
 ## Discrepancies
 
 None. The BOM, invalid-UTF-8, and duplicate-key fixtures confirm `readFileSync(..., "utf-8")` and `serde_json` agree.
+
+## Q18 native continuation (2026-10-22)
+
+Manifest resource arrays now contain `JsString`, parsed through the single
+`JsValue` JSON authority. Input paths are native; only the filesystem read encodes.
+`manifest_resource_strings_preserve_escaped_unpaired_units` covers escaped lone
+surrogates in extension and skill entries. Tests remain written but unexecuted:
+coding-library errors block all coding tests (extensions-red.log). Existing proof
+above predates this migration and is not new-pin Q18 evidence. The named TS
+pi-manifest.ts file is absent from the frozen common-pin path; resolve source
+provenance before claiming whole-module differential parity.

@@ -194,7 +194,7 @@ fn pi_manifest_matches_typescript() {
     let expected = oracle.call("core/pi-manifest.ts", "piManifest", json!(paths));
     let actual: Vec<Value> = paths
         .iter()
-        .map(|path| json!(read_pi_manifest(std::path::Path::new(path))))
+        .map(|path| json!(read_pi_manifest(&path.as_str().into())))
         .collect();
     assert_eq!(json!(actual), expected);
 }
