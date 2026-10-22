@@ -423,6 +423,18 @@ async fn differential_azure_openai_responses() {
     )
     .await;
 
+    let retry_chunks = sse_chunks(&text, 100);
+    run_scenario(
+        &mut oracle,
+        Scenario::new(9, model("https://example.openai.azure.com"), &text)
+            .stream(json!({"maxRetries":1}))
+            .responses(vec![
+                ScriptedResponse::json(429, r#"{"error":{"message":"retry"}}"#).with_header("retry-after", "0"),
+                ScriptedResponse::sse(&retry_chunks.iter().map(String::as_str).collect::<Vec<_>>()),
+            ]),
+    )
+    .await;
+
     let abort_chunks = sse_chunks(&text, 6);
     run_scenario(
         &mut oracle,

@@ -430,8 +430,15 @@ async fn run_stream(
     }
 
     let signal = stream_options.request.signal.clone();
+    let mut retry_count = 0;
     let response = retry_provider_request(
-        || client.create_response_stream(params.clone(), signal.clone()),
+        || {
+            let client = client.for_retry(retry_count);
+            retry_count += 1;
+            let params = params.clone();
+            let signal = signal.clone();
+            async move { client.create_response_stream(params, signal).await }
+        },
         retry_options(&stream_options.request),
     )
     .await
