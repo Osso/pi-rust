@@ -148,11 +148,11 @@ fn resolve_error(code: ModelsErrorCode, message: impl Into<JsString>) -> Resolve
 #[derive(Default, Clone)]
 pub struct CreateModelRuntimeOptions {
     pub credentials: Option<Arc<dyn CredentialStore>>,
-    pub auth_path: Option<String>,
+    pub auth_path: Option<JsString>,
     /// `None` uses the agent dir; `Some(None)` disables `models.json`.
-    pub models_path: Option<Option<String>>,
+    pub models_path: Option<Option<JsString>>,
     pub models_store: Option<Arc<dyn pi_ai::models_store::ModelsStore>>,
-    pub models_store_path: Option<String>,
+    pub models_store_path: Option<JsString>,
     /// Allow create() to refresh catalogs over the network. Defaults to false.
     pub allow_model_network: bool,
     pub model_refresh_timeout_ms: Option<f64>,
@@ -185,8 +185,8 @@ struct RuntimeInner {
     native_extension_providers: Mutex<Vec<(String, Arc<dyn Provider>)>>,
     extension_providers: Mutex<Vec<(String, ProviderConfigInput)>>,
     composition_errors: Mutex<BTreeMap<String, String>>,
-    models_path: Option<String>,
-    auth_path: Option<String>,
+    models_path: Option<JsString>,
+    auth_path: Option<JsString>,
     model_network_enabled: bool,
     config: Mutex<ModelConfig>,
     snapshot: Mutex<ModelRuntimeSnapshot>,
@@ -209,7 +209,7 @@ impl ModelRuntime {
         let default_auth_path = options
             .auth_path
             .clone()
-            .unwrap_or_else(|| get_agent_dir().join("auth.json").display().to_string());
+            .unwrap_or_else(|| get_agent_dir().join("auth.json").display().to_string().into());
         let credentials = Arc::new(RuntimeCredentials::new(
             credential_store.unwrap_or_else(|| Arc::new(AuthStorage::create(Some(&default_auth_path)))),
         ));
@@ -221,17 +221,14 @@ impl ModelRuntime {
         let models_path = match &options.models_path {
             Some(None) => None,
             Some(Some(path)) => Some(path.clone()),
-            None => Some(get_agent_dir().join("models.json").display().to_string()),
+            None => Some(get_agent_dir().join("models.json").display().to_string().into()),
         };
-        let config = ModelConfig::load(models_path.as_deref());
+        let config = ModelConfig::load(models_path.as_ref());
         let models_store: Arc<dyn pi_ai::models_store::ModelsStore> =
             options.models_store.unwrap_or_else(|| match &models_path {
                 Some(path) => {
                     let store_path = options.models_store_path.clone().unwrap_or_else(|| {
-                        Path::new(path)
-                            .parent()
-                            .map(|parent| parent.join("models-store.json").display().to_string())
-                            .unwrap_or_else(|| "models-store.json".to_owned())
+                        crate::utils::paths::node_join(crate::utils::paths::node_dirname(path), "models-store.json")
                     });
                     Arc::new(FileModelsStore::new(Some(&store_path)))
                 }
@@ -1205,7 +1202,7 @@ impl ModelRuntime {
         if let Some(path) = &self.inner.auth_path {
             AuthStorage::create(Some(path)).reload();
         }
-        let config = ModelConfig::load(self.inner.models_path.as_deref());
+        let config = ModelConfig::load(self.inner.models_path.as_ref());
         *lock(&self.inner.config) = config;
         self.reset_builtin_providers();
         self.rebuild_providers();
@@ -1218,7 +1215,7 @@ impl ModelRuntime {
     }
 
     pub async fn refresh(&self, options: ModelsRefreshOptions) -> Result<ModelsRefreshResult, ModelRuntimeError> {
-        let config = ModelConfig::load(self.inner.models_path.as_deref());
+        let config = ModelConfig::load(self.inner.models_path.as_ref());
         *lock(&self.inner.config) = config;
         self.reset_builtin_providers();
         if let Some(providers) = &options.providers {

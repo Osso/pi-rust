@@ -136,3 +136,31 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
     assert_eq!(sdk.session.agent_dir(), &directory);
     sdk.session.dispose();
 }
+
+#[tokio::test]
+async fn raw_storage_paths_keep_identity_until_the_filesystem_boundary() {
+    use pi_coding_agent::core::auth_storage::FileAuthStorageBackend;
+    use pi_coding_agent::core::model_config::ModelConfig;
+    use pi_coding_agent::core::models_store::FileModelsStore;
+    let root = tempfile::tempdir().unwrap();
+    let raw = JsString::from(root.path().to_str().unwrap()) + "/raw-" + JsString::from_utf16(vec![0xd800]);
+    std::fs::create_dir_all(encode_node_utf8(&raw)).unwrap();
+    let auth_path = raw.clone() + "/auth.json";
+    std::fs::write(encode_node_utf8(&auth_path), "{}").unwrap();
+    let backend = FileAuthStorageBackend::new(&auth_path);
+    assert_eq!(backend.auth_path(), &auth_path);
+    let store_path = raw.clone() + "/models-store.json";
+    let store = FileModelsStore::new(Some(&store_path));
+    assert_eq!(store.path(), &store_path);
+    let models_path = raw.clone() + "/models.json";
+    std::fs::write(encode_node_utf8(&models_path), "{").unwrap();
+    let config = ModelConfig::load(Some(&models_path));
+    assert!(
+        config
+            .get_error()
+            .unwrap()
+            .ends_with(&(JsString::from("File: ") + &models_path))
+    );
+    let settings = SettingsManager::create(&raw, Some(&raw), Default::default()).unwrap();
+    assert!(settings.get_errors().is_empty());
+}

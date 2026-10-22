@@ -109,22 +109,23 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 /// `FileAuthStorageBackend`: JSON file plus `proper-lockfile`.
 pub struct FileAuthStorageBackend {
-    auth_path: String,
+    auth_path: JsString,
 }
 
 impl FileAuthStorageBackend {
-    pub fn new(auth_path: &str) -> Self {
+    pub fn new(auth_path: &JsString) -> Self {
         Self {
             auth_path: normalize_path(auth_path, &Default::default()).unwrap_or_else(|_| auth_path.to_owned()),
         }
     }
 
-    pub fn auth_path(&self) -> &str {
+    pub fn auth_path(&self) -> &JsString {
         &self.auth_path
     }
 
     fn ensure_parent_dir(&self) -> Result<(), StorageError> {
-        let Some(directory) = Path::new(&self.auth_path).parent() else {
+        let encoded = js_json::encode_node_utf8(&self.auth_path);
+        let Some(directory) = Path::new(&encoded).parent() else {
             return Ok(());
         };
         if directory.exists() {
@@ -147,7 +148,7 @@ impl FileAuthStorageBackend {
     }
 
     fn ensure_file_exists(&self) -> Result<(), StorageError> {
-        if Path::new(&self.auth_path).exists() {
+        if Path::new(&js_json::encode_node_utf8(&self.auth_path)).exists() {
             return Ok(());
         }
         write_auth_file(&self.auth_path, "{}")?;
@@ -155,12 +156,17 @@ impl FileAuthStorageBackend {
     }
 
     fn read_current(&self) -> Result<Option<String>, StorageError> {
-        if !Path::new(&self.auth_path).exists() {
+        if !Path::new(&js_json::encode_node_utf8(&self.auth_path)).exists() {
             return Ok(None);
         }
-        std::fs::read(&self.auth_path)
+        std::fs::read(js_json::encode_node_utf8(&self.auth_path))
             .map(|bytes| Some(String::from_utf8_lossy(&bytes).into_owned()))
-            .map_err(|error| StorageError::new(pi_js_compat::node_fs::node_read_error(&error, &self.auth_path)))
+            .map_err(|error| {
+                StorageError::new(pi_js_compat::node_fs::node_read_error(
+                    &error,
+                    &js_json::encode_node_utf8(&self.auth_path),
+                ))
+            })
     }
 
     fn write_next(&self, next: Option<String>) -> Result<(), StorageError> {
@@ -178,7 +184,7 @@ impl FileAuthStorageBackend {
         };
         let mut last_error = None;
         for attempt in 1..=SYNC_LOCK_ATTEMPTS {
-            match acquire_sync(Path::new(&self.auth_path), &options) {
+            match acquire_sync(Path::new(&js_json::encode_node_utf8(&self.auth_path)), &options) {
                 Ok(guard) => return Ok(guard),
                 Err(error) if error.code == LockErrorCode::Locked && attempt < SYNC_LOCK_ATTEMPTS => {
                     last_error = Some(error);
@@ -214,7 +220,7 @@ impl FileAuthStorageBackend {
         let mut retry = 0u32;
         loop {
             check_aborted(signal.as_ref())?;
-            match acquire(Path::new(&self.auth_path), &options).await {
+            match acquire(Path::new(&js_json::encode_node_utf8(&self.auth_path)), &options).await {
                 Ok(guard) => {
                     if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
                         let _ = guard.release();
@@ -300,7 +306,9 @@ impl AuthStorageBackend for FileAuthStorageBackend {
     }
 }
 
-fn write_auth_file(path: &str, content: &str) -> Result<(), StorageError> {
+fn write_auth_file(path: &JsString, content: &str) -> Result<(), StorageError> {
+    let encoded = js_json::encode_node_utf8(path);
+    let path = encoded.as_str();
     use std::io::Write;
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
@@ -449,10 +457,10 @@ pub struct AuthStorage {
     source_state: Arc<Mutex<SourceAuthState>>,
 }
 impl AuthStorage {
-    pub fn create(auth_path: Option<&str>) -> Self {
+    pub fn create(auth_path: Option<&JsString>) -> Self {
         let path = auth_path
-            .map(str::to_owned)
-            .unwrap_or_else(|| default_auth_path().display().to_string());
+            .cloned()
+            .unwrap_or_else(|| default_auth_path().display().to_string().into());
         Self::from_storage(Arc::new(FileAuthStorageBackend::new(&path)))
     }
     pub fn from_storage(storage: Arc<dyn AuthStorageBackend>) -> Self {
@@ -464,7 +472,7 @@ impl AuthStorage {
         store
     }
     /// Compatibility entry point for old resolver consumers; no shared read state.
-    pub fn from_storage_at(storage: Arc<dyn AuthStorageBackend>, _auth_path: Option<String>) -> Self {
+    pub fn from_storage_at(storage: Arc<dyn AuthStorageBackend>, _auth_path: Option<JsString>) -> Self {
         Self::from_storage(storage)
     }
     pub fn in_memory<K: Into<JsString>, V: Into<JsValue>>(data: impl IntoIterator<Item = (K, V)>) -> Self {
@@ -878,14 +886,14 @@ fn credential_infos(data: &AuthStorageData) -> Result<Vec<CredentialInfo>, Stora
         .collect()
 }
 pub struct ReadOnlyAuthStorage {
-    auth_path: String,
+    auth_path: JsString,
     data: Mutex<Option<AuthStorageData>>,
 }
 impl ReadOnlyAuthStorage {
-    pub fn new(path: Option<&str>) -> Self {
+    pub fn new(path: Option<&JsString>) -> Self {
         let path = path
-            .map(str::to_owned)
-            .unwrap_or_else(|| default_auth_path().display().to_string());
+            .cloned()
+            .unwrap_or_else(|| default_auth_path().display().to_string().into());
         Self {
             auth_path: normalize_path(&path, &Default::default()).unwrap_or(path),
             data: Mutex::new(None),
@@ -896,7 +904,7 @@ impl ReadOnlyAuthStorage {
         if let Some(data) = cached.as_ref() {
             return Ok(data.clone());
         }
-        let parsed = match std::fs::read_to_string(&self.auth_path) {
+        let parsed = match std::fs::read_to_string(js_json::encode_node_utf8(&self.auth_path)) {
             Ok(content) => js_json::parse_lossless(&content)
                 .map_err(|error| StorageError::new(format!("Failed to read auth.json: {error}")))?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => JsValue::Object(JsObject::new()),
@@ -958,12 +966,12 @@ impl CredentialStore for ReadOnlyAuthStorage {
         })
     }
 }
-pub fn read_stored_credential(id: &str, path: Option<&str>) -> Option<Credential> {
+pub fn read_stored_credential(id: &str, path: Option<&JsString>) -> Option<Credential> {
     let path = path
-        .map(str::to_owned)
-        .unwrap_or_else(|| default_auth_path().display().to_string());
+        .cloned()
+        .unwrap_or_else(|| default_auth_path().display().to_string().into());
     let path = normalize_path(&path, &Default::default()).unwrap_or(path);
-    let content = std::fs::read_to_string(path).ok()?;
+    let content = std::fs::read_to_string(js_json::encode_node_utf8(&path)).ok()?;
     let data = parse_auth_data(Some(&content)).ok()?;
     data.get(&JsString::from(id))
         .and_then(|value| to_credential(value).ok())

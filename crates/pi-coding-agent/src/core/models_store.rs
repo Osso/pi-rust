@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 use crate::config::get_agent_dir;
 use crate::core::auth_storage::{AsyncLockOperation, AuthStorageBackend, FileAuthStorageBackend, StorageError};
 use crate::utils::paths::{get_file_revision, normalize_path};
-use pi_js_compat::js_json;
+use pi_js_compat::js_json::{self, JsString, encode_node_utf8};
 use pi_js_compat::number::js_number_value;
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -130,15 +130,15 @@ struct ReadState {
 /// Locked JSON-backed store for dynamically refreshed provider catalogs (`FileModelsStore`).
 pub struct FileModelsStore {
     storage: Arc<dyn AuthStorageBackend>,
-    path: String,
+    path: JsString,
     read_state: Arc<Mutex<ReadState>>,
 }
 
 impl FileModelsStore {
-    pub fn new(path: Option<&str>) -> Self {
+    pub fn new(path: Option<&JsString>) -> Self {
         let path = path
-            .map(str::to_owned)
-            .unwrap_or_else(|| get_agent_dir().join("models-store.json").display().to_string());
+            .cloned()
+            .unwrap_or_else(|| get_agent_dir().join("models-store.json").display().to_string().into());
         let normalized = normalize_path(&path, &Default::default()).unwrap_or(path);
         Self {
             storage: Arc::new(FileAuthStorageBackend::new(&normalized)),
@@ -152,7 +152,7 @@ impl FileModelsStore {
     }
 
     /// Builds a store over an injected backend; used to observe lock behavior.
-    pub fn with_backend(path: &str, storage: Arc<dyn AuthStorageBackend>) -> Self {
+    pub fn with_backend(path: &JsString, storage: Arc<dyn AuthStorageBackend>) -> Self {
         let normalized = normalize_path(path, &Default::default()).unwrap_or_else(|_| path.to_owned());
         Self {
             storage,
@@ -165,12 +165,12 @@ impl FileModelsStore {
         }
     }
 
-    pub fn path(&self) -> &str {
+    pub fn path(&self) -> &JsString {
         &self.path
     }
 
     fn current_revision(&self) -> Option<String> {
-        get_file_revision(&self.path)
+        get_file_revision(&encode_node_utf8(&self.path))
     }
 
     async fn read_latest(&self, options: ModelsStoreOperationOptions) -> Result<StoredModels, StorageError> {

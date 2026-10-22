@@ -548,8 +548,8 @@ pub type ResolveProjectTrust =
 /// `DefaultResourceLoaderOptions`.
 #[derive(Default)]
 pub struct DefaultResourceLoaderOptions {
-    pub cwd: String,
-    pub agent_dir: String,
+    pub cwd: pi_js_compat::js_json::JsString,
+    pub agent_dir: pi_js_compat::js_json::JsString,
     pub settings_manager: Option<Arc<Mutex<SettingsManager>>>,
     pub event_bus: Option<Arc<dyn EventBus>>,
     pub extension_registry: Option<Arc<ExtensionRegistry>>,
