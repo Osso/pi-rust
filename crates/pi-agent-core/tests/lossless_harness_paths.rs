@@ -2,7 +2,7 @@
 mod oracle;
 
 use pi_agent_core::agent::AgentTool;
-use pi_agent_core::harness::env::nodejs::{NodeExecutionEnv, NodeExecutionEnvOptions};
+use pi_agent_core::harness::env::{NodeExecutionEnv, NodeExecutionEnvOptions};
 use pi_agent_core::harness::tools::path_utils::resolve_read_tool_path;
 use pi_agent_core::harness::tools::read::ReadTool;
 use pi_agent_core::harness::tools::tool_context::ExecutionToolContext;
@@ -70,7 +70,7 @@ async fn ts_raw_path_stays_native_through_read_variants_env_and_tool() {
             "read".into(),
             pi_js_compat::js_json!({ "path": input }),
             None,
-            Arc::new(|_| Box::pin(async { Ok(()) })),
+            Arc::new(|_| {}),
             None,
         )
         .await
