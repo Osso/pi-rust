@@ -7,10 +7,12 @@ use pi_js_compat::js_json::JsValue;
 use std::io;
 use std::sync::Arc;
 
+use crate::utils::paths::node_join;
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
-use pi_js_compat::collator::locale_compare;
+use pi_js_compat::collator::locale_compare_utf16;
+use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
 use pi_tui::Text;
@@ -48,9 +50,9 @@ const RTK_MAX_BUFFER: usize = DEFAULT_MAX_BYTES * 2;
 
 /// Directory access used by [`LsTool`]. Override to delegate listing to a remote system.
 pub trait LsOperations: Send + Sync {
-    fn exists<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<bool>>;
-    fn is_directory<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<bool>>;
-    fn readdir<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<Vec<String>>>;
+    fn exists<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<bool>>;
+    fn is_directory<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<bool>>;
+    fn readdir<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Vec<JsString>>>;
 }
 
 /// Local filesystem operations.
@@ -58,25 +60,26 @@ pub trait LsOperations: Send + Sync {
 pub struct LocalLsOperations;
 
 impl LsOperations for LocalLsOperations {
-    fn exists<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+    fn exists<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<bool>> {
         Box::pin(async move { Ok(path_exists(absolute_path).await) })
     }
 
-    fn is_directory<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+    fn is_directory<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<bool>> {
         Box::pin(async move {
-            tokio::fs::metadata(absolute_path)
+            let absolute_path = encode_node_utf8(absolute_path);
+            tokio::fs::metadata(&absolute_path)
                 .await
                 .map(|metadata| metadata.is_dir())
-                .map_err(|error| io::Error::other(super::node_fs::node_fs_error(&error, "stat", absolute_path)))
+                .map_err(|error| io::Error::other(super::node_fs::node_fs_error(&error, "stat", &absolute_path)))
         })
     }
 
-    fn readdir<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<Vec<String>>> {
+    fn readdir<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Vec<JsString>>> {
         Box::pin(async move {
-            let mut entries = tokio::fs::read_dir(absolute_path).await?;
+            let mut entries = tokio::fs::read_dir(encode_node_utf8(absolute_path)).await?;
             let mut names = Vec::new();
             while let Some(entry) = entries.next_entry().await? {
-                names.push(entry.file_name().to_string_lossy().into_owned());
+                names.push(entry.file_name().to_string_lossy().into_owned().into());
             }
             Ok(names)
         })
@@ -92,18 +95,18 @@ pub struct LsToolOptions {
 
 /// Lists directory entries.
 pub struct LsTool {
-    cwd: String,
+    cwd: JsString,
     parameters: SchemaValue,
     operations: Arc<dyn LsOperations>,
     can_use_rtk: bool,
 }
 
 impl LsTool {
-    pub fn new(cwd: impl Into<String>) -> Self {
+    pub fn new(cwd: impl Into<JsString>) -> Self {
         Self::with_options(cwd, LsToolOptions::default())
     }
 
-    pub fn with_options(cwd: impl Into<String>, options: LsToolOptions) -> Self {
+    pub fn with_options(cwd: impl Into<JsString>, options: LsToolOptions) -> Self {
         let can_use_rtk = options.operations.is_none();
         Self {
             cwd: cwd.into(),
@@ -174,48 +177,49 @@ impl AgentTool for LsTool {
 static DESCRIPTION: std::sync::LazyLock<String> = std::sync::LazyLock::new(description);
 
 async fn execute_ls(
-    cwd: &str,
+    cwd: &JsString,
     operations: Arc<dyn LsOperations>,
     can_use_rtk: bool,
     params: JsValue,
     signal: Option<CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
     check_aborted(signal.as_ref())?;
-    let path = params.get("path").and_then(Value::as_string).map(encode_node_utf8);
+    let path = params.get("path").and_then(Value::as_string);
     let limit = params.get("limit").and_then(Value::as_u64).map(|value| value as usize);
-    if can_use_rtk && let Some(result) = execute_rtk_ls(cwd, path.as_deref(), limit, signal.as_ref()).await? {
+    if can_use_rtk && let Some(result) = execute_rtk_ls(cwd, path, limit, signal.as_ref()).await? {
         return Ok(result);
     }
-    list_with_operations(operations.as_ref(), cwd, path.as_deref(), limit, signal.as_ref()).await
+    list_with_operations(operations.as_ref(), cwd, path, limit, signal.as_ref()).await
 }
 
 async fn list_with_operations(
     operations: &dyn LsOperations,
-    cwd: &str,
-    path: Option<&str>,
+    cwd: &JsString,
+    path: Option<&JsString>,
     limit: Option<usize>,
     signal: Option<&CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
-    let dir_path = resolve_to_cwd(path.unwrap_or("."), cwd).map_err(|error| ToolError::new(error.to_string()))?;
+    let dir_path = resolve_to_cwd(path.cloned().unwrap_or_else(|| ".".into()), cwd)
+        .map_err(|error| ToolError::new(error.message().clone()))?;
     let effective_limit = limit.unwrap_or(DEFAULT_LIMIT);
     if !operations
         .exists(&dir_path)
         .await
         .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?
     {
-        return Err(ToolError::new(format!("Path not found: {dir_path}")));
+        return Err(ToolError::new(js_format!("Path not found: {}", dir_path)));
     }
     let is_directory = operations
         .is_directory(&dir_path)
         .await
         .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
     if !is_directory {
-        return Err(ToolError::new(format!("Not a directory: {dir_path}")));
+        return Err(ToolError::new(js_format!("Not a directory: {}", dir_path)));
     }
     let mut entries = operations.readdir(&dir_path).await.map_err(|error| {
         ToolError::new(JsString::from("Cannot read directory: ") + super::node_fs::operation_error_message(&error))
     })?;
-    entries.sort_by(|left, right| locale_compare(&left.to_lowercase(), &right.to_lowercase()));
+    entries.sort_by(|left, right| locale_compare_utf16(left.to_lowercase().units(), right.to_lowercase().units()));
     check_aborted(signal)?;
 
     let mut results = Vec::new();
@@ -225,12 +229,11 @@ async fn list_with_operations(
             entry_limit_reached = true;
             break;
         }
-        let full_path = std::path::Path::new(&dir_path).join(entry);
-        let full_path = full_path.to_string_lossy().into_owned();
+        let full_path = node_join(&dir_path, entry);
         match operations.is_directory(&full_path).await {
             Ok(is_directory) => {
                 results.push(if is_directory {
-                    format!("{entry}/")
+                    js_format!("{}/", entry)
                 } else {
                     entry.clone()
                 });
@@ -242,7 +245,7 @@ async fn list_with_operations(
     if results.is_empty() {
         return Ok(text_result("(empty directory)".to_owned(), None));
     }
-    let raw_output = results.join("\n");
+    let raw_output = JsString::join(&results, "\n");
     let truncation = truncate_head(
         &raw_output,
         TruncationOptions {
@@ -286,12 +289,12 @@ fn text_result(text: impl Into<JsString>, details: Option<Value>) -> AgentToolRe
 }
 
 async fn execute_rtk_ls(
-    cwd: &str,
-    path: Option<&str>,
+    cwd: &JsString,
+    path: Option<&JsString>,
     limit: Option<usize>,
     signal: Option<&CancellationToken>,
 ) -> Result<Option<AgentToolResult>, ToolError> {
-    match run_rtk_ls(cwd, path.unwrap_or("."), signal).await {
+    match run_rtk_ls(cwd, &path.cloned().unwrap_or_else(|| ".".into()), signal).await {
         Ok(stdout) => Ok(Some(format_rtk_ls_output(&stdout, limit))),
         Err(RtkError::MissingExecutable) => Ok(None),
         Err(RtkError::Failed {
@@ -323,12 +326,14 @@ fn format_rtk_ls_error(message: &str, stdout: &str, stderr: &str) -> String {
     }
 }
 
-async fn run_rtk_ls(cwd: &str, path: &str, signal: Option<&CancellationToken>) -> Result<String, RtkError> {
+async fn run_rtk_ls(cwd: &JsString, path: &JsString, signal: Option<&CancellationToken>) -> Result<String, RtkError> {
+    let cwd = encode_node_utf8(cwd);
+    let path = encode_node_utf8(path);
     let mut command = tokio::process::Command::new("rtk");
     command
         .arg("ls")
-        .arg(path)
-        .current_dir(cwd)
+        .arg(&path)
+        .current_dir(&cwd)
         .env_clear()
         .envs(pi_js_compat::process_env::vars())
         .stdin(std::process::Stdio::null())
@@ -416,11 +421,11 @@ fn format_rtk_ls_output(stdout: &str, limit: Option<usize>) -> AgentToolResult {
         .collect::<Vec<_>>();
     let limited_lines = lines.iter().take(effective_limit).copied().collect::<Vec<_>>();
     let entry_limit_reached = lines.len() > effective_limit;
-    let raw_output = if limited_lines.is_empty() {
+    let raw_output = JsString::from(if limited_lines.is_empty() {
         "(empty directory)".to_owned()
     } else {
         limited_lines.join("\n")
-    };
+    });
     let truncation = truncate_head(
         &raw_output,
         TruncationOptions {
@@ -466,9 +471,9 @@ fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
 // Renderers
 // ============================================================================
 
-fn format_ls_call(args: &JsValue, theme: &Theme, cwd: &str) -> String {
-    let path_display = render_tool_path(str_value(args.get("path")).as_deref(), theme, cwd, Some("."));
-    let mut text = format!("{} {path_display}", theme.fg(ThemeColor::ToolTitle, &theme.bold("ls")));
+fn format_ls_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> JsString {
+    let path_display = render_tool_path(str_value(args.get("path")).as_ref(), theme, cwd, Some("."));
+    let mut text = js_format!("{} {}", theme.fg(ThemeColor::ToolTitle, theme.bold("ls")), path_display);
     if let Some(limit) = args.get("limit").and_then(Value::as_f64) {
         text.push_str(&theme.fg(
             ThemeColor::ToolOutput,
@@ -483,24 +488,23 @@ fn format_ls_result(
     options: &ToolRenderResultOptions,
     theme: &Theme,
     show_images: bool,
-) -> String {
-    let output = get_text_output(Some(result), show_images).trim().to_owned();
-    let mut text = String::new();
+) -> JsString {
+    let output = get_text_output(Some(result), show_images).trim();
+    let mut text = JsString::default();
     if !output.is_empty() {
         let lines = output.split('\n').collect::<Vec<_>>();
         let max_lines = if options.expanded { lines.len() } else { 20 };
         let display_lines = lines.iter().take(max_lines).collect::<Vec<_>>();
         let remaining = lines.len().saturating_sub(max_lines);
-        text.push_str(&format!(
+        text.push_str(js_format!(
             "\n{}",
-            display_lines
-                .iter()
-                .map(|line| theme.fg(ThemeColor::ToolOutput, line))
-                .collect::<Vec<_>>()
-                .join("\n")
+            JsString::join(
+                display_lines.iter().map(|line| theme.fg(ThemeColor::ToolOutput, *line)),
+                "\n"
+            )
         ));
         if remaining > 0 {
-            text.push_str(&format!(
+            text.push_str(js_format!(
                 "{}{}{}",
                 theme.fg(ThemeColor::Muted, &format!("\n... ({remaining} more lines,")),
                 key_hint("app.tools.expand", "to expand"),
@@ -526,9 +530,9 @@ fn format_ls_result(
         if let Some(truncation) = truncation.filter(|truncation| truncation.truncated) {
             warnings.push(format!("{} limit", format_size(truncation.max_bytes)));
         }
-        text.push_str(&format!(
+        text.push_str(js_format!(
             "\n{}",
-            theme.fg(ThemeColor::Warning, &format!("[Truncated: {}]", warnings.join(", ")))
+            theme.fg(ThemeColor::Warning, format!("[Truncated: {}]", warnings.join(", ")))
         ));
     }
     text
@@ -554,7 +558,7 @@ pub fn render_result(
 }
 
 /// `createLsToolDefinition`: the ls tool plus its renderers.
-pub fn create_ls_tool_definition(cwd: &str, options: LsToolOptions) -> ToolDefinition {
+pub fn create_ls_tool_definition(cwd: impl Into<JsString>, options: LsToolOptions) -> ToolDefinition {
     let tool: Arc<dyn AgentTool> = Arc::new(LsTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
     definition.prompt_snippet = Some(LS_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.to_owned());
@@ -565,6 +569,6 @@ pub fn create_ls_tool_definition(cwd: &str, options: LsToolOptions) -> ToolDefin
 }
 
 /// `createLsTool`: the ls tool wrapped with the shared result cap.
-pub fn create_ls_tool(cwd: &str, options: LsToolOptions) -> Arc<dyn AgentTool> {
+pub fn create_ls_tool(cwd: impl Into<JsString>, options: LsToolOptions) -> Arc<dyn AgentTool> {
     wrap_agent_tool(Arc::new(LsTool::with_options(cwd, options)))
 }

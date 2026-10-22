@@ -3,6 +3,8 @@
 //! Runs the real `fd` binary with the source argv, relativizes results, and
 //! applies the source limits. Renderers are pending `theme.ts`.
 
+use crate::utils::paths::{node_dirname, node_is_absolute, node_join};
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue;
 use std::cell::RefCell;
 use std::io;
@@ -46,7 +48,7 @@ pub const FIND_TOOL_SYSTEM_PROMPT_CONTRIBUTION: super::ToolSystemPromptContribut
 
 /// Filesystem access used by [`FindTool`]. Override to delegate searches to a remote system.
 pub trait FindOperations: Send + Sync {
-    fn exists<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<bool>>;
+    fn exists<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<bool>>;
 
     /// Whether [`FindOperations::glob`] is implemented.
     fn supports_glob(&self) -> bool {
@@ -57,10 +59,10 @@ pub trait FindOperations: Send + Sync {
     fn glob<'a>(
         &'a self,
         pattern: &'a JsString,
-        cwd: &'a str,
-        ignore: &'a [String],
+        cwd: &'a JsString,
+        ignore: &'a [JsString],
         limit: usize,
-    ) -> BoxFuture<'a, io::Result<Vec<String>>> {
+    ) -> BoxFuture<'a, io::Result<Vec<JsString>>> {
         let _ = (pattern, cwd, ignore, limit);
         Box::pin(async { Ok(Vec::new()) })
     }
@@ -71,7 +73,7 @@ pub trait FindOperations: Send + Sync {
 pub struct LocalFindOperations;
 
 impl FindOperations for LocalFindOperations {
-    fn exists<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+    fn exists<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<bool>> {
         Box::pin(async move { Ok(path_exists(absolute_path).await) })
     }
 }
@@ -85,17 +87,17 @@ pub struct FindToolOptions {
 
 /// Finds files by glob pattern.
 pub struct FindTool {
-    cwd: String,
+    cwd: JsString,
     parameters: SchemaValue,
     operations: Option<Arc<dyn FindOperations>>,
 }
 
 impl FindTool {
-    pub fn new(cwd: impl Into<String>) -> Self {
+    pub fn new(cwd: impl Into<JsString>) -> Self {
         Self::with_options(cwd, FindToolOptions::default())
     }
 
-    pub fn with_options(cwd: impl Into<String>, options: FindToolOptions) -> Self {
+    pub fn with_options(cwd: impl Into<JsString>, options: FindToolOptions) -> Self {
         Self {
             cwd: cwd.into(),
             parameters: find_schema(),
@@ -164,7 +166,7 @@ impl AgentTool for FindTool {
 
 struct FindInput {
     pattern: JsString,
-    search_dir: Option<String>,
+    search_dir: Option<JsString>,
     limit: Option<usize>,
 }
 
@@ -176,7 +178,7 @@ fn parse_find_input(params: &JsValue) -> Result<FindInput, ToolError> {
         .clone();
     Ok(FindInput {
         pattern,
-        search_dir: params.get("path").and_then(Value::as_string).map(encode_node_utf8),
+        search_dir: params.get("path").and_then(Value::as_string).cloned(),
         limit: params
             .get("limit")
             .and_then(Value::as_f64)
@@ -185,15 +187,15 @@ fn parse_find_input(params: &JsValue) -> Result<FindInput, ToolError> {
 }
 
 async fn execute_find(
-    cwd: &str,
+    cwd: &JsString,
     operations: Option<Arc<dyn FindOperations>>,
     params: JsValue,
     signal: Option<CancellationToken>,
 ) -> Result<AgentToolResult, ToolError> {
     let input = parse_find_input(&params)?;
     check_aborted(signal.as_ref())?;
-    let search_path = resolve_to_cwd(input.search_dir.as_deref().unwrap_or("."), cwd)
-        .map_err(|error| ToolError::new(error.to_string()))?;
+    let search_path = resolve_to_cwd(input.search_dir.clone().unwrap_or_else(|| ".".into()), cwd)
+        .map_err(|error| ToolError::new(error.message().clone()))?;
     let effective_limit = input.limit.unwrap_or(DEFAULT_LIMIT);
 
     if let Some(custom) = operations.as_deref().filter(|operations| operations.supports_glob()) {
@@ -202,14 +204,14 @@ async fn execute_find(
             .await
             .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?
         {
-            return Err(ToolError::new(format!("Path not found: {search_path}")));
+            return Err(ToolError::new(js_format!("Path not found: {}", search_path)));
         }
         check_aborted(signal.as_ref())?;
         let results = custom
             .glob(
                 &input.pattern,
                 &search_path,
-                &["**/node_modules/**".to_owned(), "**/.git/**".to_owned()],
+                &["**/node_modules/**".into(), "**/.git/**".into()],
                 effective_limit,
             )
             .await
@@ -254,7 +256,7 @@ async fn execute_find(
     }
     args.push("--".to_owned());
     args.push(encode_node_utf8(&effective_pattern));
-    args.push(search_path.clone());
+    args.push(encode_node_utf8(&search_path));
 
     let output = run_fd(&fd_path, &args, signal.as_ref()).await?;
     if output.aborted {
@@ -273,7 +275,7 @@ async fn execute_find(
         .iter()
         .map(|line| line.trim_end_matches('\r').trim())
         .filter(|line| !line.is_empty())
-        .map(|line| relativize_find_result_path(line, &search_path))
+        .map(|line| relativize_find_result_path(&JsString::from(line), &search_path))
         .collect::<Vec<_>>();
     let result_limit_reached = relativized.len() >= effective_limit;
     let (result_output, details) = relativize_output(relativized, effective_limit, result_limit_reached, true);
@@ -281,28 +283,28 @@ async fn execute_find(
 }
 
 /// Relativizes a find result against the search root and normalizes separators.
-pub fn relativize_find_result_path(result_path: &str, search_path: &str) -> String {
+pub fn relativize_find_result_path(result_path: &JsString, search_path: &JsString) -> JsString {
     let had_trailing_separator = result_path.ends_with('/') || (cfg!(windows) && result_path.ends_with('\\'));
-    let relative = if std::path::Path::new(result_path).is_absolute() {
-        crate::utils::paths::relative_path(search_path, result_path)
+    let relative = if node_is_absolute(result_path) {
+        crate::utils::paths::relative_path(search_path, result_path).expect("absolute find search root must resolve")
     } else {
         result_path.to_owned()
     };
-    let posix_path = relative.replace('\\', "/");
+    let posix_path = relative.replace("\\", "/");
     if had_trailing_separator && !posix_path.ends_with('/') {
-        format!("{posix_path}/")
+        js_format!("{}/", posix_path)
     } else {
         posix_path
     }
 }
 
 fn relativize_output(
-    relativized: Vec<String>,
+    relativized: Vec<JsString>,
     effective_limit: usize,
     result_limit_reached: bool,
     include_refine_hint: bool,
 ) -> (JsString, Option<Value>) {
-    let raw_output = relativized.join("\n");
+    let raw_output = JsString::join(&relativized, "\n");
     let truncation = truncate_head(
         &raw_output,
         TruncationOptions {
@@ -337,19 +339,17 @@ fn relativize_output(
     (output, (!details.is_empty()).then_some(Value::Object(details)))
 }
 
-async fn inside_git_repo(search_path: &str) -> bool {
-    let mut current = std::path::PathBuf::from(search_path);
+async fn inside_git_repo(search_path: &JsString) -> bool {
+    let mut current = search_path.clone();
     loop {
-        if path_exists(&current.join(".git").to_string_lossy()).await {
+        if path_exists(&node_join(&current, ".git")).await {
             return true;
         }
-        let Some(parent) = current.parent() else {
-            return false;
-        };
+        let parent = node_dirname(&current);
         if parent == current {
             return false;
         }
-        current = parent.to_path_buf();
+        current = parent;
     }
 }
 
@@ -449,26 +449,29 @@ fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
 // Renderers
 // ============================================================================
 
-fn format_find_call(args: &JsValue, theme: &Theme) -> String {
+fn format_find_call(args: &JsValue, theme: &Theme) -> JsString {
     let pattern = str_value(args.get("pattern"));
     let raw_path = str_value(args.get("path"));
     let path = raw_path.map(|path| {
         if path.is_empty() {
-            shorten_path(".")
+            shorten_path(&JsString::from("."))
         } else {
             shorten_path(&path)
         }
     });
     let limit = args.get("limit").and_then(Value::as_f64);
     let invalid_arg = invalid_arg_text(theme);
-    let mut text = format!(
+    let mut text = js_format!(
         "{} {}{}",
         theme.fg(ThemeColor::ToolTitle, &theme.bold("find")),
         match pattern {
             None => invalid_arg.clone(),
             Some(pattern) => theme.fg(ThemeColor::Accent, &pattern),
         },
-        theme.fg(ThemeColor::ToolOutput, &format!(" in {}", path.unwrap_or(invalid_arg)))
+        theme.fg(
+            ThemeColor::ToolOutput,
+            js_format!(" in {}", path.unwrap_or(invalid_arg))
+        )
     );
     if let Some(limit) = limit {
         text.push_str(&theme.fg(
@@ -484,24 +487,23 @@ fn format_find_result(
     options: &ToolRenderResultOptions,
     theme: &Theme,
     show_images: bool,
-) -> String {
+) -> JsString {
     let output = get_text_output(Some(result), show_images).trim().to_owned();
-    let mut text = String::new();
+    let mut text = JsString::default();
     if !output.is_empty() {
         let lines = output.split('\n').collect::<Vec<_>>();
         let max_lines = if options.expanded { lines.len() } else { 20 };
         let display_lines = lines.iter().take(max_lines).collect::<Vec<_>>();
         let remaining = lines.len().saturating_sub(max_lines);
-        text.push_str(&format!(
+        text.push_str(js_format!(
             "\n{}",
-            display_lines
-                .iter()
-                .map(|line| theme.fg(ThemeColor::ToolOutput, line))
-                .collect::<Vec<_>>()
-                .join("\n")
+            JsString::join(
+                display_lines.iter().map(|line| theme.fg(ThemeColor::ToolOutput, *line)),
+                "\n"
+            )
         ));
         if remaining > 0 {
-            text.push_str(&format!(
+            text.push_str(js_format!(
                 "{}{}{}",
                 theme.fg(ThemeColor::Muted, &format!("\n... ({remaining} more lines,")),
                 key_hint("app.tools.expand", "to expand"),
@@ -524,7 +526,7 @@ fn format_find_result(
         if let Some(truncation) = truncation.filter(|value| value.truncated) {
             warnings.push(format!("{} limit", format_size(truncation.max_bytes)));
         }
-        text.push_str(&format!(
+        text.push_str(js_format!(
             "\n{}",
             theme.fg(ThemeColor::Warning, &format!("[Truncated: {}]", warnings.join(", ")))
         ));
@@ -552,7 +554,7 @@ pub fn render_result(
 }
 
 /// `createFindToolDefinition`: the find tool plus its renderers.
-pub fn create_find_tool_definition(cwd: &str, options: FindToolOptions) -> ToolDefinition {
+pub fn create_find_tool_definition(cwd: impl Into<JsString>, options: FindToolOptions) -> ToolDefinition {
     let tool: Arc<dyn AgentTool> = Arc::new(FindTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
     definition.prompt_snippet = Some(FIND_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.to_owned());
@@ -563,6 +565,6 @@ pub fn create_find_tool_definition(cwd: &str, options: FindToolOptions) -> ToolD
 }
 
 /// `createFindTool`: the find tool wrapped with the shared result cap.
-pub fn create_find_tool(cwd: &str, options: FindToolOptions) -> Arc<dyn AgentTool> {
+pub fn create_find_tool(cwd: impl Into<JsString>, options: FindToolOptions) -> Arc<dyn AgentTool> {
     wrap_agent_tool(Arc::new(FindTool::with_options(cwd, options)))
 }

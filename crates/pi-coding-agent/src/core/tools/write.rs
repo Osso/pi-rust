@@ -1,12 +1,10 @@
 //! Ported from `packages/coding-agent/src/core/tools/write.ts`.
-//!
-//! Queued whole-file writes with parent-directory creation. Renderers are
-//! pending `theme.ts`.
+//! Queued whole-file writes with native UTF-16 paths and content.
 
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use std::cell::RefCell;
 use std::io;
-use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -22,13 +20,13 @@ use super::file_mutation_queue::with_file_mutation_queue;
 use super::node_fs::node_fs_error;
 use super::path_utils::resolve_to_cwd;
 use super::render_utils::{normalize_display_text, render_tool_path, replace_tabs, str_value};
-use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
-use super::tool_definition_wrapper::wrap_agent_tool;
+use super::tool_definition_wrapper::{create_tool_definition_from_agent_tool, wrap_agent_tool};
 use crate::core::extensions::types::{
     ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_call, infallible_render_result,
 };
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor, get_language_from_path, highlight_code};
+use crate::utils::paths::node_dirname;
 
 const DESCRIPTION: &str = "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.";
 
@@ -39,54 +37,52 @@ pub const WRITE_TOOL_SYSTEM_PROMPT_CONTRIBUTION: super::ToolSystemPromptContribu
         guidelines: &["Use write only for new files or complete rewrites."],
     };
 
-/// File writes used by [`WriteTool`]. Override to delegate writes to a remote system.
+/// File writes used by [`WriteTool`]. Custom operations receive original JS units.
 pub trait WriteOperations: Send + Sync {
-    fn write_file<'a>(&'a self, absolute_path: &'a str, content: &'a str) -> BoxFuture<'a, io::Result<()>>;
-    fn mkdir<'a>(&'a self, directory: &'a str) -> BoxFuture<'a, io::Result<()>>;
+    fn write_file<'a>(&'a self, absolute_path: &'a JsString, content: &'a JsString) -> BoxFuture<'a, io::Result<()>>;
+    fn mkdir<'a>(&'a self, directory: &'a JsString) -> BoxFuture<'a, io::Result<()>>;
 }
 
-/// Local filesystem operations.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct LocalWriteOperations;
 
 impl WriteOperations for LocalWriteOperations {
-    fn write_file<'a>(&'a self, absolute_path: &'a str, content: &'a str) -> BoxFuture<'a, io::Result<()>> {
+    fn write_file<'a>(&'a self, absolute_path: &'a JsString, content: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async move {
-            tokio::fs::write(absolute_path, content)
+            let path = encode_node_utf8(absolute_path);
+            tokio::fs::write(&path, encode_node_utf8(content))
                 .await
-                .map_err(|error| io::Error::other(node_fs_error(&error, "open", absolute_path)))
+                .map_err(|error| io::Error::other(node_fs_error(&error, "open", &path)))
         })
     }
 
-    fn mkdir<'a>(&'a self, directory: &'a str) -> BoxFuture<'a, io::Result<()>> {
+    fn mkdir<'a>(&'a self, directory: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async move {
-            tokio::fs::create_dir_all(directory)
+            let directory = encode_node_utf8(directory);
+            tokio::fs::create_dir_all(&directory)
                 .await
-                .map_err(|error| io::Error::other(node_fs_error(&error, "mkdir", directory)))
+                .map_err(|error| io::Error::other(node_fs_error(&error, "mkdir", &directory)))
         })
     }
 }
 
-/// Options for [`WriteTool`].
 #[derive(Clone, Default)]
 pub struct WriteToolOptions {
-    /// Custom file writes. Default: local filesystem.
     pub operations: Option<Arc<dyn WriteOperations>>,
 }
 
-/// Writes whole files.
 pub struct WriteTool {
-    cwd: String,
+    cwd: JsString,
     parameters: Value,
     operations: Arc<dyn WriteOperations>,
 }
 
 impl WriteTool {
-    pub fn new(cwd: impl Into<String>) -> Self {
+    pub fn new(cwd: impl Into<JsString>) -> Self {
         Self::with_options(cwd, WriteToolOptions::default())
     }
 
-    pub fn with_options(cwd: impl Into<String>, options: WriteToolOptions) -> Self {
+    pub fn with_options(cwd: impl Into<JsString>, options: WriteToolOptions) -> Self {
         Self {
             cwd: cwd.into(),
             parameters: write_schema(),
@@ -97,8 +93,7 @@ impl WriteTool {
 
 fn write_schema() -> Value {
     json!({
-        "type": "object",
-        "required": ["path", "content"],
+        "type": "object", "required": ["path", "content"],
         "properties": {
             "path": {"type": "string", "description": "Path to the file to write (relative or absolute)"},
             "content": {"type": "string", "description": "Content to write to the file"}
@@ -110,23 +105,18 @@ impl AgentTool for WriteTool {
     fn name(&self) -> &str {
         "write"
     }
-
     fn description(&self) -> &str {
         DESCRIPTION
     }
-
     fn parameters(&self) -> &Value {
         &self.parameters
     }
-
     fn label(&self) -> &str {
         "write"
     }
-
     fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {
         crate::core::experimental::get_experimental_tool_constrained_sampling()
     }
-
     fn execute(
         &self,
         _tool_call_id: String,
@@ -142,7 +132,7 @@ impl AgentTool for WriteTool {
 }
 
 async fn execute_write(
-    cwd: &str,
+    cwd: &JsString,
     operations: Arc<dyn WriteOperations>,
     params: JsValue,
     signal: Option<CancellationToken>,
@@ -150,20 +140,13 @@ async fn execute_write(
     let path = params
         .get("path")
         .and_then(JsValue::as_string)
-        .ok_or_else(|| ToolError::new("write tool requires a string path"))?
-        .to_owned();
+        .ok_or_else(|| ToolError::new("write tool requires a string path"))?;
     let content = params
         .get("content")
         .and_then(JsValue::as_string)
-        .ok_or_else(|| ToolError::new("write tool requires a string content"))?
-        .to_owned();
-    let absolute_path =
-        resolve_to_cwd(&encode_node_utf8(&path), cwd).map_err(|error| ToolError::new(error.to_string()))?;
-    let directory = Path::new(&absolute_path)
-        .parent()
-        .map(|parent| parent.to_string_lossy().into_owned())
-        .unwrap_or_else(|| ".".to_owned());
-
+        .ok_or_else(|| ToolError::new("write tool requires a string content"))?;
+    let absolute_path = resolve_to_cwd(path, cwd).map_err(|error| ToolError::new(error.message().clone()))?;
+    let directory = node_dirname(&absolute_path);
     with_file_mutation_queue(&absolute_path, || async {
         check_aborted(signal.as_ref())?;
         operations
@@ -172,14 +155,16 @@ async fn execute_write(
             .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
         check_aborted(signal.as_ref())?;
         operations
-            .write_file(&absolute_path, &encode_node_utf8(&content))
+            .write_file(&absolute_path, content)
             .await
             .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
         check_aborted(signal.as_ref())?;
         Ok(AgentToolResult {
-            content: vec![TextOrImageContent::Text(TextContent::new(
-                JsString::from(format!("Successfully wrote {} bytes to ", content.len())) + path.clone(),
-            ))],
+            content: vec![TextOrImageContent::Text(TextContent::new(js_format!(
+                "Successfully wrote {} bytes to {}",
+                content.len().to_string(),
+                path
+            )))],
             details: None,
             is_error: None,
             terminate: None,
@@ -196,36 +181,28 @@ fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
     Ok(())
 }
 
-// ============================================================================
-// Renderers
-// ============================================================================
-
-fn render_args_path(args: &JsValue) -> Option<String> {
+fn render_args_path(args: &JsValue) -> Option<JsString> {
     let value = args.get("file_path").filter(|value| !value.is_null());
     str_value(value.or_else(|| args.get("path")))
 }
 
-fn render_content(args: &JsValue) -> Option<String> {
-    str_value(args.get("content"))
-}
-
-fn trim_trailing_empty_lines(mut lines: Vec<String>) -> Vec<String> {
-    while lines.last().is_some_and(String::is_empty) {
+fn trim_trailing_empty_lines(mut lines: Vec<JsString>) -> Vec<JsString> {
+    while lines.last().is_some_and(JsString::is_empty) {
         lines.pop();
     }
     lines
 }
 
-fn format_write_call(args: &JsValue, options: &ToolRenderResultOptions, theme: &Theme, cwd: &str) -> String {
+fn format_write_call(args: &JsValue, options: &ToolRenderResultOptions, theme: &Theme, cwd: &JsString) -> JsString {
     let raw_path = render_args_path(args);
-    let file_content = render_content(args);
-    let path_display = render_tool_path(raw_path.as_deref(), theme, cwd, None);
-    let mut text = format!(
-        "{} {path_display}",
-        theme.fg(ThemeColor::ToolTitle, &theme.bold("write"))
+    let path_display = render_tool_path(raw_path.as_ref(), theme, cwd, None);
+    let mut text = js_format!(
+        "{} {}",
+        theme.fg(ThemeColor::ToolTitle, theme.bold("write")),
+        path_display
     );
-    let Some(file_content) = file_content else {
-        text.push_str(&format!(
+    let Some(file_content) = str_value(args.get("content")) else {
+        text.push_str(js_format!(
             "\n\n{}",
             theme.fg(ThemeColor::Error, "[invalid content arg - expected string]")
         ));
@@ -234,64 +211,62 @@ fn format_write_call(args: &JsValue, options: &ToolRenderResultOptions, theme: &
     if file_content.is_empty() {
         return text;
     }
-    let lang = raw_path.as_deref().and_then(get_language_from_path);
-    let rendered_lines = match lang {
-        Some(lang) => highlight_code(&replace_tabs(&normalize_display_text(&file_content)), Some(lang)),
-        None => normalize_display_text(&file_content)
-            .split('\n')
-            .map(str::to_owned)
-            .collect(),
+    let lang = raw_path.as_ref().and_then(get_language_from_path).map(JsString::from);
+    let normalized = normalize_display_text(&file_content);
+    let rendered_lines = match lang.as_ref() {
+        Some(lang) => highlight_code(&replace_tabs(&normalized), Some(lang)),
+        None => normalized.split('\n').collect(),
     };
     let lines = trim_trailing_empty_lines(rendered_lines);
+    append_write_preview(&mut text, &lines, lang.is_some(), options.expanded, theme);
+    text
+}
+
+fn append_write_preview(text: &mut JsString, lines: &[JsString], highlighted: bool, expanded: bool, theme: &Theme) {
     let total_lines = lines.len();
-    let max_lines = if options.expanded { total_lines } else { 10 };
-    let display_lines = lines.iter().take(max_lines).collect::<Vec<_>>();
+    let max_lines = if expanded { total_lines } else { 10 };
+    let display = JsString::join(
+        lines.iter().take(max_lines).map(|line| {
+            if highlighted {
+                line.clone()
+            } else {
+                theme.fg(ThemeColor::ToolOutput, replace_tabs(line))
+            }
+        }),
+        "\n",
+    );
+    text.push_str(js_format!("\n\n{}", display));
     let remaining = total_lines.saturating_sub(max_lines);
-    text.push_str(&format!(
-        "\n\n{}",
-        display_lines
-            .iter()
-            .map(|line| match lang {
-                Some(_) => (*line).clone(),
-                None => theme.fg(ThemeColor::ToolOutput, &replace_tabs(line)),
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    ));
     if remaining > 0 {
-        text.push_str(&format!(
+        text.push_str(js_format!(
             "{}{}{}",
             theme.fg(
                 ThemeColor::Muted,
-                &format!("\n... ({remaining} more lines, {total_lines} total,")
+                format!("\n... ({remaining} more lines, {total_lines} total,")
             ),
             key_hint("app.tools.expand", "to expand"),
             theme.fg(ThemeColor::Muted, ")")
         ));
     }
-    text
 }
 
-fn format_write_result(result: &AgentToolResult, theme: &Theme, is_error: bool) -> Option<String> {
+fn format_write_result(result: &AgentToolResult, theme: &Theme, is_error: bool) -> Option<JsString> {
     if !is_error {
         return None;
     }
-    let output = result
-        .content
-        .iter()
-        .filter_map(|entry| match entry {
-            TextOrImageContent::Text(text) => Some(encode_node_utf8(&text.text)),
+    let output = JsString::join(
+        result.content.iter().filter_map(|entry| match entry {
+            TextOrImageContent::Text(text) => Some(&text.text),
             TextOrImageContent::Image(_) => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+        }),
+        "\n",
+    );
     if output.is_empty() {
         return None;
     }
-    Some(format!("\n{}", theme.fg(ThemeColor::Error, &output)))
+    Some(js_format!("\n{}", theme.fg(ThemeColor::Error, output)))
 }
 
-/// `renderCall` for the write tool.
 pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
     let options = ToolRenderResultOptions {
         expanded: context.expanded,
@@ -304,7 +279,6 @@ pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -
     )))
 }
 
-/// `renderResult` for the write tool.
 pub fn render_result(
     result: &AgentToolResult,
     _options: &ToolRenderResultOptions,
@@ -317,8 +291,7 @@ pub fn render_result(
     }
 }
 
-/// `createWriteToolDefinition`: the write tool plus its renderers.
-pub fn create_write_tool_definition(cwd: &str, options: WriteToolOptions) -> ToolDefinition {
+pub fn create_write_tool_definition(cwd: impl Into<JsString>, options: WriteToolOptions) -> ToolDefinition {
     let tool: Arc<dyn AgentTool> = Arc::new(WriteTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
     definition.prompt_snippet = Some(WRITE_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.to_owned());
@@ -334,7 +307,6 @@ pub fn create_write_tool_definition(cwd: &str, options: WriteToolOptions) -> Too
     definition
 }
 
-/// `createWriteTool`: the write tool wrapped with the shared result cap.
-pub fn create_write_tool(cwd: &str, options: WriteToolOptions) -> Arc<dyn AgentTool> {
+pub fn create_write_tool(cwd: impl Into<JsString>, options: WriteToolOptions) -> Arc<dyn AgentTool> {
     wrap_agent_tool(Arc::new(WriteTool::with_options(cwd, options)))
 }

@@ -4,7 +4,8 @@
 
 use pi_agent_core::agent::AgentToolResult;
 use pi_ai::types::TextOrImageContent;
-use pi_js_compat::js_json::{JsValue, encode_node_utf8};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use pi_tui::{get_capabilities, get_image_dimensions, hyperlink, image_fallback};
 
 use crate::modes::interactive::theme::{Theme, ThemeColor};
@@ -13,52 +14,46 @@ use crate::utils::paths::{PathInputOptions, resolve_path};
 use crate::utils::shell::sanitize_binary_output;
 
 /// `shortenPath`: replace the home-directory prefix with `~`.
-pub fn shorten_path(path: &str) -> String {
+pub fn shorten_path(path: &JsString) -> JsString {
     let home = home_directory();
     if path.starts_with(&home) {
-        return format!("~{}", &path[home.len()..]);
+        return JsString::from("~") + path.slice(home.len(), path.len());
     }
     path.to_owned()
 }
 
 /// `str`: strings pass through, `null`/`undefined` become `""`, other types become `null`.
-pub fn str_value(value: Option<&JsValue>) -> Option<String> {
+pub fn str_value(value: Option<&JsValue>) -> Option<JsString> {
     match value {
-        Some(JsValue::String(text)) => Some(encode_node_utf8(text)),
-        None | Some(JsValue::Null) => Some(String::new()),
+        Some(JsValue::String(text)) => Some(text.clone()),
+        None | Some(JsValue::Null) => Some(JsString::default()),
         Some(_) => None,
     }
 }
 
 /// `replaceTabs`: replace every tab with three spaces.
-pub fn replace_tabs(text: &str) -> String {
-    text.replace('\t', "   ")
+pub fn replace_tabs(text: &JsString) -> JsString {
+    text.replace("\t", "   ")
 }
 
 /// `normalizeDisplayText`: drop every carriage return.
-pub fn normalize_display_text(text: &str) -> String {
-    text.replace('\r', "")
+pub fn normalize_display_text(text: &JsString) -> JsString {
+    text.replace("\r", "")
 }
 
 /// `linkPath`: wrap styled text in an OSC 8 link when the terminal supports hyperlinks.
-pub fn link_path(styled_text: &str, raw_path: &str, cwd: &str) -> String {
+pub fn link_path(styled_text: &JsString, raw_path: &JsString, cwd: &JsString) -> JsString {
     if !get_capabilities().hyperlinks {
         return styled_text.to_owned();
     }
     let absolute_path =
-        resolve_path(raw_path, cwd, &PathInputOptions::default()).unwrap_or_else(|_| raw_path.to_owned());
+        resolve_path(raw_path, cwd, &PathInputOptions::default()).expect("tool render cwd must resolve");
     hyperlink(styled_text, &path_to_file_url(&absolute_path))
 }
 
 /// Node `pathToFileURL` file URL for an absolute path (or `cwd`-joined relative path).
-fn path_to_file_url(filename: &str) -> String {
-    let path = if std::path::Path::new(filename).is_absolute() {
-        filename.to_string()
-    } else {
-        std::env::current_dir()
-            .map(|directory| directory.join(filename).to_string_lossy().into_owned())
-            .unwrap_or_else(|_| filename.to_string())
-    };
+fn path_to_file_url(filename: &JsString) -> JsString {
+    let path = encode_node_utf8(&crate::utils::paths::node_resolve("", filename).expect("file URL path must resolve"));
 
     let mut encoded = String::from("file://");
     for byte in path.bytes() {
@@ -89,13 +84,13 @@ fn path_to_file_url(filename: &str) -> String {
             encoded.push_str(&format!("%{byte:02X}"));
         }
     }
-    encoded
+    encoded.into()
 }
 
 /// `getTextOutput`: join text blocks and append image fallbacks when images cannot be shown.
-pub fn get_text_output(result: Option<&AgentToolResult>, show_images: bool) -> String {
+pub fn get_text_output(result: Option<&AgentToolResult>, show_images: bool) -> JsString {
     let Some(result) = result else {
-        return String::new();
+        return JsString::default();
     };
     let content = &result.content;
     let text_blocks = content
@@ -113,60 +108,65 @@ pub fn get_text_output(result: Option<&AgentToolResult>, show_images: bool) -> S
         })
         .collect::<Vec<_>>();
 
-    let mut output = text_blocks
-        .iter()
-        .map(|text| normalize_display_text(&sanitize_binary_output(&strip_ansi(&encode_node_utf8(&text.text)))))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let mut output = JsString::join(
+        text_blocks
+            .iter()
+            .map(|text| normalize_display_text(&sanitize_binary_output(&strip_ansi(&text.text)))),
+        "\n",
+    );
 
     let capabilities = get_capabilities();
     if !image_blocks.is_empty() && (capabilities.images.is_none() || !show_images) {
-        let image_indicators = image_blocks
-            .iter()
-            .map(|image| {
+        let image_indicators = JsString::join(
+            image_blocks.iter().map(|image| {
                 let dimensions = get_image_dimensions(&image.data, &image.mime_type);
                 image_fallback(&image.mime_type, dimensions, None)
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
+            }),
+            "\n",
+        );
         output = if output.is_empty() {
             image_indicators
         } else {
-            format!("{output}\n{image_indicators}")
+            js_format!("{}\n{}", output, image_indicators)
         };
     }
 
     output
 }
 
-fn home_directory() -> String {
+fn home_directory() -> JsString {
     #[cfg(windows)]
     {
-        pi_js_compat::process_env::get("USERPROFILE").unwrap_or_default()
+        pi_js_compat::process_env::get("USERPROFILE").unwrap_or_default().into()
     }
     #[cfg(not(windows))]
     {
-        pi_js_compat::process_env::get("HOME").unwrap_or_default()
+        pi_js_compat::process_env::get("HOME").unwrap_or_default().into()
     }
 }
 
 /// `invalidArgText`: the error-styled invalid-argument marker.
-pub fn invalid_arg_text(theme: &Theme) -> String {
+pub fn invalid_arg_text(theme: &Theme) -> JsString {
     theme.fg(ThemeColor::Error, "[invalid arg]")
 }
 
 /// `renderToolPath`: accent-styled shortened path wrapped in a file link.
-pub fn render_tool_path(raw_path: Option<&str>, theme: &Theme, cwd: &str, empty_fallback: Option<&str>) -> String {
+pub fn render_tool_path(
+    raw_path: Option<&JsString>,
+    theme: &Theme,
+    cwd: &JsString,
+    empty_fallback: Option<&str>,
+) -> JsString {
     let Some(raw_path) = raw_path else {
         return invalid_arg_text(theme);
     };
     let value = if raw_path.is_empty() {
-        empty_fallback.unwrap_or("")
+        JsString::from(empty_fallback.unwrap_or(""))
     } else {
-        raw_path
+        raw_path.clone()
     };
     if value.is_empty() {
         return theme.fg(ThemeColor::ToolOutput, "...");
     }
-    link_path(&theme.fg(ThemeColor::Accent, &shorten_path(value)), value, cwd)
+    link_path(&theme.fg(ThemeColor::Accent, &shorten_path(&value)), &value, cwd)
 }
