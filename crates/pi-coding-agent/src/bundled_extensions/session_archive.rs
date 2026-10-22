@@ -183,7 +183,7 @@ pub fn session_archive_extension(pi: &ExtensionApi) -> Result<(), HandlerError> 
         let pending = Arc::clone(&pending);
         pi.register_command(
             command,
-            Some(description.to_owned()),
+            Some(description.into()),
             None,
             Arc::new(move |args, ctx| {
                 let pending = Arc::clone(&pending);

@@ -1217,7 +1217,7 @@ fn register_agent_goal_handlers(
     Ok(())
 }
 
-fn register_goal_command(pi: &ExtensionApi, runtime: &GoalExtensionRuntime) -> Result<(), String> {
+fn register_goal_command(pi: &ExtensionApi, runtime: &GoalExtensionRuntime) -> Result<(), JsString> {
     let pi_for_command = pi.clone();
     let clear = Arc::clone(&runtime.clear_goal_schedules);
     pi.register_command(

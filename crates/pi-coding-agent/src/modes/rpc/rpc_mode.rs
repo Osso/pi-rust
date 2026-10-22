@@ -659,8 +659,8 @@ fn collect_commands(session: &AgentSession) -> Vec<RpcSlashCommand> {
     let mut commands = Vec::new();
     for command in session.extension_runner().get_registered_commands() {
         commands.push(SlashCommandInfo {
-            name: command.invocation_name.into(),
-            description: command.description.map(Into::into),
+            name: command.invocation_name,
+            description: command.description,
             source: SlashCommandSource::Extension,
             source_info: command.source_info,
         });
