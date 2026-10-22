@@ -2,8 +2,8 @@
 mod oracle;
 use pi_agent_core::harness::env::{NodeExecutionEnv, NodeExecutionEnvOptions};
 use pi_agent_core::harness::{CreateDirOptions, FileContent, FileSystem, RemoveOptions, Shell, ShellExecOptions};
+use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsString, JsValue, to_value};
-use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
@@ -22,7 +22,7 @@ fn env(root: &str) -> Arc<NodeExecutionEnv> {
 }
 fn shell_result(
     result: Result<pi_agent_core::harness::ShellExecResult, pi_agent_core::harness::ExecutionError>,
-) -> Value {
+) -> JsValue {
     match result {
         Ok(value) => {
             json!({"ok":true,"value":{"stdout":value.stdout,"stderr":value.stderr,"exitCode":value.exit_code}})
@@ -148,4 +148,41 @@ async fn node_concrete_ignores_extra_abort_arguments() {
     assert_eq!(actual, expected);
     // The native JSON authority must not change the external result shape.
     assert_eq!(to_value(&text).unwrap(), JsValue::String("a".into()));
+}
+
+#[tokio::test]
+async fn post_exit_pipe_wait_keeps_timeout_abort_and_callback_live() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_str().unwrap();
+    let env = env(root);
+    let mut oracle = oracle();
+    for mode in ["timeout", "abort", "callback"] {
+        let expected = oracle.request(&json!({"kind":"post-exit","root":root,"mode":mode}));
+        let abort = CancellationToken::new();
+        let signal = abort.clone();
+        let mode_string = mode.to_owned();
+        let options = ShellExecOptions {
+            timeout: (mode == "timeout").then_some(0.05),
+            abort: (mode == "abort").then_some(abort),
+            on_stdout: Some(Arc::new(move |chunk| {
+                if mode_string == "abort" && chunk.contains("early") {
+                    let signal = signal.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        signal.cancel();
+                    });
+                }
+                if mode_string == "callback" && chunk.contains("late") {
+                    return Err(JsString::from("late") + JsString::from_utf16(vec![0xd800]) + "failure");
+                }
+                Ok(())
+            })),
+            ..Default::default()
+        };
+        let actual = shell_result(
+            env.exec(&"(sleep 0.25; printf late) & printf early".into(), options)
+                .await,
+        );
+        assert_eq!(actual, expected, "{mode}");
+    }
 }

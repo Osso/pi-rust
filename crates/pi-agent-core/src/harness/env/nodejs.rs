@@ -424,11 +424,13 @@ async fn wait_for_exit(
     abort: Option<CancellationToken>,
     tasks: &mut StreamTasks,
 ) -> ExitWait {
-    let deadline = timeout_ms.map(|millis| tokio::time::Instant::now() + Duration::from_secs_f64(millis / 1000.0));
+    let deadline = timeout_ms.map(|millis| {
+        tokio::time::Instant::now()
+            + Duration::from_millis(pi_js_compat::node_timers::normalize_timeout_delay(millis) as u64)
+    });
     let mut flags = WaitFlags::default();
     let mut done = [false, false];
     let status = wait_for_status(child, pid, deadline, abort.as_ref(), tasks, &mut done, &mut flags).await;
-    drain_streams(&mut tasks.receiver, &mut done, &mut flags.callback_error).await;
     ExitWait {
         status,
         timed_out: flags.timed_out,
@@ -447,9 +449,16 @@ async fn wait_for_status(
     flags: &mut WaitFlags,
 ) -> Result<std::process::ExitStatus, std::io::Error> {
     let mut killed_for_callback = false;
+    let mut status = None;
     loop {
+        if done[0]
+            && done[1]
+            && let Some(status) = status.take()
+        {
+            return status;
+        }
         tokio::select! {
-            status = child.wait() => return status,
+            result = child.wait(), if status.is_none() => status = Some(result),
             _ = sleep_until_deadline(deadline), if !flags.timed_out => {
                 flags.timed_out = true;
                 kill_if_running(pid);
@@ -458,7 +467,7 @@ async fn wait_for_status(
                 flags.aborted = true;
                 kill_if_running(pid);
             }
-            event = tasks.receiver.recv() => {
+            event = tasks.receiver.recv(), if !(done[0] && done[1]) => {
                 apply_stream_event(event, done, &mut flags.callback_error);
                 if flags.callback_error.is_some() && !killed_for_callback {
                     killed_for_callback = true;
@@ -486,22 +495,6 @@ async fn cancel_on_abort(abort: Option<&CancellationToken>) {
 fn kill_if_running(pid: Option<u32>) {
     if let Some(pid) = pid {
         kill_process_tree(pid);
-    }
-}
-
-async fn drain_streams(
-    receiver: &mut UnboundedReceiver<StreamEvent>,
-    done: &mut [bool; 2],
-    callback_error: &mut Option<JsString>,
-) {
-    while !(done[0] && done[1]) {
-        tokio::select! {
-            event = receiver.recv() => {
-                if apply_stream_event(event, done, callback_error) {
-                    break;
-                }
-            }
-        }
     }
 }
 
@@ -550,6 +543,7 @@ enum StreamKind {
 struct StreamEvent {
     kind: StreamKind,
     result: Result<(), JsString>,
+    complete: bool,
 }
 
 fn apply_stream_event(event: Option<StreamEvent>, done: &mut [bool; 2], callback_error: &mut Option<JsString>) -> bool {
@@ -559,7 +553,7 @@ fn apply_stream_event(event: Option<StreamEvent>, done: &mut [bool; 2], callback
     done[match event.kind {
         StreamKind::Stdout => 0,
         StreamKind::Stderr => 1,
-    }] = true;
+    }] |= event.complete;
     if let Err(message) = event.result {
         *callback_error = Some(message);
     }
@@ -582,24 +576,25 @@ async fn read_stream<R>(
             Ok(0) => break,
             Ok(read) => {
                 let text = decoder.push(&buffer[..read]);
-                if !deliver_chunk(kind, &text, &shared, callback.as_ref(), &sender) {
-                    return;
-                }
+                deliver_chunk(kind, &text, &shared, callback.as_ref(), &sender);
             }
             Err(error) => {
                 let _ = sender.send(StreamEvent {
                     kind,
                     result: Err(error.to_string().into()),
+                    complete: true,
                 });
                 return;
             }
         }
     }
     let tail = decoder.finish();
-    if !deliver_chunk(kind, &tail, &shared, callback.as_ref(), &sender) {
-        return;
-    }
-    let _ = sender.send(StreamEvent { kind, result: Ok(()) });
+    deliver_chunk(kind, &tail, &shared, callback.as_ref(), &sender);
+    let _ = sender.send(StreamEvent {
+        kind,
+        result: Ok(()),
+        complete: true,
+    });
 }
 
 fn deliver_chunk(
@@ -608,9 +603,9 @@ fn deliver_chunk(
     shared: &Arc<Mutex<String>>,
     callback: Option<&Arc<ShellOutputHandler>>,
     sender: &UnboundedSender<StreamEvent>,
-) -> bool {
+) {
     if text.is_empty() {
-        return true;
+        return;
     }
     shared.lock().expect("stream text lock").push_str(text);
     if let Some(callback) = callback
@@ -619,10 +614,9 @@ fn deliver_chunk(
         let _ = sender.send(StreamEvent {
             kind,
             result: Err(message),
+            complete: false,
         });
-        return false;
     }
-    true
 }
 
 #[derive(Default)]

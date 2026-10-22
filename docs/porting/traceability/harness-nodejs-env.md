@@ -37,3 +37,5 @@ GREEN `node-literal-green.log`: 4 direct frozen grouped tests + 18 native tests 
 - Old-only renameFile, inheritEnv, path expansion, custom missing-cwd guard and 100ms pipe grace removed, not kept as fallbacks.
 - Windows-only discovery/taskkill/legacy WSL transport: pending user classification. Not ported or claimed.
 - Temp UUID/name shape and full filesystem failure messages remain pending comparison, not approved deviations.
+
+Post-exit continuation: `differential_node_env::post_exit_pipe_wait_keeps_timeout_abort_and_callback_live` covers timeout, abort and native UTF-16 callback failure after parent exit while a background child retains stdout. RED `node-postexit-red.log` returned success after ignoring active timeout; GREEN `node-postexit-green.log` (5 frozen groups +18 native tests). Timeout/abort listeners now remain active until actual process-close/pipe EOF. Callback failures retain the reader and kill the process group, matching frozen event delivery rather than claiming stream completion.

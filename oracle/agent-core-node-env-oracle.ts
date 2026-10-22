@@ -17,6 +17,18 @@ async function main(): Promise<void> {
 			result = await env.exec("printf ready; sleep 0.2; printf done", { onStdout: () => { void env.cleanup(); } });
 		} else if (input.kind === "tail") {
 			result = await env.exec("(sleep 0.25; printf late) & printf early");
+		} else if (input.kind === "post-exit") {
+			const abort = new AbortController();
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			result = await env.exec("(sleep 0.25; printf late) & printf early", {
+				timeout: input.mode === "timeout" ? 0.05 : undefined,
+				abortSignal: input.mode === "abort" ? abort.signal : undefined,
+				onStdout: (chunk: string) => {
+					if (input.mode === "abort" && chunk.includes("early")) timer = setTimeout(() => abort.abort(), 50);
+					if (input.mode === "callback" && chunk.includes("late")) throw new Error("late\ud800failure");
+				},
+			});
+			clearTimeout(timer);
 		} else if (input.kind === "env") {
 			result = await env.exec("printf '%s:%s' \"$CORE_CONFIG\" \"$CORE_EXTRA\"", { env: { CORE_EXTRA: "extra" } });
 		} else if (input.kind === "missing-cwd") {
