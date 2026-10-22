@@ -90,6 +90,10 @@ fn frozen_node_ignore_utf16_rules_paths_and_errors() {
         "\u{feff}a",
         "ä",
         "a\r\nb\n!a",
+        "a\\\r",
+        "a\r",
+        "a\\\r\nb",
+        "a\\\r\r\n",
     ];
     for pattern in [
         JsString::from(r"\[[\-"),
