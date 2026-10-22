@@ -90,7 +90,7 @@ pub struct WritableSessionMetadata {
     pub id: String,
     pub cwd: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    pub name: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_session_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -420,7 +420,7 @@ fn relocate_multi_agent_session_rows(
 }
 
 struct SessionMetadataWriteValues {
-    name: Option<String>,
+    name: Option<JsString>,
     archived_at: Option<String>,
     is_subagent: bool,
     subagent_name: Option<JsString>,
@@ -511,9 +511,9 @@ fn read_session_metadata_write_values(
         .optional()?;
     let preserved_is_subagent = preserved.as_ref().is_some_and(|values| values.3 == 1);
     Ok(SessionMetadataWriteValues {
-        name: match metadata.name.as_deref() {
-            Some(name) => Some(normalize_session_name(Some(name)).unwrap_or_default()),
-            None => preserved.as_ref().and_then(|values| values.0.clone()),
+        name: match metadata.name.as_ref() {
+            Some(name) => Some(normalize_session_name_utf16(Some(name)).unwrap_or_default()),
+            None => preserved.as_ref().and_then(|values| values.0.clone()).map(Into::into),
         },
         archived_at: metadata
             .archived_at
@@ -552,7 +552,7 @@ fn write_session_metadata_row(
             metadata.session_path,
             metadata.id,
             metadata.cwd,
-            values.name,
+            values.name.as_ref().map(encode_node_utf8),
             metadata.parent_session_path,
             values.archived_at,
             Option::<String>::None,

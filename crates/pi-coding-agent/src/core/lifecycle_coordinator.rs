@@ -569,7 +569,7 @@ impl LifecycleCoordinator {
         )?;
         match result {
             crate::core::session_control_db::agents::CommitMultiAgentLifecycleMutationResult::Ok { agent } => {
-                match serde_json::from_value(Value::Object(agent)) {
+                match js_json::from_value(&JsValue::Object(agent)) {
                     Ok(agent) => Ok(LifecycleCommandResult::Ok { agent: Box::new(agent) }),
                     Err(_) => Ok(LifecycleCommandResult::Err {
                         error: LifecycleCommandError::MutationMismatch,

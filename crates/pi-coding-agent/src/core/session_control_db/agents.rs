@@ -4005,7 +4005,7 @@ mod lossless_integration_tests {
                 agent_id: "bash_1".into(),
                 process_identity: identity,
                 owner: MultiAgentRuntimeOwnerIdentity {
-                    session_id: Some("s".into()),
+                    session_id: "s".into(),
                     agent_id: None,
                 },
                 requested_lifecycle: "cancelling".into(),
@@ -4045,7 +4045,7 @@ mod lossless_integration_tests {
                 incarnation: None,
             },
             owner: MultiAgentRuntimeOwnerIdentity {
-                session_id: Some("s".into()),
+                session_id: "s".into(),
                 agent_id: None,
             },
             requested_lifecycle: "cancelling".into(),
