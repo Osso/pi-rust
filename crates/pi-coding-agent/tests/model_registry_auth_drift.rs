@@ -1,5 +1,5 @@
 //! DRIFT: frozen model-registry.ts:811-820 propagates credential lookup rejection.
-//! RED intent, unexecuted until coding-agent library compiles.
+//! Compiler RED observed at c0fe277c; runtime acceptance awaits repository binary-target migration.
 
 use std::sync::Arc;
 

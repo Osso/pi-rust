@@ -428,7 +428,11 @@ fn resolve_codex_provider_id(ctx: &ExtensionCommandContext) -> Result<String, Ha
 
 async fn read_codex_access_token(ctx: &ExtensionCommandContext) -> Result<JsString, HandlerError> {
     let provider_id = resolve_codex_provider_id(ctx)?;
-    let token = ctx.model_registry()?.get_api_key_for_provider(&provider_id).await;
+    let token = ctx
+        .model_registry()?
+        .get_api_key_for_provider(&provider_id)
+        .await
+        .map_err(|error| HandlerError::new(error.message()))?;
     let Some(token) = token else {
         return Err(HandlerError::new(format!(
             "OpenAI Codex provider {provider_id} is not logged in. Run /login {provider_id}."
