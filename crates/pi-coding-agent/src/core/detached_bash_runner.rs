@@ -3,7 +3,6 @@
 //! The runner owns a gated payload process, adopts cancel commands from the
 //! runtime mailbox, and commits exactly one terminal job revision.
 
-use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -24,6 +23,9 @@ use crate::core::detached_job_control::{
     enqueue_detached_job_status_response,
 };
 pub use crate::core::detached_job_runner::DetachedJobArtifacts;
+use crate::utils::paths::{node_dirname, node_join};
+use pi_js_compat::js_format;
+
 use crate::core::detached_job_runner::{
     DetachedJobOutcome, DetachedJobOwnershipIdentity, DetachedJobTerminalInput, create_detached_job_terminal_input,
 };
@@ -45,23 +47,27 @@ const LAUNCH_MANIFEST_TIMEOUT_MS: u64 = 30_000;
 const EXIT_POLL_MS: u64 = 25;
 
 /// `DetachedBashLaunchManifestData`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DetachedBashLaunchManifestData {
-    pub activation_path: String,
+    pub activation_path: JsString,
     pub args: Vec<JsString>,
     pub artifacts: DetachedJobArtifacts,
-    pub command: String,
-    pub control_db_path: String,
-    pub cwd: String,
-    pub env: BTreeMap<String, String>,
-    pub foreground_completion_path: String,
+    pub command: JsString,
+    pub control_db_path: JsString,
+    pub cwd: JsString,
+    #[serde(
+        serialize_with = "js_json::serialize_object",
+        deserialize_with = "js_json::deserialize_object"
+    )]
+    pub env: JsObject,
+    pub foreground_completion_path: JsString,
     pub runner_address: RuntimeMailboxAddress,
-    pub session_path: String,
+    pub session_path: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout_ms: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_call_id: Option<String>,
+    pub tool_call_id: Option<JsString>,
 }
 
 #[derive(Serialize)]
@@ -80,7 +86,7 @@ pub struct DetachedBashForegroundCompletion {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cancel_reason: Option<JsString>,
     pub exit_code: Option<i32>,
-    pub signal: Option<String>,
+    pub signal: Option<JsString>,
     pub timed_out: bool,
 }
 
@@ -94,8 +100,8 @@ pub struct DetachedBashRunnerResult {
 /// Runner invocation (`getDetachedBashRunnerInvocation`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DetachedBashRunnerInvocation {
-    pub args: Vec<String>,
-    pub executable: String,
+    pub args: Vec<JsString>,
+    pub executable: JsString,
 }
 
 /// Invocation options; the Rust binary is always compiled, so `entry_path`
@@ -103,16 +109,24 @@ pub struct DetachedBashRunnerInvocation {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DetachedBashRunnerInvocationOptions {
     pub compiled: bool,
-    pub entry_path: Option<String>,
-    pub executable_path: Option<String>,
+    pub entry_path: Option<JsString>,
+    pub executable_path: Option<JsString>,
 }
 
 #[derive(Debug)]
-pub struct DetachedBashRunnerError(pub String);
+pub struct DetachedBashRunnerError(pub JsString);
+impl DetachedBashRunnerError {
+    pub fn new(message: impl Into<JsString>) -> Self {
+        Self(message.into())
+    }
+    pub fn message(&self) -> &JsString {
+        &self.0
+    }
+}
 
 impl fmt::Display for DetachedBashRunnerError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
+        formatter.write_str(&encode_node_utf8(&self.0))
     }
 }
 
@@ -120,31 +134,31 @@ impl std::error::Error for DetachedBashRunnerError {}
 
 impl From<std::io::Error> for DetachedBashRunnerError {
     fn from(source: std::io::Error) -> Self {
-        Self(source.to_string())
+        Self::new(crate::core::tools::node_fs::operation_error_message(&source))
     }
 }
 
 impl From<serde_json::Error> for DetachedBashRunnerError {
     fn from(source: serde_json::Error) -> Self {
-        Self(source.to_string())
+        Self::new(source.to_string())
     }
 }
 
 impl From<DetachedPayloadError> for DetachedBashRunnerError {
     fn from(source: DetachedPayloadError) -> Self {
-        Self(source.to_string())
+        Self::new(source.message())
     }
 }
 
 impl From<ControlDbError> for DetachedBashRunnerError {
     fn from(source: ControlDbError) -> Self {
-        Self(source.message().to_owned())
+        Self::new(source.message().clone())
     }
 }
 
 /// `writeDetachedBashLaunchManifest`.
 pub fn write_detached_bash_launch_manifest(
-    path: &str,
+    path: &JsString,
     data: &DetachedBashLaunchManifestData,
 ) -> Result<(), DetachedBashRunnerError> {
     let unsigned = manifest_unsigned_value(data)?;
@@ -161,7 +175,7 @@ fn manifest_unsigned_value(data: &DetachedBashLaunchManifestData) -> Result<JsOb
         checksum: String::new(),
     };
     let JsValue::Object(mut unsigned) = js_json::to_value(&manifest)? else {
-        return Err(DetachedBashRunnerError(
+        return Err(DetachedBashRunnerError::new(
             "Detached Bash launch manifest must serialize to an object".to_owned(),
         ));
     };
@@ -171,7 +185,7 @@ fn manifest_unsigned_value(data: &DetachedBashLaunchManifestData) -> Result<JsOb
 
 /// `writeDetachedBashActivation`.
 pub fn write_detached_bash_activation(
-    path: &str,
+    path: &JsString,
     identity: &DetachedJobOwnershipIdentity,
 ) -> Result<(), DetachedBashRunnerError> {
     write_atomic_json(path, &js_json::to_value(identity)?)
@@ -179,13 +193,13 @@ pub fn write_detached_bash_activation(
 
 /// `readDetachedBashActivation`; `None` when the file does not exist.
 pub fn read_detached_bash_activation(
-    path: &str,
+    path: &JsString,
 ) -> Result<Option<DetachedJobOwnershipIdentity>, DetachedBashRunnerError> {
-    if !Path::new(path).exists() {
+    if !Path::new(&encode_node_utf8(path)).exists() {
         return Ok(None);
     }
-    let data = std::fs::read_to_string(path)?;
-    let value = js_json::parse_lossless(&data).map_err(|error| DetachedBashRunnerError(error.to_string()))?;
+    let data = std::fs::read_to_string(encode_node_utf8(path))?;
+    let value = js_json::parse_lossless(&data).map_err(|error| DetachedBashRunnerError::new(error.into_message()))?;
     Ok(Some(
         js_json::from_value(&value).map_err(DetachedBashRunnerError::from)?,
     ))
@@ -193,17 +207,17 @@ pub fn read_detached_bash_activation(
 
 /// `getDetachedBashRunnerInvocation`.
 pub fn get_detached_bash_runner_invocation(
-    manifest_path: &str,
+    manifest_path: &JsString,
     options: &DetachedBashRunnerInvocationOptions,
 ) -> Result<DetachedBashRunnerInvocation, DetachedBashRunnerError> {
     let executable = match &options.executable_path {
         Some(executable) => executable.clone(),
-        None => std::env::current_exe()?.to_string_lossy().into_owned(),
+        None => std::env::current_exe()?.to_string_lossy().into_owned().into(),
     };
     let args = match &options.entry_path {
-        None if options.compiled => vec![DETACHED_BASH_RUNNER_MODE.to_owned(), manifest_path.to_owned()],
+        None if options.compiled => vec![DETACHED_BASH_RUNNER_MODE.into(), manifest_path.clone()],
         None => {
-            return Err(DetachedBashRunnerError(
+            return Err(DetachedBashRunnerError::new(
                 "Detached Bash runner entry path is required".to_owned(),
             ));
         }
@@ -213,7 +227,7 @@ pub fn get_detached_bash_runner_invocation(
 }
 
 /// `launchDetachedBashRunner`. `setsid(1)` replaces Node's `detached: true`.
-pub fn launch_detached_bash_runner(manifest_path: &str) -> Result<u32, DetachedBashRunnerError> {
+pub fn launch_detached_bash_runner(manifest_path: &JsString) -> Result<u32, DetachedBashRunnerError> {
     let invocation = get_detached_bash_runner_invocation(
         manifest_path,
         &DetachedBashRunnerInvocationOptions {
@@ -222,15 +236,12 @@ pub fn launch_detached_bash_runner(manifest_path: &str) -> Result<u32, DetachedB
             executable_path: None,
         },
     )?;
-    let directory = Path::new(manifest_path)
-        .parent()
-        .map(|directory| directory.to_path_buf())
-        .unwrap_or_else(|| Path::new(".").to_path_buf());
+    let directory = node_dirname(manifest_path);
     let mut command = Command::new("setsid");
     command
-        .arg(&invocation.executable)
-        .args(&invocation.args)
-        .current_dir(directory)
+        .arg(encode_node_utf8(&invocation.executable))
+        .args(invocation.args.iter().map(encode_node_utf8))
+        .current_dir(encode_node_utf8(&directory))
         .env_clear()
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -247,25 +258,29 @@ pub fn launch_detached_bash_runner(manifest_path: &str) -> Result<u32, DetachedB
 
 /// `runDetachedBashRunner`.
 pub async fn run_detached_bash_runner(
-    manifest_path: &str,
+    manifest_path: &JsString,
     now: Option<&(dyn Fn() -> String + Sync)>,
 ) -> Result<DetachedBashRunnerResult, DetachedBashRunnerError> {
     let manifest = wait_for_detached_bash_launch_manifest(manifest_path).await?;
-    let env: Vec<(String, String)> = manifest
+    let env = manifest
         .data
         .env
         .iter()
-        .map(|(name, value)| (name.clone(), value.clone()))
-        .collect();
-    let process_args = manifest.data.args.iter().map(encode_node_utf8).collect::<Vec<_>>();
+        .map(|(name, value)| {
+            let value = value.as_string().ok_or_else(|| {
+                DetachedBashRunnerError::new(js_format!("Detached Bash environment value must be a string: {}", name))
+            })?;
+            Ok((name.clone(), value.clone()))
+        })
+        .collect::<Result<Vec<_>, DetachedBashRunnerError>>()?;
     let mut payload = spawn_gated_detached_payload(&GatedDetachedPayloadInput {
-        args: &process_args,
+        args: &manifest.data.args,
         command: &manifest.data.command,
-        cwd: Path::new(&manifest.data.cwd),
+        cwd: &manifest.data.cwd,
         env: Some(&env),
-        identity_path: &Path::new(&manifest.data.artifacts.directory).join("payload.json"),
-        stderr_path: Path::new(&manifest.data.artifacts.output_path),
-        stdout_path: Path::new(&manifest.data.artifacts.output_path),
+        identity_path: &node_join(&manifest.data.artifacts.directory, "payload.json"),
+        stderr_path: &manifest.data.artifacts.output_path,
+        stdout_path: &manifest.data.artifacts.output_path,
     })?;
     payload.persist_identity()?;
     payload.release()?;
@@ -296,9 +311,9 @@ pub async fn run_detached_bash_runner(
         outcome,
         &terminal_at,
         None,
-        manifest.data.tool_call_id.as_deref(),
+        manifest.data.tool_call_id.as_ref(),
     )
-    .map_err(|error| DetachedBashRunnerError(error.to_string()))?;
+    .map_err(|error| DetachedBashRunnerError::new(error.message()))?;
     let finalized = finalize_detached_job_with_retry(&terminal, |terminal| {
         finalize_detached_job(
             &manifest.data.control_db_path,
@@ -314,7 +329,7 @@ pub async fn run_detached_bash_runner(
             exit_code: controlled.exit.exit_code,
             terminal_revision,
         }),
-        FinalizeDetachedJobResult::Err { error } => Err(DetachedBashRunnerError(format!(
+        FinalizeDetachedJobResult::Err { error } => Err(DetachedBashRunnerError::new(format!(
             "Could not finalize detached Bash job: {}",
             error.as_str()
         ))),
@@ -375,12 +390,11 @@ async fn wait_for_detached_bash_exit(
                             request_id: status.request_id,
                             runner_address: manifest.data.runner_address.clone(),
                             session_path: manifest.data.session_path.clone(),
-                            status: serde_json::json!({
+                            status: pi_js_compat::js_json!({
                                 "outputPath": manifest.data.artifacts.output_path,
                                 "payloadPid": payload_pid,
                                 "state": "running",
-                            })
-                            .into(),
+                            }),
                         })?;
                     }
                     DetachedJobRuntimeCommand::Cancel(cancel) => {
@@ -411,7 +425,7 @@ fn signal_payload_group(pid: u32, signal: Signal) -> Result<(), DetachedBashRunn
     match kill_process_group(pid, signal) {
         Ok(()) => Ok(()),
         Err(rustix::io::Errno::SRCH) => Ok(()),
-        Err(error) => Err(DetachedBashRunnerError(error.to_string())),
+        Err(error) => Err(DetachedBashRunnerError::new(error.to_string())),
     }
 }
 
@@ -477,15 +491,16 @@ fn detached_bash_outcome(controlled: &ControlledExit) -> DetachedJobOutcome {
         };
     }
     let detail = match controlled.exit.signal.and_then(signal_name) {
-        Some(signal) => format!("signal {signal}"),
+        Some(signal) => js_format!("signal {}", signal),
         None => format!(
             "exit code {}",
             exit_code.map_or_else(|| "null".to_owned(), |code| code.to_string())
-        ),
+        )
+        .into(),
     };
     DetachedJobOutcome::Failed {
         error: AgentError {
-            message: format!("Process exited with {detail}.").into(),
+            message: js_format!("Process exited with {}.", detail),
             code: None,
         },
         exit_code: exit_code.map(i64::from),
@@ -493,7 +508,7 @@ fn detached_bash_outcome(controlled: &ControlledExit) -> DetachedJobOutcome {
 }
 
 /// Node signal names for the signals a detached payload can report.
-pub fn signal_name(signal: i32) -> Option<String> {
+pub fn signal_name(signal: i32) -> Option<JsString> {
     let name = match signal {
         1 => "SIGHUP",
         2 => "SIGINT",
@@ -528,17 +543,18 @@ pub fn signal_name(signal: i32) -> Option<String> {
         31 => "SIGSYS",
         _ => return None,
     };
-    Some(name.to_owned())
+    Some(name.into())
 }
 
 async fn wait_for_detached_bash_launch_manifest(
-    path: &str,
+    path: &JsString,
 ) -> Result<DetachedBashLaunchManifest, DetachedBashRunnerError> {
     let deadline = Instant::now() + Duration::from_millis(LAUNCH_MANIFEST_TIMEOUT_MS);
-    while !Path::new(path).exists() {
+    while !Path::new(&encode_node_utf8(path)).exists() {
         if Instant::now() >= deadline {
-            return Err(DetachedBashRunnerError(format!(
-                "Timed out waiting for detached Bash launch manifest: {path}"
+            return Err(DetachedBashRunnerError::new(js_format!(
+                "Timed out waiting for detached Bash launch manifest: {}",
+                path
             )));
         }
         tokio::time::sleep(Duration::from_millis(LAUNCH_MANIFEST_POLL_MS)).await;
@@ -546,9 +562,9 @@ async fn wait_for_detached_bash_launch_manifest(
     read_detached_bash_launch_manifest(path)
 }
 
-fn read_detached_bash_launch_manifest(path: &str) -> Result<DetachedBashLaunchManifest, DetachedBashRunnerError> {
-    let data = std::fs::read_to_string(path)?;
-    let value = js_json::parse_lossless(&data).map_err(|error| DetachedBashRunnerError(error.to_string()))?;
+fn read_detached_bash_launch_manifest(path: &JsString) -> Result<DetachedBashLaunchManifest, DetachedBashRunnerError> {
+    let data = std::fs::read_to_string(encode_node_utf8(path))?;
+    let value = js_json::parse_lossless(&data).map_err(|error| DetachedBashRunnerError::new(error.into_message()))?;
     let parsed_data = js_json::from_value::<DetachedBashLaunchManifestData>(&value)?;
     let checksum = hash_json(&JsValue::Object(manifest_unsigned_value(&parsed_data)?));
     let version_matches = value.get("version").and_then(JsValue::as_f64) == Some(DETACHED_BASH_LAUNCH_VERSION as f64);
@@ -557,8 +573,9 @@ fn read_detached_bash_launch_manifest(path: &str) -> Result<DetachedBashLaunchMa
         .and_then(JsValue::as_string)
         .is_some_and(|stored| stored == &checksum);
     if !version_matches || !checksum_matches {
-        return Err(DetachedBashRunnerError(format!(
-            "Invalid detached Bash launch manifest: {path}"
+        return Err(DetachedBashRunnerError::new(js_format!(
+            "Invalid detached Bash launch manifest: {}",
+            path
         )));
     }
     Ok(DetachedBashLaunchManifest {
@@ -575,41 +592,39 @@ pub fn hash_json(value: &pi_js_compat::js_json::JsValue) -> String {
 }
 
 /// `fsyncFile`.
-pub fn fsync_file(path: &str) -> Result<(), std::io::Error> {
-    std::fs::File::open(path)?.sync_all()
+pub fn fsync_file(path: &JsString) -> Result<(), std::io::Error> {
+    std::fs::File::open(encode_node_utf8(path))?.sync_all()
 }
 
 /// `fsyncDirectory`.
-pub fn fsync_directory(path: &str) -> Result<(), std::io::Error> {
-    std::fs::File::open(path)?.sync_all()
+pub fn fsync_directory(path: &JsString) -> Result<(), std::io::Error> {
+    std::fs::File::open(encode_node_utf8(path))?.sync_all()
 }
 
-fn write_atomic_json(path: &str, value: &JsValue) -> Result<(), DetachedBashRunnerError> {
-    let temporary_path = format!("{path}.tmp");
+fn write_atomic_json(path: &JsString, value: &JsValue) -> Result<(), DetachedBashRunnerError> {
+    let temporary_path = js_format!("{}.tmp", path);
     let mut file = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
         .mode(0o600)
-        .open(&temporary_path)?;
+        .open(encode_node_utf8(&temporary_path))?;
     let line = format!("{}\n", js_json::stringify_lossless(value));
     file.write_all(line.as_bytes())?;
     file.sync_all()?;
     drop(file);
-    std::fs::rename(&temporary_path, path)?;
-    fsync_directory(
-        Path::new(path)
-            .parent()
-            .map(|directory| directory.to_string_lossy().into_owned())
-            .unwrap_or_else(|| ".".to_owned())
-            .as_str(),
-    )?;
+    std::fs::rename(encode_node_utf8(&temporary_path), encode_node_utf8(path))?;
+    fsync_directory(&node_dirname(path))?;
     Ok(())
 }
 
 /// Appends one JSON line (`appendArtifactRecord`).
-pub fn append_artifact_record(path: &str, record: &pi_js_compat::js_json::JsValue) -> Result<(), std::io::Error> {
-    let mut file = OpenOptions::new().create(true).append(true).mode(0o600).open(path)?;
+pub fn append_artifact_record(path: &JsString, record: &pi_js_compat::js_json::JsValue) -> Result<(), std::io::Error> {
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(encode_node_utf8(path))?;
     let line = format!("{}\n", pi_js_compat::js_json::stringify_lossless(record));
     file.write_all(line.as_bytes())
 }
@@ -622,14 +637,14 @@ pub struct JsonLinesChunk {
 }
 
 /// Reads newline-delimited JSON records after `offset` (`readJsonLines`).
-pub fn read_json_lines(path: &str, offset: u64) -> Result<JsonLinesChunk, std::io::Error> {
-    if !Path::new(path).exists() {
+pub fn read_json_lines(path: &JsString, offset: u64) -> Result<JsonLinesChunk, std::io::Error> {
+    if !Path::new(&encode_node_utf8(path)).exists() {
         return Ok(JsonLinesChunk {
             offset,
             values: Vec::new(),
         });
     }
-    let data = std::fs::read(path)?;
+    let data = std::fs::read(encode_node_utf8(path))?;
     if data.len() as u64 <= offset {
         return Ok(JsonLinesChunk {
             offset,
@@ -639,7 +654,9 @@ pub fn read_json_lines(path: &str, offset: u64) -> Result<JsonLinesChunk, std::i
     let text = String::from_utf8_lossy(&data[offset as usize..]);
     let mut values = Vec::new();
     for line in text.split('\n').filter(|line| !line.is_empty()) {
-        values.push(pi_js_compat::js_json::parse_lossless(line).map_err(std::io::Error::other)?);
+        values.push(pi_js_compat::js_json::parse_lossless(line).map_err(|error| {
+            std::io::Error::other(crate::core::extensions::types::HandlerError::new(error.into_message()))
+        })?);
     }
     Ok(JsonLinesChunk {
         offset: data.len() as u64,

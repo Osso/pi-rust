@@ -51,6 +51,24 @@ Artifacts: `/tmp/pi-rust-repin-lossless-tools/`.
 
 `utils::ansi::strip_ansi` is the single native UTF-16 API; removed `strip_ansi_js` and its surrogate sentinel/offset projection. Shared JsRegex removes ANSI ranges directly. `utils::shell::sanitize_binary_output` filters UTF-16 units, preserving retained unmatched units and pairs. `ansi-red.log` is compiler RED for the old API. `ansi-green.log`: 1/1 native cleanup test PASS using actual ANSI, shell and child-process modules, zero warnings. Frozen cleanup comparison was added after that log and remains pending execution.
 
+## Detached Bash manifest/transport checkpoint (runtime pending)
+
+Manifest paths/command/cwd/session/tool-call fields, runner invocation paths/argv, activation/foreground completion paths/reasons/signals, artifact JSONL paths and human runner errors are native. Manifest env uses one JsObject authority with lossless object serde (raw keys/values, original order), not a scalar BTreeMap. String-valued env records are the typed source contract; no unpaired-unit restriction. Gated payload launch receives native arguments directly. Only real FS and Command boundaries encode; JSON file bytes use the lossless writer. Error accessors preserve native payload/control/IO-carried messages; Display alone encodes.
+
+`lossless_detached_paths::detached_manifest_keeps_raw_paths_env_keys_and_file_bytes` compares actual persisted bytes/checksum against frozen TS; **unexecuted**, pending real coding-library compilation. No detached acceptance. Dedicated manifest/runner/artifact tests and owned Pyrun callers still need propagation. `internal_runner` entrypoint outside this lane must widen decoded CLI paths into JsString on entry.
+
+## Gated payload bootstrap checkpoint (runtime pending)
+
+Main granted `detached_job_bootstrap.rs`. Gated command/argv/cwd/environment, output/identity paths, stored identity path and SpawnFailed error are native. Split-output equality happens before encoding. Only actual output/identity opens/writes/rename/directory sync and Command argv/env/cwd encode. Runtime-process errors retain native messages inside the IO error carrier; Display alone encodes.
+
+Added `lossless_detached_paths::distinct_raw_output_paths_reject_before_filesystem_or_spawn`, comparing frozen TS rejection of distinct raw paths that collide after Node UTF-8. **Unexecuted**, pending the real library. No detached process/lifetime proof yet. Outside direct production callers are the owned detached Bash/Pyrun runners; bootstrap integration tests require native fixtures.
+
+## Detached artifact/controller checkpoint (runtime pending)
+
+`DetachedJobArtifacts`, reserved/launched paths/job IDs, controller owner/session IDs, register cwd/worker/tool IDs, launch command/cwd/env, and manifest-writer callback paths/errors now retain native authorities. Creation/reservation joins raw paths and encodes only at mkdir; duplicate-artifact errors interpolate the originally requested raw directory even when two raw names collide at Node UTF-8. Controller filters and timestamp ordering use raw units. `DetachedJobError::message` retains raw control/launch/artifact errors; Display alone encodes.
+
+`lossless_detached_paths.rs` compares real filesystem artifact creation and a surrogate-collision reservation error against frozen TS; **unexecuted**, pending the real coding library per main's instruction. No copied store/coordinator harness. Detached manifest/bootstrap/cleanup/control and dedicated caller tests remain migrating; no detached acceptance.
+
 ## Bash propagation checkpoint (compiler-boundary only)
 
 Bash tool cwd, custom operations/spawn hooks, environment keys/values, command prefix, shell override and detached message/log-path/job-id fields are native. Local spawn/argv/environment and filesystem calls alone encode. Session IDs/files are native; approved scalar provider/model/reasoning metadata converts once into native env values. Call/result/preview/footer/warning rendering remains native through actual components. `finish_output` now returns close failures instead of dropping them; source close formatting uses the shared Node helper.

@@ -4,10 +4,11 @@ use std::fmt;
 use std::fs::{DirBuilder, File};
 use std::io::Read;
 use std::os::unix::fs::DirBuilderExt;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use pi_js_compat::js_json::{self, JsString};
+use crate::utils::paths::{node_basename, node_extname, node_join};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
 use sha2::{Digest, Sha256};
 
 use crate::core::detached_bash_runner::{DetachedBashLaunchManifestData, write_detached_bash_launch_manifest};
@@ -32,15 +33,15 @@ pub use crate::core::session_control_db::{
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DetachedJobArtifacts {
-    pub directory: String,
-    pub output_path: String,
+    pub directory: JsString,
+    pub output_path: JsString,
 }
 
 /// A job id with artifacts already reserved on disk.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReservedDetachedJob {
     pub artifacts: DetachedJobArtifacts,
-    pub job_id: String,
+    pub job_id: JsString,
 }
 
 /// Detached job kinds accepted by the lifecycle controller.
@@ -79,12 +80,12 @@ pub struct DetachedJobOwnership {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegisterDetachedJobInput {
     pub agent_type: DetachedJobAgentType,
-    pub cwd: String,
+    pub cwd: JsString,
     pub display_name: JsString,
-    pub job_id: String,
+    pub job_id: JsString,
     pub process_identity: ProcessIdentity,
-    pub worker_handle_id: String,
-    pub tool_call_id: Option<String>,
+    pub worker_handle_id: JsString,
+    pub tool_call_id: Option<JsString>,
     pub detached: Option<bool>,
     pub file_refs: Option<Vec<AgentFileReference>>,
 }
@@ -93,21 +94,21 @@ pub struct RegisterDetachedJobInput {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaunchDetachedBashInput {
     pub args: Vec<pi_js_compat::js_json::JsString>,
-    pub command: String,
-    pub cwd: String,
-    pub env: Vec<(String, String)>,
+    pub command: JsString,
+    pub cwd: JsString,
+    pub env: Vec<(JsString, JsString)>,
     pub timeout_ms: Option<i64>,
-    pub tool_call_id: Option<String>,
+    pub tool_call_id: Option<JsString>,
 }
 
 /// A launched detached Bash runner.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaunchedDetachedBashJob {
-    pub activation_path: String,
+    pub activation_path: JsString,
     pub artifacts: DetachedJobArtifacts,
-    pub foreground_completion_path: String,
-    pub job_id: String,
-    pub manifest_path: String,
+    pub foreground_completion_path: JsString,
+    pub job_id: JsString,
+    pub manifest_path: JsString,
     pub process_identity: ProcessIdentity,
     pub runner_pid: u32,
 }
@@ -121,15 +122,15 @@ pub trait DetachedJobRunnerContract: Send + Sync {
 
 /// Writes one launch manifest; injected by tests to force persistence failures.
 pub type WriteBashLaunchManifest =
-    Arc<dyn Fn(&str, &DetachedBashLaunchManifestData) -> Result<(), String> + Send + Sync>;
+    Arc<dyn Fn(&JsString, &DetachedBashLaunchManifestData) -> Result<(), JsString> + Send + Sync>;
 
 /// Construction options for [`DetachedJobLifecycleController`].
 pub struct DetachedJobLifecycleControllerOptions {
     pub artifact_root: JsString,
     pub control_db_path: JsString,
     pub coordinator: Arc<LifecycleCoordinator>,
-    pub owner_agent_id: Option<String>,
-    pub owner_session_id: String,
+    pub owner_agent_id: Option<JsString>,
+    pub owner_session_id: JsString,
     pub session_path: JsString,
     pub store: Arc<MultiAgentStore>,
     pub write_bash_launch_manifest: Option<WriteBashLaunchManifest>,
@@ -143,7 +144,7 @@ pub struct DetachedJobLifecycleController {
 
 #[derive(Debug)]
 pub enum DetachedJobError {
-    ArtifactExists(String),
+    ArtifactExists(JsString),
     ControlDb(JsString),
     InvalidJobId,
     Launch(JsString),
@@ -151,17 +152,22 @@ pub enum DetachedJobError {
     Io(std::io::Error),
 }
 
-impl fmt::Display for DetachedJobError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl DetachedJobError {
+    pub fn message(&self) -> JsString {
         match self {
             Self::ArtifactExists(directory) => {
-                write!(formatter, "Detached job artifact directory already exists: {directory}")
+                js_format!("Detached job artifact directory already exists: {}", directory)
             }
-            Self::ControlDb(message) | Self::Launch(message) => formatter.write_str(&encode_node_utf8(message)),
-            Self::InvalidJobId => formatter.write_str("Detached job ID must be one path segment"),
-            Self::Serialization(message) => formatter.write_str(message),
-            Self::Io(source) => source.fmt(formatter),
+            Self::ControlDb(message) | Self::Launch(message) => message.clone(),
+            Self::InvalidJobId => "Detached job ID must be one path segment".into(),
+            Self::Serialization(message) => message.into(),
+            Self::Io(source) => source.to_string().into(),
         }
+    }
+}
+impl fmt::Display for DetachedJobError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&encode_node_utf8(&self.message()))
     }
 }
 
@@ -193,44 +199,53 @@ impl From<crate::core::sqlite::ControlDbError> for DetachedJobError {
 
 /// `createDetachedJobArtifacts`.
 pub fn create_detached_job_artifacts(
-    root_directory: &str,
-    job_id: &str,
+    root_directory: impl Into<JsString>,
+    job_id: impl Into<JsString>,
 ) -> Result<DetachedJobArtifacts, DetachedJobError> {
     let directory = detached_job_directory(root_directory, job_id)?;
-    DirBuilder::new().recursive(true).mode(0o700).create(&directory)?;
+    DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(encode_node_utf8(&directory))?;
     Ok(DetachedJobArtifacts {
-        directory: directory.to_string_lossy().into_owned(),
-        output_path: directory.join("output.log").to_string_lossy().into_owned(),
+        output_path: node_join(&directory, "output.log"),
+        directory,
     })
 }
 
 /// `reserveDetachedJobArtifacts`.
 pub fn reserve_detached_job_artifacts(
-    root_directory: &str,
-    job_id: &str,
+    root_directory: impl Into<JsString>,
+    job_id: impl Into<JsString>,
 ) -> Result<DetachedJobArtifacts, DetachedJobError> {
-    let directory = detached_job_directory(root_directory, job_id)?;
-    DirBuilder::new().recursive(true).mode(0o700).create(root_directory)?;
-    match DirBuilder::new().mode(0o700).create(&directory) {
+    let root_directory = root_directory.into();
+    let directory = detached_job_directory(&root_directory, job_id)?;
+    DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(encode_node_utf8(&root_directory))?;
+    match DirBuilder::new().mode(0o700).create(encode_node_utf8(&directory)) {
         Ok(()) => {}
         Err(source) if source.kind() == std::io::ErrorKind::AlreadyExists => {
-            return Err(DetachedJobError::ArtifactExists(
-                directory.to_string_lossy().into_owned(),
-            ));
+            return Err(DetachedJobError::ArtifactExists(directory));
         }
         Err(source) => return Err(DetachedJobError::Io(source)),
     }
     Ok(DetachedJobArtifacts {
-        directory: directory.to_string_lossy().into_owned(),
-        output_path: directory.join("output.log").to_string_lossy().into_owned(),
+        output_path: node_join(&directory, "output.log"),
+        directory,
     })
 }
 
-fn detached_job_directory(root_directory: &str, job_id: &str) -> Result<PathBuf, DetachedJobError> {
+fn detached_job_directory(
+    root_directory: impl Into<JsString>,
+    job_id: impl Into<JsString>,
+) -> Result<JsString, DetachedJobError> {
+    let job_id = job_id.into();
     if job_id.is_empty() || job_id.contains('/') || job_id.contains('\\') {
         return Err(DetachedJobError::InvalidJobId);
     }
-    Ok(Path::new(root_directory).join(job_id))
+    Ok(node_join(root_directory, job_id))
 }
 
 /// `createDetachedJobTerminalInput`.
@@ -238,9 +253,9 @@ pub fn create_detached_job_terminal_input(
     artifacts: &DetachedJobArtifacts,
     identity: &DetachedJobOwnershipIdentity,
     outcome: DetachedJobOutcome,
-    terminal_at: &str,
+    terminal_at: &JsString,
     duration_ms: Option<i64>,
-    tool_call_id: Option<&str>,
+    tool_call_id: Option<&JsString>,
 ) -> Result<DetachedJobTerminalInput, DetachedJobError> {
     fsync_path(&artifacts.output_path)?;
     let data = read_file(&artifacts.output_path)?;
@@ -250,7 +265,7 @@ pub fn create_detached_job_terminal_input(
         process_identity: identity.process_identity.clone(),
         output_label: identity.output_label.clone(),
         terminal_at: terminal_at.to_owned(),
-        tool_call_id: tool_call_id.map(str::to_owned),
+        tool_call_id: tool_call_id.cloned(),
         duration_ms,
         outcome,
         output: DetachedJobTerminalOutput {
@@ -271,14 +286,14 @@ pub(crate) fn sha256_hex(data: &[u8]) -> String {
     hex
 }
 
-fn fsync_path(path: &str) -> Result<(), DetachedJobError> {
-    File::open(path)?.sync_all()?;
+fn fsync_path(path: &JsString) -> Result<(), DetachedJobError> {
+    File::open(encode_node_utf8(path))?.sync_all()?;
     Ok(())
 }
 
-fn read_file(path: &str) -> Result<Vec<u8>, DetachedJobError> {
+fn read_file(path: &JsString) -> Result<Vec<u8>, DetachedJobError> {
     let mut data = Vec::new();
-    File::open(path)?.read_to_end(&mut data)?;
+    File::open(encode_node_utf8(path))?.read_to_end(&mut data)?;
     Ok(data)
 }
 
@@ -289,7 +304,7 @@ impl DetachedJobLifecycleController {
         }
     }
 
-    pub fn allocate_job_id(&self, agent_type: DetachedJobAgentType) -> Result<String, DetachedJobError> {
+    pub fn allocate_job_id(&self, agent_type: DetachedJobAgentType) -> Result<JsString, DetachedJobError> {
         self.options
             .store
             .allocate_agent_id_for_lifecycle_coordinator(agent_type.as_str())
@@ -316,11 +331,14 @@ impl DetachedJobLifecycleController {
         Ok(cancelled)
     }
 
-    pub fn create_artifacts(&self, job_id: &str) -> Result<DetachedJobArtifacts, DetachedJobError> {
+    pub fn create_artifacts(&self, job_id: &JsString) -> Result<DetachedJobArtifacts, DetachedJobError> {
         reserve_detached_job_artifacts(&self.artifact_root()?, job_id)
     }
 
-    pub fn find_bash_job_by_tool_call_id(&self, tool_call_id: &str) -> Result<Option<AgentSnapshot>, DetachedJobError> {
+    pub fn find_bash_job_by_tool_call_id(
+        &self,
+        tool_call_id: &JsString,
+    ) -> Result<Option<AgentSnapshot>, DetachedJobError> {
         find_persisted_bash_job(self.options.as_ref(), tool_call_id)
     }
 
@@ -339,7 +357,7 @@ impl DetachedJobLifecycleController {
         Ok(marked)
     }
 
-    pub fn observe(&self, job_id: &str) -> Result<Option<AgentSnapshot>, DetachedJobError> {
+    pub fn observe(&self, job_id: &JsString) -> Result<Option<AgentSnapshot>, DetachedJobError> {
         observe_detached_job(self.options.as_ref(), job_id)
     }
 
@@ -371,9 +389,9 @@ fn detached_job_artifact_root(artifact_root: &JsString, session_path: &JsString)
 
 fn find_persisted_bash_job(
     options: &DetachedJobLifecycleControllerOptions,
-    tool_call_id: &str,
+    tool_call_id: &JsString,
 ) -> Result<Option<AgentSnapshot>, DetachedJobError> {
-    let parent_id = options.owner_agent_id.clone().unwrap_or_else(|| "main".to_owned());
+    let parent_id = options.owner_agent_id.clone().unwrap_or_else(|| "main".into());
     let Some(state) = read_multi_agent_state(&options.control_db_path, &options.session_path)? else {
         return Ok(None);
     };
@@ -389,22 +407,22 @@ fn find_persisted_bash_job(
     Ok(candidates.into_iter().next())
 }
 
-fn bash_job_matches(agent: &AgentSnapshot, parent_id: &str, tool_call_id: &str) -> bool {
-    if agent.parent_id.as_deref() != Some(parent_id) {
+fn bash_job_matches(agent: &AgentSnapshot, parent_id: &JsString, tool_call_id: &JsString) -> bool {
+    if agent.parent_id.as_ref() != Some(parent_id) {
         return false;
     }
     let has_bash_output = agent.result.as_ref().is_some_and(|result| {
         result.file_refs.as_ref().is_some_and(|file_refs| {
             file_refs
                 .iter()
-                .any(|file_ref| file_ref.label.as_deref() == Some("Bash output"))
+                .any(|file_ref| file_ref.label.as_ref().is_some_and(|label| label == "Bash output"))
         })
     });
     if !has_bash_output {
         return false;
     }
-    let worker_matches = agent.worker.as_ref().and_then(|worker| worker.tool_call_id.as_deref()) == Some(tool_call_id);
-    let result_matches = agent.result.as_ref().and_then(|result| result.tool_call_id.as_deref()) == Some(tool_call_id);
+    let worker_matches = agent.worker.as_ref().and_then(|worker| worker.tool_call_id.as_ref()) == Some(tool_call_id);
+    let result_matches = agent.result.as_ref().and_then(|result| result.tool_call_id.as_ref()) == Some(tool_call_id);
     worker_matches || result_matches
 }
 
@@ -414,7 +432,7 @@ fn compare_persisted_bash_jobs(left: &AgentSnapshot, right: &AgentSnapshot) -> s
     if active_difference != 0 {
         return active_difference.cmp(&0);
     }
-    pi_js_compat::locale_compare(&right.updated_at, &left.updated_at)
+    pi_js_compat::collator::locale_compare_utf16(right.updated_at.units(), left.updated_at.units())
 }
 
 fn launch_detached_bash_job(
@@ -423,20 +441,11 @@ fn launch_detached_bash_job(
 ) -> Result<LaunchedDetachedBashJob, DetachedJobError> {
     let reserved = reserve_detached_job(options, DetachedJobAgentType::Bash)?;
     let artifacts = reserved.artifacts;
-    let activation_path = Path::new(&artifacts.directory)
-        .join("activation.json")
-        .to_string_lossy()
-        .into_owned();
-    let foreground_completion_path = Path::new(&artifacts.directory)
-        .join("foreground-completed")
-        .to_string_lossy()
-        .into_owned();
-    let manifest_path = Path::new(&artifacts.directory)
-        .join("launch.json")
-        .to_string_lossy()
-        .into_owned();
+    let activation_path = node_join(&artifacts.directory, "activation.json");
+    let foreground_completion_path = node_join(&artifacts.directory, "foreground-completed");
+    let manifest_path = node_join(&artifacts.directory, "launch.json");
     let runner_pid = crate::core::detached_bash_runner::launch_detached_bash_runner(&manifest_path)
-        .map_err(|error| DetachedJobError::Launch(error.to_string()))?;
+        .map_err(|error| DetachedJobError::Launch(error.message().clone()))?;
     let process_identity =
         read_process_identity(runner_pid).map_err(|error| DetachedJobError::Launch(error.message.clone()))?;
     let manifest = DetachedBashLaunchManifestData {
@@ -446,7 +455,11 @@ fn launch_detached_bash_job(
         command: input.command.clone(),
         control_db_path: options.control_db_path.clone(),
         cwd: input.cwd.clone(),
-        env: input.env.iter().cloned().collect(),
+        env: input
+            .env
+            .iter()
+            .map(|(name, value)| (name.clone(), JsValue::String(value.clone())))
+            .collect(),
         foreground_completion_path: foreground_completion_path.clone(),
         runner_address: crate::core::session_control_db::RuntimeMailboxAddress {
             agent_id: Some(reserved.job_id.clone().into()),
@@ -459,7 +472,7 @@ fn launch_detached_bash_job(
     let write_manifest = options.write_bash_launch_manifest.as_ref();
     let write_result = match write_manifest {
         Some(write_manifest) => write_manifest(&manifest_path, &manifest),
-        None => write_detached_bash_launch_manifest(&manifest_path, &manifest).map_err(|error| error.to_string()),
+        None => write_detached_bash_launch_manifest(&manifest_path, &manifest).map_err(|error| error.message().clone()),
     };
     if let Err(message) = write_result {
         let _ =
@@ -497,7 +510,7 @@ fn reserve_detached_job(
 
 fn observe_detached_job(
     options: &DetachedJobLifecycleControllerOptions,
-    job_id: &str,
+    job_id: &JsString,
 ) -> Result<Option<AgentSnapshot>, DetachedJobError> {
     let Some(mut agent) = read_multi_agent_agent(&options.control_db_path, &options.session_path, job_id)? else {
         return Ok(None);
@@ -521,7 +534,7 @@ fn observe_detached_job(
 
 fn should_recover_dead_child(
     options: &DetachedJobLifecycleControllerOptions,
-    job_id: &str,
+    job_id: &JsString,
     agent: &AgentSnapshot,
     ownership: Option<&MultiAgentRuntimeOwnership>,
 ) -> bool {
@@ -537,7 +550,7 @@ fn should_recover_dead_child(
     ownership.session_path == options.session_path
         && ownership.agent_id == job_id
         && ownership.owner.agent_id == options.owner_agent_id
-        && ownership.owner.session_id.as_deref() == Some(options.owner_session_id.as_str())
+        && ownership.owner.session_id.as_ref() == Some(&options.owner_session_id)
         && !is_process_identity_alive(process_identity)
 }
 
@@ -551,7 +564,7 @@ fn register_detached_job(
     )?;
     let output_label = input.agent_type.output_label();
     let mut file_refs = vec![AgentFileReference {
-        label: Some(output_label.to_owned()),
+        label: Some(output_label.into()),
         path: artifacts.output_path.clone(),
     }];
     if let Some(extra_refs) = &input.file_refs {
@@ -561,11 +574,11 @@ fn register_detached_job(
         spawn: SpawnAgent {
             parent_id: options.owner_agent_id.clone(),
             display_name: input.display_name.clone(),
-            agent_type: "background".to_owned(),
+            agent_type: "background".into(),
             origin: None,
             cwd: input.cwd.clone(),
             permission: AgentPermission {
-                policy: "on-request".to_owned(),
+                policy: "on-request".into(),
                 inherited_from: None,
                 narrowed: true,
             },
@@ -600,7 +613,7 @@ fn register_detached_job(
     let (agent, control_ownership) = match created {
         CreateMultiAgentChildWithRuntimeOwnershipResult::Ok { agent, ownership } => (*agent, *ownership),
         CreateMultiAgentChildWithRuntimeOwnershipResult::Err { error } => {
-            return Err(DetachedJobError::Launch(format!(
+            return Err(DetachedJobError::Launch(js_format!(
                 "Could not own detached {} job: {}",
                 input.agent_type.as_str(),
                 error.as_str()
@@ -610,7 +623,7 @@ fn register_detached_job(
     options.store.publish_lifecycle_coordinator_snapshot(&agent)?;
     let Some(process_identity) = control_ownership.process_identity.clone() else {
         return Err(DetachedJobError::Launch(
-            "Detached job ownership identity is incomplete".to_owned(),
+            "Detached job ownership identity is incomplete".into(),
         ));
     };
     let identity = DetachedJobOwnershipIdentity {
@@ -624,7 +637,7 @@ fn register_detached_job(
                 .unwrap_or_else(|| options.owner_session_id.clone()),
         },
         process_identity,
-        output_label: output_label.to_owned(),
+        output_label: output_label.into(),
     };
     Ok(DetachedJobOwnership {
         agent,

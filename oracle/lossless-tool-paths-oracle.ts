@@ -19,6 +19,30 @@ async function main() {
 			process.stdout.write(`${JSON.stringify({call:call.render(input.width),result:result.render(input.width)})}\n`);
 			continue;
 		}
+		if (input.kind === "detachedManifest") {
+			module.writeDetachedBashLaunchManifest(input.path,input.data);
+			const {readFile}=await import("node:fs/promises");
+			process.stdout.write(`${JSON.stringify({wire:await readFile(input.path,"utf8")})}\n`);
+			continue;
+		}
+		if (input.kind === "bootstrapSplit") {
+			try {module.spawnGatedDetachedPayload(input.input);throw new Error("expected split output rejection");}
+			catch(error) {
+				if (!(error instanceof Error)) throw error;
+				process.stdout.write(`${JSON.stringify({error:error.message})}\n`);
+			}
+			continue;
+		}
+		if (input.kind === "detachedArtifacts") {
+			try {
+				const artifacts=module[input.operation](input.root,input.job);
+				process.stdout.write(`${JSON.stringify({artifacts})}\n`);
+			} catch(error) {
+				if (!(error instanceof Error)) throw error;
+				process.stdout.write(`${JSON.stringify({error:error.message})}\n`);
+			}
+			continue;
+		}
 		if (input.kind === "fileAttachment") {
 			const result=await module.processFileArguments(input.paths);
 			process.stdout.write(`${JSON.stringify(result)}\n`);
