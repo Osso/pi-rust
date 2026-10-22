@@ -1,42 +1,24 @@
-# faux provider traceability
+# Faux — common-pin re-port
 
-Source: `packages/ai/src/providers/faux.ts` → `crates/pi-ai/src/providers/faux.rs`.
-Tests: `crates/pi-ai/tests/faux_provider.rs`; differential `tests/differential_ai_runtime` (`faux_sequence`).
+Frozen `packages/ai/src/providers/faux.ts`, `4f9e6f8a4` (whole module, lines 1–542). Rust `providers/faux.rs`.
 
-## Symbols → proof
-| TS | Rust | Test |
+| Exports / branches | Frozen lines | Proof |
 |---|---|---|
-| `FauxModelDefinition`, `FauxTokenSize`, `FauxDeferredOptions`, `RegisterFauxProviderOptions` | same | multi-model/deferred/default tests |
-| `FauxContentBlock` helpers `fauxText/fauxThinking/fauxToolCall` | `faux_text/faux_thinking/faux_tool_call` returning `AssistantContent` | block helper tests |
-| `fauxAssistantMessage` | `faux_assistant_message` + `FauxContent`, `FauxAssistantMessageOptions` | all faux tests |
-| `FauxProviderState`, `FauxResponseFactory`, `FauxResponseStep` | same (`Message` boxes the large message) | queue/factory tests |
-| `createFauxCore` | `create_faux_core` → `FauxCore` | defaults, stream, deferred tests |
-| `stream`, `streamSimple` | `ProviderStreams::stream/stream_simple` | stream tests |
-| `fetchDeferred`, `cancelDeferred` | same trait methods | deferred tests |
-| `getModel` overload | `get_model(Option<&str>)` | multi-model/default tests |
-| `setResponses/appendResponses/getPendingResponseCount` | same | queue tests |
-| `fauxProvider` | `faux_provider` → `FauxProviderHandle` | provider tests |
-| `registerFauxProvider` | out of scope (`compat.ts` global registry) | gap |
+| `fauxText`, `fauxThinking`, `fauxToolCall`, `fauxAssistantMessage`, normalized content/options | 45–94 | `faux_provider_supports_thinking_text_and_tool_call_blocks`, factory/identity tests |
+| context/usage/cache common prefix and cacheRetention | 132–250 | serialized-context/cache tests |
+| UTF-16 token chunks, clone retains timestamp 0 | 253–274 | actual frozen `faux_stream_matches_frozen_utf16_chunks_and_zero_timestamp` (full event case remains RED only on aliasing fields) |
+| stream callbacks, empty queue/factory failures, text/thinking/tools, abort and terminal reasons | 300–401 | fixed chunks/multiple tools/error+aborted/mid-stream abort tests |
+| `createFauxCore`: defaults, nonempty model list, empty requested id, queue/state | 403–511 | `faux_empty_model_list_and_empty_requested_id_use_default_model`, queue/state/model-aware tests |
+| `fauxProvider`: Models integration and auth | 525–542 | `faux_provider_registers_and_estimates_usage`, rewrite/auth integration tests |
 
-## Semantics
-- Responses are consumed in queue order; an exhausted queue yields `"No more faux responses queued"` with estimated usage.
-- Messages are cloned and rewritten to the requested api/provider/model before usage estimation.
-- Usage estimation serializes the context exactly as TS (`system:`, `role:text`, `tools:` joined by blank lines), estimates `ceil(UTF-16 units / 4)`, and implements session prompt-prefix caching unless `cacheRetention === "none"`.
-- Event order for fixed chunk sizes matches TS: start, thinking/text/toolcall start/delta/end, done or error.
-- Pending stop reasons produce `"Faux response ended without a stop reason"`. Explicit `error`/`aborted` stop reasons terminate with an error event.
-- Abort checks occur before the stream, before each block, and after each paced chunk. Paced chunks use `tokensPerSecond`; otherwise scheduling yields to the executor (TS `queueMicrotask`).
-- Deferred submissions store the scripted step, return a deferred handle, and honor `pendingFetches`/`pollAfterMs`. Fetch failures are returned in-band; cancellation is recorded and later fetches report `"Faux deferred response was cancelled: ..."`.
-- Factory errors become terminal error messages.
+## Deletion and repairs
 
-## Representation differences
-- `Math.random` chunk sizes and generated ids are replaced by a deterministic xorshift generator and a counter. Tests that assert exact events fix `tokenSize` and tool-call ids; the differential uses fixed chunk sizes.
-- `FauxResponseFactory` receives an immutable `FauxProviderStateSnapshot` (`callCount`, `deferredFetchCount`) instead of the live TS state object. Factories cannot mutate provider state.
-- Token splitting slices Rust characters, not UTF-16 code units; a chunk boundary can never create an unpaired surrogate. ASCII and all tested inputs are identical.
-- Timestamps are real `Date.now`-equivalent values and are excluded from differential comparisons.
+Frozen whole-tree search for `DeferredHandle`, `fetchDeferred`, `cancelDeferred`, `FauxDeferred` returned no matches. Removed Faux deferred options/state/submit/poll/cancel machinery and its tests; no renamed frozen equivalent exists. RED capability regression now proves absence. Removed old-only Pending test (typed source excludes it). Initial partial preserves message stop reason, matching shallow spread at frozen line 310, rather than forcing Pending. Preserved timestamp 0 (frozen nullish coalescing), repaired empty model/default-id branches, and chunked JSON argument strings by exact UTF-16 units.
 
-## Gaps
-- `registerFauxProvider`/`unregister` live in `compat.ts` (global API registry), which is outside this slice.
-- `Math.random`-derived ids and chunk boundaries are not bit-identical (non-deterministic in TS).
+## Current proof and blocker
 
-## Discrepancies
-- None observed by differential `faux_sequence` (fixed chunks, session cache, cache-retention-none).
+Revision `8fe7b79d` + Faux slice. `/tmp/pi-rust-repin-delta-ai/ledger.md`; `faux-repin-red.log`: 3 RED; `faux-utf16-red.log`: new actual-import full-event RED. Current focused target 18 GREEN / 2 RED before last stale initial-reason assertion correction; final count recorded after commit.
+
+**Unapproved aliasing difference — do not narrow/ignore.** Frozen lines 330–336 and 386–389 emit shallow partial copies sharing content blocks. Actual-import consumer oracle observes final text in text_start/early text_delta, and final arguments in early toolcall_delta. Rust events are owned historical snapshots. Full differential retains exact frozen assertions and is RED. Parent explicitly requested committing this bounded RED while user decides shared-reference port versus snapshot deviation. All other fields compare unchanged. No parity claim or approval inferred.
+
+Additional unproven boundaries: random chunk distribution/IDs, scalar `FauxContent::Text` convenience input, fractional/nonfinite token-size runtime values. These are not silently approved exclusions.

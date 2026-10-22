@@ -2,18 +2,77 @@ use std::sync::Arc;
 
 use pi_ai::models::{CreateModelsOptions, Models, MutableModels, create_models};
 use pi_ai::providers::faux::{
-    FauxAssistantMessageOptions, FauxDeferredOptions, FauxModelDefinition, FauxProviderStateSnapshot,
-    FauxResponseFactory, FauxResponseStep, FauxTokenSize, RegisterFauxProviderOptions, create_faux_core,
-    faux_assistant_message, faux_provider, faux_text, faux_thinking, faux_tool_call,
+    FauxAssistantMessageOptions, FauxModelDefinition, FauxProviderStateSnapshot, FauxResponseFactory, FauxResponseStep,
+    FauxTokenSize, RegisterFauxProviderOptions, create_faux_core, faux_assistant_message, faux_provider, faux_text,
+    faux_thinking, faux_tool_call,
 };
-use pi_ai::request::{CallbackError, DeferredRequest, SimpleStreamOptions, StreamOptions};
+use pi_ai::request::{CallbackError, SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{
-    AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, Context, DeferredHandle, Message,
-    Modality, StopReason, TextContent, TextOrImageContent, Tool, ToolCall, ToolResultMessage, ToolResultRole,
-    UserContent, UserMessage, UserRole,
+    AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, Context, Message, Modality, StopReason,
+    TextContent, TextOrImageContent, Tool, ToolCall, ToolResultMessage, ToolResultRole, UserContent, UserMessage,
+    UserRole,
 };
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
+
+#[path = "support/oracle.rs"]
+mod oracle;
+
+#[tokio::test]
+async fn faux_stream_matches_frozen_utf16_chunks_and_zero_timestamp() {
+    use pi_ai::request::ProviderStreams;
+    use pi_js_compat::js_json::{JsValue, from_value, to_value};
+    let mut oracle = oracle::TsOracle::spawn("faux-module-oracle.ts", "packages/ai/src/providers/faux.ts");
+    let content = vec![
+        faux_text("abcd😀"),
+        faux_tool_call(
+            "read",
+            pi_js_compat::js_json::parse_lossless(r#"{"x":"a😀\ud800z"}"#)
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .clone(),
+            Some("call-1".into()),
+        ),
+    ];
+    let request = to_value(&json!({"context": context()})).unwrap();
+    let mut request = request.as_object().unwrap().clone();
+    request.insert("content".into(), to_value(&content).unwrap());
+    let expected: JsValue = oracle.request(&JsValue::Object(request));
+    let core = create_faux_core(RegisterFauxProviderOptions {
+        api: Some("test-api".into()),
+        provider: Some("test-provider".into()),
+        models: Some(vec![]),
+        token_size: Some(FauxTokenSize {
+            min: Some(1.0),
+            max: Some(1.0),
+        }),
+        ..Default::default()
+    });
+    core.set_responses(vec![
+        faux_assistant_message(
+            content,
+            FauxAssistantMessageOptions {
+                timestamp: Some(0),
+                ..Default::default()
+            },
+        )
+        .into(),
+    ]);
+    let mut stream = core.stream_simple(core.get_model(Some("")).unwrap(), context(), simple_options());
+    let events = collect(&mut stream).await;
+    let result = stream.result().await.unwrap();
+    let mut actual = pi_js_compat::js_json::JsObject::new();
+    actual.insert("events".into(), to_value(&events).unwrap());
+    actual.insert("result".into(), to_value(&result).unwrap());
+    let _: pi_ai::types::AssistantMessage = from_value(&to_value(&result).unwrap()).unwrap();
+    let actual = JsValue::Object(actual);
+    if actual != expected {
+        eprintln!("ACTUAL {}", pi_js_compat::js_json::stringify_lossless(&actual));
+        eprintln!("EXPECTED {}", pi_js_compat::js_json::stringify_lossless(&expected));
+    }
+    assert_eq!(actual, expected);
+}
 
 fn context() -> Context {
     Context {
@@ -59,6 +118,23 @@ fn event_types(events: &[AssistantMessageEvent]) -> Vec<&'static str> {
             AssistantMessageEvent::Error { .. } => "error",
         })
         .collect()
+}
+
+#[test]
+fn faux_core_has_no_deferred_capabilities_at_frozen_pin() {
+    let core = create_faux_core(RegisterFauxProviderOptions::default());
+    assert!(!pi_ai::request::ProviderStreams::supports_fetch_deferred(&core));
+    assert!(!pi_ai::request::ProviderStreams::supports_cancel_deferred(&core));
+}
+
+#[test]
+fn faux_empty_model_list_and_empty_requested_id_use_default_model() {
+    let core = create_faux_core(RegisterFauxProviderOptions {
+        models: Some(vec![]),
+        ..Default::default()
+    });
+    assert_eq!(core.models().len(), 1);
+    assert_eq!(core.get_model(Some("")).unwrap().id, "faux-1");
 }
 
 #[tokio::test]
@@ -343,36 +419,6 @@ async fn faux_provider_supports_async_factories_and_reports_factory_errors() {
 }
 
 #[tokio::test]
-async fn faux_provider_rejects_a_pending_stop_reason() {
-    let faux = faux_provider(RegisterFauxProviderOptions::default());
-    let models = create_models(CreateModelsOptions::default());
-    models.set_provider(faux.provider.clone());
-    faux.set_responses(vec![FauxResponseStep::message(faux_assistant_message(
-        "partial",
-        FauxAssistantMessageOptions {
-            stop_reason: Some(StopReason::Pending),
-            ..Default::default()
-        },
-    ))]);
-    let mut stream = models.stream_simple(faux.get_model(None).unwrap(), context(), simple_options());
-    let events = collect(&mut stream).await;
-    assert!(!event_types(&events).contains(&"done"));
-    let terminal = events.last().unwrap();
-    match terminal {
-        AssistantMessageEvent::Error { error, .. } => {
-            assert_eq!(error.stop_reason, StopReason::Error);
-            assert_eq!(
-                error.error_message.as_ref(),
-                Some(&pi_js_compat::js_json::JsString::from(
-                    "Faux response ended without a stop reason"
-                ))
-            );
-        }
-        other => panic!("expected terminal error, got {other:?}"),
-    }
-}
-
-#[tokio::test]
 async fn faux_provider_estimates_prompt_and_output_tokens_from_serialized_context() {
     let faux = faux_provider(RegisterFauxProviderOptions::default());
     faux.set_responses(vec![FauxResponseStep::message(faux_assistant_message(
@@ -565,7 +611,7 @@ async fn faux_provider_streams_exact_event_order_for_fixed_chunks() {
     let mut stream = models.stream_simple(faux.get_model(None).unwrap(), context(), simple_options());
     let events = collect(&mut stream).await;
     match &events[0] {
-        AssistantMessageEvent::Start { partial } => assert_eq!(partial.stop_reason, StopReason::Pending),
+        AssistantMessageEvent::Start { partial } => assert_eq!(partial.stop_reason, StopReason::ToolUse),
         other => panic!("expected start, got {other:?}"),
     }
     assert_eq!(
@@ -816,144 +862,6 @@ async fn faux_provider_aborts_mid_toolcall_stream() {
 }
 
 #[tokio::test]
-async fn faux_provider_submits_polls_and_redeems_deferred_responses() {
-    let faux = faux_provider(RegisterFauxProviderOptions {
-        deferred: Some(FauxDeferredOptions {
-            pending_fetches: Some(1.0),
-            poll_after_ms: Some(25.0),
-        }),
-        ..Default::default()
-    });
-    let models = models_helper(&faux);
-    faux.set_responses(vec![FauxResponseStep::message(faux_assistant_message(
-        "ready",
-        FauxAssistantMessageOptions::default(),
-    ))]);
-    let model = faux.get_model(None).unwrap();
-    let mut submission = models.stream_simple(
-        model.clone(),
-        context(),
-        SimpleStreamOptions {
-            deferred: Some(DeferredRequest::Enabled { window: None }),
-            ..Default::default()
-        },
-    );
-    let events = collect(&mut submission).await;
-    assert_eq!(event_types(&events), vec!["start", "done"]);
-    let deferred = submission.result().await.unwrap();
-    assert_eq!(deferred.stop_reason, StopReason::Deferred);
-    assert!(deferred.content.is_empty());
-    let handle = deferred.deferred.clone().unwrap();
-    assert_eq!(handle.provider, model.provider);
-    assert_eq!(handle.model_id, model.id);
-    assert_eq!(handle.api, model.api);
-    assert_eq!(handle.poll_after_ms, Some(25.0));
-
-    let pending = models
-        .fetch_deferred(
-            model.clone(),
-            handle.clone(),
-            pi_ai::request::DeferredFetchOptions::default(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(pending.stop_reason, StopReason::Deferred);
-    assert_eq!(pending.deferred, Some(handle.clone()));
-
-    let ready = models
-        .fetch_deferred(
-            model,
-            handle,
-            pi_ai::request::DeferredFetchOptions {
-                wait: Some(0.0),
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
-    assert_eq!(ready.stop_reason, StopReason::Stop);
-    assert_eq!(ready.content, vec![AssistantContent::Text(TextContent::new("ready"))]);
-    assert!(ready.usage.total_tokens > 0.0);
-    let state = faux.state();
-    let state = state.lock().unwrap();
-    assert_eq!(state.call_count, 1);
-    assert_eq!(state.deferred_fetch_count, 2);
-}
-
-#[tokio::test]
-async fn faux_provider_records_cancellation_and_returns_deferred_failures_in_band() {
-    let faux = faux_provider(RegisterFauxProviderOptions::default());
-    let models = models_helper(&faux);
-    let failing: FauxResponseFactory =
-        Arc::new(|_context, _options, _state, _model| Box::pin(async { Err(CallbackError::new("deferred failed")) }));
-    faux.set_responses(vec![
-        FauxResponseStep::Factory(failing),
-        FauxResponseStep::message(faux_assistant_message(
-            "cancelled",
-            FauxAssistantMessageOptions::default(),
-        )),
-    ]);
-    let model = faux.get_model(None).unwrap();
-    let failed_submission = models
-        .complete_simple(
-            model.clone(),
-            context(),
-            SimpleStreamOptions {
-                deferred: Some(DeferredRequest::Enabled { window: None }),
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
-    let failed_handle = failed_submission.deferred.clone().unwrap();
-    let failed = models
-        .fetch_deferred(
-            model.clone(),
-            failed_handle,
-            pi_ai::request::DeferredFetchOptions::default(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(failed.stop_reason, StopReason::Error);
-    assert_eq!(
-        failed.error_message.as_ref(),
-        Some(&pi_js_compat::js_json::JsString::from("deferred failed"))
-    );
-
-    let cancelled_submission = models
-        .complete_simple(
-            model.clone(),
-            context(),
-            SimpleStreamOptions {
-                deferred: Some(DeferredRequest::Enabled { window: None }),
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
-    let cancelled_handle = cancelled_submission.deferred.clone().unwrap();
-    models
-        .cancel_deferred(model.clone(), cancelled_handle.clone(), Default::default())
-        .await
-        .unwrap();
-    assert_eq!(
-        faux.state().lock().unwrap().cancelled_deferred,
-        vec![cancelled_handle.clone()]
-    );
-    let cancelled = models
-        .fetch_deferred(model, cancelled_handle, pi_ai::request::DeferredFetchOptions::default())
-        .await
-        .unwrap();
-    assert_eq!(cancelled.stop_reason, StopReason::Error);
-    assert!(
-        cancelled
-            .error_message
-            .as_ref()
-            .is_some_and(|message| message.contains("was cancelled"))
-    );
-}
-
-#[tokio::test]
 async fn faux_core_exposes_deterministic_defaults() {
     let core = create_faux_core(RegisterFauxProviderOptions::default());
     assert!(core.api().starts_with("faux:"));
@@ -964,14 +872,5 @@ async fn faux_core_exposes_deterministic_defaults() {
     assert_eq!(core.get_pending_response_count(), 0);
     assert_eq!(core.state_snapshot().call_count, 0);
     let _ = ToolCall::new("id", "name", Default::default());
-    let _ = DeferredHandle {
-        provider: "p".to_owned(),
-        model_id: "m".to_owned(),
-        api: "a".to_owned(),
-        id: "i".to_owned(),
-        expires_at: None,
-        poll_after_ms: None,
-        data: None,
-    };
     let _: StreamOptions = StreamOptions::default();
 }

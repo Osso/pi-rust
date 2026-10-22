@@ -13,14 +13,11 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use crate::models::{CreateProviderOptions, Provider, ProviderApi, create_provider};
-use crate::request::{
-    BoxFuture, CallbackError, DeferredCancelOptions, DeferredFetchOptions, ProviderStreams, SimpleStreamOptions,
-    StreamOptions, now_millis,
-};
+use crate::request::{BoxFuture, CallbackError, ProviderStreams, SimpleStreamOptions, StreamOptions, now_millis};
 use crate::types::{
-    AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, Context, DeferredHandle, DoneReason,
-    ErrorReason, Message, Modality, Model, ModelCostRates, ProviderResponse, StopReason, TextContent,
-    TextOrImageContent, ThinkingContent, ToolCall, Usage, UsageCost, UserContent,
+    AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, Context, DoneReason, ErrorReason,
+    Message, Modality, Model, ModelCostRates, ProviderResponse, StopReason, TextContent, TextOrImageContent,
+    ThinkingContent, ToolCall, Usage, UsageCost, UserContent,
 };
 use crate::utils::event_stream::{
     AssistantMessageEventSender, AssistantMessageEventStream, create_assistant_message_event_stream,
@@ -55,19 +52,11 @@ pub struct FauxTokenSize {
     pub max: Option<f64>,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct FauxDeferredOptions {
-    /// Fetches that return the original handle before the scripted response is ready.
-    pub pending_fetches: Option<f64>,
-    pub poll_after_ms: Option<f64>,
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct RegisterFauxProviderOptions {
     pub api: Option<String>,
     pub provider: Option<String>,
     pub models: Option<Vec<FauxModelDefinition>>,
-    pub deferred: Option<FauxDeferredOptions>,
     pub tokens_per_second: Option<f64>,
     pub token_size: Option<FauxTokenSize>,
 }
@@ -122,7 +111,6 @@ pub fn faux_tool_call(
 #[derive(Debug, Clone, Default)]
 pub struct FauxAssistantMessageOptions {
     pub stop_reason: Option<StopReason>,
-    pub deferred: Option<DeferredHandle>,
     pub error_message: Option<pi_js_compat::js_json::JsString>,
     pub response_id: Option<String>,
     pub timestamp: Option<i64>,
@@ -142,7 +130,6 @@ pub fn faux_assistant_message(
     message.content = content;
     message.usage = default_usage();
     message.stop_reason = options.stop_reason.unwrap_or(StopReason::Stop);
-    message.deferred = options.deferred;
     message.error_message = options.error_message;
     message.response_id = options.response_id;
     message.timestamp = options.timestamp.unwrap_or_else(now_millis);
@@ -152,14 +139,11 @@ pub fn faux_assistant_message(
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct FauxProviderState {
     pub call_count: u64,
-    pub deferred_fetch_count: u64,
-    pub cancelled_deferred: Vec<DeferredHandle>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FauxProviderStateSnapshot {
     pub call_count: u64,
-    pub deferred_fetch_count: u64,
 }
 
 pub type FauxResponseFactory = Arc<
@@ -197,18 +181,6 @@ impl From<FauxResponseFactory> for FauxResponseStep {
     }
 }
 
-#[derive(Clone)]
-struct DeferredEntry {
-    handle: DeferredHandle,
-    step: FauxResponseStep,
-    context: Context,
-    options: Option<SimpleStreamOptions>,
-    model: Model,
-    pending_fetches: usize,
-    cancelled: bool,
-    final_message: Option<AssistantMessage>,
-}
-
 pub struct FauxCore {
     api: String,
     provider: String,
@@ -219,8 +191,6 @@ pub struct FauxCore {
     pending_responses: Arc<Mutex<Vec<FauxResponseStep>>>,
     state: Arc<Mutex<FauxProviderState>>,
     prompt_cache: Arc<Mutex<HashMap<JsString, JsString>>>,
-    deferred_responses: Arc<Mutex<HashMap<String, DeferredEntry>>>,
-    deferred: FauxDeferredOptions,
 }
 
 /// `createFauxCore()`.
@@ -244,7 +214,7 @@ pub fn create_faux_core(options: RegisterFauxProviderOptions) -> FauxCore {
         .unwrap_or(DEFAULT_MAX_TOKEN_SIZE as f64)
         .max(min_token_size as f64) as usize;
 
-    let definitions = options.models.unwrap_or_else(|| {
+    let definitions = options.models.filter(|models| !models.is_empty()).unwrap_or_else(|| {
         vec![FauxModelDefinition {
             id: DEFAULT_MODEL_ID.to_owned(),
             name: Some(DEFAULT_MODEL_NAME.to_owned()),
@@ -291,8 +261,6 @@ pub fn create_faux_core(options: RegisterFauxProviderOptions) -> FauxCore {
         pending_responses: Arc::new(Mutex::new(Vec::new())),
         state: Arc::new(Mutex::new(FauxProviderState::default())),
         prompt_cache: Arc::new(Mutex::new(HashMap::new())),
-        deferred_responses: Arc::new(Mutex::new(HashMap::new())),
-        deferred: options.deferred.unwrap_or_default(),
     }
 }
 
@@ -331,7 +299,7 @@ impl FauxCore {
 
     pub fn get_model(&self, id: Option<&str>) -> Option<Model> {
         match id {
-            None => self.models.first().cloned(),
+            None | Some("") => self.models.first().cloned(),
             Some(id) => self.models.iter().find(|model| model.id == id).cloned(),
         }
     }
@@ -356,9 +324,7 @@ impl FauxCore {
         let min_token_size = self.min_token_size;
         let max_token_size = self.max_token_size;
         let tokens_per_second = self.tokens_per_second;
-        let deferred_options = self.deferred;
         let resolver = FauxResolver {
-            deferred_responses: Arc::clone(&self.deferred_responses),
             prompt_cache: Arc::clone(&self.prompt_cache),
             state: Arc::clone(&self.state),
             api: self.api.clone(),
@@ -413,51 +379,6 @@ impl FauxCore {
                 .as_ref()
                 .and_then(|options| options.stream.request.signal.clone());
 
-            if options.as_ref().is_some_and(|options| options.deferred.is_some()) {
-                let handle = DeferredHandle {
-                    provider: request_model.provider.clone(),
-                    model_id: request_model.id.clone(),
-                    api: request_model.api.clone(),
-                    id: random_id("deferred"),
-                    expires_at: None,
-                    poll_after_ms: deferred_options.poll_after_ms,
-                    data: None,
-                };
-                let pending_fetches = deferred_options.pending_fetches.unwrap_or(0.0).max(0.0) as usize;
-                lock(&resolver.deferred_responses).insert(
-                    handle.id.clone(),
-                    DeferredEntry {
-                        handle: handle.clone(),
-                        step,
-                        context: context.clone(),
-                        options: options.clone(),
-                        model: request_model.clone(),
-                        pending_fetches,
-                        cancelled: false,
-                        final_message: None,
-                    },
-                );
-                if let Err(error) = stream_with_deltas(
-                    &sender,
-                    create_deferred_message(&request_model, handle),
-                    min_token_size,
-                    max_token_size,
-                    tokens_per_second,
-                    signal.as_ref(),
-                )
-                .await
-                {
-                    let message =
-                        create_error_message(&error.message, &resolver.api, &resolver.provider, &request_model.id);
-                    sender.push(AssistantMessageEvent::Error {
-                        reason: ErrorReason::Error,
-                        error: message.clone(),
-                    });
-                    sender.end(Some(message));
-                }
-                return;
-            }
-
             let result = resolver.resolve(step, &context, options.as_ref(), &request_model).await;
             match result {
                 Ok(message) => {
@@ -494,87 +415,9 @@ impl FauxCore {
 
         stream
     }
-
-    fn fetch_deferred_stream(
-        &self,
-        request_model: Model,
-        handle: DeferredHandle,
-        options: DeferredFetchOptions,
-    ) -> AssistantMessageEventStream {
-        let (sender, stream) = create_assistant_message_event_stream();
-        lock(&self.state).deferred_fetch_count += 1;
-
-        let min_token_size = self.min_token_size;
-        let max_token_size = self.max_token_size;
-        let tokens_per_second = self.tokens_per_second;
-        let resolver = FauxResolver {
-            deferred_responses: Arc::clone(&self.deferred_responses),
-            prompt_cache: Arc::clone(&self.prompt_cache),
-            state: Arc::clone(&self.state),
-            api: self.api.clone(),
-            provider: self.provider.clone(),
-        };
-
-        tokio::spawn(async move {
-            if let Some(on_response) = options.request.on_response.clone()
-                && let Err(error) = on_response(
-                    ProviderResponse {
-                        status: 200.0,
-                        headers: Default::default(),
-                    },
-                    request_model.clone(),
-                )
-                .await
-            {
-                let message =
-                    create_error_message(&error.message, &resolver.api, &resolver.provider, &request_model.id);
-                sender.push(AssistantMessageEvent::Error {
-                    reason: ErrorReason::Error,
-                    error: message.clone(),
-                });
-                sender.end(Some(message));
-                return;
-            }
-            let result = resolver.fetch(&request_model, &handle).await;
-            match result {
-                Ok(message) => {
-                    if let Err(error) = stream_with_deltas(
-                        &sender,
-                        message,
-                        min_token_size,
-                        max_token_size,
-                        tokens_per_second,
-                        options.request.signal.as_ref(),
-                    )
-                    .await
-                    {
-                        let message =
-                            create_error_message(&error.message, &resolver.api, &resolver.provider, &request_model.id);
-                        sender.push(AssistantMessageEvent::Error {
-                            reason: ErrorReason::Error,
-                            error: message.clone(),
-                        });
-                        sender.end(Some(message));
-                    }
-                }
-                Err(error) => {
-                    let message =
-                        create_error_message(&error.message, &resolver.api, &resolver.provider, &request_model.id);
-                    sender.push(AssistantMessageEvent::Error {
-                        reason: ErrorReason::Error,
-                        error: message.clone(),
-                    });
-                    sender.end(Some(message));
-                }
-            }
-        });
-
-        stream
-    }
 }
 
 struct FauxResolver {
-    deferred_responses: Arc<Mutex<HashMap<String, DeferredEntry>>>,
     prompt_cache: Arc<Mutex<HashMap<JsString, JsString>>>,
     state: Arc<Mutex<FauxProviderState>>,
     api: String,
@@ -582,60 +425,6 @@ struct FauxResolver {
 }
 
 impl FauxResolver {
-    async fn fetch(&self, request_model: &Model, handle: &DeferredHandle) -> Result<AssistantMessage, CallbackError> {
-        let entry = lock(&self.deferred_responses).get(&handle.id).cloned();
-        let Some(entry) = entry else {
-            return Err(CallbackError::new(format!(
-                "Unknown faux deferred response: {}",
-                handle.id
-            )));
-        };
-        if entry.handle.provider != handle.provider
-            || entry.handle.model_id != handle.model_id
-            || entry.handle.api != handle.api
-        {
-            return Err(CallbackError::new(format!(
-                "Unknown faux deferred response: {}",
-                handle.id
-            )));
-        }
-        if entry.cancelled {
-            return Err(CallbackError::new(format!(
-                "Faux deferred response was cancelled: {}",
-                handle.id
-            )));
-        }
-        if entry.pending_fetches > 0 {
-            if let Some(stored) = lock(&self.deferred_responses).get_mut(&handle.id) {
-                stored.pending_fetches -= 1;
-            }
-            return Ok(create_deferred_message(request_model, entry.handle));
-        }
-        if let Some(final_message) = entry.final_message {
-            return Ok(final_message);
-        }
-
-        let mut submission_options = entry.options.clone();
-        if let Some(options) = submission_options.as_mut() {
-            options.deferred = None;
-            options.stream.request.signal = None;
-            options.stream.request.on_response = None;
-        }
-        let resolved = self
-            .resolve(
-                entry.step.clone(),
-                &entry.context,
-                submission_options.as_ref(),
-                &entry.model,
-            )
-            .await
-            .unwrap_or_else(|error| create_error_message(&error.message, &self.api, &self.provider, &entry.model.id));
-        if let Some(stored) = lock(&self.deferred_responses).get_mut(&handle.id) {
-            stored.final_message = Some(resolved.clone());
-        }
-        Ok(resolved)
-    }
-
     async fn resolve(
         &self,
         step: FauxResponseStep,
@@ -650,7 +439,6 @@ impl FauxResolver {
                     let state = lock(&self.state);
                     FauxProviderStateSnapshot {
                         call_count: state.call_count,
-                        deferred_fetch_count: state.deferred_fetch_count,
                     }
                 };
                 factory(context.clone(), options.cloned(), snapshot, request_model.clone()).await?
@@ -684,50 +472,6 @@ impl ProviderStreams for FauxCore {
         options: SimpleStreamOptions,
     ) -> AssistantMessageEventStream {
         self.stream_with_options(model, context, Some(options))
-    }
-
-    fn supports_fetch_deferred(&self) -> bool {
-        true
-    }
-
-    fn fetch_deferred(
-        &self,
-        model: Model,
-        handle: DeferredHandle,
-        options: DeferredFetchOptions,
-    ) -> AssistantMessageEventStream {
-        self.fetch_deferred_stream(model, handle, options)
-    }
-
-    fn supports_cancel_deferred(&self) -> bool {
-        true
-    }
-
-    fn cancel_deferred(
-        &self,
-        model: Model,
-        handle: DeferredHandle,
-        options: DeferredCancelOptions,
-    ) -> BoxFuture<'_, Result<(), CallbackError>> {
-        let state = Arc::clone(&self.state);
-        let deferred_responses = Arc::clone(&self.deferred_responses);
-        Box::pin(async move {
-            lock(&state).cancelled_deferred.push(handle.clone());
-            if let Some(entry) = lock(&deferred_responses).get_mut(&handle.id) {
-                entry.cancelled = true;
-            }
-            if let Some(on_response) = options.on_response {
-                on_response(
-                    ProviderResponse {
-                        status: 200.0,
-                        headers: Default::default(),
-                    },
-                    model,
-                )
-                .await?;
-            }
-            Ok(())
-        })
     }
 }
 
@@ -812,17 +556,6 @@ fn clone_message(mut message: AssistantMessage, api: &str, provider: &str, model
     message.api = api.to_owned();
     message.provider = provider.to_owned();
     message.model = model_id.to_owned();
-    if message.timestamp == 0 {
-        message.timestamp = now_millis();
-    }
-    message
-}
-
-fn create_deferred_message(model: &Model, handle: DeferredHandle) -> AssistantMessage {
-    let mut message = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis());
-    message.usage = default_usage();
-    message.stop_reason = StopReason::Deferred;
-    message.deferred = Some(handle);
     message
 }
 
@@ -857,7 +590,6 @@ async fn stream_with_deltas(
 ) -> Result<(), CallbackError> {
     let mut partial = message.clone();
     partial.content = Vec::new();
-    partial.stop_reason = StopReason::Pending;
 
     if signal.is_some_and(CancellationToken::is_cancelled) {
         let aborted = create_aborted_message(&partial);
@@ -959,7 +691,7 @@ async fn stream_with_deltas(
                 let arguments = pi_js_compat::js_json::stringify_lossless(&pi_js_compat::js_json::JsValue::Object(
                     block.arguments.clone(),
                 ));
-                let chunks = split_string_by_token_size(&arguments, min_token_size, max_token_size);
+                let chunks = split_text_by_token_size(&JsString::from(arguments), min_token_size, max_token_size);
                 let last_chunk = chunks.len().saturating_sub(1);
                 for (chunk_index, chunk) in chunks.iter().enumerate() {
                     schedule_chunk(chunk, tokens_per_second).await;
@@ -981,7 +713,7 @@ async fn stream_with_deltas(
                     }
                     sender.push(AssistantMessageEvent::ToolCallDelta {
                         content_index: index,
-                        delta: chunk.clone().into(),
+                        delta: chunk.clone(),
                         partial: partial.clone(),
                     });
                 }
@@ -1067,24 +799,6 @@ fn split_text_by_token_size(text: &JsString, min_token_size: usize, max_token_si
     }
     if chunks.is_empty() {
         chunks.push(Default::default());
-    }
-    chunks
-}
-
-fn split_string_by_token_size(text: &str, min_token_size: usize, max_token_size: usize) -> Vec<String> {
-    let mut chunks = Vec::new();
-    let chars: Vec<char> = text.chars().collect();
-    let mut index = 0;
-    while index < chars.len() {
-        let span = max_token_size.saturating_sub(min_token_size) + 1;
-        let token_size = min_token_size + (next_random() as usize % span);
-        let char_size = (token_size * 4).max(1);
-        let end = (index + char_size).min(chars.len());
-        chunks.push(chars[index..end].iter().collect());
-        index = end;
-    }
-    if chunks.is_empty() {
-        chunks.push(String::new());
     }
     chunks
 }
