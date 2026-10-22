@@ -508,7 +508,7 @@ fn rejects_invalid_enterprise_domains() {
         .expect("runtime")
         .block_on(oauth(fetch).login(interaction))
         .expect_err("invalid domain");
-    assert_eq!(error.detail(), Some("Invalid GitHub Enterprise URL/domain"));
+    assert_eq!(error.detail(), Some(&"Invalid GitHub Enterprise URL/domain".into()));
 }
 
 #[test]

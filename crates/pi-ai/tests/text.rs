@@ -6,7 +6,7 @@ fn assistant_blocks() -> Vec<AssistantContent> {
     vec![
         AssistantContent::Thinking(pi_ai::types::ThinkingContent::new("reasoning")),
         AssistantContent::Text(TextContent::new("first")),
-        AssistantContent::ToolCall(ToolCall::new("1", "read", json!({}).as_object().cloned().unwrap())),
+        AssistantContent::ToolCall(ToolCall::new("1", "read", Default::default())),
         AssistantContent::Text(TextContent::new("second")),
     ]
 }

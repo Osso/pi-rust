@@ -209,7 +209,7 @@ fn decode_body(request: &HttpRequest) -> Value {
 async fn streams_sse_text_and_codex_headers() {
     let fetch = RecordingFetch::new(vec![sse_response(&text_sse("completed", None))]);
     let mut opts = options(fetch.clone(), Transport::Sse);
-    opts.stream.session_id = Some("test-session-123".to_owned());
+    opts.stream.session_id = Some("test-session-123".into());
 
     let (events, result) = collect(stream(model(), context(), opts)).await;
 
@@ -226,7 +226,7 @@ async fn streams_sse_text_and_codex_headers() {
     assert_eq!(result.stop_reason, StopReason::Stop);
     assert_eq!(
         result.content.first().and_then(|block| match block {
-            pi_ai::types::AssistantContent::Text(text) => Some(text.text.as_str()),
+            pi_ai::types::AssistantContent::Text(text) => Some(&text.text),
             _ => None,
         }),
         Some("Hello")
@@ -432,11 +432,11 @@ async fn clamps_session_headers_and_omits_cache_affinity_for_none() {
     ]);
     let long_session = "x".repeat(67);
     let mut opts = options(fetch.clone(), Transport::Sse);
-    opts.stream.session_id = Some(long_session);
+    opts.stream.session_id = Some(long_session.into());
     collect(stream(model(), context(), opts)).await;
 
     let mut opts = options(fetch.clone(), Transport::Sse);
-    opts.stream.session_id = Some("one-off-summary".to_owned());
+    opts.stream.session_id = Some("one-off-summary".into());
     opts.stream.cache_retention = Some(pi_ai::types::CacheRetention::None);
     collect(stream(model(), context(), opts)).await;
 
@@ -720,9 +720,9 @@ async fn missing_api_key_produces_error_stream() {
 
 #[tokio::test]
 async fn close_and_reset_debug_stats_are_public() {
-    close_openai_codex_websocket_sessions(Some("missing-session"));
-    reset_openai_codex_websocket_debug_stats(Some("missing-session"));
-    assert_eq!(get_openai_codex_websocket_debug_stats("missing-session"), None);
+    close_openai_codex_websocket_sessions(Some(&"missing-session".into()));
+    reset_openai_codex_websocket_debug_stats(Some(&"missing-session".into()));
+    assert_eq!(get_openai_codex_websocket_debug_stats(&"missing-session".into()), None);
 }
 
 // =============================================================================
@@ -754,7 +754,7 @@ fn ws_options(
                 ..ProviderRequestOptions::default()
             },
             transport: Some(transport),
-            session_id: session_id.map(str::to_owned),
+            session_id: session_id.map(Into::into),
             ..StreamOptions::default()
         },
         ..OpenAICodexResponsesOptions::default()
@@ -763,7 +763,7 @@ fn ws_options(
 
 fn text_of(result: &AssistantMessage) -> Option<&str> {
     result.content.iter().find_map(|block| match block {
-        pi_ai::types::AssistantContent::Text(text) => Some(text.text.as_str()),
+        pi_ai::types::AssistantContent::Text(text) => Some(&text.text),
         _ => None,
     })
 }
@@ -819,7 +819,7 @@ async fn websocket_cached_continuation_sends_only_input_deltas() {
     assert_eq!(frames[1]["input"].as_array().unwrap().len(), 1);
     assert_eq!(frames[1]["input"][0]["content"][0]["text"], "Now finish");
 
-    let stats = get_openai_codex_websocket_debug_stats("session-1").expect("stats");
+    let stats = get_openai_codex_websocket_debug_stats(&"session-1".into()).expect("stats");
     assert_eq!(stats.requests, 2);
     assert_eq!(stats.connections_created, 1);
     assert_eq!(stats.connections_reused, 1);
@@ -828,9 +828,9 @@ async fn websocket_cached_continuation_sends_only_input_deltas() {
     assert_eq!(stats.full_context_requests, 1);
     assert_eq!(stats.delta_requests, 1);
     assert_eq!(stats.last_delta_input_items, Some(1));
-    assert_eq!(stats.last_previous_response_id.as_deref(), Some("resp_1"));
-    close_openai_codex_websocket_sessions(Some("session-1"));
-    reset_openai_codex_websocket_debug_stats(Some("session-1"));
+    assert_eq!(stats.last_previous_response_id.as_ref(), Some(&"resp_1".into()));
+    close_openai_codex_websocket_sessions(Some(&"session-1".into()));
+    reset_openai_codex_websocket_debug_stats(Some(&"session-1".into()));
 }
 
 #[tokio::test]
@@ -839,7 +839,7 @@ async fn websocket_cache_is_scoped_to_the_authenticated_account() {
     let server = start_ws_server(Arc::new(|_, _| completed_event("resp", Some("ok"), None))).await;
     let model = ws_model(&server.url);
     let context = Context {
-        system_prompt: Some(String::new()),
+        system_prompt: Some(Default::default()),
         messages: Vec::new(),
         tools: None,
     };
@@ -867,11 +867,11 @@ async fn websocket_cache_is_scoped_to_the_authenticated_account() {
         connections[1].headers.get("chatgpt-account-id").map(String::as_str),
         Some("account-b")
     );
-    let stats = get_openai_codex_websocket_debug_stats("shared-session").expect("stats");
+    let stats = get_openai_codex_websocket_debug_stats(&"shared-session".into()).expect("stats");
     assert_eq!(stats.connections_created, 2);
     assert_eq!(stats.connections_reused, 1);
-    close_openai_codex_websocket_sessions(Some("shared-session"));
-    reset_openai_codex_websocket_debug_stats(Some("shared-session"));
+    close_openai_codex_websocket_sessions(Some(&"shared-session".into()));
+    reset_openai_codex_websocket_debug_stats(Some(&"shared-session".into()));
 }
 
 #[tokio::test]
@@ -879,7 +879,7 @@ async fn closing_sessions_sends_debug_close_frame_to_cached_sockets() {
     let fetch = RecordingFetch::new(Vec::new());
     let server = start_ws_server(Arc::new(|_, _| completed_event("resp", Some("ok"), None))).await;
     let context = Context {
-        system_prompt: Some(String::new()),
+        system_prompt: Some(Default::default()),
         messages: Vec::new(),
         tools: None,
     };
@@ -895,7 +895,7 @@ async fn closing_sessions_sends_debug_close_frame_to_cached_sockets() {
     ))
     .await;
 
-    close_openai_codex_websocket_sessions(Some("close-session"));
+    close_openai_codex_websocket_sessions(Some(&"close-session".into()));
 
     let close = tokio::time::timeout(std::time::Duration::from_secs(5), async {
         loop {
@@ -908,7 +908,7 @@ async fn closing_sessions_sends_debug_close_frame_to_cached_sockets() {
     .await
     .expect("server receives close frame");
     assert_eq!(close, (1000, "debug_close".to_owned()));
-    reset_openai_codex_websocket_debug_stats(Some("close-session"));
+    reset_openai_codex_websocket_debug_stats(Some(&"close-session".into()));
 }
 
 #[tokio::test]
@@ -942,7 +942,7 @@ async fn websocket_connect_timeout_is_reported_without_sse_fallback() {
         Some("WebSocket connect timeout after 50ms")
     );
     assert!(fetch.requests().is_empty());
-    let stats = get_openai_codex_websocket_debug_stats("ws-connect-timeout").expect("stats");
+    let stats = get_openai_codex_websocket_debug_stats(&"ws-connect-timeout".into()).expect("stats");
     assert_eq!(stats.websocket_failures, 1);
     assert_eq!(
         stats
@@ -952,7 +952,7 @@ async fn websocket_connect_timeout_is_reported_without_sse_fallback() {
             .as_deref(),
         Some("WebSocket connect timeout after 50ms")
     );
-    reset_openai_codex_websocket_debug_stats(Some("ws-connect-timeout"));
+    reset_openai_codex_websocket_debug_stats(Some(&"ws-connect-timeout".into()));
     accept_task.abort();
 }
 
@@ -984,9 +984,9 @@ async fn websocket_idle_timeout_before_first_event_emits_no_start() {
             .iter()
             .any(|event| matches!(event, AssistantMessageEvent::Start { .. }))
     );
-    let stats = get_openai_codex_websocket_debug_stats("ws-idle-before-start").expect("stats");
+    let stats = get_openai_codex_websocket_debug_stats(&"ws-idle-before-start".into()).expect("stats");
     assert_eq!(stats.websocket_failures, 1);
-    reset_openai_codex_websocket_debug_stats(Some("ws-idle-before-start"));
+    reset_openai_codex_websocket_debug_stats(Some(&"ws-idle-before-start".into()));
 }
 
 #[tokio::test]
@@ -1028,8 +1028,8 @@ async fn websocket_reconnects_once_when_connection_limit_is_reached() {
     assert_eq!(retries.len(), 1);
     assert_eq!(retries[0].attempt, 1.0);
     assert_eq!(retries[0].reason, "WebSocket connection limit reached, reconnecting");
-    close_openai_codex_websocket_sessions(Some("ws-limit"));
-    reset_openai_codex_websocket_debug_stats(Some("ws-limit"));
+    close_openai_codex_websocket_sessions(Some(&"ws-limit".into()));
+    reset_openai_codex_websocket_debug_stats(Some(&"ws-limit".into()));
 }
 
 #[tokio::test]
@@ -1094,15 +1094,15 @@ async fn websocket_recovers_missing_cached_continuation() {
     assert_eq!(connections[0].frames[1]["input"].as_array().unwrap().len(), 1);
     assert_eq!(connections[1].frames[0].get("previous_response_id"), None);
     assert_eq!(connections[1].frames[0]["input"].as_array().unwrap().len(), 3);
-    let stats = get_openai_codex_websocket_debug_stats("missing").expect("stats");
+    let stats = get_openai_codex_websocket_debug_stats(&"missing".into()).expect("stats");
     assert_eq!(stats.requests, 3);
     assert_eq!(stats.connections_created, 2);
     assert_eq!(stats.connections_reused, 1);
     assert_eq!(stats.full_context_requests, 2);
     assert_eq!(stats.delta_requests, 1);
     assert_eq!(stats.websocket_failures, 0);
-    close_openai_codex_websocket_sessions(Some("missing"));
-    reset_openai_codex_websocket_debug_stats(Some("missing"));
+    close_openai_codex_websocket_sessions(Some(&"missing".into()));
+    reset_openai_codex_websocket_debug_stats(Some(&"missing".into()));
 }
 
 #[tokio::test]
@@ -1121,7 +1121,7 @@ async fn websocket_one_shot_when_cache_retention_is_none() {
     collect(stream(ws_model(&server.url), context(), opts)).await;
 
     assert_eq!(server.records.connections.lock().unwrap().len(), 2);
-    assert_eq!(get_openai_codex_websocket_debug_stats("one-off-summary"), None);
+    assert_eq!(get_openai_codex_websocket_debug_stats(&"one-off-summary".into()), None);
 }
 #[tokio::test]
 async fn response_done_is_normalized_to_completed() {
@@ -1170,7 +1170,7 @@ async fn streams_function_call_arguments() {
         .expect("tool call");
     assert_eq!(call.id, "call_1|fc_1");
     assert_eq!(call.name, "lookup");
-    assert_eq!(call.arguments["x"], 1);
+    assert_eq!(call.arguments["x"], 1.into());
 }
 
 #[tokio::test]

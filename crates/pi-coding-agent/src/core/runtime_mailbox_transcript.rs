@@ -42,11 +42,13 @@ fn string_equals(value: Option<&JsValue>, expected: &str) -> bool {
 }
 
 /// Return raw references, including lone-surrogate strings/keys and malformed array elements.
-pub fn read_accepted_runtime_mailbox_store_refs(session_path: Option<&str>) -> Result<Vec<JsValue>, ControlDbError> {
+pub fn read_accepted_runtime_mailbox_store_refs(
+    session_path: Option<&JsString>,
+) -> Result<Vec<JsValue>, ControlDbError> {
     let Some(path) = session_path.filter(|path| !path.is_empty()) else {
         return Ok(Vec::new());
     };
-    let bytes = match std::fs::read(path) {
+    let bytes = match std::fs::read(js_json::encode_node_utf8(path)) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(ControlDbError::new(error.to_string())),
