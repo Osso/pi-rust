@@ -602,7 +602,7 @@ async fn auth_result_serializes_provider_env_and_source() {
             headers: None,
             base_url: None,
         },
-        env: Some(ProviderEnv::from([("ACCOUNT".to_owned(), "a".to_owned())])),
+        env: Some(ProviderEnv::from([("ACCOUNT".into(), "a".into())])),
         source: Some(("stored credential".to_owned()).into()),
     };
     assert_eq!(

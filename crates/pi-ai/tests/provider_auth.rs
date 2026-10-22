@@ -154,15 +154,12 @@ fn anthropic_api_key_is_last_and_stored_credential_wins() {
         auth_context(&[("ANTHROPIC_API_KEY", "api-key")], &[]),
         Some(ApiKeyCredential {
             key: Some(("stored".to_owned()).into()),
-            env: Some(ProviderEnv::from([("SCOPED".to_owned(), "value".to_owned())])),
+            env: Some(ProviderEnv::from([("SCOPED".into(), "value".into())])),
         }),
     );
     assert_eq!(stored.auth.api_key.as_ref(), Some(&JsString::from("stored")));
     assert_eq!(stored.source.as_ref(), Some(&JsString::from("stored credential")));
-    assert_eq!(
-        stored.env,
-        Some(ProviderEnv::from([("SCOPED".to_owned(), "value".to_owned())]))
-    );
+    assert_eq!(stored.env, Some(ProviderEnv::from([("SCOPED".into(), "value".into())])));
 }
 
 #[test]
@@ -229,7 +226,7 @@ fn bedrock_login_covers_bearer_profile_and_chain_flows() {
         profile,
         ApiKeyCredential {
             key: None,
-            env: Some(ProviderEnv::from([("AWS_PROFILE".to_owned(), "work".to_owned())])),
+            env: Some(ProviderEnv::from([("AWS_PROFILE".into(), "work".into())])),
         }
     );
     assert_eq!(
@@ -300,7 +297,7 @@ fn bedrock_resolve_detects_stored_and_ambient_credentials() {
         auth_context(&[], &[]),
         Some(ApiKeyCredential {
             key: None,
-            env: Some(ProviderEnv::from([("AWS_PROFILE".to_owned(), "work".to_owned())])),
+            env: Some(ProviderEnv::from([("AWS_PROFILE".into(), "work".into())])),
         }),
     );
     assert_eq!(
@@ -309,7 +306,7 @@ fn bedrock_resolve_detects_stored_and_ambient_credentials() {
     );
     assert_eq!(
         stored_profile.env,
-        Some(ProviderEnv::from([("AWS_PROFILE".to_owned(), "work".to_owned())]))
+        Some(ProviderEnv::from([("AWS_PROFILE".into(), "work".into())]))
     );
 
     let keys = resolve(
@@ -366,8 +363,8 @@ fn cloudflare_workers_ai_requires_account_and_returns_scoped_env() {
     assert_eq!(
         result.env,
         Some(ProviderEnv::from([(
-            "CLOUDFLARE_ACCOUNT_ID".to_owned(),
-            "account-id".to_owned()
+            "CLOUDFLARE_ACCOUNT_ID".into(),
+            "account-id".into()
         )]))
     );
     assert_eq!(result.source.as_ref(), Some(&JsString::from("CLOUDFLARE_API_KEY")));
@@ -388,8 +385,8 @@ fn cloudflare_workers_ai_merges_partial_stored_credential_with_env() {
     assert_eq!(
         result.env,
         Some(ProviderEnv::from([(
-            "CLOUDFLARE_ACCOUNT_ID".to_owned(),
-            "env-account".to_owned()
+            "CLOUDFLARE_ACCOUNT_ID".into(),
+            "env-account".into()
         )]))
     );
     assert_eq!(result.source.as_ref(), Some(&JsString::from("stored credential")));
@@ -433,8 +430,8 @@ fn cloudflare_ai_gateway_requires_gateway_and_suppresses_default_auth_headers() 
     assert_eq!(
         result.env,
         Some(ProviderEnv::from([
-            ("CLOUDFLARE_ACCOUNT_ID".to_owned(), "account-id".to_owned()),
-            ("CLOUDFLARE_GATEWAY_ID".to_owned(), "gateway-id".to_owned()),
+            ("CLOUDFLARE_ACCOUNT_ID".into(), "account-id".into()),
+            ("CLOUDFLARE_GATEWAY_ID".into(), "gateway-id".into()),
         ]))
     );
 }
@@ -457,8 +454,8 @@ fn cloudflare_login_prompts_for_key_account_and_gateway() {
         ApiKeyCredential {
             key: Some(("cf-key".to_owned()).into()),
             env: Some(ProviderEnv::from([
-                ("CLOUDFLARE_ACCOUNT_ID".to_owned(), "account-id".to_owned()),
-                ("CLOUDFLARE_GATEWAY_ID".to_owned(), "gateway-id".to_owned()),
+                ("CLOUDFLARE_ACCOUNT_ID".into(), "account-id".into()),
+                ("CLOUDFLARE_GATEWAY_ID".into(), "gateway-id".into()),
             ])),
         }
     );
@@ -511,8 +508,8 @@ fn vertex_login_covers_key_adc_and_service_account_flows() {
         ApiKeyCredential {
             key: None,
             env: Some(ProviderEnv::from([
-                ("GOOGLE_CLOUD_PROJECT".to_owned(), "proj".to_owned()),
-                ("GOOGLE_CLOUD_LOCATION".to_owned(), "us-central1".to_owned()),
+                ("GOOGLE_CLOUD_PROJECT".into(), "proj".into()),
+                ("GOOGLE_CLOUD_LOCATION".into(), "us-central1".into()),
             ])),
         }
     );
@@ -624,9 +621,9 @@ fn vertex_stored_credential_env_drives_adc_resolution() {
     let credential = ApiKeyCredential {
         key: None,
         env: Some(ProviderEnv::from([
-            ("GOOGLE_CLOUD_PROJECT".to_owned(), "proj".to_owned()),
-            ("GOOGLE_CLOUD_LOCATION".to_owned(), "us-central1".to_owned()),
-            ("GOOGLE_APPLICATION_CREDENTIALS".to_owned(), "/tmp/sa.json".to_owned()),
+            ("GOOGLE_CLOUD_PROJECT".into(), "proj".into()),
+            ("GOOGLE_CLOUD_LOCATION".into(), "us-central1".into()),
+            ("GOOGLE_APPLICATION_CREDENTIALS".into(), "/tmp/sa.json".into()),
         ])),
     };
     let result = resolve(
