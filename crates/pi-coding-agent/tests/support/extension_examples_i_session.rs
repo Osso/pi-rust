@@ -119,6 +119,7 @@ impl ExtensionUiTuiBackend for Backend {
 }
 struct Ui {
     trace: Trace,
+    generation_started: Arc<tokio::sync::Notify>,
     theme: Arc<Theme>,
     request: Value,
 }
@@ -149,6 +150,7 @@ impl ExtensionUiContext for Ui {
         let trace = self.trace.clone();
         let theme = self.theme.clone();
         let request = self.request.clone();
+        let generation_started = self.generation_started.clone();
         ui_thread::run(move || {
             Box::pin(async move {
                 set_theme_instance(theme.clone());
@@ -183,6 +185,11 @@ impl ExtensionUiContext for Ui {
                     .await
                     .expect("custom UI did not complete")
                     .expect("done sender dropped");
+                if request["key"] == "\x1b" && request["noAuth"] != true {
+                    tokio::time::timeout(std::time::Duration::from_secs(3), generation_started.notified())
+                        .await
+                        .expect("source generation must dispatch even after loader cancellation");
+                }
                 component.dispose();
                 Ok(result)
             })
@@ -267,6 +274,8 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     }
     let calls: Trace = Arc::default();
     let log = calls.clone();
+    let generation_started = Arc::new(tokio::sync::Notify::new());
+    let started = generation_started.clone();
     let response=request.get("response").cloned().unwrap_or(json!([{"type":"text","text":"## Summary\n\nDone **one**."},{"type":"thinking","thinking":"hidden"},{"type":"text","text":"Next: `two`."}]));
     let error = request["error"].as_str().map(str::to_owned);
     let aborted = request["aborted"] == true;
@@ -274,6 +283,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
   let options=options.unwrap_or_default();let session_id=options.stream.session_id.as_ref().map(|id| {assert_eq!(id.len(),36);assert_eq!(id.slice(14, 15),"7");"<uuidv7>"});
   let mut context=serde_json::to_value(context).unwrap();context["messages"][0]["timestamp"]=json!("<clock>");
   log.lock().unwrap().push(json!({"model":[model.provider,model.id],"context":context,"options":{"cacheRetention":options.stream.cache_retention,"sessionId":session_id,"reasoningEffort":options.stream.extra.get("reasoningEffort")}}));
+  started.notify_one();
   let response=response.clone();let error=error.clone();Box::pin(async move{if let Some(error)=error{return Err(pi_ai::request::CallbackError::new(error));}let mut message=faux_assistant_message("",FauxAssistantMessageOptions{timestamp:Some(0),..Default::default()});message.content=serde_json::from_value(response).unwrap();if aborted {message.stop_reason=pi_ai::types::StopReason::Aborted;}Ok(message)})
  }))]);
     let manager = Arc::new(Mutex::new(
@@ -346,6 +356,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     let trace: Trace = Arc::default();
     let ui = Arc::new(Ui {
         trace: trace.clone(),
+        generation_started: generation_started.clone(),
         theme: theme.clone(),
         request: request.clone(),
     });
@@ -364,6 +375,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     replacement.set_ui_context(
         Some(Arc::new(Ui {
             trace: replacements.clone(),
+            generation_started,
             theme,
             request: request.clone(),
         })),
