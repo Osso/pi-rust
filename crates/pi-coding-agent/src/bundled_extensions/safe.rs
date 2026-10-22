@@ -95,10 +95,8 @@ fn safe_mode_status(enabled: bool) -> &'static str {
 }
 
 fn update_safe_status(ctx: &ExtensionContext, enabled: bool) -> Result<(), HandlerError> {
-    ctx.ui()?.set_status(
-        &SAFE_STATUS_KEY.into(),
-        if enabled { Some(&SAFE_STATUS_TEXT.into()) } else { None },
-    );
+    let text = enabled.then(|| pi_js_compat::js_json::JsString::from(SAFE_STATUS_TEXT));
+    ctx.ui()?.set_status(&SAFE_STATUS_KEY.into(), text.as_ref());
     Ok(())
 }
 

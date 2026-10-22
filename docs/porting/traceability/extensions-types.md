@@ -143,3 +143,8 @@ carry source thrown errors; run-plan also discarded cwd/readdir failures. Both
 are replaced with the Result channel, not a new fallback or a second API. A real
 extension registration fixture asserts raw command lookup and raw callback
 failure; written but unexecuted while coding compilation is blocked.
+
+Command-consumer follow-up: synthesized command error paths use native js_format;
+safe status text has an owned local lifetime through set_status. Development
+diagnostic replacement-command-1 found these two locals plus two parent
+dependencies (claim ID and general exec cwd). Corrected locally; no runtime PASS.

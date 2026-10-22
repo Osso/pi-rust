@@ -7634,7 +7634,7 @@ impl AgentSession {
         let context = self.create_command_context_for(&command.invocation_name);
         if let Err(error) = (command.handler)(args, context).await {
             runner.emit_error(crate::core::extensions::types::ExtensionError {
-                extension_path: format!("command:{}", command.invocation_name).into(),
+                extension_path: pi_js_compat::js_format!("command:{}", command.invocation_name),
                 event: "command".to_owned(),
                 error: error.message,
                 stack: None,
