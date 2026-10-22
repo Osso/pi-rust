@@ -107,4 +107,4 @@ sides without filtering at delayed consumption; scratch deletion is not the dive
 
 Mistral bearer/auth/session-affinity and model/options header assembly retain native units; HttpRequest construction applies ByteString conversion. Endpoint parsing uses shared request_url at the URL boundary.
 
-Compiler checkpoint `pi-ai-slice-final.log` at `0c71c960` reached seven errors, including two owned sites fixed by `7780fac1`; remaining auth-owner errors block library acceptance. `lossless_sdk_boundaries` exercises public-provider header rejection and URL conversion; authored, not yet executed at this checkpoint.
+[Focused public-provider runtime proof](lossless-sdk-boundaries.md) records exact covered cases, revisions and remaining acceptance limits.

@@ -24,4 +24,4 @@ Pinned source: `packages/ai/src/providers/radius-config.ts` at `532f7d12cd192350
 
 Gateway config sanitization reads JsValue directly, preserving raw base URL and excluding only source-shallow-invalid models. Shallow-valid model deserialization errors propagate as contextual CallbackError through Result-returning config/model APIs; no scalar projection or silent parse drop remains. Gateway/key values stay native until HTTP URL/header construction.
 
-Compiler checkpoint `pi-ai-slice-final.log` at `0c71c960` reached seven errors, including two owned sites fixed by `7780fac1`; remaining auth-owner errors block library acceptance. `lossless_sdk_boundaries` exercises public-provider header rejection and URL conversion; authored, not yet executed at this checkpoint.
+[Focused public-provider runtime proof](lossless-sdk-boundaries.md) records exact covered cases, revisions and remaining acceptance limits.
