@@ -77,6 +77,9 @@ impl StatusIndicator {
 }
 
 impl Component for StatusIndicator {
+    fn wants_input(&self) -> bool {
+        false
+    }
     fn dispose(&mut self) {
         StatusIndicator::dispose(self);
     }
@@ -134,7 +137,22 @@ impl WorkingStatusIndicator {
     }
 }
 
+impl std::ops::Deref for WorkingStatusIndicator {
+    type Target = StatusIndicator;
+    fn deref(&self) -> &Self::Target {
+        &self.indicator
+    }
+}
+impl std::ops::DerefMut for WorkingStatusIndicator {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.indicator
+    }
+}
+
 impl Component for WorkingStatusIndicator {
+    fn wants_input(&self) -> bool {
+        false
+    }
     fn dispose(&mut self) {
         WorkingStatusIndicator::dispose(self);
     }
@@ -159,13 +177,13 @@ pub struct RetryStatusIndicator {
 }
 
 impl RetryStatusIndicator {
-    pub fn new(request_render: Rc<dyn Fn()>, attempt: u64, max_attempts: u64, delay_ms: u64) -> Self {
-        let retry_message = move |seconds: i64| {
+    pub fn new(request_render: Rc<dyn Fn()>, attempt: f64, max_attempts: f64, delay_ms: f64) -> Self {
+        let retry_message = move |seconds: f64| {
             js_format!(
                 "Retrying ({}/{}) in {}s... ({} to cancel)",
-                attempt.to_string(),
-                max_attempts.to_string(),
-                seconds.to_string(),
+                pi_js_compat::number::js_number_to_string(attempt),
+                pi_js_compat::number::js_number_to_string(max_attempts),
+                pi_js_compat::number::js_number_to_string(seconds),
                 key_text("app.interrupt")
             )
         };
@@ -174,11 +192,11 @@ impl RetryStatusIndicator {
             Rc::clone(&request_render),
             Rc::new(warning),
             Rc::new(muted),
-            retry_message(delay_ms.div_ceil(1000) as i64),
+            retry_message((delay_ms / 1000.0).ceil()),
             None,
         );
         let loader = Rc::clone(indicator.loader());
-        let tick = Rc::new(move |seconds: i64| {
+        let tick = Rc::new(move |seconds: f64| {
             loader.borrow_mut().set_message(retry_message(seconds));
         });
         let countdown = CountdownTimer::new(delay_ms, Some(request_render), tick, Rc::new(|| {}));
@@ -205,7 +223,22 @@ impl RetryStatusIndicator {
     }
 }
 
+impl std::ops::Deref for RetryStatusIndicator {
+    type Target = StatusIndicator;
+    fn deref(&self) -> &Self::Target {
+        &self.indicator
+    }
+}
+impl std::ops::DerefMut for RetryStatusIndicator {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.indicator
+    }
+}
+
 impl Component for RetryStatusIndicator {
+    fn wants_input(&self) -> bool {
+        false
+    }
     fn dispose(&mut self) {
         RetryStatusIndicator::dispose(self);
     }
@@ -262,7 +295,22 @@ impl CompactionStatusIndicator {
     }
 }
 
+impl std::ops::Deref for CompactionStatusIndicator {
+    type Target = StatusIndicator;
+    fn deref(&self) -> &Self::Target {
+        &self.indicator
+    }
+}
+impl std::ops::DerefMut for CompactionStatusIndicator {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.indicator
+    }
+}
+
 impl Component for CompactionStatusIndicator {
+    fn wants_input(&self) -> bool {
+        false
+    }
     fn dispose(&mut self) {
         CompactionStatusIndicator::dispose(self);
     }
@@ -304,7 +352,22 @@ impl BranchSummaryStatusIndicator {
     }
 }
 
+impl std::ops::Deref for BranchSummaryStatusIndicator {
+    type Target = StatusIndicator;
+    fn deref(&self) -> &Self::Target {
+        &self.indicator
+    }
+}
+impl std::ops::DerefMut for BranchSummaryStatusIndicator {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.indicator
+    }
+}
+
 impl Component for BranchSummaryStatusIndicator {
+    fn wants_input(&self) -> bool {
+        false
+    }
     fn dispose(&mut self) {
         BranchSummaryStatusIndicator::dispose(self);
     }

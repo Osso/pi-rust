@@ -483,7 +483,12 @@ fn retry_status_formats_countdown_and_disposes() {
     theme();
     let renders = std::rc::Rc::new(Cell::new(0));
     let counter = renders.clone();
-    let mut indicator = RetryStatusIndicator::new(std::rc::Rc::new(move || counter.set(counter.get() + 1)), 1, 3, 2500);
+    let mut indicator = RetryStatusIndicator::new(
+        std::rc::Rc::new(move || counter.set(counter.get() + 1)),
+        1.0,
+        3.0,
+        2500.0,
+    );
     let rendered = plain(&indicator.render(80));
     assert!(rendered.contains("Retrying (1/3) in 3s..."), "{rendered:?}");
     let calls_before_dispose = renders.get();

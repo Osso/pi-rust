@@ -129,6 +129,17 @@ fn config_selector_matches_the_pinned_typescript_source() {
 }
 
 #[test]
+fn status_indicators_match_the_pinned_typescript_source() {
+    install_theme();
+    let mut oracle = oracle::TsOracle::spawn("interactive-components-oracle.ts", "packages/coding-agent/src");
+    for (request, actual) in status_indicator_cases() {
+        let expected = oracle.request(&request);
+        assert_eq!(expected["ok"], true, "{expected}");
+        assert_eq!(actual, expected["output"], "{request}");
+    }
+}
+
+#[test]
 fn interactive_leaf_helpers_match_the_pinned_typescript_source() {
     install_theme();
     let mut oracle = oracle::TsOracle::spawn("interactive-components-oracle.ts", "packages/coding-agent/src");
@@ -150,7 +161,6 @@ fn requests() -> Vec<(Value, Value)> {
     cases.extend(compaction_summary_cases());
     cases.extend(assistant_message_cases());
     cases.extend(bordered_loader_cases());
-    cases.extend(status_indicator_cases());
     cases.extend(extension_input_cases());
     cases.extend(extension_editor_cases());
     cases.extend(first_time_setup_cases());
@@ -842,7 +852,7 @@ fn status_indicator_cases() -> Vec<(Value, Value)> {
     );
     working.dispose();
 
-    let mut retry = RetryStatusIndicator::new(std::rc::Rc::new(|| {}), 1, 3, 2500);
+    let mut retry = RetryStatusIndicator::new(std::rc::Rc::new(|| {}), 1.0, 3.0, 2500.0);
     push(
         81,
         json!({

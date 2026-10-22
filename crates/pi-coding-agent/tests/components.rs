@@ -344,19 +344,19 @@ fn countdown_timer_ticks_and_expires() {
     let render_sink = Rc::clone(&renders);
     let expire_sink = Rc::clone(&expired);
     let mut timer = CountdownTimer::new(
-        2500,
+        2500.0,
         Some(Rc::new(move || render_sink.set(render_sink.get() + 1))),
         Rc::new(move |seconds| tick_sink.borrow_mut().push(seconds)),
         Rc::new(move || expire_sink.set(expire_sink.get() + 1)),
     );
-    assert_eq!(*ticks.borrow(), [3]);
+    assert_eq!(*ticks.borrow(), [3.0]);
     let first_deadline = timer.next_deadline().expect("scheduled");
 
     assert!(!timer.poll(first_deadline));
     assert!(!timer.poll(first_deadline + Duration::from_millis(500)));
     assert!(!timer.poll(first_deadline + Duration::from_secs(1)));
     assert!(timer.poll(first_deadline + Duration::from_secs(2)));
-    assert_eq!(*ticks.borrow(), [3, 2, 1, 0]);
+    assert_eq!(*ticks.borrow(), [3.0, 2.0, 1.0, 0.0]);
     assert_eq!(renders.get(), 3);
     assert_eq!(expired.get(), 1);
     assert!(timer.is_disposed());

@@ -11170,12 +11170,12 @@ impl InteractiveMode {
                 self.retry_countdown.borrow_mut().take();
                 let attempt = event.attempt;
                 let max_attempts = event.max_attempts;
-                let retry_message = move |seconds: i64| {
+                let retry_message = move |seconds: f64| {
                     js_format!(
                         "Retrying ({}/{}) in {}s... ({} to cancel)",
                         attempt,
                         max_attempts,
-                        seconds,
+                        pi_js_compat::number::js_number_to_string(seconds),
                         crate::modes::interactive::components::keybinding_hints::key_text("app.interrupt")
                     )
                 };
@@ -11187,13 +11187,13 @@ impl InteractiveMode {
                     Rc::clone(&request_render),
                     Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Warning, text))),
                     Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Muted, text))),
-                    retry_message((event.delay_ms / 1000.0).ceil() as i64),
+                    retry_message((event.delay_ms / 1000.0).ceil()),
                     Some(self.get_working_loader_indicator(WorkingLoaderView::Main)),
                 ));
                 *self.retry_loader.borrow_mut() = Some(Rc::clone(&loader));
                 let tick_loader = Rc::clone(&loader);
                 let countdown = CountdownTimer::new(
-                    event.delay_ms.max(0.0) as u64,
+                    event.delay_ms,
                     Some(request_render),
                     Rc::new(move |seconds| set_loader_message(&tick_loader, retry_message(seconds))),
                     Rc::new(|| {}),
