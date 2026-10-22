@@ -48,8 +48,8 @@ fn bash_messages() -> Vec<Value> {
 fn bash_execution_message(value: &Value) -> BashExecutionMessage {
     BashExecutionMessage {
         role: BashExecutionRole::BashExecution,
-        command: JsString::from(value["command"].as_str().unwrap_or_default().to_owned()),
-        output: JsString::from(value["output"].as_str().unwrap_or_default().to_owned()),
+        command: JsString::from(value["command"].as_str().expect("fixture command")),
+        output: JsString::from(value["output"].as_str().expect("fixture output")),
         exit_code: value["exitCode"].as_f64(),
         cancelled: value["cancelled"].as_bool().unwrap_or(false),
         truncated: value["truncated"].as_bool().unwrap_or(false),
