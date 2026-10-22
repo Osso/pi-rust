@@ -1,5 +1,7 @@
 // Differential oracle for the bundled `codex-usage` extension.
 
+import { dirname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { runOracle } from "./coding-agent-utils-oracle-support.ts";
 
 type AnyRecord = Record<string, any>;
@@ -29,6 +31,17 @@ function installFetch(responses: AnyRecord[], requests: AnyRecord[]): void {
 		const response = responses[index++] ?? { status: 200, statusText: "", body: "{}" };
 		return new Response(response.body, { status: response.status, statusText: response.statusText });
 	}) as typeof fetch;
+}
+
+// Same credential the Rust harness installs: frozen AuthStorage, OAuth entry keyed by the active provider.
+async function createAuthStorage(provider: string, token: string | null): Promise<unknown> {
+	const authStoragePath = resolve(dirname(process.argv[2] as string), "../../../src/core/auth-storage.ts");
+	const { AuthStorage } = (await import(pathToFileURL(authStoragePath).href)) as AnyRecord;
+	const data =
+		token === null
+			? {}
+			: { [provider]: { type: "oauth", refresh: "refresh-token", access: token, expires: 9_999_999_999_999 } };
+	return AuthStorage.inMemory(data);
 }
 
 void runOracle(async (api, request) => {
@@ -80,8 +93,10 @@ void runOracle(async (api, request) => {
 			const token = input.token === null ? null : tokenWithClaims(input.token);
 			const ctx = {
 				model: input.model ?? undefined,
+				// The Rust harness session is idle between turns.
+				isIdle: () => true,
 				modelRegistry: {
-					getApiKeyForProvider: async () => token,
+					authStorage: await createAuthStorage(input.model?.provider ?? "openai-codex", token),
 				},
 				ui: {
 					notify(message: string, type?: string) {
