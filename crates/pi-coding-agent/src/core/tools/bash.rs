@@ -888,7 +888,7 @@ async fn execute_runner_owned_bash(
                 .map(|(name, value)| (name.clone(), value.clone()))
                 .collect(),
             timeout_ms: resolve_timeout_ms(options.timeout)?.map(|timeout_ms| timeout_ms as i64),
-            tool_call_id: Some(options.tool_call_id.clone()),
+            tool_call_id: Some(options.tool_call_id.clone().into()),
         })
         .map_err(|error| ToolError::new(error.to_string()))?;
     observe_foreground_bash_runner(runner, cwd, &options).await
@@ -897,7 +897,7 @@ async fn execute_runner_owned_bash(
 async fn wait_for_restored_bash_job(options: &RunnerOwnedOptions) -> Result<Option<BashRunnerResult>, ToolError> {
     let restored_job = options
         .lifecycle
-        .find_bash_job_by_tool_call_id(&options.tool_call_id)
+        .find_bash_job_by_tool_call_id(&JsString::from(&options.tool_call_id))
         .map_err(|error| ToolError::new(error.to_string()))?;
     let Some(mut restored_state) = restored_job else {
         return Ok(None);
@@ -1066,8 +1066,8 @@ fn activate_detached_bash_runner(
         display_name: "Bash command".into(),
         job_id: runner.job_id.clone(),
         process_identity: runner.process_identity.clone(),
-        worker_handle_id: runner.runner_pid.to_string(),
-        tool_call_id: Some(options.tool_call_id.clone()),
+        worker_handle_id: runner.runner_pid.to_string().into(),
+        tool_call_id: Some(options.tool_call_id.clone().into()),
         detached: Some(true),
         file_refs: None,
     }) {
@@ -1087,7 +1087,7 @@ fn activate_detached_bash_runner(
             exit_code: None,
             detached: Some(BashDetachedResult {
                 job_id: runner.job_id.clone(),
-                message: format!("Detached bash command as background job {}.", runner.job_id).into(),
+                message: js_format!("Detached bash command as background job {}.", runner.job_id),
                 log_path: Some(runner.artifacts.output_path.clone()),
             }),
         },

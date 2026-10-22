@@ -711,11 +711,13 @@ impl ResidentConsoleHost<SessionEntry, AgentSessionEvent> for SupervisorConsoleH
 
 /// `runSupervisorService`.
 pub async fn run_supervisor_service() -> Result<(), JsString> {
-    let agent_dir = crate::config::get_agent_dir();
+    let agent_dir = JsString::from(crate::config::get_agent_dir().to_string_lossy().as_ref());
     let kb_dir = pi_js_compat::process_env::get("PI_KB_DIR")
         .map(JsString::from)
         .unwrap_or_else(|| DEFAULT_SUPERVISOR_KB_DIR.into());
-    let control_db_path = crate::core::session_control_db::get_control_db_path(&crate::config::get_user_state_root());
+    let control_db_path = JsString::from(crate::core::session_control_db::get_control_db_path(
+        &crate::config::get_user_state_root(),
+    ));
     let session_manager = open_supervisor_session(&agent_dir, &kb_dir, &control_db_path)?;
     let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         auth_path: Some(node_join(&agent_dir, "auth.json")),

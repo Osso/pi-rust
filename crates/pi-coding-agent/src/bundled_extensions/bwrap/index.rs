@@ -813,7 +813,7 @@ fn register_before_agent_start_handler(pi: &ExtensionApi) -> Result<(), String> 
     })
 }
 
-fn register_bwrap_status_command(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Result<(), String> {
+fn register_bwrap_status_command(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Result<(), JsString> {
     let bwrap_command = runtime.bwrap_command.clone();
     pi.register_command(
         "bwrap",

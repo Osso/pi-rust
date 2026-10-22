@@ -171,7 +171,7 @@ fn require_control_db_path(context: &ExtensionContext, tool_name: &str) -> Resul
         .ok_or_else(|| ToolError::new(format!("{tool_name} requires a control database path")))
 }
 
-fn format_call(theme: &Theme) -> String {
+fn format_call(theme: &Theme) -> JsString {
     theme.fg(ThemeColor::ToolTitle, &theme.bold("ask_supervisor"))
 }
 
