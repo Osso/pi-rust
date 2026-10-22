@@ -799,7 +799,7 @@ pub struct SessionTransitionResult {
 
 #[derive(Clone)]
 pub struct RestartOptions {
-    pub notice: Option<String>,
+    pub notice: Option<JsString>,
     pub process: Option<bool>,
 }
 
@@ -2308,7 +2308,7 @@ pub struct UserBashEventResult {
     /// Custom operations used by `AgentSession::execute_bash` (`BashOperations`).
     pub operations: Option<Arc<dyn crate::core::tools::bash::BashOperations>>,
     /// Full replacement: the extension handled execution and supplies the result.
-    pub result: Option<Value>,
+    pub result: Option<JsValue>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -2855,8 +2855,8 @@ pub type SendMessageHandler =
 pub type SendUserMessageHandler =
     Arc<dyn Fn(UserMessageContent, Option<SendUserMessageOptions>) -> Result<(), HandlerError> + Send + Sync>;
 pub type AppendEntryHandler = Arc<dyn Fn(&str, Option<JsValue>) -> Result<(), HandlerError> + Send + Sync>;
-pub type SetSessionNameHandler = Arc<dyn Fn(&str) -> Result<(), HandlerError> + Send + Sync>;
-pub type GetSessionNameHandler = Arc<dyn Fn() -> Result<Option<String>, HandlerError> + Send + Sync>;
+pub type SetSessionNameHandler = Arc<dyn Fn(&JsString) -> Result<(), HandlerError> + Send + Sync>;
+pub type GetSessionNameHandler = Arc<dyn Fn() -> Result<Option<JsString>, HandlerError> + Send + Sync>;
 pub type SetLabelHandler = Arc<dyn Fn(&str, Option<&str>) -> Result<(), HandlerError> + Send + Sync>;
 pub type GetActiveToolsHandler = Arc<dyn Fn() -> Result<Vec<String>, HandlerError> + Send + Sync>;
 pub type GetAllToolsHandler = Arc<dyn Fn() -> Result<Vec<ToolInfo>, HandlerError> + Send + Sync>;
@@ -3405,12 +3405,12 @@ impl ExtensionApi {
         Ok(())
     }
 
-    pub fn set_session_name(&self, name: &str) -> Result<(), HandlerError> {
+    pub fn set_session_name(&self, name: &JsString) -> Result<(), HandlerError> {
         self.runtime.assert_active()?;
         (self.runtime.actions().set_session_name)(name)
     }
 
-    pub fn get_session_name(&self) -> Result<Option<String>, HandlerError> {
+    pub fn get_session_name(&self) -> Result<Option<JsString>, HandlerError> {
         self.runtime.assert_active()?;
         (self.runtime.actions().get_session_name)()
     }

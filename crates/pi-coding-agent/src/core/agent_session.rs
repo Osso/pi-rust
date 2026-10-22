@@ -5681,7 +5681,7 @@ impl AgentSession {
         self.inner.control_db_path.clone()
     }
 
-    pub fn session_name(&self) -> Option<String> {
+    pub fn session_name(&self) -> Option<JsString> {
         lock(&self.inner.session_manager).get_session_name()
     }
 
@@ -6509,7 +6509,7 @@ impl AgentSession {
     // =========================================================================
 
     /// Sets a display name for the current session.
-    pub fn set_session_name(&self, name: &str) -> Result<(), AgentSessionError> {
+    pub fn set_session_name(&self, name: &JsString) -> Result<(), AgentSessionError> {
         lock(&self.inner.session_manager)
             .set_session_name(Some(name))
             .map_err(|failure| error(failure.to_string()))?;
@@ -7830,7 +7830,7 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
         }
     });
     let name_weak = weak.clone();
-    let set_session_name: crate::core::extensions::types::SetSessionNameHandler = Arc::new(move |name: &str| {
+    let set_session_name: crate::core::extensions::types::SetSessionNameHandler = Arc::new(move |name: &JsString| {
         let Some(inner) = name_weak.upgrade() else {
             return Ok(());
         };
@@ -8135,7 +8135,7 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
             }
         });
     let prompt_weak = weak.clone();
-    let get_system_prompt: Arc<dyn Fn() -> String + Send + Sync> = Arc::new(move || {
+    let get_system_prompt: Arc<dyn Fn() -> JsString + Send + Sync> = Arc::new(move || {
         prompt_weak
             .upgrade()
             .map(|inner| AgentSession { inner }.system_prompt())

@@ -27,7 +27,7 @@ use crate::core::permissions::presets::SandboxProfileName;
 use crate::core::resident_session::is_resident_session;
 use crate::core::session_control_db::{
     ResumeSessionMetadataOptions, SessionMetadata, WritableSessionMetadata, clear_session_sandbox_profile,
-    list_resume_session_metadata, list_session_metadata, normalize_session_name, read_session_goal,
+    list_resume_session_metadata, list_session_metadata, normalize_session_name_utf16, read_session_goal,
     read_session_metadata, read_session_name_state, read_session_sandbox_profile, write_session_goal,
     write_session_metadata, write_session_model, write_session_name, write_session_sandbox_profile,
     write_session_thinking_level,
@@ -2521,7 +2521,7 @@ pub struct SessionManager {
     metadata_control_db_path: Option<String>,
     index_message_text: bool,
     in_memory_goal_json: Option<String>,
-    session_name: Option<String>,
+    session_name: Option<JsString>,
     has_stored_session_name: bool,
 }
 
@@ -3122,7 +3122,7 @@ impl SessionManager {
         let control_db_path = control_db_path.to_owned();
         let session_file = session_file.to_owned();
         let name_state = read_session_name_state(&control_db_path, &session_file).map_err(control_db_error)?;
-        self.session_name = name_state.name;
+        self.session_name = name_state.name.map(JsString::from);
         self.has_stored_session_name = name_state.has_stored_value;
         let Some(metadata) = read_session_metadata(&control_db_path, &session_file).map_err(control_db_error)? else {
             return Ok(());
@@ -3142,8 +3142,8 @@ impl SessionManager {
     }
 
     /// `setSessionName`: set or clear the display name.
-    pub fn set_session_name(&mut self, name: Option<&str>) -> Result<(), SessionManagerError> {
-        self.session_name = normalize_session_name(name);
+    pub fn set_session_name(&mut self, name: Option<&JsString>) -> Result<(), SessionManagerError> {
+        self.session_name = normalize_session_name_utf16(name);
         self.has_stored_session_name = true;
         let Some((control_db_path, session_file)) = self.metadata_target() else {
             return Ok(());
@@ -3151,11 +3151,11 @@ impl SessionManager {
         let control_db_path = control_db_path.to_owned();
         let session_file = session_file.to_owned();
         self.write_metadata_snapshot()?;
-        write_session_name(&control_db_path, &session_file, self.session_name.as_deref()).map_err(control_db_error)
+        write_session_name(&control_db_path, &session_file, self.session_name.as_ref()).map_err(control_db_error)
     }
 
     /// `getSessionName`.
-    pub fn get_session_name(&self) -> Option<String> {
+    pub fn get_session_name(&self) -> Option<JsString> {
         self.session_name.clone()
     }
 
