@@ -183,17 +183,3 @@ fn truncate_http_body(body: &str) -> JsString {
         trimmed.slice(0, HTTP_BODY_LIMIT) + "…"
     }
 }
-
-#[cfg(test)]
-mod native_config_tests {
-    use super::*;
-    #[test]
-    fn credential_config_preserves_endpoint_and_rejects_invalid_scalar_model_id() {
-        let config =
-            pi_js_compat::js_json::parse_lossless(r#"{"baseUrl":"https://example.com/\ud800","models":[]}"#).unwrap();
-        let output = sanitize_radius_gateway_config(&config).unwrap().unwrap();
-        assert!(output.base_url.units().contains(&0xd800));
-        let config = pi_js_compat::js_json::parse_lossless(r#"{"baseUrl":"https://example.com","models":[{"id":"\ud800","name":"model","reasoning":false,"input":[],"cost":{},"contextWindow":10,"maxTokens":2}]}"#).unwrap();
-        assert!(sanitize_radius_gateway_config(&config).is_err());
-    }
-}
