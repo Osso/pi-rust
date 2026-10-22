@@ -236,7 +236,7 @@ fn credential_commands_reject_check_only_flags() {
         let actual = error(case);
         assert_eq!(
             actual.message(),
-            &pi_js_compat::js_format!("{0} is only supported by auth check", flag)
+            &pi_js_compat::js_format!("{} is only supported by auth check", flag)
         );
     }
 

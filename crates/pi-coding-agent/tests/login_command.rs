@@ -236,7 +236,7 @@ fn runs_oauth_login_interactions_from_terminal_io_and_persists_credentials() {
                         .map_err(AuthError::Failed)?;
                     Ok(OAuthCredential::new(
                         "refresh-token",
-                        pi_js_compat::js_format!("{0}:{1}:{2}", typed, manual, selected),
+                        pi_js_compat::js_format!("{}:{}:{}", typed, manual, selected),
                         pi_ai::request::now_millis() as f64 + 60_000.0,
                     ))
                 })

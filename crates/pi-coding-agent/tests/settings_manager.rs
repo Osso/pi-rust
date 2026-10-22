@@ -583,7 +583,7 @@ fn compaction_threshold_helper_matches_json_value_contract() {
                 .unwrap_err()
                 .message(),
             &pi_js_compat::js_format!(
-                "Invalid compaction.thresholdPercent setting: {0}. Use a finite number greater than 0 and at most 100, or remove the setting.",
+                "Invalid compaction.thresholdPercent setting: {}. Use a finite number greater than 0 and at most 100, or remove the setting.",
                 text
             )
         );
@@ -611,7 +611,7 @@ fn retry_delay_validation_reports_exact_setting_and_range() {
             assert_eq!(
                 manager.get_retry_settings().unwrap_err().message(),
                 &pi_js_compat::js_format!(
-                    "Invalid retry.{0} setting: {1}; expected integer milliseconds between 0 and 2147483647",
+                    "Invalid retry.{} setting: {}; expected integer milliseconds between 0 and 2147483647",
                     name,
                     text
                 )

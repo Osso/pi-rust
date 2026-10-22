@@ -22,7 +22,7 @@ fn human(result: Option<ToolCallEventResult>) -> SupervisorHumanReviewer {
         Box::pin(async move {
             if let Some(mut result) = result {
                 result.reason = Some(pi_js_compat::js_format!(
-                    "{0}:{1}",
+                    "{}:{}",
                     reason,
                     result.reason.unwrap_or_default()
                 ));

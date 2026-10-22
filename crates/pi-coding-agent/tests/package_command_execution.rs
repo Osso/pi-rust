@@ -236,7 +236,7 @@ impl PackageCommandEffects for FakeEffects {
         self.calls
             .lock()
             .unwrap()
-            .push(pi_js_compat::js_format!("install:{0}:{1}", source, local.to_string()));
+            .push(pi_js_compat::js_format!("install:{}:{}", source, local.to_string()));
         for message in &self.progress_messages {
             progress(message.clone().into());
         }
@@ -254,7 +254,7 @@ impl PackageCommandEffects for FakeEffects {
         self.calls
             .lock()
             .unwrap()
-            .push(pi_js_compat::js_format!("remove:{0}:{1}", source, local.to_string()));
+            .push(pi_js_compat::js_format!("remove:{}:{}", source, local.to_string()));
         for message in &self.progress_messages {
             progress(message.clone().into());
         }
@@ -552,7 +552,7 @@ async fn force_runs_the_self_update_even_when_current() {
                 "Updating {app} with bun install -g --ignore-scripts --minimum-release-age=0 @earendil-works/pi-coding-agent@{}...",
                 current_version()
             )),
-            Chalk::stdout().green(&format!("Updated {app} from {0} to {0}", current_version())),
+            Chalk::stdout().green(&format!("Updated {app} from {} to {}", current_version())),
         ]
     );
 }

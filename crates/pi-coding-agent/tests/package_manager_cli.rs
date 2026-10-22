@@ -96,7 +96,7 @@ fn validation_errors_set_exit_code_one() {
     assert_eq!(outcome.stderr[0], "Missing install source.");
     assert_eq!(
         outcome.stderr[1],
-        pi_js_compat::js_format!("Usage: {0}", package_command_usage(PackageCommand::Install))
+        pi_js_compat::js_format!("Usage: {}", package_command_usage(PackageCommand::Install))
     );
 
     let outcome = handle_package_command(&args(&["update", "--bogus"])).unwrap();

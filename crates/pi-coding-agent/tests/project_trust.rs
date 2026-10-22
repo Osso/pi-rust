@@ -263,7 +263,7 @@ async fn ask_prompts_with_every_option_and_persists_the_choice() {
         ui.labels(),
         vec![
             JsString::from("Trust"),
-            pi_js_compat::js_format!("Trust parent folder ({0})", s(project.parent().unwrap())),
+            pi_js_compat::js_format!("Trust parent folder ({})", s(project.parent().unwrap())),
             JsString::from("Trust (this session only)"),
             JsString::from("Do not trust"),
             JsString::from("Do not trust (this session only)"),
@@ -332,7 +332,7 @@ async fn extensions_result(
         let extension = extension(
             &runtime,
             &s(project),
-            &pi_js_compat::js_format!("{0}/{1}.ts", s(project), name),
+            &pi_js_compat::js_format!("{}/{}.ts", s(project), name),
             move |api| {
                 api.on_project_trust(move |_event: ProjectTrustEvent, _ctx: ProjectTrustContext| {
                     Box::pin(async move {
@@ -401,7 +401,7 @@ async fn extension_errors_are_reported_and_resolution_continues() {
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
     let runtime = extension_runtime();
-    let path = pi_js_compat::js_format!("{0}/broken.ts", s(&project));
+    let path = pi_js_compat::js_format!("{}/broken.ts", s(&project));
     let extension = extension(&runtime, &s(&project), &path, |api| {
         api.on_project_trust(|_event: ProjectTrustEvent, _ctx: ProjectTrustContext| {
             Box::pin(async { Err(HandlerError::new("boom")) })
@@ -426,7 +426,7 @@ async fn extension_errors_are_reported_and_resolution_continues() {
     assert_eq!(
         *reported.lock().unwrap(),
         vec![pi_js_compat::js_format!(
-            "Extension \"{0}\" project_trust error: boom",
+            "Extension \"{}\" project_trust error: boom",
             path
         )]
     );
