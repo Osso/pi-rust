@@ -1,5 +1,7 @@
 //! Port of `packages/coding-agent/extensions/pyrun/src/detached-evaluation.ts`.
 
+use crate::utils::paths::{node_basename, node_dirname, node_extname, node_join};
+use pi_js_compat::js_format;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -47,45 +49,38 @@ const DENSE_CONSOLE_RECORD_THRESHOLD: usize = 100;
 const FOREGROUND_RUNNER_LIVENESS_POLL_MS: u64 = 3_000;
 
 pub struct DurablePyrunEvaluationInput {
-    pub agent_id: Option<String>,
+    pub agent_id: Option<JsString>,
     pub ctx: ExtensionContext,
     pub detach_registry: Arc<ToolDetachRegistry>,
     pub dispatch_pi_request: PyrunPiRequestDispatcher,
     pub on_update: Option<PyrunProgressUpdateCallback>,
     pub params: PyrunEvalParams,
     pub pi_bridge_enabled: bool,
-    pub tool_call_id: Option<String>,
+    pub tool_call_id: Option<JsString>,
     pub runner_options: PyrunRunnerOptions,
     pub signal: Option<tokio_util::sync::CancellationToken>,
     pub store: Arc<MultiAgentStore>,
 }
 
-fn pyrun_artifact_root(session_path: &str) -> Result<String, String> {
-    let session_file_name = Path::new(session_path)
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let session_name = Path::new(&session_file_name)
-        .file_stem()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
+fn pyrun_artifact_root(session_path: &JsString) -> Result<JsString, JsString> {
+    let name = node_basename(session_path);
+    let extension = node_extname(&name);
+    let session_name = name.slice(0, name.len() - extension.len());
     if session_name.is_empty() {
-        return Err("Pyrun session path must have a file name".to_owned());
+        return Err("Pyrun session path must have a file name".into());
     }
-    Ok(Path::new(session_path)
-        .parent()
-        .unwrap_or(Path::new("."))
-        .join("detached-jobs")
-        .join(session_name)
-        .display()
-        .to_string())
+    Ok(node_join(&[
+        node_dirname(session_path),
+        "detached-jobs".into(),
+        session_name,
+    ]))
 }
 
 fn create_lifecycle_controller(
     input: &DurablePyrunEvaluationInput,
     persistence: &PersistenceTarget,
-) -> Result<DetachedJobLifecycleController, String> {
-    let process_identity = read_process_identity(std::process::id()).map_err(|error| error.to_string())?;
+) -> Result<DetachedJobLifecycleController, JsString> {
+    let process_identity = read_process_identity(std::process::id()).map_err(|error| error.message)?;
     let coordinator = LifecycleCoordinator::new(LifecycleCoordinatorOptions {
         control_db_path: persistence.control_db_path.clone(),
         create_agent_id: {
@@ -102,16 +97,12 @@ fn create_lifecycle_controller(
     });
     Ok(DetachedJobLifecycleController::new(
         DetachedJobLifecycleControllerOptions {
-            artifact_root: Path::new(&persistence.session_path)
-                .parent()
-                .unwrap_or(Path::new("."))
-                .display()
-                .to_string(),
+            artifact_root: node_dirname(&persistence.session_path),
             control_db_path: persistence.control_db_path.clone(),
             coordinator: Arc::new(coordinator),
             owner_agent_id: input.ctx.multi_agent_agent_id().ok().flatten(),
             owner_session_id: {
-                let session = input.ctx.session_manager().map_err(|error| error.to_string())?;
+                let session = input.ctx.session_manager().map_err(|error| error.message)?;
                 lock_session_manager(&session).get_session_id().to_owned()
             },
             session_path: persistence.session_path.clone(),
@@ -122,19 +113,19 @@ fn create_lifecycle_controller(
 }
 
 struct LaunchedRunner {
-    activation_path: String,
+    activation_path: JsString,
     artifacts: crate::core::detached_job_runner::DetachedJobArtifacts,
-    bridge_request_path: String,
-    bridge_response_path: String,
-    foreground_completion_path: String,
-    job_id: String,
+    bridge_request_path: JsString,
+    bridge_response_path: JsString,
+    foreground_completion_path: JsString,
+    job_id: JsString,
     process_identity: ProcessIdentity,
     runner_pid: u32,
-    script_path: String,
+    script_path: JsString,
 }
 
-fn write_durable_pyrun_script(path: &str, code: &JsString) -> Result<(), String> {
-    let temporary_path = format!("{path}.tmp-{}", std::process::id());
+fn write_durable_pyrun_script(path: &JsString, code: &JsString) -> Result<(), JsString> {
+    let temporary_path = js_format!("{path}.tmp-{}", std::process::id());
     {
         use std::io::Write;
         let mut options = std::fs::OpenOptions::new();
@@ -144,21 +135,21 @@ fn write_durable_pyrun_script(path: &str, code: &JsString) -> Result<(), String>
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let mut file = options.open(&temporary_path).map_err(|error| error.to_string())?;
+        let mut file = options
+            .open(js_json::encode_node_utf8(&temporary_path))
+            .map_err(|error| error.to_string())?;
         file.write_all(js_json::encode_node_utf8(code).as_bytes())
             .map_err(|error| error.to_string())?;
     }
-    let file = std::fs::File::open(&temporary_path).map_err(|error| error.to_string())?;
+    let file = std::fs::File::open(js_json::encode_node_utf8(&temporary_path)).map_err(|error| error.to_string())?;
     file.sync_all().map_err(|error| error.to_string())?;
-    std::fs::rename(&temporary_path, path).map_err(|error| error.to_string())?;
-    for directory in [
-        Path::new(path).parent(),
-        Path::new(path).parent().and_then(Path::parent),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        let file = std::fs::File::open(directory).map_err(|error| error.to_string())?;
+    std::fs::rename(
+        js_json::encode_node_utf8(&temporary_path),
+        js_json::encode_node_utf8(path),
+    )
+    .map_err(|error| error.to_string())?;
+    for directory in [node_dirname(path), node_dirname(&node_dirname(path))] {
+        let file = std::fs::File::open(js_json::encode_node_utf8(&directory)).map_err(|error| error.to_string())?;
         file.sync_all().map_err(|error| error.to_string())?;
     }
     Ok(())
@@ -174,28 +165,20 @@ fn launch_foreground_pyrun_runner(
         .agent_id
         .clone()
         .ok_or_else(|| "Detached Pyrun requires a persisted tool execution agent ID".to_owned())?;
-    let artifacts = controller
-        .create_artifacts(&job_id)
-        .map_err(|error| error.to_string())?;
+    let artifacts = controller.create_artifacts(&job_id).map_err(|error| error.message())?;
     let directory = artifacts.directory.clone();
-    let activation_path = Path::new(&directory).join("activation.json").display().to_string();
-    let bridge_request_path = Path::new(&directory)
-        .join("foreground-bridge-requests.jsonl")
-        .display()
-        .to_string();
-    let bridge_response_path = Path::new(&directory)
-        .join("foreground-bridge-responses.jsonl")
-        .display()
-        .to_string();
-    let foreground_completion_path = Path::new(&directory).join("foreground-completed").display().to_string();
-    let manifest_path = Path::new(&directory).join("launch.json").display().to_string();
-    let script_path = Path::new(&directory).join("script.py").display().to_string();
+    let activation_path = node_join(&[directory.clone(), "activation.json".into()]);
+    let bridge_request_path = node_join(&[directory.clone(), "foreground-bridge-requests.jsonl".into()]);
+    let bridge_response_path = node_join(&[directory.clone(), "foreground-bridge-responses.jsonl".into()]);
+    let foreground_completion_path = node_join(&[directory.clone(), "foreground-completed".into()]);
+    let manifest_path = node_join(&[directory.clone(), "launch.json".into()]);
+    let script_path = node_join(&[directory, "script.py".into()]);
     write_durable_pyrun_script(&script_path, &input.params.code)?;
     let runner_pid = launch_detached_pyrun_runner(&manifest_path)?;
-    let process_identity = read_process_identity(runner_pid).map_err(|error| error.to_string())?;
+    let process_identity = read_process_identity(runner_pid).map_err(|error| error.message)?;
     let session = input.ctx.session_manager().map_err(|error| error.message)?;
     let eval_context = eval_context(&input.ctx).map_err(|error| error.message)?;
-    let supervisor_identity = read_process_identity(std::process::id()).map_err(|error| error.to_string())?;
+    let supervisor_identity = read_process_identity(std::process::id()).map_err(|error| error.message)?;
     write_detached_pyrun_launch_manifest(
         &manifest_path,
         &DetachedPyrunLaunchManifestData {
@@ -248,11 +231,11 @@ impl JsonLineCursor {
 /// `readNewJsonLines`: complete lines only; a malformed complete line throws
 /// like `JSON.parse`.
 fn read_new_json_lines(
-    path: &str,
+    path: &JsString,
     cursor: &mut JsonLineCursor,
     byte_limit: Option<usize>,
 ) -> Result<Vec<Value>, JsString> {
-    let data = match std::fs::read(path) {
+    let data = match std::fs::read(js_json::encode_node_utf8(path)) {
         Ok(data) => data,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error.to_string().into()),
@@ -289,13 +272,13 @@ fn read_new_json_lines(
 }
 
 struct DetachState {
-    cwd: String,
-    job_id: String,
+    cwd: JsString,
+    job_id: JsString,
     process_identity: ProcessIdentity,
     runner_pid: u32,
-    script_path: String,
-    activation_path: String,
-    tool_call_id: Option<String>,
+    script_path: JsString,
+    activation_path: JsString,
+    tool_call_id: Option<JsString>,
     controller: DetachedJobLifecycleController,
     ownership: Mutex<Option<DetachedJobOwnership>>,
     activated: AtomicBool,
@@ -324,7 +307,7 @@ fn detach_state_fn(state: &DetachState) -> bool {
         display_name: "Pyrun evaluation".into(),
         job_id: state.job_id.clone(),
         process_identity: state.process_identity.clone(),
-        worker_handle_id: state.runner_pid.to_string(),
+        worker_handle_id: state.runner_pid.to_string().into(),
         tool_call_id: state.tool_call_id.clone(),
         detached: Some(true),
         file_refs: Some(vec![crate::core::multi_agent_store::AgentFileReference {
@@ -353,7 +336,7 @@ fn cancel_pyrun_evaluation(state: &DetachState) -> Result<(), HandlerError> {
             .controller
             .cancel(&ownership, Some(&"Pyrun tool call aborted".into()))
             .map(|_| ())
-            .map_err(|error| HandlerError::new(error.to_string())),
+            .map_err(|error| HandlerError::new(error.message())),
         None => terminate_foreground_runner(state.runner_pid, rustix::process::Signal::TERM).map_err(HandlerError::new),
     }
 }
@@ -373,15 +356,21 @@ fn settle_foreground_evaluation(
         .find(|record| record.get("kind").and_then(Value::as_string) == Some(&JsString::from("error")))
         .and_then(|record| record.get("error").and_then(Value::as_string))
     {
-        std::fs::write(&runner.foreground_completion_path, "failed\n")
-            .map_err(|error| HandlerError::new(error.to_string()))?;
+        std::fs::write(
+            js_json::encode_node_utf8(&runner.foreground_completion_path),
+            "failed\n",
+        )
+        .map_err(|error| HandlerError::new(error.to_string()))?;
         return Err(HandlerError::new(error));
     }
     let Some(result) = result else {
         return Ok(None);
     };
-    std::fs::write(&runner.foreground_completion_path, "completed\n")
-        .map_err(|error| HandlerError::new(error.to_string()))?;
+    std::fs::write(
+        js_json::encode_node_utf8(&runner.foreground_completion_path),
+        "completed\n",
+    )
+    .map_err(|error| HandlerError::new(error.to_string()))?;
     Ok(Some(format_canonical_pyrun_eval_result(&input.params, result.clone())))
 }
 
@@ -513,11 +502,11 @@ fn consume_dense_artifact_records(
     result
 }
 
-fn detached_result(params: &PyrunEvalParams, job_id: &str, log_path: &str) -> AgentToolResult {
+fn detached_result(params: &PyrunEvalParams, job_id: &JsString, log_path: &JsString) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(
             params.code.clone()
-                + format!(
+                + js_format!(
                     "\n\nPyrun evaluation moved to background as job {job_id}. Output will be written to {log_path}."
                 ),
         ))],
@@ -552,7 +541,7 @@ fn format_terminal_agent_error(params: &PyrunEvalParams, agent: &AgentNode) -> A
         .as_ref()
         .map(|error| JsString::from(&error.message))
         .or_else(|| agent.result.as_ref().and_then(|result| result.summary.clone()))
-        .unwrap_or_else(|| format!("Pyrun evaluation {}", lifecycle_name(agent.lifecycle)).into());
+        .unwrap_or_else(|| js_format!("Pyrun evaluation {}", lifecycle_name(agent.lifecycle)).into());
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(
             params.code.clone() + "\n\nError: " + &error,
@@ -575,7 +564,7 @@ fn pyrun_console_records(records: &[Value]) -> Vec<Value> {
         .collect()
 }
 
-fn format_lost_pyrun_runtime(params: &PyrunEvalParams, records: &[Value], output_path: &str) -> AgentToolResult {
+fn format_lost_pyrun_runtime(params: &PyrunEvalParams, records: &[Value], output_path: &JsString) -> AgentToolResult {
     let error = "Pyrun runner exited before producing a result.";
     let result = CanonicalPyrunEvalResult {
         approval: None,
@@ -593,7 +582,7 @@ fn format_lost_pyrun_runtime(params: &PyrunEvalParams, records: &[Value], output
     let mut formatted = format_canonical_pyrun_eval_result(params, result);
     for item in &mut formatted.content {
         if let TextOrImageContent::Text(text) = item {
-            text.text.push_str(format!("\nPreserved output: {output_path}"));
+            text.text.push_str(js_format!("\nPreserved output: {output_path}"));
         }
     }
     if let Some(Value::Object(details)) = &mut formatted.details {
@@ -604,17 +593,16 @@ fn format_lost_pyrun_runtime(params: &PyrunEvalParams, records: &[Value], output
 }
 
 struct PyrunManifestCandidate {
-    directory: String,
+    directory: JsString,
     manifest: DetachedPyrunLaunchManifest,
-    manifest_path: String,
+    manifest_path: JsString,
 }
 
-fn read_pyrun_manifest_candidate(directory: &str) -> Result<Option<PyrunManifestCandidate>, HandlerError> {
-    let manifest_path = Path::new(directory).join("launch.json");
-    if !manifest_path.exists() {
+fn read_pyrun_manifest_candidate(directory: &JsString) -> Result<Option<PyrunManifestCandidate>, HandlerError> {
+    let manifest_path = node_join(&[directory.clone(), "launch.json".into()]);
+    if !Path::new(&js_json::encode_node_utf8(&manifest_path)).exists() {
         return Ok(None);
     }
-    let manifest_path = manifest_path.display().to_string();
     let manifest = read_detached_pyrun_launch_manifest(&manifest_path).map_err(HandlerError::new)?;
     Ok(Some(PyrunManifestCandidate {
         directory: directory.to_owned(),
@@ -623,11 +611,11 @@ fn read_pyrun_manifest_candidate(directory: &str) -> Result<Option<PyrunManifest
     }))
 }
 
-fn read_complete_artifact_records(path: &str) -> Result<Vec<Value>, JsString> {
-    if !Path::new(path).exists() {
+fn read_complete_artifact_records(path: &JsString) -> Result<Vec<Value>, JsString> {
+    if !Path::new(&js_json::encode_node_utf8(path)).exists() {
         return Ok(Vec::new());
     }
-    let text = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
+    let text = std::fs::read_to_string(js_json::encode_node_utf8(path)).map_err(|error| error.to_string())?;
     let Some(last_newline) = text.rfind('\n') else {
         return Ok(Vec::new());
     };
@@ -638,14 +626,14 @@ fn read_complete_artifact_records(path: &str) -> Result<Vec<Value>, JsString> {
     Ok(records)
 }
 
-fn restore_terminal_pyrun_result(records: &[Value]) -> Result<Option<CanonicalPyrunEvalResult>, String> {
+fn restore_terminal_pyrun_result(records: &[Value]) -> Result<Option<CanonicalPyrunEvalResult>, JsString> {
     let mut terminal = None;
     for record in records {
         if record.get("kind").and_then(Value::as_string) == Some(&JsString::from("progress")) {
             continue;
         }
         if terminal.is_some() {
-            return Err("Pyrun output artifact contains multiple terminal records".to_owned());
+            return Err("Pyrun output artifact contains multiple terminal records".into());
         }
         terminal = Some(match record.get("kind").and_then(Value::as_string) {
             Some(kind) if kind == "result" => {
@@ -673,7 +661,7 @@ fn restore_terminal_pyrun_result(records: &[Value]) -> Result<Option<CanonicalPy
 enum RestoredRunner {
     Aborted(Box<AgentNode>),
     Terminal(Box<CanonicalPyrunEvalResult>),
-    Lost(Vec<Value>, String),
+    Lost(Vec<Value>, JsString),
     Resume(LaunchedRunner),
 }
 
@@ -692,7 +680,7 @@ async fn settle_cancelling_pyrun_job(
     };
     // The runner may have died before writing any output; the terminal input
     // hashes the output file, so ensure it exists before building the transition.
-    if !Path::new(&manifest.data.artifacts.output_path).exists() {
+    if !Path::new(&js_json::encode_node_utf8(&manifest.data.artifacts.output_path)).exists() {
         let mut options = std::fs::OpenOptions::new();
         options.create(true).append(true);
         #[cfg(unix)]
@@ -701,7 +689,7 @@ async fn settle_cancelling_pyrun_job(
             options.mode(0o600);
         }
         options
-            .open(&manifest.data.artifacts.output_path)
+            .open(js_json::encode_node_utf8(&manifest.data.artifacts.output_path))
             .map_err(|error| HandlerError::new(error.to_string()))?;
     }
     let terminal_at = now_millis();
@@ -714,9 +702,9 @@ async fn settle_cancelling_pyrun_job(
         },
         &terminal_at_iso,
         Some((terminal_at - manifest.data.started_at as i64).max(0)),
-        manifest.data.tool_call_id.as_deref(),
+        manifest.data.tool_call_id.as_ref(),
     )
-    .map_err(|error| HandlerError::new(error.to_string()))?;
+    .map_err(|error| HandlerError::new(error.message()))?;
     let control_db_path = persistence.control_db_path.clone();
     let session_path = persistence.session_path.clone();
     let finalized = finalize_detached_job_with_retry(&terminal, move |terminal| {
@@ -734,7 +722,7 @@ async fn settle_cancelling_pyrun_job(
     }
     Ok(
         read_multi_agent_agent(&persistence.control_db_path, &persistence.session_path, &persisted.id)
-            .map_err(|error| HandlerError::new(error.to_string()))?
+            .map_err(|error| HandlerError::new(error.message()))?
             .unwrap_or(persisted),
     )
 }
@@ -742,16 +730,16 @@ async fn settle_cancelling_pyrun_job(
 async fn settle_cancelled_pyrun_candidate(
     persistence: &PersistenceTarget,
     candidate: &PyrunManifestCandidate,
-    tool_call_id: &str,
-    job_id: &str,
+    tool_call_id: &JsString,
+    job_id: &JsString,
 ) -> Result<Option<AgentNode>, HandlerError> {
     let correlated = candidate.manifest.data.tool_call_id.is_none()
-        || candidate.manifest.data.tool_call_id.as_deref() == Some(tool_call_id);
+        || candidate.manifest.data.tool_call_id.as_ref() == Some(tool_call_id);
     if !correlated {
         return Ok(None);
     }
     let persisted = read_multi_agent_agent(&persistence.control_db_path, &persistence.session_path, job_id)
-        .map_err(|error| HandlerError::new(error.to_string()))?;
+        .map_err(|error| HandlerError::new(error.message()))?;
     let Some(persisted) = persisted else {
         return Ok(None);
     };
@@ -766,8 +754,8 @@ async fn settle_cancelled_pyrun_candidate(
 fn restore_pyrun_candidate(
     candidate: PyrunManifestCandidate,
     expected_params: &super::runner::CanonicalPyrunEvalParams,
-    tool_call_id: &str,
-    job_id: &str,
+    tool_call_id: &JsString,
+    job_id: &JsString,
 ) -> Result<RestoredRunner, HandlerError> {
     let manifest = candidate.manifest;
     let manifest_params =
@@ -776,7 +764,7 @@ fn restore_pyrun_candidate(
     let manifest_params = js_json::stringify_lossless(&manifest_params);
     let expected_params = js_json::stringify_lossless(&expected_params);
     if manifest_params != expected_params {
-        return Err(HandlerError::new(format!(
+        return Err(HandlerError::new(js_format!(
             "Pyrun tool-call artifact collision for {tool_call_id}"
         )));
     }
@@ -787,11 +775,10 @@ fn restore_pyrun_candidate(
     if !is_process_identity_alive(&manifest.data.runner_process_identity) {
         return Ok(RestoredRunner::Lost(records, manifest.data.artifacts.output_path));
     }
-    let script_path = Path::new(&candidate.directory).join("script.py");
-    if !script_path.exists() {
-        return Err(HandlerError::new(format!(
-            "Pyrun script artifact is missing: {}",
-            script_path.display()
+    let script_path = node_join(&[candidate.directory, "script.py".into()]);
+    if !Path::new(&js_json::encode_node_utf8(&script_path)).exists() {
+        return Err(HandlerError::new(js_format!(
+            "Pyrun script artifact is missing: {script_path}"
         )));
     }
     Ok(RestoredRunner::Resume(LaunchedRunner {
@@ -803,7 +790,7 @@ fn restore_pyrun_candidate(
         job_id: job_id.to_owned(),
         process_identity: manifest.data.runner_process_identity.clone(),
         runner_pid: manifest.data.runner_process_identity.pid,
-        script_path: script_path.display().to_string(),
+        script_path,
     }))
 }
 
@@ -816,7 +803,7 @@ async fn restore_foreground_pyrun_runner(
         .clone()
         .ok_or_else(|| HandlerError::new("Detached Pyrun requires a persisted tool execution agent ID"))?;
     let root = pyrun_artifact_root(&persistence.session_path).map_err(HandlerError::new)?;
-    let directory = Path::new(&root).join(&agent_id).display().to_string();
+    let directory = node_join(&[root, agent_id.clone()]);
     let Some(candidate) = read_pyrun_manifest_candidate(&directory)? else {
         return Ok(None);
     };
@@ -828,19 +815,19 @@ async fn restore_foreground_pyrun_runner(
         .as_ref()
         .is_some_and(|id| id == &agent_id)
     {
-        return Err(HandlerError::new(format!(
+        return Err(HandlerError::new(js_format!(
             "Pyrun launch manifest agent ID mismatch: {}",
             candidate.manifest_path
         )));
     }
     // TypeScript template interpolation renders a missing tool call id as
     // `undefined` in the collision message.
-    let tool_call_id = input.tool_call_id.clone().unwrap_or_else(|| "undefined".to_owned());
+    let tool_call_id = input.tool_call_id.clone().unwrap_or_else(|| "undefined".into());
     if let Some(agent) = settle_cancelled_pyrun_candidate(persistence, &candidate, &tool_call_id, &agent_id).await? {
         return Ok(Some(RestoredRunner::Aborted(Box::new(agent))));
     }
     if candidate.manifest.data.tool_call_id != input.tool_call_id {
-        return Err(HandlerError::new(format!(
+        return Err(HandlerError::new(js_format!(
             "Pyrun tool-call artifact collision for {tool_call_id}"
         )));
     }
@@ -857,14 +844,7 @@ async fn respond_to_foreground_bridge_request(
     let Some(request_id) = request.get("requestId").and_then(Value::as_string) else {
         return Ok(());
     };
-    if !claim_foreground_bridge_request(
-        &runner.artifacts.directory,
-        &request_id
-            .to_utf8()
-            .map_err(|error| HandlerError::new(error.to_string()))?,
-    )
-    .map_err(HandlerError::new)?
-    {
+    if !claim_foreground_bridge_request(&runner.artifacts.directory, request_id).map_err(HandlerError::new)? {
         return Ok(());
     }
     let mut claimed = Map::new();
@@ -875,15 +855,22 @@ async fn respond_to_foreground_bridge_request(
     let method = request
         .get("method")
         .and_then(Value::as_string)
-        .and_then(|method| method.to_utf8().ok())
-        .unwrap_or_default()
-        .to_owned();
+        .cloned()
+        .unwrap_or_default();
     let params = request.get("params").cloned().unwrap_or(Value::Null);
     let response = (input.dispatch_pi_request)(
         super::runner::PiRequest { method, params },
         input.ctx.clone(),
         input.signal.clone(),
-        input.tool_call_id.clone(),
+        input
+            .tool_call_id
+            .as_ref()
+            .map(|id| {
+                id.to_utf8().map_err(|_| {
+                    HandlerError::new("Persisted Pyrun provider tool-call ID contains an unpaired UTF-16 unit")
+                })
+            })
+            .transpose()?,
     )
     .await;
     let mut body = Map::new();
@@ -971,7 +958,7 @@ async fn observe_detachable_pyrun_evaluation(
             if let Some(ownership) = &ownership
                 && let Some(agent) = controller
                     .observe(&ownership.agent.id)
-                    .map_err(|error| HandlerError::new(error.to_string()))?
+                    .map_err(|error| HandlerError::new(error.message()))?
             {
                 terminal_agent = Some(agent);
             }
@@ -1060,11 +1047,11 @@ mod js_value_tests {
         std::fs::write(&path, b"{\"value\":\"\\ud800\"}\n").unwrap();
         let mut cursor = JsonLineCursor::new();
         assert!(
-            read_new_json_lines(path.to_str().unwrap(), &mut cursor, Some(12))
+            read_new_json_lines(&path.to_str().unwrap().into(), &mut cursor, Some(12))
                 .unwrap()
                 .is_empty()
         );
-        let records = read_new_json_lines(path.to_str().unwrap(), &mut cursor, None).unwrap();
+        let records = read_new_json_lines(&path.to_str().unwrap().into(), &mut cursor, None).unwrap();
         assert_eq!(
             records,
             vec![pi_js_compat::js_json!({"value": JsString::from_utf16(vec![0xd800])})]
@@ -1082,7 +1069,7 @@ mod js_value_tests {
         .unwrap();
         let params: super::super::runner::CanonicalPyrunEvalParams =
             serde_json::from_str(r#"{"code":"x","pi":{"2":2.0,"1":1.0}}"#).unwrap();
-        let data = serde_json::from_value(pi_js_compat::js_json!({
+        let data = js_json::from_value(&pi_js_compat::js_json!({
             "activationPath":"activation", "artifacts":{"directory":directory.path(),"outputPath":output},
             "bridgeRequestPath":"requests", "bridgeResponsePath":"responses", "controlDbPath":"db", "foregroundCompletionPath":"completion",
             "params":params, "runnerAddress":{"sessionId":"s","agentId":"job"}, "runnerOptions":{},
@@ -1090,15 +1077,16 @@ mod js_value_tests {
             "supervisorProcessIdentity":{"pid":124,"startTimeTicks":1}, "toolCallId":"call"
         })).unwrap();
         let path = directory.path().join("launch.json");
-        super::super::detached_runner::write_detached_pyrun_launch_manifest(path.to_str().unwrap(), &data).unwrap();
-        let candidate = read_pyrun_manifest_candidate(directory.path().to_str().unwrap())
+        super::super::detached_runner::write_detached_pyrun_launch_manifest(&path.to_str().unwrap().into(), &data)
+            .unwrap();
+        let candidate = read_pyrun_manifest_candidate(&directory.path().to_str().unwrap().into())
             .unwrap()
             .unwrap();
-        let restored = restore_pyrun_candidate(candidate, &params, "call", "job");
+        let restored = restore_pyrun_candidate(candidate, &params, &"call".into(), &"job".into());
         assert!(
             matches!(restored, Ok(RestoredRunner::Terminal(_))),
-            "{}",
-            restored.err().map_or_else(String::new, |error| error.message)
+            "{:?}",
+            restored.err().map(|error| error.message)
         );
     }
 }
