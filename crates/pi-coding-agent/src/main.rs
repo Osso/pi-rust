@@ -156,9 +156,9 @@ pub fn built_in_extensions() -> Vec<InlineExtension> {
     let mut registry = ExtensionRegistry::new();
     crate::bundled_extensions::register_builtin_extensions(&mut registry);
     registry
-        .get("<inline:llama.cpp>")
+        .get(&JsString::from("<inline:llama.cpp>"))
         .map(|factory| InlineExtension::Named {
-            name: "llama.cpp".to_owned(),
+            name: "llama.cpp".into(),
             factory: Arc::clone(factory),
             hidden: Some(true),
         })
@@ -183,7 +183,7 @@ pub fn create_first_party_extension_factories(
     store: Arc<MultiAgentStore>,
     runtime_handles: crate::bundled_extensions::agents_core::runtime::MultiAgentRuntimeHandles,
     fetch: Arc<dyn pi_ai::request::Fetch>,
-    agent_dir: String,
+    agent_dir: JsString,
     runtime_extension_factories: Arc<dyn Fn() -> Vec<InlineExtension> + Send + Sync>,
     select_agent_view: Option<Arc<Mutex<Option<crate::bundled_extensions::agents_core::runtime::SelectAgentView>>>>,
 ) -> Vec<InlineExtension> {
@@ -222,7 +222,7 @@ pub fn create_first_party_extension_factories(
             session_dir: None,
         });
     let select_agent_view = select_agent_view.map(|slot| {
-        Arc::new(move |agent_id: &str| {
+        Arc::new(move |agent_id: &JsString| {
             let selector = slot.lock().expect("agent view selector").clone();
             match selector {
                 Some(selector) => selector(agent_id),

@@ -276,18 +276,19 @@ impl MultiAgentPiRequestHandler {
 
     /// Whether this handler owns `method`; unowned methods fall through to the
     /// next Pi request dispatcher.
-    pub fn handles_method(&self, method: &str) -> bool {
-        matches!(
-            method,
-            "agents.spawn"
-                | "agents.wait"
-                | "agents.attachSession"
-                | "agents.list"
-                | "agents.current"
-                | "agents.select"
-                | "messages.last"
-                | "messages.send"
-        )
+    pub fn handles_method(&self, method: &JsString) -> bool {
+        [
+            "agents.spawn",
+            "agents.wait",
+            "agents.attachSession",
+            "agents.list",
+            "agents.current",
+            "agents.select",
+            "messages.last",
+            "messages.send",
+        ]
+        .iter()
+        .any(|owned| *method == **owned)
     }
 
     pub async fn handle(
