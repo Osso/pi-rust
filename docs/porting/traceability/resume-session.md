@@ -24,9 +24,15 @@ Differential: `tests/differential_session_tools.rs::resume_session_tool_differen
 (by id prefix, by name, by path, starter prompt, current path/id/name, ambiguous name,
 missing path, both targets, no target, blank name, cancelled switch).
 
-## Gaps
+## Q18 native checkpoint
 
-- None.
+Common pin: `4f9e6f8a4`. Target IDs/paths, path-keyed merge, lookup errors, call/result rendering and current-session comparisons use `JsString`. Path resolution now returns `Result`; process-CWD/path failures propagate rather than using empty-CWD/original-path fallbacks. `find_session_file_by_id` takes native ID/DB path and returns native path. The coupled change-working-directory caller propagates errors.
+
+`lossless_name_tests::path_and_id_targets_keep_original_units` covers trimmed raw target IDs/paths; the existing raw-name lookup assertion remains. Tests are unexecuted pending coding-library compilation; earlier-pin differential evidence above is not new-pin acceptance.
+
+## Source drift queued for classification
+
+Frozen `assertResumeSessionPath` first resolves the transcript read path and accepts `.jsonl.zst`; Rust currently validates only `.jsonl` and does not invoke the archived-transcript resolver. Native migration does not silently correct this behavior.
 
 ## Renderers
 
