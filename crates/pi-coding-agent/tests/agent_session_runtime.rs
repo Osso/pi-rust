@@ -843,7 +843,10 @@ async fn late_tools_refresh_the_real_session_without_reactivating_disabled_tools
     use pi_coding_agent::core::extensions::{SessionStartEvent, SessionStartReason};
     let harness = build_harness_with_dynamic_tools(false, false, true).await;
     let session = harness.runtime.session();
-    session.bind_extensions(ExtensionBindings::default()).await;
+    session
+        .bind_extensions(ExtensionBindings::default())
+        .await
+        .expect("bind extensions");
     let runner = session.extension_runner();
     runner
         .emit(&mut ExtensionEvent::SessionStart(SessionStartEvent {
