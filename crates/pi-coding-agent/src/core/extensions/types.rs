@@ -3548,7 +3548,7 @@ impl ExtensionApi {
 pub struct ExtensionExecOptions {
     pub signal: Option<CancellationToken>,
     pub timeout: Option<u64>,
-    pub cwd: Option<String>,
+    pub cwd: Option<JsString>,
 }
 
 /// Re-exported sandbox scope name for command contexts.

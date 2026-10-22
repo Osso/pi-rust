@@ -3,8 +3,8 @@ use std::time::{Duration, Instant};
 use pi_coding_agent::core::exec::{ExecOptions, exec_command};
 use tokio_util::sync::CancellationToken;
 
-fn cwd() -> String {
-    std::env::temp_dir().to_string_lossy().into_owned()
+fn cwd() -> pi_js_compat::js_json::JsString {
+    std::env::temp_dir().to_string_lossy().as_ref().into()
 }
 
 #[tokio::test]

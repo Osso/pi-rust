@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use rustix::process::{Pid, Signal, kill_process};
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
@@ -28,10 +29,10 @@ pub struct ExecResult {
     pub killed: bool,
 }
 
-pub async fn exec_command(command: &str, args: &[&str], cwd: &str, options: &ExecOptions) -> ExecResult {
+pub async fn exec_command(command: &str, args: &[&str], cwd: &JsString, options: &ExecOptions) -> ExecResult {
     let spawned = Command::new(command)
         .args(args)
-        .current_dir(cwd)
+        .current_dir(encode_node_utf8(cwd))
         .env_clear()
         .envs(pi_js_compat::process_env::vars())
         .stdin(Stdio::null())
