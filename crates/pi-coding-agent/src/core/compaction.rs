@@ -691,7 +691,7 @@ pub struct GenerateSummaryWithUsageOptions<'a> {
     pub api_key: Option<String>,
     pub headers: Option<ProviderHeaders>,
     pub signal: Option<CancellationToken>,
-    pub custom_instructions: Option<&'a str>,
+    pub custom_instructions: Option<&'a JsString>,
     pub previous_summary: Option<&'a JsString>,
     pub thinking_level: Option<pi_agent_core::harness::types::ThinkingLevel>,
     pub stream_fn: Option<&'a StreamFn>,
@@ -798,7 +798,7 @@ pub async fn materialize_compaction_summary(
     let response = complete_summarization_without_callbacks(
         model,
         Context {
-            system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.to_owned()),
+            system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.into()),
             messages: build_compaction_materialization_messages(entry),
             tools: None,
         },
@@ -822,8 +822,8 @@ fn build_summary_prompt(options: &GenerateSummaryWithUsageOptions<'_>) -> JsStri
         SUMMARIZATION_PROMPT
     };
     let focused_prompt = match options.custom_instructions {
-        Some(instructions) => format!("{summary_prompt}\n\nAdditional focus: {instructions}"),
-        None => summary_prompt.to_owned(),
+        Some(instructions) => JsString::from(summary_prompt) + "\n\nAdditional focus: " + instructions,
+        None => summary_prompt.into(),
     };
     let conversation_text = serialize_conversation(&convert_to_llm(options.current_messages));
     let previous_summary_text = match options.previous_summary {
@@ -849,7 +849,7 @@ fn build_summary_request(options: &GenerateSummaryWithUsageOptions<'_>) -> (Cont
         timestamp: now_millis(),
     });
     let context = Context {
-        system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.to_owned()),
+        system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.into()),
         messages: convert_to_llm(&[message]),
         tools: None,
     };
@@ -1048,7 +1048,7 @@ pub struct CompactionSummaryOptions<'a> {
     pub model: &'a Model,
     pub api_key: Option<String>,
     pub headers: Option<ProviderHeaders>,
-    pub custom_instructions: Option<&'a str>,
+    pub custom_instructions: Option<&'a JsString>,
     pub signal: Option<CancellationToken>,
     pub thinking_level: Option<pi_agent_core::harness::types::ThinkingLevel>,
     pub stream_fn: Option<&'a StreamFn>,
@@ -1108,7 +1108,7 @@ fn build_turn_prefix_summary_request(options: &TurnPrefixSummaryRequestOptions<'
     });
     (
         Context {
-            system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.to_owned()),
+            system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.into()),
             messages: convert_to_llm(&[message]),
             tools: None,
         },

@@ -8,6 +8,7 @@ use pi_ai::types::{
     AssistantMessage, ImageContent, Message, Model, ModelCost, ModelCostRates, StopReason, TextContent,
     TextOrImageContent, ThinkingBudgets, Transport, UserContent, UserMessage, UserRole,
 };
+use pi_js_compat::js_json::JsString;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
@@ -76,7 +77,7 @@ impl From<Vec<AgentMessage>> for PromptInput {
 /// Initial agent state overrides.
 #[derive(Clone, Default)]
 pub struct AgentInitialState {
-    pub system_prompt: Option<String>,
+    pub system_prompt: Option<JsString>,
     pub model: Option<Model>,
     pub thinking_level: Option<ThinkingLevel>,
     pub tools: Option<Vec<Arc<dyn AgentTool>>>,
@@ -452,11 +453,11 @@ impl Agent {
         self.state_lock().clone()
     }
 
-    pub fn system_prompt(&self) -> String {
+    pub fn system_prompt(&self) -> JsString {
         self.state_lock().system_prompt.clone()
     }
 
-    pub fn set_system_prompt(&self, system_prompt: impl Into<String>) {
+    pub fn set_system_prompt(&self, system_prompt: impl Into<JsString>) {
         self.state_lock().system_prompt = system_prompt.into();
     }
 

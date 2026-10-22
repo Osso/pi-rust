@@ -826,7 +826,7 @@ fn build_summary_request(options: &GenerateSummaryOptions<'_>) -> (Context, Simp
     };
     (
         Context {
-            system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.to_owned()),
+            system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.into()),
             messages: vec![message],
             tools: None,
         },
@@ -1112,7 +1112,7 @@ async fn generate_turn_prefix_summary<C: RetryCallbacks + ?Sized>(
         ..Default::default()
     };
     let context = Context {
-        system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.to_owned()),
+        system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.into()),
         messages: vec![summarization_message],
         tools: None,
     };

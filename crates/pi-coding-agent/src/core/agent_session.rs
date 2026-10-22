@@ -634,7 +634,7 @@ pub type AgentSessionEventListener = Arc<dyn Fn(&AgentSessionEvent) + Send + Syn
 #[derive(Debug, Clone, Default)]
 pub struct NavigateTreeOptions {
     pub summarize: Option<bool>,
-    pub custom_instructions: Option<String>,
+    pub custom_instructions: Option<JsString>,
     pub replace_instructions: Option<bool>,
     pub label: Option<String>,
 }
@@ -912,9 +912,9 @@ struct Inner {
     permission_prompt_tool: Option<String>,
     allowed_tool_names: Option<HashSet<String>>,
     excluded_tool_names: Option<HashSet<String>>,
-    base_system_prompt: Mutex<String>,
+    base_system_prompt: Mutex<JsString>,
     base_system_prompt_options: Mutex<Option<BuildSystemPromptOptions>>,
-    system_prompt_override: Mutex<Option<String>>,
+    system_prompt_override: Mutex<Option<JsString>>,
     event_listeners: Mutex<Vec<(u64, AgentSessionEventListener)>>,
     next_listener_id: AtomicU64,
     agent_subscription: Mutex<Option<u64>>,
@@ -1028,7 +1028,7 @@ struct BackgroundCompactionCache {
     model_id: String,
     model_api: String,
     thinking_level: ThinkingLevel,
-    system_prompt: String,
+    system_prompt: JsString,
     runner: ExtensionRunner,
     abort: CancellationToken,
     compaction: Option<crate::core::compaction::CompactionResult>,
@@ -1069,7 +1069,7 @@ async fn emit_compaction_event(
     runner: &ExtensionRunner,
     preparation: &crate::core::compaction::CompactionPreparation,
     branch_entries: &[SessionEntry],
-    custom_instructions: Option<&str>,
+    custom_instructions: Option<&JsString>,
     reason: &str,
     will_retry: bool,
     abort: &CancellationToken,
@@ -1080,7 +1080,7 @@ async fn emit_compaction_event(
     let mut event = ExtensionEvent::Compaction(CompactionEvent {
         preparation: preparation.clone(),
         branch_entries: branch_entries.to_vec(),
-        custom_instructions: custom_instructions.map(str::to_owned),
+        custom_instructions: custom_instructions.cloned(),
         reason: compaction_reason(reason),
         will_retry,
         signal: Some(abort.clone()),
@@ -1309,7 +1309,7 @@ impl AgentSession {
             permission_prompt_tool,
             allowed_tool_names: config.allowed_tool_names.map(|names| names.into_iter().collect()),
             excluded_tool_names: config.excluded_tool_names.map(|names| names.into_iter().collect()),
-            base_system_prompt: Mutex::new(String::new()),
+            base_system_prompt: Mutex::new(JsString::default()),
             base_system_prompt_options: Mutex::new(None),
             system_prompt_override: Mutex::new(None),
             event_listeners: Mutex::new(Vec::new()),
@@ -1854,7 +1854,7 @@ impl AgentSession {
         self.inner.agent.set_system_prompt(prompt);
     }
 
-    fn rebuild_system_prompt(&self, tool_names: &[String]) -> String {
+    fn rebuild_system_prompt(&self, tool_names: &[String]) -> JsString {
         let registry = lock(&self.inner.tool_registry);
         let valid_tool_names: Vec<String> = tool_names
             .iter()
@@ -1893,7 +1893,7 @@ impl AgentSession {
         };
         let prompt = build_system_prompt(&options);
         *lock(&self.inner.base_system_prompt_options) = Some(options);
-        prompt
+        prompt.into()
     }
 
     async fn before_tool_call(
@@ -3717,7 +3717,7 @@ impl AgentSession {
         &self,
         preparation: &crate::core::compaction::CompactionPreparation,
         branch_entries: &[SessionEntry],
-        custom_instructions: Option<&str>,
+        custom_instructions: Option<&JsString>,
         reason: &str,
         will_retry: bool,
         abort: &CancellationToken,
@@ -3729,7 +3729,7 @@ impl AgentSession {
         let mut event = ExtensionEvent::SessionBeforeCompact(SessionBeforeCompactEvent {
             preparation: preparation.clone(),
             branch_entries: branch_entries.to_vec(),
-            custom_instructions: custom_instructions.map(str::to_owned),
+            custom_instructions: custom_instructions.cloned(),
             reason: compaction_reason(reason),
             will_retry,
             signal: Some(abort.clone()),
@@ -3744,7 +3744,7 @@ impl AgentSession {
         &self,
         preparation: &crate::core::compaction::CompactionPreparation,
         auth: &CompactionRequestAuth,
-        custom_instructions: Option<&str>,
+        custom_instructions: Option<&JsString>,
         abort: &CancellationToken,
     ) -> Result<crate::core::compaction::CompactionResult, AgentSessionError> {
         let stream_fn = self.inner.agent.stream_fn();
@@ -4744,7 +4744,7 @@ impl AgentSession {
     }
 
     /// Aborts the current operation, then submits preserved user input.
-    pub async fn interrupt(&self, message: &str, source: InputSource) -> Result<(), AgentSessionError> {
+    pub async fn interrupt(&self, message: &JsString, source: InputSource) -> Result<(), AgentSessionError> {
         let trimmed = message.trim();
         if trimmed.is_empty() {
             return self.abort().await;
@@ -5608,7 +5608,7 @@ impl AgentSession {
         self.inner.retry_attempt.load(Ordering::SeqCst)
     }
 
-    pub fn system_prompt(&self) -> String {
+    pub fn system_prompt(&self) -> JsString {
         self.inner.agent.system_prompt()
     }
 
@@ -5746,7 +5746,7 @@ impl AgentSession {
     /// Manually compacts the session context.
     pub async fn compact(
         &self,
-        custom_instructions: Option<&str>,
+        custom_instructions: Option<&JsString>,
     ) -> Result<crate::core::compaction::CompactionResult, AgentSessionError> {
         let guard = self.inner.turn_start_lock.lock().await;
         let result = self.compact_inner(custom_instructions).await;
@@ -5756,7 +5756,7 @@ impl AgentSession {
 
     async fn compact_inner(
         &self,
-        custom_instructions: Option<&str>,
+        custom_instructions: Option<&JsString>,
     ) -> Result<crate::core::compaction::CompactionResult, AgentSessionError> {
         let was_running_agent_turn = self.is_streaming();
         let compaction_started_during_tool_execution =
@@ -5834,7 +5834,7 @@ impl AgentSession {
         &self,
         preparation: &crate::core::compaction::CompactionPreparation,
         path_entries: &[SessionEntry],
-        custom_instructions: Option<&str>,
+        custom_instructions: Option<&JsString>,
         reason: &str,
         abort: &CancellationToken,
     ) -> Result<Option<crate::core::compaction::CompactionResult>, AgentSessionError> {
@@ -5867,7 +5867,7 @@ impl AgentSession {
     #[allow(clippy::too_many_arguments)]
     async fn compact_with_settings(
         &self,
-        custom_instructions: Option<&str>,
+        custom_instructions: Option<&JsString>,
         abort: &CancellationToken,
         was_running_agent_turn: bool,
         compaction_started_during_tool_execution: bool,
@@ -6765,7 +6765,7 @@ impl AgentSession {
                     headers: auth.headers.clone(),
                     env: auth.env.clone(),
                     signal: Some(abort.clone()),
-                    custom_instructions: custom_instructions.as_deref(),
+                    custom_instructions: custom_instructions.as_ref(),
                     replace_instructions: replace_instructions.unwrap_or(false),
                     reserve_tokens: Some(reserve_tokens),
                     stream_fn: Some(&stream_fn),
@@ -8120,7 +8120,7 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
                 handle.spawn(async move {
                     let custom = options.as_ref().and_then(|options| options.custom_instructions.clone());
-                    match session.compact(custom.as_deref()).await {
+                    match session.compact(custom.as_ref()).await {
                         Ok(_result) => {
                             // `on_complete` expects the coding-agent compaction result
                             // type; the result is not forwarded yet.

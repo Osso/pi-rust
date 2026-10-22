@@ -772,7 +772,7 @@ pub struct ContextUsage {
 
 #[derive(Clone, Default)]
 pub struct CompactOptions {
-    pub custom_instructions: Option<String>,
+    pub custom_instructions: Option<JsString>,
     pub on_complete: Option<CompactCompleteCallback>,
     pub on_error: Option<JsStringCallback>,
 }
@@ -831,7 +831,7 @@ pub enum ForkPosition {
 #[derive(Clone, Default)]
 pub struct NavigateTreeOptions {
     pub summarize: Option<bool>,
-    pub custom_instructions: Option<String>,
+    pub custom_instructions: Option<JsString>,
     pub replace_instructions: Option<bool>,
     pub label: Option<String>,
 }
@@ -885,7 +885,7 @@ pub struct ExtensionContextState {
         Arc<dyn Fn() -> Option<Arc<DetachedJobLifecycleController>> + Send + Sync>,
     pub(super) get_tool_detach_registry_fn: Arc<dyn Fn() -> Option<Arc<ToolDetachRegistry>> + Send + Sync>,
     pub(super) compact_fn: Arc<dyn Fn(Option<CompactOptions>) + Send + Sync>,
-    pub(super) get_system_prompt_fn: Arc<dyn Fn() -> String + Send + Sync>,
+    pub(super) get_system_prompt_fn: Arc<dyn Fn() -> JsString + Send + Sync>,
     pub(super) get_system_prompt_options_fn: Option<Arc<dyn Fn() -> BuildSystemPromptOptions + Send + Sync>>,
     pub(super) relocate_handler: RelocateCallback,
     pub(super) prepare_tool_result_relocation_handler: RelocateCallback,
@@ -941,7 +941,7 @@ impl ExtensionContextState {
             get_detached_job_lifecycle_fn: Arc::new(|| None),
             get_tool_detach_registry_fn: Arc::new(|| None),
             compact_fn: Arc::new(|_| {}),
-            get_system_prompt_fn: Arc::new(String::new),
+            get_system_prompt_fn: Arc::new(JsString::default),
             get_system_prompt_options_fn: None,
             relocate_handler: Arc::new(|_| {
                 Box::pin(async {
@@ -1009,7 +1009,7 @@ pub struct ExtensionContext {
     pub tool_execution_started_at: Option<f64>,
     pub tool_execution_agent_id: Option<String>,
     state: Arc<Mutex<ExtensionContextState>>,
-    system_prompt_override: Option<Arc<dyn Fn() -> String + Send + Sync>>,
+    system_prompt_override: Option<Arc<dyn Fn() -> JsString + Send + Sync>>,
     viewed_session_target: Option<ViewedSessionMutationTargetResolver>,
 }
 
@@ -1041,7 +1041,7 @@ impl ExtensionContext {
     }
 
     /// Overrides `getSystemPrompt()` for `before_agent_start` chaining.
-    pub fn with_system_prompt_override(mut self, getter: Arc<dyn Fn() -> String + Send + Sync>) -> Self {
+    pub fn with_system_prompt_override(mut self, getter: Arc<dyn Fn() -> JsString + Send + Sync>) -> Self {
         self.system_prompt_override = Some(getter);
         self
     }
@@ -1231,7 +1231,7 @@ impl ExtensionContext {
         Ok(())
     }
 
-    pub fn get_system_prompt(&self) -> Result<String, HandlerError> {
+    pub fn get_system_prompt(&self) -> Result<JsString, HandlerError> {
         self.assert_active()?;
         if let Some(getter) = &self.system_prompt_override {
             return Ok(getter());
@@ -1698,7 +1698,7 @@ pub struct SessionBeforeCompactEvent {
     pub preparation: CompactionPreparation,
     pub branch_entries: Vec<SessionEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub custom_instructions: Option<String>,
+    pub custom_instructions: Option<JsString>,
     pub reason: CompactionReason,
     pub will_retry: bool,
     #[serde(skip)]
@@ -1711,7 +1711,7 @@ pub struct CompactionEvent {
     pub preparation: CompactionPreparation,
     pub branch_entries: Vec<SessionEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub custom_instructions: Option<String>,
+    pub custom_instructions: Option<JsString>,
     pub reason: CompactionReason,
     pub will_retry: bool,
     #[serde(skip)]
@@ -1768,7 +1768,7 @@ pub struct TreePreparation {
     pub entries_to_summarize: Vec<SessionEntry>,
     pub user_wants_summary: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub custom_instructions: Option<String>,
+    pub custom_instructions: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replace_instructions: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1829,7 +1829,7 @@ pub struct BeforeAgentStartEvent {
     pub prompt: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<ImageContent>>,
-    pub system_prompt: String,
+    pub system_prompt: JsString,
     pub system_prompt_options: BuildSystemPromptOptions,
 }
 
@@ -2392,7 +2392,7 @@ pub struct BeforeAgentStartEventResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<CustomMessagePayload>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub system_prompt: Option<String>,
+    pub system_prompt: Option<JsString>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -2458,7 +2458,7 @@ pub struct SessionBeforeTreeResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<SessionTreeSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub custom_instructions: Option<String>,
+    pub custom_instructions: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replace_instructions: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2922,7 +2922,7 @@ pub struct ExtensionContextActions {
     pub get_multi_agent_store: Option<Arc<dyn Fn() -> Option<Arc<MultiAgentStore>> + Send + Sync>>,
     pub get_tool_detach_registry: Option<Arc<dyn Fn() -> Option<Arc<ToolDetachRegistry>> + Send + Sync>>,
     pub compact: Arc<dyn Fn(Option<CompactOptions>) + Send + Sync>,
-    pub get_system_prompt: Arc<dyn Fn() -> String + Send + Sync>,
+    pub get_system_prompt: Arc<dyn Fn() -> JsString + Send + Sync>,
     pub get_system_prompt_options: Option<Arc<dyn Fn() -> BuildSystemPromptOptions + Send + Sync>>,
 }
 

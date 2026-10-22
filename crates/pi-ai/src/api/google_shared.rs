@@ -572,7 +572,7 @@ pub(crate) fn build_generate_content_params(
     if let Some(max_tokens) = max_tokens {
         config.insert("maxOutputTokens".to_owned(), json!(max_tokens));
     }
-    if let Some(system_prompt) = context.system_prompt.as_deref().filter(|prompt| !prompt.is_empty()) {
+    if let Some(system_prompt) = context.system_prompt.as_ref().filter(|prompt| !prompt.is_empty()) {
         config.insert(
             "systemInstruction".to_owned(),
             Value::String(sanitize_surrogates(system_prompt).to_owned()),

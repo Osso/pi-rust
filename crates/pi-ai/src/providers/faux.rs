@@ -1188,7 +1188,7 @@ fn message_to_text(message: &Message) -> JsString {
 fn serialize_context(context: &Context) -> JsString {
     let mut parts = Vec::new();
     if let Some(system_prompt) = &context.system_prompt {
-        parts.push(JsString::from(format!("system:{system_prompt}")));
+        parts.push(JsString::from("system:") + system_prompt);
     }
     for message in &context.messages {
         let role = match message {
