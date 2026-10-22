@@ -3,6 +3,7 @@
 use std::io::Write;
 
 use pi_ai::request::BoxFuture;
+use pi_js_compat::js_json::JsString;
 
 use crate::config::{get_agent_dir, get_user_state_root};
 use crate::core::session_control_db::{
@@ -58,19 +59,19 @@ pub trait SessionsCommandDependencies {
     }
 
     /// Refresh control-database metadata from the session files.
-    fn refresh_metadata<'a>(&'a self, control_db_path: &'a str) -> BoxFuture<'a, Result<(), String>> {
+    fn refresh_metadata<'a>(&'a self, control_db_path: &'a JsString) -> BoxFuture<'a, Result<(), JsString>> {
         Box::pin(async move {
-            let sessions = SessionManager::list_all(None, None, None).map_err(|error| error.to_string())?;
+            let sessions = SessionManager::list_all(None, None, None).map_err(|error| error.message().clone())?;
             for session in sessions {
                 write_session_metadata(control_db_path, &writable_metadata(&session))
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| error.message().clone())?;
             }
             Ok(())
         })
     }
 
-    fn archive_older_than(&self, control_db_path: &str, cutoff_iso: &str) -> Result<Vec<String>, String> {
-        archive_sessions_older_than(control_db_path, cutoff_iso).map_err(|error| error.to_string())
+    fn archive_older_than(&self, control_db_path: &JsString, cutoff_iso: &str) -> Result<Vec<JsString>, JsString> {
+        archive_sessions_older_than(control_db_path, cutoff_iso).map_err(|error| error.message().clone())
     }
 
     fn agent_dir(&self) -> String {
@@ -96,22 +97,22 @@ fn writable_metadata(session: &SessionInfo) -> WritableSessionMetadata {
         model_provider: None,
         model_id: None,
         thinking_level: None,
-        created_at: format_iso_millis(session.created),
-        modified_at: format_iso_millis(session.modified),
+        created_at: format_iso_millis(session.created).into(),
+        modified_at: format_iso_millis(session.modified).into(),
         message_count: i64::try_from(session.message_count).unwrap_or(i64::MAX),
         first_message: session.first_message.clone(),
     }
 }
 
-fn default_control_db_path() -> String {
-    get_control_db_path(&get_user_state_root())
+fn default_control_db_path() -> JsString {
+    get_control_db_path(&get_user_state_root()).into()
 }
 
 /// `handleSessionsCommand`.
 pub async fn handle_sessions_command(
     args: &[String],
     dependencies: &dyn SessionsCommandDependencies,
-) -> Result<SessionsCommandOutcome, String> {
+) -> Result<SessionsCommandOutcome, JsString> {
     if args.first().map(String::as_str) != Some("sessions") {
         return Ok(SessionsCommandOutcome {
             handled: false,
@@ -152,7 +153,7 @@ fn handle_truncate(args: &[String], dependencies: &dyn SessionsCommandDependenci
 async fn handle_archive(
     args: &[String],
     dependencies: &dyn SessionsCommandDependencies,
-) -> Result<SessionsCommandOutcome, String> {
+) -> Result<SessionsCommandOutcome, JsString> {
     let Some(days) = parse_days(&args[2..]) else {
         print_sessions_help(dependencies, false);
         return Ok(SessionsCommandOutcome::failed());

@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use pi_ai::request::BoxFuture;
 use pi_coding_agent::cli::{SessionsCommandDependencies, handle_sessions_command};
 use pi_coding_agent::core::session_tool_output::ToolResultSessionMigrationReport;
+use pi_js_compat::js_json::JsString;
 
 #[derive(Default)]
 struct Harness {
@@ -12,7 +13,7 @@ struct Harness {
     stderr: Mutex<Vec<String>>,
     now_millis: i64,
     cutoff: Mutex<Option<String>>,
-    archived: Vec<String>,
+    archived: Vec<JsString>,
     truncate: Mutex<Option<ToolResultSessionMigrationReport>>,
     refreshed: Mutex<bool>,
 }
@@ -30,12 +31,12 @@ impl SessionsCommandDependencies for Harness {
         self.now_millis
     }
 
-    fn refresh_metadata<'a>(&'a self, _control_db_path: &'a str) -> BoxFuture<'a, Result<(), String>> {
+    fn refresh_metadata<'a>(&'a self, _control_db_path: &'a JsString) -> BoxFuture<'a, Result<(), JsString>> {
         *self.refreshed.lock().unwrap() = true;
         Box::pin(async { Ok(()) })
     }
 
-    fn archive_older_than(&self, _control_db_path: &str, cutoff_iso: &str) -> Result<Vec<String>, String> {
+    fn archive_older_than(&self, _control_db_path: &JsString, cutoff_iso: &str) -> Result<Vec<JsString>, JsString> {
         *self.cutoff.lock().unwrap() = Some(cutoff_iso.to_owned());
         Ok(self.archived.clone())
     }
@@ -80,7 +81,7 @@ fn archives_sessions_using_a_five_day_default_cutoff() {
     runtime().block_on(async {
         let harness = Harness {
             now_millis: 1_783_641_600_000,
-            archived: vec!["/tmp/old.jsonl".to_owned(), "/tmp/older.jsonl".to_owned()],
+            archived: vec!["/tmp/old.jsonl".into(), "/tmp/older.jsonl".into()],
             ..Default::default()
         };
         let outcome = handle_sessions_command(&args(&["sessions", "archive"]), &harness)
