@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::{self, JsObject, JsString, JsValue as Value};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -25,7 +26,7 @@ use crate::utils::child_process::node_spawn_error_message;
 pub struct CanonicalPyrunEvalParams {
     pub code: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<String>,
+    pub session_id: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pi: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -38,16 +39,16 @@ pub struct CanonicalPyrunEvalParams {
 #[serde(untagged)]
 pub enum CanonicalPyrunConsoleEntry {
     Text(JsString),
-    Leveled { level: String, message: JsString },
+    Leveled { level: JsString, message: JsString },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CanonicalPyrunApprovalRequest {
     pub args: Value,
-    pub id: String,
+    pub id: JsString,
     pub summary: JsString,
-    pub tool: String,
+    pub tool: JsString,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -61,7 +62,7 @@ pub struct CanonicalPyrunEvalResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub executed: Option<JsString>,
     #[serde(rename = "type")]
-    pub result_type: String,
+    pub result_type: JsString,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<Value>,
 }
@@ -75,19 +76,16 @@ pub struct CanonicalPyrunProgressUpdate {
 }
 
 impl CanonicalPyrunProgressUpdate {
-    pub fn message_type(&self) -> String {
+    pub fn message_type(&self) -> JsString {
         self.raw
             .get("type")
             .and_then(Value::as_string)
-            .and_then(|text| text.to_utf8().ok())
+            .cloned()
             .unwrap_or_default()
     }
 
-    pub fn method(&self) -> Option<String> {
-        self.raw
-            .get("method")
-            .and_then(Value::as_string)
-            .and_then(|text| text.to_utf8().ok())
+    pub fn method(&self) -> Option<&JsString> {
+        self.raw.get("method").and_then(Value::as_string)
     }
 
     pub fn message(&self) -> Option<&JsString> {
@@ -102,11 +100,8 @@ impl CanonicalPyrunProgressUpdate {
         self.raw.get("output").and_then(Value::as_string)
     }
 
-    pub fn status(&self) -> Option<String> {
-        self.raw
-            .get("status")
-            .and_then(Value::as_string)
-            .and_then(|text| text.to_utf8().ok())
+    pub fn status(&self) -> Option<&JsString> {
+        self.raw.get("status").and_then(Value::as_string)
     }
 
     pub fn params(&self) -> Option<&Value> {
@@ -140,20 +135,20 @@ pub struct PiRequest {
 #[serde(rename_all = "camelCase")]
 pub struct PyrunRunnerOptions {
     pub args: Option<Vec<JsString>>,
-    pub command: Option<String>,
+    pub command: Option<JsString>,
     pub detached: Option<bool>,
-    pub env: Option<Vec<(String, String)>>,
+    pub env: Option<Vec<(JsString, JsString)>>,
     pub inherit_env: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedPyrunRunnerOptions {
     pub args: Vec<JsString>,
-    pub command: String,
-    pub env: Vec<(String, String)>,
+    pub command: JsString,
+    pub env: Vec<(JsString, JsString)>,
 }
 
-fn parse_runner_args(value: Option<&str>) -> Result<Option<Vec<JsString>>, PyrunRunnerError> {
+fn parse_runner_args(value: Option<&JsString>) -> Result<Option<Vec<JsString>>, PyrunRunnerError> {
     let Some(value) = value.filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
@@ -177,23 +172,23 @@ fn parse_runner_args(value: Option<&str>) -> Result<Option<Vec<JsString>>, Pyrun
 
 /// `resolvePyrunRunnerOptions`.
 pub fn resolve_pyrun_runner_options(
-    env: Option<&[(String, String)]>,
+    env: Option<&[(JsString, JsString)]>,
 ) -> Result<ResolvedPyrunRunnerOptions, PyrunRunnerError> {
-    let lookup = |key: &str| -> Option<String> {
+    let lookup = |key: &str| -> Option<JsString> {
         match env {
             Some(env) => env
                 .iter()
                 .rev()
                 .find(|(name, _)| name == key)
                 .map(|(_, value)| value.clone()),
-            None => pi_js_compat::process_env::get(key),
+            None => pi_js_compat::process_env::get(key).map(JsString::from),
         }
     };
-    let args = parse_runner_args(lookup("PI_PYRUN_RUNNER_ARGS").as_deref())?.unwrap_or_default();
+    let args = parse_runner_args(lookup("PI_PYRUN_RUNNER_ARGS").as_ref())?.unwrap_or_default();
     let command_override = lookup("PI_PYRUN_RUNNER_COMMAND").or_else(|| lookup("PI_PYRUN_RUNNER"));
     Ok(ResolvedPyrunRunnerOptions {
         args,
-        command: command_override.unwrap_or_else(|| "pyrun-jsonl".to_owned()),
+        command: command_override.unwrap_or_else(|| "pyrun-jsonl".into()),
         env: Vec::new(),
     })
 }
@@ -239,7 +234,7 @@ struct ProcessHandle {
     generation: u64,
     pid: Option<u32>,
     stdin: Arc<AsyncMutex<ChildStdin>>,
-    stderr: Arc<Mutex<String>>,
+    stderr: Arc<Mutex<JsString>>,
 }
 
 struct RunnerState {
@@ -262,12 +257,8 @@ fn should_detach(options: &PyrunRunnerOptions) -> bool {
     options.detached.unwrap_or(!cfg!(windows))
 }
 
-fn spawn_error(command: &str, error: &std::io::Error) -> PyrunRunnerError {
-    PyrunRunnerError::new(node_spawn_error_message(
-        "spawn",
-        &pi_js_compat::js_json::JsString::from(command),
-        error,
-    ))
+fn spawn_error(command: &JsString, error: &std::io::Error) -> PyrunRunnerError {
+    PyrunRunnerError::new(node_spawn_error_message("spawn", command, error))
 }
 
 impl PyrunRunnerClient {
@@ -377,7 +368,7 @@ impl PyrunRunnerClient {
         let command = self.options.command.clone().unwrap_or(resolved.command);
         let args = self.options.args.clone().unwrap_or(resolved.args);
         let detached = should_detach(&self.options);
-        let mut process_command = Command::new(&command);
+        let mut process_command = Command::new(js_json::encode_node_utf8(&command));
         process_command
             .args(args.iter().map(js_json::encode_node_utf8))
             .stdin(Stdio::piped())
@@ -391,7 +382,7 @@ impl PyrunRunnerClient {
         }
         if let Some(env) = &self.options.env {
             for (name, value) in env {
-                process_command.env(name, value);
+                process_command.env(js_json::encode_node_utf8(name), js_json::encode_node_utf8(value));
             }
         }
         let mut child = process_command.spawn().map_err(|error| spawn_error(&command, &error))?;
@@ -410,7 +401,7 @@ impl PyrunRunnerClient {
         let generation = now_generation(&self.next_generation);
         let pid = child.id();
         let stdin = Arc::new(AsyncMutex::new(stdin));
-        let stderr_buffer = Arc::new(Mutex::new(String::new()));
+        let stderr_buffer = Arc::new(Mutex::new(JsString::default()));
         let process = ProcessHandle {
             generation,
             pid,
@@ -491,14 +482,14 @@ impl PyrunRunnerClient {
                 Err(error) => format!("exit code unknown ({error})"),
             };
             let suffix = if stderr.is_empty() {
-                String::new()
+                JsString::default()
             } else {
-                format!("\n{stderr}")
+                js_format!("\n{}", stderr)
             };
             reject_generation_locked(
                 &mut state,
                 generation,
-                PyrunRunnerError::new(format!("Pyrun runner exited with {reason}{suffix}")),
+                PyrunRunnerError::new(js_format!("Pyrun runner exited with {}{}", reason, suffix)),
             );
         });
         Ok(process)
@@ -607,9 +598,8 @@ async fn handle_stdout_line(
     let message_type = parsed
         .get("type")
         .and_then(Value::as_string)
-        .and_then(|text| text.to_utf8().ok())
-        .unwrap_or_default()
-        .to_owned();
+        .cloned()
+        .unwrap_or_default();
     enum LineAction {
         Pi(Option<PyrunPiRequestHandler>, JsString, Value),
         Progress(Option<PyrunProgressCallback>),

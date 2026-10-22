@@ -9,6 +9,30 @@ use pi_js_compat::js_json::encode_node_utf8;
 use pi_js_compat::js_json::{self, JsString};
 
 #[test]
+fn canonical_console_approval_and_progress_metadata_keep_raw_units() {
+    use pi_coding_agent::bundled_extensions::pyrun::runner::{CanonicalPyrunEvalResult, CanonicalPyrunProgressUpdate};
+    let wire = js_json::parse_lossless(r#"{"type":"needs_approval","console":[{"level":"level-\ud800","message":"message-\udfff"}],"approval":{"args":{"key-\ud800":1},"id":"id-\ud801","summary":"summary-\ud802","tool":"tool-\ud803"}}"#).unwrap();
+    let result: CanonicalPyrunEvalResult = js_json::from_value(&wire).unwrap();
+    assert_eq!(js_json::to_value(&result).unwrap(), wire);
+    let update = CanonicalPyrunProgressUpdate {
+        raw: js_json::parse_lossless(r#"{"type":"type-\ud800","method":"method-\ud801","status":"status-\ud802"}"#)
+            .unwrap(),
+    };
+    assert_eq!(
+        JsString::from(update.message_type()),
+        update.raw["type"].as_string().unwrap().clone()
+    );
+    assert_eq!(
+        update.method().map(JsString::from),
+        update.raw["method"].as_string().cloned()
+    );
+    assert_eq!(
+        update.status().map(JsString::from),
+        update.raw["status"].as_string().cloned()
+    );
+}
+
+#[test]
 fn activation_file_round_trips_raw_identity_at_raw_path() {
     let directory = tempfile::tempdir().unwrap();
     let path = JsString::from(directory.path().to_str().unwrap()) + "/activation-" + JsString::from_utf16(vec![0xd800]);
