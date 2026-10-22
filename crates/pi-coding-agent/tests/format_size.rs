@@ -87,9 +87,9 @@ const CASES: [Case; 16] = [
     },
 ];
 
-fn assert_cases(format_size: fn(usize) -> String) {
+fn assert_cases(format_size: fn(f64) -> String) {
     for case in &CASES {
-        assert_eq!(format_size(case.bytes), case.expected, "{}", case.name);
+        assert_eq!(format_size(case.bytes as f64), case.expected, "{}", case.name);
     }
 }
 

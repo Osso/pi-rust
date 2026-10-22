@@ -107,7 +107,7 @@ fn case_request(case: &Case) -> Value {
 fn response(cases: &[Case]) -> Value {
     let results = cases
         .iter()
-        .map(|case| json!({"name": case.name, "value": format_size(case.bytes)}))
+        .map(|case| json!({"name": case.name, "value": format_size(case.bytes as f64)}))
         .collect::<Vec<_>>();
     json!({
         "id": REQUEST_ID,

@@ -52,7 +52,7 @@ fn assert_paths_exist() {
 #[test]
 fn crate_root_exposes_the_package_index_surface() {
     assert_paths_exist();
-    assert_eq!(format_size(512), "512B");
+    assert_eq!(format_size(512.0), "512B");
     assert_eq!(DEFAULT_MAX_LINES, 2000);
     assert_eq!(DEFAULT_MAX_BYTES, 10 * 1024);
     assert!(!version().is_empty());
