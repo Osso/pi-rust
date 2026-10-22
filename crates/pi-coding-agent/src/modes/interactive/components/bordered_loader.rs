@@ -1,5 +1,6 @@
 //! Ported from `coding-agent/src/modes/interactive/components/bordered-loader.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::rc::Rc;
 
 use pi_tui::components::cancellable_loader::CancellableLoader;
@@ -27,9 +28,9 @@ pub struct BorderedLoader {
 }
 
 impl BorderedLoader {
-    pub fn new(request_render: Rc<dyn Fn()>, message: impl Into<String>, options: BorderedLoaderOptions) -> Self {
+    pub fn new(request_render: Rc<dyn Fn()>, message: impl Into<JsString>, options: BorderedLoaderOptions) -> Self {
         let cancellable = options.cancellable.unwrap_or(true);
-        let border_color = Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Border, text)));
+        let border_color = Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Border, text)));
         let mut container = Container::new();
         container.add_child(component(DynamicBorder::new(border_color.clone())));
 
@@ -37,8 +38,8 @@ impl BorderedLoader {
         let (loader, signal) = if cancellable {
             let loader = CancellableLoader::new(
                 Rc::clone(&request_render),
-                Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Accent, text))),
-                Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Muted, text))),
+                Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Accent, text))),
+                Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Muted, text))),
                 message,
                 Some(LoaderIndicatorOptions {
                     frames: Some(Vec::new()),
@@ -50,8 +51,8 @@ impl BorderedLoader {
         } else {
             let loader = Loader::new(
                 request_render,
-                Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Accent, text))),
-                Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Muted, text))),
+                Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Accent, text))),
+                Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Muted, text))),
                 message,
                 Some(LoaderIndicatorOptions {
                     frames: Some(Vec::new()),
@@ -118,11 +119,11 @@ impl BorderedLoader {
 }
 
 impl Component for BorderedLoader {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.container.render(width)
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         if self.cancellable {
             self.loader.borrow_mut().handle_input(data);
         }
