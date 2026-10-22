@@ -2,13 +2,16 @@
 use pi_agent_core::AgentToolResult;
 use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-fn result(text: &str, details: Value) -> AgentToolResult {
+fn result(text: &JsString, details: Value) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
-        details: Some(details),
+        details: Some(JsValue::from(details)),
         is_error: None,
         terminate: None,
     }
@@ -45,7 +48,10 @@ pub fn shutdown_command_extension(pi: &ExtensionApi) -> Result<(), HandlerError>
         execute: Arc::new(|_, _, _, _, ctx| {
             Box::pin(async move {
                 ctx.shutdown()?;
-                Ok(result("Shutdown requested. Exiting after this response.", json!({})))
+                Ok(result(
+                    &JsString::from("Shutdown requested. Exiting after this response."),
+                    json!({}),
+                ))
             })
         }),
     })?;
@@ -57,13 +63,13 @@ pub fn shutdown_command_extension(pi: &ExtensionApi) -> Result<(), HandlerError>
         constrained_sampling: None, render_shell: None, prepare_arguments: None, prepare_execution: None,
         execution_mode: None, render_call: None, render_result: None,
         execute: Arc::new(|_, params, _, on_update, ctx| Box::pin(async move {
-            let environment = params["environment"].as_str().ok_or_else(|| HandlerError::new("environment must be a string"))?;
+            let environment = params["environment"].as_string().ok_or_else(|| HandlerError::new("environment must be a string"))?;
             if let Some(update) = on_update {
-                update(result(&format!("Deploying to {environment}..."), json!({})));
-                update(result("Deployment complete, exiting...", json!({})));
+                update(result(&js_format!("Deploying to {}...", environment), json!({})));
+                update(result(&JsString::from("Deployment complete, exiting..."), json!({})));
             }
             ctx.shutdown()?;
-            Ok(result("Done! Shutdown requested.", json!({"environment":environment})))
+            Ok(result(&JsString::from("Done! Shutdown requested."), json!({"environment":environment})))
         })),
     }).map_err(HandlerError::new)
 }

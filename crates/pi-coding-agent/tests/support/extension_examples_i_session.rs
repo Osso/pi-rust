@@ -1,5 +1,7 @@
 //! Session/model-specific seams atop A/B's real registry/runner fixtures.
 use futures_util::FutureExt;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 #[path = "oracle.rs"]
 mod oracle;
 #[path = "extensions.rs"]
@@ -65,22 +67,26 @@ impl ExtensionUiContext for Ui {
     fn theme(&self) -> Arc<Theme> {
         self.theme.clone()
     }
-    fn notify(&self, s: &str, level: Option<NotifyType>) {
+    fn notify(&self, s: &JsString, level: Option<NotifyType>) {
         self.trace.lock().unwrap().push(json!(["notify", s, level]));
     }
-    fn editor<'a>(&'a self, title: &str, prefill: Option<&str>) -> BoxFuture<'a, Result<Option<String>, String>> {
+    fn editor<'a>(
+        &'a self,
+        title: &JsString,
+        prefill: Option<&JsString>,
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         self.trace.lock().unwrap().push(json!(["editor", title, prefill]));
         let result = self.request["editor"].as_str().map(str::to_owned);
-        Box::pin(async move { Ok(result) })
+        Box::pin(async move { Ok(result.map(JsString::from)) })
     }
-    fn set_editor_text(&self, text: &str) {
+    fn set_editor_text(&self, text: &JsString) {
         self.trace.lock().unwrap().push(json!(["setEditorText", text]));
     }
     fn custom<'a>(
         &'a self,
         factory: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<Value>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
         let trace = self.trace.clone();
         let theme = self.theme.clone();
         let request = self.request.clone();
@@ -112,8 +118,8 @@ impl ExtensionUiContext for Ui {
                         .push(json!(["render", width, component.render(width)]));
                 }
                 component.invalidate();
-                component.handle_input("x");
-                component.handle_input(request["key"].as_str().unwrap_or("\r"));
+                component.handle_input(&JsString::from("x"));
+                component.handle_input(&JsString::from(request["key"].as_str().unwrap_or("\r")));
                 let result = tokio::time::timeout(std::time::Duration::from_secs(3), receiver)
                     .await
                     .expect("custom UI did not complete")
@@ -155,11 +161,11 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
         }),
     );
     let extension = load_extension_from_factory(
-        registry.get(name).unwrap().clone(),
-        "/fixture",
+        registry.get(&JsString::from(name)).unwrap().clone(),
+        &JsString::from("/fixture"),
         support::event_bus(),
         runtime.clone(),
-        "<example:session>",
+        &JsString::from("<example:session>"),
     )
     .await
     .unwrap();
@@ -206,19 +212,21 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     let error = request["error"].as_str().map(str::to_owned);
     let aborted = request["aborted"] == true;
     faux.set_responses(vec![FauxResponseStep::Factory(Arc::new(move|context,options,_,model|{
-  let options=options.unwrap_or_default();let id=options.stream.session_id.as_deref().unwrap();assert_eq!(id.len(),36);assert_eq!(&id[14..15],"7");
+  let options=options.unwrap_or_default();let id=options.stream.session_id.as_ref().unwrap();assert_eq!(id.len(),36);assert_eq!(id.slice(14, 15),"7");
   let mut context=serde_json::to_value(context).unwrap();context["messages"][0]["timestamp"]=json!("<clock>");
   log.lock().unwrap().push(json!({"model":[model.provider,model.id],"context":context,"options":{"cacheRetention":options.stream.cache_retention,"sessionId":"<uuidv7>","reasoningEffort":options.stream.extra.get("reasoningEffort")}}));
   let response=response.clone();let error=error.clone();Box::pin(async move{if let Some(error)=error{return Err(pi_ai::request::CallbackError::new(error));}let mut message=faux_assistant_message("",FauxAssistantMessageOptions{timestamp:Some(0),..Default::default()});message.content=serde_json::from_value(response).unwrap();if aborted {message.stop_reason=pi_ai::types::StopReason::Aborted;}Ok(message)})
  }))]);
-    let manager = Arc::new(Mutex::new(SessionManager::in_memory(Some("/fixture"), None).unwrap()));
+    let manager = Arc::new(Mutex::new(
+        SessionManager::in_memory(Some(&JsString::from("/fixture")), None).unwrap(),
+    ));
     let session_root = tempfile::tempdir().unwrap();
     if name == "handoff" {
         let path = session_root.path().join("old.jsonl");
         manager
             .lock()
             .unwrap()
-            .set_session_file(path.to_str().unwrap())
+            .set_session_file(&JsString::from(path.to_str().unwrap()))
             .unwrap();
         request["sessionFile"] = json!(path);
     }
@@ -235,10 +243,10 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
             .get_entries()
             .get(index as usize)
             .and_then(|entry| entry.id())
-            .unwrap_or("missing")
+            .unwrap_or(&JsString::from("missing"))
             .to_owned();
         manager
-            .append_compaction("Earlier summary", &kept, 12000.0, Default::default())
+            .append_compaction(&JsString::from("Earlier summary"), &kept, 12000.0, Default::default())
             .unwrap();
         manager
             .append_message(
@@ -266,7 +274,11 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     runner.on_error(Arc::new(move |e| log.lock().unwrap().push(json!([e.event, e.error]))));
     let theme = Arc::new(
         load_theme_from_path(
-            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"),
+            &JsString::from(
+                (&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"))
+                    .to_str()
+                    .expect("fixture path must be UTF-8"),
+            ),
             Some(ColorMode::Truecolor),
         )
         .unwrap(),

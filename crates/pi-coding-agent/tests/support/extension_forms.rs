@@ -1,4 +1,6 @@
 use futures_util::FutureExt;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 #[path = "extensions.rs"]
 mod extensions;
 #[path = "oracle.rs"]
@@ -26,7 +28,7 @@ impl EditorFixedCell for OwnedCell {
     fn place(&self, row: i64, col: i64) {
         self.cell.place(row, col);
     }
-    fn update(&self, value: &str) -> bool {
+    fn update(&self, value: &JsString) -> bool {
         self.cell.update(value)
     }
     fn clear(&self) {
@@ -84,7 +86,7 @@ impl ExtensionUiContext for Ui {
         &'a self,
         factory: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<Value>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
         let result = Rc::new(std::cell::RefCell::new(None));
         let captured = result.clone();
         let component = factory(
@@ -118,11 +120,11 @@ impl ExtensionUiContext for Ui {
                 component.invalidate();
             }
             if let Some(input) = step["input"].as_str() {
-                component.handle_input(input);
+                component.handle_input(&JsString::from(input));
             }
             if let Some(units) = step["inputUnits"].as_array() {
                 let units = units.iter().map(|u| u.as_u64().unwrap() as u16).collect::<Vec<_>>();
-                component.handle_input(&String::from_utf16_lossy(&units));
+                component.handle_input(&JsString::from(&String::from_utf16_lossy(&units)));
             }
             self.renders.lock().unwrap().push(record());
         }
@@ -137,13 +139,13 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
         .enumerate()
         .map(|(i, k)| {
             (
-                k.to_string(),
-                ColorValue::Text(format!(
+                JsString::from(*k),
+                ColorValue::Text(JsString::from(format!(
                     "#{:02x}{:02x}{:02x}",
                     (16 + 7 * i) % 256,
                     (32 + 11 * i) % 256,
                     (48 + 13 * i) % 256
-                )),
+                ))),
             )
         })
         .collect();
@@ -174,10 +176,10 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
             let result = register(api);
             Box::pin(async move { result })
         }),
-        "/fixture",
+        &JsString::from("/fixture"),
         extensions::event_bus(),
         runtime,
-        name,
+        &JsString::from(name),
     )
     .await
     .unwrap();
@@ -194,11 +196,17 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
             .ui(ui.clone())
             .build()
             .await;
-    let result = (tool.execute)("fixture".into(), request["params"].clone(), None, None, context.clone())
-        .await
-        .unwrap_or_else(|error| panic!("{name}: {request}: {error:?}"));
+    let result = (tool.execute)(
+        "fixture".into(),
+        JsValue::from(request["params"].clone()),
+        None,
+        None,
+        context.clone(),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("{name}: {request}: {error:?}"));
     let render_context = ToolRenderContext {
-        args: request["params"].clone(),
+        args: JsValue::from(request["params"].clone()),
         tool_call_id: "fixture".into(),
         invalidate: Arc::new(|| {}),
         last_component: None,
@@ -212,7 +220,8 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
         show_images: false,
         is_error: false,
     };
-    let call = tool.render_call.as_ref().unwrap()(&request["params"], &theme, &render_context).unwrap();
+    let call =
+        tool.render_call.as_ref().unwrap()(&JsValue::from(request["params"].clone()), &theme, &render_context).unwrap();
     let render_call = call
         .borrow_mut()
         .render(request["callWidth"].as_u64().unwrap_or(80) as usize);

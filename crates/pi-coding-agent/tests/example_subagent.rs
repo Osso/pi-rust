@@ -70,7 +70,7 @@ async fn runner(
                 agent.clone(),
                 subagent::Invocation {
                     program: program.clone(),
-                    prefix: prefix.clone(),
+                    prefix: prefix.clone().into_iter().map(JsString::from).collect::<Vec<_>>(),
                 },
             );
             Box::pin(async move { result })
@@ -119,10 +119,10 @@ async fn modes_dispatch_and_streaming_match_pinned_real_extension_runtime() {
     let tool = runner.get_tool_definition("subagent").unwrap();
     assert_eq!(tool.label, "Subagent");
     // The companion exported helper remains usable by native embedders.
-    let discovered = subagent::agents::discover_agents(temp.path(), "user", &agent).unwrap();
+    let discovered = subagent::agents::discover_agents(temp.path(), &JsString::from("user"), &agent).unwrap();
     assert_eq!(
         subagent::agents::format_agent_list(&discovered.agents, 1)["remaining"],
-        1
+        pi_js_compat::js_json!(1)
     );
     let mut ts = oracle::TsOracle::spawn_with_environment(
         "example-subagent-oracle.ts",
@@ -186,6 +186,17 @@ async fn modes_dispatch_and_streaming_match_pinned_real_extension_runtime() {
         .lines()
         .map(|s| serde_json::from_str::<Value>(s).unwrap())
         .collect::<Vec<_>>();
+    let hello_invocations: Vec<_> = records.iter().filter(|r| r["task"] == "Task: hello").collect();
+    assert_eq!(
+        hello_invocations.len(),
+        2,
+        "native and frozen child invocations must both be recorded"
+    );
+    assert_eq!(
+        json!({"model":hello_invocations[0]["model"],"thinking":hello_invocations[0]["thinking"]}),
+        json!({"model":hello_invocations[1]["model"],"thinking":hello_invocations[1]["thinking"]}),
+        "DRIFT: native inherited invocation flags differ from the frozen child invocation"
+    );
     let inherited = records.iter().find(|r| r["task"] == "Task: hello").unwrap();
     assert_eq!(inherited["model"], "fixture/inherited");
     assert_eq!(inherited["thinking"], "high");

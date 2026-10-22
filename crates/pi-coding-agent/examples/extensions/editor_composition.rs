@@ -11,9 +11,9 @@ use std::rc::Rc;
 
 pub trait EditorBehavior {
     fn input(&mut self, editor: &mut CustomEditor, data: &JsString) -> Vec<Rc<dyn Fn()>> {
-        editor.handle_input_deferred(&JsString::from(data))
+        editor.handle_input_deferred(data)
     }
-    fn render(&mut self, editor: &mut CustomEditor, width: usize) -> Vec<String>;
+    fn render(&mut self, editor: &mut CustomEditor, width: usize) -> Vec<JsString>;
 }
 
 pub struct ComposedEditor<B> {
@@ -22,14 +22,10 @@ pub struct ComposedEditor<B> {
 }
 impl<B: EditorBehavior> Component for ComposedEditor<B> {
     fn render(&mut self, width: usize) -> Vec<JsString> {
-        self.behavior
-            .render(&mut self.editor, width)
-            .into_iter()
-            .map(JsString::from)
-            .collect::<Vec<_>>()
+        self.behavior.render(&mut self.editor, width)
     }
     fn handle_input(&mut self, data: &JsString) {
-        for callback in self.handle_input_deferred(&JsString::from(data)) {
+        for callback in self.handle_input_deferred(data) {
             callback();
         }
     }
@@ -56,16 +52,16 @@ impl<B: EditorBehavior> EditorComponent for ComposedEditor<B> {
         self.editor.get_text()
     }
     fn set_text(&mut self, text: &JsString) {
-        self.editor.set_text(&JsString::from(text));
+        self.editor.set_text(text);
     }
     fn handle_input_deferred(&mut self, data: &JsString) -> Vec<Rc<dyn Fn()>> {
         self.behavior.input(&mut self.editor, data)
     }
     fn add_to_history(&mut self, text: &JsString) {
-        EditorComponent::add_to_history(&mut self.editor, &JsString::from(text));
+        EditorComponent::add_to_history(&mut self.editor, text);
     }
     fn insert_text_at_cursor(&mut self, text: &JsString) {
-        self.editor.insert_text_at_cursor(&JsString::from(text));
+        self.editor.insert_text_at_cursor(text);
     }
     fn get_expanded_text(&self) -> JsString {
         self.editor.get_expanded_text()

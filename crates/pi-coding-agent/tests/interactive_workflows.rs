@@ -1,5 +1,7 @@
 //! Behavioral tests for interactive workflow helpers.
 
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
@@ -25,23 +27,27 @@ struct TestEditor {
 }
 
 impl Component for TestEditor {
-    fn render(&mut self, _width: usize) -> Vec<String> {
+    fn render(&mut self, _width: usize) -> Vec<JsString> {
         let frames = self
             .indicator
             .as_ref()
             .and_then(|indicator| indicator.frames.as_ref())
-            .map(|frames| frames.join(""))
-            .unwrap_or_else(|| "default".to_string());
-        vec![format!("{}:{frames}", if self.working { "working" } else { "idle" })]
+            .map(|frames| JsString::join(frames, ""))
+            .unwrap_or_else(|| JsString::from("default"));
+        vec![JsString::from(js_format!(
+            "{}:{}",
+            if self.working { "working" } else { "idle" },
+            frames
+        ))]
     }
 }
 
 impl EditorComponent for TestEditor {
-    fn get_text(&self) -> String {
-        String::new()
+    fn get_text(&self) -> JsString {
+        JsString::default()
     }
 
-    fn set_text(&mut self, _text: &str) {}
+    fn set_text(&mut self, _text: &JsString) {}
 
     fn supports_working_prompt(&self) -> bool {
         true
@@ -68,24 +74,24 @@ impl EditorComponent for TestEditor {
 struct PlainEditor;
 
 impl Component for PlainEditor {
-    fn render(&mut self, _width: usize) -> Vec<String> {
-        vec!["plain".to_string()]
+    fn render(&mut self, _width: usize) -> Vec<JsString> {
+        vec![JsString::from("plain")]
     }
 }
 
 impl EditorComponent for PlainEditor {
-    fn get_text(&self) -> String {
-        String::new()
+    fn get_text(&self) -> JsString {
+        JsString::default()
     }
 
-    fn set_text(&mut self, _text: &str) {}
+    fn set_text(&mut self, _text: &JsString) {}
 }
 
 #[test]
 fn working_editor_syncs_indicator_state_and_origin() {
     let mut editor = TestEditor::default();
     let indicator = LoaderIndicatorOptions {
-        frames: Some(vec!["a".to_string(), "b".to_string()]),
+        frames: Some(vec![JsString::from("a"), JsString::from("b")]),
         interval_ms: Some(120),
     };
 
@@ -109,7 +115,7 @@ fn working_editor_syncs_indicator_state_and_origin() {
 fn working_editor_rejects_wrong_width_indicators() {
     let mut editor = TestEditor::default();
     let wide = LoaderIndicatorOptions {
-        frames: Some(vec!["ab".to_string()]),
+        frames: Some(vec![JsString::from("ab")]),
         interval_ms: None,
     };
     assert!(!supports_working_prompt_animation(&editor, Some(&wide)));
@@ -119,7 +125,7 @@ fn working_editor_rejects_wrong_width_indicators() {
     assert_eq!(editor.indicator, None);
 
     let narrow = LoaderIndicatorOptions {
-        frames: Some(vec!["x".to_string()]),
+        frames: Some(vec![JsString::from("x")]),
         interval_ms: Some(120),
     };
     assert!(supports_working_prompt_animation(&editor, Some(&narrow)));
@@ -134,7 +140,7 @@ fn working_editor_leaves_arbitrary_custom_editors_unchanged() {
     assert!(!supports_working_prompt_animation(
         &editor,
         Some(&LoaderIndicatorOptions {
-            frames: Some(vec!["x".to_string()]),
+            frames: Some(vec![JsString::from("x")]),
             interval_ms: None,
         })
     ));
@@ -142,7 +148,7 @@ fn working_editor_leaves_arbitrary_custom_editors_unchanged() {
         &mut editor,
         true,
         Some(LoaderIndicatorOptions {
-            frames: Some(vec!["x".to_string()]),
+            frames: Some(vec![JsString::from("x")]),
             interval_ms: None,
         }),
     );
@@ -161,13 +167,13 @@ fn external_editor_edits_a_prompt_inside_a_private_temporary_directory() {
     let capture_dir = tempfile::tempdir().expect("capture dir");
     let capture = capture_dir.path().join("capture.json");
     let result = edit_in_external_editor(&ExternalEditorOptions {
-        command: fixture_command(&capture, ""),
-        content: "original".to_string(),
+        command: JsString::from(fixture_command(&capture, "")),
+        content: JsString::from("original"),
     });
     assert_eq!(
         result.expect("external editor"),
         ExternalEditorResult::Complete {
-            content: "edited".to_string()
+            content: JsString::from("edited")
         }
     );
 
@@ -195,8 +201,8 @@ fn external_editor_keeps_the_original_content_when_the_editor_fails() {
     let capture_dir = tempfile::tempdir().expect("capture dir");
     let capture = capture_dir.path().join("capture.json");
     let result = edit_in_external_editor(&ExternalEditorOptions {
-        command: fixture_command(&capture, " --fail"),
-        content: "original".to_string(),
+        command: JsString::from(fixture_command(&capture, " --fail")),
+        content: JsString::from("original"),
     });
     assert_eq!(result.expect("external editor"), ExternalEditorResult::Failed);
 
@@ -214,12 +220,14 @@ fn external_editor_returns_empty_content_when_the_editor_clears_the_prompt() {
     let capture_dir = tempfile::tempdir().expect("capture dir");
     let capture = capture_dir.path().join("capture.json");
     let result = edit_in_external_editor(&ExternalEditorOptions {
-        command: fixture_command(&capture, " --empty"),
-        content: "original".to_string(),
+        command: JsString::from(fixture_command(&capture, " --empty")),
+        content: JsString::from("original"),
     });
     assert_eq!(
         result.expect("external editor"),
-        ExternalEditorResult::Complete { content: String::new() }
+        ExternalEditorResult::Complete {
+            content: JsString::default()
+        }
     );
 }
 
@@ -236,8 +244,13 @@ impl TestComponent {
 }
 
 impl Component for TestComponent {
-    fn render(&mut self, _width: usize) -> Vec<String> {
-        self.lines.borrow().clone()
+    fn render(&mut self, _width: usize) -> Vec<JsString> {
+        self.lines
+            .borrow()
+            .clone()
+            .into_iter()
+            .map(JsString::from)
+            .collect::<Vec<_>>()
     }
 }
 

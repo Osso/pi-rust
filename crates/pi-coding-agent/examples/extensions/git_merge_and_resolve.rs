@@ -1,6 +1,8 @@
 //! Opt-in native merge-and-resolve example. Uses the host's execution cwd.
 use pi_coding_agent::core::exec::ExecResult;
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::encode_node_utf8;
 use pi_js_compat::string::js_trim;
 
 struct ConflictBlock {
@@ -16,7 +18,7 @@ async fn git(api: &ExtensionApi, args: &[&str]) -> Result<ExecResult, HandlerErr
         .map_err(HandlerError::new)
 }
 
-async fn find_conflicts(api: &ExtensionApi, cwd: &str) -> Result<Vec<ConflictBlock>, HandlerError> {
+async fn find_conflicts(api: &ExtensionApi, cwd: &JsString) -> Result<Vec<ConflictBlock>, HandlerError> {
     let result = git(api, &["diff", "--name-only", "--diff-filter=U"]).await?;
     if result.code != 0 || js_trim(&result.stdout).is_empty() {
         return Ok(Vec::new());
@@ -24,7 +26,7 @@ async fn find_conflicts(api: &ExtensionApi, cwd: &str) -> Result<Vec<ConflictBlo
     let mut blocks = Vec::new();
     for file in js_trim(&result.stdout).split('\n') {
         // The pinned example ignores per-file read failures.
-        let Ok(contents) = tokio::fs::read(std::path::Path::new(cwd).join(file)).await else {
+        let Ok(contents) = tokio::fs::read(std::path::Path::new(&encode_node_utf8(&cwd)).join(file)).await else {
             continue;
         };
         let mut start = None;
@@ -102,13 +104,16 @@ pub fn git_merge_and_resolve_extension(pi: &ExtensionApi) -> Result<(), HandlerE
                     reference = js_trim(&upstream.stdout).into();
                     let remote = reference.split('/').next().unwrap_or("");
                     ctx.ui()?.notify(
-                        &format!("git-merge-and-resolve: fetching {remote}, merging {reference}"),
+                        &JsString::from(format!("git-merge-and-resolve: fetching {remote}, merging {reference}")),
                         Some(NotifyType::Info),
                     );
                     let fetch = git(&api, &["fetch", remote]).await?;
                     if fetch.code != 0 {
                         ctx.ui()?.notify(
-                            &format!("git-merge-and-resolve: fetch failed: {}", js_trim(&fetch.stderr)),
+                            &JsString::from(format!(
+                                "git-merge-and-resolve: fetch failed: {}",
+                                js_trim(&fetch.stderr)
+                            )),
                             Some(NotifyType::Warning),
                         );
                         return Ok(None);
@@ -120,7 +125,7 @@ pub fn git_merge_and_resolve_extension(pi: &ExtensionApi) -> Result<(), HandlerE
                 let conflicts = find_conflicts(&api, &ctx.cwd()?).await?;
                 if !conflicts.is_empty() {
                     api.send_user_message(
-                        UserMessageContent::Text(format_conflicts(&reference, &conflicts)),
+                        UserMessageContent::Text(JsString::from(format_conflicts(&reference, &conflicts))),
                         Some(SendUserMessageOptions {
                             deliver_as: Some(UserMessageDelivery::FollowUp),
                             ..Default::default()
