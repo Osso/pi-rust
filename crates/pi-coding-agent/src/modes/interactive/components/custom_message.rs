@@ -1,5 +1,6 @@
 //! Ported from `coding-agent/src/modes/interactive/components/custom-message.ts`.
 
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::rc::Rc;
 
 use pi_tui::components::r#box::BoxComponent;
@@ -91,7 +92,7 @@ impl CustomMessageComponent {
         let label = crate::modes::interactive::theme::with_theme(|theme| {
             theme.fg(
                 ThemeColor::CustomMessageLabel,
-                &format!("\u{1b}[1m[{}]\u{1b}[22m", self.message.custom_type),
+                &format!("\u{1b}[1m[{}]\u{1b}[22m", encode_node_utf8(&self.message.custom_type)),
             )
         });
         message_box.add_child(component(Text::new(label, 0, 0)));
@@ -99,21 +100,20 @@ impl CustomMessageComponent {
 
         let text = match &self.message.content {
             CustomMessageContent::Text(text) => text.clone(),
-            CustomMessageContent::Blocks(blocks) => blocks
-                .iter()
-                .filter_map(|block| match block {
-                    pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
+            CustomMessageContent::Blocks(blocks) => JsString::join(
+                blocks.iter().filter_map(|block| match block {
+                    pi_ai::types::TextOrImageContent::Text(text) => Some(&text.text),
                     pi_ai::types::TextOrImageContent::Image(_) => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n"),
+                }),
+                "\n",
+            ),
         };
 
         let color: StyleFn = Rc::new(|text: &str| {
             crate::modes::interactive::theme::with_theme(|theme| theme.fg(ThemeColor::CustomMessageText, text))
         });
         message_box.add_child(component(Markdown::with_shared_theme(
-            text,
+            encode_node_utf8(&text),
             0,
             0,
             self.markdown_theme.clone(),

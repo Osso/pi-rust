@@ -5,6 +5,7 @@ use std::path::Path;
 use pi_agent_core::agent::AgentState;
 use pi_ai::types::TextOrImageContent;
 use pi_js_compat::base64::btoa;
+use pi_js_compat::js_json::{JsString, JsValue};
 use pi_js_compat::number::{js_number_to_string, parse_int};
 use pi_js_compat::string::replace;
 use regex::Regex;
@@ -103,13 +104,13 @@ pub struct RenderedToolResult {
 /// `ComponentRef` is `Rc`-based, so the renderer is single-threaded like the
 /// TypeScript object it replaces.
 pub trait ToolHtmlRenderer {
-    fn render_call(&self, tool_call_id: &str, tool_name: &str, args: &Value) -> Option<String>;
+    fn render_call(&self, tool_call_id: &str, tool_name: &str, args: &JsValue) -> Option<String>;
     fn render_result(
         &self,
         tool_call_id: &str,
         tool_name: &str,
         result: &[TextOrImageContent],
-        details: Option<&Value>,
+        details: Option<&JsValue>,
         is_error: bool,
     ) -> Option<RenderedToolResult>;
 }
@@ -281,7 +282,7 @@ pub struct SessionData {
     pub entries: Vec<SessionEntry>,
     pub leaf_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub system_prompt: Option<String>,
+    pub system_prompt: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<ToolSummary>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -342,7 +343,7 @@ fn pre_render_custom_tools(entries: &[SessionEntry], tool_renderer: &dyn ToolHtm
                         continue;
                     }
                     let call_html =
-                        tool_renderer.render_call(&call.id, &call.name, &Value::Object(call.arguments.clone()));
+                        tool_renderer.render_call(&call.id, &call.name, &JsValue::Object(call.arguments.clone()));
                     if let Some(call_html) = call_html {
                         rendered_tools.insert(
                             call.id.clone(),
@@ -432,7 +433,7 @@ pub async fn export_session_to_html(
         header: sm.get_header().cloned(),
         entries,
         leaf_id: sm.get_leaf_id().map(str::to_owned),
-        system_prompt: state.map(|state| state.system_prompt.clone()),
+        system_prompt: state.map(|state| state.system_prompt.clone().into()),
         tools: state.map(|state| {
             state
                 .tools
@@ -494,4 +495,32 @@ pub async fn export_from_file(input_path: &str, options: Option<ExportOptions>) 
 
     std::fs::write(&output_path, html)?;
     Ok(output_path)
+}
+
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    use pi_js_compat::js_json::JsString;
+
+    #[test]
+    fn html_payload_stringifies_surrogates_without_replacing_or_html_escaping() {
+        let data = SessionData {
+            header: None,
+            entries: vec![],
+            leaf_id: None,
+            system_prompt: Some(JsString::from_utf16(vec![0xd800, 0x3c, 0x26, 0xd83d, 0xde00])),
+            tools: None,
+            rendered_tools: None,
+        };
+        let html = generate_html(&data, None).expect("HTML export");
+        let expected = pi_js_compat::base64::btoa(
+            br#"{"header":null,"entries":[],"leafId":null,"systemPrompt":"\ud800<&"#
+                .iter()
+                .copied()
+                .chain("😀\"}".bytes())
+                .collect::<Vec<_>>()
+                .as_slice(),
+        );
+        assert!(html.contains(&expected));
+    }
 }

@@ -37,7 +37,15 @@ Port: `crates/pi-coding-agent/src/modes/interactive/components/footer.rs`
 | narrow width | stats/model truncation | `footer` differential index 1 (width 40) |
 | experimental marker | `• xp` suffix | not covered (gap) |
 
+## Lossless checkpoint (2026-10-21)
+
+Cached session names retain `JsString`; `render` calls `encode_node_utf8` only
+when constructing the scalar terminal line. Existing footer differential tests
+have not run on this migration: the coding-agent library remains compiler-blocked.
+Malformed UTF-16 truncation inside scalar TUI components remains an unapproved
+display-only parity gap, not a lossless rendering claim.
+
 ## Discrepancies
 
-None. `FooterContextUsage` mirrors the two fields the renderer consumes
+`FooterContextUsage` mirrors the two fields the renderer consumes
 (`contextWindow`, `percent`); the unused `tokens` field is not carried.
