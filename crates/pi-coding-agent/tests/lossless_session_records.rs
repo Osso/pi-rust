@@ -1,4 +1,6 @@
 //! Q18 record authority regressions. All file fixtures are private temporary files.
+use pi_agent_core::agent::AgentMessage;
+use pi_ai::types::{AssistantContent, UserContent};
 use pi_coding_agent::core::session_manager::{FileEntry, LeafSelection, build_context_entries, build_session_context};
 use pi_coding_agent::core::session_manager::{migrate_session_entries, parse_session_entries};
 use pi_js_compat::js_json::{JsString, JsValue, parse_lossless};
@@ -90,4 +92,37 @@ fn migration_mutates_raw_record_without_losing_extra_fields() {
         serde_json::to_string(&entries[1]).unwrap(),
         lines[1].replace("hookMessage", "custom")
     );
+}
+
+/// Reloaded `message` records must project to their typed role variants, as freshly
+/// appended ones do; only non-`Message` roles stay raw custom objects.
+#[test]
+fn reloaded_message_records_project_typed_roles() {
+    let lines = [
+        r#"{"type":"session","version":3,"id":"s","timestamp":"t","cwd":"/tmp"}"#,
+        r#"{"type":"message","id":"u","parentId":null,"timestamp":"t","message":{"role":"user","content":"a\ud800","timestamp":0}}"#,
+        r#"{"type":"message","id":"a","parentId":"u","timestamp":"t","message":{"role":"assistant","content":[{"type":"text","text":"done"}],"api":"faux","provider":"faux","model":"m","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":0}}"#,
+        r#"{"type":"message","id":"c","parentId":"a","timestamp":"t","message":{"role":"note","body":"x"}}"#,
+    ];
+    let entries: Vec<_> = parse_session_entries(&lines.join("\n"))
+        .into_iter()
+        .filter_map(|entry| match entry {
+            FileEntry::Entry(entry) => Some(entry),
+            _ => None,
+        })
+        .collect();
+    let context = build_session_context(&entries, LeafSelection::Last);
+    assert_eq!(context.messages.len(), 3);
+    let AgentMessage::User(user) = &context.messages[0] else {
+        panic!("user record must project to User: {:?}", context.messages[0]);
+    };
+    assert_eq!(
+        user.content,
+        UserContent::Text(JsString::from_utf16(vec![0x61, 0xd800]))
+    );
+    let AgentMessage::Assistant(assistant) = &context.messages[1] else {
+        panic!("assistant record must project to Assistant: {:?}", context.messages[1]);
+    };
+    assert!(matches!(&assistant.content[0], AssistantContent::Text(text) if text.text == "done"));
+    assert!(matches!(&context.messages[2], AgentMessage::Custom(object) if object.get("body").is_some()));
 }

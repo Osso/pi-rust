@@ -839,7 +839,10 @@ fn frozen_transcript_exports_match_stream_frame_and_utf8_error_boundaries() {
         }
         if let Ok(bytes) = rust {
             let source = &source["output"];
-            assert_eq!(read_session_transcript_path(path), source["path"]);
+            assert_eq!(
+                JsValue::String(read_session_transcript_path(path)),
+                JsValue::from(source["path"].clone())
+            );
             assert_eq!(is_session_transcript_file(path), source["isTranscript"]);
             assert_eq!(pi_js_compat::base64::btoa(&bytes), source["bytes"]);
             assert_eq!(read_session_transcript_text(path).unwrap(), source["text"]);
@@ -897,12 +900,12 @@ fn frozen_storage_suffix_noops_missing_and_metadata_surviving_plain_branches() {
     let missing = tmp.path().join("missing.jsonl").display().to_string();
     let archived = format!("{missing}.zst");
     assert_eq!(
-        archive_session_file(&JsString::from(&archived)).unwrap(),
-        call(&mut ts, json!({"op":"fileArchive","path":archived}))
+        JsValue::String(archive_session_file(&JsString::from(&archived)).unwrap()),
+        JsValue::from(call(&mut ts, json!({"op":"fileArchive","path":archived})))
     );
     assert_eq!(
-        restore_archived_session_file(&JsString::from(&missing)).unwrap(),
-        call(&mut ts, json!({"op":"fileRestore","path":missing}))
+        JsValue::String(restore_archived_session_file(&JsString::from(&missing)).unwrap()),
+        JsValue::from(call(&mut ts, json!({"op":"fileRestore","path":missing})))
     );
     assert!(restore_archived_session_file(&JsString::from(&archived)).is_err());
     assert_eq!(
