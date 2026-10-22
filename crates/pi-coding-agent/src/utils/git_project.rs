@@ -1,13 +1,14 @@
-use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 
 use crate::utils::paths::{PathInputOptions, resolve_path};
 
 /// Read the absolute git common directory for `cwd`, if `cwd` is in a repository.
-pub fn read_git_common_directory(cwd: &Path) -> Option<PathBuf> {
+pub fn read_git_common_directory(cwd: &JsString) -> Option<JsString> {
     let output = Command::new("git")
         .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
-        .current_dir(cwd)
+        .current_dir(encode_node_utf8(cwd))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -23,7 +24,5 @@ pub fn read_git_common_directory(cwd: &Path) -> Option<PathBuf> {
         return None;
     }
 
-    resolve_path(trimmed, &cwd.to_string_lossy(), &PathInputOptions::default())
-        .ok()
-        .map(PathBuf::from)
+    resolve_path(trimmed, cwd, &PathInputOptions::default()).ok()
 }

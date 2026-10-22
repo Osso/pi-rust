@@ -1317,7 +1317,7 @@ pub fn read_live_runtime_mailbox_session_agent_ids(
 /// `assertMainSessionRuntimeAvailable`.
 pub fn assert_main_session_runtime_available(
     control_db_path: impl Into<JsString>,
-    session_id: &str,
+    session_id: &JsString,
 ) -> Result<(), ControlDbError> {
     let control_db_path = control_db_path.into();
     with_control_db(&control_db_path, |db| {
@@ -1326,7 +1326,7 @@ pub fn assert_main_session_runtime_available(
             pid: std::process::id(),
             recipient: RuntimeMailboxAddress {
                 agent_id: None,
-                session_id: session_id.to_owned().into(),
+                session_id: session_id.clone(),
             },
             runtime_instance_id: get_runtime_process_instance_id()?.to_owned(),
             session_path: None,

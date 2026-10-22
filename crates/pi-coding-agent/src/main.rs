@@ -15,7 +15,8 @@ use std::sync::{Arc, Mutex};
 
 use pi_ai::auth::types::{AuthOperationOptions, CredentialStore};
 use pi_ai::models::models_are_equal;
-use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use tokio_util::sync::CancellationToken;
 
 use crate::cli::args::{
@@ -394,7 +395,7 @@ fn project_trust_context(
 async fn create_runtime(
     options: &RuntimeFactoryOptions,
     request: CreateAgentSessionRuntimeOptions,
-) -> Result<CreateAgentSessionRuntimeResult, String> {
+) -> Result<CreateAgentSessionRuntimeResult, JsString> {
     let mut session_manager = request.session_manager;
     let parsed = &options.parsed;
     session_manager
@@ -492,7 +493,7 @@ async fn create_runtime(
                         .unwrap_or_else(|poisoned| poisoned.into_inner())
                         .insert(cwd, trusted);
                     Ok(trusted)
-                }) as pi_ai::request::BoxFuture<'static, Result<bool, String>>
+                }) as pi_ai::request::BoxFuture<'static, Result<bool, JsString>>
             },
         ) as crate::core::resource_loader::ResolveProjectTrust)
     } else {
@@ -684,28 +685,28 @@ pub fn create_runtime_factory(options: RuntimeFactoryOptions) -> CreateAgentSess
 // Output
 // =============================================================================
 
-/// Writes raw bytes to stdout and flushes, like `process.stdout.write`.
-pub fn write_stdout(text: &str) {
+/// Writes text to stdout and flushes, like `process.stdout.write`.
+pub fn write_stdout(text: impl Into<JsString>) {
     let mut stdout = std::io::stdout().lock();
-    let _ = stdout.write_all(text.as_bytes());
+    let _ = stdout.write_all(encode_node_utf8(&text.into()).as_bytes());
     let _ = stdout.flush();
 }
 
-/// Writes raw bytes to stderr and flushes, like `process.stderr.write`.
-pub fn write_stderr(text: &str) {
+/// Writes text to stderr and flushes, like `process.stderr.write`.
+pub fn write_stderr(text: impl Into<JsString>) {
     let mut stderr = std::io::stderr().lock();
-    let _ = stderr.write_all(text.as_bytes());
+    let _ = stderr.write_all(encode_node_utf8(&text.into()).as_bytes());
     let _ = stderr.flush();
 }
 
 /// `console.log`.
-pub fn console_log(text: &str) {
-    write_stdout(&format!("{text}\n"));
+pub fn console_log(text: impl Into<JsString>) {
+    write_stdout(js_format!("{}\n", text.into()));
 }
 
 /// `console.error`.
-pub fn console_error(text: &str) {
-    write_stderr(&format!("{text}\n"));
+pub fn console_error(text: impl Into<JsString>) {
+    write_stderr(js_format!("{}\n", text.into()));
 }
 
 // =============================================================================
@@ -1010,7 +1011,7 @@ pub async fn run_auth_command(args: &[String], exit_code: &mut i32) -> bool {
     true
 }
 
-async fn run_auth_command_inner(command: &AuthCommand, parsed: &Args, exit_code: &mut i32) -> Result<(), String> {
+async fn run_auth_command_inner(command: &AuthCommand, parsed: &Args, exit_code: &mut i32) -> Result<(), JsString> {
     if !parsed.diagnostics.is_empty() {
         return Err(parsed
             .diagnostics
@@ -1057,7 +1058,7 @@ pub async fn prepare_initial_message(
     parsed: &mut Args,
     auto_resize_images: bool,
     stdin_content: Option<&str>,
-) -> Result<InitialMessageResult, String> {
+) -> Result<InitialMessageResult, JsString> {
     if parsed.file_args.is_empty() {
         return Ok(build_initial_message(InitialMessageInput {
             parsed,
@@ -1091,66 +1092,66 @@ pub async fn prepare_initial_message(
 /// `ResolvedSession`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolvedSession {
-    Path(String),
-    Local(String),
-    Global { path: String, cwd: String },
-    NotFound(String),
+    Path(JsString),
+    Local(JsString),
+    Global { path: JsString, cwd: JsString },
+    NotFound(JsString),
 }
 
-fn resolve_from_cwd(input: &str) -> Result<String, String> {
-    resolve_path(input, &process_cwd(), &PathInputOptions::default()).map_err(|error| error.to_string())
+fn resolve_from_cwd(input: &JsString) -> Result<JsString, PathError> {
+    resolve_path(input, process_cwd()?, &PathInputOptions::default())
 }
 
 /// `findLocalSessionByExactId`.
 pub fn find_local_session_by_exact_id(
-    session_id: &str,
-    cwd: &str,
-    session_dir: Option<&str>,
-    control_db_path: Option<&str>,
-) -> Result<Option<ResolvedSession>, String> {
+    session_id: &JsString,
+    cwd: &JsString,
+    session_dir: Option<&JsString>,
+    control_db_path: Option<&JsString>,
+) -> Result<Option<ResolvedSession>, JsString> {
     let local_sessions =
-        SessionManager::list(cwd, session_dir, None, control_db_path).map_err(|error| error.to_string())?;
+        SessionManager::list(cwd, session_dir, None, control_db_path).map_err(|error| error.message().clone())?;
     Ok(local_sessions
         .into_iter()
-        .find(|session| session.id == session_id)
+        .find(|session| &session.id == session_id)
         .map(|session| ResolvedSession::Local(session.path)))
 }
 
 /// `sessionBelongsToProject`.
-pub fn session_belongs_to_project(session_cwd: &str, cwd: &str) -> bool {
+pub fn session_belongs_to_project(session_cwd: &JsString, cwd: &JsString) -> bool {
     if let (Ok(session), Ok(current)) = (resolve_from_cwd(session_cwd), resolve_from_cwd(cwd))
         && session == current
     {
         return true;
     }
 
-    let session_git_directory = read_git_common_directory(Path::new(session_cwd));
-    let current_git_directory = read_git_common_directory(Path::new(cwd));
+    let session_git_directory = read_git_common_directory(session_cwd);
+    let current_git_directory = read_git_common_directory(cwd);
     session_git_directory.is_some() && session_git_directory == current_git_directory
 }
 
-fn find_session_match<'a>(sessions: &'a [SessionInfo], session_arg: &str) -> Option<&'a SessionInfo> {
+fn find_session_match<'a>(sessions: &'a [SessionInfo], session_arg: &JsString) -> Option<&'a SessionInfo> {
     sessions
         .iter()
-        .find(|session| session.id == session_arg)
+        .find(|session| &session.id == session_arg)
         .or_else(|| sessions.iter().find(|session| session.id.starts_with(session_arg)))
 }
 
 /// `resolveSessionPath`.
 pub fn resolve_session_path(
-    session_arg: &str,
-    cwd: &str,
-    session_dir: Option<&str>,
-    control_db_path: Option<&str>,
-) -> Result<ResolvedSession, String> {
-    let path_like = session_arg.contains('/') || session_arg.contains('\\') || session_arg.ends_with(".jsonl");
+    session_arg: &JsString,
+    cwd: &JsString,
+    session_dir: Option<&JsString>,
+    control_db_path: Option<&JsString>,
+) -> Result<ResolvedSession, JsString> {
+    let path_like = session_arg.contains("/") || session_arg.contains("\\") || session_arg.ends_with(".jsonl");
     let resolved_session_arg_path = if path_like {
-        Some(resolve_path(session_arg, cwd, &PathInputOptions::default()).map_err(|error| error.to_string())?)
+        Some(resolve_path(session_arg, cwd, &PathInputOptions::default()).map_err(|error| error.message().clone())?)
     } else {
         None
     };
     if let Some(resolved) = &resolved_session_arg_path
-        && (session_arg.ends_with(".jsonl") || Path::new(resolved).exists())
+        && (session_arg.ends_with(".jsonl") || Path::new(&encode_node_utf8(resolved)).exists())
     {
         return Ok(ResolvedSession::Path(resolved.clone()));
     }
@@ -1160,14 +1161,14 @@ pub fn resolve_session_path(
             session_arg,
             &ExternalSessionImportOptions {
                 home_dir: None,
-                session_dir: session_dir.map(str::to_owned),
-                fallback_cwd: Some(cwd.to_owned()),
+                session_dir: session_dir.cloned(),
+                fallback_cwd: Some(cwd.clone()),
             },
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.message().clone())?;
         return Ok(match imported {
             Some(session) => ResolvedSession::Path(session.path),
-            None => ResolvedSession::NotFound(session_arg.to_owned()),
+            None => ResolvedSession::NotFound(session_arg.clone()),
         });
     }
 
@@ -1176,13 +1177,13 @@ pub fn resolve_session_path(
     }
 
     let local_sessions =
-        SessionManager::list(cwd, session_dir, None, control_db_path).map_err(|error| error.to_string())?;
+        SessionManager::list(cwd, session_dir, None, control_db_path).map_err(|error| error.message().clone())?;
     if let Some(local_match) = find_session_match(&local_sessions, session_arg) {
         return Ok(ResolvedSession::Local(local_match.path.clone()));
     }
 
     let all_sessions =
-        SessionManager::list_all(session_dir, None, control_db_path).map_err(|error| error.to_string())?;
+        SessionManager::list_all(session_dir, None, control_db_path).map_err(|error| error.message().clone())?;
     if let Some(global_match) = find_session_match(&all_sessions, session_arg) {
         if session_belongs_to_project(&global_match.cwd, cwd) {
             return Ok(ResolvedSession::Local(global_match.path.clone()));
@@ -1193,7 +1194,7 @@ pub fn resolve_session_path(
         });
     }
 
-    Ok(ResolvedSession::NotFound(session_arg.to_owned()))
+    Ok(ResolvedSession::NotFound(session_arg.clone()))
 }
 
 /// `promptConfirm`.
@@ -1279,8 +1280,8 @@ pub fn validate_session_id_flags(parsed: &Args) -> MainResult<()> {
         console_error(&Chalk::stderr().red(&message));
         return Err(MainExit(1));
     }
-    if let Err(error) = assert_valid_session_id(session_id) {
-        console_error(&Chalk::stderr().red(&format!("Error: {error}")));
+    if let Err(error) = assert_valid_session_id(&session_id.into()) {
+        console_error(Chalk::stderr().red(js_format!("Error: {}", error.message())));
         return Err(MainExit(1));
     }
     Ok(())
@@ -1294,12 +1295,12 @@ pub fn validate_session_id_flags(parsed: &Args) -> MainResult<()> {
 pub async fn run_cli_action_or_report_error<F, Fut>(action: F) -> i32
 where
     F: FnOnce() -> Fut,
-    Fut: Future<Output = Result<(), String>>,
+    Fut: Future<Output = Result<(), JsString>>,
 {
     match action().await {
         Ok(()) => 0,
         Err(message) => {
-            console_error(&Chalk::stderr().red(&format!("Error: {message}")));
+            console_error(Chalk::stderr().red(js_format!("Error: {}", message)));
             1
         }
     }
@@ -1314,11 +1315,11 @@ pub struct InteractiveActionResult {
 }
 
 #[derive(Debug)]
-struct MessageError(String);
+struct MessageError(JsString);
 
 impl std::fmt::Display for MessageError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.0)
+        formatter.write_str(&encode_node_utf8(&self.0))
     }
 }
 
@@ -1328,10 +1329,10 @@ impl std::error::Error for MessageError {}
 pub async fn run_interactive_action_or_report_terminal_error<F, Fut>(
     action: F,
     on_terminal_error: Option<&dyn Fn()>,
-) -> Result<InteractiveActionResult, String>
+) -> Result<InteractiveActionResult, JsString>
 where
     F: FnOnce() -> Fut,
-    Fut: Future<Output = Result<(), String>>,
+    Fut: Future<Output = Result<(), JsString>>,
 {
     match action().await {
         Ok(()) => Ok(InteractiveActionResult {
@@ -1342,7 +1343,7 @@ where
             crate::modes::interactive::theme::stop_theme_watcher();
             let error = MessageError(message);
             if pi_tui::is_terminal_raw_mode_failure(&error) {
-                console_error(&Chalk::stderr().red(&format!("Error: {error}")));
+                console_error(Chalk::stderr().red(js_format!("Error: {}", error.0)));
                 if let Some(on_terminal_error) = on_terminal_error {
                     on_terminal_error();
                 }
@@ -1356,40 +1357,39 @@ where
     }
 }
 
-fn open_session_or_exit(path: &str, session_dir: Option<&str>) -> MainResult<SessionManager> {
-    SessionManager::open(path, session_dir, None).map_err(|error| {
-        console_error(&Chalk::stderr().red(&format!("Error: {error}")));
-        MainExit(1)
-    })
+fn report_session_error(error: &SessionManagerError) -> MainExit {
+    console_error(Chalk::stderr().red(js_format!("Error: {}", error.message())));
+    MainExit(1)
+}
+
+fn open_session_or_exit(path: &JsString, session_dir: Option<&JsString>) -> MainResult<SessionManager> {
+    SessionManager::open(path, session_dir, None).map_err(|error| report_session_error(&error))
 }
 
 fn fork_session_or_exit(
-    source_path: &str,
-    cwd: &str,
-    session_dir: Option<&str>,
-    session_id: Option<&str>,
+    source_path: &JsString,
+    cwd: &JsString,
+    session_dir: Option<&JsString>,
+    session_id: Option<&JsString>,
 ) -> MainResult<SessionManager> {
     SessionManager::fork_from(
         source_path,
         cwd,
         session_dir,
         session_id.map(|id| NewSessionOptions {
-            id: Some(id.to_owned()),
+            id: Some(id.clone()),
             ..Default::default()
         }),
         None,
     )
-    .map_err(|error| {
-        console_error(&Chalk::stderr().red(&format!("Error: {error}")));
-        MainExit(1)
-    })
+    .map_err(|error| report_session_error(&error))
 }
 
 /// Session loader used by the `--resume` picker.
 struct MainSessionsLoader {
-    cwd: String,
-    session_dir: Option<String>,
-    control_db_path: Option<String>,
+    cwd: JsString,
+    session_dir: Option<JsString>,
+    control_db_path: Option<JsString>,
     scope: MainSessionsScope,
 }
 
@@ -1404,19 +1404,19 @@ impl crate::cli::session_picker::SessionLoader for MainSessionsLoader {
     fn load<'a>(
         &'a self,
         on_progress: Option<crate::cli::session_picker::SessionListProgress<'a>>,
-    ) -> crate::cli::session_picker::SessionListFuture<'a, Result<Vec<SessionInfo>, String>> {
+    ) -> crate::cli::session_picker::SessionListFuture<'a, Result<Vec<SessionInfo>, JsString>> {
         Box::pin(async move {
-            let session_dir = self.session_dir.as_deref();
-            let control_db_path = self.control_db_path.as_deref();
+            let session_dir = self.session_dir.as_ref();
+            let control_db_path = self.control_db_path.as_ref();
             match self.scope {
                 MainSessionsScope::Current => {
                     SessionManager::list(&self.cwd, session_dir, on_progress, control_db_path)
-                        .map_err(|error| error.to_string())
+                        .map_err(|error| error.message().clone())
                 }
                 MainSessionsScope::All => SessionManager::list_all(session_dir, on_progress, control_db_path)
-                    .map_err(|error| error.to_string()),
+                    .map_err(|error| error.message().clone()),
                 MainSessionsScope::Archived => {
-                    SessionManager::list_archived(session_dir, control_db_path).map_err(|error| error.to_string())
+                    SessionManager::list_archived(session_dir, control_db_path).map_err(|error| error.message().clone())
                 }
             }
         })
@@ -1425,31 +1425,31 @@ impl crate::cli::session_picker::SessionLoader for MainSessionsLoader {
 
 /// `selectSession(...)` with the process terminal and environment.
 async fn select_session_for_process(
-    cwd: &str,
-    session_dir: Option<&str>,
+    cwd: &JsString,
+    session_dir: Option<&JsString>,
     settings_manager: &SettingsManager,
-    control_db_path: Option<&str>,
+    control_db_path: Option<&JsString>,
 ) -> MainResult<crate::cli::session_picker::SelectSessionOutcome> {
     let loader = |scope| {
         Arc::new(MainSessionsLoader {
-            cwd: cwd.to_owned(),
-            session_dir: session_dir.map(str::to_owned),
-            control_db_path: control_db_path.map(str::to_owned),
+            cwd: cwd.clone(),
+            session_dir: session_dir.cloned(),
+            control_db_path: control_db_path.cloned(),
             scope,
         }) as Arc<dyn crate::cli::session_picker::SessionLoader>
     };
     let validate_selection = control_db_path.map(|control_db_path| {
-        let control_db_path = control_db_path.to_owned();
-        let session_dir = session_dir.map(str::to_owned);
-        Arc::new(move |path: &str| {
+        let control_db_path = control_db_path.clone();
+        let session_dir = session_dir.cloned();
+        Arc::new(move |path: &JsString| {
             let selected =
-                SessionManager::open(path, session_dir.as_deref(), None).map_err(|error| error.to_string())?;
+                SessionManager::open(path, session_dir.as_ref(), None).map_err(|error| error.message().clone())?;
             crate::core::session_control_db::assert_main_session_runtime_available(
                 &control_db_path,
                 selected.get_session_id(),
             )
-            .map_err(|error| error.to_string())
-        }) as Arc<dyn Fn(&str) -> Result<(), String>>
+            .map_err(|error| error.message().clone())
+        }) as Arc<dyn Fn(&JsString) -> Result<(), JsString>>
     });
     let env: BTreeMap<String, String> = pi_js_compat::process_env::vars().into_iter().collect();
     let outcome = crate::cli::session_picker::select_session(
@@ -1466,7 +1466,7 @@ async fn select_session_for_process(
     )
     .await;
     outcome.map_err(|message| {
-        console_error(&Chalk::stderr().red(&format!("Error: {message}")));
+        console_error(Chalk::stderr().red(js_format!("Error: {}", message)));
         MainExit(1)
     })
 }
@@ -1478,71 +1478,69 @@ async fn select_session_for_process(
 /// `createSessionManager`.
 pub async fn create_session_manager(
     parsed: &Args,
-    cwd: &str,
-    session_dir: Option<&str>,
+    cwd: &JsString,
+    session_dir: Option<&JsString>,
     settings_manager: &SettingsManager,
-    control_db_path: Option<&str>,
+    control_db_path: Option<&JsString>,
 ) -> MainResult<SessionManager> {
+    let session_id = parsed.session_id.as_deref().map(JsString::from);
     if parsed.no_session.is_some_and(|value| value)
         || parsed.help.is_some_and(|value| value)
         || parsed.list_models.is_some()
         || parsed.list_tools.is_some_and(|value| value)
         || parsed.list_extensions.is_some_and(|value| value)
     {
-        let options = parsed.session_id.as_ref().map(|id| NewSessionOptions {
-            id: Some(id.clone()),
+        let options = session_id.clone().map(|id| NewSessionOptions {
+            id: Some(id),
             ..Default::default()
         });
-        return SessionManager::in_memory(Some(cwd), options).map_err(|error| {
-            console_error(&Chalk::stderr().red(&format!("Error: {error}")));
-            MainExit(1)
-        });
+        return SessionManager::in_memory(Some(cwd), options).map_err(|error| report_session_error(&error));
     }
 
-    if let Some(fork) = parsed.fork.as_deref() {
-        if let Some(session_id) = parsed.session_id.as_deref()
+    if let Some(fork) = parsed.fork.as_deref().map(JsString::from) {
+        if let Some(session_id) = &session_id
             && let Ok(Some(ResolvedSession::Local(_))) =
                 find_local_session_by_exact_id(session_id, cwd, session_dir, control_db_path)
         {
-            console_error(&Chalk::stderr().red(&format!("Session already exists with id '{session_id}'")));
+            console_error(Chalk::stderr().red(js_format!("Session already exists with id '{}'", session_id)));
             return Err(MainExit(1));
         }
 
-        let resolved = resolve_session_path(fork, cwd, session_dir, control_db_path).map_err(|error| {
-            console_error(&Chalk::stderr().red(&format!("Error: {error}")));
+        let resolved = resolve_session_path(&fork, cwd, session_dir, control_db_path).map_err(|error| {
+            console_error(Chalk::stderr().red(js_format!("Error: {}", error)));
             MainExit(1)
         })?;
 
         return match resolved {
             ResolvedSession::Path(path) | ResolvedSession::Local(path) | ResolvedSession::Global { path, .. } => {
-                fork_session_or_exit(&path, cwd, session_dir, parsed.session_id.as_deref())
+                fork_session_or_exit(&path, cwd, session_dir, session_id.as_ref())
             }
             ResolvedSession::NotFound(arg) => {
-                console_error(&Chalk::stderr().red(&format!("No session found matching '{arg}'")));
+                console_error(Chalk::stderr().red(js_format!("No session found matching '{}'", arg)));
                 Err(MainExit(1))
             }
         };
     }
 
-    if let Some(session) = parsed.session.as_deref() {
-        let resolved = resolve_session_path(session, cwd, session_dir, control_db_path).map_err(|error| {
-            console_error(&Chalk::stderr().red(&format!("Error: {error}")));
+    if let Some(session) = parsed.session.as_deref().map(JsString::from) {
+        let resolved = resolve_session_path(&session, cwd, session_dir, control_db_path).map_err(|error| {
+            console_error(Chalk::stderr().red(js_format!("Error: {}", error)));
             MainExit(1)
         })?;
 
         return match resolved {
             ResolvedSession::Path(path) | ResolvedSession::Local(path) => open_session_or_exit(&path, session_dir),
             ResolvedSession::Global { path, cwd: global_cwd } => {
-                console_log(&Chalk::stdout().yellow(&format!("Session found in different project: {global_cwd}")));
+                console_log(Chalk::stdout().yellow(js_format!("Session found in different project: {}", global_cwd)));
                 let should_fork = prompt_confirm("Fork this session into current directory?").await;
                 if !should_fork {
-                    console_log(&Chalk::stdout().dim("Aborted."));
+                    console_log(Chalk::stdout().dim("Aborted."));
                     return Err(MainExit(0));
                 }
                 fork_session_or_exit(&path, cwd, session_dir, None)
             }
             ResolvedSession::NotFound(arg) => {
-                console_error(&Chalk::stderr().red(&format!("No session found matching '{arg}'")));
+                console_error(Chalk::stderr().red(js_format!("No session found matching '{}'", arg)));
                 Err(MainExit(1))
             }
         };
@@ -1556,7 +1554,7 @@ pub async fn create_session_manager(
                 return open_session_or_exit(&path, session_dir);
             }
             crate::cli::session_picker::SelectSessionOutcome::Cancelled => {
-                console_log(&Chalk::stdout().dim("No session selected"));
+                console_log(Chalk::stdout().dim("No session selected"));
                 return Err(MainExit(0));
             }
             crate::cli::session_picker::SelectSessionOutcome::Exited => return Err(MainExit(0)),
@@ -1564,32 +1562,27 @@ pub async fn create_session_manager(
     }
 
     if parsed.continue_session.is_some_and(|value| value) {
-        return SessionManager::continue_recent(cwd, session_dir).map_err(|error| {
-            console_error(&Chalk::stderr().red(&format!("Error: {error}")));
-            MainExit(1)
-        });
+        return SessionManager::continue_recent(cwd, session_dir).map_err(|error| report_session_error(&error));
     }
 
-    if let Some(session_id) = parsed.session_id.as_deref()
+    if let Some(session_id) = &session_id
         && let Ok(Some(ResolvedSession::Local(path))) =
             find_local_session_by_exact_id(session_id, cwd, session_dir, control_db_path)
     {
         return open_session_or_exit(&path, session_dir);
     }
-    if let Some(session_id) = parsed.session_id.as_deref() {
-        console_error(&Chalk::stderr().yellow(&format!(
-            "Warning: No project session found with id '{session_id}'; creating a new session with that id."
+    if let Some(session_id) = &session_id {
+        console_error(Chalk::stderr().yellow(js_format!(
+            "Warning: No project session found with id '{}'; creating a new session with that id.",
+            session_id
         )));
     }
 
-    let options = parsed.session_id.as_ref().map(|id| NewSessionOptions {
-        id: Some(id.clone()),
+    let options = session_id.map(|id| NewSessionOptions {
+        id: Some(id),
         ..Default::default()
     });
-    SessionManager::create(cwd, session_dir, options).map_err(|error| {
-        console_error(&Chalk::stderr().red(&format!("Error: {error}")));
-        MainExit(1)
-    })
+    SessionManager::create(cwd, session_dir, options).map_err(|error| report_session_error(&error))
 }
 
 // =============================================================================
@@ -1713,7 +1706,7 @@ pub fn build_session_options(
 }
 
 /// `resolveCliPaths`.
-pub fn resolve_cli_paths(cwd: &str, paths: Option<&[String]>) -> Result<Option<Vec<String>>, String> {
+pub fn resolve_cli_paths(cwd: &str, paths: Option<&[String]>) -> Result<Option<Vec<String>>, JsString> {
     paths
         .map(|paths| {
             paths
@@ -1731,7 +1724,7 @@ pub fn resolve_cli_paths(cwd: &str, paths: Option<&[String]>) -> Result<Option<V
 }
 
 /// `normalizePath` for the `--session-dir` argument.
-pub fn normalize_session_dir(value: &str) -> Result<String, String> {
+pub fn normalize_session_dir(value: &str) -> Result<String, JsString> {
     normalize_path(value, &PathInputOptions::default()).map_err(|error| error.to_string())
 }
 
@@ -1741,7 +1734,7 @@ pub fn agent_dir_string() -> String {
 }
 
 /// Default session directory for a cwd (`getDefaultSessionDir`).
-pub fn default_session_dir(cwd: &str, agent_dir: Option<&str>) -> Result<String, String> {
+pub fn default_session_dir(cwd: &str, agent_dir: Option<&str>) -> Result<String, JsString> {
     get_default_session_dir(cwd, agent_dir).map_err(|error| error.to_string())
 }
 
@@ -1861,7 +1854,7 @@ fn parent_process_id() -> u32 {
 ///
 /// `Err` carries a thrown error; the CLI entry point prints it as
 /// `Error: <message>` and exits 1.
-pub async fn main(args: &[String], options: MainOptions) -> Result<i32, String> {
+pub async fn main(args: &[String], options: MainOptions) -> Result<i32, JsString> {
     let mut exit_code = 0;
     match run_main_inner(args, options, &mut exit_code).await {
         Ok(Some(code)) => Ok(code),
@@ -1910,7 +1903,7 @@ fn reject_invalid_standalone_worker_startup(args: &[String]) -> bool {
     true
 }
 
-async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i32) -> Result<Option<i32>, String> {
+async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i32) -> Result<Option<i32>, JsString> {
     if args == ["relay", "serve"] {
         crate::core::host_relay::run_relay_serve().await?;
         return Ok(None);
@@ -2466,7 +2459,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
                     let mode = InteractiveMode::new(runtime, options, None).await?;
                     let result = run_interactive_action_or_report_terminal_error(|| mode.init(), None).await?;
                     if !result.ok {
-                        return Ok::<Option<i32>, String>(Some(result.exit_code.unwrap_or(1)));
+                        return Ok::<Option<i32>, JsString>(Some(result.exit_code.unwrap_or(1)));
                     }
                     // Give the TUI's stdin handler a brief chance to consume terminal
                     // query replies before restoring the terminal.
@@ -2474,7 +2467,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
                     mode.stop();
                     stop_theme_watcher();
                     print_timings();
-                    Ok::<Option<i32>, String>(None)
+                    Ok::<Option<i32>, JsString>(None)
                 })
                 .await?;
             return Ok(code);

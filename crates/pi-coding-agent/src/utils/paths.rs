@@ -390,7 +390,7 @@ pub fn node_extname(path: impl Into<JsString>) -> JsString {
     }
 }
 
-fn home_directory() -> JsString {
+pub(crate) fn home_directory() -> JsString {
     let key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
     pi_js_compat::process_env::get(key).unwrap_or_default().into()
 }

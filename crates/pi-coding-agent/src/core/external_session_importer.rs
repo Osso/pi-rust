@@ -1,21 +1,27 @@
 //! Port of `packages/coding-agent/src/core/external-session-importer.ts`.
 
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::fs;
+use std::path::Path;
 
 use pi_agent_core::agent::AgentMessage;
 use pi_ai::types::{
-    Api, AssistantMessage, AssistantRole, ProviderId, StopReason, TextContent, TextOrImageContent, Usage, UserContent,
+    AssistantContent, AssistantMessage, AssistantRole, StopReason, TextContent, TextOrImageContent, Usage, UserContent,
     UserMessage, UserRole,
 };
 use pi_ai::utils::uuid::random_uuid;
-use serde_json::Value;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
+use pi_js_compat::node_fs::{node_fs_error, node_read_error};
 
-use crate::core::session_manager::{CURRENT_SESSION_VERSION, FileEntry, SessionHeader, SessionManagerError};
+use crate::core::session_manager::{
+    FileEntry, KnownSessionEntry, SessionEntry, SessionHeader, SessionManagerError, SessionMessageEntry,
+    get_default_session_dir,
+};
 use crate::core::session_tool_output::serialize_session_entry_for_persistence;
 use crate::utils::iso_time;
-use crate::utils::paths::{PathInputOptions, resolve_path};
+use crate::utils::paths::{
+    PathInputOptions, home_directory, node_basename, node_dirname, node_join, process_cwd, resolve_path,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExternalSessionProvider {
@@ -31,11 +37,13 @@ impl ExternalSessionProvider {
         }
     }
 
-    fn parse(value: &str) -> Option<Self> {
-        match value {
-            "codex" => Some(Self::Codex),
-            "claude" => Some(Self::Claude),
-            _ => None,
+    fn parse(value: &JsString) -> Option<Self> {
+        if *value == "codex" {
+            Some(Self::Codex)
+        } else if *value == "claude" {
+            Some(Self::Claude)
+        } else {
+            None
         }
     }
 }
@@ -43,62 +51,66 @@ impl ExternalSessionProvider {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExternalSessionAlias {
     pub provider: ExternalSessionProvider,
-    pub id: String,
+    pub id: JsString,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct ExternalSessionImportOptions {
-    pub home_dir: Option<String>,
-    pub session_dir: Option<String>,
-    pub fallback_cwd: Option<String>,
+    pub home_dir: Option<JsString>,
+    pub session_dir: Option<JsString>,
+    pub fallback_cwd: Option<JsString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExternalSessionImportResult {
-    pub path: String,
-    pub cwd: String,
-    pub id: String,
+    pub path: JsString,
+    pub cwd: JsString,
+    pub id: JsString,
     pub provider: ExternalSessionProvider,
 }
 
+/// A converted message, or the `NaN` timestamp that makes `toISOString` throw on write.
+type ImportedMessage = Result<AgentMessage, InvalidTimestamp>;
+
+#[derive(Debug, Clone, Copy)]
+struct InvalidTimestamp;
+
 struct SourceSession {
-    path: String,
-    id: String,
-    cwd: String,
-    messages: Vec<AgentMessage>,
+    path: JsString,
+    id: JsString,
+    cwd: JsString,
+    messages: Vec<ImportedMessage>,
 }
 
-pub fn is_external_session_alias(session_arg: &str) -> bool {
+pub fn is_external_session_alias(session_arg: &JsString) -> bool {
     parse_external_session_alias(session_arg).is_some()
 }
 
 pub fn import_external_session_alias(
-    session_arg: &str,
+    session_arg: &JsString,
     options: &ExternalSessionImportOptions,
 ) -> Result<Option<ExternalSessionImportResult>, SessionManagerError> {
     let Some(alias) = parse_external_session_alias(session_arg) else {
         return Ok(None);
     };
     let home_dir = options.home_dir.clone().unwrap_or_else(home_directory);
-    let fallback_cwd = options.fallback_cwd.clone().unwrap_or_else(|| {
-        std::env::current_dir()
-            .map(|path| path.display().to_string())
-            .unwrap_or_default()
-    });
-    let Some(source) = find_source_session(&alias, &home_dir, &fallback_cwd) else {
+    let fallback_cwd = match &options.fallback_cwd {
+        Some(cwd) => cwd.clone(),
+        None => process_cwd().map_err(path_error)?,
+    };
+    let Some(source) = find_source_session(&alias, &home_dir, &fallback_cwd)? else {
         return Ok(None);
     };
 
-    let session_id = format!("{}-{}", alias.provider.as_str(), source.id);
-    let destination_dir = match options.session_dir.as_deref() {
-        Some(dir) => resolve(dir)?,
-        None => crate::core::session_manager::get_default_session_dir(&source.cwd, None)?,
+    let session_id = js_format!("{}-{}", alias.provider.as_str(), source.id);
+    let destination_dir = match options.session_dir.as_ref().filter(|dir| !dir.is_empty()) {
+        Some(dir) => {
+            resolve_path(dir, process_cwd().map_err(path_error)?, &PathInputOptions::default()).map_err(path_error)?
+        }
+        None => get_default_session_dir(&source.cwd, None)?,
     };
-    let destination_path = PathBuf::from(&destination_dir)
-        .join(format!("{}.jsonl", sanitize_file_name(&session_id)))
-        .display()
-        .to_string();
-    if !Path::new(&destination_path).exists() {
+    let destination_path = node_join(destination_dir, js_format!("{}.jsonl", sanitize_file_name(&session_id)));
+    if !Path::new(&encode_node_utf8(&destination_path)).exists() {
         write_imported_session(&destination_path, &session_id, &source)?;
     }
 
@@ -110,324 +122,375 @@ pub fn import_external_session_alias(
     }))
 }
 
-fn resolve(input: &str) -> Result<String, SessionManagerError> {
-    let cwd = std::env::current_dir()
-        .map(|path| path.display().to_string())
-        .unwrap_or_default();
-    resolve_path(input, &cwd, &PathInputOptions::default()).map_err(|error| SessionManagerError::new(error.to_string()))
+fn path_error(error: crate::utils::paths::PathError) -> SessionManagerError {
+    SessionManagerError::new(error.message().clone())
 }
 
-fn home_directory() -> String {
-    pi_js_compat::process_env::get("HOME").unwrap_or_default()
-}
-
-fn parse_external_session_alias(session_arg: &str) -> Option<ExternalSessionAlias> {
-    let separator_index = session_arg.find('/')?;
-    let provider = ExternalSessionProvider::parse(&session_arg[..separator_index])?;
-    let id = &session_arg[separator_index + 1..];
-    if id.is_empty() || id.contains('/') {
+fn parse_external_session_alias(session_arg: &JsString) -> Option<ExternalSessionAlias> {
+    let separator_index = session_arg.find("/")?;
+    let provider = ExternalSessionProvider::parse(&session_arg.slice(0, separator_index))?;
+    let id = session_arg.slice(separator_index + 1, session_arg.len());
+    if id.is_empty() || id.contains("/") {
         return None;
     }
-    Some(ExternalSessionAlias {
-        provider,
-        id: id.to_owned(),
-    })
+    Some(ExternalSessionAlias { provider, id })
 }
 
-fn find_source_session(alias: &ExternalSessionAlias, home_dir: &str, fallback_cwd: &str) -> Option<SourceSession> {
+fn find_source_session(
+    alias: &ExternalSessionAlias,
+    home_dir: &JsString,
+    fallback_cwd: &JsString,
+) -> Result<Option<SourceSession>, SessionManagerError> {
     let root = match alias.provider {
-        ExternalSessionProvider::Codex => PathBuf::from(home_dir).join(".codex").join("sessions"),
-        ExternalSessionProvider::Claude => PathBuf::from(home_dir).join(".claude").join("projects"),
+        ExternalSessionProvider::Codex => node_join(node_join(home_dir, ".codex"), "sessions"),
+        ExternalSessionProvider::Claude => node_join(node_join(home_dir, ".claude"), "projects"),
     };
-    for file_path in list_jsonl_files(&root.display().to_string()) {
+    for file_path in list_jsonl_files(&root)? {
         if !file_name_matches_alias(&file_path, alias) {
             continue;
         }
         let source = match alias.provider {
-            ExternalSessionProvider::Codex => read_codex_session(&file_path, fallback_cwd),
-            ExternalSessionProvider::Claude => read_claude_session(&file_path, fallback_cwd),
+            ExternalSessionProvider::Codex => read_codex_session(&file_path, fallback_cwd)?,
+            ExternalSessionProvider::Claude => Some(read_claude_session(&file_path, fallback_cwd)?),
         };
         if let Some(source) = source
             && (source.id == alias.id || source.id.starts_with(&alias.id))
         {
-            return Some(source);
+            return Ok(Some(source));
         }
     }
-    None
+    Ok(None)
 }
 
-fn file_name_matches_alias(path: &str, alias: &ExternalSessionAlias) -> bool {
-    let file_name = Path::new(path)
-        .file_stem()
-        .map(|stem| stem.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    file_name == alias.id || file_name.ends_with(&format!("-{}", alias.id)) || file_name.contains(&alias.id)
+/// `basename(path, ".jsonl")`.
+fn jsonl_basename(path: &JsString) -> JsString {
+    let name = node_basename(path);
+    if name == ".jsonl" {
+        return JsString::default();
+    }
+    name.strip_suffix(".jsonl").unwrap_or(name)
 }
 
-fn list_jsonl_files(root: &str) -> Vec<String> {
-    if !Path::new(root).exists() {
-        return Vec::new();
+fn file_name_matches_alias(path: &JsString, alias: &ExternalSessionAlias) -> bool {
+    let file_name = jsonl_basename(path);
+    file_name == alias.id || file_name.ends_with(js_format!("-{}", alias.id)) || file_name.contains(&alias.id)
+}
+
+fn list_jsonl_files(root: &JsString) -> Result<Vec<JsString>, SessionManagerError> {
+    if !Path::new(&encode_node_utf8(root)).exists() {
+        return Ok(Vec::new());
     }
     let mut files = Vec::new();
-    let mut pending = vec![PathBuf::from(root)];
+    let mut pending = vec![root.clone()];
     while let Some(dir) = pending.pop() {
-        let Ok(entries) = fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+        let encoded_dir = encode_node_utf8(&dir);
+        let entries = fs::read_dir(&encoded_dir)
+            .map_err(|error| SessionManagerError::new(node_fs_error(&error, "scandir", &encoded_dir)))?;
+        for entry in entries {
+            let entry =
+                entry.map_err(|error| SessionManagerError::new(node_fs_error(&error, "scandir", &encoded_dir)))?;
+            let file_type = entry
+                .file_type()
+                .map_err(|error| SessionManagerError::new(node_fs_error(&error, "scandir", &encoded_dir)))?;
+            // `readdirSync` decodes names as UTF-8 with replacement.
+            let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
+            let path = node_join(&dir, &name);
+            if file_type.is_dir() {
                 pending.push(path);
-            } else if entry.file_type().is_ok_and(|kind| kind.is_file())
-                && entry.file_name().to_string_lossy().ends_with(".jsonl")
-            {
-                files.push(path.display().to_string());
+            } else if file_type.is_file() && name.ends_with(".jsonl") {
+                files.push(path);
             }
         }
     }
-    files
+    Ok(files)
 }
 
-fn read_json_lines(path: &str) -> Vec<Value> {
-    let Ok(bytes) = fs::read(path) else {
-        return Vec::new();
-    };
-    let content = String::from_utf8_lossy(&bytes);
-    content
-        .split('\n')
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .collect()
-}
-
-fn read_codex_session(path: &str, fallback_cwd: &str) -> Option<SourceSession> {
-    let lines = read_json_lines(path);
-    let meta = lines
-        .iter()
-        .find(|line| line.get("type").and_then(Value::as_str) == Some("session_meta"));
-    let payload = meta.and_then(|line| line.get("payload")).and_then(Value::as_object);
-    let id = payload
+fn read_codex_session(path: &JsString, fallback_cwd: &JsString) -> Result<Option<SourceSession>, SessionManagerError> {
+    let lines = read_json_lines(path)?;
+    let mut meta = None;
+    for line in &lines {
+        if read_property(line, "type")?.and_then(JsValue::as_string) == Some(&JsString::from("session_meta")) {
+            meta = Some(line);
+            break;
+        }
+    }
+    let payload = meta.and_then(|line| line.get("payload"));
+    let Some(id) = payload
         .and_then(|payload| string_or_undefined(payload.get("id")))
-        .or_else(|| find_id_in_codex_file_name(path))?;
+        .or_else(|| find_id_in_codex_file_name(path))
+    else {
+        return Ok(None);
+    };
     let cwd = payload
         .and_then(|payload| string_or_undefined(payload.get("cwd")))
-        .unwrap_or_else(|| fallback_cwd.to_owned());
-    let messages = lines.iter().flat_map(codex_line_to_message).collect();
-    Some(SourceSession {
-        path: path.to_owned(),
+        .unwrap_or_else(|| fallback_cwd.clone());
+    let mut messages = Vec::new();
+    for line in &lines {
+        messages.extend(codex_line_to_message(line)?);
+    }
+    Ok(Some(SourceSession {
+        path: path.clone(),
+        id,
+        cwd,
+        messages,
+    }))
+}
+
+fn read_claude_session(path: &JsString, fallback_cwd: &JsString) -> Result<SourceSession, SessionManagerError> {
+    let lines = read_json_lines(path)?;
+    let file_id = jsonl_basename(path);
+    let session_ids = lines
+        .iter()
+        .map(|line| Ok(string_or_undefined(read_property(line, "sessionId")?)))
+        .collect::<Result<Vec<_>, SessionManagerError>>()?;
+    let cwds = lines
+        .iter()
+        .map(|line| Ok(string_or_undefined(read_property(line, "cwd")?)))
+        .collect::<Result<Vec<_>, SessionManagerError>>()?;
+    let id = session_ids.into_iter().flatten().next().unwrap_or(file_id);
+    let cwd = cwds
+        .into_iter()
+        .flatten()
+        .next()
+        .unwrap_or_else(|| fallback_cwd.clone());
+    let mut messages = Vec::new();
+    for line in &lines {
+        messages.extend(claude_line_to_message(line)?);
+    }
+    Ok(SourceSession {
+        path: path.clone(),
         id,
         cwd,
         messages,
     })
 }
 
-fn read_claude_session(path: &str, fallback_cwd: &str) -> Option<SourceSession> {
-    let lines = read_json_lines(path);
-    let file_id = Path::new(path)
-        .file_stem()
-        .map(|stem| stem.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let id = lines
-        .iter()
-        .filter_map(|line| string_or_undefined(line.get("sessionId")))
-        .next()
-        .unwrap_or(file_id);
-    let cwd = lines
-        .iter()
-        .filter_map(|line| string_or_undefined(line.get("cwd")))
-        .next()
-        .unwrap_or_else(|| fallback_cwd.to_owned());
-    let messages = lines.iter().flat_map(claude_line_to_message).collect();
-    Some(SourceSession {
-        path: path.to_owned(),
-        id,
-        cwd,
-        messages,
-    })
+fn read_json_lines(path: &JsString) -> Result<Vec<JsValue>, SessionManagerError> {
+    let encoded_path = encode_node_utf8(path);
+    let bytes =
+        fs::read(&encoded_path).map_err(|error| SessionManagerError::new(node_read_error(&error, &encoded_path)))?;
+    // `readFileSync(path, "utf8")` decodes with replacement.
+    let content = JsString::from(String::from_utf8_lossy(&bytes).as_ref());
+    Ok(content
+        .split('\n')
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty())
+        // `parseJsonLine` drops unparsable lines in its `catch`.
+        .filter_map(|line| js_json::parse_lossless(line).ok())
+        .collect())
 }
 
-fn codex_line_to_message(line: &Value) -> Vec<AgentMessage> {
-    if line.get("type").and_then(Value::as_str) != Some("response_item") {
-        return Vec::new();
+/// Property read on a parsed JSON line; `null` throws like JavaScript member access.
+fn read_property<'a>(line: &'a JsValue, key: &str) -> Result<Option<&'a JsValue>, SessionManagerError> {
+    if matches!(line, JsValue::Null) {
+        return Err(SessionManagerError::new(format!(
+            "Cannot read properties of null (reading '{key}')"
+        )));
     }
-    let Some(payload) = line.get("payload").and_then(Value::as_object) else {
-        return Vec::new();
-    };
-    if payload.get("type").and_then(Value::as_str) != Some("message") {
-        return Vec::new();
-    }
-    message_like_to_agent_messages(payload, string_or_undefined(line.get("timestamp")).as_deref(), "codex")
+    Ok(line.get(key))
 }
 
-fn claude_line_to_message(line: &Value) -> Vec<AgentMessage> {
-    let Some(message) = line.get("message").and_then(Value::as_object) else {
-        return Vec::new();
+fn codex_line_to_message(line: &JsValue) -> Result<Vec<ImportedMessage>, SessionManagerError> {
+    if read_property(line, "type")?.and_then(JsValue::as_string) != Some(&JsString::from("response_item")) {
+        return Ok(Vec::new());
+    }
+    let Some(payload) = line.get("payload").filter(|payload| is_record(payload)) else {
+        return Ok(Vec::new());
     };
-    message_like_to_agent_messages(message, string_or_undefined(line.get("timestamp")).as_deref(), "claude")
+    if payload.get("type").and_then(JsValue::as_string) != Some(&JsString::from("message")) {
+        return Ok(Vec::new());
+    }
+    Ok(message_like_to_agent_messages(
+        payload,
+        string_or_undefined(line.get("timestamp")).as_ref(),
+        "codex",
+    ))
+}
+
+fn claude_line_to_message(line: &JsValue) -> Result<Vec<ImportedMessage>, SessionManagerError> {
+    let Some(message) = read_property(line, "message")?.filter(|message| is_record(message)) else {
+        return Ok(Vec::new());
+    };
+    Ok(message_like_to_agent_messages(
+        message,
+        string_or_undefined(line.get("timestamp")).as_ref(),
+        "claude",
+    ))
+}
+
+/// `new Date(timestamp).getTime()`, or `Date.now()` without a timestamp.
+fn unix_timestamp(timestamp: Option<&JsString>) -> Result<i64, InvalidTimestamp> {
+    let Some(timestamp) = timestamp else {
+        return Ok(pi_js_compat::date::js_now_millis() as i64);
+    };
+    timestamp
+        .to_utf8()
+        .ok()
+        .and_then(|text| pi_js_compat::date::date_parse_millis(&text))
+        .ok_or(InvalidTimestamp)
 }
 
 fn message_like_to_agent_messages(
-    message: &serde_json::Map<String, Value>,
-    timestamp: Option<&str>,
+    message: &JsValue,
+    timestamp: Option<&JsString>,
     provider: &str,
-) -> Vec<AgentMessage> {
+) -> Vec<ImportedMessage> {
     let content = normalize_text_content(message.get("content"));
     if content.is_empty() {
         return Vec::new();
     }
-    let unix_timestamp = timestamp
-        .and_then(pi_js_compat::date::date_parse_millis)
-        .unwrap_or_else(|| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|elapsed| elapsed.as_millis() as i64)
-                .unwrap_or(0)
-        });
-    match message.get("role").and_then(Value::as_str) {
-        Some("user") => vec![AgentMessage::User(UserMessage {
-            role: UserRole::Tag,
-            content: UserContent::Blocks(content),
-            input_source: None,
-            provider_native: None,
-            timestamp: unix_timestamp,
-        })],
-        Some("assistant") => vec![AgentMessage::Assistant(Box::new(AssistantMessage {
-            role: AssistantRole::Tag,
-            content: content
-                .into_iter()
-                .filter_map(|block| match block {
-                    TextOrImageContent::Text(text) => Some(pi_ai::types::AssistantContent::Text(text)),
-                    TextOrImageContent::Image(_) => None,
-                })
-                .collect(),
-            api: provider.to_owned() as Api,
-            provider: provider.to_owned() as ProviderId,
-            model: "imported-session".to_owned(),
-            response_model: None,
-            response_id: None,
-            image_generation_result: None,
-            diagnostics: None,
-            usage: Usage::default(),
-            stop_reason: StopReason::Stop,
-            deferred: None,
-            error_message: None,
-            raw_stop_reason: None,
-            end_turn: None,
-            timestamp: unix_timestamp,
-        }))],
-        _ => Vec::new(),
-    }
+    let role = message.get("role").and_then(JsValue::as_string);
+    let message = if role == Some(&JsString::from("user")) {
+        unix_timestamp(timestamp).map(|timestamp| user_message(content, timestamp))
+    } else if role == Some(&JsString::from("assistant")) {
+        unix_timestamp(timestamp).map(|timestamp| assistant_message(content, timestamp, provider))
+    } else {
+        return Vec::new();
+    };
+    vec![message]
 }
 
-fn normalize_text_content(content: Option<&Value>) -> Vec<TextOrImageContent> {
+fn user_message(content: Vec<TextContent>, timestamp: i64) -> AgentMessage {
+    AgentMessage::User(UserMessage {
+        role: UserRole::Tag,
+        content: UserContent::Blocks(content.into_iter().map(TextOrImageContent::Text).collect()),
+        input_source: None,
+        provider_native: None,
+        timestamp,
+    })
+}
+
+fn assistant_message(content: Vec<TextContent>, timestamp: i64, provider: &str) -> AgentMessage {
+    AgentMessage::Assistant(Box::new(AssistantMessage {
+        role: AssistantRole::Tag,
+        content: content.into_iter().map(AssistantContent::Text).collect(),
+        api: provider.to_owned(),
+        provider: provider.to_owned(),
+        model: "imported-session".to_owned(),
+        response_model: None,
+        response_id: None,
+        image_generation_result: None,
+        diagnostics: None,
+        usage: Usage::default(),
+        stop_reason: StopReason::Stop,
+        deferred: None,
+        error_message: None,
+        raw_stop_reason: None,
+        end_turn: None,
+        timestamp,
+    }))
+}
+
+fn normalize_text_content(content: Option<&JsValue>) -> Vec<TextContent> {
     match content {
-        Some(Value::String(text)) => vec![TextOrImageContent::Text(TextContent::new(text.clone()))],
-        Some(Value::Array(blocks)) => blocks
+        Some(JsValue::String(text)) => vec![TextContent::new(text.clone())],
+        Some(JsValue::Array(blocks)) => blocks
             .iter()
-            .filter_map(|block| {
-                let object = block.as_object()?;
-                let block_type = object.get("type").and_then(Value::as_str)?;
-                if !matches!(block_type, "text" | "input_text" | "output_text") {
-                    return None;
-                }
-                let text = object.get("text").and_then(Value::as_str)?;
-                Some(TextOrImageContent::Text(TextContent::new(text)))
+            .filter(|block| is_record(block))
+            .filter(|block| {
+                block
+                    .get("type")
+                    .and_then(JsValue::as_string)
+                    .is_some_and(is_text_block_type)
             })
+            .filter_map(|block| block.get("text").and_then(JsValue::as_string))
+            .map(|text| TextContent::new(text.clone()))
             .collect(),
         _ => Vec::new(),
     }
 }
 
-fn write_imported_session(path: &str, session_id: &str, source: &SourceSession) -> Result<(), SessionManagerError> {
-    if let Some(parent) = Path::new(path).parent() {
-        fs::create_dir_all(parent).map_err(|error| SessionManagerError::new(error.to_string()))?;
-    }
-    let header = SessionHeader {
-        header_type: crate::core::session_manager::HeaderTag::Session,
-        version: Some(CURRENT_SESSION_VERSION),
-        id: session_id.to_owned(),
-        timestamp: iso_time::now_iso_string(),
-        cwd: Some(source.cwd.clone()),
-        parent_session: Some(source.path.clone()),
-        original_key_order: None,
-    };
-    let mut entries: Vec<FileEntry> = vec![FileEntry::Header(header)];
-    let mut parent_id: Option<String> = None;
+fn is_text_block_type(block_type: &JsString) -> bool {
+    *block_type == "text" || *block_type == "input_text" || *block_type == "output_text"
+}
+
+fn write_imported_session(
+    path: &JsString,
+    session_id: &JsString,
+    source: &SourceSession,
+) -> Result<(), SessionManagerError> {
+    let directory = encode_node_utf8(&node_dirname(path));
+    fs::create_dir_all(&directory)
+        .map_err(|error| SessionManagerError::new(node_fs_error(&error, "mkdir", &directory)))?;
+    let header = SessionHeader::new(
+        session_id.clone(),
+        iso_time::now_iso_string().into(),
+        Some(source.cwd.clone()),
+        Some(source.path.clone()),
+    );
+    let mut entries = vec![FileEntry::Header(header)];
+    let mut parent_id: Option<JsString> = None;
     for message in &source.messages {
-        let id: String = random_uuid().chars().take(8).collect();
+        let id: JsString = random_uuid().chars().take(8).collect::<String>().into();
+        let message = message
+            .as_ref()
+            .map_err(|_| SessionManagerError::new("Invalid time value"))?;
         let timestamp = message
             .timestamp()
             .map(iso_time::format_iso_millis)
             .unwrap_or_else(iso_time::now_iso_string);
-        entries.push(FileEntry::Entry(crate::core::session_manager::SessionEntry::Known(
-            crate::core::session_manager::KnownSessionEntry::Message(
-                crate::core::session_manager::SessionMessageEntry {
-                    mailbox_store_refs: None,
-                    id: id.clone(),
-                    parent_id: parent_id.clone(),
-                    timestamp,
-                    message: Box::new(message.clone()),
-                },
-            ),
-        )));
+        entries.push(FileEntry::Entry(SessionEntry::Known(KnownSessionEntry::Message(
+            SessionMessageEntry {
+                mailbox_store_refs: None,
+                id: id.clone(),
+                parent_id: parent_id.clone(),
+                timestamp: timestamp.into(),
+                message: Box::new(message.clone()),
+            },
+        ))));
         parent_id = Some(id);
     }
 
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(path)
-        .map_err(|error| SessionManagerError::new(error.to_string()))?;
-    for entry in &entries {
-        let line = serialize_session_entry_for_persistence(entry);
-        writeln!(file, "{line}").map_err(|error| SessionManagerError::new(error.to_string()))?;
-    }
-    Ok(())
+    let lines: Vec<String> = entries.iter().map(serialize_session_entry_for_persistence).collect();
+    let encoded_path = encode_node_utf8(path);
+    fs::write(&encoded_path, format!("{}\n", lines.join("\n")))
+        .map_err(|error| SessionManagerError::new(node_fs_error(&error, "open", &encoded_path)))
 }
 
-fn find_id_in_codex_file_name(path: &str) -> Option<String> {
-    let file_name = Path::new(path).file_name()?.to_string_lossy().into_owned();
-    let stem = file_name.strip_suffix(".jsonl")?;
-    let all_allowed = !stem.is_empty()
-        && stem
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-'));
-    if all_allowed {
-        return Some(stem.to_owned());
-    }
-    if stem.len() >= 36 && is_uuid_like(&stem[stem.len() - 36..]) {
-        return Some(stem[stem.len() - 36..].to_owned());
-    }
-    None
+fn is_codex_file_name_unit(unit: u16) -> bool {
+    u8::try_from(unit).is_ok_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
-fn is_uuid_like(value: &str) -> bool {
-    let groups: Vec<&str> = value.split('-').collect();
-    groups.len() == 5
-        && groups
+/// `/(<uuid>|[A-Za-z0-9._-]+)\.jsonl$/.exec(basename(path))?.[1]`.
+///
+/// UUID characters are a subset of the second alternative, so the leftmost match is
+/// the longest allowed run that ends at the `.jsonl` suffix.
+fn find_id_in_codex_file_name(path: &JsString) -> Option<JsString> {
+    let name = node_basename(path);
+    let stem = name.strip_suffix(".jsonl")?;
+    let start = stem
+        .units()
+        .iter()
+        .rposition(|unit| !is_codex_file_name_unit(*unit))
+        .map_or(0, |index| index + 1);
+    (start < stem.len()).then(|| stem.slice(start, stem.len()))
+}
+
+/// `value.replace(/[^A-Za-z0-9._-]/g, "-")`, applied per UTF-16 code unit.
+fn sanitize_file_name(value: &JsString) -> JsString {
+    JsString::from_utf16(
+        value
+            .units()
             .iter()
-            .zip([8, 4, 4, 4, 12])
-            .all(|(group, length)| group.len() == length && group.chars().all(|c| c.is_ascii_hexdigit()))
+            .map(|unit| {
+                if is_codex_file_name_unit(*unit) {
+                    *unit
+                } else {
+                    u16::from(b'-')
+                }
+            })
+            .collect(),
+    )
 }
 
-fn sanitize_file_name(value: &str) -> String {
+fn string_or_undefined(value: Option<&JsValue>) -> Option<JsString> {
     value
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-') {
-                character
-            } else {
-                '-'
-            }
-        })
-        .collect()
-}
-
-fn string_or_undefined(value: Option<&Value>) -> Option<String> {
-    value
-        .and_then(Value::as_str)
+        .and_then(JsValue::as_string)
         .filter(|text| !text.is_empty())
-        .map(str::to_owned)
+        .cloned()
+}
+
+/// `typeof value === "object" && value !== null`.
+fn is_record(value: &JsValue) -> bool {
+    matches!(value, JsValue::Object(_) | JsValue::Array(_))
 }
