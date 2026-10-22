@@ -185,8 +185,8 @@ async fn post_json(
     Ok(response.body)
 }
 
-fn format_error_details(error: &CallbackError) -> String {
-    format!("Error: {}", error.message)
+fn format_error_details(error: &CallbackError) -> pi_js_compat::js_json::JsString {
+    pi_js_compat::js_json::JsString::join(["Error: ".into(), error.message.clone()], "")
 }
 
 async fn exchange_authorization_code(
@@ -208,10 +208,9 @@ async fn exchange_authorization_code(
     let response_body = post_json(runtime, TOKEN_URL, body, signal)
         .await
         .map_err(|error| {
-            CallbackError::new(format!(
-                "Token exchange request failed. url={TOKEN_URL}; redirect_uri={redirect_uri}; response_type=authorization_code; details={}",
-                format_error_details(&error)
-            ))
+            let prefix = format!("Token exchange request failed. url={TOKEN_URL}; redirect_uri={redirect_uri}; response_type=authorization_code; details=");
+            let details = format_error_details(&error);
+            CallbackError::new(pi_js_compat::js_json::JsString::join([prefix.into(), details], ""))
         })?;
 
     let token_data: pi_js_compat::js_json::JsValue =
@@ -380,9 +379,12 @@ async fn refresh_anthropic(
         ("refresh_token".into(), JsValue::String(refresh_token.clone())),
     ]));
     let response_body = post_json(runtime, TOKEN_URL, body, signal).await.map_err(|error| {
-        CallbackError::new(format!(
-            "Anthropic token refresh request failed. url={TOKEN_URL}; details={}",
-            format_error_details(&error)
+        CallbackError::new(pi_js_compat::js_json::JsString::join(
+            [
+                format!("Anthropic token refresh request failed. url={TOKEN_URL}; details=").into(),
+                format_error_details(&error),
+            ],
+            "",
         ))
     })?;
     let data: pi_js_compat::js_json::JsValue = pi_js_compat::js_json::parse_lossless(&response_body).map_err(|error| {

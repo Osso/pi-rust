@@ -1,5 +1,7 @@
 # Retry classifier traceability
 
+Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
+
 Frozen authority: `packages/ai/src/utils/retry.ts`, commit `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d` ([lock](../source-lock.json)); Rust `crates/pi-ai/src/utils/retry.rs`; [contract](../../specs/retry.md).
 
 ## Integration provenance and verification handoff

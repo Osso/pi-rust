@@ -402,11 +402,11 @@ pub enum AuthError {
 }
 
 impl AuthError {
-    pub fn failed(message: impl Into<String>) -> Self {
+    pub fn failed(message: impl Into<pi_js_compat::js_json::JsString>) -> Self {
         Self::Failed(CallbackError::new(message))
     }
 
-    pub fn detail(&self) -> Option<&str> {
+    pub fn detail(&self) -> Option<&pi_js_compat::js_json::JsString> {
         match self {
             Self::Aborted => None,
             Self::Failed(error) => Some(&error.message),

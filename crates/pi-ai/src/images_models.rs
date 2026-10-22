@@ -337,7 +337,7 @@ fn merge_env(resolution_env: Option<ProviderEnv>, option_env: Option<ProviderEnv
     }
 }
 
-fn error_result(model: &ImagesModel, message: String) -> AssistantImages {
+fn error_result(model: &ImagesModel, message: impl Into<pi_js_compat::js_json::JsString>) -> AssistantImages {
     AssistantImages {
         api: model.api.clone(),
         provider: model.provider.clone(),
@@ -346,7 +346,7 @@ fn error_result(model: &ImagesModel, message: String) -> AssistantImages {
         response_id: None,
         usage: None,
         stop_reason: ImagesStopReason::Error,
-        error_message: Some(message),
+        error_message: Some(message.into()),
         timestamp: now_millis(),
     }
 }

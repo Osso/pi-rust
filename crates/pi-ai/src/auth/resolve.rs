@@ -43,25 +43,29 @@ impl ModelsErrorCode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelsError {
     pub code: ModelsErrorCode,
-    pub message: String,
+    pub message: pi_js_compat::js_json::JsString,
 }
 
 impl ModelsError {
-    pub fn new(code: ModelsErrorCode, message: impl Into<String>) -> Self {
+    pub fn new(code: ModelsErrorCode, message: impl Into<pi_js_compat::js_json::JsString>) -> Self {
         Self {
             code,
             message: message.into(),
         }
     }
 
-    pub fn with_cause(code: ModelsErrorCode, message: impl Into<String>, cause: Option<&str>) -> Self {
+    pub fn with_cause(
+        code: ModelsErrorCode,
+        message: impl Into<pi_js_compat::js_json::JsString>,
+        cause: Option<&pi_js_compat::js_json::JsString>,
+    ) -> Self {
         Self::new(code, with_cause_detail(&message.into(), cause))
     }
 }
 
 impl std::fmt::Display for ModelsError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message))
     }
 }
 
@@ -78,11 +82,15 @@ pub enum ResolveError {
 }
 
 impl ResolveError {
-    pub fn models(code: ModelsErrorCode, message: impl Into<String>) -> Self {
+    pub fn models(code: ModelsErrorCode, message: impl Into<pi_js_compat::js_json::JsString>) -> Self {
         Self::Models(ModelsError::new(code, message))
     }
 
-    pub fn with_cause(code: ModelsErrorCode, message: impl Into<String>, cause: Option<&str>) -> Self {
+    pub fn with_cause(
+        code: ModelsErrorCode,
+        message: impl Into<pi_js_compat::js_json::JsString>,
+        cause: Option<&pi_js_compat::js_json::JsString>,
+    ) -> Self {
         Self::Models(ModelsError::with_cause(code, message, cause))
     }
 }
@@ -100,15 +108,18 @@ impl std::fmt::Display for ResolveError {
 impl std::error::Error for ResolveError {}
 
 /// Keep the underlying reason in the message: callers surface `message` only.
-pub fn with_cause_detail(message: &str, cause: Option<&str>) -> String {
+pub fn with_cause_detail(
+    message: &pi_js_compat::js_json::JsString,
+    cause: Option<&pi_js_compat::js_json::JsString>,
+) -> pi_js_compat::js_json::JsString {
     let Some(cause) = cause else {
         return message.to_owned();
     };
     let detail = cause.trim();
-    if detail.is_empty() || message.contains(detail) {
+    if detail.is_empty() || message.contains(&detail) {
         return message.to_owned();
     }
-    format!("{message}: {detail}")
+    pi_js_compat::js_json::JsString::join([message.clone(), ": ".into(), detail], "")
 }
 
 #[derive(Debug, Clone, Default)]
@@ -271,7 +282,7 @@ async fn resolve_stored_oauth(
                             let models_error = ModelsError::with_cause(
                                 ModelsErrorCode::Oauth,
                                 format!("OAuth refresh failed for {provider_id}"),
-                                Some("The operation was aborted"),
+                                Some(&"The operation was aborted".into()),
                             );
                             *refresh_error.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) =
                                 Some(models_error.clone());

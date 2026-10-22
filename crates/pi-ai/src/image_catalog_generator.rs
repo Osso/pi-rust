@@ -15,13 +15,13 @@ pub const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GeneratorError {
     pub name: String,
-    pub message: String,
+    pub message: JsString,
     pub cause: Option<String>,
     filesystem_inspection: Option<String>,
 }
 
 impl GeneratorError {
-    fn new(name: &str, message: impl Into<String>) -> Self {
+    fn new(name: &str, message: impl Into<JsString>) -> Self {
         Self {
             name: name.into(),
             message: message.into(),
@@ -29,10 +29,10 @@ impl GeneratorError {
             filesystem_inspection: None,
         }
     }
-    fn error(message: impl Into<String>) -> Self {
+    fn error(message: impl Into<JsString>) -> Self {
         Self::new("Error", message)
     }
-    fn type_error(message: impl Into<String>) -> Self {
+    fn type_error(message: impl Into<JsString>) -> Self {
         Self::new("TypeError", message)
     }
 }
@@ -49,7 +49,7 @@ impl From<CallbackError> for GeneratorError {
 
 impl fmt::Display for GeneratorError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.name, self.message)?;
+        write!(f, "{}: {}", self.name, js_json::encode_node_utf8(&self.message))?;
         if let Some(fields) = &self.filesystem_inspection {
             f.write_str(fields)?;
         }
@@ -347,7 +347,7 @@ fn filesystem_error(error: std::io::Error, syscall: &str, path: &Path) -> Genera
     fields.push_str("\n}");
     GeneratorError {
         name: record.name.into(),
-        message: record.message,
+        message: record.message.into(),
         cause: None,
         filesystem_inspection: Some(fields),
     }

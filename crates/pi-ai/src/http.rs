@@ -190,7 +190,7 @@ fn native_fetch_error(error: reqwest::Error, message: &str) -> CallbackError {
         source = cause.source();
     }
     CallbackError {
-        message: message.to_owned(),
+        message: message.to_owned().into(),
         name: "TypeError".to_owned(),
         code: None,
         cause: Some(diagnostics.join(": ")),

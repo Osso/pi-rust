@@ -16,7 +16,7 @@ const SLOW_DOWN_INTERVAL_INCREMENT_MS: f64 = 5000.0;
 pub enum OAuthDeviceCodePollResult<T> {
     Pending,
     SlowDown { interval_seconds: Option<f64> },
-    Failed { message: String },
+    Failed { message: pi_js_compat::js_json::JsString },
     Complete(T),
 }
 
@@ -33,7 +33,7 @@ pub enum OAuthDeviceCodeError {
     Cancelled,
     TimedOut,
     SlowDownTimedOut,
-    Failed(String),
+    Failed(pi_js_compat::js_json::JsString),
 }
 
 impl fmt::Display for OAuthDeviceCodeError {
@@ -42,7 +42,7 @@ impl fmt::Display for OAuthDeviceCodeError {
             Self::Cancelled => formatter.write_str(CANCEL_MESSAGE),
             Self::TimedOut => formatter.write_str(TIMEOUT_MESSAGE),
             Self::SlowDownTimedOut => formatter.write_str(SLOW_DOWN_TIMEOUT_MESSAGE),
-            Self::Failed(message) => formatter.write_str(message),
+            Self::Failed(message) => formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(message)),
         }
     }
 }

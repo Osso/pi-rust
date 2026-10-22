@@ -40,31 +40,36 @@ const NON_OVERFLOW_PATTERNS: [&str; 3] = [
     r"too many requests",
 ];
 
-fn overflow_regexes() -> &'static Vec<Regex> {
-    static PATTERNS: OnceLock<Vec<Regex>> = OnceLock::new();
+fn overflow_regexes() -> &'static Vec<regress::Regex> {
+    static PATTERNS: OnceLock<Vec<regress::Regex>> = OnceLock::new();
     PATTERNS.get_or_init(|| {
-        let mut patterns: Vec<Regex> = OVERFLOW_PATTERNS.iter().map(|pattern| compile(pattern)).collect();
+        let mut patterns: Vec<regress::Regex> = OVERFLOW_PATTERNS.iter().map(|pattern| compile(pattern)).collect();
         patterns.push(compile(r"^4(?:00|13)\s*(?:status code)?\s*\(no body\)"));
         patterns
     })
 }
 
-fn non_overflow_regexes() -> &'static Vec<Regex> {
-    static PATTERNS: OnceLock<Vec<Regex>> = OnceLock::new();
+fn non_overflow_regexes() -> &'static Vec<regress::Regex> {
+    static PATTERNS: OnceLock<Vec<regress::Regex>> = OnceLock::new();
     PATTERNS.get_or_init(|| NON_OVERFLOW_PATTERNS.iter().map(|pattern| compile(pattern)).collect())
 }
 
-fn compile(pattern: &str) -> Regex {
-    Regex::new(&format!("(?i){pattern}")).expect("overflow patterns are valid regexes")
+fn compile(pattern: &str) -> regress::Regex {
+    regress::Regex::with_flags(&pattern.to_ascii_lowercase(), "").expect("overflow patterns are valid regexes")
 }
 
 /// Check if an assistant message represents a context overflow error.
 pub fn is_context_overflow(message: &AssistantMessage, context_window: Option<f64>) -> bool {
     if let (StopReason::Error, Some(error_message)) = (message.stop_reason, &message.error_message) {
+        let error_message = super::error_body::fold_ascii_error_text(error_message);
         let is_non_overflow = non_overflow_regexes()
             .iter()
-            .any(|pattern| pattern.is_match(error_message));
-        if !is_non_overflow && overflow_regexes().iter().any(|pattern| pattern.is_match(error_message)) {
+            .any(|pattern| pattern.find_from_ucs2(error_message.units(), 0).next().is_some());
+        if !is_non_overflow
+            && overflow_regexes()
+                .iter()
+                .any(|pattern| pattern.find_from_ucs2(error_message.units(), 0).next().is_some())
+        {
             return true;
         }
     }
@@ -88,5 +93,9 @@ pub fn is_recoverable_length(message: &AssistantMessage, desired_max_output: f64
 
 /// The overflow patterns, exposed for testing.
 pub fn get_overflow_patterns() -> Vec<Regex> {
-    overflow_regexes().clone()
+    OVERFLOW_PATTERNS
+        .iter()
+        .chain([&r"^4(?:00|13)\s*(?:status code)?\s*\(no body\)"])
+        .map(|pattern| Regex::new(&format!("(?i){pattern}")).expect("overflow patterns are valid regexes"))
+        .collect()
 }

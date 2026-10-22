@@ -164,7 +164,7 @@ fn run_stream(model: Model, context: Context, options: GoogleVertexOptions) -> A
                     output.stop_reason = StopReason::Error;
                     ErrorReason::Error
                 };
-                output.error_message = Some(message);
+                output.error_message = Some(message.into());
                 sender.push(AssistantMessageEvent::Error {
                     reason,
                     error: output.clone(),
@@ -183,7 +183,7 @@ async fn run(
     context: &Context,
     options: &GoogleVertexOptions,
     signal: Option<&CancellationToken>,
-) -> Result<(), String> {
+) -> Result<(), pi_js_compat::js_json::JsString> {
     let client = resolve_client(model, options)?;
     let params = prepare_params(model, context, options).await?;
     let mut google_stream = open_generate_stream(&client, &params, &options.stream.request)
@@ -206,7 +206,10 @@ async fn run(
     Ok(())
 }
 
-fn resolve_client(model: &Model, options: &GoogleVertexOptions) -> Result<GoogleClient, String> {
+fn resolve_client(
+    model: &Model,
+    options: &GoogleVertexOptions,
+) -> Result<GoogleClient, pi_js_compat::js_json::JsString> {
     if let Some(api_key) = resolve_api_key(options) {
         return Ok(GoogleClient::vertex_api_key(
             model,
@@ -226,7 +229,11 @@ fn resolve_client(model: &Model, options: &GoogleVertexOptions) -> Result<Google
     .map_err(|error| error.message)
 }
 
-async fn prepare_params(model: &Model, context: &Context, options: &GoogleVertexOptions) -> Result<JsValue, String> {
+async fn prepare_params(
+    model: &Model,
+    context: &Context,
+    options: &GoogleVertexOptions,
+) -> Result<JsValue, pi_js_compat::js_json::JsString> {
     let params = JsValue::Object(build_params(model, context, options).map_err(|error| error.message)?);
     let Some(on_payload) = &options.stream.request.on_payload else {
         return Ok(params);

@@ -4,6 +4,7 @@
 //! are built as JSON values to preserve the exact TypeScript wire shape.
 
 use crate::api::openai_sdk::{ingress_metadata_text, validate_metadata_fields};
+use pi_js_compat::js_json::JsString;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, OnceLock};
 
@@ -79,7 +80,7 @@ pub struct ConvertResponsesToolsOptions {
 #[derive(Debug)]
 pub enum ResponsesStreamFailure<E> {
     Source(E),
-    Message(String),
+    Message(JsString),
 }
 
 /// Async event source for [`process_responses_stream`].
@@ -128,6 +129,13 @@ fn js_string(value: Option<&JsValue>) -> String {
         Some(JsValue::Null) => "null".to_owned(),
         Some(other) => pi_js_compat::js_json::stringify_lossless(other),
         None => "undefined".to_owned(),
+    }
+}
+
+fn human_error_text(value: Option<&JsValue>) -> JsString {
+    match value {
+        Some(JsValue::String(text)) => text.clone(),
+        _ => js_string(value).into(),
     }
 }
 
@@ -1275,7 +1283,7 @@ fn finalize_response(
 
 struct MappedStopReason {
     stop_reason: StopReason,
-    error_message: Option<String>,
+    error_message: Option<JsString>,
 }
 
 fn map_stop_reason(status: Option<&str>, incomplete_reason: Option<&str>) -> Result<MappedStopReason, String> {
@@ -1297,11 +1305,11 @@ fn map_stop_reason(status: Option<&str>, incomplete_reason: Option<&str>) -> Res
             },
             Some(reason) => MappedStopReason {
                 stop_reason: StopReason::Error,
-                error_message: Some(format!("Response incomplete: {reason}")),
+                error_message: Some(format!("Response incomplete: {reason}").into()),
             },
             None => MappedStopReason {
                 stop_reason: StopReason::Error,
-                error_message: Some("Response incomplete without a provider reason".to_owned()),
+                error_message: Some("Response incomplete without a provider reason".to_owned().into()),
             },
         },
         "failed" | "cancelled" => MappedStopReason {
@@ -1353,9 +1361,9 @@ pub(crate) fn validate_responses_metadata(event: &JsValue) -> Result<(), String>
     validate_metadata_fields(event, &["type"])?;
     match ingress_metadata_text(&event["type"]).as_deref() {
         Some("error") => {
-            validate_metadata_fields(event, &["code", "message"])?;
+            validate_metadata_fields(event, &["code"])?;
             if let Some(error) = event.get("error") {
-                validate_metadata_fields(error, &["code", "message"])?;
+                validate_metadata_fields(error, &["code"])?;
             }
         }
         Some("response.image_generation_call.partial_image") => {
@@ -1378,7 +1386,7 @@ fn validate_response_metadata(response: &JsValue) -> Result<(), String> {
         validate_metadata_fields(details, &["reason"])?;
     }
     if let Some(error) = response.get("error") {
-        validate_metadata_fields(error, &["code", "message"])?;
+        validate_metadata_fields(error, &["code"])?;
     }
     if let Some(items) = response.get("output").and_then(JsValue::as_array) {
         for item in items {
@@ -1406,7 +1414,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
             Ok(None) => break,
             Err(error) => return Err(ResponsesStreamFailure::Source(error)),
         };
-        validate_responses_metadata(&event).map_err(ResponsesStreamFailure::Message)?;
+        validate_responses_metadata(&event).map_err(|error| ResponsesStreamFailure::Message(error.into()))?;
         let event_type = event.get("type").and_then(ingress_metadata_text).unwrap_or_default();
         let output_index = event.get("output_index").and_then(JsValue::as_u64);
 
@@ -1558,7 +1566,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 let appended = append_custom_tool_call_input(block, custom_input, &next_input, false);
                 match appended {
                     Ok(delta) => push_tool_call_delta(sender, content_index, delta, output),
-                    Err(error) => return Err(ResponsesStreamFailure::Message(error)),
+                    Err(error) => return Err(ResponsesStreamFailure::Message(error.into())),
                 }
             }
             "response.custom_tool_call_input.done" => {
@@ -1581,7 +1589,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 let appended = append_custom_tool_call_input(block, custom_input, &next_input, true);
                 match appended {
                     Ok(delta) => push_tool_call_delta(sender, content_index, delta, output),
-                    Err(error) => return Err(ResponsesStreamFailure::Message(error)),
+                    Err(error) => return Err(ResponsesStreamFailure::Message(error.into())),
                 }
             }
             "response.image_generation_call.partial_image" => {
@@ -1751,7 +1759,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                         let appended = append_custom_tool_call_input(block, &mut next_custom_input, &next_input, true);
                         let delta = match appended {
                             Ok(delta) => delta,
-                            Err(error) => return Err(ResponsesStreamFailure::Message(error)),
+                            Err(error) => return Err(ResponsesStreamFailure::Message(error.into())),
                         };
                         if let Some(namespace) = namespace {
                             block.namespace = Some(namespace);
@@ -1775,7 +1783,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 saw_terminal_response_event = true;
                 let response = event.get("response").cloned().unwrap_or(JsValue::Null);
                 finalize_response(&response, output, model, options, &reasoning_blocks_by_id)
-                    .map_err(ResponsesStreamFailure::Message)?;
+                    .map_err(|error| ResponsesStreamFailure::Message(error.into()))?;
             }
             "response.incomplete" => {
                 let response = event.get("response").cloned().unwrap_or(JsValue::Null);
@@ -1785,19 +1793,21 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                     .and_then(ingress_metadata_text)
                     .unwrap_or_else(|| "unknown".to_owned());
                 if reason == "max_output_tokens" && output.content.is_empty() {
-                    return Err(ResponsesStreamFailure::Message(format!(
-                        "Incomplete response returned, reason: {reason}"
-                    )));
+                    return Err(ResponsesStreamFailure::Message(
+                        format!("Incomplete response returned, reason: {reason}").into(),
+                    ));
                 }
                 saw_terminal_response_event = true;
                 finalize_response(&response, output, model, options, &reasoning_blocks_by_id)
-                    .map_err(ResponsesStreamFailure::Message)?;
+                    .map_err(|error| ResponsesStreamFailure::Message(error.into()))?;
             }
             "error" => {
-                return Err(ResponsesStreamFailure::Message(format!(
-                    "Error Code {}: {}",
-                    js_string(event.get("code")),
-                    js_string(event.get("message"))
+                return Err(ResponsesStreamFailure::Message(JsString::join(
+                    [
+                        format!("Error Code {}: ", js_string(event.get("code"))).into(),
+                        human_error_text(event.get("message")),
+                    ],
+                    "",
                 )));
             }
             "response.failed" => {
@@ -1810,10 +1820,12 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 let error = response.get("error");
                 let details = response.get("incomplete_details");
                 let message = match error.filter(|error| is_truthy(error)) {
-                    Some(error) => format!(
-                        "{}: {}",
-                        js_string(error.get("code").filter(|code| is_truthy(code))),
-                        js_string(error.get("message").filter(|message| is_truthy(message)))
+                    Some(error) => JsString::join(
+                        [
+                            format!("{}: ", js_string(error.get("code").filter(|code| is_truthy(code)))).into(),
+                            human_error_text(error.get("message").filter(|message| is_truthy(message))),
+                        ],
+                        "",
                     ),
                     None => match details
                         .and_then(|details| details.get("reason"))
@@ -1822,7 +1834,8 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                     {
                         Some(reason) => format!("incomplete: {reason}"),
                         None => "Unknown error (no error details in response)".to_owned(),
-                    },
+                    }
+                    .into(),
                 };
                 return Err(ResponsesStreamFailure::Message(message));
             }
@@ -1832,7 +1845,9 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
 
     if !saw_terminal_response_event {
         return Err(ResponsesStreamFailure::Message(
-            "OpenAI Responses stream ended before a terminal response event".to_owned(),
+            "OpenAI Responses stream ended before a terminal response event"
+                .to_owned()
+                .into(),
         ));
     }
     Ok(())

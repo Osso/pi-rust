@@ -1,5 +1,7 @@
 # auth/oauth/anthropic traceability
 
+Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
+
 Pinned source: `packages/ai/src/auth/oauth/anthropic.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 | TypeScript source | Observable contract | Rust mapping and proof |

@@ -184,7 +184,7 @@ pub enum PiMessagesEvent {
         reason: ErrorReason,
         usage: Usage,
         #[serde(rename = "errorMessage", skip_serializing_if = "Option::is_none")]
-        error_message: Option<String>,
+        error_message: Option<pi_js_compat::js_json::JsString>,
         #[serde(rename = "responseId", skip_serializing_if = "Option::is_none")]
         response_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -273,7 +273,9 @@ fn require_api_key<'a>(model: &Model, options: &'a PiMessagesOptions) -> Result<
         .api_key
         .as_deref()
         .filter(|key| !key.is_empty())
-        .ok_or_else(|| PiMessagesError::Message(format!("No API key provided for provider \"{}\"", model.provider)))
+        .ok_or_else(|| {
+            PiMessagesError::Message(format!("No API key provided for provider \"{}\"", model.provider).into())
+        })
 }
 
 async fn send_messages_request(
@@ -284,7 +286,7 @@ async fn send_messages_request(
     url: &Url,
 ) -> Result<Box<dyn crate::request::HttpBody>, PiMessagesError> {
     let payload = resolve_payload(model, context, options).await?;
-    let body = serde_json::to_vec(&payload).map_err(|error| PiMessagesError::Message(error.to_string()))?;
+    let body = serde_json::to_vec(&payload).map_err(|error| PiMessagesError::Message(error.to_string().into()))?;
     let headers = build_headers(api_key, options);
     let fetch = options
         .stream
@@ -399,11 +401,11 @@ fn user_aborted(options: &PiMessagesOptions) -> bool {
 }
 
 fn aborted_error() -> PiMessagesError {
-    PiMessagesError::Message(crate::http::ABORT_ERROR_MESSAGE.to_owned())
+    PiMessagesError::Message(crate::http::ABORT_ERROR_MESSAGE.to_owned().into())
 }
 
 fn no_terminal_error(model: &Model) -> PiMessagesError {
-    PiMessagesError::Message(format!("{} stream ended without a terminal event", model.provider))
+    PiMessagesError::Message(format!("{} stream ended without a terminal event", model.provider).into())
 }
 
 fn dispatch_frames(
@@ -463,7 +465,7 @@ async fn cancelled(signal: &Option<CancellationToken>) {
 fn messages_url(model: &Model, options: &PiMessagesOptions) -> Result<Url, PiMessagesError> {
     let base = model.base_url.trim_end_matches('/');
     let mut url =
-        Url::parse(&format!("{base}/messages")).map_err(|error| PiMessagesError::Message(error.to_string()))?;
+        Url::parse(&format!("{base}/messages")).map_err(|error| PiMessagesError::Message(error.to_string().into()))?;
     if options.debug {
         url.query_pairs_mut().append_pair("debug", "1");
     }
@@ -472,7 +474,7 @@ fn messages_url(model: &Model, options: &PiMessagesOptions) -> Result<Url, PiMes
 
 fn build_payload(model: &Model, context: &Context, options: &PiMessagesOptions) -> Result<JsValue, PiMessagesError> {
     use pi_js_compat::js_json::{JsValue, to_value};
-    let context = to_value(context).map_err(|error| PiMessagesError::Message(error.to_string()))?;
+    let context = to_value(context).map_err(|error| PiMessagesError::Message(error.to_string().into()))?;
     Ok(JsValue::object([
         ("model", JsValue::String(model.id.clone().into())),
         ("context", context),
@@ -596,13 +598,13 @@ fn create_response_error(
 #[derive(Debug, Clone)]
 enum PiMessagesError {
     Response(PiMessagesResponseError),
-    Message(String),
+    Message(pi_js_compat::js_json::JsString),
 }
 
 impl PiMessagesError {
-    fn message(&self) -> String {
+    fn message(&self) -> pi_js_compat::js_json::JsString {
         match self {
-            Self::Response(error) => error.message.clone(),
+            Self::Response(error) => error.message.clone().into(),
             Self::Message(message) => message.clone(),
         }
     }
@@ -627,7 +629,7 @@ fn create_error_event(model: &Model, error: &PiMessagesError, aborted: bool) -> 
             "pi_messages_response_failure",
             &ThrownValue::Error(DiagnosticErrorInfo {
                 name: Some("PiMessagesResponseError".to_owned()),
-                message: response.message.clone(),
+                message: response.message.clone().into(),
                 stack: None,
                 code: response.code.clone().map(DiagnosticCode::String),
             }),
@@ -812,9 +814,9 @@ impl EventConverter {
 
     fn set_block(&mut self, index: usize, block: AssistantContent) -> Result<(), PiMessagesError> {
         if index > self.partial.content.len() {
-            return Err(PiMessagesError::Message(format!(
-                "pi-messages content index {index} is out of order"
-            )));
+            return Err(PiMessagesError::Message(
+                format!("pi-messages content index {index} is out of order").into(),
+            ));
         }
         if index == self.partial.content.len() {
             self.partial.content.push(block);
@@ -830,9 +832,9 @@ impl EventConverter {
                 text.text.push_str(delta);
                 Ok(())
             }
-            _ => Err(PiMessagesError::Message(format!(
-                "pi-messages text delta without a text block at {index}"
-            ))),
+            _ => Err(PiMessagesError::Message(
+                format!("pi-messages text delta without a text block at {index}").into(),
+            )),
         }
     }
 
@@ -842,9 +844,9 @@ impl EventConverter {
                 thinking.thinking.push_str(delta);
                 Ok(())
             }
-            _ => Err(PiMessagesError::Message(format!(
-                "pi-messages thinking delta without a thinking block at {index}"
-            ))),
+            _ => Err(PiMessagesError::Message(
+                format!("pi-messages thinking delta without a thinking block at {index}").into(),
+            )),
         }
     }
 
@@ -855,9 +857,9 @@ impl EventConverter {
                 text.text_signature = signature;
                 Ok(())
             }
-            _ => Err(PiMessagesError::Message(format!(
-                "pi-messages text end without a text block at {index}"
-            ))),
+            _ => Err(PiMessagesError::Message(
+                format!("pi-messages text end without a text block at {index}").into(),
+            )),
         }
     }
 
@@ -875,9 +877,9 @@ impl EventConverter {
                 thinking.redacted = redacted;
                 Ok(())
             }
-            _ => Err(PiMessagesError::Message(format!(
-                "pi-messages thinking end without a thinking block at {index}"
-            ))),
+            _ => Err(PiMessagesError::Message(
+                format!("pi-messages thinking end without a thinking block at {index}").into(),
+            )),
         }
     }
 
@@ -887,9 +889,9 @@ impl EventConverter {
                 tool_call.arguments = arguments_object(parsed);
                 Ok(())
             }
-            _ => Err(PiMessagesError::Message(format!(
-                "pi-messages tool delta without a tool block at {index}"
-            ))),
+            _ => Err(PiMessagesError::Message(
+                format!("pi-messages tool delta without a tool block at {index}").into(),
+            )),
         }
     }
 
@@ -901,9 +903,9 @@ impl EventConverter {
                 block.arguments = tool_call.arguments;
                 Ok(())
             }
-            _ => Err(PiMessagesError::Message(format!(
-                "pi-messages tool end without a tool block at {index}"
-            ))),
+            _ => Err(PiMessagesError::Message(
+                format!("pi-messages tool end without a tool block at {index}").into(),
+            )),
         }
     }
 }
@@ -932,10 +934,10 @@ fn parse_event(raw: &str) -> Result<Option<PiMessagesEvent>, PiMessagesError> {
     match data {
         Some(data) if !data.is_empty() && data != "[DONE]" => {
             let value =
-                pi_js_compat::js_json::parse(data).map_err(|error| PiMessagesError::Message(error.to_string()))?;
+                pi_js_compat::js_json::parse(data).map_err(|error| PiMessagesError::Message(error.into_message()))?;
             serde_json::from_value(value)
                 .map(Some)
-                .map_err(|error| PiMessagesError::Message(error.to_string()))
+                .map_err(|error| PiMessagesError::Message(error.to_string().into()))
         }
         _ => Ok(None),
     }

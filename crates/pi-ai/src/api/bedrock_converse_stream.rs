@@ -380,7 +380,7 @@ async fn drive(
             output
                 .error_message
                 .clone()
-                .unwrap_or_else(|| "An unknown error occurred".to_owned()),
+                .unwrap_or_else(|| "An unknown error occurred".to_owned().into()),
         )
         .with_request_id(request_id.as_deref())),
         reason => {
@@ -1018,7 +1018,7 @@ fn handle_message(
         let message_text = serde_json::to_string(&payload).unwrap_or_else(|_| "null".to_owned());
         return Err(BedrockError {
             name,
-            message: message_text,
+            message: message_text.into(),
             status: None,
             body: None,
             request_id: request_id.map(str::to_owned),
@@ -1075,7 +1075,7 @@ fn handle_message(
             let (stop_reason, error_message) = map_stop_reason(reason);
             output.stop_reason = stop_reason;
             if let Some(error_message) = error_message {
-                output.error_message = Some(error_message);
+                output.error_message = Some(error_message.into());
             }
         }
         "metadata" => {
@@ -1709,7 +1709,7 @@ fn http_error(status: u16, headers: &[(String, String)], body: &[u8]) -> Bedrock
     };
     BedrockError {
         name: code.clone(),
-        message,
+        message: message.into(),
         status: Some(f64::from(status)),
         body,
         request_id,
@@ -1734,7 +1734,7 @@ fn response_request_id(response: &HttpResponse) -> Option<String> {
 #[derive(Debug, Clone)]
 struct BedrockError {
     name: Option<String>,
-    message: String,
+    message: pi_js_compat::js_json::JsString,
     status: Option<f64>,
     body: Option<String>,
     request_id: Option<String>,
@@ -1742,7 +1742,7 @@ struct BedrockError {
 }
 
 impl BedrockError {
-    fn other(message: impl Into<String>) -> Self {
+    fn other(message: impl Into<pi_js_compat::js_json::JsString>) -> Self {
         Self {
             name: None,
             message: message.into(),
@@ -1753,19 +1753,19 @@ impl BedrockError {
         }
     }
 
-    fn stream(message: impl Into<String>) -> Self {
+    fn stream(message: impl Into<pi_js_compat::js_json::JsString>) -> Self {
         Self::other(message)
     }
 
-    fn transport(message: impl Into<String>) -> Self {
+    fn transport(message: impl Into<pi_js_compat::js_json::JsString>) -> Self {
         Self::other(message)
     }
 
-    fn abort(message: impl Into<String>) -> Self {
+    fn abort(message: impl Into<pi_js_compat::js_json::JsString>) -> Self {
         Self::other(message)
     }
 
-    fn abort_or_transport(message: impl Into<String>) -> Self {
+    fn abort_or_transport(message: impl Into<pi_js_compat::js_json::JsString>) -> Self {
         Self::other(message)
     }
 
@@ -1777,10 +1777,10 @@ impl BedrockError {
     }
 }
 
-fn format_bedrock_error(error: &BedrockError) -> String {
+fn format_bedrock_error(error: &BedrockError) -> pi_js_compat::js_json::JsString {
     let message_carries_body = error.body.as_ref().is_none_or(|body| error.message.contains(body));
     let core = match (message_carries_body, error.status, error.body.as_deref()) {
-        (false, Some(status), Some(body)) => format!("{}: {body}", js_number_to_string(status)),
+        (false, Some(status), Some(body)) => format!("{}: {body}", js_number_to_string(status)).into(),
         _ => error.message.clone(),
     };
     let hint = if core.to_lowercase().contains("data retention mode") {
@@ -1790,9 +1790,9 @@ fn format_bedrock_error(error: &BedrockError) -> String {
     };
     if error.service_exception {
         let prefix = error.name.as_deref().map(bedrock_error_prefix).unwrap_or_default();
-        format!("{prefix}: {core}{hint}")
+        pi_js_compat::js_json::JsString::join([format!("{prefix}: ").into(), core, hint.into()], "")
     } else {
-        format!("{core}{hint}")
+        pi_js_compat::js_json::JsString::join([core, hint.into()], "")
     }
 }
 

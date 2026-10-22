@@ -11,7 +11,7 @@ use pi_js_compat::number::js_number_to_string;
 pub struct DiagnosticErrorInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    pub message: String,
+    pub message: pi_js_compat::js_json::JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stack: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -45,15 +45,15 @@ pub struct AssistantMessageDiagnostic {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ThrownValue {
     Error(DiagnosticErrorInfo),
-    Text(String),
+    Text(pi_js_compat::js_json::JsString),
     Json(Value),
 }
 
-pub fn format_thrown_value(value: &ThrownValue) -> String {
+pub fn format_thrown_value(value: &ThrownValue) -> pi_js_compat::js_json::JsString {
     match value {
         ThrownValue::Error(error) => format_error_message(error),
         ThrownValue::Text(text) => text.clone(),
-        ThrownValue::Json(json) => js_string(json),
+        ThrownValue::Json(json) => js_string(json).into(),
     }
 }
 
@@ -101,9 +101,9 @@ fn now_millis() -> i64 {
         .unwrap_or(0)
 }
 
-fn format_error_message(error: &DiagnosticErrorInfo) -> String {
+fn format_error_message(error: &DiagnosticErrorInfo) -> pi_js_compat::js_json::JsString {
     if error.message.is_empty() {
-        error.name.clone().unwrap_or_default()
+        error.name.clone().unwrap_or_default().into()
     } else {
         error.message.clone()
     }

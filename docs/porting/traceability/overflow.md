@@ -1,5 +1,7 @@
 # overflow traceability
 
+Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
+
 Source: `packages/ai/src/utils/overflow.ts`.
 Rust: `crates/pi-ai/src/utils/overflow.rs`.
 Tests: `crates/pi-ai/tests/overflow.rs` (13 behavioral), `crates/pi-ai/tests/differential_overflow.rs` (40 checks + 35-sample pattern matrix vs pinned TS).

@@ -1,5 +1,7 @@
 # anthropic-messages traceability
 
+Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
+
 Source: `packages/ai/src/api/anthropic-messages.ts` (1366 lines) and
 `packages/ai/src/api/anthropic-messages.lazy.ts` (4 lines).
 

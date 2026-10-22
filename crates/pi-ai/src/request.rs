@@ -26,7 +26,7 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// Error surfaced by a callback or fetch implementation (`unknown` in TypeScript).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CallbackError {
-    pub message: String,
+    pub message: pi_js_compat::js_json::JsString,
     /// Top-level error identity; legacy callbacks default to `Error`.
     pub name: String,
     /// Node error code, when the boundary supplies one.
@@ -36,7 +36,7 @@ pub struct CallbackError {
 }
 
 impl CallbackError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<pi_js_compat::js_json::JsString>) -> Self {
         Self {
             message: message.into(),
             name: "Error".to_owned(),
@@ -48,7 +48,7 @@ impl CallbackError {
 
 impl std::fmt::Display for CallbackError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message))
     }
 }
 
@@ -288,11 +288,11 @@ pub trait ProviderImages: Send + Sync {
 
 /// A stream that immediately terminates with an `error` event for `model`
 /// (the shape `lazyStream` produces when setup fails).
-pub fn error_stream(model: &Model, message: &str) -> AssistantMessageEventStream {
+pub fn error_stream(model: &Model, message: impl Into<pi_js_compat::js_json::JsString>) -> AssistantMessageEventStream {
     let (sender, stream) = create_assistant_message_event_stream();
     let mut error = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis());
     error.stop_reason = StopReason::Error;
-    error.error_message = Some(message.to_owned());
+    error.error_message = Some(message.into());
     sender.push(AssistantMessageEvent::Error {
         reason: ErrorReason::Error,
         error: error.clone(),
