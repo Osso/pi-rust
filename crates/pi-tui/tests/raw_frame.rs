@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Default)]
 struct CaptureTerminal {
     writes: Vec<JsString>,
+    pending_input: Vec<JsString>,
 }
 impl Terminal for CaptureTerminal {
     fn start(&mut self) -> Result<(), TerminalRawModeError> {
@@ -25,6 +26,12 @@ impl Terminal for CaptureTerminal {
     fn drain_input(&mut self, _: u64, _: u64) {}
     fn write(&mut self, value: &JsString) {
         self.writes.push(value.clone());
+    }
+    fn poll_events(&mut self) -> Vec<pi_tui::terminal::TerminalEvent> {
+        std::mem::take(&mut self.pending_input)
+            .into_iter()
+            .map(pi_tui::terminal::TerminalEvent::Input)
+            .collect()
     }
     fn columns(&self) -> usize {
         12
@@ -167,6 +174,56 @@ fn raw_terminal_title_reaches_osc_output_without_sanitation() {
     Terminal::set_title(&mut terminal, &title);
     let hex: String = bytes.lock().unwrap().iter().map(|byte| format!("{byte:02x}")).collect();
     let actual = serde_json::to_string(&(mock.writes, hex)).unwrap();
+    assert_eq!(
+        parse_lossless(actual).unwrap(),
+        parse_lossless(expected["json"].as_str().unwrap()).unwrap()
+    );
+}
+
+#[test]
+fn native_input_listener_rewrites_and_terminal_events_reach_focused_input_losslessly() {
+    let mut oracle = oracle::TsOracle::spawn("raw-tui-oracle.ts", "packages/tui/src");
+    let expected = oracle.request(&json!({"operation":"input_route"}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    let terminal = Rc::new(RefCell::new(CaptureTerminal::default()));
+    let tui = TuiRenderer::new(terminal.clone());
+    let input = Rc::new(RefCell::new(pi_tui::components::input::Input::new(Default::default())));
+    let submitted = Rc::new(RefCell::new(Vec::new()));
+    let captured = submitted.clone();
+    input.borrow_mut().on_submit = Some(Rc::new(move |value| captured.borrow_mut().push(value.clone())));
+    tui.add_child(input.clone());
+    tui.set_focus(Some(input.clone()));
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let captured = seen.clone();
+    tui.add_input_listener(Rc::new(move |value| {
+        captured.borrow_mut().push(value.clone());
+        let data = if value == "x" {
+            Some(JsString::from_utf16(vec![0xd800]))
+        } else if value == "y" {
+            Some(JsString::from_utf16(vec![0xdc00]))
+        } else {
+            None
+        };
+        pi_tui::tui::TuiInputListenerResult { consume: false, data }
+    }));
+    tui.start().unwrap();
+    tui.flush_pending();
+    terminal.borrow_mut().pending_input = vec![
+        JsString::from("x"),
+        JsString::from("y"),
+        JsString::from_utf16(vec![0xd800]),
+        JsString::from("z"),
+        JsString::from_utf16(vec![0xdc00]),
+        JsString::from("\r"),
+    ];
+    tui.flush_pending();
+    let actual = serde_json::to_string(&(
+        input.borrow().get_value(),
+        submitted.borrow().clone(),
+        seen.borrow().clone(),
+    ))
+    .unwrap();
+    tui.stop();
     assert_eq!(
         parse_lossless(actual).unwrap(),
         parse_lossless(expected["json"].as_str().unwrap()).unwrap()

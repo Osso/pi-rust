@@ -37,7 +37,7 @@ fn kitty_keyboard_protocol_query() -> String {
 /// A terminal input or resize event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminalEvent {
-    Input(String),
+    Input(JsString),
     Resize,
 }
 
@@ -599,7 +599,7 @@ impl ProcessTerminal {
             is_apple_terminal,
             is_apple_terminal && is_native_modifier_pressed(ModifierKey::Shift),
         );
-        self.pending_events.push(TerminalEvent::Input(input));
+        self.pending_events.push(TerminalEvent::Input(input.into()));
     }
 
     fn handle_keyboard_protocol_negotiation_sequence(

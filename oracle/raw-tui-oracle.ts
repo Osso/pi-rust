@@ -39,7 +39,9 @@ async function main(): Promise<void> {
 					states.push({ value: input.getValue(), cursor: (input as unknown as { cursor: number }).cursor, lines: input.render(request.width) });
 				}
 				output = { states, submitted };
-			} else if (request.operation === "terminal_colors") {
+			} else if (request.operation === "input_route") {
+                output = await captureInputRoute(source);
+            } else if (request.operation === "terminal_colors") {
                 const module = await import(pathToFileURL(path.join(source, "terminal-colors.ts")).href);
                 const input = native(request.units);
                 const color = module.parseOsc11BackgroundColor(input);
@@ -99,7 +101,9 @@ class RawTerminal {
     rows = 5;
     kittyProtocolActive = true;
     writes: string[] = [];
-    start(): void { this.write("\x1b[?2004h"); }
+    private onInput?: (value: string) => void;
+    start(onInput: (value: string) => void): void { this.onInput = onInput; this.write("\x1b[?2004h"); }
+    sendInput(value: string): void { this.onInput?.(value); }
     stop(): void { this.write("\x1b[?2004l"); }
     async drainInput(): Promise<void> {}
     write(value: string): void { this.writes.push(value); }
@@ -195,4 +199,26 @@ async function captureSelect(source: string, raw: string, width: number): Promis
     list.setFilter(raw + "missing");
     lines.push(list.render(width));
     return [lines, selected, callbacks];
+}
+
+async function captureInputRoute(source: string): Promise<unknown> {
+    const module = await import(pathToFileURL(path.join(source, "tui.ts")).href);
+    const inputApi = await import(pathToFileURL(path.join(source, "components/input.ts")).href);
+    const terminal = new RawTerminal();
+    const tui = new module.TUI(terminal);
+    const input = new inputApi.Input();
+    const submitted: string[] = [];
+    const seen: string[] = [];
+    input.onSubmit = (value: string) => submitted.push(value);
+    tui.addChild(input);
+    tui.setFocus(input);
+    tui.addInputListener((value: string) => {
+        seen.push(value);
+        if (value === "x") return { data: "\ud800" };
+        if (value === "y") return { data: "\udc00" };
+    });
+    tui.start();
+    for (const value of ["x", "y", "\ud800", "z", "\udc00", "\r"]) terminal.sendInput(value);
+    tui.stop();
+    return [input.getValue(), submitted, seen];
 }

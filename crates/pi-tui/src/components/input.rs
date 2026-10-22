@@ -476,7 +476,7 @@ impl Component for Input {
         vec![JsString::from(PROMPT) + text_with_cursor + padding]
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         Input::handle_input(self, data);
     }
 

@@ -51,7 +51,7 @@ fn same_component(left: &ComponentRef, right: &ComponentRef) -> bool {
 pub trait Component {
     fn render(&mut self, width: usize) -> Vec<JsString>;
 
-    fn handle_input(&mut self, _data: &str) {}
+    fn handle_input(&mut self, _data: &JsString) {}
 
     /// Whether the component implements input handling. Containers override this
     /// to `false`, matching the source's `handleInput?` presence check.
@@ -226,14 +226,14 @@ impl Component for Container {
 }
 
 /// Raw terminal input listener (`TuiInputListener`).
-pub type TuiInputListener = Rc<dyn Fn(&str) -> TuiInputListenerResult>;
+pub type TuiInputListener = Rc<dyn Fn(&JsString) -> TuiInputListenerResult>;
 type ColorSchemeListener = Rc<dyn Fn(TerminalColorScheme)>;
 
 /// Input listener result: optional consumption and optional data rewrite.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TuiInputListenerResult {
     pub consume: bool,
-    pub data: Option<String>,
+    pub data: Option<JsString>,
 }
 
 /// Overlay anchor positions.
@@ -665,7 +665,7 @@ struct TuiBaseInner {
     focused_component: RefCell<Option<ComponentRef>>,
     deferred_focus_updates: RefCell<Vec<(ComponentRef, bool)>>,
     input_listeners: RefCell<Vec<(usize, TuiInputListener)>>,
-    input_listener_handles: ListenerHandles<dyn Fn(&str) -> TuiInputListenerResult>,
+    input_listener_handles: ListenerHandles<dyn Fn(&JsString) -> TuiInputListenerResult>,
     next_listener_id: Cell<usize>,
     on_debug: RefCell<Option<Rc<dyn Fn()>>>,
     render_requested: Cell<bool>,
@@ -1193,7 +1193,7 @@ impl TuiBase {
         }
     }
 
-    fn consume_terminal_focus_report(&self, data: &str) -> bool {
+    fn consume_terminal_focus_report(&self, data: &JsString) -> bool {
         if self.renderer().map(|renderer| renderer.mode()) != Some(TuiMode::Regular) {
             return false;
         }
@@ -1216,7 +1216,7 @@ impl TuiBase {
         true
     }
 
-    fn consume_osc11_background_response(&self, data: &str) -> bool {
+    fn consume_osc11_background_response(&self, data: &JsString) -> bool {
         if self.inner.pending_osc11_replies.get() == 0 {
             return false;
         }
@@ -1238,7 +1238,7 @@ impl TuiBase {
         true
     }
 
-    fn consume_terminal_color_scheme_report(&self, data: &str) -> bool {
+    fn consume_terminal_color_scheme_report(&self, data: &JsString) -> bool {
         let Some(scheme) = parse_terminal_color_scheme_report(data) else {
             return false;
         };
@@ -1251,7 +1251,7 @@ impl TuiBase {
         true
     }
 
-    fn consume_cell_size_response(&self, data: &str) -> bool {
+    fn consume_cell_size_response(&self, data: &JsString) -> bool {
         let Some(body) = data.strip_prefix("\x1b[6;").and_then(|rest| rest.strip_suffix('t')) else {
             return false;
         };
@@ -1259,11 +1259,13 @@ impl TuiBase {
         let (Some(height), Some(width), None) = (parts.next(), parts.next(), parts.next()) else {
             return false;
         };
-        let valid_digits = |value: &str| !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit());
-        if !valid_digits(height) || !valid_digits(width) {
-            return false;
-        }
-        let (Ok(height_px), Ok(width_px)) = (height.parse::<u32>(), width.parse::<u32>()) else {
+        let parse_digits = |value: &JsString| {
+            if value.is_empty() || !value.units().iter().all(|unit| (48..=57).contains(unit)) {
+                return None;
+            }
+            crate::text_units::ascii_protocol(value)?.parse::<u32>().ok()
+        };
+        let (Some(height_px), Some(width_px)) = (parse_digits(&height), parse_digits(&width)) else {
             return false;
         };
         if height_px == 0 || width_px == 0 {
@@ -1275,7 +1277,7 @@ impl TuiBase {
         true
     }
 
-    fn handle_terminal_input(&self, data: &str) {
+    fn handle_terminal_input(&self, data: &JsString) {
         if self.consume_terminal_focus_report(data) {
             return;
         }
@@ -1286,7 +1288,7 @@ impl TuiBase {
             return;
         }
 
-        let mut current = data.to_string();
+        let mut current = data.clone();
         let mut previous_id = None;
         while let Some((id, listener)) = next_listener(&self.inner.input_listeners, previous_id) {
             previous_id = Some(id);
@@ -1301,7 +1303,7 @@ impl TuiBase {
         if previous_id.is_some() && current.is_empty() {
             return;
         }
-        let data = current.as_str();
+        let data = &current;
 
         if self.consume_cell_size_response(data) {
             return;

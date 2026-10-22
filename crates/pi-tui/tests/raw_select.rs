@@ -35,8 +35,8 @@ fn selection_native_labels_descriptions_filter_and_callbacks_match_source() {
             let values = callbacks.clone();
             list.on_select = Some(Rc::new(move |item| values.borrow_mut().push(item.value.clone())));
             let mut lines = vec![list.render(width)];
-            list.handle_input("\x1b[B");
-            list.handle_input("\r");
+            list.handle_input(&JsString::from("\x1b[B"));
+            list.handle_input(&JsString::from("\r"));
             lines.push(list.render(width));
             list.set_filter(&raw);
             lines.push(list.render(width));

@@ -143,3 +143,18 @@ raw framing payloads remain native and invalid RGB payloads are not sanitized.
 `raw_terminal_colors` compares frozen final-newline framing, Unicode trim, uppercase
 RGB, and high/low/pair payload framing (6 cases). Raw-interface RED then GREEN.
 Existing nonfinite typed RGB-channel gap unchanged.
+
+## Native component input and listener routing
+
+`Component::handle_input(&JsString)`, `TerminalEvent::Input(JsString)`,
+`TuiInputListener = Rc<dyn Fn(&JsString) -> TuiInputListenerResult>`, and listener
+rewrite `data: Option<JsString>` now retain native units. Terminal byte decoding lifts
+once into native event data; TUI focus/OSC/cell-size recognition and focused-component
+routing never scalarize listener output. Source-backed ASCII numeric parsing is not
+component text authority. Input's native algorithm is shared by its trait entrypoint.
+
+`raw_frame::native_input_listener_rewrites_and_terminal_events_reach_focused_input_losslessly`
+compares frozen actual TUI listener rewrites to high/low units, direct raw events,
+focused Input values, original listener data and submit callbacks. Interface RED then
+actual production module differential GREEN. Remaining component implementations and
+legacy test helpers still require native signature migration; no scalar fallback.

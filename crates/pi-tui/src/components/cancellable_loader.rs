@@ -76,7 +76,7 @@ impl Component for CancellableLoader {
         self.loader.render(width)
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         let keybindings = get_keybindings();
         if keybindings.matches(data, "tui.select.cancel") {
             self.abort_controller.cancel();

@@ -292,7 +292,7 @@ impl Component for SelectList {
         lines
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         let keybindings = get_keybindings();
         if keybindings.matches(data, "tui.select.up") {
             if !self.filtered_items.is_empty() {
