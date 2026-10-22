@@ -1,0 +1,25 @@
+#[path = "../../pi-ai/tests/support/oracle.rs"]
+mod oracle;
+use pi_coding_agent::core::detached_job_runner::{create_detached_job_artifacts, reserve_detached_job_artifacts};
+use pi_js_compat::js_json::{JsString, encode_node_utf8, to_value};
+
+#[test]
+fn detached_artifact_paths_and_collision_errors_match_frozen_units() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = JsString::from(directory.path().to_str().unwrap()) + "/root-" + JsString::from_utf16(vec![0xd800]);
+    let job = JsString::from("job-") + JsString::from_utf16(vec![0xdfff]);
+    let actual = create_detached_job_artifacts(&root, &job).unwrap();
+    assert!(std::path::Path::new(&encode_node_utf8(&actual.directory)).is_dir());
+    let mut source = oracle::TsOracle::spawn(
+        "lossless-tool-paths-oracle.ts",
+        "packages/coding-agent/src/core/detached-job-runner.ts",
+    );
+    let expected=source.request_lossless(&pi_js_compat::js_json!({"kind":"detachedArtifacts","operation":"createDetachedJobArtifacts","root":root,"job":job}));
+    assert_eq!(to_value(&actual).unwrap(), expected["artifacts"]);
+    let collision = JsString::from("job-") + JsString::from_utf16(vec![0xd800]);
+    let error = reserve_detached_job_artifacts(&root, &collision).unwrap_err();
+    let expected=source.request_lossless(&pi_js_compat::js_json!({"kind":"detachedArtifacts","operation":"reserveDetachedJobArtifacts","root":root,"job":collision}));
+    assert_eq!(&error.message(), expected["error"].as_string().unwrap());
+    let invalid=source.request(&serde_json::json!({"kind":"detachedArtifacts","operation":"createDetachedJobArtifacts","root":"unused","job":""}));
+    assert_eq!(invalid["error"], "Detached job ID must be one path segment");
+}
