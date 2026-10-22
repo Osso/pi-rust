@@ -14,6 +14,7 @@ pub struct InteractiveRootCompositorOptions {
     pub header: ComponentRef,
     pub loaded_resources: ComponentRef,
     pub chat: ComponentRef,
+    pub on_chat_layout: Rc<dyn Fn(RenderRegionRect)>,
     pub transcript_tail: ComponentRef,
     pub pending_messages: ComponentRef,
     pub on_transcript_tail_layout: Rc<dyn Fn(InteractiveRootFlowLayout)>,
@@ -23,23 +24,28 @@ pub struct InteractiveRootCompositorOptions {
     pub widget_below: ComponentRef,
     pub footer: ComponentRef,
     pub on_status_layout: Rc<dyn Fn(RenderRegionRect)>,
+    pub on_widget_above_layout: Option<Rc<dyn Fn(RenderRegionRect)>>,
     pub on_editor_layout: Rc<dyn Fn(RenderRegionRect)>,
 }
 
 /// `createInteractiveRootCompositor`.
 pub fn create_interactive_root_compositor(options: InteractiveRootCompositorOptions) -> RootCompositor {
+    let mut widget_above = RootLayoutEntry::new(options.widget_above);
+    if let Some(on_layout) = options.on_widget_above_layout {
+        widget_above = widget_above.with_on_layout(on_layout);
+    }
     RootCompositor::new(RootCompositorOptions {
         get_height: options.get_height,
         flow: vec![
             RootLayoutEntry::new(options.header),
             RootLayoutEntry::new(options.loaded_resources),
-            RootLayoutEntry::new(options.chat),
+            RootLayoutEntry::new(options.chat).with_on_layout(options.on_chat_layout),
             RootLayoutEntry::new(options.transcript_tail).with_on_flow_layout(options.on_transcript_tail_layout),
             RootLayoutEntry::new(options.pending_messages),
         ],
         bottom: vec![
             RootLayoutEntry::new(options.status).with_on_layout(options.on_status_layout),
-            RootLayoutEntry::new(options.widget_above),
+            widget_above,
             RootLayoutEntry::new(options.editor).with_on_layout(options.on_editor_layout),
             RootLayoutEntry::new(options.widget_below),
             RootLayoutEntry::new(options.footer),

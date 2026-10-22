@@ -804,7 +804,14 @@ fn custom_entry_renders_renderer_output_and_tracks_expansion() {
         parent_id: None,
         timestamp: JsString::from("2026-01-01T00:00:00.000Z"),
     };
-    let mut component = CustomEntryComponent::new(entry, renderer);
+    let mut component = CustomEntryComponent::new(
+        entry,
+        renderer,
+        pi_coding_agent::modes::interactive::components::custom_entry::CustomEntryComponentOptions {
+            session_id: "fixture".into(),
+            request_render: std::rc::Rc::new(|| false),
+        },
+    );
     assert!(component.has_content());
     let rendered = plain(&component.render(40));
     assert!(rendered.contains("custom test"), "{rendered:?}");
@@ -825,7 +832,14 @@ fn custom_entry_without_renderer_output_has_no_content() {
         parent_id: None,
         timestamp: JsString::from("2026-01-01T00:00:00.000Z"),
     };
-    let mut component = CustomEntryComponent::new(entry, renderer);
+    let mut component = CustomEntryComponent::new(
+        entry,
+        renderer,
+        pi_coding_agent::modes::interactive::components::custom_entry::CustomEntryComponentOptions {
+            session_id: "fixture".into(),
+            request_render: std::rc::Rc::new(|| false),
+        },
+    );
     assert!(!component.has_content());
     assert!(component.render(40).iter().all(|line| line.trim().is_empty()));
 }

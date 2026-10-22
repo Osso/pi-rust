@@ -1080,7 +1080,14 @@ fn custom_entry_cases() -> Vec<(Value, Value)> {
             parent_id: None,
             timestamp: JsString::from("2026-01-01T00:00:00.000Z"),
         };
-        let mut component = CustomEntryComponent::new(entry, renderer);
+        let mut component = CustomEntryComponent::new(
+            entry,
+            renderer,
+            pi_coding_agent::modes::interactive::components::custom_entry::CustomEntryComponentOptions {
+                session_id: "fixture".into(),
+                request_render: std::rc::Rc::new(|| false),
+            },
+        );
         component.set_expanded(expanded);
         cases.push((
             request,
@@ -1103,7 +1110,14 @@ fn custom_entry_cases() -> Vec<(Value, Value)> {
         parent_id: None,
         timestamp: JsString::from("2026-01-01T00:00:00.000Z"),
     };
-    let mut component = CustomEntryComponent::new(entry, renderer);
+    let mut component = CustomEntryComponent::new(
+        entry,
+        renderer,
+        pi_coding_agent::modes::interactive::components::custom_entry::CustomEntryComponentOptions {
+            session_id: "fixture".into(),
+            request_render: std::rc::Rc::new(|| false),
+        },
+    );
     cases.push((
         request,
         json!({"lines": component.render(40), "hasContent": component.has_content()}),

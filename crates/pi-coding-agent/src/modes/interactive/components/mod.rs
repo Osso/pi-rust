@@ -30,6 +30,7 @@ pub mod keybinding_hints;
 pub mod login_dialog;
 pub mod model_selector;
 pub mod oauth_selector;
+pub mod render_region_container;
 pub mod sandbox_selector;
 pub mod scoped_models_selector;
 pub mod session_selector;
