@@ -14,7 +14,15 @@ async function main(): Promise<void> {
 		try {
 			const request = JSON.parse(line);
 			let output: unknown;
-			if (request.operation === "markdown_tokens") {
+			if (request.operation === "keybindings_native") {
+                const { KeybindingsManager } = await import(pathToFileURL(path.join(source,"keybindings.ts")).href);
+                const raw = native(request.units);
+                const first = raw+"first";
+                const second = raw+"second";
+                const key = "ctrl+"+raw;
+                const manager = new KeybindingsManager({[first]:{defaultKeys:[key,"enter"],description:raw},[second]:{defaultKeys:"escape",description:raw}}, {[first]:[key,key],[second]:[key]});
+                output = [manager.getKeys(first),[manager.getDefinition(first).defaultKeys,manager.getDefinition(first).description],manager.getConflicts().map((item: {key:string;keybindings:string[]})=>[item.key,item.keybindings]),Object.entries(manager.getResolvedBindings()).map(([id,keys])=>[id,typeof keys === "string"?[keys]:keys]),Object.entries(manager.getUserBindings()),manager.matches(raw,first)];
+            } else if (request.operation === "markdown_tokens") {
                 const { Marked,Tokenizer } = await import(pathToFileURL(path.join(source,"../../../node_modules/marked/lib/marked.esm.js")).href);
                 class Strict extends Tokenizer {
                     override del(src: string) {

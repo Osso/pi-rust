@@ -7,51 +7,52 @@
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use crate::keys::matches_key;
+use pi_js_compat::js_json::JsString;
 
 /// Key identifier accepted by [`matches_key`].
-pub type KeyId = String;
+pub type KeyId = JsString;
 
 /// Keybinding name (`Keybinding = keyof Keybindings`).
-pub type Keybinding = String;
+pub type Keybinding = JsString;
 
 /// Keybinding registry (`Keybindings`): definitions in declaration order.
 ///
 /// TypeScript's registry is an interface populated through declaration merging;
 /// Rust carries the definition list returned by [`tui_keybindings`].
-pub type Keybindings = Vec<(String, KeybindingDefinition)>;
+pub type Keybindings = Vec<(JsString, KeybindingDefinition)>;
 
 /// `KeybindingDefinitions` (`Record<string, KeybindingDefinition>`).
-pub type KeybindingDefinitions = Vec<(String, KeybindingDefinition)>;
+pub type KeybindingDefinitions = Vec<(JsString, KeybindingDefinition)>;
 
 /// One keybinding definition.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeybindingDefinition {
     pub default_keys: Vec<KeyId>,
-    pub description: Option<String>,
+    pub description: Option<JsString>,
 }
 
 /// User overrides as ordered id/keys pairs. Absent ids keep defaults.
 ///
 /// The TypeScript source uses an object literal; Rust keeps the pairs ordered so
 /// conflict reporting preserves the same claimant order.
-pub type KeybindingsConfig = Vec<(String, Vec<KeyId>)>;
+pub type KeybindingsConfig = Vec<(JsString, Vec<KeyId>)>;
 
 /// A key claimed by more than one user binding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeybindingConflict {
     pub key: KeyId,
-    pub keybindings: Vec<String>,
+    pub keybindings: Vec<JsString>,
 }
 
 fn definition(default_keys: &[&str], description: &str) -> KeybindingDefinition {
     KeybindingDefinition {
-        default_keys: default_keys.iter().map(|key| (*key).to_string()).collect(),
-        description: Some(description.to_string()),
+        default_keys: default_keys.iter().map(|key| JsString::from(*key)).collect(),
+        description: Some(description.into()),
     }
 }
 
 /// The built-in `TUI_KEYBINDINGS` table.
-pub fn tui_keybindings() -> Vec<(String, KeybindingDefinition)> {
+pub fn tui_keybindings() -> Vec<(JsString, KeybindingDefinition)> {
     let entries: Vec<(&str, KeybindingDefinition)> = vec![
         ("tui.editor.cursorUp", definition(&["up"], "Move cursor up")),
         ("tui.editor.cursorDown", definition(&["down"], "Move cursor down")),
@@ -137,7 +138,7 @@ pub fn tui_keybindings() -> Vec<(String, KeybindingDefinition)> {
             definition(&["escape", "ctrl+c"], "Cancel selection"),
         ),
     ];
-    entries.into_iter().map(|(id, value)| (id.to_string(), value)).collect()
+    entries.into_iter().map(|(id, value)| (id.into(), value)).collect()
 }
 
 fn normalize_keys(keys: Option<&Vec<KeyId>>) -> Vec<KeyId> {
@@ -160,12 +161,12 @@ pub struct KeybindingsManager {
 #[derive(Debug)]
 struct KeybindingState {
     user_bindings: KeybindingsConfig,
-    keys_by_id: Vec<(String, Vec<KeyId>)>,
+    keys_by_id: Vec<(JsString, Vec<KeyId>)>,
     conflicts: Vec<KeybindingConflict>,
 }
 
 impl KeybindingsManager {
-    pub fn new(definitions: Vec<(String, KeybindingDefinition)>, user_bindings: KeybindingsConfig) -> Self {
+    pub fn new(definitions: Vec<(JsString, KeybindingDefinition)>, user_bindings: KeybindingsConfig) -> Self {
         let manager = Self {
             definitions: Arc::new(definitions),
             state: Arc::new(Mutex::new(KeybindingState {
@@ -189,7 +190,7 @@ impl KeybindingsManager {
         state.conflicts.clear();
 
         // User claim order follows the config insertion order, matching `Map` order in the source.
-        let mut user_claims: Vec<(KeyId, Vec<String>)> = Vec::new();
+        let mut user_claims: Vec<(KeyId, Vec<JsString>)> = Vec::new();
         for (keybinding, keys) in &state.user_bindings {
             if !self.definitions.iter().any(|(id, _)| id == keybinding) {
                 continue;
@@ -226,24 +227,26 @@ impl KeybindingsManager {
         }
     }
 
-    pub fn matches(&self, data: impl Into<pi_js_compat::js_json::JsString>, keybinding: &str) -> bool {
+    pub fn matches(&self, data: impl Into<JsString>, keybinding: impl Into<JsString>) -> bool {
         let data = data.into();
         self.get_keys(keybinding).iter().any(|key| matches_key(&data, key))
     }
 
-    pub fn get_keys(&self, keybinding: &str) -> Vec<KeyId> {
+    pub fn get_keys(&self, keybinding: impl Into<JsString>) -> Vec<KeyId> {
+        let keybinding = keybinding.into();
         self.lock_state()
             .keys_by_id
             .iter()
-            .find(|(id, _)| id == keybinding)
+            .find(|(id, _)| id == &keybinding)
             .map(|(_, keys)| keys.clone())
             .unwrap_or_default()
     }
 
-    pub fn get_definition(&self, keybinding: &str) -> Option<&KeybindingDefinition> {
+    pub fn get_definition(&self, keybinding: impl Into<JsString>) -> Option<&KeybindingDefinition> {
+        let keybinding = keybinding.into();
         self.definitions
             .iter()
-            .find(|(id, _)| id == keybinding)
+            .find(|(id, _)| id == &keybinding)
             .map(|(_, definition)| definition)
     }
 
@@ -261,7 +264,7 @@ impl KeybindingsManager {
     }
 
     /// Resolved keys for every definition, in definition order.
-    pub fn get_resolved_bindings(&self) -> Vec<(String, Vec<KeyId>)> {
+    pub fn get_resolved_bindings(&self) -> Vec<(JsString, Vec<KeyId>)> {
         self.lock_state().keys_by_id.clone()
     }
 }

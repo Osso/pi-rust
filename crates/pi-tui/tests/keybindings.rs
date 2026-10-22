@@ -1,9 +1,10 @@
+use pi_js_compat::js_json::JsString;
 use pi_tui::keybindings::{KeybindingConflict, KeybindingDefinition, KeybindingsManager, tui_keybindings};
 
 fn manager(config: Vec<(&str, Vec<&str>)>) -> KeybindingsManager {
     let user = config
         .into_iter()
-        .map(|(id, keys)| (id.to_string(), keys.into_iter().map(str::to_string).collect()))
+        .map(|(id, keys)| (JsString::from(id), keys.into_iter().map(JsString::from).collect()))
         .collect();
     KeybindingsManager::new(tui_keybindings(), user)
 }
@@ -80,8 +81,8 @@ fn reports_direct_user_binding_conflicts_without_evicting_defaults() {
     assert_eq!(
         keybindings.get_conflicts(),
         vec![KeybindingConflict {
-            key: "ctrl+x".to_string(),
-            keybindings: vec!["tui.input.submit".to_string(), "tui.select.confirm".to_string()],
+            key: "ctrl+x".into(),
+            keybindings: vec!["tui.input.submit".into(), "tui.select.confirm".into()],
         }]
     );
     assert_eq!(keybindings.get_keys("tui.editor.cursorLeft"), vec!["left", "ctrl+b"]);
@@ -102,15 +103,15 @@ fn ignores_user_bindings_for_unknown_ids_and_resolves_definitions() {
     assert_eq!(
         keybindings.get_definition("tui.editor.cursorUp"),
         Some(&KeybindingDefinition {
-            default_keys: vec!["up".to_string()],
-            description: Some("Move cursor up".to_string()),
+            default_keys: vec!["up".into()],
+            description: Some("Move cursor up".into()),
         })
     );
     assert_eq!(keybindings.get_definition("not.a.binding"), None);
     assert!(keybindings.get_conflicts().is_empty());
     assert_eq!(
         keybindings.get_user_bindings(),
-        vec![("not.a.binding".to_string(), vec!["ctrl+x".to_string()])]
+        vec![("not.a.binding".into(), vec!["ctrl+x".into()])]
     );
 }
 
@@ -127,14 +128,14 @@ fn resolved_bindings_include_every_definition_in_order() {
             .iter()
             .find(|(id, _)| id == "tui.editor.cursorUp")
             .map(|(_, keys)| keys.clone()),
-        Some(vec!["up".to_string()])
+        Some(vec!["up".into()])
     );
     assert_eq!(
         resolved
             .iter()
             .find(|(id, _)| id == "tui.editor.cursorLeft")
             .map(|(_, keys)| keys.clone()),
-        Some(vec!["left".to_string(), "ctrl+b".to_string()])
+        Some(vec!["left".into(), "ctrl+b".into()])
     );
 }
 
@@ -142,16 +143,16 @@ fn resolved_bindings_include_every_definition_in_order() {
 fn set_user_bindings_rebuilds_keys_and_conflicts() {
     let mut keybindings = manager(Vec::new());
     keybindings.set_user_bindings(vec![
-        ("tui.select.up".to_string(), vec!["ctrl+p".to_string()]),
-        ("tui.editor.cursorUp".to_string(), vec!["ctrl+p".to_string()]),
+        ("tui.select.up".into(), vec!["ctrl+p".into()]),
+        ("tui.editor.cursorUp".into(), vec!["ctrl+p".into()]),
     ]);
 
     assert_eq!(keybindings.get_keys("tui.select.up"), vec!["ctrl+p"]);
     assert_eq!(
         keybindings.get_conflicts(),
         vec![KeybindingConflict {
-            key: "ctrl+p".to_string(),
-            keybindings: vec!["tui.select.up".to_string(), "tui.editor.cursorUp".to_string()],
+            key: "ctrl+p".into(),
+            keybindings: vec!["tui.select.up".into(), "tui.editor.cursorUp".into()],
         }]
     );
 }
