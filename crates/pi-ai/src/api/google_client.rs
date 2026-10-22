@@ -20,10 +20,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
-use crate::api::google_shared::{
-    GoogleRequestError, GoogleRetryOptions, is_thinking_part, map_stop_reason, retain_thought_signature,
-    retry_google_request,
-};
+use crate::api::google_shared::{GoogleRequestError, is_thinking_part, map_stop_reason, retain_thought_signature};
 use crate::http::default_fetch;
 use crate::models::calculate_cost;
 use crate::request::{Fetch, HttpBody, HttpRequest, HttpResponse, header_value};
@@ -1344,21 +1341,14 @@ pub(crate) fn completed_reason(
     }
 }
 
-/// Open the streaming response with the shared Google retry policy.
+/// Open the SDK stream without a provider retry wrapper, matching frozen callers.
 pub(crate) async fn open_generate_stream(
     client: &GoogleClient,
     params: &JsValue,
     request: &crate::request::ProviderRequestOptions,
 ) -> Result<GoogleStream, GoogleRequestError> {
     let fetch = request.fetch.clone().unwrap_or_else(default_fetch);
-    let retry_options = GoogleRetryOptions {
-        max_retries: request.max_retries,
-        max_retry_delay_ms: request.max_retry_delay_ms,
-        signal: request.signal.clone(),
-    };
-    retry_google_request(
-        || client.generate_content_stream(params, fetch.as_ref(), request.signal.as_ref()),
-        retry_options,
-    )
-    .await
+    client
+        .generate_content_stream(params, fetch.as_ref(), request.signal.as_ref())
+        .await
 }
