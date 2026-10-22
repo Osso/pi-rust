@@ -21,3 +21,13 @@ Proof: focused child-process tests in `crates/pi-coding-agent/tests/timings.rs` 
 ## Discrepancies
 
 None.
+
+## Q18 native UTF-16 continuation (2026-10-22)
+
+`time` and stored labels use `JsString`; group formatting remains native, including
+UTF-16 title length. Only `print_timings` encodes at the stderr write boundary.
+`timing_labels_keep_units_until_stderr_encoding` asserts an unpaired label in the
+complete formatted output. Written but unexecuted: coding-library compilation is
+blocked by cross-lane diagnostics (extensions-red.log, 1877 errors). No Q18 PASS
+or renewed frozen-source parity claim. Existing scalar main/test call sites now
+construct native literals; no alternate scalar API.

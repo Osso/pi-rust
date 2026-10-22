@@ -78,3 +78,17 @@ Tool activation policy remains in `AgentSession::refresh_tool_registry`: registr
 immediately refreshes definitions; newly seen permitted names become active;
 re-registering an inactive existing name does not reactivate it. Source:
 agent-session.ts:5096–5196. No extra synchronization or notification path added.
+
+## Q18 native UTF-16 continuation (2026-10-22)
+
+Registry keys, IDs, paths, cwd, disabled-name candidates, source metadata, and
+factory-load errors use `JsString`. Discovery joins decoded directory entry names
+to the original native directory, rather than round-tripping the encoded path.
+Only filesystem operations encode; timing labels stay native.
+
+`lossless_extension_loader` covers unmatched-unit inline names, disabled path
+identity, and distinct raw/replacement registry keys. RED compilation was blocked
+by 1877 coding-library errors; behavior remains unexecuted. Diagnostic probe
+`replacement-extensions-1` found two local issues, corrected after the probe.
+No fresh frozen parity or runtime PASS claimed. Scalar command descriptions stay
+with the UI/runner lane; shortcut keys use that lane's native KeyId.

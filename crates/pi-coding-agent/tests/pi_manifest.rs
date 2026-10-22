@@ -6,7 +6,7 @@ fn manifest_from(contents: &[u8]) -> Option<PiManifest> {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("package.json");
     fs::write(&path, contents).unwrap();
-    read_pi_manifest(&path)
+    read_pi_manifest(&path.to_str().unwrap().into())
 }
 
 #[test]
@@ -31,6 +31,13 @@ fn keeps_only_string_array_resource_fields() {
 }
 
 #[test]
+fn manifest_resource_strings_preserve_escaped_unpaired_units() {
+    let manifest = manifest_from(br#"{"pi":{"extensions":["x\ud800.ts"],"skills":["\udc00"]}}"#).unwrap();
+    assert_eq!(manifest.extensions.unwrap()[0].units(), &[120, 0xd800, 46, 116, 115]);
+    assert_eq!(manifest.skills.unwrap()[0].units(), &[0xdc00]);
+}
+
+#[test]
 fn returns_an_empty_manifest_for_an_empty_pi_object() {
     assert_eq!(manifest_from(br#"{"pi":{}}"#), Some(PiManifest::default()));
 }
@@ -47,5 +54,8 @@ fn returns_none_without_an_object_pi_field() {
 fn returns_none_for_unreadable_or_invalid_json() {
     assert_eq!(manifest_from(b"{not json"), None);
     let directory = tempfile::tempdir().unwrap();
-    assert_eq!(read_pi_manifest(&directory.path().join("missing.json")), None);
+    assert_eq!(
+        read_pi_manifest(&directory.path().join("missing.json").to_str().unwrap().into()),
+        None
+    );
 }

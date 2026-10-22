@@ -2077,7 +2077,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
             return Ok(Some(1));
         }
     }
-    time("parseArgs", TimingLabel::Main);
+    time(&"parseArgs".into(), TimingLabel::Main);
 
     if parsed.version.is_some_and(|value| value) {
         console_log(&package_config().version);
@@ -2113,7 +2113,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
     }
 
     let migrations = run_migrations(&cwd);
-    time("runMigrations", TimingLabel::Main);
+    time(&"runMigrations".into(), TimingLabel::Main);
 
     let mut startup_settings_manager = SettingsManager::create(
         &cwd,
@@ -2201,7 +2201,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
     if should_take_over_stdout {
         take_over_stdout();
     }
-    time("createSessionManager", TimingLabel::Main);
+    time(&"createSessionManager".into(), TimingLabel::Main);
     let control_message = if app_mode == AppMode::Interactive {
         claim_latest_incoming_message(&control_db_path).map_err(|error| error.message().clone())?
     } else {
@@ -2241,7 +2241,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         multi_agent_store: Arc::clone(&multi_agent_store),
         multi_agent_runtime_handles: multi_agent_runtime_handles.clone(),
     });
-    time("createRuntime", TimingLabel::Main);
+    time(&"createRuntime".into(), TimingLabel::Main);
     let session_cwd = session_manager.get_cwd().clone();
     let runtime = create_agent_session_runtime(create_runtime, &session_cwd, &agent_dir, session_manager).await?;
     let runtime = share_agent_session_runtime(runtime).await;
@@ -2249,7 +2249,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         .map_err(|error| error.message().clone())?;
     LifecycleCoordinator::reconcile_dead_detached_runtimes(&control_db_path, &now_iso_string())
         .map_err(|error| error.message().clone())?;
-    time("createAgentSessionRuntime", TimingLabel::Main);
+    time(&"createAgentSessionRuntime".into(), TimingLabel::Main);
 
     let (services, session, model_fallback_message, diagnostics) = {
         let runtime = runtime.lock().await;
@@ -2318,17 +2318,17 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
     } else {
         None
     };
-    time("readPipedStdin", TimingLabel::Main);
+    time(&"readPipedStdin".into(), TimingLabel::Main);
 
     let initial = prepare_initial_message(&mut parsed, image_auto_resize, stdin_content.as_deref()).await?;
-    time("prepareInitialMessage", TimingLabel::Main);
+    time(&"prepareInitialMessage".into(), TimingLabel::Main);
     init_theme(theme.as_deref(), app_mode == AppMode::Interactive).map_err(|error| error.to_string())?;
-    time("initTheme", TimingLabel::Main);
+    time(&"initTheme".into(), TimingLabel::Main);
 
     if app_mode == AppMode::Interactive && !migrations.deprecation_warnings.is_empty() {
         show_deprecation_warnings(&migrations.deprecation_warnings).await;
     }
-    time("resolveModelScope", TimingLabel::Main);
+    time(&"resolveModelScope".into(), TimingLabel::Main);
     report_diagnostics(&diagnostics);
     if diagnostics
         .iter()
@@ -2342,7 +2342,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         }
         return Ok(Some(1));
     }
-    time("createAgentSession", TimingLabel::Main);
+    time(&"createAgentSession".into(), TimingLabel::Main);
 
     let no_models_message = format_no_models_available_message();
     if app_mode != AppMode::Interactive && model_fallback_message.as_deref() == Some(no_models_message.as_str()) {

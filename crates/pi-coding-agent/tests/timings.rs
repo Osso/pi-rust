@@ -43,10 +43,10 @@ fn timings_probe_child() {
     if !env_probe::in_probe() {
         return;
     }
-    time("ext-load", TimingLabel::Extensions);
+    time(&"ext-load".into(), TimingLabel::Extensions);
     reset_timings(TimingLabel::Main);
-    time("first", TimingLabel::Main);
+    time(&"first".into(), TimingLabel::Main);
     std::thread::sleep(std::time::Duration::from_millis(25));
-    time("second", TimingLabel::Main);
+    time(&"second".into(), TimingLabel::Main);
     print_timings();
 }
