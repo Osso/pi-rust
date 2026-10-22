@@ -11,20 +11,20 @@ Common source: `4f9e6f8a4`, full pin in [source lock](../source-lock.json). Cont
 | Observed scalar bug | AST legacy regex | RED: `😀` against `@(?)`: frozen minimatch false, old scalar matcher true; GREEN after native UCS-2 execution |
 | Active frozen worker glob / Node options | `worker::matches_glob`, level-two raw path preprocessing | `bwrap_worker_matching`: 1,683 actual frozen-function comparisons; raw units, braces/extglobs, traversal, Node nonegate/nocomment/backslash-pattern behavior; real find retains Linux backslash filenames after a separate RED |
 | Legacy matcher and operation propagation | `LineMatcher`, compile once before collection | native worker module standalone harness (`worker_matching_tests.rs`) runs actual grep; pair-unit regex, raw ranges/literals, empty-directory invalid-pattern RED/GREEN |
-| Raw regex compile errors | `format_regex_error` | 26 exact frozen message comparisons (13 patterns × both ignoreCase flags): unmatched bracket/group/close, leading quantifier, reversed class range, trailing escape, reversed quantifier bounds, quantified anchor/lookbehind, invalid group/capture name, duplicate name, missing named reference |
+| Raw regex compile errors | shared `JsRegexError` / `js_regex/error.rs` | 26 exact frozen message comparisons (13 patterns × both ignoreCase flags): unmatched bracket/group/close, leading quantifier, reversed class range, trailing escape, reversed quantifier bounds, quantified anchor/lookbehind, invalid group/capture name, duplicate name, missing named reference |
 | Oversized glob throws | `matches_glob` | actual frozen `TypeError: pattern is too long` and actual Rust find-operation error, not silent false |
 | Frozen fallback branch | oracle with `path.matchesGlob` absent | `.a`/`*` proves source fallback true differs active branch false. Rust provides the active matching capability unconditionally; no legacy Node-feature-detection branch is introduced |
 
 The VM oracle loads immutable `fs-worker.cjs`, removes only its final `main()` invocation, and calls original functions. Separate explicit source-fallback context is available. No pinned source is edited. The frozen worker uses `path.matchesGlob`; Node's installed implementation sets `nonegate`, `nocomment`, `windowsPathsNoEscape`, `optimizationLevel: 2`, `nocaseMagicOnly`, with Linux case sensitivity. Final worker parity must test these rather than assume default minimatch.
 
-## Open proof/discrepancy limits (not approved deviations)
+## Proof/discrepancy limits
 
-- Complete V8 regex parser/diagnostic parity is not proved. Engine limits (`Capture group count limit exceeded`, `Loop count limit exceeded`, `Regular expression is too deeply nested`) and malformed Unicode escapes in named capture identifiers/references remain unmapped diagnostic branches. Unknown diagnostics are returned as errors, never interpreted as no-match. The shared validation adapter intentionally retains its existing regress error contract; worker formatting is separate.
+- Reason wording and depth/loop limits now follow the user-approved2026-10-22 [shared RegExp contract](regexp-diagnostics.md). Classification remains exact outside those explicit limits. The former worker scanner/mappings moved to the shared JsRegex authority; Node-ignore and session-search use the same raw message. The 26 strict tested worker diagnostics remain exact, not relaxed under the wording approval.
 - Worker error result preserves message/name prefixes and raw units. Rust does not reproduce Node source-location stack frames.
 - Level-two preprocessing implements semantic pattern/file transformations; redundant pattern-set elimination is not needed to determine Boolean matches and remains absent. No general optimization-level-two corpus is claimed beyond the frozen-worker matrix.
-- Parent coding-agent library and pi-ai validation integration remain compiler-blocked by independent slices; standalone harness compiles the actual worker module, not a replica.
+- Earlier compiler-blocked integration was superseded by Q13 full-library `differential_bwrap`4/4 and actual worker8/8 (`test-differential-bwrap-shared-regex-green.log`, `test-bwrap-worker-shared-regex-green.log` under `/tmp/pi-rust-repin-lossless-interactive/`). Standalone harness still compiles actual worker code, not a replica.
 
-Proof logs: `/tmp/pi-rust-repin-lossless-worker-matching/`. Shared regex factoring retains the former pi-ai constructor/matcher API; the documented native legacy-fold engine defect is corrected at the dependency root; pi-ai integration is not yet compiled because parent library is blocked by other slices.
+Proof logs: `/tmp/pi-rust-repin-lossless-worker-matching/`. Shared regex factoring retains the constructor/matcher operations; JsRegexError now exposes raw diagnostics, with native Display encoding only at output boundaries. The documented native legacy-fold defect is corrected at the dependency root. No provider runtime proof is implied by worker tests.
 
 ## Native legacy canonicalization dependency fix
 

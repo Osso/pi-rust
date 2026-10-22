@@ -22,18 +22,9 @@ struct Rule {
 impl Rule {
     fn matches(&self, path: &JsString) -> Result<bool, IgnoreError> {
         let compiled = self.regex.get_or_init(|| {
-            // The pipeline escapes non-class metacharacters. Classes can still be
-            // unterminated (escaped nested brackets) or contain reversed ranges.
-            JsRegex::with_flags(&self.source, "i").map_err(|error| {
-                let reason = if error.text == "Unbalanced bracket" {
-                    "Unterminated character class"
-                } else {
-                    "Range out of order in character class"
-                };
-                IgnoreError {
-                    name: "SyntaxError".into(),
-                    message: JsString::from("Invalid regular expression: /") + &self.source + "/i: " + reason,
-                }
+            JsRegex::with_flags(&self.source, "i").map_err(|error| IgnoreError {
+                name: "SyntaxError".into(),
+                message: error.message().clone(),
             })
         });
         compiled

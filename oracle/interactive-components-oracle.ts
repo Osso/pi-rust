@@ -446,6 +446,20 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		}
 		return footer.render(request.width);
 	},
+	sessionSearch: (api, request) => {
+		const fromUnits = (units: number[]) => String.fromCharCode(...units);
+		const units = (text: string) => Array.from({ length: text.length }, (_, index) => text.charCodeAt(index));
+		const query = fromUnits(request.queryUnits);
+		const sessions = request.sessions.map((session: any) => ({ ...session, name: session.nameUnits === null ? undefined : fromUnits(session.nameUnits), firstMessage: fromUnits(session.firstMessageUnits), modified: new Date(session.modified) }));
+		const parsed = api.parseSearchQuery(query);
+		return {
+			mode: parsed.mode, tokens: parsed.tokens.map((token: any) => [token.kind, units(token.value)]), regex: parsed.regex !== null,
+			errorUnits: parsed.error === undefined ? null : units(parsed.error),
+			matches: sessions.map((session: any) => api.matchSession(session, parsed)),
+			names: sessions.map((session: any) => api.hasSessionName(session)), messages: sessions.map((session: any) => api.hasSessionMessages(session)),
+			sorted: ["recent", "relevance", "threaded"].flatMap(sort => ["all", "named"].map(filter => api.filterAndSortSessions(sessions, query, sort, filter).map((session: any) => session.id))),
+		};
+	},
 	numericCountdown: async (api, request, sourceRoot) => {
 		const themeApi = await import(pathToFileURL(`${sourceRoot}/modes/interactive/theme/theme.ts`).href);
 		const timerApi = await import(pathToFileURL(`${sourceRoot}/modes/interactive/components/countdown-timer.ts`).href);
