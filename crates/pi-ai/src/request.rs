@@ -177,7 +177,7 @@ pub struct StreamOptions {
     pub session_id: Option<JsString>,
     pub on_retry: Option<OnRetry>,
     pub websocket_connect_timeout_ms: Option<f64>,
-    pub metadata: Option<JsonObject>,
+    pub metadata: Option<pi_js_compat::js_json::JsObject>,
     /// API-specific fields (`AnthropicOptions`, `OpenAICompletionsOptions`, ...) in camelCase JSON.
     pub extra: JsonObject,
 }

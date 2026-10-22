@@ -15,7 +15,6 @@ use tokio_util::sync::CancellationToken;
 
 use crate::api::constrained_sampling::{
     GrammarToolInputJsonBuffer, append_grammar_tool_input_json_delta, get_grammar_tool_input,
-    get_json_schema_tool_parameters, resolve_grammar_constrained_sampling, resolve_json_schema_strict_sampling,
 };
 use crate::api::transform_messages::transform_messages_with;
 use crate::models::calculate_cost;
@@ -818,48 +817,18 @@ pub fn convert_responses_tools(
         None => Some(false),
         Some(strict) => strict,
     };
-    let supports_strict_mode = options.supports_strict_mode.unwrap_or(true);
-    let supports_openai_grammar_tools = options.supports_openai_grammar_tools.unwrap_or(false);
-
-    let mut converted = Vec::new();
-    for tool in tools {
-        if let Some(grammar) = resolve_grammar_constrained_sampling(tool, supports_openai_grammar_tools)? {
-            let mut entries = vec![
-                ("type", JsValue::String("custom".into())),
+    let converted = tools
+        .iter()
+        .map(|tool| {
+            object(vec![
+                ("type", JsValue::String("function".into())),
                 ("name", JsValue::String(tool.name.clone().into())),
                 ("description", JsValue::String(tool.description.clone().into())),
-                (
-                    "format",
-                    object(vec![
-                        ("type", JsValue::String("grammar".into())),
-                        ("syntax", pi_js_compat::js_json!(grammar.format)),
-                        ("definition", JsValue::String(grammar.definition.into())),
-                    ]),
-                ),
-            ];
-            if options.defer_loading == Some(true) {
-                entries.push(("defer_loading", JsValue::Bool(true)));
-            }
-            converted.push(object(entries));
-            continue;
-        }
-
-        let constrained_strict = resolve_json_schema_strict_sampling(tool, supports_strict_mode)?;
-        let strict = constrained_strict.or(default_strict);
-        let mut entries = vec![
-            ("type", JsValue::String("function".into())),
-            ("name", JsValue::String(tool.name.clone().into())),
-            ("description", JsValue::String(tool.description.clone().into())),
-            ("parameters", get_json_schema_tool_parameters(tool, strict)?.into()),
-        ];
-        if options.defer_loading == Some(true) {
-            entries.push(("defer_loading", JsValue::Bool(true)));
-        }
-        if supports_strict_mode {
-            entries.push(("strict", strict.map(JsValue::Bool).unwrap_or(JsValue::Null)));
-        }
-        converted.push(object(entries));
-    }
+                ("parameters", tool.parameters.clone().into()),
+                ("strict", default_strict.map(JsValue::Bool).unwrap_or(JsValue::Null)),
+            ])
+        })
+        .collect();
     Ok(JsValue::Array(converted))
 }
 
@@ -1217,16 +1186,12 @@ fn finalize_response(
             .and_then(|details| details.get("cached_tokens"))
             .and_then(JsValue::as_f64)
             .unwrap_or(0.0);
-        let cache_write_tokens = input_details
-            .and_then(|details| details.get("cache_write_tokens"))
-            .and_then(JsValue::as_f64)
-            .unwrap_or(0.0);
         let input_tokens = usage.get("input_tokens").and_then(JsValue::as_f64).unwrap_or(0.0);
         output.usage = Usage {
-            input: (input_tokens - cached_tokens - cache_write_tokens).max(0.0),
+            input: input_tokens - cached_tokens,
             output: usage.get("output_tokens").and_then(JsValue::as_f64).unwrap_or(0.0),
             cache_read: cached_tokens,
-            cache_write: cache_write_tokens,
+            cache_write: 0.0,
             cache_write_1h: None,
             reasoning: usage
                 .get("output_tokens_details")
@@ -1256,12 +1221,7 @@ fn finalize_response(
 
     let status_text = response.get("status").and_then(ingress_metadata_text);
     let status = status_text.as_deref();
-    let incomplete_reason_text = response
-        .get("incomplete_details")
-        .and_then(|details| details.get("reason"))
-        .and_then(ingress_metadata_text);
-    let incomplete_reason = incomplete_reason_text.as_deref();
-    let mapped = map_stop_reason(status, incomplete_reason)?;
+    let mapped = map_stop_reason(status)?;
     output.stop_reason = mapped.stop_reason;
     output.error_message = mapped.error_message;
     if output
@@ -1280,7 +1240,7 @@ struct MappedStopReason {
     error_message: Option<JsString>,
 }
 
-fn map_stop_reason(status: Option<&str>, incomplete_reason: Option<&str>) -> Result<MappedStopReason, String> {
+fn map_stop_reason(status: Option<&str>) -> Result<MappedStopReason, String> {
     let Some(status) = status else {
         return Ok(MappedStopReason {
             stop_reason: StopReason::Stop,
@@ -1292,19 +1252,9 @@ fn map_stop_reason(status: Option<&str>, incomplete_reason: Option<&str>) -> Res
             stop_reason: StopReason::Stop,
             error_message: None,
         },
-        "incomplete" => match incomplete_reason {
-            Some("max_output_tokens") => MappedStopReason {
-                stop_reason: StopReason::Length,
-                error_message: None,
-            },
-            Some(reason) => MappedStopReason {
-                stop_reason: StopReason::Error,
-                error_message: Some(format!("Response incomplete: {reason}").into()),
-            },
-            None => MappedStopReason {
-                stop_reason: StopReason::Error,
-                error_message: Some("Response incomplete without a provider reason".to_owned().into()),
-            },
+        "incomplete" => MappedStopReason {
+            stop_reason: StopReason::Length,
+            error_message: None,
         },
         "failed" | "cancelled" => MappedStopReason {
             stop_reason: StopReason::Error,
@@ -1785,7 +1735,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                     .and_then(|details| details.get("reason"))
                     .and_then(ingress_metadata_text)
                     .unwrap_or_else(|| "unknown".to_owned());
-                if reason == "max_output_tokens" && output.content.is_empty() {
+                if reason != "max_output_tokens" {
                     return Err(ResponsesStreamFailure::Message(
                         format!("Incomplete response returned, reason: {reason}").into(),
                     ));

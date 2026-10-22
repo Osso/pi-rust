@@ -218,9 +218,6 @@ pub fn build_params(
     )?;
 
     let cache_retention = resolve_cache_retention(stream_options.cache_retention, stream_options.request.env.as_ref());
-    let disable_implicit_prompt_cache =
-        cache_retention == CacheRetention::None && compat.supports_explicit_prompt_cache_mode;
-
     let mut params = JsObject::new();
     params.insert("model".into(), JsValue::String(model.id.clone().into()));
     params.insert("input".into(), JsValue::Array(messages));
@@ -232,12 +229,6 @@ pub fn build_params(
     }
     if let Some(retention) = get_prompt_cache_retention(compat, cache_retention) {
         params.insert("prompt_cache_retention".into(), JsValue::String(retention.into()));
-    }
-    if disable_implicit_prompt_cache {
-        params.insert(
-            "prompt_cache_options".into(),
-            JsValue::object(vec![("mode", JsValue::String("explicit".into()))]),
-        );
     }
     params.insert("store".into(), JsValue::Bool(false));
 
