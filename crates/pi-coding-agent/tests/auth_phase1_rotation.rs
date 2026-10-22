@@ -9,6 +9,7 @@ use pi_coding_agent::core::auth_storage::{
     AsyncLockOperation, AuthStorage, AuthStorageBackend, FileAuthStorageBackend, GetApiKeyOptions, LockOperation,
     StorageError,
 };
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -137,7 +138,7 @@ fn successful_rotation_callback_then_cancel_or_write_failure_rescues_exact_resul
             fail: false,
         }));
         let storage = AuthStorage::from_storage(Arc::new(BoundaryBackend {
-            inner: FileAuthStorageBackend::new(file.to_str().unwrap()),
+            inner: FileAuthStorageBackend::new(&JsString::from(file.to_str().unwrap())),
             signal: signal.clone(),
             fault,
             syncs: AtomicUsize::new(0),
@@ -172,7 +173,7 @@ fn successful_rotation_callback_then_cancel_or_write_failure_rescues_exact_resul
         let fresh_process = peer.request(&json!({"id":1,"op":"read","authPath":file,"provider":"phase1-rotation"}));
         assert_eq!(fresh_process["ok"], true, "{fresh_process}");
         assert_eq!(fresh_process["output"]["credential"]["refresh"], "B");
-        let fresh_store = AuthStorage::create(Some(file.to_str().unwrap()));
+        let fresh_store = AuthStorage::create(Some(&JsString::from(file.to_str().unwrap())));
         let mut expired = fresh_store.get("phase1-rotation").unwrap().to_serde().unwrap();
         assert_eq!(expired["refresh"], "B");
         expired["expires"] = json!(0);
@@ -203,7 +204,7 @@ fn unsuccessful_refresh_does_not_rescue_and_failed_rescue_surfaces_source_error(
             fail,
         }));
         let storage = AuthStorage::from_storage(Arc::new(BoundaryBackend {
-            inner: FileAuthStorageBackend::new(file.to_str().unwrap()),
+            inner: FileAuthStorageBackend::new(&JsString::from(file.to_str().unwrap())),
             signal: CancellationToken::new(),
             fault,
             syncs: AtomicUsize::new(0),
@@ -221,7 +222,7 @@ fn unsuccessful_refresh_does_not_rescue_and_failed_rescue_surfaces_source_error(
             error
                 .to_string()
                 .contains(if fail { "server rejected A" } else { "rescue denied" }),
-            "{error}"
+            "{error:?}"
         );
         let fresh: Value = serde_json::from_str(&fs::read_to_string(file).unwrap()).unwrap();
         assert_eq!(fresh["phase1-rotation"]["refresh"], "A");
@@ -241,7 +242,7 @@ fn failed_rotation_persistence_and_reload_never_succeed_from_memory() {
             fail: false,
         }));
         let backend = Arc::new(BoundaryBackend {
-            inner: FileAuthStorageBackend::new(file.to_str().unwrap()),
+            inner: FileAuthStorageBackend::new(&JsString::from(file.to_str().unwrap())),
             signal: CancellationToken::new(),
             fault: "all-sync-fails",
             syncs: AtomicUsize::new(0),
@@ -274,7 +275,7 @@ fn failed_rotation_persistence_and_reload_never_succeed_from_memory() {
         let request = json!({"id":1,"authPath":file,"throws":throws});
         let mut delta = oracle::TsOracle::spawn("auth-refresh-oracle.ts", &locked_auth_delta());
         let output = delta.request(&request);
-        assert_eq!(output["ok"], true, "{output}");
+        assert_eq!(output["ok"], true, "{output:?}");
         assert_eq!(output["output"], native, "approved delta must have zero discrepancies");
         let mut frozen = oracle::TsOracle::spawn(
             "auth-refresh-oracle.ts",

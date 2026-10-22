@@ -6,6 +6,7 @@ mod oracle;
 
 use oracle::TsOracle;
 use pi_coding_agent::package_manager_cli::{handle_config_command, handle_package_command};
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 fn check(oracle: &mut TsOracle, operation: &str, args: &[&str]) {
@@ -18,9 +19,19 @@ fn check(oracle: &mut TsOracle, operation: &str, args: &[&str]) {
     let output = &response["output"];
 
     let outcome = if operation == "handle_config" {
-        handle_config_command(&args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>())
+        handle_config_command(
+            &(&args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>())
+                .iter()
+                .map(JsString::from)
+                .collect::<Vec<_>>(),
+        )
     } else {
-        handle_package_command(&args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>())
+        handle_package_command(
+            &(&args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>())
+                .iter()
+                .map(JsString::from)
+                .collect::<Vec<_>>(),
+        )
     };
     let Some(outcome) = outcome else {
         assert_eq!(output["handled"], Value::Bool(false), "{args:?}");
@@ -96,7 +107,13 @@ fn differential_non_package_commands_are_not_handled() {
         assert_eq!(response["ok"], true, "{response}");
         assert_eq!(response["output"]["handled"], Value::Bool(false), "{args:?}");
         let owned: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
-        assert!(handle_package_command(&owned).is_none(), "{args:?}");
-        assert!(handle_config_command(&owned).is_none(), "{args:?}");
+        assert!(
+            handle_package_command(&(&owned).iter().map(JsString::from).collect::<Vec<_>>()).is_none(),
+            "{args:?}"
+        );
+        assert!(
+            handle_config_command(&(&owned).iter().map(JsString::from).collect::<Vec<_>>()).is_none(),
+            "{args:?}"
+        );
     }
 }

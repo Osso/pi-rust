@@ -1,5 +1,6 @@
 //! Ports `packages/coding-agent/test/models-store.test.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -75,7 +76,7 @@ impl AuthStorageBackend for CountingBackend {
 fn persists_provider_catalogs_without_replacing_unrelated_providers() {
     let dir = temp_dir("persist");
     let path = dir.join("models-store.json");
-    let store = FileModelsStore::new(Some(&path.display().to_string()));
+    let store = FileModelsStore::new(Some(&JsString::from(&path.display().to_string())));
 
     runtime().block_on(async {
         store
@@ -106,7 +107,7 @@ fn persists_provider_catalogs_without_replacing_unrelated_providers() {
             .unwrap();
     });
 
-    let reloaded = FileModelsStore::new(Some(&path.display().to_string()));
+    let reloaded = FileModelsStore::new(Some(&JsString::from(&path.display().to_string())));
     runtime().block_on(async {
         let one = reloaded
             .read("one", ModelsStoreOperationOptions::default())
@@ -168,11 +169,11 @@ fn coalesces_reloads_across_readers_and_instances() {
 
     let locks = Arc::new(AtomicUsize::new(0));
     let backend = Arc::new(CountingBackend {
-        inner: FileAuthStorageBackend::new(&path.display().to_string()),
+        inner: FileAuthStorageBackend::new(&JsString::from(&path.display().to_string())),
         locks: Arc::clone(&locks),
     });
-    let first = FileModelsStore::with_backend(&path.display().to_string(), backend);
-    let second = FileModelsStore::new(Some(&path.display().to_string()));
+    let first = FileModelsStore::with_backend(&JsString::from(&path.display().to_string()), backend);
+    let second = FileModelsStore::new(Some(&JsString::from(&path.display().to_string())));
     let before = locks.load(Ordering::SeqCst);
 
     runtime().block_on(async {
@@ -214,7 +215,7 @@ fn cancels_a_catalog_write_waiting_for_a_held_file_lock() {
             .unwrap(),
     )
     .unwrap();
-    let store = FileModelsStore::new(Some(&path.display().to_string()));
+    let store = FileModelsStore::new(Some(&JsString::from(&path.display().to_string())));
     let signal = CancellationToken::new();
 
     runtime().block_on(async {

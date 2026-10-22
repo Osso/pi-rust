@@ -1,6 +1,7 @@
 //! Ports `packages/coding-agent/test/model-registry.test.ts` and
 //! `model-registry-resolved-auth.test.ts` registry-facade cases.
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -37,7 +38,7 @@ fn storage_with(entries: &[(&str, Value)]) -> Arc<AuthStorage> {
 async fn registry(storage: Arc<AuthStorage>, models_path: Option<String>) -> ModelRegistry {
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(storage as Arc<dyn CredentialStore>),
-        models_path: Some(models_path),
+        models_path: Some((models_path).map(JsString::from)),
         ..Default::default()
     })
     .await
@@ -77,7 +78,7 @@ async fn exposes_model_runtime_auth_resolution_to_extensions() {
             base_url,
             env,
         } => {
-            assert_eq!(api_key.as_deref(), Some("stored-key"));
+            assert_eq!(api_key.as_ref(), Some(&JsString::from("stored-key")));
             assert_eq!(headers, None);
             assert_eq!(base_url, None);
             assert_eq!(env, None);
@@ -93,7 +94,7 @@ async fn accepts_a_pi_ai_credential_store() {
         Box::pin(async {
             Ok(Some(pi_ai::auth::types::Credential::ApiKey(
                 pi_ai::auth::types::ApiKeyCredential {
-                    key: Some("stored-key".to_owned()),
+                    key: Some("stored-key".to_owned().into()),
                     env: None,
                 },
             )))
@@ -112,8 +113,8 @@ async fn accepts_a_pi_ai_credential_store() {
     .unwrap();
     let registry = ModelRegistry::new(runtime);
     assert_eq!(
-        registry.get_api_key_for_provider("anthropic").await.as_deref(),
-        Some("stored-key")
+        registry.get_api_key_for_provider("anthropic").await.unwrap().as_ref(),
+        Some(&JsString::from("stored-key"))
     );
 }
 
@@ -135,7 +136,10 @@ async fn get_api_key_and_headers_preserves_the_missing_key_auth_header_error() {
     let registry = registry(storage_with(&[]), Some(path.display().to_string())).await;
     let model = registry.find("custom-provider", "test-model").unwrap();
     let auth = registry.get_api_key_and_headers(&model).await;
-    assert_eq!(auth.error(), Some("No API key found for \"custom-provider\""));
+    assert_eq!(
+        auth.error(),
+        Some(&JsString::from("No API key found for \"custom-provider\""))
+    );
     fs::remove_dir_all(dir).unwrap();
 }
 
@@ -176,7 +180,10 @@ async fn compatibility_auth_includes_static_model_headers() {
     match registry.get_api_key_and_headers(&model).await {
         ResolvedRequestAuth::Ok { headers, .. } => {
             let headers = headers.unwrap();
-            assert_eq!(headers.get("X-Static-Model"), Some(&Some("static-value".to_owned())));
+            assert_eq!(
+                headers.get("X-Static-Model"),
+                Some(&Some(JsString::from("static-value".to_owned())))
+            );
         }
         other => panic!("unexpected auth: {other:?}"),
     }
@@ -215,8 +222,8 @@ async fn provider_display_names_resolve_registered_oauth_builtin_and_fallback() 
             "extension-display",
             ProviderConfigInput {
                 name: Some("Extension Display".to_owned()),
-                base_url: Some("https://example.test/v1".to_owned()),
-                api_key: Some("key".to_owned()),
+                base_url: Some("https://example.test/v1".to_owned().into()),
+                api_key: Some("key".to_owned().into()),
                 api: Some("openai-completions".to_owned()),
                 models: Some(vec![test_model("model")]),
                 ..Default::default()
@@ -312,8 +319,8 @@ async fn refresh_reloads_custom_models_from_disk() {
 async fn registered_provider_accessors_round_trip() {
     let registry = registry(storage_with(&[]), None).await;
     let config = ProviderConfigInput {
-        base_url: Some("https://example.test/v1".to_owned()),
-        api_key: Some("key".to_owned()),
+        base_url: Some("https://example.test/v1".to_owned().into()),
+        api_key: Some("key".to_owned().into()),
         api: Some("openai-completions".to_owned()),
         models: Some(vec![test_model("model")]),
         ..Default::default()
@@ -323,7 +330,7 @@ async fn registered_provider_accessors_round_trip() {
         registry
             .get_registered_provider_config("extension")
             .and_then(|config| config.base_url),
-        Some("https://example.test/v1".to_owned())
+        (Some("https://example.test/v1".to_owned())).map(JsString::from)
     );
     assert_eq!(registry.get_registered_provider_ids(), vec!["extension"]);
     assert!(registry.get_registered_native_provider("extension").is_none());

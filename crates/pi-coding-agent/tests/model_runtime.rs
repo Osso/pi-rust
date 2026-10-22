@@ -1,6 +1,7 @@
 //! Ports `packages/coding-agent/test/model-runtime-*.test.ts` and runtime cases
 //! from `model-registry.test.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -69,7 +70,7 @@ async fn accepts_a_pi_ai_credential_store() {
     let modifier: CredentialModifier = Arc::new(|_current| {
         Box::pin(async {
             Ok(Some(Credential::ApiKey(pi_ai::auth::types::ApiKeyCredential {
-                key: Some("stored-key".to_owned()),
+                key: Some("stored-key".to_owned().into()),
                 env: None,
             })))
         })
@@ -90,7 +91,7 @@ async fn accepts_a_pi_ai_credential_store() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(auth.auth.api_key.as_deref(), Some("stored-key"));
+    assert_eq!(auth.auth.api_key.as_ref(), Some(&JsString::from("stored-key")));
 }
 
 #[tokio::test]
@@ -159,8 +160,8 @@ async fn constructs_an_api_key_method_for_an_extension_provider() {
             "extension-api-key",
             ProviderConfigInput {
                 name: Some("Extension API Key".to_owned()),
-                base_url: Some("https://example.test/v1".to_owned()),
-                api_key: Some("$EXTENSION_TEST_API_KEY".to_owned()),
+                base_url: Some("https://example.test/v1".to_owned().into()),
+                api_key: Some("$EXTENSION_TEST_API_KEY".to_owned().into()),
                 api: Some("openai-completions".to_owned()),
                 models: Some(vec![test_model("extension-model")]),
                 ..Default::default()
@@ -183,8 +184,8 @@ async fn resolves_configured_auth_from_request_scoped_env_overrides() {
         .register_provider(
             "request-env-provider",
             ProviderConfigInput {
-                base_url: Some("https://example.test/v1".to_owned()),
-                api_key: Some("$REQUEST_SCOPED_API_KEY".to_owned()),
+                base_url: Some("https://example.test/v1".to_owned().into()),
+                api_key: Some("$REQUEST_SCOPED_API_KEY".to_owned().into()),
                 headers: Some(
                     [("x-request-value".to_owned(), "$REQUEST_SCOPED_HEADER".to_owned())]
                         .into_iter()
@@ -198,8 +199,8 @@ async fn resolves_configured_auth_from_request_scoped_env_overrides() {
         .unwrap();
     let model = runtime.get_model("request-env-provider", "request-env-model").unwrap();
     let mut env = ProviderEnv::new();
-    env.insert("REQUEST_SCOPED_API_KEY".to_owned(), "request-key".to_owned());
-    env.insert("REQUEST_SCOPED_HEADER".to_owned(), "request-header".to_owned());
+    env.insert("REQUEST_SCOPED_API_KEY".to_owned(), "request-key".to_owned().into());
+    env.insert("REQUEST_SCOPED_HEADER".to_owned(), "request-header".to_owned().into());
     let auth = runtime
         .get_auth_for_model(
             &model,
@@ -211,7 +212,7 @@ async fn resolves_configured_auth_from_request_scoped_env_overrides() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(auth.auth.api_key.as_deref(), Some("request-key"));
+    assert_eq!(auth.auth.api_key.as_ref(), Some(&JsString::from("request-key")));
     assert_eq!(
         auth.auth
             .headers
@@ -219,8 +220,8 @@ async fn resolves_configured_auth_from_request_scoped_env_overrides() {
             .and_then(|headers| headers.get("x-request-value"))
             .cloned()
             .flatten()
-            .as_deref(),
-        Some("request-header")
+            .as_ref(),
+        Some(&JsString::from("request-header"))
     );
 }
 
@@ -228,8 +229,8 @@ fn capturing_provider() -> (ProviderConfigInput, Arc<Mutex<Option<pi_ai::types::
     let captured = Arc::new(Mutex::new(None));
     let sink = Arc::clone(&captured);
     let config = ProviderConfigInput {
-        base_url: Some("https://example.test/v1".to_owned()),
-        api_key: Some("generated-key".to_owned()),
+        base_url: Some("https://example.test/v1".to_owned().into()),
+        api_key: Some("generated-key".to_owned().into()),
         auth_header: Some(true),
         headers: Some([("x-provider".to_owned(), "provider".to_owned())].into_iter().collect()),
         api: Some("openai-completions".to_owned()),
@@ -252,7 +253,7 @@ async fn explicit_authorization_header_overrides_auth_header_case_insensitively(
     runtime.register_provider("auth-header-provider", config).unwrap();
     let model = runtime.get_model("auth-header-provider", "auth-header-model").unwrap();
     let mut headers = pi_ai::types::ProviderHeaders::new();
-    headers.insert("authorization".to_owned(), Some("Explicit token".to_owned()));
+    headers.insert("authorization".to_owned(), Some("Explicit token".to_owned().into()));
     let mut options = SimpleStreamOptions::default();
     options.stream.request.headers = Some(headers);
     let _ = runtime
@@ -269,8 +270,8 @@ async fn explicit_authorization_header_overrides_auth_header_case_insensitively(
     let captured = captured.lock().unwrap().clone().unwrap();
     assert_eq!(captured.len(), 1);
     assert_eq!(
-        captured.get("authorization").cloned().flatten().as_deref(),
-        Some("Explicit token")
+        captured.get("authorization").cloned().flatten().as_ref(),
+        Some(&JsString::from("Explicit token"))
     );
     assert!(!captured.contains_key("Authorization"));
 }
@@ -295,20 +296,23 @@ async fn transforms_fully_assembled_headers_once() {
         Box::pin(async move {
             counter.fetch_add(1, Ordering::SeqCst);
             assert_eq!(
-                headers.get("Authorization").cloned().flatten().as_deref(),
-                Some("Bearer generated-key")
+                headers.get("Authorization").cloned().flatten().as_ref(),
+                Some(&JsString::from("Bearer generated-key"))
             );
             assert_eq!(
-                headers.get("x-provider").cloned().flatten().as_deref(),
-                Some("provider")
+                headers.get("x-provider").cloned().flatten().as_ref(),
+                Some(&JsString::from("provider"))
             );
-            assert_eq!(headers.get("x-model").cloned().flatten().as_deref(), Some("model"));
             assert_eq!(
-                headers.get("x-explicit").cloned().flatten().as_deref(),
-                Some("explicit")
+                headers.get("x-model").cloned().flatten().as_ref(),
+                Some(&JsString::from("model"))
+            );
+            assert_eq!(
+                headers.get("x-explicit").cloned().flatten().as_ref(),
+                Some(&JsString::from("explicit"))
             );
             let mut transformed = headers;
-            transformed.insert("x-transformed".to_owned(), Some("yes".to_owned()));
+            transformed.insert("x-transformed".to_owned(), Some("yes".to_owned().into()));
             Ok(transformed)
         })
     }));
@@ -325,7 +329,10 @@ async fn transforms_fully_assembled_headers_once() {
         .await;
     assert_eq!(transforms.load(Ordering::SeqCst), 1);
     let captured = captured.lock().unwrap().clone().unwrap();
-    assert_eq!(captured.get("x-transformed").cloned().flatten().as_deref(), Some("yes"));
+    assert_eq!(
+        captured.get("x-transformed").cloned().flatten().as_ref(),
+        Some(&JsString::from("yes"))
+    );
 }
 
 #[tokio::test]
@@ -346,7 +353,7 @@ async fn forwards_cancellation_to_extension_oauth_refresh() {
             "extension-oauth",
             ProviderConfigInput {
                 name: Some("Extension OAuth".to_owned()),
-                base_url: Some("https://example.test/v1".to_owned()),
+                base_url: Some("https://example.test/v1".to_owned().into()),
                 api: Some("openai-completions".to_owned()),
                 oauth: Some(ExtensionOAuthConfig {
                     name: "Extension subscription".to_owned(),
@@ -363,7 +370,7 @@ async fn forwards_cancellation_to_extension_oauth_refresh() {
                             Ok(refreshed)
                         })
                     }),
-                    get_api_key: Arc::new(|credential| credential.access.to_utf8().expect("scalar fixture key")),
+                    get_api_key: Arc::new(|credential| credential.access.to_utf8().expect("scalar fixture key").into()),
                     modify_models: None,
                 }),
                 models: Some(vec![test_model("extension-model")]),
@@ -395,7 +402,11 @@ async fn runtime_api_keys_mask_stored_credentials_and_report_status() {
     let storage = storage_with(&[("anthropic", json!({"type": "api_key", "key": "stored-key"}))]);
     let runtime = ModelRuntime::create(create_options(storage)).await.unwrap();
     runtime
-        .set_runtime_api_key("anthropic", "runtime-key", AuthOperationOptions::default())
+        .set_runtime_api_key(
+            "anthropic",
+            &JsString::from("runtime-key"),
+            AuthOperationOptions::default(),
+        )
         .await
         .unwrap();
     let auth = runtime
@@ -403,7 +414,7 @@ async fn runtime_api_keys_mask_stored_credentials_and_report_status() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(auth.auth.api_key.as_deref(), Some("runtime-key"));
+    assert_eq!(auth.auth.api_key.as_ref(), Some(&JsString::from("runtime-key")));
     let status = runtime.get_provider_auth_status("anthropic");
     assert_eq!(status.source, Some(AuthStatusSource::Runtime));
 
@@ -422,8 +433,8 @@ async fn credential_sync_failure_is_reported_as_a_typed_error() {
         .register_provider(
             "failing-provider",
             ProviderConfigInput {
-                base_url: Some("https://example.test/v1".to_owned()),
-                api_key: Some("key".to_owned()),
+                base_url: Some("https://example.test/v1".to_owned().into()),
+                api_key: Some("key".to_owned().into()),
                 api: Some("openai-completions".to_owned()),
                 models: Some(vec![test_model("model")]),
                 refresh_models: Some(Arc::new(|_context| {
@@ -443,7 +454,11 @@ async fn credential_sync_failure_is_reported_as_a_typed_error() {
         .unwrap();
     assert!(refresh.errors.is_empty());
     let error = runtime
-        .set_runtime_api_key("failing-provider", "runtime-key", AuthOperationOptions::default())
+        .set_runtime_api_key(
+            "failing-provider",
+            &JsString::from("runtime-key"),
+            AuthOperationOptions::default(),
+        )
         .await
         .unwrap_err();
     match error {
@@ -471,7 +486,7 @@ async fn refresh_reloads_models_json_from_disk() {
     .unwrap();
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(storage_with(&[]) as Arc<dyn CredentialStore>),
-        models_path: Some(Some(path.display().to_string())),
+        models_path: Some(Some(path.display().to_string().into())),
         ..Default::default()
     })
     .await
@@ -514,14 +529,14 @@ async fn reports_every_provider_composition_error() {
     .unwrap();
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(storage_with(&[]) as Arc<dyn CredentialStore>),
-        models_path: Some(Some(path.display().to_string())),
+        models_path: Some(Some(path.display().to_string().into())),
         ..Default::default()
     })
     .await
     .unwrap();
     let error = runtime.get_error().unwrap();
-    assert!(error.contains("Provider \"broken-one\""), "{error}");
-    assert!(error.contains("Provider \"broken-two\""), "{error}");
+    assert!(error.contains("Provider \"broken-one\""), "{error:?}");
+    assert!(error.contains("Provider \"broken-two\""), "{error:?}");
     fs::remove_dir_all(dir).unwrap();
 }
 
@@ -532,8 +547,8 @@ async fn unregister_provider_removes_the_registration() {
         .register_provider(
             "extension",
             ProviderConfigInput {
-                base_url: Some("https://example.test/v1".to_owned()),
-                api_key: Some("key".to_owned()),
+                base_url: Some("https://example.test/v1".to_owned().into()),
+                api_key: Some("key".to_owned().into()),
                 api: Some("openai-completions".to_owned()),
                 models: Some(vec![test_model("model")]),
                 ..Default::default()
@@ -558,7 +573,7 @@ async fn registered_models_json_overrides_apply_above_extension_models() {
     .unwrap();
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(storage_with(&[]) as Arc<dyn CredentialStore>),
-        models_path: Some(Some(path.display().to_string())),
+        models_path: Some(Some(path.display().to_string().into())),
         ..Default::default()
     })
     .await
@@ -567,8 +582,8 @@ async fn registered_models_json_overrides_apply_above_extension_models() {
         .register_provider(
             "extension",
             ProviderConfigInput {
-                base_url: Some("https://example.test/v1".to_owned()),
-                api_key: Some("key".to_owned()),
+                base_url: Some("https://example.test/v1".to_owned().into()),
+                api_key: Some("key".to_owned().into()),
                 api: Some("openai-completions".to_owned()),
                 models: Some(vec![test_model("model")]),
                 ..Default::default()
@@ -595,7 +610,7 @@ async fn provider_auth_status_reports_models_json_sources() {
     .unwrap();
     let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         credentials: Some(storage_with(&[]) as Arc<dyn CredentialStore>),
-        models_path: Some(Some(path.display().to_string())),
+        models_path: Some(Some(path.display().to_string().into())),
         ..Default::default()
     })
     .await
@@ -630,7 +645,7 @@ async fn extension_oauth_only_provider_has_no_api_key_method() {
             "extension-oauth",
             ProviderConfigInput {
                 name: Some("Extension OAuth".to_owned()),
-                base_url: Some("https://example.test/v1".to_owned()),
+                base_url: Some("https://example.test/v1".to_owned().into()),
                 api: Some("openai-completions".to_owned()),
                 oauth: Some(ExtensionOAuthConfig {
                     name: "Extension subscription".to_owned(),
@@ -640,7 +655,7 @@ async fn extension_oauth_only_provider_has_no_api_key_method() {
                         Box::pin(async { Err(pi_ai::auth::types::AuthError::failed("unused")) })
                     }),
                     refresh_token: Arc::new(|credential, _signal| Box::pin(async move { Ok(credential) })),
-                    get_api_key: Arc::new(|credential| credential.access.to_utf8().expect("scalar fixture key")),
+                    get_api_key: Arc::new(|credential| credential.access.to_utf8().expect("scalar fixture key").into()),
                     modify_models: None,
                 }),
                 models: Some(vec![test_model("extension-model")]),
@@ -670,8 +685,8 @@ async fn compatibility_request_config_is_exposed_for_unconfigured_models() {
             .and_then(|headers| headers.get("X-Static-Model"))
             .cloned()
             .flatten()
-            .as_deref(),
-        Some("static-value")
+            .as_ref(),
+        Some(&JsString::from("static-value"))
     );
 }
 
@@ -689,7 +704,10 @@ async fn stream_errors_for_unknown_providers_use_the_source_message() {
         StreamOptions::default(),
     );
     let message = stream.result().await.unwrap();
-    assert_eq!(message.error_message.as_deref(), Some("Unknown provider: placeholder"));
+    assert_eq!(
+        message.error_message.as_ref(),
+        Some(&JsString::from("Unknown provider: placeholder"))
+    );
     assert_eq!(message.stop_reason, pi_ai::types::StopReason::Error);
 }
 
@@ -706,7 +724,7 @@ async fn get_auth_merges_configured_headers_with_resolved_auth() {
         credentials: Some(
             storage_with(&[("anthropic", json!({"type": "api_key", "key": "stored-key"}))]) as Arc<dyn CredentialStore>,
         ),
-        models_path: Some(Some(path.display().to_string())),
+        models_path: Some(Some(path.display().to_string().into())),
         ..Default::default()
     })
     .await
@@ -724,8 +742,8 @@ async fn get_auth_merges_configured_headers_with_resolved_auth() {
             .and_then(|headers| headers.get("X-Configured"))
             .cloned()
             .flatten()
-            .as_deref(),
-        Some("yes")
+            .as_ref(),
+        Some(&JsString::from("yes"))
     );
     fs::remove_dir_all(dir).unwrap();
 }
@@ -745,7 +763,11 @@ async fn native_provider_registration_keeps_its_auth_implementation() {
 async fn list_credentials_includes_runtime_overrides() {
     let runtime = ModelRuntime::create(create_options(storage_with(&[]))).await.unwrap();
     runtime
-        .set_runtime_api_key("anthropic", "runtime-key", AuthOperationOptions::default())
+        .set_runtime_api_key(
+            "anthropic",
+            &JsString::from("runtime-key"),
+            AuthOperationOptions::default(),
+        )
         .await
         .unwrap();
     let credentials = runtime.list_credentials(AuthOperationOptions::default()).await.unwrap();

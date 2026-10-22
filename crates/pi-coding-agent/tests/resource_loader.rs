@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::fs;
 
 use pi_coding_agent::core::resource_loader::{first_party_extension_name, inline_extension_name, resolve_prompt_input};
@@ -5,14 +6,20 @@ use tempfile::TempDir;
 
 #[test]
 fn names_first_party_and_inline_extension_paths() {
-    assert_eq!(first_party_extension_name("<first-party:browser>"), Some("browser"));
-    assert_eq!(first_party_extension_name("<inline>"), None);
-    assert_eq!(first_party_extension_name("<first-party:broken"), None);
+    assert_eq!(
+        first_party_extension_name(&JsString::from("<first-party:browser>")),
+        Some("browser")
+    );
+    assert_eq!(first_party_extension_name(&JsString::from("<inline>")), None);
+    assert_eq!(first_party_extension_name(&JsString::from("<first-party:broken")), None);
 
-    assert_eq!(inline_extension_name("<first-party:browser>"), Some("browser"));
-    assert_eq!(inline_extension_name("<inline>"), Some("inline"));
-    assert_eq!(inline_extension_name("/tmp/extension.ts"), None);
-    assert_eq!(inline_extension_name("<>"), Some(""));
+    assert_eq!(
+        inline_extension_name(&JsString::from("<first-party:browser>")),
+        Some("browser")
+    );
+    assert_eq!(inline_extension_name(&JsString::from("<inline>")), Some("inline"));
+    assert_eq!(inline_extension_name(&JsString::from("/tmp/extension.ts")), None);
+    assert_eq!(inline_extension_name(&JsString::from("<>")), Some(""));
 }
 
 #[test]
@@ -22,12 +29,12 @@ fn resolves_prompt_input_files_and_literals() {
     fs::write(&path, "System prompt text.\n").unwrap();
 
     assert_eq!(
-        resolve_prompt_input(Some(path.to_str().unwrap()), "system prompt").as_deref(),
-        Some("System prompt text.\n")
+        resolve_prompt_input(Some(&JsString::from(path.to_str().unwrap())), "system prompt").as_ref(),
+        Some(&JsString::from("System prompt text.\n"))
     );
     assert_eq!(
-        resolve_prompt_input(Some("Literal prompt text."), "system prompt").as_deref(),
-        Some("Literal prompt text.")
+        resolve_prompt_input(Some(&JsString::from("Literal prompt text.")), "system prompt").as_ref(),
+        Some(&JsString::from("Literal prompt text."))
     );
     assert_eq!(resolve_prompt_input(None, "system prompt"), None);
 }
@@ -49,7 +56,7 @@ use serde_json::json;
 fn settings(cwd: &Path, agent_dir: &Path, trusted: bool) -> Arc<Mutex<SettingsManager>> {
     Arc::new(Mutex::new(
         SettingsManager::create(
-            &cwd.to_string_lossy(),
+            &JsString::from((&cwd.to_string_lossy()).as_ref()),
             Some(agent_dir),
             SettingsManagerCreateOptions {
                 project_trusted: Some(trusted),
@@ -61,8 +68,8 @@ fn settings(cwd: &Path, agent_dir: &Path, trusted: bool) -> Arc<Mutex<SettingsMa
 
 fn loader(cwd: &Path, agent_dir: &Path, trusted: bool) -> DefaultResourceLoader {
     DefaultResourceLoader::new(DefaultResourceLoaderOptions {
-        cwd: cwd.to_string_lossy().into_owned(),
-        agent_dir: agent_dir.to_string_lossy().into_owned(),
+        cwd: cwd.to_string_lossy().into_owned().into(),
+        agent_dir: agent_dir.to_string_lossy().into_owned().into(),
         settings_manager: Some(settings(cwd, agent_dir, trusted)),
         ..Default::default()
     })
@@ -163,11 +170,11 @@ async fn project_resources_win_name_collisions() {
     let theme = themes
         .themes
         .iter()
-        .find(|theme| theme.name.as_deref() == Some("collision-theme"))
+        .find(|theme| theme.name.as_ref() == Some(&JsString::from("collision-theme")))
         .unwrap();
     assert_eq!(
-        theme.source_path.as_deref(),
-        Some(cwd.join(".pi/themes/collision.json").as_path())
+        theme.source_path.as_ref(),
+        Some(&JsString::from(cwd.join(".pi/themes/collision.json").as_path()))
     );
     assert_eq!(themes.diagnostics.len(), 1);
     assert_eq!(themes.diagnostics[0].message, "name \"collision-theme\" collision");
@@ -235,8 +242,8 @@ async fn agents_family_suppresses_claude_family_across_directories() {
     assert_eq!(
         resource_loader.get_agents_files().agents_files,
         vec![pi_coding_agent::core::system_prompt::ContextFile {
-            path: nested.join("AGENTS.md").to_string_lossy().into_owned(),
-            content: "Nested agents context.".to_owned(),
+            path: nested.join("AGENTS.md").to_string_lossy().into_owned().into(),
+            content: "Nested agents context.".to_owned().into(),
         }]
     );
 }
@@ -300,8 +307,8 @@ async fn no_context_files_skips_all_discovery() {
     std::fs::write(cwd.join("docs/local/memory.md"), "Project memory.").unwrap();
 
     let resource_loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
-        cwd: cwd.to_string_lossy().into_owned(),
-        agent_dir: agent_dir.to_string_lossy().into_owned(),
+        cwd: cwd.to_string_lossy().into_owned().into(),
+        agent_dir: agent_dir.to_string_lossy().into_owned().into(),
         settings_manager: Some(settings(&cwd, &agent_dir, true)),
         no_context_files: true,
         ..Default::default()
@@ -330,14 +337,14 @@ async fn rules_load_in_sorted_order_and_respect_scope() {
     let main_loader = loader(&cwd, &agent_dir, true);
     main_loader.reload().await.unwrap();
     assert_eq!(
-        main_loader.get_rules_content().as_deref(),
-        Some("First rule.\n\nSecond rule.\n\nMain rule.")
+        main_loader.get_rules_content().as_ref(),
+        Some(&JsString::from("First rule.\n\nSecond rule.\n\nMain rule."))
     );
     assert_eq!(main_loader.get_rules_files().rules_files.len(), 3);
 
     let child_loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
-        cwd: cwd.to_string_lossy().into_owned(),
-        agent_dir: agent_dir.to_string_lossy().into_owned(),
+        cwd: cwd.to_string_lossy().into_owned().into(),
+        agent_dir: agent_dir.to_string_lossy().into_owned().into(),
         settings_manager: Some(settings(cwd.as_path(), &agent_dir, true)),
         rules_scope: Some(RulesScope::Child),
         ..Default::default()
@@ -362,13 +369,16 @@ async fn project_rules_load_only_when_trusted() {
 
     let untrusted = loader(&cwd, &agent_dir, false);
     untrusted.reload().await.unwrap();
-    assert_eq!(untrusted.get_rules_content().as_deref(), Some("Global rule."));
+    assert_eq!(
+        untrusted.get_rules_content().as_ref(),
+        Some(&JsString::from("Global rule."))
+    );
 
     let trusted = loader(&cwd, &agent_dir, true);
     trusted.reload().await.unwrap();
     assert_eq!(
-        trusted.get_rules_content().as_deref(),
-        Some("Global rule.\n\nProject rule.")
+        trusted.get_rules_content().as_ref(),
+        Some(&JsString::from("Global rule.\n\nProject rule."))
     );
 }
 
@@ -383,11 +393,17 @@ async fn rules_reload_from_disk() {
 
     let resource_loader = loader(&cwd, &agent_dir, true);
     resource_loader.reload().await.unwrap();
-    assert_eq!(resource_loader.get_rules_content().as_deref(), Some("First rule."));
+    assert_eq!(
+        resource_loader.get_rules_content().as_ref(),
+        Some(&JsString::from("First rule."))
+    );
 
     std::fs::write(agent_dir.join("rules/rule.md"), "Updated rule.").unwrap();
     resource_loader.reload().await.unwrap();
-    assert_eq!(resource_loader.get_rules_content().as_deref(), Some("Updated rule."));
+    assert_eq!(
+        resource_loader.get_rules_content().as_ref(),
+        Some(&JsString::from("Updated rule."))
+    );
 }
 
 #[tokio::test]
@@ -404,12 +420,12 @@ async fn system_and_append_prompt_discovery_and_sources() {
     let resource_loader = loader(&cwd, &agent_dir, true);
     resource_loader.reload().await.unwrap();
     assert_eq!(
-        resource_loader.get_system_prompt().as_deref(),
-        Some("Project system prompt.")
+        resource_loader.get_system_prompt().as_ref(),
+        Some(&JsString::from("Project system prompt."))
     );
     assert_eq!(
         resource_loader.get_system_prompt_source().map(|source| source.path),
-        Some(cwd.join(".pi/SYSTEM.md").to_string_lossy().into_owned())
+        (Some(cwd.join(".pi/SYSTEM.md").to_string_lossy().into_owned())).map(JsString::from)
     );
     assert_eq!(
         resource_loader.get_append_system_prompt(),
@@ -426,7 +442,10 @@ async fn system_and_append_prompt_discovery_and_sources() {
 
     let untrusted = loader(&cwd, &agent_dir, false);
     untrusted.reload().await.unwrap();
-    assert_eq!(untrusted.get_system_prompt().as_deref(), Some("Global system prompt."));
+    assert_eq!(
+        untrusted.get_system_prompt().as_ref(),
+        Some(&JsString::from("Global system prompt."))
+    );
     assert!(untrusted.get_append_system_prompt().is_empty());
 }
 
@@ -443,13 +462,13 @@ async fn literal_prompts_are_not_exposed_as_sources() {
     std::fs::write(&append, "Custom append prompt.").unwrap();
 
     let resource_loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
-        cwd: cwd.to_string_lossy().into_owned(),
-        agent_dir: agent_dir.to_string_lossy().into_owned(),
+        cwd: cwd.to_string_lossy().into_owned().into(),
+        agent_dir: agent_dir.to_string_lossy().into_owned().into(),
         settings_manager: Some(settings(&cwd, &agent_dir, true)),
-        system_prompt: Some(custom.to_string_lossy().into_owned()),
+        system_prompt: Some(custom.to_string_lossy().into_owned().into()),
         append_system_prompt: Some(vec![
-            append.to_string_lossy().into_owned(),
-            "Literal append prompt.".to_owned(),
+            append.to_string_lossy().into_owned().into(),
+            "Literal append prompt.".to_owned().into(),
         ]),
         ..Default::default()
     })
@@ -466,10 +485,10 @@ async fn literal_prompts_are_not_exposed_as_sources() {
     assert_eq!(resource_loader.get_append_system_prompt_sources().len(), 1);
 
     let literal = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
-        cwd: cwd.to_string_lossy().into_owned(),
-        agent_dir: agent_dir.to_string_lossy().into_owned(),
+        cwd: cwd.to_string_lossy().into_owned().into(),
+        agent_dir: agent_dir.to_string_lossy().into_owned().into(),
         settings_manager: Some(settings(&cwd, &agent_dir, true)),
-        system_prompt: Some("Literal system prompt.".to_owned()),
+        system_prompt: Some("Literal system prompt.".to_owned().into()),
         ..Default::default()
     })
     .unwrap();
@@ -489,11 +508,11 @@ async fn no_skills_still_loads_additional_skill_paths() {
     write_skill(&custom.join("custom"), "custom", "Custom skill");
 
     let resource_loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
-        cwd: cwd.to_string_lossy().into_owned(),
-        agent_dir: agent_dir.to_string_lossy().into_owned(),
+        cwd: cwd.to_string_lossy().into_owned().into(),
+        agent_dir: agent_dir.to_string_lossy().into_owned().into(),
         settings_manager: Some(settings(&cwd, &agent_dir, true)),
         no_skills: true,
-        additional_skill_paths: vec![custom.to_string_lossy().into_owned()],
+        additional_skill_paths: vec![custom.to_string_lossy().into_owned().into()],
         ..Default::default()
     })
     .unwrap();
@@ -512,14 +531,14 @@ async fn overrides_replace_loaded_resources() {
     std::fs::create_dir_all(&agent_dir).unwrap();
 
     let injected = pi_coding_agent::core::skills::Skill {
-        name: "injected".to_owned(),
-        description: "Injected skill".to_owned(),
-        file_path: "/fake/path".to_owned(),
-        base_dir: "/fake".to_owned(),
+        name: "injected".to_owned().into(),
+        description: "Injected skill".to_owned().into(),
+        file_path: "/fake/path".to_owned().into(),
+        base_dir: "/fake".to_owned().into(),
         source_info: pi_coding_agent::core::source_info::create_synthetic_source_info(
-            "/fake/path",
+            &JsString::from("/fake/path"),
             &pi_coding_agent::core::source_info::SyntheticSourceInfoOptions {
-                source: "custom".to_owned(),
+                source: "custom".to_owned().into(),
                 scope: None,
                 origin: None,
                 base_dir: None,
@@ -528,8 +547,8 @@ async fn overrides_replace_loaded_resources() {
         disable_model_invocation: false,
     };
     let resource_loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
-        cwd: cwd.to_string_lossy().into_owned(),
-        agent_dir: agent_dir.to_string_lossy().into_owned(),
+        cwd: cwd.to_string_lossy().into_owned().into(),
+        agent_dir: agent_dir.to_string_lossy().into_owned().into(),
         settings_manager: Some(settings(&cwd, &agent_dir, true)),
         skills_override: Some(Arc::new(move |_| {
             pi_coding_agent::core::resource_loader::LoadedSkills {
@@ -537,7 +556,7 @@ async fn overrides_replace_loaded_resources() {
                 diagnostics: Vec::new(),
             }
         })),
-        system_prompt_override: Some(Arc::new(|_| Some("Custom system prompt".to_owned()))),
+        system_prompt_override: Some(Arc::new(|_| Some("Custom system prompt".to_owned().into()))),
         ..Default::default()
     })
     .unwrap();
@@ -571,21 +590,21 @@ async fn extend_resources_loads_skills_and_prompts_with_metadata() {
     resource_loader.reload().await.unwrap();
     resource_loader.extend_resources(ResourceExtensionPaths {
         skill_paths: vec![ExtendedResourcePath {
-            path: extra_skill.to_string_lossy().into_owned(),
+            path: extra_skill.to_string_lossy().into_owned().into(),
             metadata: pi_coding_agent::core::package_manager::PathMetadata {
-                source: "extension:extra".to_owned(),
+                source: "extension:extra".to_owned().into(),
                 scope: pi_coding_agent::core::package_manager::SourceScope::Temporary,
                 origin: pi_coding_agent::core::package_manager::MetadataOrigin::TopLevel,
-                base_dir: Some(extra_skill.to_string_lossy().into_owned()),
+                base_dir: Some(extra_skill.to_string_lossy().into_owned().into()),
             },
         }],
         prompt_paths: vec![ExtendedResourcePath {
-            path: extra_prompts.join("extra.md").to_string_lossy().into_owned(),
+            path: extra_prompts.join("extra.md").to_string_lossy().into_owned().into(),
             metadata: pi_coding_agent::core::package_manager::PathMetadata {
-                source: "extension:extra".to_owned(),
+                source: "extension:extra".to_owned().into(),
                 scope: pi_coding_agent::core::package_manager::SourceScope::Temporary,
                 origin: pi_coding_agent::core::package_manager::MetadataOrigin::TopLevel,
-                base_dir: Some(extra_prompts.to_string_lossy().into_owned()),
+                base_dir: Some(extra_prompts.to_string_lossy().into_owned().into()),
             },
         }],
         theme_paths: Vec::new(),
@@ -668,17 +687,17 @@ async fn extension_conflicts_report_tools_and_flags() {
             .unwrap();
     });
     let resource_loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
-        cwd: cwd.to_string_lossy().into_owned(),
-        agent_dir: agent_dir.to_string_lossy().into_owned(),
+        cwd: cwd.to_string_lossy().into_owned().into(),
+        agent_dir: agent_dir.to_string_lossy().into_owned().into(),
         settings_manager: Some(settings(&cwd, &agent_dir, true)),
         event_bus: Some(Arc::new(create_event_bus())),
         extension_factories: vec![
             InlineExtension::Factory {
-                extension_path: Some("<inline:first>".to_owned()),
+                extension_path: Some("<inline:first>".to_owned().into()),
                 factory: first,
             },
             InlineExtension::Factory {
-                extension_path: Some("<inline:second>".to_owned()),
+                extension_path: Some("<inline:second>".to_owned().into()),
                 factory: second,
             },
         ],
@@ -710,7 +729,7 @@ async fn disabled_inline_extension_factories_are_skipped() {
     std::fs::create_dir_all(&cwd).unwrap();
     std::fs::create_dir_all(&agent_dir).unwrap();
     let mut values = Settings::new();
-    values.insert("disabledExtensions".to_owned(), json!(["disabled"]));
+    values.insert("disabledExtensions".to_owned().into(), json!(["disabled"]).into());
     let settings_manager = Arc::new(Mutex::new(SettingsManager::in_memory(
         values,
         SettingsManagerCreateOptions {
@@ -719,16 +738,16 @@ async fn disabled_inline_extension_factories_are_skipped() {
     )));
 
     let resource_loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
-        cwd: cwd.to_string_lossy().into_owned(),
-        agent_dir: agent_dir.to_string_lossy().into_owned(),
+        cwd: cwd.to_string_lossy().into_owned().into(),
+        agent_dir: agent_dir.to_string_lossy().into_owned().into(),
         settings_manager: Some(settings_manager),
         extension_factories: vec![
             InlineExtension::Factory {
-                extension_path: Some("<first-party:disabled>".to_owned()),
+                extension_path: Some("<first-party:disabled>".to_owned().into()),
                 factory: factory(|_| {}),
             },
             InlineExtension::Factory {
-                extension_path: Some("<first-party:goal>".to_owned()),
+                extension_path: Some("<first-party:goal>".to_owned().into()),
                 factory: factory(|_| {}),
             },
         ],
@@ -755,10 +774,10 @@ async fn missing_additional_extension_path_is_reported() {
     let missing = temp.path().join("missing.ts");
 
     let resource_loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
-        cwd: cwd.to_string_lossy().into_owned(),
-        agent_dir: agent_dir.to_string_lossy().into_owned(),
+        cwd: cwd.to_string_lossy().into_owned().into(),
+        agent_dir: agent_dir.to_string_lossy().into_owned().into(),
         settings_manager: Some(settings(&cwd, &agent_dir, true)),
-        additional_extension_paths: vec![missing.to_string_lossy().into_owned()],
+        additional_extension_paths: vec![missing.to_string_lossy().into_owned().into()],
         ..Default::default()
     })
     .unwrap();
@@ -816,12 +835,12 @@ async fn no_extensions_keeps_cli_extensions() {
     std::fs::create_dir_all(&agent_dir).unwrap();
 
     let resource_loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
-        cwd: cwd.to_string_lossy().into_owned(),
-        agent_dir: agent_dir.to_string_lossy().into_owned(),
+        cwd: cwd.to_string_lossy().into_owned().into(),
+        agent_dir: agent_dir.to_string_lossy().into_owned().into(),
         settings_manager: Some(settings(&cwd, &agent_dir, true)),
         no_extensions: true,
         extension_factories: vec![InlineExtension::Named {
-            name: "goal".to_owned(),
+            name: "goal".to_owned().into(),
             factory: factory(|_| {}),
             hidden: None,
         }],
@@ -846,8 +865,8 @@ async fn default_project_trust_loader_forces_untrusted_and_loads_inline_factorie
     .unwrap();
     let manager = Arc::new(Mutex::new(
         SettingsManager::create(
-            &cwd.to_string_lossy(),
-            Some(&agent_dir),
+            &JsString::from((&cwd.to_string_lossy()).as_ref()),
+            Some(&JsString::from((&agent_dir).to_string_lossy().as_ref())),
             SettingsManagerCreateOptions {
                 project_trusted: Some(true),
             },
@@ -862,7 +881,7 @@ async fn default_project_trust_loader_forces_untrusted_and_loads_inline_factorie
             &agent_dir.to_string_lossy(),
             &manager,
             &[InlineExtension::Factory {
-                extension_path: Some("<first-party:goal>".to_owned()),
+                extension_path: Some("<first-party:goal>".to_owned().into()),
                 factory: factory(|_| {}),
             }],
         )

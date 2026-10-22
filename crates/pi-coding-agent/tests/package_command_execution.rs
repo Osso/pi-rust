@@ -1,5 +1,6 @@
 //! Execution half of `package-manager-cli.ts`: package and config commands.
 
+use pi_js_compat::js_json::JsString;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -49,11 +50,11 @@ struct NoExtensionsLoader;
 impl ProjectTrustExtensionsLoader for NoExtensionsLoader {
     fn load<'a>(
         &'a self,
-        _cwd: &'a str,
-        _agent_dir: &'a str,
+        _cwd: &'a JsString,
+        _agent_dir: &'a JsString,
         _settings_manager: &'a Arc<Mutex<SettingsManager>>,
         _extension_factories: &'a [pi_coding_agent::core::resource_loader::InlineExtension],
-    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, String>> {
+    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, JsString>> {
         Box::pin(async { Ok(None) })
     }
 }
@@ -65,18 +66,18 @@ struct ErroringExtensionsLoader {
 impl ProjectTrustExtensionsLoader for ErroringExtensionsLoader {
     fn load<'a>(
         &'a self,
-        _cwd: &'a str,
-        _agent_dir: &'a str,
+        _cwd: &'a JsString,
+        _agent_dir: &'a JsString,
         _settings_manager: &'a Arc<Mutex<SettingsManager>>,
         _extension_factories: &'a [pi_coding_agent::core::resource_loader::InlineExtension],
-    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, String>> {
+    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, JsString>> {
         let path = self.path.clone();
         Box::pin(async move {
             Ok(Some(LoadExtensionsResult {
                 extensions: Vec::new(),
                 errors: vec![pi_coding_agent::core::extensions::types::ExtensionLoadError {
-                    path,
-                    error: "boom".to_owned(),
+                    path: path.into(),
+                    error: "boom".to_owned().into(),
                 }],
                 runtime: create_extension_runtime(),
             }))
@@ -118,33 +119,33 @@ fn bun_binary_install_context(root: &Path) -> InstallContext {
 }
 
 struct FakeEffects {
-    cwd: String,
-    agent_dir: String,
+    cwd: JsString,
+    agent_dir: JsString,
     context: InstallContext,
-    entrypoint: Option<String>,
+    entrypoint: Option<JsString>,
     loader: Arc<dyn ProjectTrustExtensionsLoader>,
-    release: Result<LatestPiRelease, String>,
-    self_update: Result<(), String>,
+    release: Result<LatestPiRelease, JsString>,
+    self_update: Result<(), JsString>,
     refresh: Result<(), pi_js_compat::js_json::JsString>,
-    install: Result<(), String>,
-    remove: Result<bool, String>,
-    update: Result<(), String>,
+    install: Result<(), JsString>,
+    remove: Result<bool, JsString>,
+    update: Result<(), JsString>,
     packages: Vec<ConfiguredPackage>,
-    progress_messages: Vec<String>,
+    progress_messages: Vec<JsString>,
     config_requests: Mutex<Vec<(ConfigWriteScope, bool)>>,
-    calls: Mutex<Vec<String>>,
+    calls: Mutex<Vec<JsString>>,
 }
 
 impl FakeEffects {
     fn new(cwd: &Path, agent_dir: &Path, context: InstallContext) -> Self {
         Self {
-            cwd: cwd.display().to_string(),
-            agent_dir: agent_dir.display().to_string(),
-            entrypoint: context.entrypoint.clone(),
+            cwd: cwd.display().to_string().into(),
+            agent_dir: agent_dir.display().to_string().into(),
+            entrypoint: context.entrypoint.clone().map(JsString::from),
             context,
             loader: Arc::new(NoExtensionsLoader),
             release: Ok(LatestPiRelease {
-                version: "9.9.9".to_owned(),
+                version: "9.9.9".to_owned().into(),
                 package_name: None,
                 note: None,
             }),
@@ -160,17 +161,17 @@ impl FakeEffects {
         }
     }
 
-    fn calls(&self) -> Vec<String> {
+    fn calls(&self) -> Vec<JsString> {
         self.calls.lock().unwrap().clone()
     }
 }
 
 impl PackageCommandEffects for FakeEffects {
-    fn cwd(&self) -> String {
+    fn cwd(&self) -> JsString {
         self.cwd.clone()
     }
 
-    fn agent_dir(&self) -> String {
+    fn agent_dir(&self) -> JsString {
         self.agent_dir.clone()
     }
 
@@ -178,7 +179,7 @@ impl PackageCommandEffects for FakeEffects {
         Some(60)
     }
 
-    fn entrypoint(&self) -> Option<String> {
+    fn entrypoint(&self) -> Option<JsString> {
         self.entrypoint.clone()
     }
 
@@ -189,35 +190,35 @@ impl PackageCommandEffects for FakeEffects {
     fn create_settings<'a>(
         &'a self,
         options: CreateCommandSettingsOptions,
-    ) -> LocalBoxFuture<'a, Result<CommandSettings, String>> {
+    ) -> LocalBoxFuture<'a, Result<CommandSettings, JsString>> {
         Box::pin(async move { create_command_settings_manager(options, self.loader.as_ref()).await })
     }
 
     fn refresh_model_catalogs<'a>(
         &'a self,
-        _agent_dir: &'a str,
+        _agent_dir: &'a JsString,
     ) -> LocalBoxFuture<'a, Result<(), pi_js_compat::js_json::JsString>> {
-        self.calls.lock().unwrap().push("refresh".to_owned());
+        self.calls.lock().unwrap().push("refresh".into());
         let result = self.refresh.clone();
         Box::pin(async move { result })
     }
 
-    fn latest_release<'a>(&'a self) -> LocalBoxFuture<'a, Result<LatestPiRelease, String>> {
-        self.calls.lock().unwrap().push("latest_release".to_owned());
+    fn latest_release<'a>(&'a self) -> LocalBoxFuture<'a, Result<LatestPiRelease, JsString>> {
+        self.calls.lock().unwrap().push("latest_release".into());
         let result = self.release.clone();
         Box::pin(async move { result })
     }
 
-    fn run_self_update<'a>(&'a self, command: &'a SelfUpdateCommand) -> LocalBoxFuture<'a, Result<(), String>> {
+    fn run_self_update<'a>(&'a self, command: &'a SelfUpdateCommand) -> LocalBoxFuture<'a, Result<(), JsString>> {
         self.calls
             .lock()
             .unwrap()
-            .push(format!("self_update:{}", command.display));
+            .push(pi_js_compat::js_format!("self_update:{}", &command.display));
         let result = self.self_update.clone();
         Box::pin(async move { result })
     }
 
-    fn select_config<'a>(&'a self, request: SelectConfigRequest) -> LocalBoxFuture<'a, Result<(), String>> {
+    fn select_config<'a>(&'a self, request: SelectConfigRequest) -> LocalBoxFuture<'a, Result<(), JsString>> {
         self.config_requests
             .lock()
             .unwrap()
@@ -228,13 +229,16 @@ impl PackageCommandEffects for FakeEffects {
     fn install_packages<'a>(
         &'a self,
         _settings: &'a Arc<pi_coding_agent::core::package_manager::SettingsManagerStore>,
-        source: &'a str,
+        source: &'a JsString,
         local: bool,
         progress: PackageProgressSink,
-    ) -> LocalBoxFuture<'a, Result<(), String>> {
-        self.calls.lock().unwrap().push(format!("install:{source}:{local}"));
+    ) -> LocalBoxFuture<'a, Result<(), JsString>> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(pi_js_compat::js_format!("install:{}:{}", source, local));
         for message in &self.progress_messages {
-            progress(message.clone());
+            progress(message.clone().into());
         }
         let result = self.install.clone();
         Box::pin(async move { result })
@@ -243,13 +247,16 @@ impl PackageCommandEffects for FakeEffects {
     fn remove_packages<'a>(
         &'a self,
         _settings: &'a Arc<pi_coding_agent::core::package_manager::SettingsManagerStore>,
-        source: &'a str,
+        source: &'a JsString,
         local: bool,
         progress: PackageProgressSink,
-    ) -> LocalBoxFuture<'a, Result<bool, String>> {
-        self.calls.lock().unwrap().push(format!("remove:{source}:{local}"));
+    ) -> LocalBoxFuture<'a, Result<bool, JsString>> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(pi_js_compat::js_format!("remove:{}:{}", source, local));
         for message in &self.progress_messages {
-            progress(message.clone());
+            progress(message.clone().into());
         }
         let result = self.remove.clone();
         Box::pin(async move { result })
@@ -265,23 +272,23 @@ impl PackageCommandEffects for FakeEffects {
     fn update_packages<'a>(
         &'a self,
         _settings: &'a Arc<pi_coding_agent::core::package_manager::SettingsManagerStore>,
-        source: Option<&'a str>,
+        source: Option<&'a JsString>,
         progress: PackageProgressSink,
-    ) -> LocalBoxFuture<'a, Result<(), String>> {
-        self.calls
-            .lock()
-            .unwrap()
-            .push(format!("update:{}", source.unwrap_or("<all>")));
+    ) -> LocalBoxFuture<'a, Result<(), JsString>> {
+        self.calls.lock().unwrap().push(pi_js_compat::js_format!(
+            "update:{}",
+            source.cloned().unwrap_or_else(|| "<all>".into())
+        ));
         for message in &self.progress_messages {
-            progress(message.clone());
+            progress(message.clone().into());
         }
         let result = self.update.clone();
         Box::pin(async move { result })
     }
 }
 
-fn args(values: &[&str]) -> Vec<String> {
-    values.iter().map(|value| (*value).to_owned()).collect()
+fn args(values: &[&str]) -> Vec<JsString> {
+    values.iter().map(|value| JsString::from(*value)).collect()
 }
 
 #[test]
@@ -296,7 +303,7 @@ fn command_app_mode_requires_both_streams_to_be_terminals() {
 async fn install_prints_progress_then_the_installed_line() {
     let root = temp_dir("install");
     let mut effects = FakeEffects::new(&root, &agent_dir("install"), bun_install_context(&root));
-    effects.progress_messages = vec!["Installing npm:@foo/bar".to_owned()];
+    effects.progress_messages = vec!["Installing npm:@foo/bar".to_owned().into()];
 
     let outcome = execute_package_command(&args(&["install", "npm:@foo/bar", "-l", "--approve"]), &effects)
         .await
@@ -320,7 +327,7 @@ async fn install_prints_progress_then_the_installed_line() {
 async fn install_failure_prints_the_error_and_sets_exit_code() {
     let root = temp_dir("install-fail");
     let mut effects = FakeEffects::new(&root, &agent_dir("install-fail"), bun_install_context(&root));
-    effects.install = Err("network down".to_owned());
+    effects.install = Err("network down".to_owned().into());
 
     let outcome = execute_package_command(&args(&["install", "npm:x", "--approve"]), &effects)
         .await
@@ -408,13 +415,13 @@ async fn list_prints_the_configured_package_table() {
     let mut effects = FakeEffects::new(&root, &agent_dir("list"), bun_install_context(&root));
     effects.packages = vec![
         ConfiguredPackage {
-            source: "npm:@foo/bar".to_owned(),
+            source: "npm:@foo/bar".to_owned().into(),
             scope: InstalledScope::User,
             filtered: false,
-            installed_path: Some("/agent/node_modules/@foo/bar".to_owned()),
+            installed_path: Some("/agent/node_modules/@foo/bar".to_owned().into()),
         },
         ConfiguredPackage {
-            source: "git:github.com/x/y".to_owned(),
+            source: "git:github.com/x/y".to_owned().into(),
             scope: InstalledScope::Project,
             filtered: true,
             installed_path: None,
@@ -499,7 +506,7 @@ async fn up_to_date_release_prints_the_up_to_date_line() {
     let root = temp_dir("up-to-date");
     let mut effects = FakeEffects::new(&root, &agent_dir("up-to-date"), bun_install_context(&root));
     effects.release = Ok(LatestPiRelease {
-        version: current_version(),
+        version: current_version().into(),
         package_name: None,
         note: None,
     });
@@ -527,7 +534,7 @@ async fn force_runs_the_self_update_even_when_current() {
     let root = temp_dir("force");
     let mut effects = FakeEffects::new(&root, &agent_dir("force"), bun_install_context(&root));
     effects.release = Ok(LatestPiRelease {
-        version: current_version(),
+        version: current_version().into(),
         package_name: None,
         note: None,
     });
@@ -554,7 +561,7 @@ async fn force_runs_the_self_update_even_when_current() {
 async fn self_update_failure_prints_the_fallback_hint() {
     let root = temp_dir("self-update-fail");
     let mut effects = FakeEffects::new(&root, &agent_dir("self-update-fail"), bun_install_context(&root));
-    effects.self_update = Err("bun install -g exited with code 1".to_owned());
+    effects.self_update = Err("bun install -g exited with code 1".to_owned().into());
 
     let outcome = execute_package_command(&args(&["update", "--self"]), &effects)
         .await
@@ -606,7 +613,7 @@ async fn bun_binary_install_reports_the_download_instruction() {
 async fn release_lookup_failure_sets_exit_code() {
     let root = temp_dir("release-fail");
     let mut effects = FakeEffects::new(&root, &agent_dir("release-fail"), bun_install_context(&root));
-    effects.release = Err("Could not determine latest pi version.".to_owned());
+    effects.release = Err("Could not determine latest pi version.".to_owned().into());
 
     let outcome = execute_package_command(&args(&["update", "--self"]), &effects)
         .await
@@ -698,13 +705,16 @@ async fn saved_project_trust_is_used_for_updates() {
     fs::create_dir_all(project.join(".pi")).unwrap();
     fs::write(project.join(".pi/settings.json"), "{}").unwrap();
     let agent = agent_dir("saved-trust");
-    let store = ProjectTrustStore::new(&agent.display().to_string());
+    let store = ProjectTrustStore::new(&JsString::from(&agent.display().to_string())).unwrap();
     store
-        .set(&project.display().to_string(), ProjectTrustDecision::Trusted)
+        .set(
+            &JsString::from(&project.display().to_string()),
+            ProjectTrustDecision::Trusted,
+        )
         .unwrap();
     let mut effects = FakeEffects::new(&project, &agent, bun_install_context(&root));
     effects.release = Ok(LatestPiRelease {
-        version: current_version(),
+        version: current_version().into(),
         package_name: None,
         note: None,
     });
@@ -805,31 +815,31 @@ async fn config_local_requires_trust() {
 #[test]
 fn self_update_plan_decides_between_running_and_up_to_date() {
     let release = LatestPiRelease {
-        version: "9.9.9".to_owned(),
+        version: "9.9.9".to_owned().into(),
         package_name: None,
-        note: Some("note".to_owned()),
+        note: Some("note".to_owned().into()),
     };
-    let (plan, line) = self_update_plan(false, &release, "0.0.0");
+    let (plan, line) = self_update_plan(false, &release, &JsString::from("0.0.0"));
     assert!(plan.should_run);
     assert_eq!(plan.install_spec, "@earendil-works/pi-coding-agent@9.9.9");
-    assert_eq!(plan.note.as_deref(), Some("note"));
+    assert_eq!(plan.note.as_ref(), Some(&JsString::from("note")));
     assert!(line.is_none());
 
-    let (plan, line) = self_update_plan(false, &release, "9.9.9");
+    let (plan, line) = self_update_plan(false, &release, &JsString::from("9.9.9"));
     assert!(!plan.should_run);
     assert!(plan.note.is_none());
     assert_eq!(line, Some(Chalk::stdout().green("pi is already up to date (v9.9.9)")));
 
-    let (plan, line) = self_update_plan(true, &release, "9.9.9");
+    let (plan, line) = self_update_plan(true, &release, &JsString::from("9.9.9"));
     assert!(plan.should_run);
     assert!(line.is_none());
 
     let renamed = LatestPiRelease {
-        version: "1.0.0".to_owned(),
-        package_name: Some("@other/pi".to_owned()),
+        version: "1.0.0".to_owned().into(),
+        package_name: Some("@other/pi".to_owned().into()),
         note: None,
     };
-    let (plan, line) = self_update_plan(false, &renamed, "1.0.0");
+    let (plan, line) = self_update_plan(false, &renamed, &JsString::from("1.0.0"));
     assert!(plan.should_run);
     assert_eq!(plan.package_name, "@other/pi");
     assert_eq!(plan.install_spec, "@other/pi@1.0.0");
@@ -850,7 +860,7 @@ async fn get_self_update_plan_reports_lookup_failures() {
         }
     }
 
-    let error = get_self_update_plan(&FailingFetch, "0.0.0", false)
+    let error = get_self_update_plan(&FailingFetch, &JsString::from("0.0.0"), false)
         .await
         .expect_err("offline lookup fails");
     assert_eq!(error, "Could not determine latest pi version.");
@@ -858,8 +868,8 @@ async fn get_self_update_plan_reports_lookup_failures() {
 
 #[test]
 fn self_update_note_renders_markdown_between_blank_lines() {
-    assert!(self_update_note_lines("   ", Some(80)).is_empty());
-    let lines = self_update_note_lines("**bold** text", Some(40));
+    assert!(self_update_note_lines(&JsString::from("   "), Some(80)).is_empty());
+    let lines = self_update_note_lines(&JsString::from("**bold** text"), Some(40));
     assert_eq!(lines.len(), 4, "{lines:?}");
     assert_eq!(lines[0], "");
     assert!(lines[1].contains("Update note"));
@@ -870,9 +880,9 @@ fn self_update_note_renders_markdown_between_blank_lines() {
 #[test]
 fn self_update_helpers_render_the_expected_lines() {
     let command = SelfUpdateCommand {
-        command: "bun".to_owned(),
-        args: vec!["install".to_owned()],
-        display: "bun install".to_owned(),
+        command: "bun".to_owned().into(),
+        args: vec!["install".to_owned().into()],
+        display: "bun install".to_owned().into(),
         steps: None,
     };
     assert_eq!(
@@ -887,7 +897,7 @@ fn self_update_helpers_render_the_expected_lines() {
     let root = temp_dir("unavailable");
     let context = bun_binary_install_context(&root);
     let target = pi_coding_agent::config::SelfUpdatePackageTarget::new("@earendil-works/pi-coding-agent");
-    let lines = self_update_unavailable_lines(&context, None, &target, Some("/usr/bin/pi"));
+    let lines = self_update_unavailable_lines(&context, None, &target, Some(&JsString::from("/usr/bin/pi")));
     assert_eq!(lines.len(), 4);
     assert!(lines[0].starts_with("error: "));
     assert!(lines[1].starts_with("Download from: "));
@@ -898,17 +908,17 @@ fn self_update_helpers_render_the_expected_lines() {
 #[tokio::test]
 async fn run_self_update_reports_exit_codes_and_signals() {
     let success = SelfUpdateCommand {
-        command: "sh".to_owned(),
-        args: vec!["-c".to_owned(), "exit 0".to_owned()],
-        display: "sh -c exit 0".to_owned(),
+        command: "sh".to_owned().into(),
+        args: vec!["-c".to_owned().into(), "exit 0".to_owned().into()],
+        display: "sh -c exit 0".to_owned().into(),
         steps: None,
     };
     assert_eq!(run_self_update(&success).await, Ok(()));
 
     let failure = SelfUpdateCommand {
-        command: "sh".to_owned(),
-        args: vec!["-c".to_owned(), "exit 3".to_owned()],
-        display: "sh -c exit 3".to_owned(),
+        command: "sh".to_owned().into(),
+        args: vec!["-c".to_owned().into(), "exit 3".to_owned().into()],
+        display: "sh -c exit 3".to_owned().into(),
         steps: None,
     };
     assert_eq!(
@@ -917,9 +927,9 @@ async fn run_self_update_reports_exit_codes_and_signals() {
     );
 
     let missing = SelfUpdateCommand {
-        command: "/nonexistent/pi-self-update".to_owned(),
+        command: "/nonexistent/pi-self-update".to_owned().into(),
         args: Vec::new(),
-        display: "missing".to_owned(),
+        display: "missing".to_owned().into(),
         steps: None,
     };
     assert!(run_self_update(&missing).await.is_err());
@@ -928,7 +938,7 @@ async fn run_self_update_reports_exit_codes_and_signals() {
 #[test]
 fn report_project_trust_warnings_are_yellow() {
     assert_eq!(
-        report_project_trust_warnings_lines(&["a".to_owned()]),
+        report_project_trust_warnings_lines(&["a".to_owned().into()]),
         vec![Chalk::stderr().yellow("Warning: a")]
     );
 }
@@ -942,15 +952,15 @@ fn package_config_effects_struct_exposes_the_host_values() {
         fn select<'a>(
             &'a self,
             _request: SelectConfigRequest,
-        ) -> pi_coding_agent::package_manager_cli::LocalBoxFuture<'a, Result<(), String>> {
+        ) -> pi_coding_agent::package_manager_cli::LocalBoxFuture<'a, Result<(), JsString>> {
             Box::pin(async { Ok(()) })
         }
     }
     let effects = DefaultPackageCommandEffects {
-        cwd: root.display().to_string(),
-        agent_dir: root.join("agent").display().to_string(),
+        cwd: root.display().to_string().into(),
+        agent_dir: root.join("agent").display().to_string().into(),
         install_context: context.clone(),
-        entrypoint: context.entrypoint.clone(),
+        entrypoint: (context.entrypoint.clone()).map(JsString::from),
         extensions_loader: Arc::new(NoExtensionsLoader),
         config_selector: std::rc::Rc::new(Selector),
         fetch: pi_ai::http::default_fetch(),
@@ -959,7 +969,7 @@ fn package_config_effects_struct_exposes_the_host_values() {
     assert_eq!(effects.cwd(), root.display().to_string());
     assert_eq!(effects.agent_dir(), root.join("agent").display().to_string());
     assert_eq!(effects.stdout_columns(), None);
-    assert_eq!(effects.entrypoint(), context.entrypoint.clone());
+    assert_eq!(effects.entrypoint(), (context.entrypoint.clone()).map(JsString::from));
     assert_eq!(effects.install_context().package_dir, context.package_dir);
     assert_eq!(effects.install_context().exec_path, context.exec_path);
 }

@@ -5,16 +5,17 @@ use pi_coding_agent::package_manager_cli::{
     PackageAction, PackageCommand, UpdateTarget, format_package_list, handle_config_command, handle_package_command,
     package_command_usage, parse_package_command, update_target_includes_extensions, update_target_includes_self,
 };
+use pi_js_compat::js_json::JsString;
 
-fn args(values: &[&str]) -> Vec<String> {
-    values.iter().map(|value| (*value).to_owned()).collect()
+fn args(values: &[&str]) -> Vec<JsString> {
+    values.iter().map(|value| JsString::from(*value)).collect()
 }
 
 #[test]
 fn parses_install_and_remove_flags() {
     let options = parse_package_command(&args(&["install", "npm:x", "-l", "--approve"])).unwrap();
     assert_eq!(options.command, PackageCommand::Install);
-    assert_eq!(options.source.as_deref(), Some("npm:x"));
+    assert_eq!(options.source.as_ref(), Some(&JsString::from("npm:x")));
     assert!(options.local);
     assert_eq!(options.project_trust_override, Some(true));
 
@@ -43,14 +44,14 @@ fn update_target_matrix_matches_the_source() {
         (
             &["update", "npm:pkg"],
             UpdateTarget::Extensions {
-                source: Some("npm:pkg".to_owned()),
+                source: Some("npm:pkg".to_owned().into()),
             },
             false,
         ),
         (
             &["update", "--extension", "npm:pkg"],
             UpdateTarget::Extensions {
-                source: Some("npm:pkg".to_owned()),
+                source: Some("npm:pkg".to_owned().into()),
             },
             false,
         ),
@@ -68,13 +69,15 @@ fn update_target_matrix_matches_the_source() {
 fn update_conflicts_are_reported_once() {
     let options = parse_package_command(&args(&["update", "--all", "--self", "--models"])).unwrap();
     assert_eq!(
-        options.conflicting_options.as_deref(),
-        Some("--all cannot be combined with --self, --extensions, --models, or --extension")
+        options.conflicting_options.as_ref(),
+        Some(&JsString::from(
+            "--all cannot be combined with --self, --extensions, --models, or --extension"
+        ))
     );
     let options = parse_package_command(&args(&["update", "--extension", "a", "--extension", "b"])).unwrap();
     assert_eq!(
-        options.conflicting_options.as_deref(),
-        Some("--extension can only be provided once")
+        options.conflicting_options.as_ref(),
+        Some(&JsString::from("--extension can only be provided once"))
     );
 }
 
@@ -107,7 +110,7 @@ fn valid_commands_return_actions() {
     assert_eq!(
         outcome.action,
         Some(PackageAction::Install {
-            source: "npm:x".to_owned(),
+            source: "npm:x".to_owned().into(),
             local: true,
         })
     );
@@ -141,13 +144,13 @@ fn formats_the_configured_package_list() {
     assert_eq!(format_package_list(&[]), "No packages installed.");
     let packages = vec![
         ConfiguredPackage {
-            source: "npm:user".to_owned(),
+            source: "npm:user".to_owned().into(),
             scope: InstalledScope::User,
             filtered: false,
-            installed_path: Some("/agent/npm/node_modules/user".to_owned()),
+            installed_path: Some("/agent/npm/node_modules/user".to_owned().into()),
         },
         ConfiguredPackage {
-            source: "npm:project".to_owned(),
+            source: "npm:project".to_owned().into(),
             scope: InstalledScope::Project,
             filtered: true,
             installed_path: None,

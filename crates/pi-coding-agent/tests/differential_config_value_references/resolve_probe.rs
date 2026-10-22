@@ -1,5 +1,6 @@
 //! Child-process probe for the resolve cases that read the process environment.
 
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::process::Command;
@@ -44,17 +45,21 @@ pub(crate) fn spawn(mode: &str, env_pairs: &[(&str, OsString)]) -> Value {
 pub(crate) fn run_child() {
     let mode = std::env::var(MODE_ENV).expect("resolve child mode must be set");
     let value = match mode.as_str() {
-        "process_only" => resolve_config_value(&format!("${PROCESS}"), None),
-        "explicit_beats_process" => resolve_config_value(&format!("${PROCESS}"), Some(&map(&[(PROCESS, "explicit")]))),
-        "empty_explicit_falls_back" => resolve_config_value(&format!("${PROCESS}"), Some(&map(&[(PROCESS, "")]))),
+        "process_only" => resolve_config_value(&format!("${PROCESS}").into(), None),
+        "explicit_beats_process" => {
+            resolve_config_value(&format!("${PROCESS}").into(), Some(&map(&[(PROCESS, "explicit")])))
+        }
+        "empty_explicit_falls_back" => {
+            resolve_config_value(&format!("${PROCESS}").into(), Some(&map(&[(PROCESS, "")])))
+        }
         other => panic!("unknown resolve probe mode {other}"),
     };
     println!("{OUTPUT_PREFIX}{}", json!({"value": value}));
 }
 
-fn map(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+fn map(pairs: &[(&str, &str)]) -> HashMap<String, JsString> {
     pairs
         .iter()
-        .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+        .map(|(key, value)| ((*key).to_owned(), JsString::from(*value)))
         .collect()
 }

@@ -1,6 +1,7 @@
 //! Frozen auth-storage callback/write boundaries, using disposable credentials only.
 use pi_ai::auth::types::AuthOperationOptions;
 use pi_coding_agent::core::auth_storage::{AuthStorageBackend, FileAuthStorageBackend};
+use pi_js_compat::js_json::JsString;
 use serde_json::json;
 use std::{
     fs,
@@ -35,7 +36,7 @@ async fn auth_heartbeat_permission_error_uses_auth_thirty_second_threshold() {
     use std::os::unix::fs::PermissionsExt;
     let file = fixture("transient-stat");
     let parent = file.parent().unwrap().to_owned();
-    let backend = FileAuthStorageBackend::new(file.to_str().unwrap());
+    let backend = FileAuthStorageBackend::new(&JsString::from(file.to_str().unwrap()));
     let result = backend
         .with_lock_async(
             Box::new(move |_| {
@@ -66,7 +67,7 @@ async fn auth_heartbeat_permission_error_uses_auth_thirty_second_threshold() {
 #[tokio::test]
 async fn compromised_callback_cannot_write_under_lost_lock() {
     let file = fixture("compromised");
-    let backend = FileAuthStorageBackend::new(file.to_str().unwrap());
+    let backend = FileAuthStorageBackend::new(&JsString::from(file.to_str().unwrap()));
     let lock_path = PathBuf::from(format!("{}.lock", file.display()));
     let outcome = backend
         .with_lock_async(
@@ -87,7 +88,7 @@ async fn compromised_callback_cannot_write_under_lost_lock() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sync_auth_contender_cannot_steal_three_second_live_async_lock() {
     let file = fixture("live");
-    let backend = Arc::new(FileAuthStorageBackend::new(file.to_str().unwrap()));
+    let backend = Arc::new(FileAuthStorageBackend::new(&JsString::from(file.to_str().unwrap())));
     let holder_backend = backend.clone();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let (release_tx, release_rx) = tokio::sync::oneshot::channel();

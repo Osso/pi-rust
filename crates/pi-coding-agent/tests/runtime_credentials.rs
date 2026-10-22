@@ -1,5 +1,6 @@
 //! Ports `packages/coding-agent/test/runtime-credentials.test.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
 use pi_ai::auth::types::{
@@ -21,7 +22,7 @@ fn runtime() -> tokio::runtime::Runtime {
 
 fn api_key(key: &str) -> Credential {
     Credential::ApiKey(ApiKeyCredential {
-        key: Some(key.to_owned()),
+        key: Some(key.to_owned().into()),
         env: None,
     })
 }
@@ -39,7 +40,7 @@ fn runtime_overrides_mask_stored_credentials_without_persisting() {
     let storage = storage_with(&[("anthropic", json!({"type": "api_key", "key": "stored-key"}))]);
     let credentials = RuntimeCredentials::new(Arc::clone(&storage) as Arc<dyn CredentialStore>);
 
-    credentials.set_runtime_api_key("anthropic", "runtime-key");
+    credentials.set_runtime_api_key("anthropic", &JsString::from("runtime-key"));
     runtime().block_on(async {
         assert_eq!(
             credentials
@@ -77,8 +78,8 @@ fn enumeration_merges_overrides_without_exposing_keys() {
         json!({"type": "oauth", "access": "access", "refresh": "refresh", "expires": 1_760_000_000_000.0}),
     )]);
     let credentials = RuntimeCredentials::new(Arc::clone(&storage) as Arc<dyn CredentialStore>);
-    credentials.set_runtime_api_key("anthropic", "runtime-key");
-    credentials.set_runtime_api_key("openai", "other-runtime-key");
+    credentials.set_runtime_api_key("anthropic", &JsString::from("runtime-key"));
+    credentials.set_runtime_api_key("openai", &JsString::from("other-runtime-key"));
 
     let listed = runtime()
         .block_on(credentials.list(AuthOperationOptions::default()))
@@ -196,7 +197,7 @@ fn keeps_a_runtime_override_when_persistent_deletion_is_cancelled() {
         inner: Arc::clone(&storage),
     });
     let credentials = RuntimeCredentials::new(failing as Arc<dyn CredentialStore>);
-    credentials.set_runtime_api_key("anthropic", "runtime-key");
+    credentials.set_runtime_api_key("anthropic", &JsString::from("runtime-key"));
 
     let error = runtime()
         .block_on(credentials.delete("anthropic", AuthOperationOptions::default()))
@@ -217,7 +218,7 @@ fn keeps_a_runtime_override_when_persistent_deletion_is_cancelled() {
 fn delete_clears_both_the_override_and_the_persisted_credential() {
     let storage = storage_with(&[("anthropic", json!({"type": "api_key", "key": "stored-key"}))]);
     let credentials = RuntimeCredentials::new(Arc::clone(&storage) as Arc<dyn CredentialStore>);
-    credentials.set_runtime_api_key("anthropic", "runtime-key");
+    credentials.set_runtime_api_key("anthropic", &JsString::from("runtime-key"));
 
     runtime()
         .block_on(credentials.delete("anthropic", AuthOperationOptions::default()))

@@ -1,5 +1,6 @@
 //! `core/project-trust.ts` and `cli/project-trust.ts` behavior.
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -28,7 +29,7 @@ fn extension_runtime() -> ExtensionRuntime {
 
 async fn extension(
     runtime: &ExtensionRuntime,
-    cwd: &str,
+    cwd: &JsString,
     path: &str,
     setup: impl FnOnce(&ExtensionApi) + Send + 'static,
 ) -> Extension {
@@ -47,14 +48,14 @@ async fn extension(
         cwd,
         Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
         runtime.clone(),
-        path,
+        &JsString::from(path),
     )
     .await
     .expect("extension factory succeeds")
 }
 
-fn s(path: &Path) -> String {
-    path.display().to_string()
+fn s(path: &Path) -> JsString {
+    path.display().to_string().into()
 }
 
 fn temp_dir(name: &str) -> PathBuf {
@@ -79,15 +80,15 @@ fn trust_requiring_project(name: &str) -> (PathBuf, PathBuf) {
 }
 
 struct RecordingUi {
-    labels: Mutex<Vec<String>>,
-    selection: Option<String>,
+    labels: Mutex<Vec<JsString>>,
+    selection: Option<JsString>,
 }
 
 impl RecordingUi {
     fn selecting(selection: &str) -> Arc<Self> {
         Arc::new(Self {
             labels: Mutex::new(Vec::new()),
-            selection: Some(selection.to_owned()),
+            selection: Some(selection.into()),
         })
     }
 
@@ -98,7 +99,7 @@ impl RecordingUi {
         })
     }
 
-    fn labels(&self) -> Vec<String> {
+    fn labels(&self) -> Vec<JsString> {
         self.labels.lock().unwrap().clone()
     }
 }
@@ -106,10 +107,10 @@ impl RecordingUi {
 impl ExtensionUiContext for RecordingUi {
     fn select<'a>(
         &'a self,
-        _title: &str,
-        options: &[String],
+        _title: &JsString,
+        options: &[JsString],
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
         let labels = options.to_vec();
         let selection = self.selection.clone();
         Box::pin(async move {
@@ -119,9 +120,9 @@ impl ExtensionUiContext for RecordingUi {
     }
 }
 
-fn context(cwd: &str, has_ui: bool, ui: Arc<dyn ExtensionUiContext>) -> ProjectTrustContext {
+fn context(cwd: &JsString, has_ui: bool, ui: Arc<dyn ExtensionUiContext>) -> ProjectTrustContext {
     ProjectTrustContext {
-        cwd: cwd.to_owned(),
+        cwd: cwd.to_owned().into(),
         mode: ExtensionMode::Tui,
         has_ui,
         ui,
@@ -129,7 +130,7 @@ fn context(cwd: &str, has_ui: bool, ui: Arc<dyn ExtensionUiContext>) -> ProjectT
 }
 
 fn options<'a>(
-    cwd: &'a str,
+    cwd: &'a JsString,
     store: &'a ProjectTrustStore,
     trust_context: &'a ProjectTrustContext,
 ) -> ResolveProjectTrustedOptions<'a> {
@@ -147,7 +148,7 @@ fn options<'a>(
 #[test]
 fn prompt_text_matches_the_typescript_template() {
     assert_eq!(
-        format_project_trust_prompt("/work/project"),
+        format_project_trust_prompt(&JsString::from("/work/project")),
         "Trust project folder?\n/work/project\n\nThis allows pi to load .pi settings and resources, install missing project packages, and execute project extensions."
     );
 }
@@ -155,7 +156,7 @@ fn prompt_text_matches_the_typescript_template() {
 #[tokio::test]
 async fn trust_override_short_circuits_every_other_check() {
     let (agent_dir, project) = trust_requiring_project("override");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::selecting("Do not trust");
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -177,7 +178,7 @@ async fn projects_without_trust_requiring_resources_are_trusted() {
     fs::create_dir_all(&agent_dir).unwrap();
     let project = temp.join("plain");
     fs::create_dir_all(&project).unwrap();
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::recording();
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -193,7 +194,7 @@ async fn projects_without_trust_requiring_resources_are_trusted() {
 #[tokio::test]
 async fn stored_decisions_win_over_the_default_setting() {
     let (agent_dir, project) = trust_requiring_project("stored");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::recording();
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -213,7 +214,7 @@ async fn stored_decisions_win_over_the_default_setting() {
 #[tokio::test]
 async fn default_setting_applies_when_the_store_has_no_decision() {
     let (agent_dir, project) = trust_requiring_project("defaults");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::recording();
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -231,7 +232,7 @@ async fn default_setting_applies_when_the_store_has_no_decision() {
 #[tokio::test]
 async fn ask_without_ui_is_untrusted() {
     let (agent_dir, project) = trust_requiring_project("no-ui");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::selecting("Trust");
     let project_path = s(&project);
     let ctx = context(&project_path, false, ui.clone());
@@ -248,7 +249,7 @@ async fn ask_without_ui_is_untrusted() {
 #[tokio::test]
 async fn ask_prompts_with_every_option_and_persists_the_choice() {
     let (agent_dir, project) = trust_requiring_project("prompt");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::selecting("Do not trust");
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -274,7 +275,7 @@ async fn ask_prompts_with_every_option_and_persists_the_choice() {
 #[tokio::test]
 async fn session_only_choices_do_not_touch_the_store() {
     let (agent_dir, project) = trust_requiring_project("session-only");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::selecting("Trust (this session only)");
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -290,7 +291,7 @@ async fn session_only_choices_do_not_touch_the_store() {
 #[tokio::test]
 async fn dismissing_the_prompt_is_untrusted() {
     let (agent_dir, project) = trust_requiring_project("dismiss");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::recording();
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -306,7 +307,7 @@ async fn dismissing_the_prompt_is_untrusted() {
 #[tokio::test]
 async fn an_unknown_selection_is_untrusted_without_writing() {
     let (agent_dir, project) = trust_requiring_project("unknown-selection");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::selecting("something else");
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -357,7 +358,7 @@ async fn extensions_result(
 #[tokio::test]
 async fn extension_decisions_win_and_remember_persists_them() {
     let (agent_dir, project) = trust_requiring_project("extension");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::recording();
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -380,7 +381,7 @@ async fn extension_decisions_win_and_remember_persists_them() {
 #[tokio::test]
 async fn extension_decision_without_remember_does_not_write() {
     let (agent_dir, project) = trust_requiring_project("extension-no-remember");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::recording();
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -395,7 +396,7 @@ async fn extension_decision_without_remember_does_not_write() {
 #[tokio::test]
 async fn extension_errors_are_reported_and_resolution_continues() {
     let (agent_dir, project) = trust_requiring_project("extension-error");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::recording();
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -433,7 +434,7 @@ async fn extension_errors_are_reported_and_resolution_continues() {
 async fn unreadable_trust_store_errors_instead_of_silently_untrusting() {
     let (agent_dir, project) = trust_requiring_project("bad-store");
     fs::write(agent_dir.join("trust.json"), "{not json").unwrap();
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::selecting("Trust");
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -446,10 +447,10 @@ async fn unreadable_trust_store_errors_instead_of_silently_untrusting() {
 }
 
 struct RecordingStartupUi {
-    selections: Mutex<Vec<(String, Vec<String>)>>,
-    inputs: Mutex<Vec<(String, Option<String>)>>,
-    selection: Option<String>,
-    input: Option<String>,
+    selections: Mutex<Vec<(JsString, Vec<JsString>)>>,
+    inputs: Mutex<Vec<(JsString, Option<JsString>)>>,
+    selection: Option<JsString>,
+    input: Option<JsString>,
 }
 
 impl RecordingStartupUi {
@@ -457,14 +458,14 @@ impl RecordingStartupUi {
         Arc::new(Self {
             selections: Mutex::new(Vec::new()),
             inputs: Mutex::new(Vec::new()),
-            selection: selection.map(str::to_owned),
-            input: input.map(str::to_owned),
+            selection: selection.map(JsString::from),
+            input: input.map(JsString::from),
         })
     }
 }
 
 impl ProjectTrustStartupUi for RecordingStartupUi {
-    fn select<'a>(&'a self, title: &'a str, options: &'a [String]) -> BoxFuture<'a, Option<String>> {
+    fn select<'a>(&'a self, title: &'a JsString, options: &'a [JsString]) -> BoxFuture<'a, Option<JsString>> {
         self.selections
             .lock()
             .unwrap()
@@ -473,24 +474,24 @@ impl ProjectTrustStartupUi for RecordingStartupUi {
         Box::pin(async move { selection })
     }
 
-    fn input<'a>(&'a self, title: &'a str, placeholder: Option<&'a str>) -> BoxFuture<'a, Option<String>> {
+    fn input<'a>(&'a self, title: &'a JsString, placeholder: Option<&'a JsString>) -> BoxFuture<'a, Option<JsString>> {
         self.inputs
             .lock()
             .unwrap()
-            .push((title.to_owned(), placeholder.map(str::to_owned)));
+            .push((title.to_owned(), placeholder.cloned()));
         let value = self.input.clone();
         Box::pin(async move { value })
     }
 }
 
 fn cli_context(
-    cwd: &str,
+    cwd: &JsString,
     mode: AppMode,
     has_ui: bool,
     startup_ui: Option<Arc<RecordingStartupUi>>,
 ) -> ProjectTrustContext {
     create_project_trust_context(CreateProjectTrustContextOptions {
-        cwd: cwd.to_owned(),
+        cwd: cwd.to_owned().into(),
         mode,
         has_ui,
         startup_ui: startup_ui.map(|ui| ui as Arc<dyn ProjectTrustStartupUi>),
@@ -507,7 +508,7 @@ async fn cli_context_maps_app_modes_to_extension_modes() {
         (AppMode::Rpc, ExtensionMode::Rpc),
     ];
     for (mode, expected) in cases {
-        let ctx = cli_context("/work", mode, true, Some(startup.clone()));
+        let ctx = cli_context(&JsString::from("/work"), mode, true, Some(startup.clone()));
         assert_eq!(ctx.cwd, "/work");
         assert_eq!(ctx.mode, expected);
         assert!(ctx.has_ui);
@@ -517,22 +518,34 @@ async fn cli_context_maps_app_modes_to_extension_modes() {
 #[tokio::test]
 async fn cli_context_selects_through_the_startup_ui_in_interactive_mode() {
     let startup = RecordingStartupUi::new(Some("Yes"), Some("typed"));
-    let ctx = cli_context("/work", AppMode::Interactive, true, Some(startup.clone()));
+    let ctx = cli_context(
+        &JsString::from("/work"),
+        AppMode::Interactive,
+        true,
+        Some(startup.clone()),
+    );
 
     let selected = ctx
         .ui
-        .select("Pick", &["Yes".to_owned(), "No".to_owned()], None)
+        .select(
+            &JsString::from("Pick"),
+            &["Yes".to_owned().into(), "No".to_owned().into()],
+            None,
+        )
         .await
         .unwrap();
-    assert_eq!(selected.as_deref(), Some("Yes"));
+    assert_eq!(selected.as_ref(), Some(&JsString::from("Yes")));
     assert_eq!(
         *startup.selections.lock().unwrap(),
         vec![("Pick".to_owned(), vec!["Yes".to_owned(), "No".to_owned()])]
     );
 
     assert_eq!(
-        ctx.ui.input("Name", Some("placeholder"), None).await.unwrap(),
-        Some("typed".to_owned())
+        ctx.ui
+            .input(&JsString::from("Name"), Some(&JsString::from("placeholder")), None)
+            .await
+            .unwrap(),
+        (Some("typed".to_owned())).map(JsString::from)
     );
     assert_eq!(
         *startup.inputs.lock().unwrap(),
@@ -543,29 +556,65 @@ async fn cli_context_selects_through_the_startup_ui_in_interactive_mode() {
 #[tokio::test]
 async fn cli_context_confirm_uses_yes_no_labels() {
     let startup = RecordingStartupUi::new(Some("Yes"), None);
-    let ctx = cli_context("/work", AppMode::Interactive, true, Some(startup.clone()));
-    assert!(ctx.ui.confirm("Title", "Body", None).await.unwrap());
+    let ctx = cli_context(
+        &JsString::from("/work"),
+        AppMode::Interactive,
+        true,
+        Some(startup.clone()),
+    );
+    assert!(
+        ctx.ui
+            .confirm(&JsString::from("Title"), &JsString::from("Body"), None)
+            .await
+            .unwrap()
+    );
     assert_eq!(
         *startup.selections.lock().unwrap(),
         vec![("Title\nBody".to_owned(), vec!["Yes".to_owned(), "No".to_owned()])]
     );
 
     let startup = RecordingStartupUi::new(Some("No"), None);
-    let ctx = cli_context("/work", AppMode::Interactive, true, Some(startup));
-    assert!(!ctx.ui.confirm("Title", "Body", None).await.unwrap());
+    let ctx = cli_context(&JsString::from("/work"), AppMode::Interactive, true, Some(startup));
+    assert!(
+        !ctx.ui
+            .confirm(&JsString::from("Title"), &JsString::from("Body"), None)
+            .await
+            .unwrap()
+    );
 
     let startup = RecordingStartupUi::new(None, None);
-    let ctx = cli_context("/work", AppMode::Interactive, true, Some(startup));
-    assert!(!ctx.ui.confirm("Title", "Body", None).await.unwrap());
+    let ctx = cli_context(&JsString::from("/work"), AppMode::Interactive, true, Some(startup));
+    assert!(
+        !ctx.ui
+            .confirm(&JsString::from("Title"), &JsString::from("Body"), None)
+            .await
+            .unwrap()
+    );
 }
 
 #[tokio::test]
 async fn cli_context_without_ui_never_prompts() {
     let startup = RecordingStartupUi::new(Some("Yes"), Some("typed"));
-    let ctx = cli_context("/work", AppMode::Interactive, false, Some(startup.clone()));
-    assert_eq!(ctx.ui.select("Pick", &["Yes".to_owned()], None).await.unwrap(), None);
-    assert!(!ctx.ui.confirm("Title", "Body", None).await.unwrap());
-    assert_eq!(ctx.ui.input("Name", None, None).await.unwrap(), None);
+    let ctx = cli_context(
+        &JsString::from("/work"),
+        AppMode::Interactive,
+        false,
+        Some(startup.clone()),
+    );
+    assert_eq!(
+        ctx.ui
+            .select(&JsString::from("Pick"), &["Yes".to_owned().into()], None)
+            .await
+            .unwrap(),
+        None
+    );
+    assert!(
+        !ctx.ui
+            .confirm(&JsString::from("Title"), &JsString::from("Body"), None)
+            .await
+            .unwrap()
+    );
+    assert_eq!(ctx.ui.input(&JsString::from("Name"), None, None).await.unwrap(), None);
     assert!(startup.selections.lock().unwrap().is_empty());
     assert!(startup.inputs.lock().unwrap().is_empty());
 }
@@ -574,10 +623,21 @@ async fn cli_context_without_ui_never_prompts() {
 async fn cli_context_outside_interactive_mode_never_prompts() {
     for mode in [AppMode::Print, AppMode::Json, AppMode::Rpc] {
         let startup = RecordingStartupUi::new(Some("Yes"), Some("typed"));
-        let ctx = cli_context("/work", mode, true, Some(startup.clone()));
-        assert_eq!(ctx.ui.select("Pick", &["Yes".to_owned()], None).await.unwrap(), None);
-        assert!(!ctx.ui.confirm("Title", "Body", None).await.unwrap());
-        assert_eq!(ctx.ui.input("Name", None, None).await.unwrap(), None);
+        let ctx = cli_context(&JsString::from("/work"), mode, true, Some(startup.clone()));
+        assert_eq!(
+            ctx.ui
+                .select(&JsString::from("Pick"), &["Yes".to_owned().into()], None)
+                .await
+                .unwrap(),
+            None
+        );
+        assert!(
+            !ctx.ui
+                .confirm(&JsString::from("Title"), &JsString::from("Body"), None)
+                .await
+                .unwrap()
+        );
+        assert_eq!(ctx.ui.input(&JsString::from("Name"), None, None).await.unwrap(), None);
         assert!(startup.selections.lock().unwrap().is_empty());
         assert!(startup.inputs.lock().unwrap().is_empty());
     }

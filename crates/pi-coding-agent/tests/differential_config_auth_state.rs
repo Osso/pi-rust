@@ -1,5 +1,7 @@
 //! Differential proof for `auth-guidance.ts`, `trust-manager.ts`, and `permissions/rule-store.ts`.
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::fs;
 use std::path::PathBuf;
 
@@ -54,7 +56,8 @@ fn decision_value(decision: ProjectTrustDecision) -> Value {
 
 fn options_value(cwd: &str, include_session_only: bool) -> Value {
     Value::Array(
-        get_project_trust_options(cwd, include_session_only)
+        get_project_trust_options(&JsString::from(cwd), include_session_only)
+            .unwrap()
             .into_iter()
             .map(|option| {
                 let mut value = json!({
@@ -136,35 +139,54 @@ fn trust_store_matches_the_pinned_typescript_module() {
     let _ = fs::remove_file(agent_dir.join("trust.json"));
     let _ = fs::remove_dir_all(agent_dir.join("trust.json.lock"));
 
-    let store = ProjectTrustStore::new(&agent_dir.display().to_string());
+    let store = ProjectTrustStore::new(&JsString::from(&agent_dir.display().to_string())).unwrap();
     let mut results: Vec<Value> = Vec::new();
-    results.push(decision_value(store.get(&child.display().to_string()).unwrap()));
+    results.push(decision_value(
+        store.get(&JsString::from(&child.display().to_string())).unwrap(),
+    ));
     store
-        .set(&parent.display().to_string(), ProjectTrustDecision::Trusted)
+        .set(
+            &JsString::from(&parent.display().to_string()),
+            ProjectTrustDecision::Trusted,
+        )
         .unwrap();
     results.push(Value::Null);
-    results.push(decision_value(store.get(&child.display().to_string()).unwrap()));
+    results.push(decision_value(
+        store.get(&JsString::from(&child.display().to_string())).unwrap(),
+    ));
     store
-        .set(&child.display().to_string(), ProjectTrustDecision::Untrusted)
+        .set(
+            &JsString::from(&child.display().to_string()),
+            ProjectTrustDecision::Untrusted,
+        )
         .unwrap();
     results.push(Value::Null);
-    results.push(decision_value(store.get(&child.display().to_string()).unwrap()));
+    results.push(decision_value(
+        store.get(&JsString::from(&child.display().to_string())).unwrap(),
+    ));
     store
-        .set(&child.display().to_string(), ProjectTrustDecision::Unknown)
+        .set(
+            &JsString::from(&child.display().to_string()),
+            ProjectTrustDecision::Unknown,
+        )
         .unwrap();
     results.push(Value::Null);
-    results.push(decision_value(store.get(&child.display().to_string()).unwrap()));
+    results.push(decision_value(
+        store.get(&JsString::from(&child.display().to_string())).unwrap(),
+    ));
     results.push(options_value(&child.display().to_string(), false));
     results.push(options_value(&child.display().to_string(), true));
-    results.push(json!(get_project_trust_parent_path(&child.display().to_string())));
+    results.push(json!(
+        get_project_trust_parent_path(&JsString::from(&child.display().to_string())).unwrap()
+    ));
     store
         .set_many(&[
             ProjectTrustUpdate {
-                path: zulu.display().to_string(),
+                path: zulu.display().to_string().into(),
                 decision: ProjectTrustDecision::Trusted,
             },
             ProjectTrustUpdate {
-                path: alpha.display().to_string(),
+                path: alpha.display().to_string().into(),
                 decision: ProjectTrustDecision::Untrusted,
             },
         ])
@@ -208,8 +230,13 @@ fn permission_rule_store_matches_the_pinned_typescript_module() {
             "input": input,
         }));
         assert_eq!(response["ok"], true, "content oracle failed: {response}");
-        let actual =
-            build_permission_rule_content(if index == 0 { "bash" } else { "read" }, input.as_object().unwrap());
+        let actual = build_permission_rule_content(
+            if index == 0 { "bash" } else { "read" },
+            &(input.as_object().unwrap())
+                .iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect(),
+        );
         assert_eq!(json!({"content": actual}), response["output"], "content case {index}");
     }
 
@@ -274,12 +301,12 @@ fn permission_rule_store_matches_the_pinned_typescript_module() {
                 _ => PermissionRuleDestination::LocalSettings,
             };
             let actual = write_permission_rules(&WritePermissionRulesOptions {
-                cwd: cwd.display().to_string(),
-                agent_dir: agent_dir.display().to_string(),
+                cwd: cwd.display().to_string().into(),
+                agent_dir: agent_dir.display().to_string().into(),
                 destination: destination_kind,
                 behavior: PermissionRuleBehavior::Allow,
                 tool_name: "bash".to_owned(),
-                rules: vec!["git status".to_owned(), "git status".to_owned()],
+                rules: vec!["git status".to_owned().into(), "git status".to_owned().into()],
             });
             match actual {
                 Ok(()) => {
@@ -344,33 +371,39 @@ fn permission_rule_store_matches_the_pinned_typescript_module() {
         }));
     }));
     let mut results: Vec<Value> = Vec::new();
-    store.add_allow_rules("bash", &["git status".to_owned()]);
+    store.add_allow_rules("bash", &["git status".to_owned().into()]);
     results.push(Value::Null);
-    results.push(json!(store.has_allow_rule("bash", "git status")));
-    results.push(json!(store.has_allow_rule("bash", "git diff")));
-    results.push(json!(store.has_allow_rule("read", "git status")));
-    store.add_settings_rules(Some(
+    results.push(json!(store.has_allow_rule("bash", &JsString::from("git status"))));
+    results.push(json!(store.has_allow_rule("bash", &JsString::from("git diff"))));
+    results.push(json!(store.has_allow_rule("read", &JsString::from("git status"))));
+    store.add_settings_rules(Some(&JsValue::from(
         &json!({"permissionRules": {"allow": {"read": ["/tmp/a", 3], "grep": "nope"}}}),
-    ));
+    )));
     results.push(Value::Null);
-    results.push(json!(store.has_allow_rule("read", "/tmp/a")));
+    results.push(json!(store.has_allow_rule("read", &JsString::from("/tmp/a"))));
     store.apply_updated_permissions(
         "bash",
         Some(&[
-            PermissionRuleUpdate::new(PermissionRuleDestination::Session, vec!["session-rule".to_owned()]),
+            PermissionRuleUpdate::new(
+                PermissionRuleDestination::Session,
+                vec!["session-rule".to_owned().into()],
+            ),
             PermissionRuleUpdate::new(
                 PermissionRuleDestination::ProjectSettings,
-                vec!["project-rule".to_owned()],
+                vec!["project-rule".to_owned().into()],
             ),
         ]),
     );
     results.push(Value::Null);
-    store.set_locations(Some(cwd.display().to_string()), Some(agent_dir.display().to_string()));
+    store.set_locations(
+        Some(cwd.display().to_string().into()),
+        Some(agent_dir.display().to_string().into()),
+    );
     store.apply_updated_permissions(
         "bash",
         Some(&[PermissionRuleUpdate::new(
             PermissionRuleDestination::UserSettings,
-            vec!["user-rule".to_owned()],
+            vec!["user-rule".to_owned().into()],
         )]),
     );
     results.push(Value::Null);

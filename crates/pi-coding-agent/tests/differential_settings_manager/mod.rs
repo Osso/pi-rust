@@ -1,6 +1,7 @@
 #[path = "../support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsValue;
 use std::fs;
 use std::path::Path;
 
@@ -38,8 +39,8 @@ fn run_scenario(oracle: &mut oracle::TsOracle, index: usize, scenario: &Scenario
     let rust_project_dir = rust_temp.path().join("project");
 
     let mut manager = SettingsManager::create(
-        &rust_project_dir.to_string_lossy(),
-        Some(&rust_agent_dir),
+        &JsString::from((&rust_project_dir.to_string_lossy()).as_ref()),
+        Some(&JsString::from((&rust_agent_dir).to_string_lossy().as_ref())),
         SettingsManagerCreateOptions::default(),
     )
     .expect("settings manager");
@@ -160,7 +161,7 @@ fn apply_step(manager: &mut SettingsManager, step: &Value, agent_dir: &Path, pro
     match op {
         "set_last_changelog_version" => manager.set_last_changelog_version(&JsString::from(value.as_str().unwrap())),
         "set_enable_analytics" => manager.set_enable_analytics(value.as_bool().unwrap()),
-        "set_theme" => manager.set_theme(value.as_str().unwrap()),
+        "set_theme" => manager.set_theme(&JsString::from(value.as_str().unwrap())),
         "set_default_provider" => manager.set_default_provider(value.as_str().unwrap()),
         "set_default_model" => manager.set_default_model(value.as_str().unwrap()),
         "set_default_model_and_provider" => {
@@ -220,24 +221,37 @@ fn apply_step(manager: &mut SettingsManager, step: &Value, agent_dir: &Path, pro
             let result = manager.set_project_packages(parse_packages(value));
             return result.is_err();
         }
-        "set_extension_paths" => manager.set_extension_paths(&parse_strings(value)),
+        "set_extension_paths" => {
+            manager.set_extension_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>())
+        }
         "set_project_extension_paths" => {
-            let result = manager.set_project_extension_paths(&parse_strings(value));
+            let result = manager
+                .set_project_extension_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>());
             return result.is_err();
         }
-        "set_skill_paths" => manager.set_skill_paths(&parse_strings(value)),
+        "set_skill_paths" => {
+            manager.set_skill_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>())
+        }
         "set_project_skill_paths" => {
-            let result = manager.set_project_skill_paths(&parse_strings(value));
+            let result = manager
+                .set_project_skill_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>());
             return result.is_err();
         }
-        "set_prompt_template_paths" => manager.set_prompt_template_paths(&parse_strings(value)),
+        "set_prompt_template_paths" => {
+            manager.set_prompt_template_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>())
+        }
         "set_project_prompt_template_paths" => {
-            let result = manager.set_project_prompt_template_paths(&parse_strings(value));
+            let result = manager.set_project_prompt_template_paths(
+                &(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>(),
+            );
             return result.is_err();
         }
-        "set_theme_paths" => manager.set_theme_paths(&parse_strings(value)),
+        "set_theme_paths" => {
+            manager.set_theme_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>())
+        }
         "set_project_theme_paths" => {
-            let result = manager.set_project_theme_paths(&parse_strings(value));
+            let result = manager
+                .set_project_theme_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>());
             return result.is_err();
         }
         "set_enable_skill_commands" => manager.set_enable_skill_commands(value.as_bool().unwrap()),
@@ -268,17 +282,29 @@ fn apply_step(manager: &mut SettingsManager, step: &Value, agent_dir: &Path, pro
         "set_editor_padding_x" => manager.set_editor_padding_x(value.as_f64().unwrap()),
         "set_output_pad" => manager.set_output_pad(value.as_u64().unwrap() as u8),
         "set_autocomplete_max_visible" => manager.set_autocomplete_max_visible(value.as_f64().unwrap()),
-        "set_warnings" => manager.set_warnings(value.as_object().expect("warnings object")),
-        "apply_overrides" => manager.apply_overrides(value.as_object().expect("overrides object")),
+        "set_warnings" => manager.set_warnings(
+            &(value.as_object().expect("warnings object"))
+                .iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect(),
+        ),
+        "apply_overrides" => manager.apply_overrides(
+            &(value.as_object().expect("overrides object"))
+                .iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect(),
+        ),
         "reload" => manager.reload(),
         "flush" => manager.flush(),
         "project_write_then_revoke_same_turn" => {
-            manager.set_project_extension_paths(&parse_strings(value)).unwrap();
+            manager
+                .set_project_extension_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>())
+                .unwrap();
             manager.set_project_trusted(false);
             manager.flush();
         }
         "setter_external_write_same_turn" => {
-            manager.set_theme(value.as_str().unwrap());
+            manager.set_theme(&JsString::from(value.as_str().unwrap()));
             fs::write(agent_dir.join("settings.json"), step["content"].as_str().unwrap()).unwrap();
             manager.flush();
         }
@@ -387,8 +413,8 @@ fn snapshot(manager: &SettingsManager) -> Value {
         "hideToolOutput": manager.get_hide_tool_output(),
         "hideCoordinationMessages": manager.get_hide_coordination_messages(),
         "idleCompaction": manager.get_idle_compaction_enabled(),
-        "shellPath": option_str(manager.get_shell_path().as_deref()),
-        "sessionDir": option_str(manager.get_session_dir().as_deref()),
+        "shellPath": option_str(manager.get_shell_path().as_ref()),
+        "sessionDir": option_str(manager.get_session_dir().as_ref()),
         "quietStartup": manager.get_quiet_startup(),
         "defaultProjectTrust": match manager.get_default_project_trust() {
             DefaultProjectTrust::Ask => "ask",
@@ -426,14 +452,14 @@ fn snapshot(manager: &SettingsManager) -> Value {
         "warnings": Value::Object(manager.get_warnings()),
         "permissionPromptTool": manager.get_permission_prompt_tool(),
         "agentProfiles": {
-            "browser": manager.get_agent_profile("browser"),
-            "explore": manager.get_agent_profile("explore"),
-            "implement": manager.get_agent_profile("implement"),
-            "verifier": manager.get_agent_profile("verifier"),
-            "documentation-update": manager.get_agent_profile("documentation-update"),
-            "reviewer": manager.get_agent_profile("reviewer"),
-            "unknown": manager.get_agent_profile("unknown"),
-            "empty": manager.get_agent_profile("   "),
+            "browser": manager.get_agent_profile(&JsString::from("browser")),
+            "explore": manager.get_agent_profile(&JsString::from("explore")),
+            "implement": manager.get_agent_profile(&JsString::from("implement")),
+            "verifier": manager.get_agent_profile(&JsString::from("verifier")),
+            "documentation-update": manager.get_agent_profile(&JsString::from("documentation-update")),
+            "reviewer": manager.get_agent_profile(&JsString::from("reviewer")),
+            "unknown": manager.get_agent_profile(&JsString::from("unknown")),
+            "empty": manager.get_agent_profile(&JsString::from("   ")),
         },
     })
 }
@@ -719,8 +745,8 @@ pub(crate) fn bidirectional() {
         ],
     );
     let mut rust = SettingsManager::create(
-        &project.to_string_lossy(),
-        Some(&agent),
+        &JsString::from((&project.to_string_lossy()).as_ref()),
+        Some(&JsString::from((&agent).to_string_lossy().as_ref())),
         SettingsManagerCreateOptions::default(),
     )
     .unwrap();
@@ -730,7 +756,7 @@ pub(crate) fn bidirectional() {
     assert!(!rust.get_idle_compaction_enabled());
     assert_eq!(
         rust.get_merged_settings()["permissionRules"]["allow"],
-        json!({"write":["project"]})
+        json!({"write":["project"]}).into()
     );
 
     // Two stale product managers plus a fixture-only independent writer. None may lose siblings.
@@ -742,8 +768,8 @@ pub(crate) fn bidirectional() {
     rust.set_compaction_enabled(false);
     rust.set_hide_tool_output(true);
     rust.set_hide_coordination_messages(true);
-    rust.set_shell_path(Some("~/literal/../shell"));
-    rust.set_project_extension_paths(&["Rust-extension".to_owned()])
+    rust.set_shell_path(Some(&JsString::from("~/literal/../shell")));
+    rust.set_project_extension_paths(&["Rust-extension".to_owned().into()])
         .unwrap();
     rust.flush();
     let ts = ask(
@@ -794,7 +820,7 @@ pub(crate) fn bidirectional() {
     let ts = ask(&mut oracle, vec![json!({"op":"reload"})]);
     rust.reload();
     assert_eq!(snapshot(&rust), ts["snapshot"]);
-    assert_eq!(rust.get_theme(), Some("TS-reverse"));
+    assert_eq!(rust.get_theme(), Some(&JsString::from("TS-reverse")));
     assert!(!rust.get_hide_tool_output());
     assert!(rust.get_show_images());
     assert!(rust.get_block_images());

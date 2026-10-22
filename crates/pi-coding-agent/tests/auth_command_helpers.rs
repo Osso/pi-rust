@@ -5,6 +5,7 @@ use pi_ai::auth::types::{AuthResult, ModelAuth};
 use pi_ai::types::ProviderHeaders;
 use pi_coding_agent::cli::args::parse_args;
 use pi_coding_agent::cli::{AuthCommandKind, get_auth_credential, print_auth_command_help, validate_auth_command_args};
+use pi_js_compat::js_json::JsString;
 
 fn parse(values: &[&str]) -> pi_coding_agent::cli::args::Args {
     parse_args(&values.iter().map(|value| (*value).to_owned()).collect::<Vec<_>>())
@@ -13,7 +14,7 @@ fn parse(values: &[&str]) -> pi_coding_agent::cli::args::Args {
 fn auth_with(api_key: Option<&str>, headers: Option<&[(&str, Option<&str>)]>) -> AuthResult {
     AuthResult {
         auth: ModelAuth {
-            api_key: api_key.map(str::to_owned),
+            api_key: (api_key.map(str::to_owned)).map(JsString::from),
             headers: headers.map(|entries| {
                 entries
                     .iter()
@@ -95,23 +96,38 @@ fn requires_a_provider_or_model_per_command_kind() {
 #[test]
 fn extracts_api_keys_before_headers() {
     let auth = auth_with(Some("sk-test"), Some(&[("authorization", Some("Bearer header-token"))]));
-    assert_eq!(get_auth_credential(Some(&auth)).as_deref(), Some("sk-test"));
+    assert_eq!(
+        get_auth_credential(Some(&auth)).as_ref(),
+        Some(&JsString::from("sk-test"))
+    );
 
     let empty = auth_with(Some(""), Some(&[("authorization", Some("Bearer header-token"))]));
-    assert_eq!(get_auth_credential(Some(&empty)).as_deref(), Some("header-token"));
+    assert_eq!(
+        get_auth_credential(Some(&empty)).as_ref(),
+        Some(&JsString::from("header-token"))
+    );
     assert_eq!(get_auth_credential(None), None);
 }
 
 #[test]
 fn extracts_bearer_tokens_from_case_insensitive_authorization_headers() {
     let auth = auth_with(None, Some(&[("Authorization", Some("Bearer header-token"))]));
-    assert_eq!(get_auth_credential(Some(&auth)).as_deref(), Some("header-token"));
+    assert_eq!(
+        get_auth_credential(Some(&auth)).as_ref(),
+        Some(&JsString::from("header-token"))
+    );
 
     let lowercase = auth_with(None, Some(&[("AUTHORIZATION", Some("bearer lower-token"))]));
-    assert_eq!(get_auth_credential(Some(&lowercase)).as_deref(), Some("lower-token"));
+    assert_eq!(
+        get_auth_credential(Some(&lowercase)).as_ref(),
+        Some(&JsString::from("lower-token"))
+    );
 
     let spaces = auth_with(None, Some(&[("authorization", Some("Bearer \t \u{a0}token"))]));
-    assert_eq!(get_auth_credential(Some(&spaces)).as_deref(), Some("token"));
+    assert_eq!(
+        get_auth_credential(Some(&spaces)).as_ref(),
+        Some(&JsString::from("token"))
+    );
 }
 
 #[test]

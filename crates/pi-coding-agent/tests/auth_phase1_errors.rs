@@ -2,12 +2,13 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 use pi_coding_agent::core::auth_storage::AuthStorage;
+use pi_js_compat::js_json::JsString;
 use serde_json::json;
 #[test]
 fn auth_file_utf8_decoder_replaces_invalid_bytes_like_node() {
     let file = std::env::temp_dir().join(format!("auth-invalid-utf8-{}.json", std::process::id()));
     std::fs::write(&file, b"{\"synthetic\":{\"type\":\"api_key\",\"key\":\"bad-\xff\"}}").unwrap();
-    let storage = AuthStorage::create(Some(file.to_str().unwrap()));
+    let storage = AuthStorage::create(Some(&JsString::from(file.to_str().unwrap())));
     assert_eq!(
         storage.get("synthetic").unwrap().to_serde().unwrap()["key"],
         "bad-\u{fffd}"
@@ -31,7 +32,7 @@ fn unrelated_raw_lone_surrogates_survive_public_provider_update_like_ts() {
     let source = oracle
         .request(&json!({"id":1,"op":"modify-file","authPath":ts_file,"provider":"safe","credential":credential}));
     assert_eq!(source["ok"], true, "{source}");
-    let storage = AuthStorage::create(Some(rust_file.to_str().unwrap()));
+    let storage = AuthStorage::create(Some(&JsString::from(rust_file.to_str().unwrap())));
     storage.set("safe", credential).unwrap();
     assert_eq!(
         std::fs::read_to_string(&rust_file).unwrap(),
@@ -48,7 +49,7 @@ fn directory_auth_path_reports_same_source_error() {
     );
     let source = oracle.request(&json!({"id":1,"op":"errors","authPath":directory}));
     assert_eq!(source["ok"], true, "{source}");
-    let storage = AuthStorage::create(Some(directory.to_str().unwrap()));
+    let storage = AuthStorage::create(Some(&JsString::from(directory.to_str().unwrap())));
     let errors: Vec<String> = storage.drain_errors().into_iter().map(|e| e.to_string()).collect();
     assert_eq!(json!(errors), source["output"]["errors"]);
 }

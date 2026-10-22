@@ -1,4 +1,5 @@
 //! Shared production-lock persistence boundary; all files are disposable sandbox fixtures.
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
@@ -73,7 +74,11 @@ impl Fixture {
         fs::create_dir_all(&agent).unwrap();
         let (writes_tx, writes) = mpsc::channel();
         let (finished_tx, finished) = mpsc::channel();
-        let files = FileSettingsStorage::new(project.to_str().unwrap(), agent.to_str().unwrap()).unwrap();
+        let files = FileSettingsStorage::new(
+            &JsString::from(project.to_str().unwrap()),
+            &JsString::from(agent.to_str().unwrap()),
+        )
+        .unwrap();
         let manager = SettingsManager::from_storage(
             Box::new(ObservedStorage {
                 files,
@@ -111,7 +116,12 @@ impl Fixture {
     }
 
     fn reconstructed(&self) -> SettingsManager {
-        SettingsManager::create(self.project.to_str().unwrap(), Some(&self.agent), Default::default()).unwrap()
+        SettingsManager::create(
+            &JsString::from(self.project.to_str().unwrap()),
+            Some(&JsString::from((&self.agent).to_string_lossy().as_ref())),
+            Default::default(),
+        )
+        .unwrap()
     }
 }
 
@@ -133,7 +143,10 @@ fn shared_setter_drains_after_guard_release_without_flush_or_runtime() {
     fixture.finished.recv_timeout(COMPLETION_TIMEOUT).unwrap();
     let disk: Value = serde_json::from_str(&fs::read_to_string(fixture.agent.join("settings.json")).unwrap()).unwrap();
     assert_eq!(disk["defaultModel"], "persisted-model");
-    assert_eq!(fixture.reconstructed().get_default_model(), Some("persisted-model"));
+    assert_eq!(
+        fixture.reconstructed().get_default_model(),
+        Some(&JsString::from("persisted-model"))
+    );
 }
 
 #[test]
@@ -161,7 +174,10 @@ fn rapid_shared_snapshots_preserve_fifo_across_scopes() {
     assert_eq!(fixture.write().1["defaultModel"], "third");
     fixture.finish(manager);
     assert!(fixture.writes.try_recv().is_err());
-    assert_eq!(fixture.reconstructed().get_default_model(), Some("third"));
+    assert_eq!(
+        fixture.reconstructed().get_default_model(),
+        Some(&JsString::from("third"))
+    );
 }
 
 #[test]
@@ -213,7 +229,7 @@ fn panicking_write_is_recorded_without_dropping_later_snapshots_or_latching_drai
     fixture.finish(manager);
     assert!(fixture.writes.try_recv().is_err());
     let restored = fixture.reconstructed();
-    assert_eq!(restored.get_default_model(), Some("third"));
+    assert_eq!(restored.get_default_model(), Some(&JsString::from("third")));
     assert_eq!(restored.get_project_settings()["packages"][0], "npm:survives-panic");
 }
 

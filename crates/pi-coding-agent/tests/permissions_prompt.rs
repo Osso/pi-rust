@@ -1,5 +1,6 @@
 //! Behavioral tests for `coding-agent/src/core/permissions/{orchestrator,mcp-permission-prompt}.ts`.
 
+use pi_js_compat::js_json::JsValue;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::request::BoxFuture;
@@ -51,7 +52,7 @@ fn blocked(reason: &str) -> Option<ToolCallEventResult> {
     Some(ToolCallEventResult {
         block: Some(true),
         input: None,
-        reason: Some(reason.to_owned()),
+        reason: Some(reason.to_owned().into()),
         terminate: None,
     })
 }
@@ -191,7 +192,7 @@ async fn uses_the_llm_reviewer_without_a_hook_reviewer() {
 #[test]
 fn parses_allow_decisions() {
     assert_eq!(
-        parse_permission_prompt_decision(&json!("{\"behavior\":\"allow\"}")),
+        parse_permission_prompt_decision(&JsValue::from(&json!("{\"behavior\":\"allow\"}"))),
         Some(PermissionPromptDecision::Allow {
             updated_input: None,
             updated_permissions: None,
@@ -202,9 +203,9 @@ fn parses_allow_decisions() {
 #[test]
 fn parses_allow_decisions_with_updated_input() {
     assert_eq!(
-        parse_permission_prompt_decision(&json!(
+        parse_permission_prompt_decision(&JsValue::from(&json!(
             "{\"behavior\":\"allow\",\"updatedInput\":{\"command\":\"git status --short\"}}"
-        )),
+        ))),
         Some(PermissionPromptDecision::Allow {
             updated_input: Some(json!({ "command": "git status --short" }).as_object().unwrap().clone()),
             updated_permissions: None,
@@ -214,9 +215,9 @@ fn parses_allow_decisions_with_updated_input() {
 
 #[test]
 fn parses_allow_decisions_with_updated_permissions() {
-    let decision = parse_permission_prompt_decision(&json!(
+    let decision = parse_permission_prompt_decision(&JsValue::from(&json!(
         "{\"behavior\":\"allow\",\"updatedPermissions\":[{\"type\":\"addRules\",\"destination\":\"session\",\"behavior\":\"allow\",\"rules\":[\"git status\"]}]}"
-    ))
+    )))
     .expect("decision");
     let PermissionPromptDecision::Allow {
         updated_permissions: Some(updates),
@@ -233,27 +234,35 @@ fn parses_allow_decisions_with_updated_permissions() {
 #[test]
 fn parses_deny_decisions() {
     assert_eq!(
-        parse_permission_prompt_decision(&json!("{\"behavior\":\"deny\",\"message\":\"blocked\"}")),
+        parse_permission_prompt_decision(&JsValue::from(&json!(
+            "{\"behavior\":\"deny\",\"message\":\"blocked\"}"
+        ))),
         Some(PermissionPromptDecision::Deny {
-            message: "blocked".to_owned()
+            message: "blocked".to_owned().into()
         })
     );
 }
 
 #[test]
 fn falls_back_for_malformed_decisions() {
-    assert_eq!(parse_permission_prompt_decision(&json!("not json")), None);
-    assert_eq!(parse_permission_prompt_decision(&json!("{\"updatedInput\":{}}")), None);
     assert_eq!(
-        parse_permission_prompt_decision(&json!("{\"behavior\":\"prompt\"}")),
+        parse_permission_prompt_decision(&JsValue::from(&json!("not json"))),
         None
     );
     assert_eq!(
-        parse_permission_prompt_decision(&json!("{\"behavior\":\"allow\",\"updatedInput\":[]}")),
+        parse_permission_prompt_decision(&JsValue::from(&json!("{\"updatedInput\":{}}"))),
         None
     );
     assert_eq!(
-        parse_permission_prompt_decision(&json!("{\"behavior\":\"deny\",\"message\":\"\"}")),
+        parse_permission_prompt_decision(&JsValue::from(&json!("{\"behavior\":\"prompt\"}"))),
+        None
+    );
+    assert_eq!(
+        parse_permission_prompt_decision(&JsValue::from(&json!("{\"behavior\":\"allow\",\"updatedInput\":[]}"))),
+        None
+    );
+    assert_eq!(
+        parse_permission_prompt_decision(&JsValue::from(&json!("{\"behavior\":\"deny\",\"message\":\"\"}"))),
         None
     );
 }
@@ -261,16 +270,16 @@ fn falls_back_for_malformed_decisions() {
 #[test]
 fn parses_decisions_from_text_content_records() {
     assert_eq!(
-        parse_permission_prompt_decision(&json!({
+        parse_permission_prompt_decision(&JsValue::from(&json!({
             "content": [{ "type": "text", "text": "{\"behavior\":\"deny\",\"message\":\"nope\"}" }]
-        })),
+        }))),
         Some(PermissionPromptDecision::Deny {
-            message: "nope".to_owned()
+            message: "nope".to_owned().into()
         })
     );
     // A record without text content is used directly.
     assert_eq!(
-        parse_permission_prompt_decision(&json!({ "behavior": "allow" })),
+        parse_permission_prompt_decision(&JsValue::from(&json!({ "behavior": "allow" }))),
         Some(PermissionPromptDecision::Allow {
             updated_input: None,
             updated_permissions: None,
@@ -342,7 +351,7 @@ fn handler(
 ) -> pi_coding_agent::core::permissions::mcp_permission_prompt::PermissionPromptHandler {
     create_permission_prompt_handler(PermissionPromptHandlerOptions {
         permission_prompt_tool: permission_prompt_tool.map(str::to_owned),
-        cwd: "/repo".to_owned(),
+        cwd: "/repo".to_owned().into(),
         call_tool,
         desktop_notifier,
         rule_store,
@@ -371,7 +380,7 @@ async fn allows_tool_calls_without_further_prompting() {
     assert_eq!(
         calls[0].1,
         PermissionPromptInput {
-            cwd: "/repo".to_owned(),
+            cwd: "/repo".to_owned().into(),
             input: json!({ "command": "git status" }).as_object().unwrap().clone(),
             tool_name: "bash".to_owned(),
             tool_use_id: "toolu_01".to_owned(),

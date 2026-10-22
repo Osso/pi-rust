@@ -169,7 +169,7 @@ fn rust_output(models_path: &str, case: &Case) -> Value {
     runtime.block_on(async {
         let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
             credentials: Some(storage_with(&case.auth) as Arc<dyn CredentialStore>),
-            models_path: Some(Some(models_path.to_owned())),
+            models_path: Some(Some(models_path.to_owned().into())),
             ..Default::default()
         })
         .await
@@ -199,7 +199,7 @@ fn rust_output(models_path: &str, case: &Case) -> Value {
         let mut compatibility = Map::new();
         for (provider, id) in &case.model_refs {
             let key = format!("{provider}/{id}");
-            match runtime.get_model(provider, id) {
+            match runtime.get_model(*provider, *id) {
                 Some(model) => {
                     let config = runtime.get_compatibility_request_config(&model).unwrap();
                     compatibility.insert(

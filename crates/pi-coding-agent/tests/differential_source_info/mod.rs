@@ -4,6 +4,7 @@ mod oracle;
 use pi_coding_agent::core::source_info::{
     SourceInfo, SourceOrigin, SourceScope, SyntheticSourceInfoOptions, create_synthetic_source_info,
 };
+use pi_js_compat::js_json::JsString;
 use serde_json::{Map, Value, json};
 
 const REQUEST_ID: u64 = 13_182;
@@ -128,12 +129,12 @@ fn rust_response(cases: &[Case]) -> Value {
 
 fn normalize_case(case: &Case) -> Value {
     let options = SyntheticSourceInfoOptions {
-        source: case.source.to_owned(),
+        source: case.source.to_owned().into(),
         scope: case.scope.value(),
         origin: case.origin.value(),
-        base_dir: optional_string(case.base_dir_state, case.base_dir),
+        base_dir: (optional_string(case.base_dir_state, case.base_dir)).map(JsString::from),
     };
-    let result = create_synthetic_source_info(case.path, &options);
+    let result = create_synthetic_source_info(&JsString::from(case.path), &options);
     json!({
         "name": case.name,
         "result": source_info_value(&result),
@@ -311,7 +312,7 @@ fn metadata_case_request(case: &MetadataCase) -> Value {
 
 fn normalize_metadata_case(case: &MetadataCase) -> Value {
     let metadata = pi_coding_agent::core::package_manager::PathMetadata {
-        source: case.source.to_owned(),
+        source: case.source.to_owned().into(),
         scope: match case.scope {
             "user" => pi_coding_agent::core::package_manager::SourceScope::User,
             "project" => pi_coding_agent::core::package_manager::SourceScope::Project,
@@ -323,9 +324,9 @@ fn normalize_metadata_case(case: &MetadataCase) -> Value {
             "top-level" => pi_coding_agent::core::package_manager::MetadataOrigin::TopLevel,
             other => panic!("unknown origin {other}"),
         },
-        base_dir: optional_string(case.base_dir_state, case.base_dir),
+        base_dir: (optional_string(case.base_dir_state, case.base_dir)).map(JsString::from),
     };
-    let result = pi_coding_agent::core::source_info::create_source_info(case.path, &metadata);
+    let result = pi_coding_agent::core::source_info::create_source_info(&JsString::from(case.path), &metadata);
     json!({
         "name": case.name,
         "result": source_info_value(&result),

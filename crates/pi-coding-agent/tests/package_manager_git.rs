@@ -5,6 +5,7 @@ mod env_probe;
 #[path = "support/executable_script.rs"]
 mod executable_script;
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -41,7 +42,7 @@ impl PackageSettingsStore for FakeSettings {
         self.trusted
     }
 
-    fn get_npm_command(&self) -> Option<Vec<String>> {
+    fn get_npm_command(&self) -> Option<Vec<JsString>> {
         self.npm_command.clone()
     }
 }
@@ -123,11 +124,11 @@ impl Fixture {
 
     fn manager_with(&self, package: &str, npm_command: Option<Vec<String>>) -> DefaultPackageManager {
         DefaultPackageManager::new(
-            self.cwd.to_str().unwrap(),
-            self.agent_dir.to_str().unwrap(),
+            &JsString::from(self.cwd.to_str().unwrap()),
+            &JsString::from(self.agent_dir.to_str().unwrap()),
             Arc::new(FakeSettings {
                 global: Mutex::new(PackageSettingsSnapshot {
-                    packages: vec![PackageSource::Name(package.to_owned())],
+                    packages: vec![PackageSource::Name(package.to_owned().into())],
                     ..PackageSettingsSnapshot::default()
                 }),
                 trusted: false,
@@ -269,7 +270,7 @@ fn git_dependencies_install_without_dev_dependencies_by_default_probe() {
 #[test]
 fn remove_deletes_the_checkout_and_prunes_empty_parents() {
     let fixture = Fixture::new();
-    block(fixture.manager(SOURCE).remove(SOURCE, false)).unwrap();
+    block(fixture.manager(SOURCE).remove(&JsString::from(SOURCE), false)).unwrap();
 
     assert!(!fixture.installed.exists());
     assert!(!fixture.agent_dir.join("git/github.com").exists());

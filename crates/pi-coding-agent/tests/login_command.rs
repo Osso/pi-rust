@@ -20,7 +20,7 @@ use pi_js_compat::js_json::JsString;
 use serde_json::{Map, Value};
 
 struct TestIo {
-    lines: Mutex<Vec<String>>,
+    lines: Mutex<Vec<JsString>>,
     next_line: Mutex<usize>,
     stdout: Mutex<JsString>,
     stderr: Mutex<JsString>,
@@ -29,7 +29,7 @@ struct TestIo {
 impl TestIo {
     fn new(lines: &[&str]) -> Arc<Self> {
         Arc::new(Self {
-            lines: Mutex::new(lines.iter().map(|line| (*line).to_owned()).collect()),
+            lines: Mutex::new(lines.iter().map(|line| JsString::from(*line)).collect()),
             next_line: Mutex::new(0),
             stdout: Mutex::new(JsString::default()),
             stderr: Mutex::new(JsString::default()),
@@ -54,7 +54,7 @@ impl LoginIo for TestIo {
         self.stderr.lock().unwrap().push_str(message);
     }
 
-    fn read_line<'a>(&'a self, prompt: &'a str) -> BoxFuture<'a, Result<String, JsString>> {
+    fn read_line<'a>(&'a self, prompt: &'a JsString) -> BoxFuture<'a, Result<JsString, JsString>> {
         self.stdout.lock().unwrap().push_str(prompt);
         let mut index = self.next_line.lock().unwrap();
         let line = self.lines.lock().unwrap().get(*index).cloned().unwrap_or_default();
@@ -190,44 +190,44 @@ fn runs_oauth_login_interactions_from_terminal_io_and_persists_credentials() {
             Box::new(|interaction| {
                 Box::pin(async move {
                     interaction.notify(AuthEvent::AuthUrl {
-                        url: "https://example.invalid/login".to_owned(),
-                        instructions: Some("Open browser".to_owned()),
+                        url: "https://example.invalid/login".to_owned().into(),
+                        instructions: Some("Open browser".to_owned().into()),
                     });
                     interaction.notify(AuthEvent::DeviceCode {
-                        verification_uri: "https://example.invalid/device".to_owned(),
-                        user_code: "ABCD-EFGH".to_owned(),
+                        verification_uri: "https://example.invalid/device".to_owned().into(),
+                        user_code: "ABCD-EFGH".to_owned().into(),
                         interval_seconds: None,
                         expires_in_seconds: None,
                     });
                     interaction.notify(AuthEvent::Progress {
-                        message: "Waiting for login".to_owned(),
+                        message: "Waiting for login".to_owned().into(),
                     });
                     let typed = interaction
                         .prompt(prompt(AuthPromptKind::Text {
-                            message: "Enter token".to_owned(),
-                            placeholder: Some("token".to_owned()),
+                            message: "Enter token".to_owned().into(),
+                            placeholder: Some("token".to_owned().into()),
                         }))
                         .await
                         .map_err(AuthError::Failed)?;
                     let manual = interaction
                         .prompt(prompt(AuthPromptKind::ManualCode {
-                            message: "Paste authorization code or redirect URL".to_owned(),
+                            message: "Paste authorization code or redirect URL".to_owned().into(),
                             placeholder: None,
                         }))
                         .await
                         .map_err(AuthError::Failed)?;
                     let selected = interaction
                         .prompt(prompt(AuthPromptKind::Select {
-                            message: "Select account:".to_owned(),
+                            message: "Select account:".to_owned().into(),
                             options: vec![
                                 AuthSelectOption {
-                                    id: "first".to_owned(),
-                                    label: "First Account".to_owned(),
+                                    id: "first".to_owned().into(),
+                                    label: "First Account".to_owned().into(),
                                     description: None,
                                 },
                                 AuthSelectOption {
-                                    id: "second".to_owned(),
-                                    label: "Second Account".to_owned(),
+                                    id: "second".to_owned().into(),
+                                    label: "Second Account".to_owned().into(),
                                     description: None,
                                 },
                             ],
@@ -255,12 +255,12 @@ fn runs_oauth_login_interactions_from_terminal_io_and_persists_credentials() {
 
         assert_eq!(exit_code, 0);
         let output = io.output();
-        assert!(output.contains("https://example.invalid/login"), "{output}");
-        assert!(output.contains("ABCD-EFGH"), "{output}");
-        assert!(output.contains("Waiting for login"), "{output}");
+        assert!(output.contains("https://example.invalid/login"), "{output:?}");
+        assert!(output.contains("ABCD-EFGH"), "{output:?}");
+        assert!(output.contains("Waiting for login"), "{output:?}");
         assert!(
             output.contains(&format!("Credentials saved for {provider_id}")),
-            "{output}"
+            "{output:?}"
         );
         let stored = storage.read(provider_id, Default::default()).await.unwrap().unwrap();
         let oauth = stored.as_oauth().expect("stored credential is OAuth");
@@ -281,7 +281,7 @@ fn opens_browser_oauth_urls_when_requested() {
             Box::new(|interaction| {
                 Box::pin(async move {
                     interaction.notify(AuthEvent::AuthUrl {
-                        url: "https://example.invalid/browser-login".to_owned(),
+                        url: "https://example.invalid/browser-login".to_owned().into(),
                         instructions: None,
                     });
                     Ok(OAuthCredential::new(
@@ -301,7 +301,7 @@ fn opens_browser_oauth_urls_when_requested() {
             provider_id: provider_id.to_owned(),
             io: io.clone(),
             use_browser_cli: true,
-            open_browser_cli_url: Some(Arc::new(move |url: String| {
+            open_browser_cli_url: Some(Arc::new(move |url: JsString| {
                 opened_by_opener.lock().unwrap().push(url);
                 Box::pin(async { Ok(()) })
             })),
@@ -329,7 +329,7 @@ fn reports_browser_cli_open_failures_without_failing_the_login() {
             Box::new(|interaction| {
                 Box::pin(async move {
                     interaction.notify(AuthEvent::AuthUrl {
-                        url: "https://example.invalid/failing".to_owned(),
+                        url: "https://example.invalid/failing".to_owned().into(),
                         instructions: None,
                     });
                     Ok(OAuthCredential::new(
@@ -347,7 +347,7 @@ fn reports_browser_cli_open_failures_without_failing_the_login() {
             provider_id: provider_id.to_owned(),
             io: io.clone(),
             use_browser_cli: true,
-            open_browser_cli_url: Some(Arc::new(|_url: String| {
+            open_browser_cli_url: Some(Arc::new(|_url: JsString| {
                 Box::pin(async { Err("browser-cli open failed with exit code 2".to_owned()) })
             })),
         })
@@ -401,10 +401,10 @@ fn reports_login_failures_with_the_provider_name() {
             Box::new(|interaction| {
                 Box::pin(async move {
                     interaction.notify(AuthEvent::Info {
-                        message: "Starting".to_owned(),
+                        message: "Starting".to_owned().into(),
                         links: Some(vec![AuthInfoLink {
-                            url: "https://example.invalid/info".to_owned(),
-                            label: Some("Docs".to_owned()),
+                            url: "https://example.invalid/info".to_owned().into(),
+                            label: Some("Docs".to_owned().into()),
                         }]),
                     });
                     Err(AuthError::failed("login rejected"))

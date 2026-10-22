@@ -7,6 +7,7 @@ mod oracle;
 #[path = "support/extensions.rs"]
 mod support;
 
+use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
 use bundled::{Harness, HarnessOptions, StubFetch, test_model};
@@ -173,7 +174,12 @@ async fn run_command_case(input: &Value) -> Value {
         .handler
         .clone();
     let error = handler(
-        input.get("args").and_then(Value::as_str).unwrap_or_default().to_owned(),
+        input
+            .get("args")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned()
+            .into(),
         harness.command_context(),
     )
     .await
@@ -231,7 +237,7 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
             }
             "token" => {
                 let token = token_with_claims(case.get("claims").unwrap_or(&Value::Null));
-                match resolve_codex_account_info(&token) {
+                match resolve_codex_account_info(&JsString::from(&token)) {
                     Ok(info) => {
                         output.insert("account".to_owned(), serde_json::to_value(info).expect("account"));
                     }
@@ -242,7 +248,7 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
             }
             "display_email" => {
                 let token = token_with_claims(case.get("claims").unwrap_or(&Value::Null));
-                match resolve_codex_display_email(&token, case.get("storedEmail")) {
+                match resolve_codex_display_email(&JsString::from(&token), case.get("storedEmail")) {
                     Ok(email) => {
                         output.insert("email".to_owned(), json!(email));
                     }

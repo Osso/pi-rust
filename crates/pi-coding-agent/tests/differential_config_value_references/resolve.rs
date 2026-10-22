@@ -1,6 +1,7 @@
 //! Differential proof for `resolveConfigValue`, `resolveConfigValueUncached`,
 //! `resolveConfigValueOrThrow`, `resolveHeaders`, and `resolveHeadersOrThrow`.
 
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 
 use pi_coding_agent::core::{
@@ -130,9 +131,9 @@ pub(crate) fn run(oracle: &mut TsOracle) {
         });
         let uncached = request["uncached"].as_bool().unwrap_or(false);
         let actual = if uncached {
-            resolve_config_value_uncached(config, explicit_env.as_ref())
+            resolve_config_value_uncached(&JsString::from(config), explicit_env.as_ref())
         } else {
-            resolve_config_value(config, explicit_env.as_ref())
+            resolve_config_value(&JsString::from(config), explicit_env.as_ref())
         };
         assert_eq!(
             json!({"value": actual}),
@@ -208,7 +209,11 @@ pub(crate) fn run(oracle: &mut TsOracle) {
     for case in &throw_cases {
         let expected = oracle.request(&case.request);
         let config = case.request["config"].as_str().unwrap();
-        match resolve_config_value_or_throw(config, "API key", optional_env(case.env).as_ref()) {
+        match resolve_config_value_or_throw(
+            &JsString::from(config),
+            &JsString::from("API key"),
+            optional_env(case.env).as_ref(),
+        ) {
             Ok(value) => assert_eq!(json!({"value": value}), expected["output"], "throw case {config:?}"),
             Err(error) => {
                 assert_eq!(expected["ok"], false, "throw case {config:?} must fail in TypeScript");
@@ -260,7 +265,7 @@ pub(crate) fn run(oracle: &mut TsOracle) {
         let values = case.values.map(env);
         let explicit_env = optional_env(case.env);
         let actual = if case.throw_on_error {
-            resolve_headers_or_throw(values.as_ref(), "Provider", explicit_env.as_ref())
+            resolve_headers_or_throw(values.as_ref(), &JsString::from("Provider"), explicit_env.as_ref())
                 .map(json_headers)
                 .map_err(|error| error.to_string())
         } else {

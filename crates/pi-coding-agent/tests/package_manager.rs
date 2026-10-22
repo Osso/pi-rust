@@ -3,6 +3,7 @@
 #[path = "support/executable_script.rs"]
 mod executable_script;
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,7 +21,7 @@ struct FakeSettings {
     global: Mutex<PackageSettingsSnapshot>,
     project: Mutex<PackageSettingsSnapshot>,
     trusted: AtomicBool,
-    npm_command: Mutex<Option<Vec<String>>>,
+    npm_command: Mutex<Option<Vec<JsString>>>,
 }
 
 impl FakeSettings {
@@ -33,7 +34,7 @@ impl FakeSettings {
         }
     }
 
-    fn with_npm_command(self, command: Vec<String>) -> Self {
+    fn with_npm_command(self, command: Vec<JsString>) -> Self {
         *self.npm_command.lock().unwrap() = Some(command);
         self
     }
@@ -60,7 +61,7 @@ impl PackageSettingsStore for FakeSettings {
         self.trusted.load(Ordering::SeqCst)
     }
 
-    fn get_npm_command(&self) -> Option<Vec<String>> {
+    fn get_npm_command(&self) -> Option<Vec<JsString>> {
         self.npm_command.lock().unwrap().clone()
     }
 }
@@ -102,14 +103,18 @@ impl Fixture {
 
     fn manager(&self, settings: FakeSettings) -> DefaultPackageManager {
         DefaultPackageManager::new(
-            self.cwd.to_str().unwrap(),
-            self.agent_dir.to_str().unwrap(),
+            &JsString::from(self.cwd.to_str().unwrap()),
+            &JsString::from(self.agent_dir.to_str().unwrap()),
             Arc::new(settings),
         )
     }
 
     fn manager_with(&self, settings: Arc<dyn PackageSettingsStore>) -> DefaultPackageManager {
-        DefaultPackageManager::new(self.cwd.to_str().unwrap(), self.agent_dir.to_str().unwrap(), settings)
+        DefaultPackageManager::new(
+            &JsString::from(self.cwd.to_str().unwrap()),
+            &JsString::from(self.agent_dir.to_str().unwrap()),
+            settings,
+        )
     }
 
     fn path(&self, relative: &str) -> String {
@@ -121,7 +126,7 @@ impl Fixture {
     }
 }
 
-fn ends_with(path: &str, suffix: &str) -> bool {
+fn ends_with(path: &JsString, suffix: &str) -> bool {
     path.replace('\\', "/").ends_with(suffix)
 }
 
@@ -152,11 +157,11 @@ fn parses_npm_sources() {
         ("npm:example@latest", "example", Some("latest"), false),
     ];
     for (source, name, version, pinned) in cases {
-        let ParsedSource::Npm(parsed) = manager.parse_source(source) else {
+        let ParsedSource::Npm(parsed) = manager.parse_source(&JsString::from(source)) else {
             panic!("{source} must parse as npm");
         };
         assert_eq!(parsed.name, name, "{source}");
-        assert_eq!(parsed.version.as_deref(), version, "{source}");
+        assert_eq!(parsed.version.as_ref(), version, "{source}");
         assert_eq!(parsed.pinned, pinned, "{source}");
         assert_eq!(parsed.spec, source.trim_start_matches("npm:"), "{source}");
     }
@@ -167,18 +172,18 @@ fn parses_git_and_local_sources() {
     let fixture = Fixture::new();
     let manager = fixture.manager(FakeSettings::new(Default::default(), Default::default(), false));
 
-    let ParsedSource::Git(git) = manager.parse_source("https://github.com/user/repo") else {
+    let ParsedSource::Git(git) = manager.parse_source(&JsString::from("https://github.com/user/repo")) else {
         panic!("https URL must parse as git");
     };
     assert_eq!(git.host, "github.com");
     assert_eq!(git.path, "user/repo");
     assert!(!git.pinned);
 
-    let ParsedSource::Git(git) = manager.parse_source("git:git@github.com:user/repo@v1.0.0") else {
+    let ParsedSource::Git(git) = manager.parse_source(&JsString::from("git:git@github.com:user/repo@v1.0.0")) else {
         panic!("scp shorthand must parse as git");
     };
     assert_eq!(git.repo, "git@github.com:user/repo");
-    assert_eq!(git.reference.as_deref(), Some("v1.0.0"));
+    assert_eq!(git.reference.as_ref(), Some(&JsString::from("v1.0.0")));
     assert!(git.pinned);
 
     for source in [
@@ -188,7 +193,7 @@ fn parses_git_and_local_sources() {
         "../sibling",
     ] {
         assert!(
-            matches!(manager.parse_source(source), ParsedSource::Local(_)),
+            matches!(manager.parse_source(&JsString::from(source)), ParsedSource::Local(_)),
             "{source} must parse as local"
         );
     }
@@ -212,7 +217,10 @@ fn resolves_local_extension_files_and_directories() {
     fixture.write_agent("extensions/dir/index.ts", "export default 2;");
     let settings = FakeSettings::new(
         PackageSettingsSnapshot {
-            extensions: vec!["extensions/single.ts".to_owned(), "extensions/dir".to_owned()],
+            extensions: vec![
+                "extensions/single.ts".to_owned().into(),
+                "extensions/dir".to_owned().into(),
+            ],
             ..PackageSettingsSnapshot::default()
         },
         Default::default(),
@@ -241,8 +249,8 @@ fn applies_include_exclude_and_force_patterns_to_top_level_entries() {
     let settings = FakeSettings::new(
         PackageSettingsSnapshot {
             extensions: vec![
-                "extensions".to_owned(),
-                "!extensions/beta.ts".to_owned(),
+                "extensions".to_owned().into(),
+                "!extensions/beta.ts".to_owned().into(),
                 "-extensions/foo.ts".to_owned(),
             ],
             ..PackageSettingsSnapshot::default()
@@ -278,8 +286,8 @@ fn force_include_restores_an_excluded_file() {
     let settings = FakeSettings::new(
         PackageSettingsSnapshot {
             extensions: vec![
-                "extensions".to_owned(),
-                "!extensions/*.ts".to_owned(),
+                "extensions".to_owned().into(),
+                "!extensions/*.ts".to_owned().into(),
                 "+extensions/beta.ts".to_owned(),
             ],
             ..PackageSettingsSnapshot::default()
@@ -310,7 +318,7 @@ fn manifest_globs_and_overrides_control_package_resources() {
     .unwrap();
 
     let settings = FakeSettings::new(
-        snapshot(vec![PackageSource::Name("./pkg".to_owned())]),
+        snapshot(vec![PackageSource::Name("./pkg".to_owned().into())]),
         Default::default(),
         false,
     );
@@ -337,8 +345,8 @@ fn package_filters_apply_on_top_of_manifest_filters() {
     .unwrap();
 
     let filter = PackageFilter {
-        source: "./filtered".to_owned(),
-        extensions: Some(vec!["!extensions/b.ts".to_owned()]),
+        source: "./filtered".to_owned().into(),
+        extensions: Some(vec!["!extensions/b.ts".to_owned().into()]),
         ..PackageFilter::default()
     };
     let settings = FakeSettings::new(snapshot(vec![PackageSource::Filter(filter)]), Default::default(), false);
@@ -360,13 +368,13 @@ fn autoload_disabled_project_entry_is_a_delta_over_the_global_package() {
     }
     let shared = package_dir.to_string_lossy().into_owned();
     let filter = PackageFilter {
-        source: shared.clone(),
+        source: shared.clone().into(),
         autoload: Some(false),
-        extensions: Some(vec!["+extensions/two.ts".to_owned()]),
+        extensions: Some(vec!["+extensions/two.ts".to_owned().into()]),
         ..PackageFilter::default()
     };
     let settings = FakeSettings::new(
-        snapshot(vec![PackageSource::Name(shared)]),
+        snapshot(vec![PackageSource::Name(shared.into())]),
         snapshot(vec![PackageSource::Filter(filter)]),
         true,
     );
@@ -387,8 +395,8 @@ fn dedupes_project_and_global_packages_with_project_winning() {
     fs::write(package_dir.join("extensions/one.ts"), "x").unwrap();
     let shared = package_dir.to_string_lossy().into_owned();
     let settings = FakeSettings::new(
-        snapshot(vec![PackageSource::Name(shared.clone())]),
-        snapshot(vec![PackageSource::Name(shared)]),
+        snapshot(vec![PackageSource::Name(shared.clone().into())]),
+        snapshot(vec![PackageSource::Name(shared.into())]),
         true,
     );
     let manager = fixture.manager(settings);
@@ -419,7 +427,7 @@ fn multi_file_extensions_only_load_index_or_manifest_entries() {
     );
     let settings = FakeSettings::new(
         PackageSettingsSnapshot {
-            extensions: vec!["extensions".to_owned()],
+            extensions: vec!["extensions".to_owned().into()],
             ..PackageSettingsSnapshot::default()
         },
         Default::default(),
@@ -453,11 +461,11 @@ fn auto_discovers_project_and_user_resources_with_overrides() {
     fixture.write_agent("extensions/global.ts", "global");
     let settings = FakeSettings::new(
         PackageSettingsSnapshot {
-            prompts: vec!["!prompts/skip.md".to_owned()],
+            prompts: vec!["!prompts/skip.md".to_owned().into()],
             ..PackageSettingsSnapshot::default()
         },
         PackageSettingsSnapshot {
-            prompts: vec!["!prompts/skip.md".to_owned()],
+            prompts: vec!["!prompts/skip.md".to_owned().into()],
             ..PackageSettingsSnapshot::default()
         },
         true,
@@ -556,8 +564,8 @@ fn discovers_ancestor_agents_and_tool_skill_directories() {
 
     let settings = FakeSettings::new(Default::default(), Default::default(), true);
     let manager = DefaultPackageManager::new(
-        nested.to_str().unwrap(),
-        fixture.agent_dir.to_str().unwrap(),
+        &JsString::from(nested.to_str().unwrap()),
+        &JsString::from(fixture.agent_dir.to_str().unwrap()),
         Arc::new(settings),
     );
     let resolved = futures_block(manager.resolve(None)).unwrap();
@@ -580,7 +588,7 @@ fn gitignore_files_filter_package_resources_but_not_pi_auto_discovery() {
     fixture.write(".pi/prompts/kept.md", "kept");
 
     let settings = FakeSettings::new(
-        snapshot(vec![PackageSource::Name("./pkg".to_owned())]),
+        snapshot(vec![PackageSource::Name("./pkg".to_owned().into())]),
         Default::default(),
         true,
     );
@@ -611,7 +619,7 @@ fn installed_npm_packages_resolve_from_the_managed_root() {
         &json!({"name": "my-pkg", "version": "1.0.0"}).to_string(),
     );
     let settings = FakeSettings::new(
-        snapshot(vec![PackageSource::Name("npm:my-pkg".to_owned())]),
+        snapshot(vec![PackageSource::Name("npm:my-pkg".to_owned().into())]),
         Default::default(),
         false,
     );
@@ -626,10 +634,10 @@ fn installed_npm_packages_resolve_from_the_managed_root() {
     );
     assert_eq!(
         manager.get_installed_path(
-            "npm:my-pkg",
+            &JsString::from("npm:my-pkg"),
             pi_coding_agent::core::package_manager::InstalledScope::User
         ),
-        Some(fixture.agent_path("npm/node_modules/my-pkg"))
+        (Some(fixture.agent_path("npm/node_modules/my-pkg"))).map(JsString::from)
     );
 }
 
@@ -661,8 +669,9 @@ exit 0
             log.display()
         ),
     );
-    let settings =
-        Arc::new(FakeSettings::new(Default::default(), Default::default(), false).with_npm_command(vec![npm.clone()]));
+    let settings = Arc::new(
+        FakeSettings::new(Default::default(), Default::default(), false).with_npm_command(vec![npm.clone().into()]),
+    );
     let manager = fixture.manager_with(settings);
     let events = Arc::new(Mutex::new(Vec::new()));
     let recorded = events.clone();
@@ -670,7 +679,7 @@ exit 0
         recorded.lock().unwrap().push(event.clone());
     })));
 
-    futures_block(manager.install("npm:left-pad@1.2.3", false)).unwrap();
+    futures_block(manager.install(&JsString::from("npm:left-pad@1.2.3"), false)).unwrap();
 
     let invocation = fs::read_to_string(&log).unwrap();
     assert_eq!(
@@ -687,7 +696,10 @@ exit 0
         events[0].event_type,
         pi_coding_agent::core::package_manager::ProgressType::Start
     );
-    assert_eq!(events[0].message.as_deref(), Some("Installing npm:left-pad@1.2.3..."));
+    assert_eq!(
+        events[0].message.as_ref(),
+        Some(&JsString::from("Installing npm:left-pad@1.2.3..."))
+    );
     assert_eq!(
         events[1].event_type,
         pi_coding_agent::core::package_manager::ProgressType::Complete
@@ -716,9 +728,10 @@ exit 0
                 log.display()
             ),
         );
-        let settings = FakeSettings::new(Default::default(), Default::default(), false).with_npm_command(vec![binary]);
+        let settings =
+            FakeSettings::new(Default::default(), Default::default(), false).with_npm_command(vec![binary.into()]);
         let manager = fixture.manager(settings);
-        futures_block(manager.install("npm:pkg", false)).unwrap();
+        futures_block(manager.install(&JsString::from("npm:pkg"), false)).unwrap();
         let invocation = fs::read_to_string(&log).unwrap();
         let root = fixture.agent_path("npm");
         assert_eq!(invocation.trim(), expected.replace("{root}", &root), "{name} argv");
@@ -741,12 +754,12 @@ exit 0
         ),
     );
     let settings = FakeSettings::new(Default::default(), Default::default(), false).with_npm_command(vec![
-        "env".to_owned(),
+        "env".to_owned().into(),
         "NODE=20".to_owned(),
         npm,
     ]);
     let manager = fixture.manager(settings);
-    futures_block(manager.install("npm:pkg", false)).unwrap();
+    futures_block(manager.install(&JsString::from("npm:pkg"), false)).unwrap();
     let invocation = fs::read_to_string(&log).unwrap();
     assert!(invocation.trim().starts_with("install pkg --prefix"));
 }
@@ -766,14 +779,14 @@ exit 0
             log.display()
         ),
     );
-    let settings = FakeSettings::new(Default::default(), Default::default(), false).with_npm_command(vec![npm]);
+    let settings = FakeSettings::new(Default::default(), Default::default(), false).with_npm_command(vec![npm.into()]);
     let manager = fixture.manager(settings);
 
-    futures_block(manager.remove("npm:pkg", false)).unwrap();
+    futures_block(manager.remove(&JsString::from("npm:pkg"), false)).unwrap();
     assert!(!Path::new(&fixture.agent_path("npm")).exists());
 
     fs::create_dir_all(fixture.agent_dir.join("npm")).unwrap();
-    futures_block(manager.remove("npm:pkg", false)).unwrap();
+    futures_block(manager.remove(&JsString::from("npm:pkg"), false)).unwrap();
     assert_eq!(
         fs::read_to_string(&log).unwrap().trim(),
         format!(
@@ -789,8 +802,8 @@ fn installs_local_paths_and_rejects_missing_paths() {
     fixture.write("local/ext.ts", "x");
     let manager = fixture.manager(FakeSettings::new(Default::default(), Default::default(), false));
 
-    futures_block(manager.install("./local", false)).unwrap();
-    let error = futures_block(manager.install("./missing", false)).unwrap_err();
+    futures_block(manager.install(&JsString::from("./local"), false)).unwrap();
+    let error = futures_block(manager.install(&JsString::from("./missing"), false)).unwrap_err();
     assert_eq!(
         error.to_string(),
         format!("Path does not exist: {}", fixture.path("missing"))
@@ -803,7 +816,7 @@ fn untrusted_project_install_is_rejected() {
     fixture.write("local/ext.ts", "x");
     let manager = fixture.manager(FakeSettings::new(Default::default(), Default::default(), false));
 
-    let error = futures_block(manager.install("./local", true)).unwrap_err();
+    let error = futures_block(manager.install(&JsString::from("./local"), true)).unwrap_err();
     assert_eq!(
         error.to_string(),
         "Project is not trusted; refusing to access project package storage"
@@ -817,35 +830,47 @@ fn add_and_remove_sources_normalizes_local_paths() {
     let manager = fixture.manager_with(settings.clone());
     fixture.write("local/ext.ts", "x");
 
-    assert!(manager.add_source_to_settings("./local", false).unwrap());
+    assert!(
+        manager
+            .add_source_to_settings(&JsString::from("./local"), false)
+            .unwrap()
+    );
     assert_eq!(
         settings.global_settings().packages,
-        vec![PackageSource::Name("../project/local".to_owned())]
+        vec![PackageSource::Name("../project/local".to_owned().into())]
     );
-    assert!(!manager.add_source_to_settings("./local", false).unwrap());
-    assert!(manager.add_source_to_settings("npm:left-pad", false).unwrap());
+    assert!(
+        !manager
+            .add_source_to_settings(&JsString::from("./local"), false)
+            .unwrap()
+    );
+    assert!(
+        manager
+            .add_source_to_settings(&JsString::from("npm:left-pad"), false)
+            .unwrap()
+    );
     assert_eq!(
         settings.global_settings().packages,
         vec![
-            PackageSource::Name("../project/local".to_owned()),
-            PackageSource::Name("npm:left-pad".to_owned()),
+            PackageSource::Name("../project/local".to_owned().into()),
+            PackageSource::Name("npm:left-pad".to_owned().into()),
         ]
     );
 
-    assert!(manager.remove_source_from_settings("npm:left-pad@1.2.3", false));
+    assert!(manager.remove_source_from_settings(&JsString::from("npm:left-pad@1.2.3"), false));
     assert_eq!(
         settings.global_settings().packages,
-        vec![PackageSource::Name("../project/local".to_owned())]
+        vec![PackageSource::Name("../project/local".to_owned().into())]
     );
-    assert!(!manager.remove_source_from_settings("npm:unknown", false));
+    assert!(!manager.remove_source_from_settings(&JsString::from("npm:unknown"), false));
 }
 
 #[test]
 fn replaces_a_filtered_source_while_keeping_its_filters() {
     let fixture = Fixture::new();
     let filter = PackageFilter {
-        source: "npm:left-pad@1.0.0".to_owned(),
-        extensions: Some(vec!["!bad.ts".to_owned()]),
+        source: "npm:left-pad@1.0.0".to_owned().into(),
+        extensions: Some(vec!["!bad.ts".to_owned().into()]),
         ..PackageFilter::default()
     };
     let settings = Arc::new(FakeSettings::new(
@@ -855,7 +880,11 @@ fn replaces_a_filtered_source_while_keeping_its_filters() {
     ));
     let manager = fixture.manager_with(settings.clone());
 
-    assert!(manager.add_source_to_settings("npm:left-pad@2.0.0", false).unwrap());
+    assert!(
+        manager
+            .add_source_to_settings(&JsString::from("npm:left-pad@2.0.0"), false)
+            .unwrap()
+    );
     let packages = settings.global_settings().packages;
     let PackageSource::Filter(filter) = &packages[0] else {
         panic!("filtered source expected");
@@ -870,11 +899,11 @@ fn lists_configured_packages_with_installed_paths() {
     fixture.write_agent("npm/node_modules/user-pkg/package.json", "{\"version\":\"1.0.0\"}");
     let settings = FakeSettings::new(
         snapshot(vec![
-            PackageSource::Name("npm:user-pkg".to_owned()),
-            PackageSource::Name("npm:user-missing".to_owned()),
+            PackageSource::Name("npm:user-pkg".to_owned().into()),
+            PackageSource::Name("npm:user-missing".to_owned().into()),
         ]),
         snapshot(vec![PackageSource::Filter(PackageFilter {
-            source: "npm:project-pkg".to_owned(),
+            source: "npm:project-pkg".to_owned().into(),
             ..PackageFilter::default()
         })]),
         true,
@@ -889,8 +918,10 @@ fn lists_configured_packages_with_installed_paths() {
         pi_coding_agent::core::package_manager::InstalledScope::User
     );
     assert_eq!(
-        configured[0].installed_path.as_deref(),
-        Some(fixture.agent_path("npm/node_modules/user-pkg").as_str())
+        configured[0].installed_path.as_ref(),
+        Some(&JsString::from(
+            fixture.agent_path("npm/node_modules/user-pkg").as_str()
+        ))
     );
     assert_eq!(configured[1].installed_path, None);
     assert!(configured[2].filtered);
@@ -922,13 +953,13 @@ exit 0
     );
     let settings = FakeSettings::new(
         snapshot(vec![
-            PackageSource::Name("npm:old-pkg".to_owned()),
-            PackageSource::Name("npm:pinned@1.0.0".to_owned()),
+            PackageSource::Name("npm:old-pkg".to_owned().into()),
+            PackageSource::Name("npm:pinned@1.0.0".to_owned().into()),
         ]),
         Default::default(),
         false,
     )
-    .with_npm_command(vec![npm]);
+    .with_npm_command(vec![npm.into()]);
     let manager = fixture.manager(settings);
 
     futures_block(manager.update(None)).unwrap();
@@ -951,18 +982,18 @@ exit 0
 fn update_reports_missing_sources_with_suggestions() {
     let fixture = Fixture::new();
     let settings = FakeSettings::new(
-        snapshot(vec![PackageSource::Name("npm:left-pad".to_owned())]),
+        snapshot(vec![PackageSource::Name("npm:left-pad".to_owned().into())]),
         Default::default(),
         false,
     );
     let manager = fixture.manager(settings);
 
-    let error = futures_block(manager.update(Some("left-pad"))).unwrap_err();
+    let error = futures_block(manager.update(Some(&JsString::from("left-pad")))).unwrap_err();
     assert_eq!(
         error.to_string(),
         "No matching package found for left-pad. Did you mean npm:left-pad?"
     );
-    let error = futures_block(manager.update(Some("npm:unknown"))).unwrap_err();
+    let error = futures_block(manager.update(Some(&JsString::from("npm:unknown")))).unwrap_err();
     assert_eq!(error.to_string(), "No matching package found for npm:unknown");
 }
 
@@ -983,15 +1014,15 @@ exit 0
     );
     let settings = FakeSettings::new(
         snapshot(vec![
-            PackageSource::Name("npm:old-pkg".to_owned()),
-            PackageSource::Name("npm:current@2.0.0".to_owned()),
-            PackageSource::Name("npm:absent".to_owned()),
-            PackageSource::Name("npm:pinned@1.0.0".to_owned()),
+            PackageSource::Name("npm:old-pkg".to_owned().into()),
+            PackageSource::Name("npm:current@2.0.0".to_owned().into()),
+            PackageSource::Name("npm:absent".to_owned().into()),
+            PackageSource::Name("npm:pinned@1.0.0".to_owned().into()),
         ]),
         Default::default(),
         false,
     )
-    .with_npm_command(vec![npm]);
+    .with_npm_command(vec![npm.into()]);
     let manager = fixture.manager(settings);
 
     let updates = futures_block(manager.check_for_available_updates());
@@ -1008,7 +1039,8 @@ fn resolve_extension_sources_uses_temporary_and_project_scopes() {
     let manager = fixture.manager(settings);
 
     let resolved =
-        futures_block(manager.resolve_extension_sources(&["extensions/ext.ts".to_owned()], true, false)).unwrap();
+        futures_block(manager.resolve_extension_sources(&["extensions/ext.ts".to_owned().into()], true, false))
+            .unwrap();
     assert!(
         resolved
             .extensions
@@ -1044,12 +1076,16 @@ fn settings_manager_store_adapts_the_ported_settings_manager() {
     let fixture = Fixture::new();
     let manager = fixture.manager_with(store.clone());
 
-    assert!(manager.add_source_to_settings("npm:left-pad", false).unwrap());
+    assert!(
+        manager
+            .add_source_to_settings(&JsString::from("npm:left-pad"), false)
+            .unwrap()
+    );
     assert_eq!(
         store.with(|settings_manager| settings_manager.get_packages().unwrap()),
         vec![
-            PackageSource::Name("npm:my-pkg".to_owned()),
-            PackageSource::Name("npm:left-pad".to_owned()),
+            PackageSource::Name("npm:my-pkg".to_owned().into()),
+            PackageSource::Name("npm:left-pad".to_owned().into()),
         ]
     );
     assert_eq!(
@@ -1070,10 +1106,10 @@ fn missing_npm_binary_reports_the_node_spawn_error_text() {
     let fixture = Fixture::new();
     let missing = fixture.temp.path().join("missing-npm");
     let settings = FakeSettings::new(Default::default(), Default::default(), false)
-        .with_npm_command(vec![missing.to_string_lossy().into_owned()]);
+        .with_npm_command(vec![missing.to_string_lossy().into_owned().into()]);
     let manager = fixture.manager(settings);
 
-    let error = futures_block(manager.install("npm:left-pad", false)).expect_err("spawn must fail");
+    let error = futures_block(manager.install(&JsString::from("npm:left-pad"), false)).expect_err("spawn must fail");
 
     assert_eq!(error.to_string(), format!("spawn {} ENOENT", missing.display()));
 }
@@ -1084,10 +1120,10 @@ fn non_executable_npm_binary_reports_the_node_spawn_error_text() {
     let binary = fixture.temp.path().join("npm");
     fs::write(&binary, "#!/bin/sh\nexit 0\n").unwrap();
     let settings = FakeSettings::new(Default::default(), Default::default(), false)
-        .with_npm_command(vec![binary.to_string_lossy().into_owned()]);
+        .with_npm_command(vec![binary.to_string_lossy().into_owned().into()]);
     let manager = fixture.manager(settings);
 
-    let error = futures_block(manager.install("npm:left-pad", false)).expect_err("spawn must fail");
+    let error = futures_block(manager.install(&JsString::from("npm:left-pad"), false)).expect_err("spawn must fail");
 
     assert_eq!(error.to_string(), format!("spawn {} EACCES", binary.display()));
 }

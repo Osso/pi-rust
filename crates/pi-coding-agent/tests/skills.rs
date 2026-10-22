@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::fs;
 
 use pi_coding_agent::core::skills::{LoadSkillsFromDirOptions, format_skills_for_prompt, load_skills_from_dir};
@@ -15,9 +16,10 @@ fn loads_a_valid_skill_with_synthetic_source_info() {
     .unwrap();
 
     let result = load_skills_from_dir(&LoadSkillsFromDirOptions {
-        dir: dir.to_string_lossy().into_owned(),
-        source: "test".to_owned(),
-    });
+        dir: dir.to_string_lossy().into_owned().into(),
+        source: "test".to_owned().into(),
+    })
+    .unwrap();
 
     assert_eq!(result.diagnostics, Vec::new());
     assert_eq!(result.skills.len(), 1);
@@ -45,9 +47,10 @@ fn warns_but_keeps_skills_with_invalid_names() {
     .unwrap();
 
     let result = load_skills_from_dir(&LoadSkillsFromDirOptions {
-        dir: dir.to_string_lossy().into_owned(),
-        source: "test".to_owned(),
-    });
+        dir: dir.to_string_lossy().into_owned().into(),
+        source: "test".to_owned().into(),
+    })
+    .unwrap();
 
     assert_eq!(result.skills.len(), 1);
     assert!(
@@ -66,9 +69,10 @@ fn skips_skills_without_a_description() {
     fs::write(dir.join("SKILL.md"), "---\nname: missing-description\n---\n").unwrap();
 
     let result = load_skills_from_dir(&LoadSkillsFromDirOptions {
-        dir: dir.to_string_lossy().into_owned(),
-        source: "test".to_owned(),
-    });
+        dir: dir.to_string_lossy().into_owned().into(),
+        source: "test".to_owned().into(),
+    })
+    .unwrap();
 
     assert!(result.skills.is_empty());
     assert!(
@@ -88,15 +92,16 @@ fn invalid_yaml_reports_one_warning_at_the_file() {
     fs::write(&path, "---\nname: invalid-yaml\ndescription: [unclosed bracket\n---\n").unwrap();
 
     let result = load_skills_from_dir(&LoadSkillsFromDirOptions {
-        dir: dir.to_string_lossy().into_owned(),
-        source: "test".to_owned(),
-    });
+        dir: dir.to_string_lossy().into_owned().into(),
+        source: "test".to_owned().into(),
+    })
+    .unwrap();
 
     assert!(result.skills.is_empty());
     assert_eq!(result.diagnostics.len(), 1);
     assert_eq!(
-        result.diagnostics[0].path.as_deref(),
-        Some(path.to_string_lossy().as_ref())
+        result.diagnostics[0].path.as_ref(),
+        Some(&JsString::from(path.to_string_lossy().as_ref()))
     );
     assert!(result.diagnostics[0].message.contains("line"));
 }
@@ -120,17 +125,19 @@ fn prefers_the_directory_root_skill_and_skips_dot_directories() {
     .unwrap();
 
     let result = load_skills_from_dir(&LoadSkillsFromDirOptions {
-        dir: root.to_string_lossy().into_owned(),
-        source: "test".to_owned(),
-    });
+        dir: root.to_string_lossy().into_owned().into(),
+        source: "test".to_owned().into(),
+    })
+    .unwrap();
 
     assert_eq!(result.skills.len(), 1);
     assert_eq!(result.skills[0].description, "Root skill should win.");
 
     let tree = load_skills_from_dir(&LoadSkillsFromDirOptions {
-        dir: temp.path().to_string_lossy().into_owned(),
-        source: "test".to_owned(),
-    });
+        dir: temp.path().to_string_lossy().into_owned().into(),
+        source: "test".to_owned().into(),
+    })
+    .unwrap();
     assert!(
         tree.skills
             .iter()
@@ -141,14 +148,14 @@ fn prefers_the_directory_root_skill_and_skips_dot_directories() {
 #[test]
 fn formats_visible_skills_as_xml() {
     let skill = pi_coding_agent::core::skills::Skill {
-        name: "test-skill".to_owned(),
-        description: "A skill with <special> & \"characters\".".to_owned(),
-        file_path: "/path/to/skill/SKILL.md".to_owned(),
-        base_dir: "/path/to/skill".to_owned(),
+        name: "test-skill".to_owned().into(),
+        description: "A skill with <special> & \"characters\".".to_owned().into(),
+        file_path: "/path/to/skill/SKILL.md".to_owned().into(),
+        base_dir: "/path/to/skill".to_owned().into(),
         source_info: pi_coding_agent::core::source_info::create_synthetic_source_info(
-            "/path/to/skill/SKILL.md",
+            &JsString::from("/path/to/skill/SKILL.md"),
             &pi_coding_agent::core::source_info::SyntheticSourceInfoOptions {
-                source: "test".to_owned(),
+                source: "test".to_owned().into(),
                 scope: None,
                 origin: None,
                 base_dir: None,

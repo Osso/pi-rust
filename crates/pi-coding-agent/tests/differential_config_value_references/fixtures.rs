@@ -1,4 +1,5 @@
 use pi_coding_agent::core::{get_config_value_env_var_name, get_config_value_env_var_names, is_command_config_value};
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 pub(crate) struct Fixture {
@@ -106,9 +107,9 @@ const fn command_expected<'a>() -> Expected<'a> {
 }
 
 fn fixture(id: u64, name: &'static str, config: &'static str, expected: Expected<'_>) -> Fixture {
-    let env_var_name = get_config_value_env_var_name(config);
-    let env_var_names = get_config_value_env_var_names(config);
-    let is_command = is_command_config_value(config);
+    let env_var_name = get_config_value_env_var_name(&JsString::from(config));
+    let env_var_names = get_config_value_env_var_names(&JsString::from(config));
+    let is_command = is_command_config_value(&JsString::from(config));
     assert_fixture_expectation(name, env_var_name, &env_var_names, is_command, &expected);
 
     Fixture {

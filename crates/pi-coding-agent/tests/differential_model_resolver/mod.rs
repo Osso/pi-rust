@@ -8,6 +8,7 @@ use pi_coding_agent::core::model_resolver::{
     default_model_for_provider, find_exact_model_reference_match, find_initial_model, parse_model_pattern,
     resolve_cli_model, resolve_model_scope_from_models,
 };
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 fn model(provider: &str, id: &str, name: &str, reasoning: bool) -> Model {
@@ -118,7 +119,7 @@ fn compare_parse(oracle: &mut oracle::TsOracle, models: &[Model]) {
         let expected = oracle.request(&request);
         assert!(expected["ok"].as_bool().unwrap(), "{expected}");
         let result = parse_model_pattern(
-            pattern,
+            &JsString::from(pattern),
             models,
             ParseModelPatternOptions {
                 allow_invalid_thinking_level_fallback: allow,
@@ -154,7 +155,7 @@ fn compare_scope(oracle: &mut oracle::TsOracle, models: &[Model]) {
         let expected = oracle.request(&request);
         assert!(expected["ok"].as_bool().unwrap(), "{expected}");
         let owned: Vec<String> = patterns.iter().map(|pattern| (*pattern).to_owned()).collect();
-        let result = resolve_model_scope_from_models(&owned, models);
+        let result = resolve_model_scope_from_models(&(&owned).iter().map(JsString::from).collect::<Vec<_>>(), models);
         let actual = json!({
             "scopedModels": result
                 .scoped_models
@@ -272,7 +273,7 @@ fn compare_cli(oracle: &mut oracle::TsOracle, models: &[Model]) {
         let result = resolve_cli_model(
             &ResolveCliModelOptions {
                 cli_provider: cli_provider.map(str::to_owned),
-                cli_model: Some(cli_model.to_owned()),
+                cli_model: Some(cli_model.to_owned().into()),
                 cli_thinking: thinking_level,
             },
             &runtime,
@@ -435,7 +436,7 @@ async fn compare_initial(oracle: &mut oracle::TsOracle, models: &[Model]) {
         let result = find_initial_model(
             &FindInitialModelOptions {
                 cli_provider: request["cliProvider"].as_str().map(str::to_owned),
-                cli_model: request["cliModel"].as_str().map(str::to_owned),
+                cli_model: (request["cliModel"].as_str().map(str::to_owned)).map(JsString::from),
                 scoped_models,
                 is_continuing: request["isContinuing"].as_bool().unwrap_or(false),
                 default_provider: request["defaultProvider"].as_str().map(str::to_owned),
