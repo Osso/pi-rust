@@ -1,17 +1,18 @@
 //! Ported from `coding-agent/src/modes/interactive/components/visual-truncate.ts`.
 
+use pi_js_compat::js_json::JsString;
 use pi_tui::{Component, Text};
 
 /// The visual lines to display plus how many were skipped (hidden).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VisualTruncateResult {
-    pub visual_lines: Vec<String>,
+    pub visual_lines: Vec<JsString>,
     pub skipped_count: usize,
 }
 
 /// Truncate text to the last `max_visual_lines` rendered lines at `width`.
 pub fn truncate_to_visual_lines(
-    text: &str,
+    text: &JsString,
     max_visual_lines: usize,
     width: usize,
     padding_x: usize,
