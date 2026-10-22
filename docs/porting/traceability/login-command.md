@@ -35,3 +35,5 @@ Interactive process module. Behavioral proof with a scripted `LoginIo` and a reg
 ## Discrepancies
 
 None found.
+
+Q18 native CLI auth prompt/credential text stays `JsString` through IO callbacks; browser URL encodes at spawn, not presentation. Behavioral proof status: [lossless auth](lossless-auth.md); coding-agent tests unexecuted until library compiles.
