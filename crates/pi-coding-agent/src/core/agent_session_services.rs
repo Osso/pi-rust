@@ -60,7 +60,7 @@ pub struct CreateAgentSessionFromServicesOptions {
     pub custom_tools: Vec<crate::core::agent_session::ToolDefinition>,
     pub base_tools: Vec<Arc<dyn pi_agent_core::agent::types::AgentTool>>,
     pub multi_agent_store: Option<Arc<crate::core::multi_agent_store::MultiAgentStore>>,
-    pub on_shared_channel_message_delivered: Option<Arc<dyn Fn(String) + Send + Sync>>,
+    pub on_shared_channel_message_delivered: Option<Arc<dyn Fn(pi_js_compat::js_json::JsString) + Send + Sync>>,
     pub session_start_event: Option<crate::core::extensions::types::SessionStartEvent>,
 }
 

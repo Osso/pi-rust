@@ -1957,7 +1957,8 @@ impl Focusable for AnyEditorHandle {
 pub type InputCallback = Rc<dyn Fn(String)>;
 
 /// `InteractiveModeOptions`.
-pub type SteerMultiAgent = Arc<dyn Fn(String, String, String) -> BoxFuture<'static, Result<(), String>> + Send + Sync>;
+pub type SteerMultiAgent =
+    Arc<dyn Fn(String, JsString, String) -> BoxFuture<'static, Result<(), JsString>> + Send + Sync>;
 pub type CancelMultiAgent = Arc<dyn Fn(String) -> BoxFuture<'static, Result<(), JsString>> + Send + Sync>;
 pub type AgentViewSelectorSlot =
     Arc<std::sync::Mutex<Option<crate::bundled_extensions::agents_core::runtime::SelectAgentView>>>;
@@ -2187,10 +2188,7 @@ fn sort_named_sessions_first(
 }
 
 fn session_has_name(session: &crate::core::session_manager::SessionInfo) -> bool {
-    session
-        .name
-        .as_deref()
-        .is_some_and(|name| !pi_js_compat::string::js_trim(name).is_empty())
+    session.name.as_ref().is_some_and(|name| !name.trim().is_empty())
 }
 
 fn tree_filter_mode(mode: TreeFilterMode) -> FilterMode {
@@ -4311,30 +4309,26 @@ impl InteractiveMode {
             return false;
         };
         if !is_steerable_agent(&agent) {
-            self.show_error(&format!(
-                "Could not steer {}: agent is not steerable",
-                agent.display_name
-            ));
+            self.show_error(JsString::from("Could not steer ") + &agent.display_name + ": agent is not steerable");
             self.editor().borrow_mut().set_text(submitted_text);
             return true;
         }
         let Some(steer) = self.options.steer_multi_agent.clone() else {
-            self.show_error(&format!(
-                "Could not steer {}: lifecycle coordinator unavailable",
-                agent.display_name
-            ));
+            self.show_error(
+                JsString::from("Could not steer ") + &agent.display_name + ": lifecycle coordinator unavailable",
+            );
             self.editor().borrow_mut().set_text(submitted_text);
             return true;
         };
         let session_id = self.session.borrow().session_manager().get_session_id().to_owned();
-        match steer(agent_id, message.to_owned(), session_id).await {
+        match steer(agent_id, message.into(), session_id).await {
             Ok(()) => {
                 self.add_submitted_text_to_history(message);
                 self.clear_editor();
                 self.ui.request_render();
             }
             Err(error) => {
-                self.show_error(&format!("Could not steer {}: {error}", agent.display_name));
+                self.show_error(JsString::from("Could not steer ") + &agent.display_name + ": " + error);
                 self.editor().borrow_mut().set_text(submitted_text);
             }
         }
@@ -4355,24 +4349,21 @@ impl InteractiveMode {
             return false;
         }
         let Some(cancel) = self.options.cancel_multi_agent.clone() else {
-            self.show_status(&format!(
-                "Could not cancel {}: lifecycle coordinator unavailable",
-                agent.display_name
-            ));
+            self.show_status(
+                JsString::from("Could not cancel ") + &agent.display_name + ": lifecycle coordinator unavailable",
+            );
             self.ui.request_render();
             return true;
         };
-        self.show_status(&format!("Requesting cancellation for {}...", agent.display_name));
+        self.show_status(JsString::from("Requesting cancellation for ") + &agent.display_name + "...");
         let display_name = agent.display_name.clone();
         let id = self.ui_id.get();
         tokio::task::spawn_local(async move {
             let cancelled = cancel(agent_id).await;
             with_mode(id, |mode| {
                 match cancelled {
-                    Ok(()) => mode.show_status(&format!("Cancellation requested for {display_name}.")),
-                    Err(error) => {
-                        mode.show_status(JsString::from(format!("Could not cancel {display_name}: ")) + error)
-                    }
+                    Ok(()) => mode.show_status(JsString::from("Cancellation requested for ") + &display_name + "."),
+                    Err(error) => mode.show_status(JsString::from("Could not cancel ") + &display_name + ": " + error),
                 }
                 mode.ui.request_render();
             });

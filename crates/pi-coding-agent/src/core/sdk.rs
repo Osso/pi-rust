@@ -79,7 +79,7 @@ pub struct CreateAgentSessionOptions {
     /// Whether this runtime must have an explicit multi-agent identity to send agent messages.
     pub multi_agent_requires_agent_id: bool,
     pub disable_runtime_coordination_inbound: bool,
-    pub on_shared_channel_message_delivered: Option<Arc<dyn Fn(String) + Send + Sync>>,
+    pub on_shared_channel_message_delivered: Option<Arc<dyn Fn(JsString) + Send + Sync>>,
     pub session_start_event: Option<crate::core::extensions::types::SessionStartEvent>,
     pub supervisor_decision_requester: Option<crate::core::agent_session::SupervisorDecisionRequester>,
 }

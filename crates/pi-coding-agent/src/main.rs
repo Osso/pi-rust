@@ -197,7 +197,7 @@ pub fn create_first_party_extension_factories(
         })
     });
     let create_session_manager: CreateChildSessionManager = Arc::new(|cwd, session_dir, options| {
-        SessionManager::create(cwd, session_dir, Some(options)).map_err(|error| error.to_string())
+        SessionManager::create(cwd, session_dir, Some(options)).map_err(|error| error.message().clone())
     });
     let child_agent_session_factory =
         create_production_child_agent_session_factory(ProductionChildAgentSessionFactoryOptions {
@@ -309,7 +309,7 @@ fn pyrun_extension_factory(
                     if !handler.handles_method(&request.method) {
                         return Ok(None);
                     }
-                    let value = serde_json::json!({
+                    let value = pi_js_compat::js_json!({
                         "method": request.method,
                         "params": request.params,
                     });
@@ -631,7 +631,7 @@ async fn create_runtime(
         multi_agent_store: Some(Arc::clone(&options.multi_agent_store)),
         on_shared_channel_message_delivered: {
             let handles = options.multi_agent_runtime_handles.clone();
-            Some(Arc::new(move |prompt: String| {
+            Some(Arc::new(move |prompt: JsString| {
                 crate::bundled_extensions::agents_core::runtime::wake_wait_agents_after_coordination(&handles, &prompt);
             }))
         },
@@ -2166,7 +2166,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
             return Ok(Some(1));
         }
         session_manager
-            .set_session_name(Some(name))
+            .set_session_name(Some(&JsString::from(name)))
             .map_err(|error| error.to_string())?;
     }
     if should_take_over_stdout {
@@ -2345,9 +2345,9 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
             migrated_providers: migrations.migrated_auth_providers.clone(),
             model_fallback_message: model_fallback_message.clone(),
             auto_trust_on_reload_cwd,
-            initial_message: initial.initial_message.clone(),
+            initial_message: initial.initial_message.clone().map(JsString::from),
             initial_images: initial.initial_images.clone().unwrap_or_default(),
-            initial_messages: parsed.messages.clone(),
+            initial_messages: parsed.messages.iter().map(JsString::from).collect(),
             control_message,
             verbose: parsed.verbose.is_some_and(|value| value),
             tui_mode: parsed.tui_mode,
@@ -2363,13 +2363,13 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
                 let store = Arc::clone(&multi_agent_store);
                 let handles = multi_agent_runtime_handles.clone();
                 let control_db_path = control_db_path.clone();
-                move |agent_id: String, message: String, session_id: String| {
+                move |agent_id: String, message: JsString, session_id: String| {
                     let store = Arc::clone(&store);
                     let handles = handles.clone();
                     let control_db_path = control_db_path.clone();
                     Box::pin(async move {
                         if control_db_path.is_empty() {
-                            return Err("Agent steering is unavailable".to_owned());
+                            return Err(JsString::from("Agent steering is unavailable"));
                         }
                         crate::bundled_extensions::agents_core::control_runtime::request_interactive_agent_steering(
                             &store,
@@ -2382,7 +2382,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
                                 session_id,
                             },
                         )
-                    }) as pi_ai::request::BoxFuture<'static, Result<(), String>>
+                    }) as pi_ai::request::BoxFuture<'static, Result<(), JsString>>
                 }
             })),
             cancel_multi_agent: Some(Arc::new({
@@ -2445,8 +2445,8 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         runtime,
         PrintModeOptions {
             mode: print_mode,
-            messages: parsed.messages.clone(),
-            initial_message: initial.initial_message,
+            messages: parsed.messages.iter().map(JsString::from).collect(),
+            initial_message: initial.initial_message.map(JsString::from),
             initial_images: initial.initial_images.unwrap_or_default(),
         },
     )
