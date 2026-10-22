@@ -527,3 +527,95 @@ async fn shell_spawn_argument_validation_and_envpair_encoding_match_node() {
         pi_js_compat::js_json::stringify_lossless(&expected)
     );
 }
+
+#[tokio::test]
+async fn read_file_abort_after_io_started_matches_node() {
+    use std::io::Write;
+    for method in ["readTextFile", "readBinaryFile"] {
+        let root = tempfile::tempdir().unwrap();
+        let reference = tempfile::tempdir().unwrap();
+        let expected = oracle().request(&json!({"kind":"read-abort","root":reference.path(),"method":method}));
+        let path = root.path().join("read.fifo");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&path)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let mut writer = std::fs::OpenOptions::new().read(true).write(true).open(path).unwrap();
+        writer.write_all(b"prefix").unwrap();
+        let native = env(root.path().to_str().unwrap());
+        let token = CancellationToken::new();
+        let signal = token.clone();
+        let task = tokio::spawn(async move {
+            if method == "readTextFile" {
+                native
+                    .read_text_file(&"read.fifo".into(), Some(&signal))
+                    .await
+                    .map(|text| json!(text))
+            } else {
+                native
+                    .read_binary_file(&"read.fifo".into(), Some(&signal))
+                    .await
+                    .map(|bytes| json!(bytes))
+            }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        token.cancel();
+        drop(writer);
+        let result = task.await.unwrap();
+        let actual = match result {
+            Ok(value) => json!({"ok":true,"value":value}),
+            Err(error) => file_error_value(error),
+        };
+        let actual = normalize_root(actual, root.path().to_str().unwrap());
+        let expected = normalize_root(expected, reference.path().to_str().unwrap());
+        assert!(
+            actual == expected,
+            "{method}: actual={}\nexpected={}",
+            pi_js_compat::js_json::stringify_lossless(&actual),
+            pi_js_compat::js_json::stringify_lossless(&expected)
+        );
+    }
+}
+
+#[tokio::test]
+async fn write_file_abort_after_blocked_open_preserves_frozen_written_bytes_and_error() {
+    let native = tempfile::tempdir().unwrap();
+    let reference = tempfile::tempdir().unwrap();
+    let expected = oracle().request(&json!({"kind":"write-abort","root":reference.path()}));
+    let path = native.path().join("write.fifo");
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let env = env(native.path().to_str().unwrap());
+    let token = CancellationToken::new();
+    let signal = token.clone();
+    let task = tokio::spawn(async move {
+        env.write_file(&"write.fifo".into(), FileContent::Text(&"hello".into()), Some(&signal))
+            .await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+    token.cancel();
+    let text = tokio::task::spawn_blocking(move || std::fs::read_to_string(path).unwrap())
+        .await
+        .unwrap();
+    let result = task.await.unwrap();
+    let write = match result {
+        Ok(()) => json!({"ok":true}),
+        Err(error) => file_error_value(error),
+    };
+    let actual = normalize_root(json!({"write":write,"text":text}), native.path().to_str().unwrap());
+    let expected = normalize_root(expected, reference.path().to_str().unwrap());
+    assert!(
+        actual == expected,
+        "actual={}\nexpected={}",
+        pi_js_compat::js_json::stringify_lossless(&actual),
+        pi_js_compat::js_json::stringify_lossless(&expected)
+    );
+}

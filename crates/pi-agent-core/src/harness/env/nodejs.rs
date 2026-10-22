@@ -93,6 +93,7 @@ impl FileSystem for NodeExecutionEnv {
             let bytes = tokio::fs::read(&encode_node_utf8(&resolved))
                 .await
                 .map_err(|error| read_file_error(&error, &resolved))?;
+            io_abort_result(abort, &resolved)?;
             Ok(String::from_utf8_lossy(&bytes).into_owned())
         })
     }
@@ -124,9 +125,11 @@ impl FileSystem for NodeExecutionEnv {
             if let Some(error) = abort_result(abort, &resolved) {
                 return Err(error);
             }
-            tokio::fs::read(&encode_node_utf8(&resolved))
+            let bytes = tokio::fs::read(&encode_node_utf8(&resolved))
                 .await
-                .map_err(|error| read_file_error(&error, &resolved))
+                .map_err(|error| read_file_error(&error, &resolved))?;
+            io_abort_result(abort, &resolved)?;
+            Ok(bytes)
         })
     }
 
@@ -147,7 +150,8 @@ impl FileSystem for NodeExecutionEnv {
             }
             tokio::fs::write(&encode_node_utf8(&resolved), content.as_bytes())
                 .await
-                .map_err(|error| file_error(&error, "open", &resolved))
+                .map_err(|error| file_error(&error, "open", &resolved))?;
+            io_abort_result(abort, &resolved)
         })
     }
 
@@ -897,6 +901,18 @@ fn random_name_suffix() -> String {
         .map(|duration| duration.as_nanos())
         .unwrap_or_default();
     format!("{:06x}", (nanos as u64 ^ counter) & 0xff_ffff)
+}
+
+fn io_abort_result(abort: Option<&CancellationToken>, path: &JsString) -> Result<(), FileError> {
+    if abort.is_some_and(CancellationToken::is_cancelled) {
+        return Err(FileError::new(
+            FileErrorCode::Aborted,
+            "The operation was aborted",
+            Some(path.clone()),
+            None,
+        ));
+    }
+    Ok(())
 }
 
 fn abort_result(abort: Option<&CancellationToken>, path: &JsString) -> Option<FileError> {

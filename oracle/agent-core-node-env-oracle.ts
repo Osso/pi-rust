@@ -1,7 +1,8 @@
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import { basename, dirname } from "node:path";
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, open } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 
 async function main(): Promise<void> {
 	const { NodeExecutionEnv } = await import(pathToFileURL(process.argv[2]!).href);
@@ -13,7 +14,26 @@ async function main(): Promise<void> {
 		const controller = new AbortController();
 		controller.abort();
 		let result: unknown;
-		if (input.kind === "shell-boundary") {
+		if (input.kind === "write-abort") {
+			const path = `${input.root}/write.fifo`;
+			execFileSync("mkfifo", [path]);
+			const abort = new AbortController();
+			const write = env.writeFile("write.fifo", "hello", abort.signal);
+			const bytes = new Promise<string>((resolve, reject) => setTimeout(() => {
+				abort.abort();
+				readFile(path, "utf8").then(resolve, reject);
+			}, 30));
+			result = { write: await write, text: await bytes };
+		} else if (input.kind === "read-abort") {
+			const path = `${input.root}/read.fifo`;
+			execFileSync("mkfifo", [path]);
+			const writer = await open(path, "r+");
+			await writer.write("prefix");
+			const abort = new AbortController();
+			const read = env[input.method]("read.fifo", abort.signal);
+			setTimeout(() => { abort.abort(); void writer.close(); }, 30);
+			result = await read;
+		} else if (input.kind === "shell-boundary") {
 			result = await env.exec(input.command, { env: input.extraEnv, cwd: input.cwd });
 		} else if (input.kind === "temp") {
 			const file = await env.createTempFile({ prefix: "pre", suffix: ".end" });
