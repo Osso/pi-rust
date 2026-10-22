@@ -1,11 +1,13 @@
 //! Port of `packages/coding-agent/extensions/pyrun/src/detached-runner.ts`.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use pi_js_compat::js_json::{self, JsObject as Map, JsString, JsValue as Value};
+use crate::utils::paths::{node_dirname, node_extname, node_join};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{self, JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
@@ -40,23 +42,23 @@ const LAUNCH_MANIFEST_TIMEOUT_MS: u64 = 30_000;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DetachedPyrunLaunchManifestData {
-    pub activation_path: String,
+    pub activation_path: JsString,
     pub artifacts: DetachedJobArtifacts,
-    pub bridge_request_path: String,
-    pub bridge_response_path: String,
-    pub control_db_path: String,
-    pub foreground_completion_path: String,
+    pub bridge_request_path: JsString,
+    pub bridge_response_path: JsString,
+    pub control_db_path: JsString,
+    pub foreground_completion_path: JsString,
     pub params: CanonicalPyrunEvalParams,
     pub runner_address: RuntimeMailboxAddress,
     pub runner_options: PyrunRunnerOptions,
     pub runner_process_identity: crate::core::runtime_process::ProcessIdentity,
-    pub session_path: String,
+    pub session_path: JsString,
     #[serde(serialize_with = "serialize_js_number")]
     pub started_at: f64,
     pub supervisor_process_identity: crate::core::runtime_process::ProcessIdentity,
     /// Absent in legacy manifests written before tool-call correlation.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_call_id: Option<String>,
+    pub tool_call_id: Option<JsString>,
 }
 
 /// `JSON.stringify(number)`: integral finite numbers use integer notation.
@@ -74,22 +76,22 @@ pub struct DetachedPyrunLaunchManifest {
     pub data: DetachedPyrunLaunchManifestData,
     #[serde(serialize_with = "serialize_js_number")]
     pub version: f64,
-    pub checksum: String,
+    pub checksum: JsString,
 }
 
-fn fsync_file(path: &str) -> Result<(), JsString> {
-    let file = std::fs::File::open(path).map_err(|error| JsString::from(error.to_string()))?;
+fn fsync_file(path: &JsString) -> Result<(), JsString> {
+    let file = std::fs::File::open(&encode_node_utf8(path)).map_err(|error| JsString::from(error.to_string()))?;
     file.sync_all().map_err(|error| JsString::from(error.to_string()))
 }
 
-fn fsync_directory(path: &str) -> Result<(), JsString> {
-    let file = std::fs::File::open(path).map_err(|error| JsString::from(error.to_string()))?;
+fn fsync_directory(path: &JsString) -> Result<(), JsString> {
+    let file = std::fs::File::open(&encode_node_utf8(path)).map_err(|error| JsString::from(error.to_string()))?;
     file.sync_all().map_err(|error| JsString::from(error.to_string()))
 }
 
 /// `writeDetachedPyrunLaunchManifest`.
 pub fn write_detached_pyrun_launch_manifest(
-    path: &str,
+    path: &JsString,
     data: &DetachedPyrunLaunchManifestData,
 ) -> Result<(), JsString> {
     let mut unsigned = js_json::to_value(data).map_err(|error| JsString::from(error.to_string()))?;
@@ -102,19 +104,17 @@ pub fn write_detached_pyrun_launch_manifest(
     );
     let checksum = hash_json(&Value::Object(object.clone()));
     object.insert("checksum".into(), Value::String(checksum.into()));
-    let temporary_path = format!("{path}.tmp");
+    let temporary_path = js_format!("{path}.tmp");
     let serialized = format!("{}\n", js_json::stringify_lossless(&unsigned));
     write_private(&temporary_path, &serialized)?;
     fsync_file(&temporary_path)?;
-    std::fs::rename(&temporary_path, path).map_err(|error| JsString::from(error.to_string()))?;
-    let directory = Path::new(path)
-        .parent()
-        .map(|path| path.display().to_string())
-        .unwrap_or_default();
+    std::fs::rename(encode_node_utf8(&temporary_path), encode_node_utf8(path))
+        .map_err(|error| JsString::from(error.to_string()))?;
+    let directory = node_dirname(path);
     fsync_directory(&directory)
 }
 
-fn write_private(path: &str, content: &str) -> Result<(), JsString> {
+fn write_private(path: &JsString, content: &str) -> Result<(), JsString> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -123,34 +123,38 @@ fn write_private(path: &str, content: &str) -> Result<(), JsString> {
         options.mode(0o600);
     }
     use std::io::Write;
-    let mut file = options.open(path).map_err(|error| JsString::from(error.to_string()))?;
+    let mut file = options
+        .open(&encode_node_utf8(path))
+        .map_err(|error| JsString::from(error.to_string()))?;
     file.write_all(content.as_bytes())
         .map_err(|error| JsString::from(error.to_string()))
 }
 
 /// `writeDetachedPyrunActivation`.
-pub fn write_detached_pyrun_activation(path: &str, identity: &DetachedJobOwnershipIdentity) -> Result<(), JsString> {
-    let temporary_path = format!("{path}.tmp");
+pub fn write_detached_pyrun_activation(
+    path: &JsString,
+    identity: &DetachedJobOwnershipIdentity,
+) -> Result<(), JsString> {
+    let temporary_path = js_format!("{path}.tmp");
     let serialized = format!(
         "{}\n",
-        serde_json::to_string(identity).map_err(|error| JsString::from(error.to_string()))?
+        js_json::stringify_lossless(&js_json::to_value(identity).map_err(|error| JsString::from(error.to_string()))?)
     );
     write_private(&temporary_path, &serialized)?;
     fsync_file(&temporary_path)?;
-    std::fs::rename(&temporary_path, path).map_err(|error| JsString::from(error.to_string()))?;
-    let directory = Path::new(path)
-        .parent()
-        .map(|path| path.display().to_string())
-        .unwrap_or_default();
+    std::fs::rename(encode_node_utf8(&temporary_path), encode_node_utf8(path))
+        .map_err(|error| JsString::from(error.to_string()))?;
+    let directory = node_dirname(path);
     fsync_directory(&directory)
 }
 
 /// `readDetachedPyrunActivation`.
-pub fn read_detached_pyrun_activation(path: &str) -> Result<Option<DetachedJobOwnershipIdentity>, JsString> {
-    if !Path::new(path).exists() {
+pub fn read_detached_pyrun_activation(path: &JsString) -> Result<Option<DetachedJobOwnershipIdentity>, JsString> {
+    if !Path::new(&encode_node_utf8(path)).exists() {
         return Ok(None);
     }
-    let content = std::fs::read_to_string(path).map_err(|error| JsString::from(error.to_string()))?;
+    let content =
+        std::fs::read_to_string(&encode_node_utf8(path)).map_err(|error| JsString::from(error.to_string()))?;
     let value = js_json::parse_lossless(&content).map_err(|error| error.into_message())?;
     js_json::from_value(&value)
         .map(Some)
@@ -158,24 +162,25 @@ pub fn read_detached_pyrun_activation(path: &str) -> Result<Option<DetachedJobOw
 }
 
 /// `readDetachedPyrunLaunchManifest`.
-pub fn read_detached_pyrun_launch_manifest(path: &str) -> Result<DetachedPyrunLaunchManifest, JsString> {
-    let content = std::fs::read_to_string(path).map_err(|error| JsString::from(error.to_string()))?;
+pub fn read_detached_pyrun_launch_manifest(path: &JsString) -> Result<DetachedPyrunLaunchManifest, JsString> {
+    let content =
+        std::fs::read_to_string(&encode_node_utf8(path)).map_err(|error| JsString::from(error.to_string()))?;
     let parsed: Value = js_json::parse_lossless(&content).map_err(|error| error.into_message())?;
     let original = parsed.clone();
     let mut unsigned = parsed;
     let Some(object) = unsigned.as_object_mut() else {
-        return Err(format!("Invalid detached Pyrun launch manifest: {path}").into());
+        return Err(js_format!("Invalid detached Pyrun launch manifest: {path}").into());
     };
     let checksum = object
         .shift_remove(&JsString::from("checksum"))
-        .and_then(|checksum| checksum.as_string().and_then(|value| value.to_utf8().ok()));
+        .and_then(|checksum| checksum.as_string().cloned());
     let version = object.get("version").and_then(Value::as_f64);
     let started_at = object.get("startedAt").and_then(Value::as_f64);
     let valid = version == Some(DETACHED_PYRUN_LAUNCH_VERSION)
         && started_at.is_some_and(f64::is_finite)
-        && checksum.as_deref() == Some(hash_json(&unsigned).as_str());
+        && checksum.as_ref() == Some(&JsString::from(hash_json(&unsigned)));
     if !valid {
-        return Err(format!("Invalid detached Pyrun launch manifest: {path}").into());
+        return Err(js_format!("Invalid detached Pyrun launch manifest: {path}").into());
     }
     js_json::from_value(&original).map_err(|error| JsString::from(error.to_string()))
 }
@@ -184,45 +189,44 @@ pub fn read_detached_pyrun_launch_manifest(path: &str) -> Result<DetachedPyrunLa
 /// binary dispatches [`DETACHED_PYRUN_RUNNER_MODE`] itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DetachedPyrunRunnerInvocation {
-    pub args: Vec<String>,
-    pub executable: String,
+    pub args: Vec<JsString>,
+    pub executable: JsString,
 }
 
 /// `getDetachedPyrunRunnerInvocation` options.
 #[derive(Debug, Clone, Default)]
 pub struct DetachedPyrunRunnerInvocationOptions {
     pub compiled: bool,
-    pub entry_path: Option<String>,
-    pub executable_path: Option<String>,
+    pub entry_path: Option<JsString>,
+    pub executable_path: Option<JsString>,
 }
 
 /// `getDetachedPyrunRunnerInvocation`.
 pub fn get_detached_pyrun_runner_invocation(
-    manifest_path: &str,
+    manifest_path: &JsString,
     options: &DetachedPyrunRunnerInvocationOptions,
 ) -> Result<DetachedPyrunRunnerInvocation, JsString> {
     let executable = match &options.executable_path {
         Some(executable) => executable.clone(),
-        None => std::env::current_exe()
-            .map_err(|error| JsString::from(error.to_string()))?
-            .to_string_lossy()
-            .into_owned(),
+        None => JsString::from(
+            std::env::current_exe()
+                .map_err(|error| JsString::from(error.to_string()))?
+                .to_string_lossy()
+                .into_owned(),
+        ),
     };
     if options.compiled && options.entry_path.is_none() {
         return Ok(DetachedPyrunRunnerInvocation {
-            args: vec![DETACHED_PYRUN_RUNNER_MODE.to_owned(), manifest_path.to_owned()],
+            args: vec![DETACHED_PYRUN_RUNNER_MODE.into(), manifest_path.to_owned()],
             executable,
         });
     }
     let Some(entry_path) = &options.entry_path else {
         return Err("Detached Pyrun runner entry path is required".into());
     };
-    let args = if Path::new(entry_path)
-        .extension()
-        .is_some_and(|extension| extension == "ts")
-    {
+    let args = if node_extname(entry_path) == ".ts" {
         vec![
-            "--experimental-strip-types".to_owned(),
+            "--experimental-strip-types".into(),
             entry_path.clone(),
             manifest_path.to_owned(),
         ]
@@ -233,7 +237,7 @@ pub fn get_detached_pyrun_runner_invocation(
 }
 
 /// `launchDetachedPyrunRunner`.
-pub fn launch_detached_pyrun_runner(manifest_path: &str) -> Result<u32, JsString> {
+pub fn launch_detached_pyrun_runner(manifest_path: &JsString) -> Result<u32, JsString> {
     let invocation = get_detached_pyrun_runner_invocation(
         manifest_path,
         &DetachedPyrunRunnerInvocationOptions {
@@ -241,15 +245,10 @@ pub fn launch_detached_pyrun_runner(manifest_path: &str) -> Result<u32, JsString
             ..Default::default()
         },
     )?;
-    let mut command = Command::new(&invocation.executable);
+    let mut command = Command::new(encode_node_utf8(&invocation.executable));
     command
-        .args(&invocation.args)
-        .current_dir(
-            Path::new(manifest_path)
-                .parent()
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| PathBuf::from(".")),
-        )
+        .args(invocation.args.iter().map(encode_node_utf8))
+        .current_dir(encode_node_utf8(&node_dirname(manifest_path)))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -272,7 +271,7 @@ struct PendingBridgeRequest {
     resolve: tokio::sync::oneshot::Sender<Result<Option<Value>, JsString>>,
 }
 
-type PendingRequests = Arc<Mutex<std::collections::HashMap<String, PendingBridgeRequest>>>;
+type PendingRequests = Arc<Mutex<std::collections::HashMap<JsString, PendingBridgeRequest>>>;
 
 struct ControlState {
     cancel: Option<DetachedJobCancelCommand>,
@@ -287,10 +286,10 @@ struct PyrunSettlement {
 }
 
 /// `runDetachedPyrunRunner`.
-pub async fn run_detached_pyrun_runner(manifest_path: &str) -> Result<Option<i64>, JsString> {
+pub async fn run_detached_pyrun_runner(manifest_path: &JsString) -> Result<Option<i64>, JsString> {
     let manifest = wait_for_detached_pyrun_launch_manifest(manifest_path).await?;
-    let release_control_db = retain_control_db_connection(&manifest.data.control_db_path)
-        .map_err(|error| JsString::from(error.to_string()))?;
+    let release_control_db =
+        retain_control_db_connection(&manifest.data.control_db_path).map_err(|error| error.message().clone())?;
     let runner_options = PyrunRunnerOptions {
         detached: Some(false),
         ..manifest.data.runner_options.clone()
@@ -320,11 +319,11 @@ async fn run_detached_pyrun_settlement(
         .map(Some)
 }
 
-async fn wait_for_detached_pyrun_launch_manifest(path: &str) -> Result<DetachedPyrunLaunchManifest, JsString> {
+async fn wait_for_detached_pyrun_launch_manifest(path: &JsString) -> Result<DetachedPyrunLaunchManifest, JsString> {
     let deadline = std::time::Instant::now() + Duration::from_millis(LAUNCH_MANIFEST_TIMEOUT_MS);
-    while !Path::new(path).exists() {
+    while !Path::new(&encode_node_utf8(path)).exists() {
         if std::time::Instant::now() >= deadline {
-            return Err(format!("Timed out waiting for detached Pyrun launch manifest: {path}").into());
+            return Err(js_format!("Timed out waiting for detached Pyrun launch manifest: {path}").into());
         }
         tokio::time::sleep(Duration::from_millis(LAUNCH_MANIFEST_POLL_MS)).await;
     }
@@ -506,7 +505,7 @@ async fn dispatch_foreground_pyrun_bridge_request(
     pending: PendingRequests,
     request: super::runner::PiRequest,
 ) -> Result<Option<Value>, JsString> {
-    let request_id = pi_ai::utils::uuid::random_uuid();
+    let request_id = JsString::from(pi_ai::utils::uuid::random_uuid());
     let mut record = Map::new();
     record.insert("method".into(), Value::String(request.method.clone().into()));
     record.insert("params".into(), request.params.clone());
@@ -549,8 +548,8 @@ async fn dispatch_foreground_pyrun_bridge_request(
 }
 
 /// `claimForegroundBridgeRequest` (identical in both TypeScript modules).
-pub(crate) fn claim_foreground_bridge_request(directory: &str, request_id: &str) -> Result<bool, JsString> {
-    let path = Path::new(directory).join(format!("bridge-claim-{request_id}"));
+pub(crate) fn claim_foreground_bridge_request(directory: &JsString, request_id: &JsString) -> Result<bool, JsString> {
+    let path = node_join(&[directory.clone(), js_format!("bridge-claim-{request_id}")]);
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -558,7 +557,7 @@ pub(crate) fn claim_foreground_bridge_request(directory: &str, request_id: &str)
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    match options.open(path) {
+    match options.open(&encode_node_utf8(path)) {
         Ok(_) => Ok(true),
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
         Err(error) => Err(JsString::from(error.to_string())),
@@ -587,7 +586,7 @@ async fn wait_for_pyrun_ownership_decision(
         if let Some(identity) = read_detached_pyrun_activation(&manifest.data.activation_path)? {
             return Ok(Some(identity));
         }
-        if Path::new(&manifest.data.foreground_completion_path).exists() {
+        if Path::new(&encode_node_utf8(&manifest.data.foreground_completion_path)).exists() {
             return Ok(None);
         }
         if !is_process_identity_alive(&manifest.data.supervisor_process_identity) {
@@ -611,9 +610,9 @@ async fn finalize_detached_pyrun_settlement(
         outcome,
         &terminal_at_iso,
         Some((terminal_at - manifest.data.started_at as i64).max(0)),
-        manifest.data.tool_call_id.as_deref(),
+        manifest.data.tool_call_id.as_ref(),
     )
-    .map_err(|error| JsString::from(error.to_string()))?;
+    .map_err(|error| error.message())?;
     let control_db_path = manifest.data.control_db_path.clone();
     let session_path = manifest.data.session_path.clone();
     let finalized = finalize_detached_job_with_retry(&terminal, move |terminal| {
@@ -629,7 +628,7 @@ async fn finalize_detached_pyrun_settlement(
     match finalized {
         Ok(FinalizeDetachedJobResult::Ok { terminal_revision, .. }) => Ok(terminal_revision),
         Ok(other) => Err(format!("Could not finalize detached Pyrun job: {other:?}").into()),
-        Err(error) => Err(format!("Could not finalize detached Pyrun job: {error}").into()),
+        Err(error) => Err(js_format!("Could not finalize detached Pyrun job: {}", error.message())),
     }
 }
 
