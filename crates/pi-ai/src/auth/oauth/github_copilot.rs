@@ -385,7 +385,10 @@ async fn refresh_access_token(
     let urls = get_urls(domain);
     let mut headers = vec![
         ("Accept".to_owned(), "application/json".to_owned()),
-        ("Authorization".to_owned(), format!("Bearer {refresh_token}")),
+        (
+            "Authorization".to_owned(),
+            crate::request::header_value(&js_format!("Bearer {}", refresh_token))?,
+        ),
     ];
     headers.extend(copilot_header_pairs());
     let request = json_request(&urls.copilot_token, "GET", headers, None);
@@ -452,11 +455,19 @@ async fn fetch_available_model_ids(
     let allow_policy_fallback = base_url == DEFAULT_BASE_URL;
     let mut headers = vec![
         ("Accept".to_owned(), "application/json".to_owned()),
-        ("Authorization".to_owned(), format!("Bearer {copilot_token}")),
+        (
+            "Authorization".to_owned(),
+            crate::request::header_value(&js_format!("Bearer {}", copilot_token))?,
+        ),
     ];
     headers.extend(copilot_header_pairs());
     headers.push(("X-GitHub-Api-Version".to_owned(), COPILOT_API_VERSION.to_owned()));
-    let request = json_request(&format!("{base_url}/models"), "GET", headers, None);
+    let request = json_request(
+        &crate::request::request_url(&js_format!("{}/models", base_url))?,
+        "GET",
+        headers,
+        None,
+    );
     let raw = fetch_json_with_timeout(runtime, request, signal).await?;
     parse_available_copilot_model_ids(&raw, allow_policy_fallback).map_err(CallbackError::new)
 }
@@ -469,19 +480,21 @@ async fn enable_github_copilot_model(
     signal: &CancellationToken,
 ) {
     let base_url = get_github_copilot_base_url(Some(token), enterprise_domain);
+    // Frozen github-copilot.ts:307-321 catches request construction/fetch failures.
+    let Ok(header) = crate::request::header_value(&js_format!("Bearer {}", token)) else {
+        return;
+    };
+    let Ok(url) = crate::request::request_url(&js_format!("{}/models/{}/policy", base_url, model_id)) else {
+        return;
+    };
     let mut headers = vec![
         ("Content-Type".to_owned(), "application/json".to_owned()),
-        ("Authorization".to_owned(), format!("Bearer {token}")),
+        ("Authorization".to_owned(), header),
     ];
     headers.extend(copilot_header_pairs());
     headers.push(("openai-intent".to_owned(), "chat-policy".to_owned()));
     headers.push(("x-interaction-type".to_owned(), "chat-policy".to_owned()));
-    let request = json_request(
-        &format!("{base_url}/models/{model_id}/policy"),
-        "POST",
-        headers,
-        Some(json!({"state": "enabled"}).to_string()),
-    );
+    let request = json_request(&url, "POST", headers, Some(json!({"state": "enabled"}).to_string()));
     // The source swallows non-abort failures; an aborted signal rethrows.
     let _ = send(&runtime.fetch, request, Some(signal.clone())).await;
 }
@@ -513,9 +526,7 @@ fn copilot_enterprise_domain(credential: &OAuthCredential) -> Option<String> {
     let enterprise_url = credential
         .extra
         .get(&pi_js_compat::js_json::JsString::from("enterpriseUrl"))?
-        .as_string()?
-        .to_utf8()
-        .ok()?;
+        .as_string()?;
     if enterprise_url.is_empty() {
         return None;
     }
@@ -558,9 +569,14 @@ async fn login(runtime: &OAuthRuntime, interaction: &Arc<dyn AuthInteraction>) -
     let github_access_token = poll_for_github_access_token(runtime, &domain, &device, &signal)
         .await
         .map_err(to_auth_error)?;
-    let mut credentials = refresh_access_token(runtime, &github_access_token, enterprise_domain.as_deref(), &signal)
-        .await
-        .map_err(to_auth_error)?;
+    let mut credentials = refresh_access_token(
+        runtime,
+        &github_access_token.into(),
+        enterprise_domain.as_deref(),
+        &signal,
+    )
+    .await
+    .map_err(to_auth_error)?;
 
     interaction.notify(AuthEvent::Progress {
         message: ("Enabling models...".to_owned()).into(),

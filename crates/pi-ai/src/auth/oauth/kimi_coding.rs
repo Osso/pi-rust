@@ -1,5 +1,6 @@
 //! Port of `packages/ai/src/auth/oauth/kimi-coding.ts`.
 
+use pi_js_compat::{js_format, js_json::JsString};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -25,7 +26,7 @@ const REFRESH_MAX_RETRIES: usize = 3;
 
 pub struct KimiCodingOAuth {
     runtime: OAuthRuntime,
-    oauth_host: String,
+    oauth_host: JsString,
 }
 
 impl KimiCodingOAuth {
@@ -36,11 +37,11 @@ impl KimiCodingOAuth {
     pub fn with_runtime(runtime: OAuthRuntime) -> Self {
         let override_host = get_provider_env_value("KIMI_CODE_OAUTH_HOST", None)
             .or_else(|| get_provider_env_value("KIMI_OAUTH_HOST", None));
-        let oauth_host = trim_trailing_slashes(override_host.as_deref().unwrap_or(DEFAULT_OAUTH_HOST));
+        let oauth_host = trim_trailing_slashes(&override_host.unwrap_or_else(|| DEFAULT_OAUTH_HOST.into()));
         Self { runtime, oauth_host }
     }
 
-    pub fn with_oauth_host(mut self, host: impl Into<String>) -> Self {
+    pub fn with_oauth_host(mut self, host: impl Into<JsString>) -> Self {
         let host = host.into();
         self.oauth_host = trim_trailing_slashes(&host);
         self
@@ -105,8 +106,13 @@ impl OAuthAuth for KimiCodingOAuth {
     }
 }
 
-fn trim_trailing_slashes(value: &str) -> String {
-    value.trim_end_matches('/').to_owned()
+fn trim_trailing_slashes(value: &JsString) -> JsString {
+    let end = value
+        .units()
+        .iter()
+        .rposition(|unit| *unit != u16::from(b'/'))
+        .map_or(0, |index| index + 1);
+    value.slice(0, end)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -147,10 +153,10 @@ fn trusted_http_url(value: &Value) -> Option<String> {
 
 async fn start_device_authorization(
     runtime: &OAuthRuntime,
-    oauth_host: &str,
+    oauth_host: &JsString,
     signal: CancellationToken,
 ) -> Result<DeviceAuthorization, CallbackError> {
-    let url = format!("{oauth_host}/api/oauth/device_authorization");
+    let url = crate::request::request_url(&js_format!("{}/api/oauth/device_authorization", oauth_host))?;
     let request = form_request(&url, form_encode(&[("client_id", CLIENT_ID)]), true);
     let response = send_with_timeout(runtime, request, signal).await?;
     if !response.ok() {
@@ -220,7 +226,7 @@ fn parse_token_response(json: &Value, operation: &str, now: f64) -> Result<Token
 
 async fn poll_for_token(
     runtime: &OAuthRuntime,
-    oauth_host: &str,
+    oauth_host: &JsString,
     device: &DeviceAuthorization,
     signal: CancellationToken,
 ) -> Result<TokenResponse, CallbackError> {
@@ -239,7 +245,7 @@ async fn poll_for_token(
         let oauth_host = oauth_host.clone();
         let signal = signal.clone();
         async move {
-            let url = format!("{oauth_host}/api/oauth/token");
+            let url = crate::request::request_url(&js_format!("{}/api/oauth/token", oauth_host))?;
             let body = form_encode(&[
                 ("client_id", CLIENT_ID),
                 ("device_code", device.device_code.as_str()),
@@ -316,7 +322,7 @@ async fn poll_for_token(
 
 async fn login_kimi_coding(
     runtime: &OAuthRuntime,
-    oauth_host: &str,
+    oauth_host: &JsString,
     interaction: Arc<dyn AuthInteraction>,
 ) -> Result<OAuthCredential, AuthError> {
     let device = start_device_authorization(runtime, oauth_host, interaction.signal())
@@ -348,8 +354,8 @@ async fn abortable_sleep(delay: Duration, signal: &CancellationToken) -> Result<
 
 async fn refresh_token(
     runtime: &OAuthRuntime,
-    oauth_host: &str,
-    refresh_token_value: &str,
+    oauth_host: &JsString,
+    refresh_token_value: &JsString,
     signal: CancellationToken,
 ) -> Result<OAuthCredential, CallbackError> {
     let mut last_error: Option<CallbackError> = None;
@@ -362,11 +368,14 @@ async fn refresh_token(
             return Err(CallbackError::new("Kimi Code token refresh aborted"));
         }
 
-        let url = format!("{oauth_host}/api/oauth/token");
+        let url = crate::request::request_url(&js_format!("{}/api/oauth/token", oauth_host))?;
         let body = form_encode(&[
             ("client_id", CLIENT_ID),
             ("grant_type", "refresh_token"),
-            ("refresh_token", refresh_token_value),
+            (
+                "refresh_token",
+                &crate::auth::oauth::support::to_form_usv_string(refresh_token_value),
+            ),
         ]);
         let request = form_request(&url, body, true);
         let response = match send_with_timeout(runtime, request, signal.clone()).await {

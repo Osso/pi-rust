@@ -27,7 +27,7 @@ const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 
 pub struct OpenRouterOAuth {
     runtime: OAuthRuntime,
-    callback_host: String,
+    callback_host: JsString,
 }
 
 impl OpenRouterOAuth {
@@ -37,11 +37,11 @@ impl OpenRouterOAuth {
 
     pub fn with_runtime(runtime: OAuthRuntime) -> Self {
         let callback_host =
-            get_provider_env_value("PI_OAUTH_CALLBACK_HOST", None).unwrap_or_else(|| "127.0.0.1".to_owned());
+            get_provider_env_value("PI_OAUTH_CALLBACK_HOST", None).unwrap_or_else(|| "127.0.0.1".into());
         Self { runtime, callback_host }
     }
 
-    pub fn with_callback_host(mut self, host: impl Into<String>) -> Self {
+    pub fn with_callback_host(mut self, host: impl Into<JsString>) -> Self {
         self.callback_host = host.into();
         self
     }
@@ -228,7 +228,7 @@ fn cancel_wait(settle: &CallbackSettle, state: &Arc<Mutex<CallbackState>>) {
 
 async fn start_callback(
     runtime: &OAuthRuntime,
-    host: &str,
+    host: &JsString,
     callback_path: String,
     verifier: String,
     signal: CancellationToken,
@@ -320,7 +320,7 @@ async fn start_callback(
 
 async fn login_openrouter(
     runtime: &OAuthRuntime,
-    callback_host: &str,
+    callback_host: &JsString,
     interaction: Arc<dyn AuthInteraction>,
 ) -> Result<OAuthCredential, AuthError> {
     let pkce = generate_pkce_with(|bytes| runtime.random.fill(bytes));
