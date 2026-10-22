@@ -521,11 +521,11 @@ fn resolves_theme_colors_in_key_order() {
             .map(|pair| pair.as_array().unwrap()[1].as_str().unwrap().to_owned())
     };
     assert_eq!(find("thinkingMax").as_deref(), Some("#ff5fff"));
-    assert_eq!(find("scrollbarThumb").as_deref(), Some("#3a3a4a"));
-    assert_eq!(find("searchMatchBg").as_deref(), Some("#3a3a4a"));
-    assert_eq!(find("searchMatchText").as_deref(), Some("#d4d4d4"));
+    assert_eq!(find("scrollbarThumb"), None);
+    assert_eq!(find("searchMatchBg"), None);
+    assert_eq!(find("searchMatchText"), None);
     assert_eq!(find("bashMode").as_deref(), Some("#b5bd68"));
-    assert_eq!(pairs.len(), 55);
+    assert_eq!(pairs.len(), 52);
 }
 
 #[test]
