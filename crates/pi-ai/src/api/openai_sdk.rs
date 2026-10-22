@@ -66,6 +66,22 @@ impl SdkClient {
         Self { config }
     }
 
+    pub fn for_retry(&self, retry_count: usize) -> Self {
+        let mut client = self.clone();
+        let overridden = client
+            .config
+            .default_headers
+            .keys()
+            .any(|name| name.eq_ignore_ascii_case("x-stainless-retry-count"));
+        if !overridden {
+            client.config.default_headers.insert(
+                "x-stainless-retry-count".to_owned(),
+                Some(retry_count.to_string().into()),
+            );
+        }
+        client
+    }
+
     /// `client.chat.completions.create(params, { stream: true }).withResponse()`.
     pub fn create_chat_completion_stream(
         &self,
