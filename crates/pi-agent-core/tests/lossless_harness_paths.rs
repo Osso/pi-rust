@@ -26,6 +26,7 @@ async fn ts_created_raw_loader_paths_keep_names_locations_and_diagnostics_native
         cwd: root.path().to_str().unwrap().into(),
         ..Default::default()
     });
+    assert_eq!(oracle.request(&serde_json::json!({"probe":true}))["ready"], true);
     let prompts = load_prompt_templates(&env, &[reference["prompt"].as_string().unwrap()]).await;
     assert!(prompts.prompt_templates[0].name.units().contains(&0xd800));
     let skills = load_skills(&env, &[reference["skillRoot"].as_string().unwrap()])
