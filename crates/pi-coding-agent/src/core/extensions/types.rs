@@ -306,7 +306,7 @@ pub trait ExtensionUiTuiBackend: Send + Sync {
     fn request_render(&self);
     fn request_render_force(&self);
     fn stop(&self);
-    fn start(&self) -> Result<(), String>;
+    fn start(&self) -> Result<(), JsString>;
     fn terminal_rows(&self) -> usize;
     fn terminal_columns(&self) -> usize;
     fn mode(&self) -> pi_tui::tui::TuiMode;
@@ -354,7 +354,7 @@ impl ExtensionUiTui {
     }
 
     /// Reacquire the terminal (`packages/tui/src/tui.ts:912`).
-    pub fn start(&self) -> Result<(), String> {
+    pub fn start(&self) -> Result<(), JsString> {
         self.backend.start()
     }
 
