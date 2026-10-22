@@ -5,8 +5,12 @@ use std::sync::{Arc, Mutex};
 
 use pi_agent_core::AgentToolResult;
 use pi_agent_core::agent::types::AgentToolUpdateCallback;
+use pi_js_compat::{
+    js_json as json,
+    js_json::{self, JsString, JsValue as Value},
+};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::json as schema_json;
 
 use crate::core::extensions::types::{ExtensionApi, ExtensionContext, HandlerError, ToolDefinition};
 use crate::core::multi_agent_store::{
@@ -26,29 +30,34 @@ use super::tool_results::tool_result;
 
 const MAIN_THREAD_AGENT_ID: &str = "main";
 
-pub type OnSessionMessageSent = Arc<dyn Fn(&AgentMailboxMessage, &str) -> Result<(), HandlerError> + Send + Sync>;
+pub type OnSessionMessageSent = Arc<dyn Fn(&AgentMailboxMessage, &JsString) -> Result<(), HandlerError> + Send + Sync>;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendAgentMessageParams {
-    pub file_refs: Option<Vec<crate::core::multi_agent_store::AgentFileReference>>,
-    pub message: String,
-    pub thread_id: Option<String>,
-    pub to_agent_id: String,
-    pub to_session_id: Option<String>,
-    pub to_host: Option<String>,
+    pub file_refs: Option<Value>,
+    pub message: JsString,
+    pub thread_id: Option<JsString>,
+    pub to_agent_id: JsString,
+    pub to_session_id: Option<JsString>,
+    pub to_host: Option<JsString>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContactParentParams {
-    pub file_refs: Option<Vec<crate::core::multi_agent_store::AgentFileReference>>,
-    pub message: String,
-    pub thread_id: Option<String>,
+    pub file_refs: Option<Value>,
+    pub message: JsString,
+    pub thread_id: Option<JsString>,
 }
 
-pub fn contact_parent_schema() -> Value {
-    json!({
+fn find_agent_by_raw_id(store: &MultiAgentStore, id: &JsString) -> Option<AgentSnapshot> {
+    // Store keys are scalar strings; a non-scalar input cannot identify an existing key.
+    id.to_utf8().ok().and_then(|id| store.get_agent(&id))
+}
+
+pub fn contact_parent_schema() -> serde_json::Value {
+    schema_json!({
         "type": "object",
         "required": [
             "body"
@@ -87,8 +96,8 @@ pub fn contact_parent_schema() -> Value {
     })
 }
 
-pub fn send_agent_message_schema() -> Value {
-    json!({
+pub fn send_agent_message_schema() -> serde_json::Value {
+    schema_json!({
         "type": "object",
         "required": [
             "body",
@@ -164,17 +173,17 @@ pub fn send_agent_message(
         && let Some(reason) = session_message_route_error(db.as_deref(), params)?
     {
         let mut result = tool_result(
-            format!(
-                "Could not send agent message to {}: {reason}",
-                format_sent_message_target(
+            JsString::from("Could not send agent message to ")
+                + format_sent_message_target(
                     &empty_direct_message(
                         sender.as_deref().unwrap_or("unknown_subagent"),
                         &params.to_agent_id,
-                        &params.message
+                        &params.message,
                     ),
-                    params.to_session_id.as_deref()
+                    params.to_session_id.as_ref(),
                 )
-            ),
+                + ": "
+                + reason,
             json!({"agent":current_message_sender_agent(store, ctx)?,"message":empty_direct_message(sender.as_deref().unwrap_or("unknown_subagent"),&params.to_agent_id,&params.message)}),
         );
         result.is_error = Some(true);
@@ -267,7 +276,7 @@ fn validate_explicit_runtime_target(
     params: &SendAgentMessageParams,
     ctx: Option<&ExtensionContext>,
 ) -> Result<Option<AgentToolResult>, HandlerError> {
-    let Some(to_session_id) = params.to_session_id.as_deref() else {
+    let Some(to_session_id) = params.to_session_id.as_ref() else {
         return Ok(None);
     };
     if is_main_runtime_target(&params.to_agent_id) {
@@ -277,17 +286,18 @@ fn validate_explicit_runtime_target(
     let target_matches = match target_session_id {
         None => true,
         Some(None) => false,
-        Some(Some(target_session_id)) => target_session_id == to_session_id,
+        Some(Some(target_session_id)) => &target_session_id == to_session_id,
     };
     if target_matches {
         return Ok(None);
     }
     let sender_id = current_message_sender_id(ctx)?.unwrap_or_else(|| "unknown_subagent".to_owned());
     Ok(Some(tool_result(
-        format!(
-            "Could not send agent message to {}: target session does not match {to_session_id}.",
-            params.to_agent_id
-        ),
+        JsString::from("Could not send agent message to ")
+            + &params.to_agent_id
+            + ": target session does not match "
+            + to_session_id
+            + ".",
         json!({
             "agent": current_message_sender_agent(store, ctx)?,
             "message": empty_direct_message(&sender_id, &params.to_agent_id, &params.message),
@@ -303,7 +313,7 @@ fn deliver_sent_agent_message(
     ctx: Option<&ExtensionContext>,
     on_session_message_sent: Option<&OnSessionMessageSent>,
 ) -> Result<AgentToolResult, HandlerError> {
-    let delivered = match params.to_session_id.as_deref() {
+    let delivered = match params.to_session_id.as_ref() {
         Some(to_session_id) => enqueue_runtime_session_message(
             store,
             message,
@@ -323,14 +333,11 @@ fn deliver_sent_agent_message(
         };
         return Ok(tool_result(error, json!({"agent": agent, "message": failed_message})));
     }
-    if let (Some(to_session_id), Some(callback)) = (params.to_session_id.as_deref(), on_session_message_sent) {
+    if let (Some(to_session_id), Some(callback)) = (params.to_session_id.as_ref(), on_session_message_sent) {
         callback(message, to_session_id)?;
     }
     Ok(tool_result(
-        format!(
-            "Sent message to {}.",
-            format_sent_message_target(message, params.to_session_id.as_deref())
-        ),
+        JsString::from("Sent message to ") + format_sent_message_target(message, params.to_session_id.as_ref()) + ".",
         json!({"agent": agent, "message": message}),
     ))
 }
@@ -395,12 +402,13 @@ fn send_main_runtime_session_message(
     }
     Ok(tool_result(
         if remote {
-            format!(
-                "Queued message to session {to_session_id} for relay to host {}.",
-                params.to_host.as_deref().unwrap_or("")
-            )
+            JsString::from("Queued message to session ")
+                + &to_session_id
+                + " for relay to host "
+                + params.to_host.clone().unwrap_or_default()
+                + "."
         } else {
-            format!("Sent message to session {to_session_id}.")
+            JsString::from("Sent message to session ") + &to_session_id + "."
         },
         json!({"agent": sender, "message": message}),
     ))
@@ -479,7 +487,7 @@ fn deliver_parent_contact(
         ));
     }
     Ok(tool_result(
-        format!("Contacted parent for {}.", agent.display_name),
+        JsString::from("Contacted parent for ") + &agent.display_name + ".",
         json!({"agent": agent, "message": message}),
     ))
 }
@@ -529,7 +537,10 @@ impl RuntimeLifecycleMirror {
                 return;
             };
             if let Err(error) = enqueue_lifecycle_runtime_mailbox_message(&listener_store, message, &ctx) {
-                eprintln!("Failed to mirror lifecycle notification {}: {error}", message.id);
+                eprintln!(
+                    "Failed to mirror lifecycle notification {}: {error}",
+                    js_json::encode_node_utf8(&message.id)
+                );
             }
         });
         state.unsubscribe = Some(subscription);
@@ -584,7 +595,7 @@ fn mark_failed_mailbox_transport_message(
             Some(failed) => failed,
             None => {
                 let mut failed = message.clone();
-                failed.error = Some(error.to_owned());
+                failed.error = Some(error.into());
                 failed.status = MailboxMessageStatusValue::Failed;
                 failed
             }
@@ -595,10 +606,10 @@ fn mark_failed_mailbox_transport_message(
 fn enqueue_runtime_session_message(
     store: &MultiAgentStore,
     message: &AgentMailboxMessage,
-    to_session_id: &str,
+    to_session_id: &JsString,
     ctx: Option<&ExtensionContext>,
-    recipient_agent_id: Option<String>,
-    recipient_host: Option<String>,
+    recipient_agent_id: Option<JsString>,
+    recipient_host: Option<JsString>,
 ) -> Result<bool, HandlerError> {
     let Some(ctx) = ctx else {
         return Ok(false);
@@ -609,7 +620,7 @@ fn enqueue_runtime_session_message(
     let Some(store_ref) = read_runtime_mailbox_store_ref(store, message, Some(ctx))? else {
         eprintln!(
             "Runtime mailbox requires a store persisted to the control DB; dropped session message {}.",
-            message.id
+            js_json::encode_node_utf8(&message.id)
         );
         return Ok(false);
     };
@@ -621,18 +632,21 @@ fn enqueue_runtime_session_message(
         kind: mailbox_kind(message.kind),
         recipient: RuntimeMailboxAddress {
             agent_id: recipient_agent_id,
-            session_id: to_session_id.to_owned(),
+            session_id: to_session_id.to_owned().into(),
         },
         sender: RuntimeMailboxAddress {
             agent_id: (message.from_agent_id != MAIN_THREAD_AGENT_ID).then(|| message.from_agent_id.clone()),
-            session_id,
+            session_id: session_id.into(),
         },
         store_ref,
     };
     match enqueue_runtime_mailbox_message(&control_db_path, &input) {
         Ok(_) => Ok(true),
         Err(error) => {
-            eprintln!("Failed to enqueue runtime session message {}: {error}", message.id);
+            eprintln!(
+                "Failed to enqueue runtime session message {}: {error}",
+                js_json::encode_node_utf8(&message.id)
+            );
             Ok(false)
         }
     }
@@ -658,7 +672,7 @@ fn read_runtime_mailbox_store_ref(
     }
     Ok(Some(RuntimeMailboxStoreRef {
         message_id: message.id.clone(),
-        session_path: persistence.session_path,
+        session_path: persistence.session_path.into(),
     }))
 }
 
@@ -673,11 +687,11 @@ fn enqueue_lifecycle_runtime_mailbox_message(
     let Some(store_ref) = read_runtime_mailbox_store_ref(store, notification, Some(ctx))? else {
         eprintln!(
             "Runtime mailbox requires a store persisted to the control DB; dropped lifecycle notification {}.",
-            notification.id
+            js_json::encode_node_utf8(&notification.id)
         );
         return Ok(());
     };
-    let agent = store.get_agent(&notification.from_agent_id);
+    let agent = find_agent_by_raw_id(store, &notification.from_agent_id);
     let already_enqueued = match agent.as_ref() {
         Some(agent) => list_runtime_mailbox_messages(&control_db_path)
             .map_err(|error| HandlerError::new(error.message()))?
@@ -700,7 +714,7 @@ fn enqueue_lifecycle_runtime_mailbox_message(
     let sender_session_id = agent
         .as_ref()
         .and_then(|agent| agent.transcript.as_ref())
-        .map(|transcript| transcript.session_id.clone())
+        .map(|transcript| transcript.session_id.clone().into())
         .unwrap_or(current_session_id);
     enqueue_runtime_mailbox_message(
         &control_db_path,
@@ -710,7 +724,7 @@ fn enqueue_lifecycle_runtime_mailbox_message(
             recipient,
             sender: RuntimeMailboxAddress {
                 agent_id: Some(notification.from_agent_id.clone()),
-                session_id: sender_session_id,
+                session_id: sender_session_id.into(),
             },
             store_ref,
         },
@@ -720,17 +734,22 @@ fn enqueue_lifecycle_runtime_mailbox_message(
 }
 
 fn is_detached_terminal_transport(message: &RuntimeMailboxMessage, agent: &AgentSnapshot) -> bool {
-    if message.sender.agent_id.as_deref() != Some(agent.id.as_str())
+    if !message.sender.agent_id.as_ref().is_some_and(|id| id == &agent.id)
         || message.kind != RuntimeMailboxMessageKind::System
     {
         return false;
     }
-    let Ok(body) = serde_json::from_str::<Value>(&message.body) else {
+    let Ok(body) = js_json::parse_lossless(&message.body) else {
         return false;
     };
-    body.get("type").and_then(Value::as_str) == Some("multi_agent_terminal")
-        && body.get("agentId").and_then(Value::as_str) == Some(agent.id.as_str())
-        && body.get("terminalRevision").and_then(Value::as_i64) == Some(agent.revision)
+    body.get("type")
+        .and_then(Value::as_string)
+        .is_some_and(|kind| kind == "multi_agent_terminal")
+        && body
+            .get("agentId")
+            .and_then(Value::as_string)
+            .is_some_and(|id| id == &agent.id)
+        && body.get("terminalRevision").and_then(Value::as_f64) == Some(agent.revision as f64)
 }
 
 fn is_runtime_mirrored_lifecycle(lifecycle: AgentLifecycle) -> bool {
@@ -757,7 +776,7 @@ fn enqueue_runtime_mailbox_store_message(
     let Some(store_ref) = read_runtime_mailbox_store_ref(store, message, Some(ctx))? else {
         eprintln!(
             "Runtime mailbox requires a store persisted to the control DB; dropped mailbox message {}.",
-            message.id
+            js_json::encode_node_utf8(&message.id)
         );
         return Ok(false);
     };
@@ -770,14 +789,17 @@ fn enqueue_runtime_mailbox_store_message(
         recipient,
         sender: RuntimeMailboxAddress {
             agent_id: Some(message.from_agent_id.clone()),
-            session_id,
+            session_id: session_id.into(),
         },
         store_ref,
     };
     match enqueue_runtime_mailbox_message(&control_db_path, &input) {
         Ok(_) => Ok(true),
         Err(error) => {
-            eprintln!("Failed to enqueue runtime mailbox message {}: {error}", message.id);
+            eprintln!(
+                "Failed to enqueue runtime mailbox message {}: {error}",
+                js_json::encode_node_utf8(&message.id)
+            );
             Ok(false)
         }
     }
@@ -788,12 +810,12 @@ fn resolve_runtime_recipient(
     message: &AgentMailboxMessage,
     ctx: &ExtensionContext,
 ) -> Result<Option<RuntimeMailboxAddress>, HandlerError> {
-    if let Some(target) = store.get_agent(&message.to_agent_id)
+    if let Some(target) = find_agent_by_raw_id(store, &message.to_agent_id)
         && let Some(transcript) = target.transcript.as_ref()
     {
         return Ok(Some(RuntimeMailboxAddress {
-            agent_id: Some(target.id),
-            session_id: transcript.session_id.clone(),
+            agent_id: Some(target.id.into()),
+            session_id: transcript.session_id.clone().into(),
         }));
     }
     if !is_main_runtime_target(&message.to_agent_id) {
@@ -801,7 +823,8 @@ fn resolve_runtime_recipient(
             agent_id: Some(message.to_agent_id.clone()),
             session_id: lock_session_manager(&ctx.session_manager()?)
                 .get_session_id()
-                .to_owned(),
+                .to_owned()
+                .into(),
         }));
     }
     let current_session_id = lock_session_manager(&ctx.session_manager()?)
@@ -810,7 +833,7 @@ fn resolve_runtime_recipient(
     let session_id = read_parent_runtime_session_id(ctx)?.unwrap_or(current_session_id);
     Ok(Some(RuntimeMailboxAddress {
         agent_id: None,
-        session_id,
+        session_id: session_id.into(),
     }))
 }
 
@@ -861,31 +884,31 @@ fn current_message_sender_agent(
     Ok(store.get_agent(&sender_id).unwrap_or_else(|| empty_agent(&sender_id)))
 }
 
-fn resolve_agent_runtime_session_id(store: &MultiAgentStore, to_agent_id: &str) -> Option<Option<String>> {
-    store.get_agent(to_agent_id).map(|target| {
+fn resolve_agent_runtime_session_id(store: &MultiAgentStore, to_agent_id: &JsString) -> Option<Option<JsString>> {
+    find_agent_by_raw_id(store, to_agent_id).map(|target| {
         target
             .transcript
             .as_ref()
-            .map(|transcript| transcript.session_id.clone())
+            .map(|transcript| transcript.session_id.clone().into())
     })
 }
 
-fn is_main_runtime_target(to_agent_id: &str) -> bool {
+fn is_main_runtime_target(to_agent_id: &JsString) -> bool {
     to_agent_id == MAIN_THREAD_AGENT_ID || to_agent_id == "supervisor"
 }
 
-fn format_sent_message_target(message: &AgentMailboxMessage, to_session_id: Option<&str>) -> String {
+fn format_sent_message_target(message: &AgentMailboxMessage, to_session_id: Option<&JsString>) -> JsString {
     match to_session_id {
-        Some(to_session_id) => format!("{} in session {to_session_id}", message.to_agent_id),
+        Some(to_session_id) => message.to_agent_id.clone() + " in session " + to_session_id,
         None => message.to_agent_id.clone(),
     }
 }
 
-fn empty_parent_request(agent_id: &str, body: &str) -> AgentMailboxMessage {
+fn empty_parent_request(agent_id: &str, body: &JsString) -> AgentMailboxMessage {
     create_failed_mailbox_message(body, agent_id, MailboxMessageKindValue::ParentRequest, "")
 }
 
-fn empty_direct_message(from_agent_id: &str, to_agent_id: &str, body: &str) -> AgentMailboxMessage {
+fn empty_direct_message(from_agent_id: &str, to_agent_id: &JsString, body: &JsString) -> AgentMailboxMessage {
     create_failed_mailbox_message(body, from_agent_id, MailboxMessageKindValue::Message, to_agent_id)
 }
 
@@ -894,7 +917,7 @@ fn model_mailbox_params(mut params: Value) -> Result<Value, HandlerError> {
         .as_object_mut()
         .ok_or_else(|| HandlerError::new("Expected mailbox arguments"))?;
     let body = object
-        .remove("body")
+        .shift_remove(&JsString::from("body"))
         .ok_or_else(|| HandlerError::new("Missing required body"))?;
     object.insert("message".into(), body);
     Ok(params)
@@ -931,7 +954,7 @@ pub fn register_mailbox_tools(
                 let callback = send_callback.clone();
                 Box::pin(async move {
                     let params: SendAgentMessageParams =
-                        serde_json::from_value(model_mailbox_params(params)?).map_err(|error| HandlerError::new(error.to_string()))?;
+                        js_json::from_value(&model_mailbox_params(params)?).map_err(|error| HandlerError::new(error.to_string()))?;
                     send_agent_message(&store, &params, Some(&ctx), callback.as_ref())
                 })
             },
@@ -963,7 +986,7 @@ pub fn register_mailbox_tools(
                 let store = Arc::clone(&store);
                 Box::pin(async move {
                     let params: ContactParentParams =
-                        serde_json::from_value(model_mailbox_params(params)?).map_err(|error| HandlerError::new(error.to_string()))?;
+                        js_json::from_value(&model_mailbox_params(params)?).map_err(|error| HandlerError::new(error.to_string()))?;
                     contact_parent(&store, &params, Some(&ctx))
                 })
             },

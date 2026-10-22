@@ -76,7 +76,7 @@ where
                 return;
             }
             if let Err(error) = scheduler.options.pi.send_user_message(
-                UserMessageContent::Text("Continue working toward the active goal.".to_owned()),
+                UserMessageContent::Text("Continue working toward the active goal.".to_owned().into()),
                 None,
             ) && !is_stale_context_error(&error.to_string())
             {

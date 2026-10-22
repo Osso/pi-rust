@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
+use pi_js_compat::js_json::{JsObject, JsString};
 use pi_js_compat::number as js_number;
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 
 use crate::core::extensions::types::{BoxFuture, ExtensionContext, HandlerError};
 use crate::core::session_control_db::SupervisorResponse;
@@ -13,8 +13,8 @@ use crate::core::session_control_db::SupervisorResponse;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum GoalReviewEvidenceEvent {
-    User { text: String },
-    EndTurn { reason: String },
+    User { text: JsString },
+    EndTurn { reason: JsString },
 }
 
 /// Durable goal state.
@@ -24,13 +24,13 @@ pub enum GoalReviewEvidenceEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Goal {
-    pub objective: String,
+    pub objective: JsString,
     pub branch: String,
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub completion_reason: Option<String>,
+    pub completion_reason: Option<JsString>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "js_number::serialize_option"
@@ -39,7 +39,7 @@ pub struct Goal {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub paused_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pause_reason: Option<String>,
+    pub pause_reason: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub review_evidence: Option<Vec<GoalReviewEvidenceEvent>>,
 }
@@ -51,7 +51,7 @@ pub type GoalSupervisorResponse = SupervisorResponse;
 #[derive(Clone)]
 pub struct GoalReviewInput {
     pub kind: GoalReviewKind,
-    pub payload: Map<String, Value>,
+    pub payload: JsObject,
     pub ctx: ExtensionContext,
 }
 

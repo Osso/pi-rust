@@ -3,9 +3,10 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use pi_js_compat::js_json::{JsString, JsValue as Value, encode_node_utf8};
 use pi_js_compat::process_env;
 use regex::Regex;
-use serde_json::{Value, json};
+use serde_json::json;
 
 use crate::core::extensions::types::{
     AgentEndEvent, BoxFuture, ExtensionApi, ExtensionCommandContext, ExtensionContext, HandlerError, NotifyType,
@@ -14,15 +15,14 @@ use crate::core::extensions::types::{
 use crate::core::session_manager::lock_session_manager;
 use crate::core::session_manager::{KnownSessionEntry, SessionEntry};
 use crate::core::tools::node_fs::node_fs_error;
-use crate::utils::paths::node_join;
 
 const ACTIVE_PLAN_ENTRY_TYPE: &str = "run-plan:active";
 const RUN_PLAN_AGENT_INSTRUCTION: &str = "[run-plan: Do not read PLAN.md. Work on this selected item, then check off that exact item in PLAN.md when it is resolved.]";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ActivePlan {
-    file: String,
-    path: String,
+    file: JsString,
+    path: JsString,
 }
 
 pub fn run_plan_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
@@ -87,7 +87,7 @@ pub fn run_plan_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                         .collect()
                 })
         })),
-        Arc::new(move |args: String, ctx: ExtensionCommandContext| {
+        Arc::new(move |args: JsString, ctx: ExtensionCommandContext| {
             let command_plan = Arc::clone(&command_plan);
             let command_api = command_api.clone();
             Box::pin(async move {
@@ -143,18 +143,22 @@ fn read_persisted_active_plan(ctx: &ExtensionContext) -> Result<Option<ActivePla
 
 fn persist_active_plan(pi: &ExtensionApi, plan: Option<&ActivePlan>) -> Result<(), HandlerError> {
     let data = match plan {
-        Some(plan) => json!({"file": basename(&plan.file), "path": plan.path}),
+        Some(plan) => pi_js_compat::js_json!({"file": basename(&plan.file), "path": plan.path}),
         None => Value::Null,
     };
-    pi.append_entry(ACTIVE_PLAN_ENTRY_TYPE, Some(data))
+    pi.append_entry(ACTIVE_PLAN_ENTRY_TYPE, Some(data.into()))
 }
 
-fn resolve_plan_file(cwd: &str, args: &str) -> ActivePlan {
+fn resolve_plan_file(cwd: &str, args: &JsString) -> ActivePlan {
     let trimmed = args.trim();
-    let file = if trimmed.is_empty() { "PLAN.md" } else { trimmed };
+    let file = if trimmed.is_empty() {
+        JsString::from("PLAN.md")
+    } else {
+        trimmed
+    };
     ActivePlan {
         file: file.to_owned(),
-        path: node_join(cwd, file),
+        path: join_plan_path(cwd, &file),
     }
 }
 
@@ -162,9 +166,9 @@ fn build_plan_prompt(item: &str) -> String {
     format!("{item}\n\n{RUN_PLAN_AGENT_INSTRUCTION}")
 }
 
-fn plan_file_env_value(plan: &ActivePlan) -> String {
+fn plan_file_env_value(plan: &ActivePlan) -> JsString {
     let base = basename(&plan.file);
-    if base == "PLAN.md" { "1".to_owned() } else { base }
+    if base == "PLAN.md" { "1".into() } else { base }
 }
 
 fn clear_plan_environment() {
@@ -174,10 +178,10 @@ fn clear_plan_environment() {
 }
 
 fn export_plan_environment(plan: &ActivePlan) {
-    process_env::set("PLAN_FILE", &plan_file_env_value(plan));
-    process_env::set("PLAN_PATH", &plan.path);
-    process_env::set("PI_PLAN_FILE", &basename(&plan.file));
-    process_env::set("PI_PLAN_PATH", &plan.path);
+    process_env::set("PLAN_FILE", &encode_node_utf8(&plan_file_env_value(plan)));
+    process_env::set("PLAN_PATH", &encode_node_utf8(&plan.path));
+    process_env::set("PI_PLAN_FILE", &encode_node_utf8(&basename(&plan.file)));
+    process_env::set("PI_PLAN_PATH", &encode_node_utf8(&plan.path));
 }
 
 async fn submit_next_plan_item(
@@ -186,18 +190,22 @@ async fn submit_next_plan_item(
     pi: &ExtensionApi,
     follow_up: bool,
 ) -> Result<bool, HandlerError> {
-    if !Path::new(&plan.path).exists() {
-        return Err(HandlerError::new(format!("Plan file not found: {}", plan.file)));
+    if !Path::new(&encode_node_utf8(&plan.path)).exists() {
+        return Err(HandlerError::new(JsString::from("Plan file not found: ") + &plan.file));
     }
 
-    let Some(next_item) = find_next_plan_item(&plan.path)? else {
-        ctx.ui()?
-            .notify(&format!("No unchecked items in {}", plan.file), Some(NotifyType::Info));
+    let Some(next_item) = find_next_plan_item(&encode_node_utf8(&plan.path))? else {
+        ctx.ui()?.notify(
+            &format!("No unchecked items in {}", encode_node_utf8(&plan.file)),
+            Some(NotifyType::Info),
+        );
         return Ok(false);
     };
     if next_item.is_empty() {
-        ctx.ui()?
-            .notify(&format!("No unchecked items in {}", plan.file), Some(NotifyType::Info));
+        ctx.ui()?.notify(
+            &format!("No unchecked items in {}", encode_node_utf8(&plan.file)),
+            Some(NotifyType::Info),
+        );
         return Ok(false);
     }
 
@@ -206,12 +214,12 @@ async fn submit_next_plan_item(
         deliver_as: Some(UserMessageDelivery::FollowUp),
         expand_prompt_templates: None,
     });
-    pi.send_user_message(UserMessageContent::Text(prompt), options)?;
+    pi.send_user_message(UserMessageContent::Text(prompt.into()), options)?;
     Ok(true)
 }
 
 async fn run_plan(
-    args: &str,
+    args: &JsString,
     ctx: &ExtensionCommandContext,
     pi: &ExtensionApi,
 ) -> Result<Option<ActivePlan>, HandlerError> {
@@ -243,9 +251,36 @@ fn complete_markdown_files(cwd: &str, argument_prefix: &str) -> Result<Vec<Strin
     Ok(files)
 }
 
-fn basename(path: &str) -> String {
-    Path::new(path)
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
+fn basename(path: &JsString) -> JsString {
+    path.split('/')
+        .filter(|part| !part.is_empty())
+        .last()
+        .filter(|part| part != "." && part != "..")
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    #[test]
+    fn plan_metadata_keeps_raw_filename_before_filesystem_encoding() {
+        let name = JsString::from("plan-") + JsString::from_utf16(vec![0xd800]) + ".md";
+        let plan = resolve_plan_file("/repo", &name);
+        assert_eq!(plan.file, name);
+        assert_eq!(plan.path, JsString::from("/repo/") + &name);
+        assert_eq!(basename(&plan.path), name);
+    }
+}
+
+fn join_plan_path(cwd: &str, file: &JsString) -> JsString {
+    let joined = JsString::from(cwd) + "/" + file;
+    let mut parts = Vec::new();
+    for part in joined.split('/') {
+        if part == ".." {
+            parts.pop();
+        } else if !part.is_empty() && part != "." {
+            parts.push(part);
+        }
+    }
+    JsString::from(if joined.starts_with("/") { "/" } else { "" }) + JsString::join(parts, "/")
 }

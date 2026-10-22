@@ -7,7 +7,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use pi_js_compat::string::js_trim;
-use serde_json::{Map, Value, json};
+use pi_js_compat::{
+    js_json as json,
+    js_json::{self, JsObject as Map, JsString, JsValue as Value},
+};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
@@ -20,9 +23,9 @@ const HOOK_TIMEOUT_MS: u64 = 30_000;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ClaudeBashHookReviewResult {
-    Allow { updated_input: Option<Map<String, Value>> },
-    Ask { reason: String },
-    Deny { reason: String },
+    Allow { updated_input: Option<Map> },
+    Ask { reason: JsString },
+    Deny { reason: JsString },
     Unavailable,
 }
 
@@ -48,30 +51,30 @@ fn to_claude_bash_hook_tool_name(tool_name: &str) -> Option<&'static str> {
     }
 }
 
-fn has_reviewable_input(tool_name: &str, input: &Map<String, Value>) -> bool {
+fn has_reviewable_input(tool_name: &str, input: &Map) -> bool {
     if tool_name == "Bash" {
         return input
             .get("command")
-            .and_then(Value::as_str)
+            .and_then(Value::as_string)
             .is_some_and(|command| !command.is_empty());
     }
     input
         .get("code")
-        .and_then(Value::as_str)
+        .and_then(Value::as_string)
         .is_some_and(|code| !code.is_empty())
 }
 
-fn map_hook_output(hook_output: &Map<String, Value>) -> ClaudeBashHookReviewResult {
-    let decision = hook_output.get("permissionDecision").and_then(Value::as_str);
+fn map_hook_output(hook_output: &Map) -> ClaudeBashHookReviewResult {
+    let decision = hook_output.get("permissionDecision").and_then(Value::as_string);
     match decision {
-        Some("allow") => {
+        Some(decision) if decision == "allow" => {
             let updated_input = hook_output.get("updatedInput").and_then(Value::as_object).cloned();
             ClaudeBashHookReviewResult::Allow { updated_input }
         }
-        Some("deny" | "block") => ClaudeBashHookReviewResult::Deny {
+        Some(decision) if decision == "deny" || decision == "block" => ClaudeBashHookReviewResult::Deny {
             reason: format_hook_reason(hook_output.get("permissionDecisionReason")),
         },
-        Some("ask") => ClaudeBashHookReviewResult::Ask {
+        Some(decision) if decision == "ask" => ClaudeBashHookReviewResult::Ask {
             reason: format_hook_reason(hook_output.get("permissionDecisionReason")),
         },
         _ => ClaudeBashHookReviewResult::Unavailable,
@@ -91,12 +94,12 @@ fn read_claude_bash_hook_command(options: &ClaudeBashHookOptions) -> Option<Stri
         .then(|| DEFAULT_HOOK_PATH.to_owned())
 }
 
-fn format_hook_reason(reason: Option<&Value>) -> String {
+fn format_hook_reason(reason: Option<&Value>) -> JsString {
     reason
-        .and_then(Value::as_str)
-        .filter(|reason| !js_trim(reason).is_empty())
-        .map(str::to_owned)
-        .unwrap_or_else(|| "Blocked by claude-bash-hook".to_owned())
+        .and_then(Value::as_string)
+        .filter(|reason| !reason.trim().is_empty())
+        .cloned()
+        .unwrap_or_else(|| "Blocked by claude-bash-hook".into())
 }
 
 async fn run_hook_process(command: &str, input: &Value, timeout_ms: u64) -> Result<HookProcessResult, HandlerError> {
@@ -137,12 +140,12 @@ async fn run_hook_process(command: &str, input: &Value, timeout_ms: u64) -> Resu
     })
 }
 
-fn parse_hook_specific_output(stdout: &str) -> Option<Map<String, Value>> {
+fn parse_hook_specific_output(stdout: &str) -> Option<Map> {
     let trimmed = js_trim(stdout);
     if trimmed.is_empty() {
         return None;
     }
-    let parsed: Value = serde_json::from_str(trimmed).ok()?;
+    let parsed: Value = js_json::parse_lossless(trimmed).ok()?;
     let object = parsed.as_object()?;
     object.get("hookSpecificOutput").and_then(Value::as_object).cloned()
 }
@@ -164,7 +167,7 @@ pub async fn review_tool_with_claude_bash_hook(
     };
 
     let mut tool_input = event.input.clone();
-    tool_input.insert("cwd".to_owned(), Value::String(cwd.to_owned()));
+    tool_input.insert("cwd".into(), Value::String(cwd.to_owned().into()).into());
     let hook_input = json!({
         "access_mode": "supervised",
         "approval_policy": "on-request",

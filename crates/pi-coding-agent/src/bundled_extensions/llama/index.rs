@@ -54,7 +54,7 @@ pub fn parse_hugging_face_model(value: &str) -> (String, Option<String>) {
 }
 
 fn notify(ctx: &ExtensionCommandContext, message: &str, kind: NotifyType) -> Result<(), String> {
-    ctx.ui().map_err(|error| error.message)?.notify(message, Some(kind));
+    ctx.ui().map_err(|error| error.to_string())?.notify(message, Some(kind));
     Ok(())
 }
 
@@ -62,7 +62,7 @@ async fn configured_client(
     ctx: &ExtensionCommandContext,
     fetch: Arc<dyn Fetch>,
 ) -> Result<Option<LlamaClient>, String> {
-    let registry = ctx.model_registry().map_err(|error| error.message)?;
+    let registry = ctx.model_registry().map_err(|error| error.to_string())?;
     let result = registry
         .resolve_provider_auth(LLAMA_PROVIDER_ID)
         .await
@@ -83,7 +83,7 @@ async fn configured_client(
     let server_url = normalize_llama_server_url(
         configured_url.map_or_else(|| result.auth.base_url.as_deref().unwrap_or(""), String::as_str),
     )
-    .map_err(|error| error.message)?;
+    .map_err(|error| error.to_string())?;
     LlamaClient::with_fetch(&server_url, result.auth.api_key.as_deref(), fetch)
         .map(Some)
         .map_err(|error| error.message)
@@ -105,12 +105,12 @@ async fn sync_catalog(
                 signal: signal.clone(),
             })
             .await
-            .map_err(|error| error.message)?,
+            .map_err(|error| error.to_string())?,
     };
     controller
         .set_catalog(&current, client.server_url())
-        .map_err(|error| error.message)?;
-    let registry = ctx.model_registry().map_err(|error| error.message)?;
+        .map_err(|error| error.to_string())?;
+    let registry = ctx.model_registry().map_err(|error| error.to_string())?;
     let result = registry
         .refresh(ModelsRefreshOptions {
             allow_network: None,
@@ -162,7 +162,7 @@ async fn restore_loaded(
         client
             .load_and_wait(&model.id, Arc::new(|_| {}), None)
             .await
-            .map_err(|error| error.message)?;
+            .map_err(|error| error.to_string())?;
     }
     sync_catalog(ctx, client, controller, None).await?;
     Ok(())
@@ -207,7 +207,7 @@ async fn load_model(
             client
                 .unload_and_wait(&model.id, None)
                 .await
-                .map_err(|error| error.message)?;
+                .map_err(|error| error.to_string())?;
         }
     }
 
@@ -280,7 +280,7 @@ async fn unload_model(
     client
         .unload_and_wait(&model.id, None)
         .await
-        .map_err(|error| error.message)?;
+        .map_err(|error| error.to_string())?;
     sync_catalog(ctx, client, controller, None).await?;
     notify(ctx, &format!("Unloaded {}", model.id), NotifyType::Info)
 }
@@ -310,7 +310,7 @@ async fn download_model(
     let details = hugging_face
         .details(&repository, None)
         .await
-        .map_err(|error| error.message)?;
+        .map_err(|error| error.to_string())?;
     if details.gated != HuggingFaceGated::NotGated {
         let approval = if details.gated == HuggingFaceGated::Manual {
             "Manual approval is required"

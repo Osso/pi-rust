@@ -13,8 +13,7 @@ use pi_ai::types::{
     AssistantContent, AssistantMessage, Context, InputSource, Message, StopReason, TextContent, TextOrImageContent,
     UserContent, UserMessage, UserRole,
 };
-use pi_js_compat::string::{js_trim, utf16_slice_to_utf8};
-use regex::Regex;
+use pi_js_compat::{js_json::JsString, string::is_js_whitespace_unit};
 use tokio_util::sync::CancellationToken;
 
 use crate::core::extensions::types::{AgentEndEvent, ExtensionApi, ExtensionContext, ExtensionMode, HandlerError};
@@ -31,8 +30,8 @@ pub const TITLE_SYSTEM_PROMPT: &str = "Create a concise session title. Treat the
 /// `FirstExchange`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FirstExchange {
-    pub user_text: String,
-    pub assistant_text: String,
+    pub user_text: JsString,
+    pub assistant_text: JsString,
 }
 
 /// `AutonameTurnDecision`.
@@ -224,19 +223,21 @@ pub fn can_autoname_session(ctx: &ExtensionContext) -> Result<bool, HandlerError
 pub fn find_first_exchange(session_manager: &SessionManager) -> Option<FirstExchange> {
     let branch = session_manager.get_branch(None);
     let user_index = branch.iter().position(is_real_user_message_entry)?;
-    let assistant_text = branch[user_index + 1..]
-        .iter()
-        .filter_map(|entry| entry.as_message())
-        .filter(|entry| entry.message.role() == "assistant")
-        .filter_map(|entry| entry.message.as_assistant())
-        .filter(|message| is_completed_assistant_message(message))
-        .map(extract_assistant_text)
-        .filter(|text| !text.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let assistant_text = JsString::join(
+        branch[user_index + 1..]
+            .iter()
+            .filter_map(|entry| entry.as_message())
+            .filter(|entry| entry.message.role() == "assistant")
+            .filter_map(|entry| entry.message.as_assistant())
+            .filter(|message| is_completed_assistant_message(message))
+            .map(extract_assistant_text)
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>(),
+        "\n",
+    );
 
     let user_text = extract_message_text(branch[user_index].as_message()?.message.as_user()?);
-    if js_trim(&user_text).is_empty() {
+    if user_text.trim().is_empty() {
         return None;
     }
     Some(FirstExchange {
@@ -268,7 +269,7 @@ async fn request_generated_title(
     request: &TitleRequest,
     exchange: &FirstExchange,
     session_signal: &CancellationToken,
-) -> Result<Option<String>, HandlerError> {
+) -> Result<Option<JsString>, HandlerError> {
     let auth = request.model_registry.get_api_key_and_headers(&request.model).await;
     let (api_key, headers, env) = match auth {
         crate::core::model_registry::ResolvedRequestAuth::Ok {
@@ -325,7 +326,7 @@ fn spawn_title_timeout(request_signal: CancellationToken) -> tokio::task::JoinHa
 }
 
 /// `readGeneratedTitle`.
-pub fn read_generated_title(response: &AssistantMessage) -> Result<Option<String>, HandlerError> {
+pub fn read_generated_title(response: &AssistantMessage) -> Result<Option<JsString>, HandlerError> {
     match response.stop_reason {
         StopReason::Aborted => return Ok(None),
         StopReason::Error => {
@@ -351,25 +352,27 @@ pub fn read_generated_title(response: &AssistantMessage) -> Result<Option<String
 /// `buildTitleContext`.
 pub fn build_title_context(exchange: &FirstExchange) -> Context {
     let assistant_text = if exchange.assistant_text.is_empty() {
-        "(none)"
+        JsString::from("(none)")
     } else {
-        exchange.assistant_text.as_str()
+        exchange.assistant_text.clone()
     };
-    let content = [
-        "Name this coding session from the conversation so far.",
-        "",
-        "User request:",
-        &exchange.user_text,
-        "",
-        "Assistant response:",
-        assistant_text,
-    ]
-    .join("\n");
+    let content = JsString::join(
+        [
+            JsString::from("Name this coding session from the conversation so far."),
+            "".into(),
+            "User request:".into(),
+            exchange.user_text.clone(),
+            "".into(),
+            "Assistant response:".into(),
+            assistant_text,
+        ],
+        "\n",
+    );
     Context {
-        system_prompt: Some(TITLE_SYSTEM_PROMPT.to_owned()),
+        system_prompt: Some(TITLE_SYSTEM_PROMPT.to_owned().into()),
         messages: vec![Message::User(UserMessage {
             role: UserRole::Tag,
-            content: UserContent::Text(content),
+            content: UserContent::Text(content.into()),
             input_source: None,
             provider_native: None,
             timestamp: now_millis(),
@@ -379,43 +382,83 @@ pub fn build_title_context(exchange: &FirstExchange) -> Context {
 }
 
 /// `normalizeTitle`.
-pub fn normalize_title(text: &str) -> String {
-    let first_line = text.split('\n').map(js_trim).find(|line| !line.is_empty());
-    let Some(first_line) = first_line else {
-        return String::new();
-    };
-
-    let first_line: String = first_line
-        .chars()
-        .map(|character| {
-            if pi_js_compat::string::is_js_whitespace_char(character) {
-                ' '
-            } else {
-                character
-            }
-        })
-        .collect();
-    let heading = Regex::new(r"^#{1,6} *").expect("static heading pattern");
-    let without_heading = heading.replace(&first_line, "");
-    let prefix = Regex::new(r"(?i)^(?:session +)?(?:title|name) *[:\-] *").expect("static prefix pattern");
-    let without_prefix = prefix.replace(&without_heading, "");
-    let wrapping = Regex::new(r#"(?s)^["'`*_]+|["'`*_]+$"#).expect("static wrapping pattern");
-    let without_wrapping = wrapping.replace_all(&without_prefix, "");
-    let whitespace = Regex::new(r" +").expect("static whitespace pattern");
-    let normalized_whitespace = js_trim(&whitespace.replace_all(&without_wrapping, " ")).to_owned();
-    truncate_title(&normalized_whitespace)
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    #[test]
+    fn title_and_context_keep_raw_units() {
+        let raw = pi_js_compat::js_json::JsString::from_utf16(vec![0x20, 0xd800, 0x20]);
+        assert_eq!(normalize_title(&raw).units(), &[0xd800]);
+        let title = JsString::from("x".repeat(MAX_TITLE_CHARS - 1)) + JsString::from_utf16(vec![0xd800, 0xdc00]);
+        assert_eq!(truncate_title(&title).units().last(), Some(&0xd800));
+    }
 }
 
-/// `truncateTitle`.
-pub fn truncate_title(title: &str) -> String {
-    if pi_js_compat::string::utf16_len(title) <= MAX_TITLE_CHARS {
-        return title.to_owned();
+pub fn normalize_title(text: &JsString) -> JsString {
+    let Some(first_line) = text.split('\n').map(|line| line.trim()).find(|line| !line.is_empty()) else {
+        return JsString::default();
+    };
+    let units = first_line
+        .units()
+        .iter()
+        .map(|unit| if is_js_whitespace_unit(*unit) { 32 } else { *unit })
+        .collect();
+    let line = strip_title_prefix(&JsString::from_utf16(units));
+    let wrapping = |unit: &u16| [34, 39, 96, 42, 95].contains(unit);
+    let start = line
+        .units()
+        .iter()
+        .position(|unit| !wrapping(unit))
+        .unwrap_or(line.len());
+    let end = line
+        .units()
+        .iter()
+        .rposition(|unit| !wrapping(unit))
+        .map_or(start, |index| index + 1);
+    let mut collapsed = JsString::default();
+    for unit in &line.units()[start..end] {
+        if *unit != 32 || collapsed.units().last() != Some(&32) {
+            collapsed.push_unit(*unit);
+        }
     }
-    let bounded_title = utf16_slice_to_utf8(title, 0, MAX_TITLE_CHARS + 1);
-    let last_space = bounded_title.rfind(' ');
-    match last_space {
-        Some(index) if index > 0 => js_trim(&bounded_title[..index]).to_owned(),
-        _ => js_trim(&utf16_slice_to_utf8(title, 0, MAX_TITLE_CHARS)).to_owned(),
+    truncate_title(&collapsed.trim())
+}
+
+fn strip_title_prefix(line: &JsString) -> JsString {
+    let heading = line.units().iter().take(6).take_while(|unit| **unit == 35).count();
+    let line = line.slice(heading, line.len()).trim_start();
+    let lower = line.to_lowercase();
+    let session_prefix = if lower.starts_with("session ") {
+        let tail = line.slice(7, line.len()).trim_start();
+        line.len() - tail.len()
+    } else {
+        0
+    };
+    let rest = lower.slice(session_prefix, lower.len());
+    let word_len = if rest.starts_with("title") {
+        5
+    } else if rest.starts_with("name") {
+        4
+    } else {
+        return line;
+    };
+    let tail = line.slice(session_prefix + word_len, line.len()).trim_start();
+    if tail.starts_with(":") || tail.starts_with("-") {
+        tail.slice(1, tail.len()).trim_start()
+    } else {
+        line
+    }
+}
+
+/// `truncateTitle`: JavaScript slicing may intentionally leave a high surrogate.
+pub fn truncate_title(title: &JsString) -> JsString {
+    if title.len() <= MAX_TITLE_CHARS {
+        return title.clone();
+    }
+    let bounded = title.slice(0, MAX_TITLE_CHARS + 1);
+    match bounded.units().iter().rposition(|unit| *unit == 32) {
+        Some(index) if index > 0 => bounded.slice(0, index).trim(),
+        _ => title.slice(0, MAX_TITLE_CHARS).trim(),
     }
 }
 
@@ -425,7 +468,10 @@ fn is_real_user_message(message: &AgentMessage) -> bool {
     }
     match message {
         AgentMessage::User(user) => user.input_source != Some(InputSource::Extension),
-        AgentMessage::Custom(object) => object.get("inputSource").and_then(|value| value.as_str()) != Some("extension"),
+        AgentMessage::Custom(object) => !object
+            .get("inputSource")
+            .and_then(|value| value.as_string())
+            .is_some_and(|value| value == "extension"),
         _ => false,
     }
 }
@@ -443,40 +489,33 @@ fn is_completed_assistant_message(message: &AssistantMessage) -> bool {
     )
 }
 
-fn extract_message_text(message: &pi_ai::types::UserMessage) -> String {
+fn extract_message_text(message: &pi_ai::types::UserMessage) -> JsString {
     match &message.content {
-        UserContent::Text(text) => js_trim(text).to_owned(),
-        UserContent::Blocks(blocks) => js_trim(
-            &blocks
-                .iter()
-                .filter_map(|part| match part {
-                    TextOrImageContent::Text(text) => Some(text.text.as_str()),
-                    TextOrImageContent::Image(_) => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n"),
+        UserContent::Text(text) => text.trim(),
+        UserContent::Blocks(blocks) => JsString::join(
+            blocks.iter().filter_map(|part| match part {
+                TextOrImageContent::Text(text) => Some(&text.text),
+                TextOrImageContent::Image(_) => None,
+            }),
+            "\n",
         )
-        .to_owned(),
+        .trim(),
     }
 }
 
-fn extract_assistant_text(message: &AssistantMessage) -> String {
-    js_trim(
-        &message
-            .content
-            .iter()
-            .filter_map(|part| match part {
-                AssistantContent::Text(TextContent { text, .. }) => Some(text.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
+fn extract_assistant_text(message: &AssistantMessage) -> JsString {
+    JsString::join(
+        message.content.iter().filter_map(|part| match part {
+            AssistantContent::Text(TextContent { text, .. }) => Some(text),
+            _ => None,
+        }),
+        "\n",
     )
-    .to_owned()
+    .trim()
 }
 
-fn bound_source_text(text: &str) -> String {
-    js_trim(&utf16_slice_to_utf8(text, 0, MAX_SOURCE_CHARS)).to_owned()
+fn bound_source_text(text: &JsString) -> JsString {
+    text.slice(0, MAX_SOURCE_CHARS).trim()
 }
 
 fn report_autoname_failure(error: &HandlerError, signal_cancelled: bool) {

@@ -14,58 +14,146 @@ use crate::core::tools::ask_questions::{
     self, AskQuestionsParams, Question, parse_params, question_result, validate_questions,
 };
 use pi_agent_core::AgentToolResult;
+use pi_js_compat::{
+    js_json as raw_json,
+    js_json::{self, JsString, JsValue as Value},
+};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::json;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
+
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    use pi_js_compat::js_json::{self, JsString};
+
+    #[test]
+    fn question_and_answer_rendering_retain_unpaired_units() {
+        let params = js_json::parse_lossless(r#"{"blocking":true,"questions":[{"question":"Q\ud800","header":"\udc00","options":[{"label":"A\ud800","description":"D\udc00"}]}]}"#).unwrap();
+        let parsed = parse_params(&params).unwrap();
+        let rendered = format_question(&parsed.questions[0], 0);
+        let expected = JsString::from_utf16(vec![0xdc00]);
+        assert!(rendered.contains(expected));
+        assert!(rendered.contains(JsString::from_utf16(vec![0x51, 0xd800])));
+        let answers = js_json::parse_lossless(r#"{"Q\ud800":"A\udc00"}"#).unwrap();
+        let formatted = format_answer_payload(Some(&answers)).unwrap();
+        assert_eq!(
+            formatted,
+            JsString::from("- Q") + JsString::from_utf16(vec![0xd800]) + " → A" + JsString::from_utf16(vec![0xdc00])
+        );
+    }
+}
+
+#[cfg(test)]
+mod delivery_lossless_tests {
+    use super::*;
+    use pi_js_compat::js_json::JsValue;
+
+    #[test]
+    fn delivered_answers_keep_units_and_cancelled_omission_vs_null() {
+        let params = js_json::parse_lossless(r#"{"blocking":true,"questions":[],"metadata":"\ud800"}"#).unwrap();
+        let answers = js_json::parse_lossless(r#"{"Q\ud800":"A\udc00"}"#).unwrap();
+        let inbox = Inbox {
+            agent_id: "child".into(),
+            db: "db".into(),
+            session_id: "session".into(),
+        };
+        for cancelled in [None, Some(JsValue::Null), Some(JsValue::Bool(false))] {
+            let mut payload = raw_json!({"type":"ask_questions_answer","answers":answers});
+            if let Some(cancelled) = &cancelled {
+                payload["cancelled"] = cancelled.clone();
+            }
+            let mut delivered = RuntimeMailboxMessage {
+                id: 7,
+                recipient: RuntimeMailboxAddress {
+                    agent_id: Some("child".into()),
+                    session_id: "session".into(),
+                },
+                sender: RuntimeMailboxAddress {
+                    agent_id: None,
+                    session_id: "parent".into(),
+                },
+                sender_host: None,
+                kind: RuntimeMailboxMessageKind::Reply,
+                body: js_json::stringify_lossless(&payload).into(),
+                file_refs: None,
+                target_checkpoint: None,
+                store_ref: RuntimeMailboxStoreRef {
+                    message_id: "answer".into(),
+                    session_path: "path".into(),
+                },
+                status: crate::core::session_control_db::RuntimeMailboxMessageStatus::Claimed,
+                created_at: "now".into(),
+                updated_at: "now".into(),
+                claimed_at: None,
+                error: None,
+            };
+            let result = delivered_answer_result(&params, &inbox, &delivered).unwrap();
+            let details = result.details.unwrap();
+            assert_eq!(details["answers"], answers);
+            assert_eq!(details.get("cancelled"), cancelled.as_ref());
+            assert_eq!(details["metadata"], params["metadata"]);
+            let pi_ai::types::TextOrImageContent::Text(text) = &result.content[0] else {
+                panic!("text result")
+            };
+            assert!(text.text.contains(JsString::from_utf16(vec![0xd800])));
+            assert!(text.text.contains(JsString::from_utf16(vec![0xdc00])));
+
+            delivered.body = JsString::from_utf16(vec![0xd800]);
+            let error = delivered_answer_result(&params, &inbox, &delivered).unwrap_err();
+            assert!(error.message.contains(JsString::from_utf16(vec![0xd800])));
+        }
+    }
+}
 
 fn handler(error: impl std::fmt::Display) -> HandlerError {
     HandlerError::new(error.to_string())
 }
-fn answer_message_id(agent_id: &str, request_id: &str) -> String {
-    format!("ask_questions:{agent_id}:{request_id}")
+fn answer_message_id(agent_id: impl Into<JsString>, request_id: impl Into<JsString>) -> JsString {
+    JsString::from("ask_questions:") + agent_id.into() + ":" + request_id.into()
 }
-fn format_question(question: &Question, index: usize) -> String {
+fn format_question(question: &Question, index: usize) -> JsString {
     let header = question
         .header
         .as_ref()
         .filter(|header| !header.is_empty())
-        .map(|header| format!("[{header}] "))
+        .map(|header| JsString::from("[") + header + "] ")
         .unwrap_or_default();
-    let mut lines = vec![format!("{}. {header}{}", index + 1, question.question)];
+    let mut lines = vec![JsString::from(format!("{}. ", index + 1)) + header + &question.question];
     let Some(options) = &question.options else {
-        lines.push("   Free-text answer.".to_owned());
-        return lines.join("\n");
+        lines.push("   Free-text answer.".into());
+        return JsString::join(lines, "\n");
     };
     let choice = if question.multi_select == Some(true) {
         "Choose one or more (comma-separated)"
     } else {
         "Choose one"
     };
-    lines.push(format!("   {choice}, or give another answer:"));
+    lines.push(format!("   {choice}, or give another answer:").into());
     for option in options {
         let description = option
             .description
             .as_ref()
             .filter(|description| !description.is_empty())
-            .map(|description| format!(" — {description}"))
+            .map(|description| JsString::from(" — ") + description)
             .unwrap_or_default();
-        lines.push(format!("   - {}{description}", option.label));
+        lines.push(JsString::from("   - ") + &option.label + description);
     }
-    lines.join("\n")
+    JsString::join(lines, "\n")
 }
-fn format_parent_request(agent_id: &str, request_id: &str, params: &AskQuestionsParams) -> String {
+fn format_parent_request(agent_id: &str, request_id: &str, params: &AskQuestionsParams) -> JsString {
     let waiting = if params.blocking {
         "The child is blocked until you answer."
     } else {
         "The child continues meanwhile."
     };
     let mut lines = vec![
-        format!("Child agent {agent_id} asks (requestId: {request_id}). {waiting}"),
+        JsString::from(format!("Child agent {agent_id} asks (requestId: {request_id}). {waiting}")),
         format!(
             "Reply with answer_question using agentId \"{agent_id}\" and requestId \"{request_id}\", answers keyed by exact question text. Ask the user with ask_questions first when you cannot answer."
-        ),
-        String::new(),
+        ).into(),
+        JsString::default(),
     ];
     lines.extend(
         params
@@ -74,7 +162,7 @@ fn format_parent_request(agent_id: &str, request_id: &str, params: &AskQuestions
             .enumerate()
             .map(|(index, question)| format_question(question, index)),
     );
-    lines.join("\n")
+    JsString::join(lines, "\n")
 }
 struct Inbox {
     agent_id: String,
@@ -107,16 +195,18 @@ fn send_questions_to_parent(
         Some(ctx),
     )?;
     let message = &sent.details.as_ref().unwrap_or(&Value::Null)["message"];
-    if message["id"].as_str().is_none_or(str::is_empty) || message["status"] == "failed" {
+    if message["id"].as_string().is_none_or(JsString::is_empty) || message["status"] == Value::String("failed".into()) {
         let reason = sent
             .content
             .iter()
             .filter_map(|part| match part {
-                pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.as_str()),
+                pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
                 _ => None,
             })
-            .collect::<String>();
-        return Err(handler(format!("Could not send questions to parent: {reason}")));
+            .collect::<Vec<_>>();
+        return Err(HandlerError::new(
+            JsString::from("Could not send questions to parent: ") + JsString::join(reason, ""),
+        ));
     }
     let session = ctx.session_manager()?;
     let session_id = lock_session_manager(&session).get_session_id().to_owned();
@@ -133,8 +223,8 @@ async fn wait_for_answer(
 ) -> Result<Option<RuntimeMailboxMessage>, HandlerError> {
     let message_id = answer_message_id(&inbox.agent_id, request_id);
     let recipient = RuntimeMailboxAddress {
-        agent_id: Some(inbox.agent_id.clone()),
-        session_id: inbox.session_id.clone(),
+        agent_id: Some(inbox.agent_id.clone().into()),
+        session_id: inbox.session_id.clone().into(),
     };
     loop {
         if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
@@ -165,8 +255,8 @@ async fn ask_parent(
     signal: Option<CancellationToken>,
     ctx: ExtensionContext,
 ) -> Result<AgentToolResult, HandlerError> {
-    let parsed = parse_params(&params).map_err(handler)?;
-    validate_questions(&parsed.questions).map_err(handler)?;
+    let parsed = parse_params(&params).map_err(|error| HandlerError::new(error.message))?;
+    validate_questions(&parsed.questions).map_err(|error| HandlerError::new(error.message))?;
     let inbox = send_questions_to_parent(&store, &request_id, &parsed, &ctx)?;
     if !parsed.blocking {
         let mut result = question_result(
@@ -174,16 +264,16 @@ async fn ask_parent(
             format!(
                 "Questions sent to parent (request {request_id}). Continue independent work; the answer will arrive in your inbox."
             ),
-            json!({}),
+            raw_json!({}),
             false,
         );
         let details = result.details.as_mut().unwrap();
-        details["queued"] = json!(true);
-        details["requestId"] = json!(request_id);
+        details["queued"] = Value::Bool(true);
+        details["requestId"] = Value::String(request_id.into());
         return Ok(result);
     }
     let Some(delivered) = wait_for_answer(&inbox, &request_id, signal).await? else {
-        return Ok(question_result(&params, "Questions cancelled", json!({}), true));
+        return Ok(question_result(&params, "Questions cancelled", raw_json!({}), true));
     };
     delivered_answer_result(&params, &inbox, &delivered)
 }
@@ -194,18 +284,16 @@ fn delivered_answer_result(
     delivered: &RuntimeMailboxMessage,
 ) -> Result<AgentToolResult, HandlerError> {
     use pi_js_compat::js_json::{self, JsString, JsValue};
-    let parsed = js_json::parse_lossless(&delivered.body).map_err(handler)?;
+    let parsed = js_json::parse_lossless(&delivered.body).map_err(|error| HandlerError::new(error.into_message()))?;
     let JsValue::Object(answer) = parsed else {
-        return Err(handler(format!(
-            "Malformed question answer {}",
-            delivered.store_ref.message_id
-        )));
+        return Err(HandlerError::new(
+            JsString::from("Malformed question answer ") + &delivered.store_ref.message_id,
+        ));
     };
     if answer.get(&JsString::from("type")) != Some(&JsValue::String(JsString::from("ask_questions_answer"))) {
-        return Err(handler(format!(
-            "Malformed question answer {}",
-            delivered.store_ref.message_id
-        )));
+        return Err(HandlerError::new(
+            JsString::from("Malformed question answer ") + &delivered.store_ref.message_id,
+        ));
     }
     let answers = answer.get(&JsString::from("answers"));
     let text = format_answer_payload(answers)?;
@@ -217,22 +305,25 @@ fn delivered_answer_result(
     };
     let mut result = question_result(
         params,
-        format!("Parent {outcome} questions:\n{text}"),
-        answers.cloned().unwrap_or(JsValue::Null).into_serde_lossy(),
+        JsString::from(format!("Parent {outcome} questions:\n")) + text,
+        answers.cloned().unwrap_or(JsValue::Null),
         false,
     );
     let details = result.details.as_mut().unwrap();
     if let Some(cancelled) = cancelled {
-        details["cancelled"] = cancelled.clone().into_serde_lossy();
+        details["cancelled"] = cancelled.clone();
     } else {
-        details.as_object_mut().unwrap().remove("cancelled");
+        details
+            .as_object_mut()
+            .unwrap()
+            .shift_remove(&JsString::from("cancelled"));
     }
     details["runtimeMailboxDelivery"] =
-        json!({"controlDbPath":inbox.db,"messages":[{"id":delivered.id,"storeRef":delivered.store_ref}]});
+        raw_json!({"controlDbPath":inbox.db,"messages":[{"id":delivered.id,"storeRef":delivered.store_ref}]});
     Ok(result)
 }
 
-fn format_answer_payload(answers: Option<&pi_js_compat::js_json::JsValue>) -> Result<String, HandlerError> {
+fn format_answer_payload(answers: Option<&pi_js_compat::js_json::JsValue>) -> Result<JsString, HandlerError> {
     use pi_js_compat::js_json::{self, JsString, JsValue};
     let entries = match answers {
         None | Some(JsValue::Null) => return Err(handler("Cannot convert undefined or null to object")),
@@ -266,16 +357,16 @@ fn format_answer_payload(answers: Option<&pi_js_compat::js_json::JsValue>) -> Re
             } else {
                 JsString::from("(no selection)")
             };
-            Ok(format!("- {} → {}", question.to_utf8_lossy(), value.to_utf8_lossy()))
+            Ok(JsString::from("- ") + question + " → " + value)
         })
         .collect::<Result<Vec<_>, HandlerError>>()
-        .map(|lines| lines.join("\n"))
+        .map(|lines| JsString::join(lines, "\n"))
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AnswerQuestionParams {
-    agent_id: String,
-    request_id: String,
+    agent_id: JsString,
+    request_id: JsString,
     answers: Value,
     cancelled: Option<bool>,
 }
@@ -285,27 +376,26 @@ fn answer_question(
     ctx: &ExtensionContext,
 ) -> Result<AgentToolResult, HandlerError> {
     let caller_id = current_message_sender_id(Some(ctx))?;
-    let target = store.get_agent(&params.agent_id);
+    let target = params.agent_id.to_utf8().ok().and_then(|id| store.get_agent(&id));
     let parent_id = target
         .as_ref()
         .and_then(|target| target.parent_id.as_deref())
         .unwrap_or("main");
     if caller_id.is_none() || target.is_none() || Some(parent_id) != caller_id.as_deref() {
-        return Err(handler(format!(
-            "Could not answer {}: not a direct child of this agent",
-            params.agent_id
-        )));
+        return Err(HandlerError::new(
+            JsString::from("Could not answer ") + &params.agent_id + ": not a direct child of this agent",
+        ));
     }
     let target = target.unwrap();
     if !is_active_lifecycle(target.lifecycle) {
-        return Err(handler(format!(
-            "Could not answer {}: inactive ({})",
-            params.agent_id,
-            serde_json::to_value(target.lifecycle)
-                .map_err(handler)?
-                .as_str()
-                .unwrap_or("")
-        )));
+        return Err(HandlerError::new(
+            JsString::from("Could not answer ")
+                + &params.agent_id
+                + ": inactive ("
+                + js_json::to_js_string(&js_json::to_value(&target.lifecycle).map_err(handler)?)
+                    .map_err(HandlerError::new)?
+                + ")",
+        ));
     }
     let persistence = store.get_persistence_target();
     let session_id = target
@@ -314,27 +404,25 @@ fn answer_question(
         .map(|transcript| transcript.session_id.clone());
     let db = ctx.control_db_path()?;
     let (Some(persistence), Some(session_id)) = (persistence, session_id) else {
-        return Err(handler(format!(
-            "Could not answer {}: runtime mailbox is unavailable",
-            params.agent_id
-        )));
+        return Err(HandlerError::new(
+            JsString::from("Could not answer ") + &params.agent_id + ": runtime mailbox is unavailable",
+        ));
     };
     if Some(persistence.control_db_path.as_str()) != db.as_deref() {
-        return Err(handler(format!(
-            "Could not answer {}: runtime mailbox is unavailable",
-            params.agent_id
-        )));
+        return Err(HandlerError::new(
+            JsString::from("Could not answer ") + &params.agent_id + ": runtime mailbox is unavailable",
+        ));
     }
-    let answer = json!({"type":"ask_questions_answer","requestId":params.request_id,"answers":params.answers,"cancelled":params.cancelled == Some(true)});
+    let answer = raw_json!({"type":"ask_questions_answer","requestId":params.request_id,"answers":params.answers,"cancelled":params.cancelled == Some(true)});
     let message_id = answer_message_id(&params.agent_id, &params.request_id);
     let session = ctx.session_manager()?;
     let sender_session_id = lock_session_manager(&session).get_session_id().to_owned();
     enqueue_stored_runtime_mailbox_message(&persistence.control_db_path, &EnqueueStoredRuntimeMailboxMessageInput {
-        recipient_host:None, recipient:RuntimeMailboxAddress { agent_id:Some(params.agent_id.clone()), session_id }, sender:RuntimeMailboxAddress { agent_id:ctx.multi_agent_agent_id()?, session_id:sender_session_id }, kind:RuntimeMailboxMessageKind::Reply,
-        message:json!({"body":serde_json::to_string(&answer).map_err(handler)?,"id":message_id,"kind":"reply","status":"pending","fromAgentId":caller_id.unwrap(),"toAgentId":params.agent_id}), store_ref:RuntimeMailboxStoreRef { message_id, session_path:persistence.session_path }, updated_at:None
+        recipient_host:None, recipient:RuntimeMailboxAddress { agent_id:Some(params.agent_id.clone().into()), session_id: session_id.into() }, sender:RuntimeMailboxAddress { agent_id:ctx.multi_agent_agent_id()?.map(JsString::from), session_id:sender_session_id.into() }, kind:RuntimeMailboxMessageKind::Reply,
+        message:raw_json!({"body":js_json::stringify_lossless(&answer),"id":message_id,"kind":"reply","status":"pending","fromAgentId":caller_id.unwrap(),"toAgentId":params.agent_id}), store_ref:RuntimeMailboxStoreRef { message_id, session_path:persistence.session_path.into() }, updated_at:None
     }).map_err(handler)?;
     Ok(tool_result(
-        format!("Answered {} (request {}).", target.display_name, params.request_id),
+        JsString::from("Answered ") + &target.display_name + " (request " + &params.request_id + ").",
         json!({"agentId":params.agent_id,"requestId":params.request_id}),
     ))
 }
@@ -364,6 +452,6 @@ pub fn register_question_relay_tools(pi: &ExtensionApi, store: Arc<MultiAgentSto
             "requestId":{"type":"string","description":"requestId from the child's question message."},
             "answers":{"type":"object","patternProperties":{"^.*$":{"type":"string"}},"description":"Answers keyed by exact question text. Omit unanswered questions."},
             "cancelled":{"type":"boolean","description":"True when declining to answer; the child receives a cancelled result."}},"additionalProperties":false}),
-        Arc::new(move |_id, params, _signal, _update, ctx| { let store = store.clone(); Box::pin(async move { answer_question(&store, serde_json::from_value(params).map_err(handler)?, &ctx) }) })
+        Arc::new(move |_id, params, _signal, _update, ctx| { let store = store.clone(); Box::pin(async move { answer_question(&store, js_json::from_value(&params).map_err(handler)?, &ctx) }) })
     )).map_err(handler)
 }

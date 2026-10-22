@@ -7,7 +7,10 @@ use std::time::Duration;
 
 use pi_agent_core::AgentToolResult;
 use pi_ai::types::{TextContent, TextOrImageContent};
-use serde_json::{Map, Value, json};
+use pi_js_compat::{
+    js_json as json,
+    js_json::{self, JsObject as Map, JsString, JsValue as Value},
+};
 
 use crate::core::compaction::now_millis;
 use crate::core::detached_bash_runner::{
@@ -130,7 +133,7 @@ struct LaunchedRunner {
     script_path: String,
 }
 
-fn write_durable_pyrun_script(path: &str, code: &str) -> Result<(), String> {
+fn write_durable_pyrun_script(path: &str, code: &JsString) -> Result<(), String> {
     let temporary_path = format!("{path}.tmp-{}", std::process::id());
     {
         use std::io::Write;
@@ -142,7 +145,8 @@ fn write_durable_pyrun_script(path: &str, code: &str) -> Result<(), String> {
             options.mode(0o600);
         }
         let mut file = options.open(&temporary_path).map_err(|error| error.to_string())?;
-        file.write_all(code.as_bytes()).map_err(|error| error.to_string())?;
+        file.write_all(js_json::encode_node_utf8(code).as_bytes())
+            .map_err(|error| error.to_string())?;
     }
     let file = std::fs::File::open(&temporary_path).map_err(|error| error.to_string())?;
     file.sync_all().map_err(|error| error.to_string())?;
@@ -165,7 +169,7 @@ fn launch_foreground_pyrun_runner(
     persistence: &PersistenceTarget,
     controller: &DetachedJobLifecycleController,
     started_at: f64,
-) -> Result<LaunchedRunner, String> {
+) -> Result<LaunchedRunner, JsString> {
     let job_id = input
         .agent_id
         .clone()
@@ -189,8 +193,8 @@ fn launch_foreground_pyrun_runner(
     write_durable_pyrun_script(&script_path, &input.params.code)?;
     let runner_pid = launch_detached_pyrun_runner(&manifest_path)?;
     let process_identity = read_process_identity(runner_pid).map_err(|error| error.to_string())?;
-    let session = input.ctx.session_manager().map_err(|error| error.to_string())?;
-    let eval_context = eval_context(&input.ctx).map_err(|error| error.to_string())?;
+    let session = input.ctx.session_manager().map_err(|error| error.message)?;
+    let eval_context = eval_context(&input.ctx).map_err(|error| error.message)?;
     let supervisor_identity = read_process_identity(std::process::id()).map_err(|error| error.to_string())?;
     write_detached_pyrun_launch_manifest(
         &manifest_path,
@@ -203,8 +207,8 @@ fn launch_foreground_pyrun_runner(
             foreground_completion_path: foreground_completion_path.clone(),
             params: create_canonical_pyrun_eval_params(&input.params, &eval_context, input.pi_bridge_enabled),
             runner_address: crate::core::session_control_db::RuntimeMailboxAddress {
-                agent_id: Some(job_id.clone()),
-                session_id: lock_session_manager(&session).get_session_id().to_owned(),
+                agent_id: Some(job_id.clone().into()),
+                session_id: lock_session_manager(&session).get_session_id().to_owned().into(),
             },
             runner_options: input.runner_options.clone(),
             runner_process_identity: process_identity.clone(),
@@ -247,11 +251,11 @@ fn read_new_json_lines(
     path: &str,
     cursor: &mut JsonLineCursor,
     byte_limit: Option<usize>,
-) -> Result<Vec<Value>, String> {
+) -> Result<Vec<Value>, JsString> {
     let data = match std::fs::read(path) {
         Ok(data) => data,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(error.to_string()),
+        Err(error) => return Err(error.to_string().into()),
     };
     let size = data.len() as u64;
     if size <= cursor.offset {
@@ -274,7 +278,8 @@ fn read_new_json_lines(
         line.extend_from_slice(&chunk[line_start..index]);
         line_start = index + 1;
         if !line.is_empty() {
-            values.push(serde_json::from_slice(&line).map_err(|error| error.to_string())?);
+            let text = String::from_utf8_lossy(&line);
+            values.push(js_json::parse_lossless(text.as_ref()).map_err(|error| error.into_message())?);
         }
     }
     if line_start < chunk.len() {
@@ -365,8 +370,8 @@ fn settle_foreground_evaluation(
     }
     if let Some(error) = records
         .iter()
-        .find(|record| record.get("kind").and_then(Value::as_str) == Some("error"))
-        .and_then(|record| record.get("error").and_then(Value::as_str))
+        .find(|record| record.get("kind").and_then(Value::as_string) == Some(&JsString::from("error")))
+        .and_then(|record| record.get("error").and_then(Value::as_string))
     {
         std::fs::write(&runner.foreground_completion_path, "failed\n")
             .map_err(|error| HandlerError::new(error.to_string()))?;
@@ -400,8 +405,10 @@ fn check_foreground_runner_liveness(
 fn has_dense_console_progress(records: &[Value]) -> bool {
     let mut console_records = 0;
     for record in records {
-        if record.get("kind").and_then(Value::as_str) != Some("progress")
-            || record["update"]["type"].as_str() != Some("console")
+        if record.get("kind").and_then(Value::as_string) != Some(&JsString::from("progress"))
+            || record["update"]["type"]
+                .as_string()
+                .is_none_or(|kind| kind != "console")
         {
             continue;
         }
@@ -429,15 +436,15 @@ fn consume_individual_artifact_records(
 ) -> Option<CanonicalPyrunEvalResult> {
     let mut result = None;
     for record in records {
-        match record.get("kind").and_then(Value::as_str) {
-            Some("progress") => {
+        match record.get("kind").and_then(Value::as_string) {
+            Some(kind) if kind == "progress" => {
                 if let Some(update) = record.get("update") {
                     report_progress(CanonicalPyrunProgressUpdate { raw: update.clone() });
                 }
             }
-            Some("result") => {
+            Some(kind) if kind == "result" => {
                 if let Some(value) = record.get("result") {
-                    result = serde_json::from_value(value.clone()).ok();
+                    result = js_json::from_value(value).ok();
                 }
             }
             _ => {}
@@ -452,11 +459,11 @@ fn consume_dense_artifact_records(
 ) -> Option<CanonicalPyrunEvalResult> {
     struct Batch {
         update: Option<CanonicalPyrunProgressUpdate>,
-        text: Vec<String>,
+        text: Vec<JsString>,
     }
     fn flush(batch: &mut Batch, report_progress: &(dyn Fn(CanonicalPyrunProgressUpdate) + Send + Sync)) {
         if let Some(update) = batch.update.take() {
-            report_progress(update.with_text(batch.text.join("")));
+            report_progress(update.with_text(JsString::join(batch.text.iter(), "")));
         }
         batch.text.clear();
     }
@@ -466,7 +473,7 @@ fn consume_dense_artifact_records(
     };
     let mut result = None;
     for record in records {
-        if record.get("kind").and_then(Value::as_str) == Some("progress") {
+        if record.get("kind").and_then(Value::as_string) == Some(&JsString::from("progress")) {
             let Some(update) = record.get("update") else {
                 continue;
             };
@@ -481,11 +488,11 @@ fn consume_dense_artifact_records(
                 report_progress(update);
                 continue;
             };
-            let stream = update.raw.get("stream").and_then(Value::as_str).map(str::to_owned);
+            let stream = update.raw.get("stream").and_then(Value::as_string).cloned();
             if batch
                 .update
                 .as_ref()
-                .and_then(|existing| existing.raw.get("stream").and_then(Value::as_str))
+                .and_then(|existing| existing.raw.get("stream").and_then(Value::as_string))
                 .is_some_and(|existing| Some(existing.to_owned()) != stream)
             {
                 flush(&mut batch, report_progress);
@@ -496,10 +503,10 @@ fn consume_dense_artifact_records(
             continue;
         }
         flush(&mut batch, report_progress);
-        if record.get("kind").and_then(Value::as_str) == Some("result")
+        if record.get("kind").and_then(Value::as_string) == Some(&JsString::from("result"))
             && let Some(value) = record.get("result")
         {
-            result = serde_json::from_value(value.clone()).ok();
+            result = js_json::from_value(value).ok();
         }
     }
     flush(&mut batch, report_progress);
@@ -508,15 +515,20 @@ fn consume_dense_artifact_records(
 
 fn detached_result(params: &PyrunEvalParams, job_id: &str, log_path: &str) -> AgentToolResult {
     AgentToolResult {
-        content: vec![TextOrImageContent::Text(TextContent::new(format!(
-            "{}\n\nPyrun evaluation moved to background as job {job_id}. Output will be written to {log_path}.",
-            params.code
-        )))],
-        details: Some(json!({
-            "backgroundJobId": job_id,
-            "executed": params.code,
-            "type": "detached"
-        })),
+        content: vec![TextOrImageContent::Text(TextContent::new(
+            params.code.clone()
+                + format!(
+                    "\n\nPyrun evaluation moved to background as job {job_id}. Output will be written to {log_path}."
+                ),
+        ))],
+        details: Some(
+            json!({
+                "backgroundJobId": job_id,
+                "executed": params.code,
+                "type": "detached"
+            })
+            .into(),
+        ),
         is_error: None,
         terminate: None,
     }
@@ -538,15 +550,14 @@ fn format_terminal_agent_error(params: &PyrunEvalParams, agent: &AgentNode) -> A
     let error = agent
         .error
         .as_ref()
-        .map(|error| error.message.clone())
+        .map(|error| JsString::from(&error.message))
         .or_else(|| agent.result.as_ref().and_then(|result| result.summary.clone()))
-        .unwrap_or_else(|| format!("Pyrun evaluation {}", lifecycle_name(agent.lifecycle)));
+        .unwrap_or_else(|| format!("Pyrun evaluation {}", lifecycle_name(agent.lifecycle)).into());
     AgentToolResult {
-        content: vec![TextOrImageContent::Text(TextContent::new(format!(
-            "{}\n\nError: {error}",
-            params.code
-        )))],
-        details: Some(json!({"error": error, "executed": params.code, "type": "error"})),
+        content: vec![TextOrImageContent::Text(TextContent::new(
+            params.code.clone() + "\n\nError: " + &error,
+        ))],
+        details: Some(json!({"error": error, "executed": params.code, "type": "error"}).into()),
         is_error: Some(true),
         terminate: None,
     }
@@ -556,8 +567,8 @@ fn pyrun_console_records(records: &[Value]) -> Vec<Value> {
     records
         .iter()
         .filter(|record| {
-            record.get("kind").and_then(Value::as_str) == Some("progress")
-                && record["update"]["type"] == "console"
+            record.get("kind").and_then(Value::as_string) == Some(&JsString::from("progress"))
+                && record["update"]["type"] == Value::String("console".into())
                 && record["update"]["text"].is_string()
         })
         .map(|record| record["update"]["text"].clone())
@@ -571,23 +582,23 @@ fn format_lost_pyrun_runtime(params: &PyrunEvalParams, records: &[Value], output
         console: Some(
             pyrun_console_records(records)
                 .into_iter()
-                .filter_map(|value| serde_json::from_value(value).ok())
+                .filter_map(|value| js_json::from_value(&value).ok())
                 .collect(),
         ),
-        error: Some(error.to_owned()),
+        error: Some(error.to_owned().into()),
         executed: Some(params.code.clone()),
-        result_type: "error".to_owned(),
+        result_type: "error".into(),
         value: None,
     };
     let mut formatted = format_canonical_pyrun_eval_result(params, result);
     for item in &mut formatted.content {
         if let TextOrImageContent::Text(text) = item {
-            text.text = format!("{}\nPreserved output: {output_path}", text.text);
+            text.text.push_str(format!("\nPreserved output: {output_path}"));
         }
     }
     if let Some(Value::Object(details)) = &mut formatted.details {
-        details.insert("outputPath".to_owned(), Value::String(output_path.to_owned()));
-        details.insert("type".to_owned(), Value::String("lost_runtime".to_owned()));
+        details.insert("outputPath".into(), Value::String(output_path.to_owned().into()));
+        details.insert("type".into(), Value::String("lost_runtime".to_owned().into()));
     }
     formatted
 }
@@ -612,7 +623,7 @@ fn read_pyrun_manifest_candidate(directory: &str) -> Result<Option<PyrunManifest
     }))
 }
 
-fn read_complete_artifact_records(path: &str) -> Result<Vec<Value>, String> {
+fn read_complete_artifact_records(path: &str) -> Result<Vec<Value>, JsString> {
     if !Path::new(path).exists() {
         return Ok(Vec::new());
     }
@@ -622,7 +633,7 @@ fn read_complete_artifact_records(path: &str) -> Result<Vec<Value>, String> {
     };
     let mut records = Vec::new();
     for line in text[..last_newline].split('\n').filter(|line| !line.is_empty()) {
-        records.push(pi_js_compat::js_json::parse(line).map_err(|error| error.to_string())?);
+        records.push(js_json::parse_lossless(line).map_err(|error| error.into_message())?);
     }
     Ok(records)
 }
@@ -630,26 +641,28 @@ fn read_complete_artifact_records(path: &str) -> Result<Vec<Value>, String> {
 fn restore_terminal_pyrun_result(records: &[Value]) -> Result<Option<CanonicalPyrunEvalResult>, String> {
     let mut terminal = None;
     for record in records {
-        if record.get("kind").and_then(Value::as_str) == Some("progress") {
+        if record.get("kind").and_then(Value::as_string) == Some(&JsString::from("progress")) {
             continue;
         }
         if terminal.is_some() {
             return Err("Pyrun output artifact contains multiple terminal records".to_owned());
         }
-        terminal = Some(match record.get("kind").and_then(Value::as_str) {
-            Some("result") => serde_json::from_value(record.get("result").cloned().unwrap_or(Value::Null))
-                .map_err(|error| error.to_string())?,
+        terminal = Some(match record.get("kind").and_then(Value::as_string) {
+            Some(kind) if kind == "result" => {
+                js_json::from_value(&record.get("result").cloned().unwrap_or(Value::Null))
+                    .map_err(|error| error.to_string())?
+            }
             _ => CanonicalPyrunEvalResult {
                 approval: None,
                 console: Some(
                     pyrun_console_records(records)
                         .into_iter()
-                        .filter_map(|value| serde_json::from_value(value).ok())
+                        .filter_map(|value| js_json::from_value(&value).ok())
                         .collect(),
                 ),
-                error: record.get("error").and_then(Value::as_str).map(str::to_owned),
+                error: record.get("error").and_then(Value::as_string).cloned(),
                 executed: None,
-                result_type: "error".to_owned(),
+                result_type: "error".into(),
                 value: None,
             },
         });
@@ -697,7 +710,7 @@ async fn settle_cancelling_pyrun_job(
         &manifest.data.artifacts,
         &identity,
         crate::core::detached_job_runner::DetachedJobOutcome::Aborted {
-            reason: Some("Cancelled before session resume".to_owned()),
+            reason: Some("Cancelled before session resume".into()),
         },
         &terminal_at_iso,
         Some((terminal_at - manifest.data.started_at as i64).max(0)),
@@ -758,11 +771,10 @@ fn restore_pyrun_candidate(
 ) -> Result<RestoredRunner, HandlerError> {
     let manifest = candidate.manifest;
     let manifest_params =
-        serde_json::to_value(&manifest.data.params).map_err(|error| HandlerError::new(error.to_string()))?;
-    let expected_params =
-        serde_json::to_value(expected_params).map_err(|error| HandlerError::new(error.to_string()))?;
-    let manifest_params = pi_js_compat::js_json::stringify(&manifest_params);
-    let expected_params = pi_js_compat::js_json::stringify(&expected_params);
+        js_json::to_value(&manifest.data.params).map_err(|error| HandlerError::new(error.to_string()))?;
+    let expected_params = js_json::to_value(expected_params).map_err(|error| HandlerError::new(error.to_string()))?;
+    let manifest_params = js_json::stringify_lossless(&manifest_params);
+    let expected_params = js_json::stringify_lossless(&expected_params);
     if manifest_params != expected_params {
         return Err(HandlerError::new(format!(
             "Pyrun tool-call artifact collision for {tool_call_id}"
@@ -808,7 +820,14 @@ async fn restore_foreground_pyrun_runner(
     let Some(candidate) = read_pyrun_manifest_candidate(&directory)? else {
         return Ok(None);
     };
-    if candidate.manifest.data.runner_address.agent_id.as_deref() != Some(agent_id.as_str()) {
+    if !candidate
+        .manifest
+        .data
+        .runner_address
+        .agent_id
+        .as_ref()
+        .is_some_and(|id| id == &agent_id)
+    {
         return Err(HandlerError::new(format!(
             "Pyrun launch manifest agent ID mismatch: {}",
             candidate.manifest_path
@@ -835,20 +854,28 @@ async fn respond_to_foreground_bridge_request(
     runner: &LaunchedRunner,
     request: &Value,
 ) -> Result<(), HandlerError> {
-    let Some(request_id) = request.get("requestId").and_then(Value::as_str) else {
+    let Some(request_id) = request.get("requestId").and_then(Value::as_string) else {
         return Ok(());
     };
-    if !claim_foreground_bridge_request(&runner.artifacts.directory, request_id).map_err(HandlerError::new)? {
+    if !claim_foreground_bridge_request(
+        &runner.artifacts.directory,
+        &request_id
+            .to_utf8()
+            .map_err(|error| HandlerError::new(error.to_string()))?,
+    )
+    .map_err(HandlerError::new)?
+    {
         return Ok(());
     }
     let mut claimed = Map::new();
-    claimed.insert("claimed".to_owned(), Value::Bool(true));
-    claimed.insert("requestId".to_owned(), Value::String(request_id.to_owned()));
+    claimed.insert("claimed".into(), Value::Bool(true));
+    claimed.insert("requestId".into(), Value::String(request_id.to_owned().into()));
     append_artifact_record(&runner.bridge_response_path, &Value::Object(claimed))
         .map_err(|error| HandlerError::new(error.to_string()))?;
     let method = request
         .get("method")
-        .and_then(Value::as_str)
+        .and_then(Value::as_string)
+        .and_then(|method| method.to_utf8().ok())
         .unwrap_or_default()
         .to_owned();
     let params = request.get("params").cloned().unwrap_or(Value::Null);
@@ -860,14 +887,14 @@ async fn respond_to_foreground_bridge_request(
     )
     .await;
     let mut body = Map::new();
-    body.insert("requestId".to_owned(), Value::String(request_id.to_owned()));
+    body.insert("requestId".into(), Value::String(request_id.to_owned().into()));
     match response {
         Ok(Some(result)) => {
-            body.insert("result".to_owned(), result);
+            body.insert("result".into(), result);
         }
         Ok(None) => {}
         Err(error) => {
-            body.insert("error".to_owned(), Value::String(error.message));
+            body.insert("error".into(), Value::String(error.message));
         }
     }
     append_artifact_record(&runner.bridge_response_path, &Value::Object(body))
@@ -917,7 +944,8 @@ async fn observe_detachable_pyrun_evaluation(
         loop {
             let ownership = detach_state.ownership();
             if ownership.is_none() {
-                let requests = read_new_json_lines(&runner.bridge_request_path, &mut bridge_cursor, None)?;
+                let requests = read_new_json_lines(&runner.bridge_request_path, &mut bridge_cursor, None)
+                    .map_err(HandlerError::new)?;
                 for request in requests {
                     respond_to_foreground_bridge_request(&input, &runner, &request).await?;
                 }
@@ -926,7 +954,8 @@ async fn observe_detachable_pyrun_evaluation(
                 &runner.artifacts.output_path,
                 &mut output_cursor,
                 Some(ARTIFACT_READ_BYTE_LIMIT),
-            )?;
+            )
+            .map_err(HandlerError::new)?;
             if let Some(consumed) = consume_artifact_records(&records, report_progress.as_ref()) {
                 result = Some(consumed);
             }
@@ -1025,6 +1054,24 @@ mod js_value_tests {
     use super::*;
 
     #[test]
+    fn fragmented_artifact_lines_keep_unpaired_units() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("output.jsonl");
+        std::fs::write(&path, b"{\"value\":\"\\ud800\"}\n").unwrap();
+        let mut cursor = JsonLineCursor::new();
+        assert!(
+            read_new_json_lines(path.to_str().unwrap(), &mut cursor, Some(12))
+                .unwrap()
+                .is_empty()
+        );
+        let records = read_new_json_lines(path.to_str().unwrap(), &mut cursor, None).unwrap();
+        assert_eq!(
+            records,
+            vec![pi_js_compat::js_json!({"value": JsString::from_utf16(vec![0xd800])})]
+        );
+    }
+
+    #[test]
     fn persisted_js_equivalent_params_do_not_report_a_collision() {
         let directory = tempfile::tempdir().unwrap();
         let output = directory.path().join("output.log");
@@ -1035,7 +1082,7 @@ mod js_value_tests {
         .unwrap();
         let params: super::super::runner::CanonicalPyrunEvalParams =
             serde_json::from_str(r#"{"code":"x","pi":{"2":2.0,"1":1.0}}"#).unwrap();
-        let data = serde_json::from_value(serde_json::json!({
+        let data = serde_json::from_value(pi_js_compat::js_json!({
             "activationPath":"activation", "artifacts":{"directory":directory.path(),"outputPath":output},
             "bridgeRequestPath":"requests", "bridgeResponsePath":"responses", "controlDbPath":"db", "foregroundCompletionPath":"completion",
             "params":params, "runnerAddress":{"sessionId":"s","agentId":"job"}, "runnerOptions":{},

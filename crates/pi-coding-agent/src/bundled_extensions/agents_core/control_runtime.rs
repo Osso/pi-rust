@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use pi_agent_core::AgentToolResult;
+use pi_js_compat::js_json::JsString;
 
 use crate::core::extensions::types::{ExtensionContext, HandlerError};
 use crate::core::lifecycle_coordinator::{
@@ -47,7 +48,7 @@ pub struct SteerAgentParams {
     pub agent_id: String,
     pub file_refs: Option<Vec<AgentFileReference>>,
     pub from_agent_id: Option<String>,
-    pub message: String,
+    pub message: JsString,
     pub target_checkpoint: Option<SteeringCheckpoint>,
 }
 
@@ -89,7 +90,7 @@ pub struct AgentSteeringRuntimeBinding {
 #[derive(Debug, Clone)]
 pub struct AgentSteeringRequest {
     pub agent_id: String,
-    pub message: String,
+    pub message: JsString,
     pub file_refs: Option<Vec<AgentFileReference>>,
     pub target_checkpoint: Option<SteeringCheckpoint>,
 }
@@ -151,11 +152,11 @@ pub async fn cancel_agent(
     match cancelled {
         CancelReservedAgentResult::Ok { agent } => Ok(tool_result(
             if agent.lifecycle == AgentLifecycle::Aborted {
-                format!("Cancelled {}.", agent.display_name)
+                JsString::from("Cancelled ") + &agent.display_name + "."
             } else {
-                format!("Cancellation requested for {}.", agent.display_name)
+                JsString::from("Cancellation requested for ") + &agent.display_name + "."
             },
-            serde_json::json!({"agent": agent, "reason": params.reason}),
+            pi_js_compat::js_json!({"agent": agent, "reason": params.reason}),
         )),
         CancelReservedAgentResult::Err { error, agent } => {
             let error = match error {
@@ -164,7 +165,7 @@ pub async fn cancel_agent(
             };
             Ok(error_tool_result(
                 format!("Could not cancel {}: {error}", params.agent_id),
-                serde_json::json!({
+                pi_js_compat::js_json!({
                     "agent": agent.unwrap_or_else(|| empty_agent(&params.agent_id)),
                     "reason": params.reason,
                 }),
@@ -183,9 +184,9 @@ pub fn request_interactive_agent_steering(
     store: &Arc<MultiAgentStore>,
     runtime_handles: &MultiAgentRuntimeHandles,
     agent_id: &str,
-    message: &str,
+    message: &JsString,
     binding: &AgentSteeringRuntimeBinding,
-) -> Result<(), String> {
+) -> Result<(), JsString> {
     let steered = request_agent_steering(
         store,
         &AgentSteeringRequest {
@@ -200,7 +201,7 @@ pub fn request_interactive_agent_steering(
     .map_err(|error| error.message)?;
     match steered {
         AgentSteeringRequestResult::Ok { .. } => Ok(()),
-        AgentSteeringRequestResult::Err { error, .. } => Err(error),
+        AgentSteeringRequestResult::Err { error, .. } => Err(error.into()),
     }
 }
 
@@ -226,8 +227,8 @@ pub fn request_agent_steering(
             agent: current.clone(),
             ownership: authority.ownership,
             recipient: crate::core::session_control_db::RuntimeMailboxAddress {
-                agent_id: Some(current.id.clone()),
-                session_id: authority.target_session_id,
+                agent_id: Some(current.id.clone().into()),
+                session_id: authority.target_session_id.into(),
             },
             from_agent_id: binding
                 .actor_agent_id
@@ -304,16 +305,15 @@ pub fn steer_agent(
             session_id,
         },
         Some(runtime_handles),
-    )
-    .map_err(|error| error.message)?;
+    )?;
     match steered {
         AgentSteeringRequestResult::Ok { agent, message } => Ok(tool_result(
-            format!("Queued steering for {}.", agent.display_name),
-            serde_json::json!({"agent": agent, "message": message}),
+            JsString::from("Queued steering for ") + &agent.display_name + ".",
+            pi_js_compat::js_json!({"agent": agent, "message": message}),
         )),
         AgentSteeringRequestResult::Err { agent, message, error } => Ok(error_tool_result(
             error,
-            serde_json::json!({"agent": agent, "message": message}),
+            pi_js_compat::js_json!({"agent": agent, "message": message}),
         )),
     }
 }
@@ -321,7 +321,7 @@ pub fn steer_agent(
 fn steering_identity_unavailable(params: &SteerAgentParams) -> AgentToolResult {
     error_tool_result(
         "Could not steer agent: subagent runtime identity is unavailable.",
-        serde_json::json!({
+        pi_js_compat::js_json!({
             "agent": empty_agent(&params.agent_id),
             "message": empty_message(&params.agent_id, &params.message),
         }),
@@ -523,7 +523,7 @@ fn authorize_steering(
     })
 }
 
-fn steering_rejected(agent: &AgentSnapshot, message: &str, coordinator_error: &str) -> AgentSteeringRequestResult {
+fn steering_rejected(agent: &AgentSnapshot, message: &JsString, coordinator_error: &str) -> AgentSteeringRequestResult {
     let error = if coordinator_error == "invalid_transition" {
         "inactive"
     } else {
@@ -544,7 +544,7 @@ fn steering_not_found(params: &AgentSteeringRequest) -> AgentSteeringRequestResu
     }
 }
 
-fn steering_inactive(agent: &AgentSnapshot, message: &str) -> AgentSteeringRequestResult {
+fn steering_inactive(agent: &AgentSnapshot, message: &JsString) -> AgentSteeringRequestResult {
     AgentSteeringRequestResult::Err {
         agent: agent.clone(),
         error: format!(
@@ -556,7 +556,7 @@ fn steering_inactive(agent: &AgentSnapshot, message: &str) -> AgentSteeringReque
     }
 }
 
-fn steering_ownership_unavailable(agent: &AgentSnapshot, message: &str) -> AgentSteeringRequestResult {
+fn steering_ownership_unavailable(agent: &AgentSnapshot, message: &JsString) -> AgentSteeringRequestResult {
     AgentSteeringRequestResult::Err {
         agent: agent.clone(),
         error: format!("Could not steer {}: runtime ownership unavailable", agent.id),
@@ -564,7 +564,7 @@ fn steering_ownership_unavailable(agent: &AgentSnapshot, message: &str) -> Agent
     }
 }
 
-fn empty_message(agent_id: &str, body: &str) -> AgentMailboxMessage {
+fn empty_message(agent_id: &str, body: &JsString) -> AgentMailboxMessage {
     create_failed_mailbox_message(
         body,
         "supervisor",

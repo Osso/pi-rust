@@ -106,7 +106,7 @@ pub async fn set_agent_model(
     let name = store
         .get_agent(&params.agent_id)
         .map(|agent| agent.display_name)
-        .unwrap_or_else(|| params.agent_id.clone());
+        .unwrap_or_else(|| pi_js_compat::js_json::JsString::from(&params.agent_id));
     let model = target.model();
     let description = model
         .as_ref()
@@ -119,11 +119,12 @@ pub async fn set_agent_model(
         details["modelId"] = json!(model.id);
     }
     Ok(super::tool_results::tool_result(
-        format!(
-            "{name} ({}) now uses {description}, effort {}; applies from its next model request.",
-            params.agent_id,
-            level.as_str()
-        ),
+        pi_js_compat::js_json::JsString::from(name)
+            + format!(
+                " ({}) now uses {description}, effort {}; applies from its next model request.",
+                params.agent_id,
+                level.as_str()
+            ),
         details,
     ))
 }
@@ -143,7 +144,7 @@ pub fn register_set_agent_model_tool(
             let store = Arc::clone(&store);
             let handles = handles.clone();
             Box::pin(async move {
-                let params = serde_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()))?;
+                let params = pi_js_compat::js_json::from_value(&params).map_err(|error| HandlerError::new(error.to_string()))?;
                 set_agent_model(&store, &handles, params).await
             })
         }),

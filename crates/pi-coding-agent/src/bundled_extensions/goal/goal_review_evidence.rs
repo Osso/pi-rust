@@ -18,10 +18,8 @@ pub struct GoalReviewEvidenceController {
 }
 
 fn append_evidence(ctx: &ExtensionContext, evidence: GoalReviewEvidenceEvent) -> Result<(), HandlerError> {
-    let cwd = ctx.cwd().map_err(|error| HandlerError::new(error.to_string()))?;
-    let session = ctx
-        .session_manager()
-        .map_err(|error| HandlerError::new(error.to_string()))?;
+    let cwd = ctx.cwd()?;
+    let session = ctx.session_manager()?;
     let Some(goal) = load_or_migrate_active_goal(&cwd, &mut lock_session_manager(&session))? else {
         return Ok(());
     };
@@ -52,10 +50,14 @@ fn append_end_turn_evidence(event: &ToolResultEvent, ctx: &ExtensionContext) -> 
     if event.tool_name.as_str() != "end_turn" || event.is_error {
         return Ok(());
     }
-    let Some(reason) = event.input.get("reason").and_then(serde_json::Value::as_str) else {
+    let Some(reason) = event
+        .input
+        .get("reason")
+        .and_then(pi_js_compat::js_json::JsValue::as_string)
+    else {
         return Ok(());
     };
-    if pi_js_compat::string::js_trim(reason).is_empty() {
+    if reason.trim().is_empty() {
         return Ok(());
     }
     append_evidence(
@@ -70,10 +72,8 @@ fn consume_evidence(ctx: &ExtensionContext, reviewed_goal: &Goal, evidence_count
     if evidence_count == 0 {
         return Ok(());
     }
-    let cwd = ctx.cwd().map_err(|error| HandlerError::new(error.to_string()))?;
-    let session = ctx
-        .session_manager()
-        .map_err(|error| HandlerError::new(error.to_string()))?;
+    let cwd = ctx.cwd()?;
+    let session = ctx.session_manager()?;
     let Some(goal) = load_or_migrate_active_goal(&cwd, &mut lock_session_manager(&session))? else {
         return Ok(());
     };
@@ -98,19 +98,17 @@ fn create_evidence_review(review_goal: GoalSupervisorReview) -> GoalEvidenceRevi
     Arc::new(move |input: GoalReviewInput| {
         let review_goal = Arc::clone(&review_goal);
         Box::pin(async move {
-            let cwd = input.ctx.cwd().map_err(|error| HandlerError::new(error.to_string()))?;
-            let session = input
-                .ctx
-                .session_manager()
-                .map_err(|error| HandlerError::new(error.to_string()))?;
+            let cwd = input.ctx.cwd()?;
+            let session = input.ctx.session_manager()?;
             let conversation_events = load_or_migrate_active_goal(&cwd, &mut lock_session_manager(&session))?
                 .and_then(|goal| goal.review_evidence)
                 .unwrap_or_default();
             let mut payload = input.payload.clone();
             if !conversation_events.is_empty() {
                 payload.insert(
-                    "conversationEvents".to_owned(),
-                    serde_json::to_value(&conversation_events).map_err(|error| HandlerError::new(error.to_string()))?,
+                    "conversationEvents".into(),
+                    pi_js_compat::js_json::to_value(&conversation_events)
+                        .map_err(|error| HandlerError::new(error.to_string()))?,
                 );
             }
             let decision = review_goal(GoalReviewInput {

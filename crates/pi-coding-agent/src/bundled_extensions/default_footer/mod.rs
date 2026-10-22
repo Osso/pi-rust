@@ -33,7 +33,7 @@ pub struct DefaultFooterExtensionOptions {
 
 #[derive(Debug, Clone)]
 pub struct DefaultFooterSelectedAgent {
-    pub display_name: String,
+    pub display_name: pi_js_compat::js_json::JsString,
     pub lifecycle: AgentLifecycle,
     pub slot_index: Option<i64>,
 }
@@ -111,7 +111,7 @@ fn format_selected_agent(agent: Option<DefaultFooterSelectedAgent>) -> Option<St
     let slot = agent.slot_index.map(|index| format!(" #{index}")).unwrap_or_default();
     Some(sanitize_footer_status_text(&format!(
         "selected{slot} {} {}",
-        agent.display_name,
+        pi_js_compat::js_json::encode_node_utf8(&agent.display_name),
         format_agent_lifecycle(agent.lifecycle)
     )))
 }
@@ -267,7 +267,7 @@ fn format_pwd_line(input: &DefaultFooterComponentInput, width: usize) -> Result<
     if let Some(session_manager) = session.session_manager.as_ref()
         && let Some(session_name) = lock_session_manager(session_manager).get_session_name()
     {
-        pwd = format!("{pwd} • {session_name}");
+        pwd = format!("{pwd} • {}", pi_js_compat::js_json::encode_node_utf8(&session_name));
     }
     Ok(truncate(
         &input.theme.fg(ThemeColor::Dim, &pwd),
@@ -294,7 +294,7 @@ fn selected_agent_for_footer(store: &MultiAgentStore) -> Option<DefaultFooterSel
         return None;
     }
     Some(DefaultFooterSelectedAgent {
-        display_name: selected_agent.display_name.clone(),
+        display_name: selected_agent.display_name.clone().into(),
         lifecycle: selected_agent.lifecycle,
         slot_index: selected_agent_slot_index(store, &selected_agent),
     })

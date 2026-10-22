@@ -1,5 +1,6 @@
 //! Bundled `docs-tree-context` extension (`extensions/docs-tree-context/src/index.ts`).
 
+use pi_js_compat::js_json::JsString;
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -45,7 +46,7 @@ pub fn docs_tree_context_extension(pi: &ExtensionApi) -> Result<(), HandlerError
                 };
                 Ok(Some(BeforeAgentStartEventResult {
                     message: None,
-                    system_prompt: Some(insert_after_user_rules(&event.system_prompt, &context)),
+                    system_prompt: Some(insert_after_user_rules(&event.system_prompt, &context).into()),
                 }))
             })
         },
@@ -129,19 +130,18 @@ pub fn build_docs_context(cwd: &str) -> Result<Option<String>, HandlerError> {
     )))
 }
 
-fn insert_after_user_rules(system_prompt: &str, docs_context: &str) -> String {
+fn insert_after_user_rules(system_prompt: &JsString, docs_context: &str) -> JsString {
     if system_prompt.contains(CUSTOM_SECTION_START) {
         return system_prompt.to_owned();
     }
 
     let user_rules_end = "</user_rules>";
     let Some(index) = system_prompt.find(user_rules_end) else {
-        return format!("{system_prompt}\n\n{docs_context}");
+        return system_prompt.clone() + "\n\n" + docs_context;
     };
     let insertion_index = index + user_rules_end.len();
-    format!(
-        "{}\n\n{docs_context}{}",
-        &system_prompt[..insertion_index],
-        &system_prompt[insertion_index..]
-    )
+    system_prompt.slice(0, insertion_index)
+        + "\n\n"
+        + docs_context
+        + system_prompt.slice(insertion_index, system_prompt.len())
 }

@@ -36,11 +36,11 @@ pub fn with_supervisor_review_status(
         let append_status = Arc::clone(&append_status);
         let review_goal = Arc::clone(&review_goal);
         Box::pin(async move {
-            let _ = append_status(input.ctx.clone(), WAITING_FOR_SUPERVISOR_STATUS, None);
+            let _ = append_status(input.ctx.clone(), &WAITING_FOR_SUPERVISOR_STATUS.into(), None);
             match review_goal(input).await {
                 Ok(response) => Ok(response),
                 Err(error) => Ok(GoalSupervisorResponse::Error {
-                    reason: supervisor_review_error_reason(&error.to_string()),
+                    reason: supervisor_review_error_reason(&error.to_string()).into(),
                 }),
             }
         }) as BoxFuture<'static, Result<GoalSupervisorResponse, HandlerError>>
@@ -63,11 +63,8 @@ pub fn review_goal_with_resident_supervisor(
         let kb_dir =
             pi_js_compat::process_env::get("PI_KB_DIR").unwrap_or_else(|| DEFAULT_SUPERVISOR_KB_DIR.to_owned());
         let control_db_path = get_control_db_path(&get_user_state_root());
-        let cwd = input.ctx.cwd().map_err(|error| HandlerError::new(error.to_string()))?;
-        let session = input
-            .ctx
-            .session_manager()
-            .map_err(|error| HandlerError::new(error.to_string()))?;
+        let cwd = input.ctx.cwd()?;
+        let session = input.ctx.session_manager()?;
         let sender_session_id = lock_session_manager(&session).get_session_id().to_owned();
         let project_id = resolve_supervisor_project_for_cwd(&cwd, &kb_dir).map_err(HandlerError::new)?;
         let response = request_supervisor_decision(&RequestSupervisorDecisionInput {

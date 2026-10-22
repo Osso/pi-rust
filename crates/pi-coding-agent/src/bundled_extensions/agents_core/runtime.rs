@@ -8,7 +8,10 @@ use std::sync::{Arc, Mutex};
 use futures_util::future::Shared;
 use pi_agent_core::AgentToolResult;
 use pi_ai::request::BoxFuture;
-use serde_json::{Map, Value, json};
+use pi_js_compat::{
+    js_json as json,
+    js_json::{self, JsObject as Map, JsString, JsValue as Value},
+};
 use tokio_util::sync::CancellationToken;
 
 use crate::core::desktop_notification::{DesktopNotifier, send_desktop_notification};
@@ -43,7 +46,7 @@ impl DesktopNotifier for NoopDesktopNotifier {
     }
 }
 
-pub type SharedDispatch = Shared<BoxFuture<'static, Result<AgentSnapshot, String>>>;
+pub type SharedDispatch = Shared<BoxFuture<'static, Result<AgentSnapshot, pi_js_compat::js_json::JsString>>>;
 
 #[derive(Clone, Default)]
 pub struct MultiAgentRuntimeHandles {
@@ -88,7 +91,7 @@ pub fn create_multi_agent_runtime_handles() -> MultiAgentRuntimeHandles {
     MultiAgentRuntimeHandles::new()
 }
 
-pub fn wake_wait_agents_after_coordination(runtime_handles: &MultiAgentRuntimeHandles, prompt: &str) {
+pub fn wake_wait_agents_after_coordination(runtime_handles: &MultiAgentRuntimeHandles, prompt: &JsString) {
     runtime_handles
         .wait_wake_listeners
         .emit(&super::shared::WaitAgentsWakeUp::coordination(prompt.to_owned()));
@@ -145,33 +148,26 @@ pub fn assert_no_wait_agents_params(params: &Value, api_name: &str) -> Result<()
     }
 }
 
-pub fn format_agent_status(agent: &AgentSnapshot) -> String {
+pub fn format_agent_status(agent: &AgentSnapshot) -> JsString {
+    let status = JsString::from(&agent.display_name) + format!(" is {}", lifecycle_name(agent.lifecycle));
     let summary = agent
         .result
         .as_ref()
-        .and_then(|result| result.summary.as_deref())
-        .map(pi_js_compat::string::js_trim)
+        .and_then(|result| result.summary.as_ref())
+        .map(JsString::trim)
         .unwrap_or_default();
     if !summary.is_empty() {
-        return format!(
-            "{} is {}: {summary}",
-            agent.display_name,
-            lifecycle_name(agent.lifecycle)
-        );
+        return status + ": " + summary;
     }
-    let error_message = agent
+    let error = agent
         .error
         .as_ref()
-        .map(|error| pi_js_compat::string::js_trim(&error.message))
+        .map(|error| error.message.trim())
         .unwrap_or_default();
-    if !error_message.is_empty() {
-        return format!(
-            "{} is {}: {error_message}",
-            agent.display_name,
-            lifecycle_name(agent.lifecycle)
-        );
+    if !error.is_empty() {
+        return status + ": " + error;
     }
-    format!("{} is {}.", agent.display_name, lifecycle_name(agent.lifecycle))
+    status + "."
 }
 
 fn lifecycle_name(lifecycle: crate::core::multi_agent_store::AgentLifecycle) -> &'static str {
@@ -241,11 +237,13 @@ pub fn jobs_command(store: &MultiAgentStore, ctx: &ExtensionCommandContext) -> R
         return Ok(());
     }
     ui.notify(
-        &agents
-            .iter()
-            .map(|agent| format!("{} {}", agent.id, format_agent_status(agent)))
-            .collect::<Vec<_>>()
-            .join("\n"),
+        &pi_js_compat::js_json::encode_node_utf8(&JsString::join(
+            agents
+                .iter()
+                .map(|agent| JsString::from(format!("{} ", agent.id)) + format_agent_status(agent))
+                .collect::<Vec<_>>(),
+            "\n",
+        )),
         Some(NotifyType::Info),
     );
     Ok(())
@@ -298,16 +296,20 @@ impl MultiAgentPiRequestHandler {
         if self.disposed.load(Ordering::SeqCst) {
             return Err(HandlerError::new("Multi-agent Pi request handler is disposed"));
         }
-        let method = request.get("method").and_then(Value::as_str).unwrap_or_default();
+        let method = request
+            .get("method")
+            .and_then(Value::as_string)
+            .and_then(|method| method.to_utf8().ok())
+            .unwrap_or_default();
         let is_child_runtime = super::shared::is_child_agent_runtime(ctx)?;
         if !is_child_runtime {
             self.mirror.bind(ctx)?;
         }
-        if is_child_runtime && is_supervisor_only_agent_request(method) {
+        if is_child_runtime && is_supervisor_only_agent_request(&method) {
             return Err(HandlerError::new(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE));
         }
         let params = request.get("params").cloned().unwrap_or(Value::Null);
-        self.dispatch(method, params, ctx, signal, active_tool_call_id).await
+        self.dispatch(&method, params, ctx, signal, active_tool_call_id).await
     }
 
     async fn dispatch(
@@ -345,7 +347,7 @@ impl MultiAgentPiRequestHandler {
             }
             "agents.attachSession" => {
                 let params: super::spawn_attach_runtime::AttachSessionAgentParams =
-                    serde_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()))?;
+                    js_json::from_value(&params).map_err(|error| HandlerError::new(error.to_string()))?;
                 let result = super::spawn_attach_runtime::attach_session_agent(
                     &super::spawn_attach_runtime::AttachSessionAgentRuntimeInput {
                         create_attached_session: self.runtime.options.create_attached_session.clone(),
@@ -366,7 +368,7 @@ impl MultiAgentPiRequestHandler {
                 let params: super::viewer::ListAgentsParams = if params.is_null() {
                     Default::default()
                 } else {
-                    serde_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()))?
+                    js_json::from_value(&params).map_err(|error| HandlerError::new(error.to_string()))?
                 };
                 let result = super::viewer::list_agents(&self.runtime.store, &params)?;
                 Ok(result.details.unwrap_or(Value::Null))
@@ -387,7 +389,7 @@ impl MultiAgentPiRequestHandler {
             }
             "messages.send" => {
                 let params: super::mailbox_runtime::SendAgentMessageParams =
-                    serde_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()))?;
+                    js_json::from_value(&params).map_err(|error| HandlerError::new(error.to_string()))?;
                 let result = super::mailbox_runtime::send_agent_message(
                     &self.runtime.store,
                     &params,
@@ -480,21 +482,21 @@ fn select_agent<'a>(
 }
 
 fn normalize_select_agent_id(params: &Value) -> Result<String, HandlerError> {
-    if let Some(agent_id) = params.as_str() {
-        return Ok(agent_id.to_owned());
+    if params.as_string().is_some() {
+        return js_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()));
     }
     let Some(object) = params.as_object() else {
         return Err(HandlerError::new(
             "pi.agents.select requires an agent id string or { agentId } object",
         ));
     };
-    let Some(agent_id) = object.get("agentId").and_then(Value::as_str) else {
+    let Some(agent_id) = object.get("agentId").and_then(Value::as_string) else {
         return Err(HandlerError::new("pi.agents.select requires a non-empty agentId"));
     };
-    if pi_js_compat::string::js_trim(agent_id).is_empty() {
+    if agent_id.trim().is_empty() {
         return Err(HandlerError::new("pi.agents.select requires a non-empty agentId"));
     }
-    Ok(agent_id.to_owned())
+    js_json::from_value(&Value::String(agent_id.clone())).map_err(|error| HandlerError::new(error.to_string()))
 }
 
 fn create_main_thread_snapshot() -> Value {
@@ -519,13 +521,13 @@ fn summarize_session_message(entry: &crate::core::session_manager::SessionMessag
     let message = &entry.message;
     let role = message.role();
     let mut details = Map::new();
-    details.insert("entryId".to_owned(), json!(entry.id));
-    details.insert("role".to_owned(), json!(role));
+    details.insert("entryId".into(), json!(entry.id));
+    details.insert("role".into(), json!(role));
     if let Some(text) = summarize_message_content(message) {
-        details.insert("content".to_owned(), json!(text.value));
-        details.insert("text".to_owned(), json!(text.value));
+        details.insert("content".into(), json!(text.value));
+        details.insert("text".into(), json!(text.value));
         if text.truncated {
-            details.insert("truncated".to_owned(), json!(true));
+            details.insert("truncated".into(), json!(true));
         }
     }
     Value::Object(details)
@@ -533,21 +535,23 @@ fn summarize_session_message(entry: &crate::core::session_manager::SessionMessag
 
 struct SummarizedText {
     truncated: bool,
-    value: String,
+    value: JsString,
 }
 
 fn summarize_message_content(message: &pi_agent_core::AgentMessage) -> Option<SummarizedText> {
     let content = match message {
         pi_agent_core::AgentMessage::Assistant(assistant) => {
-            let text = assistant
-                .content
-                .iter()
-                .filter_map(|part| match part {
-                    pi_ai::types::AssistantContent::Text(text) => Some(text.text.clone()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
+            let text = JsString::join(
+                assistant
+                    .content
+                    .iter()
+                    .filter_map(|part| match part {
+                        pi_ai::types::AssistantContent::Text(text) => Some(text.text.clone()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+                "\n",
+            );
             return (!text.is_empty()).then(|| truncate_text(&text));
         }
         pi_agent_core::AgentMessage::User(user) => match &user.content {
@@ -557,19 +561,22 @@ fn summarize_message_content(message: &pi_agent_core::AgentMessage) -> Option<Su
         pi_agent_core::AgentMessage::ToolResult(result) => &result.content,
         pi_agent_core::AgentMessage::Custom(object) => {
             let content = object.get("content")?;
-            if let Some(text) = content.as_str() {
+            if let Some(text) = content.as_string() {
                 return Some(truncate_text(text));
             }
-            let parts: Vec<String> = content
+            let parts: Vec<JsString> = content
                 .as_array()?
                 .iter()
                 .filter_map(|part| {
-                    (part.get("type").and_then(Value::as_str) == Some("text"))
-                        .then(|| part.get("text").and_then(Value::as_str).map(str::to_owned))
-                        .flatten()
+                    (part
+                        .get("type")
+                        .and_then(Value::as_string)
+                        .is_some_and(|kind| kind == "text"))
+                    .then(|| part.get("text").and_then(Value::as_string).cloned())
+                    .flatten()
                 })
                 .collect();
-            let text = parts.join("\n");
+            let text = JsString::join(parts, "\n");
             return (!text.is_empty()).then(|| truncate_text(&text));
         }
     };
@@ -577,19 +584,21 @@ fn summarize_message_content(message: &pi_agent_core::AgentMessage) -> Option<Su
 }
 
 fn summarize_content_parts(content: &[pi_ai::types::TextOrImageContent]) -> Option<SummarizedText> {
-    let text = content
-        .iter()
-        .filter_map(|part| match part {
-            pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
-            pi_ai::types::TextOrImageContent::Image(_) => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let text = JsString::join(
+        content
+            .iter()
+            .filter_map(|part| match part {
+                pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
+                pi_ai::types::TextOrImageContent::Image(_) => None,
+            })
+            .collect::<Vec<_>>(),
+        "\n",
+    );
     (!text.is_empty()).then(|| truncate_text(&text))
 }
 
-fn truncate_text(text: &str) -> SummarizedText {
-    if pi_js_compat::string::utf16_len(text) <= MESSAGE_CONTENT_LIMIT {
+fn truncate_text(text: &JsString) -> SummarizedText {
+    if text.len() <= MESSAGE_CONTENT_LIMIT {
         return SummarizedText {
             truncated: false,
             value: text.to_owned(),
@@ -601,17 +610,8 @@ fn truncate_text(text: &str) -> SummarizedText {
     }
 }
 
-fn slice_utf16(text: &str, limit: usize) -> String {
-    let mut units = 0;
-    let mut result = String::new();
-    for character in text.chars() {
-        units += character.len_utf16();
-        if units > limit {
-            break;
-        }
-        result.push(character);
-    }
-    result
+fn slice_utf16(text: &JsString, limit: usize) -> JsString {
+    text.slice(0, limit)
 }
 
 pub fn register_agent_viewer_tools(
@@ -637,7 +637,7 @@ pub fn register_agent_viewer_tools(
             let store = Arc::clone(&store);
             Box::pin(async move {
                 let params: AgentViewerParams =
-                    serde_json::from_value(params).map_err(|error| HandlerError::new(error.to_string()))?;
+                    js_json::from_value(&params).map_err(|error| HandlerError::new(error.to_string()))?;
                 super::viewer::agent_viewer(&store, &params, Some(&ctx))
             })
         }),
@@ -647,8 +647,8 @@ pub fn register_agent_viewer_tools(
     .map_err(HandlerError::new)
 }
 
-fn agent_viewer_schema() -> Value {
-    json!({
+fn agent_viewer_schema() -> serde_json::Value {
+    serde_json::json!({
         "type": "object",
         "required": ["agentId"],
         "properties": {

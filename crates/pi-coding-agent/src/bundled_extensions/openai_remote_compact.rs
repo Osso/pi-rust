@@ -14,10 +14,13 @@ use pi_ai::types::{
     TextOrImageContent, UserContent,
 };
 use pi_js_compat::base64::buffer_from_base64;
-use pi_js_compat::collator::locale_compare;
-use pi_js_compat::string::{js_trim, utf16_len};
+use pi_js_compat::collator::locale_compare_utf16;
+use pi_js_compat::string::utf16_len;
+use pi_js_compat::{
+    js_json as json,
+    js_json::{self, JsObject as Map, JsString, JsValue as Value},
+};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
 
 use crate::core::compaction::{CompactionResult, CompactionSourceInfo, CompactionSourceType};
 use crate::core::extensions::loader::ExtensionFactory;
@@ -66,7 +69,7 @@ pub struct OpenAiRemoteCompactionDetails {
 pub struct OpenAiCompactPayload {
     pub model: String,
     pub input: Vec<Value>,
-    pub instructions: String,
+    pub instructions: JsString,
     pub tools: Vec<Value>,
     pub parallel_tool_calls: bool,
 }
@@ -125,7 +128,7 @@ pub async fn handle_compaction(
         None
     };
     let instructions =
-        build_openai_compact_instructions(&ctx.get_system_prompt()?, event.custom_instructions.as_deref());
+        build_openai_compact_instructions(&ctx.get_system_prompt()?.into(), event.custom_instructions.as_ref());
     let payload = build_openai_compact_payload(
         &model,
         &messages,
@@ -148,7 +151,7 @@ pub async fn handle_compaction(
     Ok(Some(CompactionEventResult {
         cancel: None,
         compaction: Some(CompactionResult {
-            summary: OPENAI_REMOTE_COMPACTION_SUMMARY.to_owned(),
+            summary: OPENAI_REMOTE_COMPACTION_SUMMARY.to_owned().into(),
             first_kept_entry_id: event.preparation.first_kept_entry_id.clone(),
             tokens_before: event.preparation.tokens_before,
             duration_ms: Some(duration_ms),
@@ -167,9 +170,13 @@ pub async fn handle_compaction(
                 provider: model.provider.clone(),
                 api: model.api.clone(),
                 format: ProviderNativeFormat::OpenAIResponsesInput,
-                value: Value::Array(details.replacement_history.clone()),
+                value: Value::Array(details.replacement_history.clone()).into(),
             }),
-            details: Some(serde_json::to_value(&details).map_err(|error| HandlerError::new(error.to_string()))?),
+            details: Some(
+                js_json::to_value(&details)
+                    .map_err(|error| HandlerError::new(error.to_string()))?
+                    .into(),
+            ),
         }),
     }))
 }
@@ -181,21 +188,24 @@ fn now_millis() -> f64 {
 }
 
 /// `buildOpenAICompactInstructions`.
-pub fn build_openai_compact_instructions(base_instructions: &str, custom_instructions: Option<&str>) -> String {
-    let mut sections = vec![
-        js_trim(base_instructions).to_owned(),
-        OPENAI_REMOTE_COMPACTION_GUIDANCE.to_owned(),
-    ];
-    if let Some(custom_focus) = custom_instructions.map(js_trim).filter(|value| !value.is_empty()) {
-        sections.push(format!(
-            "Additional compaction focus requested by the user:\n{custom_focus}"
-        ));
+pub fn build_openai_compact_instructions(
+    base_instructions: &JsString,
+    custom_instructions: Option<&JsString>,
+) -> JsString {
+    let mut sections = vec![base_instructions.trim(), OPENAI_REMOTE_COMPACTION_GUIDANCE.into()];
+    if let Some(custom_focus) = custom_instructions
+        .map(JsString::trim)
+        .filter(|value| !value.is_empty())
+    {
+        sections.push(JsString::from("Additional compaction focus requested by the user:\n") + custom_focus);
     }
-    sections
-        .into_iter()
-        .filter(|section| !section.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n\n")
+    JsString::join(
+        sections
+            .into_iter()
+            .filter(|section| !section.is_empty())
+            .collect::<Vec<_>>(),
+        "\n\n",
+    )
 }
 
 /// `isOpenAIResponsesModel`.
@@ -232,7 +242,7 @@ fn get_openai_compact_model_id(model: &Model) -> String {
 pub fn build_openai_compact_payload(
     model: &Model,
     messages: &[pi_agent_core::agent::AgentMessage],
-    instructions: &str,
+    instructions: &JsString,
     previous_replacement_history: &[Value],
     pinned_messages: HashSet<usize>,
 ) -> OpenAiCompactPayload {
@@ -344,7 +354,7 @@ pub fn extract_openai_compact_details(
         ));
     }
     let replacement_history = deduplicate_openai_message_items(response_items);
-    let serialized = pi_js_compat::js_json::stringify(&Value::Array(replacement_history.clone()));
+    let serialized = js_json::stringify_lossless(&Value::Array(replacement_history.clone()));
     let replacement_history_bytes = serialized.len() as f64;
     Ok(OpenAiRemoteCompactionDetails {
         details_type: DETAILS_TYPE.to_owned(),
@@ -368,13 +378,13 @@ async fn post_openai_compact(
     signal: Option<tokio_util::sync::CancellationToken>,
 ) -> Result<Value, HandlerError> {
     let request_headers = build_openai_request_headers(model, api_key, headers)?;
-    let value = serde_json::to_value(payload).map_err(|error| HandlerError::new(error.to_string()))?;
-    let body = pi_js_compat::js_json::stringify(&value).into_bytes();
+    let value = js_json::to_value(payload).map_err(|error| HandlerError::new(error.to_string()))?;
+    let body = js_json::stringify_lossless(&value).into_bytes();
     let fetch = pi_ai::http::default_fetch();
     let response = fetch
         .fetch(
             HttpRequest {
-                method: "POST".to_owned(),
+                method: "POST".into(),
                 url: endpoint.to_owned(),
                 headers: request_headers,
                 body: Some(body),
@@ -392,10 +402,9 @@ async fn post_openai_compact(
     let text = String::from_utf8_lossy(&bytes).into_owned();
     let parsed = parse_openai_compact_response(&text);
     if !(200..300).contains(&status) {
-        return Err(HandlerError::new(format!(
-            "OpenAI remote compaction failed ({status}): {}",
-            format_openai_error(&parsed)
-        )));
+        return Err(HandlerError::new(
+            JsString::from(format!("OpenAI remote compaction failed ({status}): ")) + format_openai_error(&parsed),
+        ));
     }
     Ok(parsed)
 }
@@ -404,16 +413,16 @@ fn parse_openai_compact_response(text: &str) -> Value {
     if text.is_empty() {
         return Value::Object(Map::new());
     }
-    serde_json::from_str(text).unwrap_or_else(|_| json!({"output": [{"type": "error", "text": text}]}))
+    js_json::parse_lossless(text).unwrap_or_else(|_| json!({"output": [{"type": "error", "text": text}]}))
 }
 
-fn format_openai_error(body: &Value) -> String {
+fn format_openai_error(body: &Value) -> JsString {
     if let Some(error) = body.get("error")
-        && let Some(message) = error.get("message").and_then(Value::as_str)
+        && let Some(message) = error.get("message").and_then(Value::as_string)
     {
         return message.to_owned();
     }
-    pi_js_compat::js_json::stringify(body)
+    js_json::stringify_lossless(body).into()
 }
 
 /// `buildCompactEndpoint`.
@@ -444,13 +453,16 @@ pub fn build_openai_request_headers(
     if let Some(api_key) = api_key
         && !has_authorization
     {
-        request_headers.push(("Authorization".to_owned(), format!("Bearer {api_key}")));
+        request_headers.push(("Authorization".into(), format!("Bearer {api_key}")));
     }
     if let Some(api_key) = api_key
         && model.api == "openai-codex-responses"
     {
-        request_headers.push(("chatgpt-account-id".to_owned(), extract_codex_account_id(api_key)?));
-        request_headers.push(("originator".to_owned(), "pi".to_owned()));
+        request_headers.push((
+            "chatgpt-account-id".to_owned(),
+            js_json::encode_node_utf8(&extract_codex_account_id(api_key)?),
+        ));
+        request_headers.push(("originator".into(), "pi".to_owned()));
         request_headers.push(("OpenAI-Beta".to_owned(), "responses=experimental".to_owned()));
     }
     Ok(request_headers)
@@ -467,7 +479,7 @@ fn resolve_codex_responses_endpoint(base_url: &str) -> String {
     }
 }
 
-fn extract_codex_account_id(token: &str) -> Result<String, HandlerError> {
+fn extract_codex_account_id(token: &str) -> Result<JsString, HandlerError> {
     let failure = || HandlerError::new("Failed to extract accountId from Codex token");
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() != 3 {
@@ -475,13 +487,13 @@ fn extract_codex_account_id(token: &str) -> Result<String, HandlerError> {
     }
     let payload_bytes = buffer_from_base64(parts[1]);
     let payload = String::from_utf8_lossy(&payload_bytes);
-    let payload: Value = serde_json::from_str(&payload).map_err(|_| failure())?;
+    let payload = js_json::parse_lossless(payload.into_owned()).map_err(|_| failure())?;
     let auth = payload.get("https://api.openai.com/auth");
     let account_id = auth
         .and_then(|auth| auth.get("chatgpt_account_id"))
-        .and_then(Value::as_str);
+        .and_then(Value::as_string);
     match account_id {
-        Some(account_id) if !account_id.is_empty() => Ok(account_id.to_owned()),
+        Some(account_id) if !account_id.is_empty() => Ok(account_id.clone()),
         _ => Err(failure()),
     }
 }
@@ -512,33 +524,33 @@ fn find_latest_openai_replacement_history_details(entries: &[SessionEntry]) -> O
 }
 
 fn is_openai_remote_compaction_details(value: &Value) -> Option<OpenAiRemoteCompactionDetails> {
-    if value.get("type").and_then(Value::as_str) != Some(DETAILS_TYPE) {
+    if value.get("type").and_then(Value::as_string) != Some(&JsString::from(DETAILS_TYPE)) {
         return None;
     }
     if value.get("version").and_then(Value::as_f64) != Some(DETAILS_VERSION) {
         return None;
     }
-    let provider = value.get("provider")?.as_str()?;
-    let api = value.get("api")?.as_str()?;
+    let provider = value.get("provider")?.as_string()?.to_utf8().ok()?;
+    let api = value.get("api")?.as_string()?.to_utf8().ok()?;
     if api != "openai-responses" && api != "openai-codex-responses" {
         return None;
     }
-    let model = value.get("model")?.as_str()?;
-    let endpoint = value.get("endpoint")?.as_str()?;
+    let model = value.get("model")?.as_string()?.to_utf8().ok()?;
+    let endpoint = value.get("endpoint")?.as_string()?.to_utf8().ok()?;
     let replacement_history = value.get("replacementHistory")?.as_array()?;
     if !replacement_history.iter().all(is_record) {
         return None;
     }
     let bytes = value.get("replacementHistoryBytes");
     if let Some(bytes) = bytes
-        && bytes.is_number()
+        && matches!(bytes, Value::Number(_))
         && !bytes.as_f64().is_some_and(f64::is_finite)
     {
         return None;
     }
     let tokens = value.get("replacementHistoryTokens");
     if let Some(tokens) = tokens
-        && tokens.is_number()
+        && matches!(tokens, Value::Number(_))
         && !tokens.as_f64().is_some_and(f64::is_finite)
     {
         return None;
@@ -582,22 +594,22 @@ fn deduplicate_openai_message_items(items: Vec<Value>) -> Vec<Value> {
 }
 
 fn openai_message_deduplication_key(item: &Value) -> Option<String> {
-    if item.get("type").and_then(Value::as_str) != Some("message") {
+    if item.get("type").and_then(Value::as_string) != Some(&JsString::from("message")) {
         return None;
     }
-    item.get("id").and_then(Value::as_str)?;
+    item.get("id").and_then(Value::as_string)?;
     let mut message = item.as_object()?.clone();
-    message.shift_remove("id");
+    message.shift_remove(&JsString::from("id"));
     let canonical = canonicalize_json_value(&Value::Object(message));
-    Some(pi_js_compat::js_json::stringify(&canonical))
+    Some(js_json::stringify_lossless(&canonical))
 }
 
 fn canonicalize_json_value(value: &Value) -> Value {
     match value {
         Value::Array(items) => Value::Array(items.iter().map(canonicalize_json_value).collect()),
         Value::Object(object) => {
-            let mut entries: Vec<(&String, &Value)> = object.iter().collect();
-            entries.sort_by(|(left, _), (right, _)| locale_compare(left, right));
+            let mut entries: Vec<(&JsString, &Value)> = object.iter().collect();
+            entries.sort_by(|(left, _), (right, _)| locale_compare_utf16(left.units(), right.units()));
             let mut sorted = Map::new();
             for (key, child) in entries {
                 sorted.insert(key.clone(), canonicalize_json_value(child));
@@ -611,10 +623,10 @@ fn canonicalize_json_value(value: &Value) -> Value {
 fn is_openai_compaction_item(value: &Value) -> bool {
     is_record(value)
         && matches!(
-            value.get("type").and_then(Value::as_str),
-            Some("compaction" | "compaction_summary")
+            value.get("type").and_then(Value::as_string),
+            Some(kind) if kind == "compaction" || kind == "compaction_summary"
         )
-        && value.get("encrypted_content").and_then(Value::as_str).is_some()
+        && value.get("encrypted_content").and_then(Value::as_string).is_some()
 }
 
 fn convert_agent_message_to_openai_response_items(
@@ -680,17 +692,15 @@ fn convert_assistant_message(content: &[AssistantContent]) -> Vec<Value> {
                 let call_id = parts.next().unwrap_or_default();
                 let item_id = parts.next();
                 let mut item = Map::new();
-                item.insert("type".to_owned(), Value::String("function_call".to_owned()));
+                item.insert("type".into(), Value::String("function_call".to_owned().into()));
                 if let Some(item_id) = item_id {
-                    item.insert("id".to_owned(), Value::String(item_id.to_owned()));
+                    item.insert("id".into(), Value::String(item_id.to_owned().into()));
                 }
-                item.insert("call_id".to_owned(), Value::String(call_id.to_owned()));
-                item.insert("name".to_owned(), Value::String(tool_call.name.clone()));
+                item.insert("call_id".into(), Value::String(call_id.to_owned().into()));
+                item.insert("name".into(), Value::String(tool_call.name.clone().into()));
                 item.insert(
-                    "arguments".to_owned(),
-                    Value::String(pi_js_compat::js_json::stringify(&Value::Object(
-                        tool_call.arguments.clone(),
-                    ))),
+                    "arguments".into(),
+                    Value::String(js_json::stringify_lossless(&Value::Object(tool_call.arguments.clone())).into()),
                 );
                 output.push(Value::Object(item));
             }
@@ -702,14 +712,16 @@ fn convert_assistant_message(content: &[AssistantContent]) -> Vec<Value> {
 
 fn convert_tool_result_message(model: &Model, tool_call_id: &str, content: &[TextOrImageContent]) -> Value {
     let call_id = tool_call_id.split('|').next().unwrap_or_default();
-    let text = content
-        .iter()
-        .filter_map(|part| match part {
-            TextOrImageContent::Text(text) => Some(text.text.as_str()),
-            TextOrImageContent::Image(_) => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let text = JsString::join(
+        content
+            .iter()
+            .filter_map(|part| match part {
+                TextOrImageContent::Text(text) => Some(text.text.clone()),
+                TextOrImageContent::Image(_) => None,
+            })
+            .collect::<Vec<_>>(),
+        "\n",
+    );
     let images: Vec<&pi_ai::types::ImageContent> = content
         .iter()
         .filter_map(|part| match part {
@@ -722,7 +734,7 @@ fn convert_tool_result_message(model: &Model, tool_call_id: &str, content: &[Tex
     }
     if !model.input.contains(&Modality::Image) {
         let output = if text.is_empty() {
-            "(see attached image)".to_owned()
+            JsString::from("(see attached image)")
         } else {
             text
         };
@@ -742,11 +754,11 @@ fn convert_tool_result_message(model: &Model, tool_call_id: &str, content: &[Tex
     json!({"type": "function_call_output", "call_id": call_id, "output": output})
 }
 
-fn input_text(text: &str) -> Value {
+fn input_text(text: &JsString) -> Value {
     json!({"type": "input_text", "text": text})
 }
 
-fn output_text(text: &str) -> Value {
+fn output_text(text: &JsString) -> Value {
     json!({"type": "output_text", "text": text})
 }
 
@@ -756,48 +768,51 @@ fn is_record(value: &Value) -> bool {
 
 fn is_openai_text_part(value: &Value) -> bool {
     matches!(
-        value.get("type").and_then(Value::as_str),
-        Some("input_text" | "output_text")
-    ) && value.get("text").and_then(Value::as_str).is_some()
+        value.get("type").and_then(Value::as_string),
+        Some(kind) if kind == "input_text" || kind == "output_text"
+    ) && value.get("text").and_then(Value::as_string).is_some()
 }
 
 fn is_string_tool_output(value: &Value) -> bool {
-    value.get("type").and_then(Value::as_str) == Some("function_call_output")
-        && value.get("output").and_then(Value::as_str).is_some()
+    value.get("type").and_then(Value::as_string) == Some(&JsString::from("function_call_output"))
+        && value.get("output").and_then(Value::as_string).is_some()
 }
 
 fn is_atomic_openai_item(item: &Value) -> bool {
     matches!(
-        item.get("type").and_then(Value::as_str),
-        Some("function_call" | "compaction" | "compaction_summary")
+        item.get("type").and_then(Value::as_string),
+        Some(kind) if kind == "function_call" || kind == "compaction" || kind == "compaction_summary"
     )
 }
 
 fn is_image_part(value: &Value) -> bool {
-    is_record(value) && value.get("type").and_then(Value::as_str) == Some("input_image")
+    is_record(value) && value.get("type").and_then(Value::as_string) == Some(&JsString::from("input_image"))
 }
 
 fn is_function_call_item(item: &Value) -> bool {
-    item.get("type").and_then(Value::as_str) == Some("function_call")
-        && item.get("call_id").and_then(Value::as_str).is_some()
+    item.get("type").and_then(Value::as_string) == Some(&JsString::from("function_call"))
+        && item.get("call_id").and_then(Value::as_string).is_some()
 }
 
 fn is_function_call_output_item(item: &Value) -> bool {
-    item.get("type").and_then(Value::as_str) == Some("function_call_output")
-        && item.get("call_id").and_then(Value::as_str).is_some()
+    item.get("type").and_then(Value::as_string) == Some(&JsString::from("function_call_output"))
+        && item.get("call_id").and_then(Value::as_string).is_some()
 }
 
-fn function_call_id(item: &Value) -> &str {
-    item.get("call_id").and_then(Value::as_str).unwrap_or_default()
+fn function_call_id(item: &Value) -> JsString {
+    item.get("call_id")
+        .and_then(Value::as_string)
+        .cloned()
+        .unwrap_or_default()
 }
 
 fn reconcile_openai_tool_pairs(items: &[Value]) -> Vec<usize> {
-    let call_ids: HashSet<&str> = items
+    let call_ids: HashSet<JsString> = items
         .iter()
         .filter(|item| is_function_call_item(item))
         .map(function_call_id)
         .collect();
-    let output_call_ids: HashSet<&str> = items
+    let output_call_ids: HashSet<JsString> = items
         .iter()
         .filter(|item| is_function_call_output_item(item))
         .map(function_call_id)
@@ -807,10 +822,10 @@ fn reconcile_openai_tool_pairs(items: &[Value]) -> Vec<usize> {
         .enumerate()
         .filter(|(_, item)| {
             if is_function_call_item(item) {
-                return output_call_ids.contains(function_call_id(item));
+                return output_call_ids.contains(&function_call_id(item));
             }
             if is_function_call_output_item(item) {
-                return call_ids.contains(function_call_id(item));
+                return call_ids.contains(&function_call_id(item));
             }
             true
         })
@@ -819,7 +834,7 @@ fn reconcile_openai_tool_pairs(items: &[Value]) -> Vec<usize> {
 }
 
 fn serialized_openai_input_chars(items: &[Value]) -> usize {
-    let serialized = pi_js_compat::js_json::stringify(&Value::Array(items.to_vec()));
+    let serialized = js_json::stringify_lossless(&Value::Array(items.to_vec()));
     utf16_len(&serialized)
 }
 
@@ -898,7 +913,7 @@ fn group_openai_tool_batches(items: &[Value], native_items: &HashSet<usize>) -> 
 }
 
 fn find_tool_batch_end_index(items: &[Value], start_index: usize, end_index: usize) -> usize {
-    let mut pending_call_ids: HashSet<&str> = HashSet::new();
+    let mut pending_call_ids: HashSet<JsString> = HashSet::new();
     let mut last_function_call_index = start_index;
     for (index, item) in items.iter().enumerate().take(end_index).skip(start_index) {
         if is_function_call_item(item) {
@@ -907,7 +922,7 @@ fn find_tool_batch_end_index(items: &[Value], start_index: usize, end_index: usi
             continue;
         }
         if is_function_call_output_item(item) {
-            pending_call_ids.remove(function_call_id(item));
+            pending_call_ids.remove(&function_call_id(item));
             if pending_call_ids.is_empty() {
                 return index;
             }
@@ -957,7 +972,7 @@ fn drop_image_parts_from_item(item: &Value) -> Option<Value> {
 
 fn replace_array_field(item: &Value, field: &str, values: Vec<Value>) -> Value {
     let mut object = item.as_object().cloned().unwrap_or_default();
-    object.insert(field.to_owned(), Value::Array(values));
+    object.insert(field.to_owned().into(), Value::Array(values));
     Value::Object(object)
 }
 
@@ -992,10 +1007,10 @@ fn truncate_chunk_text_to_fit(reserved_items: &[Value], chunk: &[Value]) -> Opti
 
 fn count_reducible_text_chars(value: &Value) -> usize {
     if is_openai_text_part(value) {
-        return value.get("text").and_then(Value::as_str).map_or(0, utf16_len);
+        return value.get("text").and_then(Value::as_string).map_or(0, JsString::len);
     }
     if is_string_tool_output(value) {
-        return value.get("output").and_then(Value::as_str).map_or(0, utf16_len);
+        return value.get("output").and_then(Value::as_string).map_or(0, JsString::len);
     }
     if let Value::Array(items) = value {
         return items.iter().map(count_reducible_text_chars).sum();
@@ -1011,19 +1026,27 @@ fn count_reducible_text_chars(value: &Value) -> usize {
 
 fn truncate_reducible_text(value: &Value, budget: &mut usize) -> Value {
     if is_openai_text_part(value) {
-        let text = value.get("text").and_then(Value::as_str).unwrap_or_default();
-        let kept_chars = utf16_len(text).min(*budget);
+        let text = value
+            .get("text")
+            .and_then(Value::as_string)
+            .cloned()
+            .unwrap_or_default();
+        let kept_chars = text.len().min(*budget);
         *budget -= kept_chars;
         let mut object = value.as_object().cloned().unwrap_or_default();
-        object.insert("text".to_owned(), Value::String(utf16_prefix(text, kept_chars)));
+        object.insert("text".into(), Value::String(utf16_prefix(&text, kept_chars)));
         return Value::Object(object);
     }
     if is_string_tool_output(value) {
-        let output = value.get("output").and_then(Value::as_str).unwrap_or_default();
-        let kept_chars = utf16_len(output).min(*budget);
+        let output = value
+            .get("output")
+            .and_then(Value::as_string)
+            .cloned()
+            .unwrap_or_default();
+        let kept_chars = output.len().min(*budget);
         *budget -= kept_chars;
         let mut object = value.as_object().cloned().unwrap_or_default();
-        object.insert("output".to_owned(), Value::String(utf16_prefix(output, kept_chars)));
+        object.insert("output".into(), Value::String(utf16_prefix(&output, kept_chars)));
         return Value::Object(object);
     }
     if let Value::Array(items) = value {
@@ -1035,8 +1058,8 @@ fn truncate_reducible_text(value: &Value, budget: &mut usize) -> Value {
     match value {
         Value::Object(object) => {
             let mut truncated = Map::new();
-            for (key, item) in pi_js_compat::js_json::object_entries(object) {
-                truncated.insert(key.clone(), truncate_reducible_text(item, budget));
+            for (key, item) in js_json::object_entries_lossless(object) {
+                truncated.insert(key.clone().into(), truncate_reducible_text(item, budget));
             }
             Value::Object(truncated)
         }
@@ -1044,13 +1067,26 @@ fn truncate_reducible_text(value: &Value, budget: &mut usize) -> Value {
     }
 }
 
-fn utf16_prefix(value: &str, units: usize) -> String {
-    String::from_utf16_lossy(&value.encode_utf16().take(units).collect::<Vec<_>>())
+fn utf16_prefix(value: &JsString, units: usize) -> JsString {
+    value.slice(0, units)
 }
 
 #[cfg(test)]
 mod js_value_tests {
     use super::*;
+
+    #[test]
+    fn raw_compaction_text_and_unit_budget_remain_lossless() {
+        let text = JsString::from_utf16(vec![0xd800, 0x61, 0xdc00]);
+        let item = input_text(&text);
+        let mut budget = 1;
+        let reduced = truncate_reducible_text(&item, &mut budget);
+        assert_eq!(reduced["text"].as_string().unwrap().units(), &[0xd800]);
+        assert_eq!(
+            js_json::parse_lossless(js_json::stringify_lossless(&item)).unwrap(),
+            item
+        );
+    }
 
     #[tokio::test]
     async fn http_body_uses_javascript_json() {

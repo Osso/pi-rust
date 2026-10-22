@@ -10,7 +10,10 @@ use std::sync::Arc;
 
 use pi_agent_core::AgentToolResult;
 use pi_ai::types::{TextContent, TextOrImageContent};
-use serde_json::{Map, Value, json};
+use pi_js_compat::{
+    js_json as json,
+    js_json::{self, JsObject as Map, JsString, JsValue as Value, encode_node_utf8},
+};
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
@@ -96,16 +99,16 @@ fn worker_path() -> String {
 fn build_sandbox_worker_invocation(
     params: &SandboxParams,
     operation: &str,
-    payload: &Map<String, Value>,
+    payload: &Map,
 ) -> Result<crate::bundled_extensions::bwrap::backend::BwrapInvocation, String> {
     let mut worker_payload = payload.clone();
-    worker_payload.insert("workspace".to_owned(), Value::String(params.cwd.clone()));
+    worker_payload.insert("workspace".into(), Value::String(params.cwd.clone().into()));
     let worker = worker_path();
     let command = vec![
         worker.clone(),
         BWRAP_FS_WORKER_MODE.to_owned(),
         operation.to_owned(),
-        Value::Object(worker_payload).to_string(),
+        js_json::stringify_lossless(&Value::Object(worker_payload)).into(),
     ];
     let extra_read_only_paths = vec![
         Path::new(&worker)
@@ -115,7 +118,7 @@ fn build_sandbox_worker_invocation(
     ];
     build_bwrap_invocation(&BwrapInvocationOptions {
         bwrap_command: params.bwrap_command.clone(),
-        command,
+        command: command.into_iter().map(JsString::from).collect(),
         cwd: params.cwd.clone(),
         env: None,
         extra_read_only_paths: Some(extra_read_only_paths),
@@ -127,14 +130,14 @@ fn build_sandbox_worker_invocation(
 async fn run_json_in_sandbox(
     params: &SandboxParams,
     operation: &str,
-    payload: Map<String, Value>,
+    payload: Map,
     signal: Option<CancellationToken>,
-) -> Result<Value, String> {
+) -> Result<Value, JsString> {
     run_bwrap_availability_check(&params.bwrap_command)?;
     let invocation = build_sandbox_worker_invocation(params, operation, &payload)?;
     let mut command = Command::new(&invocation.command);
     command
-        .args(&invocation.argv)
+        .args(invocation.argv.iter().map(encode_node_utf8))
         .env_clear()
         .envs(&invocation.env)
         .stdin(Stdio::null())
@@ -169,13 +172,13 @@ async fn run_json_in_sandbox(
             }
         } => {
             let _ = child.kill().await;
-            return Err("Operation aborted".to_owned());
+            return Err("Operation aborted".into());
         }
     };
     let stdout_bytes = stdout_task.await.unwrap_or_default();
     let stderr_bytes = stderr_task.await.unwrap_or_default();
     if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
-        return Err("Operation aborted".to_owned());
+        return Err("Operation aborted".into());
     }
     let stdout_text = String::from_utf8_lossy(&stdout_bytes).into_owned();
     let stderr_text = String::from_utf8_lossy(&stderr_bytes).into_owned();
@@ -188,23 +191,24 @@ async fn run_json_in_sandbox(
             )
         } else {
             trimmed.to_owned()
-        });
+        }
+        .into());
     }
-    pi_js_compat::js_json::parse(&stdout_text).map_err(|error| error.to_string())
+    js_json::parse_lossless(&stdout_text).map_err(|error| error.into_message())
 }
 
 fn run_sandbox_operation<'a>(
     params: &'a SandboxParams,
     operation: &'a str,
-    payload: Map<String, Value>,
+    payload: Map,
     signal: Option<CancellationToken>,
-) -> BoxFuture<'a, Result<Value, String>> {
+) -> BoxFuture<'a, Result<Value, JsString>> {
     Box::pin(async move { run_json_in_sandbox(params, operation, payload, signal).await })
 }
 
-fn path_payload(path: &str) -> Map<String, Value> {
+fn path_payload(path: &str) -> Map {
     let mut payload = Map::new();
-    payload.insert("path".to_owned(), Value::String(path.to_owned()));
+    payload.insert("path".into(), Value::String(path.into()));
     payload
 }
 
@@ -217,10 +221,14 @@ impl ReadOperations for SandboxReadOperations {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "readFile", path_payload(absolute_path), None)
                 .await
-                .map_err(std::io::Error::other)?;
-            Ok(pi_js_compat::base64::buffer_from_base64(
-                value.get("data").and_then(Value::as_str).unwrap_or_default(),
-            ))
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
+            Ok(pi_js_compat::base64::buffer_from_base64(&encode_node_utf8(
+                &value
+                    .get("data")
+                    .and_then(Value::as_string)
+                    .cloned()
+                    .unwrap_or_default(),
+            )))
         })
     }
 
@@ -236,15 +244,19 @@ impl ReadOperations for SandboxReadOperations {
     ) -> BoxFuture<'a, std::io::Result<Vec<u8>>> {
         Box::pin(async move {
             let mut payload = Map::new();
-            payload.insert("end".to_owned(), json!(end));
-            payload.insert("path".to_owned(), Value::String(absolute_path.to_owned()));
-            payload.insert("start".to_owned(), json!(start));
+            payload.insert("end".into(), json!(end));
+            payload.insert("path".into(), Value::String(absolute_path.into()));
+            payload.insert("start".into(), json!(start));
             let value = run_sandbox_operation(&self.params, "readRange", payload, None)
                 .await
-                .map_err(std::io::Error::other)?;
-            Ok(pi_js_compat::base64::buffer_from_base64(
-                value.get("data").and_then(Value::as_str).unwrap_or_default(),
-            ))
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
+            Ok(pi_js_compat::base64::buffer_from_base64(&encode_node_utf8(
+                &value
+                    .get("data")
+                    .and_then(Value::as_string)
+                    .cloned()
+                    .unwrap_or_default(),
+            )))
         })
     }
 
@@ -252,7 +264,7 @@ impl ReadOperations for SandboxReadOperations {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "stat", path_payload(absolute_path), None)
                 .await
-                .map_err(std::io::Error::other)?;
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
             Ok(value.get("size").and_then(Value::as_u64))
         })
     }
@@ -262,7 +274,7 @@ impl ReadOperations for SandboxReadOperations {
             run_sandbox_operation(&self.params, "access", path_payload(absolute_path), None)
                 .await
                 .map(|_| ())
-                .map_err(std::io::Error::other)
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))
         })
     }
 
@@ -293,12 +305,12 @@ impl WriteOperations for SandboxWriteOperations {
     fn write_file<'a>(&'a self, absolute_path: &'a str, content: &'a str) -> BoxFuture<'a, std::io::Result<()>> {
         Box::pin(async move {
             let mut payload = Map::new();
-            payload.insert("content".to_owned(), Value::String(content.to_owned()));
-            payload.insert("path".to_owned(), Value::String(absolute_path.to_owned()));
+            payload.insert("content".into(), Value::String(content.into()));
+            payload.insert("path".into(), Value::String(absolute_path.into()));
             run_sandbox_operation(&self.params, "writeFile", payload, None)
                 .await
                 .map(|_| ())
-                .map_err(std::io::Error::other)
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))
         })
     }
 
@@ -307,7 +319,7 @@ impl WriteOperations for SandboxWriteOperations {
             run_sandbox_operation(&self.params, "mkdir", path_payload(directory), None)
                 .await
                 .map(|_| ())
-                .map_err(std::io::Error::other)
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))
         })
     }
 }
@@ -340,7 +352,7 @@ impl LsOperations for SandboxLsOperations {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "exists", path_payload(absolute_path), None)
                 .await
-                .map_err(std::io::Error::other)?;
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
             Ok(value.get("exists").and_then(Value::as_bool).unwrap_or(false))
         })
     }
@@ -349,7 +361,7 @@ impl LsOperations for SandboxLsOperations {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "stat", path_payload(absolute_path), None)
                 .await
-                .map_err(std::io::Error::other)?;
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
             Ok(value.get("isDirectory").and_then(Value::as_bool).unwrap_or(false))
         })
     }
@@ -358,11 +370,17 @@ impl LsOperations for SandboxLsOperations {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "readdir", path_payload(absolute_path), None)
                 .await
-                .map_err(std::io::Error::other)?;
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
             Ok(value
                 .get("entries")
                 .and_then(Value::as_array)
-                .map(|entries| entries.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .map(|entries| {
+                    entries
+                        .iter()
+                        .filter_map(Value::as_string)
+                        .map(encode_node_utf8)
+                        .collect()
+                })
                 .unwrap_or_default())
         })
     }
@@ -377,7 +395,7 @@ impl FindOperations for SandboxFindOperations {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "exists", path_payload(absolute_path), None)
                 .await
-                .map_err(std::io::Error::other)?;
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
             Ok(value.get("exists").and_then(Value::as_bool).unwrap_or(false))
         })
     }
@@ -395,28 +413,31 @@ impl FindOperations for SandboxFindOperations {
     ) -> BoxFuture<'a, std::io::Result<Vec<String>>> {
         Box::pin(async move {
             let mut payload = Map::new();
-            payload.insert("cwd".to_owned(), Value::String(cwd.to_owned()));
-            payload.insert("limit".to_owned(), json!(limit));
-            payload.insert("pattern".to_owned(), Value::String(pattern.to_owned()));
+            payload.insert("cwd".into(), Value::String(cwd.into()));
+            payload.insert("limit".into(), json!(limit));
+            payload.insert("pattern".into(), Value::String(pattern.into()));
             let value = run_sandbox_operation(&self.params, "find", payload, None)
                 .await
-                .map_err(std::io::Error::other)?;
+                .map_err(|message| std::io::Error::other(HandlerError::new(message)))?;
             Ok(value
                 .get("results")
                 .and_then(Value::as_array)
-                .map(|results| results.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .map(|results| {
+                    results
+                        .iter()
+                        .filter_map(Value::as_string)
+                        .map(encode_node_utf8)
+                        .collect()
+                })
                 .unwrap_or_default())
         })
     }
 }
 
-fn build_grep_notices(
-    details: &Map<String, Value>,
-    truncation: &pi_agent_core::harness::utils::TruncationResult,
-) -> Vec<String> {
+fn build_grep_notices(details: &Map, truncation: &crate::core::tools::truncate::TruncationResult) -> Vec<String> {
     let mut notices = Vec::new();
     if let Some(limit) = details.get("matchLimitReached") {
-        notices.push(format!("{limit} matches limit reached"));
+        notices.push(format!("{} matches limit reached", js_json::stringify_lossless(limit)));
     }
     if details.get("linesTruncated").and_then(Value::as_bool) == Some(true) {
         notices.push("long lines truncated".to_owned());
@@ -434,16 +455,20 @@ async fn execute_sandboxed_grep(
     params: &SandboxParams,
     input: &Value,
     signal: Option<CancellationToken>,
-) -> Result<AgentToolResult, String> {
-    let search_path = input.get("path").and_then(Value::as_str).unwrap_or(".");
+) -> Result<AgentToolResult, JsString> {
+    let search_path = input
+        .get("path")
+        .and_then(Value::as_string)
+        .cloned()
+        .unwrap_or_else(|| ".".into());
     let mut payload = Map::new();
     for key in ["context", "glob", "ignoreCase"] {
         if let Some(value) = input.get(key).filter(|value| !value.is_null()) {
-            payload.insert(key.to_owned(), value.clone());
+            payload.insert(key.into(), value.clone());
         }
     }
     payload.insert(
-        "limit".to_owned(),
+        "limit".into(),
         input
             .get("limit")
             .cloned()
@@ -451,15 +476,19 @@ async fn execute_sandboxed_grep(
             .unwrap_or_else(|| json!(DEFAULT_GREP_LIMIT)),
     );
     if let Some(value) = input.get("literal").filter(|value| !value.is_null()) {
-        payload.insert("literal".to_owned(), value.clone());
+        payload.insert("literal".into(), value.clone());
     }
-    payload.insert("path".to_owned(), Value::String(search_path.to_owned()));
+    payload.insert("path".into(), Value::String(search_path.to_owned()));
     if let Some(value) = input.get("pattern").filter(|value| !value.is_null()) {
-        payload.insert("pattern".to_owned(), value.clone());
+        payload.insert("pattern".into(), value.clone());
     }
     let result = run_sandbox_operation(params, "grep", payload, signal).await?;
-    let text = result.get("text").and_then(Value::as_str).unwrap_or_default();
-    let truncation = pi_agent_core::harness::utils::truncate_head(
+    let text = result
+        .get("text")
+        .and_then(Value::as_string)
+        .cloned()
+        .unwrap_or_default();
+    let truncation = crate::core::tools::truncate::truncate_head(
         text,
         pi_agent_core::harness::utils::TruncationOptions {
             max_lines: usize::MAX,
@@ -473,19 +502,19 @@ async fn execute_sandboxed_grep(
         .unwrap_or_default();
     if truncation.truncated {
         details.insert(
-            "truncation".to_owned(),
-            serde_json::to_value(&truncation).unwrap_or(Value::Null),
+            "truncation".into(),
+            js_json::to_value(&truncation).unwrap_or(Value::Null),
         );
     }
     let notices = build_grep_notices(&details, &truncation);
     let text = if notices.is_empty() {
         truncation.content
     } else {
-        format!("{}\n\n[{}]", truncation.content, notices.join(". "))
+        truncation.content + "\n\n[" + JsString::join(notices, ". ") + "]"
     };
     Ok(AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
-        details: (!details.is_empty()).then_some(Value::Object(details)),
+        details: (!details.is_empty()).then_some(Value::Object(details).into()),
         is_error: None,
         terminate: None,
     })
@@ -551,7 +580,7 @@ fn register_bwrap_tool_gate(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Result
                 Err(reason) => Ok(Some(crate::core::extensions::types::ToolCallEventResult {
                     block: Some(true),
                     input: None,
-                    reason: Some(reason),
+                    reason: Some(reason.into()),
                     terminate: None,
                 })),
             }
@@ -712,7 +741,7 @@ fn register_sandboxed_grep_tool(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Re
                     .map_err(HandlerError::new),
                 None => {
                     let tool = create_grep_tool_definition(&cwd, GrepToolOptions::default());
-                    (tool.execute)("grep".to_owned(), params, signal, on_update, ctx).await
+                    (tool.execute)("grep".into(), params, signal, on_update, ctx).await
                 }
             }
         })
@@ -747,9 +776,9 @@ fn register_before_agent_start_handler(pi: &ExtensionApi) -> Result<(), String> 
                 profile.as_str()
             );
             let system_prompt = if event.system_prompt.contains(&local_line) {
-                event.system_prompt.replacen(&local_line, &sandbox_line, 1)
+                { let mut prompt = event.system_prompt.clone(); let start = prompt.find(&local_line).expect("line found"); prompt.replace_range(start..start + local_line.len(), &sandbox_line); prompt }
             } else {
-                format!("{}\n\n{sandbox_line}", event.system_prompt)
+                event.system_prompt.clone() + format!("\n\n{sandbox_line}")
             };
             Ok(Some(crate::core::extensions::types::BeforeAgentStartEventResult {
                 message: None,

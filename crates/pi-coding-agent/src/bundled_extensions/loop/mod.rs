@@ -3,10 +3,11 @@
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::AgentToolResult;
+use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
 use pi_js_compat::number::js_number_to_string;
 use pi_js_compat::string::js_trim;
 use regex::Regex;
-use serde_json::{Map, Value, json};
+use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 use crate::core::extensions::types::{
@@ -38,22 +39,22 @@ pub struct LoopToolDetails {
     pub action: LoopAction,
     pub active: bool,
     pub interval_ms: Option<f64>,
-    pub prompt: Option<String>,
+    pub prompt: Option<JsString>,
 }
 
 impl LoopToolDetails {
     pub fn to_value(&self) -> Value {
         let mut object = Map::new();
-        object.insert("action".to_owned(), Value::String(self.action.as_str().to_owned()));
-        object.insert("active".to_owned(), Value::Bool(self.active));
+        object.insert("action".into(), Value::String(self.action.as_str().into()));
+        object.insert("active".into(), Value::Bool(self.active));
         if let Some(interval_ms) = self.interval_ms {
             object.insert(
-                "intervalMs".to_owned(),
-                pi_js_compat::number::js_number_value(interval_ms),
+                "intervalMs".into(),
+                pi_js_compat::number::js_number_value(interval_ms).into(),
             );
         }
         if let Some(prompt) = &self.prompt {
-            object.insert("prompt".to_owned(), Value::String(prompt.clone()));
+            object.insert("prompt".into(), Value::String(prompt.clone()));
         }
         Value::Object(object)
     }
@@ -62,12 +63,12 @@ impl LoopToolDetails {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ActiveLoop {
     pub interval_ms: f64,
-    pub prompt: String,
+    pub prompt: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParsedLoopCommand {
-    Start { interval_ms: f64, prompt: String },
+    Start { interval_ms: f64, prompt: JsString },
     Stop,
     Status,
     Error(String),
@@ -121,7 +122,7 @@ impl LoopController {
         self.lock().active.clone()
     }
 
-    pub fn start(&self, interval_ms: f64, prompt: String) -> ActiveLoop {
+    pub fn start(&self, interval_ms: f64, prompt: JsString) -> ActiveLoop {
         self.stop();
         let cancellation = CancellationToken::new();
         let api = self.api.clone();
@@ -136,14 +137,14 @@ impl LoopController {
                     _ = task_cancellation.cancelled() => break,
                     _ = interval.tick() => {
                         let result = api.send_user_message(
-                            UserMessageContent::Text(prompt_for_task.clone()),
+                            UserMessageContent::Text(prompt_for_task.clone().into()),
                             Some(SendUserMessageOptions {
                                 deliver_as: Some(UserMessageDelivery::FollowUp),
                                 expand_prompt_templates: None,
                             }),
                         );
                         if let Err(error) = result {
-                            eprintln!("loop: failed to inject prompt: {}", error.message);
+                            eprintln!("loop: failed to inject prompt: {error}");
                             break;
                         }
                     }
@@ -156,6 +157,28 @@ impl LoopController {
         state.cancellation = Some(cancellation);
         state.task = Some(task);
         active
+    }
+}
+
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    #[test]
+    fn recurring_prompt_is_not_normalized_to_scalar_text() {
+        let raw = JsString::from_utf16(vec![0xd800, 0x61, 0xdc00]);
+        let ParsedLoopCommand::Start { prompt, interval_ms } = parse_loop_command(JsString::from("1s ") + &raw) else {
+            panic!("start loop")
+        };
+        assert_eq!(prompt, raw);
+        assert_eq!(interval_ms, 1000.0);
+        let details = LoopToolDetails {
+            action: LoopAction::Start,
+            active: true,
+            interval_ms: Some(interval_ms),
+            prompt: Some(prompt),
+        }
+        .to_value();
+        assert_eq!(details["prompt"].as_string(), Some(&raw));
     }
 }
 
@@ -191,8 +214,8 @@ pub fn format_interval(interval_ms: f64) -> String {
     format!("{}ms", js_number_to_string(interval_ms))
 }
 
-pub fn parse_loop_command(args: &str) -> ParsedLoopCommand {
-    let trimmed = js_trim(args);
+pub fn parse_loop_command(args: impl Into<JsString>) -> ParsedLoopCommand {
+    let trimmed = args.into().trim();
     if trimmed.is_empty() || trimmed == "status" {
         return ParsedLoopCommand::Status;
     }
@@ -200,39 +223,41 @@ pub fn parse_loop_command(args: &str) -> ParsedLoopCommand {
         return ParsedLoopCommand::Stop;
     }
 
-    let mut parts = trimmed.split_whitespace();
-    let interval_text = parts.next().unwrap_or("");
-    let Some(interval_ms) = parse_interval_ms(interval_text) else {
+    let parts = trimmed
+        .units()
+        .split(|unit| pi_js_compat::string::is_js_whitespace_unit(*unit))
+        .filter(|part| !part.is_empty())
+        .map(|part| JsString::from_utf16(part.to_vec()))
+        .collect::<Vec<_>>();
+    let interval_ms = parts
+        .first()
+        .and_then(|part| part.to_utf8().ok())
+        .and_then(|text| parse_interval_ms(&text));
+    let Some(interval_ms) = interval_ms else {
         return ParsedLoopCommand::Error("Usage: /loop <interval> <prompt> | /loop status | /loop stop".to_owned());
     };
-    let joined = parts.collect::<Vec<_>>().join(" ");
-    let prompt = js_trim(&joined);
+    let prompt = JsString::join(parts.iter().skip(1), " ").trim();
     if prompt.is_empty() {
         return ParsedLoopCommand::Error("Loop prompt is required.".to_owned());
     }
-    ParsedLoopCommand::Start {
-        interval_ms,
-        prompt: prompt.to_owned(),
-    }
+    ParsedLoopCommand::Start { interval_ms, prompt }
 }
 
-pub fn describe_loop(active: Option<&ActiveLoop>) -> String {
+pub fn describe_loop(active: Option<&ActiveLoop>) -> JsString {
     match active {
-        None => "No active loop".to_owned(),
-        Some(active) => format!(
-            "Loop active every {}: {}",
-            format_interval(active.interval_ms),
-            active.prompt
-        ),
+        None => "No active loop".into(),
+        Some(active) => {
+            JsString::from(format!("Loop active every {}: ", format_interval(active.interval_ms))) + &active.prompt
+        }
     }
 }
 
-fn text_result(text: String, details: LoopToolDetails) -> AgentToolResult {
+fn text_result(text: impl Into<JsString>, details: LoopToolDetails) -> AgentToolResult {
     AgentToolResult {
         content: vec![pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new(
             text,
         ))],
-        details: Some(details.to_value()),
+        details: Some(details.to_value().into()),
         is_error: None,
         terminate: None,
     }
@@ -293,7 +318,11 @@ fn loop_tool_definition(controller: LoopController) -> ToolDefinition {
 }
 
 fn execute_loop_tool(controller: &LoopController, params: Value) -> Result<AgentToolResult, HandlerError> {
-    let action = params.get("action").and_then(Value::as_str).unwrap_or_default();
+    let action = params
+        .get("action")
+        .and_then(Value::as_string)
+        .cloned()
+        .unwrap_or_default();
     if action == "status" {
         let active = controller.status();
         let text = describe_loop(active.as_ref());
@@ -323,8 +352,8 @@ fn execute_loop_tool(controller: &LoopController, params: Value) -> Result<Agent
 
     let prompt = params
         .get("prompt")
-        .and_then(Value::as_str)
-        .map(js_trim)
+        .and_then(Value::as_string)
+        .map(JsString::trim)
         .filter(|prompt| !prompt.is_empty());
     let interval_ms = params
         .get("intervalSeconds")
@@ -356,7 +385,7 @@ fn execute_loop_tool(controller: &LoopController, params: Value) -> Result<Agent
 
     let active = controller.start(interval_ms, prompt.to_owned());
     Ok(text_result(
-        format!("Loop started every {}: {}", format_interval(active.interval_ms), prompt),
+        JsString::from(format!("Loop started every {}: ", format_interval(active.interval_ms))) + &prompt,
         LoopToolDetails {
             action: LoopAction::Start,
             active: true,
@@ -399,7 +428,7 @@ pub fn loop_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
 }
 
 async fn handle_loop_command(
-    args: &str,
+    args: &JsString,
     ctx: &ExtensionCommandContext,
     controller: &LoopController,
 ) -> Result<(), HandlerError> {
@@ -407,7 +436,10 @@ async fn handle_loop_command(
     match parse_loop_command(args) {
         ParsedLoopCommand::Error(error) => ui.notify(&error, Some(NotifyType::Error)),
         ParsedLoopCommand::Status => {
-            ui.notify(&describe_loop(controller.status().as_ref()), Some(NotifyType::Info));
+            ui.notify(
+                &encode_node_utf8(&describe_loop(controller.status().as_ref())),
+                Some(NotifyType::Info),
+            );
         }
         ParsedLoopCommand::Stop => {
             let message = if controller.stop() {

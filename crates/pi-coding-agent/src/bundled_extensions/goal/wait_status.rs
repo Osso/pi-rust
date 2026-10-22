@@ -6,15 +6,23 @@ use super::goal_scheduling::GoalWaitCallbacks;
 use super::rendering::AppendSupervisorStatus;
 
 /// `appendGoalSchedulingError`.
-pub fn append_goal_scheduling_error(append_status: &AppendSupervisorStatus, error: &str, ctx: ExtensionContext) {
-    let _ = append_status(ctx, &format!("Goal wait failed: {error}"), None);
+pub fn append_goal_scheduling_error(
+    append_status: &AppendSupervisorStatus,
+    error: &pi_js_compat::js_json::JsString,
+    ctx: ExtensionContext,
+) {
+    let _ = append_status(
+        ctx,
+        &(pi_js_compat::js_json::JsString::from("Goal wait failed: ") + error),
+        None,
+    );
 }
 
 /// `createWaitStatusCallbacks`.
 pub fn create_wait_status_callbacks(
     append_status: AppendSupervisorStatus,
     ctx: ExtensionContext,
-    message: String,
+    message: pi_js_compat::js_json::JsString,
 ) -> GoalWaitCallbacks {
     GoalWaitCallbacks {
         on_agent_wait: std::sync::Arc::new({

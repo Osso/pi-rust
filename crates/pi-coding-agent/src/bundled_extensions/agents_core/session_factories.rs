@@ -7,7 +7,8 @@ use std::sync::Arc;
 use pi_agent_core::agent::types::AgentMessage;
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::request::BoxFuture;
-use pi_js_compat::string::{js_trim, utf16_len};
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::string::js_trim;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -39,7 +40,7 @@ pub const MAX_GOAL_OBJECTIVE_CHARS: usize = 10_000;
 #[serde(rename_all = "camelCase")]
 pub struct GoalObjectiveValidation {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub objective: Option<String>,
+    pub objective: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub length: Option<usize>,
     pub ok: bool,
@@ -63,8 +64,8 @@ impl GoalObjectiveValidation {
     }
 }
 
-pub fn validate_goal_objective(prompt: &str) -> GoalObjectiveValidation {
-    let objective = js_trim(prompt);
+pub fn validate_goal_objective(prompt: impl Into<JsString>) -> GoalObjectiveValidation {
+    let objective = prompt.into().trim();
     if objective.is_empty() {
         return GoalObjectiveValidation {
             objective: None,
@@ -73,7 +74,7 @@ pub fn validate_goal_objective(prompt: &str) -> GoalObjectiveValidation {
             reason: Some(GoalObjectiveFailure::Empty),
         };
     }
-    let length = utf16_len(objective);
+    let length = objective.len();
     if length > MAX_GOAL_OBJECTIVE_CHARS {
         return GoalObjectiveValidation {
             objective: None,
@@ -106,7 +107,7 @@ pub enum ChildExtensionFactories {
 
 /// The parts of `AgentSession` the production factory drives.
 pub trait UnboundChildAgentSession: ChildAgentSession {
-    fn bind_extensions(&self) -> BoxFuture<'static, Result<(), String>>;
+    fn bind_extensions(&self) -> BoxFuture<'static, Result<(), pi_js_compat::js_json::JsString>>;
     fn session_manager(&self) -> SharedSessionManager;
 }
 
@@ -139,7 +140,7 @@ impl ChildAgentSession for AgentSessionChildSession {
         self.session.dispose();
     }
 
-    fn drain_runtime_coordination(&self) -> Option<BoxFuture<'static, Result<(), String>>> {
+    fn drain_runtime_coordination(&self) -> Option<BoxFuture<'static, Result<(), pi_js_compat::js_json::JsString>>> {
         let session = self.session.clone();
         Some(Box::pin(async move {
             session
@@ -153,7 +154,10 @@ impl ChildAgentSession for AgentSessionChildSession {
         self.session.messages()
     }
 
-    fn prompt(&self, text: String) -> BoxFuture<'static, Result<(), String>> {
+    fn prompt(
+        &self,
+        text: pi_js_compat::js_json::JsString,
+    ) -> BoxFuture<'static, Result<(), pi_js_compat::js_json::JsString>> {
         let session = self.session.clone();
         Box::pin(async move {
             session
@@ -232,7 +236,7 @@ impl ViewedSessionMutationTarget for AgentSessionMutationTarget {
 }
 
 impl UnboundChildAgentSession for AgentSessionChildSession {
-    fn bind_extensions(&self) -> BoxFuture<'static, Result<(), String>> {
+    fn bind_extensions(&self) -> BoxFuture<'static, Result<(), pi_js_compat::js_json::JsString>> {
         let session = self.session.clone();
         Box::pin(async move {
             session.bind_extensions(ExtensionBindings::default()).await;
@@ -246,13 +250,13 @@ impl UnboundChildAgentSession for AgentSessionChildSession {
 }
 
 pub type CreateChildSession = Arc<
-    dyn Fn(CreateAgentSessionOptions) -> BoxFuture<'static, Result<Arc<dyn UnboundChildAgentSession>, String>>
+    dyn Fn(CreateAgentSessionOptions) -> BoxFuture<'static, Result<Arc<dyn UnboundChildAgentSession>, JsString>>
         + Send
         + Sync,
 >;
 
 pub type CreateChildSessionManager =
-    Arc<dyn Fn(&str, Option<&str>, NewSessionOptions) -> Result<SessionManager, String> + Send + Sync>;
+    Arc<dyn Fn(&str, Option<&str>, NewSessionOptions) -> Result<SessionManager, JsString> + Send + Sync>;
 
 /// `ProductionChildAgentSessionFactoryOptions`.
 #[derive(Clone)]
@@ -372,11 +376,13 @@ fn resolve_inherited_leaf_selection(
     active_tool_call_id: Option<&str>,
     leaf_id: Option<&str>,
     branch: &[SessionEntry],
-) -> Result<ForkEntrySelection, String> {
+) -> Result<ForkEntrySelection, JsString> {
     if let Some(active_tool_call_id) = active_tool_call_id
         && js_trim(active_tool_call_id).is_empty()
     {
-        return Err("Cannot inherit context: active tool call identity must be non-empty".to_owned());
+        return Err("Cannot inherit context: active tool call identity must be non-empty"
+            .to_owned()
+            .into());
     }
     let Some(active_tool_call_id) = active_tool_call_id else {
         return Ok(leaf_id.map_or(ForkEntrySelection::All, |id| ForkEntrySelection::From(id.to_owned())));
@@ -402,8 +408,8 @@ struct ParentSessionSnapshot {
     session_id: String,
 }
 
-fn parent_session_snapshot(ctx: &ExtensionContext) -> Result<ParentSessionSnapshot, String> {
-    let manager = ctx.session_manager().map_err(|error| error.to_string())?;
+fn parent_session_snapshot(ctx: &ExtensionContext) -> Result<ParentSessionSnapshot, JsString> {
+    let manager = ctx.session_manager().map_err(|error| error.message)?;
     let manager = lock_session_manager(&manager);
     Ok(ParentSessionSnapshot {
         branch: manager.get_branch(None),
@@ -417,9 +423,11 @@ fn parent_session_snapshot(ctx: &ExtensionContext) -> Result<ParentSessionSnapsh
 fn validate_persisted_inheritance(
     context: super::shared::SpawnContext,
     parent_session_file: Option<&str>,
-) -> Result<(), String> {
+) -> Result<(), pi_js_compat::js_json::JsString> {
     if context == super::shared::SpawnContext::Inherit && parent_session_file.is_none() {
-        return Err("Cannot inherit context from an unpersisted parent session".to_owned());
+        return Err("Cannot inherit context from an unpersisted parent session"
+            .to_owned()
+            .into());
     }
     Ok(())
 }
@@ -440,7 +448,7 @@ fn non_empty(value: &str) -> Option<String> {
 fn create_child_session_manager(
     input: &ChildAgentDispatchInput,
     options: &ProductionChildAgentSessionFactoryOptions,
-) -> Result<(Option<String>, SessionManager), String> {
+) -> Result<(Option<String>, SessionManager), JsString> {
     let parent = parent_session_snapshot(&input.ctx)?;
     validate_persisted_inheritance(input.context, parent.session_file.as_deref())?;
     let session_dir = options.session_dir.clone().or_else(|| non_empty(&parent.session_dir));
@@ -463,7 +471,7 @@ fn create_child_session_manager(
             Some(manager_options),
             Some(selection),
         )
-        .map_err(|error| error.to_string())?
+        .map_err(|error| JsString::from(error.to_string()))?
     } else {
         (options.create_session_manager)(&input.agent.cwd, session_dir.as_deref(), manager_options)?
     };
@@ -490,10 +498,10 @@ struct ChildAgentProfile {
     tools: Option<Vec<String>>,
 }
 
-fn resolve_child_agent_profile(agent: &AgentSnapshot, ctx: &ExtensionContext) -> Result<ChildAgentProfile, String> {
+fn resolve_child_agent_profile(agent: &AgentSnapshot, ctx: &ExtensionContext) -> Result<ChildAgentProfile, JsString> {
     let configured_model = match agent.model.as_ref() {
         Some(model) => {
-            let registry = ctx.model_registry().map_err(|error| error.to_string())?;
+            let registry = ctx.model_registry().map_err(|error| error.message)?;
             registry.find(&model.provider_id, &model.model_id)
         }
         None => None,
@@ -505,7 +513,7 @@ fn resolve_child_agent_profile(agent: &AgentSnapshot, ctx: &ExtensionContext) ->
         .and_then(parse_thinking_level);
     let tools = ctx
         .settings_manager()
-        .map_err(|error| error.to_string())?
+        .map_err(|error| error.message)?
         .and_then(|settings| settings.lock().expect("settings").get_agent_profile(&agent.agent_type))
         .and_then(|profile| profile.tools);
     Ok(ChildAgentProfile {
@@ -548,9 +556,9 @@ struct CreateBoundChildSessionInput {
 
 fn create_child_agent_session_options(
     input: &CreateBoundChildSessionInput,
-) -> Result<CreateAgentSessionOptions, String> {
+) -> Result<CreateAgentSessionOptions, JsString> {
     let profile = resolve_child_agent_profile(&input.agent, &input.ctx)?;
-    let session_manager = input.ctx.session_manager().map_err(|error| error.to_string())?;
+    let session_manager = input.ctx.session_manager().map_err(|error| error.message)?;
     let parent_session_id = lock_session_manager(&session_manager).get_session_id().to_owned();
     Ok(CreateAgentSessionOptions {
         agent_dir: input.options.agent_dir.clone(),
@@ -592,7 +600,7 @@ impl ChildAgentSession for TranscriptChildSession {
         self.inner.dispose();
     }
 
-    fn drain_runtime_coordination(&self) -> Option<BoxFuture<'static, Result<(), String>>> {
+    fn drain_runtime_coordination(&self) -> Option<BoxFuture<'static, Result<(), pi_js_compat::js_json::JsString>>> {
         self.inner.drain_runtime_coordination()
     }
 
@@ -600,7 +608,10 @@ impl ChildAgentSession for TranscriptChildSession {
         self.inner.messages()
     }
 
-    fn prompt(&self, text: String) -> BoxFuture<'static, Result<(), String>> {
+    fn prompt(
+        &self,
+        text: pi_js_compat::js_json::JsString,
+    ) -> BoxFuture<'static, Result<(), pi_js_compat::js_json::JsString>> {
         self.inner.prompt(text)
     }
 
@@ -609,7 +620,9 @@ impl ChildAgentSession for TranscriptChildSession {
     }
 }
 
-async fn create_bound_child_session(input: CreateBoundChildSessionInput) -> Result<Arc<dyn ChildAgentSession>, String> {
+async fn create_bound_child_session(
+    input: CreateBoundChildSessionInput,
+) -> Result<Arc<dyn ChildAgentSession>, pi_js_compat::js_json::JsString> {
     let session_options = create_child_agent_session_options(&input)?;
     let session = (input.options.create_session)(session_options).await?;
     session.bind_extensions().await?;
@@ -621,7 +634,9 @@ async fn create_bound_child_session(input: CreateBoundChildSessionInput) -> Resu
             session_id: manager.get_session_id().to_owned(),
         };
         if input.persist_for_recovery {
-            manager.persist_for_recovery().map_err(|error| error.to_string())?;
+            manager
+                .persist_for_recovery()
+                .map_err(|error| JsString::from(error.to_string()))?;
         }
         transcript
     };
@@ -634,10 +649,10 @@ async fn create_bound_child_session(input: CreateBoundChildSessionInput) -> Resu
 async fn create_production_child_session(
     input: ChildAgentDispatchInput,
     options: &ProductionChildAgentSessionFactoryOptions,
-) -> Result<Arc<dyn ChildAgentSession>, String> {
+) -> Result<Arc<dyn ChildAgentSession>, pi_js_compat::js_json::JsString> {
     let validation = validate_goal_objective(&input.prompt);
     if !validation.ok {
-        return Err(spawn_prompt_validation_message(&validation));
+        return Err(spawn_prompt_validation_message(&validation).into());
     }
     let (parent_session_file, session_manager) = create_child_session_manager(&input, options)?;
     create_bound_child_session(CreateBoundChildSessionInput {
@@ -658,7 +673,10 @@ async fn create_production_child_session(
     .await
 }
 
-fn validate_attached_session_identity(agent: &AgentSnapshot, session_manager: &SessionManager) -> Result<(), String> {
+fn validate_attached_session_identity(
+    agent: &AgentSnapshot,
+    session_manager: &SessionManager,
+) -> Result<(), pi_js_compat::js_json::JsString> {
     let Some(expected_session_id) = agent.transcript.as_ref().map(|transcript| &transcript.session_id) else {
         return Ok(());
     };
@@ -674,34 +692,39 @@ fn validate_attached_session_identity(agent: &AgentSnapshot, session_manager: &S
 fn open_attached_session_manager(
     input: &AttachedSessionDispatchInput,
     options: &SharedProductionSessionOptions,
-) -> Result<SessionManager, String> {
+) -> Result<SessionManager, JsString> {
     if input.session_path.is_empty() {
-        return Err("Cannot resume attached session without a session path".to_owned());
+        return Err("Cannot resume attached session without a session path"
+            .to_owned()
+            .into());
     }
     if !Path::new(&input.session_path).exists() {
         return Err(format!("Child agent transcript does not exist: {}", input.session_path));
     }
-    let ctx_cwd = input.ctx.cwd().map_err(|error| error.to_string())?;
+    let ctx_cwd = input.ctx.cwd().map_err(|error| error.message)?;
     if input.agent.cwd != ctx_cwd && !Path::new(&input.agent.cwd).exists() {
         return Err(format!(
             "Agent {} working directory does not exist: {}",
             input.agent.id, input.agent.cwd
         ));
     }
-    let session_manager = input.ctx.session_manager().map_err(|error| error.to_string())?;
+    let session_manager = input.ctx.session_manager().map_err(|error| error.message)?;
     let parent_session_dir = lock_session_manager(&session_manager).get_session_dir().to_owned();
     let session_dir = options.session_dir.clone().or_else(|| non_empty(&parent_session_dir));
     let mut session_manager = SessionManager::open(&input.session_path, session_dir.as_deref(), Some(&input.agent.cwd))
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| JsString::from(error.to_string()))?;
     validate_attached_session_identity(&input.agent, &session_manager)?;
-    let control_db_path = input.ctx.control_db_path().map_err(|error| error.to_string())?;
+    let control_db_path = input.ctx.control_db_path().map_err(|error| error.message)?;
     session_manager
         .set_metadata_control_db_path(control_db_path.as_deref(), Default::default())
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| JsString::from(error.to_string()))?;
     Ok(session_manager)
 }
 
-fn create_attached_settings_manager(agent: &AgentSnapshot, agent_dir: Option<&str>) -> Result<SettingsManager, String> {
+fn create_attached_settings_manager(
+    agent: &AgentSnapshot,
+    agent_dir: Option<&str>,
+) -> Result<SettingsManager, JsString> {
     let mut settings_manager = SettingsManager::create(
         &agent.cwd,
         agent_dir.map(Path::new),
@@ -727,11 +750,11 @@ fn create_attached_settings_manager(agent: &AgentSnapshot, agent_dir: Option<&st
 async fn create_production_attached_session(
     input: AttachedSessionDispatchInput,
     options: &ProductionAttachedSessionFactoryOptions,
-) -> Result<Arc<dyn ChildAgentSession>, String> {
+) -> Result<Arc<dyn ChildAgentSession>, pi_js_compat::js_json::JsString> {
     let shared = SharedProductionSessionOptions::from(options);
     let session_manager = open_attached_session_manager(&input, &shared)?;
     let parent_session_file = {
-        let parent_manager = input.ctx.session_manager().map_err(|error| error.to_string())?;
+        let parent_manager = input.ctx.session_manager().map_err(|error| error.message)?;
         lock_session_manager(&parent_manager)
             .get_session_file()
             .map(str::to_owned)

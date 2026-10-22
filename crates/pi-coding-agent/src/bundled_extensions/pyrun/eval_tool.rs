@@ -4,7 +4,10 @@ use std::sync::Arc;
 
 use pi_agent_core::AgentToolResult;
 use pi_ai::types::{TextContent, TextOrImageContent};
-use serde_json::{Map, Value, json};
+use pi_js_compat::{
+    js_json as json,
+    js_json::{self, JsObject as Map, JsString, JsValue as Value, encode_node_utf8},
+};
 use tokio_util::sync::CancellationToken;
 
 use crate::core::extensions::types::{BoxFuture, ExtensionContext, HandlerError};
@@ -20,7 +23,7 @@ pub const STREAMED_CONSOLE_BYTE_LIMIT: usize = 1_048_576;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PyrunEvalParams {
-    pub code: String,
+    pub code: JsString,
     pub session_id: Option<String>,
 }
 
@@ -36,8 +39,26 @@ pub type PyrunPiRequestDispatcher = Arc<
 >;
 
 /// `capConsoleText`.
-pub fn cap_console_text(text: &str, byte_limit: usize) -> String {
-    let bytes = text.as_bytes();
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    #[test]
+    fn console_keeps_raw_units_until_actual_buffer_truncation() {
+        let text = JsString::from_utf16(vec![0xd800, 0x61]);
+        assert_eq!(cap_console_text(&text, 4), text);
+        assert_eq!(cap_console_text(&text, 3).units(), &[0x61]);
+        let result = super::super::runner::CanonicalPyrunEvalResult {
+            value: Some(Value::String(text.clone())),
+            result_type: "value".into(),
+            ..Default::default()
+        };
+        assert_eq!(format_result_value(&result), Some(text));
+    }
+}
+
+pub fn cap_console_text(text: &JsString, byte_limit: usize) -> JsString {
+    let encoded = encode_node_utf8(text);
+    let bytes = encoded.as_bytes();
     if bytes.len() <= byte_limit {
         return text.to_owned();
     }
@@ -45,26 +66,23 @@ pub fn cap_console_text(text: &str, byte_limit: usize) -> String {
     while start < bytes.len() && (bytes[start] & 0xc0) == 0x80 {
         start += 1;
     }
-    String::from_utf8_lossy(&bytes[start..]).into_owned()
+    String::from_utf8_lossy(&bytes[start..]).into_owned().into()
 }
 
 /// `appendCappedConsoleText`.
-pub fn append_capped_console_text(existing_text: &str, new_text: &str) -> String {
-    let text = format!(
-        "{}{}",
-        cap_console_text(existing_text, STREAMED_CONSOLE_BYTE_LIMIT),
-        cap_console_text(new_text, STREAMED_CONSOLE_BYTE_LIMIT)
-    );
-    let has_trailing_newline = text.ends_with('\n');
-    let mut lines: Vec<&str> = text.split('\n').collect();
+pub fn append_capped_console_text(existing_text: &JsString, new_text: &JsString) -> JsString {
+    let text = cap_console_text(existing_text, STREAMED_CONSOLE_BYTE_LIMIT)
+        + cap_console_text(new_text, STREAMED_CONSOLE_BYTE_LIMIT);
+    let has_trailing_newline = text.ends_with("\n");
+    let mut lines: Vec<JsString> = text.split('\n').collect();
     if has_trailing_newline {
         lines.pop();
     }
     let start = lines.len().saturating_sub(STREAMED_CONSOLE_LINE_LIMIT);
-    let capped_text = lines[start..].join("\n");
+    let capped_text = JsString::join(lines[start..].iter(), "\n");
     cap_console_text(
         &if has_trailing_newline {
-            format!("{capped_text}\n")
+            capped_text + "\n"
         } else {
             capped_text
         },
@@ -83,14 +101,15 @@ fn command_result_exit_code(value: &Value) -> Option<f64> {
 }
 
 /// `formatResultValue`.
-pub fn format_result_value(result: &CanonicalPyrunEvalResult) -> Option<String> {
+pub fn format_result_value(result: &CanonicalPyrunEvalResult) -> Option<JsString> {
     if result.result_type == "needs_approval" {
         let summary = result
             .approval
             .as_ref()
-            .map(|approval| approval.summary.as_str())
-            .unwrap_or("unknown Pyrun operation");
-        return Some(format!("needs approval: {summary}"));
+            .map(|approval| &approval.summary)
+            .cloned()
+            .unwrap_or_else(|| "unknown Pyrun operation".into());
+        return Some(JsString::from("needs approval: ") + summary);
     }
     let value = result.value.as_ref()?;
     let command_exit_code = command_result_exit_code(value);
@@ -98,40 +117,37 @@ pub fn format_result_value(result: &CanonicalPyrunEvalResult) -> Option<String> 
         return None;
     }
     if let Some(exit_code) = command_exit_code {
-        return Some(format!(
-            "exit code {}",
-            pi_js_compat::number::js_number_to_string(exit_code)
-        ));
+        return Some(format!("exit code {}", pi_js_compat::number::js_number_to_string(exit_code)).into());
     }
     if value.is_null() {
         return None;
     }
-    if let Some(text) = value.as_str() {
-        return if pi_js_compat::string::js_trim(text).is_empty() {
+    if let Some(text) = value.as_string() {
+        return if text.trim().is_empty() {
             None
         } else {
             Some(text.to_owned())
         };
     }
-    Some(pi_js_compat::js_json::stringify(value))
+    Some(js_json::stringify_lossless(value).into())
 }
 
 /// `formatConsoleEntry`.
-pub fn format_console_entry(entry: &CanonicalPyrunConsoleEntry) -> String {
+pub fn format_console_entry(entry: &CanonicalPyrunConsoleEntry) -> JsString {
     match entry {
         CanonicalPyrunConsoleEntry::Text(text) => text.clone(),
-        CanonicalPyrunConsoleEntry::Leveled { level, message } => format!("{level}: {message}"),
+        CanonicalPyrunConsoleEntry::Leveled { level, message } => JsString::from(level) + ": " + message,
     }
 }
 
-fn count_console_lines(text: &str) -> usize {
-    let content = text.strip_suffix('\n').unwrap_or(text);
+fn count_console_lines(text: &JsString) -> usize {
+    let content = text.strip_suffix("\n").unwrap_or_else(|| text.clone());
     content.split('\n').count()
 }
 
-fn cap_console_lines(text: &str, line_limit: usize) -> String {
-    let has_trailing_newline = text.ends_with('\n');
-    let mut lines: Vec<&str> = text.split('\n').collect();
+fn cap_console_lines(text: &JsString, line_limit: usize) -> JsString {
+    let has_trailing_newline = text.ends_with("\n");
+    let mut lines: Vec<JsString> = text.split('\n').collect();
     if has_trailing_newline {
         lines.pop();
     }
@@ -139,9 +155,9 @@ fn cap_console_lines(text: &str, line_limit: usize) -> String {
         return text.to_owned();
     }
     let start = lines.len() - line_limit;
-    let capped_text = lines[start..].join("\n");
+    let capped_text = JsString::join(lines[start..].iter(), "\n");
     if has_trailing_newline {
-        format!("{capped_text}\n")
+        capped_text + "\n"
     } else {
         capped_text
     }
@@ -161,7 +177,7 @@ pub fn cap_console_history(entries: &[CanonicalPyrunConsoleEntry]) -> Vec<Canoni
             CanonicalPyrunConsoleEntry::Leveled { message, .. } => message.clone(),
         };
         let text = cap_console_lines(&cap_console_text(&entry_text, remaining_bytes), remaining_lines);
-        remaining_bytes = remaining_bytes.saturating_sub(text.len());
+        remaining_bytes = remaining_bytes.saturating_sub(encode_node_utf8(&text).len());
         remaining_lines = remaining_lines.saturating_sub(count_console_lines(&text));
         bounded.push(match entry {
             CanonicalPyrunConsoleEntry::Text(_) => CanonicalPyrunConsoleEntry::Text(text),
@@ -187,25 +203,25 @@ pub fn bound_console_result(result: CanonicalPyrunEvalResult) -> CanonicalPyrunE
 }
 
 /// `formatToolText`.
-pub fn format_tool_text(params: &PyrunEvalParams, result: &CanonicalPyrunEvalResult) -> String {
-    let mut lines = vec![params.code.clone(), String::new()];
+pub fn format_tool_text(params: &PyrunEvalParams, result: &CanonicalPyrunEvalResult) -> JsString {
+    let mut lines = vec![params.code.clone(), JsString::default()];
     for entry in result.console.as_deref().unwrap_or_default() {
         lines.push(format_console_entry(entry));
     }
     if let Some(error) = &result.error {
-        lines.push(format!("Error: {error}"));
+        lines.push(JsString::from("Error: ") + error);
     } else if let Some(formatted) = format_result_value(result) {
         lines.push(formatted);
     }
-    lines.join("\n")
+    JsString::join(lines, "\n")
 }
 
 /// `formatProgressText`.
-pub fn format_progress_text(update: &CanonicalPyrunProgressUpdate) -> String {
+pub fn format_progress_text(update: &CanonicalPyrunProgressUpdate) -> JsString {
     if update.message_type() == "pi_request"
         && let Some(method) = update.method()
     {
-        return format!("Pi request: {method}");
+        return format!("Pi request: {method}").into();
     }
     if let Some(message) = update.message() {
         return message.to_owned();
@@ -217,15 +233,15 @@ pub fn format_progress_text(update: &CanonicalPyrunProgressUpdate) -> String {
         return output.to_owned();
     }
     if let Some(status) = update.status() {
-        return status.to_owned();
+        return status.into();
     }
     if let Some(value) = update.value() {
         return match value {
             Value::String(text) => text.clone(),
-            other => pi_js_compat::js_json::stringify(other),
+            other => js_json::stringify_lossless(other).into(),
         };
     }
-    update.message_type().to_owned()
+    update.message_type().into()
 }
 
 pub struct PyrunEvalContext {
@@ -233,7 +249,7 @@ pub struct PyrunEvalContext {
     pub context_usage: Option<crate::core::extensions::types::ContextUsage>,
     pub model: Option<pi_ai::types::Model>,
     pub cwd: String,
-    pub session_name: Option<String>,
+    pub session_name: Option<JsString>,
 }
 
 /// `createPiCapabilitySnapshot`.
@@ -241,12 +257,12 @@ pub fn create_pi_capability_snapshot(ctx: &PyrunEvalContext) -> Value {
     let mut extension_statuses = Map::new();
     if let Some(footer_data) = &ctx.footer_data {
         for (key, value) in footer_data.get_extension_statuses() {
-            extension_statuses.insert(key, Value::String(value));
+            extension_statuses.insert(key.into(), Value::String(value.into()));
         }
     }
     let mut footer = Map::new();
     footer.insert(
-        "availableProviderCount".to_owned(),
+        "availableProviderCount".into(),
         json!(
             ctx.footer_data
                 .as_ref()
@@ -254,51 +270,50 @@ pub fn create_pi_capability_snapshot(ctx: &PyrunEvalContext) -> Value {
         ),
     );
     footer.insert(
-        "branch".to_owned(),
+        "branch".into(),
         ctx.footer_data
             .as_ref()
             .and_then(|footer| footer.get_git_branch())
-            .map_or(Value::Null, Value::String),
+            .map_or(Value::Null, |value| Value::String(value.into())),
     );
     if let Some(context_usage) = &ctx.context_usage {
         footer.insert(
-            "contextUsage".to_owned(),
-            serde_json::to_value(context_usage).unwrap_or(Value::Null),
+            "contextUsage".into(),
+            js_json::to_value(context_usage).unwrap_or(Value::Null),
         );
     }
-    footer.insert("cwd".to_owned(), Value::String(ctx.cwd.clone()));
-    footer.insert("extensionStatuses".to_owned(), Value::Object(extension_statuses));
+    footer.insert("cwd".into(), Value::String(ctx.cwd.clone().into()));
+    footer.insert("extensionStatuses".into(), Value::Object(extension_statuses));
     footer.insert(
-        "model".to_owned(),
+        "model".into(),
         ctx.model
             .as_ref()
-            .map_or(Value::Null, |model| Value::String(model.id.clone())),
+            .map_or(Value::Null, |model| Value::String(model.id.clone().into())),
     );
     footer.insert(
-        "sessionName".to_owned(),
-        ctx.session_name.clone().map_or(Value::Null, Value::String),
+        "sessionName".into(),
+        ctx.session_name
+            .clone()
+            .map_or(Value::Null, |value| Value::String(value.into())),
     );
     let mut snapshot = Map::new();
-    snapshot.insert("footer".to_owned(), Value::Object(footer));
+    snapshot.insert("footer".into(), Value::Object(footer));
     Value::Object(snapshot)
 }
 
 pub fn eval_context(ctx: &ExtensionContext) -> Result<PyrunEvalContext, HandlerError> {
-    let session = ctx
-        .session_manager()
-        .map_err(|error| HandlerError::new(error.to_string()))?;
+    let session = ctx.session_manager()?;
     let (cwd, session_name) = {
         let manager = lock_session_manager(&session);
-        (manager.get_cwd().to_owned(), manager.get_session_name())
+        (
+            manager.get_cwd().to_owned(),
+            manager.get_session_name().map(JsString::from),
+        )
     };
     Ok(PyrunEvalContext {
-        footer_data: ctx
-            .footer_data()
-            .map_err(|error| HandlerError::new(error.to_string()))?,
-        context_usage: ctx
-            .get_context_usage()
-            .map_err(|error| HandlerError::new(error.to_string()))?,
-        model: ctx.model().map_err(|error| HandlerError::new(error.to_string()))?,
+        footer_data: ctx.footer_data()?,
+        context_usage: ctx.get_context_usage()?,
+        model: ctx.model()?,
         cwd,
         session_name,
     })
@@ -333,7 +348,7 @@ pub fn format_canonical_pyrun_eval_result(
     let is_error = bounded_result.error.is_some();
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
-        details: Some(serde_json::to_value(&bounded_result).unwrap_or(Value::Null)),
+        details: Some(js_json::to_value(&bounded_result).unwrap_or(Value::Null).into()),
         is_error: Some(is_error),
         terminate: None,
     }
@@ -355,7 +370,7 @@ fn bound_progress_update(update: &CanonicalPyrunProgressUpdate) -> CanonicalPyru
 pub fn create_pyrun_progress_reporter(
     on_update: Option<PyrunProgressUpdateCallback>,
 ) -> Arc<dyn Fn(CanonicalPyrunProgressUpdate) + Send + Sync> {
-    let streamed_console_text = Arc::new(std::sync::Mutex::new(String::new()));
+    let streamed_console_text = Arc::new(std::sync::Mutex::new(JsString::default()));
     Arc::new(move |update| {
         let bounded_update = bound_progress_update(&update);
         let formatted_progress_text = format_progress_text(&bounded_update);
@@ -372,7 +387,7 @@ pub fn create_pyrun_progress_reporter(
         if let Some(on_update) = &on_update {
             on_update(AgentToolResult {
                 content: vec![TextOrImageContent::Text(TextContent::new(progress_text))],
-                details: Some(bounded_update.raw),
+                details: Some(bounded_update.raw.into()),
                 is_error: None,
                 terminate: None,
             });
@@ -439,7 +454,7 @@ pub fn create_pyrun_eval_executor(
                     on_pi_request,
                 )
                 .await
-                .map_err(|error: PyrunRunnerError| HandlerError::new(error.to_string()))?;
+                .map_err(|error: PyrunRunnerError| HandlerError::new(error.message().clone()))?;
             Ok(format_canonical_pyrun_eval_result(&params, result))
         })
     })

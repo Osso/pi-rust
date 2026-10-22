@@ -11,8 +11,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use pi_js_compat::js_json::{self, JsObject, JsString, JsValue as Value};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStdin, Command};
 use tokio::sync::{Mutex as AsyncMutex, oneshot};
@@ -23,7 +23,7 @@ use crate::utils::child_process::node_spawn_error_message;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CanonicalPyrunEvalParams {
-    pub code: String,
+    pub code: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -37,8 +37,8 @@ pub struct CanonicalPyrunEvalParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum CanonicalPyrunConsoleEntry {
-    Text(String),
-    Leveled { level: String, message: String },
+    Text(JsString),
+    Leveled { level: String, message: JsString },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -46,7 +46,7 @@ pub enum CanonicalPyrunConsoleEntry {
 pub struct CanonicalPyrunApprovalRequest {
     pub args: Value,
     pub id: String,
-    pub summary: String,
+    pub summary: JsString,
     pub tool: String,
 }
 
@@ -57,9 +57,9 @@ pub struct CanonicalPyrunEvalResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub console: Option<Vec<CanonicalPyrunConsoleEntry>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
+    pub error: Option<JsString>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub executed: Option<String>,
+    pub executed: Option<JsString>,
     #[serde(rename = "type")]
     pub result_type: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -75,28 +75,38 @@ pub struct CanonicalPyrunProgressUpdate {
 }
 
 impl CanonicalPyrunProgressUpdate {
-    pub fn message_type(&self) -> &str {
-        self.raw.get("type").and_then(Value::as_str).unwrap_or_default()
+    pub fn message_type(&self) -> String {
+        self.raw
+            .get("type")
+            .and_then(Value::as_string)
+            .and_then(|text| text.to_utf8().ok())
+            .unwrap_or_default()
     }
 
-    pub fn method(&self) -> Option<&str> {
-        self.raw.get("method").and_then(Value::as_str)
+    pub fn method(&self) -> Option<String> {
+        self.raw
+            .get("method")
+            .and_then(Value::as_string)
+            .and_then(|text| text.to_utf8().ok())
     }
 
-    pub fn message(&self) -> Option<&str> {
-        self.raw.get("message").and_then(Value::as_str)
+    pub fn message(&self) -> Option<&JsString> {
+        self.raw.get("message").and_then(Value::as_string)
     }
 
-    pub fn text(&self) -> Option<&str> {
-        self.raw.get("text").and_then(Value::as_str)
+    pub fn text(&self) -> Option<&JsString> {
+        self.raw.get("text").and_then(Value::as_string)
     }
 
-    pub fn output(&self) -> Option<&str> {
-        self.raw.get("output").and_then(Value::as_str)
+    pub fn output(&self) -> Option<&JsString> {
+        self.raw.get("output").and_then(Value::as_string)
     }
 
-    pub fn status(&self) -> Option<&str> {
-        self.raw.get("status").and_then(Value::as_str)
+    pub fn status(&self) -> Option<String> {
+        self.raw
+            .get("status")
+            .and_then(Value::as_string)
+            .and_then(|text| text.to_utf8().ok())
     }
 
     pub fn params(&self) -> Option<&Value> {
@@ -107,10 +117,10 @@ impl CanonicalPyrunProgressUpdate {
         self.raw.get("value")
     }
 
-    pub fn with_text(&self, text: String) -> Self {
+    pub fn with_text(&self, text: JsString) -> Self {
         let mut raw = self.raw.clone();
         if let Some(object) = raw.as_object_mut() {
-            object.insert("text".to_owned(), Value::String(text));
+            object.insert("text".into(), Value::String(text));
         }
         Self { raw }
     }
@@ -129,7 +139,7 @@ pub struct PiRequest {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PyrunRunnerOptions {
-    pub args: Option<Vec<String>>,
+    pub args: Option<Vec<JsString>>,
     pub command: Option<String>,
     pub detached: Option<bool>,
     pub env: Option<Vec<(String, String)>>,
@@ -138,17 +148,16 @@ pub struct PyrunRunnerOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedPyrunRunnerOptions {
-    pub args: Vec<String>,
+    pub args: Vec<JsString>,
     pub command: String,
     pub env: Vec<(String, String)>,
 }
 
-fn parse_runner_args(value: Option<&str>) -> Result<Option<Vec<String>>, PyrunRunnerError> {
+fn parse_runner_args(value: Option<&str>) -> Result<Option<Vec<JsString>>, PyrunRunnerError> {
     let Some(value) = value.filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
-    let parsed: Value =
-        pi_js_compat::js_json::parse(value).map_err(|error| PyrunRunnerError::new(error.to_string()))?;
+    let parsed = js_json::parse_lossless(value).map_err(|error| PyrunRunnerError::new(error.into_message()))?;
     let Some(items) = parsed.as_array() else {
         return Err(PyrunRunnerError::new(
             "PI_PYRUN_RUNNER_ARGS must be a JSON string array",
@@ -156,7 +165,7 @@ fn parse_runner_args(value: Option<&str>) -> Result<Option<Vec<String>>, PyrunRu
     };
     let mut args = Vec::with_capacity(items.len());
     for item in items {
-        let Some(item) = item.as_str() else {
+        let Some(item) = item.as_string() else {
             return Err(PyrunRunnerError::new(
                 "PI_PYRUN_RUNNER_ARGS must be a JSON string array",
             ));
@@ -191,11 +200,14 @@ pub fn resolve_pyrun_runner_options(
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PyrunRunnerError {
-    message: String,
+    message: JsString,
 }
 
 impl PyrunRunnerError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn message(&self) -> &JsString {
+        &self.message
+    }
+    pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
         }
@@ -204,7 +216,7 @@ impl PyrunRunnerError {
 
 impl std::fmt::Display for PyrunRunnerError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&js_json::encode_node_utf8(&self.message))
     }
 }
 
@@ -278,8 +290,8 @@ impl PyrunRunnerClient {
             return Err(PyrunRunnerError::new("Pyrun evaluation aborted"));
         }
         let process = self.ensure_process().await?;
-        let value = serde_json::to_value(&params).map_err(|error| PyrunRunnerError::new(error.to_string()))?;
-        let payload = pi_js_compat::js_json::stringify(&value);
+        let value = js_json::to_value(&params).map_err(|error| PyrunRunnerError::new(error.to_string()))?;
+        let payload = js_json::stringify_lossless(&value);
         let (sender, receiver) = oneshot::channel();
         let generation = process.generation;
         let abort_task = signal.map(|signal| {
@@ -363,7 +375,7 @@ impl PyrunRunnerClient {
         let detached = should_detach(&self.options);
         let mut process_command = Command::new(&command);
         process_command
-            .args(&args)
+            .args(args.iter().map(js_json::encode_node_utf8))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -569,8 +581,8 @@ fn reject_generation_locked(state: &mut RunnerState, generation: u64, error: Pyr
 
 fn is_final_result(value: &Value) -> bool {
     matches!(
-        value.get("type").and_then(Value::as_str),
-        Some("completed" | "error" | "needs_approval")
+        value.get("type").and_then(Value::as_string),
+        Some(kind) if kind == "completed" || kind == "error" || kind == "needs_approval"
     )
 }
 
@@ -580,17 +592,18 @@ async fn handle_stdout_line(
     generation: u64,
     line: &str,
 ) {
-    let parsed: Value = match pi_js_compat::js_json::parse(line) {
+    let parsed: Value = match js_json::parse_lossless(line) {
         Ok(parsed) => parsed,
         Err(error) => {
             let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            reject_generation_locked(&mut state, generation, PyrunRunnerError::new(error.to_string()));
+            reject_generation_locked(&mut state, generation, PyrunRunnerError::new(error.into_message()));
             return;
         }
     };
     let message_type = parsed
         .get("type")
-        .and_then(Value::as_str)
+        .and_then(Value::as_string)
+        .and_then(|text| text.to_utf8().ok())
         .unwrap_or_default()
         .to_owned();
     enum LineAction {
@@ -613,7 +626,7 @@ async fn handle_stdout_line(
             if let Some(task) = request.abort_task.take() {
                 task.abort();
             }
-            match serde_json::from_value::<CanonicalPyrunEvalResult>(parsed) {
+            match js_json::from_value::<CanonicalPyrunEvalResult>(&parsed) {
                 Ok(result) => {
                     let _ = request.resolve.send(Ok(result));
                 }
@@ -627,7 +640,8 @@ async fn handle_stdout_line(
             let handler = state.pending[index].on_pi_request.clone();
             let method = parsed
                 .get("method")
-                .and_then(Value::as_str)
+                .and_then(Value::as_string)
+                .and_then(|text| text.to_utf8().ok())
                 .unwrap_or_default()
                 .to_owned();
             let params = parsed.get("params").cloned().unwrap_or(Value::Null);
@@ -644,19 +658,19 @@ async fn handle_stdout_line(
             };
             let payload = match response {
                 Ok(Some(result)) => {
-                    let mut object = serde_json::Map::new();
-                    object.insert("result".to_owned(), result);
+                    let mut object = JsObject::new();
+                    object.insert("result".to_owned().into(), result);
                     Value::Object(object)
                 }
-                Ok(None) => Value::Object(serde_json::Map::new()),
+                Ok(None) => Value::Object(JsObject::new()),
                 Err(error) => {
-                    let mut object = serde_json::Map::new();
-                    object.insert("error".to_owned(), Value::String(error.to_string()));
+                    let mut object = JsObject::new();
+                    object.insert("error".into(), Value::String(error.message));
                     Value::Object(object)
                 }
             };
             let mut stdin = stdin.lock().await;
-            let payload = pi_js_compat::js_json::stringify(&payload);
+            let payload = js_json::stringify_lossless(&payload);
             let _ = stdin.write_all(format!("{payload}\n").as_bytes()).await;
             let _ = stdin.flush().await;
         }

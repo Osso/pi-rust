@@ -2,8 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
+use pi_js_compat::js_json::{self, JsString};
 use pi_js_compat::string::encode_uri_component;
-use serde_json::Value;
 
 use crate::core::extensions::types::HandlerError;
 use crate::core::session_manager::SessionManager;
@@ -38,7 +38,7 @@ fn load_goal_file(file: &Path) -> Option<Goal> {
         return None;
     }
     let content = std::fs::read_to_string(file).ok()?;
-    let value: Value = serde_json::from_str(&content).ok()?;
+    let value = js_json::parse_lossless(&content).ok()?;
     parse_goal(&value)
 }
 
@@ -83,13 +83,17 @@ pub fn save_goal(session: &mut SessionManager, goal: &Goal) -> Result<(), Handle
 }
 
 /// `markGoalComplete`.
-pub fn mark_goal_complete(cwd: &str, session: &mut SessionManager, reason: &str) -> Result<Option<Goal>, HandlerError> {
+pub fn mark_goal_complete(
+    cwd: &str,
+    session: &mut SessionManager,
+    reason: impl Into<JsString>,
+) -> Result<Option<Goal>, HandlerError> {
     let Some(goal) = load_or_migrate_active_goal(cwd, session)? else {
         return Ok(None);
     };
     let completed_goal = Goal {
         completed_at: Some(crate::utils::iso_time::now_iso_string()),
-        completion_reason: Some(reason.to_owned()),
+        completion_reason: Some(reason.into()),
         review_evidence: None,
         ..goal
     };
@@ -98,7 +102,11 @@ pub fn mark_goal_complete(cwd: &str, session: &mut SessionManager, reason: &str)
 }
 
 /// `pauseGoal`.
-pub fn pause_goal(cwd: &str, session: &mut SessionManager, reason: &str) -> Result<Option<Goal>, HandlerError> {
+pub fn pause_goal(
+    cwd: &str,
+    session: &mut SessionManager,
+    reason: impl Into<JsString>,
+) -> Result<Option<Goal>, HandlerError> {
     let Some(goal) = load_or_migrate_active_goal(cwd, session)? else {
         return Ok(None);
     };
@@ -108,7 +116,7 @@ pub fn pause_goal(cwd: &str, session: &mut SessionManager, reason: &str) -> Resu
                 .clone()
                 .unwrap_or_else(crate::utils::iso_time::now_iso_string),
         ),
-        pause_reason: Some(reason.to_owned()),
+        pause_reason: Some(reason.into()),
         ..goal
     };
     save_goal(session, &paused_goal)?;

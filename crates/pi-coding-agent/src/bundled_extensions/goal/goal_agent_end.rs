@@ -36,18 +36,14 @@ pub async fn handle_goal_agent_end(options: GoalAgentEndOptions) -> Result<(), H
     let Some(goal) = (options.select_goal)()? else {
         return Ok(());
     };
-    if options
-        .ctx
-        .has_pending_messages()
-        .map_err(|error| HandlerError::new(error.to_string()))?
-    {
+    if options.ctx.has_pending_messages()? {
         (options.defer_review)(goal, options.ctx.clone(), options.event.messages.clone());
         return Ok(());
     }
-    let mut payload = serde_json::Map::new();
+    let mut payload = pi_js_compat::js_json::JsObject::new();
     payload.insert(
-        "objective".to_owned(),
-        serde_json::Value::String(goal.objective.clone()),
+        "objective".into(),
+        pi_js_compat::js_json::JsValue::String(goal.objective.clone()),
     );
     let reviewed = (options.review_goal)(GoalReviewInput {
         kind: GoalReviewKind::GoalIdleReview,
@@ -58,11 +54,7 @@ pub async fn handle_goal_agent_end(options: GoalAgentEndOptions) -> Result<(), H
     if !review_still_applies(&options, &goal)? {
         return Ok(());
     }
-    if options
-        .ctx
-        .has_pending_messages()
-        .map_err(|error| HandlerError::new(error.to_string()))?
-    {
+    if options.ctx.has_pending_messages()? {
         (options.defer_decision)(reviewed, goal, options.ctx.clone(), options.event.messages.clone());
         return Ok(());
     }

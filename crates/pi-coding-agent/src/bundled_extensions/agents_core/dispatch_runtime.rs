@@ -40,7 +40,8 @@ pub struct WaitingDesktopNotificationRegistration {
     pub unsubscribe_transition: crate::core::multi_agent_store::AgentSubscription,
 }
 
-pub type WaitingDesktopNotificationHandles = Arc<Mutex<HashMap<String, WaitingDesktopNotificationRegistration>>>;
+pub type WaitingDesktopNotificationHandles =
+    Arc<Mutex<HashMap<pi_js_compat::js_json::JsString, WaitingDesktopNotificationRegistration>>>;
 
 /// `AttachSessionDispatchInput` from `dispatch-runtime.ts`.
 #[derive(Clone)]
@@ -51,7 +52,7 @@ pub struct AttachSessionDispatchInput {
     pub dispatches: ActiveAgentDispatches,
     pub handles: Option<BackgroundSessionHandles>,
     pub ownerships: Arc<Mutex<HashMap<String, Arc<OwnedAgentRuntime>>>>,
-    pub prompt: String,
+    pub prompt: pi_js_compat::js_json::JsString,
     pub store: Arc<MultiAgentStore>,
     pub target: AgentSnapshot,
     pub waiting_desktop_notifications: WaitingDesktopNotificationHandles,
@@ -60,7 +61,8 @@ pub struct AttachSessionDispatchInput {
 pub struct StartToolDispatchInput {
     pub agent: AgentSnapshot,
     pub desktop_notifier: Arc<dyn DesktopNotifier>,
-    pub dispatch: Arc<dyn Fn() -> BoxFuture<'static, Result<AgentSnapshot, String>> + Send + Sync>,
+    pub dispatch:
+        Arc<dyn Fn() -> BoxFuture<'static, Result<AgentSnapshot, pi_js_compat::js_json::JsString>> + Send + Sync>,
     pub dispatches: ActiveAgentDispatches,
     pub handles: Option<BackgroundSessionHandles>,
     pub reserved_runtime: Arc<OwnedAgentRuntime>,
@@ -70,7 +72,7 @@ pub struct StartToolDispatchInput {
 
 pub struct TrackAgentDispatchInput {
     pub agent: AgentSnapshot,
-    pub dispatch: BoxFuture<'static, Result<AgentSnapshot, String>>,
+    pub dispatch: BoxFuture<'static, Result<AgentSnapshot, pi_js_compat::js_json::JsString>>,
     pub dispatches: ActiveAgentDispatches,
     pub handles: Option<BackgroundSessionHandles>,
     pub reserved_runtime: Arc<OwnedAgentRuntime>,
@@ -84,7 +86,7 @@ pub struct RunAgentSessionInput {
     pub ctx: ExtensionContext,
     pub expected_restore_generation: Option<u64>,
     pub handles: Option<BackgroundSessionHandles>,
-    pub prompt: String,
+    pub prompt: pi_js_compat::js_json::JsString,
     pub reserved_runtime: Arc<OwnedAgentRuntime>,
     pub running_agent: AgentSnapshot,
     pub store: Arc<MultiAgentStore>,
@@ -95,7 +97,7 @@ struct DispatchReservedAgentSessionInput {
     create_child_session: ChildAgentSessionFactory,
     ctx: ExtensionContext,
     handles: Option<BackgroundSessionHandles>,
-    prompt: String,
+    prompt: pi_js_compat::js_json::JsString,
     reserved_runtime: Arc<OwnedAgentRuntime>,
     store: Arc<MultiAgentStore>,
 }
@@ -198,7 +200,7 @@ fn dispatch_reserved_attached_child_session(
     input: &AttachSessionDispatchInput,
     create_attached_session: AttachedSessionFactory,
     reserved_runtime: Arc<OwnedAgentRuntime>,
-) -> BoxFuture<'static, Result<AgentSnapshot, String>> {
+) -> BoxFuture<'static, Result<AgentSnapshot, pi_js_compat::js_json::JsString>> {
     let session_path = input
         .target
         .transcript
@@ -290,7 +292,9 @@ fn subscribe_waiting_notifications(input: &StartToolDispatchInput) -> impl FnOnc
     move || drop(subscription)
 }
 
-pub fn track_agent_dispatch(input: TrackAgentDispatchInput) -> BoxFuture<'static, Result<AgentSnapshot, String>> {
+pub fn track_agent_dispatch(
+    input: TrackAgentDispatchInput,
+) -> BoxFuture<'static, Result<AgentSnapshot, pi_js_compat::js_json::JsString>> {
     let restore_generation = input.store.get_restore_generation();
     let dispatch = input.dispatch;
     let store = Arc::clone(&input.store);
@@ -298,7 +302,7 @@ pub fn track_agent_dispatch(input: TrackAgentDispatchInput) -> BoxFuture<'static
     let agent = input.agent.clone();
     let dispatches = Arc::clone(&input.dispatches);
     let handles = input.handles.clone();
-    let tracked: BoxFuture<'static, Result<AgentSnapshot, String>> = Box::pin(async move {
+    let tracked: BoxFuture<'static, Result<AgentSnapshot, pi_js_compat::js_json::JsString>> = Box::pin(async move {
         let result = match dispatch.await {
             Ok(agent) => Ok(agent),
             Err(error) => {
@@ -332,7 +336,9 @@ pub fn track_agent_dispatch(input: TrackAgentDispatchInput) -> BoxFuture<'static
     Box::pin(shared)
 }
 
-async fn dispatch_reserved_agent_session(input: DispatchReservedAgentSessionInput) -> Result<AgentSnapshot, String> {
+async fn dispatch_reserved_agent_session(
+    input: DispatchReservedAgentSessionInput,
+) -> Result<AgentSnapshot, pi_js_compat::js_json::JsString> {
     let restore_generation = input.store.get_restore_generation();
     let creation = create_reserved_child_session(&input).await;
     let (child_session, running_agent) = match creation {
@@ -416,7 +422,7 @@ async fn run_confirmed_child_session(
     child_session: Arc<dyn ChildAgentSession>,
     running_agent: AgentSnapshot,
     restore_generation: u64,
-) -> Result<AgentSnapshot, String> {
+) -> Result<AgentSnapshot, pi_js_compat::js_json::JsString> {
     run_agent_session(RunAgentSessionInput {
         create_child_session: input.create_child_session,
         created_session: Some(child_session),
@@ -438,7 +444,9 @@ async fn run_confirmed_child_session(
     .await
 }
 
-pub fn run_agent_session(input: RunAgentSessionInput) -> BoxFuture<'static, Result<AgentSnapshot, String>> {
+pub fn run_agent_session(
+    input: RunAgentSessionInput,
+) -> BoxFuture<'static, Result<AgentSnapshot, pi_js_compat::js_json::JsString>> {
     Box::pin(async move {
         let restore_generation = input
             .expected_restore_generation
@@ -473,7 +481,9 @@ pub fn run_agent_session(input: RunAgentSessionInput) -> BoxFuture<'static, Resu
     })
 }
 
-async fn create_active_child_session(input: &RunAgentSessionInput) -> Result<Arc<dyn ChildAgentSession>, String> {
+async fn create_active_child_session(
+    input: &RunAgentSessionInput,
+) -> Result<Arc<dyn ChildAgentSession>, pi_js_compat::js_json::JsString> {
     if let Some(session) = input.created_session.clone() {
         return Ok(session);
     }
@@ -576,7 +586,7 @@ fn publish_active_session_identity(input: &RunAgentSessionInput, active_session:
 async fn prompt_child_and_wait_for_descendants(
     input: &RunAgentSessionInput,
     active_session: &Arc<dyn ChildAgentSession>,
-) -> Result<(), String> {
+) -> Result<(), pi_js_compat::js_json::JsString> {
     active_session.prompt(input.prompt.clone()).await?;
     wait_for_active_descendants(
         &input.store,
@@ -603,7 +613,7 @@ async fn complete_prompted_child_session(
     loop {
         let summary = last_assistant_text(&active_session.messages());
         let completion_result = summary.map(|summary| AgentResult {
-            summary: Some(summary),
+            summary: Some(summary.into()),
             file_refs: None,
             duration_ms: None,
             tool_call_id: None,
@@ -633,9 +643,11 @@ async fn complete_prompted_child_session(
 async fn drain_pending_steering(
     input: &RunAgentSessionInput,
     active_session: &Arc<dyn ChildAgentSession>,
-) -> Result<(), String> {
+) -> Result<(), pi_js_compat::js_json::JsString> {
     let Some(drain) = active_session.drain_runtime_coordination() else {
-        return Err("Child session cannot drain pending steering before completion".to_owned());
+        return Err("Child session cannot drain pending steering before completion"
+            .to_owned()
+            .into());
     };
     drain.await?;
     let current = input.store.get_agent(&input.running_agent.id);
@@ -643,12 +655,18 @@ async fn drain_pending_steering(
         .as_ref()
         .is_some_and(|agent| agent.lifecycle == AgentLifecycle::SteeringPending)
     {
-        return Err("Child session did not deliver pending steering before completion".to_owned());
+        return Err("Child session did not deliver pending steering before completion"
+            .to_owned()
+            .into());
     }
     Ok(())
 }
 
-async fn fail_child_session(input: &RunAgentSessionInput, error: &str, restore_generation: u64) -> AgentSnapshot {
+async fn fail_child_session(
+    input: &RunAgentSessionInput,
+    error: &pi_js_compat::js_json::JsString,
+    restore_generation: u64,
+) -> AgentSnapshot {
     wait_for_active_descendants(&input.store, &input.running_agent.id, None).await;
     if let Some(cancelled) = acknowledge_cancelled_runtime(
         &input.store,
@@ -803,10 +821,12 @@ fn notify_waiting_agent(
         return None;
     }
     desktop_notifier.notify(&DesktopNotification {
-        body: message
-            .body
-            .clone()
-            .unwrap_or_else(|| format!("{} is waiting for input.", message.from_agent_id)),
+        body: pi_js_compat::js_json::encode_node_utf8(
+            &message
+                .body
+                .clone()
+                .unwrap_or_else(|| message.from_agent_id.clone() + " is waiting for input."),
+        ),
         expire_time_ms: Some(PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS),
         title: "Pi agent needs input".to_owned(),
         urgency: None,
@@ -826,7 +846,7 @@ fn remember_waiting_desktop_notification(
     let agent_id = message.from_agent_id.clone();
     let waiting_for_close = Arc::clone(waiting);
     let unsubscribe_transition = store.subscribe_agent_transitions(move |previous, current| {
-        if current.id != agent_id || previous.lifecycle != AgentLifecycle::WaitingForInput {
+        if agent_id != current.id || previous.lifecycle != AgentLifecycle::WaitingForInput {
             return;
         }
         if current.lifecycle != AgentLifecycle::WaitingForInput {
@@ -856,8 +876,11 @@ fn close_waiting_desktop_notification_when_not_waiting(
     close_waiting_desktop_notification(agent_id, waiting);
 }
 
-pub fn close_waiting_desktop_notification(agent_id: &str, waiting: &WaitingDesktopNotificationHandles) {
-    let registration = waiting.lock().expect("waiting notifications").remove(agent_id);
+pub fn close_waiting_desktop_notification(
+    agent_id: impl Into<pi_js_compat::js_json::JsString>,
+    waiting: &WaitingDesktopNotificationHandles,
+) {
+    let registration = waiting.lock().expect("waiting notifications").remove(&agent_id.into());
     let Some(registration) = registration else {
         return;
     };
@@ -870,24 +893,26 @@ fn is_waiting_for_input_notification(message: &AgentMailboxMessage) -> bool {
         && message.status == MailboxMessageStatusValue::Pending
         && message
             .thread_id
-            .as_deref()
+            .as_ref()
             .is_some_and(|thread_id| thread_id.starts_with("agent-waiting-for-input:"))
 }
 
-fn last_assistant_text(messages: &[pi_agent_core::AgentMessage]) -> Option<String> {
+fn last_assistant_text(messages: &[pi_agent_core::AgentMessage]) -> Option<pi_js_compat::js_json::JsString> {
     for message in messages.iter().rev() {
         let Some(assistant) = message.as_assistant() else {
             continue;
         };
-        let text = assistant
-            .content
-            .iter()
-            .filter_map(|part| match part {
-                AssistantContent::Text(text) => Some(text.text.clone()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
+        let text = pi_js_compat::js_json::JsString::join(
+            assistant
+                .content
+                .iter()
+                .filter_map(|part| match part {
+                    AssistantContent::Text(text) => Some(text.text.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            "\n",
+        );
         if !text.is_empty() {
             return Some(text);
         }

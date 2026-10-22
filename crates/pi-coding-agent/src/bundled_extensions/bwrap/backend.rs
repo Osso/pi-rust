@@ -38,7 +38,7 @@ impl BwrapSandboxProfile {
 #[derive(Debug, Clone)]
 pub struct BwrapInvocationOptions {
     pub bwrap_command: String,
-    pub command: Vec<String>,
+    pub command: Vec<pi_js_compat::js_json::JsString>,
     pub cwd: String,
     pub env: Option<IndexMap<String, String>>,
     pub extra_read_only_paths: Option<Vec<String>>,
@@ -48,7 +48,7 @@ pub struct BwrapInvocationOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BwrapInvocation {
-    pub argv: Vec<String>,
+    pub argv: Vec<pi_js_compat::js_json::JsString>,
     pub command: String,
     pub env: IndexMap<String, String>,
 }
@@ -109,28 +109,47 @@ fn build_bwrap_arguments(
     options: &BwrapInvocationOptions,
     cwd: &str,
     sandbox_env: &IndexMap<String, String>,
-) -> Vec<String> {
-    let mut arguments = build_bwrap_base_arguments();
+) -> Vec<pi_js_compat::js_json::JsString> {
+    let mut arguments = build_bwrap_base_arguments()
+        .into_iter()
+        .map(pi_js_compat::js_json::JsString::from)
+        .collect::<Vec<_>>();
     for (key, value) in sandbox_env {
-        arguments.push("--setenv".to_owned());
-        arguments.push(key.clone());
-        arguments.push(value.clone());
+        arguments.push("--setenv".into());
+        arguments.push(key.into());
+        arguments.push(value.into());
     }
     for system_path in READ_ONLY_SYSTEM_PATHS {
         if Path::new(system_path).exists() {
-            arguments.extend(["--ro-bind".to_owned(), system_path.to_owned(), system_path.to_owned()]);
+            arguments.extend(
+                ["--ro-bind", system_path, system_path]
+                    .into_iter()
+                    .map(pi_js_compat::js_json::JsString::from),
+            );
         }
     }
     for path in REQUIRED_SYSTEM_SYMLINKS {
-        arguments.extend(build_resolved_read_only_mount_arguments(path, cwd));
+        arguments.extend(
+            build_resolved_read_only_mount_arguments(path, cwd)
+                .into_iter()
+                .map(pi_js_compat::js_json::JsString::from),
+        );
     }
     for path in options.extra_read_only_paths.as_deref().unwrap_or_default() {
-        arguments.extend(build_read_only_mount_arguments(path, cwd));
+        arguments.extend(
+            build_read_only_mount_arguments(path, cwd)
+                .into_iter()
+                .map(pi_js_compat::js_json::JsString::from),
+        );
     }
-    arguments.extend(build_workspace_mount_arguments(cwd, options.profile));
-    arguments.push("--chdir".to_owned());
-    arguments.push(cwd.to_owned());
-    arguments.push("--".to_owned());
+    arguments.extend(
+        build_workspace_mount_arguments(cwd, options.profile)
+            .into_iter()
+            .map(pi_js_compat::js_json::JsString::from),
+    );
+    arguments.push("--chdir".into());
+    arguments.push(cwd.into());
+    arguments.push("--".into());
     arguments.extend(options.command.iter().cloned());
     arguments
 }
@@ -179,7 +198,7 @@ pub fn create_sandboxed_bash_operations(
 impl BashOperations for SandboxedBashOperations {
     fn exec<'a>(
         &'a self,
-        command: &'a str,
+        command: &'a pi_js_compat::js_json::JsString,
         cwd: &'a str,
         options: BashExecOptions,
     ) -> crate::core::extensions::types::BoxFuture<'a, Result<BashExecResult, ToolError>> {
@@ -195,7 +214,7 @@ impl BashOperations for SandboxedBashOperations {
             run_bwrap_availability_check(&bwrap_command).map_err(ToolError::new)?;
             let invocation = build_bwrap_invocation(&BwrapInvocationOptions {
                 bwrap_command,
-                command: vec![shell_path, "-lc".to_owned(), command.to_owned()],
+                command: vec![shell_path.into(), "-lc".into(), command.clone()],
                 cwd: cwd.to_owned(),
                 env: Some(
                     options
@@ -220,7 +239,7 @@ async fn execute_bwrap_command(
 ) -> Result<BashExecResult, ToolError> {
     let mut command = Command::new(&invocation.command);
     command
-        .args(&invocation.argv)
+        .args(invocation.argv.iter().map(pi_js_compat::js_json::encode_node_utf8))
         .env_clear()
         .envs(&invocation.env)
         .stdin(Stdio::null())
@@ -358,11 +377,15 @@ pub fn create_bwrap_runner_command(input: BwrapRunnerCommandOptions) -> Result<B
     let mut extra_read_only_paths = input.extra_read_only_paths.unwrap_or_default();
     extra_read_only_paths.extend(runner_read_only_paths(
         &runner_command,
-        &input.runner_args,
+        &input
+            .runner_args
+            .iter()
+            .map(pi_js_compat::js_json::encode_node_utf8)
+            .collect::<Vec<_>>(),
         input.runner_env.as_ref(),
         &input.cwd,
     ));
-    let mut command = vec![runner_command];
+    let mut command = vec![pi_js_compat::js_json::JsString::from(runner_command)];
     command.extend(input.runner_args.iter().cloned());
     let invocation = build_bwrap_invocation(&BwrapInvocationOptions {
         bwrap_command: input.bwrap_command,
@@ -385,14 +408,14 @@ pub struct BwrapRunnerCommandOptions {
     pub cwd: String,
     pub extra_read_only_paths: Option<Vec<String>>,
     pub profile: BwrapSandboxProfile,
-    pub runner_args: Vec<String>,
+    pub runner_args: Vec<pi_js_compat::js_json::JsString>,
     pub runner_command: String,
     pub runner_env: Option<IndexMap<String, String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BwrapRunnerCommand {
-    pub args: Vec<String>,
+    pub args: Vec<pi_js_compat::js_json::JsString>,
     pub command: String,
     pub env: IndexMap<String, String>,
 }

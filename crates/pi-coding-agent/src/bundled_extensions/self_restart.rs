@@ -45,7 +45,7 @@ pub fn self_restart_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         execution_mode: None,
         execute: Arc::new(
             |_tool_call_id: String,
-             _params: serde_json::Value,
+             _params: pi_js_compat::js_json::JsValue,
              _signal: Option<tokio_util::sync::CancellationToken>,
              _on_update: Option<AgentToolUpdateCallback>,
              ctx: ExtensionContext| {
@@ -55,7 +55,7 @@ pub fn self_restart_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                         content: vec![TextOrImageContent::Text(TextContent::new(
                             "Restart requested. Current session was reloaded.",
                         ))],
-                        details: Some(json!({"restarted": true})),
+                        details: Some(json!({"restarted": true}).into()),
                         is_error: None,
                         terminate: None,
                     })
@@ -70,7 +70,7 @@ pub fn self_restart_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
 
 fn restart_options() -> RestartOptions {
     RestartOptions {
-        notice: Some(RESTART_NOTICE.to_owned()),
+        notice: Some(RESTART_NOTICE.to_owned().into()),
         process: Some(true),
     }
 }

@@ -11,8 +11,11 @@ use pi_ai::types::{
     AssistantContent, Context, Model, ProviderEnv, ProviderHeaders, TextContent, TextOrImageContent, UserContent,
     UserMessage, UserRole,
 };
-use pi_js_compat::string::js_trim;
-use serde_json::{Value, json};
+use pi_js_compat::{
+    js_json,
+    js_json::{JsString, JsValue as Value},
+};
+use serde_json::json as schema_json;
 use tokio_util::sync::CancellationToken;
 
 use crate::core::extensions::types::{
@@ -24,7 +27,7 @@ const DEFAULT_WEB_SEARCH_TIMEOUT_MS: u64 = 180_000;
 
 #[derive(Clone)]
 pub struct WebSearchRequest {
-    pub query: String,
+    pub query: JsString,
     pub model: Model,
     pub api_key: Option<String>,
     pub headers: Option<ProviderHeaders>,
@@ -33,7 +36,7 @@ pub struct WebSearchRequest {
 }
 
 pub type RunWebSearch =
-    Arc<dyn Fn(WebSearchRequest, ExtensionContext) -> BoxFuture<'static, Result<String, String>> + Send + Sync>;
+    Arc<dyn Fn(WebSearchRequest, ExtensionContext) -> BoxFuture<'static, Result<JsString, String>> + Send + Sync>;
 
 #[derive(Clone, Default)]
 pub struct WebSearchToolOptions {
@@ -43,6 +46,21 @@ pub struct WebSearchToolOptions {
 
 pub fn is_openai_hosted_web_search_model(model: Option<&Model>) -> bool {
     model.is_some_and(|model| model.api == "openai-responses" || model.api == "openai-codex-responses")
+}
+
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    #[test]
+    fn hosted_payload_keeps_raw_content_and_tool_arguments() {
+        let payload = pi_js_compat::js_json::parse_lossless(
+            r#"{"input":"\ud800","tools":[{"type":"function","name":"keep","parameters":{"label":"\udc00"}}]}"#,
+        )
+        .unwrap();
+        let changed = add_web_search_tool_to_payload(&payload).unwrap();
+        assert_eq!(changed["input"], payload["input"]);
+        assert_eq!(changed["tools"][0], payload["tools"][0]);
+    }
 }
 
 pub fn add_web_search_tool_to_payload(payload: &Value) -> Option<Value> {
@@ -62,26 +80,26 @@ pub fn add_web_search_tool_to_payload(payload: &Value) -> Option<Value> {
             return None;
         }
         let mut updated = object.clone();
-        updated.insert("tools".to_owned(), Value::Array(tools_without_function));
+        updated.insert("tools".into(), Value::Array(tools_without_function));
         return Some(Value::Object(updated));
     }
     let mut updated_tools = tools_without_function;
-    updated_tools.push(json!({"type": "web_search", "external_web_access": true}));
+    updated_tools.push(js_json!({"type": "web_search", "external_web_access": true}));
     let mut updated = object.clone();
-    updated.insert("tools".to_owned(), Value::Array(updated_tools));
+    updated.insert("tools".into(), Value::Array(updated_tools));
     Some(Value::Object(updated))
 }
 
 fn is_hosted_web_search_tool(value: &Value) -> bool {
     value
         .get("type")
-        .and_then(Value::as_str)
+        .and_then(Value::as_string)
         .is_some_and(|kind| kind == "web_search" || kind == "web_search_2025_08_26")
 }
 
 fn is_function_web_search_tool(value: &Value) -> bool {
-    value.get("type").and_then(Value::as_str) == Some("function")
-        && value.get("name").and_then(Value::as_str) == Some("web_search")
+    value.get("type").and_then(Value::as_string) == Some(&JsString::from("function"))
+        && value.get("name").and_then(Value::as_string) == Some(&JsString::from("web_search"))
 }
 
 fn format_timeout(timeout_ms: u64) -> String {
@@ -92,7 +110,7 @@ fn format_timeout(timeout_ms: u64) -> String {
     }
 }
 
-fn text_result(text: String) -> AgentToolResult {
+fn text_result(text: JsString) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
         details: None,
@@ -107,8 +125,13 @@ async fn execute_web_search(
     signal: Option<CancellationToken>,
     run_search: &RunWebSearch,
     timeout_ms: u64,
-) -> Result<String, HandlerError> {
-    let query = js_trim(params.get("query").and_then(Value::as_str).unwrap_or_default());
+) -> Result<JsString, HandlerError> {
+    let query = params
+        .get("query")
+        .and_then(Value::as_string)
+        .cloned()
+        .unwrap_or_default()
+        .trim();
     if query.is_empty() {
         return Err(HandlerError::new("web_search query is required"));
     }
@@ -146,7 +169,7 @@ async fn run_search_with_timeout(
     ctx: ExtensionContext,
     run_search: RunWebSearch,
     timeout_ms: u64,
-) -> Result<String, HandlerError> {
+) -> Result<JsString, HandlerError> {
     let combined = CancellationToken::new();
     let timed_out = Arc::new(std::sync::atomic::AtomicBool::new(false));
     if let Some(signal) = &request.signal {
@@ -184,15 +207,16 @@ async fn run_search_with_timeout(
     }
 }
 
-async fn run_hosted_web_search(request: WebSearchRequest) -> Result<String, String> {
+async fn run_hosted_web_search(request: WebSearchRequest) -> Result<JsString, String> {
     let context = Context {
         system_prompt: Some(
             "You are a web search tool. Search the web and return concise, source-backed findings for the query."
-                .to_owned(),
+                .to_owned()
+                .into(),
         ),
         messages: vec![pi_ai::types::Message::User(UserMessage {
             role: UserRole::Tag,
-            content: UserContent::Text(request.query.clone()),
+            content: UserContent::Text(request.query.clone().into()),
             input_source: None,
             provider_native: None,
             timestamp: crate::core::compaction::now_millis(),
@@ -228,17 +252,19 @@ async fn run_hosted_web_search(request: WebSearchRequest) -> Result<String, Stri
     extract_text(&message)
 }
 
-fn extract_text(message: &pi_ai::types::AssistantMessage) -> Result<String, String> {
-    let joined = message
-        .content
-        .iter()
-        .filter_map(|block| match block {
-            AssistantContent::Text(text) => Some(text.text.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    let text = js_trim(&joined);
+fn extract_text(message: &pi_ai::types::AssistantMessage) -> Result<JsString, String> {
+    let joined = JsString::join(
+        message
+            .content
+            .iter()
+            .filter_map(|block| match block {
+                AssistantContent::Text(text) => Some(text.text.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        "\n",
+    );
+    let text = joined.trim();
     if text.is_empty() {
         return Err("OpenAI hosted web search returned no text".to_owned());
     }
@@ -263,7 +289,7 @@ pub fn create_web_search_tool_definition(options: &WebSearchToolOptions) -> Tool
         ]),
         approval_required: Some(true),
         approval_kind: None,
-        parameters: json!({
+        parameters: schema_json!({
             "type": "object",
             "required": ["query"],
             "properties": {

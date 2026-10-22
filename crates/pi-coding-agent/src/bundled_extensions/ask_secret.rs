@@ -4,6 +4,7 @@ use std::sync::{Arc, OnceLock};
 
 use pi_agent_core::agent::types::{AgentToolResult, AgentToolUpdateCallback};
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -23,9 +24,9 @@ const PROVISION_OPERATION: &str = "provision-browser";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AskSecretProvisionRequest {
-    pub record: String,
-    pub username_selector: String,
-    pub password_selector: String,
+    pub record: JsString,
+    pub username_selector: JsString,
+    pub password_selector: JsString,
 }
 
 pub type AskSecretProvisioner = Arc<
@@ -48,7 +49,7 @@ pub struct AskSecretToolOptions {
 #[serde(rename_all = "camelCase")]
 pub struct AskSecretDetails {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub record: Option<String>,
+    pub record: Option<JsString>,
     pub status: AskSecretStatus,
 }
 
@@ -91,7 +92,7 @@ pub fn create_ask_secret_tool_definition(options: AskSecretToolOptions) -> ToolD
         execution_mode: Some(pi_agent_core::harness::types::ToolExecutionMode::Sequential),
         execute: Arc::new(
             move |_tool_call_id: String,
-                  params: serde_json::Value,
+                  params: JsValue,
                   signal: Option<CancellationToken>,
                   _on_update: Option<AgentToolUpdateCallback>,
                   ctx: ExtensionContext| {
@@ -118,7 +119,7 @@ fn ask_secret_schema() -> serde_json::Value {
 
 async fn execute_ask_secret(
     provision: AskSecretProvisioner,
-    params: serde_json::Value,
+    params: JsValue,
     signal: Option<CancellationToken>,
     ctx: ExtensionContext,
 ) -> Result<AgentToolResult, HandlerError> {
@@ -170,7 +171,7 @@ async fn execute_ask_secret(
     provision(request.clone(), username, password, signal).await?;
 
     Ok(ask_secret_result(
-        &format!("Provisioned Secrets Broker record {}.", request.record),
+        JsString::from("Provisioned Secrets Broker record ") + &request.record + ".",
         AskSecretDetails {
             record: Some(request.record),
             status: AskSecretStatus::Provisioned,
@@ -178,7 +179,7 @@ async fn execute_ask_secret(
     ))
 }
 
-fn parse_request(params: &serde_json::Value) -> Result<AskSecretProvisionRequest, HandlerError> {
+fn parse_request(params: &JsValue) -> Result<AskSecretProvisionRequest, HandlerError> {
     let record = string_field(params, "record")?;
     let username_selector = string_field(params, "usernameSelector")?;
     let password_selector = string_field(params, "passwordSelector")?;
@@ -189,11 +190,11 @@ fn parse_request(params: &serde_json::Value) -> Result<AskSecretProvisionRequest
     })
 }
 
-fn string_field(params: &serde_json::Value, name: &str) -> Result<String, HandlerError> {
+fn string_field(params: &JsValue, name: &str) -> Result<JsString, HandlerError> {
     params
         .get(name)
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_owned)
+        .and_then(JsValue::as_string)
+        .cloned()
         .ok_or_else(|| HandlerError::new(format!("{name} must be a string")))
 }
 
@@ -201,17 +202,20 @@ fn validate_request(request: &AskSecretProvisionRequest) -> Result<(), HandlerEr
     validate_argument(&request.record, "record")?;
     validate_argument(&request.username_selector, "usernameSelector")?;
     validate_argument(&request.password_selector, "passwordSelector")?;
-    if request.record.starts_with('/') || request.record.split('/').any(|segment| segment == "..") {
+    if request.record.starts_with("/") || request.record.split('/').any(|segment| segment == "..") {
         return Err(HandlerError::new("record must be a relative Secrets Broker path"));
     }
     Ok(())
 }
 
-fn validate_argument(value: &str, name: &str) -> Result<(), HandlerError> {
+fn validate_argument(value: &JsString, name: &str) -> Result<(), HandlerError> {
     if value.trim().is_empty() {
         return Err(HandlerError::new(format!("{name} must not be empty")));
     }
-    if control_character_pattern().is_match(value) {
+    if char::decode_utf16(value.units().iter().copied()).any(|decoded| match decoded {
+        Ok(character) => control_character_pattern().is_match(&character.to_string()),
+        Err(_) => true,
+    }) {
         return Err(HandlerError::new(format!("{name} must not contain control characters")));
     }
     Ok(())
@@ -222,10 +226,14 @@ fn control_character_pattern() -> &'static Regex {
     PATTERN.get_or_init(|| Regex::new(r"[^\P{C}\t]").expect("control character pattern"))
 }
 
-fn ask_secret_result(text: &str, details: AskSecretDetails) -> AgentToolResult {
+fn ask_secret_result(text: impl Into<JsString>, details: AskSecretDetails) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
-        details: Some(serde_json::to_value(details).expect("ask_secret details serialize")),
+        details: Some(
+            js_json::to_value(&details)
+                .expect("ask_secret details serialize")
+                .into(),
+        ),
         is_error: None,
         terminate: None,
     }
@@ -257,11 +265,11 @@ async fn provision_browser_credential(
         .arg(SECRETS_BROKER_ADMIN)
         .arg(PROVISION_OPERATION)
         .arg("--record")
-        .arg(&request.record)
+        .arg(encode_node_utf8(&request.record))
         .arg("--username-selector")
-        .arg(&request.username_selector)
+        .arg(encode_node_utf8(&request.username_selector))
         .arg("--password-selector")
-        .arg(&request.password_selector)
+        .arg(encode_node_utf8(&request.password_selector))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());

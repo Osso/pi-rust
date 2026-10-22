@@ -1,7 +1,10 @@
 //! Agent listing and viewer (`extensions/agents-core/src/viewer.ts`).
 
 use pi_agent_core::AgentToolResult;
-use serde_json::{Map, Value, json};
+use pi_js_compat::{
+    js_json as json,
+    js_json::{self, JsObject as Map, JsString, JsValue as Value},
+};
 
 use crate::core::agent_lifecycle_trace::{
     AgentLifecycleTrace, format_agent_lifecycle_trace, read_agent_lifecycle_trace,
@@ -66,8 +69,8 @@ fn format_agent_list_content(agents: &[AgentSnapshot]) -> String {
     std::iter::once(header).chain(entries).collect::<Vec<_>>().join("\n")
 }
 
-fn quote(value: &str) -> String {
-    serde_json::to_string(value).unwrap_or_else(|_| format!("\"{value}\""))
+fn quote(value: impl Into<JsString>) -> String {
+    js_json::stringify_lossless(&Value::String(value.into()))
 }
 
 fn lifecycle_name(lifecycle: AgentLifecycle) -> &'static str {
@@ -228,7 +231,7 @@ fn load_persisted_agents_for_viewer(
                 .agents
                 .into_iter()
                 .filter(is_persisted_agent_snapshot)
-                .filter_map(|value| serde_json::from_value(value).ok())
+                .filter_map(|value| js_json::from_value(&value).ok())
                 .collect()
         })
         .unwrap_or_default();
@@ -245,7 +248,9 @@ fn is_persisted_agent_snapshot(value: &Value) -> bool {
     };
     candidate.get("id").is_some_and(Value::is_string)
         && candidate.get("lifecycle").is_some_and(Value::is_string)
-        && candidate.get("revision").is_some_and(Value::is_number)
+        && candidate
+            .get("revision")
+            .is_some_and(|value| matches!(value, Value::Number(_)))
 }
 
 fn agent_viewer_result(
@@ -260,42 +265,42 @@ fn agent_viewer_result(
         .collect();
 
     let mut details = Map::new();
-    details.insert("agent".to_owned(), serde_json::to_value(agent).unwrap_or(Value::Null));
-    details.insert("children".to_owned(), json!(children));
-    details.insert("commands".to_owned(), json!(list_viewer_commands(agent)));
+    details.insert("agent".into(), js_json::to_value(agent).unwrap_or(Value::Null));
+    details.insert("children".into(), json!(children));
+    details.insert("commands".into(), json!(list_viewer_commands(agent)));
     if let Some(parent_id) = agent.parent_id.as_ref() {
-        details.insert("parentId".to_owned(), json!(parent_id));
+        details.insert("parentId".into(), json!(parent_id));
     }
-    details.insert("status".to_owned(), view_status(agent));
+    details.insert("status".into(), view_status(agent));
     if let Some(transcript) = view_transcript(agent) {
-        details.insert("transcript".to_owned(), transcript);
+        details.insert("transcript".into(), transcript);
     }
 
     let mut content = format_agent_viewer_content(agent);
     if let Some(trace) = trace {
-        details.insert("trace".into(), serde_json::to_value(trace).expect("trace JSON"));
-        content.push('\n');
+        details.insert("trace".into(), js_json::to_value(trace).expect("trace JSON"));
+        content.push_unit(10);
         content.push_str(&format_agent_lifecycle_trace(trace));
     }
     tool_result(content, Value::Object(details))
 }
 
-fn format_agent_viewer_content(agent: &AgentSnapshot) -> String {
+fn format_agent_viewer_content(agent: &AgentSnapshot) -> JsString {
     let status = agent_status_label(agent);
     let terminal = status == "terminal";
-    let mut lines = vec![format!(
+    let mut lines = vec![JsString::from(format!(
         "Viewing agent {}: name={} type={} status={} lifecycle={}",
         agent.id,
         quote(&agent.display_name),
         agent.agent_type,
         status,
         lifecycle_name(agent.lifecycle),
-    )];
+    ))];
     if terminal
-        && let Some(summary) = agent.result.as_ref().and_then(|result| result.summary.as_deref())
+        && let Some(summary) = agent.result.as_ref().and_then(|result| result.summary.as_ref())
         && !summary.is_empty()
     {
-        lines.push(format!("Summary: {summary}"));
+        lines.push(JsString::from("Summary: ") + summary);
     }
     if terminal
         && let Some(message) = agent.error.as_ref().map(|error| &error.message)
@@ -307,9 +312,9 @@ fn format_agent_viewer_content(agent: &AgentSnapshot) -> String {
             .and_then(|error| error.code.as_deref())
             .map(|code| format!(" ({code})"))
             .unwrap_or_default();
-        lines.push(format!("Error: {message}{code}"));
+        lines.push(JsString::from("Error: ") + message + code);
     }
-    lines.join("\n")
+    JsString::join(lines, "\n")
 }
 
 fn agent_status_label(agent: &AgentSnapshot) -> &'static str {
@@ -335,11 +340,11 @@ fn view_status(agent: &AgentSnapshot) -> Value {
 fn view_transcript(agent: &AgentSnapshot) -> Option<Value> {
     let transcript = agent.transcript.as_ref()?;
     let mut details = Map::new();
-    details.insert("agentId".to_owned(), json!(agent.id));
+    details.insert("agentId".into(), json!(agent.id));
     if let Some(path) = transcript.path.as_ref() {
-        details.insert("path".to_owned(), json!(path));
+        details.insert("path".into(), json!(path));
     }
-    details.insert("sessionId".to_owned(), json!(transcript.session_id));
+    details.insert("sessionId".into(), json!(transcript.session_id));
     Some(Value::Object(details))
 }
 

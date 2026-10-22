@@ -4,8 +4,8 @@ use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
+use pi_js_compat::js_json::{JsString, JsValue as Value};
 use pi_js_compat::process_env;
-use serde_json::Value;
 use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 
@@ -38,11 +38,11 @@ pub fn claude_memory_enrich_extension(pi: &ExtensionApi) -> Result<(), HandlerEr
                 match run_enrich(&command, &prompt, ctx.signal()?).await {
                     Ok(Some(additional_context)) => Ok(Some(BeforeAgentStartEventResult {
                         message: None,
-                        system_prompt: Some(append_enrichment(&event.system_prompt, &additional_context)),
+                        system_prompt: Some(append_enrichment(&event.system_prompt, &additional_context).into()),
                     })),
                     Ok(None) => Ok(None),
                     Err(error) => {
-                        eprintln!("claude-memory-enrich: {}", error.message);
+                        eprintln!("claude-memory-enrich: {error}");
                         Ok(None)
                     }
                 }
@@ -77,13 +77,13 @@ fn is_hook_output(value: &Value) -> bool {
 }
 
 /// `parseAdditionalContext`.
-pub fn parse_additional_context(stdout: &str) -> Result<Option<String>, HandlerError> {
+pub fn parse_additional_context(stdout: &str) -> Result<Option<JsString>, HandlerError> {
     let trimmed = stdout.trim();
     if trimmed.is_empty() {
         return Ok(None);
     }
 
-    let parsed = js_json::parse(trimmed).map_err(|error| HandlerError::new(error.to_string()))?;
+    let parsed = js_json::parse_lossless(trimmed).map_err(|error| HandlerError::new(error.into_message()))?;
     if !is_hook_output(&parsed) {
         return Err(HandlerError::new("claude-memory enrich returned unexpected JSON shape"));
     }
@@ -91,18 +91,17 @@ pub fn parse_additional_context(stdout: &str) -> Result<Option<String>, HandlerE
     let context = parsed
         .get("hookSpecificOutput")
         .and_then(|output| output.get("additionalContext"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|context| !context.is_empty())
-        .map(str::to_owned);
+        .and_then(Value::as_string)
+        .map(JsString::trim)
+        .filter(|context| !context.is_empty());
     Ok(context)
 }
 
 async fn run_enrich(
     command: &str,
-    prompt: &str,
+    prompt: &JsString,
     signal: Option<CancellationToken>,
-) -> Result<Option<String>, HandlerError> {
+) -> Result<Option<JsString>, HandlerError> {
     let mut child = tokio::process::Command::new(command)
         .arg("enrich")
         .env_clear()
@@ -115,7 +114,10 @@ async fn run_enrich(
         .map_err(|error| HandlerError::new(spawn_error_message(command, &error)))?;
 
     if let Some(stdin) = child.stdin.as_mut() {
-        let payload = format!("{}\n", js_json::stringify(&serde_json::json!({"prompt": prompt})));
+        let payload = format!(
+            "{}\n",
+            js_json::stringify_lossless(&pi_js_compat::js_json!({"prompt": prompt}))
+        );
         let _ = stdin.write_all(payload.as_bytes()).await;
     }
     drop(child.stdin.take());
@@ -173,11 +175,31 @@ async fn wait_for_cancellation(signal: Option<CancellationToken>) {
     }
 }
 
-fn append_enrichment(system_prompt: &str, additional_context: &str) -> String {
+fn append_enrichment(system_prompt: &JsString, additional_context: &JsString) -> JsString {
     if system_prompt.contains(SECTION_START) {
         return system_prompt.to_owned();
     }
-    format!("{system_prompt}\n\n{SECTION_START}\n{additional_context}\n{SECTION_END}")
+    system_prompt.clone() + "\n\n" + SECTION_START + "\n" + additional_context + "\n" + SECTION_END
+}
+
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    #[test]
+    fn enrichment_json_and_prompt_injection_retain_raw_units() {
+        let extra = parse_additional_context(r#"{"hookSpecificOutput":{"additionalContext":"x\ud800"}}"#)
+            .unwrap()
+            .unwrap();
+        let original = JsString::from_utf16(vec![0xdc00]);
+        let appended = append_enrichment(&original, &extra);
+        assert_eq!(appended.units()[0], 0xdc00);
+        assert!(appended.contains(JsString::from_utf16(vec![0x78, 0xd800])));
+        let payload = pi_js_compat::js_json!({"prompt":original});
+        assert_eq!(
+            js_json::parse_lossless(js_json::stringify_lossless(&payload)).unwrap(),
+            payload
+        );
+    }
 }
 
 fn spawn_error_message(command: &str, error: &std::io::Error) -> String {

@@ -23,14 +23,17 @@ pub fn did_last_assistant_return_empty(event: &AgentEndEvent) -> bool {
     if message.stop_reason == StopReason::Aborted {
         return false;
     }
-    let text: String = message
-        .content
-        .iter()
-        .filter_map(|part| match part {
-            AssistantContent::Text(text) => Some(text.text.as_str()),
-            _ => None,
-        })
-        .collect();
+    let text = pi_js_compat::js_json::JsString::join(
+        message
+            .content
+            .iter()
+            .filter_map(|part| match part {
+                AssistantContent::Text(text) => Some(text.text.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        "",
+    );
     let has_tool_call = message
         .content
         .iter()

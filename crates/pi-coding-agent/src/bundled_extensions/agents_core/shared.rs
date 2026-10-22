@@ -40,7 +40,7 @@ pub struct WaitAgentsWakeUp {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub coordination_prompt: Option<String>,
+    pub coordination_prompt: Option<pi_js_compat::js_json::JsString>,
     pub kind: WaitAgentsWakeKind,
 }
 
@@ -53,7 +53,7 @@ impl WaitAgentsWakeUp {
         }
     }
 
-    pub fn coordination(prompt: String) -> Self {
+    pub fn coordination(prompt: pi_js_compat::js_json::JsString) -> Self {
         Self {
             agent_id: None,
             coordination_prompt: Some(prompt),
@@ -118,7 +118,7 @@ pub fn empty_agent(agent_id: &str) -> AgentSnapshot {
     AgentSnapshot {
         id: agent_id.to_owned(),
         parent_id: None,
-        display_name: agent_id.to_owned(),
+        display_name: agent_id.to_owned().into(),
         agent_type: "unknown".to_owned(),
         origin: None,
         lifecycle: AgentLifecycle::Failed,
@@ -167,7 +167,7 @@ pub struct ChildAgentDispatchInput {
     pub agent: AgentSnapshot,
     pub context: SpawnContext,
     pub ctx: ExtensionContext,
-    pub prompt: String,
+    pub prompt: pi_js_compat::js_json::JsString,
     pub signal: Option<tokio_util::sync::CancellationToken>,
 }
 
@@ -176,7 +176,7 @@ pub struct AttachedSessionDispatchInput {
     pub active_tool_call_id: Option<String>,
     pub agent: AgentSnapshot,
     pub ctx: ExtensionContext,
-    pub prompt: String,
+    pub prompt: pi_js_compat::js_json::JsString,
     pub signal: Option<tokio_util::sync::CancellationToken>,
     pub session_path: String,
 }
@@ -184,11 +184,14 @@ pub struct AttachedSessionDispatchInput {
 pub trait ChildAgentSession: Send + Sync {
     fn abort(&self) {}
     fn dispose(&self) {}
-    fn drain_runtime_coordination(&self) -> Option<BoxFuture<'static, Result<(), String>>> {
+    fn drain_runtime_coordination(&self) -> Option<BoxFuture<'static, Result<(), pi_js_compat::js_json::JsString>>> {
         None
     }
     fn messages(&self) -> Vec<AgentMessage>;
-    fn prompt(&self, text: String) -> BoxFuture<'static, Result<(), String>>;
+    fn prompt(
+        &self,
+        text: pi_js_compat::js_json::JsString,
+    ) -> BoxFuture<'static, Result<(), pi_js_compat::js_json::JsString>>;
     fn transcript(&self) -> Option<AgentTranscriptMetadata>;
     /// Live mutation surface when this session supports the `model`/`effort` commands.
     fn session_mutation_target(&self) -> Option<Arc<dyn crate::core::extensions::types::ViewedSessionMutationTarget>> {
@@ -196,8 +199,11 @@ pub trait ChildAgentSession: Send + Sync {
     }
 }
 
-type ChildFactoryFn =
-    dyn Fn(ChildAgentDispatchInput) -> BoxFuture<'static, Result<Arc<dyn ChildAgentSession>, String>> + Send + Sync;
+type ChildFactoryFn = dyn Fn(
+        ChildAgentDispatchInput,
+    ) -> BoxFuture<'static, Result<Arc<dyn ChildAgentSession>, pi_js_compat::js_json::JsString>>
+    + Send
+    + Sync;
 
 #[derive(Clone)]
 pub struct ChildAgentSessionFactory {
@@ -207,7 +213,9 @@ pub struct ChildAgentSessionFactory {
 
 impl ChildAgentSessionFactory {
     pub fn new(
-        create: impl Fn(ChildAgentDispatchInput) -> BoxFuture<'static, Result<Arc<dyn ChildAgentSession>, String>>
+        create: impl Fn(
+            ChildAgentDispatchInput,
+        ) -> BoxFuture<'static, Result<Arc<dyn ChildAgentSession>, pi_js_compat::js_json::JsString>>
         + Send
         + Sync
         + 'static,
@@ -219,7 +227,9 @@ impl ChildAgentSessionFactory {
     }
 
     pub fn production(
-        create: impl Fn(ChildAgentDispatchInput) -> BoxFuture<'static, Result<Arc<dyn ChildAgentSession>, String>>
+        create: impl Fn(
+            ChildAgentDispatchInput,
+        ) -> BoxFuture<'static, Result<Arc<dyn ChildAgentSession>, pi_js_compat::js_json::JsString>>
         + Send
         + Sync
         + 'static,
@@ -237,12 +247,14 @@ impl ChildAgentSessionFactory {
     pub fn call(
         &self,
         input: ChildAgentDispatchInput,
-    ) -> BoxFuture<'static, Result<Arc<dyn ChildAgentSession>, String>> {
+    ) -> BoxFuture<'static, Result<Arc<dyn ChildAgentSession>, pi_js_compat::js_json::JsString>> {
         (self.create)(input)
     }
 }
 
-type AttachedFactoryFn = dyn Fn(AttachedSessionDispatchInput) -> BoxFuture<'static, Result<Arc<dyn ChildAgentSession>, String>>
+type AttachedFactoryFn = dyn Fn(
+        AttachedSessionDispatchInput,
+    ) -> BoxFuture<'static, Result<Arc<dyn ChildAgentSession>, pi_js_compat::js_json::JsString>>
     + Send
     + Sync;
 
@@ -253,7 +265,9 @@ pub struct AttachedSessionFactory {
 
 impl AttachedSessionFactory {
     pub fn new(
-        create: impl Fn(AttachedSessionDispatchInput) -> BoxFuture<'static, Result<Arc<dyn ChildAgentSession>, String>>
+        create: impl Fn(
+            AttachedSessionDispatchInput,
+        ) -> BoxFuture<'static, Result<Arc<dyn ChildAgentSession>, pi_js_compat::js_json::JsString>>
         + Send
         + Sync
         + 'static,
@@ -266,7 +280,7 @@ impl AttachedSessionFactory {
     pub fn call(
         &self,
         input: AttachedSessionDispatchInput,
-    ) -> BoxFuture<'static, Result<Arc<dyn ChildAgentSession>, String>> {
+    ) -> BoxFuture<'static, Result<Arc<dyn ChildAgentSession>, pi_js_compat::js_json::JsString>> {
         (self.create)(input)
     }
 }

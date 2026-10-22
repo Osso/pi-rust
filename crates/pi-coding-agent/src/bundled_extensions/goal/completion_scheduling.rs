@@ -12,10 +12,12 @@ use super::goal_types::{Goal, GoalEvidenceReview, GoalReviewInput, GoalReviewKin
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompletionWait {
     pub goal: Goal,
-    pub completion_report: String,
+    pub completion_report: pi_js_compat::js_json::JsString,
 }
 
-pub type StatusAppend = Arc<dyn Fn(ExtensionContext, &str, Option<&str>) -> Result<(), HandlerError> + Send + Sync>;
+pub type StatusAppend = Arc<
+    dyn Fn(ExtensionContext, &pi_js_compat::js_json::JsString, Option<&str>) -> Result<(), HandlerError> + Send + Sync,
+>;
 
 pub struct CompletionSchedulingOptions {
     pub pi: ExtensionApi,
@@ -23,7 +25,7 @@ pub struct CompletionSchedulingOptions {
     pub consume_review_evidence: Arc<dyn Fn(ExtensionContext, Goal, usize) -> Result<(), HandlerError> + Send + Sync>,
     pub is_same_goal: Arc<dyn Fn(ExtensionContext, CompletionWait) -> Result<bool, HandlerError> + Send + Sync>,
     pub on_complete: Arc<dyn Fn(CompletionWait, ExtensionContext) + Send + Sync>,
-    pub on_continue: Arc<dyn Fn(&str) + Send + Sync>,
+    pub on_continue: Arc<dyn Fn(&pi_js_compat::js_json::JsString) + Send + Sync>,
     pub on_status: StatusAppend,
     pub on_error: Arc<dyn Fn(HandlerError, ExtensionContext) + Send + Sync>,
 }
@@ -58,10 +60,10 @@ impl CompletionWaitScheduler {
         &self,
         goal: Goal,
         ctx: ExtensionContext,
-        completion_report: &str,
-        status_reason: &str,
+        completion_report: &pi_js_compat::js_json::JsString,
+        status_reason: &pi_js_compat::js_json::JsString,
     ) -> Result<(), HandlerError> {
-        let message = format!("Waiting: {status_reason}");
+        let message = pi_js_compat::js_json::JsString::from("Waiting: ") + status_reason;
         let waiting = CompletionWait {
             goal,
             completion_report: completion_report.to_owned(),
@@ -110,9 +112,11 @@ async fn apply_completion_decision(
     }
     match &reviewed.decision {
         SupervisorResponse::Complete { .. } => (options.on_complete)(waiting.clone(), ctx.clone()),
-        SupervisorResponse::Continue { instructions, .. } => (options.on_continue)(instructions),
+        SupervisorResponse::Continue { instructions, .. } => {
+            (options.on_continue)(&pi_js_compat::js_json::JsString::from(instructions))
+        }
         SupervisorResponse::Wait { reason } => {
-            let message = format!("Waiting: {reason}");
+            let message = pi_js_compat::js_json::JsString::from("Waiting: ") + reason;
             let on_agent_wait = {
                 let on_status = Arc::clone(&options.on_status);
                 let ctx = ctx.clone();
@@ -142,16 +146,24 @@ async fn apply_completion_decision(
                 .await;
         }
         SupervisorResponse::Pause { reason } => {
-            let _ = (options.on_status)(ctx.clone(), &format!("Goal waiting: {reason}"), None);
+            let _ = (options.on_status)(
+                ctx.clone(),
+                &(pi_js_compat::js_json::JsString::from("Goal waiting: ") + reason),
+                None,
+            );
         }
         SupervisorResponse::Error { reason } => {
-            let _ = (options.on_status)(ctx.clone(), &format!("Goal review failed: {reason}"), None);
+            let _ = (options.on_status)(
+                ctx.clone(),
+                &(pi_js_compat::js_json::JsString::from("Goal review failed: ") + reason),
+                None,
+            );
             return Ok(());
         }
         SupervisorResponse::Set { reason, .. } => {
             let _ = (options.on_status)(
                 ctx.clone(),
-                &format!("Goal review failed: unexpected set decision: {reason}"),
+                &(pi_js_compat::js_json::JsString::from("Goal review failed: unexpected set decision: ") + reason),
                 None,
             );
             return Ok(());
@@ -176,17 +188,17 @@ pub fn create_completion_wait_scheduler(options: CompletionSchedulingOptions) ->
         review_goal: Arc::new(move |ctx, waiting: CompletionWait, _terminal_turn, wake_evidence| {
             let options = Arc::clone(&review_options);
             Box::pin(async move {
-                let mut payload = serde_json::Map::new();
+                let mut payload = pi_js_compat::js_json::JsObject::new();
                 payload.insert(
-                    "objective".to_owned(),
-                    serde_json::Value::String(waiting.goal.objective.clone()),
+                    "objective".into(),
+                    pi_js_compat::js_json::JsValue::String(waiting.goal.objective.clone()),
                 );
                 payload.insert(
-                    "completionReport".to_owned(),
-                    serde_json::Value::String(waiting.completion_report.clone()),
+                    "completionReport".into(),
+                    pi_js_compat::js_json::JsValue::String(waiting.completion_report.clone()),
                 );
                 if let Some(wake_evidence) = wake_evidence {
-                    payload.insert("wakeEvidence".to_owned(), wake_evidence);
+                    payload.insert("wakeEvidence".into(), wake_evidence);
                 }
                 (options.review_goal)(GoalReviewInput {
                     kind: GoalReviewKind::GoalCompletionReview,

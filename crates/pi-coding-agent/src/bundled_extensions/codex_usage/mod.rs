@@ -6,7 +6,6 @@ use pi_ai::request::{CallbackError, Fetch, HttpRequest, read_body_text};
 use pi_js_compat::base64::buffer_from_base64;
 use pi_js_compat::date::utc_date_fields;
 use pi_js_compat::number::{js_number_to_string, to_fixed};
-use pi_js_compat::string::js_trim;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
@@ -393,7 +392,7 @@ fn send_codex_usage_message(pi: &ExtensionApi, content: String) -> Result<(), Ha
     pi.send_message(
         CustomMessagePayload {
             custom_type: "codex-usage".to_owned(),
-            content: CustomMessageContent::Text(content),
+            content: CustomMessageContent::Text(content.into()),
             display: true,
             details: None,
         },
@@ -565,12 +564,12 @@ async fn reset_codex_usage_and_send_result(
 }
 
 async fn handle_usage_command(
-    args: &str,
+    args: &pi_js_compat::js_json::JsString,
     ctx: &ExtensionCommandContext,
     pi: &ExtensionApi,
     fetch: &dyn Fetch,
 ) -> Result<(), HandlerError> {
-    let command_args = js_trim(args);
+    let command_args = args.trim();
     if command_args == "reset" {
         return reset_codex_usage_and_send_result(ctx, pi, fetch).await;
     }

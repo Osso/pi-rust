@@ -82,14 +82,10 @@ impl ErrorStatusScheduler {
     }
 
     pub fn schedule(&self, ctx: ExtensionContext, message: &str) -> Result<(), HandlerError> {
-        let session = ctx
-            .session_manager()
-            .map_err(|failure| HandlerError::new(failure.to_string()))?;
+        let session = ctx.session_manager()?;
         let session_id = lock_session_manager(&session).get_session_id().to_owned();
         self.clear_session(&session_id);
-        let settings = ctx
-            .settings_manager()
-            .map_err(|failure| HandlerError::new(failure.to_string()))?;
+        let settings = ctx.settings_manager()?;
         let retry_delay_ms = match settings {
             Some(settings) => {
                 settings
