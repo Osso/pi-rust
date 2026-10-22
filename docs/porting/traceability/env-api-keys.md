@@ -21,6 +21,6 @@ Removed old-only Qwen/Radius/Baseten environment mappings and Anthropic auth-tok
 
 - Frozen lines 1–26, 39–48: asynchronous Node import readiness/browser caching absent in native Rust.
 - Frozen lines 57–59: Node `homedir()` uses passwd when HOME absent; Rust default probe uses HOME only. No fallback added.
-- Rust still exposes three env-name constants used by provider auth; frozen exports only the two functions. Anthropic provider slice will remove its old-only constant dependency.
+Anthropic provider slice also removed old-only public env-name constants and their shape-only test. Current behavioral count is 14; previous 15 included the deleted constant test.
 
 No frozen source bugs identified in the covered runtime matrix.

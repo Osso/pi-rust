@@ -7,10 +7,6 @@ use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use crate::types::ProviderEnv;
 use crate::utils::provider_env::resolve_provider_env_value;
 
-pub const ANTHROPIC_AUTH_TOKEN_ENV: &str = "ANTHROPIC_AUTH_TOKEN";
-pub const ANTHROPIC_OAUTH_TOKEN_ENV: &str = "ANTHROPIC_OAUTH_TOKEN";
-pub const ANTHROPIC_API_KEY_ENV: &str = "ANTHROPIC_API_KEY";
-
 const GOOGLE_APPLICATION_CREDENTIALS: &str = "GOOGLE_APPLICATION_CREDENTIALS";
 const VERTEX_ADC_DEFAULT_PATH: &str = ".config/gcloud/application_default_credentials.json";
 
@@ -74,7 +70,7 @@ fn api_key_env_vars(provider: &str) -> Option<Vec<&'static str>> {
         return Some(vec!["COPILOT_GITHUB_TOKEN"]);
     }
     if provider == "anthropic" {
-        return Some(vec![ANTHROPIC_OAUTH_TOKEN_ENV, ANTHROPIC_API_KEY_ENV]);
+        return Some(vec!["ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"]);
     }
 
     let env_var = match provider {

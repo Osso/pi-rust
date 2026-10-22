@@ -1,38 +1,15 @@
-# providers/anthropic traceability
+# Anthropic provider — common pin
 
-Pinned source: `packages/ai/src/providers/anthropic.ts` at
-`532f7d12cd19235081bd4d6e425bde185652d86f`.
-Rust: `crates/pi-ai/src/providers/anthropic.rs`.
-Tests: `crates/pi-ai/tests/provider_auth.rs`,
-`crates/pi-ai/tests/differential_providers.rs` (`auth_resolution_matches_ts`,
-`provider_login_flows_match_ts`, `provider_dispatch_matches_ts_requests`).
+Frozen `packages/ai/src/providers/anthropic.ts`, `4f9e6f8a4`, lines 1–21. Rust `providers/anthropic.rs`.
 
-| TypeScript | Rust | Proof |
-|---|---|---|
-| `anthropicApiKeyAuth().name` | `AnthropicApiKeyAuth::name` (`"Anthropic API key"`) | `provider_metadata_matches_the_ts_factories` |
-| `login`: abort check, secret prompt, abort check | `AnthropicApiKeyAuth::login` | `anthropic_login_prompts_for_a_secret`, differential login |
-| `resolve`: abort → stored key → `ANTHROPIC_AUTH_TOKEN` bearer → `ANTHROPIC_OAUTH_TOKEN` → `ANTHROPIC_API_KEY` → `undefined` | `AnthropicApiKeyAuth::resolve` | `anthropic_resolves_auth_token_as_bearer_header`, `anthropic_prefers_oauth_token_over_api_key`, `anthropic_api_key_is_last_and_stored_credential_wins`, `anthropic_resolve_honors_abort_before_env_reads`, differential auth |
-| `anthropicProvider()` metadata/catalog/api | `anthropic_provider` | `provider_metadata_matches_the_ts_factories`, dispatch differential |
-| `lazyOAuth({ name, isSubscription: true, load: loadAnthropicOAuth })` | `lazy_oauth` with `load_anthropic_oauth` | `oauth_subscription_flags_match_the_ts_factories`, `oauth_load.rs` |
+| Frozen export / branch | Proof |
+|---|---|
+| `anthropicProvider`, lines 7–20: id/name/baseUrl/catalog/API | `provider_auth::anthropic_provider_matches_frozen_module`: actual frozen descriptor/catalog oracle |
+| API-key auth through `envApiKeyAuth`, lines 12–14: OAuth before API key, ignores ANTHROPIC_AUTH_TOKEN | `anthropic_ignores_auth_token_and_resolves_oauth_key`, `anthropic_prefers_oauth_token_over_api_key`; actual frozen auth oracle |
+| Stored credential helper semantics | `anthropic_api_key_is_last_and_stored_credential_wins`; [helper traceability](auth-helpers.md) |
+| OAuth lazy wrapper name/loader, line 15, no subscription flag | descriptor oracle; frozen helper default false |
+| Secret login prompt via env helper | `anthropic_login_prompts_for_a_secret` |
 
-## Branch notes
+Deleted old-only custom bearer-token implementation, subscription flag and public env constants (constants' old tests deleted as feature deletion). RED 2 before production changes. GREEN 6 provider tests, including actual frozen descriptor and 3 auth scenarios. Revision `0517744e` + provider slice; ledger `/tmp/pi-rust-repin-delta-ai/ledger.md`.
 
-- The bearer branch returns `headers.Authorization = "Bearer <token>"` and no
-  `apiKey`; the OAuth/API-key branches return `apiKey` only.
-- Stored credentials win over every env var and carry `credential.env` through.
-- Abort is checked before the first env read, after each `ctx.env` call, and
-  before returning; a cancelled signal yields `AuthError::Aborted`.
-
-## Gaps
-
-- None.
-
-## Discrepancies
-
-- None.
-
-## Q18 provider request integration (2026-10-22)
-
-Native prompt answers, stored/environment keys and bearer header values are retained until the HTTP boundary. Auth source labels promote into JsString without encoding.
-
-[Focused public-provider runtime proof](lossless-sdk-boundaries.md) records exact covered cases, revisions and remaining acceptance limits.
+Module factory parity established for current deterministic inputs; shared helper cancellation/in-flight loading gaps remain [explicit](auth-helpers.md). Mark partial rather than asserting those dependencies have whole-module parity. No source bugs identified.

@@ -1,9 +1,6 @@
 use std::collections::BTreeMap;
 
-use pi_ai::env_api_keys::{
-    ANTHROPIC_API_KEY_ENV, ANTHROPIC_AUTH_TOKEN_ENV, ANTHROPIC_OAUTH_TOKEN_ENV, VertexAdc, find_env_keys_with,
-    get_env_api_key_with,
-};
+use pi_ai::env_api_keys::{VertexAdc, find_env_keys_with, get_env_api_key_with};
 use pi_ai::types::ProviderEnv;
 
 fn env(pairs: &[(&str, &str)]) -> ProviderEnv {
@@ -22,13 +19,6 @@ fn process(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
 
 fn adc_missing() -> VertexAdc {
     VertexAdc::with_sources(|_| false, Some("/home/test"))
-}
-
-#[test]
-fn anthropic_env_names_are_pinned() {
-    assert_eq!(ANTHROPIC_AUTH_TOKEN_ENV, "ANTHROPIC_AUTH_TOKEN");
-    assert_eq!(ANTHROPIC_OAUTH_TOKEN_ENV, "ANTHROPIC_OAUTH_TOKEN");
-    assert_eq!(ANTHROPIC_API_KEY_ENV, "ANTHROPIC_API_KEY");
 }
 
 #[test]
