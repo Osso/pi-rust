@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use pi_agent_core::agent::types::{AgentEvent, AgentMessage};
 use pi_ai::types::{AssistantContent, AssistantMessage, ImageContent, StopReason};
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -156,7 +157,7 @@ fn write_text_result(state: &PrintState) -> i32 {
 
     match assistant_message {
         Some(message) if matches!(message.stop_reason, StopReason::Error | StopReason::Aborted) => {
-            eprintln!("{}", error_message_or_request(&message));
+            eprintln!("{}", encode_node_utf8(&error_message_or_request(&message)));
             1
         }
         Some(message) => {
@@ -179,12 +180,12 @@ fn write_text_result(state: &PrintState) -> i32 {
     }
 }
 
-fn error_message_or_request(message: &AssistantMessage) -> String {
+fn error_message_or_request(message: &AssistantMessage) -> JsString {
     message
         .error_message
         .clone()
         .filter(|error| !error.is_empty())
-        .unwrap_or_else(|| format!("Request {}", stop_reason_name(message.stop_reason)))
+        .unwrap_or_else(|| JsString::from("Request ") + stop_reason_name(message.stop_reason))
 }
 
 fn stop_reason_name(reason: StopReason) -> &'static str {
@@ -265,17 +266,14 @@ async fn rebind_session(state: &Arc<PrintState>) {
     session
         .bind_extensions(ExtensionBindings {
             mode: Some(mode),
-            control_db_path: Some(get_control_db_path(&crate::config::get_user_state_root())),
+            control_db_path: Some(get_control_db_path(&crate::config::get_user_state_root()).into()),
             command_context_actions: Some(command_context_actions(
                 Arc::new(Mutex::new(session.clone())),
                 Arc::clone(&state.runtime),
             )),
             on_error: Some(Arc::new(|error: &ExtensionError| {
-                eprintln!(
-                    "Extension error ({}): {}",
-                    error.extension_path,
-                    encode_node_utf8(&error.error)
-                );
+                let message = js_format!("Extension error ({}): {}", error.extension_path, error.error);
+                eprintln!("{}", encode_node_utf8(&message));
             })),
             ..ExtensionBindings::default()
         })
