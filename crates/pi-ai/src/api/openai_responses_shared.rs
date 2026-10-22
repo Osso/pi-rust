@@ -1221,12 +1221,7 @@ fn finalize_response(
 
     let status_text = response.get("status").and_then(ingress_metadata_text);
     let status = status_text.as_deref();
-    let incomplete_reason_text = response
-        .get("incomplete_details")
-        .and_then(|details| details.get("reason"))
-        .and_then(ingress_metadata_text);
-    let incomplete_reason = incomplete_reason_text.as_deref();
-    let mapped = map_stop_reason(status, incomplete_reason)?;
+    let mapped = map_stop_reason(status)?;
     output.stop_reason = mapped.stop_reason;
     output.error_message = mapped.error_message;
     if output
@@ -1245,7 +1240,7 @@ struct MappedStopReason {
     error_message: Option<JsString>,
 }
 
-fn map_stop_reason(status: Option<&str>, incomplete_reason: Option<&str>) -> Result<MappedStopReason, String> {
+fn map_stop_reason(status: Option<&str>) -> Result<MappedStopReason, String> {
     let Some(status) = status else {
         return Ok(MappedStopReason {
             stop_reason: StopReason::Stop,
@@ -1257,19 +1252,9 @@ fn map_stop_reason(status: Option<&str>, incomplete_reason: Option<&str>) -> Res
             stop_reason: StopReason::Stop,
             error_message: None,
         },
-        "incomplete" => match incomplete_reason {
-            Some("max_output_tokens") => MappedStopReason {
-                stop_reason: StopReason::Length,
-                error_message: None,
-            },
-            Some(reason) => MappedStopReason {
-                stop_reason: StopReason::Error,
-                error_message: Some(format!("Response incomplete: {reason}").into()),
-            },
-            None => MappedStopReason {
-                stop_reason: StopReason::Error,
-                error_message: Some("Response incomplete without a provider reason".to_owned().into()),
-            },
+        "incomplete" => MappedStopReason {
+            stop_reason: StopReason::Length,
+            error_message: None,
         },
         "failed" | "cancelled" => MappedStopReason {
             stop_reason: StopReason::Error,
@@ -1750,7 +1735,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                     .and_then(|details| details.get("reason"))
                     .and_then(ingress_metadata_text)
                     .unwrap_or_else(|| "unknown".to_owned());
-                if reason == "max_output_tokens" && output.content.is_empty() {
+                if reason != "max_output_tokens" {
                     return Err(ResponsesStreamFailure::Message(
                         format!("Incomplete response returned, reason: {reason}").into(),
                     ));
