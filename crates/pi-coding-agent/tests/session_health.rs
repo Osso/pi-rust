@@ -2,6 +2,7 @@ use pi_coding_agent::core::session_health::{
     SessionCheckStatus, SessionHealthRecord, SessionLiveStatus, advance_generation_for_pid, derive_live_status,
     empty_session_health, end_session_health, is_session_eligible_to_receive, is_sticky_dead, parse_goal_objective,
 };
+use pi_js_compat::js_json::JsString;
 
 const NOW_ISO: &str = "2026-01-01T00:00:00.000Z";
 
@@ -19,37 +20,41 @@ fn live() -> SessionHealthRecord {
 #[test]
 fn parses_goal_objectives_from_json_payloads() {
     assert_eq!(
-        parse_goal_objective(Some(&serde_json::json!(r#"{"objective":"ship list_sessions"}"#))),
+        parse_goal_objective(Some(&JsString::from(r#"{"objective":"ship list_sessions"}"#))),
         Some("ship list_sessions".into())
     );
     assert_eq!(
-        parse_goal_objective(Some(&serde_json::json!("raw goal text"))),
+        parse_goal_objective(Some(&JsString::from("raw goal text"))),
         Some("raw goal text".into())
     );
     assert_eq!(parse_goal_objective(None), None);
-    assert_eq!(parse_goal_objective(Some(&serde_json::json!(""))), None);
-    assert_eq!(parse_goal_objective(Some(&serde_json::json!("   \n "))), None);
+    assert_eq!(parse_goal_objective(Some(&JsString::from(""))), None);
+    assert_eq!(parse_goal_objective(Some(&JsString::from("   \n "))), None);
     assert_eq!(
-        parse_goal_objective(Some(&serde_json::json!(r#"  {"objective":"  padded  "}  "#))),
+        parse_goal_objective(Some(&JsString::from(r#"  {"objective":"  padded  "}  "#))),
         Some("padded".into())
     );
     assert_eq!(
-        parse_goal_objective(Some(&serde_json::json!(r#"{"objective":"   "}"#))),
+        parse_goal_objective(Some(&JsString::from(r#"{"objective":"   "}"#))),
         Some(r#"{"objective":"   "}"#.into())
     );
     assert_eq!(
-        parse_goal_objective(Some(&serde_json::json!(r#"{"objective":5}"#))),
+        parse_goal_objective(Some(&JsString::from(r#"{"objective":5}"#))),
         Some(r#"{"objective":5}"#.into())
     );
+    assert_eq!(parse_goal_objective(Some(&JsString::from("[1]"))), Some("[1]".into()));
+    assert_eq!(parse_goal_objective(Some(&JsString::from("{bad"))), Some("{bad".into()));
+    let lone = JsString::from(r#"{"objective":"\ud800 x"}"#);
     assert_eq!(
-        parse_goal_objective(Some(&serde_json::json!("[1]"))),
-        Some("[1]".into())
+        parse_goal_objective(Some(&lone)),
+        Some(JsString::from_utf16(vec![0xd800, 0x20, 0x78])),
+        "escaped lone surrogate objective survives"
     );
     assert_eq!(
-        parse_goal_objective(Some(&serde_json::json!("{bad"))),
-        Some("{bad".into())
+        parse_goal_objective(Some(&JsString::from_utf16(vec![0x20, 0xdc00, 0x20]))),
+        Some(JsString::from_utf16(vec![0xdc00])),
+        "raw lone surrogate payload falls through untouched"
     );
-    assert_eq!(parse_goal_objective(Some(&serde_json::json!(5))), None);
 }
 
 #[test]

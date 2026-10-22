@@ -37,6 +37,7 @@ use pi_coding_agent::supervisor::project_resolver::{
     SupervisorProjectConfig, extract_remote_repository_identity, extract_remote_repository_name,
     read_supervisor_project_config, resolve_supervisor_project,
 };
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 const NAME_CASES: [&str; 12] = [
@@ -383,7 +384,13 @@ fn session_health_matches_typescript() {
         ],
         "ended": end_session_health(&live, NOW_ISO),
         "generations": [first, same, changed, zero],
-        "goals": goals.iter().map(|value| json!(parse_goal_objective(Some(value)))).collect::<Vec<_>>(),
+        "goals": goals
+            .iter()
+            .map(|value| {
+                let goal_json = value.as_str().map(JsString::from);
+                json!(parse_goal_objective(goal_json.as_ref()).map(|goal| goal.to_utf8().expect("scalar goal")))
+            })
+            .collect::<Vec<_>>(),
         "liveStatus": live_status,
     });
     assert_eq!(actual, expected);
