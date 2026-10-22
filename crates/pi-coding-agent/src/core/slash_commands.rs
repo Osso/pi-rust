@@ -1,5 +1,6 @@
 //! Slash command registry (`core/slash-commands.ts`).
 
+use pi_js_compat::js_json::JsString;
 use serde::{Deserialize, Serialize};
 
 use crate::config::package_config;
@@ -28,9 +29,9 @@ impl SlashCommandSource {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SlashCommandInfo {
-    pub name: String,
+    pub name: JsString,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
+    pub description: Option<JsString>,
     pub source: SlashCommandSource,
     pub source_info: SourceInfo,
 }

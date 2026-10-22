@@ -185,3 +185,6 @@ retain name commands/events but capture JSONL before renaming; v15 persistence h
 Shared JS stringify/object enumeration is used at this module's audited observable boundary; values and parser errors are unchanged. Concrete counterexamples and per-boundary tests: [JS-value proof](../js-value-semantics-proof.md).
 
 `export_to_jsonl` also uses shared stringify for header and linearized entries, matching pinned `agent-session.ts:5999,6005`. `jsonl_export_preserves_javascript_value_bytes` writes real JSONL with numeric keys, float-backed integers and an unsafe integer; only serialized bytes change.
+
+## Q18 native consumer follow-up
+Control DB, model/runtime and session-manager errors propagate message authorities rather than Display encoding. Native skill/template names and paths flow through slash commands and skill invocation. Skill expansion now follows frozen `_expandSkillCommand`: parse/read failure emits `skill_expansion` and preserves the original command; the old Rust parser-to-original-file fallback was an implementation discrepancy, not a frozen-source behavior. `invalid_skill_frontmatter_emits_native_path_error_and_keeps_original_command` was added before replacing the fallback; `skill-expansion-red.jsonl` remains library-compiler-blocked. Runtime acceptance not claimed.

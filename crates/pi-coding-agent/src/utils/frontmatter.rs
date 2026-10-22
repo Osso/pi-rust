@@ -105,10 +105,10 @@ fn yaml_to_js_value(value: YamlValue) -> Result<JsValue, FrontmatterError> {
 
 fn yaml_number_to_js_value(value: serde_yaml_ng::Number) -> JsValue {
     if let Some(value) = value.as_i64() {
-        return JsValue::Number(value.into());
+        return JsValue::Number(value as f64);
     }
     if let Some(value) = value.as_u64() {
-        return JsValue::Number(value.into());
+        return JsValue::Number(value as f64);
     }
     value
         .as_f64()

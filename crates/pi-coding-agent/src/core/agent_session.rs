@@ -222,7 +222,7 @@ fn builtin_source_info(name: &str) -> crate::core::source_info::SourceInfo {
     create_synthetic_source_info(
         &format!("<builtin:{name}>"),
         &SyntheticSourceInfoOptions {
-            source: "builtin".to_owned(),
+            source: "builtin".into(),
             scope: None,
             origin: None,
             base_dir: None,
@@ -1011,9 +1011,9 @@ fn active_tool_activity(
 ) -> Option<crate::core::multi_agent_store::AgentCurrentActivity> {
     let (_, tool) = active?;
     Some(crate::core::multi_agent_store::AgentCurrentActivity::Tool {
-        started_at: tool.started_at.clone(),
-        tool_call_id: tool.tool_call_id.clone(),
-        tool_name: tool.tool_name.clone(),
+        started_at: tool.started_at.clone().into(),
+        tool_call_id: tool.tool_call_id.clone().into(),
+        tool_name: tool.tool_name.clone().into(),
         detail: None,
     })
 }
@@ -1108,7 +1108,7 @@ pub const DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE: &str = "detached_tool_call_
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DetachedToolCallCompletionEntryData {
-    pub tool_call_id: String,
+    pub tool_call_id: JsString,
     pub agent_id: JsString,
     pub lifecycle: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1727,7 +1727,7 @@ impl AgentSession {
                 source_info: create_synthetic_source_info(
                     &format!("<sdk:{}>", definition.name),
                     &SyntheticSourceInfoOptions {
-                        source: "sdk".to_owned(),
+                        source: "sdk".into(),
                         scope: None,
                         origin: None,
                         base_dir: None,
@@ -1765,7 +1765,7 @@ impl AgentSession {
                 source_info: create_synthetic_source_info(
                     &format!("<sdk:{}>", definition.name),
                     &SyntheticSourceInfoOptions {
-                        source: "sdk".to_owned(),
+                        source: "sdk".into(),
                         scope: None,
                         origin: None,
                         base_dir: None,
@@ -2229,7 +2229,7 @@ impl AgentSession {
                     Ok(goal) => goal,
                     Err(error) => {
                         // The source throws here, aborting the tool call.
-                        return Err(crate::core::extensions::types::HandlerError::new(error.to_string()));
+                        return Err(crate::core::extensions::types::HandlerError::new(error.message()));
                     }
                 };
                 let mut payload = JsObject::new();
@@ -2545,7 +2545,7 @@ impl AgentSession {
         }
         let recipient = self.runtime_mailbox_recipient();
         let listener = crate::core::session_control_db::read_runtime_mailbox_listener(control_db_path, &recipient)
-            .map_err(|cause| AgentSessionError::new(cause.to_string()))?;
+            .map_err(|cause| AgentSessionError::new(cause.message))?;
         if listener
             .as_ref()
             .is_none_or(|listener| listener.pid != std::process::id())
@@ -2558,7 +2558,7 @@ impl AgentSession {
             |message| is_runtime_mailbox_message_due(message, options),
             i64::MAX as usize,
         )
-        .map_err(|cause| AgentSessionError::new(cause.to_string()))?;
+        .map_err(|cause| AgentSessionError::new(cause.message))?;
         if options.include_next_model_call {
             messages.sort_by_key(runtime_mailbox_checkpoint_priority);
         }
@@ -2574,7 +2574,7 @@ impl AgentSession {
             control_db_path,
             &refs,
         )
-        .map_err(|cause| error(cause.to_string()))?;
+        .map_err(|cause| error(cause.message))?;
         result
     }
 
@@ -2721,7 +2721,7 @@ impl AgentSession {
             let mut manager = lock(&self.inner.session_manager);
             lock(&self.inner.runtime_mailbox_acceptance)
                 .accept_messages(&mut manager, &control_db_path, &refs, accepted)
-                .map_err(|cause| error(cause.to_string()))?;
+                .map_err(|cause| error(cause.message))?;
         }
         for message in messages {
             self.mark_store_mailbox_message_delivered(message)?;
@@ -2766,7 +2766,7 @@ impl AgentSession {
             &persistence.session_path,
             agent_id,
         )
-        .map_err(|cause| error(cause.to_string()))?;
+        .map_err(|cause| error(cause.message))?;
         let Some(agent) = agent else {
             return Ok(());
         };
@@ -3175,16 +3175,16 @@ impl AgentSession {
         let recipient = self.runtime_mailbox_recipient();
         let cursor =
             crate::core::session_control_db::initialize_shared_channel_cursor_at_tail(&control_db_path, &recipient)
-                .map_err(|cause| AgentSessionError::new(cause.to_string()))?;
+                .map_err(|cause| AgentSessionError::new(cause.message))?;
         let last_message_id = crate::core::session_control_db::read_shared_channel_tail(&control_db_path)
-            .map_err(|cause| AgentSessionError::new(cause.to_string()))?;
+            .map_err(|cause| AgentSessionError::new(cause.message))?;
         let messages = crate::core::session_control_db::list_shared_channel_messages_after(
             &control_db_path,
             cursor,
             i64::MAX,
             last_message_id,
         )
-        .map_err(|cause| AgentSessionError::new(cause.to_string()))?;
+        .map_err(|cause| AgentSessionError::new(cause.message))?;
         let deliverable: Vec<_> = messages
             .into_iter()
             .filter(|message| !is_own_shared_channel_message(message, &recipient))
@@ -3196,14 +3196,14 @@ impl AgentSession {
                 &recipient,
                 last_message_id,
             )
-            .map_err(|cause| AgentSessionError::new(cause.to_string()))?;
+            .map_err(|cause| AgentSessionError::new(cause.message))?;
             return Ok(false);
         }
         let prompt =
             crate::core::runtime_coordination_format::format_shared_channel_prompt(&deliverable, &recipient.session_id);
         let queued = self.send_shared_channel_prompt(&prompt, options).await?;
         crate::core::session_control_db::advance_shared_channel_cursor(&control_db_path, &recipient, last_message_id)
-            .map_err(|cause| AgentSessionError::new(cause.to_string()))?;
+            .map_err(|cause| AgentSessionError::new(cause.message))?;
         if let Some(handler) = self.on_shared_channel_message_delivered() {
             handler(prompt);
         }
@@ -3338,7 +3338,7 @@ impl AgentSession {
     async fn handle_agent_event(&self, mut event: AgentEvent) -> Result<(), AgentError> {
         let mailbox_delivery = if let AgentEvent::MessageEnd { message } = &event {
             crate::core::runtime_mailbox_acceptance::read_runtime_mailbox_tool_delivery(message)
-                .map_err(|error| AgentError::new(error.to_string()))?
+                .map_err(|error| AgentError::new(error.message))?
         } else {
             None
         };
@@ -3476,7 +3476,7 @@ impl AgentSession {
                 store,
                 agent_id,
                 Some(AgentCurrentActivity::Thinking {
-                    started_at: crate::utils::iso_time::now_iso_string(),
+                    started_at: crate::utils::iso_time::now_iso_string().into(),
                 }),
                 ownership.as_ref(),
             ),
@@ -3488,7 +3488,7 @@ impl AgentSession {
                 let activity = self
                     .first_active_tool_activity()
                     .unwrap_or_else(|| AgentCurrentActivity::Thinking {
-                        started_at: crate::utils::iso_time::format_iso_millis(*finished_at as i64),
+                        started_at: crate::utils::iso_time::format_iso_millis(*finished_at as i64).into(),
                     });
                 self.publish_agent_activity(store, agent_id, Some(activity), ownership.as_ref())
             }
@@ -3579,7 +3579,7 @@ impl AgentSession {
         store
             .publish_agent_current_activity(agent_id, activity, ownership, None)
             .map(|_| ())
-            .map_err(|error| AgentError::new(error.to_string()))
+            .map_err(|error| AgentError::new(error.message))
     }
 
     fn start_background_compaction_during_tool_turn(
@@ -4005,7 +4005,7 @@ impl AgentSession {
                     released
                         .and(accepted)
                         .map(|()| None)
-                        .map_err(|error| crate::core::session_manager::SessionManagerError::new(error.to_string()))
+                        .map_err(|error| crate::core::session_manager::SessionManagerError::new(error.message))
                 } else if lock(&self.inner.runtime_mailbox_acceptance).consume_persisted_message(message) {
                     Ok(None)
                 } else {
@@ -4015,7 +4015,7 @@ impl AgentSession {
         };
         drop(manager);
         if let Err(error) = result {
-            crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string());
+            crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message().clone());
         }
         let _ = original_tool_call_id;
         if let AgentMessage::Assistant(assistant) = message {
@@ -4489,11 +4489,9 @@ impl AgentSession {
                 .get_skills()
                 .skills
                 .iter()
-                .any(|skill| skill_name == skill.name.as_str());
+                .any(|skill| skill_name == skill.name);
         }
-        self.prompt_templates()
-            .iter()
-            .any(|template| name == template.name.as_str())
+        self.prompt_templates().iter().any(|template| name == template.name)
     }
 
     fn expand_skill_command(&self, text: &JsString) -> JsString {
@@ -4503,25 +4501,36 @@ impl AgentSession {
         let (skill_name, args) = split_at_first_space(&rest);
         let args = args.trim();
         let skills = self.inner.resource_loader.get_skills().skills;
-        let Some(skill) = skills.iter().find(|skill| skill_name == skill.name.as_str()) else {
+        let Some(skill) = skills.iter().find(|skill| skill_name == skill.name) else {
             return text.to_owned();
         };
-        match std::fs::read_to_string(&skill.file_path) {
-            Ok(content) => {
-                let body = strip_frontmatter(&content)
-                    .map(|body| body.trim().to_owned())
-                    .unwrap_or_else(|_| content.trim().to_owned());
-                let skill_block = format!(
+        let result = std::fs::read(encode_node_utf8(&skill.file_path))
+            .map_err(|error| JsString::from(error.to_string()))
+            .and_then(|bytes| {
+                strip_frontmatter(JsString::from(String::from_utf8_lossy(&bytes).as_ref()))
+                    .map_err(|error| error.message().clone())
+            });
+        match result {
+            Ok(body) => {
+                let block = pi_js_compat::js_format!(
                     "<skill name=\"{}\" location=\"{}\">\nReferences are relative to {}.\n\n{}\n</skill>",
-                    skill.name, skill.file_path, skill.base_dir, body
+                    &skill.name,
+                    &skill.file_path,
+                    &skill.base_dir,
+                    body.trim()
                 );
-                if args.is_empty() {
-                    skill_block.into()
-                } else {
-                    JsString::from(skill_block) + "\n\n" + args
-                }
+                if args.is_empty() { block } else { block + "\n\n" + args }
             }
-            Err(_) => text.to_owned(),
+            Err(error) => {
+                self.runner()
+                    .emit_error(crate::core::extensions::types::ExtensionError {
+                        extension_path: skill.file_path.clone(),
+                        event: "skill_expansion".to_owned(),
+                        error,
+                        stack: None,
+                    });
+                text.clone()
+            }
         }
     }
 
@@ -4664,7 +4673,7 @@ impl AgentSession {
         if let AgentMessage::Custom(object) = app_message {
             let mut manager = lock(&self.inner.session_manager);
             if let Err(error) = append_custom_agent_message(&mut manager, object) {
-                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string());
+                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message().clone());
             }
         }
         self.emit(AgentSessionEvent::Message(AgentMessageEvent {
@@ -5951,7 +5960,7 @@ impl AgentSession {
                         provider_native,
                     },
                 )
-                .map_err(|manager_error| error(manager_error.to_string()))?;
+                .map_err(|manager_error| error(manager_error.message()))?;
         }
         let session_context = lock(&self.inner.session_manager).build_session_context();
         self.inner.agent.set_messages(session_context.messages.clone());
@@ -6446,7 +6455,7 @@ impl AgentSession {
         messages.push(message.clone());
         self.inner.agent.set_messages(messages);
         if let Err(error) = lock(&self.inner.session_manager).append_message(message.clone()) {
-            crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string());
+            crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message().clone());
         }
         self.emit(AgentSessionEvent::BashMessagesCommitted(BashMessagesCommittedEvent {
             event_type: "bash_messages_committed",
@@ -6499,7 +6508,7 @@ impl AgentSession {
             let message = bash_message_to_agent_message(&bash_message);
             agent_messages.push(message.clone());
             if let Err(error) = lock(&self.inner.session_manager).append_message(message.clone()) {
-                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string());
+                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message().clone());
             }
             committed.push(message);
         }
@@ -7613,7 +7622,7 @@ impl AgentSession {
         let context = self.create_command_context_for(&command.invocation_name);
         if let Err(error) = (command.handler)(args, context).await {
             runner.emit_error(crate::core::extensions::types::ExtensionError {
-                extension_path: format!("command:{}", command.invocation_name),
+                extension_path: format!("command:{}", command.invocation_name).into(),
                 event: "command".to_owned(),
                 error: error.message,
                 stack: None,
@@ -7840,7 +7849,7 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
         };
         AgentSession { inner }
             .set_session_name(name)
-            .map_err(|failure| crate::core::extensions::types::HandlerError::new(failure.to_string()))
+            .map_err(|failure| crate::core::extensions::types::HandlerError::new(failure.message()))
     });
     let get_name_weak = weak.clone();
     let get_session_name: crate::core::extensions::types::GetSessionNameHandler =
@@ -8001,7 +8010,7 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
             .ok_or_else(|| HandlerError::new("Session is disposed"))?;
         AgentSession { inner }
             .set_thinking_level(level)
-            .map_err(|error| HandlerError::new(error.to_string()))
+            .map_err(|error| HandlerError::new(error.message()))
     }));
     let scoped_weak = weak.clone();
     let get_scoped_models: Option<Arc<dyn Fn() -> Vec<ScopedModel> + Send + Sync>> =
@@ -8201,12 +8210,12 @@ fn extension_provider_actions(weak: Weak<Inner>) -> ProviderActions {
     let register_provider: Option<RegisterProviderAction> = Some(Arc::new(
         move |name: &str, config: &crate::core::provider_composer::ProviderConfigInput| {
             let Some(inner) = register_weak.upgrade() else {
-                return Err("Session is disposed".to_owned());
+                return Err("Session is disposed".into());
             };
             inner
                 .model_runtime
                 .register_provider(name, config.clone())
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| error.message())?;
             refresh_current_model_from_registry(&inner);
             Ok(())
         },
@@ -8288,8 +8297,8 @@ impl AgentSession {
             .get_registered_commands()
             .into_iter()
             .map(|command| SlashCommandInfo {
-                name: command.invocation_name,
-                description: command.description,
+                name: command.invocation_name.into(),
+                description: command.description.map(Into::into),
                 source: crate::core::slash_commands::SlashCommandSource::Extension,
                 source_info: command.source_info,
             })
@@ -8304,7 +8313,7 @@ impl AgentSession {
         }
         for skill in self.inner.resource_loader.get_skills().skills {
             commands.push(SlashCommandInfo {
-                name: format!("skill:{}", skill.name),
+                name: JsString::from("skill:") + skill.name,
                 description: Some(skill.description),
                 source: crate::core::slash_commands::SlashCommandSource::Skill,
                 source_info: skill.source_info,

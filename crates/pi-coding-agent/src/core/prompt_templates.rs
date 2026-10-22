@@ -288,7 +288,7 @@ pub fn expand_prompt_template(text: impl Into<JsString>, templates: &[PromptTemp
         .position(|unit| char::from_u32(u32::from(*unit)).is_some_and(is_js_whitespace))
         .map_or(units.len(), |index| index + 1);
     let name = JsString::from_utf16(units[1..end].to_vec());
-    let Some(template) = templates.iter().find(|template| name == &template.name) else {
+    let Some(template) = templates.iter().find(|template| name == template.name) else {
         return text;
     };
     let args = JsString::from_utf16(units[end..].to_vec()).trim();

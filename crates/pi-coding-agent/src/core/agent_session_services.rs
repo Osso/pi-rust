@@ -162,7 +162,7 @@ fn register_pending_providers(
         if let Err(error) = model_runtime.register_provider(&registration.name, registration.config) {
             diagnostics.push(AgentSessionRuntimeDiagnostic {
                 diagnostic_type: "error".to_owned(),
-                message: JsString::from(format!("Extension \"{}\" error: ", registration.extension_path))
+                message: (JsString::from("Extension \"") + &registration.extension_path + "\" error: ")
                     + error.message(),
             });
         }

@@ -141,6 +141,8 @@ impl SkillAccumulator {
                         name: skill.name.clone(),
                         winner_path: existing.file_path.clone(),
                         loser_path: skill.file_path.clone(),
+                        winner_source: None,
+                        loser_source: None,
                     }),
                 });
             } else {
