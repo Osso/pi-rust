@@ -221,8 +221,8 @@ impl FileKind {
 /// Metadata for one filesystem object.
 #[derive(Debug)]
 pub struct FileInfo {
-    pub name: String,
-    pub path: String,
+    pub name: JsString,
+    pub path: JsString,
     pub kind: FileKind,
     pub size: f64,
     pub mtime_ms: f64,
@@ -261,17 +261,17 @@ impl FileErrorCode {
 #[derive(Debug)]
 pub struct FileError {
     pub name: String,
-    pub message: String,
+    pub message: JsString,
     pub code: FileErrorCode,
-    pub path: Option<String>,
+    pub path: Option<JsString>,
     pub cause: Option<Box<dyn Error + Send + Sync + 'static>>,
 }
 
 impl FileError {
     pub fn new(
         code: FileErrorCode,
-        message: impl Into<String>,
-        path: Option<String>,
+        message: impl Into<JsString>,
+        path: Option<JsString>,
         cause: Option<Box<dyn Error + Send + Sync + 'static>>,
     ) -> Self {
         Self {
@@ -286,7 +286,7 @@ impl FileError {
 
 impl Display for FileError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message))
     }
 }
 
@@ -325,7 +325,7 @@ impl ExecutionErrorCode {
 #[derive(Debug)]
 pub struct ExecutionError {
     pub name: String,
-    pub message: String,
+    pub message: JsString,
     pub code: ExecutionErrorCode,
     pub cause: Option<Box<dyn Error + Send + Sync + 'static>>,
 }
@@ -333,7 +333,7 @@ pub struct ExecutionError {
 impl ExecutionError {
     pub fn new(
         code: ExecutionErrorCode,
-        message: impl Into<String>,
+        message: impl Into<JsString>,
         cause: Option<Box<dyn Error + Send + Sync + 'static>>,
     ) -> Self {
         Self {
@@ -347,7 +347,7 @@ impl ExecutionError {
 
 impl Display for ExecutionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message))
     }
 }
 
@@ -502,18 +502,18 @@ pub struct RemoveOptions {
 /// Options for [`FileSystem::create_temp_file`].
 #[derive(Debug, Clone, Default)]
 pub struct CreateTempFileOptions {
-    pub prefix: Option<String>,
-    pub suffix: Option<String>,
+    pub prefix: Option<JsString>,
+    pub suffix: Option<JsString>,
 }
 
 /// Shell stdout/stderr callback. `Err` carries the callback error message.
-pub type ShellOutputHandler = dyn Fn(&str) -> Result<(), String> + Send + Sync;
+pub type ShellOutputHandler = dyn Fn(&str) -> Result<(), JsString> + Send + Sync;
 
 /// Options for [`Shell::exec`].
 #[derive(Clone, Default)]
 pub struct ShellExecOptions {
     /// Working directory for the command; relative paths resolve against [`FileSystem::cwd`].
-    pub cwd: Option<String>,
+    pub cwd: Option<JsString>,
     /// Environment variables that override inherited defaults when `inherit_env` is `true`.
     pub env: Option<HashMap<String, String>>,
     /// Whether to inherit the execution environment's default variables. Defaults to `true`.
@@ -558,63 +558,63 @@ pub struct ShellExecResult {
 /// through symlinks unless returned by [`FileSystem::canonical_path`].
 pub trait FileSystem: Send + Sync {
     /// Current working directory for relative paths.
-    fn cwd(&self) -> &str;
+    fn cwd(&self) -> &JsString;
     /// Return an absolute addressed path without requiring it to exist and without resolving symlinks.
     fn absolute_path<'a>(
         &'a self,
-        path: &'a str,
+        path: &'a JsString,
         abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<String, FileError>>;
-    /// Join path segments in the filesystem namespace without requiring the result to exist.
+    ) -> BoxFuture<'a, Result<JsString, FileError>>;
+    /// Join path segments without requiring the result to exist.
     fn join_path<'a>(
         &'a self,
-        parts: &'a [String],
+        parts: &'a [JsString],
         abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<String, FileError>>;
+    ) -> BoxFuture<'a, Result<JsString, FileError>>;
     fn read_text_file<'a>(
         &'a self,
-        path: &'a str,
+        path: &'a JsString,
         abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<String, FileError>>;
+    ) -> BoxFuture<'a, Result<JsString, FileError>>;
     fn read_text_lines<'a>(
         &'a self,
-        path: &'a str,
+        path: &'a JsString,
         options: ReadTextLinesOptions,
-    ) -> BoxFuture<'a, Result<Vec<String>, FileError>>;
+    ) -> BoxFuture<'a, Result<Vec<JsString>, FileError>>;
     fn read_binary_file<'a>(
         &'a self,
-        path: &'a str,
+        path: &'a JsString,
         abort: Option<&'a CancellationToken>,
     ) -> BoxFuture<'a, Result<Vec<u8>, FileError>>;
     fn write_file<'a>(
         &'a self,
-        path: &'a str,
+        path: &'a JsString,
         content: FileContent<'a>,
         abort: Option<&'a CancellationToken>,
     ) -> BoxFuture<'a, Result<(), FileError>>;
-    fn append_file<'a>(&'a self, path: &'a str, content: FileContent<'a>) -> BoxFuture<'a, Result<(), FileError>>;
+    fn append_file<'a>(&'a self, path: &'a JsString, content: FileContent<'a>) -> BoxFuture<'a, Result<(), FileError>>;
     fn rename_file<'a>(
         &'a self,
-        source_path: &'a str,
-        destination_path: &'a str,
+        source_path: &'a JsString,
+        destination_path: &'a JsString,
         abort: Option<&'a CancellationToken>,
     ) -> BoxFuture<'a, Result<(), FileError>>;
-    fn file_info<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Result<FileInfo, FileError>>;
+    fn file_info<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<FileInfo, FileError>>;
     fn list_dir<'a>(
         &'a self,
-        path: &'a str,
+        path: &'a JsString,
         abort: Option<&'a CancellationToken>,
     ) -> BoxFuture<'a, Result<Vec<FileInfo>, FileError>>;
-    fn canonical_path<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Result<String, FileError>>;
+    fn canonical_path<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<JsString, FileError>>;
     fn exists<'a>(
         &'a self,
-        path: &'a str,
+        path: &'a JsString,
         abort: Option<&'a CancellationToken>,
     ) -> BoxFuture<'a, Result<bool, FileError>>;
-    fn create_dir<'a>(&'a self, path: &'a str, options: CreateDirOptions) -> BoxFuture<'a, Result<(), FileError>>;
-    fn remove<'a>(&'a self, path: &'a str, options: RemoveOptions) -> BoxFuture<'a, Result<(), FileError>>;
-    fn create_temp_dir<'a>(&'a self, prefix: &'a str) -> BoxFuture<'a, Result<String, FileError>>;
-    fn create_temp_file<'a>(&'a self, options: CreateTempFileOptions) -> BoxFuture<'a, Result<String, FileError>>;
+    fn create_dir<'a>(&'a self, path: &'a JsString, options: CreateDirOptions) -> BoxFuture<'a, Result<(), FileError>>;
+    fn remove<'a>(&'a self, path: &'a JsString, options: RemoveOptions) -> BoxFuture<'a, Result<(), FileError>>;
+    fn create_temp_dir<'a>(&'a self, prefix: &'a JsString) -> BoxFuture<'a, Result<JsString, FileError>>;
+    fn create_temp_file<'a>(&'a self, options: CreateTempFileOptions) -> BoxFuture<'a, Result<JsString, FileError>>;
     /// Release filesystem resources. Must be best-effort and must not fail.
     fn cleanup(&self) -> BoxFuture<'_, ()>;
 }

@@ -11,6 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use pi_ai::request::BoxFuture;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use pi_js_compat::number::js_number_to_string;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
@@ -31,7 +33,7 @@ static TEMP_NAME_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// Options accepted by [`NodeExecutionEnv::new`].
 #[derive(Debug, Clone, Default)]
 pub struct NodeExecutionEnvOptions {
-    pub cwd: String,
+    pub cwd: JsString,
     pub shell_path: Option<String>,
     pub shell_env: HashMap<String, String>,
 }
@@ -39,7 +41,7 @@ pub struct NodeExecutionEnvOptions {
 /// Filesystem and process execution environment backed by the host OS.
 #[derive(Debug)]
 pub struct NodeExecutionEnv {
-    cwd: String,
+    cwd: JsString,
     shell_path: Option<String>,
     shell_env: HashMap<String, String>,
     active_child_pids: Mutex<HashSet<u32>>,
@@ -72,48 +74,48 @@ impl NodeExecutionEnv {
 }
 
 impl FileSystem for NodeExecutionEnv {
-    fn cwd(&self) -> &str {
+    fn cwd(&self) -> &JsString {
         &self.cwd
     }
 
     fn absolute_path<'a>(
         &'a self,
-        path: &'a str,
+        path: &'a JsString,
         _abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<String, FileError>> {
+    ) -> BoxFuture<'a, Result<JsString, FileError>> {
         Box::pin(async move { Ok(resolve_path(&self.cwd, path)) })
     }
 
     fn join_path<'a>(
         &'a self,
-        parts: &'a [String],
+        parts: &'a [JsString],
         _abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<String, FileError>> {
+    ) -> BoxFuture<'a, Result<JsString, FileError>> {
         Box::pin(async move { Ok(join_paths(parts)) })
     }
 
     fn read_text_file<'a>(
         &'a self,
-        path: &'a str,
+        path: &'a JsString,
         abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<String, FileError>> {
+    ) -> BoxFuture<'a, Result<JsString, FileError>> {
         Box::pin(async move {
             let resolved = resolve_path(&self.cwd, path);
             if let Some(error) = abort_result(abort, &resolved) {
                 return Err(error);
             }
-            let bytes = tokio::fs::read(&resolved)
+            let bytes = tokio::fs::read(&encode_node_utf8(&resolved))
                 .await
                 .map_err(|error| file_error(&error, "open", &resolved))?;
-            Ok(String::from_utf8_lossy(&bytes).into_owned())
+            Ok(String::from_utf8_lossy(&bytes).into_owned().into())
         })
     }
 
     fn read_text_lines<'a>(
         &'a self,
-        path: &'a str,
+        path: &'a JsString,
         options: ReadTextLinesOptions,
-    ) -> BoxFuture<'a, Result<Vec<String>, FileError>> {
+    ) -> BoxFuture<'a, Result<Vec<JsString>, FileError>> {
         Box::pin(async move {
             let resolved = resolve_path(&self.cwd, path);
             if let Some(error) = abort_result(options.abort.as_ref(), &resolved) {
@@ -122,7 +124,7 @@ impl FileSystem for NodeExecutionEnv {
             if options.max_lines == Some(0) {
                 return Ok(Vec::new());
             }
-            let bytes = tokio::fs::read(&resolved)
+            let bytes = tokio::fs::read(&encode_node_utf8(&resolved))
                 .await
                 .map_err(|error| file_error(&error, "open", &resolved))?;
             if let Some(error) = abort_result(options.abort.as_ref(), &resolved) {
@@ -133,13 +135,13 @@ impl FileSystem for NodeExecutionEnv {
             if let Some(max_lines) = options.max_lines {
                 lines.truncate(max_lines);
             }
-            Ok(lines)
+            Ok(lines.into_iter().map(JsString::from).collect())
         })
     }
 
     fn read_binary_file<'a>(
         &'a self,
-        path: &'a str,
+        path: &'a JsString,
         abort: Option<&'a CancellationToken>,
     ) -> BoxFuture<'a, Result<Vec<u8>, FileError>> {
         Box::pin(async move {
@@ -147,7 +149,7 @@ impl FileSystem for NodeExecutionEnv {
             if let Some(error) = abort_result(abort, &resolved) {
                 return Err(error);
             }
-            tokio::fs::read(&resolved)
+            tokio::fs::read(&encode_node_utf8(&resolved))
                 .await
                 .map_err(|error| file_error(&error, "open", &resolved))
         })
@@ -155,7 +157,7 @@ impl FileSystem for NodeExecutionEnv {
 
     fn write_file<'a>(
         &'a self,
-        path: &'a str,
+        path: &'a JsString,
         content: FileContent<'a>,
         abort: Option<&'a CancellationToken>,
     ) -> BoxFuture<'a, Result<(), FileError>> {
@@ -168,13 +170,13 @@ impl FileSystem for NodeExecutionEnv {
             if let Some(error) = abort_result(abort, &resolved) {
                 return Err(error);
             }
-            tokio::fs::write(&resolved, content.as_bytes())
+            tokio::fs::write(&encode_node_utf8(&resolved), content.as_bytes())
                 .await
                 .map_err(|error| file_error(&error, "open", &resolved))
         })
     }
 
-    fn append_file<'a>(&'a self, path: &'a str, content: FileContent<'a>) -> BoxFuture<'a, Result<(), FileError>> {
+    fn append_file<'a>(&'a self, path: &'a JsString, content: FileContent<'a>) -> BoxFuture<'a, Result<(), FileError>> {
         Box::pin(async move {
             let resolved = resolve_path(&self.cwd, path);
             create_parent_dir(&resolved).await?;
@@ -182,7 +184,7 @@ impl FileSystem for NodeExecutionEnv {
             let mut file = tokio::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(&resolved)
+                .open(&encode_node_utf8(&resolved))
                 .await
                 .map_err(|error| file_error(&error, "open", &resolved))?;
             file.write_all(content.as_bytes())
@@ -196,8 +198,8 @@ impl FileSystem for NodeExecutionEnv {
 
     fn rename_file<'a>(
         &'a self,
-        source_path: &'a str,
-        destination_path: &'a str,
+        source_path: &'a JsString,
+        destination_path: &'a JsString,
         abort: Option<&'a CancellationToken>,
     ) -> BoxFuture<'a, Result<(), FileError>> {
         Box::pin(async move {
@@ -206,16 +208,16 @@ impl FileSystem for NodeExecutionEnv {
             if let Some(error) = abort_result(abort, &destination) {
                 return Err(error);
             }
-            tokio::fs::rename(&source, &destination)
+            tokio::fs::rename(&encode_node_utf8(&source), &encode_node_utf8(&destination))
                 .await
                 .map_err(|error| rename_error(&error, &source, &destination))
         })
     }
 
-    fn file_info<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Result<FileInfo, FileError>> {
+    fn file_info<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<FileInfo, FileError>> {
         Box::pin(async move {
             let resolved = resolve_path(&self.cwd, path);
-            let metadata = tokio::fs::symlink_metadata(&resolved)
+            let metadata = tokio::fs::symlink_metadata(&encode_node_utf8(&resolved))
                 .await
                 .map_err(|error| file_error(&error, "lstat", &resolved))?;
             file_info_from_metadata(&resolved, &metadata)
@@ -224,7 +226,7 @@ impl FileSystem for NodeExecutionEnv {
 
     fn list_dir<'a>(
         &'a self,
-        path: &'a str,
+        path: &'a JsString,
         abort: Option<&'a CancellationToken>,
     ) -> BoxFuture<'a, Result<Vec<FileInfo>, FileError>> {
         Box::pin(async move {
@@ -232,7 +234,7 @@ impl FileSystem for NodeExecutionEnv {
             if let Some(error) = abort_result(abort, &resolved) {
                 return Err(error);
             }
-            let mut entries = tokio::fs::read_dir(&resolved)
+            let mut entries = tokio::fs::read_dir(&encode_node_utf8(&resolved))
                 .await
                 .map_err(|error| file_error(&error, "scandir", &resolved))?;
             let mut infos = Vec::new();
@@ -244,8 +246,11 @@ impl FileSystem for NodeExecutionEnv {
                 if let Some(error) = abort_result(abort, &resolved) {
                     return Err(error);
                 }
-                let entry_path = entry.path().to_string_lossy().into_owned();
-                let metadata = tokio::fs::symlink_metadata(&entry_path)
+                let entry_path = join_paths(&[
+                    resolved.clone(),
+                    JsString::from(entry.file_name().to_string_lossy().into_owned()),
+                ]);
+                let metadata = tokio::fs::symlink_metadata(&encode_node_utf8(&entry_path))
                     .await
                     .map_err(|error| file_error(&error, "lstat", &entry_path))?;
                 if let Ok(info) = file_info_from_metadata(&entry_path, &metadata) {
@@ -256,24 +261,24 @@ impl FileSystem for NodeExecutionEnv {
         })
     }
 
-    fn canonical_path<'a>(&'a self, path: &'a str) -> BoxFuture<'a, Result<String, FileError>> {
+    fn canonical_path<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<JsString, FileError>> {
         Box::pin(async move {
             let resolved = resolve_path(&self.cwd, path);
-            tokio::fs::canonicalize(&resolved)
+            tokio::fs::canonicalize(&encode_node_utf8(&resolved))
                 .await
-                .map(|path| path.to_string_lossy().into_owned())
+                .map(|path| JsString::from(path.to_string_lossy().into_owned()))
                 .map_err(|error| file_error(&error, "realpath", &resolved))
         })
     }
 
     fn exists<'a>(
         &'a self,
-        path: &'a str,
+        path: &'a JsString,
         _abort: Option<&'a CancellationToken>,
     ) -> BoxFuture<'a, Result<bool, FileError>> {
         Box::pin(async move {
             let resolved = resolve_path(&self.cwd, path);
-            match tokio::fs::symlink_metadata(&resolved).await {
+            match tokio::fs::symlink_metadata(&encode_node_utf8(&resolved)).await {
                 Ok(_) => Ok(true),
                 Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
                 Err(error) => Err(file_error(&error, "lstat", &resolved)),
@@ -281,40 +286,40 @@ impl FileSystem for NodeExecutionEnv {
         })
     }
 
-    fn create_dir<'a>(&'a self, path: &'a str, options: CreateDirOptions) -> BoxFuture<'a, Result<(), FileError>> {
+    fn create_dir<'a>(&'a self, path: &'a JsString, options: CreateDirOptions) -> BoxFuture<'a, Result<(), FileError>> {
         Box::pin(async move {
             let resolved = resolve_path(&self.cwd, path);
             let result = if options.recursive.unwrap_or(true) {
-                tokio::fs::create_dir_all(&resolved).await
+                tokio::fs::create_dir_all(&encode_node_utf8(&resolved)).await
             } else {
-                tokio::fs::create_dir(&resolved).await
+                tokio::fs::create_dir(&encode_node_utf8(&resolved)).await
             };
             result.map_err(|error| file_error(&error, "mkdir", &resolved))
         })
     }
 
-    fn remove<'a>(&'a self, path: &'a str, options: RemoveOptions) -> BoxFuture<'a, Result<(), FileError>> {
+    fn remove<'a>(&'a self, path: &'a JsString, options: RemoveOptions) -> BoxFuture<'a, Result<(), FileError>> {
         Box::pin(async move {
             let resolved = resolve_path(&self.cwd, path);
             remove_path(&resolved, options).await
         })
     }
 
-    fn create_temp_dir<'a>(&'a self, prefix: &'a str) -> BoxFuture<'a, Result<String, FileError>> {
+    fn create_temp_dir<'a>(&'a self, prefix: &'a JsString) -> BoxFuture<'a, Result<JsString, FileError>> {
         Box::pin(async move { create_temp_dir(prefix).await })
     }
 
-    fn create_temp_file<'a>(&'a self, options: CreateTempFileOptions) -> BoxFuture<'a, Result<String, FileError>> {
+    fn create_temp_file<'a>(&'a self, options: CreateTempFileOptions) -> BoxFuture<'a, Result<JsString, FileError>> {
         Box::pin(async move {
-            let directory = create_temp_dir("tmp-").await?;
-            let name = format!(
+            let directory = create_temp_dir(&"tmp-".into()).await?;
+            let name = js_format!(
                 "{}{}{}",
                 options.prefix.unwrap_or_default(),
                 random_name(),
                 options.suffix.unwrap_or_default()
             );
-            let file_path = Path::new(&directory).join(name).to_string_lossy().into_owned();
-            tokio::fs::write(&file_path, b"")
+            let file_path = join_paths(&[directory, name]);
+            tokio::fs::write(&encode_node_utf8(&file_path), b"")
                 .await
                 .map_err(|error| file_error(&error, "open", &file_path))?;
             Ok(file_path)
@@ -346,7 +351,7 @@ impl NodeExecutionEnv {
             return Err(ExecutionError::new(ExecutionErrorCode::Aborted, "aborted", None));
         }
         let timeout_ms = resolve_timeout_ms(options.timeout)?;
-        let cwd = resolve_exec_cwd(&self.cwd, options.cwd.as_deref());
+        let cwd = resolve_exec_cwd(&self.cwd, options.cwd.as_ref());
         let shell = get_shell_config(self.shell_path.as_deref()).await?;
         ensure_working_directory(&cwd).await?;
 
@@ -385,12 +390,12 @@ impl NodeExecutionEnv {
         &self,
         shell: &ShellConfig,
         command: &str,
-        cwd: &str,
+        cwd: &JsString,
         options: &ShellExecOptions,
     ) -> Result<tokio::process::Child, ExecutionError> {
         let mut process = Command::new(&shell.shell);
         process.args(&shell.args).arg(command);
-        process.current_dir(cwd);
+        process.current_dir(encode_node_utf8(cwd));
         process.env_clear();
         process.envs(build_env(&self.shell_env, options.env.as_ref(), options.inherit_env));
         process.stdin(std::process::Stdio::null());
@@ -405,14 +410,14 @@ impl NodeExecutionEnv {
     }
 }
 
-fn resolve_exec_cwd(env_cwd: &str, requested_cwd: Option<&str>) -> String {
+fn resolve_exec_cwd(env_cwd: &JsString, requested_cwd: Option<&JsString>) -> JsString {
     match requested_cwd {
         Some(path) => resolve_path(env_cwd, path),
         None => env_cwd.to_owned(),
     }
 }
 
-async fn ensure_working_directory(cwd: &str) -> Result<(), ExecutionError> {
+async fn ensure_working_directory(cwd: &JsString) -> Result<(), ExecutionError> {
     if path_exists(cwd).await {
         return Ok(());
     }
@@ -470,14 +475,14 @@ struct ExitWait {
     status: Result<std::process::ExitStatus, std::io::Error>,
     timed_out: bool,
     aborted: bool,
-    callback_error: Option<String>,
+    callback_error: Option<JsString>,
 }
 
 #[derive(Default)]
 struct WaitFlags {
     timed_out: bool,
     aborted: bool,
-    callback_error: Option<String>,
+    callback_error: Option<JsString>,
 }
 
 async fn wait_for_exit(
@@ -555,7 +560,7 @@ fn kill_if_running(pid: Option<u32>) {
 async fn drain_streams(
     receiver: &mut UnboundedReceiver<StreamEvent>,
     done: &mut [bool; 2],
-    callback_error: &mut Option<String>,
+    callback_error: &mut Option<JsString>,
 ) {
     let grace = tokio::time::sleep(EXIT_STDIO_GRACE);
     tokio::pin!(grace);
@@ -615,10 +620,10 @@ enum StreamKind {
 
 struct StreamEvent {
     kind: StreamKind,
-    result: Result<(), String>,
+    result: Result<(), JsString>,
 }
 
-fn apply_stream_event(event: Option<StreamEvent>, done: &mut [bool; 2], callback_error: &mut Option<String>) -> bool {
+fn apply_stream_event(event: Option<StreamEvent>, done: &mut [bool; 2], callback_error: &mut Option<JsString>) -> bool {
     let Some(event) = event else {
         return true;
     };
@@ -655,7 +660,7 @@ async fn read_stream<R>(
             Err(error) => {
                 let _ = sender.send(StreamEvent {
                     kind,
-                    result: Err(error.to_string()),
+                    result: Err(error.to_string().into()),
                 });
                 return;
             }
@@ -851,8 +856,8 @@ async fn run_command(command: &str, args: &[&str], timeout_ms: u64) -> Option<(S
     ))
 }
 
-async fn path_exists(path: &str) -> bool {
-    tokio::fs::metadata(path).await.is_ok()
+async fn path_exists(path: &JsString) -> bool {
+    tokio::fs::metadata(encode_node_utf8(path)).await.is_ok()
 }
 
 fn kill_process_tree(pid: u32) {
@@ -862,18 +867,20 @@ fn kill_process_tree(pid: u32) {
     let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
 }
 
-async fn create_parent_dir(resolved: &str) -> Result<(), FileError> {
-    let parent = Path::new(resolved)
-        .parent()
-        .map(|parent| parent.to_string_lossy().into_owned())
-        .unwrap_or_else(|| resolved.to_owned());
-    tokio::fs::create_dir_all(&parent)
+async fn create_parent_dir(resolved: &JsString) -> Result<(), FileError> {
+    let parent = resolved
+        .units()
+        .iter()
+        .rposition(|unit| *unit == 0x2f)
+        .map(|index| resolved.slice(0, index.max(1)))
+        .unwrap_or_else(|| resolved.clone());
+    tokio::fs::create_dir_all(encode_node_utf8(&parent))
         .await
         .map_err(|error| file_error(&error, "mkdir", &parent))
 }
 
-async fn remove_path(resolved: &str, options: RemoveOptions) -> Result<(), FileError> {
-    let metadata = match tokio::fs::symlink_metadata(resolved).await {
+async fn remove_path(resolved: &JsString, options: RemoveOptions) -> Result<(), FileError> {
+    let metadata = match tokio::fs::symlink_metadata(encode_node_utf8(resolved)).await {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound && options.force.unwrap_or(false) => return Ok(()),
         Err(error) => return Err(file_error(&error, "lstat", resolved)),
@@ -882,34 +889,34 @@ async fn remove_path(resolved: &str, options: RemoveOptions) -> Result<(), FileE
         if !options.recursive.unwrap_or(false) {
             return Err(FileError::new(
                 FileErrorCode::Unknown,
-                format!("Path is a directory: rm returned EISDIR (is a directory) {resolved}"),
+                js_format!("Path is a directory: rm returned EISDIR (is a directory) {}", resolved),
                 Some(resolved.to_owned()),
                 None,
             ));
         }
-        tokio::fs::remove_dir_all(resolved)
+        tokio::fs::remove_dir_all(encode_node_utf8(resolved))
             .await
             .map_err(|error| file_error(&error, "rmdir", resolved))
     } else {
-        tokio::fs::remove_file(resolved)
+        tokio::fs::remove_file(encode_node_utf8(resolved))
             .await
             .map_err(|error| file_error(&error, "unlink", resolved))
     }
 }
 
-async fn create_temp_dir(prefix: &str) -> Result<String, FileError> {
-    let base = std::env::temp_dir();
+async fn create_temp_dir(prefix: &JsString) -> Result<JsString, FileError> {
+    let base = JsString::from(std::env::temp_dir().to_string_lossy().into_owned());
     for _ in 0..100 {
-        let candidate = base.join(format!("{prefix}{}", random_name_suffix()));
-        match tokio::fs::create_dir(&candidate).await {
-            Ok(()) => return Ok(candidate.to_string_lossy().into_owned()),
+        let candidate = join_paths(&[base.clone(), prefix.clone() + random_name_suffix()]);
+        match tokio::fs::create_dir(encode_node_utf8(&candidate)).await {
+            Ok(()) => return Ok(candidate),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(file_error(&error, "mkdir", &candidate.to_string_lossy())),
+            Err(error) => return Err(file_error(&error, "mkdir", &candidate)),
         }
     }
     Err(FileError::new(
         FileErrorCode::Unknown,
-        "Could not create a unique temporary directory".to_owned(),
+        "Could not create a unique temporary directory",
         None,
         None,
     ))
@@ -957,13 +964,13 @@ fn split_lines(content: &str) -> Vec<String> {
     lines
 }
 
-fn abort_result(abort: Option<&CancellationToken>, path: &str) -> Option<FileError> {
+fn abort_result(abort: Option<&CancellationToken>, path: &JsString) -> Option<FileError> {
     abort
         .filter(|token| token.is_cancelled())
         .map(|_| FileError::new(FileErrorCode::Aborted, "aborted", Some(path.to_owned()), None))
 }
 
-fn file_info_from_metadata(path: &str, metadata: &std::fs::Metadata) -> Result<FileInfo, FileError> {
+fn file_info_from_metadata(path: &JsString, metadata: &std::fs::Metadata) -> Result<FileInfo, FileError> {
     let file_type = metadata.file_type();
     let kind = if file_type.is_file() {
         FileKind::File
@@ -980,10 +987,7 @@ fn file_info_from_metadata(path: &str, metadata: &std::fs::Metadata) -> Result<F
         ));
     };
     Ok(FileInfo {
-        name: Path::new(path)
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default(),
+        name: path.split('/').last().unwrap_or_default(),
         path: path.to_owned(),
         kind,
         size: metadata.len() as f64,
@@ -996,27 +1000,27 @@ fn file_info_from_metadata(path: &str, metadata: &std::fs::Metadata) -> Result<F
     })
 }
 
-fn file_error(error: &io::Error, syscall: &str, path: &str) -> FileError {
+fn file_error(error: &io::Error, syscall: &str, path: &JsString) -> FileError {
     let (code, description, error_code) = match error_parts(error) {
         Some(parts) => parts,
         None => return unknown_file_error(error, syscall, path),
     };
     FileError::new(
         error_code,
-        format!("{code}: {description}, {syscall} '{path}'"),
+        js_format!("{}: {}, {} '{}'", code, description, syscall, path),
         Some(path.to_owned()),
         Some(Box::new(io::Error::new(error.kind(), error.to_string()))),
     )
 }
 
-fn rename_error(error: &io::Error, source: &str, destination: &str) -> FileError {
+fn rename_error(error: &io::Error, source: &JsString, destination: &JsString) -> FileError {
     let (code, description, error_code) = match error_parts(error) {
         Some(parts) => parts,
         None => return unknown_file_error(error, "rename", source),
     };
     FileError::new(
         error_code,
-        format!("{code}: {description}, rename '{source}' -> '{destination}'"),
+        js_format!("{}: {}, rename '{}' -> '{}'", code, description, source, destination),
         Some(source.to_owned()),
         Some(Box::new(io::Error::new(error.kind(), error.to_string()))),
     )
@@ -1035,127 +1039,131 @@ fn error_parts(error: &io::Error) -> Option<(&'static str, &'static str, FileErr
     })
 }
 
-fn unknown_file_error(error: &io::Error, syscall: &str, path: &str) -> FileError {
+fn unknown_file_error(error: &io::Error, syscall: &str, path: &JsString) -> FileError {
     FileError::new(
         FileErrorCode::Unknown,
-        format!("UNKNOWN: {error}, {syscall} '{path}'"),
+        js_format!("UNKNOWN: {}, {} '{}'", error.to_string(), syscall, path),
         Some(path.to_owned()),
         Some(Box::new(io::Error::new(error.kind(), error.to_string()))),
     )
 }
 
-fn resolve_path(cwd: &str, path: &str) -> String {
+fn resolve_path(cwd: &JsString, path: &JsString) -> JsString {
     let normalized = expand_path(path);
     let absolute = if normalized.starts_with('/') {
         normalized
     } else {
-        let cwd = if cwd.starts_with('/') {
-            cwd.to_owned()
+        let base = if cwd.starts_with('/') {
+            cwd.clone()
         } else {
             std::env::current_dir()
-                .map(|current| current.to_string_lossy().into_owned())
-                .unwrap_or_else(|_| "/".to_owned())
+                .map(|current| JsString::from(current.to_string_lossy().into_owned()))
+                .unwrap_or_else(|_| "/".into())
         };
-        format!("{cwd}/{normalized}")
+        base + "/" + normalized
     };
     node_normalize(&absolute)
 }
 
-fn expand_path(path: &str) -> String {
+fn expand_path(path: &JsString) -> JsString {
     if path == "~" {
         return home_dir();
     }
     if let Some(rest) = path.strip_prefix("~/") {
-        return format!("{}/{}", home_dir(), rest);
+        return home_dir() + "/" + rest;
     }
     if path.starts_with("file://")
         && let Some(decoded) = file_url_to_path(path)
     {
         return decoded;
     }
-    path.to_owned()
+    path.clone()
 }
 
-fn home_dir() -> String {
-    pi_js_compat::process_env::get("HOME").unwrap_or_else(|| "/".to_owned())
+fn home_dir() -> JsString {
+    pi_js_compat::process_env::get("HOME")
+        .unwrap_or_else(|| "/".to_owned())
+        .into()
 }
 
-fn file_url_to_path(url: &str) -> Option<String> {
+fn file_url_to_path(url: &JsString) -> Option<JsString> {
     let rest = url.strip_prefix("file://")?;
     let path = if let Some(path) = rest.strip_prefix("localhost/") {
-        format!("/{path}")
+        JsString::from("/") + path
     } else if rest.starts_with('/') {
-        rest.to_owned()
+        rest
     } else {
         return None;
     };
     Some(percent_decode(&path))
 }
 
-fn percent_decode(value: &str) -> String {
-    let bytes = value.as_bytes();
-    let mut output = Vec::with_capacity(bytes.len());
+fn percent_decode(value: &JsString) -> JsString {
+    let units = value.units();
+    let mut output = JsString::default();
     let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'%' && index + 2 < bytes.len() {
-            let high = hex_value(bytes[index + 1]);
-            let low = hex_value(bytes[index + 2]);
-            if let (Some(high), Some(low)) = (high, low) {
-                output.push(high << 4 | low);
-                index += 3;
-                continue;
-            }
+    while index < units.len() {
+        let mut bytes = Vec::new();
+        while index + 2 < units.len() && units[index] == 0x25 {
+            let Some(high) = hex_value(units[index + 1]) else {
+                break;
+            };
+            let Some(low) = hex_value(units[index + 2]) else {
+                break;
+            };
+            bytes.push(high << 4 | low);
+            index += 3;
         }
-        output.push(bytes[index]);
-        index += 1;
+        if bytes.is_empty() {
+            output.push_unit(units[index]);
+            index += 1;
+        } else {
+            output.push_str(String::from_utf8_lossy(&bytes).into_owned());
+        }
     }
-    String::from_utf8_lossy(&output).into_owned()
+    output
 }
 
-fn hex_value(byte: u8) -> Option<u8> {
-    match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(byte - b'a' + 10),
-        b'A'..=b'F' => Some(byte - b'A' + 10),
+fn hex_value(unit: u16) -> Option<u8> {
+    match unit {
+        0x30..=0x39 => Some((unit - 0x30) as u8),
+        0x61..=0x66 => Some((unit - 0x61 + 10) as u8),
+        0x41..=0x46 => Some((unit - 0x41 + 10) as u8),
         _ => None,
     }
 }
 
-fn join_paths(parts: &[String]) -> String {
-    let joined = parts
-        .iter()
-        .filter(|part| !part.is_empty())
-        .cloned()
-        .collect::<Vec<_>>()
-        .join("/");
+fn join_paths(parts: &[JsString]) -> JsString {
+    let joined = JsString::join(parts.iter().filter(|part| !part.is_empty()), "/");
     if joined.is_empty() {
-        ".".to_owned()
+        ".".into()
     } else {
         node_normalize(&joined)
     }
 }
 
-fn node_normalize(path: &str) -> String {
+fn node_normalize(path: &JsString) -> JsString {
     let absolute = path.starts_with('/');
-    let mut components: Vec<&str> = Vec::new();
+    let mut components: Vec<JsString> = Vec::new();
     for component in path.split('/') {
-        match component {
-            "" | "." => {}
-            ".." => {
-                if components.last().is_some_and(|last| *last != "..") {
-                    components.pop();
-                } else if !absolute {
-                    components.push("..");
-                }
+        if component.is_empty() || component == "." {
+            continue;
+        }
+        if component == ".." {
+            if components.last().is_some_and(|last| last != "..") {
+                components.pop();
+            } else if !absolute {
+                components.push("..".into());
             }
-            other => components.push(other),
+        } else {
+            components.push(component);
         }
     }
-    let joined = components.join("/");
+    let joined = JsString::join(components, "/");
     if absolute {
-        format!("/{joined}")
+        JsString::from("/") + joined
     } else if joined.is_empty() {
-        ".".to_owned()
+        ".".into()
     } else {
         joined
     }
