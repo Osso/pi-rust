@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
@@ -472,7 +471,7 @@ pub struct ShellExecOptions {
     /// Working directory for the command; relative paths resolve against [`FileSystem::cwd`].
     pub cwd: Option<JsString>,
     /// Environment variables overriding process and configured shell defaults.
-    pub env: Option<HashMap<String, String>>,
+    pub env: Option<IndexMap<String, JsString>>,
     /// Timeout in seconds. No timeout when absent.
     pub timeout: Option<f64>,
     /// Cancellation token used to terminate the command.

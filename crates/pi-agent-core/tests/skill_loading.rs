@@ -1,7 +1,6 @@
 //! Behavioral port of `packages/agent/test/harness/skills.test.ts` plus loader branch coverage.
 
 use pi_js_compat::js_json::JsString;
-use std::collections::HashMap;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 
@@ -20,7 +19,7 @@ fn env_at(root: &Path) -> NodeExecutionEnv {
     NodeExecutionEnv::new(NodeExecutionEnvOptions {
         cwd: JsString::from(root.to_str().expect("utf-8 test path").to_owned()),
         shell_path: None,
-        shell_env: HashMap::new(),
+        shell_env: Default::default(),
     })
 }
 
