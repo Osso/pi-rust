@@ -79,7 +79,7 @@ impl ModelConfig {
     }
 
     pub fn get_provider_ids(&self) -> Vec<String> {
-        js_json::object_entries_js(&self.providers)
+        js_json::object_entries_lossless(&self.providers)
             .into_iter()
             .map(|(name, _)| name.to_utf8().expect("provider IDs checked at models.json load"))
             .collect()
