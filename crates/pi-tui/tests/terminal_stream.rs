@@ -1,4 +1,5 @@
 //! Real stdin/stdout lifecycle differential inside the mandatory sandbox's PTYs.
+use pi_js_compat::js_json::JsString;
 use std::io::Write;
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -71,7 +72,7 @@ finally:
     if slave is not None: os.close(slave)
 "#;
 
-fn collect_inputs(terminal: &mut ProcessTerminal, inputs: &mut Vec<String>, sizes: &mut Vec<[usize; 2]>) -> bool {
+fn collect_inputs(terminal: &mut ProcessTerminal, inputs: &mut Vec<JsString>, sizes: &mut Vec<[usize; 2]>) -> bool {
     let mut done = false;
     for event in terminal.poll_events() {
         match event {

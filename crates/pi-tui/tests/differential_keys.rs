@@ -1,6 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use pi_tui::keys::{
     decode_kitty_printable, decode_printable_key, is_key_release, is_key_repeat, matches_key, parse_key,
     set_kitty_protocol_active,
@@ -366,11 +367,11 @@ fn keys_match_the_pinned_typescript_source() {
     let results = response["output"]["results"].as_array().unwrap();
     for ((data, kitty), expected) in PARSE_CASES.iter().zip(results) {
         set_kitty_protocol_active(*kitty);
-        let actual = parse_key(data);
+        let actual = parse_key(*data);
         set_kitty_protocol_active(false);
         assert_eq!(
-            actual.as_deref(),
-            expected.as_str(),
+            actual,
+            expected.as_str().map(JsString::from),
             "parse mismatch for {data:?} kitty={kitty}"
         );
     }
@@ -388,7 +389,7 @@ fn keys_match_the_pinned_typescript_source() {
     let results = response["output"]["results"].as_array().unwrap();
     for ((data, key_id, kitty), expected) in MATCH_CASES.iter().zip(results) {
         set_kitty_protocol_active(*kitty);
-        let actual = matches_key(data, key_id);
+        let actual = matches_key(*data, *key_id);
         set_kitty_protocol_active(false);
         assert_eq!(
             actual,
@@ -406,22 +407,22 @@ fn keys_match_the_pinned_typescript_source() {
     let results = response["output"]["results"].as_array().unwrap();
     for (data, expected) in DECODE_CASES.iter().zip(results) {
         assert_eq!(
-            decode_kitty_printable(data).as_deref(),
-            expected["kitty"].as_str(),
+            decode_kitty_printable(*data),
+            expected["kitty"].as_str().map(JsString::from),
             "kitty decode mismatch for {data:?}"
         );
         assert_eq!(
-            decode_printable_key(data).as_deref(),
-            expected["printable"].as_str(),
+            decode_printable_key(*data),
+            expected["printable"].as_str().map(JsString::from),
             "printable decode mismatch for {data:?}"
         );
         assert_eq!(
-            is_key_release(data),
+            is_key_release(*data),
             expected["release"].as_bool().unwrap(),
             "release mismatch for {data:?}"
         );
         assert_eq!(
-            is_key_repeat(data),
+            is_key_repeat(*data),
             expected["repeat"].as_bool().unwrap(),
             "repeat mismatch for {data:?}"
         );

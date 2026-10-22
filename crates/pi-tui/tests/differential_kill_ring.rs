@@ -108,7 +108,7 @@ fn simulate(operations: &[Operation]) -> Value {
                 text,
                 prepend,
                 accumulate,
-            } => ring.push(text, prepend, accumulate),
+            } => ring.push(&text.into(), prepend, accumulate),
             Operation::Rotate => ring.rotate(),
             Operation::Peek => snapshots.push(json!({
                 "peek": ring.peek(),

@@ -1,6 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -282,8 +283,8 @@ fn input_editing_and_rendering_match_typescript() {
         input.set_focused(case.focused);
         let submitted = Rc::new(RefCell::new(Vec::new()));
         let sink = Rc::clone(&submitted);
-        input.on_submit = Some(Rc::new(move |value: &str| {
-            sink.borrow_mut().push(value.to_string());
+        input.on_submit = Some(Rc::new(move |value: &JsString| {
+            sink.borrow_mut().push(value.clone());
         }));
         let escapes = Rc::new(RefCell::new(0usize));
         let escape_sink = Rc::clone(&escapes);
@@ -296,9 +297,9 @@ fn input_editing_and_rendering_match_typescript() {
         for step in case.steps {
             match step {
                 Step::SetValue(value) => input.set_value(*value),
-                Step::Key(data) => input.handle_input(&pi_js_compat::js_json::JsString::from(data)),
+                Step::Key(data) => input.handle_input(&pi_js_compat::js_json::JsString::from(*data)),
                 Step::Render(width) => lines.push(input.render(*width)),
-                Step::Value => values.push(input.get_value().to_string()),
+                Step::Value => values.push(input.get_value().clone()),
             }
         }
         expected.push(json!({

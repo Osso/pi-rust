@@ -144,10 +144,7 @@ fn forwards_normal_input_while_waiting_for_kitty_response() {
     let (mut terminal, _writer) = negotiation_terminal();
     terminal.feed_stdin("a");
 
-    assert_eq!(
-        terminal.poll_at(Instant::now()),
-        vec![TerminalEvent::Input("a".to_string())]
-    );
+    assert_eq!(terminal.poll_at(Instant::now()), vec![TerminalEvent::Input("a".into())]);
     assert!(!terminal.kitty_protocol_active());
 }
 
@@ -171,7 +168,7 @@ fn replays_buffered_csi_prefix_input_when_it_is_not_a_kitty_response() {
 
     assert_eq!(
         terminal.poll_at(start + Duration::from_millis(400)),
-        vec![TerminalEvent::Input("\x1b[".to_string())]
+        vec![TerminalEvent::Input("\x1b[".into())]
     );
 }
 

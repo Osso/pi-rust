@@ -9,11 +9,11 @@ fn buffer() -> StdinBuffer {
 }
 
 fn data(value: &str) -> StdinBufferEvent {
-    StdinBufferEvent::Data(value.to_string())
+    StdinBufferEvent::Data(value.into())
 }
 
 fn paste(value: &str) -> StdinBufferEvent {
-    StdinBufferEvent::Paste(value.to_string())
+    StdinBufferEvent::Paste(value.into())
 }
 
 fn poll_later(buffer: &mut StdinBuffer) -> Vec<StdinBufferEvent> {

@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::sync::Mutex;
 
 use pi_tui::terminal_image::{
@@ -215,7 +216,7 @@ fn encodes_iterm2_with_frozen_options_without_size_metadata() {
             "AAAA",
             &pi_tui::terminal_image::Iterm2Options {
                 width: Some(Iterm2Size::Number(2.0)),
-                height: Some(Iterm2Size::Text("auto".to_string())),
+                height: Some(Iterm2Size::Text("auto".into())),
                 ..Default::default()
             }
         ),
@@ -526,7 +527,7 @@ fn builds_image_fallbacks() {
                         width_px: 1280,
                         height_px: 720
                     }),
-                    Some(&path)
+                    Some(&JsString::from(&path))
                 ),
                 format!("[Image: {path} [image/png] 1280x720]")
             );
@@ -548,7 +549,7 @@ fn builds_image_fallbacks() {
                         width_px: 1,
                         height_px: 1
                     }),
-                    Some("clankolas.png")
+                    Some(&JsString::from("clankolas.png"))
                 ),
                 "[Image: clankolas.png [image/png] 1x1]"
             );
@@ -573,7 +574,7 @@ fn fallback_keeps_literal_absolute_filename_even_with_hyperlinks() {
                     width_px: 10,
                     height_px: 10,
                 }),
-                Some(&path),
+                Some(&JsString::from(&path)),
             );
             assert_eq!(result, format!("[Image: {path} [image/png] 10x10]"));
         },

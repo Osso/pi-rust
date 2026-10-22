@@ -615,7 +615,7 @@ fn image_render_matches_typescript() {
             ImageOptions {
                 max_width_cells: case["options"]["maxWidthCells"].as_u64().map(|value| value as usize),
                 max_height_cells: case["options"]["maxHeightCells"].as_u64().map(|value| value as usize),
-                filename: case["options"]["filename"].as_str().map(str::to_string),
+                filename: case["options"]["filename"].as_str().map(JsString::from),
                 image_id: case["options"]["imageId"].as_u64().map(|value| value as u32),
             },
             Some(ImageDimensions {

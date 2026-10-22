@@ -4004,16 +4004,16 @@ mod kitty_header_tests {
 
     #[test]
     fn kitty_header_parameters_use_javascript_number_parsing() {
-        let header = parse_kitty_image_header("\x1b_Gi=0x10,r=1e1;payload").expect("header");
+        let header = parse_kitty_image_header(&"\x1b_Gi=0x10,r=1e1;payload".into()).expect("header");
         assert_eq!(header.ids, vec![16]);
         assert_eq!(header.rows, 10);
 
-        let header = parse_kitty_image_header("\x1b_Gi=5.0,r= 5 ;payload").expect("header");
+        let header = parse_kitty_image_header(&"\x1b_Gi=5.0,r= 5 ;payload".into()).expect("header");
         assert_eq!(header.ids, vec![5]);
         assert_eq!(header.rows, 5);
 
         // Non-integers, zero, and values above u32 are ignored.
-        let header = parse_kitty_image_header("\x1b_Gi=1.5,r=0,j=4294967296;payload").expect("header");
+        let header = parse_kitty_image_header(&"\x1b_Gi=1.5,r=0,j=4294967296;payload".into()).expect("header");
         assert!(header.ids.is_empty());
         assert_eq!(header.rows, 1);
     }

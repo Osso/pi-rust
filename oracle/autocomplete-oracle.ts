@@ -66,14 +66,6 @@ async function loadApi(sourceDirectory: string, moduleName: string): Promise<unk
 	return import(pathToFileURL(path.join(sourceDirectory, moduleName)).href);
 }
 
-function utf16IndexForByteOffset(text: string, byteOffset: number): number {
-	return Buffer.from(text, "utf8").subarray(0, byteOffset).toString("utf8").length;
-}
-
-function byteOffsetForUtf16Index(text: string, utf16Index: number): number {
-	return Buffer.byteLength(text.slice(0, utf16Index), "utf8");
-}
-
 type CommandRequest = {
 	name?: string | null;
 	value?: string | null;
@@ -127,8 +119,7 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
 
 			const results = [];
 			for (const testCase of cases) {
-				const currentLine = testCase.lines[testCase.cursorLine] ?? "";
-				const cursorCol = utf16IndexForByteOffset(currentLine, testCase.cursorCol);
+				const cursorCol = testCase.cursorCol;
 				const result = await provider.getSuggestions(testCase.lines, testCase.cursorLine, cursorCol, {
 					signal: new AbortController().signal,
 					force: testCase.force,
@@ -162,8 +153,7 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
 
 			return {
 				results: cases.map((testCase) => {
-					const currentLine = testCase.lines[testCase.cursorLine] ?? "";
-					const cursorCol = utf16IndexForByteOffset(currentLine, testCase.cursorCol);
+						const cursorCol = testCase.cursorCol;
 					const applied = provider.applyCompletion(
 						testCase.lines,
 						testCase.cursorLine,
@@ -174,10 +164,7 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
 					return {
 						lines: applied.lines,
 						cursorLine: applied.cursorLine,
-						cursorCol: byteOffsetForUtf16Index(
-							applied.lines[applied.cursorLine] ?? "",
-							applied.cursorCol,
-						),
+						cursorCol: applied.cursorCol,
 					};
 				}),
 			};

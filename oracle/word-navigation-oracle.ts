@@ -34,25 +34,17 @@ async function loadApi(sourceDirectory: string, moduleName: string): Promise<unk
 	return import(pathToFileURL(path.join(sourceDirectory, moduleName)).href);
 }
 
-function utf16IndexForByteOffset(text: string, byteOffset: number): number {
-	return Buffer.from(text, "utf8").subarray(0, byteOffset).toString("utf8").length;
-}
-
-function byteOffsetForUtf16Index(text: string, utf16Index: number): number {
-	return Buffer.byteLength(text.slice(0, utf16Index), "utf8");
-}
-
 async function execute(request: Request, sourceDirectory: string): Promise<unknown> {
 	switch (request.operation) {
 		case "word_navigation": {
 			const api = (await loadApi(sourceDirectory, "word-navigation.ts")) as WordNavigationApi;
-			const cases = requireArray<{ text: string; cursorBytes: number }>(request, "cases");
+			const cases = requireArray<{ text: string; cursor: number }>(request, "cases");
 			return {
 				results: cases.map((testCase) => {
-					const cursor = utf16IndexForByteOffset(testCase.text, testCase.cursorBytes);
+					const cursor = testCase.cursor;
 					return {
-						backward: byteOffsetForUtf16Index(testCase.text, api.findWordBackward(testCase.text, cursor)),
-						forward: byteOffsetForUtf16Index(testCase.text, api.findWordForward(testCase.text, cursor)),
+						backward: api.findWordBackward(testCase.text, cursor),
+						forward: api.findWordForward(testCase.text, cursor),
 					};
 				}),
 			};

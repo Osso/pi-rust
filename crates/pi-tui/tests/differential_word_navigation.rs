@@ -1,6 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use std::collections::BTreeSet;
 
 use pi_tui::word_navigation::{find_word_backward, find_word_forward};
@@ -100,9 +101,7 @@ fn generated_corpus() -> Vec<String> {
 }
 
 fn boundary_offsets(text: &str) -> Vec<usize> {
-    let mut offsets: Vec<usize> = text.char_indices().map(|(index, _)| index).collect();
-    offsets.push(text.len());
-    offsets
+    (0..=JsString::from(text).len()).collect()
 }
 
 struct Case {
@@ -127,7 +126,7 @@ fn word_navigation_matches_the_pinned_typescript_source_outside_dictionary_scrip
 
     let requests: Vec<Value> = cases
         .iter()
-        .map(|case| json!({ "text": case.text, "cursorBytes": case.cursor }))
+        .map(|case| json!({ "text": case.text, "cursor": case.cursor }))
         .collect();
 
     let mut oracle = oracle::TsOracle::spawn("word-navigation-oracle.ts", SOURCE_DIRECTORY);
@@ -145,13 +144,13 @@ fn word_navigation_matches_the_pinned_typescript_source_outside_dictionary_scrip
     for (case, expected) in cases.iter().zip(results) {
         let expected_backward = expected["backward"].as_u64().expect("backward");
         let expected_forward = expected["forward"].as_u64().expect("forward");
-        let actual_backward = find_word_backward(&case.text, case.cursor, None) as u64;
-        let actual_forward = find_word_forward(&case.text, case.cursor, None) as u64;
+        let actual_backward = find_word_backward(&JsString::from(&case.text), case.cursor, None) as u64;
+        let actual_forward = find_word_forward(&JsString::from(&case.text), case.cursor, None) as u64;
 
         if actual_backward != expected_backward || actual_forward != expected_forward {
             assert!(
                 is_dictionary_sensitive(&case.text),
-                "unexpected segmentation mismatch outside dictionary scripts for {:?} at byte {}: \
+                "unexpected segmentation mismatch outside dictionary scripts for {:?} at unit {}: \
                  backward {actual_backward} != {expected_backward}, forward {actual_forward} != {expected_forward}",
                 case.text,
                 case.cursor
@@ -187,47 +186,47 @@ fn known_icu4x_dictionary_divergences_are_pinned() {
             text: "好好好",
             cursor: 0,
             rust_backward: 0,
-            rust_forward: 6,
+            rust_forward: 2,
             ts_backward: 0,
-            ts_forward: 3,
+            ts_forward: 1,
         },
         Divergence {
             text: "好好好",
-            cursor: 6,
+            cursor: 2,
             rust_backward: 0,
-            rust_forward: 9,
+            rust_forward: 3,
             ts_backward: 0,
-            ts_forward: 9,
+            ts_forward: 3,
         },
         Divergence {
             text: "中国人民",
             cursor: 0,
             rust_backward: 0,
-            rust_forward: 9,
+            rust_forward: 3,
             ts_backward: 0,
-            ts_forward: 6,
+            ts_forward: 2,
         },
         Divergence {
             text: "中国人民",
-            cursor: 12,
-            rust_backward: 9,
-            rust_forward: 12,
-            ts_backward: 6,
-            ts_forward: 12,
+            cursor: 4,
+            rust_backward: 3,
+            rust_forward: 4,
+            ts_backward: 2,
+            ts_forward: 4,
         },
         Divergence {
             text: "สวัสดีชาวโลก",
-            cursor: 3,
+            cursor: 1,
             rust_backward: 0,
-            rust_forward: 18,
+            rust_forward: 6,
             ts_backward: 0,
-            ts_forward: 12,
+            ts_forward: 4,
         },
     ];
 
     let requests: Vec<Value> = cases
         .iter()
-        .map(|case| json!({ "text": case.text, "cursorBytes": case.cursor }))
+        .map(|case| json!({ "text": case.text, "cursor": case.cursor }))
         .collect();
     let mut oracle = oracle::TsOracle::spawn("word-navigation-oracle.ts", SOURCE_DIRECTORY);
     let response = oracle.request(&json!({
@@ -240,30 +239,30 @@ fn known_icu4x_dictionary_divergences_are_pinned() {
 
     for (case, expected) in cases.iter().zip(results) {
         assert_eq!(
-            find_word_backward(case.text, case.cursor, None),
+            find_word_backward(&JsString::from(case.text), case.cursor, None),
             case.rust_backward,
-            "ICU4X backward drift for {:?} at byte {}",
+            "ICU4X backward drift for {:?} at unit {}",
             case.text,
             case.cursor
         );
         assert_eq!(
-            find_word_forward(case.text, case.cursor, None),
+            find_word_forward(&JsString::from(case.text), case.cursor, None),
             case.rust_forward,
-            "ICU4X forward drift for {:?} at byte {}",
+            "ICU4X forward drift for {:?} at unit {}",
             case.text,
             case.cursor
         );
         assert_eq!(
             expected["backward"].as_u64().expect("backward") as usize,
             case.ts_backward,
-            "TypeScript backward drift for {:?} at byte {}",
+            "TypeScript backward drift for {:?} at unit {}",
             case.text,
             case.cursor
         );
         assert_eq!(
             expected["forward"].as_u64().expect("forward") as usize,
             case.ts_forward,
-            "TypeScript forward drift for {:?} at byte {}",
+            "TypeScript forward drift for {:?} at unit {}",
             case.text,
             case.cursor
         );

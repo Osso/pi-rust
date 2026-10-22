@@ -2,7 +2,7 @@
 mod oracle;
 
 use pi_js_compat::{date, process_env};
-use pi_tui::{ProcessTerminal, Terminal};
+use pi_tui::ProcessTerminal;
 use serde_json::json;
 
 #[test]

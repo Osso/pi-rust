@@ -1,6 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use std::sync::Mutex;
 
 use pi_tui::terminal_image::{
@@ -85,7 +86,7 @@ fn terminal_image_matches_the_pinned_typescript_source() {
     assert_eq!(response["ok"], true, "oracle failed: {response}");
     let results = response["output"]["results"].as_array().unwrap();
     for (line, expected) in lines.iter().zip(results) {
-        assert_eq!(is_image_line(line), expected.as_bool().unwrap(), "{line:?}");
+        assert_eq!(is_image_line(*line), expected.as_bool().unwrap(), "{line:?}");
     }
 
     let long_data = "A".repeat(8192);
@@ -139,7 +140,7 @@ fn terminal_image_matches_the_pinned_typescript_source() {
             "AAAA",
             &Iterm2Options {
                 width: Some(Iterm2Size::Number(2.0)),
-                height: Some(Iterm2Size::Text("auto".to_string())),
+                height: Some(Iterm2Size::Text("auto".into())),
                 ..Default::default()
             },
         ),
@@ -147,7 +148,7 @@ fn terminal_image_matches_the_pinned_typescript_source() {
             "AAAA",
             &Iterm2Options {
                 inline: Some(false),
-                name: Some("shot.png".to_string()),
+                name: Some("shot.png".into()),
                 preserve_aspect_ratio: Some(false),
                 ..Default::default()
             },
@@ -155,7 +156,7 @@ fn terminal_image_matches_the_pinned_typescript_source() {
         encode_iterm2(
             "AAAA",
             &Iterm2Options {
-                width: Some(Iterm2Size::Text("50%".to_string())),
+                width: Some(Iterm2Size::Text("50%".into())),
                 height: Some(Iterm2Size::Number(10.0)),
                 ..Default::default()
             },
@@ -277,11 +278,11 @@ fn terminal_image_matches_the_pinned_typescript_source() {
             None => Value::Null,
         };
         json!({
-            "png": encode(get_png_dimensions(data)),
-            "jpeg": encode(get_jpeg_dimensions(data)),
-            "gif": encode(get_gif_dimensions(data)),
-            "webp": encode(get_webp_dimensions(data)),
-            "dispatched": encode(get_image_dimensions(data, mime)),
+            "png": encode(get_png_dimensions(*data)),
+            "jpeg": encode(get_jpeg_dimensions(*data)),
+            "gif": encode(get_gif_dimensions(*data)),
+            "webp": encode(get_webp_dimensions(*data)),
+            "dispatched": encode(get_image_dimensions(*data, *mime)),
         })
     })
     .collect();
@@ -639,7 +640,7 @@ fn terminal_image_matches_the_pinned_typescript_source() {
     let results = response["output"]["results"].as_array().unwrap();
     for ((caps, mime, dimensions, filename), expected) in fallback_cases.iter().zip(results) {
         set_capabilities(*caps);
-        let actual = image_fallback(mime, *dimensions, filename.as_deref());
+        let actual = image_fallback(*mime, *dimensions, filename.as_deref().map(JsString::from).as_ref());
         reset_capabilities_cache();
         assert_eq!(actual, expected.as_str().unwrap());
     }
@@ -658,7 +659,7 @@ fn terminal_image_matches_the_pinned_typescript_source() {
     assert_eq!(response["ok"], true, "oracle failed: {response}");
     let results = response["output"]["results"].as_array().unwrap();
     for ((text, url), expected) in hyperlink_cases.iter().zip(results) {
-        assert_eq!(hyperlink(text, url), expected.as_str().unwrap());
+        assert_eq!(hyperlink(*text, *url), expected.as_str().unwrap());
     }
 
     let response = oracle.request(&json!({

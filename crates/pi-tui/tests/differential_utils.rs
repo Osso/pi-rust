@@ -197,15 +197,16 @@ fn normalize_terminal_output_matches_the_pinned_typescript_source() {
     }
 }
 
-fn scan_ansi(value: &str) -> Vec<String> {
+fn scan_ansi(value: &str) -> Vec<JsString> {
+    let value = JsString::from(value);
     let mut codes = Vec::new();
     let mut index = 0;
     while index < value.len() {
-        if let Some(ansi) = extract_ansi_code(value, index) {
-            codes.push(ansi.code.clone());
+        if let Some(ansi) = extract_ansi_code(&value, index) {
+            codes.push(ansi.code);
             index += ansi.length;
         } else {
-            index += value[index..].chars().next().map_or(1, char::len_utf8);
+            index += 1;
         }
     }
     codes
