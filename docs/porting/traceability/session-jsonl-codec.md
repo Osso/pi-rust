@@ -5,7 +5,7 @@ Rust: `crates/pi-agent-core/src/harness/session/jsonl/codec.rs`. Tests: `session
 
 ## Q18 native error persistence
 
-`lossless_provider_errors::provider_failure_survives_jsonl_repo_close_and_reopen` reproduces raw provider failure loss across append/drop/reopen: scalar root parsing first skipped the valid entry; native root parsing then exposed serde tagged/flattened buffering. Codec now parses JsValue once and decodes entry/record fields directly from that authority; no scalar preparse or alternate fallback. OperationError.message is JsString. Native custom message keys/payloads and operation failures are included in the durable-boundary fixture. Existing scalar session identity/header metadata contracts are not widened by this bounded consumer slice.
+`lossless_provider_errors::provider_failure_survives_jsonl_repo_close_and_reopen` reproduces raw provider failure loss across append/drop/reopen: scalar root parsing first skipped the valid entry; native root parsing then exposed serde tagged/flattened buffering. Codec now parses JsValue once and decodes entry/record fields directly from that authority; no scalar preparse or alternate fallback. OperationError.message is JsString. Native custom message keys/payloads and operation failures are included in the durable-boundary fixture. `session_codec::native_messages_and_payload_keys_round_trip_in_durable_records` additionally proves raw originalPrompt/initialMessages, queued/deferred targets, operation errors and effectiveArgs raw keys; existing 13 codec cases retain integer/schema/key-order regression coverage. Existing scalar session identity/header metadata contracts are not widened by this bounded consumer slice.
 
 ## Exports and branches
 
