@@ -4,6 +4,32 @@ use pi_coding_agent::core::detached_job_runner::{create_detached_job_artifacts, 
 use pi_js_compat::js_json::{JsString, encode_node_utf8, to_value};
 
 #[test]
+fn distinct_raw_output_paths_reject_before_filesystem_or_spawn() {
+    use pi_coding_agent::core::detached_job_bootstrap::{GatedDetachedPayloadInput, spawn_gated_detached_payload};
+    let cwd = JsString::from("/unused");
+    let stdout = JsString::from("/unused/output-") + JsString::from_utf16(vec![0xd800]);
+    let stderr = JsString::from("/unused/output-") + JsString::from_utf16(vec![0xd801]);
+    let identity = JsString::from("/unused/identity.json");
+    let command = JsString::from("/bin/true");
+    let error = spawn_gated_detached_payload(&GatedDetachedPayloadInput {
+        args: &[],
+        command: &command,
+        cwd: &cwd,
+        env: None,
+        identity_path: &identity,
+        stderr_path: &stderr,
+        stdout_path: &stdout,
+    })
+    .unwrap_err();
+    let mut source = oracle::TsOracle::spawn(
+        "lossless-tool-paths-oracle.ts",
+        "packages/coding-agent/src/core/detached-job-bootstrap.ts",
+    );
+    let expected=source.request_lossless(&pi_js_compat::js_json!({"kind":"bootstrapSplit","input":{"args":[],"command":command,"cwd":cwd,"identityPath":identity,"stderrPath":stderr,"stdoutPath":stdout}}));
+    assert_eq!(&error.message(), expected["error"].as_string().unwrap());
+}
+
+#[test]
 fn detached_artifact_paths_and_collision_errors_match_frozen_units() {
     let directory = tempfile::tempdir().unwrap();
     let root = JsString::from(directory.path().to_str().unwrap()) + "/root-" + JsString::from_utf16(vec![0xd800]);

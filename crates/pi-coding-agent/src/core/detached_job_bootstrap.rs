@@ -8,9 +8,12 @@
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::os::unix::fs::OpenOptionsExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
 
+use crate::utils::paths::node_dirname;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use serde::Serialize;
 
 use crate::core::runtime_process::{read_process_group_id, read_process_identity};
@@ -24,22 +27,23 @@ pub enum DetachedPayloadError {
     IdentityNotPersisted,
     AlreadyReleased,
     SplitOutput,
-    SpawnFailed(String),
+    SpawnFailed(JsString),
 }
 
+impl DetachedPayloadError {
+    pub fn message(&self) -> JsString {
+        match self {
+            Self::Io(source) => crate::core::tools::node_fs::operation_error_message(source),
+            Self::IdentityNotPersisted => "Detached payload identity must be persisted before release".into(),
+            Self::AlreadyReleased => "Detached payload gate was already released".into(),
+            Self::SplitOutput => "Split detached payload output is not implemented".into(),
+            Self::SpawnFailed(command) => js_format!("Could not start detached payload: {}", command),
+        }
+    }
+}
 impl std::fmt::Display for DetachedPayloadError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Io(source) => source.fmt(formatter),
-            Self::IdentityNotPersisted => {
-                formatter.write_str("Detached payload identity must be persisted before release")
-            }
-            Self::AlreadyReleased => formatter.write_str("Detached payload gate was already released"),
-            Self::SplitOutput => formatter.write_str("Split detached payload output is not implemented"),
-            Self::SpawnFailed(command) => {
-                write!(formatter, "Could not start detached payload: {command}")
-            }
-        }
+        formatter.write_str(&encode_node_utf8(&self.message()))
     }
 }
 
@@ -52,14 +56,14 @@ impl From<io::Error> for DetachedPayloadError {
 }
 
 pub struct GatedDetachedPayloadInput<'a> {
-    pub args: &'a [String],
-    pub command: &'a str,
-    pub cwd: &'a Path,
+    pub args: &'a [JsString],
+    pub command: &'a JsString,
+    pub cwd: &'a JsString,
     /// `None` inherits the parent environment.
-    pub env: Option<&'a [(String, String)]>,
-    pub identity_path: &'a Path,
-    pub stderr_path: &'a Path,
-    pub stdout_path: &'a Path,
+    pub env: Option<&'a [(JsString, JsString)]>,
+    pub identity_path: &'a JsString,
+    pub stderr_path: &'a JsString,
+    pub stdout_path: &'a JsString,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,7 +84,7 @@ struct PayloadIdentity {
 pub struct GatedDetachedPayload {
     child: Child,
     pid: u32,
-    identity_path: PathBuf,
+    identity_path: JsString,
     gate: Option<std::process::ChildStdin>,
     identity_persisted: bool,
     released: bool,
@@ -97,15 +101,19 @@ pub fn spawn_gated_detached_payload(
         .arg("-c")
         .arg(PAYLOAD_GATE_SCRIPT)
         .arg("pi-detached-gate")
-        .arg(input.command)
-        .args(input.args)
-        .current_dir(input.cwd)
+        .arg(encode_node_utf8(input.command))
+        .args(input.args.iter().map(encode_node_utf8))
+        .current_dir(encode_node_utf8(input.cwd))
         .stdin(Stdio::piped())
         .stdout(Stdio::from(output.try_clone()?))
         .stderr(Stdio::from(output));
     command.env_clear();
     match input.env {
-        Some(environment) => command.envs(environment.iter().map(|(name, value)| (name, value))),
+        Some(environment) => command.envs(
+            environment
+                .iter()
+                .map(|(name, value)| (encode_node_utf8(name), encode_node_utf8(value))),
+        ),
         None => command.envs(pi_js_compat::process_env::vars()),
     };
     let mut child = command
@@ -116,7 +124,7 @@ pub fn spawn_gated_detached_payload(
     Ok(GatedDetachedPayload {
         child,
         pid,
-        identity_path: input.identity_path.to_path_buf(),
+        identity_path: input.identity_path.clone(),
         gate: Some(gate),
         identity_persisted: false,
         released: false,
@@ -129,9 +137,12 @@ impl GatedDetachedPayload {
     }
 
     pub fn persist_identity(&mut self) -> Result<(), DetachedPayloadError> {
-        let identity = read_process_identity(self.pid).map_err(|source| io::Error::other(source.message))?;
+        let identity = read_process_identity(self.pid)
+            .map_err(|source| io::Error::other(crate::core::extensions::types::HandlerError::new(source.message)))?;
         let identity = PayloadIdentity {
-            pgid: read_process_group_id(self.pid).map_err(|source| io::Error::other(source.message))?,
+            pgid: read_process_group_id(self.pid).map_err(|source| {
+                io::Error::other(crate::core::extensions::types::HandlerError::new(source.message))
+            })?,
             pid: identity.pid,
             start_time_ticks: identity.start_time_ticks,
         };
@@ -188,7 +199,7 @@ fn find_setsid() -> Option<PathBuf> {
         })
 }
 
-fn open_shared_output_file(stdout_path: &Path, stderr_path: &Path) -> Result<File, DetachedPayloadError> {
+fn open_shared_output_file(stdout_path: &JsString, stderr_path: &JsString) -> Result<File, DetachedPayloadError> {
     if stdout_path != stderr_path {
         return Err(DetachedPayloadError::SplitOutput);
     }
@@ -196,23 +207,23 @@ fn open_shared_output_file(stdout_path: &Path, stderr_path: &Path) -> Result<Fil
         .create_new(true)
         .append(true)
         .mode(0o600)
-        .open(stdout_path)?)
+        .open(encode_node_utf8(stdout_path))?)
 }
 
-fn write_identity_file(path: &Path, identity: &PayloadIdentity) -> Result<(), DetachedPayloadError> {
-    let temporary_path = PathBuf::from(format!("{}.tmp", path.display()));
+fn write_identity_file(path: &JsString, identity: &PayloadIdentity) -> Result<(), DetachedPayloadError> {
+    let temporary_path = js_format!("{}.tmp", path);
     let mut file = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
         .mode(0o600)
-        .open(&temporary_path)?;
+        .open(encode_node_utf8(&temporary_path))?;
     file.write_all(format!("{}\n", serde_json::to_string(identity)?).as_bytes())?;
     file.sync_all()?;
     drop(file);
-    std::fs::rename(&temporary_path, path)?;
-    let directory = path.parent().unwrap_or_else(|| Path::new("."));
-    File::open(directory)?.sync_all()?;
+    std::fs::rename(encode_node_utf8(&temporary_path), encode_node_utf8(path))?;
+    let directory = node_dirname(path);
+    File::open(encode_node_utf8(&directory))?.sync_all()?;
     Ok(())
 }
 

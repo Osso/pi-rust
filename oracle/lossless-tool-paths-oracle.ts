@@ -19,6 +19,14 @@ async function main() {
 			process.stdout.write(`${JSON.stringify({call:call.render(input.width),result:result.render(input.width)})}\n`);
 			continue;
 		}
+		if (input.kind === "bootstrapSplit") {
+			try {module.spawnGatedDetachedPayload(input.input);throw new Error("expected split output rejection");}
+			catch(error) {
+				if (!(error instanceof Error)) throw error;
+				process.stdout.write(`${JSON.stringify({error:error.message})}\n`);
+			}
+			continue;
+		}
 		if (input.kind === "detachedArtifacts") {
 			try {
 				const artifacts=module[input.operation](input.root,input.job);

@@ -51,6 +51,12 @@ Artifacts: `/tmp/pi-rust-repin-lossless-tools/`.
 
 `utils::ansi::strip_ansi` is the single native UTF-16 API; removed `strip_ansi_js` and its surrogate sentinel/offset projection. Shared JsRegex removes ANSI ranges directly. `utils::shell::sanitize_binary_output` filters UTF-16 units, preserving retained unmatched units and pairs. `ansi-red.log` is compiler RED for the old API. `ansi-green.log`: 1/1 native cleanup test PASS using actual ANSI, shell and child-process modules, zero warnings. Frozen cleanup comparison was added after that log and remains pending execution.
 
+## Gated payload bootstrap checkpoint (runtime pending)
+
+Main granted `detached_job_bootstrap.rs`. Gated command/argv/cwd/environment, output/identity paths, stored identity path and SpawnFailed error are native. Split-output equality happens before encoding. Only actual output/identity opens/writes/rename/directory sync and Command argv/env/cwd encode. Runtime-process errors retain native messages inside the IO error carrier; Display alone encodes.
+
+Added `lossless_detached_paths::distinct_raw_output_paths_reject_before_filesystem_or_spawn`, comparing frozen TS rejection of distinct raw paths that collide after Node UTF-8. **Unexecuted**, pending the real library. No detached process/lifetime proof yet. Outside direct production callers are the owned detached Bash/Pyrun runners; bootstrap integration tests require native fixtures.
+
 ## Detached artifact/controller checkpoint (runtime pending)
 
 `DetachedJobArtifacts`, reserved/launched paths/job IDs, controller owner/session IDs, register cwd/worker/tool IDs, launch command/cwd/env, and manifest-writer callback paths/errors now retain native authorities. Creation/reservation joins raw paths and encodes only at mkdir; duplicate-artifact errors interpolate the originally requested raw directory even when two raw names collide at Node UTF-8. Controller filters and timestamp ordering use raw units. `DetachedJobError::message` retains raw control/launch/artifact errors; Display alone encodes.
