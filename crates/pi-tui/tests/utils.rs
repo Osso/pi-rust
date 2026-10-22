@@ -596,7 +596,7 @@ fn segments_struct_exposes_before_and_after() {
     let segments = Segments {
         before: "a".into(),
         before_width: 1,
-        after: "b".to_string(),
+        after: "b".into(),
         after_width: 1,
     };
     assert_eq!(segments.before_width + segments.after_width, 2);

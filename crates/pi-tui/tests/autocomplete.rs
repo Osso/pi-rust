@@ -456,7 +456,7 @@ async fn quoted_completion_quotes_paths_with_spaces() {
 #[test]
 fn apply_completion_for_slash_commands() {
     let provider = provider(Vec::new(), "/tmp", None);
-    let applied = provider.apply_completion(&["/mod".to_string()], 0, 4, &item("model"), "/mod");
+    let applied = provider.apply_completion(&[JsString::from("/mod")], 0, 4, &item("model"), &"/mod".into());
     assert_eq!(applied.lines[0], "/model ");
     assert_eq!(applied.cursor_col, 7);
 }
@@ -465,21 +465,21 @@ fn apply_completion_for_slash_commands() {
 fn apply_completion_adds_space_after_files_but_not_directories() {
     let provider = provider(Vec::new(), "/tmp", None);
     let applied = provider.apply_completion(
-        &["@src".to_string()],
+        &[JsString::from("@src")],
         0,
         4,
         &AutocompleteItem::new("@src/", "src/"),
-        "@src",
+        &"@src".into(),
     );
     assert_eq!(applied.lines[0], "@src/");
     assert_eq!(applied.cursor_col, 5);
 
     let applied = provider.apply_completion(
-        &["@src".to_string()],
+        &[JsString::from("@src")],
         0,
         4,
         &AutocompleteItem::new("@src.txt", "src.txt"),
-        "@src",
+        &"@src".into(),
     );
     assert_eq!(applied.lines[0], "@src.txt ");
     assert_eq!(applied.cursor_col, 9);
@@ -488,9 +488,9 @@ fn apply_completion_adds_space_after_files_but_not_directories() {
 #[test]
 fn should_trigger_file_completion_rejects_slash_command_names() {
     let provider = provider(Vec::new(), "/tmp", None);
-    assert!(!provider.should_trigger_file_completion(&["/model".to_string()], 0, 6));
-    assert!(provider.should_trigger_file_completion(&["/model arg".to_string()], 0, 10));
-    assert!(provider.should_trigger_file_completion(&["hello".to_string()], 0, 5));
+    assert!(!provider.should_trigger_file_completion(&[JsString::from("/model")], 0, 6));
+    assert!(provider.should_trigger_file_completion(&[JsString::from("/model arg")], 0, 10));
+    assert!(provider.should_trigger_file_completion(&[JsString::from("hello")], 0, 5));
 }
 
 #[test]
@@ -503,7 +503,7 @@ fn home_directory_expansion_is_used_for_tilde_prefixes() {
     let expected = format!("~/{}", entry.path().file_name().unwrap().to_string_lossy());
     let provider = provider(Vec::new(), "/tmp", None);
     let suggestions = futures_lite_block_on(provider.get_suggestions(
-        &["~/".to_string()],
+        &[JsString::from("~/")],
         0,
         2,
         SuggestionsOptions {
@@ -513,12 +513,12 @@ fn home_directory_expansion_is_used_for_tilde_prefixes() {
     ));
     let suggestions = suggestions.expect("home suggestions");
     assert_eq!(suggestions.prefix, "~/");
-    assert!(
-        suggestions
-            .items
-            .iter()
-            .all(|item| item.value.trim_start_matches('"').starts_with("~/"))
-    );
+    assert!(suggestions.items.iter().all(|item| {
+        item.value
+            .strip_prefix('"')
+            .unwrap_or_else(|| item.value.clone())
+            .starts_with("~/")
+    }));
     assert!(suggestions.items.iter().any(|item| item.value == expected));
 }
 

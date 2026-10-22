@@ -77,7 +77,11 @@ fn constants() -> Vec<(&'static str, &'static str, &'static str)> {
     ]
 }
 
-type ModifierCall = (&'static str, fn(&str) -> pi_js_compat::js_json::JsString, &'static str);
+type ModifierCall = (
+    &'static str,
+    fn(pi_js_compat::js_json::JsString) -> pi_js_compat::js_json::JsString,
+    &'static str,
+);
 
 fn modifier_calls() -> Vec<ModifierCall> {
     vec![
@@ -131,8 +135,11 @@ fn key_map_matches_the_pinned_typescript_object() {
     let expected_calls = response["output"]["calls"].as_object().expect("calls object");
     for (source_name, call, argument) in modifier_calls() {
         assert_eq!(
-            expected_calls.get(source_name).and_then(Value::as_str),
-            Some(call(argument).as_str()),
+            expected_calls
+                .get(source_name)
+                .and_then(Value::as_str)
+                .map(pi_js_compat::js_json::JsString::from),
+            Some(call(argument.into())),
             "Key::{source_name} must match"
         );
     }
