@@ -1,23 +1,23 @@
 //! Base64 parity for `atob`/`btoa` and Node `Buffer`.
 
-use pi_js_compat::base64::{Base64Error, atob, btoa, buffer_decoded_len, buffer_from_base64, buffer_to_base64};
+use pi_js_compat::base64::{atob, btoa, buffer_decoded_len, buffer_from_base64, buffer_to_base64};
 
 #[test]
 fn atob_matches_web_api_leniency_and_errors() {
-    assert_eq!(atob("").unwrap(), Vec::<u8>::new());
-    assert_eq!(atob("AA").unwrap(), vec![0]);
-    assert_eq!(atob("AAA").unwrap(), vec![0, 0]);
-    assert_eq!(atob("AAAA").unwrap(), vec![0, 0, 0]);
-    assert_eq!(atob("QQ==").unwrap(), b"A");
-    assert_eq!(atob("QUI=").unwrap(), b"AB");
-    assert_eq!(atob("QUJD").unwrap(), b"ABC");
-    assert_eq!(atob("A A A A").unwrap(), vec![0, 0, 0]);
-    assert_eq!(atob("QUJD\nREVG").unwrap(), b"ABCDEF");
-    assert_eq!(atob("QUJD\r\nREVG").unwrap(), b"ABCDEF");
+    assert_eq!(atob(&"".into()).unwrap(), Vec::<u8>::new());
+    assert_eq!(atob(&"AA".into()).unwrap(), vec![0]);
+    assert_eq!(atob(&"AAA".into()).unwrap(), vec![0, 0]);
+    assert_eq!(atob(&"AAAA".into()).unwrap(), vec![0, 0, 0]);
+    assert_eq!(atob(&"QQ==".into()).unwrap(), b"A");
+    assert_eq!(atob(&"QUI=".into()).unwrap(), b"AB");
+    assert_eq!(atob(&"QUJD".into()).unwrap(), b"ABC");
+    assert_eq!(atob(&"A A A A".into()).unwrap(), vec![0, 0, 0]);
+    assert_eq!(atob(&"QUJD\nREVG".into()).unwrap(), b"ABCDEF");
+    assert_eq!(atob(&"QUJD\r\nREVG".into()).unwrap(), b"ABCDEF");
     for invalid in [
         "A", "AAAAA", "AA==AAAA", "AAA=AAAA", "!!!!", "A-_A", "-_+/AQ==", "=", "AA=", "AA=A", "A===", "A=", "=AAA",
     ] {
-        assert_eq!(atob(invalid), Err(Base64Error), "{invalid:?}");
+        assert!(atob(&invalid.into()).is_err(), "{invalid:?}");
     }
 }
 

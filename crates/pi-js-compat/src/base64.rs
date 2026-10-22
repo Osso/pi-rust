@@ -7,27 +7,39 @@ const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwx
 
 /// Decode standard base64 with `atob` leniency: ASCII whitespace is ignored and
 /// missing padding is accepted.
-pub fn atob(input: &str) -> Result<Vec<u8>, Base64Error> {
+pub fn atob(input: &JsString) -> Result<Vec<u8>, Base64Error> {
     let mut symbols = Vec::with_capacity(input.len());
     let mut padding = 0usize;
-    for byte in input.bytes() {
+    let units = input
+        .units()
+        .iter()
+        .copied()
+        .filter(|unit| !matches!(unit, 0x09 | 0x0a | 0x0c | 0x0d | 0x20));
+    for unit in units {
+        if unit > 255 {
+            return Err(Base64Error::InvalidCharacter);
+        }
+        let byte = unit as u8;
         match byte {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'+' | b'/' => {
                 if padding > 0 {
-                    return Err(Base64Error);
+                    return Err(Base64Error::InvalidCharacter);
                 }
                 symbols.push(byte);
             }
             b'=' => padding += 1,
             b' ' | b'\t' | b'\n' | b'\r' | b'\x0c' => {}
-            _ => return Err(Base64Error),
+            _ => return Err(Base64Error::InvalidCharacter),
         }
     }
-    if padding > 2 || (padding > 0 && !(symbols.len() + padding).is_multiple_of(4)) {
-        return Err(Base64Error);
+    if padding > 2 {
+        return Err(Base64Error::InvalidCharacter);
     }
     if symbols.len() % 4 == 1 {
-        return Err(Base64Error);
+        return Err(Base64Error::IncorrectEncoding);
+    }
+    if padding > 0 && !(symbols.len() + padding).is_multiple_of(4) {
+        return Err(Base64Error::InvalidCharacter);
     }
 
     let mut output = Vec::with_capacity(symbols.len() * 3 / 4);
@@ -128,7 +140,7 @@ fn symbol_value(byte: u8) -> Result<u8, Base64Error> {
         b'0'..=b'9' => Ok(byte - b'0' + 52),
         b'+' => Ok(62),
         b'/' => Ok(63),
-        _ => Err(Base64Error),
+        _ => Err(Base64Error::InvalidCharacter),
     }
 }
 
@@ -144,4 +156,26 @@ fn buffer_symbol_value(byte: u8) -> Option<u8> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Base64Error;
+pub enum Base64Error {
+    InvalidCharacter,
+    IncorrectEncoding,
+}
+
+impl Base64Error {
+    pub fn name(&self) -> &'static str {
+        "InvalidCharacterError"
+    }
+    pub fn message(&self) -> &'static str {
+        match self {
+            Self::InvalidCharacter => "Invalid character",
+            Self::IncorrectEncoding => "The string to be decoded is not correctly encoded.",
+        }
+    }
+}
+
+impl std::fmt::Display for Base64Error {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.message())
+    }
+}
+impl std::error::Error for Base64Error {}
