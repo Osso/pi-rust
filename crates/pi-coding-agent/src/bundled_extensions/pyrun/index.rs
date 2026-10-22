@@ -639,26 +639,26 @@ async fn dispatch_builtin_pyrun_request(
     signal: Option<tokio_util::sync::CancellationToken>,
     active_tool_call_id: Option<&str>,
 ) -> Result<Option<Value>, HandlerError> {
-    match request.method.as_str() {
-        "models.scoped" => Ok(Some(list_scoped_models(ctx)?)),
-        "models.set" => Ok(Some(set_session_model(Some(&request.params), pi, ctx).await?)),
-        "tools.call" => {
+    match request.method.to_utf8().as_deref() {
+        Ok("models.scoped") => Ok(Some(list_scoped_models(ctx)?)),
+        Ok("models.set") => Ok(Some(set_session_model(Some(&request.params), pi, ctx).await?)),
+        Ok("tools.call") => {
             let (name, params) = normalize_tool_call_params(Some(&request.params))?;
             let result = pi
                 .call_tool(name, params.into(), signal, active_tool_call_id.map(str::to_owned))
                 .await?;
             Ok(Some(js_json::to_value(&result).unwrap_or(Value::Null)))
         }
-        "commands.list" => Ok(Some(js_json::to_value(&pi.get_commands()?).unwrap_or(Value::Null))),
-        "commands.run" => {
+        Ok("commands.list") => Ok(Some(js_json::to_value(&pi.get_commands()?).unwrap_or(Value::Null))),
+        Ok("commands.run") => {
             let (name, args) = normalize_command_run_params(Some(&request.params))?;
             Ok(Some(pi.call_command(name, Some(args)).await?.into()))
         }
-        "compact" => {
+        Ok("compact") => {
             ctx.compact(Some(normalize_compact_params(Some(&request.params))?))?;
             Ok(Some(json!({"started": true})))
         }
-        "messages.enqueue" => {
+        Ok("messages.enqueue") => {
             let (message, deliver_as) = normalize_message_params(Some(&request.params))?;
             pi.send_user_message(
                 UserMessageContent::Text(message.into()),
@@ -669,12 +669,12 @@ async fn dispatch_builtin_pyrun_request(
             )?;
             Ok(Some(json!({"enqueued": true})))
         }
-        "restart" => {
+        Ok("restart") => {
             let future = ctx.restart(Some(normalize_restart_params(Some(&request.params))?))?;
             future.await?;
             Ok(Some(json!({"started": true})))
         }
-        "sessions.resume" => {
+        Ok("sessions.resume") => {
             let params = normalize_resume_session_params(Some(&request.params))?;
             let session_file = resolve_resume_session_file(&params, ctx)?;
             let result = ctx.switch_session(session_file, None).await?;
@@ -713,7 +713,7 @@ pub fn create_pyrun_pi_dispatcher(pi: &ExtensionApi, options: &PyrunExtensionOpt
                     return Ok(result);
                 }
             }
-            Err(HandlerError::new(format!(
+            Err(HandlerError::new(pi_js_compat::js_format!(
                 "Pi capability is unavailable: {}",
                 request.method
             )))

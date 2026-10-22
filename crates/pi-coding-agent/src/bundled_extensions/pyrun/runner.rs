@@ -132,7 +132,7 @@ pub type PyrunPiRequestHandler =
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PiRequest {
-    pub method: String,
+    pub method: JsString,
     pub params: Value,
 }
 
@@ -607,7 +607,7 @@ async fn handle_stdout_line(
         .unwrap_or_default()
         .to_owned();
     enum LineAction {
-        Pi(Option<PyrunPiRequestHandler>, String, Value),
+        Pi(Option<PyrunPiRequestHandler>, JsString, Value),
         Progress(Option<PyrunProgressCallback>),
     }
     let action = {
@@ -641,9 +641,8 @@ async fn handle_stdout_line(
             let method = parsed
                 .get("method")
                 .and_then(Value::as_string)
-                .and_then(|text| text.to_utf8().ok())
-                .unwrap_or_default()
-                .to_owned();
+                .cloned()
+                .unwrap_or_default();
             let params = parsed.get("params").cloned().unwrap_or(Value::Null);
             LineAction::Pi(handler, method, params)
         } else {

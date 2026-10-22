@@ -432,7 +432,9 @@ pub fn create_pyrun_eval_executor(
                     let Some(dispatch) = dispatch_pi_request.clone() else {
                         let method = request.method.clone();
                         return Box::pin(async move {
-                            Err(HandlerError::new(format!("Pi capability is unavailable: {method}")))
+                            Err(HandlerError::new(pi_js_compat::js_format!(
+                                "Pi capability is unavailable: {method}"
+                            )))
                         }) as BoxFuture<'static, Result<Option<Value>, HandlerError>>;
                     };
                     dispatch(request, ctx.clone(), signal.clone(), active_tool_call_id.clone())
