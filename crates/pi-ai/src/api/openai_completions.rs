@@ -401,7 +401,8 @@ pub fn convert_messages(
     let normalizer = |id: &str, target_model: &Model, _source: &AssistantMessage| -> String {
         normalize_tool_call_id(id, target_model)
     };
-    let transformed_messages = transform_messages_with(&context.messages, model, Some(&normalizer), now_millis());
+    let transformed_messages =
+        transform_messages_with(&context.messages, model, Some(&normalizer), now_millis() as f64);
 
     if let Some(system_prompt) = context.system_prompt.as_ref() {
         let role = if model.reasoning && compat.supports_developer_role {
@@ -2047,7 +2048,7 @@ fn run_and_emit(
     let context = context.clone();
     tokio::spawn(async move {
         let options = OpenAICompletionsOptions::from_stream_options(&stream_options);
-        let mut output = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis());
+        let mut output = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis() as f64);
         let result = run_stream(&model, &context, &stream_options, &options, &mut output, &sender).await;
         if let Err(failure) = result {
             output.stop_reason = if stream_options

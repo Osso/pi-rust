@@ -255,7 +255,7 @@ fn text_message(text: JsString, message: &BashExecutionMessage) -> Message {
         content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(text))]),
         input_source: None,
         provider_native: None,
-        timestamp: message.timestamp as i64,
+        timestamp: message.timestamp,
     })
 }
 
@@ -283,8 +283,8 @@ fn bool_field(object: &JsObject, key: &str) -> bool {
     object.get(key).and_then(Value::as_bool).unwrap_or(false)
 }
 
-fn timestamp_field(object: &JsObject) -> i64 {
-    object.get("timestamp").and_then(Value::as_f64).unwrap_or(0.0) as i64
+fn timestamp_field(object: &JsObject) -> f64 {
+    object.get("timestamp").and_then(Value::as_f64).unwrap_or(0.0)
 }
 
 /// Build the custom `branchSummary` message for a branch summary entry.

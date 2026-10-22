@@ -92,7 +92,7 @@ fn supports_multimodal_function_response(model_id: &str) -> bool {
 ///
 /// `now` feeds the synthetic tool-result insertion of [`transform_messages_with`]
 /// (TypeScript uses `Date.now()`).
-pub fn convert_messages(model: &Model, context: &Context, now: i64) -> Vec<GoogleContent> {
+pub fn convert_messages(model: &Model, context: &Context, now: f64) -> Vec<GoogleContent> {
     let require_ids = requires_tool_call_id(&model.id);
     let normalize_tool_call_id = |id: &str, _: &Model, _: &AssistantMessage| -> String {
         if require_ids {
@@ -540,7 +540,7 @@ pub(crate) struct GenerateContentParamsInput<'a> {
     pub tool_choice: Option<&'a str>,
     pub thinking_config: Option<Value>,
     pub request_aborted: bool,
-    pub now: i64,
+    pub now: f64,
 }
 
 pub(crate) fn build_generate_content_params(

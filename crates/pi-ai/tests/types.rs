@@ -46,9 +46,81 @@ fn frozen_stop_reason_types_exclude_old_pending_and_deferred_variants() {
     }
 }
 
+#[path = "support/oracle.rs"]
+mod oracle;
+
+fn timestamp_message_fixture(role: &str) -> Value {
+    match role {
+        "user" => json!({"role": "user", "content": "text", "timestamp": 0}),
+        "assistant" => serde_json::to_value(AssistantMessage::empty("test-api", "test-provider", "test", 0.0)).unwrap(),
+        "toolResult" => {
+            json!({"role": "toolResult", "toolCallId": "call", "toolName": "read", "content": [], "isError": false, "timestamp": 0})
+        }
+        _ => panic!("unsupported fixture role"),
+    }
+}
+
+#[test]
+fn fractional_message_timestamps_round_trip_like_frozen_javascript() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "message-timestamp-oracle.ts",
+        "packages/agent-core/src/harness/messages.ts",
+    );
+    for role in ["user", "assistant", "toolResult"] {
+        let mut wire = timestamp_message_fixture(role);
+        let expected = oracle.request(&json!({"message": wire, "value": 12.75}));
+        wire["timestamp"] = json!(12.75);
+        let message: Message = serde_json::from_value(wire).expect("number timestamp permits fractions");
+        assert_eq!(
+            serde_json::to_string(&message).unwrap(),
+            expected["wire"].as_str().unwrap()
+        );
+    }
+}
+
+#[test]
+fn message_timestamp_numbers_serialize_exactly_like_node_and_round_trip_raw() {
+    let cases = [
+        (json!(0), 0.0),
+        (json!(1), 1.0),
+        (json!(12.75), 12.75),
+        (json!(-12.75), -12.75),
+        (json!(1_760_000_000_123_i64), 1_760_000_000_123.0),
+        (json!(1e-7), 1e-7),
+        (json!(1e20), 1e20),
+        (json!(1e21), 1e21),
+        (json!("-0"), -0.0),
+        (json!("nan"), f64::NAN),
+        (json!("infinity"), f64::INFINITY),
+        (json!("-infinity"), f64::NEG_INFINITY),
+        (json!("invalid-date"), pi_js_compat::date::date_parse("not a date")),
+    ];
+    let mut oracle = oracle::TsOracle::spawn(
+        "message-timestamp-oracle.ts",
+        "packages/agent-core/src/harness/messages.ts",
+    );
+    for role in ["user", "assistant", "toolResult"] {
+        for (value, timestamp) in &cases {
+            let fixture = timestamp_message_fixture(role);
+            let expected = oracle.request(&json!({"message": fixture, "value": value}));
+            let mut message: Message = serde_json::from_value(fixture).unwrap();
+            let stored_timestamp = match &mut message {
+                Message::User(message) => &mut message.timestamp,
+                Message::Assistant(message) => &mut message.timestamp,
+                Message::ToolResult(message) => &mut message.timestamp,
+            };
+            *stored_timestamp = *timestamp;
+            assert_eq!(stored_timestamp.is_nan(), expected["isNaN"].as_bool().unwrap());
+            let wire = serde_json::to_string(&message).unwrap();
+            assert_eq!(wire, expected["wire"].as_str().unwrap(), "{role}/{value}");
+            assert_eq!(serde_json::from_str::<Value>(&wire).unwrap(), expected["roundTrip"]);
+        }
+    }
+}
+
 #[test]
 fn empty_stream_message_starts_with_frozen_stop_reason() {
-    let message = AssistantMessage::empty("anthropic-messages", "anthropic", "test", 0);
+    let message = AssistantMessage::empty("anthropic-messages", "anthropic", "test", 0.0);
     assert_eq!(message.stop_reason, StopReason::Stop);
 }
 
@@ -251,7 +323,7 @@ fn context_round_trips_tools_with_json_schema_parameters() {
 
 #[test]
 fn assistant_message_defaults_omit_optional_fields() {
-    let message = AssistantMessage::empty("openai-responses", "openai", "gpt-6", 42);
+    let message = AssistantMessage::empty("openai-responses", "openai", "gpt-6", 42.0);
     let wire = serde_json::to_value(&message).expect("serializes");
     assert_eq!(
         wire,

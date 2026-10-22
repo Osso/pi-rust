@@ -814,7 +814,7 @@ fn build_summary_request(
         )?))]),
         input_source: None,
         provider_native: None,
-        timestamp: now_ms(),
+        timestamp: now_ms() as f64,
     });
     let completion_options = SimpleStreamOptions {
         stream: StreamOptions {
@@ -839,7 +839,12 @@ fn build_summary_request(
 }
 
 fn stream_failure_message(model: &Model, failure: pi_ai::utils::event_stream::StreamFailure) -> AssistantMessage {
-    let mut message = AssistantMessage::empty(model.api.clone(), model.provider.clone(), model.id.clone(), now_ms());
+    let mut message = AssistantMessage::empty(
+        model.api.clone(),
+        model.provider.clone(),
+        model.id.clone(),
+        now_ms() as f64,
+    );
     message.stop_reason = StopReason::Error;
     message.error_message = Some(failure.message().to_owned());
     message
@@ -1095,7 +1100,7 @@ async fn generate_turn_prefix_summary<C: RetryCallbacks + ?Sized>(
         content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(prompt_text))]),
         input_source: None,
         provider_native: None,
-        timestamp: now_ms(),
+        timestamp: now_ms() as f64,
     });
     let completion_options = SimpleStreamOptions {
         stream: StreamOptions {

@@ -19,12 +19,12 @@ fn user_message(text: &str) -> AgentMessage {
         )]),
         input_source: None,
         provider_native: None,
-        timestamp: 1,
+        timestamp: 1.0,
     })
 }
 
 fn assistant_message(text: &str) -> AgentMessage {
-    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 1);
+    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4-5", 1.0);
     message.content = vec![pi_ai::types::AssistantContent::Text(pi_ai::types::TextContent::new(
         text,
     ))];
@@ -1328,7 +1328,7 @@ pub(super) async fn persists_tool_result_termination_decisions<R: SessionBackend
         usage: None,
         added_tool_names: None,
         is_error: false,
-        timestamp: 1,
+        timestamp: 1.0,
     });
     let entry = session
         .append_entry(

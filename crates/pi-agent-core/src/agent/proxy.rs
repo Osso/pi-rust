@@ -189,7 +189,7 @@ impl PartialState {
                 model.api.clone(),
                 model.provider.clone(),
                 model.id.clone(),
-                pi_ai::request::now_millis(),
+                pi_ai::request::now_millis() as f64,
             ),
             content: Vec::new(),
             partial_json: HashMap::new(),

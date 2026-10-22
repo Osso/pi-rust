@@ -466,7 +466,12 @@ fn run_and_emit(
     let context = context.clone();
     tokio::spawn(async move {
         let options = AzureOpenAIResponsesOptions::from_stream_options(&stream_options);
-        let mut output = AssistantMessage::empty("azure-openai-responses", &model.provider, &model.id, now_millis());
+        let mut output = AssistantMessage::empty(
+            "azure-openai-responses",
+            &model.provider,
+            &model.id,
+            now_millis() as f64,
+        );
         let result = run_stream(&model, &context, &stream_options, &options, &mut output, &sender).await;
         if let Err(failure) = result {
             output.stop_reason = if stream_options

@@ -339,7 +339,7 @@ fn branch_summary_context(
         content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(prompt_text))]),
         input_source: None,
         provider_native: None,
-        timestamp: now_ms(),
+        timestamp: now_ms() as f64,
     });
     Ok(Context {
         system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.into()),

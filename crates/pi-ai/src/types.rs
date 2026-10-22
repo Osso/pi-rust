@@ -1,7 +1,7 @@
 //! Port of the data contracts in `packages/ai/src/types.ts`.
 //!
 //! TypeScript `number` fields are `f64` serialized through [`pi_js_compat::number`];
-//! Unix-millisecond timestamps are `i64`. Option/callback interfaces
+//! Message timestamps retain JavaScript fractional/nonfinite numbers. Option/callback interfaces
 //! (`StreamOptions` and friends) live with the provider runtime.
 
 use indexmap::IndexMap;
@@ -12,6 +12,11 @@ use serde_json::{Map, Value};
 use crate::utils::diagnostics::AssistantMessageDiagnostic;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use pi_js_compat::number as js_number;
+
+fn serialize_message_timestamp<S: Serializer>(timestamp: &f64, serializer: S) -> Result<S::Ok, S::Error> {
+    // Reuse the lossless JSON writer for exact Node number spelling and nonfinite nulls.
+    JsValue::Number(*timestamp).serialize(serializer)
+}
 
 /// `Api`: a known API literal or any custom string.
 pub type Api = String;
@@ -600,8 +605,9 @@ pub struct UserMessage {
     pub input_source: Option<InputSource>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_native: Option<ProviderNativeContext>,
-    /// Unix timestamp in milliseconds.
-    pub timestamp: i64,
+    /// Unix timestamp in milliseconds, retaining JavaScript fractional/nonfinite numbers.
+    #[serde(serialize_with = "serialize_message_timestamp")]
+    pub timestamp: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -614,8 +620,9 @@ pub struct AssistantMessage {
     pub model: String,
     pub usage: Usage,
     pub stop_reason: StopReason,
-    /// Unix timestamp in milliseconds.
-    pub timestamp: i64,
+    /// Unix timestamp in milliseconds, retaining JavaScript fractional/nonfinite numbers.
+    #[serde(serialize_with = "serialize_message_timestamp")]
+    pub timestamp: f64,
     /// Concrete response model when it differs from the requested `model`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_model: Option<String>,
@@ -639,7 +646,7 @@ impl AssistantMessage {
         api: impl Into<Api>,
         provider: impl Into<ProviderId>,
         model: impl Into<String>,
-        timestamp: i64,
+        timestamp: f64,
     ) -> Self {
         Self {
             role: AssistantRole::Tag,
@@ -681,8 +688,9 @@ pub struct ToolResultMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub added_tool_names: Option<Vec<String>>,
     pub is_error: bool,
-    /// Unix timestamp in milliseconds.
-    pub timestamp: i64,
+    /// Unix timestamp in milliseconds, retaining JavaScript fractional/nonfinite numbers.
+    #[serde(serialize_with = "serialize_message_timestamp")]
+    pub timestamp: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]

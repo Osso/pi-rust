@@ -288,7 +288,7 @@ async fn run_stream(
     options: OpenAICodexResponsesOptions,
     sender: AssistantMessageEventSender,
 ) {
-    let mut output = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis());
+    let mut output = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis() as f64);
     let result = execute_stream(&model, &context, &options, &mut output, &sender).await;
     match result {
         Ok(()) => match done_reason(output.stop_reason) {
