@@ -559,10 +559,7 @@ fn convert_assistant_message(message: &AssistantMessage, model: &Model) -> Optio
                     object(vec![
                         ("toolUseId", pi_js_compat::js_json!(tool_call.id)),
                         ("name", pi_js_compat::js_json!(tool_call.name)),
-                        (
-                            "input",
-                            sanitize_bedrock_document(&JsValue::Object(tool_call.arguments.clone())),
-                        ),
+                        ("input", JsValue::Object(tool_call.arguments.clone())),
                     ]),
                 )]));
             }
@@ -702,20 +699,6 @@ fn normalize_tool_call_id(id: &str) -> String {
         .collect();
     sanitized.truncate(64);
     sanitized
-}
-
-fn sanitize_bedrock_document(value: &JsValue) -> JsValue {
-    match value {
-        JsValue::Array(items) => JsValue::Array(items.iter().map(sanitize_bedrock_document).collect()),
-        JsValue::Object(object) => JsValue::Object(
-            object
-                .iter()
-                .filter(|(key, _)| !key.is_empty())
-                .map(|(key, value)| (key.clone(), sanitize_bedrock_document(value)))
-                .collect(),
-        ),
-        other => other.clone(),
-    }
 }
 
 fn convert_tool_config(

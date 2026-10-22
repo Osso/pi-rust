@@ -11,7 +11,9 @@ Unmasked source request headers exposed native lang/rust and missing SDK languag
 
 ## Native scratch and push ordering
 
-Frozen handlers433–561 retain index/partialJson on output blocks; no second content vector exists. Removed native BlockState/sync_content copies and narrowed i64 indices. Text/thinking starts now snapshot empty content before the delta; thinking signatures append only after the text delta. Finalization strips scratch before constructing end snapshots; owner catches strip open-block scratch. Removed source-absent rawStopReason/error derivation. New fractional0.25/0.5/0.75/0.875 interleaving reproduces the old collapsed blocks RED then passes exact events. Existing text/tool/thinking scenarios advance too; next RED is rich-message SDK Document serialization of empty keys (`bedrock-native-scratch-{red,green-1}.log`). This is a partial checkpoint, not complete Bedrock parity.
+Frozen handlers433–561 retain index/partialJson on output blocks; no second content vector exists. Removed native BlockState/sync_content copies and narrowed i64 indices. Text/thinking starts now snapshot empty content before the delta; thinking signatures append only after the text delta. Finalization strips scratch before constructing end snapshots; owner catches strip open-block scratch. Removed source-absent rawStopReason/error derivation. New fractional0.25/0.5/0.75/0.875 interleaving reproduces the old collapsed blocks RED then passes exact events. Existing text/tool/thinking scenarios advance too; next RED is native rich-message removal of empty tool-argument keys (`bedrock-native-scratch-{red,green-1}.log`). This is a partial checkpoint, not complete Bedrock parity.
+
+Frozen rich-message request retains empty tool-argument keys. Removed sanitize_bedrock_document's recursive empty-key deletion; no request/expected body projection was added. Exact matrix advances from rich-messages to source-absent options.apiKey bearer fallback (`bedrock-document-keys-green-1.log`).
 
 ## Exported symbols
 
