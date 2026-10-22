@@ -1259,7 +1259,6 @@ async fn resolve_runtime_config(model: &Model, options: &BedrockOptions) -> Resu
     let bearer_token = options
         .bearer_token
         .clone()
-        .or_else(|| options.stream.request.api_key.clone())
         .or_else(|| get_provider_env_value("AWS_BEARER_TOKEN_BEDROCK", env));
     let use_bearer = bearer_token.is_some() && !skip_auth;
 

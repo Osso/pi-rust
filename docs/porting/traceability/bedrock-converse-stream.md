@@ -15,6 +15,8 @@ Frozen handlers433–561 retain index/partialJson on output blocks; no second co
 
 Frozen rich-message request retains empty tool-argument keys. Removed sanitize_bedrock_document's recursive empty-key deletion; no request/expected body projection was added. Exact matrix advances from rich-messages to source-absent options.apiKey bearer fallback (`bedrock-document-keys-green-1.log`).
 
+Frozen bearer auth uses only explicit bearerToken/AWS_BEARER_TOKEN_BEDROCK, not common apiKey. Exact source scenario previously named bearer actually ignores apiKey and signs with configured credentials; removed native apiKey fallback and corrected the independent signature assertion. Kept that input as source-ignores-api-key and added explicit-bearer coverage; both source request paths now match. Next RED is missing custom endpoint featureN (`bedrock-native-key-green-2.log`).
+
 ## Exported symbols
 
 | TypeScript | Rust | Tests |

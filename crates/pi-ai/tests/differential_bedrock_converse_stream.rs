@@ -576,10 +576,25 @@ fn scenarios() -> Vec<Scenario> {
     let mut bearer_options = options();
     bearer_options.request.api_key = Some(("bedrock-api-key".to_owned()).into());
     scenarios.push(Scenario {
-        name: "bearer",
+        name: "source-ignores-api-key",
         model: model(),
         context: context(),
         options: bearer_options,
+        process_env: BTreeMap::new(),
+        script: text_script(),
+        capture_payload: false,
+        simple: None,
+    });
+
+    let mut explicit_bearer = options();
+    explicit_bearer
+        .extra
+        .insert("bearerToken".to_owned(), json!("bedrock-api-key"));
+    scenarios.push(Scenario {
+        name: "explicit-bearer",
+        model: model(),
+        context: context(),
+        options: explicit_bearer,
         process_env: BTreeMap::new(),
         script: text_script(),
         capture_payload: false,
@@ -1058,7 +1073,7 @@ fn parse_amz_date(value: &str) -> i64 {
 }
 
 fn verify_signature(scenario: &Scenario, oracle_request: &Value) {
-    if let Some(api_key) = &scenario.options.request.api_key {
+    if let Some(api_key) = scenario.options.extra.get("bearerToken").and_then(Value::as_str) {
         assert_eq!(
             oracle_request["headers"]["Authorization"].as_str(),
             Some(pi_js_compat::js_json::encode_node_utf8(&pi_js_compat::js_format!("Bearer {}", api_key)).as_str()),
