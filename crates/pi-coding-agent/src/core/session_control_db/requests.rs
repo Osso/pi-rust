@@ -215,7 +215,7 @@ impl SupervisorResponse {
 pub struct SupervisorRequest {
     pub id: i64,
     pub sender_session_id: JsString,
-    pub project_id: String,
+    pub project_id: JsString,
     pub kind: SupervisorRequestKind,
     #[serde(
         serialize_with = "js_json::serialize_object",
@@ -239,7 +239,7 @@ pub struct SupervisorRequest {
 #[serde(rename_all = "camelCase")]
 pub struct PostSupervisorRequestInput {
     pub sender_session_id: JsString,
-    pub project_id: String,
+    pub project_id: JsString,
     pub kind: SupervisorRequestKind,
     #[serde(
         serialize_with = "js_json::serialize_object",
@@ -508,7 +508,7 @@ pub fn complete_architect_request(
 type SupervisorRequestRow = (
     i64,
     JsString,
-    String,
+    JsString,
     String,
     String,
     String,

@@ -11,13 +11,13 @@ use crate::core::session_control_db::{
     ControlDbError, SupervisorRequest, SupervisorRequestKind, SupervisorResponse, complete_supervisor_request,
     has_pending_supervisor_approval_request, requeue_supervisor_request,
 };
-use pi_js_compat::js_json;
+use pi_js_compat::{js_format, js_json};
 
 const DEFAULT_POLL_INTERVAL_MS: u64 = 50;
 
 /// Evaluates one Supervisor prompt and returns the raw model response.
 pub type SupervisorEvaluator =
-    Arc<dyn Fn(String, CancellationToken) -> BoxFuture<'static, Result<JsValue, JsString>> + Send + Sync>;
+    Arc<dyn Fn(JsString, CancellationToken) -> BoxFuture<'static, Result<JsValue, JsString>> + Send + Sync>;
 
 /// Inputs for one Supervisor request evaluation.
 #[derive(Clone)]
@@ -61,7 +61,7 @@ fn response_contract_for_request(kind: SupervisorRequestKind) -> String {
 }
 
 /// `buildSupervisorPrompt`.
-pub fn build_supervisor_prompt(request: &SupervisorRequest) -> String {
+pub fn build_supervisor_prompt(request: &SupervisorRequest) -> JsString {
     let response_contract = response_contract_for_request(request.kind);
     let payload = pi_js_compat::js_json!({
         "deadlineAt": request.deadline_at.clone(),
@@ -70,19 +70,21 @@ pub fn build_supervisor_prompt(request: &SupervisorRequest) -> String {
         "projectId": request.project_id.clone(),
         "senderSessionId": request.sender_session_id.clone(),
     });
-    [
-        "You are Pi Supervisor, a resident peer unblocker and policy engine.".to_owned(),
-        "Evaluate only this bounded request, selectively reading Supervisor KB memory when necessary.".to_owned(),
-        "Do not request or reconstruct historical session transcripts.".to_owned(),
-        "You may read and write KB memory synchronously. Do not edit workspace files or control sessions, goals, processes, or agents.".to_owned(),
-        format!("Project memory: memory/supervisor/{}.md", request.project_id),
-        "Global memory: memory/supervisor/global.md".to_owned(),
-        response_contract,
-        "Call supervisor_response exactly once as the final action. Do not emit assistant text, JSON, markdown, or call end_turn before or after it.".to_owned(),
-        "Request:".to_owned(),
-        js_json::stringify_lossless_pretty(&payload),
-    ]
-    .join("\n")
+    JsString::join(
+        [
+            "You are Pi Supervisor, a resident peer unblocker and policy engine.".into(),
+            "Evaluate only this bounded request, selectively reading Supervisor KB memory when necessary.".into(),
+            "Do not request or reconstruct historical session transcripts.".into(),
+            "You may read and write KB memory synchronously. Do not edit workspace files or control sessions, goals, processes, or agents.".into(),
+            js_format!("Project memory: memory/supervisor/{}.md", request.project_id),
+            "Global memory: memory/supervisor/global.md".into(),
+            response_contract.into(),
+            "Call supervisor_response exactly once as the final action. Do not emit assistant text, JSON, markdown, or call end_turn before or after it.".into(),
+            "Request:".into(),
+            js_json::stringify_lossless_pretty(&payload).into(),
+        ] as [JsString; 10],
+        "\n",
+    )
 }
 
 fn response_text(response: &JsObject, key: &str) -> Option<JsString> {

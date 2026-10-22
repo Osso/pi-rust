@@ -2218,8 +2218,10 @@ impl AgentSession {
             let current_user_request = current_user_request.clone();
             Box::pin(async move {
                 let control_db_path = session.inner.control_db_path.clone().unwrap_or_default();
-                let kb_dir = pi_js_compat::process_env::get("PI_KB_DIR")
-                    .unwrap_or_else(|| crate::supervisor::project_resolver::DEFAULT_SUPERVISOR_KB_DIR.to_owned());
+                let kb_dir = JsString::from(
+                    pi_js_compat::process_env::get("PI_KB_DIR")
+                        .unwrap_or_else(|| crate::supervisor::project_resolver::DEFAULT_SUPERVISOR_KB_DIR.to_owned()),
+                );
                 let project_id = crate::supervisor::project_resolver::resolve_supervisor_project_for_cwd(
                     &session.inner.cwd,
                     &kb_dir,

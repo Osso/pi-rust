@@ -606,6 +606,11 @@ fn project_resolver_matches_typescript() {
         "",
         "///",
         "a/b/c/d",
+        "https://example.com",
+        "HTTPS://Example.com/Owner/Repo",
+        "a:b@c:d/e",
+        "user@host:/x/y.git",
+        "@host:repo",
     ];
     let mut oracle = Oracle::spawn();
     let expected = oracle.call_raw(json!({
@@ -617,7 +622,11 @@ fn project_resolver_matches_typescript() {
         "configPaths": [config_path.clone(), empty_path.clone(), directory.path().join("missing.json").to_string_lossy()],
     }));
 
-    let config = read_supervisor_project_config(std::path::Path::new(&config_path)).unwrap();
+    let config = read_supervisor_project_config(&config_path.as_str().into()).unwrap();
+    let to_json = |config: &SupervisorProjectConfig| -> Value {
+        serde_json::from_str(&serde_json::to_string(config).unwrap()).unwrap()
+    };
+    let text = |value: Option<JsString>| value.map(|value| value.to_utf8().unwrap());
     let empty = SupervisorProjectConfig::new();
     let resolved: Vec<Value> = resolve_cases
         .as_array()
@@ -626,33 +635,31 @@ fn project_resolver_matches_typescript() {
         .map(|case| {
             let path = case["configPath"].as_str().unwrap();
             let config = if path == config_path { &config } else { &empty };
-            let remotes: Vec<String> = case["remotes"]
+            let remotes: Vec<JsString> = case["remotes"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|remote| remote.as_str().unwrap().to_owned())
+                .map(|remote| remote.as_str().unwrap().into())
                 .collect();
-            json!(resolve_supervisor_project(
-                config,
-                case["cwd"].as_str().unwrap(),
-                &remotes
-            ))
+            json!(text(Some(
+                resolve_supervisor_project(config, &case["cwd"].as_str().unwrap().into(), &remotes).unwrap()
+            )))
         })
         .collect();
     let identities: Vec<Value> = urls
         .iter()
         .map(|url| {
             json!({
-                "identity": extract_remote_repository_identity(url),
-                "name": extract_remote_repository_name(url),
+                "identity": text(extract_remote_repository_identity(&(*url).into())),
+                "name": text(extract_remote_repository_name(&(*url).into())),
             })
         })
         .collect();
-    let missing = directory.path().join("missing.json");
+    let missing: JsString = directory.path().join("missing.json").to_string_lossy().as_ref().into();
     let configs = vec![
-        json!({"ok": true, "config": read_supervisor_project_config(std::path::Path::new(&config_path)).unwrap()}),
-        json!({"ok": true, "config": read_supervisor_project_config(std::path::Path::new(&empty_path)).unwrap()}),
-        json!({"ok": true, "config": read_supervisor_project_config(&missing).unwrap()}),
+        json!({"ok": true, "config": to_json(&config)}),
+        json!({"ok": true, "config": to_json(&read_supervisor_project_config(&empty_path.as_str().into()).unwrap())}),
+        json!({"ok": true, "config": to_json(&read_supervisor_project_config(&missing).unwrap())}),
     ];
     assert_eq!(
         json!({"resolved": resolved, "identities": identities, "configs": configs}),

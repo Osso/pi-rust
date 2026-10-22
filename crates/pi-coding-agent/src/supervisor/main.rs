@@ -278,7 +278,7 @@ pub fn open_supervisor_session(agent_dir: &str, kb_dir: &str, control_db_path: &
 /// Session surface needed by the request loop and request processing.
 pub trait SupervisorSession: Send + Sync {
     fn abort(&self) -> BoxFuture<'static, Result<(), JsString>>;
-    fn prompt(&self, content: String) -> BoxFuture<'static, Result<(), JsString>>;
+    fn prompt(&self, content: JsString) -> BoxFuture<'static, Result<(), JsString>>;
     /// `None` when the source session has no `compact` method.
     fn compact(&self, _instructions: &str) -> Option<BoxFuture<'static, Result<(), JsString>>> {
         None
@@ -378,7 +378,7 @@ pub async fn process_supervisor_request(
 }
 
 fn supervisor_evaluator(session: Arc<dyn SupervisorSession>) -> SupervisorEvaluator {
-    Arc::new(move |prompt: String, signal: CancellationToken| {
+    Arc::new(move |prompt: JsString, signal: CancellationToken| {
         let session = Arc::clone(&session);
         Box::pin(async move { evaluate_supervisor_prompt(session, prompt, signal).await })
             as BoxFuture<'static, Result<JsValue, JsString>>
@@ -387,7 +387,7 @@ fn supervisor_evaluator(session: Arc<dyn SupervisorSession>) -> SupervisorEvalua
 
 async fn evaluate_supervisor_prompt(
     session: Arc<dyn SupervisorSession>,
-    prompt: String,
+    prompt: JsString,
     signal: CancellationToken,
 ) -> Result<JsValue, JsString> {
     if signal.is_cancelled() {
@@ -631,11 +631,11 @@ impl SupervisorSession for AgentSession {
         Box::pin(async move { session.abort().await.map_err(|error| error.message().to_owned()) })
     }
 
-    fn prompt(&self, content: String) -> BoxFuture<'static, Result<(), JsString>> {
+    fn prompt(&self, content: JsString) -> BoxFuture<'static, Result<(), JsString>> {
         let session = self.clone();
         Box::pin(async move {
             session
-                .prompt(&content, PromptOptions::default())
+                .prompt(content, PromptOptions::default())
                 .await
                 .map_err(|error| error.message().to_owned())
         })

@@ -1,47 +1,49 @@
 //! Supervisor project resolution (`supervisor/project-resolver.ts`).
 
+use std::collections::HashSet;
 use std::path::Path;
 
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{self, JsObject, JsString, JsValue, encode_node_utf8};
+use pi_js_compat::node_fs::node_read_error;
+use pi_js_compat::string::is_js_whitespace_unit;
 use serde::ser::SerializeMap;
-use serde_json::Value;
 
 use crate::utils::child_process::spawn_process_sync;
-use crate::utils::paths::lexical_normalize;
+use crate::utils::paths::{node_basename, node_join, node_resolve};
 
 pub const DEFAULT_SUPERVISOR_KB_DIR: &str = "/syncthing/Sync/KB";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct SupervisorProjectMapping {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub remotes: Option<Vec<String>>,
+    pub remotes: Option<Vec<JsString>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub roots: Option<Vec<String>>,
+    pub roots: Option<Vec<JsString>>,
 }
 
 /// Project mappings in JavaScript `Object.entries` order.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SupervisorProjectConfig(Vec<(String, SupervisorProjectMapping)>);
+pub struct SupervisorProjectConfig(Vec<(JsString, SupervisorProjectMapping)>);
 
 impl SupervisorProjectConfig {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn insert(&mut self, project_id: impl Into<String>, mapping: SupervisorProjectMapping) {
+    pub fn insert(&mut self, project_id: impl Into<JsString>, mapping: SupervisorProjectMapping) {
         self.0.push((project_id.into(), mapping));
     }
 
-    pub fn get(&self, project_id: &str) -> Option<&SupervisorProjectMapping> {
+    pub fn get(&self, project_id: &JsString) -> Option<&SupervisorProjectMapping> {
         self.0
             .iter()
             .find(|(existing, _)| existing == project_id)
             .map(|(_, mapping)| mapping)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&str, &SupervisorProjectMapping)> {
-        self.0
-            .iter()
-            .map(|(project_id, mapping)| (project_id.as_str(), mapping))
+    pub fn iter(&self) -> impl Iterator<Item = (&JsString, &SupervisorProjectMapping)> {
+        self.0.iter().map(|(project_id, mapping)| (project_id, mapping))
     }
 }
 
@@ -55,77 +57,139 @@ impl serde::Serialize for SupervisorProjectConfig {
     }
 }
 
-impl FromIterator<(String, SupervisorProjectMapping)> for SupervisorProjectConfig {
-    fn from_iter<T: IntoIterator<Item = (String, SupervisorProjectMapping)>>(iter: T) -> Self {
+impl FromIterator<(JsString, SupervisorProjectMapping)> for SupervisorProjectConfig {
+    fn from_iter<T: IntoIterator<Item = (JsString, SupervisorProjectMapping)>>(iter: T) -> Self {
         Self(iter.into_iter().collect())
     }
 }
 
 pub struct ResolveSupervisorProjectInput<'a> {
     pub config: &'a SupervisorProjectConfig,
-    pub cwd: &'a str,
-    pub remote_repository_names: &'a [String],
+    pub cwd: &'a JsString,
+    pub remote_repository_names: &'a [JsString],
 }
 
-pub fn extract_remote_repository_identity(remote_url: &str) -> Option<String> {
-    let normalized = strip_authority(remote_url.trim());
-    let segments: Vec<&str> = normalized.split('/').filter(|segment| !segment.is_empty()).collect();
+const SLASH: u16 = b'/' as u16;
+const COLON: u16 = b':' as u16;
+const AT: u16 = b'@' as u16;
+
+/// `extractRemoteRepositoryIdentity`.
+pub fn extract_remote_repository_identity(remote_url: &JsString) -> Option<JsString> {
+    let normalized = strip_scp_authority(&strip_scheme_authority(&strip_git_suffix(&strip_trailing_slashes(
+        &remote_url.trim(),
+    ))));
+    let segments: Vec<JsString> = normalized.split('/').filter(|segment| !segment.is_empty()).collect();
     match segments.len() {
         0 => None,
-        1 => Some(segments[0].to_owned()),
-        length => Some(format!("{}/{}", segments[length - 2], segments[length - 1])),
+        1 => segments.into_iter().next(),
+        length => Some(JsString::join(segments[length - 2..].iter().cloned(), "/")),
     }
 }
 
-pub fn extract_remote_repository_name(remote_url: &str) -> Option<String> {
-    extract_remote_repository_identity(remote_url).and_then(|identity| identity.rsplit('/').next().map(str::to_owned))
+/// `extractRemoteRepositoryName`.
+pub fn extract_remote_repository_name(remote_url: &JsString) -> Option<JsString> {
+    extract_remote_repository_identity(remote_url).map(|identity| last_segment(&identity))
 }
 
-fn strip_authority(remote_url: &str) -> String {
-    let trimmed = remote_url.trim_end_matches('/');
-    let without_git = trimmed.strip_suffix(".git").unwrap_or(trimmed);
-    let without_scheme = strip_scheme_authority(without_git);
-    strip_scp_authority(without_scheme).to_owned()
+/// `.replace(/\/+$/, "")`.
+fn strip_trailing_slashes(value: &JsString) -> JsString {
+    let end = value
+        .units()
+        .iter()
+        .rposition(|unit| *unit != SLASH)
+        .map_or(0, |index| index + 1);
+    value.slice(0, end)
 }
 
-fn strip_scheme_authority(value: &str) -> &str {
-    let Some(scheme_end) = value.find("://") else {
-        return value;
+/// `.replace(/\.git$/, "")`.
+fn strip_git_suffix(value: &JsString) -> JsString {
+    value.strip_suffix(".git").unwrap_or_else(|| value.clone())
+}
+
+/// `.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]+\//i, "")`.
+fn strip_scheme_authority(value: &JsString) -> JsString {
+    let units = value.units();
+    let is_alpha = |unit: u16| u8::try_from(unit).is_ok_and(|byte| byte.is_ascii_alphabetic());
+    let is_scheme_tail =
+        |unit: u16| u8::try_from(unit).is_ok_and(|byte| byte.is_ascii_alphanumeric() || b"+.-".contains(&byte));
+    if !units.first().is_some_and(|unit| is_alpha(*unit)) {
+        return value.clone();
+    }
+    let scheme_end = 1 + units[1..].iter().take_while(|unit| is_scheme_tail(**unit)).count();
+    let Some(after_scheme) = value.slice(scheme_end, value.len()).strip_prefix("://") else {
+        return value.clone();
     };
-    let scheme = &value[..scheme_end];
-    let is_scheme = scheme.chars().next().is_some_and(|first| first.is_ascii_alphabetic())
-        && scheme
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '+' | '.' | '-'));
-    if !is_scheme {
-        return value;
+    let authority_length = after_scheme.units().iter().take_while(|unit| **unit != SLASH).count();
+    if authority_length == 0 || authority_length == after_scheme.len() {
+        return value.clone();
     }
-    let remainder = &value[scheme_end + 3..];
-    match remainder.find('/') {
-        Some(authority_end) => &remainder[authority_end + 1..],
-        None => "",
-    }
+    after_scheme.slice(authority_length + 1, after_scheme.len())
 }
 
-fn strip_scp_authority(value: &str) -> &str {
-    let Some(colon) = value.find(':') else {
-        return value;
+/// `.replace(/^[^@]+@[^:]+:/, "")`.
+fn strip_scp_authority(value: &JsString) -> JsString {
+    let units = value.units();
+    let Some(at) = units.iter().position(|unit| *unit == AT) else {
+        return value.clone();
     };
-    let prefix = &value[..colon];
-    let has_user = prefix.contains('@');
-    let has_slash = prefix.contains('/');
-    if has_user && !has_slash {
-        &value[colon + 1..]
-    } else {
-        value
+    let Some(host_length) = units[at + 1..].iter().position(|unit| *unit == COLON) else {
+        return value.clone();
+    };
+    if at == 0 || host_length == 0 {
+        return value.clone();
     }
+    value.slice(at + 1 + host_length + 1, value.len())
 }
 
+/// `resolveSupervisorProjectForCwd`.
+pub fn resolve_supervisor_project_for_cwd(cwd: &JsString, kb_dir: &JsString) -> Result<JsString, JsString> {
+    let config_path = node_join(
+        node_join(node_join(kb_dir.clone(), "memory"), "supervisor"),
+        "projects.json",
+    );
+    let config = read_supervisor_project_config(&config_path)?;
+    resolve_supervisor_project(&config, cwd, &read_remote_repository_names(cwd))
+}
+
+/// `readSupervisorProjectConfig`. Error messages are the source text; JSON syntax errors
+/// come from the lossless `JSON.parse` port.
+pub fn read_supervisor_project_config(path: &JsString) -> Result<SupervisorProjectConfig, JsString> {
+    let encoded_path = encode_node_utf8(path);
+    if !Path::new(&encoded_path).exists() {
+        return Ok(SupervisorProjectConfig::new());
+    }
+    let bytes = std::fs::read(&encoded_path).map_err(|error| JsString::from(node_read_error(&error, &encoded_path)))?;
+    let parsed =
+        js_json::parse_lossless(String::from_utf8_lossy(&bytes).as_ref()).map_err(|error| error.into_message())?;
+    let Some(object) = record(&parsed) else {
+        return Err(js_format!("Supervisor project config must be an object: {}", path));
+    };
+    js_json::object_entries_lossless(object)
+        .into_iter()
+        .map(|(project_id, value)| {
+            let Some(mapping) = record(value) else {
+                return Err(js_format!(
+                    "Supervisor project mapping must be an object: {}",
+                    project_id
+                ));
+            };
+            Ok((
+                project_id.clone(),
+                SupervisorProjectMapping {
+                    remotes: read_string_array(mapping.get("remotes"))?,
+                    roots: read_string_array(mapping.get("roots"))?,
+                },
+            ))
+        })
+        .collect()
+}
+
+/// `resolveSupervisorProject`. `path.resolve` reads `process.cwd()`, whose failure propagates.
 pub fn resolve_supervisor_project(
     config: &SupervisorProjectConfig,
-    cwd: &str,
-    remote_repository_names: &[String],
-) -> String {
+    cwd: &JsString,
+    remote_repository_names: &[JsString],
+) -> Result<JsString, JsString> {
     resolve_supervisor_project_with(&ResolveSupervisorProjectInput {
         config,
         cwd,
@@ -133,117 +197,58 @@ pub fn resolve_supervisor_project(
     })
 }
 
-fn resolve_supervisor_project_with(input: &ResolveSupervisorProjectInput<'_>) -> String {
-    let resolved_cwd = resolve_like_node(input.cwd);
-    if let Some(project) = find_project_by_root(input.config, &resolved_cwd) {
-        return project.to_owned();
+fn resolve_supervisor_project_with(input: &ResolveSupervisorProjectInput<'_>) -> Result<JsString, JsString> {
+    if let Some(project) = find_project_by_root(input.config, input.cwd)? {
+        return Ok(project.clone());
     }
     if let Some(project) = find_project_by_remote(input.config, input.remote_repository_names) {
-        return project.to_owned();
+        return Ok(project.clone());
     }
-    input
-        .remote_repository_names
-        .first()
-        .map(|name| last_segment(name).to_lowercase())
-        .unwrap_or_else(|| basename(&resolved_cwd))
-}
-
-pub fn resolve_supervisor_project_for_cwd(cwd: &str, kb_dir: &str) -> Result<String, String> {
-    let config_path = Path::new(kb_dir)
-        .join("memory")
-        .join("supervisor")
-        .join("projects.json");
-    let config = read_supervisor_project_config(&config_path)?;
-    Ok(resolve_supervisor_project(
-        &config,
-        cwd,
-        &read_remote_repository_names(cwd),
-    ))
-}
-
-/// The error message is the source text; JSON syntax errors come from `serde_json`.
-pub fn read_supervisor_project_config(path: &Path) -> Result<SupervisorProjectConfig, String> {
-    let Ok(bytes) = std::fs::read(path) else {
-        return Ok(SupervisorProjectConfig::new());
-    };
-    let text = String::from_utf8_lossy(&bytes);
-    let parsed: Value = pi_js_compat::js_json::parse(&text).map_err(|error| error.to_string())?;
-    let Some(object) = parsed.as_object() else {
-        return Err(format!(
-            "Supervisor project config must be an object: {}",
-            path.display()
-        ));
-    };
-    let entries: Vec<(&String, &Value)> = object.iter().collect();
-    let order = javascript_object_order(entries.iter().map(|(project_id, _)| project_id.as_str()));
-    let mut config = SupervisorProjectConfig::new();
-    for (project_id, value) in order.into_iter().map(|index| entries[index]) {
-        let Some(mapping) = value.as_object() else {
-            return Err(format!("Supervisor project mapping must be an object: {project_id}"));
-        };
-        config.insert(
-            project_id.clone(),
-            SupervisorProjectMapping {
-                remotes: read_string_array(mapping.get("remotes"))?,
-                roots: read_string_array(mapping.get("roots"))?,
-            },
-        );
+    match input.remote_repository_names.first() {
+        Some(name) => Ok(last_segment(name).to_lowercase()),
+        None => Ok(node_basename(resolve(input.cwd)?)),
     }
-    Ok(config)
 }
 
-/// `Object.keys` puts canonical array-index keys first, ascending, then insertion order.
-fn javascript_object_order(keys: impl Iterator<Item = impl AsRef<str>>) -> Vec<usize> {
-    let mut indices: Vec<(Option<u32>, usize)> = keys
-        .enumerate()
-        .map(|(index, key)| (array_index(key.as_ref()), index))
-        .collect();
-    indices.sort_by_key(|(array_index, index)| match array_index {
-        Some(value) => (*value, *index),
-        None => (u32::MAX, *index),
-    });
-    indices.into_iter().map(|(_, index)| index).collect()
+fn resolve(path: &JsString) -> Result<JsString, JsString> {
+    node_resolve("", path.clone()).map_err(|error| error.message().clone())
 }
 
-fn array_index(key: &str) -> Option<u32> {
-    let canonical = key == "0" || (!key.starts_with('0') && !key.is_empty() && key.bytes().all(|b| b.is_ascii_digit()));
-    canonical
-        .then(|| key.parse::<u32>().ok())
-        .flatten()
-        .filter(|value| *value < u32::MAX)
+fn record(value: &JsValue) -> Option<&JsObject> {
+    value.as_object()
 }
 
-fn read_string_array(value: Option<&Value>) -> Result<Option<Vec<String>>, String> {
+fn read_string_array(value: Option<&JsValue>) -> Result<Option<Vec<JsString>>, JsString> {
     let Some(value) = value else {
         return Ok(None);
     };
-    let Some(entries) = value.as_array() else {
-        return Err("Supervisor project mapping values must be string arrays".to_owned());
-    };
-    entries
-        .iter()
-        .map(|entry| entry.as_str().map(str::to_owned))
-        .collect::<Option<Vec<String>>>()
+    value
+        .as_array()
+        .and_then(|entries| entries.iter().map(|entry| entry.as_string().cloned()).collect())
         .map(Some)
-        .ok_or_else(|| "Supervisor project mapping values must be string arrays".to_owned())
+        .ok_or_else(|| "Supervisor project mapping values must be string arrays".into())
 }
 
-fn find_project_by_root<'a>(config: &'a SupervisorProjectConfig, resolved_cwd: &str) -> Option<&'a str> {
-    config.iter().find_map(|(project_id, mapping)| {
-        mapping
-            .roots
-            .as_ref()?
-            .iter()
-            .any(|root| is_path_within_root(resolved_cwd, &resolve_like_node(root)))
-            .then_some(project_id)
-    })
+fn find_project_by_root<'a>(
+    config: &'a SupervisorProjectConfig,
+    cwd: &JsString,
+) -> Result<Option<&'a JsString>, JsString> {
+    let resolved_cwd = resolve(cwd)?;
+    for (project_id, mapping) in config.iter() {
+        for root in mapping.roots.iter().flatten() {
+            if is_path_within_root(&resolved_cwd, &resolve(root)?) {
+                return Ok(Some(project_id));
+            }
+        }
+    }
+    Ok(None)
 }
 
 fn find_project_by_remote<'a>(
     config: &'a SupervisorProjectConfig,
-    remote_repository_names: &[String],
-) -> Option<&'a str> {
-    let remote_names: Vec<String> = remote_repository_names.iter().map(|name| name.to_lowercase()).collect();
+    remote_repository_names: &[JsString],
+) -> Option<&'a JsString> {
+    let remote_names: HashSet<JsString> = remote_repository_names.iter().map(JsString::to_lowercase).collect();
     config.iter().find_map(|(project_id, mapping)| {
         mapping
             .remotes
@@ -254,22 +259,23 @@ fn find_project_by_remote<'a>(
     })
 }
 
-pub fn read_remote_repository_names(cwd: &str) -> Vec<String> {
-    let Ok(output) = spawn_process_sync("git", &["remote", "-v"], Some(Path::new(cwd))) else {
+/// `readRemoteRepositoryNames`: `spawnSync` reports a spawn failure as a non-zero status.
+pub fn read_remote_repository_names(cwd: &JsString) -> Vec<JsString> {
+    let Ok(output) = spawn_process_sync("git", &["remote", "-v"], Some(Path::new(&encode_node_utf8(cwd)))) else {
         return Vec::new();
     };
     if !output.status.success() {
         return Vec::new();
     }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut names: Vec<String> = Vec::new();
-    for line in stdout.lines() {
-        let Some(remote_url) = line.split_whitespace().nth(1) else {
+    let stdout = JsString::from(String::from_utf8_lossy(&output.stdout).as_ref());
+    let mut names: Vec<JsString> = Vec::new();
+    for line in stdout.split('\n') {
+        let Some(remote_url) = second_whitespace_field(&line.trim()) else {
             continue;
         };
         for name in [
-            extract_remote_repository_identity(remote_url),
-            extract_remote_repository_name(remote_url),
+            extract_remote_repository_identity(&remote_url),
+            extract_remote_repository_name(&remote_url),
         ]
         .into_iter()
         .flatten()
@@ -282,27 +288,31 @@ pub fn read_remote_repository_names(cwd: &str) -> Vec<String> {
     names
 }
 
-fn is_path_within_root(path: &str, root: &str) -> bool {
-    path == root || path.starts_with(&format!("{root}{}", std::path::MAIN_SEPARATOR))
+/// `line.split(/\s+/)[1]` on an already-trimmed line, filtered by `Boolean`.
+fn second_whitespace_field(line: &JsString) -> Option<JsString> {
+    let units = line.units();
+    let first_end = units.iter().position(|unit| is_js_whitespace_unit(*unit))?;
+    let start = first_end
+        + units[first_end..]
+            .iter()
+            .take_while(|unit| is_js_whitespace_unit(**unit))
+            .count();
+    let length = units[start..]
+        .iter()
+        .take_while(|unit| !is_js_whitespace_unit(**unit))
+        .count();
+    (length > 0).then(|| line.slice(start, start + length))
 }
 
-/// `path.resolve`: lexical normalization, relative paths resolved against the process cwd.
-fn resolve_like_node(path: &str) -> String {
-    let path = Path::new(path);
-    if path.is_absolute() {
-        return lexical_normalize(path);
-    }
-    let current = std::env::current_dir().expect("process cwd must be readable");
-    lexical_normalize(&current.join(path))
+fn is_path_within_root(path: &JsString, root: &JsString) -> bool {
+    path == root || path.starts_with(root.clone() + "/")
 }
 
-fn basename(resolved: &str) -> String {
-    Path::new(resolved)
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default()
-}
-
-fn last_segment(value: &str) -> &str {
-    value.rsplit('/').next().unwrap_or(value)
+fn last_segment(value: &JsString) -> JsString {
+    let start = value
+        .units()
+        .iter()
+        .rposition(|unit| *unit == SLASH)
+        .map_or(0, |index| index + 1);
+    value.slice(start, value.len())
 }

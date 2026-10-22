@@ -109,7 +109,7 @@ impl AgentHarnessTool<ExtensionContext> for AskSupervisorTool {
             let session_manager = context
                 .session_manager()
                 .map_err(|error| ToolError::new(error.message))?;
-            let sender_session_id = lock_session_manager(&session_manager).get_session_id().to_owned();
+            let sender_session_id = lock_session_manager(&session_manager).get_session_id().clone();
             if sender_session_id.is_empty() {
                 return Err(ToolError::new("ask_supervisor requires a persisted session id"));
             }
@@ -117,13 +117,13 @@ impl AgentHarnessTool<ExtensionContext> for AskSupervisorTool {
                 pi_js_compat::js_json::from_value(&params).map_err(|error| ToolError::new(error.to_string()))?;
             let cwd = context.cwd().map_err(|error| ToolError::new(error.message))?;
             let project_id =
-                resolve_supervisor_project_for_cwd(&cwd, DEFAULT_SUPERVISOR_KB_DIR).map_err(ToolError::new)?;
+                resolve_supervisor_project_for_cwd(&cwd, &DEFAULT_SUPERVISOR_KB_DIR.into()).map_err(ToolError::new)?;
             let response = request_supervisor_decision(&RequestSupervisorDecisionInput {
                 control_db_path: control_db_path.to_owned(),
                 kind: SupervisorRequestKind::SupervisorAdvisory,
                 payload: advisory_payload(&params.question, params.context.as_ref()),
                 project_id: project_id.clone(),
-                sender_session_id: sender_session_id.to_owned(),
+                sender_session_id: sender_session_id.clone(),
                 timeout_ms: SUPERVISOR_ADVISORY_TIMEOUT_MS,
                 max_attempts: None,
                 poll_interval_ms: None,
