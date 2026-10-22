@@ -326,7 +326,7 @@ pub struct AgentMailboxMessage {
     pub kind: MailboxMessageKindValue,
     pub status: MailboxMessageStatusValue,
     pub created_at: JsString,
-    pub updated_at: JsString,
+    pub updated_at: Option<JsString>,
     pub body: Option<JsString>,
     pub file_refs: Option<JsValue>,
     pub target_checkpoint: Option<SteeringCheckpoint>,
@@ -366,10 +366,12 @@ impl Serialize for AgentMailboxMessage {
             "createdAt".into(),
             js_json::to_value(&self.created_at).map_err(serde::ser::Error::custom)?,
         );
-        object.insert(
-            "updatedAt".into(),
-            js_json::to_value(&self.updated_at).map_err(serde::ser::Error::custom)?,
-        );
+        if let Some(value) = &self.updated_at {
+            object.insert(
+                "updatedAt".into(),
+                js_json::to_value(value).map_err(serde::ser::Error::custom)?,
+            );
+        }
         if let Some(value) = &self.body {
             object.insert(
                 "body".into(),
@@ -1034,7 +1036,7 @@ impl MultiAgentStore {
             target_checkpoint: input.target_checkpoint,
             thread_id: input.thread_id.clone(),
             to_agent_id: agent_id.to_owned().into(),
-            updated_at: timestamp.into(),
+            updated_at: Some(timestamp.into()),
             error: None,
         })
     }
@@ -1372,7 +1374,7 @@ impl MultiAgentStore {
         let updated = AgentMailboxMessage {
             error: Some(error.clone()),
             status: MailboxMessageStatusValue::Failed,
-            updated_at: self.now().into(),
+            updated_at: Some(self.now().into()),
             ..message
         };
         self.lock()
@@ -1616,7 +1618,7 @@ impl MultiAgentStore {
             kind: MailboxMessageKindValue::ParentRequest,
             status: MailboxMessageStatusValue::Pending,
             created_at: timestamp.clone().into(),
-            updated_at: timestamp.into(),
+            updated_at: Some(timestamp.into()),
             body: Some(input.body.clone()),
             file_refs: file_refs
                 .as_ref()
@@ -1672,7 +1674,7 @@ impl MultiAgentStore {
             kind: MailboxMessageKindValue::Message,
             status: MailboxMessageStatusValue::Pending,
             created_at: timestamp.clone().into(),
-            updated_at: timestamp.into(),
+            updated_at: Some(timestamp.into()),
             body: Some(input.body.clone()),
             file_refs: validate_mailbox_file_refs(input.file_refs.as_ref(), "send_agent_message")?,
             target_checkpoint: None,
@@ -1734,7 +1736,7 @@ impl MultiAgentStore {
             kind: MailboxMessageKindValue::Message,
             status: MailboxMessageStatusValue::Pending,
             created_at: timestamp.clone().into(),
-            updated_at: timestamp.into(),
+            updated_at: Some(timestamp.into()),
             body: Some(input.body.clone()),
             file_refs: validate_mailbox_file_refs(input.file_refs.as_ref(), "send_agent_message")?,
             target_checkpoint: None,
@@ -1775,7 +1777,7 @@ impl MultiAgentStore {
             status: MailboxMessageStatusValue::Pending,
             thread_id: input.thread_id.clone(),
             to_agent_id: input.to_agent_id.clone().into(),
-            updated_at: timestamp.into(),
+            updated_at: Some(timestamp.into()),
             target_checkpoint: None,
             error: None,
         };
@@ -2169,7 +2171,7 @@ impl MultiAgentStore {
                 .clone()
                 .unwrap_or_else(|| MAIN_THREAD_AGENT_ID.to_owned())
                 .into(),
-            updated_at: timestamp.into(),
+            updated_at: Some(timestamp.into()),
             file_refs: file_refs
                 .as_ref()
                 .map(js_json::to_value)

@@ -894,7 +894,7 @@ fn build_steering_mailbox_message(
         target_checkpoint: input.target_checkpoint,
         thread_id: input.thread_id.clone(),
         to_agent_id: input.agent_id.clone().into(),
-        updated_at: input.updated_at.clone().into(),
+        updated_at: Some(input.updated_at.clone().into()),
         error: None,
     })
 }
@@ -1086,7 +1086,6 @@ pub(super) fn read_steering_delivery_plan(
         return Ok(Err(SteeringCommandError::AgentNotFound));
     };
     let agent_context = format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id);
-    let agent_object = parse_stored_json_object(&agent_data, &agent_context)?;
     let agent = parse_agent_snapshot(&agent_data, &agent_context)?;
     let ownership = read_multi_agent_runtime_ownership_row(db, &input.session_path, &input.agent_id)?;
     let identity = ownership_identity(

@@ -37,6 +37,19 @@ fn enqueue_retry_restore_retains_raw_payload_and_rejects_replacement_collision()
         js_json::to_value(&restored[0]).unwrap().get("body"),
         input.message.get("body")
     );
+    let mut missing_update = input.clone();
+    missing_update.store_ref.message_id = "without_update".into();
+    let object = missing_update.message.as_object_mut().unwrap();
+    object.insert("id".into(), JsValue::String("without_update".into()));
+    object.shift_remove("updatedAt");
+    enqueue_stored_runtime_mailbox_message(&database, &missing_update).unwrap();
+    store
+        .restore_from_session_manager(&Persistence(database.clone()))
+        .unwrap();
+    let restored = store.list_mailbox_messages().unwrap();
+    assert_eq!(restored.len(), 2);
+    assert_eq!(restored[1].updated_at, None);
+    assert_eq!(restored[1].body, restored[0].body);
     let mut collision = input.clone();
     collision
         .message
