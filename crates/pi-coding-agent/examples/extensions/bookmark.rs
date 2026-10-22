@@ -1,9 +1,10 @@
 //! Opt-in native `bookmark.ts`; bookmarks the latest assistant entry, not the leaf.
+use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry};
-use pi_js_compat::{date::js_now_millis, number::js_number_to_string, string::js_trim};
+use pi_js_compat::{date::js_now_millis, number::js_number_to_string};
 
 pub fn bookmark_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     let api = pi.clone();
@@ -14,9 +15,9 @@ pub fn bookmark_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         Arc::new(move |args, ctx| {
             let api = api.clone();
             Box::pin(async move {
-                let trimmed = js_trim(&args);
+                let trimmed = (&args).trim();
                 let label = if trimmed.is_empty() {
-                    format!("bookmark-{}", js_number_to_string(js_now_millis()))
+                    pi_js_compat::js_format!("bookmark-{}", js_number_to_string(js_now_millis()))
                 } else {
                     trimmed.to_owned()
                 };
@@ -28,10 +29,16 @@ pub fn bookmark_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 let id = entries.iter().rev().find_map(last_assistant_id);
                 let ui = ctx.ui()?;
                 if let Some(id) = id {
-                    api.set_label(id, Some(&label))?;
-                    ui.notify(&format!("Bookmarked as: {label}"), Some(NotifyType::Info));
+                    api.set_label(&JsString::from(id), Some(&JsString::from(&label)))?;
+                    ui.notify(
+                        &JsString::from(pi_js_compat::js_format!("Bookmarked as: {}", label)),
+                        Some(NotifyType::Info),
+                    );
                 } else {
-                    ui.notify("No assistant message to bookmark", Some(NotifyType::Warning));
+                    ui.notify(
+                        &JsString::from("No assistant message to bookmark"),
+                        Some(NotifyType::Warning),
+                    );
                 }
                 Ok(())
             })
@@ -48,10 +55,13 @@ pub fn bookmark_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 let bookmark = find_last_label(&ctx)?;
                 let ui = ctx.ui()?;
                 if let Some((id, label)) = bookmark {
-                    api.set_label(&id, None)?;
-                    ui.notify(&format!("Removed bookmark: {label}"), Some(NotifyType::Info));
+                    api.set_label(&JsString::from(&id), None)?;
+                    ui.notify(
+                        &JsString::from(pi_js_compat::js_format!("Removed bookmark: {}", label)),
+                        Some(NotifyType::Info),
+                    );
                 } else {
-                    ui.notify("No bookmarked entry found", Some(NotifyType::Warning));
+                    ui.notify(&JsString::from("No bookmarked entry found"), Some(NotifyType::Warning));
                 }
                 Ok(())
             })
@@ -60,7 +70,7 @@ pub fn bookmark_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     .map_err(HandlerError::new)
 }
 
-fn last_assistant_id(entry: &SessionEntry) -> Option<&str> {
+fn last_assistant_id(entry: &SessionEntry) -> Option<&JsString> {
     match entry {
         SessionEntry::Known(KnownSessionEntry::Message(entry)) if entry.message.role() == "assistant" => {
             Some(&entry.id)
@@ -69,7 +79,7 @@ fn last_assistant_id(entry: &SessionEntry) -> Option<&str> {
     }
 }
 
-fn find_last_label(ctx: &ExtensionContext) -> Result<Option<(String, String)>, HandlerError> {
+fn find_last_label(ctx: &ExtensionContext) -> Result<Option<(JsString, JsString)>, HandlerError> {
     let manager = ctx.session_manager()?;
     let manager = manager.lock().map_err(|error| HandlerError::new(error.to_string()))?;
     Ok(manager.get_entries().iter().rev().find_map(|entry| {

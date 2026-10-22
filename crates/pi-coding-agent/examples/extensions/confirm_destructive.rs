@@ -1,6 +1,8 @@
 //! Opt-in native `confirm-destructive.ts`; embed and register explicitly.
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 
 pub fn confirm_destructive_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     pi.on_session_before_switch(|event, ctx| {
@@ -12,19 +14,19 @@ pub fn confirm_destructive_extension(pi: &ExtensionApi) -> Result<(), HandlerErr
             if !ctx.has_ui()? {
                 return Ok(None);
             }
-            let prefix: String = pi_js_compat::string::utf16_slice_to_utf8(&event.entry_id, 0, 8);
+            let prefix = event.entry_id.slice(0, 8);
             let ui = ctx.ui()?;
             let choice = ui
                 .select(
-                    &format!("Fork from entry {prefix}?"),
+                    &JsString::from(js_format!("Fork from entry {}?", prefix)),
                     &["Yes, create fork".into(), "No, stay in current session".into()],
                     None,
                 )
                 .await?;
-            if choice.as_deref() == Some("Yes, create fork") {
+            if choice.as_ref() == Some(&JsString::from("Yes, create fork")) {
                 return Ok(None);
             }
-            ui.notify("Fork cancelled", Some(NotifyType::Info));
+            ui.notify(&JsString::from("Fork cancelled"), Some(NotifyType::Info));
             Ok(Some(SessionBeforeForkResult {
                 cancel: Some(true),
                 ..Default::default()
@@ -59,9 +61,12 @@ async fn confirm_switch(
         )
     };
     let ui = ctx.ui()?;
-    if ui.confirm(title, message, None).await? {
+    if ui
+        .confirm(&JsString::from(title), &JsString::from(message), None)
+        .await?
+    {
         return Ok(None);
     }
-    ui.notify(cancelled, Some(NotifyType::Info));
+    ui.notify(&JsString::from(cancelled), Some(NotifyType::Info));
     Ok(Some(SessionBeforeSwitchResult { cancel: Some(true) }))
 }

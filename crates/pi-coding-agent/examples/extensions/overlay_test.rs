@@ -1,9 +1,12 @@
 //! Opt-in native port of `overlay-test.ts`.
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::theme::{Theme, ThemeColor};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use pi_tui::tui::CURSOR_MARKER;
 use pi_tui::{matches_key, visible_width};
-use serde_json::json;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
@@ -12,11 +15,11 @@ use std::sync::{
 struct Item {
     label: &'static str,
     input: bool,
-    text: Vec<char>,
+    text: Vec<u16>,
     cursor: usize,
 }
 impl Item {
-    fn edit_input(&mut self, data: &str) {
+    fn edit_input(&mut self, data: &JsString) {
         if matches_key(data, "backspace") {
             if self.cursor > 0 {
                 self.cursor -= 1;
@@ -26,10 +29,8 @@ impl Item {
             self.cursor = self.cursor.saturating_sub(1);
         } else if matches_key(data, "right") {
             self.cursor = (self.cursor + 1).min(self.text.len());
-        } else if data.encode_utf16().count() == 1
-            && let Some(ch) = data.chars().next().filter(|c| *c >= ' ')
-        {
-            self.text.insert(self.cursor, ch);
+        } else if data.len() == 1 && data.units()[0] >= u16::from(b' ') {
+            self.text.insert(self.cursor, data.units()[0]);
             self.cursor += 1;
         }
     }
@@ -64,8 +65,8 @@ impl OverlayTest {
             }),
         }
     }
-    fn row(&self, content: &str) -> String {
-        format!(
+    fn row(&self, content: &JsString) -> JsString {
+        js_format!(
             "{}{}{}{}",
             self.theme.fg(ThemeColor::Border, "│"),
             content,
@@ -73,27 +74,29 @@ impl OverlayTest {
             self.theme.fg(ThemeColor::Border, "│")
         )
     }
-    fn menu_row(&self, item: &Item, selected: bool) -> String {
+    fn menu_row(&self, item: &Item, selected: bool) -> JsString {
         let prefix = if selected { " ▶ " } else { "   " };
         let color = if selected { ThemeColor::Accent } else { ThemeColor::Text };
         if !item.input {
-            return self.row(&format!("{prefix}{}", self.theme.fg(color, item.label)));
+            return self.row(&js_format!("{}{}", prefix, self.theme.fg(color, item.label)));
         }
-        let mut input: String = item.text.iter().collect();
+        let mut input = JsString::from_utf16(item.text.clone());
         if selected {
-            let before: String = item.text[..item.cursor].iter().collect();
-            let ch = item.text.get(item.cursor).copied().unwrap_or(' ');
-            let after: String = item.text.iter().skip(item.cursor + 1).collect();
+            let before = JsString::from_utf16(item.text[..item.cursor].to_vec());
+            let ch = JsString::from_utf16(vec![item.text.get(item.cursor).copied().unwrap_or(u16::from(b' '))]);
+            let after = JsString::from_utf16(item.text.iter().skip(item.cursor + 1).copied().collect());
             let marker = if self.focused.load(Ordering::SeqCst) {
                 CURSOR_MARKER
             } else {
                 ""
             };
-            input = format!("{before}{marker}\x1b[7m{ch}\x1b[27m{after}");
+            input = js_format!("{}{}\x1b[7m{}\x1b[27m{}", before, marker, ch, after);
         }
-        self.row(&format!(
-            "{prefix}{} {input}",
-            self.theme.fg(color, &format!("{}:", item.label))
+        self.row(&js_format!(
+            "{}{} {}",
+            prefix,
+            self.theme.fg(color, &format!("{}:", item.label)),
+            input
         ))
     }
 }
@@ -118,12 +121,12 @@ impl ExtensionUiComponent for OverlayTest {
         let current = &mut state.items[selected];
         if matches_key(data, "return") {
             let result = if current.input {
-                json!({"action":current.label,"query":current.text.iter().collect::<String>()})
+                json!({"action":current.label,"query":JsString::from_utf16(current.text.clone())})
             } else {
                 json!({"action":current.label})
             };
             drop(state);
-            self.done.call(Some(result));
+            self.done.call(Some(JsValue::from(result)));
             return;
         }
         if matches_key(data, "up") {
@@ -138,20 +141,20 @@ impl ExtensionUiComponent for OverlayTest {
         let th = &self.theme;
         let mut lines = vec![
             th.fg(ThemeColor::Border, &format!("╭{}╮", "─".repeat(68))),
-            self.row(&format!(" {}", th.fg(ThemeColor::Accent, "🧪 Overlay Test"))),
-            self.row(""),
-            self.row(&format!(
+            JsString::from(self.row(&js_format!(" {}", th.fg(ThemeColor::Accent, "🧪 Overlay Test")))),
+            JsString::from(self.row(&JsString::from(""))),
+            JsString::from(self.row(&js_format!(
                 " {}",
                 th.fg(ThemeColor::Dim, "─── Edge Cases (borders should align) ───")
-            )),
-            self.row(&format!(
+            ))),
+            JsString::from(self.row(&js_format!(
                 " Wide: {}",
                 th.fg(
                     ThemeColor::Warning,
                     "中文日本語한글テスト漢字繁體简体ひらがなカタカナ가나다라마바"
                 )
-            )),
-            self.row(&format!(
+            ))),
+            JsString::from(self.row(&js_format!(
                 " Styled: {} {} {} {} {} {} {}",
                 th.fg(ThemeColor::Error, "RED"),
                 th.fg(ThemeColor::Success, "GREEN"),
@@ -160,17 +163,19 @@ impl ExtensionUiComponent for OverlayTest {
                 th.fg(ThemeColor::Dim, "DIM"),
                 th.fg(ThemeColor::Error, "more"),
                 th.fg(ThemeColor::Success, "colors")
-            )),
-            self.row(" Emoji: 👨‍👩‍👧‍👦 🇯🇵 🚀 💻 🎉 🔥 😀 🎯 🌟 💡 🎨 🔧 📦 🏆 🌈 🎪 🎭 🎬 🎮 🎲"),
-            self.row(""),
-            self.row(&format!(" {}", th.fg(ThemeColor::Dim, "─── Actions ───"))),
+            ))),
+            JsString::from(self.row(&JsString::from(
+                " Emoji: 👨‍👩‍👧‍👦 🇯🇵 🚀 💻 🎉 🔥 😀 🎯 🌟 💡 🎨 🔧 📦 🏆 🌈 🎪 🎭 🎬 🎮 🎲",
+            ))),
+            self.row(&JsString::from("")),
+            self.row(&js_format!(" {}", th.fg(ThemeColor::Dim, "─── Actions ───"))),
         ];
         let state = self.state.lock().expect("overlay state");
         for (i, item) in state.items.iter().enumerate() {
-            lines.push(self.menu_row(item, i == state.selected));
+            lines.push(JsString::from(self.menu_row(item, i == state.selected)));
         }
-        lines.push(self.row(""));
-        lines.push(self.row(&format!(
+        lines.push(self.row(&JsString::from("")));
+        lines.push(self.row(&js_format!(
             " {}",
             th.fg(
                 ThemeColor::Dim,
@@ -206,9 +211,9 @@ pub fn overlay_test_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     .await
                     .map_err(HandlerError::new)?;
                 if let Some(result) = result {
-                    let action = result["action"].as_str().expect("overlay action");
-                    let message = match result["query"].as_str().filter(|s| !s.is_empty()) {
-                        Some(query) => format!("{action}: \"{query}\""),
+                    let action = result["action"].as_string().expect("overlay action");
+                    let message = match result["query"].as_string().filter(|s| !s.is_empty()) {
+                        Some(query) => js_format!("{}: \"{}\"", action, query),
                         None => action.to_owned(),
                     };
                     ui.notify(&message, Some(NotifyType::Info));

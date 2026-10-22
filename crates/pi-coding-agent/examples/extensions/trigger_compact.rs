@@ -1,6 +1,7 @@
 //! Opt-in native `trigger-compact.ts`; compacts only on upward threshold crossings.
 use pi_coding_agent::core::extensions::*;
-use pi_js_compat::string::js_trim;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 const COMPACT_THRESHOLD_TOKENS: f64 = 100_000.0;
 
@@ -32,7 +33,7 @@ pub fn trigger_compact_extension(pi: &ExtensionApi) -> Result<(), HandlerError> 
         None,
         Arc::new(|args, ctx| {
             Box::pin(async move {
-                let instructions = js_trim(&args);
+                let instructions = (&args).trim();
                 let instructions = (!instructions.is_empty()).then(|| instructions.to_owned());
                 trigger_compaction(ctx.context, instructions)
             })
@@ -41,10 +42,11 @@ pub fn trigger_compact_extension(pi: &ExtensionApi) -> Result<(), HandlerError> 
     .map_err(HandlerError::new)
 }
 
-fn trigger_compaction(ctx: ExtensionContext, instructions: Option<String>) -> Result<(), HandlerError> {
+fn trigger_compaction(ctx: ExtensionContext, instructions: Option<JsString>) -> Result<(), HandlerError> {
     let has_ui = ctx.has_ui()?;
     if has_ui {
-        ctx.ui()?.notify("Compaction started", Some(NotifyType::Info));
+        ctx.ui()?
+            .notify(&JsString::from("Compaction started"), Some(NotifyType::Info));
     }
     let complete_ui = ctx.ui()?;
     let error_ui = complete_ui.clone();
@@ -52,12 +54,12 @@ fn trigger_compaction(ctx: ExtensionContext, instructions: Option<String>) -> Re
         custom_instructions: instructions,
         on_complete: Some(Arc::new(move |_| {
             if has_ui {
-                complete_ui.notify("Compaction completed", Some(NotifyType::Info));
+                complete_ui.notify(&JsString::from("Compaction completed"), Some(NotifyType::Info));
             }
         })),
         on_error: Some(Arc::new(move |error| {
             if has_ui {
-                error_ui.notify(&format!("Compaction failed: {error}"), Some(NotifyType::Error));
+                error_ui.notify(&js_format!("Compaction failed: {}", error), Some(NotifyType::Error));
             }
         })),
     }))

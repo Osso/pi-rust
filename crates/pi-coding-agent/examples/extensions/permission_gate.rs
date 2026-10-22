@@ -1,6 +1,9 @@
 //! Opt-in native port of `permission-gate.ts`; register its factory explicitly.
 use pi_coding_agent::core::extensions::*;
-use regex::Regex;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_regex::JsRegex as Regex;
 use std::sync::Arc;
 pub fn permission_gate_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     // Match non-Unicode JS /i and word boundaries, the exact JS whitespace
@@ -23,7 +26,7 @@ pub fn permission_gate_extension(pi: &ExtensionApi) -> Result<(), HandlerError> 
                 let command = event
                     .input
                     .get("command")
-                    .and_then(serde_json::Value::as_str)
+                    .and_then(JsValue::as_string)
                     .ok_or_else(|| HandlerError::new("command must be a string"))?;
                 if !patterns.iter().any(|pattern| pattern.is_match(command)) {
                     return Ok(None);
@@ -34,12 +37,12 @@ pub fn permission_gate_extension(pi: &ExtensionApi) -> Result<(), HandlerError> 
                     let choice = ctx
                         .ui()?
                         .select(
-                            &format!("⚠️ Dangerous command:\n\n  {command}\n\nAllow?"),
+                            &js_format!("⚠️ Dangerous command:\n\n  {}\n\nAllow?", command),
                             &["Yes".into(), "No".into()],
                             None,
                         )
                         .await?;
-                    if choice.as_deref() == Some("Yes") {
+                    if choice.as_ref() == Some(&JsString::from("Yes")) {
                         return Ok(None);
                     }
                     "Blocked by user"
