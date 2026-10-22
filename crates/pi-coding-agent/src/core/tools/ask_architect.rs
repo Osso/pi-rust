@@ -1,14 +1,12 @@
 //! `ask_architect` tool (`core/tools/ask-architect.ts`).
 
-use pi_js_compat::js_json::JsValue;
-use std::path::Path;
+use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
 use std::sync::{Arc, OnceLock};
 
 use pi_agent_core::{
     AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
-use pi_js_compat::string::js_trim;
 use pi_tui::tui::ComponentRef;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -33,8 +31,8 @@ pub const PROMPT_GUIDELINES: [&str; 3] = [
 
 #[derive(Debug, Deserialize)]
 pub struct AskArchitectToolInput {
-    pub message: String,
-    pub project_path: Option<String>,
+    pub message: JsString,
+    pub project_path: Option<JsString>,
 }
 
 /// `AskArchitectToolDetails`.
@@ -42,7 +40,7 @@ pub struct AskArchitectToolInput {
 #[serde(rename_all = "camelCase")]
 pub struct AskArchitectToolDetails {
     pub request_id: i64,
-    pub sender_session_id: String,
+    pub sender_session_id: JsString,
 }
 
 /// `createAskArchitectToolDefinition()`.
@@ -75,21 +73,21 @@ pub fn parameters() -> &'static Value {
     })
 }
 
-fn resolve_project_path(project_path: Option<&str>, session_cwd: &str) -> Result<String, ToolError> {
+fn resolve_project_path(project_path: Option<&JsString>, session_cwd: &JsString) -> Result<JsString, ToolError> {
     let Some(project_path) = project_path else {
         return Ok(session_cwd.to_owned());
     };
-    if js_trim(project_path).is_empty() || !Path::new(project_path).is_absolute() {
+    if project_path.trim().is_empty() || !crate::utils::paths::node_is_absolute(project_path) {
         return Err(ToolError::new(
             "ask_architect project_path must be a non-empty absolute path",
         ));
     }
-    let canonical_path = std::fs::canonicalize(project_path)
+    let canonical_path = std::fs::canonicalize(encode_node_utf8(project_path))
         .map_err(|_| ToolError::new("ask_architect project_path must reference an existing directory"))?;
     if !canonical_path.is_dir() {
         return Err(ToolError::new("ask_architect project_path must reference a directory"));
     }
-    Ok(canonical_path.to_string_lossy().into_owned())
+    Ok(canonical_path.to_string_lossy().as_ref().into())
 }
 
 impl AgentHarnessTool<ExtensionContext> for AskArchitectTool {
@@ -146,7 +144,7 @@ impl AgentHarnessTool<ExtensionContext> for AskArchitectTool {
             let params: AskArchitectToolInput =
                 pi_js_compat::js_json::from_value(&params).map_err(|error| ToolError::new(error.to_string()))?;
             let cwd = context.cwd().map_err(|error| ToolError::new(error.message))?;
-            let project_cwd = resolve_project_path(params.project_path.as_deref(), &cwd)?;
+            let project_cwd = resolve_project_path(params.project_path.as_ref(), &cwd)?;
             let request_id = post_architect_request(
                 &control_db_path,
                 &PostArchitectRequestInput {
@@ -158,7 +156,7 @@ impl AgentHarnessTool<ExtensionContext> for AskArchitectTool {
             .map_err(|error| ToolError::new(error.to_string()))?;
             Ok(text_result(
                 format!("Architect request queued: {request_id}"),
-                serde_json::to_value(AskArchitectToolDetails {
+                js_json::to_value(&AskArchitectToolDetails {
                     request_id,
                     sender_session_id: sender_session_id.clone(),
                 })

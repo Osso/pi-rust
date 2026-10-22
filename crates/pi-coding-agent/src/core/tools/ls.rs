@@ -309,32 +309,30 @@ async fn execute_rtk_ls(
 enum RtkError {
     MissingExecutable,
     Failed {
-        message: String,
+        message: JsString,
         stdout: String,
         stderr: String,
     },
 }
 
-fn format_rtk_ls_error(message: &str, stdout: &str, stderr: &str) -> String {
+fn format_rtk_ls_error(message: &JsString, stdout: &str, stderr: &str) -> JsString {
     let stderr = stderr.trim();
     let stdout = stdout.trim();
     if !stderr.is_empty() {
-        stderr.to_owned()
+        stderr.into()
     } else if !stdout.is_empty() {
-        stdout.to_owned()
+        stdout.into()
     } else {
-        message.to_owned()
+        message.clone()
     }
 }
 
 async fn run_rtk_ls(cwd: &JsString, path: &JsString, signal: Option<&CancellationToken>) -> Result<String, RtkError> {
-    let cwd = encode_node_utf8(cwd);
-    let path = encode_node_utf8(path);
     let mut command = tokio::process::Command::new("rtk");
     command
         .arg("ls")
-        .arg(&path)
-        .current_dir(&cwd)
+        .arg(encode_node_utf8(path))
+        .current_dir(encode_node_utf8(cwd))
         .env_clear()
         .envs(pi_js_compat::process_env::vars())
         .stdin(std::process::Stdio::null())
@@ -372,7 +370,7 @@ async fn run_rtk_ls(cwd: &JsString, path: &JsString, signal: Option<&Cancellatio
     let stderr = String::from_utf8_lossy(&stderr).into_owned();
     if stdout.len() > RTK_MAX_BUFFER {
         return Err(RtkError::Failed {
-            message: "stdout maxBuffer length exceeded".to_owned(),
+            message: "stdout maxBuffer length exceeded".into(),
             stdout: stdout[..RTK_MAX_BUFFER].to_owned(),
             stderr,
         });
@@ -380,17 +378,17 @@ async fn run_rtk_ls(cwd: &JsString, path: &JsString, signal: Option<&Cancellatio
     match status {
         Ok(Some(status)) if status.success() => Ok(stdout),
         Ok(Some(status)) => Err(RtkError::Failed {
-            message: format!("Command failed: rtk ls {} {}", path, status),
+            message: js_format!("Command failed: rtk ls {} {}", path, status.to_string()),
             stdout,
             stderr,
         }),
         Ok(None) => Err(RtkError::Failed {
-            message: "The operation was aborted".to_owned(),
+            message: "The operation was aborted".into(),
             stdout,
             stderr,
         }),
         Err(error) => Err(RtkError::Failed {
-            message: error.to_string(),
+            message: error.to_string().into(),
             stdout,
             stderr,
         }),

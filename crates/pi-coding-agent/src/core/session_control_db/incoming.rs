@@ -119,7 +119,7 @@ pub fn complete_incoming_message(control_db_path: impl Into<JsString>, id: i64) 
 pub fn fail_incoming_message(
     control_db_path: impl Into<JsString>,
     id: i64,
-    error_message: &str,
+    error_message: &JsString,
 ) -> Result<(), ControlDbError> {
     let control_db_path = control_db_path.into();
     with_control_db(&control_db_path, |db| {
