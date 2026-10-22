@@ -38,6 +38,11 @@ impl fmt::Display for StreamFailure {
 
 impl std::error::Error for StreamFailure {}
 
+/// Optional async iterator `return()` boundary supplied by a native stream adapter.
+/// Invocation can fail synchronously; a returned future can settle independently.
+pub type IteratorReturnFuture = crate::request::BoxFuture<'static, Result<(), StreamFailure>>;
+pub type IteratorReturnHook = Arc<dyn Fn() -> Result<IteratorReturnFuture, StreamFailure> + Send + Sync>;
+
 type CompletionCheck<T> = Box<dyn Fn(&T) -> bool + Send + Sync>;
 type ResultExtractor<T, R> = Box<dyn Fn(&T) -> R + Send + Sync>;
 
@@ -78,6 +83,16 @@ impl<T, R> Clone for EventSender<T, R> {
 /// Consumer half: async iteration plus `result()`.
 pub struct EventStream<T, R> {
     shared: Arc<Shared<T, R>>,
+    iterator_return: Option<IteratorReturnHook>,
+}
+impl<T, R> EventStream<T, R> {
+    pub fn set_iterator_return(&mut self, callback: Option<IteratorReturnHook>) {
+        self.iterator_return = callback;
+    }
+    /// Invoke the iterator-return callback without choosing whether to await it.
+    pub fn return_iterator(&self) -> Result<Option<IteratorReturnFuture>, StreamFailure> {
+        self.iterator_return.as_ref().map(|callback| callback()).transpose()
+    }
 }
 
 /// Creates a connected sender/stream pair (`new EventStream(isComplete, extractResult)`).
@@ -101,7 +116,10 @@ pub fn event_stream<T, R>(
         EventSender {
             shared: Arc::clone(&shared),
         },
-        EventStream { shared },
+        EventStream {
+            shared,
+            iterator_return: None,
+        },
     )
 }
 
