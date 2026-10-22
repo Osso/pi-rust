@@ -83,6 +83,22 @@ void runOracle(async (api, request) => {
 			installFetch(input.responses ?? [], requests);
 			let command: AnyRecord | undefined;
 			(api.default as (pi: AnyRecord) => void)({
+				events: {
+					emit(channel: string, request: AnyRecord) {
+						const bridge = input.bridge;
+						if (!bridge) return;
+						if (channel === "claude-bridge:usage-all-request") {
+							request.accounts = bridge.error !== undefined
+								? Promise.reject(new Error(bridge.error))
+								: Promise.resolve(bridge.accounts);
+						} else if (channel === "claude-bridge:usage-request" && bridge.handled) {
+							request.handled = (async () => {
+								if (bridge.handledError !== undefined) throw new Error(bridge.handledError);
+								request.ctx.ui.notify(`forwarded:${request.args}`, "info");
+							})();
+						}
+					},
+				},
 				registerCommand(_name: string, value: AnyRecord) {
 					command = value;
 				},

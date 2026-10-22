@@ -69,11 +69,58 @@ fn auth_for(provider: &str, token: &str) -> Option<pi_js_compat::js_json::JsObje
     .cloned()
 }
 
-async fn load(runtime: &ExtensionRuntime, fetch: Arc<StubFetch>) -> Extension {
+async fn load(runtime: &ExtensionRuntime, fetch: Arc<StubFetch>, bridge: Option<Value>) -> Extension {
     let options = pi_coding_agent::bundled_extensions::codex_usage::CodexUsageOptions {
         fetch: Some(fetch as Arc<dyn pi_ai::request::Fetch>),
     };
     support::extension(runtime, "/repo", "<first-party:codex-usage>", move |pi| {
+        if let Some(bridge) = bridge {
+            let accounts = bridge.clone();
+            pi.events
+                .on_request(
+                    &"claude-bridge:usage-all-request".into(),
+                    Arc::new(move |request| {
+                        let accounts = accounts.clone();
+                        request.response = Some(Box::pin(async move {
+                            if let Some(error) = accounts.get("error").and_then(Value::as_str) {
+                                return Err(error.into());
+                            }
+                            Ok(JsValue::from(accounts.get("accounts").unwrap_or(&Value::Null)))
+                        }));
+                        Ok(())
+                    }),
+                )
+                .unwrap();
+            pi.events
+                .on_request(
+                    &"claude-bridge:usage-request".into(),
+                    Arc::new(move |request| {
+                        if bridge.get("handled").and_then(Value::as_bool) != Some(true) {
+                            return Ok(());
+                        }
+                        let ctx = request
+                            .context
+                            .as_ref()
+                            .unwrap()
+                            .downcast_ref::<pi_coding_agent::core::extensions::ExtensionCommandContext>()
+                            .unwrap()
+                            .clone();
+                        let args = request.data.get("args").and_then(JsValue::as_string).unwrap().clone();
+                        let error = bridge.get("handledError").and_then(Value::as_str).map(JsString::from);
+                        request.response = Some(Box::pin(async move {
+                            if let Some(error) = error {
+                                return Err(error);
+                            }
+                            ctx.ui()
+                                .unwrap()
+                                .notify(&(JsString::from("forwarded:") + args), Some(NotifyType::Info));
+                            Ok(JsValue::Null)
+                        }));
+                        Ok(())
+                    }),
+                )
+                .unwrap();
+        }
         pi_coding_agent::bundled_extensions::codex_usage::codex_usage_extension(pi, &options)
             .expect("codex-usage extension")
     })
@@ -129,7 +176,7 @@ async fn run_command_case(input: &Value) -> Value {
             .collect(),
     ));
     let runtime = create_extension_runtime();
-    let extension = load(&runtime, Arc::clone(&stub)).await;
+    let extension = load(&runtime, Arc::clone(&stub), input.get("bridge").cloned()).await;
     let mut options = HarnessOptions::new("/repo");
     if let Some(model) = input.get("model").filter(|model| !model.is_null()) {
         let mut model_value = test_model(false);
@@ -264,7 +311,7 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
                 let prefix = case.get("prefix").and_then(Value::as_str).unwrap_or_default();
                 let runtime = create_extension_runtime();
                 let stub = Arc::new(StubFetch::new(Vec::new()));
-                let extension = load(&runtime, stub).await;
+                let extension = load(&runtime, stub, None).await;
                 let completions = extension
                     .read()
                     .commands
@@ -414,4 +461,48 @@ async fn differential_codex_usage() {
             serde_json::to_string_pretty(expected).unwrap()
         );
     }
+}
+
+#[tokio::test]
+async fn differential_claude_usage_bridge() {
+    let mut cases = vec![
+        json!({"name":"all-unclaimed", "kind":"command", "args":" all ", "token":null}),
+        json!({"name":"all-accounts", "kind":"command", "args":"all", "token":null, "bridge":{"accounts":[
+            {"account":"alice", "selected":true, "fiveHour":{"percent":42.25,"resetsAt":"2026-07-01T12:30:00Z"},"weekly":{"percent":101,"resetsAt":"2026-12-01T12:30:00Z"}},
+            {"account":"bob\nsk-ant-secret Bearer token eyJabc.def.ghi", "selected":false, "error":"failed\tBearer secret"},
+            {"account":"empty", "selected":false,"fiveHour":null,"weekly":null}
+        ]}}),
+        json!({"name":"all-empty", "kind":"command", "args":"all", "token":null,"bridge":{"accounts":[]}}),
+        json!({"name":"all-malformed", "kind":"command", "args":"all", "token":null,"bridge":{"accounts":{}}}),
+        json!({"name":"all-rejected", "kind":"command", "args":"all", "token":null,"bridge":{"error":"oops\nBearer abc sk-secret eyJabc.def.ghi"}}),
+        json!({"name":"all-malformed-entries", "kind":"command", "args":"all", "token":null,"bridge":{"accounts":[null,[],{}, {"account":" ","selected":false,"error":"x"}, {"account":"bad","selected":true,"fiveHour":{"percent":-1,"resetsAt":null},"weekly":null}, {"account":"bad-date","selected":false,"fiveHour":{"percent":1,"resetsAt":"2026-13-01T00:00:00Z"},"weekly":null}]}}),
+        json!({"name":"all-long-control", "kind":"command", "args":"all", "token":null,"bridge":{"accounts":[{"account":"x".repeat(301),"selected":true,"error":"e\u{7f}\u{85}\u{1f}"}]}}),
+    ];
+    for (name, args, bridge) in [
+        ("claude-unclaimed", "", Value::Null),
+        ("claude-claimed", " reset ", json!({"handled":true})),
+        ("claude-bogus", "bogus", json!({"handled":true})),
+        (
+            "claude-error",
+            "",
+            json!({"handled":true,"handledError":"bridge failed"}),
+        ),
+        ("claude-all-first", "all", json!({"handled":true,"accounts":[]})),
+    ] {
+        let mut case =
+            json!({"name":name,"kind":"command","args":args,"model":{"provider":"claude-bridge"},"token":null});
+        if !bridge.is_null() {
+            case["bridge"] = bridge;
+        }
+        cases.push(case);
+    }
+    let mut ts = TsOracle::spawn("codex-usage-oracle.ts", SOURCE);
+    let response = ts.request(&json!({"id":2,"operation":"cases","cases":cases}));
+    assert_eq!(response["ok"], true, "{response}");
+    let expected = response["output"]["results"].as_array().unwrap();
+    let actual = rust_results(&cases).await;
+    for (actual, expected) in actual.iter().zip(expected) {
+        assert_eq!(actual, expected, "bridge case {}", actual["name"]);
+    }
+    assert_eq!(actual.len(), expected.len());
 }

@@ -156,3 +156,5 @@ Q18: `crates/pi-js-compat/src/js_json_macros.rs` adapts the token grammar from t
 All direct versions exactly match workspace pins. `pi-coding-agent` reuses RPC commands/responses/UI envelopes; `pi-ai` supplies injectable Fetch; `pi-js-compat` supplies JS JSON and date semantics. `serde`/`serde_json` serialize records, `tokio` runs Unix sockets, children and timers, `url` resolves Radius URLs, `gethostname` provides registration metadata, `getrandom` produces IDs/jitter, `indexmap` preserves live-instance order, `rustix` sends child signals. Test-only `tempfile` isolates storage and sockets. Frozen package declares no binary: library-only packaging; native children use sibling `pi --mode rpc` (parent-approved).
 
 `pi-orchestrator` test-only `tokio-util = =0.7.20` names the shared Fetch cancellation-token argument for fake transports.
+
+- `pi-coding-agent` directly uses the already-pinned `jiff =0.2.38` (`std`, `tz-system`, `tzdb-zoneinfo`, no defaults) for frozen codex-usage's America/Chicago reset labels, including DST; no process TZ mutation.

@@ -1,5 +1,7 @@
 //! Bundled `codex-usage` extension (`packages/coding-agent/extensions/codex-usage/src/index.ts`).
 
+mod bridge;
+
 use std::sync::Arc;
 
 use pi_ai::request::{CallbackError, Fetch, HttpRequest, read_body_text};
@@ -427,6 +429,13 @@ fn resolve_codex_provider_id(ctx: &ExtensionCommandContext) -> Result<String, Ha
 
 async fn read_codex_access_token(ctx: &ExtensionCommandContext) -> Result<JsString, HandlerError> {
     let provider_id = resolve_codex_provider_id(ctx)?;
+    read_codex_access_token_for_provider(ctx, &provider_id).await
+}
+
+async fn read_codex_access_token_for_provider(
+    ctx: &ExtensionCommandContext,
+    provider_id: &str,
+) -> Result<JsString, HandlerError> {
     let token = ctx
         .model_registry()?
         .get_api_key_for_provider(&provider_id)
@@ -482,7 +491,16 @@ async fn read_json_response(response: pi_ai::request::HttpResponse) -> Result<Va
 }
 
 async fn read_codex_usage(ctx: &ExtensionCommandContext, fetch: &dyn Fetch) -> Result<CodexUsage, HandlerError> {
-    let token = read_codex_access_token(ctx).await?;
+    let provider_id = resolve_codex_provider_id(ctx)?;
+    read_codex_usage_for_provider(ctx, fetch, &provider_id).await
+}
+
+async fn read_codex_usage_for_provider(
+    ctx: &ExtensionCommandContext,
+    fetch: &dyn Fetch,
+    provider_id: &str,
+) -> Result<CodexUsage, HandlerError> {
+    let token = read_codex_access_token_for_provider(ctx, provider_id).await?;
     let account_info = resolve_codex_account_info(&token).map_err(HandlerError::new)?;
     let response = fetch
         .fetch(
@@ -588,6 +606,12 @@ async fn handle_usage_command(
     fetch: &dyn Fetch,
 ) -> Result<(), HandlerError> {
     let command_args = args.trim();
+    if command_args == "all" {
+        return bridge::handle_usage_all(ctx, pi, fetch).await;
+    }
+    if ctx.model()?.is_some_and(|model| model.provider == "claude-bridge") {
+        return bridge::dispatch_claude_usage_request(args, ctx, pi).await;
+    }
     if command_args == "reset" {
         return reset_codex_usage_and_send_result(ctx, pi, fetch).await;
     }

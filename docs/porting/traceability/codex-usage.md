@@ -46,3 +46,17 @@ Q18 follow-up: null-credit fix 668639e0 passes differential cases 0–10, then c
 Focused result at 80ea6e39: native `codex_usage_extension` 13/13 PASS; unchanged differential matches cases 0–12 (including map-empty and completions-empty), then stops at case 13 command-usage because the oracle context lacks `modelRegistry.authStorage` required by frozen lines 552–557. This is oracle-ingress, not evidence of a usage-read production mismatch. `/usage all` remains independently blocked as documented above. Evidence: `codex-completions-green.log`.
 
 Oracle-ingress resolved: the oracle command context now uses frozen `AuthStorage.inMemory` with the same OAuth credential the Rust harness installs (frozen lines 541–560 `authStorage.get/has/getApiKey`) and `isIdle: () => true` (line `sendCodexUsageReport`), replacing the old-pin `getApiKeyForProvider` stub. `differential_codex_usage` now matches every case including 13 `command-usage` onward (`codex-usage-authstorage.log`). `/usage all` remains a gap pending the bridge-request decision.
+
+## Frozen bridge requests (approved native claim API, 2026-10-22)
+
+Supersedes the bridge blocker above. Frozen lines 149–166 route trimmed `all` first, then forward **original** args when the active model provider is `claude-bridge`; literal `claude` is not a special subcommand. `bridge.rs` ports `readClaudeAccountRows`, `formatClaudeAccountRow`, window/identity validation, `sanitizeUsageText`, `dispatchClaudeUsageRequest`, and the all-account table. Native request listeners synchronously assign `EventRequest.response`; command context travels as a native `Arc<dyn Any + Send + Sync>` rather than serialized JSON. This is the approved deviation, not a TypeScript loader or generic RPC API. Unclaimed status and notification strings are unchanged. Handler errors use existing event-bus reporting, not future rejection.
+
+| Branch | Proof |
+|---|---|
+| Unclaimed accounts; malformed array; rejected future | `differential_claude_usage_bridge`: `all-unclaimed`, `all-malformed`, `all-rejected` |
+| Account label/selection, sanitization, null windows, Central summer/winter resets | `all-accounts`, `all-long-control` |
+| Invalid identity/window/date/entry; empty array | `all-malformed-entries`, `all-empty` |
+| Claimed/unclaimed command, original whitespace/unknown args, rejected handled, all-first routing | `claude-*` fixtures |
+| Fan-out, last assignment, listener failures, unsubscribe, native context and raw UTF-16 | `event_bus` request tests |
+
+Oracle uses frozen `AuthStorage.inMemory`, `isIdle: () => true`, and native fixture listeners assigning promises before emit returns. No network or live provider is used.
