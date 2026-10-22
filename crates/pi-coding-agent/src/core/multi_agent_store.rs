@@ -84,7 +84,7 @@ pub struct AgentActivity {
     pub tool_name: Option<JsString>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "phase", rename_all = "snake_case", rename_all_fields = "camelCase")]
 pub enum AgentCurrentActivity {
     Thinking {
@@ -97,6 +97,35 @@ pub enum AgentCurrentActivity {
         #[serde(skip_serializing_if = "Option::is_none")]
         detail: Option<JsString>,
     },
+}
+
+impl<'de> Deserialize<'de> for AgentCurrentActivity {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let JsValue::Object(mut object) = JsValue::deserialize(deserializer)? else {
+            return Err(serde::de::Error::custom("expected current activity object"));
+        };
+        let phase: JsString = take_native_field(&mut object, "phase")?;
+        match phase.to_utf8().as_deref() {
+            Ok("thinking") => Ok(Self::Thinking {
+                started_at: take_native_field(&mut object, "startedAt")?,
+            }),
+            Ok("tool") => Ok(Self::Tool {
+                started_at: take_native_field(&mut object, "startedAt")?,
+                tool_call_id: take_native_field(&mut object, "toolCallId")?,
+                tool_name: take_native_field(&mut object, "toolName")?,
+                detail: take_native_field(&mut object, "detail")?,
+            }),
+            Ok(other) => Err(serde::de::Error::unknown_variant(other, &["thinking", "tool"])),
+            Err(error) => Err(serde::de::Error::custom(error)),
+        }
+    }
+}
+
+fn take_native_field<T: serde::de::DeserializeOwned, E: serde::de::Error>(
+    object: &mut JsObject,
+    key: &str,
+) -> Result<T, E> {
+    js_json::from_value(&object.shift_remove(key).unwrap_or(JsValue::Null)).map_err(E::custom)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -329,33 +358,30 @@ impl<'de> Deserialize<'de> for AgentNode {
         let JsValue::Object(mut object) = JsValue::deserialize(deserializer)? else {
             return Err(serde::de::Error::custom("expected agent object"));
         };
-        fn take<T: serde::de::DeserializeOwned, E: serde::de::Error>(object: &mut JsObject, key: &str) -> Result<T, E> {
-            js_json::from_value(&object.shift_remove(key).unwrap_or(JsValue::Null)).map_err(E::custom)
-        }
         Ok(Self {
-            id: take(&mut object, "id")?,
-            parent_id: take(&mut object, "parentId")?,
-            display_name: take(&mut object, "displayName")?,
-            agent_type: take(&mut object, "agentType")?,
-            origin: take(&mut object, "origin")?,
-            lifecycle: take(&mut object, "lifecycle")?,
-            revision: take(&mut object, "revision")?,
-            created_at: take(&mut object, "createdAt")?,
-            updated_at: take(&mut object, "updatedAt")?,
-            cwd: take(&mut object, "cwd")?,
-            worktree: take(&mut object, "worktree")?,
-            model: take(&mut object, "model")?,
-            account: take(&mut object, "account")?,
-            permission: take(&mut object, "permission")?,
-            slot: take(&mut object, "slot")?,
-            transcript: take(&mut object, "transcript")?,
-            event_stream: take(&mut object, "eventStream")?,
-            worker: take(&mut object, "worker")?,
-            detached: take(&mut object, "detached")?,
-            current_activity: take(&mut object, "currentActivity")?,
-            last_activity: take(&mut object, "lastActivity")?,
-            result: take(&mut object, "result")?,
-            error: take(&mut object, "error")?,
+            id: take_native_field(&mut object, "id")?,
+            parent_id: take_native_field(&mut object, "parentId")?,
+            display_name: take_native_field(&mut object, "displayName")?,
+            agent_type: take_native_field(&mut object, "agentType")?,
+            origin: take_native_field(&mut object, "origin")?,
+            lifecycle: take_native_field(&mut object, "lifecycle")?,
+            revision: take_native_field(&mut object, "revision")?,
+            created_at: take_native_field(&mut object, "createdAt")?,
+            updated_at: take_native_field(&mut object, "updatedAt")?,
+            cwd: take_native_field(&mut object, "cwd")?,
+            worktree: take_native_field(&mut object, "worktree")?,
+            model: take_native_field(&mut object, "model")?,
+            account: take_native_field(&mut object, "account")?,
+            permission: take_native_field(&mut object, "permission")?,
+            slot: take_native_field(&mut object, "slot")?,
+            transcript: take_native_field(&mut object, "transcript")?,
+            event_stream: take_native_field(&mut object, "eventStream")?,
+            worker: take_native_field(&mut object, "worker")?,
+            detached: take_native_field(&mut object, "detached")?,
+            current_activity: take_native_field(&mut object, "currentActivity")?,
+            last_activity: take_native_field(&mut object, "lastActivity")?,
+            result: take_native_field(&mut object, "result")?,
+            error: take_native_field(&mut object, "error")?,
             extra: object,
         })
     }
@@ -485,22 +511,19 @@ impl<'de> Deserialize<'de> for AgentMailboxMessage {
         let JsValue::Object(mut object) = JsValue::deserialize(deserializer)? else {
             return Err(serde::de::Error::custom("expected mailbox object"));
         };
-        fn take<T: serde::de::DeserializeOwned, E: serde::de::Error>(object: &mut JsObject, key: &str) -> Result<T, E> {
-            js_json::from_value(&object.shift_remove(key).unwrap_or(JsValue::Null)).map_err(E::custom)
-        }
         Ok(Self {
-            id: take(&mut object, "id")?,
-            thread_id: take(&mut object, "threadId")?,
-            from_agent_id: take(&mut object, "fromAgentId")?,
-            to_agent_id: take(&mut object, "toAgentId")?,
-            kind: take(&mut object, "kind")?,
-            status: take(&mut object, "status")?,
-            created_at: take(&mut object, "createdAt")?,
-            updated_at: take(&mut object, "updatedAt")?,
-            body: take(&mut object, "body")?,
-            file_refs: take(&mut object, "fileRefs")?,
-            target_checkpoint: take(&mut object, "targetCheckpoint")?,
-            error: take(&mut object, "error")?,
+            id: take_native_field(&mut object, "id")?,
+            thread_id: take_native_field(&mut object, "threadId")?,
+            from_agent_id: take_native_field(&mut object, "fromAgentId")?,
+            to_agent_id: take_native_field(&mut object, "toAgentId")?,
+            kind: take_native_field(&mut object, "kind")?,
+            status: take_native_field(&mut object, "status")?,
+            created_at: take_native_field(&mut object, "createdAt")?,
+            updated_at: take_native_field(&mut object, "updatedAt")?,
+            body: take_native_field(&mut object, "body")?,
+            file_refs: take_native_field(&mut object, "fileRefs")?,
+            target_checkpoint: take_native_field(&mut object, "targetCheckpoint")?,
+            error: take_native_field(&mut object, "error")?,
             extra: object,
         })
     }
