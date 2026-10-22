@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::request::{BoxFuture, CallbackError};
@@ -20,11 +19,11 @@ use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 #[serde(rename_all = "camelCase")]
 pub struct ModelAuth {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub api_key: Option<String>,
+    pub api_key: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headers: Option<ProviderHeaders>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub base_url: Option<String>,
+    pub base_url: Option<JsString>,
 }
 
 /// `ApiKeyCredential`.
@@ -32,7 +31,7 @@ pub struct ModelAuth {
 #[serde(rename_all = "camelCase")]
 pub struct ApiKeyCredential {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub key: Option<String>,
+    pub key: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub env: Option<ProviderEnv>,
 }
@@ -170,77 +169,53 @@ impl Credential {
 
 impl Serialize for Credential {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut object = Map::new();
-        match self {
+        let value = match self {
             Self::ApiKey(credential) => {
-                object.insert("type".to_owned(), Value::String("api_key".to_owned()));
+                let mut object = JsObject::new();
+                object.insert("type".into(), JsValue::String("api_key".into()));
                 if let Some(key) = &credential.key {
-                    object.insert("key".to_owned(), Value::String(key.clone()));
+                    object.insert("key".into(), JsValue::String(key.clone()));
                 }
                 if let Some(env) = &credential.env {
                     object.insert(
-                        "env".to_owned(),
-                        serde_json::to_value(env).map_err(serde::ser::Error::custom)?,
+                        "env".into(),
+                        pi_js_compat::js_json::to_value(env).map_err(serde::ser::Error::custom)?,
                     );
                 }
+                JsValue::Object(object)
             }
-            Self::OAuth(credential) => {
-                return credential
-                    .to_js_value()
-                    .to_serde()
-                    .map_err(serde::ser::Error::custom)?
-                    .serialize(serializer);
-            }
-        }
-        object.serialize(serializer)
+            Self::OAuth(credential) => credential.to_js_value(),
+        };
+        value.serialize(serializer)
     }
 }
 
 impl<'de> Deserialize<'de> for Credential {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let mut object = Map::<String, Value>::deserialize(deserializer)?;
+        let value = JsValue::deserialize(deserializer)?;
+        let object = value
+            .as_object()
+            .ok_or_else(|| D::Error::custom("Expected credential object"))?;
         let tag = object
-            .remove("type")
-            .and_then(|value| value.as_str().map(str::to_owned))
+            .get(&JsString::from("type"))
+            .and_then(JsValue::as_string)
             .ok_or_else(|| D::Error::missing_field("type"))?;
-        match tag.as_str() {
-            "api_key" => Ok(Self::ApiKey(ApiKeyCredential {
-                key: take_string(&mut object, "key"),
-                env: take_value(&mut object, "env")
-                    .map(serde_json::from_value)
-                    .transpose()
-                    .map_err(D::Error::custom)?,
-            })),
-            "oauth" => {
-                let refresh = take_string(&mut object, "refresh").ok_or_else(|| D::Error::missing_field("refresh"))?;
-                let access = take_string(&mut object, "access").ok_or_else(|| D::Error::missing_field("access"))?;
-                let expires = take_value(&mut object, "expires")
-                    .and_then(|value| value.as_f64())
-                    .ok_or_else(|| D::Error::missing_field("expires"))?;
-                Ok(Self::OAuth(OAuthCredential {
-                    refresh: refresh.into(),
-                    access: access.into(),
-                    expires,
-                    extra: object
-                        .iter()
-                        .map(|(key, value)| (key.into(), JsValue::from(value)))
-                        .collect(),
-                }))
-            }
-            other => Err(D::Error::custom(format!("unknown credential type {other:?}"))),
+        if tag == "oauth" {
+            return OAuthCredential::from_js_value(&value)
+                .map(Self::OAuth)
+                .map_err(D::Error::custom);
         }
+        if tag == "api_key" {
+            let key = object.get(&JsString::from("key")).and_then(JsValue::as_string).cloned();
+            let env = object
+                .get(&JsString::from("env"))
+                .map(pi_js_compat::js_json::from_value)
+                .transpose()
+                .map_err(D::Error::custom)?;
+            return Ok(Self::ApiKey(ApiKeyCredential { key, env }));
+        }
+        Err(D::Error::custom("unknown credential type"))
     }
-}
-
-fn take_string(object: &mut Map<String, Value>, key: &str) -> Option<String> {
-    match object.remove(key) {
-        Some(Value::String(value)) => Some(value),
-        _ => None,
-    }
-}
-
-fn take_value(object: &mut Map<String, Value>, key: &str) -> Option<Value> {
-    object.remove(key)
 }
 
 /// Non-secret credential metadata.
@@ -272,14 +247,14 @@ pub struct AuthResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub env: Option<ProviderEnv>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>,
+    pub source: Option<JsString>,
 }
 
 /// Side-effect-free availability check result.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthCheck {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>,
+    pub source: Option<JsString>,
     #[serde(rename = "type")]
     pub auth_type: AuthType,
 }
@@ -309,9 +284,9 @@ pub trait AuthContext: Send + Sync {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthSelectOption {
-    pub id: String,
-    pub label: String,
-    pub description: Option<String>,
+    pub id: JsString,
+    pub label: JsString,
+    pub description: Option<JsString>,
 }
 
 /// Prompt shown to the user during login.
@@ -325,48 +300,48 @@ pub struct AuthPrompt {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuthPromptKind {
     Text {
-        message: String,
-        placeholder: Option<String>,
+        message: JsString,
+        placeholder: Option<JsString>,
     },
     Secret {
-        message: String,
-        placeholder: Option<String>,
+        message: JsString,
+        placeholder: Option<JsString>,
     },
     Select {
-        message: String,
+        message: JsString,
         options: Vec<AuthSelectOption>,
     },
     ManualCode {
-        message: String,
-        placeholder: Option<String>,
+        message: JsString,
+        placeholder: Option<JsString>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthInfoLink {
-    pub url: String,
+    pub url: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
+    pub label: Option<JsString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AuthEvent {
     Info {
-        message: String,
+        message: JsString,
         #[serde(skip_serializing_if = "Option::is_none")]
         links: Option<Vec<AuthInfoLink>>,
     },
     AuthUrl {
-        url: String,
+        url: JsString,
         #[serde(skip_serializing_if = "Option::is_none")]
-        instructions: Option<String>,
+        instructions: Option<JsString>,
     },
     DeviceCode {
         #[serde(rename = "userCode")]
-        user_code: String,
+        user_code: JsString,
         #[serde(rename = "verificationUri")]
-        verification_uri: String,
+        verification_uri: JsString,
         #[serde(
             rename = "intervalSeconds",
             skip_serializing_if = "Option::is_none",
@@ -381,7 +356,7 @@ pub enum AuthEvent {
         expires_in_seconds: Option<f64>,
     },
     Progress {
-        message: String,
+        message: JsString,
     },
 }
 
@@ -389,7 +364,7 @@ pub enum AuthEvent {
 pub trait AuthInteraction: Send + Sync {
     /// Aborts the whole login flow.
     fn signal(&self) -> CancellationToken;
-    fn prompt(&self, prompt: AuthPrompt) -> BoxFuture<'_, Result<String, CallbackError>>;
+    fn prompt(&self, prompt: AuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>>;
     fn notify(&self, event: AuthEvent);
 }
 
