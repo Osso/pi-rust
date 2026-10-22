@@ -59,7 +59,7 @@ use serde_json::json;
 fn settings(cwd: &Path, agent_dir: &Path, trusted: bool) -> Arc<Mutex<SettingsManager>> {
     Arc::new(Mutex::new(
         SettingsManager::create(
-            &JsString::from((&JsString::from(cwd.to_str().unwrap())).as_ref()),
+            &JsString::from(cwd.to_str().unwrap()),
             Some(&JsString::from(agent_dir.to_str().unwrap())),
             SettingsManagerCreateOptions {
                 project_trusted: Some(trusted),
@@ -356,7 +356,7 @@ async fn rules_load_in_sorted_order_and_respect_scope() {
     child_loader.reload().await.unwrap();
     assert_eq!(
         child_loader.get_rules_content().as_ref(),
-        Some("First rule.\n\nSecond rule.\n\nChild rule.")
+        Some(&JsString::from("First rule.\n\nSecond rule.\n\nChild rule."))
     );
 }
 
@@ -479,7 +479,7 @@ async fn literal_prompts_are_not_exposed_as_sources() {
     resource_loader.reload().await.unwrap();
     assert_eq!(
         resource_loader.get_system_prompt().as_ref(),
-        Some("Custom system prompt.")
+        Some(&JsString::from("Custom system prompt."))
     );
     assert_eq!(
         resource_loader.get_append_system_prompt(),
@@ -496,7 +496,10 @@ async fn literal_prompts_are_not_exposed_as_sources() {
     })
     .unwrap();
     literal.reload().await.unwrap();
-    assert_eq!(literal.get_system_prompt().as_ref(), Some("Literal system prompt."));
+    assert_eq!(
+        literal.get_system_prompt().as_ref(),
+        Some(&JsString::from("Literal system prompt."))
+    );
     assert!(literal.get_system_prompt_source().is_none());
 }
 
@@ -568,7 +571,7 @@ async fn overrides_replace_loaded_resources() {
     assert_eq!(resource_loader.get_skills().skills[0].name, "injected");
     assert_eq!(
         resource_loader.get_system_prompt().as_ref(),
-        Some("Custom system prompt")
+        Some(&JsString::from("Custom system prompt"))
     );
 }
 
@@ -873,7 +876,7 @@ async fn default_project_trust_loader_forces_untrusted_and_loads_inline_factorie
     .unwrap();
     let manager = Arc::new(Mutex::new(
         SettingsManager::create(
-            &JsString::from((&JsString::from(cwd.to_str().unwrap())).as_ref()),
+            &JsString::from(cwd.to_str().unwrap()),
             Some(&JsString::from((&agent_dir).to_string_lossy().as_ref())),
             SettingsManagerCreateOptions {
                 project_trusted: Some(true),

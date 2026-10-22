@@ -30,7 +30,7 @@ fn extension_runtime() -> ExtensionRuntime {
 async fn extension(
     runtime: &ExtensionRuntime,
     cwd: &JsString,
-    path: &str,
+    path: impl Into<JsString>,
     setup: impl FnOnce(&ExtensionApi) + Send + 'static,
 ) -> Extension {
     let setup = Mutex::new(Some(setup));
@@ -48,7 +48,7 @@ async fn extension(
         cwd,
         Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
         runtime.clone(),
-        &JsString::from(path),
+        &path.into(),
     )
     .await
     .expect("extension factory succeeds")

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use pi_coding_agent::core::skills::{
     LoadSkillsFromDirOptions, LoadSkillsOptions, Skill, format_skills_for_prompt, load_skills, load_skills_from_dir,
 };
-use serde_json::{Value, json};
+use serde_json::json;
 use tempfile::TempDir;
 
 pub(crate) fn run() {

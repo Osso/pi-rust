@@ -34,7 +34,7 @@ fn parses_quoted_arguments_and_drops_empty_quotes() {
 
 #[test]
 fn substitutes_positional_wildcards_and_slices() {
-    let args = ["cmd", "arg1", "arg2", "arg3"].map(str::to_owned);
+    let args = ["cmd", "arg1", "arg2", "arg3"].map(JsString::from);
     assert_eq!(
         substitute_args(&JsString::from("$1: ${@:2}"), &args),
         "cmd: arg1 arg2 arg3"

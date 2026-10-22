@@ -212,7 +212,12 @@ fn missing_git_dependencies_run_npm_install() {
         log.display()
     ));
 
-    block(fixture.manager_with(SOURCE, Some(vec![npm.clone()])).update(None)).unwrap();
+    block(
+        fixture
+            .manager_with(SOURCE, Some(vec![JsString::from(&npm)]))
+            .update(None),
+    )
+    .unwrap();
     assert_eq!(
         fs::read_to_string(&log).unwrap().trim(),
         format!("{}|install", fixture.installed.to_string_lossy())

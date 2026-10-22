@@ -116,6 +116,6 @@ pub(crate) fn run_child_probe() {
 fn map_from<const N: usize>(entries: [(&str, &str); N]) -> HashMap<String, JsString> {
     entries
         .into_iter()
-        .map(|(name, value)| (name.to_owned(), value.to_owned()))
+        .map(|(name, value)| (name.to_owned(), JsString::from(value)))
         .collect()
 }

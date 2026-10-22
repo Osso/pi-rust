@@ -552,7 +552,7 @@ fn differential_install_and_remove_npm_with_fake_binary() {
         "packages/coding-agent/src/core/package-manager.ts",
     );
     let oracle_scenario = Scenario {
-        npm_command: Some(vec![oracle_npm]),
+        npm_command: Some(vec![oracle_npm.into()]),
         ..Scenario::default()
     };
     let mut install_request = oracle_scenario.request("install", &oracle_cwd, &oracle_agent);
@@ -563,7 +563,7 @@ fn differential_install_and_remove_npm_with_fake_binary() {
     let expected_remove = oracle_request(&mut oracle, remove_request);
 
     let rust_scenario = Scenario {
-        npm_command: Some(vec![rust_npm]),
+        npm_command: Some(vec![rust_npm.into()]),
         ..Scenario::default()
     };
     let manager = rust_scenario.manager(&rust_cwd, &rust_agent);

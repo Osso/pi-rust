@@ -531,7 +531,7 @@ fn analytics_generates_a_tracking_id_on_first_opt_in() {
 
     manager.set_enable_analytics(true);
     manager.flush();
-    assert_eq!(manager.get_tracking_id(), Some(tracking_id));
+    assert_eq!(manager.get_tracking_id(), Some(&tracking_id));
 }
 
 #[test]

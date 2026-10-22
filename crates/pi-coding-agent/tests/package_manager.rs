@@ -756,7 +756,7 @@ exit 0
     let settings = FakeSettings::new(Default::default(), Default::default(), false).with_npm_command(vec![
         "env".to_owned().into(),
         JsString::from("NODE=20"),
-        npm,
+        npm.into(),
     ]);
     let manager = fixture.manager(settings);
     futures_block(manager.install(&JsString::from("npm:pkg"), false)).unwrap();
@@ -1067,7 +1067,10 @@ fn settings_manager_store_adapts_the_ported_settings_manager() {
     settings.insert("extensions".to_owned(), json!(["extensions"]));
     settings.insert("npmCommand".to_owned(), json!(["mise", "exec", "node@20", "--", "npm"]));
     let settings_manager = SettingsManager::in_memory(
-        settings,
+        pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(settings))
+            .as_object()
+            .unwrap()
+            .clone(),
         SettingsManagerCreateOptions {
             project_trusted: Some(false),
         },
@@ -1091,11 +1094,11 @@ fn settings_manager_store_adapts_the_ported_settings_manager() {
     assert_eq!(
         store.with(|manager| manager.get_npm_command()),
         Some(vec![
-            "mise".to_owned(),
-            "exec".to_owned(),
-            "node@20".to_owned(),
-            "--".to_owned(),
-            "npm".to_owned()
+            JsString::from("mise"),
+            JsString::from("exec"),
+            JsString::from("node@20"),
+            JsString::from("--"),
+            JsString::from("npm")
         ])
     );
     assert!(!manager.list_configured_packages().is_empty());

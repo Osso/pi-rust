@@ -39,7 +39,7 @@ fn runtime_user_agent_has_the_three_segment_shape() {
     let user_agent = get_pi_user_agent(&"1.2.3".into());
     assert!(user_agent.starts_with("pi/1.2.3 ("), "{user_agent:?}");
     assert!(user_agent.ends_with(')'), "{user_agent:?}");
-    let inner = &user_agent["pi/1.2.3 (".len()..user_agent.len() - 1];
+    let inner = user_agent.slice("pi/1.2.3 (".len(), user_agent.len() - 1);
     assert_eq!(inner.split(';').count(), 3, "{user_agent:?}");
     assert!(!inner.contains('('), "{user_agent:?}");
 }

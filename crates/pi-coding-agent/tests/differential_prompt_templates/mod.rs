@@ -9,7 +9,7 @@ use pi_coding_agent::core::prompt_templates::{
     LoadPromptTemplatesOptions, PromptTemplate, expand_prompt_template, load_prompt_templates, parse_command_args,
     substitute_args,
 };
-use serde_json::{Value, json};
+use serde_json::json;
 use tempfile::TempDir;
 
 pub(crate) fn run() {

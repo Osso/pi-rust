@@ -230,7 +230,10 @@ fn panicking_write_is_recorded_without_dropping_later_snapshots_or_latching_drai
     assert!(fixture.writes.try_recv().is_err());
     let restored = fixture.reconstructed();
     assert_eq!(restored.get_default_model(), Some(&JsString::from("third")));
-    assert_eq!(restored.get_project_settings()["packages"][0], "npm:survives-panic");
+    assert_eq!(
+        restored.get_project_settings()["packages"][0],
+        pi_js_compat::js_json::JsValue::String("npm:survives-panic".into())
+    );
 }
 
 #[test]

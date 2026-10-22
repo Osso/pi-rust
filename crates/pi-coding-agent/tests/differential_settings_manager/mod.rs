@@ -262,7 +262,9 @@ fn apply_step(manager: &mut SettingsManager, step: &Value, agent_dir: &Path, pro
         "set_image_auto_resize" => manager.set_image_auto_resize(value.as_bool().unwrap()),
         "set_block_images" => manager.set_block_images(value.as_bool().unwrap()),
         "set_enabled_models" => {
-            let patterns = value.as_array().map(|_| parse_strings(value));
+            let patterns = value
+                .as_array()
+                .map(|_| parse_strings(value).into_iter().map(JsString::from).collect::<Vec<_>>());
             let result = manager.set_enabled_models(patterns.as_deref(), scope);
             return result.is_err();
         }
@@ -930,7 +932,7 @@ pub(crate) fn threshold_helper() {
     for (index, value) in values.iter().enumerate() {
         let response = oracle.request(&json!({"id":index,"missing":value.is_none(),"value":value}));
         assert_eq!(response["ok"], true, "{response}");
-        let actual = match parse_compaction_threshold_percent(value.as_ref()) {
+        let actual = match parse_compaction_threshold_percent(value.as_ref().map(JsValue::from).as_ref()) {
             Ok(result) => json!({"result":result.map(number)}),
             Err(error) => json!({"error":error.message()}),
         };

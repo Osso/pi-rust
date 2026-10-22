@@ -7,7 +7,7 @@ mod oracle;
 #[path = "support/extensions.rs"]
 mod support;
 
-use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::{JsString, JsValue};
 use std::sync::Arc;
 
 use bundled::{Harness, HarnessOptions, StubFetch, test_model};
