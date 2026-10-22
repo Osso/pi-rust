@@ -143,7 +143,7 @@ fn tool_call_tokens_include_name_and_json_arguments() {
 fn context_prefix_adds_system_prompt_and_tool_definitions() {
     let tool = Tool {
         name: "late_tool".to_owned(),
-        description: "The late_tool tool".to_owned(),
+        description: "The late_tool tool".into(),
         parameters: json!({"type": "object"}),
         constrained_sampling: None,
         label: None,
@@ -166,7 +166,7 @@ fn context_prefix_adds_system_prompt_and_tool_definitions() {
 fn tool_definitions_are_ignored_when_assistant_usage_exists() {
     let tool = Tool {
         name: "late_tool".to_owned(),
-        description: "late".to_owned(),
+        description: "late".into(),
         parameters: json!({"type": "object"}),
         constrained_sampling: None,
         label: None,

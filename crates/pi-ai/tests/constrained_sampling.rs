@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 fn tool(name: &str, parameters: Value, constrained_sampling: Option<ConstrainedSampling>) -> Tool {
     Tool {
         name: name.to_owned(),
-        description: "Sample tool".to_owned(),
+        description: "Sample tool".into(),
         parameters,
         constrained_sampling,
         label: None,
