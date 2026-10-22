@@ -1,5 +1,6 @@
 //! Detached-job finalization and self-restart control-db preparation.
 
+use pi_js_compat::js_format;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -125,7 +126,7 @@ pub struct DetachedJobTerminalInput {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FinalizeDetachedJobInput {
-    pub session_path: String,
+    pub session_path: JsString,
     pub terminal: DetachedJobTerminalInput,
 }
 
@@ -227,10 +228,9 @@ fn find_detached_job_session_path(
     let mut matching_paths = Vec::new();
     for session_path in candidates {
         let ownership = read_multi_agent_runtime_ownership_row(db, &session_path, &input.terminal.job_id)?;
-        if ownership
-            .as_ref()
-            .is_some_and(|ownership| detached_job_ownership_matches(ownership, &session_path, &input.terminal))
-        {
+        if ownership.as_ref().is_some_and(|ownership| {
+            detached_job_ownership_matches(ownership, &JsString::from(&session_path), &input.terminal)
+        }) {
             matching_paths.push(session_path);
         }
     }
@@ -282,7 +282,7 @@ fn prepare_detached_job_finalization(
             },
         ))));
     };
-    let context = format!("multi_agent_agents:{session_path}#{}", terminal.job_id);
+    let context = js_format!("multi_agent_agents:{}#{}", session_path, terminal.job_id);
     let agent = parse_stored_json_object(&agent_data, &context)?;
     let terminal_lifecycle = resolve_detached_job_terminal_lifecycle(&agent, terminal);
     let event_kind = format!("detached_job_{terminal_lifecycle}");
@@ -294,7 +294,7 @@ fn prepare_detached_job_finalization(
             },
         ))));
     };
-    if !detached_job_ownership_matches(&ownership, &session_path, terminal) {
+    if !detached_job_ownership_matches(&ownership, &JsString::from(&session_path), terminal) {
         return Ok(Some(FinalizePreflight::Result(Box::new(
             FinalizeDetachedJobResult::Err {
                 error: FinalizeDetachedJobError::MutationMismatch,
@@ -304,7 +304,7 @@ fn prepare_detached_job_finalization(
     let current_lifecycle = agent.get("lifecycle").and_then(Value::as_str).unwrap_or("");
     if current_lifecycle == terminal_lifecycle {
         return Ok(Some(FinalizePreflight::Result(Box::new(detached_job_replay_result(
-            &session_path,
+            &JsString::from(&session_path),
             terminal,
             &agent,
             &agent_data,
@@ -374,7 +374,7 @@ fn resolve_detached_job_terminal_lifecycle(
 
 fn detached_job_ownership_matches(
     ownership: &MultiAgentRuntimeOwnershipRow,
-    session_path: &str,
+    session_path: &JsString,
     terminal: &DetachedJobTerminalInput,
 ) -> bool {
     let identity = MultiAgentRuntimeOwnershipIdentity {
@@ -387,7 +387,7 @@ fn detached_job_ownership_matches(
 }
 
 fn detached_job_replay_result(
-    session_path: &str,
+    session_path: &JsString,
     terminal: &DetachedJobTerminalInput,
     terminal_agent: &Map<String, Value>,
     agent_data: &str,
@@ -398,7 +398,7 @@ fn detached_job_replay_result(
         .and_then(Value::as_str)
         .unwrap_or("failed");
     let expected_details = detached_job_agent_details(terminal_agent, terminal, lifecycle)?;
-    let raw = super::parse_stored_json_object_lossless(agent_data, "detached job replay")?;
+    let raw = super::parse_stored_json_object_lossless(agent_data, &JsString::from("detached job replay"))?;
     for (key, value) in expected_details {
         if js_json::stringify_lossless(raw.get(&key).unwrap_or(&JsValue::Null)) != js_json::stringify_lossless(&value) {
             return Ok(FinalizeDetachedJobResult::Err {
@@ -406,7 +406,7 @@ fn detached_job_replay_result(
             });
         }
     }
-    let context = format!("multi_agent_agents:{session_path}#{}", terminal.job_id);
+    let context = js_format!("multi_agent_agents:{}#{}", session_path, terminal.job_id);
     validate_persisted_agent_payload(terminal_agent, &context)?;
     Ok(FinalizeDetachedJobResult::Ok {
         terminal_agent: Box::new(parse_agent_snapshot(agent_data, &context)?),

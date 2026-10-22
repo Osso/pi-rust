@@ -125,12 +125,12 @@ pub type WriteBashLaunchManifest =
 
 /// Construction options for [`DetachedJobLifecycleController`].
 pub struct DetachedJobLifecycleControllerOptions {
-    pub artifact_root: String,
-    pub control_db_path: String,
+    pub artifact_root: JsString,
+    pub control_db_path: JsString,
     pub coordinator: Arc<LifecycleCoordinator>,
     pub owner_agent_id: Option<String>,
     pub owner_session_id: String,
-    pub session_path: String,
+    pub session_path: JsString,
     pub store: Arc<MultiAgentStore>,
     pub write_bash_launch_manifest: Option<WriteBashLaunchManifest>,
 }
@@ -144,9 +144,9 @@ pub struct DetachedJobLifecycleController {
 #[derive(Debug)]
 pub enum DetachedJobError {
     ArtifactExists(String),
-    ControlDb(String),
+    ControlDb(JsString),
     InvalidJobId,
-    Launch(String),
+    Launch(JsString),
     Serialization(String),
     Io(std::io::Error),
 }
@@ -157,9 +157,8 @@ impl fmt::Display for DetachedJobError {
             Self::ArtifactExists(directory) => {
                 write!(formatter, "Detached job artifact directory already exists: {directory}")
             }
-            Self::ControlDb(message) => formatter.write_str(message),
+            Self::ControlDb(message) | Self::Launch(message) => formatter.write_str(&encode_node_utf8(message)),
             Self::InvalidJobId => formatter.write_str("Detached job ID must be one path segment"),
-            Self::Launch(message) => formatter.write_str(message),
             Self::Serialization(message) => formatter.write_str(message),
             Self::Io(source) => source.fmt(formatter),
         }
@@ -188,7 +187,7 @@ impl From<serde_json::Error> for DetachedJobError {
 
 impl From<crate::core::sqlite::ControlDbError> for DetachedJobError {
     fn from(source: crate::core::sqlite::ControlDbError) -> Self {
-        Self::ControlDb(source.message().to_owned())
+        Self::ControlDb(source.message().clone())
     }
 }
 
@@ -352,26 +351,22 @@ impl DetachedJobLifecycleController {
         reserve_detached_job(self.options.as_ref(), agent_type)
     }
 
-    fn artifact_root(&self) -> Result<String, DetachedJobError> {
+    fn artifact_root(&self) -> Result<JsString, DetachedJobError> {
         detached_job_artifact_root(&self.options.artifact_root, &self.options.session_path)
     }
 }
 
-fn detached_job_artifact_root(artifact_root: &str, session_path: &str) -> Result<String, DetachedJobError> {
-    let session_name = Path::new(session_path)
-        .file_stem()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
+/// `detachedJobArtifactRoot`.
+fn detached_job_artifact_root(artifact_root: &JsString, session_path: &JsString) -> Result<JsString, DetachedJobError> {
+    let session_file_name = node_basename(session_path);
+    let extension = node_extname(&session_file_name);
+    let session_name = session_file_name.slice(0, session_file_name.len() - extension.len());
     if session_name.is_empty() {
         return Err(DetachedJobError::Launch(
-            "Detached job session path must have a file name".to_owned(),
+            "Detached job session path must have a file name".into(),
         ));
     }
-    Ok(Path::new(artifact_root)
-        .join("detached-jobs")
-        .join(session_name)
-        .to_string_lossy()
-        .into_owned())
+    Ok(node_join(node_join(artifact_root, "detached-jobs"), session_name))
 }
 
 fn find_persisted_bash_job(

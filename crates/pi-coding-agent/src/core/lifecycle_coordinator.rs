@@ -60,11 +60,11 @@ fn clear_dead_detached_reconciliation_retry(control_db_path: &str) {
 
 #[derive(Clone)]
 pub struct LifecycleCoordinatorOptions {
-    pub control_db_path: String,
+    pub control_db_path: JsString,
     pub create_agent_id: Arc<dyn Fn() -> Result<String, ControlDbError> + Send + Sync>,
     pub now: Arc<dyn Fn() -> String + Send + Sync>,
     pub process_identity: ProcessIdentity,
-    pub session_path: String,
+    pub session_path: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

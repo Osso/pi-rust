@@ -1,5 +1,7 @@
 //! Frozen mailbox-retention.ts and control DB creation-age predicates.
 use super::ControlDbError;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use rusqlite::{Connection, params};
 use serde_json::{Map, Value};
 pub const MAILBOX_MESSAGE_RETENTION_MS: i64 = 86_400_000;
@@ -15,12 +17,18 @@ pub fn is_mailbox_message_expired(created_at: Option<&str>, now_ms: f64) -> bool
         .and_then(pi_js_compat::date::date_parse_millis)
         .is_none_or(|birth| now_ms - birth as f64 >= MAILBOX_MESSAGE_RETENTION_MS as f64)
 }
-pub(crate) fn assert_mailbox_message_fresh(message: &Map<String, Value>, context: &str) -> Result<(), ControlDbError> {
+pub(crate) fn assert_mailbox_message_fresh(
+    message: &Map<String, Value>,
+    context: &JsString,
+) -> Result<(), ControlDbError> {
     if is_mailbox_message_expired(
         message.get("createdAt").and_then(Value::as_str),
         pi_js_compat::date::js_now_millis(),
     ) {
-        return Err(ControlDbError::new(format!("Expired mailbox message at {context}")));
+        return Err(ControlDbError::new(js_format!(
+            "Expired mailbox message at {}",
+            context
+        )));
     }
     Ok(())
 }

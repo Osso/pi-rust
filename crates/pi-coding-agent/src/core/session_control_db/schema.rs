@@ -1,5 +1,6 @@
 //! Control database schema and migrations (`initializeSchema` in `session-control-db.ts`).
 
+use pi_js_compat::js_format;
 use std::collections::HashSet;
 
 use rusqlite::{Connection, OptionalExtension, params};
@@ -11,7 +12,7 @@ use super::{
     write_canonical_mailbox_payload,
 };
 use crate::core::runtime_process::{is_pi_runtime_process_alive, is_process_identity_alive};
-use pi_js_compat::js_json::{self, encode_node_utf8};
+use pi_js_compat::js_json::{self, JsString, encode_node_utf8};
 
 /// Version that carries the multi-agent lifecycle payload migration.
 pub const LIFECYCLE_PROTOCOL_SCHEMA_VERSION: i64 = 14;
@@ -658,7 +659,7 @@ fn migrate_legacy_lifecycle_rows(db: &Connection, now_iso: &str) -> Result<(), C
         })?
         .collect::<Result<Vec<_>, _>>()?;
     for (session_path, agent_id, data) in rows {
-        let context = format!("multi_agent_agents:{session_path}#{agent_id}");
+        let context = js_format!("multi_agent_agents:{}#{}", session_path, agent_id);
         let agent = parse_stored_json_object(&data, &context)?;
         let lifecycle = agent.get("lifecycle").and_then(Value::as_str);
         if lifecycle == Some("queued") {
@@ -911,8 +912,8 @@ fn migrate_legacy_runtime_mailbox_row(
         "multi_agent_mailbox_messages:{}#{}",
         row.store_session_path, row.store_message_id
     );
-    let message = parse_stored_json_object(&canonical.data, &context)?;
-    validate_mailbox_payload(&Value::Object(message.clone()), &context)?;
+    let message = parse_stored_json_object(&canonical.data, &JsString::from(&context))?;
+    validate_mailbox_payload(&Value::Object(message.clone()), &JsString::from(&context))?;
     let input = super::EnqueueRuntimeMailboxMessageInput {
         recipient_host: None,
         kind: to_runtime_mailbox_message_kind(&row.kind),
@@ -938,7 +939,8 @@ fn migrate_legacy_runtime_mailbox_row(
         )?;
         return Ok(());
     }
-    let canonical_status = to_runtime_mailbox_message_status(&require_string_field(&message, "status", &context)?);
+    let canonical_status =
+        to_runtime_mailbox_message_status(&require_string_field(&message, "status", &JsString::from(&context))?);
     let status = migrated_mailbox_status(row, canonical_status);
     apply_migrated_mailbox_fields(&mut updated, row, status, now_iso);
     write_canonical_mailbox_payload(
@@ -1108,7 +1110,7 @@ pub(crate) fn assert_runtime_mailbox_routing_with_fields(
     if same_recipient && same_sender && same_kind && same_host {
         return Ok(());
     }
-    Err(ControlDbError::new(format!(
+    Err(ControlDbError::new(js_format!(
         "Runtime mailbox store reference conflicts with canonical mailbox row: {}#{}",
         input.store_ref.session_path.to_utf8_lossy(),
         input.store_ref.message_id.to_utf8_lossy()

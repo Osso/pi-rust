@@ -1,5 +1,6 @@
 //! Multi-agent persistence: lifecycle mutations, runtime ownership, outbox, counters.
 
+use pi_js_compat::js_format;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -201,7 +202,7 @@ pub struct SupervisorRuntimeOwnership {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AcquireMultiAgentRuntimeOwnershipInput {
-    pub session_path: String,
+    pub session_path: JsString,
     pub agent_id: String,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
     pub owner: MultiAgentRuntimeOwnerIdentity,
@@ -210,7 +211,7 @@ pub struct AcquireMultiAgentRuntimeOwnershipInput {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AcquireAttachedRuntimeOwnershipInput {
-    pub session_path: String,
+    pub session_path: JsString,
     pub agent_id: String,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
     pub owner: MultiAgentRuntimeOwnerIdentity,
@@ -220,7 +221,7 @@ pub struct AcquireAttachedRuntimeOwnershipInput {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateMultiAgentChildWithRuntimeOwnershipInput {
-    pub session_path: String,
+    pub session_path: JsString,
     pub agent_id: String,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
     pub owner: MultiAgentRuntimeOwnerIdentity,
@@ -233,19 +234,19 @@ pub struct CreateMultiAgentAttachmentInput {
     pub agent: AgentSnapshot,
     pub agent_id: String,
     pub now_iso: String,
-    pub session_path: String,
+    pub session_path: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateFailedMultiAgentChildInput {
     pub agent: AgentSnapshot,
     pub now_iso: String,
-    pub session_path: String,
+    pub session_path: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitMultiAgentLifecycleMutationInput {
-    pub session_path: String,
+    pub session_path: JsString,
     pub agent_id: String,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
     pub owner: MultiAgentRuntimeOwnerIdentity,
@@ -263,7 +264,7 @@ pub struct DetachedCancellation {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommitMultiAgentSteeringMutationInput {
-    pub session_path: String,
+    pub session_path: JsString,
     pub agent_id: String,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
     pub owner: MultiAgentRuntimeOwnerIdentity,
@@ -279,7 +280,7 @@ pub struct CommitMultiAgentSteeringMutationInput {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitMultiAgentSteeringDeliveryInput {
-    pub session_path: String,
+    pub session_path: JsString,
     pub agent_id: String,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
     pub owner: MultiAgentRuntimeOwnerIdentity,
@@ -293,7 +294,7 @@ pub struct CommitMultiAgentDetachMarkInput {
     pub agent_id: String,
     pub owner: MultiAgentRuntimeOwnerIdentity,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
-    pub session_path: String,
+    pub session_path: JsString,
     pub updated_at: String,
 }
 
@@ -318,7 +319,7 @@ impl AgentDetails {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommitMultiAgentTerminalMutationInput {
-    pub session_path: String,
+    pub session_path: JsString,
     pub agent_id: String,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
     pub owner: MultiAgentRuntimeOwnerIdentity,
@@ -360,7 +361,7 @@ pub struct MultiAgentTerminalOutboxRecord {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ClaimMultiAgentTerminalOutboxOptions {
     pub max_attempts: Option<i64>,
-    pub session_path: Option<String>,
+    pub session_path: Option<JsString>,
     pub stale_claim_before: Option<String>,
 }
 
@@ -460,17 +461,18 @@ pub fn claim_multi_agent_terminal_outbox(
         if !has_eligible_terminal_outbox_work(db, max_attempts, options)? {
             return Ok(None);
         }
+        let session_filter = options.session_path.as_ref().map(encode_node_utf8);
         let row = with_immediate_transaction(db, |db| {
             if let Some(stale_claim_before) = &options.stale_claim_before {
                 recover_stale_terminal_outbox_claims(
                     db,
                     max_attempts,
                     now_iso,
-                    options.session_path.as_deref(),
+                    session_filter.as_deref(),
                     stale_claim_before,
                 )?;
             }
-            claim_next_terminal_outbox_row(db, claim_id, now_iso, max_attempts, options.session_path.as_deref())
+            claim_next_terminal_outbox_row(db, claim_id, now_iso, max_attempts, session_filter.as_deref())
         })?;
         Ok(row.map(|row| MultiAgentTerminalOutboxRecord {
             agent_id: row.agent_id,
@@ -742,7 +744,7 @@ fn read_steering_mutation_agent(
     let Some(data) = data else {
         return Ok(None);
     };
-    let context = format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id);
+    let context = js_format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id);
 
     let agent = parse_agent_snapshot(&data, &context)?;
     Ok(Some((agent, data)))
@@ -765,7 +767,7 @@ fn steering_mutation_has_authority(
         return Ok(false);
     }
     let sender_path_matches = input.owner.agent_id.is_some()
-        || trusted_runtime_mailbox_session_path(sender_listener).as_deref() == Some(input.session_path.as_str());
+        || trusted_runtime_mailbox_session_path(sender_listener).is_some_and(|path| input.session_path == path);
     let expected_sender_id = input.owner.agent_id.as_deref().unwrap_or("supervisor");
     Ok(input.from_agent_id == expected_sender_id
         && agent.parent_id.as_deref() == Some(input.owner.agent_id.as_deref().unwrap_or("main"))
@@ -948,7 +950,7 @@ fn prepare_steering_mailbox_message(
 
 fn persist_prepared_steering_mailbox_message(
     db: &Connection,
-    session_path: &str,
+    session_path: &JsString,
     message_id: &str,
     prepared: &PreparedSteeringMailboxMessage,
 ) -> Result<(), ControlDbError> {
@@ -985,7 +987,7 @@ pub fn commit_multi_agent_detach_mark(
                     error: LifecycleCommandError::AgentNotFound,
                 });
             };
-            let context = format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id);
+            let context = js_format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id);
             let agent = parse_stored_json_object(&data, &context)?;
             let mut agent_snapshot = parse_agent_snapshot(&data, &context)?;
             let ownership = read_multi_agent_runtime_ownership_row(db, &input.session_path, &input.agent_id)?;
@@ -1095,7 +1097,7 @@ pub(super) fn read_steering_delivery_plan(
     let Some(agent_data) = agent_row else {
         return Ok(Err(SteeringCommandError::AgentNotFound));
     };
-    let agent_context = format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id);
+    let agent_context = js_format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id);
     let agent = parse_agent_snapshot(&agent_data, &agent_context)?;
     let ownership = read_multi_agent_runtime_ownership_row(db, &input.session_path, &input.agent_id)?;
     let identity = ownership_identity(
@@ -1127,9 +1129,10 @@ pub(super) fn read_steering_delivery_plan(
     let Some(message_data) = message_data else {
         return Ok(Err(SteeringCommandError::MessageNotFound));
     };
-    let message_context = format!(
+    let message_context = js_format!(
         "multi_agent_mailbox_messages:{}#{}",
-        input.session_path, input.message_id
+        input.session_path,
+        input.message_id
     );
     let message = parse_stored_json_object(&message_data, &message_context)?;
     validate_mailbox_payload(&Value::Object(message.clone()), &message_context)?;
@@ -1238,9 +1241,10 @@ pub(super) fn persist_steering_delivery(
             )?
         };
         if message_updated != 1 {
-            return Err(ControlDbError::new(format!(
+            return Err(ControlDbError::new(js_format!(
                 "Steering message changed during delivery {}#{}",
-                input.session_path, input.message_id
+                input.session_path,
+                input.message_id
             )));
         }
         Ok(true)
@@ -1303,7 +1307,7 @@ fn read_lifecycle_mutation_plan(
     };
     let agent = parse_stored_json_object(
         &data,
-        &format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id),
+        &js_format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id),
     )?;
     let ownership = read_multi_agent_runtime_ownership_row(db, &input.session_path, &input.agent_id)?;
     let identity = ownership_identity(
@@ -1325,14 +1329,14 @@ fn read_lifecycle_mutation_plan(
         && agent.get("suppressTerminalNotification").and_then(Value::as_bool) != Some(true);
     if !lifecycle_changed && !persist_suppression {
         return Ok(LifecycleMutationRead::Unchanged(
-            super::parse_stored_json_object_lossless(&data, "lifecycle unchanged")?,
+            super::parse_stored_json_object_lossless(&data, &JsString::from("lifecycle unchanged"))?,
         ));
     }
     if lifecycle_changed && !can_persist_lifecycle_transition_str(current_lifecycle, &input.requested_lifecycle) {
         return Ok(LifecycleMutationRead::Err(LifecycleCommandError::InvalidTransition));
     }
     let revision = agent.get("revision").and_then(Value::as_i64).unwrap_or(0) + 1;
-    let mut updated = super::parse_stored_json_object_lossless(&data, "lifecycle mutation")?;
+    let mut updated = super::parse_stored_json_object_lossless(&data, &JsString::from("lifecycle mutation"))?;
     if persist_suppression {
         updated.insert("suppressTerminalNotification".into(), JsValue::Bool(true));
     }
@@ -1543,7 +1547,7 @@ fn read_terminal_mutation_plan(
     };
     let agent = parse_stored_json_object(
         &agent_data,
-        &format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id),
+        &js_format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id),
     )?;
     let ownership = read_multi_agent_runtime_ownership_row(db, &input.session_path, &input.agent_id)?;
     let identity = ownership_identity(
@@ -1559,7 +1563,7 @@ fn read_terminal_mutation_plan(
     if current_lifecycle == input.terminal_lifecycle {
         return Ok(TerminalMutationRead::Replay(terminal_mutation_replay_result(
             input,
-            &super::parse_stored_json_object_lossless(&agent_data, "terminal replay")?,
+            &super::parse_stored_json_object_lossless(&agent_data, &JsString::from("terminal replay"))?,
         )));
     }
     let terminal_revision = agent.get("revision").and_then(Value::as_i64).unwrap_or(0) + 1;
@@ -1569,7 +1573,7 @@ fn read_terminal_mutation_plan(
     if has_active_persisted_descendant(db, &input.session_path, &input.agent_id)? {
         return Ok(TerminalMutationRead::Err(LifecycleCommandError::InvalidTransition));
     }
-    let mut updated = super::parse_stored_json_object_lossless(&agent_data, "terminal mutation")?;
+    let mut updated = super::parse_stored_json_object_lossless(&agent_data, &JsString::from("terminal mutation"))?;
     updated.extend(input.agent_details.to_map());
     updated.shift_remove("currentActivity");
     updated.insert(
@@ -1599,7 +1603,7 @@ fn persist_terminal_mutation(
             owner: &input.owner,
             process_identity_data: &plan.process_identity_data,
             require_unique_ownership: false,
-            session_path: &input.session_path,
+            session_path: &encode_node_utf8(&input.session_path),
             updated_agent_data: &plan.updated_data,
             updated_at: &input.updated_at,
         },
@@ -1697,9 +1701,10 @@ pub(crate) fn update_terminal_agent_if_current(
 
 pub(crate) fn has_active_persisted_descendant(
     db: &Connection,
-    session_path: &str,
+    session_path: impl Into<JsString>,
     ancestor_id: &str,
 ) -> Result<bool, ControlDbError> {
+    let session_path: &JsString = &session_path.into();
     let mut statement = db.prepare("SELECT agent_id, data FROM multi_agent_agents WHERE session_path = ?")?;
     let rows = statement
         .query_map(params![session_path], |row| {
@@ -1708,7 +1713,7 @@ pub(crate) fn has_active_persisted_descendant(
         .collect::<Result<Vec<_>, _>>()?;
     let mut agents = std::collections::HashMap::new();
     for (agent_id, data) in rows {
-        let agent = parse_stored_json_object(&data, &format!("multi_agent_agents:{session_path}#{agent_id}"))?;
+        let agent = parse_stored_json_object(&data, &js_format!("multi_agent_agents:{}#{}", session_path, agent_id))?;
         agents.insert(agent_id, agent);
     }
     for (agent_id, agent) in &agents {
@@ -1780,13 +1785,14 @@ pub fn create_failed_multi_agent_child(
     input: &CreateFailedMultiAgentChildInput,
 ) -> Result<CreateFailedMultiAgentChildResult, ControlDbError> {
     let control_db_path = control_db_path.into();
-    let context = format!("multi_agent_agents:{}#{}", input.session_path, input.agent.id);
+    let context = js_format!("multi_agent_agents:{}#{}", input.session_path, input.agent.id);
     let agent_value = super::agent_value(&input.agent)?;
     let validation = js_json::parse(&js_json::stringify_lossless(&agent_value))
         .map_err(|error| ControlDbError::new(error.to_string()))?;
     let Value::Object(agent_object) = &validation else {
-        return Err(ControlDbError::new(format!(
-            "Invalid persisted agent payload at {context}"
+        return Err(ControlDbError::new(js_format!(
+            "Invalid persisted agent payload at {}",
+            context
         )));
     };
     validate_persisted_agent_payload(agent_object, &context)?;
@@ -1819,16 +1825,17 @@ pub fn create_failed_multi_agent_child(
                 });
             }
         }
-        Err(ControlDbError::new(format!(
+        Err(ControlDbError::new(js_format!(
             "Failed child parent changed repeatedly {}#{}",
-            input.session_path, input.agent.id
+            input.session_path,
+            input.agent.id
         )))
     })
 }
 
 fn read_active_parent_snapshot(
     db: &Connection,
-    session_path: &str,
+    session_path: &JsString,
     parent_id: &str,
 ) -> Result<Option<ActiveParentSnapshot>, ControlDbError> {
     if parent_id == "main" {
@@ -1842,7 +1849,7 @@ fn read_active_parent_snapshot(
     let Some(data) = data else {
         return Ok(None);
     };
-    let context = format!("multi_agent_agents:{session_path}#{parent_id}");
+    let context = js_format!("multi_agent_agents:{}#{}", session_path, parent_id);
     let parent = parse_stored_json_object(&data, &context)?;
     validate_persisted_agent_payload(&parent, &context)?;
     if !is_nonterminal_lifecycle(parent.get("lifecycle")) {
@@ -1857,7 +1864,7 @@ fn read_active_parent_snapshot(
 }
 
 fn ownership_identity(
-    session_path: &str,
+    session_path: &JsString,
     agent_id: &str,
     process_identity: &crate::core::runtime_process::ProcessIdentity,
     owner: &MultiAgentRuntimeOwnerIdentity,
@@ -1872,7 +1879,7 @@ fn ownership_identity(
 
 fn read_agent_data_row(
     db: &Connection,
-    session_path: &str,
+    session_path: &JsString,
     agent_id: impl Into<JsString>,
 ) -> Result<Option<String>, ControlDbError> {
     Ok(db
@@ -1884,7 +1891,7 @@ fn read_agent_data_row(
         .optional()?)
 }
 
-fn multi_agent_agent_exists(db: &Connection, session_path: &str, agent_id: &str) -> Result<bool, ControlDbError> {
+fn multi_agent_agent_exists(db: &Connection, session_path: &JsString, agent_id: &str) -> Result<bool, ControlDbError> {
     Ok(db
         .query_row(
             "SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?",
@@ -1897,7 +1904,7 @@ fn multi_agent_agent_exists(db: &Connection, session_path: &str, agent_id: &str)
 
 fn insert_multi_agent_agent_if_parent_current(
     db: &Connection,
-    session_path: &str,
+    session_path: &JsString,
     agent_id: &str,
     serialized_agent: &str,
     updated_at: &str,
@@ -1957,13 +1964,14 @@ pub fn create_multi_agent_child_with_runtime_ownership(
     input: &CreateMultiAgentChildWithRuntimeOwnershipInput,
 ) -> Result<CreateMultiAgentChildWithRuntimeOwnershipResult, ControlDbError> {
     let control_db_path = control_db_path.into();
-    let context = format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id);
+    let context = js_format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id);
     let agent_value = super::agent_value(&input.agent)?;
     let validation = js_json::parse(&js_json::stringify_lossless(&agent_value))
         .map_err(|error| ControlDbError::new(error.to_string()))?;
     let Value::Object(agent_object) = &validation else {
-        return Err(ControlDbError::new(format!(
-            "Invalid persisted agent payload at {context}"
+        return Err(ControlDbError::new(js_format!(
+            "Invalid persisted agent payload at {}",
+            context
         )));
     };
     validate_persisted_agent_payload(agent_object, &context)?;
@@ -2011,9 +2019,10 @@ pub fn create_multi_agent_child_with_runtime_ownership(
                 });
             }
         }
-        Err(ControlDbError::new(format!(
+        Err(ControlDbError::new(js_format!(
             "Child parent changed repeatedly {}#{}",
-            input.session_path, input.agent_id
+            input.session_path,
+            input.agent_id
         )))
     })
 }
@@ -2052,13 +2061,14 @@ pub fn create_multi_agent_attachment(
     input: &CreateMultiAgentAttachmentInput,
 ) -> Result<CreateMultiAgentAttachmentResult, ControlDbError> {
     let control_db_path = control_db_path.into();
-    let context = format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id);
+    let context = js_format!("multi_agent_agents:{}#{}", input.session_path, input.agent_id);
     let agent_value = super::agent_value(&input.agent)?;
     let validation = js_json::parse(&js_json::stringify_lossless(&agent_value))
         .map_err(|error| ControlDbError::new(error.to_string()))?;
     let Value::Object(agent_object) = &validation else {
-        return Err(ControlDbError::new(format!(
-            "Invalid persisted agent payload at {context}"
+        return Err(ControlDbError::new(js_format!(
+            "Invalid persisted agent payload at {}",
+            context
         )));
     };
     validate_persisted_agent_payload(agent_object, &context)?;
@@ -2100,16 +2110,17 @@ pub fn create_multi_agent_attachment(
                 });
             }
         }
-        Err(ControlDbError::new(format!(
+        Err(ControlDbError::new(js_format!(
             "Attachment parent changed repeatedly {}#{}",
-            input.session_path, input.agent_id
+            input.session_path,
+            input.agent_id
         )))
     })
 }
 
 fn read_attachment_parent_snapshot(
     db: &Connection,
-    session_path: &str,
+    session_path: &JsString,
     agent: &AgentSnapshot,
 ) -> Result<ActiveParentSnapshot, CreateAttachmentError> {
     let Some(parent_id) = agent.parent_id.clone() else {
@@ -2145,9 +2156,10 @@ fn read_attachment_parent_snapshot(
 /// `readMultiAgentRuntimeOwnership`.
 pub fn read_multi_agent_runtime_ownership(
     control_db_path: impl Into<JsString>,
-    session_path: &str,
+    session_path: impl Into<JsString>,
     agent_id: &str,
 ) -> Result<Option<MultiAgentRuntimeOwnership>, ControlDbError> {
+    let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     with_control_db(&control_db_path, |db| {
         read_multi_agent_runtime_ownership_row(db, session_path, agent_id)?
@@ -2338,14 +2350,14 @@ fn commit_acquired_runtime_ownership(
 
 fn read_attached_runtime_agent(
     db: &Connection,
-    session_path: &str,
+    session_path: &JsString,
     agent_id: &str,
 ) -> Result<AttachedRuntimeAgentRead, ControlDbError> {
     let data = read_agent_data_row(db, session_path, agent_id)?;
     let Some(data) = data else {
         return Ok(AttachedRuntimeAgentRead::Err(AcquireAttachedError::AgentNotFound));
     };
-    let context = format!("multi_agent_agents:{session_path}#{agent_id}");
+    let context = js_format!("multi_agent_agents:{}#{}", session_path, agent_id);
 
     match parse_agent_snapshot(&data, &context) {
         Ok(agent) => Ok(AttachedRuntimeAgentRead::Ok {
@@ -2358,7 +2370,7 @@ fn read_attached_runtime_agent(
 
 fn read_registered_supervisor_session_authority(
     db: &Connection,
-    session_path: &str,
+    session_path: &JsString,
     supervisor: &SupervisorRuntimeOwnership,
 ) -> Result<Option<SupervisorSessionAuthoritySnapshot>, ControlDbError> {
     if !process_identity_is_alive(&supervisor.process_identity) {
@@ -2379,7 +2391,7 @@ fn read_registered_supervisor_session_authority(
 
 fn read_persisted_supervisor_session_authority(
     db: &Connection,
-    session_path: &str,
+    session_path: &JsString,
     supervisor: &SupervisorRuntimeOwnership,
 ) -> Result<Option<SupervisorSessionAuthoritySnapshot>, ControlDbError> {
     let listener: Option<(Option<String>, Option<String>, Option<String>)> = db
@@ -2402,7 +2414,11 @@ fn read_persisted_supervisor_session_authority(
         return Ok(None);
     };
     if supervisor.agent_id.is_none() {
-        if listener_session_path.as_deref() != Some(session_path) || asserted_at.is_none() {
+        if !listener_session_path
+            .as_ref()
+            .is_some_and(|path| *session_path == *path)
+            || asserted_at.is_none()
+        {
             return Ok(None);
         }
         return Ok(Some(SupervisorSessionAuthoritySnapshot {
@@ -2416,8 +2432,9 @@ fn read_persisted_supervisor_session_authority(
     let Some(supervisor_agent_data) = supervisor_agent else {
         return Ok(None);
     };
-    let context = format!(
-        "multi_agent_agents:{session_path}#{}",
+    let context = js_format!(
+        "multi_agent_agents:{}#{}",
+        session_path,
         supervisor.agent_id.as_deref().unwrap_or_default()
     );
     let agent = parse_agent_snapshot(&supervisor_agent_data, &context)?;
@@ -2440,7 +2457,7 @@ fn read_persisted_supervisor_session_authority(
 
 fn supervisor_session_authority_is_current(
     db: &Connection,
-    session_path: &str,
+    session_path: &JsString,
     supervisor: &SupervisorRuntimeOwnership,
     expected: &SupervisorSessionAuthoritySnapshot,
 ) -> Result<bool, ControlDbError> {
@@ -2485,7 +2502,7 @@ fn same_process_with_superseded_incarnation(
 
 fn persist_acquired_runtime_ownership(
     db: &Connection,
-    session_path: &str,
+    session_path: &JsString,
     agent_id: &str,
     process_identity_data: &str,
     owner: &MultiAgentRuntimeOwnerIdentity,
@@ -2510,7 +2527,7 @@ fn persist_acquired_runtime_ownership(
 }
 
 fn ownership_from_identity_parts(
-    session_path: &str,
+    session_path: &JsString,
     agent_id: &str,
     owner: &MultiAgentRuntimeOwnerIdentity,
     process_identity: &crate::core::runtime_process::ProcessIdentity,
@@ -2522,7 +2539,7 @@ fn ownership_from_identity_parts(
             session_id: Some(owner.session_id.clone()),
         },
         process_identity: Some(process_identity.clone()),
-        session_path: session_path.to_owned(),
+        session_path: session_path.clone(),
     }
 }
 
@@ -2533,11 +2550,12 @@ fn ownership_from_identity_parts(
 /// `updateMultiAgentAgentActivity`.
 pub fn update_multi_agent_agent_activity(
     control_db_path: impl Into<JsString>,
-    session_path: &str,
+    session_path: impl Into<JsString>,
     agent_id: &str,
     last_activity: Option<&Value>,
     updated_at: &str,
 ) -> Result<Option<Value>, ControlDbError> {
+    let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     let mut metadata = Map::new();
     if let Some(last_activity) = last_activity {
@@ -2549,13 +2567,14 @@ pub fn update_multi_agent_agent_activity(
 /// `updateMultiAgentAgentCurrentActivity`.
 pub fn update_multi_agent_agent_current_activity(
     control_db_path: impl Into<JsString>,
-    session_path: &str,
+    session_path: impl Into<JsString>,
     agent_id: &str,
     current_activity: Option<&Value>,
     updated_at: &str,
     ownership: &crate::core::multi_agent_store::AgentCurrentActivityOwner,
     model: Option<&Value>,
 ) -> Result<Option<Value>, ControlDbError> {
+    let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     let mut metadata = Map::new();
     if let Some(model) = model {
@@ -2578,12 +2597,13 @@ pub fn update_multi_agent_agent_current_activity(
 /// `updateMultiAgentAgentModel`.
 pub fn update_multi_agent_agent_model(
     control_db_path: impl Into<JsString>,
-    session_path: &str,
+    session_path: impl Into<JsString>,
     agent_id: &str,
     model: &Value,
     updated_at: &str,
     ownership: &crate::core::multi_agent_store::AgentCurrentActivityOwner,
 ) -> Result<Option<Value>, ControlDbError> {
+    let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     let mut metadata = Map::new();
     metadata.insert("model".into(), model.clone());
@@ -2600,11 +2620,12 @@ pub fn update_multi_agent_agent_model(
 /// `updateMultiAgentAgentSlot`.
 pub fn update_multi_agent_agent_slot(
     control_db_path: impl Into<JsString>,
-    session_path: &str,
+    session_path: impl Into<JsString>,
     agent_id: &str,
     slot: Option<&Value>,
     updated_at: &str,
 ) -> Result<Option<Value>, ControlDbError> {
+    let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     let mut metadata = Map::new();
     metadata.insert("slot".to_owned(), slot.cloned().unwrap_or(Value::Null));
@@ -2614,11 +2635,12 @@ pub fn update_multi_agent_agent_slot(
 /// `updateMultiAgentAgentTranscript`.
 pub fn update_multi_agent_agent_transcript(
     control_db_path: impl Into<JsString>,
-    session_path: &str,
+    session_path: impl Into<JsString>,
     agent_id: &str,
     transcript: Option<&Value>,
     updated_at: &str,
 ) -> Result<Option<Value>, ControlDbError> {
+    let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     let mut metadata = Map::new();
     metadata.insert("transcript".to_owned(), transcript.cloned().unwrap_or(Value::Null));
@@ -2627,7 +2649,7 @@ pub fn update_multi_agent_agent_transcript(
 
 fn update_multi_agent_agent_metadata(
     control_db_path: &JsString,
-    session_path: &str,
+    session_path: &JsString,
     agent_id: &str,
     metadata: &Map<String, Value>,
     updated_at: &str,
@@ -2656,15 +2678,17 @@ fn update_multi_agent_agent_metadata(
                 return Ok(Some(Value::Object(agent)));
             }
         }
-        Err(ControlDbError::new(format!(
-            "Multi-agent metadata changed repeatedly while updating {session_path}#{agent_id}"
+        Err(ControlDbError::new(js_format!(
+            "Multi-agent metadata changed repeatedly while updating {}#{}",
+            session_path,
+            agent_id
         )))
     })
 }
 
 fn read_metadata_agent_row(
     db: &Connection,
-    session_path: &str,
+    session_path: &JsString,
     agent_id: &str,
 ) -> Result<Option<(String, String)>, ControlDbError> {
     Ok(db
@@ -2678,13 +2702,13 @@ fn read_metadata_agent_row(
 
 fn read_metadata_agent(
     db: &Connection,
-    session_path: &str,
+    session_path: &JsString,
     agent_id: &str,
     data: &str,
     metadata: &Map<String, Value>,
     activity_ownership: Option<&crate::core::multi_agent_store::AgentCurrentActivityOwner>,
 ) -> Result<Option<Map<String, Value>>, ControlDbError> {
-    let context = format!("multi_agent_agents:{session_path}#{agent_id}");
+    let context = js_format!("multi_agent_agents:{}#{}", session_path, agent_id);
     let agent = parse_stored_json_object(data, &context)?;
     validate_persisted_agent_payload(&agent, &context)?;
     if let Some(ownership) = activity_ownership
@@ -2719,7 +2743,7 @@ struct MetadataUpdate<'a> {
 
 fn persist_metadata_update(
     db: &Connection,
-    session_path: &str,
+    session_path: &JsString,
     agent_id: &str,
     update: &MetadataUpdate<'_>,
 ) -> Result<usize, ControlDbError> {
@@ -2762,7 +2786,7 @@ fn persist_metadata_update(
 
 fn multi_agent_activity_ownership_matches(
     db: &Connection,
-    session_path: &str,
+    session_path: &JsString,
     agent_id: &str,
     ownership: &crate::core::multi_agent_store::AgentCurrentActivityOwner,
 ) -> Result<bool, ControlDbError> {
@@ -2791,17 +2815,19 @@ fn permits_multi_agent_current_activity(agent: &Map<String, Value>, metadata: &M
 /// `bootstrapMultiAgentAgent`.
 pub fn bootstrap_multi_agent_agent(
     control_db_path: impl Into<JsString>,
-    session_path: &str,
+    session_path: impl Into<JsString>,
     id: &str,
     data: &JsValue,
 ) -> Result<(), ControlDbError> {
+    let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
-    let context = format!("multi_agent_agents:{session_path}#{id}");
+    let context = js_format!("multi_agent_agents:{}#{}", session_path, id);
     let validation =
         js_json::parse(&js_json::stringify_lossless(data)).map_err(|error| ControlDbError::new(error.to_string()))?;
     let Value::Object(object) = &validation else {
-        return Err(ControlDbError::new(format!(
-            "Invalid persisted agent payload at {context}"
+        return Err(ControlDbError::new(js_format!(
+            "Invalid persisted agent payload at {}",
+            context
         )));
     };
     validate_persisted_agent_payload(object, &context)?;
@@ -2809,8 +2835,10 @@ pub fn bootstrap_multi_agent_agent(
     let updated_at = crate::utils::iso_time::now_iso_string();
     with_control_db(&control_db_path, |db| {
         if read_multi_agent_runtime_ownership_row(db, session_path, id)?.is_some() {
-            return Err(ControlDbError::new(format!(
-                "Generic agent upsert cannot mutate process-owned lifecycle row {session_path}#{id}"
+            return Err(ControlDbError::new(js_format!(
+                "Generic agent upsert cannot mutate process-owned lifecycle row {}#{}",
+                session_path,
+                id
             )));
         }
         let changed = db.execute(
@@ -2837,8 +2865,10 @@ pub fn bootstrap_multi_agent_agent(
             ],
         )?;
         if changed != 1 {
-            return Err(ControlDbError::new(format!(
-                "Generic agent upsert cannot mutate process-owned lifecycle row {session_path}#{id}"
+            return Err(ControlDbError::new(js_format!(
+                "Generic agent upsert cannot mutate process-owned lifecycle row {}#{}",
+                session_path,
+                id
             )));
         }
         Ok(())
@@ -2848,10 +2878,11 @@ pub fn bootstrap_multi_agent_agent(
 /// `upsertMultiAgentMailboxMessage`.
 pub fn upsert_multi_agent_mailbox_message(
     control_db_path: impl Into<JsString>,
-    session_path: &str,
+    session_path: impl Into<JsString>,
     id: impl Into<JsString>,
     data: &JsValue,
 ) -> Result<(), ControlDbError> {
+    let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     let id = id.into();
     let sql_id = id.to_utf8_lossy();
@@ -2859,7 +2890,7 @@ pub fn upsert_multi_agent_mailbox_message(
         js_json::parse(&js_json::stringify_lossless(data)).map_err(|error| ControlDbError::new(error.to_string()))?;
     validate_mailbox_payload(
         &validation,
-        &format!("multi_agent_mailbox_messages:{session_path}#{sql_id}"),
+        &js_format!("multi_agent_mailbox_messages:{}#{}", session_path, sql_id),
     )?;
     let created_at = validation.get("createdAt").filter(|value| !value.is_null());
     if created_at
@@ -2871,7 +2902,7 @@ pub fn upsert_multi_agent_mailbox_message(
         for _ in 0..MULTI_AGENT_MAILBOX_UPSERT_MAX_ATTEMPTS {
             let plan = prepare_multi_agent_mailbox_upsert(db, session_path, &id, data)?;
             if super::is_mailbox_message_expired(
-                super::parse_stored_json_object(&plan.serialized, &format!("{session_path}#{sql_id}"))?
+                super::parse_stored_json_object(&plan.serialized, &js_format!("{}#{}", session_path, sql_id))?
                     .get("createdAt")
                     .and_then(Value::as_str),
                 pi_js_compat::date::js_now_millis(),
@@ -2887,8 +2918,10 @@ pub fn upsert_multi_agent_mailbox_message(
                 return Ok(());
             }
         }
-        Err(ControlDbError::new(format!(
-            "Mailbox message changed repeatedly while updating {session_path}#{sql_id}"
+        Err(ControlDbError::new(js_format!(
+            "Mailbox message changed repeatedly while updating {}#{}",
+            session_path,
+            sql_id
         )))
     })
 }
@@ -2911,7 +2944,7 @@ struct MultiAgentMailboxUpsertPlan {
 
 fn prepare_multi_agent_mailbox_upsert(
     db: &Connection,
-    session_path: &str,
+    session_path: &JsString,
     id: &JsString,
     data: &JsValue,
 ) -> Result<MultiAgentMailboxUpsertPlan, ControlDbError> {
@@ -2924,16 +2957,19 @@ fn prepare_multi_agent_mailbox_upsert(
     let existing = read_multi_agent_mailbox_row_snapshot(db, session_path, &sql_id)?;
     let mut serialized = js_json::stringify_lossless(data);
     if let Some(existing) = &existing {
-        let previous = super::parse_stored_json_object_lossless(&existing.data, "mailbox upsert")?;
-        let next = super::parse_stored_json_object_lossless(&serialized, "mailbox upsert")?;
+        let previous = super::parse_stored_json_object_lossless(&existing.data, &JsString::from("mailbox upsert"))?;
+        let next = super::parse_stored_json_object_lossless(&serialized, &JsString::from("mailbox upsert"))?;
         if !super::mailbox::same_mailbox_message_identity(&previous, &next, id) {
-            return Err(ControlDbError::new(format!(
-                "Mailbox message ID collision: {session_path}#{sql_id}"
+            return Err(ControlDbError::new(js_format!(
+                "Mailbox message ID collision: {}#{}",
+                session_path,
+                sql_id
             )));
         }
         serialized = js_json::stringify_lossless(&JsValue::Object(merge_canonical_mailbox_update(&previous, &next)));
     } else if data.get("createdAt").is_none_or(JsValue::is_null) {
-        let mut incoming = super::parse_stored_json_object_lossless(&serialized, &format!("{session_path}#{sql_id}"))?;
+        let mut incoming =
+            super::parse_stored_json_object_lossless(&serialized, &js_format!("{}#{}", session_path, sql_id))?;
         incoming.insert(
             "createdAt".into(),
             JsValue::String(crate::utils::iso_time::now_iso_string().into()),
@@ -2949,12 +2985,12 @@ fn prepare_multi_agent_mailbox_upsert(
 
 fn commit_multi_agent_mailbox_upsert(
     db: &Connection,
-    session_path: &str,
+    session_path: &JsString,
     id: &str,
     plan: &MultiAgentMailboxUpsertPlan,
 ) -> Result<bool, ControlDbError> {
     if super::is_mailbox_message_expired(
-        super::parse_stored_json_object(&plan.serialized, &format!("{session_path}#{id}"))?
+        super::parse_stored_json_object(&plan.serialized, &js_format!("{}#{}", session_path, id))?
             .get("createdAt")
             .and_then(Value::as_str),
         pi_js_compat::date::js_now_millis(),
@@ -3009,7 +3045,7 @@ fn commit_multi_agent_mailbox_upsert(
 
 fn read_multi_agent_mailbox_row_snapshot(
     db: &Connection,
-    session_path: &str,
+    session_path: &JsString,
     id: &str,
 ) -> Result<Option<MultiAgentMailboxRowSnapshot>, ControlDbError> {
     Ok(db
@@ -3063,7 +3099,7 @@ fn merge_canonical_mailbox_update(previous: &js_json::JsObject, next: &js_json::
 
 fn read_parent_request_target_snapshot(
     db: &Connection,
-    session_path: &str,
+    session_path: &JsString,
     data: &Value,
 ) -> Result<Option<ParentRequestTargetSnapshot>, ControlDbError> {
     let Value::Object(payload) = data else {
@@ -3072,8 +3108,8 @@ fn read_parent_request_target_snapshot(
     if payload.get("kind").and_then(Value::as_str) != Some("parent_request") {
         return Ok(None);
     }
-    let from_agent_id = require_string_field(payload, "fromAgentId", "parent_request")?;
-    let to_agent_id = require_string_field(payload, "toAgentId", "parent_request")?;
+    let from_agent_id = require_string_field(payload, "fromAgentId", &JsString::from("parent_request"))?;
+    let to_agent_id = require_string_field(payload, "toAgentId", &JsString::from("parent_request"))?;
     let row = read_agent_data_row(db, session_path, &from_agent_id)?;
     let sender = row.as_deref().and_then(super::parse_json_object);
     if sender
@@ -3082,8 +3118,10 @@ fn read_parent_request_target_snapshot(
         .and_then(Value::as_str)
         != Some(to_agent_id.as_str())
     {
-        return Err(ControlDbError::new(format!(
-            "Invalid parent request target at {session_path}#{from_agent_id}"
+        return Err(ControlDbError::new(js_format!(
+            "Invalid parent request target at {}#{}",
+            session_path,
+            from_agent_id
         )));
     }
     Ok(Some(ParentRequestTargetSnapshot {
@@ -3095,9 +3133,10 @@ fn read_parent_request_target_snapshot(
 /// `getMultiAgentMailboxMessageStatus`.
 pub fn get_multi_agent_mailbox_message_status(
     control_db_path: impl Into<JsString>,
-    session_path: &str,
+    session_path: impl Into<JsString>,
     message_id: &str,
 ) -> Result<Option<String>, ControlDbError> {
+    let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     with_control_db(&control_db_path, |db| {
         let data: Option<String> = db
@@ -3117,9 +3156,10 @@ pub fn get_multi_agent_mailbox_message_status(
 /// `markMultiAgentMailboxMessageDelivered`.
 pub fn mark_multi_agent_mailbox_message_delivered(
     control_db_path: impl Into<JsString>,
-    session_path: &str,
+    session_path: impl Into<JsString>,
     message_id: &str,
 ) -> Result<bool, ControlDbError> {
+    let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     Ok(super::consume_runtime_mailbox_message_by_store_ref(
         control_db_path,
@@ -3133,10 +3173,11 @@ pub fn mark_multi_agent_mailbox_message_delivered(
 /// `markMultiAgentMailboxMessageFailed`.
 pub fn mark_multi_agent_mailbox_message_failed(
     control_db_path: impl Into<JsString>,
-    session_path: &str,
+    session_path: impl Into<JsString>,
     message_id: &str,
     error: impl Into<JsString>,
 ) -> Result<bool, ControlDbError> {
+    let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     update_multi_agent_mailbox_message_status(
         &control_db_path,
@@ -3149,7 +3190,7 @@ pub fn mark_multi_agent_mailbox_message_failed(
 
 fn update_multi_agent_mailbox_message_status(
     control_db_path: &JsString,
-    session_path: &str,
+    session_path: &JsString,
     message_id: &str,
     status: &str,
     error: Option<&JsString>,
@@ -3195,9 +3236,10 @@ fn update_multi_agent_mailbox_message_status(
 /// `writeMultiAgentCounters`.
 pub fn write_multi_agent_counters(
     control_db_path: impl Into<JsString>,
-    session_path: &str,
+    session_path: impl Into<JsString>,
     counters: &MultiAgentCounters,
 ) -> Result<(), ControlDbError> {
+    let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     with_control_db(&control_db_path, |db| {
         db.execute(
@@ -3240,9 +3282,10 @@ const MULTI_AGENT_COUNTER_ALLOCATION_SQL_MESSAGE: &str = "INSERT INTO multi_agen
 /// `allocateMultiAgentCounter`.
 pub fn allocate_multi_agent_counter(
     control_db_path: impl Into<JsString>,
-    session_path: &str,
+    session_path: impl Into<JsString>,
     counter_name: MultiAgentCounterName,
 ) -> Result<i64, ControlDbError> {
+    let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     with_control_db(&control_db_path, |db| {
         allocate_multi_agent_counter_with_db(db, session_path, counter_name)
@@ -3251,9 +3294,10 @@ pub fn allocate_multi_agent_counter(
 
 pub(crate) fn allocate_multi_agent_counter_with_db(
     db: &Connection,
-    session_path: &str,
+    session_path: impl Into<JsString>,
     counter_name: MultiAgentCounterName,
 ) -> Result<i64, ControlDbError> {
+    let session_path: &JsString = &session_path.into();
     let sql = match counter_name {
         MultiAgentCounterName::Agent => MULTI_AGENT_COUNTER_ALLOCATION_SQL_AGENT,
         MultiAgentCounterName::Message => MULTI_AGENT_COUNTER_ALLOCATION_SQL_MESSAGE,
@@ -3266,9 +3310,10 @@ pub(crate) fn allocate_multi_agent_counter_with_db(
         )
         .optional()?;
     value.ok_or_else(|| {
-        ControlDbError::new(format!(
-            "Multi-agent {} counter allocation returned no value for {session_path}",
-            counter_name.as_str()
+        ControlDbError::new(js_format!(
+            "Multi-agent {} counter allocation returned no value for {}",
+            counter_name.as_str(),
+            session_path
         ))
     })
 }
@@ -3276,9 +3321,10 @@ pub(crate) fn allocate_multi_agent_counter_with_db(
 /// `readMultiAgentAgent`.
 pub fn read_multi_agent_agent(
     control_db_path: impl Into<JsString>,
-    session_path: &str,
+    session_path: impl Into<JsString>,
     agent_id: impl Into<JsString>,
 ) -> Result<Option<AgentSnapshot>, ControlDbError> {
+    let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     let agent_id = agent_id.into();
     with_control_db(&control_db_path, |db| {
@@ -3286,8 +3332,9 @@ pub fn read_multi_agent_agent(
         let Some(data) = data else {
             return Ok(None);
         };
-        let context = format!(
-            "multi_agent_agents:{session_path}#{}",
+        let context = js_format!(
+            "multi_agent_agents:{}#{}",
+            session_path,
             js_json::stringify_lossless(&JsValue::String(agent_id.clone()))
         );
 
@@ -3298,9 +3345,10 @@ pub fn read_multi_agent_agent(
 /// `readMultiAgentAgents`.
 pub fn read_multi_agent_agents(
     control_db_path: impl Into<JsString>,
-    session_path: &str,
+    session_path: impl Into<JsString>,
     agent_ids: &[String],
 ) -> Result<Vec<AgentSnapshot>, ControlDbError> {
+    let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     with_control_db(&control_db_path, |db| {
         let mut agents = Vec::new();
@@ -3309,7 +3357,7 @@ pub fn read_multi_agent_agents(
             let Some(data) = data else {
                 continue;
             };
-            let context = format!("multi_agent_agents:{session_path}#{agent_id}");
+            let context = js_format!("multi_agent_agents:{}#{}", session_path, agent_id);
 
             agents.push(parse_agent_snapshot(&data, &context)?);
         }
@@ -3349,7 +3397,7 @@ pub fn list_detached_artifact_agents_updated_at_or_before(
             .collect::<Result<Vec<_>, _>>()?;
         let mut records = Vec::new();
         for (session_path, agent_id, data) in rows {
-            let context = format!("multi_agent_agents:{session_path}#{agent_id}");
+            let context = js_format!("multi_agent_agents:{}#{}", session_path, agent_id);
 
             records.push(DetachedArtifactAgentRecord {
                 agent: parse_agent_snapshot(&data, &context)?,
@@ -3363,8 +3411,9 @@ pub fn list_detached_artifact_agents_updated_at_or_before(
 /// `readMultiAgentState`.
 pub fn read_multi_agent_state(
     control_db_path: impl Into<JsString>,
-    session_path: &str,
+    session_path: impl Into<JsString>,
 ) -> Result<Option<MultiAgentPersistedState>, ControlDbError> {
+    let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     with_control_db(&control_db_path, |db| {
         let read_rows = |table: &str| -> Result<Vec<JsValue>, ControlDbError> {
@@ -3376,7 +3425,7 @@ pub fn read_multi_agent_state(
             let mut statement = db.prepare(&format!(
                 "SELECT data FROM {table} WHERE session_path = ?{retention} ORDER BY rowid"
             ))?;
-            let mut args = vec![rusqlite::types::Value::Text(session_path.to_owned())];
+            let mut args = vec![rusqlite::types::Value::Text(encode_node_utf8(session_path))];
             if table == "multi_agent_mailbox_messages" {
                 args.push(rusqlite::types::Value::Integer(super::retention::mailbox_cutoff_ms()));
             }
@@ -3385,7 +3434,7 @@ pub fn read_multi_agent_state(
                 .collect::<Result<Vec<_>, _>>()?;
             let mut values = Vec::with_capacity(rows.len());
             for (index, data) in rows.iter().enumerate() {
-                let context = format!("{table}:{session_path}[{index}]");
+                let context = js_format!("{}:{}[{}]", table, session_path, index.to_string());
                 let parsed = parse_stored_json_object(data, &context)?;
                 if table == "multi_agent_agents" {
                     validate_persisted_agent_payload(&parsed, &context)?;
@@ -3492,7 +3541,7 @@ pub fn recover_dead_multi_agent_runtime(
 
 fn read_supervisor_recovery_authority(
     db: &Connection,
-    session_path: &str,
+    session_path: &JsString,
     supervisor: &SupervisorRuntimeOwnership,
 ) -> Result<Option<SupervisorRecoveryAuthority>, ControlDbError> {
     if !process_identity_is_alive(&supervisor.process_identity) {
@@ -3521,7 +3570,12 @@ fn read_supervisor_recovery_authority(
         return Ok(None);
     }
     if supervisor.agent_id.is_none() {
-        if listener.session_path.as_deref() != Some(session_path) || listener.session_path_asserted_at.is_none() {
+        if !listener
+            .session_path
+            .as_ref()
+            .is_some_and(|path| *session_path == *path)
+            || listener.session_path_asserted_at.is_none()
+        {
             return Ok(None);
         }
         return Ok(Some(SupervisorRecoveryAuthority {
@@ -3537,8 +3591,9 @@ fn read_supervisor_recovery_authority(
     };
     let snapshot = parse_stored_json_object(
         &supervisor_agent_data,
-        &format!(
-            "multi_agent_agents:{session_path}#{}",
+        &js_format!(
+            "multi_agent_agents:{}#{}",
+            session_path,
             supervisor.agent_id.as_deref().unwrap_or_default()
         ),
     )?;
@@ -3574,9 +3629,10 @@ fn read_recoverable_multi_agent_runtime(
     };
     let agent = parse_stored_json_object(
         &data,
-        &format!(
+        &js_format!(
             "multi_agent_agents:{}#{}",
-            expected_owner.session_path, expected_owner.agent_id
+            expected_owner.session_path,
+            expected_owner.agent_id
         ),
     )?;
     let lifecycle = agent.get("lifecycle").and_then(Value::as_str).and_then(parse_lifecycle);
@@ -3706,9 +3762,10 @@ fn persist_dead_runtime_recovery(
             ],
         )?;
         if changed != 1 {
-            return Err(ControlDbError::new(format!(
+            return Err(ControlDbError::new(js_format!(
                 "Recovered agent changed after ownership release {}#{}",
-                expected_owner.session_path, expected_owner.agent_id
+                expected_owner.session_path,
+                expected_owner.agent_id
             )));
         }
         db.execute(
@@ -3823,13 +3880,14 @@ pub(super) fn should_notify_detached_job_owner(agent: &Map<String, Value>) -> bo
 }
 
 pub(crate) fn prepare_detached_agent_terminal_transport(
-    session_path: &str,
+    session_path: impl Into<JsString>,
     agent_id: &str,
     owner: &MultiAgentRuntimeOwnerIdentity,
     terminal_revision: i64,
     event_kind: &str,
     terminal_at: &str,
 ) -> Result<PreparedTerminalTransport, ControlDbError> {
+    let session_path: &JsString = &session_path.into();
     let owner_session_id = owner.session_id.as_str();
     if owner_session_id.is_empty() {
         return Err(ControlDbError::new(format!(
@@ -3880,7 +3938,7 @@ pub(crate) fn persist_prepared_terminal_transport(
     transport: &PreparedTerminalTransport,
 ) -> Result<(), ControlDbError> {
     super::retention::assert_mailbox_message_fresh(
-        &super::parse_stored_json_object(&transport.prepared.serialized, "terminal transport")?,
+        &super::parse_stored_json_object(&transport.prepared.serialized, &JsString::from("terminal transport"))?,
         &transport.prepared.context,
     )?;
     db.execute(
@@ -3984,7 +4042,7 @@ fn read_detached_owner_for_recovery(
     else {
         return Ok(None);
     };
-    let context = format!("multi_agent_agents:{}#{}", candidate.session_path, candidate.agent_id);
+    let context = js_format!("multi_agent_agents:{}#{}", candidate.session_path, candidate.agent_id);
     let agent = parse_stored_json_object(&candidate.data, &context)?;
     validate_persisted_agent_payload(&agent, &context)?;
     let process_identity = parse_process_identity(&process_identity)?;
@@ -4003,7 +4061,7 @@ fn read_detached_owner_for_recovery(
     {
         return Ok(None);
     }
-    if has_terminal_outbox_record(db, &candidate.session_path, &candidate.agent_id)? {
+    if has_terminal_outbox_record(db, &JsString::from(&candidate.session_path), &candidate.agent_id)? {
         return Ok(None);
     }
     if process_identity_is_alive(&process_identity) {
@@ -4016,7 +4074,7 @@ fn read_detached_owner_for_recovery(
             session_id: owner_session_id,
         },
         process_identity,
-        session_path: candidate.session_path.clone(),
+        session_path: candidate.session_path.clone().into(),
     }))
 }
 
@@ -4147,7 +4205,11 @@ mod lossless_integration_tests {
     }
 }
 
-fn has_terminal_outbox_record(db: &Connection, session_path: &str, agent_id: &str) -> Result<bool, ControlDbError> {
+fn has_terminal_outbox_record(
+    db: &Connection,
+    session_path: &JsString,
+    agent_id: &str,
+) -> Result<bool, ControlDbError> {
     Ok(db
         .query_row(
             "SELECT 1 FROM multi_agent_terminal_outbox WHERE session_path = ? AND agent_id = ? LIMIT 1",

@@ -13,6 +13,7 @@ mod lifecycle;
 mod mailbox;
 mod requests;
 mod retention;
+use pi_js_compat::js_format;
 use retention::{MAILBOX_CREATED_AT_MS_SQL, mailbox_cutoff_ms};
 pub use retention::{MAILBOX_MESSAGE_RETENTION_MS, is_mailbox_message_expired};
 mod schema;
@@ -273,7 +274,7 @@ pub(crate) struct MultiAgentRuntimeOwnershipRow {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MultiAgentRuntimeOwnership {
-    pub session_path: String,
+    pub session_path: JsString,
     pub agent_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process_identity: Option<ProcessIdentity>,
@@ -298,7 +299,7 @@ pub struct MultiAgentRuntimeOwnerIdentity {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MultiAgentRuntimeOwnershipIdentity {
-    pub session_path: String,
+    pub session_path: JsString,
     pub agent_id: String,
     pub process_identity: ProcessIdentity,
     pub owner: MultiAgentRuntimeOwnerIdentity,
@@ -543,12 +544,15 @@ impl Drop for RetainedControlDbGuard {
     }
 }
 
-pub(crate) fn parse_stored_json_object(value: &str, context: &str) -> Result<Map<String, Value>, ControlDbError> {
+pub(crate) fn parse_stored_json_object(value: &str, context: &JsString) -> Result<Map<String, Value>, ControlDbError> {
     let parsed =
-        js_json::parse(value).map_err(|_| ControlDbError::new(format!("Invalid persisted JSON at {context}")))?;
+        js_json::parse(value).map_err(|_| ControlDbError::new(js_format!("Invalid persisted JSON at {}", context)))?;
     match parsed {
         Value::Object(object) => Ok(object),
-        _ => Err(ControlDbError::new(format!("Invalid persisted object at {context}"))),
+        _ => Err(ControlDbError::new(js_format!(
+            "Invalid persisted object at {}",
+            context
+        ))),
     }
 }
 
@@ -562,25 +566,29 @@ pub(crate) fn parse_json_object(value: &str) -> Option<Map<String, Value>> {
 pub(crate) fn require_string_field(
     data: &Map<String, Value>,
     field: &str,
-    context: &str,
+    context: &JsString,
 ) -> Result<String, ControlDbError> {
     match data.get(field) {
         Some(Value::String(value)) => Ok(value.clone()),
-        _ => Err(ControlDbError::new(format!(
-            "Invalid persisted {field} at {context}: expected a string"
+        _ => Err(ControlDbError::new(js_format!(
+            "Invalid persisted {} at {}: expected a string",
+            field,
+            context
         ))),
     }
 }
 
-pub(crate) fn validate_mailbox_payload(data: &Value, context: &str) -> Result<(), ControlDbError> {
+pub(crate) fn validate_mailbox_payload(data: &Value, context: &JsString) -> Result<(), ControlDbError> {
     let Value::Object(payload) = data else {
-        return Err(ControlDbError::new(format!(
-            "Invalid persisted mailbox payload at {context}"
+        return Err(ControlDbError::new(js_format!(
+            "Invalid persisted mailbox payload at {}",
+            context
         )));
     };
     if payload.is_empty() {
-        return Err(ControlDbError::new(format!(
-            "Invalid persisted mailbox payload at {context}: expected fields"
+        return Err(ControlDbError::new(js_format!(
+            "Invalid persisted mailbox payload at {}: expected fields",
+            context
         )));
     }
     reject_legacy_artifact_fields(data, context)?;
@@ -608,10 +616,14 @@ pub(crate) fn validate_mailbox_payload(data: &Value, context: &str) -> Result<()
     Ok(())
 }
 
-pub(crate) fn validate_persisted_agent_payload(data: &Map<String, Value>, context: &str) -> Result<(), ControlDbError> {
+pub(crate) fn validate_persisted_agent_payload(
+    data: &Map<String, Value>,
+    context: &JsString,
+) -> Result<(), ControlDbError> {
     if data.is_empty() {
-        return Err(ControlDbError::new(format!(
-            "Invalid persisted agent payload at {context}: expected fields"
+        return Err(ControlDbError::new(js_format!(
+            "Invalid persisted agent payload at {}: expected fields",
+            context
         )));
     }
     reject_legacy_artifact_fields(&Value::Object(data.clone()), context)?;
@@ -620,58 +632,65 @@ pub(crate) fn validate_persisted_agent_payload(data: &Map<String, Value>, contex
             .as_f64()
             .is_some_and(|value| value >= 0.0 && value.fract() == 0.0);
         if !valid {
-            return Err(ControlDbError::new(format!(
-                "Invalid persisted revision at {context}: expected a non-negative integer"
+            return Err(ControlDbError::new(js_format!(
+                "Invalid persisted revision at {}: expected a non-negative integer",
+                context
             )));
         }
     }
     if let Some(policy) = data.get("suppressTerminalNotification")
         && !policy.is_boolean()
     {
-        return Err(ControlDbError::new(format!(
-            "Invalid persisted suppressTerminalNotification at {context}: expected a boolean"
+        return Err(ControlDbError::new(js_format!(
+            "Invalid persisted suppressTerminalNotification at {}: expected a boolean",
+            context
         )));
     }
     if let Some(permission) = data.get("permission") {
         let Value::Object(permission) = permission else {
-            return Err(ControlDbError::new(format!(
-                "Invalid persisted permission at {context}"
+            return Err(ControlDbError::new(js_format!(
+                "Invalid persisted permission at {}",
+                context
             )));
         };
-        require_string_field(permission, "policy", &format!("{context}.permission"))?;
+        require_string_field(permission, "policy", &js_format!("{}.permission", context))?;
         if !permission.get("narrowed").is_some_and(Value::is_boolean) {
-            return Err(ControlDbError::new(format!(
-                "Invalid persisted narrowed at {context}.permission: expected a boolean"
+            return Err(ControlDbError::new(js_format!(
+                "Invalid persisted narrowed at {}.permission: expected a boolean",
+                context
             )));
         }
     }
     if let Some(result) = data.get("result") {
         let Value::Object(result) = result else {
-            return Err(ControlDbError::new(format!(
-                "Invalid persisted agent result at {context}"
+            return Err(ControlDbError::new(js_format!(
+                "Invalid persisted agent result at {}",
+                context
             )));
         };
-        parse_file_refs(result.get("fileRefs"), &format!("{context}.result"))?;
+        parse_file_refs(result.get("fileRefs"), &js_format!("{}.result", context))?;
     }
     Ok(())
 }
 
-pub(crate) fn reject_legacy_artifact_fields(value: &Value, context: &str) -> Result<(), ControlDbError> {
+pub(crate) fn reject_legacy_artifact_fields(value: &Value, context: &JsString) -> Result<(), ControlDbError> {
     match value {
         Value::Array(items) => {
             for (index, item) in items.iter().enumerate() {
-                reject_legacy_artifact_fields(item, &format!("{context}[{index}]"))?;
+                reject_legacy_artifact_fields(item, &js_format!("{}[{}]", context, index.to_string()))?;
             }
             Ok(())
         }
         Value::Object(object) => {
             for (key, nested) in object {
                 if key == "artifactIds" || key == "artifactRefs" {
-                    return Err(ControlDbError::new(format!(
-                        "Legacy artifact fields are not supported at {context}.{key}"
+                    return Err(ControlDbError::new(js_format!(
+                        "Legacy artifact fields are not supported at {}.{}",
+                        context,
+                        key
                     )));
                 }
-                reject_legacy_artifact_fields(nested, &format!("{context}.{key}"))?;
+                reject_legacy_artifact_fields(nested, &js_format!("{}.{}", context, key))?;
             }
             Ok(())
         }
@@ -681,39 +700,48 @@ pub(crate) fn reject_legacy_artifact_fields(value: &Value, context: &str) -> Res
 
 pub(crate) fn parse_file_refs(
     value: Option<&Value>,
-    context: &str,
+    context: &JsString,
 ) -> Result<Option<Vec<AgentFileReference>>, ControlDbError> {
     let Some(value) = value else {
         return Ok(None);
     };
     let Value::Array(items) = value else {
-        return Err(ControlDbError::new(format!(
-            "Invalid file references at {context}: expected an array"
+        return Err(ControlDbError::new(js_format!(
+            "Invalid file references at {}: expected an array",
+            context
         )));
     };
     let mut refs = Vec::with_capacity(items.len());
     for (index, item) in items.iter().enumerate() {
         let Value::Object(reference) = item else {
-            return Err(ControlDbError::new(format!(
-                "Invalid file reference at {context}[{index}]"
+            return Err(ControlDbError::new(js_format!(
+                "Invalid file reference at {}[{}]",
+                context,
+                index.to_string()
             )));
         };
         let Some(Value::String(path)) = reference.get("path") else {
-            return Err(ControlDbError::new(format!(
-                "Invalid file reference at {context}[{index}]: path must be absolute"
+            return Err(ControlDbError::new(js_format!(
+                "Invalid file reference at {}[{}]: path must be absolute",
+                context,
+                index.to_string()
             )));
         };
         if !Path::new(path).is_absolute() {
-            return Err(ControlDbError::new(format!(
-                "Invalid file reference at {context}[{index}]: path must be absolute"
+            return Err(ControlDbError::new(js_format!(
+                "Invalid file reference at {}[{}]: path must be absolute",
+                context,
+                index.to_string()
             )));
         }
         let label = match reference.get("label") {
             None => None,
             Some(Value::String(label)) => Some(label.clone()),
             Some(_) => {
-                return Err(ControlDbError::new(format!(
-                    "Invalid file reference at {context}[{index}]: label must be a string"
+                return Err(ControlDbError::new(js_format!(
+                    "Invalid file reference at {}[{}]: label must be a string",
+                    context,
+                    index.to_string()
                 )));
             }
         };
@@ -727,7 +755,7 @@ pub(crate) fn parse_file_refs(
 
 pub(crate) fn parse_steering_checkpoint(
     value: Option<&Value>,
-    context: &str,
+    context: &JsString,
 ) -> Result<Option<SteeringCheckpoint>, ControlDbError> {
     let Some(value) = value else {
         return Ok(None);
@@ -737,9 +765,15 @@ pub(crate) fn parse_steering_checkpoint(
             "next_model_call" => Ok(Some(SteeringCheckpoint::NextModelCall)),
             "after_tool_result" => Ok(Some(SteeringCheckpoint::AfterToolResult)),
             "when_waiting" => Ok(Some(SteeringCheckpoint::WhenWaiting)),
-            _ => Err(ControlDbError::new(format!("Invalid steering checkpoint at {context}"))),
+            _ => Err(ControlDbError::new(js_format!(
+                "Invalid steering checkpoint at {}",
+                context
+            ))),
         },
-        _ => Err(ControlDbError::new(format!("Invalid steering checkpoint at {context}"))),
+        _ => Err(ControlDbError::new(js_format!(
+            "Invalid steering checkpoint at {}",
+            context
+        ))),
     }
 }
 
@@ -770,24 +804,24 @@ pub(crate) fn to_runtime_mailbox_message_status(value: &str) -> RuntimeMailboxMe
 pub(crate) fn nullable_string_field(
     data: &Map<String, Value>,
     field: &str,
-    context: &str,
+    context: &JsString,
 ) -> Result<Option<String>, ControlDbError> {
     match data.get(field) {
         Some(Value::Null) => Ok(None),
         Some(Value::String(value)) => Ok(Some(value.clone())),
-        _ => Err(ControlDbError::new(format!("Invalid {field} at {context}"))),
+        _ => Err(ControlDbError::new(js_format!("Invalid {} at {}", field, context))),
     }
 }
 
 pub(crate) fn optional_string_field(
     data: &Map<String, Value>,
     field: &str,
-    context: &str,
+    context: &JsString,
 ) -> Result<Option<String>, ControlDbError> {
     match data.get(field) {
         None => Ok(None),
         Some(Value::String(value)) => Ok(Some(value.clone())),
-        Some(_) => Err(ControlDbError::new(format!("Invalid {field} at {context}"))),
+        Some(_) => Err(ControlDbError::new(js_format!("Invalid {} at {}", field, context))),
     }
 }
 
@@ -876,7 +910,7 @@ pub(crate) fn runtime_owner_matches(
     let Some(ownership) = ownership else {
         return false;
     };
-    ownership.session_path == input.session_path
+    input.session_path == ownership.session_path
         && ownership.agent_id == input.agent_id
         && ownership.process_identity.as_deref() == Some(serialize_process_identity(&input.process_identity).as_str())
         && ownership.owner_session_id.as_deref() == Some(input.owner.session_id.as_str())
@@ -956,9 +990,10 @@ pub(crate) fn read_runtime_mailbox_listener_row(
 
 pub(crate) fn read_multi_agent_runtime_ownership_row(
     db: &Connection,
-    session_path: &str,
+    session_path: impl Into<JsString>,
     agent_id: &str,
 ) -> Result<Option<MultiAgentRuntimeOwnershipRow>, ControlDbError> {
+    let session_path: &JsString = &session_path.into();
     optional_row(db.query_row(
         "SELECT * FROM multi_agent_runtime_owners WHERE session_path = ? AND agent_id = ?",
         params![session_path, agent_id],
@@ -988,7 +1023,7 @@ pub(crate) fn multi_agent_runtime_ownership_from_row(
             .as_deref()
             .map(parse_process_identity)
             .transpose()?,
-        session_path: row.session_path.clone(),
+        session_path: row.session_path.clone().into(),
     })
 }
 
@@ -1035,7 +1070,7 @@ fn mailbox_row_from_row(row: &Row<'_>) -> rusqlite::Result<RuntimeMailboxRow> {
 }
 
 pub(crate) fn parse_canonical_mailbox_payload(row: &RuntimeMailboxRow) -> Result<Map<String, Value>, ControlDbError> {
-    let context = format!("multi_agent_mailbox_messages:{}#{}", row.session_path, row.message_id);
+    let context = js_format!("multi_agent_mailbox_messages:{}#{}", row.session_path, row.message_id);
     let message = parse_stored_json_object(&row.data, &context)?;
     validate_mailbox_payload(&Value::Object(message.clone()), &context)?;
     Ok(message)
@@ -1044,18 +1079,21 @@ pub(crate) fn parse_canonical_mailbox_payload(row: &RuntimeMailboxRow) -> Result
 pub(crate) fn parse_canonical_mailbox_payload_lossless(
     row: &RuntimeMailboxRow,
 ) -> Result<js_json::JsObject, ControlDbError> {
-    let context = format!("multi_agent_mailbox_messages:{}#{}", row.session_path, row.message_id);
+    let context = js_format!("multi_agent_mailbox_messages:{}#{}", row.session_path, row.message_id);
     parse_stored_json_object_lossless(&row.data, &context)
 }
 
 pub(crate) fn parse_stored_json_object_lossless(
     value: &str,
-    context: &str,
+    context: &JsString,
 ) -> Result<js_json::JsObject, ControlDbError> {
     let parsed = js_json::parse_lossless(value)
-        .map_err(|_| ControlDbError::new(format!("Invalid persisted JSON at {context}")))?;
+        .map_err(|_| ControlDbError::new(js_format!("Invalid persisted JSON at {}", context)))?;
     let js_json::JsValue::Object(message) = parsed else {
-        return Err(ControlDbError::new(format!("Invalid persisted object at {context}")));
+        return Err(ControlDbError::new(js_format!(
+            "Invalid persisted object at {}",
+            context
+        )));
     };
     Ok(message)
 }
@@ -1125,13 +1163,13 @@ pub(crate) fn runtime_mailbox_message_from_canonical_row(
     row: &RuntimeMailboxRow,
     message: &Map<String, Value>,
 ) -> Result<RuntimeMailboxMessage, ControlDbError> {
-    let context = format!("multi_agent_mailbox_messages:{}#{}", row.session_path, row.message_id);
+    let context = js_format!("multi_agent_mailbox_messages:{}#{}", row.session_path, row.message_id);
     let raw = parse_canonical_mailbox_payload_lossless(row)?;
     let text = |key: &str| -> Result<JsString, ControlDbError> {
         raw.get(&JsString::from(key))
             .and_then(JsValue::as_string)
             .cloned()
-            .ok_or_else(|| ControlDbError::new(format!("Invalid persisted string {key} at {context}")))
+            .ok_or_else(|| ControlDbError::new(js_format!("Invalid persisted string {} at {}", key, context)))
     };
     let optional_text = |key: &str| raw.get(&JsString::from(key)).and_then(JsValue::as_string).cloned();
     let original = parse_stored_json_object(&row.data, &context)?;
@@ -1172,12 +1210,12 @@ pub(crate) fn runtime_mailbox_message_from_canonical_row(
     })
 }
 
-pub(crate) fn parse_agent_snapshot(serialized: &str, context: &str) -> Result<AgentSnapshot, ControlDbError> {
+pub(crate) fn parse_agent_snapshot(serialized: &str, context: &JsString) -> Result<AgentSnapshot, ControlDbError> {
     let validation = parse_stored_json_object(serialized, context)?;
     validate_persisted_agent_payload(&validation, context)?;
     let value = js_json::parse_lossless(serialized).map_err(|error| ControlDbError::new(error.to_string()))?;
     js_json::from_value(&value)
-        .map_err(|error| ControlDbError::new(format!("Invalid persisted agent payload at {context}: {error}")))
+        .map_err(|error| ControlDbError::new(js_format!("Invalid persisted agent payload at {}: {}", context, error)))
 }
 
 pub(crate) fn serialize_agent(agent: &AgentSnapshot) -> Result<String, ControlDbError> {

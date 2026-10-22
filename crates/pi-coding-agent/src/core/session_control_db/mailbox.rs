@@ -1,5 +1,6 @@
 //! Runtime mailbox routing, claims, delivery, and listener registration.
 
+use pi_js_compat::js_format;
 use std::sync::Arc;
 
 use rusqlite::{Connection, OptionalExtension, params};
@@ -78,13 +79,13 @@ fn route_runtime_mailbox_message(
 ) -> Result<RoutedMailboxMessage, ControlDbError> {
     for _ in 0..RUNTIME_MAILBOX_ROUTING_MAX_ATTEMPTS {
         let Some(row) = read_canonical_mailbox_row_by_store_ref(db, &input.store_ref)? else {
-            return Err(ControlDbError::new(format!(
+            return Err(ControlDbError::new(js_format!(
                 "Runtime mailbox store reference does not exist: {}#{}",
                 input.store_ref.session_path.to_utf8_lossy(),
                 input.store_ref.message_id.to_utf8_lossy()
             )));
         };
-        let context = format!(
+        let context = js_format!(
             "multi_agent_mailbox_messages:{}#{}",
             input.store_ref.session_path.to_utf8_lossy(),
             input.store_ref.message_id.to_utf8_lossy()
@@ -113,7 +114,7 @@ fn route_runtime_mailbox_message(
             listener: read_runtime_mailbox_listener_row(db, &input.recipient)?,
         });
     }
-    Err(ControlDbError::new(format!(
+    Err(ControlDbError::new(js_format!(
         "Runtime mailbox row changed while routing: {}#{}",
         input.store_ref.session_path.to_utf8_lossy(),
         input.store_ref.message_id.to_utf8_lossy()
@@ -124,13 +125,13 @@ fn route_runtime_mailbox_message(
 fn scalar_mailbox_validation(message: &js_json::JsObject) -> Result<Map<String, Value>, ControlDbError> {
     super::parse_stored_json_object(
         &js_json::stringify_lossless(&JsValue::Object(message.clone())),
-        "mailbox validation",
+        &JsString::from("mailbox validation"),
     )
 }
 
 pub(crate) struct PreparedStoredRuntimeMailboxMessage {
     pub(crate) defaulted_birth: bool,
-    pub(crate) context: String,
+    pub(crate) context: JsString,
     pub(crate) routed: js_json::JsObject,
     pub(crate) serialized: String,
     pub(crate) updated_at: String,
@@ -139,16 +140,19 @@ pub(crate) struct PreparedStoredRuntimeMailboxMessage {
 pub(crate) fn prepare_stored_runtime_mailbox_message(
     input: &EnqueueStoredRuntimeMailboxMessageInput,
 ) -> Result<PreparedStoredRuntimeMailboxMessage, ControlDbError> {
-    let context = format!(
+    let context = js_format!(
         "multi_agent_mailbox_messages:{}#{}",
         input.store_ref.session_path.to_utf8_lossy(),
         input.store_ref.message_id.to_utf8_lossy()
     );
     let validation = js_json::parse(&js_json::stringify_lossless(&input.message))
-        .map_err(|_| ControlDbError::new(format!("Invalid persisted JSON at {context}")))?;
+        .map_err(|_| ControlDbError::new(js_format!("Invalid persisted JSON at {}", context)))?;
     validate_mailbox_payload(&validation, &context)?;
     let JsValue::Object(mut incoming) = input.message.clone() else {
-        return Err(ControlDbError::new(format!("Invalid persisted object at {context}")));
+        return Err(ControlDbError::new(js_format!(
+            "Invalid persisted object at {}",
+            context
+        )));
     };
     let defaulted_birth = incoming.get(&JsString::from("createdAt")).is_none_or(JsValue::is_null);
     if defaulted_birth {
@@ -279,7 +283,7 @@ fn persist_stored_runtime_mailbox_message(
         });
     }
     let Some(concurrent) = read_canonical_mailbox_row_by_store_ref(db, &input.store_ref)? else {
-        return Err(ControlDbError::new(format!(
+        return Err(ControlDbError::new(js_format!(
             "Runtime mailbox store reference disappeared after insert conflict: {}#{}",
             input.store_ref.session_path.to_utf8_lossy(),
             input.store_ref.message_id.to_utf8_lossy()
@@ -293,10 +297,10 @@ fn validate_existing_stored_runtime_mailbox_message(
     input: &EnqueueStoredRuntimeMailboxMessageInput,
     prepared: &PreparedStoredRuntimeMailboxMessage,
 ) -> Result<RoutedMailboxMessage, ControlDbError> {
-    let previous = super::parse_stored_json_object_lossless(&existing.data, &prepared.context)?;
+    let previous = super::parse_stored_json_object_lossless(&existing.data, &JsString::from(&prepared.context))?;
     super::retention::assert_mailbox_message_fresh(&scalar_mailbox_validation(&previous)?, &prepared.context)?;
     if !same_mailbox_message_identity(&previous, &prepared.routed, &input.store_ref.message_id) {
-        return Err(ControlDbError::new(format!(
+        return Err(ControlDbError::new(js_format!(
             "Mailbox message ID collision: {}#{}",
             input.store_ref.session_path.to_utf8_lossy(),
             input.store_ref.message_id.to_utf8_lossy()
@@ -316,7 +320,7 @@ fn validate_existing_stored_runtime_mailbox_message(
     if strip_runtime_mailbox_delivery_state(&existing.data, prepared.defaulted_birth)?
         != strip_runtime_mailbox_delivery_state(&prepared.serialized, prepared.defaulted_birth)?
     {
-        return Err(ControlDbError::new(format!(
+        return Err(ControlDbError::new(js_format!(
             "Mailbox message ID collision: {}#{}",
             input.store_ref.session_path.to_utf8_lossy(),
             input.store_ref.message_id.to_utf8_lossy()
@@ -354,7 +358,8 @@ fn strip_runtime_mailbox_delivery_state(
     serialized: &str,
     omit_defaulted_birth: bool,
 ) -> Result<String, ControlDbError> {
-    let mut message = super::parse_stored_json_object_lossless(serialized, "runtime_mailbox_identity")?;
+    let mut message =
+        super::parse_stored_json_object_lossless(serialized, &JsString::from("runtime_mailbox_identity"))?;
     for key in ["claimedAt", "claimantProcessIdentity", "error", "status", "updatedAt"] {
         message.shift_remove(&JsString::from(key));
     }
@@ -512,7 +517,7 @@ pub(super) fn candidate_authority_is_current(
 ) -> Result<bool, ControlDbError> {
     Ok(runtime_mailbox_authority_snapshots_equal(
         &candidate.authority,
-        &read_runtime_mailbox_authority_snapshot(db, recipient, &candidate.row.session_path)?,
+        &read_runtime_mailbox_authority_snapshot(db, recipient, &JsString::from(&candidate.row.session_path))?,
     ))
 }
 
@@ -543,12 +548,16 @@ fn read_recoverable_runtime_mailbox_claims(
         read_canonical_mailbox_rows_for_recipient(db, recipient, RuntimeMailboxMessageStatus::Claimed, i64::MAX)?;
     let mut candidates = Vec::new();
     for row in rows {
-        let authority = read_runtime_mailbox_authority_snapshot(db, recipient, &row.session_path)?;
+        let authority = read_runtime_mailbox_authority_snapshot(db, recipient, &JsString::from(&row.session_path))?;
         if !current_runtime_owns_mailbox_authority(recipient, &authority)? {
             continue;
         }
         let data = parse_canonical_mailbox_payload(&row)?;
-        let claimant = require_string_field(&data, "claimantProcessIdentity", "runtime_mailbox_claim")?;
+        let claimant = require_string_field(
+            &data,
+            "claimantProcessIdentity",
+            &JsString::from("runtime_mailbox_claim"),
+        )?;
         if runtime_mailbox_claimant_is_live(&claimant)? {
             continue;
         }
@@ -587,7 +596,8 @@ fn recover_runtime_mailbox_claim(
         pending.shift_remove(&JsString::from("claimantProcessIdentity"));
     })?;
     with_immediate_transaction(db, |db| {
-        let current_authority = read_runtime_mailbox_authority_snapshot(db, recipient, &candidate.row.session_path)?;
+        let current_authority =
+            read_runtime_mailbox_authority_snapshot(db, recipient, &JsString::from(&candidate.row.session_path))?;
         if !runtime_mailbox_authority_snapshots_equal(&candidate.authority, &current_authority) {
             return Ok(false);
         }
@@ -628,7 +638,7 @@ fn read_eligible_runtime_mailbox_delivery_candidates(
         read_canonical_mailbox_rows_for_recipient(db, recipient, RuntimeMailboxMessageStatus::Pending, i64::MAX)?;
     let mut candidates = Vec::new();
     for row in rows {
-        let authority = read_runtime_mailbox_authority_snapshot(db, recipient, &row.session_path)?;
+        let authority = read_runtime_mailbox_authority_snapshot(db, recipient, &JsString::from(&row.session_path))?;
         if !current_runtime_owns_mailbox_authority(recipient, &authority)? {
             continue;
         }
@@ -697,7 +707,7 @@ fn deliver_runtime_mailbox_steering_candidate(
         },
         process_identity: parse_process_identity(process_identity)?,
         requested_lifecycle: "running".into(),
-        session_path: candidate.row.session_path.clone(),
+        session_path: candidate.row.session_path.clone().into(),
         updated_at: now_iso.to_owned(),
     };
     let Ok(plan) = super::agents::read_steering_delivery_plan(db, &input)? else {
@@ -722,7 +732,7 @@ fn deliver_runtime_mailbox_steering_candidate(
 fn read_runtime_mailbox_authority_snapshot(
     db: &Connection,
     recipient: &RuntimeMailboxAddress,
-    session_path: &str,
+    session_path: &JsString,
 ) -> Result<RuntimeMailboxAuthoritySnapshot, ControlDbError> {
     Ok(RuntimeMailboxAuthoritySnapshot {
         listener: read_runtime_mailbox_listener_row(db, recipient)?,
@@ -783,7 +793,7 @@ fn read_claimable_runtime_mailbox_candidates(
     let rows = read_canonical_mailbox_rows_for_recipient(db, recipient, RuntimeMailboxMessageStatus::Pending, limit)?;
     let mut candidates = Vec::new();
     for row in rows {
-        let authority = read_runtime_mailbox_authority_snapshot(db, recipient, &row.session_path)?;
+        let authority = read_runtime_mailbox_authority_snapshot(db, recipient, &JsString::from(&row.session_path))?;
         if !current_runtime_owns_mailbox_authority(recipient, &authority)? {
             continue;
         }
@@ -837,7 +847,8 @@ fn claim_runtime_mailbox_candidate(
         message.insert(JsString::from("status"), JsValue::String(JsString::from("claimed")));
     })?;
     let updated = with_immediate_transaction(db, |db| {
-        let current_authority = read_runtime_mailbox_authority_snapshot(db, recipient, &candidate.row.session_path)?;
+        let current_authority =
+            read_runtime_mailbox_authority_snapshot(db, recipient, &JsString::from(&candidate.row.session_path))?;
         if !runtime_mailbox_authority_snapshots_equal(&candidate.authority, &current_authority) {
             return Ok(false);
         }
@@ -1520,10 +1531,11 @@ pub fn list_runtime_mailbox_messages(
 }
 pub fn list_runtime_mailbox_messages_for_session(
     control_db_path: impl Into<JsString>,
-    session_path: &str,
+    session_path: impl Into<JsString>,
 ) -> Result<Vec<RuntimeMailboxMessage>, ControlDbError> {
+    let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
-    list_runtime_mailbox_messages_by_session_path(&control_db_path, Some(session_path))
+    list_runtime_mailbox_messages_by_session_path(&control_db_path, Some(&encode_node_utf8(session_path)))
 }
 fn list_runtime_mailbox_messages_by_session_path(
     control_db_path: &JsString,
