@@ -25,3 +25,11 @@ Proof: `crates/pi-coding-agent/tests/desktop_notification.rs` runs the notifier 
 ## Discrepancies
 
 - `busctl` is launched through `setsid(1)` to reproduce `detached: true` without `unsafe` (same approved mechanism as `detached-job-bootstrap`); the child is not waited on, matching `unref()`.
+
+## Q18 native notification text (2026-10-22)
+
+Title/body stay JsString through the notifier API, encoding only at notify-send
+argv. Test process transport carries lossless JSON strings, not prematurely
+encoded notification text; raw title/body fixture checks the actual subprocess
+argv sees Node UTF-8 replacement. Fixture written but unexecuted while coding
+compilation is blocked. No runtime PASS.

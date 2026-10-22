@@ -1,5 +1,6 @@
 //! Linux desktop notifications (`core/desktop-notification.ts`).
 
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::io::Read;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -27,9 +28,9 @@ impl DesktopNotificationUrgency {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DesktopNotification {
-    pub body: String,
+    pub body: JsString,
     pub expire_time_ms: Option<i64>,
-    pub title: String,
+    pub title: JsString,
     pub urgency: Option<DesktopNotificationUrgency>,
 }
 
@@ -57,8 +58,8 @@ pub fn send_desktop_notification(notification: &DesktopNotification) -> Option<B
         .arg("--app-name=Pi")
         .arg(format!("--expire-time={expire_time_ms}"))
         .arg(format!("--urgency={}", urgency.as_str()))
-        .arg(&notification.title)
-        .arg(&notification.body)
+        .arg(encode_node_utf8(&notification.title))
+        .arg(encode_node_utf8(&notification.body))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
