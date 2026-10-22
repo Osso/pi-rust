@@ -347,7 +347,7 @@ async fn login_openrouter(
         ],
     );
     interaction.notify(AuthEvent::Progress {
-        message: format!("Listening for OpenRouter OAuth callback on {}", callback.callback_url),
+        message: pi_js_compat::js_format!("Listening for OpenRouter OAuth callback on {}", &callback.callback_url),
     });
     interaction.notify(AuthEvent::AuthUrl {
         url: (authorize_url).into(),
