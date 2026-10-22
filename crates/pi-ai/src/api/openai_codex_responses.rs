@@ -2173,7 +2173,7 @@ async fn execute_websocket(
                                 attempt: 1.0,
                                 max_attempts: None,
                                 delay_ms: None,
-                                reason: "WebSocket connection limit reached, reconnecting".to_owned(),
+                                reason: "WebSocket connection limit reached, reconnecting".into(),
                                 fallback_transport: None,
                             },
                             execution.model,
