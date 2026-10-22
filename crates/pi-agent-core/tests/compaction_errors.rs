@@ -83,6 +83,19 @@ fn both_errors_preserve_required_string_messages() {
 }
 
 #[test]
+fn both_errors_keep_raw_human_units_and_native_cause_messages() {
+    use pi_js_compat::js_json::JsString;
+    let text = JsString::from_utf16(vec![0xd800, 0x21, 0xdfff]);
+    let inner = CompactionError::new(CompactionErrorCode::Aborted, text.clone(), None);
+    let outer = BranchSummaryError::new(BranchSummaryErrorCode::Aborted, text.clone(), Some(Box::new(inner)));
+    assert_eq!(outer.message.units(), text.units());
+    let cause = outer.source().unwrap().downcast_ref::<CompactionError>().unwrap();
+    assert_eq!(cause.message.units(), text.units());
+    assert_eq!(outer.to_string(), "\uFFFD!\uFFFD");
+    assert_eq!(cause.to_string(), "\uFFFD!\uFFFD");
+}
+
+#[test]
 fn both_errors_preserve_ordinary_typed_causes() {
     let compaction = CompactionError::new(
         CompactionErrorCode::SummarizationFailed,
@@ -154,7 +167,7 @@ fn cross_class_chains_preserve_both_directions() {
 fn public_mutation_updates_display_and_source() {
     let mut compaction = CompactionError::new(CompactionErrorCode::Aborted, "before", None);
     compaction.name = "renamed compaction".to_owned();
-    compaction.message = "after compaction".to_owned();
+    compaction.message = "after compaction".into();
     compaction.code = CompactionErrorCode::SummarizationFailed;
     compaction.cause = Some(Box::new(TestCause {
         message: "updated compaction cause".to_owned(),
@@ -171,7 +184,7 @@ fn public_mutation_updates_display_and_source() {
 
     let mut branch_summary = BranchSummaryError::new(BranchSummaryErrorCode::Aborted, "before", None);
     branch_summary.name = "renamed branch".to_owned();
-    branch_summary.message = "after branch".to_owned();
+    branch_summary.message = "after branch".into();
     branch_summary.code = BranchSummaryErrorCode::SummarizationFailed;
     branch_summary.cause = Some(Box::new(TestCause {
         message: "updated branch cause".to_owned(),
