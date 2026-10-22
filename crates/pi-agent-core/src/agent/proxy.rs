@@ -66,7 +66,7 @@ pub enum ProxyAssistantMessageEvent {
     },
     Error {
         reason: ErrorReason,
-        error_message: Option<String>,
+        error_message: Option<JsString>,
         usage: Usage,
     },
     Unknown,
@@ -232,14 +232,14 @@ async fn proxy_events(
     context: &Context,
     options: &ProxyStreamOptions,
     state: &mut PartialState,
-) -> Result<(), String> {
+) -> Result<(), JsString> {
     let fetch = options.fetch.clone().unwrap_or_else(default_fetch);
     let body = serde_json::to_vec(&pi_js_compat::js_json!({
         "model": model,
         "context": context,
         "options": build_proxy_request_options(&options.stream_options),
     }))
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| JsString::from(error.to_string()))?;
 
     let request = HttpRequest {
         method: "POST".to_owned(),
@@ -275,14 +275,14 @@ async fn proxy_events(
     let mut buffer: Vec<u8> = Vec::new();
     while let Some(chunk) = read_proxy_chunk(response.body.as_mut(), &options.signal).await {
         if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
-            return Err("Request aborted by user".to_owned());
+            return Err("Request aborted by user".into());
         }
         buffer.extend(chunk.map_err(|error| error.message)?);
         drain_lines(&mut buffer, sender, state)?;
     }
 
     if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
-        return Err("Request aborted by user".to_owned());
+        return Err("Request aborted by user".into());
     }
     Ok(())
 }
@@ -301,23 +301,23 @@ async fn read_proxy_chunk(
     }
 }
 
-fn proxy_error_message(status: u16, status_text: &str, body: &[u8]) -> String {
+fn proxy_error_message(status: u16, status_text: &str, body: &[u8]) -> JsString {
     let fallback = format!("Proxy error: {status} {status_text}");
-    let parsed: Option<Value> = serde_json::from_slice(body).ok();
+    let parsed: Option<pi_js_compat::js_json::JsValue> = serde_json::from_slice(body).ok();
     parsed
         .as_ref()
         .and_then(|value| value.get("error"))
-        .and_then(Value::as_str)
+        .and_then(pi_js_compat::js_json::JsValue::as_string)
         .filter(|error| !error.is_empty())
-        .map(|error| format!("Proxy error: {error}"))
-        .unwrap_or(fallback)
+        .map(|error| JsString::from("Proxy error: ") + error)
+        .unwrap_or_else(|| fallback.into())
 }
 
 fn drain_lines(
     buffer: &mut Vec<u8>,
     sender: &AssistantMessageEventSender,
     state: &mut PartialState,
-) -> Result<(), String> {
+) -> Result<(), JsString> {
     while let Some(line_feed) = buffer.iter().position(|byte| *byte == b'\n') {
         let line: Vec<u8> = buffer.drain(..=line_feed).collect();
         let line = String::from_utf8_lossy(&line);
@@ -328,7 +328,8 @@ fn drain_lines(
         if data.is_empty() {
             continue;
         }
-        let proxy_event: ProxyAssistantMessageEvent = serde_json::from_str(data).map_err(|error| error.to_string())?;
+        let proxy_event: ProxyAssistantMessageEvent =
+            serde_json::from_str(data).map_err(|error| JsString::from(error.to_string()))?;
         if let Some(event) = process_proxy_event(proxy_event, state)? {
             sender.push(event);
         }
@@ -540,7 +541,7 @@ fn process_done(state: &mut PartialState, reason: DoneReason, usage: Usage) -> R
 fn process_error(
     state: &mut PartialState,
     reason: ErrorReason,
-    error_message: Option<String>,
+    error_message: Option<JsString>,
     usage: Usage,
 ) -> Result<AssistantMessageEvent, String> {
     state.message.stop_reason = stop_reason_for_error(reason);

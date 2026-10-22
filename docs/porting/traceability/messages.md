@@ -110,3 +110,5 @@ Added for `harness/compaction`; tested by `messages_convert.rs` and the
 - Focused: `messages_convert.rs` 7 passed, 0 failed.
 - Differential: `differential_compaction.rs` compares `serializeConversation(convertToLlm(...))` output for custom, bash, branch, compaction, and tool-result messages against the pinned source.
 - Gates: `cargo fmt --check`, targeted `cargo test -p pi-agent-core`, and `cargo clippy -p pi-agent-core --all-targets -- -D warnings` pass on branch `port/harness-compaction`.
+
+Q18 coupled native helper contracts: create_custom_message accepts &JsString customType; create_branch_summary_message accepts &JsString fromId; BranchSummaryMessage.from_id is JsString. `pi-agent-core/tests/lossless_provider_errors.rs::custom_type_and_branch_origin_keep_native_units` exercises serialized raw code units (compiler RED on prior scalar helper). Existing scalar session metadata callers convert losslessly into the native helper; no raw wrapper path.

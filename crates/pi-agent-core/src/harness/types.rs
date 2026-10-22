@@ -378,7 +378,7 @@ impl CompactionErrorCode {
 #[derive(Debug)]
 pub struct CompactionError {
     pub name: String,
-    pub message: String,
+    pub message: JsString,
     pub code: CompactionErrorCode,
     pub cause: Option<Box<dyn Error + Send + Sync + 'static>>,
 }
@@ -386,7 +386,7 @@ pub struct CompactionError {
 impl CompactionError {
     pub fn new(
         code: CompactionErrorCode,
-        message: impl Into<String>,
+        message: impl Into<JsString>,
         cause: Option<Box<dyn Error + Send + Sync + 'static>>,
     ) -> Self {
         Self {
@@ -400,7 +400,7 @@ impl CompactionError {
 
 impl Display for CompactionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message))
     }
 }
 
@@ -431,7 +431,7 @@ impl BranchSummaryErrorCode {
 #[derive(Debug)]
 pub struct BranchSummaryError {
     pub name: String,
-    pub message: String,
+    pub message: JsString,
     pub code: BranchSummaryErrorCode,
     pub cause: Option<Box<dyn Error + Send + Sync + 'static>>,
 }
@@ -439,7 +439,7 @@ pub struct BranchSummaryError {
 impl BranchSummaryError {
     pub fn new(
         code: BranchSummaryErrorCode,
-        message: impl Into<String>,
+        message: impl Into<JsString>,
         cause: Option<Box<dyn Error + Send + Sync + 'static>>,
     ) -> Self {
         Self {
@@ -453,7 +453,7 @@ impl BranchSummaryError {
 
 impl Display for BranchSummaryError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message))
     }
 }
 

@@ -7,6 +7,7 @@ use pi_ai::request::StreamOptions;
 use pi_ai::types::{AssistantMessage, Context, Model};
 use pi_ai::types::{ProviderEnv, ProviderHeaders};
 use pi_ai::utils::event_stream::StreamFailure;
+use pi_js_compat::js_json::JsString;
 
 use crate::core::model_runtime::{ModelRuntime, ModelRuntimeError};
 use crate::core::provider_composer::{AuthStatus, ProviderConfigInput};
@@ -23,7 +24,7 @@ pub enum ResolvedRequestAuth {
         env: Option<ProviderEnv>,
     },
     Err {
-        error: String,
+        error: JsString,
     },
 }
 
@@ -32,7 +33,7 @@ impl ResolvedRequestAuth {
         matches!(self, Self::Ok { .. })
     }
 
-    pub fn error(&self) -> Option<&str> {
+    pub fn error(&self) -> Option<&JsString> {
         match self {
             Self::Ok { .. } => None,
             Self::Err { error } => Some(error),
@@ -40,10 +41,10 @@ impl ResolvedRequestAuth {
     }
 }
 
-fn format_request_auth_error(model: &Model, error: &ModelRuntimeError) -> String {
-    let message = error.to_string();
+fn format_request_auth_error(model: &Model, error: &ModelRuntimeError) -> JsString {
+    let message = error.message();
     if message == "authHeader requires a resolved API key" {
-        format!("No API key found for \"{}\"", model.provider)
+        format!("No API key found for \"{}\"", model.provider).into()
     } else {
         message
     }
@@ -68,7 +69,7 @@ impl ModelRegistry {
         self.runtime.refresh(options).await
     }
 
-    pub fn get_error(&self) -> Option<String> {
+    pub fn get_error(&self) -> Option<JsString> {
         self.runtime.get_error()
     }
 
@@ -101,7 +102,7 @@ impl ModelRegistry {
                 Ok(compatibility) => {
                     if compatibility.auth_header {
                         ResolvedRequestAuth::Err {
-                            error: format!("No API key found for \"{}\"", model.provider),
+                            error: format!("No API key found for \"{}\"", model.provider).into(),
                         }
                     } else {
                         ResolvedRequestAuth::Ok {
@@ -112,9 +113,7 @@ impl ModelRegistry {
                         }
                     }
                 }
-                Err(error) => ResolvedRequestAuth::Err {
-                    error: error.to_string(),
-                },
+                Err(error) => ResolvedRequestAuth::Err { error: error.message() },
             },
             Ok(Some(resolution)) => ResolvedRequestAuth::Ok {
                 api_key: resolution.auth.api_key,

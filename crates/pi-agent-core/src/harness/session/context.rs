@@ -176,7 +176,11 @@ fn branch_summary_messages(
     if summary.is_empty() {
         return Vec::new();
     }
-    vec![create_branch_summary_message(summary, from_id, timestamp)]
+    vec![create_branch_summary_message(
+        summary,
+        &pi_js_compat::js_json::JsString::from(from_id),
+        timestamp,
+    )]
 }
 
 fn custom_entry_messages(

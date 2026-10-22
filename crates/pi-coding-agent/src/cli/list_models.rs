@@ -3,6 +3,7 @@
 use pi_ai::auth::types::AuthOperationOptions;
 use pi_ai::request::BoxFuture;
 use pi_ai::types::Model;
+use pi_js_compat::js_json::JsString;
 use pi_tui::fuzzy::fuzzy_filter;
 use tokio_util::sync::CancellationToken;
 
@@ -12,12 +13,12 @@ use crate::utils::chalk::Chalk;
 
 /// Runtime surface used by [`list_models`] (the source accepts any duck-typed runtime).
 pub trait ListModelsRuntime {
-    fn get_error(&self) -> Option<String>;
+    fn get_error(&self) -> Option<JsString>;
     fn get_available(&self, options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<Model>, String>>;
 }
 
 impl ListModelsRuntime for ModelRuntime {
-    fn get_error(&self) -> Option<String> {
+    fn get_error(&self) -> Option<JsString> {
         ModelRuntime::get_error(self)
     }
 
@@ -34,7 +35,7 @@ impl ListModelsRuntime for ModelRuntime {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListModelsOutput {
     /// Warning printed to stderr before listing, already colorized like `chalk.yellow`.
-    pub warning: Option<String>,
+    pub warning: Option<JsString>,
     /// All stdout lines including their trailing newlines.
     pub stdout: String,
 }
@@ -47,7 +48,7 @@ pub async fn list_models(
 ) -> Result<ListModelsOutput, String> {
     let warning = runtime
         .get_error()
-        .map(|error| Chalk::stderr().yellow(&format!("Warning: errors loading models.json:\n{error}")));
+        .map(|error| Chalk::stderr().yellow(JsString::from("Warning: errors loading models.json:\n") + error));
 
     let models = runtime.get_available(AuthOperationOptions::new(signal)).await?;
     if models.is_empty() {
