@@ -2,6 +2,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 use pi_coding_agent::core::host_relay::{HostRelayOptions, run_host_relay};
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 #[derive(Clone, Default)]
@@ -102,8 +103,8 @@ async fn validation_handshake_routes_and_acks_match_frozen() {
             input.as_bytes(),
             output.clone(),
             HostRelayOptions {
-                control_db_path: rust.to_str().unwrap(),
-                host: Some("fixture-local"),
+                control_db_path: &JsString::from(rust.to_str().expect("utf-8 test path")),
+                host: Some(&JsString::from("fixture-local")),
                 poll_ms: Some(20),
                 signal: CancellationToken::new(),
             },
@@ -122,19 +123,31 @@ async fn paired_streams_retry_lost_ack_without_resurrecting_deleted_mailbox() {
     use pi_coding_agent::core::session_control_db::*;
     use tokio::io::AsyncWriteExt;
     let temp = tempfile::tempdir().unwrap();
-    let a = temp.path().join("a.sqlite").display().to_string();
-    let b = temp.path().join("b.sqlite").display().to_string();
+    let a = temp
+        .path()
+        .join("a.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
+    let b = temp
+        .path()
+        .join("b.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let input:EnqueueStoredRuntimeMailboxMessageInput=serde_json::from_value(json!({"kind":"message","recipientHost":"peer","recipient":{"sessionId":"r","agentId":null},"sender":{"sessionId":"s","agentId":null},"storeRef":{"sessionPath":"/s","messageId":"m"},"message":{"id":"m","kind":"message","status":"pending","fromAgentId":"main","toAgentId":"main","body":"once"}})).unwrap();
     enqueue_stored_runtime_mailbox_message(&a, &input).unwrap();
     let (left, right) = tokio::io::duplex(65536);
     let (_read, mut write) = tokio::io::split(right);
     let stop = CancellationToken::new();
+    let relay_db = JsString::from(&b);
+    let relay_host = JsString::from("peer");
     let relay = run_host_relay(
         left,
         tokio::io::sink(),
         HostRelayOptions {
-            control_db_path: &b,
-            host: Some("peer"),
+            control_db_path: &relay_db,
+            host: Some(&relay_host),
             poll_ms: Some(10),
             signal: stop.clone(),
         },
@@ -145,7 +158,9 @@ async fn paired_streams_retry_lost_ack_without_resurrecting_deleted_mailbox() {
             .write_all(b"{\"type\":\"hello\",\"host\":\"origin\"}\n")
             .await
             .unwrap();
-        let first = next_relay_mailbox(&a, "peer").unwrap().unwrap();
+        let first = next_relay_mailbox(&JsString::from(&a), &JsString::from("peer"))
+            .unwrap()
+            .unwrap();
         let wire = pi_coding_agent::core::host_relay::RelayFrame::Mailbox(first.clone()).to_wire() + "\n";
         write.write_all(wire.as_bytes()).await.unwrap();
         for _ in 0..100 {
@@ -165,10 +180,12 @@ async fn paired_streams_retry_lost_ack_without_resurrecting_deleted_mailbox() {
     let (result, ()) = tokio::join!(relay, action);
     assert_eq!(result, Ok(()));
     // Reconnect still has the durable inbound high-water mark after recipient deletion.
-    let first = next_relay_mailbox(&a, "peer").unwrap().unwrap();
-    import_relay_mailbox(&b, "origin", &first).unwrap();
+    let first = next_relay_mailbox(&JsString::from(&a), &JsString::from("peer"))
+        .unwrap()
+        .unwrap();
+    import_relay_mailbox(&JsString::from(&b), &JsString::from("origin"), &first).unwrap();
     assert!(list_runtime_mailbox_messages(&b).unwrap().is_empty());
-    ack_relay_mailbox(&a, "peer", &first).unwrap();
+    ack_relay_mailbox(&JsString::from(&a), &JsString::from("peer"), &first).unwrap();
     assert!(list_runtime_mailbox_messages(&a).unwrap().is_empty());
 }
 
@@ -208,7 +225,12 @@ async fn incoming_mailbox_progresses_while_writer_is_blocked_and_queued_ack_drai
     use pi_coding_agent::core::session_control_db::list_runtime_mailbox_messages;
     use tokio::io::AsyncWriteExt;
     let temp = tempfile::tempdir().unwrap();
-    let db = temp.path().join("rust.sqlite").display().to_string();
+    let db = temp
+        .path()
+        .join("rust.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let peer = temp.path().join("ts.sqlite");
     let frames=vec![json!({"type":"hello","host":"fixture-peer"}).to_string(),json!({"type":"mailbox","seq":1,"sessionPath":"/s","messageId":"m","data":{"id":"m","kind":"message","status":"pending","fromAgentId":"main","toAgentId":"main","body":"under backpressure","createdAt":pi_coding_agent::utils::iso_time::now_iso_string(),"recipientHost":"fixture-local","relaySeq":1,"recipientSessionId":"r","recipientAgentId":null,"senderSessionId":"s","senderAgentId":null}}).to_string()];
     let mut ts = oracle::TsOracle::spawn("host-relay-oracle.ts", "packages/coding-agent/src");
@@ -227,8 +249,8 @@ async fn incoming_mailbox_progresses_while_writer_is_blocked_and_queued_ack_drai
             input,
             writer,
             HostRelayOptions {
-                control_db_path: &path,
-                host: Some("fixture-local"),
+                control_db_path: &JsString::from(&path),
+                host: Some(&JsString::from("fixture-local")),
                 poll_ms: Some(5),
                 signal,
             },
@@ -290,8 +312,8 @@ async fn assert_surrogate_retry_matches_frozen(field: &str) {
         input.as_bytes(),
         output.clone(),
         HostRelayOptions {
-            control_db_path: rust.to_str().unwrap(),
-            host: Some("fixture-local"),
+            control_db_path: &JsString::from(rust.to_str().expect("utf-8 test path")),
+            host: Some(&JsString::from("fixture-local")),
             poll_ms: Some(20),
             signal: CancellationToken::new(),
         },
@@ -353,8 +375,8 @@ async fn eof_completes_without_drain_and_retains_queued_output() {
             &b""[..],
             output.clone(),
             HostRelayOptions {
-                control_db_path: "/unused",
-                host: Some("fixture-local"),
+                control_db_path: &JsString::from("/unused"),
+                host: Some(&JsString::from("fixture-local")),
                 poll_ms: Some(20),
                 signal: CancellationToken::new(),
             },
