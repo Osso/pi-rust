@@ -61,7 +61,7 @@ pub type ProcessRestarter = Arc<dyn Fn(ProcessRestartOptions) -> BoxFuture<'stat
 #[derive(Debug, Clone, Default)]
 pub struct ProcessRestartOptions {
     pub session_file: String,
-    pub prompt: Option<String>,
+    pub prompt: Option<pi_js_compat::js_json::JsString>,
 }
 
 /// `fork` position.
@@ -445,7 +445,11 @@ impl AgentSessionRuntime {
     }
 
     /// Restarts the session, optionally as a process restart.
-    pub async fn restart(&mut self, notice: Option<&str>, process: bool) -> Result<(), String> {
+    pub async fn restart(
+        &mut self,
+        notice: Option<&pi_js_compat::js_json::JsString>,
+        process: bool,
+    ) -> Result<(), String> {
         let previous_session_file = self.session.session_file();
         let current_session_file = self.session.session_file();
         let is_persisted = self.session.session_manager().is_persisted();
@@ -462,7 +466,7 @@ impl AgentSessionRuntime {
                 .await;
             return (self.process_restarter)(ProcessRestartOptions {
                 session_file,
-                prompt: notice.map(str::to_owned),
+                prompt: notice.cloned(),
             })
             .await;
         }
@@ -482,7 +486,7 @@ impl AgentSessionRuntime {
             session_manager
                 .append_custom_message_entry(
                     "self_restart",
-                    pi_agent_core::harness::messages::CustomMessageContent::Text(notice.to_owned().into()),
+                    pi_agent_core::harness::messages::CustomMessageContent::Text(notice.clone()),
                     true,
                     None,
                 )

@@ -442,7 +442,7 @@ fn build_command_input(
         "messages".into(),
         JsValue::Array(convert_messages(context, model, cache_retention, env, now)),
     );
-    if let Some(system) = build_system_prompt(context.system_prompt.as_deref(), model, cache_retention, env) {
+    if let Some(system) = build_system_prompt(context.system_prompt.as_ref(), model, cache_retention, env) {
         input.insert("system".into(), JsValue::Array(system));
     }
     input.insert("inferenceConfig".into(), JsValue::Object(inference_config));
@@ -649,7 +649,7 @@ fn convert_tool_result_content(content: &[ToolResultContent]) -> Vec<JsValue> {
 }
 
 fn build_system_prompt(
-    system_prompt: Option<&str>,
+    system_prompt: Option<&pi_js_compat::js_json::JsString>,
     model: &Model,
     cache_retention: CacheRetention,
     env: Option<&ProviderEnv>,

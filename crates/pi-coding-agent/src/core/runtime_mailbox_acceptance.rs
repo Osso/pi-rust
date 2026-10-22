@@ -5,7 +5,6 @@ use std::collections::VecDeque;
 use pi_agent_core::AgentMessage;
 use pi_js_compat::js_json::JsValue;
 use serde::Deserialize;
-use serde_json::json;
 
 use super::runtime_mailbox_transcript::{
     RUNTIME_MAILBOX_ACCEPTANCE_CUSTOM_TYPE, mailbox_store_refs_equal, read_accepted_runtime_mailbox_store_refs,
@@ -141,7 +140,7 @@ pub fn release_unaccepted_runtime_mailbox_messages(
     }
     let accepted = read_accepted_runtime_mailbox_store_refs(session.get_session_file())?;
     for message in messages {
-        let expected = JsValue::from(&json!(message.store_ref));
+        let expected = pi_js_compat::js_json::to_value(&message.store_ref).map_err(control_error)?;
         if !contains_receipt(&accepted, &expected)? {
             release_runtime_mailbox_message_claim(control_db_path, message.id)?;
         }

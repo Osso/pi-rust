@@ -331,7 +331,7 @@ fn branch_summary_context(messages: &[AgentMessage], options: &GenerateBranchSum
         timestamp: now_ms(),
     });
     Context {
-        system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.to_owned()),
+        system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.into()),
         messages: vec![summarization_message],
         tools: None,
     }

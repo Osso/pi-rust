@@ -96,7 +96,7 @@ pub struct BeforeAgentStartCombinedResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub messages: Option<Vec<CustomMessagePayload>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub system_prompt: Option<String>,
+    pub system_prompt: Option<JsString>,
 }
 
 /// Path returned by `resources_discover` together with its extension.
@@ -738,9 +738,10 @@ impl ExtensionRunner {
             .any(|extension| !extension.read().tool_gates.is_empty())
     }
 
-    pub fn get_message_renderer(&self, custom_type: &str) -> Option<MessageRenderer> {
+    pub fn get_message_renderer(&self, custom_type: impl Into<JsString>) -> Option<MessageRenderer> {
+        let custom_type = custom_type.into();
         for extension in &self.extensions {
-            if let Some(renderer) = extension.read().message_renderers.get(custom_type) {
+            if let Some(renderer) = extension.read().message_renderers.get(&custom_type) {
                 return Some(Arc::clone(renderer));
             }
         }
@@ -1492,7 +1493,7 @@ impl ExtensionRunner {
         &self,
         prompt: &JsString,
         images: Option<Vec<ImageContent>>,
-        system_prompt: &str,
+        system_prompt: &JsString,
         system_prompt_options: BuildSystemPromptOptions,
     ) -> Option<BeforeAgentStartCombinedResult> {
         let current_system_prompt = Arc::new(Mutex::new(system_prompt.to_owned()));

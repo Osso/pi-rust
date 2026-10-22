@@ -64,7 +64,8 @@ async fn agent_loop_keeps_tool_text_details_and_arguments_through_message_wire_r
     done.content.push(AssistantContent::Text(TextContent::new("done")));
     done.stop_reason = StopReason::Stop;
     let scripted = Arc::new(Mutex::new(VecDeque::from([tool_use, done])));
-    let stream_fn: StreamFn = Arc::new(move |_: Model, _: Context, _: SimpleStreamOptions| {
+    let stream_fn: StreamFn = Arc::new(move |_: Model, context: Context, _: SimpleStreamOptions| {
+        assert_eq!(context.system_prompt.as_ref().unwrap().units(), &[0xd800]);
         let message = scripted.lock().unwrap().pop_front().expect("two model turns");
         Box::pin(async move {
             let (sender, stream) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
@@ -110,7 +111,7 @@ async fn agent_loop_keeps_tool_text_details_and_arguments_through_message_wire_r
     let mut stream = agent_loop(
         vec![user],
         AgentContext {
-            system_prompt: String::new(),
+            system_prompt: pi_js_compat::js_json::JsString::from_utf16(vec![0xd800]),
             messages: vec![],
             tools: Some(vec![Arc::new(tool)]),
         },

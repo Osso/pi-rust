@@ -772,7 +772,7 @@ pub struct ContextUsage {
 
 #[derive(Clone, Default)]
 pub struct CompactOptions {
-    pub custom_instructions: Option<String>,
+    pub custom_instructions: Option<JsString>,
     pub on_complete: Option<CompactCompleteCallback>,
     pub on_error: Option<JsStringCallback>,
 }
@@ -799,7 +799,7 @@ pub struct SessionTransitionResult {
 
 #[derive(Clone)]
 pub struct RestartOptions {
-    pub notice: Option<String>,
+    pub notice: Option<JsString>,
     pub process: Option<bool>,
 }
 
@@ -831,7 +831,7 @@ pub enum ForkPosition {
 #[derive(Clone, Default)]
 pub struct NavigateTreeOptions {
     pub summarize: Option<bool>,
-    pub custom_instructions: Option<String>,
+    pub custom_instructions: Option<JsString>,
     pub replace_instructions: Option<bool>,
     pub label: Option<String>,
 }
@@ -885,7 +885,7 @@ pub struct ExtensionContextState {
         Arc<dyn Fn() -> Option<Arc<DetachedJobLifecycleController>> + Send + Sync>,
     pub(super) get_tool_detach_registry_fn: Arc<dyn Fn() -> Option<Arc<ToolDetachRegistry>> + Send + Sync>,
     pub(super) compact_fn: Arc<dyn Fn(Option<CompactOptions>) + Send + Sync>,
-    pub(super) get_system_prompt_fn: Arc<dyn Fn() -> String + Send + Sync>,
+    pub(super) get_system_prompt_fn: Arc<dyn Fn() -> JsString + Send + Sync>,
     pub(super) get_system_prompt_options_fn: Option<Arc<dyn Fn() -> BuildSystemPromptOptions + Send + Sync>>,
     pub(super) relocate_handler: RelocateCallback,
     pub(super) prepare_tool_result_relocation_handler: RelocateCallback,
@@ -941,7 +941,7 @@ impl ExtensionContextState {
             get_detached_job_lifecycle_fn: Arc::new(|| None),
             get_tool_detach_registry_fn: Arc::new(|| None),
             compact_fn: Arc::new(|_| {}),
-            get_system_prompt_fn: Arc::new(String::new),
+            get_system_prompt_fn: Arc::new(JsString::default),
             get_system_prompt_options_fn: None,
             relocate_handler: Arc::new(|_| {
                 Box::pin(async {
@@ -1009,7 +1009,7 @@ pub struct ExtensionContext {
     pub tool_execution_started_at: Option<f64>,
     pub tool_execution_agent_id: Option<String>,
     state: Arc<Mutex<ExtensionContextState>>,
-    system_prompt_override: Option<Arc<dyn Fn() -> String + Send + Sync>>,
+    system_prompt_override: Option<Arc<dyn Fn() -> JsString + Send + Sync>>,
     viewed_session_target: Option<ViewedSessionMutationTargetResolver>,
 }
 
@@ -1041,7 +1041,7 @@ impl ExtensionContext {
     }
 
     /// Overrides `getSystemPrompt()` for `before_agent_start` chaining.
-    pub fn with_system_prompt_override(mut self, getter: Arc<dyn Fn() -> String + Send + Sync>) -> Self {
+    pub fn with_system_prompt_override(mut self, getter: Arc<dyn Fn() -> JsString + Send + Sync>) -> Self {
         self.system_prompt_override = Some(getter);
         self
     }
@@ -1231,7 +1231,7 @@ impl ExtensionContext {
         Ok(())
     }
 
-    pub fn get_system_prompt(&self) -> Result<String, HandlerError> {
+    pub fn get_system_prompt(&self) -> Result<JsString, HandlerError> {
         self.assert_active()?;
         if let Some(getter) = &self.system_prompt_override {
             return Ok(getter());
@@ -1698,7 +1698,7 @@ pub struct SessionBeforeCompactEvent {
     pub preparation: CompactionPreparation,
     pub branch_entries: Vec<SessionEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub custom_instructions: Option<String>,
+    pub custom_instructions: Option<JsString>,
     pub reason: CompactionReason,
     pub will_retry: bool,
     #[serde(skip)]
@@ -1711,7 +1711,7 @@ pub struct CompactionEvent {
     pub preparation: CompactionPreparation,
     pub branch_entries: Vec<SessionEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub custom_instructions: Option<String>,
+    pub custom_instructions: Option<JsString>,
     pub reason: CompactionReason,
     pub will_retry: bool,
     #[serde(skip)]
@@ -1768,7 +1768,7 @@ pub struct TreePreparation {
     pub entries_to_summarize: Vec<SessionEntry>,
     pub user_wants_summary: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub custom_instructions: Option<String>,
+    pub custom_instructions: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replace_instructions: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1829,7 +1829,7 @@ pub struct BeforeAgentStartEvent {
     pub prompt: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<ImageContent>>,
-    pub system_prompt: String,
+    pub system_prompt: JsString,
     pub system_prompt_options: BuildSystemPromptOptions,
 }
 
@@ -1958,7 +1958,7 @@ pub struct ThinkingLevelSelectEvent {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserBashEvent {
-    pub command: String,
+    pub command: JsString,
     pub exclude_from_context: bool,
     pub cwd: String,
 }
@@ -2308,7 +2308,7 @@ pub struct UserBashEventResult {
     /// Custom operations used by `AgentSession::execute_bash` (`BashOperations`).
     pub operations: Option<Arc<dyn crate::core::tools::bash::BashOperations>>,
     /// Full replacement: the extension handled execution and supplies the result.
-    pub result: Option<Value>,
+    pub result: Option<JsValue>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -2392,7 +2392,7 @@ pub struct BeforeAgentStartEventResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<CustomMessagePayload>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub system_prompt: Option<String>,
+    pub system_prompt: Option<JsString>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -2458,7 +2458,7 @@ pub struct SessionBeforeTreeResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<SessionTreeSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub custom_instructions: Option<String>,
+    pub custom_instructions: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replace_instructions: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2563,7 +2563,7 @@ pub type EntryRenderer = Arc<dyn Fn(&CustomEntry, &EntryRenderOptions, &Theme) -
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CustomMessageValue {
-    pub custom_type: String,
+    pub custom_type: JsString,
     pub content: CustomMessageContent,
     pub display: bool,
     #[serde(
@@ -2794,7 +2794,7 @@ pub struct ExtensionState {
     pub approval_reviewers: Vec<ApprovalReviewerHandle>,
     pub tool_gates: Vec<ToolGateHandle>,
     pub tools: IndexMap<String, RegisteredTool>,
-    pub message_renderers: IndexMap<String, MessageRenderer>,
+    pub message_renderers: IndexMap<JsString, MessageRenderer>,
     pub markdown_transformer: Option<MarkdownTransformer>,
     pub entry_renderers: Option<IndexMap<String, EntryRenderer>>,
     pub commands: IndexMap<String, RegisteredCommand>,
@@ -2855,8 +2855,8 @@ pub type SendMessageHandler =
 pub type SendUserMessageHandler =
     Arc<dyn Fn(UserMessageContent, Option<SendUserMessageOptions>) -> Result<(), HandlerError> + Send + Sync>;
 pub type AppendEntryHandler = Arc<dyn Fn(&str, Option<JsValue>) -> Result<(), HandlerError> + Send + Sync>;
-pub type SetSessionNameHandler = Arc<dyn Fn(&str) -> Result<(), HandlerError> + Send + Sync>;
-pub type GetSessionNameHandler = Arc<dyn Fn() -> Result<Option<String>, HandlerError> + Send + Sync>;
+pub type SetSessionNameHandler = Arc<dyn Fn(&JsString) -> Result<(), HandlerError> + Send + Sync>;
+pub type GetSessionNameHandler = Arc<dyn Fn() -> Result<Option<JsString>, HandlerError> + Send + Sync>;
 pub type SetLabelHandler = Arc<dyn Fn(&str, Option<&str>) -> Result<(), HandlerError> + Send + Sync>;
 pub type GetActiveToolsHandler = Arc<dyn Fn() -> Result<Vec<String>, HandlerError> + Send + Sync>;
 pub type GetAllToolsHandler = Arc<dyn Fn() -> Result<Vec<ToolInfo>, HandlerError> + Send + Sync>;
@@ -2872,7 +2872,7 @@ pub type CallToolHandler = Arc<
         + Sync,
 >;
 pub type CallCommandHandler =
-    Arc<dyn Fn(String, Option<String>) -> BoxFuture<'static, Result<Value, HandlerError>> + Send + Sync>;
+    Arc<dyn Fn(String, Option<JsString>) -> BoxFuture<'static, Result<JsValue, HandlerError>> + Send + Sync>;
 pub type GetCommandsHandler = Arc<dyn Fn() -> Result<Vec<SlashCommandInfo>, HandlerError> + Send + Sync>;
 pub type SetModelHandler = Arc<dyn Fn(Model) -> BoxFuture<'static, Result<bool, HandlerError>> + Send + Sync>;
 pub type GetThinkingLevelHandler = Arc<dyn Fn() -> Result<ThinkingLevel, HandlerError> + Send + Sync>;
@@ -2922,7 +2922,7 @@ pub struct ExtensionContextActions {
     pub get_multi_agent_store: Option<Arc<dyn Fn() -> Option<Arc<MultiAgentStore>> + Send + Sync>>,
     pub get_tool_detach_registry: Option<Arc<dyn Fn() -> Option<Arc<ToolDetachRegistry>> + Send + Sync>>,
     pub compact: Arc<dyn Fn(Option<CompactOptions>) + Send + Sync>,
-    pub get_system_prompt: Arc<dyn Fn() -> String + Send + Sync>,
+    pub get_system_prompt: Arc<dyn Fn() -> JsString + Send + Sync>,
     pub get_system_prompt_options: Option<Arc<dyn Fn() -> BuildSystemPromptOptions + Send + Sync>>,
 }
 
@@ -3343,11 +3343,15 @@ impl ExtensionApi {
         Ok(())
     }
 
-    pub fn register_message_renderer(&self, custom_type: &str, renderer: MessageRenderer) -> Result<(), String> {
+    pub fn register_message_renderer(
+        &self,
+        custom_type: impl Into<JsString>,
+        renderer: MessageRenderer,
+    ) -> Result<(), String> {
         self.runtime.assert_active()?;
         self.extension_lock()
             .message_renderers
-            .insert(custom_type.to_owned(), renderer);
+            .insert(custom_type.into(), renderer);
         Ok(())
     }
 
@@ -3405,12 +3409,12 @@ impl ExtensionApi {
         Ok(())
     }
 
-    pub fn set_session_name(&self, name: &str) -> Result<(), HandlerError> {
+    pub fn set_session_name(&self, name: &JsString) -> Result<(), HandlerError> {
         self.runtime.assert_active()?;
         (self.runtime.actions().set_session_name)(name)
     }
 
-    pub fn get_session_name(&self) -> Result<Option<String>, HandlerError> {
+    pub fn get_session_name(&self) -> Result<Option<JsString>, HandlerError> {
         self.runtime.assert_active()?;
         (self.runtime.actions().get_session_name)()
     }
@@ -3471,7 +3475,11 @@ impl ExtensionApi {
         (self.runtime.actions().call_tool)(name, params, signal, tool_call_id)
     }
 
-    pub fn call_command(&self, name: String, args: Option<String>) -> BoxFuture<'static, Result<Value, HandlerError>> {
+    pub fn call_command(
+        &self,
+        name: String,
+        args: Option<JsString>,
+    ) -> BoxFuture<'static, Result<JsValue, HandlerError>> {
         if let Err(error) = self.runtime.assert_active() {
             return Box::pin(async move { Err(error.into()) });
         }

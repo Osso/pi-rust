@@ -93,7 +93,7 @@ pub struct BashDetachOptions {
 /// `BashSpawnContext`: command, cwd, and environment before execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BashSpawnContext {
-    pub command: String,
+    pub command: JsString,
     pub cwd: String,
     pub env: BTreeMap<String, String>,
 }
@@ -145,7 +145,7 @@ pub struct BashExecOptions {
 pub trait BashOperations: Send + Sync {
     fn exec<'a>(
         &'a self,
-        command: &'a str,
+        command: &'a JsString,
         cwd: &'a str,
         options: BashExecOptions,
     ) -> BoxFuture<'a, Result<BashExecResult, ToolError>>;
@@ -197,7 +197,7 @@ fn resolve_timeout_ms(timeout: Option<f64>) -> Result<Option<f64>, ToolError> {
 impl BashOperations for LocalBashOperations {
     fn exec<'a>(
         &'a self,
-        command: &'a str,
+        command: &'a JsString,
         cwd: &'a str,
         options: BashExecOptions,
     ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
@@ -207,7 +207,7 @@ impl BashOperations for LocalBashOperations {
 
 async fn exec_local(
     shell_path: Option<&str>,
-    command: &str,
+    command: &JsString,
     cwd: &str,
     options: BashExecOptions,
 ) -> Result<BashExecResult, ToolError> {
@@ -238,7 +238,7 @@ async fn exec_local(
         command_builder.stdin(Stdio::piped());
     } else {
         command_builder.args(&shell_config.args);
-        command_builder.arg(command);
+        command_builder.arg(encode_node_utf8(command));
         command_builder.stdin(Stdio::null());
     }
     command_builder.env_clear();
@@ -262,7 +262,7 @@ async fn exec_local(
         track_detached_child_pid(pid);
     }
     if command_from_stdin && let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(command.as_bytes()).await;
+        let _ = stdin.write_all(encode_node_utf8(command).as_bytes()).await;
         let _ = stdin.shutdown().await;
     }
 
@@ -628,7 +628,7 @@ struct BashExecutionOptions {
 }
 
 fn resolve_spawn_context(
-    command: String,
+    command: JsString,
     cwd: &str,
     spawn_hook: Option<&BashSpawnHook>,
     expose_session_environment: bool,
@@ -687,7 +687,7 @@ async fn execute_bash(
         None => command,
     };
     let spawn_context = resolve_spawn_context(
-        encode_node_utf8(&resolved_command),
+        resolved_command,
         cwd,
         options.spawn_hook.as_ref(),
         options.expose_session_environment,
@@ -851,7 +851,7 @@ struct BashRunnerResult {
 }
 
 async fn execute_runner_owned_bash(
-    command: &str,
+    command: &JsString,
     cwd: &str,
     options: RunnerOwnedOptions,
 ) -> Result<BashRunnerResult, ToolError> {
@@ -864,8 +864,8 @@ async fn execute_runner_owned_bash(
     if let Some(restored) = wait_for_restored_bash_job(&options).await? {
         return Ok(restored);
     }
-    let mut args = shell.args.clone();
-    args.push(command.to_owned());
+    let mut args = shell.args.iter().map(JsString::from).collect::<Vec<_>>();
+    args.push(command.clone());
     let runner = options
         .lifecycle
         .launch_bash(&LaunchDetachedBashInput {

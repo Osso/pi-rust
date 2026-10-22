@@ -13,6 +13,7 @@ use pi_agent_core::harness::types::BeforeToolCallResult;
 use pi_ai::request::BoxFuture;
 use pi_ai::session_resources::cleanup_session_resources;
 use pi_ai::types::{AssistantContent, StopReason};
+use pi_js_compat::js_json::{JsString, JsValue};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
@@ -100,30 +101,31 @@ pub fn create_supervisor_settings_manager() -> SettingsManager {
 }
 
 /// `validateSupervisorExtensionLoad` over the diagnostic `path: error` pairs.
-pub fn validate_supervisor_extension_load(errors: &[(String, String)]) -> Result<(), String> {
+pub fn validate_supervisor_extension_load(errors: &[(String, JsString)]) -> Result<(), String> {
     if errors.is_empty() {
         return Ok(());
     }
     let details = errors
         .iter()
-        .map(|(path, error)| format!("{path}: {error}"))
+        .map(|(path, error)| format!("{path}: {}", error.to_utf8_lossy()))
         .collect::<Vec<_>>()
         .join("; ");
     Err(format!("Supervisor extension load failed: {details}"))
 }
 
 /// `blockSupervisorFileAccess`.
-pub fn block_supervisor_file_access(kb_dir: &str, tool_name: &str, input: &Value) -> Option<BeforeToolCallResult> {
+pub fn block_supervisor_file_access(kb_dir: &str, tool_name: &str, input: &JsValue) -> Option<BeforeToolCallResult> {
     if !SUPERVISOR_TOOL_NAMES.contains(&tool_name) {
         return None;
     }
     let Some(path) = read_tool_path(input) else {
         return Some(supervisor_file_access_block());
     };
+    let path = path.to_utf8_lossy();
     let resolved = if tool_name == "read" {
-        crate::core::tools::path_utils::resolve_read_path(path, kb_dir)
+        crate::core::tools::path_utils::resolve_read_path(&path, kb_dir)
     } else {
-        crate::core::tools::path_utils::resolve_to_cwd(path, kb_dir)
+        crate::core::tools::path_utils::resolve_to_cwd(&path, kb_dir)
     };
     let Ok(resolved_path) = resolved else {
         return Some(supervisor_file_access_block());
@@ -138,14 +140,18 @@ pub fn block_supervisor_file_access(kb_dir: &str, tool_name: &str, input: &Value
     }
 }
 
-fn read_tool_path(input: &Value) -> Option<&str> {
-    input.get("path").and_then(Value::as_str)
+fn read_tool_path(input: &JsValue) -> Option<&JsString> {
+    input.get("path").and_then(JsValue::as_string)
 }
 
 fn supervisor_file_access_block() -> BeforeToolCallResult {
     BeforeToolCallResult {
         block: Some(true),
-        reason: Some("Pi Supervisor may access files only inside the configured KB directory.".to_owned()),
+        reason: Some(
+            "Pi Supervisor may access files only inside the configured KB directory."
+                .to_owned()
+                .into(),
+        ),
     }
 }
 
@@ -249,10 +255,10 @@ pub fn open_supervisor_session(agent_dir: &str, kb_dir: &str, control_db_path: &
 
 /// Session surface needed by the request loop and request processing.
 pub trait SupervisorSession: Send + Sync {
-    fn abort(&self) -> BoxFuture<'static, Result<(), String>>;
-    fn prompt(&self, content: String) -> BoxFuture<'static, Result<(), String>>;
+    fn abort(&self) -> BoxFuture<'static, Result<(), JsString>>;
+    fn prompt(&self, content: String) -> BoxFuture<'static, Result<(), JsString>>;
     /// `None` when the source session has no `compact` method.
-    fn compact(&self, _instructions: &str) -> Option<BoxFuture<'static, Result<(), String>>> {
+    fn compact(&self, _instructions: &str) -> Option<BoxFuture<'static, Result<(), JsString>>> {
         None
     }
     /// `None` when the source session has no `getContextUsage` method.
@@ -343,7 +349,7 @@ pub async fn process_supervisor_request(
             request.id,
             claim_token,
             &SupervisorResponse::Error {
-                reason: error.to_string(),
+                reason: error.to_string().into(),
             },
         );
     }
@@ -353,7 +359,7 @@ fn supervisor_evaluator(session: Arc<dyn SupervisorSession>) -> SupervisorEvalua
     Arc::new(move |prompt: String, signal: CancellationToken| {
         let session = Arc::clone(&session);
         Box::pin(async move { evaluate_supervisor_prompt(session, prompt, signal).await })
-            as BoxFuture<'static, Result<Value, String>>
+            as BoxFuture<'static, Result<JsValue, JsString>>
     })
 }
 
@@ -361,10 +367,10 @@ async fn evaluate_supervisor_prompt(
     session: Arc<dyn SupervisorSession>,
     prompt: String,
     signal: CancellationToken,
-) -> Result<Value, String> {
+) -> Result<JsValue, JsString> {
     if signal.is_cancelled() {
         session.abort().await?;
-        return Err("Supervisor request aborted".to_owned());
+        return Err("Supervisor request aborted".into());
     }
     let context_percent = session.context_percent();
     if let (Some(percent), Some(compact)) = (context_percent, session.compact(SUPERVISOR_COMPACTION_INSTRUCTIONS))
@@ -376,14 +382,14 @@ async fn evaluate_supervisor_prompt(
         }
     }
     if signal.is_cancelled() {
-        return Err("Supervisor request aborted".to_owned());
+        return Err("Supervisor request aborted".into());
     }
     let previous_leaf_id = session.get_leaf_id();
     tokio::select! {
         result = session.prompt(prompt) => result?,
         () = signal.cancelled() => {
             session.abort().await?;
-            return Err("Supervisor request aborted".to_owned());
+            return Err("Supervisor request aborted".into());
         }
     }
     read_current_supervisor_response(&session.get_branch(), previous_leaf_id.as_deref())
@@ -398,7 +404,7 @@ pub fn cleanup_supervisor_provider_context(session_id: &str) {
 pub fn read_current_supervisor_response(
     entries: &[SessionEntry],
     previous_leaf_id: Option<&str>,
-) -> Result<Value, String> {
+) -> Result<JsValue, JsString> {
     let previous_leaf_index = match previous_leaf_id {
         Some(previous_leaf_id) => entries
             .iter()
@@ -407,7 +413,7 @@ pub fn read_current_supervisor_response(
         None => -1,
     };
     if previous_leaf_id.is_some() && previous_leaf_index == -1 {
-        return Err("Supervisor request boundary is missing from the current session branch".to_owned());
+        return Err("Supervisor request boundary is missing from the current session branch".into());
     }
     let current_messages: Vec<&AgentMessage> = entries
         .iter()
@@ -422,7 +428,7 @@ pub fn read_current_supervisor_response(
         })
         .collect();
     let Some(terminal_message) = assistant_messages.last() else {
-        return Err("Supervisor model returned no assistant text for current request".to_owned());
+        return Err("Supervisor model returned no assistant text for current request".into());
     };
     if let Some(structured) = read_structured_supervisor_response(terminal_message)? {
         return Ok(structured);
@@ -441,23 +447,23 @@ pub fn read_current_supervisor_response(
         return Err(format!(
             "Supervisor model request ended with {}",
             stop_reason_name(response_message.stop_reason)
-        ));
+        )
+        .into());
     }
-    let text: String = response_message
-        .content
-        .iter()
-        .filter_map(|part| match part {
-            AssistantContent::Text(text) => Some(text.text.as_str()),
+    let text = JsString::join(
+        response_message.content.iter().filter_map(|part| match part {
+            AssistantContent::Text(text) => Some(&text.text),
             _ => None,
-        })
-        .collect();
+        }),
+        "",
+    );
     if text.trim().is_empty() {
-        return Err("Supervisor model returned no assistant text for current request".to_owned());
+        return Err("Supervisor model returned no assistant text for current request".into());
     }
-    Ok(Value::String(text))
+    Ok(JsValue::String(text))
 }
 
-fn read_structured_supervisor_response(message: &pi_ai::types::AssistantMessage) -> Result<Option<Value>, String> {
+fn read_structured_supervisor_response(message: &pi_ai::types::AssistantMessage) -> Result<Option<JsValue>, JsString> {
     let Some(response_tool_call) = message.content.iter().find_map(|part| match part {
         AssistantContent::ToolCall(tool_call) if tool_call.name == SUPERVISOR_RESPONSE_TOOL_NAME => Some(tool_call),
         _ => None,
@@ -469,9 +475,9 @@ fn read_structured_supervisor_response(message: &pi_ai::types::AssistantMessage)
         _ => false,
     });
     if has_assistant_text {
-        return Err("Supervisor model emitted assistant text with structured response".to_owned());
+        return Err("Supervisor model emitted assistant text with structured response".into());
     }
-    Ok(Some(Value::Object(response_tool_call.arguments.clone())))
+    Ok(Some(JsValue::Object(response_tool_call.arguments.clone())))
 }
 
 fn terminal_message_calls_end_turn(message: &pi_ai::types::AssistantMessage) -> bool {
@@ -506,7 +512,7 @@ pub async fn create_supervisor_resource_loader(
         let gate: ToolGateHandle = Arc::new(move |event: ToolCallEvent, _context: ExtensionContext| {
             let gate_kb_dir = gate_kb_dir.clone();
             Box::pin(async move {
-                let input = Value::Object(event.input.clone());
+                let input = JsValue::Object(event.input.clone());
                 Ok(
                     block_supervisor_file_access(&gate_kb_dir, event.tool_name.as_str(), &input).map(|result| {
                         ToolCallEventResult {
@@ -545,7 +551,7 @@ pub async fn create_supervisor_resource_loader(
     })?;
     loader.reload().await?;
     let extensions = loader.get_extensions();
-    let errors: Vec<(String, String)> = extensions
+    let errors: Vec<(String, JsString)> = extensions
         .errors
         .iter()
         .map(|error| (error.path.clone(), error.error.clone()))
@@ -598,12 +604,12 @@ pub async fn create_supervisor_session(
 }
 
 impl SupervisorSession for AgentSession {
-    fn abort(&self) -> BoxFuture<'static, Result<(), String>> {
+    fn abort(&self) -> BoxFuture<'static, Result<(), JsString>> {
         let session = self.clone();
         Box::pin(async move { session.abort().await.map_err(|error| error.message().to_owned()) })
     }
 
-    fn prompt(&self, content: String) -> BoxFuture<'static, Result<(), String>> {
+    fn prompt(&self, content: String) -> BoxFuture<'static, Result<(), JsString>> {
         let session = self.clone();
         Box::pin(async move {
             session
@@ -613,7 +619,7 @@ impl SupervisorSession for AgentSession {
         })
     }
 
-    fn compact(&self, instructions: &str) -> Option<BoxFuture<'static, Result<(), String>>> {
+    fn compact(&self, instructions: &str) -> Option<BoxFuture<'static, Result<(), JsString>>> {
         let session = self.clone();
         let instructions = instructions.to_owned();
         Some(Box::pin(async move {
@@ -733,7 +739,7 @@ pub async fn run_supervisor_service() -> Result<(), String> {
     .await;
     console_server.close().await?;
     wake_server.close().await?;
-    session.abort().await.map_err(|error| error.message().to_owned())?;
+    session.abort().await.map_err(|error| error.message().to_utf8_lossy())?;
     loop_result.map_err(|error| error.to_string())
 }
 

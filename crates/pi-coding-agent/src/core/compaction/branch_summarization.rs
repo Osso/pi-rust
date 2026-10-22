@@ -76,7 +76,7 @@ pub struct GenerateBranchSummaryOptions<'a> {
     pub headers: Option<ProviderHeaders>,
     pub env: Option<ProviderEnv>,
     pub signal: Option<CancellationToken>,
-    pub custom_instructions: Option<&'a str>,
+    pub custom_instructions: Option<&'a JsString>,
     /// When true, `custom_instructions` replaces the default prompt instead of being appended.
     pub replace_instructions: bool,
     /// Tokens reserved for prompt + LLM response (default 16384).
@@ -279,8 +279,8 @@ pub async fn generate_branch_summary<C: RetryCallbacks + ?Sized>(
 
     let instructions = match (options.replace_instructions, options.custom_instructions) {
         (true, Some(custom)) => custom.to_owned(),
-        (false, Some(custom)) => format!("{BRANCH_SUMMARY_PROMPT}\n\nAdditional focus: {custom}"),
-        _ => BRANCH_SUMMARY_PROMPT.to_owned(),
+        (false, Some(custom)) => JsString::from(BRANCH_SUMMARY_PROMPT) + "\n\nAdditional focus: " + custom,
+        _ => BRANCH_SUMMARY_PROMPT.into(),
     };
     let prompt_text = JsString::from("<conversation>\n") + conversation_text + "\n</conversation>\n\n" + instructions;
 
@@ -295,7 +295,7 @@ pub async fn generate_branch_summary<C: RetryCallbacks + ?Sized>(
     });
 
     let context = pi_ai::types::Context {
-        system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.to_owned()),
+        system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.into()),
         messages: convert_to_llm(&[summarization_message]),
         tools: None,
     };

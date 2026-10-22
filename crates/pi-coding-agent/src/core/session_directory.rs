@@ -5,15 +5,14 @@ use std::sync::Arc;
 
 use pi_ai::utils::uuid::random_uuid;
 use pi_js_compat::collator::locale_compare;
-use pi_js_compat::string::js_trim;
-use serde_json::{Map, Value};
+use pi_js_compat::js_json::{JsString, JsValue};
+use serde_json::Value;
 
 use crate::core::runtime_process::is_pi_runtime_process_alive;
 use crate::core::session_control_db::{
-    ControlDbError, EnqueueRuntimeMailboxMessageInput, RuntimeMailboxAddress, RuntimeMailboxMessageKind,
-    RuntimeMailboxStoreRef, SessionMetadata, enqueue_runtime_mailbox_message, list_active_session_metadata,
-    list_runtime_mailbox_listeners, list_session_health, retire_runtime_mailbox_listener,
-    upsert_multi_agent_mailbox_message, write_session_health,
+    ControlDbError, EnqueueStoredRuntimeMailboxMessageInput, RuntimeMailboxAddress, RuntimeMailboxMessageKind,
+    RuntimeMailboxStoreRef, SessionMetadata, enqueue_stored_runtime_mailbox_message, list_active_session_metadata,
+    list_runtime_mailbox_listeners, list_session_health, retire_runtime_mailbox_listener, write_session_health,
 };
 use crate::core::session_health::{
     SESSION_CHECK_STALE_MS, SessionBroadcastOutcome, SessionBroadcastResult, SessionCheckStatus, SessionDirectoryEntry,
@@ -41,7 +40,7 @@ pub struct BroadcastSessionFilters {
 }
 
 pub struct BroadcastSessionsInput {
-    pub message: String,
+    pub message: JsString,
     pub filters: Option<BroadcastSessionFilters>,
     pub sender_session_id: String,
     pub sender_session_path: String,
@@ -125,7 +124,7 @@ fn reconcile_current_main_session_bindings(
                 control_db_path,
                 &RuntimeMailboxAddress {
                     agent_id: None,
-                    session_id: listener.session_id,
+                    session_id: listener.session_id.into(),
                 },
                 listener.pid,
             )?;
@@ -360,7 +359,7 @@ pub fn broadcast_to_sessions(
     input: &BroadcastSessionsInput,
     options: &SessionDirectoryOptions,
 ) -> Result<Vec<SessionBroadcastResult>, ControlDbError> {
-    let message = js_trim(&input.message);
+    let message = input.message.trim();
     if message.is_empty() {
         return Err(ControlDbError::new("broadcast requires a non-empty message"));
     }
@@ -438,7 +437,7 @@ pub fn broadcast_to_sessions(
             continue;
         }
 
-        match send_broadcast(control_db_path, message, input, sender_agent_id.as_deref(), &entry) {
+        match send_broadcast(control_db_path, &message, input, sender_agent_id.as_deref(), &entry) {
             Ok(()) => results.push(SessionBroadcastResult {
                 session_id: entry.session_id,
                 outcome: SessionBroadcastOutcome::Sent,
@@ -459,50 +458,43 @@ pub fn broadcast_to_sessions(
 
 fn send_broadcast(
     control_db_path: &str,
-    message: &str,
+    message: &JsString,
     input: &BroadcastSessionsInput,
     sender_agent_id: Option<&str>,
     entry: &SessionDirectoryEntry,
 ) -> Result<(), ControlDbError> {
     let message_id = format!("broadcast_{}", random_uuid());
-    upsert_multi_agent_mailbox_message(
+    enqueue_stored_runtime_mailbox_message(
         control_db_path,
-        &input.sender_session_path,
-        &message_id,
-        &mailbox_payload(&message_id, message, sender_agent_id),
-    )?;
-    enqueue_runtime_mailbox_message(
-        control_db_path,
-        &EnqueueRuntimeMailboxMessageInput {
+        &EnqueueStoredRuntimeMailboxMessageInput {
             recipient_host: None,
             kind: RuntimeMailboxMessageKind::Message,
+            message: mailbox_payload(&message_id, message, sender_agent_id),
             recipient: RuntimeMailboxAddress {
                 agent_id: None,
-                session_id: entry.session_id.clone(),
+                session_id: entry.session_id.clone().into(),
             },
             sender: RuntimeMailboxAddress {
-                agent_id: sender_agent_id.map(str::to_owned),
-                session_id: input.sender_session_id.clone(),
+                agent_id: sender_agent_id.map(Into::into),
+                session_id: input.sender_session_id.clone().into(),
             },
             store_ref: RuntimeMailboxStoreRef {
-                message_id,
-                session_path: input.sender_session_path.clone(),
+                message_id: message_id.into(),
+                session_path: input.sender_session_path.clone().into(),
             },
+            updated_at: None,
         },
     )?;
     Ok(())
 }
 
-fn mailbox_payload(message_id: &str, body: &str, sender_agent_id: Option<&str>) -> Value {
-    let mut payload = Map::new();
-    payload.insert("body".to_owned(), Value::String(body.to_owned()));
-    payload.insert(
-        "fromAgentId".to_owned(),
-        Value::String(sender_agent_id.unwrap_or("main").to_owned()),
-    );
-    payload.insert("id".to_owned(), Value::String(message_id.to_owned()));
-    payload.insert("kind".to_owned(), Value::String("message".to_owned()));
-    payload.insert("status".to_owned(), Value::String("pending".to_owned()));
-    payload.insert("toAgentId".to_owned(), Value::String("main".to_owned()));
-    Value::Object(payload)
+fn mailbox_payload(message_id: &str, body: &JsString, sender_agent_id: Option<&str>) -> JsValue {
+    pi_js_compat::js_json!({
+        "body": body,
+        "fromAgentId": sender_agent_id.unwrap_or("main"),
+        "id": message_id,
+        "kind": "message",
+        "status": "pending",
+        "toAgentId": "main",
+    })
 }

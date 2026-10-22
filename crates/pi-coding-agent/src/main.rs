@@ -542,7 +542,11 @@ async fn create_runtime(
     diagnostics.extend(resource_loader.get_extensions().errors.into_iter().map(|error| {
         AgentSessionRuntimeDiagnostic {
             diagnostic_type: "error".to_owned(),
-            message: format!("Failed to load extension \"{}\": {}", error.path, error.error),
+            message: format!(
+                "Failed to load extension \"{}\": {}",
+                error.path,
+                pi_js_compat::js_json::encode_node_utf8(&error.error)
+            ),
         }
     }));
 
@@ -656,7 +660,7 @@ async fn create_runtime(
         result
             .session
             .set_thinking_level(result.session.thinking_level())
-            .map_err(|error| error.message().to_owned())?;
+            .map_err(|error| pi_js_compat::js_json::encode_node_utf8(error.message()))?;
     }
 
     Ok(CreateAgentSessionRuntimeResult {
@@ -2394,7 +2398,8 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
                         .await
                         .map(|_| ())
                         .map_err(|error| error.message)
-                    }) as pi_ai::request::BoxFuture<'static, Result<(), String>>
+                    })
+                        as pi_ai::request::BoxFuture<'static, Result<(), pi_js_compat::js_json::JsString>>
                 }
             })),
             agent_view_selector_slot: Some(Arc::clone(&interactive_agent_view_selector)),

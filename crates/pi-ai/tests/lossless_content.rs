@@ -5,6 +5,14 @@ use pi_ai::types::ToolResultMessage;
 use pi_js_compat::js_json::parse_lossless;
 
 #[test]
+fn system_prompt_round_trip_keeps_extension_injected_utf16() {
+    let source = r#"{"systemPrompt":"policy\ud800","messages":[]}"#;
+    let context: pi_ai::types::Context = serde_json::from_str(source).unwrap();
+    let output = serde_json::to_string(&context).unwrap();
+    assert_eq!(parse_lossless(&output).unwrap(), parse_lossless(source).unwrap());
+}
+
+#[test]
 fn tool_message_round_trip_keeps_text_details_and_null_presence() {
     let mut oracle = oracle::TsOracle::spawn(
         "lossless-content-oracle.ts",
