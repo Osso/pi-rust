@@ -31,7 +31,7 @@ fn context(messages: Vec<AgentMessage>, tools: Vec<Arc<dyn pi_agent_core::agent:
 
 async fn collect_events_allowing_failure(
     mut stream: pi_ai::utils::event_stream::EventStream<AgentEvent, Vec<AgentMessage>>,
-) -> (Vec<AgentEvent>, Option<String>) {
+) -> (Vec<AgentEvent>, Option<JsString>) {
     let mut events = Vec::new();
     let mut failure = None;
     while let Some(event) = stream.next().await {
@@ -568,7 +568,7 @@ async fn prepare_execution_errors_abort_the_run() {
         ]))])),
     );
     let (_, failure) = collect_events_allowing_failure(stream).await;
-    assert_eq!(failure.as_deref(), Some("prepareExecution exploded"));
+    assert_eq!(failure.as_ref(), Some("prepareExecution exploded"));
 }
 
 #[tokio::test]
@@ -700,7 +700,7 @@ async fn emits_tool_execution_end_in_completion_order_and_results_in_source_orde
         Some(stream_fn),
     );
     let (events, _) = collect_events(stream).await;
-    let execution_end_ids: Vec<&str> = events
+    let execution_end_ids: Vec<JsString> = events
         .iter()
         .filter_map(|event| match event {
             AgentEvent::ToolExecutionEnd { tool_call_id, .. } => Some(tool_call_id.as_str()),
@@ -1076,7 +1076,7 @@ async fn uses_prepare_next_turn_snapshot_before_continuing() {
             }))
         })
     }));
-    let system_prompts = Arc::new(Mutex::new(Vec::<Option<String>>::new()));
+    let system_prompts = Arc::new(Mutex::new(Vec::<Option<JsString>>::new()));
     let system_prompts_hook = Arc::clone(&system_prompts);
     let stream_fn: pi_agent_core::agent::StreamFn = {
         let calls = Arc::new(AtomicUsize::new(0));
@@ -1119,7 +1119,7 @@ async fn uses_prepare_next_turn_snapshot_before_continuing() {
     collect_events(stream).await.1.unwrap();
     let prompts = system_prompts.lock().unwrap();
     assert_eq!(prompts.len(), 2);
-    assert_eq!(prompts[1].as_deref(), Some("second prompt"));
+    assert_eq!(prompts[1].as_ref(), Some("second prompt"));
 }
 
 #[tokio::test]

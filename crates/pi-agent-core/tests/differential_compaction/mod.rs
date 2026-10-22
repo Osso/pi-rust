@@ -175,7 +175,9 @@ impl EntryFactory {
                 id,
                 from_id: "branch".to_owned(),
                 summary: JsString::from(summary.to_owned()),
-                details: details.map_or(OptionalValue::Missing, OptionalValue::Present),
+                details: details
+                    .map(JsValue::from)
+                    .map_or(OptionalValue::Missing, OptionalValue::Present),
                 usage: None,
             },
             parent_id: None,
@@ -278,7 +280,7 @@ fn expect_output(response: &Value, name: &str, expected: &Value) {
     );
 }
 
-fn expect_error(response: &Value, name: &str, code: &str, message: &str) {
+fn expect_error(response: &Value, name: &str, code: &str, message: &JsString) {
     let case = case(response, name);
     assert_eq!(
         case["ok"],
@@ -383,19 +385,19 @@ fn call_json(context: &Context, options: Option<&pi_ai::request::SimpleStreamOpt
     })
 }
 
-fn first_user_text(context: &Context) -> String {
+fn first_user_text(context: &Context) -> JsString {
     match context.messages.first() {
         Some(Message::User(user)) => match &user.content {
             UserContent::Text(text) => text.clone(),
-            UserContent::Blocks(blocks) => blocks
-                .iter()
-                .filter_map(|block| match block {
-                    TextOrImageContent::Text(text) => Some(text.text.as_str()),
+            UserContent::Blocks(blocks) => JsString::join(
+                blocks.iter().filter_map(|block| match block {
+                    TextOrImageContent::Text(text) => Some(text.text.clone()),
                     TextOrImageContent::Image(_) => None,
-                })
-                .collect(),
+                }),
+                "",
+            ),
         },
-        _ => String::new(),
+        _ => JsString::default(),
     }
 }
 
@@ -851,7 +853,7 @@ fn compare_serialize_conversation(oracle: &mut TsOracle) {
     });
     let response = oracle.request(&request);
     for (name, messages) in &cases {
-        let converted = pi_agent_core::harness::messages::convert_to_llm(messages);
+        let converted = pi_agent_core::harness::messages::convert_to_llm(messages).expect("convert fixture messages");
         expect_output(&response, name, &json!(serialize_conversation(&converted)));
     }
 }
@@ -912,11 +914,15 @@ fn compare_prepare_branch_entries(oracle: &mut TsOracle) {
 
 fn compare_file_lists(oracle: &mut TsOracle) {
     let mut file_ops = pi_agent_core::harness::compaction::FileOperations::default();
-    file_ops
-        .read
-        .extend(["z.ts".to_owned(), "a.ts".to_owned(), "shared.ts".to_owned()]);
+    file_ops.read.extend(
+        ["z.ts".to_owned(), "a.ts".to_owned(), "shared.ts".to_owned()]
+            .into_iter()
+            .map(JsString::from),
+    );
     file_ops.written.insert(JsString::from("shared.ts"));
-    file_ops.edited.extend(["m.ts".to_owned(), "b.ts".to_owned()]);
+    file_ops
+        .edited
+        .extend(["m.ts".to_owned(), "b.ts".to_owned()].into_iter().map(JsString::from));
     let empty = pi_agent_core::harness::compaction::FileOperations::default();
 
     let cases = [("populated", &file_ops), ("empty", &empty)];
@@ -961,7 +967,14 @@ fn compare_file_lists(oracle: &mut TsOracle) {
     });
     let response = oracle.request(&request);
     for (name, read, modified) in &format_cases {
-        expect_output(&response, name, &json!(format_file_operations(read, modified)));
+        expect_output(
+            &response,
+            name,
+            &json!(format_file_operations(
+                &read.iter().map(JsString::from).collect::<Vec<_>>(),
+                &modified.iter().map(JsString::from).collect::<Vec<_>>()
+            )),
+        );
     }
 }
 
@@ -1403,11 +1416,12 @@ async fn compare_generate_branch_summary(oracle: &mut TsOracle) {
         let (faux, models, model) = create_model(model);
         let log: CallLog = Arc::default();
         faux.set_responses(scripted_responses(&log, responses));
+        let native_custom = (*custom).map(JsString::from);
         let options = GenerateBranchSummaryOptions {
             models: &models,
             model: &model,
             signal: None,
-            custom_instructions: (*custom).map(JsString::from).as_ref(),
+            custom_instructions: native_custom.as_ref(),
             replace_instructions: *replace,
             reserve_tokens: *reserve,
             retry: None,

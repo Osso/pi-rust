@@ -262,7 +262,7 @@ fn expect_kept_tool_results_follow_calls(entries: &[Entry], first_kept_index: us
     }
 }
 
-fn role(message: &AgentMessage) -> &str {
+fn role(message: &AgentMessage) -> JsString {
     message.role()
 }
 
@@ -971,11 +971,11 @@ fn registered_models(faux: &FauxProviderHandle) -> pi_ai::models::ModelsCollecti
 
 #[derive(Debug, Clone, Default, PartialEq)]
 struct CapturedCall {
-    prompt: String,
+    prompt: JsString,
     max_tokens: Option<f64>,
     reasoning: Option<pi_ai::types::ThinkingLevel>,
     cache_retention: Option<CacheRetention>,
-    session_id: Option<String>,
+    session_id: Option<JsString>,
 }
 
 type CallLog = Arc<Mutex<Vec<CapturedCall>>>;
@@ -990,19 +990,19 @@ fn capture_call(context: &Context, options: Option<&SimpleStreamOptions>) -> Cap
     }
 }
 
-fn first_user_text(context: &Context) -> String {
+fn first_user_text(context: &Context) -> JsString {
     match context.messages.first() {
         Some(Message::User(user)) => match &user.content {
             UserContent::Text(text) => text.clone(),
-            UserContent::Blocks(blocks) => blocks
-                .iter()
-                .filter_map(|block| match block {
-                    TextOrImageContent::Text(text) => Some(text.text.as_str()),
+            UserContent::Blocks(blocks) => JsString::join(
+                blocks.iter().filter_map(|block| match block {
+                    TextOrImageContent::Text(text) => Some(text.text.clone()),
                     TextOrImageContent::Image(_) => None,
-                })
-                .collect(),
+                }),
+                "",
+            ),
         },
-        _ => String::new(),
+        _ => JsString::default(),
     }
 }
 
@@ -1119,8 +1119,10 @@ async fn includes_previous_summaries_and_custom_instructions_in_generate_summary
     faux.set_responses(scripted_responses(Arc::clone(&log), vec!["## Goal\nTest summary"]));
 
     let mut options = summary_options(&messages, &models, &model, 2000.0);
-    options.custom_instructions = Some(&JsString::from("focus"));
-    options.previous_summary = Some(&JsString::from("old summary"));
+    let options_custom_instructions = JsString::from("focus");
+    options.custom_instructions = Some(&options_custom_instructions);
+    let options_previous_summary = JsString::from("old summary");
+    options.previous_summary = Some(&options_previous_summary);
     let summary = generate_summary_with_usage(&options)
         .await
         .expect("summary must succeed");

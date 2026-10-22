@@ -23,14 +23,14 @@ fn temp_dir() -> TempDir {
 
 fn env_at(root: &Path) -> NodeExecutionEnv {
     NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(root.to_string_lossy().into_owned()),
+        cwd: JsString::from(root.to_str().expect("utf-8 test path").to_owned()),
         shell_path: None,
         shell_env: HashMap::new(),
     })
 }
 
-fn text(value: &str) -> FileContent<'_> {
-    FileContent::Text(&JsString::from(value))
+fn text(value: &JsString) -> FileContent<'_> {
+    FileContent::Text(value)
 }
 
 #[tokio::test]
@@ -40,20 +40,20 @@ async fn reads_writes_lists_and_removes_files_and_directories() {
 
     assert_eq!(
         env.absolute_path(&JsString::from("nested/child"), None).await.unwrap(),
-        root.path().join("nested/child").to_string_lossy()
+        root.path().join("nested/child").to_str().expect("utf-8 test path")
     );
     assert_eq!(
         env.join_path(
             &[
-                JsString::from(root.path().to_string_lossy().into_owned()),
+                JsString::from(root.path().to_str().expect("utf-8 test path").to_owned()),
                 JsString::from("nested"),
-                "child".to_owned()
+                JsString::from("child")
             ],
             None
         )
         .await
         .unwrap(),
-        root.path().join("nested/child").to_string_lossy()
+        root.path().join("nested/child").to_str().expect("utf-8 test path")
     );
 
     env.create_dir(
@@ -62,10 +62,14 @@ async fn reads_writes_lists_and_removes_files_and_directories() {
     )
     .await
     .unwrap();
-    env.write_file(&JsString::from("nested/child/file.txt"), text("hel"), None)
-        .await
-        .unwrap();
-    env.append_file(&JsString::from("nested/child/file.txt"), text("lo"))
+    env.write_file(
+        &JsString::from("nested/child/file.txt"),
+        text(&JsString::from("hel")),
+        None,
+    )
+    .await
+    .unwrap();
+    env.append_file(&JsString::from("nested/child/file.txt"), text(&JsString::from("lo")))
         .await
         .unwrap();
     assert_eq!(
@@ -95,7 +99,10 @@ async fn reads_writes_lists_and_removes_files_and_directories() {
     assert_eq!(entries[0].name, "file.txt");
     assert_eq!(
         entries[0].path,
-        root.path().join("nested/child/file.txt").to_string_lossy()
+        root.path()
+            .join("nested/child/file.txt")
+            .to_str()
+            .expect("utf-8 test path")
     );
     assert_eq!(entries[0].kind, FileKind::File);
     assert_eq!(entries[0].size, 5.0);
@@ -125,14 +132,20 @@ async fn expands_home_relative_paths_and_file_urls() {
         env.absolute_path(&JsString::from("~/pi-node-env-test"), None)
             .await
             .unwrap(),
-        Path::new(&home).join("pi-node-env-test").to_string_lossy()
+        Path::new(&home)
+            .join("pi-node-env-test")
+            .to_str()
+            .expect("utf-8 test path")
     );
 
     let file_path = root.path().join("file with spaces.txt");
-    let url = format!("file://{}", file_path.to_string_lossy().replace(' ', "%20"));
+    let url = format!(
+        "file://{}",
+        file_path.to_str().expect("utf-8 test path").replace(' ', "%20")
+    );
     assert_eq!(
         env.absolute_path(&JsString::from(&url), None).await.unwrap(),
-        file_path.to_string_lossy()
+        file_path.to_str().expect("utf-8 test path")
     );
 }
 
@@ -143,18 +156,21 @@ async fn reports_file_kinds_without_following_symlinks() {
     env.create_dir(&JsString::from("dir"), CreateDirOptions::default())
         .await
         .unwrap();
-    env.write_file(&JsString::from("dir/file.txt"), text("hello"), None)
+    env.write_file(&JsString::from("dir/file.txt"), text(&JsString::from("hello")), None)
         .await
         .unwrap();
     symlink(root.path().join("dir/file.txt"), root.path().join("file-link")).unwrap();
     symlink(root.path().join("dir"), root.path().join("dir-link")).unwrap();
 
     let dir = env.file_info(&JsString::from("dir")).await.unwrap();
-    assert_eq!((dir.name.as_str(), dir.kind), ("dir", FileKind::Directory));
+    assert_eq!(
+        (dir.name.clone(), dir.kind),
+        (JsString::from("dir"), FileKind::Directory)
+    );
     let file = env.file_info(&JsString::from("dir/file.txt")).await.unwrap();
     assert_eq!(
-        (file.name.as_str(), file.kind, file.size),
-        ("file.txt", FileKind::File, 5.0)
+        (file.name.clone(), file.kind, file.size),
+        (JsString::from("file.txt"), FileKind::File, 5.0)
     );
     assert_eq!(
         env.file_info(&JsString::from("file-link")).await.unwrap().kind,
@@ -168,7 +184,8 @@ async fn reports_file_kinds_without_following_symlinks() {
         env.canonical_path(&JsString::from("file-link")).await.unwrap(),
         std::fs::canonicalize(root.path().join("dir/file.txt"))
             .unwrap()
-            .to_string_lossy()
+            .to_str()
+            .expect("utf-8 test path")
     );
 }
 
@@ -176,7 +193,7 @@ async fn reports_file_kinds_without_following_symlinks() {
 async fn lists_symlinks_as_symlinks() {
     let root = temp_dir();
     let env = env_at(root.path());
-    env.write_file(&JsString::from("target.txt"), text("hello"), None)
+    env.write_file(&JsString::from("target.txt"), text(&JsString::from("hello")), None)
         .await
         .unwrap();
     symlink(root.path().join("target.txt"), root.path().join("link.txt")).unwrap();
@@ -192,8 +209,8 @@ async fn lists_symlinks_as_symlinks() {
     assert_eq!(
         entries,
         vec![
-            ("link.txt".to_owned(), FileKind::Symlink),
-            ("target.txt".to_owned(), FileKind::File)
+            (JsString::from("link.txt"), FileKind::Symlink),
+            (JsString::from("target.txt"), FileKind::File)
         ]
     );
 }
@@ -202,9 +219,13 @@ async fn lists_symlinks_as_symlinks() {
 async fn stops_reading_text_lines_at_the_requested_limit() {
     let root = temp_dir();
     let env = env_at(root.path());
-    env.write_file(&JsString::from("file.txt"), text("one\ntwo\nthree"), None)
-        .await
-        .unwrap();
+    env.write_file(
+        &JsString::from("file.txt"),
+        text(&JsString::from("one\ntwo\nthree")),
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(
         env.read_text_lines(
             &JsString::from("file.txt"),
@@ -240,7 +261,7 @@ async fn returns_file_errors_for_missing_paths_and_listing_non_directories() {
     assert_eq!(missing.code, FileErrorCode::NotFound);
     assert_eq!(
         missing.path.as_ref(),
-        Some(root.path().join("missing.txt").to_string_lossy().as_ref())
+        Some(root.path().join("missing.txt").to_str().expect("utf-8 test path"))
             .map(JsString::from)
             .as_ref()
     );
@@ -253,7 +274,7 @@ async fn returns_file_errors_for_missing_paths_and_listing_non_directories() {
     );
     assert!(!env.exists(&JsString::from("missing.txt"), None).await.unwrap());
 
-    env.write_file(&JsString::from("file.txt"), text("hello"), None)
+    env.write_file(&JsString::from("file.txt"), text(&JsString::from("hello")), None)
         .await
         .unwrap();
     let error = env.list_dir(&JsString::from("file.txt"), None).await.unwrap_err();
@@ -271,10 +292,10 @@ async fn returns_file_errors_for_missing_paths_and_listing_non_directories() {
 async fn appends_to_new_files_and_creates_parent_directories() {
     let root = temp_dir();
     let env = env_at(root.path());
-    env.append_file(&JsString::from("new/nested/file.txt"), text("a"))
+    env.append_file(&JsString::from("new/nested/file.txt"), text(&JsString::from("a")))
         .await
         .unwrap();
-    env.append_file(&JsString::from("new/nested/file.txt"), text("b"))
+    env.append_file(&JsString::from("new/nested/file.txt"), text(&JsString::from("b")))
         .await
         .unwrap();
     assert_eq!(
@@ -289,10 +310,10 @@ async fn appends_to_new_files_and_creates_parent_directories() {
 async fn renames_files_and_reports_the_source_path_on_failure() {
     let root = temp_dir();
     let env = env_at(root.path());
-    env.write_file(&JsString::from("source.txt"), text("new"), None)
+    env.write_file(&JsString::from("source.txt"), text(&JsString::from("new")), None)
         .await
         .unwrap();
-    env.write_file(&JsString::from("destination.txt"), text("old"), None)
+    env.write_file(&JsString::from("destination.txt"), text(&JsString::from("old")), None)
         .await
         .unwrap();
     env.rename_file(&JsString::from("source.txt"), &JsString::from("destination.txt"), None)
@@ -306,9 +327,13 @@ async fn renames_files_and_reports_the_source_path_on_failure() {
         "new"
     );
 
-    env.write_file(&JsString::from("destination.txt"), text("unchanged"), None)
-        .await
-        .unwrap();
+    env.write_file(
+        &JsString::from("destination.txt"),
+        text(&JsString::from("unchanged")),
+        None,
+    )
+    .await
+    .unwrap();
     let error = env
         .rename_file(
             &JsString::from("missing-source.txt"),
@@ -320,9 +345,14 @@ async fn renames_files_and_reports_the_source_path_on_failure() {
     assert_eq!(error.code, FileErrorCode::NotFound);
     assert_eq!(
         error.path.as_ref(),
-        (Some(root.path().join("missing-source.txt").to_string_lossy().as_ref()))
-            .map(JsString::from)
-            .as_ref()
+        (Some(
+            root.path()
+                .join("missing-source.txt")
+                .to_str()
+                .expect("utf-8 test path")
+        ))
+        .map(JsString::from)
+        .as_ref()
     );
     assert_eq!(
         env.read_text_file(&JsString::from("destination.txt"), None)
@@ -351,7 +381,8 @@ async fn creates_temporary_directories_and_files() {
         Path::new(&encode_node_utf8(&file))
             .file_name()
             .unwrap()
-            .to_string_lossy()
+            .to_str()
+            .expect("utf-8 test path")
             .starts_with("prefix-")
     );
 }
@@ -369,9 +400,13 @@ async fn honors_create_and_remove_options() {
         .unwrap_err();
     assert_eq!(error.code, FileErrorCode::NotFound);
 
-    env.write_file(&JsString::from("dir/child/file.txt"), text("hello"), None)
-        .await
-        .unwrap();
+    env.write_file(
+        &JsString::from("dir/child/file.txt"),
+        text(&JsString::from("hello")),
+        None,
+    )
+    .await
+    .unwrap();
     let error = env
         .remove(
             &JsString::from("dir"),
@@ -420,29 +455,33 @@ async fn honors_create_and_remove_options() {
 async fn returns_aborted_results_for_pre_aborted_cancellable_operations() {
     let root = temp_dir();
     let env = env_at(root.path());
-    env.write_file(&JsString::from("file.txt"), text("hello"), None)
+    env.write_file(&JsString::from("file.txt"), text(&JsString::from("hello")), None)
         .await
         .unwrap();
     let signal = CancellationToken::new();
     signal.cancel();
 
+    let join_arg_0 = JsString::from("file.txt");
+    let join_arg_1 = JsString::from("file.txt");
+    let join_arg_2 = JsString::from("file.txt");
+    let join_arg_3 = JsString::from("other.txt");
+    let join_arg_4 = JsString::from("x");
+    let join_arg_5 = JsString::from("file.txt");
+    let join_arg_6 = JsString::from("renamed.txt");
+    let join_arg_7 = JsString::from(".");
     let results = tokio::join!(
-        env.read_text_file(&JsString::from("file.txt"), Some(&signal)),
+        env.read_text_file(&join_arg_0, Some(&signal)),
         env.read_text_lines(
-            &JsString::from("file.txt"),
+            &join_arg_1,
             ReadTextLinesOptions {
                 max_lines: None,
                 abort: Some(signal.clone())
             }
         ),
-        env.read_binary_file(&JsString::from("file.txt"), Some(&signal)),
-        env.write_file(&JsString::from("other.txt"), text("x"), Some(&signal)),
-        env.rename_file(
-            &JsString::from("file.txt"),
-            &JsString::from("renamed.txt"),
-            Some(&signal)
-        ),
-        env.list_dir(&JsString::from("."), Some(&signal)),
+        env.read_binary_file(&join_arg_2, Some(&signal)),
+        env.write_file(&join_arg_3, text(&join_arg_4), Some(&signal)),
+        env.rename_file(&join_arg_5, &join_arg_6, Some(&signal)),
+        env.list_dir(&join_arg_7, Some(&signal)),
     );
     for code in [
         results.0.unwrap_err().code,
@@ -460,6 +499,7 @@ async fn returns_aborted_results_for_pre_aborted_cancellable_operations() {
 async fn executes_commands_in_cwd_with_environment_overrides() {
     let root = temp_dir();
     let env = env_at(root.path());
+    let sleep_command = JsString::from("sleep 5");
     let result = env
         .exec(
             &JsString::from("printf '%s:%s' \"$PWD\" \"$NODE_ENV_TEST\""),
@@ -487,7 +527,7 @@ async fn applies_shell_environment_overrides() {
     shell_env.insert("PI_SESSION_FILE".to_owned(), "/stale/parent.jsonl".to_owned());
     shell_env.insert("PI_CODING_AGENT".to_owned(), "true".to_owned());
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(root.path().to_string_lossy().into_owned()),
+        cwd: JsString::from(root.path().to_str().expect("utf-8 test path").to_owned()),
         shell_path: None,
         shell_env,
     });
@@ -520,13 +560,15 @@ async fn can_replace_rather_than_inherit_the_default_shell_environment() {
     let configured_key = "PI_NODE_ENV_CONFIGURED_TEST";
     let explicit_key = "PI_NODE_ENV_EXPLICIT_TEST";
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(root.path().to_string_lossy().into_owned()),
+        cwd: JsString::from(root.path().to_str().expect("utf-8 test path").to_owned()),
         shell_path: None,
         shell_env: HashMap::from([(configured_key.to_owned(), "configured".to_owned())]),
     });
     let result = env
         .exec(
-            &format!("printf '%s:%s' \"${{{configured_key}-}}\" \"${{{explicit_key}-}}\""),
+            &JsString::from(format!(
+                "printf '%s:%s' \"${{{configured_key}-}}\" \"${{{explicit_key}-}}\""
+            )),
             ShellExecOptions {
                 inherit_env: Some(false),
                 env: Some(HashMap::from([(explicit_key.to_owned(), "explicit".to_owned())])),
@@ -574,7 +616,7 @@ async fn reports_a_missing_working_directory_before_spawning() {
     let root = temp_dir();
     let missing = root.path().join("missing");
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(missing.to_string_lossy().into_owned()),
+        cwd: JsString::from(missing.to_str().expect("utf-8 test path").to_owned()),
         shell_path: None,
         shell_env: HashMap::new(),
     });
@@ -604,7 +646,7 @@ async fn returns_non_zero_exit_codes_and_timeout_errors() {
 
     let error = env
         .exec(
-            &JsString::from("sleep 5"),
+            &sleep_command,
             ShellExecOptions {
                 timeout: Some(0.01),
                 ..ShellExecOptions::default()
@@ -652,8 +694,8 @@ async fn returns_shell_unavailable_and_spawn_errors() {
     let root = temp_dir();
     let missing_shell = root.path().join("missing-shell");
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(root.path().to_string_lossy().into_owned()),
-        shell_path: Some(missing_shell.to_string_lossy().into_owned()),
+        cwd: JsString::from(root.path().to_str().expect("utf-8 test path").to_owned()),
+        shell_path: Some(missing_shell.to_str().expect("utf-8 test path").to_owned()),
         shell_env: HashMap::new(),
     });
     let error = env
@@ -667,12 +709,16 @@ async fn returns_shell_unavailable_and_spawn_errors() {
     );
 
     let shell_path = root.path().join("not-executable-shell");
-    env.write_file(&JsString::from("not-executable-shell"), text("not executable"), None)
-        .await
-        .unwrap();
+    env.write_file(
+        &JsString::from("not-executable-shell"),
+        text(&JsString::from("not executable")),
+        None,
+    )
+    .await
+    .unwrap();
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(root.path().to_string_lossy().into_owned()),
-        shell_path: Some(shell_path.to_string_lossy().into_owned()),
+        cwd: JsString::from(root.path().to_str().expect("utf-8 test path").to_owned()),
+        shell_path: Some(shell_path.to_str().expect("utf-8 test path").to_owned()),
         shell_env: HashMap::new(),
     });
     let error = env
@@ -687,8 +733,9 @@ async fn returns_an_aborted_result_for_aborted_commands() {
     let root = temp_dir();
     let env = env_at(root.path());
     let signal = CancellationToken::new();
+    let sleep_command = JsString::from("sleep 5");
     let execution = env.exec(
-        &JsString::from("sleep 5"),
+        &sleep_command,
         ShellExecOptions {
             abort: Some(signal.clone()),
             ..ShellExecOptions::default()

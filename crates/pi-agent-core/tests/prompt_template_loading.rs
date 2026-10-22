@@ -19,7 +19,7 @@ fn temp_dir() -> TempDir {
 
 fn env_at(root: &Path) -> NodeExecutionEnv {
     NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(root.to_string_lossy().into_owned()),
+        cwd: JsString::from(root.to_str().expect("utf-8 test path").to_owned()),
         shell_path: None,
         shell_env: HashMap::new(),
     })
@@ -98,7 +98,13 @@ async fn attaches_source_info_to_diagnostics() {
             r#type: PromptTemplateDiagnosticType::Warning,
             code: PromptTemplateDiagnosticCode::ParseFailed,
             message: result.diagnostics[0].diagnostic.message.clone(),
-            path: JsString::from(root.path().join("broken.md").to_string_lossy().into_owned()),
+            path: JsString::from(
+                root.path()
+                    .join("broken.md")
+                    .to_str()
+                    .expect("utf-8 test path")
+                    .to_owned()
+            ),
         }
     );
     assert_eq!(result.diagnostics[0].source, "user-source");
@@ -169,10 +175,10 @@ async fn requires_a_lowercase_markdown_extension_and_strips_only_one_suffix() {
 
     let result = load_prompt_templates(&env, &[&JsString::from("templates")]).await;
 
-    let names: Vec<&str> = result
+    let names: Vec<JsString> = result
         .prompt_templates
         .iter()
-        .map(|template| template.name.as_str())
+        .map(|template| template.name.clone())
         .collect();
     assert_eq!(names, vec!["two.md"]);
 }

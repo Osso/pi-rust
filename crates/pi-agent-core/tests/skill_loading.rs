@@ -18,7 +18,7 @@ fn temp_dir() -> TempDir {
 
 fn env_at(root: &Path) -> NodeExecutionEnv {
     NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(root.to_string_lossy().into_owned()),
+        cwd: JsString::from(root.to_str().expect("utf-8 test path").to_owned()),
         shell_path: None,
         shell_env: HashMap::new(),
     })
@@ -35,7 +35,7 @@ fn skill(name: &str, description: &str, content: &str, file_path: PathBuf, disab
         name: JsString::from(name.to_owned()),
         description: description.to_owned(),
         content: content.to_owned(),
-        file_path: JsString::from(file_path.to_string_lossy().into_owned()),
+        file_path: JsString::from(file_path.to_str().expect("utf-8 test path").to_owned()),
         disable_model_invocation: Some(disable_model_invocation),
     }
 }
@@ -45,7 +45,7 @@ fn diagnostic(code: SkillDiagnosticCode, message: &str, path: PathBuf) -> SkillD
         r#type: SkillDiagnosticType::Warning,
         code,
         message: JsString::from(message.to_owned()),
-        path: JsString::from(path.to_string_lossy().into_owned()),
+        path: JsString::from(path.to_str().expect("utf-8 test path").to_owned()),
     }
 }
 
@@ -59,7 +59,9 @@ async fn loads_skill_files_through_the_execution_environment() {
         "---\nname: example\ndescription: Example skill\ndisable-model-invocation: true\n---\nUse this skill.\n",
     );
 
-    let result = load_skills(&env, &[&JsString::from(".agents/skills")]).await;
+    let result = load_skills(&env, &[&JsString::from(".agents/skills")])
+        .await
+        .expect("load skills");
 
     assert_eq!(result.diagnostics, Vec::new());
     assert_eq!(
@@ -85,13 +87,18 @@ async fn loads_skills_through_symlinked_directories() {
     );
     symlink(root.path().join("actual"), root.path().join("skills-link")).unwrap();
 
-    let result = load_skills(&env, &[&JsString::from("skills-link")]).await;
+    let result = load_skills(&env, &[&JsString::from("skills-link")])
+        .await
+        .expect("load skills");
 
-    let names: Vec<&str> = result.skills.iter().map(|skill| skill.name.as_str()).collect();
+    let names: Vec<JsString> = result.skills.iter().map(|skill| skill.name.clone()).collect();
     assert_eq!(names, vec!["example"]);
     assert_eq!(
         result.skills[0].file_path,
-        root.path().join("skills-link/example/SKILL.md").to_string_lossy()
+        root.path()
+            .join("skills-link/example/SKILL.md")
+            .to_str()
+            .expect("utf-8 test path")
     );
     assert_eq!(result.skills[0].disable_model_invocation, Some(false));
 }
@@ -106,7 +113,9 @@ async fn preserves_source_info_for_sourced_skills() {
         "---\nname: example\ndescription: Example skill\n---\nUse this skill.",
     );
 
-    let result = load_sourced_skills(&env, &[(JsString::from("user"), "user-source".to_owned())], None).await;
+    let result = load_sourced_skills(&env, &[(JsString::from("user"), "user-source".to_owned())], None)
+        .await
+        .expect("load skills");
 
     assert_eq!(result.diagnostics, Vec::new());
     assert_eq!(result.skills.len(), 1);
@@ -133,7 +142,9 @@ async fn attaches_source_info_to_diagnostics() {
         "---\nname: broken\n---\nMissing description.",
     );
 
-    let result = load_sourced_skills(&env, &[(JsString::from("user"), "user-source".to_owned())], None).await;
+    let result = load_sourced_skills(&env, &[(JsString::from("user"), "user-source".to_owned())], None)
+        .await
+        .expect("load skills");
 
     assert!(result.skills.is_empty());
     assert_eq!(result.diagnostics.len(), 1);
@@ -163,9 +174,11 @@ async fn loads_direct_markdown_children_only_from_the_root_directory() {
         "---\ndescription: Ignored\n---\nIgnored content",
     );
 
-    let result = load_skills(&env, &[&JsString::from("skills")]).await;
+    let result = load_skills(&env, &[&JsString::from("skills")])
+        .await
+        .expect("load skills");
 
-    let names: Vec<&str> = result.skills.iter().map(|skill| skill.name.as_str()).collect();
+    let names: Vec<JsString> = result.skills.iter().map(|skill| skill.name.clone()).collect();
     assert_eq!(names, vec!["skills"]);
     assert_eq!(result.skills[0].content, "Root content");
 }
@@ -210,8 +223,10 @@ async fn applies_gitignore_ignore_and_fdignore_rules_per_directory() {
         "---\nname: visible\ndescription: Visible\n---\nbody",
     );
 
-    let result = load_skills(&env, &[&JsString::from("skills")]).await;
-    let mut names: Vec<&str> = result.skills.iter().map(|skill| skill.name.as_str()).collect();
+    let result = load_skills(&env, &[&JsString::from("skills")])
+        .await
+        .expect("load skills");
+    let mut names: Vec<JsString> = result.skills.iter().map(|skill| skill.name.clone()).collect();
     names.sort_unstable();
 
     assert_eq!(names, vec!["kept", "skills", "visible"]);
@@ -242,17 +257,19 @@ async fn reports_metadata_validation_warnings_and_skips_invalid_skills() {
         "---\nname: Other\ndescription: Bad name\n---\nbody",
     );
 
-    let result = load_skills(&env, &[&JsString::from("skills")]).await;
+    let result = load_skills(&env, &[&JsString::from("skills")])
+        .await
+        .expect("load skills");
 
     assert_eq!(result.skills.len(), 5);
-    let mut names: Vec<&str> = result.skills.iter().map(|skill| skill.name.as_str()).collect();
+    let mut names: Vec<JsString> = result.skills.iter().map(|skill| skill.name.clone()).collect();
     names.sort_unstable();
     assert_eq!(names, vec!["-edge", "Invalid", "Other", "a--b", &long_name]);
 
-    let messages: Vec<&str> = result
+    let messages: Vec<JsString> = result
         .diagnostics
         .iter()
-        .map(|diagnostic| diagnostic.message.as_str())
+        .map(|diagnostic| diagnostic.message.clone())
         .collect();
     assert_eq!(
         messages,
@@ -284,7 +301,9 @@ async fn warns_about_overlong_descriptions_but_keeps_the_skill() {
         &format!("---\ndescription: {long_description}\n---\nbody"),
     );
 
-    let result = load_skills(&env, &[&JsString::from("skills")]).await;
+    let result = load_skills(&env, &[&JsString::from("skills")])
+        .await
+        .expect("load skills");
 
     assert_eq!(result.skills.len(), 1);
     assert_eq!(
@@ -303,7 +322,9 @@ async fn skips_missing_inputs_and_non_directory_roots() {
     let env = env_at(root.path());
     write(root.path(), "file.md", "---\ndescription: File\n---\nbody");
 
-    let result = load_skills(&env, &[&JsString::from("missing"), &JsString::from("file.md")]).await;
+    let result = load_skills(&env, &[&JsString::from("missing"), &JsString::from("file.md")])
+        .await
+        .expect("load skills");
 
     assert!(result.skills.is_empty());
     assert_eq!(result.diagnostics, Vec::new());
@@ -324,9 +345,11 @@ async fn short_circuits_a_directory_containing_skill_markdown() {
         "---\nname: nested\ndescription: Nested\n---\nnested body",
     );
 
-    let result = load_skills(&env, &[&JsString::from("skills")]).await;
+    let result = load_skills(&env, &[&JsString::from("skills")])
+        .await
+        .expect("load skills");
 
-    let names: Vec<&str> = result.skills.iter().map(|skill| skill.name.as_str()).collect();
+    let names: Vec<JsString> = result.skills.iter().map(|skill| skill.name.clone()).collect();
     assert_eq!(names, vec!["skills"]);
 }
 
@@ -340,14 +363,19 @@ async fn reports_parse_failures_and_read_failures() {
         "---\ndescription: [unterminated\n---\nbody",
     );
 
-    let result = load_skills(&env, &[&JsString::from("skills")]).await;
+    let result = load_skills(&env, &[&JsString::from("skills")])
+        .await
+        .expect("load skills");
 
     assert!(result.skills.is_empty());
     assert_eq!(result.diagnostics.len(), 1);
     assert_eq!(result.diagnostics[0].code, SkillDiagnosticCode::ParseFailed);
     assert_eq!(
         result.diagnostics[0].path,
-        root.path().join("skills/broken/SKILL.md").to_string_lossy()
+        root.path()
+            .join("skills/broken/SKILL.md")
+            .to_str()
+            .expect("utf-8 test path")
     );
 }
 
@@ -363,9 +391,9 @@ async fn skips_dot_directories_and_node_modules() {
         );
     }
 
-    let result = load_skills(&env, &[&JsString::from(".")]).await;
+    let result = load_skills(&env, &[&JsString::from(".")]).await.expect("load skills");
 
-    let names: Vec<&str> = result.skills.iter().map(|skill| skill.name.as_str()).collect();
+    let names: Vec<JsString> = result.skills.iter().map(|skill| skill.name.clone()).collect();
     assert_eq!(names, vec!["visible"]);
 }
 
@@ -382,7 +410,9 @@ async fn resolves_yaml_binary_tags_to_their_scalar_text() {
         "---\ndescription: !!binary aGk=\n---\nbody",
     );
 
-    let result = load_skills(&env, &[&JsString::from("skills")]).await;
+    let result = load_skills(&env, &[&JsString::from("skills")])
+        .await
+        .expect("load skills");
 
     assert_eq!(result.skills.len(), 1);
     assert_eq!(result.skills[0].description, "aGk=");

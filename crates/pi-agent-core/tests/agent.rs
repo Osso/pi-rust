@@ -960,7 +960,7 @@ async fn continue_keeps_one_at_a_time_steering_from_assistant_tail() {
     agent.steer(user_block_message("Steering 2"));
     agent.continue_run(ContinueOptions::default()).await.unwrap();
     let messages = agent.messages();
-    let recent: Vec<&str> = messages
+    let recent: Vec<JsString> = messages
         .iter()
         .rev()
         .take(4)
@@ -1055,7 +1055,7 @@ async fn pending_tool_calls_preserve_insertion_order() {
         ..Default::default()
     })
     .unwrap();
-    let observed = Arc::new(Mutex::new(Vec::<Vec<String>>::new()));
+    let observed = Arc::new(Mutex::new(Vec::<Vec<JsString>>::new()));
     let observed_hook = Arc::clone(&observed);
     let agent_hook = agent.clone();
     agent.subscribe(Arc::new(move |event, _signal| {
@@ -1082,7 +1082,7 @@ async fn forwards_should_stop_after_turn_through_agent_options() {
     let tool = TestTool::no_args("noop", || text_result("tool complete"));
     let request_count = Arc::new(AtomicUsize::new(0));
     let request_count_hook = Arc::clone(&request_count);
-    let callback_roles = Arc::new(Mutex::new(Vec::<String>::new()));
+    let callback_roles = Arc::new(Mutex::new(Vec::<JsString>::new()));
     let callback_roles_hook = Arc::clone(&callback_roles);
     let agent = Agent::new(AgentOptions {
         initial_state: Some(pi_agent_core::agent::AgentInitialState {
@@ -1132,7 +1132,7 @@ async fn forwards_should_stop_after_turn_through_agent_options() {
 
 #[tokio::test]
 async fn forwards_session_id_to_stream_function_options() {
-    let received = Arc::new(Mutex::new(Vec::<Option<String>>::new()));
+    let received = Arc::new(Mutex::new(Vec::<Option<JsString>>::new()));
     let received_hook = Arc::clone(&received);
     let agent = Agent::new(AgentOptions {
         session_id: Some(JsString::from("session-abc")),
@@ -1152,14 +1152,14 @@ async fn forwards_session_id_to_stream_function_options() {
     .unwrap();
     agent.prompt("hello").await.unwrap();
     assert_eq!(
-        received.lock().unwrap().last().cloned().flatten().as_deref(),
+        received.lock().unwrap().last().cloned().flatten().as_ref(),
         Some("session-abc")
     );
     agent.set_session_id(Some(JsString::from("session-def")));
     assert_eq!(agent.session_id().as_ref(), Some(&JsString::from("session-def")));
     agent.prompt("hello again").await.unwrap();
     assert_eq!(
-        received.lock().unwrap().last().cloned().flatten().as_deref(),
+        received.lock().unwrap().last().cloned().flatten().as_ref(),
         Some("session-def")
     );
 }
@@ -1183,6 +1183,6 @@ async fn prompt_accepts_agent_messages_and_batches() {
         .await
         .unwrap();
     let messages = agent.messages();
-    let roles: Vec<&str> = messages.iter().map(|message| message.role()).collect();
+    let roles: Vec<JsString> = messages.iter().map(|message| message.role()).collect();
     assert_eq!(roles, vec!["user", "assistant", "user", "user", "assistant"]);
 }

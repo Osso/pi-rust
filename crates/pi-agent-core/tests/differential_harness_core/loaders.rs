@@ -239,7 +239,7 @@ fn skills_fixtures() -> Vec<Fixture> {
 
 fn env_at(root: &Path) -> NodeExecutionEnv {
     NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(root.to_string_lossy().into_owned()),
+        cwd: JsString::from(root.to_str().expect("utf-8 test path").to_owned()),
         shell_path: None,
         shell_env: HashMap::new(),
     })
@@ -278,7 +278,7 @@ fn fixture_json(root: &Path, fixture: &Fixture) -> Value {
         .map(|(target, path)| json!({"target": target, "path": path}))
         .collect();
     json!({
-        "root": root.to_string_lossy(),
+        "root": root.to_str().expect("utf-8 test path"),
         "files": files,
         "dirs": fixture.dirs,
         "symlinks": symlinks,
@@ -355,20 +355,23 @@ async fn rust_output(fixture: &Fixture, root: &Path) -> Value {
     let env = env_at(root);
     match fixture.operation {
         "skills_load" => {
-            let paths: Vec<&str> = fixture.paths.iter().map(String::as_str).collect();
-            let result = load_skills(&env, &paths).await;
+            let native_paths: Vec<JsString> = fixture.paths.iter().map(JsString::from).collect();
+            let paths: Vec<&JsString> = native_paths.iter().collect();
+            let result = load_skills(&env, &paths).await.expect("load fixture skills");
             json!({
                 "skills": result.skills.iter().map(skill_json).collect::<Vec<_>>(),
                 "diagnostics": result.diagnostics.iter().map(skill_diagnostic_json).collect::<Vec<_>>(),
             })
         }
         "skills_load_sourced" => {
-            let inputs: Vec<(String, String)> = fixture
+            let inputs: Vec<(JsString, String)> = fixture
                 .sources
                 .iter()
-                .map(|(path, source)| (path.clone(), source.clone()))
+                .map(|(path, source)| (JsString::from(path), source.clone()))
                 .collect();
-            let result: SourcedSkillLoadResult<String> = load_sourced_skills(&env, &inputs, None).await;
+            let result: SourcedSkillLoadResult<String> = load_sourced_skills(&env, &inputs, None)
+                .await
+                .expect("load sourced fixture skills");
             json!({
                 "skills": result.skills.iter().map(|sourced| json!({
                     "skill": skill_json(&sourced.skill),
@@ -382,7 +385,8 @@ async fn rust_output(fixture: &Fixture, root: &Path) -> Value {
             })
         }
         "prompt_templates_load" => {
-            let paths: Vec<&str> = fixture.paths.iter().map(String::as_str).collect();
+            let native_paths: Vec<JsString> = fixture.paths.iter().map(JsString::from).collect();
+            let paths: Vec<&JsString> = native_paths.iter().collect();
             let result = load_prompt_templates(&env, &paths).await;
             json!({
                 "promptTemplates": result.prompt_templates.iter().map(template_json).collect::<Vec<_>>(),
@@ -390,10 +394,10 @@ async fn rust_output(fixture: &Fixture, root: &Path) -> Value {
             })
         }
         "prompt_templates_load_sourced" => {
-            let inputs: Vec<(String, String)> = fixture
+            let inputs: Vec<(JsString, String)> = fixture
                 .sources
                 .iter()
-                .map(|(path, source)| (path.clone(), source.clone()))
+                .map(|(path, source)| (JsString::from(path), source.clone()))
                 .collect();
             let result: SourcedPromptTemplateLoadResult<String> =
                 load_sourced_prompt_templates(&env, &inputs, None).await;
@@ -429,7 +433,7 @@ pub(crate) async fn compare_all_fixtures(oracle: &mut TsOracle) {
 
         let actual = normalize(
             &rust_output(&fixture, rust_root.path()).await,
-            &rust_root.path().to_string_lossy(),
+            &rust_root.path().to_str().expect("utf-8 test path"),
         );
         let mut actual = actual;
         let mut expected = expected;

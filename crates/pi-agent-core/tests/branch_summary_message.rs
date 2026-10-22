@@ -66,8 +66,8 @@ fn preserves_empty_unicode_control_and_xml_sensitive_strings() {
     assert_eq!(message.summary, "😀e\u{301}\0\r\n<&>\"'");
     assert_eq!(message.from_id, "路径/😀/e\u{301}\0\r\n<&>\"'");
 
-    message.summary.clear();
-    message.from_id.clear();
+    message.summary = JsString::default();
+    message.from_id = JsString::default();
     assert!(message.summary.is_empty());
     assert!(message.from_id.is_empty());
 }

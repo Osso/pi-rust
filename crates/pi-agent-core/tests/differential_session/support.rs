@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -133,22 +134,21 @@ pub(crate) fn error_json(error: &SessionError) -> Value {
     })
 }
 
-fn normalize_path(path: &str, root: &str) -> String {
+fn normalize_path(path: &JsString, root: &str) -> JsString {
     let with_root = match path.strip_prefix(root) {
-        Some(rest) => format!("<root>{rest}"),
+        Some(rest) => pi_js_compat::js_format!("<root>{}", rest),
         None => path.to_owned(),
     };
-    with_root
-        .split('/')
-        .map(|part| {
+    JsString::join(
+        with_root.split('/').map(|part| {
             if part.starts_with("--") && part.ends_with("--") {
-                "<sessionDir>".to_owned()
+                JsString::from("<sessionDir>")
             } else {
                 part.to_owned()
             }
-        })
-        .collect::<Vec<_>>()
-        .join("/")
+        }),
+        "/",
+    )
 }
 
 pub(crate) fn normalize_jsonl_metadata(metadata: &JsonlSessionMetadata, root: &str) -> Value {
@@ -236,11 +236,11 @@ pub(crate) fn record_query(value: &Value) -> RecordQuery {
     }
 }
 
-pub(crate) fn read_files(root: &Path) -> Map<String, Value> {
-    fn walk(directory: &Path, prefix: &str, root: &str, files: &mut Map<String, Value>) {
+pub(crate) fn read_files(root: &Path) -> pi_js_compat::js_json::JsObject {
+    fn walk(directory: &Path, prefix: &str, root: &str, files: &mut pi_js_compat::js_json::JsObject) {
         for entry in std::fs::read_dir(directory).expect("session root must list") {
             let entry = entry.expect("directory entry");
-            let name = entry.file_name().to_string_lossy().into_owned();
+            let name = entry.file_name().to_str().expect("utf-8 test path").to_owned();
             let relative = if prefix.is_empty() {
                 name.clone()
             } else {
@@ -251,14 +251,14 @@ pub(crate) fn read_files(root: &Path) -> Map<String, Value> {
                 walk(&path, &relative, root, files);
             } else {
                 let content = std::fs::read_to_string(&path).expect("session file must read");
-                let key = normalize_path(&format!("/{relative}"), root);
+                let key = normalize_path(&pi_js_compat::js_format!("/{}", relative), root);
                 let content = content.replace(root, "<root>");
-                files.insert(key, json!(content));
+                files.insert(key, pi_js_compat::js_json!(content));
             }
         }
     }
-    let mut files = Map::new();
-    walk(root, "", &root.to_string_lossy(), &mut files);
+    let mut files = pi_js_compat::js_json::JsObject::new();
+    walk(root, "", &root.to_str().expect("utf-8 test path"), &mut files);
     files
 }
 

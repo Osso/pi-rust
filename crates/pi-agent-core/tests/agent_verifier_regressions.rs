@@ -1,6 +1,5 @@
-use pi_js_compat::js_json::JsString;
-use pi_js_compat::js_json::JsValue;
 mod steering {
+    use pi_js_compat::js_json::{JsString, JsValue};
 
     use pi_agent_core::agent::*;
     use pi_ai::request::BoxFuture;
@@ -26,7 +25,7 @@ mod steering {
         fn execute(
             &self,
             _: String,
-            _: Value,
+            _: JsValue,
             _: Option<CancellationToken>,
             _: AgentToolUpdateCallback,
             _: Option<AgentToolExecutionContext>,
@@ -110,6 +109,7 @@ mod steering {
     }
 }
 mod lifetime {
+    use pi_js_compat::js_json::{JsString, JsValue};
 
     use pi_agent_core::agent::*;
     use pi_ai::request::BoxFuture;
@@ -139,7 +139,7 @@ mod lifetime {
         fn execute(
             &self,
             _: String,
-            _: Value,
+            _: JsValue,
             _: Option<CancellationToken>,
             update: AgentToolUpdateCallback,
             _: Option<AgentToolExecutionContext>,
@@ -246,6 +246,7 @@ mod lifetime {
     }
 }
 mod proxy_body {
+    use pi_js_compat::js_json::JsString;
 
     use pi_agent_core::agent::*;
     use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};

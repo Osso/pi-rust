@@ -293,7 +293,10 @@ impl AgentTool for TestTool {
 
 pub async fn collect_events(
     mut stream: EventStream<AgentEvent, Vec<pi_agent_core::agent::AgentMessage>>,
-) -> (Vec<AgentEvent>, Result<Vec<pi_agent_core::agent::AgentMessage>, String>) {
+) -> (
+    Vec<AgentEvent>,
+    Result<Vec<pi_agent_core::agent::AgentMessage>, JsString>,
+) {
     let mut events = Vec::new();
     while let Some(event) = stream.next().await {
         events.push(event.expect("agent event stream must not fail"));

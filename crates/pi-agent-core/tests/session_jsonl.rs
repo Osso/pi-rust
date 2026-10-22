@@ -51,9 +51,9 @@ fn repo(root: &Path) -> JsonlSessionRepo {
     JsonlSessionRepo::with_clock(
         JsonlSessionRepoOptions {
             fs: Arc::new(pi_agent_core::harness::session::jsonl::types::NativeFileSystem::new(
-                root,
+                JsString::from(root.to_str().expect("utf-8 test path")),
             )),
-            sessions_root: JsString::from(root.to_string_lossy().into_owned()),
+            sessions_root: JsString::from(root.to_str().expect("utf-8 test path").to_owned()),
         },
         Arc::new(|| 1_700_000_000_000),
     )
@@ -63,7 +63,7 @@ fn repo_with_fs(root: &Path, fs: Arc<dyn JsonlSessionRepoFileSystem>) -> JsonlSe
     JsonlSessionRepo::with_clock(
         JsonlSessionRepoOptions {
             fs,
-            sessions_root: JsString::from(root.to_string_lossy().into_owned()),
+            sessions_root: JsString::from(root.to_str().expect("utf-8 test path").to_owned()),
         },
         Arc::new(|| 1_700_000_000_000),
     )
@@ -73,7 +73,7 @@ fn create_options(id: &str, cwd: &Path) -> JsonlSessionCreateOptions {
     JsonlSessionCreateOptions {
         id: Some(id.to_owned()),
         parent_session_id: None,
-        cwd: JsString::from(cwd.to_string_lossy().into_owned()),
+        cwd: JsString::from(cwd.to_str().expect("utf-8 test path").to_owned()),
         metadata: None,
     }
 }
@@ -90,7 +90,13 @@ fn find_session_file(root: &Path, id: &str) -> std::path::PathBuf {
             let path = entry.unwrap().path();
             if path.is_dir() {
                 pending.push(path);
-            } else if path.file_name().unwrap().to_string_lossy().ends_with(&suffix) {
+            } else if path
+                .file_name()
+                .unwrap()
+                .to_str()
+                .expect("utf-8 test path")
+                .ends_with(&suffix)
+            {
                 return path;
             }
         }
@@ -128,7 +134,12 @@ async fn resume_data_serializes_in_source_key_order() {
                 original_prompt: vec![user_message("prompt")],
                 initial_messages: Vec::new(),
                 system_prompt_override: None,
-                resume_data: Some(resume_data),
+                resume_data: Some(
+                    resume_data
+                        .into_iter()
+                        .map(|(key, value)| (key, JsValue::from(value)))
+                        .collect(),
+                ),
             },
         })
         .await
@@ -270,7 +281,7 @@ async fn round_trips_every_entry_type_and_bounded_branch_queries() {
                     tokens_before: 123.0,
                     retained_tail: vec![user_message("retained")],
                     duration_ms: None,
-                    details: json!({"source": "test"}).into(),
+                    details: JsValue::from(json!({"source": "test"})).into(),
                     usage: Some(usage(1.0)),
                 },
                 "main",
@@ -285,7 +296,7 @@ async fn round_trips_every_entry_type_and_bounded_branch_queries() {
                     id: "branch-summary".to_owned(),
                     from_id: "message".to_owned(),
                     summary: JsString::from("branch"),
-                    details: json!({"reason": "navigation"}).into(),
+                    details: JsValue::from(json!({"reason": "navigation"})).into(),
                     usage: Some(usage(2.0)),
                 },
                 "main",
@@ -299,7 +310,7 @@ async fn round_trips_every_entry_type_and_bounded_branch_queries() {
                 EntryBody::Custom {
                     id: "custom".to_owned(),
                     custom_type: "note".to_owned(),
-                    data: json!({"nested": {"value": 1}}).into(),
+                    data: JsValue::from(json!({"nested": {"value": 1}})).into(),
                 },
                 "main",
             )
@@ -370,7 +381,7 @@ async fn round_trips_every_entry_type_and_bounded_branch_queries() {
 
     let mut custom = restored.get_entry("custom").await.unwrap().unwrap();
     if let EntryBody::Custom { data, .. } = &mut custom.body {
-        *data = json!({"nested": {"value": 99}}).into();
+        *data = JsValue::from(json!({"nested": {"value": 99}})).into();
     }
     assert_eq!(
         restored.get_entry("custom").await.unwrap().unwrap(),
@@ -403,7 +414,7 @@ async fn round_trips_every_record_type_and_ledger_statistics() {
                     system_prompt_override: Some("system".to_owned()),
                     resume_data: Some(indexmap::IndexMap::from([(
                         "extension".to_owned(),
-                        json!({"version": 1}),
+                        pi_js_compat::js_json!({"version": 1}),
                     )])),
                 },
             })
@@ -469,7 +480,7 @@ async fn round_trips_every_record_type_and_ledger_statistics() {
                 target: EntryBody::Custom {
                     id: "deferred-entry".to_owned(),
                     custom_type: "fact".to_owned(),
-                    data: json!({"value": true}).into(),
+                    data: JsValue::from(json!({"value": true})).into(),
                 },
             })
             .await
@@ -520,7 +531,7 @@ async fn round_trips_every_record_type_and_ledger_statistics() {
                 attempt: None,
                 stop_reason: None,
                 tool_call_id: None,
-                details: json!({"reason": "correction"}).into(),
+                details: JsValue::from(json!({"reason": "correction"})).into(),
                 usage: usage(5.0),
             })
             .await
@@ -794,7 +805,7 @@ async fn rejects_invalid_headers_and_replay_errors_without_modifying_files() {
     let error = repository.open(&raw).await.unwrap_err();
     assert_eq!(
         error.message(),
-        format!(
+        &pi_js_compat::js_format!(
             "Invalid JSONL v4 session {}: line 2 Invalid session mutation: references missing parent missing",
             raw.path
         )
@@ -839,7 +850,7 @@ async fn rejects_lane_chaining_and_sequence_errors_during_replay() {
         assert_eq!(error.code(), SessionErrorCode::InvalidEntry);
         assert!(
             error.message().contains(expected),
-            "expected {expected} in {}",
+            "expected {expected} in {:?}",
             error.message()
         );
     }
@@ -1047,7 +1058,7 @@ async fn metadata_contract_id_validation_and_listing_order() {
         .create(JsonlSessionCreateOptions {
             id: Some("metadata".to_owned()),
             parent_session_id: Some("parent".to_owned()),
-            cwd: JsString::from(cwd.to_string_lossy().into_owned()),
+            cwd: JsString::from(cwd.to_str().expect("utf-8 test path").to_owned()),
             metadata: Some(
                 json!({"owner": "agent", "nested": {"enabled": true}})
                     .as_object()
@@ -1060,13 +1071,13 @@ async fn metadata_contract_id_validation_and_listing_order() {
     let metadata = session.get_metadata().await.unwrap();
     assert_eq!(metadata.id, "metadata");
     assert_eq!(metadata.parent_session_id.as_deref(), Some("parent"));
-    assert_eq!(metadata.cwd, cwd.to_string_lossy());
+    assert_eq!(metadata.cwd, cwd.to_str().expect("utf-8 test path"));
     assert_eq!(metadata.source_format, 4);
     assert_eq!(metadata.metadata.as_ref().unwrap()["owner"], json!("agent"));
     assert_eq!(
         repository
             .list(JsonlSessionListOptions {
-                cwd: Some(JsString::from(cwd.to_string_lossy().into_owned()))
+                cwd: Some(JsString::from(cwd.to_str().expect("utf-8 test path").to_owned()))
             })
             .await
             .unwrap(),
@@ -1075,7 +1086,9 @@ async fn metadata_contract_id_validation_and_listing_order() {
     assert!(
         repository
             .list(JsonlSessionListOptions {
-                cwd: Some(JsString::from(root.path().join("other").to_string_lossy().into_owned()))
+                cwd: Some(JsString::from(
+                    root.path().join("other").to_str().expect("utf-8 test path").to_owned()
+                ))
             })
             .await
             .unwrap()
@@ -1133,13 +1146,15 @@ struct FailingFileSystem {
 impl FailingFileSystem {
     fn new(root: &Path) -> Self {
         Self {
-            inner: pi_agent_core::harness::session::jsonl::types::NativeFileSystem::new(root),
+            inner: pi_agent_core::harness::session::jsonl::types::NativeFileSystem::new(JsString::from(
+                root.to_str().expect("utf-8 test path"),
+            )),
             fail_append: AtomicBool::new(false),
             fail_rename: AtomicBool::new(false),
         }
     }
 
-    fn failure(path: &str) -> FileError {
+    fn failure(path: &JsString) -> FileError {
         FileError::new(
             pi_agent_core::harness::types::FileErrorCode::Unknown,
             "injected failure",
@@ -1151,7 +1166,7 @@ impl FailingFileSystem {
 
 impl JsonlSessionRepoFileSystem for FailingFileSystem {
     fn absolute_path<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<JsString, FileError>> {
-        self.inner.absolute_path(&JsString::from(path))
+        self.inner.absolute_path(path)
     }
 
     fn join_path<'a>(&'a self, parts: &'a [JsString]) -> BoxFuture<'a, Result<JsString, FileError>> {
@@ -1159,7 +1174,7 @@ impl JsonlSessionRepoFileSystem for FailingFileSystem {
     }
 
     fn read_text_file<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<String, FileError>> {
-        self.inner.read_text_file(&JsString::from(path))
+        self.inner.read_text_file(path)
     }
 
     fn read_text_lines<'a>(
@@ -1167,11 +1182,11 @@ impl JsonlSessionRepoFileSystem for FailingFileSystem {
         path: &'a JsString,
         max_lines: Option<usize>,
     ) -> BoxFuture<'a, Result<Vec<String>, FileError>> {
-        self.inner.read_text_lines(&JsString::from(path), max_lines)
+        self.inner.read_text_lines(path, max_lines)
     }
 
     fn write_file<'a>(&'a self, path: &'a JsString, content: &'a str) -> BoxFuture<'a, Result<(), FileError>> {
-        self.inner.write_file(&JsString::from(path), content)
+        self.inner.write_file(path, content)
     }
 
     fn append_file<'a>(&'a self, path: &'a JsString, content: &'a str) -> BoxFuture<'a, Result<(), FileError>> {
@@ -1204,23 +1219,23 @@ impl JsonlSessionRepoFileSystem for FailingFileSystem {
     }
 
     fn file_info<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<FileInfo, FileError>> {
-        self.inner.file_info(&JsString::from(path))
+        self.inner.file_info(path)
     }
 
     fn list_dir<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<Vec<FileInfo>, FileError>> {
-        self.inner.list_dir(&JsString::from(path))
+        self.inner.list_dir(path)
     }
 
     fn exists<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<bool, FileError>> {
-        self.inner.exists(&JsString::from(path))
+        self.inner.exists(path)
     }
 
     fn create_dir<'a>(&'a self, path: &'a JsString, recursive: bool) -> BoxFuture<'a, Result<(), FileError>> {
-        self.inner.create_dir(&JsString::from(path), recursive)
+        self.inner.create_dir(path, recursive)
     }
 
     fn remove<'a>(&'a self, path: &'a JsString, recursive: bool, force: bool) -> BoxFuture<'a, Result<(), FileError>> {
-        self.inner.remove(&JsString::from(path), recursive, force)
+        self.inner.remove(path, recursive, force)
     }
 }
 
@@ -1277,14 +1292,16 @@ async fn fork_failures_leave_no_partial_file() {
         repository.list(JsonlSessionListOptions::default()).await.unwrap().len(),
         1
     );
-    let directory = Path::new(&encode_node_utf8(&source_metadata.path)).parent().unwrap();
-    assert!(
-        std::fs::read_dir(directory).unwrap().all(|entry| !entry
+    let source_path = encode_node_utf8(&source_metadata.path);
+    let directory = Path::new(&source_path).parent().unwrap();
+    assert!(std::fs::read_dir(directory).unwrap().all(|entry| {
+        !entry
             .unwrap()
             .file_name()
-            .to_string_lossy()
-            .ends_with(".tmp"))
-    );
+            .to_str()
+            .expect("utf-8 test path")
+            .ends_with(".tmp")
+    }));
 
     fs.fail_rename.store(true, Ordering::SeqCst);
     let error = repository
@@ -1300,13 +1317,14 @@ async fn fork_failures_leave_no_partial_file() {
         repository.list(JsonlSessionListOptions::default()).await.unwrap().len(),
         1
     );
-    assert!(
-        std::fs::read_dir(directory).unwrap().all(|entry| !entry
+    assert!(std::fs::read_dir(directory).unwrap().all(|entry| {
+        !entry
             .unwrap()
             .file_name()
-            .to_string_lossy()
-            .ends_with(".tmp"))
-    );
+            .to_str()
+            .expect("utf-8 test path")
+            .ends_with(".tmp")
+    }));
 }
 
 fn raw_session(root: &Path, id: &str, mutations: &[serde_json::Value]) -> JsonlSessionMetadata {
@@ -1318,8 +1336,8 @@ fn raw_session(root: &Path, id: &str, mutations: &[serde_json::Value]) -> JsonlS
     JsonlSessionMetadata {
         id: id.to_owned(),
         created_at: 1,
-        cwd: JsString::from(root.to_string_lossy().into_owned()),
-        path: JsString::from(path.to_string_lossy().into_owned()),
+        cwd: JsString::from(root.to_str().expect("utf-8 test path").to_owned()),
+        path: JsString::from(path.to_str().expect("utf-8 test path").to_owned()),
         modified_at: 0.0,
         source_format: 4,
         parent_session_id: None,

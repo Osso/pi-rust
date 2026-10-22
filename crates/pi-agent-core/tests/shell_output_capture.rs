@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 fn env() -> (TempDir, Arc<dyn ExecutionEnv>) {
     let root = tempfile::tempdir().expect("temp dir");
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(root.path().to_string_lossy().into_owned()),
+        cwd: JsString::from(root.path().to_str().expect("utf-8 test path").to_owned()),
         shell_path: None,
         shell_env: HashMap::new(),
     });
@@ -24,6 +24,7 @@ fn env() -> (TempDir, Arc<dyn ExecutionEnv>) {
 #[tokio::test]
 async fn captures_large_output_to_a_full_output_file() {
     let (root, env) = env();
+    let sleep_command = JsString::from("sleep 5");
     let result = execute_shell_with_capture(
         &env,
         &JsString::from("yes line | head -n 15000"),
@@ -65,13 +66,14 @@ async fn reports_cancelled_commands() {
     let cancellation = signal.clone();
     let execution = execute_shell_with_capture(
         &env,
-        &JsString::from("sleep 5"),
+        &sleep_command,
         ShellCaptureOptions {
             abort: Some(signal),
             ..ShellCaptureOptions::default()
         },
     );
     cancellation.cancel();
+    let sleep_command = JsString::from("sleep 5");
     let result = execution.await.unwrap();
     assert!(result.cancelled);
     assert_eq!(result.exit_code, None);
@@ -98,7 +100,7 @@ async fn returns_execution_errors_when_requested() {
 
     let error = execute_shell_with_capture(
         &env,
-        &JsString::from("sleep 5"),
+        &sleep_command,
         ShellCaptureOptions {
             timeout: Some(0.01),
             ..ShellCaptureOptions::default()

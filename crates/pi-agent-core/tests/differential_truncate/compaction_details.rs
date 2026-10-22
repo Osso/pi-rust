@@ -1,4 +1,5 @@
 use pi_agent_core::harness::compaction::CompactionDetails;
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 use super::{oracle::TsOracle, support::ok_response};
@@ -39,8 +40,12 @@ fn request(fixture: &Fixture) -> Value {
 
 fn rust_response(fixture: &Fixture) -> Value {
     let details = CompactionDetails {
-        read_files: fixture.read_files.iter().map(|value| (*value).to_owned()).collect(),
-        modified_files: fixture.modified_files.iter().map(|value| (*value).to_owned()).collect(),
+        read_files: fixture.read_files.iter().map(|value| JsString::from(*value)).collect(),
+        modified_files: fixture
+            .modified_files
+            .iter()
+            .map(|value| JsString::from(*value))
+            .collect(),
     };
     ok_response(
         fixture.request_id,

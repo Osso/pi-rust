@@ -25,7 +25,7 @@ use tokio_util::sync::CancellationToken;
 fn temp_env() -> (TempDir, Arc<ExecutionToolContext>) {
     let root = tempfile::tempdir().expect("temp dir");
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(root.path().to_string_lossy().into_owned()),
+        cwd: JsString::from(root.path().to_str().expect("utf-8 test path").to_owned()),
         shell_path: None,
         shell_env: HashMap::new(),
     });
@@ -767,7 +767,12 @@ async fn bash_supports_command_prefixes_and_prepare_hooks() {
         )
         .await
         .unwrap();
-    let workspace = root.path().join("workspace").to_string_lossy().into_owned();
+    let workspace = root
+        .path()
+        .join("workspace")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let tool = BashTool::with_options(
         Arc::clone(&context),
         BashToolOptions {

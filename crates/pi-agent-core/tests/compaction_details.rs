@@ -27,7 +27,7 @@ fn preserves_source_shaped_fields_and_public_mutation() {
 fn preserves_empty_vectors_and_ordered_duplicate_values() {
     let details = CompactionDetails {
         read_files: Vec::new(),
-        modified_files: vec![JsString::from("first"), JsString::from("first"), "".to_owned()],
+        modified_files: vec![JsString::from("first"), JsString::from("first"), JsString::default()],
     };
 
     assert!(details.read_files.is_empty());

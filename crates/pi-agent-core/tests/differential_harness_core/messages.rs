@@ -113,7 +113,7 @@ pub(crate) fn compare_all_fixtures(oracle: &mut TsOracle) {
         .iter()
         .map(|message| serde_json::from_value(message.clone()).expect("agent message"))
         .collect();
-    let converted = convert_to_llm(&agent_messages);
+    let converted = convert_to_llm(&agent_messages).expect("convert fixture messages");
     let converted = serde_json::to_value(converted).expect("converted messages must serialize");
     assert_eq!(converted, *expected, "convert_to_llm fixture");
 

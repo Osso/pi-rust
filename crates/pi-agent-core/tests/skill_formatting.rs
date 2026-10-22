@@ -13,10 +13,10 @@ fn skill(name: &str, description: &str, content: &str, file_path: &str) -> Skill
     }
 }
 
-fn relative_directory(file_path: &str) -> String {
+fn relative_directory(file_path: &str) -> JsString {
     let output = format_skill_invocation(&skill("name", "description", "content", file_path), None);
     output
-        .lines()
+        .split('\n')
         .nth(1)
         .expect("skill invocation must include a relative-directory line")
         .to_owned()
@@ -45,7 +45,14 @@ fn system_prompt_filters_hidden_skills_and_preserves_visible_order_and_duplicate
     assert!(!output.contains("hidden"));
     assert!(!output.contains("hidden content"));
     assert!(output.find("<name>first</name>").unwrap() < output.find("<name>second</name>").unwrap());
-    assert_eq!(output.matches("<name>second</name>").count(), 2);
+    assert_eq!(
+        output
+            .units()
+            .windows(JsString::from("<name>second</name>").len())
+            .filter(|units| *units == JsString::from("<name>second</name>").units())
+            .count(),
+        2
+    );
     assert_eq!(format_skills_for_system_prompt(&[]), "");
 
     let mut all_hidden = skill("hidden", "hidden", "hidden content", "/skills/hidden/SKILL.md");
