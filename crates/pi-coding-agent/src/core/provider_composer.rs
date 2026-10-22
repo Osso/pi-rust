@@ -266,7 +266,7 @@ pub struct AuthStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<AuthStatusSource>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
+    pub label: Option<JsString>,
 }
 
 /// Re-exported cache reset (`clearApiKeyCache`).

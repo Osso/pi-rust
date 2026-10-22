@@ -8,28 +8,31 @@ use pi_ai::auth::types::{
 };
 use pi_ai::models::Provider;
 use pi_ai::request::{BoxFuture, CallbackError};
-use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::{
+    js_format,
+    js_json::{JsString, encode_node_utf8},
+};
 use tokio_util::sync::CancellationToken;
 
 use crate::core::model_runtime::ModelRuntime;
 use crate::utils::chalk::Chalk;
 
 /// Opens one OAuth URL through `browser-cli`.
-pub type BrowserCliOpener = Arc<dyn Fn(String) -> BoxFuture<'static, Result<(), JsString>> + Send + Sync>;
+pub type BrowserCliOpener = Arc<dyn Fn(JsString) -> BoxFuture<'static, Result<(), JsString>> + Send + Sync>;
 
 /// Terminal IO used by the login flow.
 pub trait LoginIo: Send + Sync {
     fn stdout(&self, message: &JsString);
     fn stderr(&self, message: &JsString);
     /// Write `prompt`, then return one input line (without its newline).
-    fn read_line<'a>(&'a self, prompt: &'a str) -> BoxFuture<'a, Result<String, JsString>>;
+    fn read_line<'a>(&'a self, prompt: &'a JsString) -> BoxFuture<'a, Result<JsString, JsString>>;
 }
 
 /// Process stdio: prompts read one line on a TTY, or consume buffered lines
 /// collected from piped stdin like the source's readline fallback.
 pub struct StdioLoginIo {
     is_tty: bool,
-    lines: Mutex<Option<Vec<String>>>,
+    lines: Mutex<Option<Vec<JsString>>>,
     next_line: Mutex<usize>,
 }
 
@@ -42,7 +45,7 @@ impl StdioLoginIo {
         }
     }
 
-    fn next_buffered_line(&self) -> String {
+    fn next_buffered_line(&self) -> JsString {
         let mut lines = self.lines.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let lines = lines.get_or_insert_with(read_stdin_lines);
         let mut index = self.next_line.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -58,16 +61,16 @@ impl Default for StdioLoginIo {
     }
 }
 
-fn read_stdin_lines() -> Vec<String> {
+fn read_stdin_lines() -> Vec<JsString> {
     use std::io::Read;
     let mut text = String::new();
     let _ = std::io::stdin().read_to_string(&mut text);
     split_lines(&text)
 }
 
-fn split_lines(text: &str) -> Vec<String> {
+fn split_lines(text: &str) -> Vec<JsString> {
     text.split('\n')
-        .map(|line| line.strip_suffix('\r').unwrap_or(line).to_owned())
+        .map(|line| JsString::from(line.strip_suffix('\r').unwrap_or(line)))
         .collect()
 }
 
@@ -86,9 +89,9 @@ impl LoginIo for StdioLoginIo {
         let _ = stderr.flush();
     }
 
-    fn read_line<'a>(&'a self, prompt: &'a str) -> BoxFuture<'a, Result<String, JsString>> {
+    fn read_line<'a>(&'a self, prompt: &'a JsString) -> BoxFuture<'a, Result<JsString, JsString>> {
         Box::pin(async move {
-            self.stdout(&prompt.into());
+            self.stdout(prompt);
             if !self.is_tty {
                 return Ok(self.next_buffered_line());
             }
@@ -97,7 +100,7 @@ impl LoginIo for StdioLoginIo {
                 std::io::stdin()
                     .read_line(&mut line)
                     .map_err(|error| JsString::from(error.to_string()))?;
-                Ok(line.trim_end_matches(['\r', '\n']).to_owned())
+                Ok(JsString::from(line.trim_end_matches(['\r', '\n'])))
             })
             .await
             .map_err(|error| JsString::from(error.to_string()))?
@@ -145,29 +148,28 @@ fn print_login_usage(io: &dyn LoginIo, model_runtime: &ModelRuntime) {
 
 fn select_option<'a>(
     io: &'a dyn LoginIo,
-    message: &'a str,
+    message: &'a JsString,
     options: &'a [AuthSelectOption],
-) -> BoxFuture<'a, Result<String, JsString>> {
+) -> BoxFuture<'a, Result<JsString, JsString>> {
     Box::pin(async move {
         io.stdout(&(JsString::from(message) + "\n"));
         for (index, option) in options.iter().enumerate() {
-            io.stdout(&format!("  {}. {} ({})\n", index + 1, option.label, option.id).into());
+            io.stdout(&js_format!("  {}. {} ({})\n", index + 1, &option.label, &option.id));
         }
 
-        let default_option_id = options.first().map(|option| option.id.as_str());
-        let answer = pi_js_compat::string::js_trim(
-            &io.read_line(&format!(
+        let default_option_id = options.first().map(|option| option.id.clone());
+        let answer = io
+            .read_line(&js_format!(
                 "Enter number or id (default: {}): ",
-                default_option_id.unwrap_or("none")
+                default_option_id.clone().unwrap_or_else(|| "none".into())
             ))
-            .await?,
-        )
-        .to_owned();
+            .await?
+            .trim();
         if answer.is_empty() {
-            return Ok(default_option_id.unwrap_or_default().to_owned());
+            return Ok(default_option_id.unwrap_or_default());
         }
 
-        let selected_index = pi_js_compat::number::parse_int(&answer.encode_utf16().collect::<Vec<_>>(), 10) - 1.0;
+        let selected_index = pi_js_compat::number::parse_int(answer.units(), 10) - 1.0;
         if selected_index.is_finite()
             && selected_index >= 0.0
             && selected_index.fract() == 0.0
@@ -184,23 +186,23 @@ fn select_option<'a>(
     })
 }
 
-fn prompt_message(prompt: &AuthPrompt) -> String {
+fn prompt_message(prompt: &AuthPrompt) -> JsString {
     match &prompt.kind {
         AuthPromptKind::Text { message, placeholder }
         | AuthPromptKind::Secret { message, placeholder }
-        | AuthPromptKind::ManualCode { message, placeholder } => format_prompt(message, placeholder.as_deref()),
+        | AuthPromptKind::ManualCode { message, placeholder } => format_prompt(message, placeholder.as_ref()),
         AuthPromptKind::Select { message, .. } => message.clone(),
     }
 }
 
-fn format_prompt(message: &str, placeholder: Option<&str>) -> String {
+fn format_prompt(message: &JsString, placeholder: Option<&JsString>) -> JsString {
     match placeholder {
-        Some(placeholder) => format!("{message} ({placeholder}): "),
-        None => format!("{message}: "),
+        Some(placeholder) => js_format!("{} ({}): ", message, placeholder),
+        None => js_format!("{}: ", message),
     }
 }
 
-fn prompt_for_auth<'a>(io: &'a dyn LoginIo, prompt: &'a AuthPrompt) -> BoxFuture<'a, Result<String, JsString>> {
+fn prompt_for_auth<'a>(io: &'a dyn LoginIo, prompt: &'a AuthPrompt) -> BoxFuture<'a, Result<JsString, JsString>> {
     Box::pin(async move {
         match &prompt.kind {
             AuthPromptKind::Select { message, options } => select_option(io, message, options).await,
@@ -209,36 +211,36 @@ fn prompt_for_auth<'a>(io: &'a dyn LoginIo, prompt: &'a AuthPrompt) -> BoxFuture
     })
 }
 
-fn print_info_event(event_message: &str, links: Option<&[AuthInfoLink]>, io: &dyn LoginIo) {
-    io.stdout(&format!("{event_message}\n").into());
+fn print_info_event(event_message: &JsString, links: Option<&[AuthInfoLink]>, io: &dyn LoginIo) {
+    io.stdout(&js_format!("{}\n", event_message));
     for link in links.unwrap_or_default() {
         match &link.label {
-            Some(label) => io.stdout(&format!("{label}: {}\n", link.url).into()),
-            None => io.stdout(&format!("{}\n", link.url).into()),
+            Some(label) => io.stdout(&js_format!("{}: {}\n", label, &link.url)),
+            None => io.stdout(&js_format!("{}\n", &link.url)),
         }
     }
 }
 
-fn print_auth_instructions(event: &AuthEvent, io: &dyn LoginIo) -> String {
+fn print_auth_instructions(event: &AuthEvent, io: &dyn LoginIo) -> JsString {
     let (url, instructions, device_code) = match event {
-        AuthEvent::AuthUrl { url, instructions } => (url.clone(), instructions.as_deref(), None),
+        AuthEvent::AuthUrl { url, instructions } => (url.clone(), instructions.as_ref(), None),
         AuthEvent::DeviceCode {
             user_code,
             verification_uri,
             expires_in_seconds,
             ..
         } => (verification_uri.clone(), None, Some((user_code, *expires_in_seconds))),
-        _ => return String::new(),
+        _ => return JsString::default(),
     };
 
     io.stdout(&"\n".into());
     io.stdout(&"Open this URL in your browser:\n".into());
-    io.stdout(&format!("{url}\n").into());
+    io.stdout(&js_format!("{}\n", &url));
     if let Some(instructions) = instructions {
-        io.stdout(&format!("{instructions}\n").into());
+        io.stdout(&js_format!("{}\n", instructions));
     }
     if let Some((user_code, expires_in_seconds)) = device_code {
-        io.stdout(&format!("Enter code: {user_code}\n").into());
+        io.stdout(&js_format!("Enter code: {}\n", user_code));
         if let Some(expires_in_seconds) = expires_in_seconds {
             io.stdout(
                 &format!(
@@ -260,7 +262,7 @@ fn notify_auth_event(
 ) {
     match event {
         AuthEvent::Progress { message } => {
-            io.stdout(&format!("{message}\n").into());
+            io.stdout(&js_format!("{}\n", message));
             return;
         }
         AuthEvent::Info { message, links } => {
@@ -300,7 +302,7 @@ impl AuthInteraction for CliAuthInteraction {
         self.signal.clone()
     }
 
-    fn prompt(&self, prompt: AuthPrompt) -> BoxFuture<'_, Result<String, CallbackError>> {
+    fn prompt(&self, prompt: AuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>> {
         Box::pin(async move {
             let io = Arc::clone(&self.io);
             prompt_for_auth(io.as_ref(), &prompt).await.map_err(CallbackError::new)
@@ -347,8 +349,9 @@ async fn run_login_with_prompt(
 }
 
 /// Default browser opener: `browser-cli open <url>`.
-pub fn open_url_with_browser_cli(url: String) -> BoxFuture<'static, Result<(), JsString>> {
+pub fn open_url_with_browser_cli(url: JsString) -> BoxFuture<'static, Result<(), JsString>> {
     Box::pin(async move {
+        let url = encode_node_utf8(&url);
         let mut child = crate::utils::child_process::spawn_process("browser-cli", &["open", &url])
             .map_err(|error| JsString::from(error.to_string()))?;
         let output = crate::utils::child_process::wait_for_child_process(&mut child)
