@@ -5,6 +5,7 @@ mod env_probe;
 #[path = "support/executable_script.rs"]
 mod executable_script;
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -269,7 +270,7 @@ fn git_dependencies_install_without_dev_dependencies_by_default_probe() {
 #[test]
 fn remove_deletes_the_checkout_and_prunes_empty_parents() {
     let fixture = Fixture::new();
-    block(fixture.manager(SOURCE).remove(SOURCE, false)).unwrap();
+    block(fixture.manager(SOURCE).remove(&JsString::from(SOURCE), false)).unwrap();
 
     assert!(!fixture.installed.exists());
     assert!(!fixture.agent_dir.join("git/github.com").exists());

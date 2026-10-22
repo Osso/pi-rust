@@ -2,6 +2,7 @@ use pi_coding_agent::core::source_info::{
     SourceInfo as ModuleSourceInfo, SourceOrigin, SourceScope, SyntheticSourceInfoOptions, create_synthetic_source_info,
 };
 use pi_coding_agent::{SourceInfo, create_synthetic_source_info as create_from_root};
+use pi_js_compat::js_json::JsString;
 use std::fmt::Debug;
 
 fn assert_debug<T: Debug>(_: &T) {}
@@ -50,8 +51,8 @@ fn synthetic_source_info_applies_defaults_and_preserves_overrides() {
         base_dir: Some("C:\\base\r\n".to_owned().into()),
     };
 
-    let default_result = create_synthetic_source_info("", &defaults);
-    let explicit_result = create_from_root("旧\n", &explicit);
+    let default_result = create_synthetic_source_info(&JsString::from(""), &defaults);
+    let explicit_result = create_from_root(&JsString::from("旧\n"), &explicit);
 
     assert_eq!(default_result.scope, SourceScope::Temporary);
     assert_eq!(default_result.origin, SourceOrigin::TopLevel);
@@ -72,8 +73,8 @@ fn synthetic_source_info_returns_fresh_mutable_results_and_reuses_options() {
         base_dir: Some("/base".to_owned().into()),
     };
 
-    let mut first = create_synthetic_source_info("first", &options);
-    let second = create_synthetic_source_info("second", &options);
+    let mut first = create_synthetic_source_info(&JsString::from("first"), &options);
+    let second = create_synthetic_source_info(&JsString::from("second"), &options);
 
     first.path = "changed".to_owned().into();
     first.source = "changed-source".to_owned().into();

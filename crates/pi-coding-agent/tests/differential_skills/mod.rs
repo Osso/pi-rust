@@ -1,6 +1,7 @@
 #[path = "../support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -181,7 +182,7 @@ fn skill(name: &str, description: &str, file_path: &str, base_dir: &str, hidden:
         file_path: file_path.to_owned().into(),
         base_dir: base_dir.to_owned().into(),
         source_info: pi_coding_agent::core::source_info::create_synthetic_source_info(
-            file_path,
+            &JsString::from(file_path),
             &pi_coding_agent::core::source_info::SyntheticSourceInfoOptions {
                 source: "test".to_owned().into(),
                 scope: None,

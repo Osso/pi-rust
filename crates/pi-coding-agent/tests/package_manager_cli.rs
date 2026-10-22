@@ -5,9 +5,10 @@ use pi_coding_agent::package_manager_cli::{
     PackageAction, PackageCommand, UpdateTarget, format_package_list, handle_config_command, handle_package_command,
     package_command_usage, parse_package_command, update_target_includes_extensions, update_target_includes_self,
 };
+use pi_js_compat::js_json::JsString;
 
-fn args(values: &[&str]) -> Vec<String> {
-    values.iter().map(|value| (*value).to_owned()).collect()
+fn args(values: &[&str]) -> Vec<JsString> {
+    values.iter().map(|value| JsString::from(*value)).collect()
 }
 
 #[test]

@@ -1,5 +1,7 @@
 //! Differential proof for `auth-guidance.ts`, `trust-manager.ts`, and `permissions/rule-store.ts`.
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::fs;
 use std::path::PathBuf;
 
@@ -54,7 +56,7 @@ fn decision_value(decision: ProjectTrustDecision) -> Value {
 
 fn options_value(cwd: &str, include_session_only: bool) -> Value {
     Value::Array(
-        get_project_trust_options(cwd, include_session_only)
+        get_project_trust_options(&JsString::from(cwd), include_session_only)
             .into_iter()
             .map(|option| {
                 let mut value = json!({
@@ -136,7 +138,7 @@ fn trust_store_matches_the_pinned_typescript_module() {
     let _ = fs::remove_file(agent_dir.join("trust.json"));
     let _ = fs::remove_dir_all(agent_dir.join("trust.json.lock"));
 
-    let store = ProjectTrustStore::new(&agent_dir.display().to_string());
+    let store = ProjectTrustStore::new(&JsString::from(&agent_dir.display().to_string())).unwrap();
     let mut results: Vec<Value> = Vec::new();
     results.push(decision_value(store.get(&child.display().to_string()).unwrap()));
     store
@@ -156,7 +158,9 @@ fn trust_store_matches_the_pinned_typescript_module() {
     results.push(decision_value(store.get(&child.display().to_string()).unwrap()));
     results.push(options_value(&child.display().to_string(), false));
     results.push(options_value(&child.display().to_string(), true));
-    results.push(json!(get_project_trust_parent_path(&child.display().to_string())));
+    results.push(json!(get_project_trust_parent_path(&JsString::from(
+        &child.display().to_string()
+    ))));
     store
         .set_many(&[
             ProjectTrustUpdate {
@@ -346,14 +350,14 @@ fn permission_rule_store_matches_the_pinned_typescript_module() {
     let mut results: Vec<Value> = Vec::new();
     store.add_allow_rules("bash", &["git status".to_owned().into()]);
     results.push(Value::Null);
-    results.push(json!(store.has_allow_rule("bash", "git status")));
-    results.push(json!(store.has_allow_rule("bash", "git diff")));
-    results.push(json!(store.has_allow_rule("read", "git status")));
-    store.add_settings_rules(Some(
+    results.push(json!(store.has_allow_rule("bash", &JsString::from("git status"))));
+    results.push(json!(store.has_allow_rule("bash", &JsString::from("git diff"))));
+    results.push(json!(store.has_allow_rule("read", &JsString::from("git status"))));
+    store.add_settings_rules(Some(&JsValue::from(
         &json!({"permissionRules": {"allow": {"read": ["/tmp/a", 3], "grep": "nope"}}}),
-    ));
+    )));
     results.push(Value::Null);
-    results.push(json!(store.has_allow_rule("read", "/tmp/a")));
+    results.push(json!(store.has_allow_rule("read", &JsString::from("/tmp/a"))));
     store.apply_updated_permissions(
         "bash",
         Some(&[

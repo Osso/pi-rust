@@ -1,6 +1,7 @@
 //! Cross-implementation proof for `auth.json`: the pinned TypeScript `AuthStorage` and the Rust port
 //! read and write the same bytes, and both honor the shared `proper-lockfile` protocol.
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -100,7 +101,7 @@ fn auth_json_bytes_match_and_both_runtimes_read_each_other() {
     let ts_file = response["output"]["file"].as_str().unwrap().to_owned();
     let ts_credential = response["output"]["credential"].clone();
 
-    let storage = AuthStorage::create(Some(&auth_path.display().to_string()));
+    let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string())));
     let read = runtime()
         .block_on(storage.read("anthropic", AuthOperationOptions::default()))
         .unwrap();
@@ -108,7 +109,7 @@ fn auth_json_bytes_match_and_both_runtimes_read_each_other() {
 
     // Rust writes the same logical change into a fresh file; bytes must match exactly.
     fs::write(&auth_path, "{}").unwrap();
-    let rust_storage = AuthStorage::create(Some(&auth_path.display().to_string()));
+    let rust_storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string())));
     let modified = runtime()
         .block_on(rust_storage.modify(
             "anthropic",
@@ -172,7 +173,7 @@ fn rust_waits_for_a_typescript_holder_and_typescript_reports_rust_holders() {
     // TypeScript holds `<auth.json>.lock`; the Rust read must wait, then see the data.
     let mut holder = spawn_peer(&root, "hold", &auth_path, Some("500"));
     assert_eq!(read_line(&mut holder), "LOCKED");
-    let storage = AuthStorage::create(Some(&auth_path.display().to_string()));
+    let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string())));
     let started = Instant::now();
     let read = runtime()
         .block_on(storage.read("anthropic", AuthOperationOptions::default()))

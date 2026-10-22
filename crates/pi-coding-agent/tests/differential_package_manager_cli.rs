@@ -6,6 +6,7 @@ mod oracle;
 
 use oracle::TsOracle;
 use pi_coding_agent::package_manager_cli::{handle_config_command, handle_package_command};
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 fn check(oracle: &mut TsOracle, operation: &str, args: &[&str]) {

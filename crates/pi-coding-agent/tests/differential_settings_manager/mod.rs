@@ -160,7 +160,7 @@ fn apply_step(manager: &mut SettingsManager, step: &Value, agent_dir: &Path, pro
     match op {
         "set_last_changelog_version" => manager.set_last_changelog_version(&JsString::from(value.as_str().unwrap())),
         "set_enable_analytics" => manager.set_enable_analytics(value.as_bool().unwrap()),
-        "set_theme" => manager.set_theme(value.as_str().unwrap()),
+        "set_theme" => manager.set_theme(&JsString::from(value.as_str().unwrap())),
         "set_default_provider" => manager.set_default_provider(value.as_str().unwrap()),
         "set_default_model" => manager.set_default_model(value.as_str().unwrap()),
         "set_default_model_and_provider" => {
@@ -278,7 +278,7 @@ fn apply_step(manager: &mut SettingsManager, step: &Value, agent_dir: &Path, pro
             manager.flush();
         }
         "setter_external_write_same_turn" => {
-            manager.set_theme(value.as_str().unwrap());
+            manager.set_theme(&JsString::from(value.as_str().unwrap()));
             fs::write(agent_dir.join("settings.json"), step["content"].as_str().unwrap()).unwrap();
             manager.flush();
         }
@@ -426,14 +426,14 @@ fn snapshot(manager: &SettingsManager) -> Value {
         "warnings": Value::Object(manager.get_warnings()),
         "permissionPromptTool": manager.get_permission_prompt_tool(),
         "agentProfiles": {
-            "browser": manager.get_agent_profile("browser"),
-            "explore": manager.get_agent_profile("explore"),
-            "implement": manager.get_agent_profile("implement"),
-            "verifier": manager.get_agent_profile("verifier"),
-            "documentation-update": manager.get_agent_profile("documentation-update"),
-            "reviewer": manager.get_agent_profile("reviewer"),
-            "unknown": manager.get_agent_profile("unknown"),
-            "empty": manager.get_agent_profile("   "),
+            "browser": manager.get_agent_profile(&JsString::from("browser")),
+            "explore": manager.get_agent_profile(&JsString::from("explore")),
+            "implement": manager.get_agent_profile(&JsString::from("implement")),
+            "verifier": manager.get_agent_profile(&JsString::from("verifier")),
+            "documentation-update": manager.get_agent_profile(&JsString::from("documentation-update")),
+            "reviewer": manager.get_agent_profile(&JsString::from("reviewer")),
+            "unknown": manager.get_agent_profile(&JsString::from("unknown")),
+            "empty": manager.get_agent_profile(&JsString::from("   ")),
         },
     })
 }
@@ -742,7 +742,7 @@ pub(crate) fn bidirectional() {
     rust.set_compaction_enabled(false);
     rust.set_hide_tool_output(true);
     rust.set_hide_coordination_messages(true);
-    rust.set_shell_path(Some("~/literal/../shell"));
+    rust.set_shell_path(Some(&JsString::from("~/literal/../shell")));
     rust.set_project_extension_paths(&["Rust-extension".to_owned().into()])
         .unwrap();
     rust.flush();

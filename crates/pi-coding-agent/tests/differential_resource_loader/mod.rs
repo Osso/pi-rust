@@ -1,6 +1,7 @@
 #[path = "../support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::Path;
 
@@ -22,14 +23,14 @@ pub(crate) fn run() {
         let response = oracle.request(&json!({"id": 1, "operation": "rules", "dir": &dir}));
         assert_eq!(response["ok"], true, "oracle failed: {response}");
 
-        let files = load_rules_files_from_dir(&dir).expect("rules files load");
+        let files = load_rules_files_from_dir(&JsString::from(&dir)).expect("rules files load");
         let actual_files: Vec<Value> = files
             .iter()
             .map(|file| json!({"path": file.path, "content": file.content}))
             .collect();
         assert_eq!(Value::Array(actual_files), response["output"]["files"]);
 
-        let content = load_rules_from_dir(&dir).expect("rules content load");
+        let content = load_rules_from_dir(&JsString::from(&dir)).expect("rules content load");
         assert_eq!(
             content.map_or(Value::Null, Value::String),
             response["output"]["content"]

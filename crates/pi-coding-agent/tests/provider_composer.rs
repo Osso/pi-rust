@@ -1,5 +1,6 @@
 //! Ports provider-composition cases from `packages/coding-agent/test/model-registry.test.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -220,7 +221,7 @@ fn base_url_override_keeps_models_and_rewrites_urls() {
         &dir,
         json!({"anthropic": {"baseUrl": "https://my-proxy.example.com/v1"}}),
     );
-    let config = ModelConfig::load(Some(&path));
+    let config = ModelConfig::load(Some(&JsString::from(&path)));
     let provider = compose_model_provider("anthropic", Some(anthropic_base()), &config, None).unwrap();
     let models = provider.get_models();
     assert_eq!(models.len(), 2);
@@ -236,7 +237,7 @@ fn base_url_override_keeps_models_and_rewrites_urls() {
 fn base_url_override_does_not_affect_other_providers() {
     let dir = temp_dir("other-provider");
     let path = write_models(&dir, json!({"anthropic": {"baseUrl": "https://proxy.example.com"}}));
-    let config = ModelConfig::load(Some(&path));
+    let config = ModelConfig::load(Some(&JsString::from(&path)));
     let google = TestProvider::boxed(
         "google",
         vec![model(
@@ -258,7 +259,7 @@ fn custom_models_inherit_api_and_base_url_from_builtin_models() {
         &dir,
         json!({"anthropic": {"models": [{"id": "claude-custom", "reasoning": true, "input": ["text"]}]}}),
     );
-    let config = ModelConfig::load(Some(&path));
+    let config = ModelConfig::load(Some(&JsString::from(&path)));
     let provider = compose_model_provider("anthropic", Some(anthropic_base()), &config, None).unwrap();
     let custom = provider
         .get_models()
@@ -277,7 +278,7 @@ fn custom_models_for_unknown_provider_require_base_url() {
         &dir,
         json!({"my-custom-provider": {"apiKey": "test-key", "models": [{"id": "my-model", "api": "openai-completions", "reasoning": false, "input": ["text"]}]}}),
     );
-    let config = ModelConfig::load(Some(&path));
+    let config = ModelConfig::load(Some(&JsString::from(&path)));
     let error = compose_model_provider("my-custom-provider", None, &config, None)
         .err()
         .expect("expected composition error");
@@ -289,7 +290,7 @@ fn custom_models_for_unknown_provider_require_base_url() {
 fn provider_without_any_configuration_reports_the_expected_error() {
     let dir = temp_dir("empty-provider");
     let path = write_models(&dir, json!({"empty": {}}));
-    let config = ModelConfig::load(Some(&path));
+    let config = ModelConfig::load(Some(&JsString::from(&path)));
     let error = compose_model_provider("empty", None, &config, None)
         .err()
         .expect("expected composition error");
@@ -307,7 +308,7 @@ fn provider_level_base_url_applies_to_builtin_and_custom_models() {
         &dir,
         json!({"anthropic": {"baseUrl": "https://merged-proxy.example.com/v1", "apiKey": "test-key", "models": [{"id": "claude-custom"}]}}),
     );
-    let config = ModelConfig::load(Some(&path));
+    let config = ModelConfig::load(Some(&JsString::from(&path)));
     let provider = compose_model_provider("anthropic", Some(anthropic_base()), &config, None).unwrap();
     let models = provider.get_models();
     assert_eq!(models.len(), 3);
@@ -326,7 +327,7 @@ fn custom_model_with_same_id_replaces_builtin_model() {
         &dir,
         json!({"anthropic": {"baseUrl": "https://my-proxy.example.com/v1", "models": [{"id": "claude-opus-4-8"}]}}),
     );
-    let config = ModelConfig::load(Some(&path));
+    let config = ModelConfig::load(Some(&JsString::from(&path)));
     let provider = compose_model_provider("anthropic", Some(anthropic_base()), &config, None).unwrap();
     let models = provider.get_models();
     assert_eq!(models.len(), 2);
@@ -358,7 +359,7 @@ fn provider_level_compat_applies_to_custom_and_builtin_models() {
             }
         }),
     );
-    let config = ModelConfig::load(Some(&path));
+    let config = ModelConfig::load(Some(&JsString::from(&path)));
     let provider = compose_model_provider("demo", None, &config, None).unwrap();
     let custom = provider
         .get_models()
@@ -391,7 +392,7 @@ fn model_level_compat_overrides_provider_level_compat() {
             }
         }),
     );
-    let config = ModelConfig::load(Some(&path));
+    let config = ModelConfig::load(Some(&JsString::from(&path)));
     let provider = compose_model_provider("demo", None, &config, None).unwrap();
     let custom = provider
         .get_models()
@@ -424,7 +425,7 @@ fn model_overrides_apply_to_single_models_and_merge_nested_compat() {
             }
         }),
     );
-    let config = ModelConfig::load(Some(&path));
+    let config = ModelConfig::load(Some(&JsString::from(&path)));
     let provider = compose_model_provider("anthropic", Some(anthropic_base()), &config, None).unwrap();
     let models = provider.get_models();
     let opus = models.iter().find(|model| model.id == "claude-opus-4-8").unwrap();
@@ -449,7 +450,7 @@ fn model_override_for_missing_model_is_ignored() {
         &dir,
         json!({"anthropic": {"modelOverrides": {"missing": {"name": "Nope"}}}}),
     );
-    let config = ModelConfig::load(Some(&path));
+    let config = ModelConfig::load(Some(&JsString::from(&path)));
     let provider = compose_model_provider("anthropic", Some(anthropic_base()), &config, None).unwrap();
     assert!(provider.get_models().iter().all(|model| model.id != "missing"));
     fs::remove_dir_all(dir).unwrap();
@@ -462,7 +463,7 @@ fn configured_headers_resolve_at_request_time() {
         &dir,
         json!({"anthropic": {"baseUrl": "https://proxy.example.com", "headers": {"X-Custom-Header": "custom-value"}}}),
     );
-    let config = ModelConfig::load(Some(&path));
+    let config = ModelConfig::load(Some(&JsString::from(&path)));
     let provider = compose_model_provider("anthropic", Some(anthropic_base()), &config, None).unwrap();
     let typed = models_json_provider(&config, "anthropic").unwrap();
     for model in provider.get_models() {
@@ -489,7 +490,7 @@ fn model_level_headers_merge_over_provider_headers() {
             }
         }),
     );
-    let config = ModelConfig::load(Some(&path));
+    let config = ModelConfig::load(Some(&JsString::from(&path)));
     let provider = compose_model_provider("demo", None, &config, None).unwrap();
     let typed = models_json_provider(&config, "demo").unwrap();
     let model = provider
@@ -587,7 +588,7 @@ fn extension_models_override_provider_and_base_url() {
 
     let dir = temp_dir("extension");
     let path = write_models(&dir, json!({}));
-    let config = ModelConfig::load(Some(&path));
+    let config = ModelConfig::load(Some(&JsString::from(&path)));
     let provider = compose_model_provider("ext", None, &config, Some(&extension)).unwrap();
     let models = provider.get_models();
     assert_eq!(models.len(), 1);
@@ -601,7 +602,7 @@ fn extension_models_override_provider_and_base_url() {
 fn oauth_only_extension_has_no_api_key_method() {
     let dir = temp_dir("oauth-only");
     let path = write_models(&dir, json!({}));
-    let config = ModelConfig::load(Some(&path));
+    let config = ModelConfig::load(Some(&JsString::from(&path)));
     let extension = ProviderConfigInput {
         name: Some("Extension OAuth".to_owned()),
         base_url: Some("https://example.test/v1".to_owned().into()),
@@ -634,7 +635,7 @@ fn oauth_only_extension_has_no_api_key_method() {
 fn composed_provider_keeps_base_oauth_when_no_extension() {
     let dir = temp_dir("base-oauth");
     let path = write_models(&dir, json!({}));
-    let config = ModelConfig::load(Some(&path));
+    let config = ModelConfig::load(Some(&JsString::from(&path)));
     let base = TestProvider::oauth_only(
         "anthropic",
         vec![model(
@@ -655,7 +656,7 @@ fn provider_without_configured_key_still_gets_a_synthetic_api_key_method() {
         &dir,
         json!({"demo": {"baseUrl": "https://example.com/v1", "models": [{"id": "demo-model", "api": "openai-completions"}]}}),
     );
-    let config = ModelConfig::load(Some(&path));
+    let config = ModelConfig::load(Some(&JsString::from(&path)));
     let provider = compose_model_provider("demo", None, &config, None).unwrap();
     assert!(provider.auth().api_key.is_some());
     assert!(provider.auth().oauth.is_none());
@@ -669,7 +670,7 @@ fn provider_credentials_are_not_read_during_composition() {
         &dir,
         json!({"demo": {"baseUrl": "https://example.com/v1", "apiKey": "!false", "models": [{"id": "demo-model", "api": "openai-completions"}]}}),
     );
-    let config = ModelConfig::load(Some(&path));
+    let config = ModelConfig::load(Some(&JsString::from(&path)));
     let provider = compose_model_provider("demo", None, &config, None).unwrap();
     assert_eq!(provider.get_models().len(), 1);
     fs::remove_dir_all(dir).unwrap();
@@ -701,7 +702,7 @@ fn refresh_models_publishes_extension_results() {
 
     let dir = temp_dir("refresh");
     let path = write_models(&dir, json!({}));
-    let config = ModelConfig::load(Some(&path));
+    let config = ModelConfig::load(Some(&JsString::from(&path)));
     let published = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
     let extension = ProviderConfigInput {
         base_url: Some("https://example.test/v1".to_owned().into()),

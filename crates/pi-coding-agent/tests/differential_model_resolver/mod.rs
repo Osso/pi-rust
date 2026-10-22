@@ -8,6 +8,7 @@ use pi_coding_agent::core::model_resolver::{
     default_model_for_provider, find_exact_model_reference_match, find_initial_model, parse_model_pattern,
     resolve_cli_model, resolve_model_scope_from_models,
 };
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 
 fn model(provider: &str, id: &str, name: &str, reasoning: bool) -> Model {
@@ -118,7 +119,7 @@ fn compare_parse(oracle: &mut oracle::TsOracle, models: &[Model]) {
         let expected = oracle.request(&request);
         assert!(expected["ok"].as_bool().unwrap(), "{expected}");
         let result = parse_model_pattern(
-            pattern,
+            &JsString::from(pattern),
             models,
             ParseModelPatternOptions {
                 allow_invalid_thinking_level_fallback: allow,

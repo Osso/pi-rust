@@ -4,6 +4,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::PathBuf;
 use std::time::SystemTime;
@@ -137,7 +138,7 @@ fn model_config_matches_the_pinned_typescript_module() {
     let missing = dir.join("missing.json");
     let response = oracle.request(&json!({"id": "missing", "path": missing}));
     assert_eq!(response["ok"], true, "{response}");
-    let config = ModelConfig::load(Some(&missing.display().to_string()));
+    let config = ModelConfig::load(Some(&JsString::from(&missing.display().to_string())));
     assert_eq!(config.get_provider_ids(), Vec::<String>::new());
     assert_eq!(json!(config.get_error()), response["output"]["error"]);
 
@@ -146,7 +147,7 @@ fn model_config_matches_the_pinned_typescript_module() {
         fs::write(&path, content).unwrap();
         let response = oracle.request(&json!({"id": index, "path": path}));
         assert_eq!(response["ok"], true, "{name}: {response}");
-        let config = ModelConfig::load(Some(&path.display().to_string()));
+        let config = ModelConfig::load(Some(&JsString::from(&path.display().to_string())));
         let expected = &response["output"];
         assert_eq!(
             json!(config.get_provider_ids()),
@@ -172,14 +173,14 @@ fn focused_model_config_behavior() {
         r#"{"providers": {"zeta": {"name": "Z"}, "alpha": {"name": "A"}}}"#,
     )
     .unwrap();
-    let config = ModelConfig::load(Some(&path.display().to_string()));
+    let config = ModelConfig::load(Some(&JsString::from(&path.display().to_string())));
     assert_eq!(config.get_error(), None);
     assert_eq!(config.get_provider_ids(), ["zeta", "alpha"]);
     assert_eq!(config.get_provider("zeta").unwrap()["name"], "Z");
     assert_eq!(config.get_provider("missing"), None);
 
     let missing = dir.join("none.json");
-    let config = ModelConfig::load(Some(&missing.display().to_string()));
+    let config = ModelConfig::load(Some(&JsString::from(&missing.display().to_string())));
     assert!(config.get_error().is_none());
     assert!(config.get_provider_ids().is_empty());
 
@@ -188,14 +189,14 @@ fn focused_model_config_behavior() {
 
     let invalid = dir.join("invalid.json");
     fs::write(&invalid, "{").unwrap();
-    let config = ModelConfig::load(Some(&invalid.display().to_string()));
+    let config = ModelConfig::load(Some(&JsString::from(&invalid.display().to_string())));
     let error = config.get_error().expect("parse error");
     assert!(error.starts_with("Failed to parse models.json: "), "error: {error}");
     assert!(error.contains(&format!("\n\nFile: {}", invalid.display())));
 
     let schema = dir.join("schema.json");
     fs::write(&schema, r#"{"providers": []}"#).unwrap();
-    let config = ModelConfig::load(Some(&schema.display().to_string()));
+    let config = ModelConfig::load(Some(&JsString::from(&schema.display().to_string())));
     let error = config.get_error().expect("schema error");
     assert!(error.starts_with("Invalid models.json schema:\n"), "error: {error}");
 }

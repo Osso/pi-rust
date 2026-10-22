@@ -1,6 +1,7 @@
 #[path = "../support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::Path;
 
@@ -258,7 +259,7 @@ fn template(name: &str, content: &str) -> PromptTemplate {
         argument_hint: None,
         content: content.to_owned().into(),
         source_info: pi_coding_agent::core::source_info::create_synthetic_source_info(
-            &file_path,
+            &JsString::from(&file_path),
             &pi_coding_agent::core::source_info::SyntheticSourceInfoOptions {
                 source: "local".to_owned().into(),
                 scope: None,

@@ -6,6 +6,7 @@ mod executable_script;
 #[allow(dead_code)]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -284,7 +285,7 @@ fn differential_parse_source() {
         let mut request = scenario.request("parse_source", &cwd, &agent);
         request["source"] = json!(source);
         let expected = oracle_request(&mut oracle, request);
-        let actual = serde_json::to_value(manager.parse_source(source)).unwrap();
+        let actual = serde_json::to_value(manager.parse_source(&JsString::from(source))).unwrap();
         assert_eq!(actual, expected["parsed"], "parse_source({source})");
     }
 }
@@ -310,7 +311,7 @@ fn differential_package_identity() {
         request["source"] = json!(source);
         let expected = oracle_request(&mut oracle, request);
         assert_eq!(
-            json!(manager.get_package_identity(source, None)),
+            json!(manager.get_package_identity(&JsString::from(source), None)),
             expected["identity"],
             "identity({source})"
         );
@@ -456,7 +457,7 @@ fn differential_list_configured_packages_and_installed_paths() {
         });
         let expected = oracle_request(&mut oracle, request);
         assert_eq!(
-            json!(manager.get_installed_path(source, scope)),
+            json!(manager.get_installed_path(&JsString::from(source), scope)),
             expected["path"],
             "installed path for {source}"
         );
@@ -488,9 +489,9 @@ fn differential_add_and_remove_sources() {
             });
             let manager = DefaultPackageManager::new(cwd.to_str().unwrap(), agent.to_str().unwrap(), settings.clone());
             let changed = if operation == "add_source_to_settings" {
-                manager.add_source_to_settings(source, false).unwrap()
+                manager.add_source_to_settings(&JsString::from(source), false).unwrap()
             } else {
-                manager.remove_source_from_settings(source, false)
+                manager.remove_source_from_settings(&JsString::from(source), false)
             };
             let packages = serde_json::to_value(settings.global_settings().packages).unwrap();
             assert_eq!(json!(changed), expected["changed"], "{operation}({source}) changed");
@@ -571,10 +572,14 @@ fn differential_install_and_remove_npm_with_fake_binary() {
     manager.set_progress_callback(Some(Arc::new(move |event| {
         recorded.lock().unwrap().push(event.clone());
     })));
-    runtime.block_on(manager.install("npm:fake-pkg@1.2.3", false)).unwrap();
+    runtime
+        .block_on(manager.install(&JsString::from("npm:fake-pkg@1.2.3"), false))
+        .unwrap();
     let install_progress = events.lock().unwrap().clone();
     let install_event_count = install_progress.len();
-    runtime.block_on(manager.remove("npm:fake-pkg", false)).unwrap();
+    runtime
+        .block_on(manager.remove(&JsString::from("npm:fake-pkg"), false))
+        .unwrap();
     let all_progress = events.lock().unwrap().clone();
 
     let normalize = |value: &Value, root: &Path| -> Value {

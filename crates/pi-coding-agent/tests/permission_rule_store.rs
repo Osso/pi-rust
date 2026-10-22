@@ -1,5 +1,7 @@
 //! Ports `packages/coding-agent/test/permission-rule-store.test.ts`.
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -24,22 +26,22 @@ fn temp_dir(name: &str) -> PathBuf {
 fn allow_rules_match_by_tool_name_and_exact_content() {
     let mut store = PermissionRuleStore::new();
     store.add_allow_rules("bash", &["git status".to_owned().into()]);
-    assert!(store.has_allow_rule("bash", "git status"));
-    assert!(!store.has_allow_rule("bash", "git diff"));
-    assert!(!store.has_allow_rule("read", "git status"));
+    assert!(store.has_allow_rule("bash", &JsString::from("git status")));
+    assert!(!store.has_allow_rule("bash", &JsString::from("git diff")));
+    assert!(!store.has_allow_rule("read", &JsString::from("git status")));
 }
 
 #[test]
 fn persisted_allow_rules_load_from_settings() {
     let settings = json!({"permissionRules": {"allow": {"bash": ["git status"]}}});
-    let store = PermissionRuleStore::from_settings(Some(&settings));
-    assert!(store.has_allow_rule("bash", "git status"));
+    let store = PermissionRuleStore::from_settings(Some(&JsValue::from(&settings)));
+    assert!(store.has_allow_rule("bash", &JsString::from("git status")));
 
     let invalid = json!({"permissionRules": {"allow": {"bash": ["ok", 3], "read": "nope"}}});
-    let store = PermissionRuleStore::from_settings(Some(&invalid));
-    assert!(store.has_allow_rule("bash", "ok"));
-    assert!(!store.has_allow_rule("bash", "3"));
-    assert!(!store.has_allow_rule("read", "nope"));
+    let store = PermissionRuleStore::from_settings(Some(&JsValue::from(&invalid)));
+    assert!(store.has_allow_rule("bash", &JsString::from("ok")));
+    assert!(!store.has_allow_rule("bash", &JsString::from("3")));
+    assert!(!store.has_allow_rule("read", &JsString::from("nope")));
 }
 
 #[test]
@@ -203,8 +205,8 @@ fn apply_updated_permissions_keeps_session_rules_and_persists_the_rest() {
         ]),
     );
 
-    assert!(store.has_allow_rule("bash", "session-rule"));
-    assert!(!store.has_allow_rule("bash", "project-rule"));
+    assert!(store.has_allow_rule("bash", &JsString::from("session-rule")));
+    assert!(!store.has_allow_rule("bash", &JsString::from("project-rule")));
     let recorded = recorded.lock().unwrap();
     assert_eq!(recorded.len(), 1);
     assert_eq!(recorded[0].destination, PermissionRuleDestination::ProjectSettings);
@@ -234,7 +236,7 @@ fn non_session_updates_are_skipped_without_locations() {
             ),
         ]),
     );
-    assert!(store.has_allow_rule("bash", "session-only"));
+    assert!(store.has_allow_rule("bash", &JsString::from("session-only")));
     assert!(recorded.lock().unwrap().is_empty());
     assert_eq!(
         store.allow_rules(),

@@ -3,11 +3,12 @@
 #[test]
 fn auth_creates_all_parent_directories_private() {
     use pi_coding_agent::core::auth_storage::{AuthStorageBackend, FileAuthStorageBackend};
+    use pi_js_compat::js_json::JsString;
     use std::{fs, os::unix::fs::PermissionsExt};
     let root = std::env::temp_dir().join(format!("auth-modes-{}", std::process::id()));
     fs::create_dir_all(&root).unwrap();
     let file = root.join("one/two/auth.json");
-    FileAuthStorageBackend::new(file.to_str().unwrap())
+    FileAuthStorageBackend::new(&JsString::from(file.to_str().unwrap()))
         .with_lock(Box::new(|_| Ok(None)))
         .unwrap();
     assert_eq!(

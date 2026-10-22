@@ -1,5 +1,6 @@
 //! Frozen public APIs and bidirectional files, with synthetic credentials only.
 use pi_coding_agent::core::auth_storage::{AuthStorage, GetApiKeyOptions};
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 use std::{fs, time::SystemTime};
 #[path = "support/oracle.rs"]
@@ -35,7 +36,7 @@ fn public_ts_rust_ts_and_reverse_preserve_oauth_extras_and_unrelated_providers()
         let out = oracle.request(&json!({"id":1,"op":"modify","authPath":path,"provider":provider,"credential":cred}));
         assert_eq!(out["ok"], true, "{out}");
     }
-    let storage = AuthStorage::create(Some(path.to_str().unwrap()));
+    let storage = AuthStorage::create(Some(&JsString::from(path.to_str().unwrap())));
     assert_eq!(
         storage.get("openai-codex").map(|value| value.to_serde().unwrap()),
         Some(credential.clone())
@@ -103,8 +104,8 @@ fn public_ts_rust_ts_and_reverse_preserve_oauth_extras_and_unrelated_providers()
 #[test]
 fn source_runtime_precedence_status_errors_and_reload_recovery() {
     let path = fixture();
-    let storage = AuthStorage::create(Some(path.to_str().unwrap()));
-    storage.set_runtime_api_key("synthetic", "runtime");
+    let storage = AuthStorage::create(Some(&JsString::from(path.to_str().unwrap())));
+    storage.set_runtime_api_key("synthetic", &JsString::from("runtime"));
     assert!(storage.has_auth("synthetic"));
     assert!(!storage.has("synthetic"));
     assert_eq!(storage.get_auth_status("synthetic").source.as_deref(), Some("runtime"));

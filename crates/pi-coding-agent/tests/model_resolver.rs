@@ -8,6 +8,7 @@ use pi_coding_agent::core::model_resolver::{
     find_initial_model, parse_model_pattern, resolve_cli_model, resolve_model_scope_from_models,
     restore_model_from_session,
 };
+use pi_js_compat::js_json::JsString;
 use serde_json::json;
 
 fn model(provider: &str, id: &str, name: &str) -> Model {
@@ -47,7 +48,7 @@ fn all_models() -> Vec<Model> {
 }
 
 fn pattern(pattern: &str, models: &[Model]) -> (Option<String>, Option<ThinkingLevel>, Option<String>) {
-    let result = parse_model_pattern(pattern, models, ParseModelPatternOptions::default());
+    let result = parse_model_pattern(&JsString::from(pattern), models, ParseModelPatternOptions::default());
     (
         result.model.map(|model| model.id),
         result.thinking_level,
@@ -103,7 +104,11 @@ fn parse_openrouter_colon_ids() {
         pattern("qwen/qwen3-coder:exacto", &all_models()),
         (Some("qwen/qwen3-coder:exacto".to_owned()), None, None)
     );
-    let result = parse_model_pattern("openrouter/qwen/qwen3-coder:exacto", &all_models(), Default::default());
+    let result = parse_model_pattern(
+        &JsString::from("openrouter/qwen/qwen3-coder:exacto"),
+        &all_models(),
+        Default::default(),
+    );
     assert_eq!(
         result.model.as_ref().map(|model| model.provider.as_str()),
         Some("openrouter")
@@ -159,7 +164,7 @@ fn parse_edge_cases() {
 #[test]
 fn strict_mode_rejects_invalid_suffix() {
     let result = parse_model_pattern(
-        "gpt-4o:extended",
+        &JsString::from("gpt-4o:extended"),
         &mock_models(),
         ParseModelPatternOptions {
             allow_invalid_thinking_level_fallback: Some(false),
@@ -190,7 +195,7 @@ fn alias_preference_prefers_alias_over_dated_and_latest_alias_descending() {
         model("anthropic", "claude-sonnet-4-5", "Sonnet"),
         model("anthropic", "claude-sonnet-4-5-latest", "Sonnet"),
     ];
-    let result = parse_model_pattern("sonnet", &models, Default::default());
+    let result = parse_model_pattern(&JsString::from("sonnet"), &models, Default::default());
     assert_eq!(
         result.model.map(|model| model.id),
         Some("claude-sonnet-4-5-latest".to_owned())
@@ -200,7 +205,7 @@ fn alias_preference_prefers_alias_over_dated_and_latest_alias_descending() {
         model("anthropic", "claude-sonnet-4-5-20250929", "Sonnet"),
         model("anthropic", "claude-sonnet-4-5-20250101", "Sonnet"),
     ];
-    let result = parse_model_pattern("sonnet", &dated_only, Default::default());
+    let result = parse_model_pattern(&JsString::from("sonnet"), &dated_only, Default::default());
     assert_eq!(
         result.model.map(|model| model.id),
         Some("claude-sonnet-4-5-20250929".to_owned())

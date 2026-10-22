@@ -1,4 +1,5 @@
 //! Shared production-lock persistence boundary; all files are disposable sandbox fixtures.
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
@@ -111,7 +112,12 @@ impl Fixture {
     }
 
     fn reconstructed(&self) -> SettingsManager {
-        SettingsManager::create(self.project.to_str().unwrap(), Some(&self.agent), Default::default()).unwrap()
+        SettingsManager::create(
+            &JsString::from(self.project.to_str().unwrap()),
+            Some(&self.agent),
+            Default::default(),
+        )
+        .unwrap()
     }
 }
 

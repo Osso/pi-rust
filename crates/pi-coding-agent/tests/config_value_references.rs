@@ -1,7 +1,8 @@
 use pi_coding_agent::core::{get_config_value_env_var_name, get_config_value_env_var_names, is_command_config_value};
+use pi_js_compat::js_json::JsString;
 
 fn assert_names(value: &str, expected: &[&str]) {
-    let actual = get_config_value_env_var_names(value);
+    let actual = get_config_value_env_var_names(&JsString::from(value));
 
     assert_eq!(actual.len(), expected.len(), "unexpected names for {value:?}");
     for (actual_name, expected_name) in actual.iter().zip(expected) {
@@ -15,7 +16,7 @@ fn assert_names(value: &str, expected: &[&str]) {
 
 fn assert_no_single_name(value: &str) {
     assert_eq!(
-        get_config_value_env_var_name(value),
+        get_config_value_env_var_name(&JsString::from(value)),
         None,
         "unexpected single reference for {value:?}"
     );
@@ -32,9 +33,12 @@ fn exact_single_references_return_borrowed_name_and_one_name_list() {
     ];
 
     for (value, expected_name) in cases {
-        assert_eq!(get_config_value_env_var_name(value), Some(expected_name));
+        assert_eq!(
+            get_config_value_env_var_name(&JsString::from(value)),
+            Some(expected_name)
+        );
         assert_names(value, &[expected_name]);
-        assert!(!is_command_config_value(value));
+        assert!(!is_command_config_value(&JsString::from(value)));
     }
 }
 
@@ -129,13 +133,19 @@ fn leading_exclamation_takes_command_precedence_over_templates() {
     let commands = ["!", "!echo $A", "!!echo", "!$A"];
 
     for value in commands {
-        assert!(is_command_config_value(value), "expected command: {value:?}");
+        assert!(
+            is_command_config_value(&JsString::from(value)),
+            "expected command: {value:?}"
+        );
         assert_names(value, &[]);
         assert_no_single_name(value);
     }
 
     for value in ["$!echo", "x!", ""] {
-        assert!(!is_command_config_value(value), "unexpected command: {value:?}");
+        assert!(
+            !is_command_config_value(&JsString::from(value)),
+            "unexpected command: {value:?}"
+        );
     }
 }
 
@@ -144,7 +154,7 @@ fn empty_lone_and_unrecognized_dollars_have_no_references() {
     for value in ["", "$", "$-", "$9"] {
         assert_names(value, &[]);
         assert_no_single_name(value);
-        assert!(!is_command_config_value(value));
+        assert!(!is_command_config_value(&JsString::from(value)));
     }
 }
 

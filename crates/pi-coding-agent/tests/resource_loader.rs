@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::fs;
 
 use pi_coding_agent::core::resource_loader::{first_party_extension_name, inline_extension_name, resolve_prompt_input};
@@ -5,14 +6,20 @@ use tempfile::TempDir;
 
 #[test]
 fn names_first_party_and_inline_extension_paths() {
-    assert_eq!(first_party_extension_name("<first-party:browser>"), Some("browser"));
-    assert_eq!(first_party_extension_name("<inline>"), None);
-    assert_eq!(first_party_extension_name("<first-party:broken"), None);
+    assert_eq!(
+        first_party_extension_name(&JsString::from("<first-party:browser>")),
+        Some("browser")
+    );
+    assert_eq!(first_party_extension_name(&JsString::from("<inline>")), None);
+    assert_eq!(first_party_extension_name(&JsString::from("<first-party:broken")), None);
 
-    assert_eq!(inline_extension_name("<first-party:browser>"), Some("browser"));
-    assert_eq!(inline_extension_name("<inline>"), Some("inline"));
-    assert_eq!(inline_extension_name("/tmp/extension.ts"), None);
-    assert_eq!(inline_extension_name("<>"), Some(""));
+    assert_eq!(
+        inline_extension_name(&JsString::from("<first-party:browser>")),
+        Some("browser")
+    );
+    assert_eq!(inline_extension_name(&JsString::from("<inline>")), Some("inline"));
+    assert_eq!(inline_extension_name(&JsString::from("/tmp/extension.ts")), None);
+    assert_eq!(inline_extension_name(&JsString::from("<>")), Some(""));
 }
 
 #[test]
@@ -22,11 +29,11 @@ fn resolves_prompt_input_files_and_literals() {
     fs::write(&path, "System prompt text.\n").unwrap();
 
     assert_eq!(
-        resolve_prompt_input(Some(path.to_str().unwrap()), "system prompt").as_deref(),
+        resolve_prompt_input(Some(&JsString::from(path.to_str().unwrap())), "system prompt").as_deref(),
         Some("System prompt text.\n")
     );
     assert_eq!(
-        resolve_prompt_input(Some("Literal prompt text."), "system prompt").as_deref(),
+        resolve_prompt_input(Some(&JsString::from("Literal prompt text.")), "system prompt").as_deref(),
         Some("Literal prompt text.")
     );
     assert_eq!(resolve_prompt_input(None, "system prompt"), None);
@@ -517,7 +524,7 @@ async fn overrides_replace_loaded_resources() {
         file_path: "/fake/path".to_owned().into(),
         base_dir: "/fake".to_owned().into(),
         source_info: pi_coding_agent::core::source_info::create_synthetic_source_info(
-            "/fake/path",
+            &JsString::from("/fake/path"),
             &pi_coding_agent::core::source_info::SyntheticSourceInfoOptions {
                 source: "custom".to_owned().into(),
                 scope: None,

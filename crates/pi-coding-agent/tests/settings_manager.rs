@@ -1,3 +1,5 @@
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -134,22 +136,22 @@ fn project_enabled_models_override_global() {
 #[test]
 fn agent_profiles_use_builtin_defaults_and_overrides() {
     let manager = SettingsManager::in_memory(Settings::new(), SettingsManagerCreateOptions::default());
-    let explore = manager.get_agent_profile("explore").unwrap();
+    let explore = manager.get_agent_profile(&JsString::from("explore")).unwrap();
     assert_eq!(explore.model.as_deref(), Some("openai/gpt-5-mini"));
     assert_eq!(
         explore.thinking_level,
         Some(pi_coding_agent::core::settings_manager::AgentProfileThinkingLevel::Low)
     );
-    let browser = manager.get_agent_profile("browser").unwrap();
+    let browser = manager.get_agent_profile(&JsString::from("browser")).unwrap();
     assert_eq!(browser.tools, Some(vec!["browser-cli".to_owned()]));
-    assert!(manager.get_agent_profile("unknown").is_none());
-    assert!(manager.get_agent_profile("   ").is_none());
+    assert!(manager.get_agent_profile(&JsString::from("unknown")).is_none());
+    assert!(manager.get_agent_profile(&JsString::from("   ")).is_none());
 
     let manager = SettingsManager::in_memory(
         settings(json!({"agents": {"explore": {"model": "faux/explore-model", "thinkingLevel": "minimal"}}})),
         SettingsManagerCreateOptions::default(),
     );
-    let explore = manager.get_agent_profile("explore").unwrap();
+    let explore = manager.get_agent_profile(&JsString::from("explore")).unwrap();
     assert_eq!(explore.model.as_deref(), Some("faux/explore-model"));
 }
 
@@ -445,7 +447,7 @@ fn shell_command_prefix_loads_and_is_preserved_on_unrelated_saves() {
     let mut manager = workspace.manager();
     assert_eq!(manager.get_shell_command_prefix(), Some("shopt -s expand_aliases"));
 
-    manager.set_theme("light");
+    manager.set_theme(&JsString::from("light"));
     manager.flush();
     let saved = workspace.global();
     assert_eq!(saved["shellCommandPrefix"], "shopt -s expand_aliases");
@@ -544,7 +546,7 @@ fn compaction_threshold_helper_matches_json_value_contract() {
     assert_eq!(parse_compaction_threshold_percent(None).unwrap(), None);
     for percent in [0.001, 50.0, 100.0] {
         assert_eq!(
-            parse_compaction_threshold_percent(Some(&json!(percent))).unwrap(),
+            parse_compaction_threshold_percent(Some(&JsValue::from(&json!(percent)))).unwrap(),
             Some(percent)
         );
     }
@@ -559,7 +561,9 @@ fn compaction_threshold_helper_matches_json_value_contract() {
         (json!({}), "[object Object]"),
     ] {
         assert_eq!(
-            parse_compaction_threshold_percent(Some(&value)).unwrap_err().message(),
+            parse_compaction_threshold_percent(Some(&JsValue::from(&value)))
+                .unwrap_err()
+                .message(),
             format!(
                 "Invalid compaction.thresholdPercent setting: {text}. Use a finite number greater than 0 and at most 100, or remove the setting."
             )

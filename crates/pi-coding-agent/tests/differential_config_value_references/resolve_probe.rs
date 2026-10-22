@@ -1,5 +1,6 @@
 //! Child-process probe for the resolve cases that read the process environment.
 
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::process::Command;
@@ -56,9 +57,9 @@ pub(crate) fn run_child() {
     println!("{OUTPUT_PREFIX}{}", json!({"value": value}));
 }
 
-fn map(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+fn map(pairs: &[(&str, &str)]) -> HashMap<String, JsString> {
     pairs
         .iter()
-        .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+        .map(|(key, value)| ((*key).to_owned(), JsString::from(*value)))
         .collect()
 }

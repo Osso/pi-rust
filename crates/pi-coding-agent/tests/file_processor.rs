@@ -1,6 +1,7 @@
 //! Ports the `processFileArguments` cases from `test/block-images.test.ts` and
 //! `test/image-resize-callers.test.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
@@ -53,9 +54,13 @@ fn always_processes_png_images() {
         let image_path = dir.join("test.png");
         std::fs::write(&image_path, png_bytes()).unwrap();
 
-        let result = process_file_arguments(&[image_path.display().to_string()], None, &dir.display().to_string())
-            .await
-            .unwrap();
+        let result = process_file_arguments(
+            &[image_path.display().to_string()],
+            None,
+            &JsString::from(&dir.display().to_string()),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(result.images.len(), 1);
         assert_eq!(result.images[0].mime_type, "image/png");
@@ -75,9 +80,13 @@ fn processes_bmp_images_from_disk_as_png_attachments() {
         let image_path = dir.join("test.bmp");
         std::fs::write(&image_path, tiny_bmp_1x1_red_24bpp()).unwrap();
 
-        let result = process_file_arguments(&[image_path.display().to_string()], None, &dir.display().to_string())
-            .await
-            .unwrap();
+        let result = process_file_arguments(
+            &[image_path.display().to_string()],
+            None,
+            &JsString::from(&dir.display().to_string()),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(result.images.len(), 1);
         assert_eq!(result.images[0].mime_type, "image/png");
@@ -93,9 +102,13 @@ fn processes_text_files_normally() {
         let text_path = dir.join("test.txt");
         std::fs::write(&text_path, "Hello, world!").unwrap();
 
-        let result = process_file_arguments(&[text_path.display().to_string()], None, &dir.display().to_string())
-            .await
-            .unwrap();
+        let result = process_file_arguments(
+            &[text_path.display().to_string()],
+            None,
+            &JsString::from(&dir.display().to_string()),
+        )
+        .await
+        .unwrap();
 
         assert!(result.images.is_empty());
         assert_eq!(
@@ -124,7 +137,7 @@ fn skips_empty_files_and_keeps_argument_order() {
                 second.display().to_string(),
             ],
             None,
-            &dir.display().to_string(),
+            &JsString::from(&dir.display().to_string()),
         )
         .await
         .unwrap();
@@ -147,9 +160,13 @@ fn reports_missing_files_with_the_source_message() {
         let dir = temp_dir("missing");
         let missing = dir.join("missing.txt");
 
-        let error = process_file_arguments(&[missing.display().to_string()], None, &dir.display().to_string())
-            .await
-            .unwrap_err();
+        let error = process_file_arguments(
+            &[missing.display().to_string()],
+            None,
+            &JsString::from(&dir.display().to_string()),
+        )
+        .await
+        .unwrap_err();
 
         assert_eq!(error.message(), format!("File not found: {}", missing.display()));
         std::fs::remove_dir_all(dir).unwrap();
@@ -167,7 +184,7 @@ fn resolves_relative_paths_against_the_working_directory() {
             Some(ProcessFileOptions {
                 auto_resize_images: Some(false),
             }),
-            &dir.display().to_string(),
+            &JsString::from(&dir.display().to_string()),
         )
         .await
         .unwrap();

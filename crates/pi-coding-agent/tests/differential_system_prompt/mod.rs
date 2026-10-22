@@ -3,6 +3,7 @@ mod oracle;
 #[path = "../support/system_prompt_probe.rs"]
 mod probe;
 
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 
 use pi_coding_agent::core::skills::Skill;
@@ -218,7 +219,7 @@ fn skill(name: &str, description: &str, file_path: &str, hidden: bool) -> Skill 
         file_path: file_path.to_owned().into(),
         base_dir: base_dir.clone().into(),
         source_info: create_synthetic_source_info(
-            file_path,
+            &JsString::from(file_path),
             &SyntheticSourceInfoOptions {
                 source: "test".to_owned().into(),
                 scope: None,

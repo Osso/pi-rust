@@ -4,6 +4,7 @@ mod oracle;
 use pi_coding_agent::core::source_info::{
     SourceInfo, SourceOrigin, SourceScope, SyntheticSourceInfoOptions, create_synthetic_source_info,
 };
+use pi_js_compat::js_json::JsString;
 use serde_json::{Map, Value, json};
 
 const REQUEST_ID: u64 = 13_182;
@@ -133,7 +134,7 @@ fn normalize_case(case: &Case) -> Value {
         origin: case.origin.value(),
         base_dir: optional_string(case.base_dir_state, case.base_dir),
     };
-    let result = create_synthetic_source_info(case.path, &options);
+    let result = create_synthetic_source_info(&JsString::from(case.path), &options);
     json!({
         "name": case.name,
         "result": source_info_value(&result),
@@ -325,7 +326,7 @@ fn normalize_metadata_case(case: &MetadataCase) -> Value {
         },
         base_dir: optional_string(case.base_dir_state, case.base_dir),
     };
-    let result = pi_coding_agent::core::source_info::create_source_info(case.path, &metadata);
+    let result = pi_coding_agent::core::source_info::create_source_info(&JsString::from(case.path), &metadata);
     json!({
         "name": case.name,
         "result": source_info_value(&result),

@@ -5,6 +5,8 @@ mod bundled;
 #[path = "support/extensions.rs"]
 mod support;
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::sync::Arc;
 
 use bundled::{Harness, HarnessOptions, StubFetch, test_model};
@@ -135,8 +137,8 @@ fn extracts_account_and_email_claims() {
         "https://api.openai.com/auth": {"chatgpt_account_id": "acct_123"},
         "email": "user@example.com"
     }));
-    assert_eq!(resolve_codex_account_id(&token).unwrap(), "acct_123");
-    let info = resolve_codex_account_info(&token).unwrap();
+    assert_eq!(resolve_codex_account_id(&JsString::from(&token)).unwrap(), "acct_123");
+    let info = resolve_codex_account_info(&JsString::from(&token)).unwrap();
     assert_eq!(info.account_id, "acct_123");
     assert_eq!(info.email.as_deref(), Some("user@example.com"));
 
@@ -145,23 +147,28 @@ fn extracts_account_and_email_claims() {
         "profile": {"email": "profile@example.com"}
     }));
     assert_eq!(
-        resolve_codex_display_email(&profile_token, None).unwrap().as_deref(),
+        resolve_codex_display_email(&JsString::from(&profile_token), None)
+            .unwrap()
+            .as_deref(),
         Some("profile@example.com")
     );
     assert_eq!(
-        resolve_codex_display_email(&profile_token, Some(&json!("stored@example.com")))
-            .unwrap()
-            .as_deref(),
+        resolve_codex_display_email(
+            &JsString::from(&profile_token),
+            Some(&JsValue::from(&json!("stored@example.com")))
+        )
+        .unwrap()
+        .as_deref(),
         Some("stored@example.com")
     );
 
     assert_eq!(
-        resolve_codex_account_info("not-a-token").unwrap_err(),
+        resolve_codex_account_info(&JsString::from("not-a-token")).unwrap_err(),
         "Invalid OpenAI Codex access token"
     );
     let missing = token_with_claims(json!({}));
     assert_eq!(
-        resolve_codex_account_info(&missing).unwrap_err(),
+        resolve_codex_account_info(&JsString::from(&missing)).unwrap_err(),
         "OpenAI Codex access token does not include a ChatGPT account id"
     );
 }

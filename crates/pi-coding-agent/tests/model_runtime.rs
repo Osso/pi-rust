@@ -1,6 +1,7 @@
 //! Ports `packages/coding-agent/test/model-runtime-*.test.ts` and runtime cases
 //! from `model-registry.test.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -395,7 +396,11 @@ async fn runtime_api_keys_mask_stored_credentials_and_report_status() {
     let storage = storage_with(&[("anthropic", json!({"type": "api_key", "key": "stored-key"}))]);
     let runtime = ModelRuntime::create(create_options(storage)).await.unwrap();
     runtime
-        .set_runtime_api_key("anthropic", "runtime-key", AuthOperationOptions::default())
+        .set_runtime_api_key(
+            "anthropic",
+            &JsString::from("runtime-key"),
+            AuthOperationOptions::default(),
+        )
         .await
         .unwrap();
     let auth = runtime
@@ -443,7 +448,11 @@ async fn credential_sync_failure_is_reported_as_a_typed_error() {
         .unwrap();
     assert!(refresh.errors.is_empty());
     let error = runtime
-        .set_runtime_api_key("failing-provider", "runtime-key", AuthOperationOptions::default())
+        .set_runtime_api_key(
+            "failing-provider",
+            &JsString::from("runtime-key"),
+            AuthOperationOptions::default(),
+        )
         .await
         .unwrap_err();
     match error {
@@ -745,7 +754,11 @@ async fn native_provider_registration_keeps_its_auth_implementation() {
 async fn list_credentials_includes_runtime_overrides() {
     let runtime = ModelRuntime::create(create_options(storage_with(&[]))).await.unwrap();
     runtime
-        .set_runtime_api_key("anthropic", "runtime-key", AuthOperationOptions::default())
+        .set_runtime_api_key(
+            "anthropic",
+            &JsString::from("runtime-key"),
+            AuthOperationOptions::default(),
+        )
         .await
         .unwrap();
     let credentials = runtime.list_credentials(AuthOperationOptions::default()).await.unwrap();

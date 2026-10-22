@@ -1,5 +1,6 @@
 //! Ports `packages/coding-agent/test/auth-check.test.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -128,7 +129,9 @@ fn does_not_treat_an_unresolved_stored_environment_reference_as_configured() {
             serde_json::json!({"openai": {"type": "api_key", "key": "$MISSING_AUTH_CHECK_KEY"}}).to_string(),
         )
         .unwrap();
-        let credentials = Arc::new(ReadOnlyAuthStorage::new(Some(&auth_path.display().to_string())));
+        let credentials = Arc::new(ReadOnlyAuthStorage::new(Some(&JsString::from(
+            &auth_path.display().to_string(),
+        ))));
         let model_runtime = create_runtime(credentials).await;
         let result = check_provider_auth(&parse(&["--provider", "openai"]), &model_runtime, Default::default())
             .await
@@ -146,7 +149,9 @@ fn reports_malformed_auth_state_as_invalid() {
         let dir = temp_dir("invalid");
         let auth_path = dir.join("auth.json");
         fs::write(&auth_path, "{invalid-json").unwrap();
-        let credentials = Arc::new(ReadOnlyAuthStorage::new(Some(&auth_path.display().to_string())));
+        let credentials = Arc::new(ReadOnlyAuthStorage::new(Some(&JsString::from(
+            &auth_path.display().to_string(),
+        ))));
         let model_runtime = create_runtime(credentials).await;
         let result = check_provider_auth(&parse(&["--provider", "openai"]), &model_runtime, Default::default())
             .await
@@ -163,7 +168,9 @@ fn does_not_create_an_auth_file_or_its_parent_directory() {
     runtime().block_on(async {
         let dir = temp_dir("no-create");
         let auth_path = dir.join("agent").join("auth.json");
-        let credentials = Arc::new(ReadOnlyAuthStorage::new(Some(&auth_path.display().to_string())));
+        let credentials = Arc::new(ReadOnlyAuthStorage::new(Some(&JsString::from(
+            &auth_path.display().to_string(),
+        ))));
         let model_runtime = create_runtime(credentials).await;
         let result = check_provider_auth(&parse(&["--provider", "openai"]), &model_runtime, Default::default())
             .await

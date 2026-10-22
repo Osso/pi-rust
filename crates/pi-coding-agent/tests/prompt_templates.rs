@@ -1,6 +1,7 @@
 use pi_coding_agent::core::prompt_templates::{
     PromptTemplate, expand_prompt_template, parse_command_args, substitute_args,
 };
+use pi_js_compat::js_json::JsString;
 
 fn template(name: &str, content: &str) -> PromptTemplate {
     PromptTemplate {
@@ -39,7 +40,10 @@ fn substitutes_positional_wildcards_and_slices() {
     assert_eq!(substitute_args("${@:0}", &args), "cmd arg1 arg2 arg3");
     assert_eq!(substitute_args("${3:-fallback}", &args), "arg2");
     assert_eq!(substitute_args("${9:-fallback}", &args), "fallback");
-    assert_eq!(substitute_args("$1.5", &["a".to_owned().into()]), "a.5");
+    assert_eq!(
+        substitute_args(&JsString::from("$1.5"), &["a".to_owned().into()]),
+        "a.5"
+    );
 }
 
 #[test]

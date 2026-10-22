@@ -1,5 +1,6 @@
 //! Execution half of `package-manager-cli.ts`: package and config commands.
 
+use pi_js_compat::js_json::JsString;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -280,8 +281,8 @@ impl PackageCommandEffects for FakeEffects {
     }
 }
 
-fn args(values: &[&str]) -> Vec<String> {
-    values.iter().map(|value| (*value).to_owned()).collect()
+fn args(values: &[&str]) -> Vec<JsString> {
+    values.iter().map(|value| JsString::from(*value)).collect()
 }
 
 #[test]
@@ -698,7 +699,7 @@ async fn saved_project_trust_is_used_for_updates() {
     fs::create_dir_all(project.join(".pi")).unwrap();
     fs::write(project.join(".pi/settings.json"), "{}").unwrap();
     let agent = agent_dir("saved-trust");
-    let store = ProjectTrustStore::new(&agent.display().to_string());
+    let store = ProjectTrustStore::new(&JsString::from(&agent.display().to_string())).unwrap();
     store
         .set(&project.display().to_string(), ProjectTrustDecision::Trusted)
         .unwrap();
@@ -809,18 +810,18 @@ fn self_update_plan_decides_between_running_and_up_to_date() {
         package_name: None,
         note: Some("note".to_owned().into()),
     };
-    let (plan, line) = self_update_plan(false, &release, "0.0.0");
+    let (plan, line) = self_update_plan(false, &release, &JsString::from("0.0.0"));
     assert!(plan.should_run);
     assert_eq!(plan.install_spec, "@earendil-works/pi-coding-agent@9.9.9");
     assert_eq!(plan.note.as_deref(), Some("note"));
     assert!(line.is_none());
 
-    let (plan, line) = self_update_plan(false, &release, "9.9.9");
+    let (plan, line) = self_update_plan(false, &release, &JsString::from("9.9.9"));
     assert!(!plan.should_run);
     assert!(plan.note.is_none());
     assert_eq!(line, Some(Chalk::stdout().green("pi is already up to date (v9.9.9)")));
 
-    let (plan, line) = self_update_plan(true, &release, "9.9.9");
+    let (plan, line) = self_update_plan(true, &release, &JsString::from("9.9.9"));
     assert!(plan.should_run);
     assert!(line.is_none());
 
@@ -829,7 +830,7 @@ fn self_update_plan_decides_between_running_and_up_to_date() {
         package_name: Some("@other/pi".to_owned().into()),
         note: None,
     };
-    let (plan, line) = self_update_plan(false, &renamed, "1.0.0");
+    let (plan, line) = self_update_plan(false, &renamed, &JsString::from("1.0.0"));
     assert!(plan.should_run);
     assert_eq!(plan.package_name, "@other/pi");
     assert_eq!(plan.install_spec, "@other/pi@1.0.0");
@@ -850,7 +851,7 @@ async fn get_self_update_plan_reports_lookup_failures() {
         }
     }
 
-    let error = get_self_update_plan(&FailingFetch, "0.0.0", false)
+    let error = get_self_update_plan(&FailingFetch, &JsString::from("0.0.0"), false)
         .await
         .expect_err("offline lookup fails");
     assert_eq!(error, "Could not determine latest pi version.");
@@ -858,8 +859,8 @@ async fn get_self_update_plan_reports_lookup_failures() {
 
 #[test]
 fn self_update_note_renders_markdown_between_blank_lines() {
-    assert!(self_update_note_lines("   ", Some(80)).is_empty());
-    let lines = self_update_note_lines("**bold** text", Some(40));
+    assert!(self_update_note_lines(&JsString::from("   "), Some(80)).is_empty());
+    let lines = self_update_note_lines(&JsString::from("**bold** text"), Some(40));
     assert_eq!(lines.len(), 4, "{lines:?}");
     assert_eq!(lines[0], "");
     assert!(lines[1].contains("Update note"));
@@ -887,7 +888,7 @@ fn self_update_helpers_render_the_expected_lines() {
     let root = temp_dir("unavailable");
     let context = bun_binary_install_context(&root);
     let target = pi_coding_agent::config::SelfUpdatePackageTarget::new("@earendil-works/pi-coding-agent");
-    let lines = self_update_unavailable_lines(&context, None, &target, Some("/usr/bin/pi"));
+    let lines = self_update_unavailable_lines(&context, None, &target, Some(&JsString::from("/usr/bin/pi")));
     assert_eq!(lines.len(), 4);
     assert!(lines[0].starts_with("error: "));
     assert!(lines[1].starts_with("Download from: "));

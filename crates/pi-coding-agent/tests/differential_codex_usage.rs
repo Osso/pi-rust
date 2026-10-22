@@ -7,6 +7,7 @@ mod oracle;
 #[path = "support/extensions.rs"]
 mod support;
 
+use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
 use bundled::{Harness, HarnessOptions, StubFetch, test_model};
@@ -236,7 +237,7 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
             }
             "token" => {
                 let token = token_with_claims(case.get("claims").unwrap_or(&Value::Null));
-                match resolve_codex_account_info(&token) {
+                match resolve_codex_account_info(&JsString::from(&token)) {
                     Ok(info) => {
                         output.insert("account".to_owned(), serde_json::to_value(info).expect("account"));
                     }

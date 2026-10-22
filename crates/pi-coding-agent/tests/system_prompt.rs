@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 
 use pi_coding_agent::core::skills::Skill;
@@ -75,7 +76,7 @@ fn custom_prompt_appends_context_rules_and_skills() {
         file_path: "/path/visible/SKILL.md".to_owned().into(),
         base_dir: "/path/visible".to_owned().into(),
         source_info: create_synthetic_source_info(
-            "/path/visible/SKILL.md",
+            &JsString::from("/path/visible/SKILL.md"),
             &SyntheticSourceInfoOptions {
                 source: "test".to_owned().into(),
                 scope: None,

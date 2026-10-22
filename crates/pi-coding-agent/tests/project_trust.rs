@@ -1,5 +1,6 @@
 //! `core/project-trust.ts` and `cli/project-trust.ts` behavior.
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -53,8 +54,8 @@ async fn extension(
     .expect("extension factory succeeds")
 }
 
-fn s(path: &Path) -> String {
-    path.display().to_string()
+fn s(path: &Path) -> JsString {
+    path.display().to_string().into()
 }
 
 fn temp_dir(name: &str) -> PathBuf {
@@ -129,7 +130,7 @@ fn context(cwd: &str, has_ui: bool, ui: Arc<dyn ExtensionUiContext>) -> ProjectT
 }
 
 fn options<'a>(
-    cwd: &'a str,
+    cwd: &'a JsString,
     store: &'a ProjectTrustStore,
     trust_context: &'a ProjectTrustContext,
 ) -> ResolveProjectTrustedOptions<'a> {
@@ -147,7 +148,7 @@ fn options<'a>(
 #[test]
 fn prompt_text_matches_the_typescript_template() {
     assert_eq!(
-        format_project_trust_prompt("/work/project"),
+        format_project_trust_prompt(&JsString::from("/work/project")),
         "Trust project folder?\n/work/project\n\nThis allows pi to load .pi settings and resources, install missing project packages, and execute project extensions."
     );
 }
@@ -155,7 +156,7 @@ fn prompt_text_matches_the_typescript_template() {
 #[tokio::test]
 async fn trust_override_short_circuits_every_other_check() {
     let (agent_dir, project) = trust_requiring_project("override");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::selecting("Do not trust");
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -177,7 +178,7 @@ async fn projects_without_trust_requiring_resources_are_trusted() {
     fs::create_dir_all(&agent_dir).unwrap();
     let project = temp.join("plain");
     fs::create_dir_all(&project).unwrap();
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::recording();
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -193,7 +194,7 @@ async fn projects_without_trust_requiring_resources_are_trusted() {
 #[tokio::test]
 async fn stored_decisions_win_over_the_default_setting() {
     let (agent_dir, project) = trust_requiring_project("stored");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::recording();
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -213,7 +214,7 @@ async fn stored_decisions_win_over_the_default_setting() {
 #[tokio::test]
 async fn default_setting_applies_when_the_store_has_no_decision() {
     let (agent_dir, project) = trust_requiring_project("defaults");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::recording();
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -231,7 +232,7 @@ async fn default_setting_applies_when_the_store_has_no_decision() {
 #[tokio::test]
 async fn ask_without_ui_is_untrusted() {
     let (agent_dir, project) = trust_requiring_project("no-ui");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::selecting("Trust");
     let project_path = s(&project);
     let ctx = context(&project_path, false, ui.clone());
@@ -248,7 +249,7 @@ async fn ask_without_ui_is_untrusted() {
 #[tokio::test]
 async fn ask_prompts_with_every_option_and_persists_the_choice() {
     let (agent_dir, project) = trust_requiring_project("prompt");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::selecting("Do not trust");
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -274,7 +275,7 @@ async fn ask_prompts_with_every_option_and_persists_the_choice() {
 #[tokio::test]
 async fn session_only_choices_do_not_touch_the_store() {
     let (agent_dir, project) = trust_requiring_project("session-only");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::selecting("Trust (this session only)");
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -290,7 +291,7 @@ async fn session_only_choices_do_not_touch_the_store() {
 #[tokio::test]
 async fn dismissing_the_prompt_is_untrusted() {
     let (agent_dir, project) = trust_requiring_project("dismiss");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::recording();
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -306,7 +307,7 @@ async fn dismissing_the_prompt_is_untrusted() {
 #[tokio::test]
 async fn an_unknown_selection_is_untrusted_without_writing() {
     let (agent_dir, project) = trust_requiring_project("unknown-selection");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::selecting("something else");
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -357,7 +358,7 @@ async fn extensions_result(
 #[tokio::test]
 async fn extension_decisions_win_and_remember_persists_them() {
     let (agent_dir, project) = trust_requiring_project("extension");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::recording();
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -380,7 +381,7 @@ async fn extension_decisions_win_and_remember_persists_them() {
 #[tokio::test]
 async fn extension_decision_without_remember_does_not_write() {
     let (agent_dir, project) = trust_requiring_project("extension-no-remember");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::recording();
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -395,7 +396,7 @@ async fn extension_decision_without_remember_does_not_write() {
 #[tokio::test]
 async fn extension_errors_are_reported_and_resolution_continues() {
     let (agent_dir, project) = trust_requiring_project("extension-error");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::recording();
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -433,7 +434,7 @@ async fn extension_errors_are_reported_and_resolution_continues() {
 async fn unreadable_trust_store_errors_instead_of_silently_untrusting() {
     let (agent_dir, project) = trust_requiring_project("bad-store");
     fs::write(agent_dir.join("trust.json"), "{not json").unwrap();
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     let ui = RecordingUi::selecting("Trust");
     let project_path = s(&project);
     let ctx = context(&project_path, true, ui.clone());
@@ -521,7 +522,11 @@ async fn cli_context_selects_through_the_startup_ui_in_interactive_mode() {
 
     let selected = ctx
         .ui
-        .select("Pick", &["Yes".to_owned().into(), "No".to_owned()], None)
+        .select(
+            &JsString::from("Pick"),
+            &["Yes".to_owned().into(), "No".to_owned()],
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(selected.as_deref(), Some("Yes"));
@@ -531,7 +536,10 @@ async fn cli_context_selects_through_the_startup_ui_in_interactive_mode() {
     );
 
     assert_eq!(
-        ctx.ui.input("Name", Some("placeholder"), None).await.unwrap(),
+        ctx.ui
+            .input(&JsString::from("Name"), Some(&JsString::from("placeholder")), None)
+            .await
+            .unwrap(),
         Some("typed".to_owned())
     );
     assert_eq!(
@@ -564,11 +572,14 @@ async fn cli_context_without_ui_never_prompts() {
     let startup = RecordingStartupUi::new(Some("Yes"), Some("typed"));
     let ctx = cli_context("/work", AppMode::Interactive, false, Some(startup.clone()));
     assert_eq!(
-        ctx.ui.select("Pick", &["Yes".to_owned().into()], None).await.unwrap(),
+        ctx.ui
+            .select(&JsString::from("Pick"), &["Yes".to_owned().into()], None)
+            .await
+            .unwrap(),
         None
     );
     assert!(!ctx.ui.confirm("Title", "Body", None).await.unwrap());
-    assert_eq!(ctx.ui.input("Name", None, None).await.unwrap(), None);
+    assert_eq!(ctx.ui.input(&JsString::from("Name"), None, None).await.unwrap(), None);
     assert!(startup.selections.lock().unwrap().is_empty());
     assert!(startup.inputs.lock().unwrap().is_empty());
 }
@@ -579,11 +590,14 @@ async fn cli_context_outside_interactive_mode_never_prompts() {
         let startup = RecordingStartupUi::new(Some("Yes"), Some("typed"));
         let ctx = cli_context("/work", mode, true, Some(startup.clone()));
         assert_eq!(
-            ctx.ui.select("Pick", &["Yes".to_owned().into()], None).await.unwrap(),
+            ctx.ui
+                .select(&JsString::from("Pick"), &["Yes".to_owned().into()], None)
+                .await
+                .unwrap(),
             None
         );
         assert!(!ctx.ui.confirm("Title", "Body", None).await.unwrap());
-        assert_eq!(ctx.ui.input("Name", None, None).await.unwrap(), None);
+        assert_eq!(ctx.ui.input(&JsString::from("Name"), None, None).await.unwrap(), None);
         assert!(startup.selections.lock().unwrap().is_empty());
         assert!(startup.inputs.lock().unwrap().is_empty());
     }

@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::fs;
 
 use pi_coding_agent::core::skills::{LoadSkillsFromDirOptions, format_skills_for_prompt, load_skills_from_dir};
@@ -146,7 +147,7 @@ fn formats_visible_skills_as_xml() {
         file_path: "/path/to/skill/SKILL.md".to_owned().into(),
         base_dir: "/path/to/skill".to_owned().into(),
         source_info: pi_coding_agent::core::source_info::create_synthetic_source_info(
-            "/path/to/skill/SKILL.md",
+            &JsString::from("/path/to/skill/SKILL.md"),
             &pi_coding_agent::core::source_info::SyntheticSourceInfoOptions {
                 source: "test".to_owned().into(),
                 scope: None,

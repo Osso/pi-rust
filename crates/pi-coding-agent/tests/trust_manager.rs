@@ -3,6 +3,7 @@
 #[path = "support/trust_probe.rs"]
 mod trust_probe;
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -21,8 +22,8 @@ fn trust_resources_probe_child() {
     trust_probe::run_child();
 }
 
-fn s(path: &Path) -> String {
-    path.display().to_string()
+fn s(path: &Path) -> JsString {
+    path.display().to_string().into()
 }
 
 fn temp_dir(name: &str) -> PathBuf {
@@ -71,7 +72,7 @@ fn trust_decisions_are_stored_and_inherited_from_parent_directories() {
     let child_dir = parent_dir.join("project");
     fs::create_dir_all(&child_dir).unwrap();
 
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     assert_eq!(store.get(&s(&child_dir)).unwrap(), ProjectTrustDecision::Unknown);
     store.set(&s(&parent_dir), ProjectTrustDecision::Trusted).unwrap();
     assert_eq!(store.get(&s(&child_dir)).unwrap(), ProjectTrustDecision::Trusted);
@@ -98,7 +99,7 @@ fn the_trust_file_is_sorted_pretty_json_with_a_trailing_newline() {
     fs::create_dir_all(&first).unwrap();
     fs::create_dir_all(&second).unwrap();
 
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
     store
         .set_many(&[
             ProjectTrustUpdate {
@@ -135,7 +136,7 @@ fn invalid_trust_files_report_their_specific_errors() {
     let agent_dir = temp.join("agent");
     fs::create_dir_all(&agent_dir).unwrap();
     let trust_path = agent_dir.join("trust.json");
-    let store = ProjectTrustStore::new(&s(&agent_dir));
+    let store = ProjectTrustStore::new(&JsString::from(&s(&agent_dir))).unwrap();
 
     fs::write(&trust_path, "{ not json").unwrap();
     let error = store.get(&s(&temp)).unwrap_err().to_string();
@@ -172,11 +173,11 @@ fn trust_options_describe_each_choice() {
     let canonical_cwd = std::fs::canonicalize(&cwd).unwrap().display().to_string();
     let parent = std::fs::canonicalize(&temp).unwrap().display().to_string();
     assert_eq!(
-        get_project_trust_parent_path(&s(&cwd)).as_deref(),
+        get_project_trust_parent_path(&JsString::from(&s(&cwd))).as_deref(),
         Some(parent.as_str())
     );
 
-    let options = get_project_trust_options(&s(&cwd), false);
+    let options = get_project_trust_options(&JsString::from(&s(&cwd)), false);
     assert_eq!(options.len(), 3);
     assert_eq!(options[0].label, "Trust");
     assert!(options[0].trusted);
@@ -187,7 +188,7 @@ fn trust_options_describe_each_choice() {
     assert_eq!(options[2].label, "Do not trust");
     assert!(!options[2].trusted);
 
-    let options = get_project_trust_options(&s(&cwd), true);
+    let options = get_project_trust_options(&JsString::from(&s(&cwd)), true);
     assert_eq!(options.len(), 5);
     assert_eq!(options[2].label, "Trust (this session only)");
     assert!(options[2].updates.is_empty());
@@ -236,5 +237,8 @@ fn trust_requiring_resources_are_detected_from_project_layouts() {
     fs::create_dir_all(&nested).unwrap();
     fs::create_dir_all(workspace.join(".codex/skills")).unwrap();
     assert!(probe(&nested));
-    assert_eq!(has_trust_requiring_project_resources(&s(&nested)), probe(&nested));
+    assert_eq!(
+        has_trust_requiring_project_resources(&JsString::from(&s(&nested))),
+        probe(&nested)
+    );
 }
