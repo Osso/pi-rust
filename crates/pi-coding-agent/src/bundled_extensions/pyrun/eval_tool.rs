@@ -302,9 +302,7 @@ pub fn create_pi_capability_snapshot(ctx: &PyrunEvalContext) -> Value {
 }
 
 pub fn eval_context(ctx: &ExtensionContext) -> Result<PyrunEvalContext, HandlerError> {
-    let session = ctx
-        .session_manager()
-        .map_err(|error| HandlerError::new(error.to_string()))?;
+    let session = ctx.session_manager()?;
     let (cwd, session_name) = {
         let manager = lock_session_manager(&session);
         (
@@ -313,13 +311,9 @@ pub fn eval_context(ctx: &ExtensionContext) -> Result<PyrunEvalContext, HandlerE
         )
     };
     Ok(PyrunEvalContext {
-        footer_data: ctx
-            .footer_data()
-            .map_err(|error| HandlerError::new(error.to_string()))?,
-        context_usage: ctx
-            .get_context_usage()
-            .map_err(|error| HandlerError::new(error.to_string()))?,
-        model: ctx.model().map_err(|error| HandlerError::new(error.to_string()))?,
+        footer_data: ctx.footer_data()?,
+        context_usage: ctx.get_context_usage()?,
+        model: ctx.model()?,
         cwd,
         session_name,
     })
@@ -460,7 +454,7 @@ pub fn create_pyrun_eval_executor(
                     on_pi_request,
                 )
                 .await
-                .map_err(|error: PyrunRunnerError| HandlerError::new(error.to_string()))?;
+                .map_err(|error: PyrunRunnerError| HandlerError::new(error.message().clone()))?;
             Ok(format_canonical_pyrun_eval_result(&params, result))
         })
     })

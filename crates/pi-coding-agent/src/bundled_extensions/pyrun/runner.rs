@@ -139,7 +139,7 @@ pub struct PiRequest {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PyrunRunnerOptions {
-    pub args: Option<Vec<String>>,
+    pub args: Option<Vec<JsString>>,
     pub command: Option<String>,
     pub detached: Option<bool>,
     pub env: Option<Vec<(String, String)>>,
@@ -148,17 +148,16 @@ pub struct PyrunRunnerOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedPyrunRunnerOptions {
-    pub args: Vec<String>,
+    pub args: Vec<JsString>,
     pub command: String,
     pub env: Vec<(String, String)>,
 }
 
-fn parse_runner_args(value: Option<&str>) -> Result<Option<Vec<String>>, PyrunRunnerError> {
+fn parse_runner_args(value: Option<&str>) -> Result<Option<Vec<JsString>>, PyrunRunnerError> {
     let Some(value) = value.filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
-    let parsed: serde_json::Value =
-        pi_js_compat::js_json::parse(value).map_err(|error| PyrunRunnerError::new(error.to_string()))?;
+    let parsed = js_json::parse_lossless(value).map_err(|error| PyrunRunnerError::new(error.to_string()))?;
     let Some(items) = parsed.as_array() else {
         return Err(PyrunRunnerError::new(
             "PI_PYRUN_RUNNER_ARGS must be a JSON string array",
@@ -166,7 +165,7 @@ fn parse_runner_args(value: Option<&str>) -> Result<Option<Vec<String>>, PyrunRu
     };
     let mut args = Vec::with_capacity(items.len());
     for item in items {
-        let Some(item) = item.as_str() else {
+        let Some(item) = item.as_string() else {
             return Err(PyrunRunnerError::new(
                 "PI_PYRUN_RUNNER_ARGS must be a JSON string array",
             ));
@@ -201,11 +200,14 @@ pub fn resolve_pyrun_runner_options(
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PyrunRunnerError {
-    message: String,
+    message: JsString,
 }
 
 impl PyrunRunnerError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn message(&self) -> &JsString {
+        &self.message
+    }
+    pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
         }
@@ -214,7 +216,7 @@ impl PyrunRunnerError {
 
 impl std::fmt::Display for PyrunRunnerError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&js_json::encode_node_utf8(&self.message))
     }
 }
 
@@ -373,7 +375,7 @@ impl PyrunRunnerClient {
         let detached = should_detach(&self.options);
         let mut process_command = Command::new(&command);
         process_command
-            .args(&args)
+            .args(args.iter().map(js_json::encode_node_utf8))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -579,7 +581,7 @@ fn reject_generation_locked(state: &mut RunnerState, generation: u64, error: Pyr
 
 fn is_final_result(value: &Value) -> bool {
     matches!(
-        value.get("type").and_then(Value::as_str),
+        value.get("type").and_then(Value::as_string),
         Some("completed" | "error" | "needs_approval")
     )
 }
@@ -600,7 +602,8 @@ async fn handle_stdout_line(
     };
     let message_type = parsed
         .get("type")
-        .and_then(Value::as_str)
+        .and_then(Value::as_string)
+        .and_then(|text| text.to_utf8().ok())
         .unwrap_or_default()
         .to_owned();
     enum LineAction {
@@ -637,7 +640,8 @@ async fn handle_stdout_line(
             let handler = state.pending[index].on_pi_request.clone();
             let method = parsed
                 .get("method")
-                .and_then(Value::as_str)
+                .and_then(Value::as_string)
+                .and_then(|text| text.to_utf8().ok())
                 .unwrap_or_default()
                 .to_owned();
             let params = parsed.get("params").cloned().unwrap_or(Value::Null);
@@ -655,7 +659,7 @@ async fn handle_stdout_line(
             let payload = match response {
                 Ok(Some(result)) => {
                     let mut object = JsObject::new();
-                    object.insert("result".to_owned(), result);
+                    object.insert("result".to_owned().into(), result);
                     Value::Object(object)
                 }
                 Ok(None) => Value::Object(JsObject::new()),

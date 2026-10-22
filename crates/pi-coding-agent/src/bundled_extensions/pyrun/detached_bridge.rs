@@ -1,8 +1,8 @@
 //! Port of `packages/coding-agent/extensions/pyrun/src/detached-bridge.ts`.
 
 use pi_ai::utils::uuid::random_uuid;
+use pi_js_compat::js_json::{self, JsString, JsValue as Value};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::core::session_control_db::{
     DetachedJobOwnershipIdentity, EnqueueStoredRuntimeMailboxMessageInput, RuntimeMailboxAddress,
@@ -42,7 +42,7 @@ pub struct EnqueueDetachedPyrunBridgeRequestInput {
 pub fn enqueue_detached_pyrun_bridge_request(input: EnqueueDetachedPyrunBridgeRequestInput) -> Result<String, String> {
     let request_id = random_uuid();
     let body = DetachedPyrunBridgeRequest {
-        command: "request".to_owned(),
+        command: "request".into(),
         identity: input.identity.clone(),
         method: input.method,
         params: input.params,
@@ -52,14 +52,14 @@ pub fn enqueue_detached_pyrun_bridge_request(input: EnqueueDetachedPyrunBridgeRe
         tool_call_id: input.tool_call_id,
     };
     persist_bridge_message(PersistBridgeMessageInput {
-        body: serde_json::to_value(&body).map_err(|error| error.to_string())?,
+        body: js_json::to_value(&body).map_err(|error| error.to_string())?,
         control_db_path: input.control_db_path,
         from_agent_id: input.identity.job_id.clone(),
         message_id: format!("pyrun-request:{}:{request_id}", input.identity.job_id),
         recipient: input.supervisor_address,
         sender: input.runner_address,
         session_path: input.session_path,
-        to_agent_id: "main".to_owned(),
+        to_agent_id: "main".into(),
     })?;
     Ok(request_id)
 }
@@ -118,7 +118,7 @@ pub fn validate_detached_pyrun_bridge_request(
 
 pub struct EnqueueDetachedPyrunBridgeResponseInput {
     pub control_db_path: String,
-    pub error: Option<String>,
+    pub error: Option<JsString>,
     pub request: DetachedPyrunBridgeRequest,
     pub result: Option<Value>,
     pub session_path: String,
@@ -131,23 +131,26 @@ pub fn enqueue_detached_pyrun_bridge_response(input: EnqueueDetachedPyrunBridgeR
         "pyrun-response:{}:{}",
         input.request.identity.job_id, input.request.request_id
     );
-    let mut body = serde_json::Map::new();
-    body.insert("command".to_owned(), Value::String("respond".to_owned()));
+    let mut body = pi_js_compat::js_json::JsObject::new();
+    body.insert("command".into(), Value::String("respond".to_owned().into()));
     if let Some(error) = input.error {
-        body.insert("error".to_owned(), Value::String(error));
+        body.insert("error".into(), Value::String(error.into()));
     }
     body.insert(
-        "identity".to_owned(),
-        serde_json::to_value(&input.request.identity).map_err(|error| error.to_string())?,
+        "identity".into(),
+        js_json::to_value(&input.request.identity).map_err(|error| error.to_string())?,
     );
-    body.insert("requestId".to_owned(), Value::String(input.request.request_id.clone()));
+    body.insert(
+        "requestId".into(),
+        Value::String(input.request.request_id.clone().into()),
+    );
     if let Some(result) = input.result {
-        body.insert("result".to_owned(), result);
+        body.insert("result".into(), result);
     }
     persist_bridge_message(PersistBridgeMessageInput {
         body: Value::Object(body),
         control_db_path: input.control_db_path,
-        from_agent_id: "main".to_owned(),
+        from_agent_id: "main".into(),
         message_id,
         recipient: input.request.reply_to.clone(),
         sender: input.supervisor_address,
@@ -168,16 +171,16 @@ struct PersistBridgeMessageInput {
 }
 
 fn persist_bridge_message(input: PersistBridgeMessageInput) -> Result<(), String> {
-    let mut message = serde_json::Map::new();
+    let mut message = pi_js_compat::js_json::JsObject::new();
     message.insert(
-        "body".to_owned(),
-        Value::String(pi_js_compat::js_json::stringify(&input.body)),
+        "body".into(),
+        Value::String(js_json::stringify_lossless(&input.body).into()),
     );
-    message.insert("fromAgentId".to_owned(), Value::String(input.from_agent_id.clone()));
-    message.insert("id".to_owned(), Value::String(input.message_id.clone()));
-    message.insert("kind".to_owned(), Value::String("system".to_owned()));
-    message.insert("status".to_owned(), Value::String("pending".to_owned()));
-    message.insert("toAgentId".to_owned(), Value::String(input.to_agent_id));
+    message.insert("fromAgentId".into(), Value::String(input.from_agent_id.clone().into()));
+    message.insert("id".into(), Value::String(input.message_id.clone().into()));
+    message.insert("kind".into(), Value::String("system".to_owned().into()));
+    message.insert("status".into(), Value::String("pending".to_owned().into()));
+    message.insert("toAgentId".into(), Value::String(input.to_agent_id.into()));
     enqueue_stored_runtime_mailbox_message(
         &input.control_db_path,
         &EnqueueStoredRuntimeMailboxMessageInput {

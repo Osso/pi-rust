@@ -5,8 +5,8 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use pi_js_compat::js_json::{self, JsObject as Map, JsString, JsValue as Value};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 
@@ -89,18 +89,18 @@ fn fsync_directory(path: &str) -> Result<(), String> {
 
 /// `writeDetachedPyrunLaunchManifest`.
 pub fn write_detached_pyrun_launch_manifest(path: &str, data: &DetachedPyrunLaunchManifestData) -> Result<(), String> {
-    let mut unsigned = serde_json::to_value(data).map_err(|error| error.to_string())?;
+    let mut unsigned = js_json::to_value(data).map_err(|error| error.to_string())?;
     let Some(object) = unsigned.as_object_mut() else {
         return Err("detached Pyrun manifest must serialize to an object".to_owned());
     };
     object.insert(
-        "version".to_owned(),
-        pi_js_compat::number::js_number_value(DETACHED_PYRUN_LAUNCH_VERSION),
+        "version".into(),
+        pi_js_compat::number::js_number_value(DETACHED_PYRUN_LAUNCH_VERSION).into(),
     );
     let checksum = hash_json(&Value::Object(object.clone()));
-    object.insert("checksum".to_owned(), Value::String(checksum));
+    object.insert("checksum".into(), Value::String(checksum.into()));
     let temporary_path = format!("{path}.tmp");
-    let serialized = format!("{}\n", pi_js_compat::js_json::stringify(&unsigned));
+    let serialized = format!("{}\n", js_json::stringify_lossless(&unsigned));
     write_private(&temporary_path, &serialized)?;
     fsync_file(&temporary_path)?;
     std::fs::rename(&temporary_path, path).map_err(|error| error.to_string())?;
@@ -147,24 +147,22 @@ pub fn read_detached_pyrun_activation(path: &str) -> Result<Option<DetachedJobOw
         return Ok(None);
     }
     let content = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
-    let value = pi_js_compat::js_json::parse(&content).map_err(|error| error.to_string())?;
-    serde_json::from_value(value)
-        .map(Some)
-        .map_err(|error| error.to_string())
+    let value = js_json::parse_lossless(&content).map_err(|error| error.to_string())?;
+    js_json::from_value(&value).map(Some).map_err(|error| error.to_string())
 }
 
 /// `readDetachedPyrunLaunchManifest`.
 pub fn read_detached_pyrun_launch_manifest(path: &str) -> Result<DetachedPyrunLaunchManifest, String> {
     let content = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
-    let parsed: Value = pi_js_compat::js_json::parse(&content).map_err(|error| error.to_string())?;
+    let parsed: Value = js_json::parse_lossless(&content).map_err(|error| error.to_string())?;
     let original = parsed.clone();
     let mut unsigned = parsed;
     let Some(object) = unsigned.as_object_mut() else {
         return Err(format!("Invalid detached Pyrun launch manifest: {path}"));
     };
     let checksum = object
-        .remove("checksum")
-        .and_then(|checksum| checksum.as_str().map(str::to_owned));
+        .shift_remove(&JsString::from("checksum"))
+        .and_then(|checksum| checksum.as_string().and_then(|value| value.to_utf8().ok()));
     let version = object.get("version").and_then(Value::as_f64);
     let started_at = object.get("startedAt").and_then(Value::as_f64);
     let valid = version == Some(DETACHED_PYRUN_LAUNCH_VERSION)
@@ -173,7 +171,7 @@ pub fn read_detached_pyrun_launch_manifest(path: &str) -> Result<DetachedPyrunLa
     if !valid {
         return Err(format!("Invalid detached Pyrun launch manifest: {path}"));
     }
-    serde_json::from_value(original).map_err(|error| error.to_string())
+    js_json::from_value(&original).map_err(|error| error.to_string())
 }
 
 /// Rust replacement for the TypeScript entry-script invocation. The compiled
@@ -279,7 +277,7 @@ struct PyrunSettlement {
     cancel: Option<DetachedJobCancelCommand>,
     identity: Option<DetachedJobOwnershipIdentity>,
     result: Option<CanonicalPyrunEvalResult>,
-    error: Option<String>,
+    error: Option<JsString>,
 }
 
 /// `runDetachedPyrunRunner`.
@@ -370,7 +368,7 @@ async fn wait_for_detached_pyrun_settlement(
     let settled = runner.evaluate(
         manifest.data.params.clone(),
         Some(Arc::new(move |update: CanonicalPyrunProgressUpdate| {
-            let record = serde_json::json!({"kind": "progress", "update": update.raw});
+            let record = pi_js_compat::js_json!({"kind": "progress", "update": update.raw});
             append_artifact_record(&manifest_for_progress.data.artifacts.output_path, &record)
                 .map_err(|error| super::runner::PyrunRunnerError::new(error.to_string()))
         })),
@@ -403,7 +401,7 @@ async fn wait_for_detached_pyrun_settlement(
                     cancel: control.cancel.clone(),
                     identity: control.identity.clone(),
                     result: None,
-                    error: Some(error.to_string()),
+                    error: Some(error.to_string().into()),
                 },
             });
         }
@@ -437,7 +435,7 @@ fn apply_detached_pyrun_runtime_commands(
                         request_id: status.request_id.clone(),
                         runner_address: manifest.data.runner_address.clone(),
                         session_path: manifest.data.session_path.clone(),
-                        status: serde_json::json!({
+                        status: pi_js_compat::js_json!({
                             "outputPath": manifest.data.artifacts.output_path,
                             "pendingRequestCount": pending.lock().unwrap().len(),
                             "state": "running"
@@ -504,9 +502,9 @@ async fn dispatch_foreground_pyrun_bridge_request(
 ) -> Result<Option<Value>, String> {
     let request_id = pi_ai::utils::uuid::random_uuid();
     let mut record = Map::new();
-    record.insert("method".to_owned(), Value::String(request.method.clone()));
-    record.insert("params".to_owned(), request.params.clone());
-    record.insert("requestId".to_owned(), Value::String(request_id.clone()));
+    record.insert("method".into(), Value::String(request.method.clone().into()));
+    record.insert("params".into(), request.params.clone());
+    record.insert("requestId".into(), Value::String(request_id.clone().into()));
     append_artifact_record(&manifest.data.bridge_request_path, &Value::Object(record))
         .map_err(|error| error.to_string())?;
     let mut offset = 0;
@@ -515,7 +513,7 @@ async fn dispatch_foreground_pyrun_bridge_request(
             read_json_lines(&manifest.data.bridge_response_path, offset).map_err(|error| error.to_string())?;
         offset = records.offset;
         for response in &records.values {
-            if response.get("requestId").and_then(Value::as_str) != Some(request_id.as_str()) {
+            if response.get("requestId").and_then(Value::as_string) != Some(request_id.as_str()) {
                 continue;
             }
             if response.get("claimed").and_then(Value::as_bool) == Some(true) {
@@ -523,7 +521,7 @@ async fn dispatch_foreground_pyrun_bridge_request(
             }
             if let Some(error) = response
                 .get("error")
-                .and_then(Value::as_str)
+                .and_then(Value::as_string)
                 .filter(|error| !error.is_empty())
             {
                 return Err(error.to_owned());
@@ -562,8 +560,8 @@ fn append_pyrun_settlement_record(
     settlement: &PyrunSettlement,
 ) -> Result<(), String> {
     let record = match (&settlement.result, &settlement.error) {
-        (Some(result), _) => serde_json::json!({"kind": "result", "result": result}),
-        (None, error) => serde_json::json!({
+        (Some(result), _) => pi_js_compat::js_json!({"kind": "result", "result": result}),
+        (None, error) => pi_js_compat::js_json!({
             "error": error.clone().unwrap_or_default(),
             "kind": "error"
         }),
@@ -632,7 +630,7 @@ fn pyrun_settlement_outcome(settlement: &PyrunSettlement) -> DetachedJobOutcome 
                     message: result
                         .error
                         .clone()
-                        .unwrap_or_else(|| "Pyrun evaluation failed".to_owned()),
+                        .unwrap_or_else(|| "Pyrun evaluation failed".to_owned().into()),
                     code: None,
                 },
                 exit_code: None,

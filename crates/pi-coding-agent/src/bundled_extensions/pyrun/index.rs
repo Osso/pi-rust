@@ -118,7 +118,7 @@ fn create_executor_state(
     dispatch_pi_request: &PyrunPiRequestDispatcher,
     bwrap_command: &str,
 ) -> Result<ExecutorState, HandlerError> {
-    let cwd = ctx.cwd().map_err(|error| HandlerError::new(error.to_string()))?;
+    let cwd = ctx.cwd()?;
     let profile = resolve_bwrap_sandbox_profile(settings_profile(ctx));
     let key = format!(
         "{}\0{cwd}",
@@ -190,7 +190,7 @@ fn executor_for(
     dispatch_pi_request: &PyrunPiRequestDispatcher,
     bwrap_command: &str,
 ) -> Result<(PyrunEvaluate, bool, PyrunRunnerOptions), HandlerError> {
-    let cwd = ctx.cwd().map_err(|error| HandlerError::new(error.to_string()))?;
+    let cwd = ctx.cwd()?;
     let profile = resolve_bwrap_sandbox_profile(settings_profile(ctx));
     let key = format!(
         "{}\0{cwd}",
@@ -330,18 +330,22 @@ fn read_non_empty_string(record: &Map, key: &str) -> Result<Option<String>, Hand
     let Some(value) = record.get(key) else {
         return Ok(None);
     };
-    let Some(value) = value.as_str() else {
+    let Some(value) = value.as_string() else {
         return Err(HandlerError::new(format!(
             "pi.sessions.resume {key} must be a non-empty string"
         )));
     };
-    let trimmed = pi_js_compat::string::js_trim(value);
+    let trimmed = value.trim();
     if trimmed.is_empty() {
         return Err(HandlerError::new(format!(
             "pi.sessions.resume {key} must be a non-empty string"
         )));
     }
-    Ok(Some(trimmed.to_owned()))
+    Ok(Some(
+        trimmed
+            .to_utf8()
+            .map_err(|error| HandlerError::new(error.to_string()))?,
+    ))
 }
 
 fn normalize_resume_session_params(params: Option<&Value>) -> Result<ResumeSessionParams, HandlerError> {
@@ -391,9 +395,7 @@ fn find_unique_session_match(
 }
 
 fn list_resolvable_sessions(ctx: &ExtensionContext) -> Result<Vec<SessionInfo>, HandlerError> {
-    let session = ctx
-        .session_manager()
-        .map_err(|error| HandlerError::new(error.to_string()))?;
+    let session = ctx.session_manager()?;
     let (cwd, session_dir) = {
         let manager = lock_session_manager(&session);
         (manager.get_cwd().to_owned(), manager.get_session_dir().to_owned())
@@ -410,7 +412,7 @@ fn list_resolvable_sessions(ctx: &ExtensionContext) -> Result<Vec<SessionInfo>, 
 
 fn resolve_resume_session_file(params: &ResumeSessionParams, ctx: &ExtensionContext) -> Result<String, HandlerError> {
     if let Some(path) = &params.path {
-        let cwd = ctx.cwd().map_err(|error| HandlerError::new(error.to_string()))?;
+        let cwd = ctx.cwd()?;
         let resolved = crate::utils::paths::resolve_path(path, &cwd, &Default::default())
             .map_err(|error| HandlerError::new(error.to_string()))?;
         return assert_resume_session_path(&resolved);
@@ -447,15 +449,18 @@ fn list_scoped_models(ctx: &ExtensionContext) -> Result<Value, HandlerError> {
         .into_iter()
         .map(|scoped| {
             let mut model = Map::new();
-            model.insert("id".into(), Value::String(scoped.model.id.clone()));
+            model.insert("id".into(), Value::String(scoped.model.id.clone().into()));
             if !scoped.model.name.is_empty() {
-                model.insert("name".into(), Value::String(scoped.model.name.clone()));
+                model.insert("name".into(), Value::String(scoped.model.name.clone().into()));
             }
-            model.insert("provider".into(), Value::String(scoped.model.provider.to_string()));
+            model.insert(
+                "provider".into(),
+                Value::String(scoped.model.provider.to_string().into()),
+            );
             if let Some(thinking_level) = scoped.thinking_level {
                 model.insert(
                     "thinkingLevel".into(),
-                    Value::String(thinking_level.as_str().to_owned()),
+                    Value::String(thinking_level.as_str().to_owned().into()),
                 );
             }
             Value::Object(model)
@@ -488,20 +493,26 @@ async fn set_session_model(
             "pi.models.set requires { provider, id, thinkingLevel? }",
         ));
     };
-    let provider = record.get("provider").and_then(Value::as_string).unwrap_or_default();
-    if pi_js_compat::string::js_trim(provider).is_empty() {
+    let provider = record
+        .get("provider")
+        .and_then(Value::as_string)
+        .cloned()
+        .unwrap_or_default();
+    if provider.trim().is_empty() {
         return Err(HandlerError::new("pi.models.set requires a non-empty provider"));
     }
-    let id = record.get("id").and_then(Value::as_string).unwrap_or_default();
-    if pi_js_compat::string::js_trim(id).is_empty() {
+    let id = record.get("id").and_then(Value::as_string).cloned().unwrap_or_default();
+    if id.trim().is_empty() {
         return Err(HandlerError::new("pi.models.set requires a non-empty id"));
     }
     let thinking_level = match record.get("thinkingLevel") {
-        Some(Value::String(value)) => Some(parse_thinking_level(value).ok_or_else(|| {
-            HandlerError::new(
-                "pi.models.set thinkingLevel must be off, minimal, low, medium, high, xhigh, max, or ultra",
-            )
-        })?),
+        Some(Value::String(value)) => Some(parse_thinking_level(&value.to_utf8().unwrap_or_default()).ok_or_else(
+            || {
+                HandlerError::new(
+                    "pi.models.set thinkingLevel must be off, minimal, low, medium, high, xhigh, max, or ultra",
+                )
+            },
+        )?),
         Some(_) => {
             return Err(HandlerError::new(
                 "pi.models.set thinkingLevel must be off, minimal, low, medium, high, xhigh, max, or ultra",
@@ -509,14 +520,13 @@ async fn set_session_model(
         }
         None => None,
     };
-    let provider = pi_js_compat::string::js_trim(provider).to_owned();
-    let id = pi_js_compat::string::js_trim(id).to_owned();
+    let provider = provider.trim().to_owned();
+    let id = id.trim().to_owned();
     let model = ctx
-        .model_registry()
-        .map_err(|error| HandlerError::new(error.to_string()))?
+        .model_registry()?
         .get_available()
         .into_iter()
-        .find(|model| model.provider.as_str() == provider && model.id == id)
+        .find(|model| provider == model.provider.as_str() && id == model.id)
         .ok_or_else(|| HandlerError::new(format!("Model not found or not authenticated: {provider}/{id}")))?;
     if !pi
         .set_model(model.clone())
@@ -532,7 +542,7 @@ async fn set_session_model(
     let mut result = Map::new();
     result.insert("model".into(), js_json::to_value(&model).unwrap_or(Value::Null));
     if let Some(level) = thinking_level {
-        result.insert("thinkingLevel".into(), Value::String(level.as_str().to_owned()));
+        result.insert("thinkingLevel".into(), Value::String(level.as_str().to_owned().into()));
     }
     Ok(Value::Object(result))
 }
@@ -545,11 +555,14 @@ fn normalize_tool_call_params(params: Option<&Value>) -> Result<(String, Value),
     let Some(name) = name.and_then(Value::as_string) else {
         return Err(HandlerError::new("pi.tools.call requires a non-empty tool name"));
     };
-    let name = pi_js_compat::string::js_trim(name);
+    let name = name.trim();
     if name.is_empty() {
         return Err(HandlerError::new("pi.tools.call requires a non-empty tool name"));
     }
-    Ok((name.to_owned(), record.get("params").cloned().unwrap_or(Value::Null)))
+    Ok((
+        name.to_utf8().map_err(|error| HandlerError::new(error.to_string()))?,
+        record.get("params").cloned().unwrap_or(Value::Null),
+    ))
 }
 
 fn normalize_command_run_params(params: Option<&Value>) -> Result<(String, JsString), HandlerError> {
@@ -559,7 +572,7 @@ fn normalize_command_run_params(params: Option<&Value>) -> Result<(String, JsStr
     let Some(name) = record.get("name").and_then(Value::as_string) else {
         return Err(HandlerError::new("pi.commands.run requires a non-empty command name"));
     };
-    let name = pi_js_compat::string::js_trim(name);
+    let name = name.trim();
     if name.is_empty() {
         return Err(HandlerError::new("pi.commands.run requires a non-empty command name"));
     }
@@ -568,7 +581,10 @@ fn normalize_command_run_params(params: Option<&Value>) -> Result<(String, JsStr
         Some(_) => return Err(HandlerError::new("pi.commands.run args must be a string when provided")),
         None => JsString::default(),
     };
-    Ok((name.to_owned(), args))
+    Ok((
+        name.to_utf8().map_err(|error| HandlerError::new(error.to_string()))?,
+        args,
+    ))
 }
 
 fn normalize_message_params(params: Option<&Value>) -> Result<(JsString, Option<UserMessageDelivery>), HandlerError> {
@@ -613,10 +629,10 @@ async fn dispatch_builtin_pyrun_request(
                 .await?;
             Ok(Some(js_json::to_value(&result).unwrap_or(Value::Null)))
         }
-        "commands.list" => Ok(Some(js_json::to_value(pi.get_commands()?).unwrap_or(Value::Null))),
+        "commands.list" => Ok(Some(js_json::to_value(&pi.get_commands()?).unwrap_or(Value::Null))),
         "commands.run" => {
             let (name, args) = normalize_command_run_params(Some(&request.params))?;
-            Ok(Some(pi.call_command(name, Some(args)).await?))
+            Ok(Some(pi.call_command(name, Some(args)).await?.into()))
         }
         "compact" => {
             ctx.compact(Some(normalize_compact_params(Some(&request.params))?))?;
