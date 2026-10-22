@@ -7,6 +7,7 @@ Reference: immutable `4f9e6f8a4`, `packages/agent-core/src/{agent-loop,agent,typ
 - Reset clears transcript, queues and runtime state even during an active run; it does not abort or release that run.
 - Rejected low-level parallel sinks do not cancel already-started sibling tool promises. Any rejected update sink rejects the batch immediately, even while another sink stays pending.
 - Steering messages clear the pending end-turn reminder before the next model request.
+- Low-level steering/follow-up queue callbacks may reject. Propagate the original error at the queue poll, without fabricating assistant or agent-end events; harness queue drains restore removed messages when their queue-update hook rejects.
 - Aborting a run does not cancel a tool future that ignores the signal. It continues on Tokio until completion or runtime shutdown; late results and updates are ignored. Task panics are consumed and logged by an observer after abort.
 - Proxy request options use the frozen whitelist; omit old-only sampling parameters.
 - Proxy cancellation interrupts a pending body read; empty error text or a failing non-2xx body read keeps the status-based error message.

@@ -923,15 +923,15 @@ impl Agent {
             let skip_initial_steering_poll = Arc::clone(&skip_initial_steering_poll);
             Box::pin(async move {
                 if skip_initial_steering_poll.swap(false, Ordering::SeqCst) {
-                    return Vec::new();
+                    return Ok(Vec::new());
                 }
-                queue_drain(&steering_queue)
-            }) as pi_ai::request::BoxFuture<'static, Vec<AgentMessage>>
+                Ok(queue_drain(&steering_queue))
+            }) as pi_ai::request::BoxFuture<'static, Result<Vec<AgentMessage>, AgentError>>
         }) as MessageQueueHook);
         let get_follow_up_messages = Some(Arc::new(move || {
             let follow_up_queue = Arc::clone(&follow_up_queue);
-            Box::pin(async move { queue_drain(&follow_up_queue) })
-                as pi_ai::request::BoxFuture<'static, Vec<AgentMessage>>
+            Box::pin(async move { Ok(queue_drain(&follow_up_queue)) })
+                as pi_ai::request::BoxFuture<'static, Result<Vec<AgentMessage>, AgentError>>
         }) as MessageQueueHook);
 
         (get_steering_messages, get_follow_up_messages)

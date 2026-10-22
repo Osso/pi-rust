@@ -519,7 +519,7 @@ pub type PrepareNextTurnHook = Arc<
     dyn Fn(PrepareNextTurnContext) -> BoxFuture<'static, Result<Option<AgentLoopTurnUpdate>, AgentError>> + Send + Sync,
 >;
 /// Queue poll hook (`getSteeringMessages`, `getFollowUpMessages`).
-pub type MessageQueueHook = Arc<dyn Fn() -> BoxFuture<'static, Vec<AgentMessage>> + Send + Sync>;
+pub type MessageQueueHook = Arc<dyn Fn() -> BoxFuture<'static, Result<Vec<AgentMessage>, AgentError>> + Send + Sync>;
 
 /// Configuration for the low-level agent loop.
 #[derive(Clone)]

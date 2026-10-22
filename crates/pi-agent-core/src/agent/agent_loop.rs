@@ -307,7 +307,7 @@ async fn run_loop(
         continuation_instruction_pending: false,
         new_messages,
     };
-    let mut pending_messages = poll_steering(&state.config).await;
+    let mut pending_messages = poll_steering(&state.config).await?;
 
     loop {
         let mut has_more_tool_calls = true;
@@ -341,10 +341,10 @@ async fn run_loop(
                 return Ok(messages);
             }
 
-            pending_messages = poll_steering(&state.config).await;
+            pending_messages = poll_steering(&state.config).await?;
         }
 
-        let follow_up_messages = poll_follow_up(&state.config).await;
+        let follow_up_messages = poll_follow_up(&state.config).await?;
         if follow_up_messages.is_empty() {
             break;
         }
@@ -530,17 +530,17 @@ fn has_end_turn_tool(context: &AgentContext) -> bool {
         .is_some_and(|tools| tools.iter().any(|tool| tool.name() == "end_turn"))
 }
 
-async fn poll_steering(config: &AgentLoopConfig) -> Vec<AgentMessage> {
+async fn poll_steering(config: &AgentLoopConfig) -> Result<Vec<AgentMessage>, AgentError> {
     match &config.get_steering_messages {
         Some(hook) => hook().await,
-        None => Vec::new(),
+        None => Ok(Vec::new()),
     }
 }
 
-async fn poll_follow_up(config: &AgentLoopConfig) -> Vec<AgentMessage> {
+async fn poll_follow_up(config: &AgentLoopConfig) -> Result<Vec<AgentMessage>, AgentError> {
     match &config.get_follow_up_messages {
         Some(hook) => hook().await,
-        None => Vec::new(),
+        None => Ok(Vec::new()),
     }
 }
 
