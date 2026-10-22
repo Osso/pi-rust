@@ -106,7 +106,7 @@ impl QuestionForm {
     }
 }
 impl ExtensionUiComponent for QuestionForm {
-    fn handle_input(&self, data: &str) {
+    fn handle_input(&self, data: &pi_js_compat::js_json::JsString) {
         let mut state = self.state.borrow_mut();
         if state.editing {
             if matches_key(data, "escape") {
@@ -152,7 +152,7 @@ impl ExtensionUiComponent for QuestionForm {
     fn invalidate(&self) {
         self.state.borrow_mut().cache = None;
     }
-    fn render(&self, width: usize) -> Vec<String> {
+    fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let mut state = self.state.borrow_mut();
         if let Some(cache) = &state.cache {
             return cache.clone();

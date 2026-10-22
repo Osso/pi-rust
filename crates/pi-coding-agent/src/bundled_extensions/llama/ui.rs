@@ -934,11 +934,11 @@ struct LlamaViewComponent {
 }
 
 impl ExtensionUiComponent for LlamaViewComponent {
-    fn render(&self, width: usize) -> Vec<String> {
+    fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         self.view.render(width)
     }
 
-    fn handle_input(&self, data: &str) {
+    fn handle_input(&self, data: &pi_js_compat::js_json::JsString) {
         self.view.handle_input(data);
     }
 }

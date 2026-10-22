@@ -255,12 +255,12 @@ struct TodoList {
     done: ExtensionUiDone,
 }
 impl ExtensionUiComponent for TodoList {
-    fn handle_input(&self, data: &str) {
+    fn handle_input(&self, data: &pi_js_compat::js_json::JsString) {
         if matches_key(data, "escape") || matches_key(data, "ctrl+c") {
             self.done.call(None);
         }
     }
-    fn render(&self, width: usize) -> Vec<String> {
+    fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let th = &self.theme;
         let header = th.fg(C::BorderMuted, "───")
             + &th.fg(C::Accent, " Todos ")

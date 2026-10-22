@@ -581,10 +581,10 @@ impl ExtensionUiComponent for QaComponent {
     fn set_focused(&self, value: bool) {
         self.0.focused.set(value);
     }
-    fn render(&self, width: usize) -> Vec<String> {
+    fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         render::render(&self.0, width)
     }
-    fn handle_input(&self, data: &str) {
+    fn handle_input(&self, data: &pi_js_compat::js_json::JsString) {
         self.0.input(data);
     }
     fn invalidate(&self) {}

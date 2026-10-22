@@ -109,7 +109,7 @@ impl ExtensionUiComponent for DoomOverlayComponent {
         true
     }
 
-    fn handle_input(&self, data: &str) {
+    fn handle_input(&self, data: &pi_js_compat::js_json::JsString) {
         // Throw only after releasing the engine lock: a TS throw does not poison it.
         let quit = self
             .send_input(data)
@@ -120,7 +120,7 @@ impl ExtensionUiComponent for DoomOverlayComponent {
         }
     }
 
-    fn render(&self, width: usize) -> Vec<String> {
+    fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let height = 10.max((width as f64 / 3.2).floor() as usize);
         let (rgba, source_width, source_height) = {
             let engine = self.engine.lock().unwrap();

@@ -203,7 +203,7 @@ impl ExtensionUiComponent for Panel {
     fn set_focused(&self, focused: bool) {
         self.focused.set(focused);
     }
-    fn handle_input(&self, data: &str) {
+    fn handle_input(&self, data: &pi_js_compat::js_json::JsString) {
         let Some(model) = self.controller.upgrade() else { return };
         match model.demo {
             Demo::Focus => self.focus_input(&model, data),
@@ -219,7 +219,7 @@ impl ExtensionUiComponent for Panel {
             _ => {}
         }
     }
-    fn render(&self, width: usize) -> Vec<String> {
+    fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let Some(model) = self.controller.upgrade() else {
             return Vec::new();
         };

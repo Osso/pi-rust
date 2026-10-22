@@ -275,9 +275,9 @@ pub trait ExtensionUiComponent {
 
     fn set_focused(&self, _focused: bool) {}
 
-    fn render(&self, width: usize) -> Vec<String>;
+    fn render(&self, width: usize) -> Vec<JsString>;
 
-    fn handle_input(&self, _data: &str) {}
+    fn handle_input(&self, _data: &JsString) {}
 
     fn invalidate(&self) {}
 
@@ -449,7 +449,7 @@ impl ExtensionUiDone {
 /// UI-local factory continuation; only its factory closure crosses threads.
 /// Outer errors model synchronous throws; future errors model Promise rejection.
 pub type ExtensionUiCustomResult =
-    Result<futures_util::future::LocalBoxFuture<'static, Result<Box<dyn ExtensionUiComponent>, String>>, String>;
+    Result<futures_util::future::LocalBoxFuture<'static, Result<Box<dyn ExtensionUiComponent>, JsString>>, JsString>;
 
 /// Custom-UI factories may finish immediately or await UI-local work.
 pub type ExtensionUiCustomFactory =

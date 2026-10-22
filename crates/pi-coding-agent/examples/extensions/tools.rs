@@ -190,7 +190,7 @@ impl ToolSelector {
     }
 }
 impl ExtensionUiComponent for ToolSelector {
-    fn render(&self, width: usize) -> Vec<String> {
+    fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let mut lines = vec![
             self.theme
                 .fg(ThemeColor::Accent, &self.theme.bold("Tool Configuration")),
@@ -199,7 +199,7 @@ impl ExtensionUiComponent for ToolSelector {
         lines.extend(self.list().render(width));
         lines
     }
-    fn handle_input(&self, data: &str) {
+    fn handle_input(&self, data: &pi_js_compat::js_json::JsString) {
         let mut list = self.list();
         list.handle_input(data);
         let keys = pi_tui::keybindings::get_keybindings();

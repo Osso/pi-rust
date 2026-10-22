@@ -120,7 +120,7 @@ impl EditorBehavior for BorderStatus {
 }
 struct EmptyFooter;
 impl ExtensionUiComponent for EmptyFooter {
-    fn render(&self, _: usize) -> Vec<String> {
+    fn render(&self, _: usize) -> Vec<pi_js_compat::js_json::JsString> {
         Vec::new()
     }
 }

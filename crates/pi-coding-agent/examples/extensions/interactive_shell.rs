@@ -153,7 +153,7 @@ fn run_inherited(tui: &ExtensionUiTui, command: &str, env: &Environment) -> Resu
 }
 struct Empty;
 impl ExtensionUiComponent for Empty {
-    fn render(&self, _: usize) -> Vec<String> {
+    fn render(&self, _: usize) -> Vec<pi_js_compat::js_json::JsString> {
         Vec::new()
     }
 }

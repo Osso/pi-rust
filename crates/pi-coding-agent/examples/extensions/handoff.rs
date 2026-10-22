@@ -106,10 +106,10 @@ impl Loader {
     }
 }
 impl ExtensionUiComponent for Loader {
-    fn render(&self, width: usize) -> Vec<String> {
+    fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         self.component().render(width)
     }
-    fn handle_input(&self, data: &str) {
+    fn handle_input(&self, data: &pi_js_compat::js_json::JsString) {
         self.component().handle_input(data);
     }
 }

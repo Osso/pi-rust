@@ -390,7 +390,7 @@ impl ExtensionUiComponent for Invaders {
     fn wants_key_release(&self) -> bool {
         true
     }
-    fn handle_input(&self, data: &str) {
+    fn handle_input(&self, data: &pi_js_compat::js_json::JsString) {
         let released = is_key_release(data);
         let mut inner = self.inner.lock().unwrap();
         if inner.paused && !released {
@@ -442,7 +442,7 @@ impl ExtensionUiComponent for Invaders {
     fn invalidate(&self) {
         self.inner.lock().unwrap().cached_width = 0;
     }
-    fn render(&self, width: usize) -> Vec<String> {
+    fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let mut inner = self.inner.lock().unwrap();
         if width == inner.cached_width && inner.cached_version == Some(inner.version) {
             return inner.cached_lines.clone();

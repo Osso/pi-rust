@@ -223,7 +223,7 @@ impl GameComponent {
     }
 }
 impl ExtensionUiComponent for GameComponent {
-    fn render(&self, width: usize) -> Vec<String> {
+    fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let mut data = self.data.lock().unwrap();
         if data.cached_width == width && data.cached_version == Some(data.version) {
             return data.cached_lines.clone();
@@ -235,7 +235,7 @@ impl ExtensionUiComponent for GameComponent {
         data.cached_lines = lines.clone();
         lines
     }
-    fn handle_input(&self, key: &str) {
+    fn handle_input(&self, key: &pi_js_compat::js_json::JsString) {
         if matches_key(key, "escape") || matches!(key, "q" | "Q") {
             self.close();
             return;
