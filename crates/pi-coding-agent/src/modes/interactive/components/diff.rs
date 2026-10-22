@@ -1,6 +1,6 @@
 //! Ported from `coding-agent/src/modes/interactive/components/diff.ts`.
 
-use pi_agent_core::jsdiff::diff_words;
+use crate::core::tools::jsdiff::diff_words;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::string::is_js_whitespace_unit;

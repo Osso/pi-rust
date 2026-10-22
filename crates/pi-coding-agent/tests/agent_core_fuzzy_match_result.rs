@@ -1,7 +1,7 @@
 use pi_js_compat::js_json::JsString;
 use std::fmt::Debug;
 
-use pi_agent_core::harness::tools::edit_diff::FuzzyMatchResult;
+use pi_coding_agent::core::tools::edit_primitives::FuzzyMatchResult;
 
 const POSITIVE_ZERO_BITS: u64 = 0x0000_0000_0000_0000;
 const NEGATIVE_ZERO_BITS: u64 = 0x8000_0000_0000_0000;

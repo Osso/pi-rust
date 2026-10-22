@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::sync::OnceLock;
 
-use pi_agent_core::unicode::normalize_nfd;
+use super::unicode::normalize_nfd;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use pi_js_compat::js_regex::JsRegex;

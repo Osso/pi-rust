@@ -143,12 +143,6 @@ pub fn session_entry_to_context_messages(
 }
 
 fn message_entry_messages(message: &AgentMessage) -> Vec<AgentMessage> {
-    if message
-        .as_assistant()
-        .is_some_and(|assistant| assistant.stop_reason == pi_ai::types::StopReason::Deferred)
-    {
-        return Vec::new();
-    }
     vec![message.clone()]
 }
 

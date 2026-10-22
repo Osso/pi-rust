@@ -172,18 +172,8 @@ fn applies_caller_transforms_after_the_compaction_boundary() {
 }
 
 #[test]
-fn projects_custom_entries_and_omits_deferred_assistant_handles() {
-    let mut deferred = AssistantMessage::empty("openai-responses", "openai", "gpt-5", 2);
-    deferred.stop_reason = StopReason::Deferred;
-    deferred.deferred = Some(pi_ai::types::DeferredHandle {
-        provider: "openai".to_owned(),
-        model_id: "gpt-5".to_owned(),
-        api: "openai-responses".to_owned(),
-        id: "response-1".to_owned(),
-        expires_at: None,
-        poll_after_ms: None,
-        data: None,
-    });
+fn projects_custom_entries_and_keeps_assistant_messages() {
+    let assistant = AssistantMessage::empty("openai-responses", "openai", "gpt-5", 2);
     let entries = vec![
         entry(
             EntryBody::Message {
@@ -195,8 +185,8 @@ fn projects_custom_entries_and_omits_deferred_assistant_handles() {
         ),
         entry(
             EntryBody::Message {
-                id: "deferred".to_owned(),
-                message: AgentMessage::Assistant(Box::new(deferred)),
+                id: "assistant".to_owned(),
+                message: AgentMessage::Assistant(Box::new(assistant)),
                 terminate: None,
             },
             2,
@@ -230,8 +220,8 @@ fn projects_custom_entries_and_omits_deferred_assistant_handles() {
         entry_projectors: projectors,
     };
     let context = build_session_context(&entries, &options);
-    assert_eq!(roles(&context), vec!["user", "user"]);
-    match &context.messages[1] {
+    assert_eq!(roles(&context), vec!["user", "assistant", "user"]);
+    match &context.messages[2] {
         AgentMessage::User(message) => {
             let UserContent::Blocks(blocks) = &message.content else {
                 panic!("expected blocks");
