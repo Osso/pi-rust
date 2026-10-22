@@ -42,3 +42,19 @@ fn image_selector_retains_selection_after_unmatched_input() {
     list.borrow_mut().handle_input(&"\r".into());
     assert_eq!(selected.get(), Some(false));
 }
+
+#[test]
+fn user_message_keeps_raw_units_across_padding_and_invalidation() {
+    use pi_coding_agent::modes::interactive::components::user_message::UserMessageComponent;
+    init_theme();
+    let text = JsString::from("raw ") + JsString::from_utf16(vec![0xd800, 0x20, 0xdc00]);
+    let mut message = UserMessageComponent::new(text.clone(), None, 1, vec![]);
+    for padding in [1, 2] {
+        message.set_output_pad(padding);
+        message.invalidate();
+        let output = JsString::join(message.render(80), "\n");
+        assert!(output.contains(&text));
+        assert!(output.contains("\u{1b}]133;A\u{7}"));
+        assert!(output.contains("\u{1b}]133;B\u{7}\u{1b}]133;C\u{7}"));
+    }
+}
