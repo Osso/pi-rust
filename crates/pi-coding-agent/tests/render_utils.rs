@@ -24,7 +24,7 @@ fn text_result(texts: &[&str]) -> AgentToolResult {
 fn shorten_path_replaces_the_home_prefix() {
     let home = std::env::var("HOME").expect("HOME");
     assert_eq!(
-        shorten_path(&format!("{home}/projects/file.txt")),
+        shorten_path(&pi_js_compat::js_format!("{}/projects/file.txt", home)),
         "~/projects/file.txt"
     );
     assert_eq!(shorten_path(&JsString::from("/tmp/file.txt")), "/tmp/file.txt");
