@@ -85,3 +85,39 @@ async fn auth_context_encodes_raw_path_only_at_filesystem_lookup() {
             .await
     );
 }
+
+#[test]
+fn manual_code_parser_retains_units_until_url_or_form_boundaries() {
+    use pi_ai::auth::oauth::support::{form_encode, parse_authorization_input, to_form_usv_string};
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let parsed = parse_authorization_input(&(raw.clone() + "#state"));
+    assert_eq!(parsed.code, Some(raw.clone()));
+    assert_eq!(parsed.state, Some(JsString::from("state")));
+    assert_eq!(form_encode(&[("code", &to_form_usv_string(&raw))]), "code=%EF%BF%BD");
+    let parsed_url = parse_authorization_input(&(JsString::from("https://example.test/?code=") + &raw));
+    assert_eq!(parsed_url.code, Some(JsString::from("�")));
+}
+
+#[tokio::test]
+async fn cloudflare_login_keeps_native_key_and_account_id() {
+    use pi_ai::auth::types::ApiKeyAuth;
+    let credential = pi_ai::providers::cloudflare_auth::CloudflareWorkersAiAuth
+        .login(std::sync::Arc::new(NativeInteraction))
+        .unwrap()
+        .await
+        .unwrap();
+    let raw = JsString::from_utf16(vec![0xd800, 0x20, 0xdc00]);
+    assert_eq!(credential.key, Some(raw.clone()));
+    assert_eq!(credential.env.unwrap()["CLOUDFLARE_ACCOUNT_ID"], raw);
+}
+
+#[tokio::test]
+async fn oauth_to_auth_does_not_narrow_token_before_request() {
+    use pi_ai::auth::types::{OAuthAuth, OAuthCredential};
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let auth = pi_ai::auth::oauth::anthropic::AnthropicOAuth::new()
+        .to_auth(OAuthCredential::new("refresh", raw.clone(), 0.0))
+        .await
+        .unwrap();
+    assert_eq!(auth.api_key, Some(raw));
+}

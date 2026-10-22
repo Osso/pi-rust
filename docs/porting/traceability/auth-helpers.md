@@ -17,3 +17,5 @@ Tests: `crates/pi-ai/tests/auth.rs`; differential `auth_resolve`.
 
 ## Gaps
 - TS `load` may reject with any value; Rust uses `AuthError` (`Failed(CallbackError)` or `Aborted`).
+
+Q18 native auth integration and bounded proof status: [lossless auth](lossless-auth.md).

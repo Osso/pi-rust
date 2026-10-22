@@ -13,3 +13,5 @@ Pinned source: `packages/ai/src/api/cloudflare.ts` at commit `532f7d12cd19235081
 ## Exclusions
 
 - None. Value-only module with byte-exact differential proof.
+
+Q18 native auth integration and bounded proof status: [lossless auth](lossless-auth.md).

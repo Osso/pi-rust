@@ -28,3 +28,5 @@ Tests: `crates/pi-ai/tests/auth.rs`; differential: `tests/differential_ai_runtim
 
 ## Discrepancies
 - None observed by the differential auth scenarios.
+
+Q18 native auth integration and bounded proof status: [lossless auth](lossless-auth.md).

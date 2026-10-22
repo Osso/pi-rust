@@ -67,7 +67,7 @@ impl OAuthAuth for XaiOAuth {
         Box::pin(async move {
             refresh_xai_token(&runtime, &credential.refresh, signal)
                 .await
-                .map_err(|error| AuthError::failed(error.message))
+                .map_err(AuthError::from)
         })
     }
 
@@ -293,7 +293,7 @@ async fn login_xai(
 ) -> Result<OAuthCredential, AuthError> {
     let device = request_device_code(runtime, interaction.signal())
         .await
-        .map_err(|error| AuthError::failed(error.message))?;
+        .map_err(AuthError::from)?;
     interaction.notify(AuthEvent::DeviceCode {
         user_code: (device.user_code.clone()).into(),
         verification_uri: (device
@@ -306,7 +306,7 @@ async fn login_xai(
     });
     poll_for_tokens(runtime, &device, interaction.signal())
         .await
-        .map_err(|error| AuthError::failed(error.message))
+        .map_err(AuthError::from)
 }
 
 async fn refresh_xai_token(

@@ -90,7 +90,7 @@ impl OAuthAuth for AnthropicOAuth {
         Box::pin(async move {
             refresh_anthropic(&runtime, &credential.refresh, signal)
                 .await
-                .map_err(|error| AuthError::failed(error.message))
+                .map_err(AuthError::from)
         })
     }
 
@@ -253,7 +253,7 @@ async fn login_anthropic(
     let pkce = generate_pkce_with(|bytes| runtime.random.fill(bytes));
     let (server, wait) = start_anthropic_callback_server(callback_host, pkce.verifier.clone())
         .await
-        .map_err(|error| AuthError::failed(error.message))?;
+        .map_err(AuthError::from)?;
 
     let manual_abort = CancellationToken::new();
     let authorize_url = crate::auth::oauth::support::url_with_query(
@@ -360,7 +360,7 @@ async fn login_anthropic(
     .await;
     server.close();
     manual_abort.cancel();
-    credential.map_err(|error| AuthError::failed(error.message))
+    credential.map_err(AuthError::from)
 }
 
 fn resolve_manual_input(input: &JsString, verifier: &str) -> Result<(Option<JsString>, Option<JsString>), AuthError> {

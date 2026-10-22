@@ -92,7 +92,7 @@ impl OAuthAuth for OpenAICodexOAuth {
         Box::pin(async move {
             refresh_openai_codex(&runtime, &credential.refresh, signal)
                 .await
-                .map_err(|error| AuthError::failed(error.message))
+                .map_err(AuthError::from)
         })
     }
 
@@ -394,7 +394,7 @@ async fn login_device_code(
 ) -> Result<OAuthCredential, AuthError> {
     let device = start_device_auth(runtime, interaction.signal())
         .await
-        .map_err(|error| AuthError::failed(error.message))?;
+        .map_err(AuthError::from)?;
     interaction.notify(AuthEvent::DeviceCode {
         user_code: (device.user_code.clone()).into(),
         verification_uri: (DEVICE_VERIFICATION_URI.to_owned()).into(),
@@ -403,7 +403,7 @@ async fn login_device_code(
     });
     let code = poll_device_auth(runtime, &device, interaction.signal())
         .await
-        .map_err(|error| AuthError::failed(error.message))?;
+        .map_err(AuthError::from)?;
     exchange_authorization_code(
         runtime,
         &code.authorization_code.clone().into(),
@@ -413,7 +413,7 @@ async fn login_device_code(
         runtime.now(),
     )
     .await
-    .map_err(|error| AuthError::failed(error.message))
+    .map_err(AuthError::from)
 }
 
 struct LocalServer {
@@ -569,7 +569,7 @@ async fn login_browser(
     .await;
     close_server(callback_server);
     manual_abort.cancel();
-    credential.map_err(|error| AuthError::failed(error.message))
+    credential.map_err(AuthError::from)
 }
 
 fn close_server(server: Option<CallbackServer>) {
@@ -611,7 +611,7 @@ async fn login_openai_codex(
             },
         })
         .await
-        .map_err(|error| AuthError::failed(error.message))?;
+        .map_err(AuthError::from)?;
 
     if method == DEVICE_CODE_LOGIN_METHOD {
         login_device_code(runtime, interaction).await

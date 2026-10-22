@@ -232,7 +232,7 @@ fn form_headers() -> Vec<(String, String)> {
 }
 
 fn to_auth_error(error: CallbackError) -> AuthError {
-    AuthError::failed(error.message)
+    AuthError::from(error)
 }
 
 async fn fetch_json(

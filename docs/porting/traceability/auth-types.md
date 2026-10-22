@@ -35,3 +35,5 @@ Tests: `crates/pi-ai/tests/auth.rs`.
 ## Q18 native login contracts (compiler checkpoint)
 
 AuthInteraction prompt answers, prompt/event/link/choice text, credential keys, auth request key/base URL and source labels now retain `JsString`; OAuth legacy callbacks share native text. Credential serialization/deserialization uses one `JsValue` authority, no scalar serde intermediate. `lossless_auth_interaction` first reproduced scalar credential rejection (behavioral RED), then missing native prompt signature (compiler RED). Consumer propagation and real HTTP boundary proof remain pending; no completion claim.
+
+Q18 native auth integration and bounded proof status: [lossless auth](lossless-auth.md).
