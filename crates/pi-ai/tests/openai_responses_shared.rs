@@ -39,7 +39,7 @@ fn allowed() -> BTreeSet<String> {
 }
 
 #[test]
-fn empty_tool_result_uses_no_tool_output_placeholder() {
+fn empty_tool_result_preserves_frozen_attached_image_placeholder() {
     let model = model("openai", "openai-responses", "gpt-4o-mini");
     let context = context(json!({
         "messages": [
@@ -59,7 +59,7 @@ fn empty_tool_result_uses_no_tool_output_placeholder() {
         .expect("function_call_output");
     assert_eq!(
         output["output"],
-        pi_js_compat::js_json::JsValue::String(("(no tool output)").into())
+        pi_js_compat::js_json::JsValue::String(("(see attached image)").into())
     );
 }
 
