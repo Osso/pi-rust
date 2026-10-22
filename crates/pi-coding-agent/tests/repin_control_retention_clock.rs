@@ -7,10 +7,11 @@ use pi_coding_agent::utils;
 use pi_js_compat::js_json::JsString;
 #[path = "../src/core/session_control_db/retention.rs"]
 mod retention_contract;
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsValue as Value;
 fn step(ts: &mut oracle::TsOracle, op: &str, args: Value) -> Value {
     let r = ts.request(&json!({"id":1,"steps":[{"op":op,"args":args}]}));
-    assert_eq!(r["output"][0]["ok"], true, "{r}");
+    assert_eq!(r["output"][0]["ok"], json!(true), "{r:?}");
     r["output"][0]["value"].clone()
 }
 fn call(ts: &mut oracle::TsOracle, name: &str, args: Value) -> Value {
@@ -19,8 +20,18 @@ fn call(ts: &mut oracle::TsOracle, name: &str, args: Value) -> Value {
 #[test]
 fn exact_creation_boundary_and_invalid_birth_match_frozen_sqlite_cleanup() {
     let t = tempfile::tempdir().unwrap();
-    let rust = t.path().join("rust.sqlite").display().to_string();
-    let reference = t.path().join("reference.sqlite").display().to_string();
+    let rust = t
+        .path()
+        .join("rust.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
+    let reference = t
+        .path()
+        .join("reference.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
     let base = pi_js_compat::date::js_now_millis() as i64;
     let boundary = utils::iso_time::format_iso_millis(base);
@@ -77,15 +88,15 @@ fn exact_creation_boundary_and_invalid_birth_match_frozen_sqlite_cleanup() {
             .as_array()
             .unwrap()
             .iter()
-            .map(|m| m["storeRef"]["messageId"].as_str().unwrap())
+            .map(|m| m["storeRef"]["messageId"].as_string().unwrap())
             .collect::<Vec<_>>(),
         rust_ids.iter().map(String::as_str).collect::<Vec<_>>()
     );
     let peer_reads_rust = step(&mut ts, "retentionAt", json!([rust, now]));
-    assert_eq!(peer_reads_rust[0]["storeRef"]["messageId"], "fresh");
+    assert_eq!(peer_reads_rust[0]["storeRef"]["messageId"], json!("fresh"));
     assert_eq!(
         call(&mut ts, "listSharedChannelMessagesAfter", json!([rust, 0, 20]))[0]["body"],
-        "fresh"
+        json!("fresh")
     );
     assert!(retention_contract::is_mailbox_message_expired(
         Some(&JsString::from(&boundary)),
@@ -101,9 +112,18 @@ fn exact_creation_boundary_and_invalid_birth_match_frozen_sqlite_cleanup() {
         now as f64
     ));
     let fresh_payload = json!({"createdAt":fresh});
-    assert!(retention_contract::assert_mailbox_message_fresh(fresh_payload.as_object().unwrap(), "fixture").is_ok());
+    assert!(
+        retention_contract::assert_mailbox_message_fresh(
+            fresh_payload.as_object().unwrap(),
+            &JsString::from("fixture")
+        )
+        .is_ok()
+    );
     let old_payload = json!({"createdAt":utils::iso_time::format_iso_millis(base-2*86_400_000)});
-    assert!(retention_contract::assert_mailbox_message_fresh(old_payload.as_object().unwrap(), "fixture").is_err());
+    assert!(
+        retention_contract::assert_mailbox_message_fresh(old_payload.as_object().unwrap(), &JsString::from("fixture"))
+            .is_err()
+    );
     retention_contract::cleanup_expired_messages(&db).unwrap();
     let before = pi_js_compat::date::js_now_millis() as i64;
     let cutoff = retention_contract::mailbox_cutoff_ms();

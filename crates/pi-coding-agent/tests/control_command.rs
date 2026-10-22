@@ -64,7 +64,7 @@ fn args(values: &[&str]) -> Vec<String> {
 
 fn health(session_id: &str, pid: u32) -> SessionHealthRecord {
     SessionHealthRecord {
-        session_id: session_id.to_owned(),
+        session_id: session_id.to_owned().into(),
         agent_generation: 5,
         pid: Some(pid),
         last_active_at: Some("2026-07-15T00:48:35.798Z".to_owned()),
