@@ -199,7 +199,7 @@ fn rust_output(models_path: &str, case: &Case) -> Value {
         let mut compatibility = Map::new();
         for (provider, id) in &case.model_refs {
             let key = format!("{provider}/{id}");
-            match runtime.get_model(provider, id) {
+            match runtime.get_model(*provider, *id) {
                 Some(model) => {
                     let config = runtime.get_compatibility_request_config(&model).unwrap();
                     compatibility.insert(

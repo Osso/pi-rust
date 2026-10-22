@@ -74,7 +74,11 @@ impl Fixture {
         fs::create_dir_all(&agent).unwrap();
         let (writes_tx, writes) = mpsc::channel();
         let (finished_tx, finished) = mpsc::channel();
-        let files = FileSettingsStorage::new(project.to_str().unwrap(), agent.to_str().unwrap()).unwrap();
+        let files = FileSettingsStorage::new(
+            &JsString::from(project.to_str().unwrap()),
+            &JsString::from(agent.to_str().unwrap()),
+        )
+        .unwrap();
         let manager = SettingsManager::from_storage(
             Box::new(ObservedStorage {
                 files,

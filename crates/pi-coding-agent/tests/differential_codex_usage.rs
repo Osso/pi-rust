@@ -248,7 +248,7 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
             }
             "display_email" => {
                 let token = token_with_claims(case.get("claims").unwrap_or(&Value::Null));
-                match resolve_codex_display_email(&token, case.get("storedEmail")) {
+                match resolve_codex_display_email(&JsString::from(&token), case.get("storedEmail")) {
                     Ok(email) => {
                         output.insert("email".to_owned(), json!(email));
                     }

@@ -303,7 +303,7 @@ fn command_app_mode_requires_both_streams_to_be_terminals() {
 async fn install_prints_progress_then_the_installed_line() {
     let root = temp_dir("install");
     let mut effects = FakeEffects::new(&root, &agent_dir("install"), bun_install_context(&root));
-    effects.progress_messages = vec!["Installing npm:@foo/bar".to_owned()];
+    effects.progress_messages = vec!["Installing npm:@foo/bar".to_owned().into()];
 
     let outcome = execute_package_command(&args(&["install", "npm:@foo/bar", "-l", "--approve"]), &effects)
         .await
@@ -327,7 +327,7 @@ async fn install_prints_progress_then_the_installed_line() {
 async fn install_failure_prints_the_error_and_sets_exit_code() {
     let root = temp_dir("install-fail");
     let mut effects = FakeEffects::new(&root, &agent_dir("install-fail"), bun_install_context(&root));
-    effects.install = Err("network down".to_owned());
+    effects.install = Err("network down".to_owned().into());
 
     let outcome = execute_package_command(&args(&["install", "npm:x", "--approve"]), &effects)
         .await
@@ -561,7 +561,7 @@ async fn force_runs_the_self_update_even_when_current() {
 async fn self_update_failure_prints_the_fallback_hint() {
     let root = temp_dir("self-update-fail");
     let mut effects = FakeEffects::new(&root, &agent_dir("self-update-fail"), bun_install_context(&root));
-    effects.self_update = Err("bun install -g exited with code 1".to_owned());
+    effects.self_update = Err("bun install -g exited with code 1".to_owned().into());
 
     let outcome = execute_package_command(&args(&["update", "--self"]), &effects)
         .await
@@ -613,7 +613,7 @@ async fn bun_binary_install_reports_the_download_instruction() {
 async fn release_lookup_failure_sets_exit_code() {
     let root = temp_dir("release-fail");
     let mut effects = FakeEffects::new(&root, &agent_dir("release-fail"), bun_install_context(&root));
-    effects.release = Err("Could not determine latest pi version.".to_owned());
+    effects.release = Err("Could not determine latest pi version.".to_owned().into());
 
     let outcome = execute_package_command(&args(&["update", "--self"]), &effects)
         .await
@@ -909,7 +909,7 @@ fn self_update_helpers_render_the_expected_lines() {
 async fn run_self_update_reports_exit_codes_and_signals() {
     let success = SelfUpdateCommand {
         command: "sh".to_owned().into(),
-        args: vec!["-c".to_owned().into(), "exit 0".to_owned()],
+        args: vec!["-c".to_owned().into(), "exit 0".to_owned().into()],
         display: "sh -c exit 0".to_owned().into(),
         steps: None,
     };
@@ -917,7 +917,7 @@ async fn run_self_update_reports_exit_codes_and_signals() {
 
     let failure = SelfUpdateCommand {
         command: "sh".to_owned().into(),
-        args: vec!["-c".to_owned().into(), "exit 3".to_owned()],
+        args: vec!["-c".to_owned().into(), "exit 3".to_owned().into()],
         display: "sh -c exit 3".to_owned().into(),
         steps: None,
     };

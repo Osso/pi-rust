@@ -255,12 +255,12 @@ fn runs_oauth_login_interactions_from_terminal_io_and_persists_credentials() {
 
         assert_eq!(exit_code, 0);
         let output = io.output();
-        assert!(output.contains("https://example.invalid/login"), "{output}");
-        assert!(output.contains("ABCD-EFGH"), "{output}");
-        assert!(output.contains("Waiting for login"), "{output}");
+        assert!(output.contains("https://example.invalid/login"), "{output:?}");
+        assert!(output.contains("ABCD-EFGH"), "{output:?}");
+        assert!(output.contains("Waiting for login"), "{output:?}");
         assert!(
             output.contains(&format!("Credentials saved for {provider_id}")),
-            "{output}"
+            "{output:?}"
         );
         let stored = storage.read(provider_id, Default::default()).await.unwrap().unwrap();
         let oauth = stored.as_oauth().expect("stored credential is OAuth");

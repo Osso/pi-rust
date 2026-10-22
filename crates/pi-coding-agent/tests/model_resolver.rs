@@ -217,7 +217,7 @@ fn scope_diagnostics_match_the_source_order() {
     let result = resolve_model_scope_from_models(
         &[
             "sonnet:high".to_owned().into(),
-            "gpt-4o:invalid".to_owned(),
+            "gpt-4o:invalid".to_owned().into(),
             "missing".to_owned(),
         ],
         &all_models(),
@@ -288,8 +288,10 @@ fn scope_globs_match_provider_and_bare_ids() {
 #[test]
 fn scope_deduplicates_models() {
     let models = all_models();
-    let result =
-        resolve_model_scope_from_models(&["sonnet".to_owned().into(), "claude-sonnet-4-5".to_owned()], &models);
+    let result = resolve_model_scope_from_models(
+        &["sonnet".to_owned().into(), "claude-sonnet-4-5".to_owned().into()],
+        &models,
+    );
     assert_eq!(result.scoped_models.len(), 1);
 }
 

@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::process::{Command, Output};
@@ -14,8 +15,8 @@ pub(crate) const ENV_LOWERCASE_A: &str = "pi_rust_config_status_a_7d9f";
 
 pub(crate) fn normalized_status(config: &str, env: Option<&HashMap<String, String>>) -> Value {
     json!({
-        "missing": get_missing_config_value_env_var_names(config, env),
-        "configured": is_config_value_configured(config, env),
+        "missing": get_missing_config_value_env_var_names(&JsString::from(config), env),
+        "configured": is_config_value_configured(&JsString::from(config), env),
     })
 }
 

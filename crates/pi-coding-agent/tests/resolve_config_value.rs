@@ -174,27 +174,34 @@ fn environment_values_are_never_cached() {
 fn throws_name_the_failing_source() {
     let _guard = CACHE_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     clear_config_value_cache();
-    let error = resolve_config_value_or_throw("!exit 1", "API key", None).unwrap_err();
+    let error =
+        resolve_config_value_or_throw(&JsString::from("!exit 1"), &JsString::from("API key"), None).unwrap_err();
     assert_eq!(
         error.to_string(),
         "Failed to resolve API key from shell command: exit 1"
     );
 
     let env = map(&[("PRESENT", "value")]);
-    let error = resolve_config_value_or_throw("$MISSING_ONE", "API key", Some(&env)).unwrap_err();
+    let error = resolve_config_value_or_throw(&JsString::from("$MISSING_ONE"), &JsString::from("API key"), Some(&env))
+        .unwrap_err();
     assert_eq!(
         error.to_string(),
         "Failed to resolve API key from environment variable: MISSING_ONE"
     );
 
-    let error = resolve_config_value_or_throw("$MISSING_ONE-$MISSING_TWO", "API key", Some(&env)).unwrap_err();
+    let error = resolve_config_value_or_throw(
+        &JsString::from("$MISSING_ONE-$MISSING_TWO"),
+        &JsString::from("API key"),
+        Some(&env),
+    )
+    .unwrap_err();
     assert_eq!(
         error.to_string(),
         "Failed to resolve API key from environment variables: MISSING_ONE, MISSING_TWO"
     );
 
     assert_eq!(
-        resolve_config_value_or_throw("$PRESENT", "API key", Some(&env)).unwrap(),
+        resolve_config_value_or_throw(&JsString::from("$PRESENT"), &JsString::from("API key"), Some(&env)).unwrap(),
         "value"
     );
 }

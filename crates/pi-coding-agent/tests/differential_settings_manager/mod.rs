@@ -1,6 +1,7 @@
 #[path = "../support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsValue;
 use std::fs;
 use std::path::Path;
 
@@ -220,24 +221,37 @@ fn apply_step(manager: &mut SettingsManager, step: &Value, agent_dir: &Path, pro
             let result = manager.set_project_packages(parse_packages(value));
             return result.is_err();
         }
-        "set_extension_paths" => manager.set_extension_paths(&parse_strings(value)),
+        "set_extension_paths" => {
+            manager.set_extension_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>())
+        }
         "set_project_extension_paths" => {
-            let result = manager.set_project_extension_paths(&parse_strings(value));
+            let result = manager
+                .set_project_extension_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>());
             return result.is_err();
         }
-        "set_skill_paths" => manager.set_skill_paths(&parse_strings(value)),
+        "set_skill_paths" => {
+            manager.set_skill_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>())
+        }
         "set_project_skill_paths" => {
-            let result = manager.set_project_skill_paths(&parse_strings(value));
+            let result = manager
+                .set_project_skill_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>());
             return result.is_err();
         }
-        "set_prompt_template_paths" => manager.set_prompt_template_paths(&parse_strings(value)),
+        "set_prompt_template_paths" => {
+            manager.set_prompt_template_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>())
+        }
         "set_project_prompt_template_paths" => {
-            let result = manager.set_project_prompt_template_paths(&parse_strings(value));
+            let result = manager.set_project_prompt_template_paths(
+                &(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>(),
+            );
             return result.is_err();
         }
-        "set_theme_paths" => manager.set_theme_paths(&parse_strings(value)),
+        "set_theme_paths" => {
+            manager.set_theme_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>())
+        }
         "set_project_theme_paths" => {
-            let result = manager.set_project_theme_paths(&parse_strings(value));
+            let result = manager
+                .set_project_theme_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>());
             return result.is_err();
         }
         "set_enable_skill_commands" => manager.set_enable_skill_commands(value.as_bool().unwrap()),
@@ -268,12 +282,24 @@ fn apply_step(manager: &mut SettingsManager, step: &Value, agent_dir: &Path, pro
         "set_editor_padding_x" => manager.set_editor_padding_x(value.as_f64().unwrap()),
         "set_output_pad" => manager.set_output_pad(value.as_u64().unwrap() as u8),
         "set_autocomplete_max_visible" => manager.set_autocomplete_max_visible(value.as_f64().unwrap()),
-        "set_warnings" => manager.set_warnings(value.as_object().expect("warnings object")),
-        "apply_overrides" => manager.apply_overrides(value.as_object().expect("overrides object")),
+        "set_warnings" => manager.set_warnings(
+            &(value.as_object().expect("warnings object"))
+                .iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect(),
+        ),
+        "apply_overrides" => manager.apply_overrides(
+            &(value.as_object().expect("overrides object"))
+                .iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect(),
+        ),
         "reload" => manager.reload(),
         "flush" => manager.flush(),
         "project_write_then_revoke_same_turn" => {
-            manager.set_project_extension_paths(&parse_strings(value)).unwrap();
+            manager
+                .set_project_extension_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>())
+                .unwrap();
             manager.set_project_trusted(false);
             manager.flush();
         }

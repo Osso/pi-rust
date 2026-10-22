@@ -43,7 +43,7 @@ fn response(expected: &Value) -> Value {
         .map(|(index, version)| {
             json!({
                 "name": format!("case {index}"),
-                "value": format_pi_user_agent(&version.into(), platform, runtime, arch),
+                "value": format_pi_user_agent(&(*version).into(), platform, runtime, arch),
             })
         })
         .collect::<Vec<_>>();

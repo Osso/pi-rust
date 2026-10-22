@@ -191,12 +191,12 @@ fn focused_model_config_behavior() {
     fs::write(&invalid, "{").unwrap();
     let config = ModelConfig::load(Some(&JsString::from(&invalid.display().to_string())));
     let error = config.get_error().expect("parse error");
-    assert!(error.starts_with("Failed to parse models.json: "), "error: {error}");
+    assert!(error.starts_with("Failed to parse models.json: "), "error: {error:?}");
     assert!(error.contains(&format!("\n\nFile: {}", invalid.display())));
 
     let schema = dir.join("schema.json");
     fs::write(&schema, r#"{"providers": []}"#).unwrap();
     let config = ModelConfig::load(Some(&JsString::from(&schema.display().to_string())));
     let error = config.get_error().expect("schema error");
-    assert!(error.starts_with("Invalid models.json schema:\n"), "error: {error}");
+    assert!(error.starts_with("Invalid models.json schema:\n"), "error: {error:?}");
 }

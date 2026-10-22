@@ -142,9 +142,9 @@ fn invalid_trust_files_report_their_specific_errors() {
     let error = store.get(&s(&temp)).unwrap_err().to_string();
     assert!(
         error.starts_with(&format!("Failed to read trust store {}", trust_path.display())),
-        "error: {error}"
+        "error: {error:?}"
     );
-    assert!(error.contains("Expected property name or '}'"), "error: {error}");
+    assert!(error.contains("Expected property name or '}'"), "error: {error:?}");
 
     fs::write(&trust_path, "[]").unwrap();
     assert_eq!(

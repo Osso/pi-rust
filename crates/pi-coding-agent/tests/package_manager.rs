@@ -103,14 +103,18 @@ impl Fixture {
 
     fn manager(&self, settings: FakeSettings) -> DefaultPackageManager {
         DefaultPackageManager::new(
-            self.cwd.to_str().unwrap(),
-            self.agent_dir.to_str().unwrap(),
+            &JsString::from(self.cwd.to_str().unwrap()),
+            &JsString::from(self.agent_dir.to_str().unwrap()),
             Arc::new(settings),
         )
     }
 
     fn manager_with(&self, settings: Arc<dyn PackageSettingsStore>) -> DefaultPackageManager {
-        DefaultPackageManager::new(self.cwd.to_str().unwrap(), self.agent_dir.to_str().unwrap(), settings)
+        DefaultPackageManager::new(
+            &JsString::from(self.cwd.to_str().unwrap()),
+            &JsString::from(self.agent_dir.to_str().unwrap()),
+            settings,
+        )
     }
 
     fn path(&self, relative: &str) -> String {
@@ -122,7 +126,7 @@ impl Fixture {
     }
 }
 
-fn ends_with(path: &str, suffix: &str) -> bool {
+fn ends_with(path: &JsString, suffix: &str) -> bool {
     path.replace('\\', "/").ends_with(suffix)
 }
 
@@ -213,7 +217,10 @@ fn resolves_local_extension_files_and_directories() {
     fixture.write_agent("extensions/dir/index.ts", "export default 2;");
     let settings = FakeSettings::new(
         PackageSettingsSnapshot {
-            extensions: vec!["extensions/single.ts".to_owned().into(), "extensions/dir".to_owned()],
+            extensions: vec![
+                "extensions/single.ts".to_owned().into(),
+                "extensions/dir".to_owned().into(),
+            ],
             ..PackageSettingsSnapshot::default()
         },
         Default::default(),
@@ -243,7 +250,7 @@ fn applies_include_exclude_and_force_patterns_to_top_level_entries() {
         PackageSettingsSnapshot {
             extensions: vec![
                 "extensions".to_owned().into(),
-                "!extensions/beta.ts".to_owned(),
+                "!extensions/beta.ts".to_owned().into(),
                 "-extensions/foo.ts".to_owned(),
             ],
             ..PackageSettingsSnapshot::default()
@@ -280,7 +287,7 @@ fn force_include_restores_an_excluded_file() {
         PackageSettingsSnapshot {
             extensions: vec![
                 "extensions".to_owned().into(),
-                "!extensions/*.ts".to_owned(),
+                "!extensions/*.ts".to_owned().into(),
                 "+extensions/beta.ts".to_owned(),
             ],
             ..PackageSettingsSnapshot::default()
@@ -557,8 +564,8 @@ fn discovers_ancestor_agents_and_tool_skill_directories() {
 
     let settings = FakeSettings::new(Default::default(), Default::default(), true);
     let manager = DefaultPackageManager::new(
-        nested.to_str().unwrap(),
-        fixture.agent_dir.to_str().unwrap(),
+        &JsString::from(nested.to_str().unwrap()),
+        &JsString::from(fixture.agent_dir.to_str().unwrap()),
         Arc::new(settings),
     );
     let resolved = futures_block(manager.resolve(None)).unwrap();
@@ -662,8 +669,9 @@ exit 0
             log.display()
         ),
     );
-    let settings =
-        Arc::new(FakeSettings::new(Default::default(), Default::default(), false).with_npm_command(vec![npm.clone()]));
+    let settings = Arc::new(
+        FakeSettings::new(Default::default(), Default::default(), false).with_npm_command(vec![npm.clone().into()]),
+    );
     let manager = fixture.manager_with(settings);
     let events = Arc::new(Mutex::new(Vec::new()));
     let recorded = events.clone();
@@ -720,7 +728,8 @@ exit 0
                 log.display()
             ),
         );
-        let settings = FakeSettings::new(Default::default(), Default::default(), false).with_npm_command(vec![binary]);
+        let settings =
+            FakeSettings::new(Default::default(), Default::default(), false).with_npm_command(vec![binary.into()]);
         let manager = fixture.manager(settings);
         futures_block(manager.install(&JsString::from("npm:pkg"), false)).unwrap();
         let invocation = fs::read_to_string(&log).unwrap();
@@ -745,7 +754,7 @@ exit 0
         ),
     );
     let settings = FakeSettings::new(Default::default(), Default::default(), false).with_npm_command(vec![
-        "env".to_owned(),
+        "env".to_owned().into(),
         "NODE=20".to_owned(),
         npm,
     ]);
@@ -770,7 +779,7 @@ exit 0
             log.display()
         ),
     );
-    let settings = FakeSettings::new(Default::default(), Default::default(), false).with_npm_command(vec![npm]);
+    let settings = FakeSettings::new(Default::default(), Default::default(), false).with_npm_command(vec![npm.into()]);
     let manager = fixture.manager(settings);
 
     futures_block(manager.remove(&JsString::from("npm:pkg"), false)).unwrap();
@@ -950,7 +959,7 @@ exit 0
         Default::default(),
         false,
     )
-    .with_npm_command(vec![npm]);
+    .with_npm_command(vec![npm.into()]);
     let manager = fixture.manager(settings);
 
     futures_block(manager.update(None)).unwrap();
@@ -1013,7 +1022,7 @@ exit 0
         Default::default(),
         false,
     )
-    .with_npm_command(vec![npm]);
+    .with_npm_command(vec![npm.into()]);
     let manager = fixture.manager(settings);
 
     let updates = futures_block(manager.check_for_available_updates());
@@ -1097,7 +1106,7 @@ fn missing_npm_binary_reports_the_node_spawn_error_text() {
     let fixture = Fixture::new();
     let missing = fixture.temp.path().join("missing-npm");
     let settings = FakeSettings::new(Default::default(), Default::default(), false)
-        .with_npm_command(vec![missing.to_string_lossy().into_owned()]);
+        .with_npm_command(vec![missing.to_string_lossy().into_owned().into()]);
     let manager = fixture.manager(settings);
 
     let error = futures_block(manager.install(&JsString::from("npm:left-pad"), false)).expect_err("spawn must fail");
@@ -1111,7 +1120,7 @@ fn non_executable_npm_binary_reports_the_node_spawn_error_text() {
     let binary = fixture.temp.path().join("npm");
     fs::write(&binary, "#!/bin/sh\nexit 0\n").unwrap();
     let settings = FakeSettings::new(Default::default(), Default::default(), false)
-        .with_npm_command(vec![binary.to_string_lossy().into_owned()]);
+        .with_npm_command(vec![binary.to_string_lossy().into_owned().into()]);
     let manager = fixture.manager(settings);
 
     let error = futures_block(manager.install(&JsString::from("npm:left-pad"), false)).expect_err("spawn must fail");

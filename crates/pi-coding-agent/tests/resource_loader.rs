@@ -170,7 +170,7 @@ async fn project_resources_win_name_collisions() {
     let theme = themes
         .themes
         .iter()
-        .find(|theme| theme.name.as_ref() == Some("collision-theme"))
+        .find(|theme| theme.name.as_ref() == Some(&JsString::from("collision-theme")))
         .unwrap();
     assert_eq!(
         theme.source_path.as_ref(),
@@ -468,7 +468,7 @@ async fn literal_prompts_are_not_exposed_as_sources() {
         system_prompt: Some(custom.to_string_lossy().into_owned().into()),
         append_system_prompt: Some(vec![
             append.to_string_lossy().into_owned().into(),
-            "Literal append prompt.".to_owned(),
+            "Literal append prompt.".to_owned().into(),
         ]),
         ..Default::default()
     })

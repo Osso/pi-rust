@@ -145,7 +145,7 @@ fn cases() -> Vec<BuildSystemPromptOptions> {
         selected_tools: Some(vec!["read".to_owned(), "dynamic_tool".to_owned()]),
         prompt_guidelines: Some(vec![
             "Use dynamic_tool for summaries.".to_owned().into(),
-            "  Use dynamic_tool for summaries.  ".to_owned(),
+            "  Use dynamic_tool for summaries.  ".to_owned().into(),
             "   ".to_owned(),
         ]),
         ..base("/repo/project")

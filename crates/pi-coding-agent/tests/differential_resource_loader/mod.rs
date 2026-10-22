@@ -63,10 +63,11 @@ pub(crate) fn run_context_files() {
             "agentDir": fixture.agent_dir,
         }));
         assert_eq!(response["ok"], true, "oracle failed: {response}");
-        let actual: Vec<Value> = load_project_context_files(&fixture.cwd, &fixture.agent_dir)
-            .into_iter()
-            .map(|file| json!({"path": file.path, "content": file.content}))
-            .collect();
+        let actual: Vec<Value> =
+            load_project_context_files(&JsString::from(&fixture.cwd), &JsString::from(&fixture.agent_dir))
+                .into_iter()
+                .map(|file| json!({"path": file.path, "content": file.content}))
+                .collect();
         assert_eq!(
             Value::Array(actual),
             response["output"]["files"],

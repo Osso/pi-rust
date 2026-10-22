@@ -62,7 +62,7 @@ fn response() -> Value {
     let results = CASES
         .iter()
         .enumerate()
-        .map(|(index, content)| match parse_frontmatter(content) {
+        .map(|(index, content)| match parse_frontmatter(*content) {
             Ok(parsed) => json!({
                 "name": format!("case {index}"),
                 "ok": true,

@@ -23,7 +23,7 @@ fn normalizes_newlines_and_handles_crlf() {
 #[test]
 fn rejects_invalid_yaml() {
     let error = parse_frontmatter("---\nfoo: [bar\n---\nBody").expect_err("invalid YAML");
-    assert!(error.to_string().contains("line"), "{error}");
+    assert!(error.to_string().contains("line"), "{error:?}");
 }
 
 #[test]

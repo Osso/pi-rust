@@ -48,7 +48,7 @@ fn compare_parse_args(oracle: &mut oracle::TsOracle) {
         let response = oracle.request(&json!({"id": index, "operation": "parse_args", "input": input}));
         assert_eq!(response["ok"], true, "oracle failed: {response}");
         assert_eq!(
-            Value::Array(parse_command_args(input).into_iter().map(Value::String).collect()),
+            Value::Array(parse_command_args(*input).into_iter().map(Value::String).collect()),
             response["output"]["args"],
             "{input:?}"
         );
@@ -171,7 +171,7 @@ fn compare_expand(oracle: &mut oracle::TsOracle) {
         }));
         assert_eq!(response["ok"], true, "oracle failed: {response}");
         assert_eq!(
-            Value::String(expand_prompt_template(text, templates)),
+            Value::String(expand_prompt_template(*text, templates)),
             response["output"]["content"],
             "{text:?}"
         );

@@ -535,8 +535,8 @@ async fn reports_every_provider_composition_error() {
     .await
     .unwrap();
     let error = runtime.get_error().unwrap();
-    assert!(error.contains("Provider \"broken-one\""), "{error}");
-    assert!(error.contains("Provider \"broken-two\""), "{error}");
+    assert!(error.contains("Provider \"broken-one\""), "{error:?}");
+    assert!(error.contains("Provider \"broken-two\""), "{error:?}");
     fs::remove_dir_all(dir).unwrap();
 }
 

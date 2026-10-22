@@ -529,7 +529,7 @@ async fn cli_context_selects_through_the_startup_ui_in_interactive_mode() {
         .ui
         .select(
             &JsString::from("Pick"),
-            &["Yes".to_owned().into(), "No".to_owned()],
+            &["Yes".to_owned().into(), "No".to_owned().into()],
             None,
         )
         .await
@@ -562,7 +562,12 @@ async fn cli_context_confirm_uses_yes_no_labels() {
         true,
         Some(startup.clone()),
     );
-    assert!(ctx.ui.confirm("Title", "Body", None).await.unwrap());
+    assert!(
+        ctx.ui
+            .confirm(&JsString::from("Title"), &JsString::from("Body"), None)
+            .await
+            .unwrap()
+    );
     assert_eq!(
         *startup.selections.lock().unwrap(),
         vec![("Title\nBody".to_owned(), vec!["Yes".to_owned(), "No".to_owned()])]
@@ -570,11 +575,21 @@ async fn cli_context_confirm_uses_yes_no_labels() {
 
     let startup = RecordingStartupUi::new(Some("No"), None);
     let ctx = cli_context(&JsString::from("/work"), AppMode::Interactive, true, Some(startup));
-    assert!(!ctx.ui.confirm("Title", "Body", None).await.unwrap());
+    assert!(
+        !ctx.ui
+            .confirm(&JsString::from("Title"), &JsString::from("Body"), None)
+            .await
+            .unwrap()
+    );
 
     let startup = RecordingStartupUi::new(None, None);
     let ctx = cli_context(&JsString::from("/work"), AppMode::Interactive, true, Some(startup));
-    assert!(!ctx.ui.confirm("Title", "Body", None).await.unwrap());
+    assert!(
+        !ctx.ui
+            .confirm(&JsString::from("Title"), &JsString::from("Body"), None)
+            .await
+            .unwrap()
+    );
 }
 
 #[tokio::test]
@@ -593,7 +608,12 @@ async fn cli_context_without_ui_never_prompts() {
             .unwrap(),
         None
     );
-    assert!(!ctx.ui.confirm("Title", "Body", None).await.unwrap());
+    assert!(
+        !ctx.ui
+            .confirm(&JsString::from("Title"), &JsString::from("Body"), None)
+            .await
+            .unwrap()
+    );
     assert_eq!(ctx.ui.input(&JsString::from("Name"), None, None).await.unwrap(), None);
     assert!(startup.selections.lock().unwrap().is_empty());
     assert!(startup.inputs.lock().unwrap().is_empty());
@@ -611,7 +631,12 @@ async fn cli_context_outside_interactive_mode_never_prompts() {
                 .unwrap(),
             None
         );
-        assert!(!ctx.ui.confirm("Title", "Body", None).await.unwrap());
+        assert!(
+            !ctx.ui
+                .confirm(&JsString::from("Title"), &JsString::from("Body"), None)
+                .await
+                .unwrap()
+        );
         assert_eq!(ctx.ui.input(&JsString::from("Name"), None, None).await.unwrap(), None);
         assert!(startup.selections.lock().unwrap().is_empty());
         assert!(startup.inputs.lock().unwrap().is_empty());

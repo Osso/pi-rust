@@ -87,8 +87,8 @@ impl Scenario {
 
     fn manager(&self, cwd: &Path, agent_dir: &Path) -> DefaultPackageManager {
         DefaultPackageManager::new(
-            cwd.to_str().unwrap(),
-            agent_dir.to_str().unwrap(),
+            &JsString::from(cwd.to_str().unwrap()),
+            &JsString::from(agent_dir.to_str().unwrap()),
             Arc::new(FakeSettings {
                 global: Mutex::new(snapshot_from(&self.global)),
                 project: Mutex::new(snapshot_from(&self.project)),
@@ -487,7 +487,11 @@ fn differential_add_and_remove_sources() {
                 trusted: false,
                 npm_command: None,
             });
-            let manager = DefaultPackageManager::new(cwd.to_str().unwrap(), agent.to_str().unwrap(), settings.clone());
+            let manager = DefaultPackageManager::new(
+                &JsString::from(cwd.to_str().unwrap()),
+                &JsString::from(agent.to_str().unwrap()),
+                settings.clone(),
+            );
             let changed = if operation == "add_source_to_settings" {
                 manager.add_source_to_settings(&JsString::from(source), false).unwrap()
             } else {

@@ -396,7 +396,7 @@ fn does_not_write_after_a_lock_failure_and_recovers_on_retry() {
             AuthOperationOptions::default(),
         ))
         .unwrap_err();
-    assert!(error.to_string().contains("lock unavailable"), "error: {error}");
+    assert!(error.to_string().contains("lock unavailable"), "error: {error:?}");
     let stored: Value = serde_json::from_str(&fs::read_to_string(&auth_path).unwrap()).unwrap();
     assert_eq!(stored, json!({"anthropic": {"type": "api_key", "key": "stored"}}));
 
@@ -437,7 +437,7 @@ fn pre_aborted_operations_do_not_create_the_file_or_run_the_mutation() {
             AuthOperationOptions::new(Some(signal)),
         ))
         .unwrap_err();
-    assert!(error.is_aborted(), "error: {error}");
+    assert!(error.is_aborted(), "error: {error:?}");
     assert_eq!(ran.load(Ordering::SeqCst), 0);
     assert!(!auth_path.exists());
 }
@@ -472,7 +472,7 @@ fn aborts_while_waiting_for_a_held_file_lock_without_running_the_mutation() {
         }
         signal.cancel();
         let error = pending.await.unwrap_err();
-        assert!(error.is_aborted(), "error: {error}");
+        assert!(error.is_aborted(), "error: {error:?}");
         holder.release().unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
     });

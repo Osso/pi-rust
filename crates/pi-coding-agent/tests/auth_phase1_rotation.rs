@@ -222,7 +222,7 @@ fn unsuccessful_refresh_does_not_rescue_and_failed_rescue_surfaces_source_error(
             error
                 .to_string()
                 .contains(if fail { "server rejected A" } else { "rescue denied" }),
-            "{error}"
+            "{error:?}"
         );
         let fresh: Value = serde_json::from_str(&fs::read_to_string(file).unwrap()).unwrap();
         assert_eq!(fresh["phase1-rotation"]["refresh"], "A");
@@ -275,7 +275,7 @@ fn failed_rotation_persistence_and_reload_never_succeed_from_memory() {
         let request = json!({"id":1,"authPath":file,"throws":throws});
         let mut delta = oracle::TsOracle::spawn("auth-refresh-oracle.ts", &locked_auth_delta());
         let output = delta.request(&request);
-        assert_eq!(output["ok"], true, "{output}");
+        assert_eq!(output["ok"], true, "{output:?}");
         assert_eq!(output["output"], native, "approved delta must have zero discrepancies");
         let mut frozen = oracle::TsOracle::spawn(
             "auth-refresh-oracle.ts",

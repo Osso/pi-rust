@@ -282,7 +282,7 @@ fn custom_models_for_unknown_provider_require_base_url() {
     let error = compose_model_provider("my-custom-provider", None, &config, None)
         .err()
         .expect("expected composition error");
-    assert!(error.to_string().contains("baseUrl"), "{error}");
+    assert!(error.to_string().contains("baseUrl"), "{error:?}");
     fs::remove_dir_all(dir).unwrap();
 }
 

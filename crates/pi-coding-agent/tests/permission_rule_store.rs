@@ -48,19 +48,37 @@ fn persisted_allow_rules_load_from_settings() {
 fn rule_content_uses_bash_commands_and_compact_json_otherwise() {
     let bash = json!({"command": "git status", "timeout": 5});
     assert_eq!(
-        build_permission_rule_content("bash", bash.as_object().unwrap()),
+        build_permission_rule_content(
+            "bash",
+            &(bash.as_object().unwrap())
+                .iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect()
+        ),
         "git status"
     );
 
     let read = json!({"path": "/tmp/file.txt", "limit": 10});
     assert_eq!(
-        build_permission_rule_content("read", read.as_object().unwrap()),
+        build_permission_rule_content(
+            "read",
+            &(read.as_object().unwrap())
+                .iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect()
+        ),
         "{\"path\":\"/tmp/file.txt\",\"limit\":10}"
     );
 
     let bash_without_command = json!({"timeout": 5});
     assert_eq!(
-        build_permission_rule_content("bash", bash_without_command.as_object().unwrap()),
+        build_permission_rule_content(
+            "bash",
+            &(bash_without_command.as_object().unwrap())
+                .iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect()
+        ),
         "{\"timeout\":5}"
     );
 }
@@ -97,7 +115,7 @@ fn writes_allow_rules_without_dropping_existing_settings() {
             destination,
             behavior: PermissionRuleBehavior::Allow,
             tool_name: "bash".to_owned(),
-            rules: vec!["git status".to_owned().into(), "git status".to_owned()],
+            rules: vec!["git status".to_owned().into(), "git status".to_owned().into()],
         })
         .unwrap();
 

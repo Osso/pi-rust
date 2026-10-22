@@ -230,8 +230,13 @@ fn permission_rule_store_matches_the_pinned_typescript_module() {
             "input": input,
         }));
         assert_eq!(response["ok"], true, "content oracle failed: {response}");
-        let actual =
-            build_permission_rule_content(if index == 0 { "bash" } else { "read" }, input.as_object().unwrap());
+        let actual = build_permission_rule_content(
+            if index == 0 { "bash" } else { "read" },
+            &(input.as_object().unwrap())
+                .iter()
+                .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                .collect(),
+        );
         assert_eq!(json!({"content": actual}), response["output"], "content case {index}");
     }
 
@@ -301,7 +306,7 @@ fn permission_rule_store_matches_the_pinned_typescript_module() {
                 destination: destination_kind,
                 behavior: PermissionRuleBehavior::Allow,
                 tool_name: "bash".to_owned(),
-                rules: vec!["git status".to_owned().into(), "git status".to_owned()],
+                rules: vec!["git status".to_owned().into(), "git status".to_owned().into()],
             });
             match actual {
                 Ok(()) => {

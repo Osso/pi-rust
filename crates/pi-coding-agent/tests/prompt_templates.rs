@@ -35,11 +35,14 @@ fn parses_quoted_arguments_and_drops_empty_quotes() {
 #[test]
 fn substitutes_positional_wildcards_and_slices() {
     let args = ["cmd", "arg1", "arg2", "arg3"].map(str::to_owned);
-    assert_eq!(substitute_args("$1: ${@:2}", &args), "cmd: arg1 arg2 arg3");
-    assert_eq!(substitute_args("${@:2:2}", &args), "arg1 arg2");
-    assert_eq!(substitute_args("${@:0}", &args), "cmd arg1 arg2 arg3");
-    assert_eq!(substitute_args("${3:-fallback}", &args), "arg2");
-    assert_eq!(substitute_args("${9:-fallback}", &args), "fallback");
+    assert_eq!(
+        substitute_args(&JsString::from("$1: ${@:2}"), &args),
+        "cmd: arg1 arg2 arg3"
+    );
+    assert_eq!(substitute_args(&JsString::from("${@:2:2}"), &args), "arg1 arg2");
+    assert_eq!(substitute_args(&JsString::from("${@:0}"), &args), "cmd arg1 arg2 arg3");
+    assert_eq!(substitute_args(&JsString::from("${3:-fallback}"), &args), "arg2");
+    assert_eq!(substitute_args(&JsString::from("${9:-fallback}"), &args), "fallback");
     assert_eq!(
         substitute_args(&JsString::from("$1.5"), &["a".to_owned().into()]),
         "a.5"

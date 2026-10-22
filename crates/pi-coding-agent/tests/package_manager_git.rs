@@ -124,8 +124,8 @@ impl Fixture {
 
     fn manager_with(&self, package: &str, npm_command: Option<Vec<String>>) -> DefaultPackageManager {
         DefaultPackageManager::new(
-            self.cwd.to_str().unwrap(),
-            self.agent_dir.to_str().unwrap(),
+            &JsString::from(self.cwd.to_str().unwrap()),
+            &JsString::from(self.agent_dir.to_str().unwrap()),
             Arc::new(FakeSettings {
                 global: Mutex::new(PackageSettingsSnapshot {
                     packages: vec![PackageSource::Name(package.to_owned().into())],
