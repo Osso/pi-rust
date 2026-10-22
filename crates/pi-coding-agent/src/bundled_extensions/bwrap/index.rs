@@ -206,7 +206,7 @@ fn run_sandbox_operation<'a>(
     Box::pin(async move { run_json_in_sandbox(params, operation, payload, signal).await })
 }
 
-fn path_payload(path: &str) -> Map {
+fn path_payload(path: &JsString) -> Map {
     let mut payload = Map::new();
     payload.insert("path".into(), Value::String(path.into()));
     payload
@@ -217,7 +217,7 @@ struct SandboxReadOperations {
 }
 
 impl ReadOperations for SandboxReadOperations {
-    fn read_file<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, std::io::Result<Vec<u8>>> {
+    fn read_file<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, std::io::Result<Vec<u8>>> {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "readFile", path_payload(absolute_path), None)
                 .await
@@ -238,7 +238,7 @@ impl ReadOperations for SandboxReadOperations {
 
     fn read_range<'a>(
         &'a self,
-        absolute_path: &'a str,
+        absolute_path: &'a JsString,
         start: u64,
         end: u64,
     ) -> BoxFuture<'a, std::io::Result<Vec<u8>>> {
@@ -260,7 +260,7 @@ impl ReadOperations for SandboxReadOperations {
         })
     }
 
-    fn stat<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, std::io::Result<Option<u64>>> {
+    fn stat<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, std::io::Result<Option<u64>>> {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "stat", path_payload(absolute_path), None)
                 .await
@@ -269,7 +269,7 @@ impl ReadOperations for SandboxReadOperations {
         })
     }
 
-    fn access<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, std::io::Result<()>> {
+    fn access<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, std::io::Result<()>> {
         Box::pin(async move {
             run_sandbox_operation(&self.params, "access", path_payload(absolute_path), None)
                 .await
@@ -278,23 +278,28 @@ impl ReadOperations for SandboxReadOperations {
         })
     }
 
-    fn detect_image_mime_type<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, std::io::Result<Option<String>>> {
+    fn detect_image_mime_type<'a>(
+        &'a self,
+        absolute_path: &'a JsString,
+    ) -> BoxFuture<'a, std::io::Result<Option<String>>> {
         Box::pin(async move { Ok(mime_type_for_path(absolute_path)) })
     }
 }
 
-fn mime_type_for_path(path: &str) -> Option<String> {
-    let extension = Path::new(path)
-        .extension()
-        .map(|extension| extension.to_string_lossy().to_lowercase())
-        .unwrap_or_default();
-    match extension.as_str() {
-        "png" => Some("image/png".to_owned()),
-        "jpg" | "jpeg" => Some("image/jpeg".to_owned()),
-        "gif" => Some("image/gif".to_owned()),
-        "webp" => Some("image/webp".to_owned()),
-        _ => None,
-    }
+fn mime_type_for_path(path: &JsString) -> Option<String> {
+    let extension = crate::utils::paths::node_extname(path).to_lowercase();
+    let mime_type = if extension == ".png" {
+        "image/png"
+    } else if extension == ".jpg" || extension == ".jpeg" {
+        "image/jpeg"
+    } else if extension == ".gif" {
+        "image/gif"
+    } else if extension == ".webp" {
+        "image/webp"
+    } else {
+        return None;
+    };
+    Some(mime_type.to_owned())
 }
 
 struct SandboxWriteOperations {
@@ -302,7 +307,11 @@ struct SandboxWriteOperations {
 }
 
 impl WriteOperations for SandboxWriteOperations {
-    fn write_file<'a>(&'a self, absolute_path: &'a str, content: &'a str) -> BoxFuture<'a, std::io::Result<()>> {
+    fn write_file<'a>(
+        &'a self,
+        absolute_path: &'a JsString,
+        content: &'a JsString,
+    ) -> BoxFuture<'a, std::io::Result<()>> {
         Box::pin(async move {
             let mut payload = Map::new();
             payload.insert("content".into(), Value::String(content.into()));
@@ -314,7 +323,7 @@ impl WriteOperations for SandboxWriteOperations {
         })
     }
 
-    fn mkdir<'a>(&'a self, directory: &'a str) -> BoxFuture<'a, std::io::Result<()>> {
+    fn mkdir<'a>(&'a self, directory: &'a JsString) -> BoxFuture<'a, std::io::Result<()>> {
         Box::pin(async move {
             run_sandbox_operation(&self.params, "mkdir", path_payload(directory), None)
                 .await
@@ -330,15 +339,19 @@ struct SandboxEditOperations {
 }
 
 impl EditOperations for SandboxEditOperations {
-    fn read_file<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, std::io::Result<Vec<u8>>> {
+    fn read_file<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, std::io::Result<Vec<u8>>> {
         self.read.read_file(absolute_path)
     }
 
-    fn write_file<'a>(&'a self, absolute_path: &'a str, content: &'a str) -> BoxFuture<'a, std::io::Result<()>> {
+    fn write_file<'a>(
+        &'a self,
+        absolute_path: &'a JsString,
+        content: &'a JsString,
+    ) -> BoxFuture<'a, std::io::Result<()>> {
         self.write.write_file(absolute_path, content)
     }
 
-    fn access<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, std::io::Result<()>> {
+    fn access<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, std::io::Result<()>> {
         self.read.access(absolute_path)
     }
 }
@@ -348,7 +361,7 @@ struct SandboxLsOperations {
 }
 
 impl LsOperations for SandboxLsOperations {
-    fn exists<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, std::io::Result<bool>> {
+    fn exists<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, std::io::Result<bool>> {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "exists", path_payload(absolute_path), None)
                 .await
@@ -357,7 +370,7 @@ impl LsOperations for SandboxLsOperations {
         })
     }
 
-    fn is_directory<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, std::io::Result<bool>> {
+    fn is_directory<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, std::io::Result<bool>> {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "stat", path_payload(absolute_path), None)
                 .await
@@ -366,7 +379,7 @@ impl LsOperations for SandboxLsOperations {
         })
     }
 
-    fn readdir<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, std::io::Result<Vec<String>>> {
+    fn readdir<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, std::io::Result<Vec<JsString>>> {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "readdir", path_payload(absolute_path), None)
                 .await
@@ -374,13 +387,7 @@ impl LsOperations for SandboxLsOperations {
             Ok(value
                 .get("entries")
                 .and_then(Value::as_array)
-                .map(|entries| {
-                    entries
-                        .iter()
-                        .filter_map(Value::as_string)
-                        .map(encode_node_utf8)
-                        .collect()
-                })
+                .map(|entries| entries.iter().filter_map(Value::as_string).cloned().collect())
                 .unwrap_or_default())
         })
     }
@@ -391,7 +398,7 @@ struct SandboxFindOperations {
 }
 
 impl FindOperations for SandboxFindOperations {
-    fn exists<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, std::io::Result<bool>> {
+    fn exists<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, std::io::Result<bool>> {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "exists", path_payload(absolute_path), None)
                 .await
@@ -407,10 +414,10 @@ impl FindOperations for SandboxFindOperations {
     fn glob<'a>(
         &'a self,
         pattern: &'a JsString,
-        cwd: &'a str,
-        _ignore: &'a [String],
+        cwd: &'a JsString,
+        _ignore: &'a [JsString],
         limit: usize,
-    ) -> BoxFuture<'a, std::io::Result<Vec<String>>> {
+    ) -> BoxFuture<'a, std::io::Result<Vec<JsString>>> {
         Box::pin(async move {
             let mut payload = Map::new();
             payload.insert("cwd".into(), Value::String(cwd.into()));
@@ -422,13 +429,7 @@ impl FindOperations for SandboxFindOperations {
             Ok(value
                 .get("results")
                 .and_then(Value::as_array)
-                .map(|results| {
-                    results
-                        .iter()
-                        .filter_map(Value::as_string)
-                        .map(encode_node_utf8)
-                        .collect()
-                })
+                .map(|results| results.iter().filter_map(Value::as_string).cloned().collect())
                 .unwrap_or_default())
         })
     }
