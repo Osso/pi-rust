@@ -125,6 +125,7 @@ use crate::utils::paths::{
 use crate::utils::shell::kill_tracked_detached_children;
 use crate::utils::uncaught::{ERROR, format_uncaught, set_process_crash_handler, swallow_panics, throw_uncaught};
 use pi_js_compat::js_json::{self, JsObject, JsString, JsValue, encode_node_utf8};
+#[cfg(test)]
 use serde_json::Value;
 
 pub(crate) const PARTIAL_UPDATE_RENDER_THROTTLE_MS: u64 = 50;
