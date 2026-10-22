@@ -4,6 +4,8 @@
 //! from the filesystem, and applies the source limits. Renderers are pending
 //! `theme.ts`.
 
+use crate::utils::paths::node_basename;
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue;
 use std::cell::RefCell;
 use std::io;
@@ -51,8 +53,8 @@ pub const GREP_TOOL_SYSTEM_PROMPT_CONTRIBUTION: super::ToolSystemPromptContribut
 
 /// Filesystem access used by [`GrepTool`]. Override to delegate reads to a remote system.
 pub trait GrepOperations: Send + Sync {
-    fn is_directory<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<bool>>;
-    fn read_file<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<String>>;
+    fn is_directory<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<bool>>;
+    fn read_file<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<JsString>>;
 }
 
 /// Local filesystem operations.
@@ -60,16 +62,20 @@ pub trait GrepOperations: Send + Sync {
 pub struct LocalGrepOperations;
 
 impl GrepOperations for LocalGrepOperations {
-    fn is_directory<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<bool>> {
+    fn is_directory<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<bool>> {
         Box::pin(async move {
-            tokio::fs::metadata(absolute_path)
+            tokio::fs::metadata(encode_node_utf8(absolute_path))
                 .await
                 .map(|metadata| metadata.is_dir())
         })
     }
 
-    fn read_file<'a>(&'a self, absolute_path: &'a str) -> BoxFuture<'a, io::Result<String>> {
-        Box::pin(async move { tokio::fs::read_to_string(absolute_path).await })
+    fn read_file<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<JsString>> {
+        Box::pin(async move {
+            tokio::fs::read(encode_node_utf8(absolute_path))
+                .await
+                .map(|bytes| String::from_utf8_lossy(&bytes).into_owned().into())
+        })
     }
 }
 
@@ -82,17 +88,17 @@ pub struct GrepToolOptions {
 
 /// Searches file contents with ripgrep.
 pub struct GrepTool {
-    cwd: String,
+    cwd: JsString,
     parameters: SchemaValue,
     operations: Arc<dyn GrepOperations>,
 }
 
 impl GrepTool {
-    pub fn new(cwd: impl Into<String>) -> Self {
+    pub fn new(cwd: impl Into<JsString>) -> Self {
         Self::with_options(cwd, GrepToolOptions::default())
     }
 
-    pub fn with_options(cwd: impl Into<String>, options: GrepToolOptions) -> Self {
+    pub fn with_options(cwd: impl Into<JsString>, options: GrepToolOptions) -> Self {
         Self {
             cwd: cwd.into(),
             parameters: grep_schema(),
@@ -157,8 +163,8 @@ impl AgentTool for GrepTool {
 
 struct GrepInput {
     pattern: JsString,
-    search_dir: Option<String>,
-    glob: Option<String>,
+    search_dir: Option<JsString>,
+    glob: Option<JsString>,
     ignore_case: bool,
     literal: bool,
     context: usize,
@@ -173,8 +179,8 @@ fn parse_grep_input(params: &JsValue) -> Result<GrepInput, ToolError> {
         .clone();
     Ok(GrepInput {
         pattern,
-        search_dir: params.get("path").and_then(Value::as_string).map(encode_node_utf8),
-        glob: params.get("glob").and_then(Value::as_string).map(encode_node_utf8),
+        search_dir: params.get("path").and_then(Value::as_string).cloned(),
+        glob: params.get("glob").and_then(Value::as_string).cloned(),
         ignore_case: params.get("ignoreCase").and_then(Value::as_bool).unwrap_or(false),
         literal: params.get("literal").and_then(Value::as_bool).unwrap_or(false),
         context: params
@@ -191,7 +197,7 @@ fn parse_grep_input(params: &JsValue) -> Result<GrepInput, ToolError> {
 }
 
 async fn execute_grep(
-    cwd: &str,
+    cwd: &JsString,
     operations: Arc<dyn GrepOperations>,
     params: JsValue,
     signal: Option<CancellationToken>,
@@ -202,12 +208,12 @@ async fn execute_grep(
     let Some(rg_path) = tools.ensure_tool("rg").await else {
         return Err(ToolError::new("ripgrep (rg) is not available on PATH"));
     };
-    let search_path = resolve_to_cwd(input.search_dir.as_deref().unwrap_or("."), cwd)
-        .map_err(|error| ToolError::new(error.to_string()))?;
+    let search_path = resolve_to_cwd(input.search_dir.clone().unwrap_or_else(|| ".".into()), cwd)
+        .map_err(|error| ToolError::new(error.message().clone()))?;
     let is_directory = operations
         .is_directory(&search_path)
         .await
-        .map_err(|_| ToolError::new(format!("Path not found: {search_path}")))?;
+        .map_err(|_| ToolError::new(js_format!("Path not found: {}", search_path)))?;
     let effective_limit = match input.limit {
         Some(limit) => limit.max(1),
         None => DEFAULT_LIMIT,
@@ -237,7 +243,7 @@ async fn execute_grep(
             let sanitized = JsString::from_utf16(units);
             let truncated = truncate_line(&sanitized, None);
             lines_truncated |= truncated.was_truncated;
-            output_lines.push(JsString::from(format!("{relative}:{}: ", entry.line_number)) + truncated.text);
+            output_lines.push(js_format!("{}:{}: ", relative, entry.line_number.to_string()) + truncated.text);
         } else {
             let block = format_block(operations.as_ref(), &search_path, is_directory, entry, input.context).await;
             lines_truncated |= block.lines_truncated;
@@ -286,7 +292,7 @@ async fn execute_grep(
 }
 
 struct MatchEntry {
-    file_path: String,
+    file_path: JsString,
     line_number: usize,
     line_text: Option<JsString>,
 }
@@ -299,7 +305,7 @@ struct MatchCollection {
 async fn collect_matches(
     rg_path: &str,
     input: &GrepInput,
-    search_path: &str,
+    search_path: &JsString,
     effective_limit: usize,
     signal: Option<&CancellationToken>,
 ) -> Result<MatchCollection, ToolError> {
@@ -319,11 +325,11 @@ async fn collect_matches(
     }
     if let Some(glob) = &input.glob {
         args.push("--glob".to_owned());
-        args.push(glob.clone());
+        args.push(encode_node_utf8(glob));
     }
     args.push("--".to_owned());
     args.push(encode_node_utf8(&input.pattern));
-    args.push(search_path.to_owned());
+    args.push(encode_node_utf8(search_path));
 
     let mut command = tokio::process::Command::new(rg_path);
     command
@@ -369,7 +375,7 @@ async fn collect_matches(
                 let line_text = event["data"]["lines"]["text"].as_string().cloned();
                 if let (Some(file_path), Some(line_number)) = (file_path, line_number) {
                     entries.push(MatchEntry {
-                        file_path: encode_node_utf8(file_path),
+                        file_path: file_path.clone(),
                         line_number: line_number as usize,
                         line_text,
                     });
@@ -429,7 +435,7 @@ struct FormattedBlock {
 
 async fn format_block(
     operations: &dyn GrepOperations,
-    search_path: &str,
+    search_path: &JsString,
     is_directory: bool,
     entry: &MatchEntry,
     context: usize,
@@ -438,15 +444,18 @@ async fn format_block(
     let file_lines = match operations.read_file(&entry.file_path).await {
         Ok(content) => content
             .replace("\r\n", "\n")
-            .replace('\r', "\n")
+            .replace("\r", "\n")
             .split('\n')
-            .map(str::to_owned)
             .collect::<Vec<_>>(),
         Err(_) => Vec::new(),
     };
     if file_lines.is_empty() {
         return FormattedBlock {
-            lines: vec![format!("{relative}:{}: (unable to read file)", entry.line_number).into()],
+            lines: vec![js_format!(
+                "{}:{}: (unable to read file)",
+                relative,
+                entry.line_number.to_string()
+            )],
             lines_truncated: false,
         };
     }
@@ -463,30 +472,27 @@ async fn format_block(
     let mut lines = Vec::new();
     let mut lines_truncated = false;
     for current in start..=end {
-        let line_text = file_lines.get(current - 1).map(String::as_str).unwrap_or("");
-        let sanitized = line_text.replace('\r', "");
+        let line_text = file_lines.get(current - 1).cloned().unwrap_or_default();
+        let sanitized = line_text.replace("\r", "");
         let truncated = truncate_line(&sanitized, None);
         lines_truncated |= truncated.was_truncated;
         if current == entry.line_number {
-            lines.push(JsString::from(format!("{relative}:{current}: ")) + truncated.text);
+            lines.push(js_format!("{}:{}: ", relative, current.to_string()) + truncated.text);
         } else {
-            lines.push(JsString::from(format!("{relative}-{current}- ")) + truncated.text);
+            lines.push(js_format!("{}-{}- ", relative, current.to_string()) + truncated.text);
         }
     }
     FormattedBlock { lines, lines_truncated }
 }
 
-fn format_path(search_path: &str, is_directory: bool, file_path: &str) -> String {
+fn format_path(search_path: &JsString, is_directory: bool, file_path: &JsString) -> JsString {
     if is_directory {
-        let relative = relative_path(search_path, file_path);
+        let relative = relative_path(search_path, file_path).expect("absolute grep search root must resolve");
         if !relative.is_empty() && !relative.starts_with("..") {
-            return relative.replace('\\', "/");
+            return relative.replace("\\", "/");
         }
     }
-    std::path::Path::new(file_path)
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| file_path.to_owned())
+    node_basename(file_path)
 }
 
 fn text_result(text: impl Into<JsString>, details: Option<Value>) -> AgentToolResult {
@@ -509,12 +515,12 @@ fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
 // Renderers
 // ============================================================================
 
-fn format_grep_call(args: &JsValue, theme: &Theme) -> String {
+fn format_grep_call(args: &JsValue, theme: &Theme) -> JsString {
     let pattern = str_value(args.get("pattern"));
     let raw_path = str_value(args.get("path"));
     let path = raw_path.map(|path| {
         if path.is_empty() {
-            shorten_path(".")
+            shorten_path(&JsString::from("."))
         } else {
             shorten_path(&path)
         }
@@ -522,17 +528,20 @@ fn format_grep_call(args: &JsValue, theme: &Theme) -> String {
     let glob = str_value(args.get("glob"));
     let limit = args.get("limit").and_then(Value::as_f64);
     let invalid_arg = invalid_arg_text(theme);
-    let mut text = format!(
+    let mut text = js_format!(
         "{} {}{}",
         theme.fg(ThemeColor::ToolTitle, &theme.bold("grep")),
         match pattern {
             None => invalid_arg.clone(),
-            Some(pattern) => theme.fg(ThemeColor::Accent, &format!("/{pattern}/")),
+            Some(pattern) => theme.fg(ThemeColor::Accent, js_format!("/{}/", pattern)),
         },
-        theme.fg(ThemeColor::ToolOutput, &format!(" in {}", path.unwrap_or(invalid_arg)))
+        theme.fg(
+            ThemeColor::ToolOutput,
+            js_format!(" in {}", path.unwrap_or(invalid_arg))
+        )
     );
     if let Some(glob) = glob.filter(|glob| !glob.is_empty()) {
-        text.push_str(&theme.fg(ThemeColor::ToolOutput, &format!(" ({glob})")));
+        text.push_str(&theme.fg(ThemeColor::ToolOutput, js_format!(" ({})", glob)));
     }
     if let Some(limit) = limit {
         text.push_str(&theme.fg(
@@ -548,24 +557,23 @@ fn format_grep_result(
     options: &ToolRenderResultOptions,
     theme: &Theme,
     show_images: bool,
-) -> String {
+) -> JsString {
     let output = get_text_output(Some(result), show_images).trim().to_owned();
-    let mut text = String::new();
+    let mut text = JsString::default();
     if !output.is_empty() {
         let lines = output.split('\n').collect::<Vec<_>>();
         let max_lines = if options.expanded { lines.len() } else { 15 };
         let display_lines = lines.iter().take(max_lines).collect::<Vec<_>>();
         let remaining = lines.len().saturating_sub(max_lines);
-        text.push_str(&format!(
+        text.push_str(js_format!(
             "\n{}",
-            display_lines
-                .iter()
-                .map(|line| theme.fg(ThemeColor::ToolOutput, line))
-                .collect::<Vec<_>>()
-                .join("\n")
+            JsString::join(
+                display_lines.iter().map(|line| theme.fg(ThemeColor::ToolOutput, *line)),
+                "\n"
+            )
         ));
         if remaining > 0 {
-            text.push_str(&format!(
+            text.push_str(js_format!(
                 "{}{}{}",
                 theme.fg(ThemeColor::Muted, &format!("\n... ({remaining} more lines,")),
                 key_hint("app.tools.expand", "to expand"),
@@ -595,7 +603,7 @@ fn format_grep_result(
         if lines_truncated {
             warnings.push("some lines truncated".to_owned());
         }
-        text.push_str(&format!(
+        text.push_str(js_format!(
             "\n{}",
             theme.fg(ThemeColor::Warning, &format!("[Truncated: {}]", warnings.join(", ")))
         ));
@@ -618,13 +626,13 @@ pub fn render_result(
     let output = if context.is_error {
         format_grep_result(result, options, theme, context.show_images)
     } else {
-        String::new()
+        JsString::default()
     };
     Rc::new(RefCell::new(Text::new(output, 0, 0)))
 }
 
 /// `createGrepToolDefinition`: the grep tool plus its renderers.
-pub fn create_grep_tool_definition(cwd: &str, options: GrepToolOptions) -> ToolDefinition {
+pub fn create_grep_tool_definition(cwd: impl Into<JsString>, options: GrepToolOptions) -> ToolDefinition {
     let tool: Arc<dyn AgentTool> = Arc::new(GrepTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
     definition.prompt_snippet = Some(GREP_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.to_owned());
@@ -635,7 +643,61 @@ pub fn create_grep_tool_definition(cwd: &str, options: GrepToolOptions) -> ToolD
     definition
 }
 
+#[cfg(test)]
+mod lossless_context_tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    struct ContextOperations {
+        paths: Mutex<Vec<JsString>>,
+        content: JsString,
+    }
+    impl GrepOperations for ContextOperations {
+        fn is_directory<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<bool>> {
+            Box::pin(async { Ok(true) })
+        }
+        fn read_file<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, io::Result<JsString>> {
+            Box::pin(async move {
+                self.paths.lock().unwrap().push(path.clone());
+                Ok(self.content.clone())
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn context_read_and_prefixes_keep_distinct_raw_units() {
+        let root = JsString::from("/root-") + JsString::from_utf16(vec![0xd800]);
+        let file = JsString::from("file-") + JsString::from_utf16(vec![0xdfff]);
+        let full_path = root.clone() + "/" + &file;
+        let content = JsString::from_utf16(vec![0xd801])
+            + "\r\n"
+            + JsString::from_utf16(vec![0xd802])
+            + "\r"
+            + JsString::from_utf16(vec![0xd803]);
+        let operations = ContextOperations {
+            paths: Mutex::new(Vec::new()),
+            content,
+        };
+        let entry = MatchEntry {
+            file_path: full_path.clone(),
+            line_number: 2,
+            line_text: None,
+        };
+        let block = format_block(&operations, &root, true, &entry, 1).await;
+        assert_eq!(*operations.paths.lock().unwrap(), vec![full_path]);
+        assert_eq!(
+            block.lines,
+            vec![
+                file.clone() + "-1- " + JsString::from_utf16(vec![0xd801]),
+                file.clone() + ":2: " + JsString::from_utf16(vec![0xd802]),
+                file + "-3- " + JsString::from_utf16(vec![0xd803])
+            ]
+        );
+        assert!(!block.lines_truncated);
+    }
+}
+
 /// `createGrepTool`: the grep tool wrapped with the shared result cap.
-pub fn create_grep_tool(cwd: &str, options: GrepToolOptions) -> Arc<dyn AgentTool> {
+pub fn create_grep_tool(cwd: impl Into<JsString>, options: GrepToolOptions) -> Arc<dyn AgentTool> {
     wrap_agent_tool(Arc::new(GrepTool::with_options(cwd, options)))
 }

@@ -23,6 +23,23 @@ async function main() {
 			continue;
 		}
 		const calls: unknown[] = [];
+		if (input.kind === "grepMissing") {
+			const paths: string[] = [];
+			const tool = module.createGrepTool(input.cwd, {
+				operations: {
+					isDirectory: async (path: string) => { paths.push(path); throw new Error("missing"); },
+					readFile: async () => { throw new Error("unexpected read"); },
+				},
+			});
+			try {
+				await tool.execute("raw-grep",input.params);
+				throw new Error("expected missing path");
+			} catch (error) {
+				if (!(error instanceof Error)) throw error;
+				process.stdout.write(`${JSON.stringify({paths,error:error.message})}\n`);
+			}
+			continue;
+		}
 		if (input.kind === "find") {
 			const tool = module.createFindTool(input.cwd, {
 				operations: {

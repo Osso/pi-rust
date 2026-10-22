@@ -54,6 +54,59 @@ async fn local_write_error_matches_node_original_path_units() {
 }
 
 #[derive(Default)]
+struct MissingGrep {
+    paths: Mutex<Vec<JsString>>,
+}
+impl pi_coding_agent::core::tools::grep::GrepOperations for MissingGrep {
+    fn is_directory<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, io::Result<bool>> {
+        Box::pin(async move {
+            self.paths.lock().unwrap().push(path.clone());
+            Err(io::Error::other("missing"))
+        })
+    }
+    fn read_file<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<JsString>> {
+        Box::pin(async { panic!("missing path must not read") })
+    }
+}
+
+#[tokio::test]
+async fn grep_missing_path_keeps_original_units_before_process_boundary() {
+    use pi_coding_agent::core::tools::grep::{GrepTool, GrepToolOptions};
+    let cwd = JsString::from("/cwd-") + JsString::from_utf16(vec![0xd800]);
+    let params = parse_lossless(r#"{"path":"sub-\udfff","pattern":"x"}"#).unwrap();
+    let operations = Arc::new(MissingGrep::default());
+    let tool = GrepTool::with_options(
+        &cwd,
+        GrepToolOptions {
+            operations: Some(operations.clone()),
+        },
+    );
+    let error = tool
+        .execute("grep".into(), params.clone(), None, Arc::new(|_| {}), None)
+        .await
+        .unwrap_err();
+    let mut source = oracle::TsOracle::spawn(
+        "lossless-tool-paths-oracle.ts",
+        "packages/coding-agent/src/core/tools/grep.ts",
+    );
+    let expected = source.request_lossless(&pi_js_compat::js_json!({"kind":"grepMissing","cwd":cwd,"params":params}));
+    assert_eq!(&error.message, expected["error"].as_string().unwrap());
+    assert_eq!(
+        JsValue::Array(
+            operations
+                .paths
+                .lock()
+                .unwrap()
+                .iter()
+                .cloned()
+                .map(JsValue::String)
+                .collect()
+        ),
+        expected["paths"]
+    );
+}
+
+#[derive(Default)]
 struct RecordingFind {
     calls: Mutex<Vec<JsValue>>,
 }
