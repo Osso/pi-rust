@@ -276,7 +276,9 @@ impl AgentHarness {
         turn: &TurnState,
     ) -> Result<AgentHarnessStreamOptions, AgentHarnessError> {
         let mut options = turn.stream_options.clone();
-        for hook in self.hooks(HarnessHookKind::BeforeProviderRequest) {
+        let mut cursor = None;
+        while let Some((id, hook)) = self.next_hook(HarnessHookKind::BeforeProviderRequest, cursor) {
+            cursor = Some(id);
             let event = HarnessEvent::BeforeProviderRequest {
                 model: model.clone(),
                 session_id: turn.session_id.clone(),
@@ -365,7 +367,9 @@ impl AgentHarness {
         Ok(options)
     }
     async fn provider_payload(&self, model: Model, mut payload: JsValue) -> Result<JsValue, AgentHarnessError> {
-        for hook in self.hooks(HarnessHookKind::BeforeProviderPayload) {
+        let mut cursor = None;
+        while let Some((id, hook)) = self.next_hook(HarnessHookKind::BeforeProviderPayload, cursor) {
+            cursor = Some(id);
             if let Some(HarnessHookResult::BeforeProviderPayload(next)) = hook(HarnessEvent::BeforeProviderPayload {
                 model: model.clone(),
                 payload: payload.clone(),
