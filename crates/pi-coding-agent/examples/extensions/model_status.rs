@@ -22,9 +22,12 @@ pub fn model_status_with_output(pi: &ExtensionApi, output: impl Write + Send + '
                     .map_or_else(|| "none".into(), |model| format!("{}/{}", model.provider, model.id));
                 let ui = ctx.ui()?;
                 if event.source != ModelSelectSource::Restore {
-                    ui.notify(&format!("Model: {next}"), Some(NotifyType::Info));
+                    ui.notify(&JsString::from(format!("Model: {next}")), Some(NotifyType::Info));
                 }
-                ui.set_status(&JsString::from("model"), Some(&format!("🤖 {}", event.model.id)));
+                ui.set_status(
+                    &JsString::from("model"),
+                    Some(&JsString::from(format!("🤖 {}", event.model.id))),
+                );
                 let source = match event.source {
                     ModelSelectSource::Set => "set",
                     ModelSelectSource::Cycle => "cycle",

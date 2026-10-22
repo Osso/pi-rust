@@ -5,6 +5,8 @@ mod bundled;
 #[path = "support/extensions.rs"]
 mod support;
 
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
@@ -31,12 +33,12 @@ use pi_tui::utils::visible_width;
 struct StubGit;
 
 impl GitBranchRunner for StubGit {
-    fn resolve_sync(&self, _repo_dir: &std::path::Path) -> Option<String> {
-        Some("main".to_owned())
+    fn resolve_sync(&self, _repo_dir: &JsString) -> Option<JsString> {
+        Some(JsString::from("main"))
     }
 
-    fn resolve_async(&self, _repo_dir: &std::path::Path) -> pi_ai::request::BoxFuture<'static, Option<String>> {
-        Box::pin(async { Some("main".to_owned()) })
+    fn resolve_async(&self, _repo_dir: &JsString) -> pi_ai::request::BoxFuture<'static, Option<JsString>> {
+        Box::pin(async { Some(JsString::from("main")) })
     }
 }
 
@@ -105,7 +107,7 @@ fn assistant_message(input: f64, output: f64, cost: f64) -> pi_agent_core::Agent
 }
 
 fn session_with_usage(input: f64, output: f64, cost: f64) -> SessionManager {
-    let mut session = SessionManager::in_memory(Some("/tmp/project"), None).expect("session");
+    let mut session = SessionManager::in_memory(Some(&JsString::from("/tmp/project")), None).expect("session");
     session
         .append_message(assistant_message(input, output, cost))
         .expect("append assistant");
@@ -130,7 +132,10 @@ async fn fixture(
     options.thinking_level = ThinkingLevel::High;
     let harness = Harness::new(Vec::new(), runtime, options).await;
     let repo = git_fixture_dir();
-    let footer_data = Arc::new(FooterDataProvider::with_git_runner(repo, Arc::new(StubGit)));
+    let footer_data = Arc::new(FooterDataProvider::with_git_runner(
+        JsString::from(repo.to_str().expect("fixture path must be UTF-8")),
+        Arc::new(StubGit),
+    ));
     Fixture { harness, footer_data }
 }
 
@@ -171,14 +176,14 @@ async fn renders_stats_without_cache_or_auto_fields() {
     let stats = strip_ansi(&lines[1]);
     assert!(
         stats.contains("agents 6 in 412k out 33k cost $9.39 ctx 60.9%/272k"),
-        "{stats}"
+        "{stats:?}"
     );
     assert!(!stats.contains("R13M"));
     assert!(!stats.contains("CH99.6%"));
     assert!(!stats.contains("auto"));
     let theme = current_theme_if_initialized().expect("theme");
     assert!(lines[1].contains(&theme.fg(ThemeColor::Dim, "in 412k")));
-    assert!(lines[1].contains(&format!(
+    assert!(lines[1].contains(&js_format!(
         "{}60.9%{}",
         theme.fg(ThemeColor::Dim, "ctx "),
         theme.fg(ThemeColor::Dim, "/272k")
@@ -290,13 +295,16 @@ async fn extension_status_lines_group_goal_separately() {
         Some(test_model(false)),
     )
     .await;
-    fixture.footer_data.set_extension_status("bwrap", Some("bwrap ready"));
     fixture
         .footer_data
-        .set_extension_status("goal", Some("goal: ship footer"));
+        .set_extension_status(&JsString::from("bwrap"), Some(&JsString::from("bwrap ready")));
     fixture
         .footer_data
-        .set_extension_status("multi-agent-mode", Some("multi-agent: proactive"));
+        .set_extension_status(&JsString::from("goal"), Some(&JsString::from("goal: ship footer")));
+    fixture.footer_data.set_extension_status(
+        &JsString::from("multi-agent-mode"),
+        Some(&JsString::from("multi-agent: proactive")),
+    );
     let footer = component(&fixture, None);
     let statuses = footer
         .render(160)
@@ -315,11 +323,13 @@ async fn extension_status_lines_group_goal_separately() {
 
 #[tokio::test]
 async fn pwd_line_uses_override_and_restores_main_session() {
-    let mut child = SessionManager::in_memory(Some("/tmp/child"), None).expect("child session");
+    let mut child = SessionManager::in_memory(Some(&JsString::from("/tmp/child")), None).expect("child session");
     child
         .append_message(assistant_message(23.0, 19.0, 2.0))
         .expect("child assistant");
-    child.set_session_name(Some("child")).expect("session name");
+    child
+        .set_session_name(Some(&JsString::from("child")))
+        .expect("session name");
     let override_session: Arc<Mutex<SessionManager>> = Arc::new(Mutex::new(child));
 
     let fixture = fixture(
@@ -335,26 +345,26 @@ async fn pwd_line_uses_override_and_restores_main_session() {
     let footer = component(&fixture, None);
 
     fixture.footer_data.set_session_override(FooterSessionOverride {
-        cwd: "/tmp/child".to_owned(),
+        cwd: JsString::from("/tmp/child"),
         session_manager: Some(Arc::clone(&override_session)),
         model: Some(test_model(true)),
-        thinking_level: "high".to_owned(),
+        thinking_level: JsString::from("high"),
         context_usage: Some(pi_coding_agent::core::footer_data_provider::ContextUsage {
             tokens: Some(25_000.0),
             context_window: 100_000.0,
             percent: Some(25.0),
         }),
     });
-    let child_output = footer.render(160).join("\n");
+    let child_output = JsString::join(footer.render(160), "\n");
     let child_output = strip_ansi(&child_output);
-    assert!(child_output.contains("/tmp/child • child"), "{child_output}");
+    assert!(child_output.contains("/tmp/child • child"), "{child_output:?}");
     assert!(!child_output.contains("/tmp/child (main)"));
     assert!(child_output.contains("in 23 out 19 cost $2.00 ctx 25.0%/100k"));
     assert!(child_output.contains("reasoner • effort high"));
 
     fixture.footer_data.clear_session_override();
-    let main_output = strip_ansi(&footer.render(160).join("\n"));
-    assert!(main_output.contains("/tmp/project (main)"), "{main_output}");
+    let main_output = strip_ansi(&JsString::join(footer.render(160), "\n"));
+    assert!(main_output.contains("/tmp/project (main)"), "{main_output:?}");
     assert!(main_output.contains("reasoner"));
     assert!(!main_output.contains("child"));
 }
@@ -375,18 +385,18 @@ async fn effort_only_shown_for_reasoning_models() {
     assert!(strip_ansi(&footer.render(120)[1]).contains("reasoner • effort high"));
 }
 
-fn spawn_agent(store: &MultiAgentStore, name: &str, slot: Option<i64>) -> String {
+fn spawn_agent(store: &MultiAgentStore, name: &str, slot: Option<i64>) -> JsString {
     let mut agent = AgentSnapshot {
         id: store.allocate_agent_id_for_lifecycle_coordinator("agent").unwrap(),
         parent_id: None,
-        display_name: name.to_owned(),
+        display_name: JsString::from(name.to_owned()),
         agent_type: "worker".into(),
         origin: None,
         lifecycle: AgentLifecycle::Running,
         revision: 1,
-        created_at: "2026-06-27T00:00:00.000Z".to_owned(),
-        updated_at: "2026-06-27T00:00:00.000Z".to_owned(),
-        cwd: "/repo".to_owned(),
+        created_at: JsString::from("2026-06-27T00:00:00.000Z"),
+        updated_at: JsString::from("2026-06-27T00:00:00.000Z"),
+        cwd: JsString::from("/repo"),
         worktree: None,
         model: None,
         account: None,
@@ -408,7 +418,7 @@ fn spawn_agent(store: &MultiAgentStore, name: &str, slot: Option<i64>) -> String
     };
     let id = agent.id.clone();
     store.publish_lifecycle_coordinator_snapshot(&agent).unwrap();
-    agent.id.clear();
+    agent.id = JsString::default();
     id
 }
 
@@ -435,7 +445,7 @@ async fn selected_agent_shows_slot_and_state() {
     }));
     spawn_agent(&store, "First", Some(1));
     let second = spawn_agent(&store, "Second", Some(2));
-    let mut snapshot = store.get_agent(&second).expect("second agent");
+    let mut snapshot = store.get_agent(&JsString::from(&second)).expect("second agent");
     snapshot.lifecycle = AgentLifecycle::WaitingForInput;
     snapshot.revision += 1;
     store.publish_lifecycle_coordinator_snapshot(&snapshot).unwrap();
@@ -471,7 +481,7 @@ async fn selected_agent_shows_slot_and_state() {
         theme: Arc::clone(&current_theme_if_initialized().expect("theme")),
     });
     let line = strip_ansi(&footer.render(160)[1]);
-    assert!(line.contains("selected #2 Second waiting for input"), "{line}");
+    assert!(line.contains("selected #2 Second waiting for input"), "{line:?}");
 }
 
 #[tokio::test]
@@ -503,7 +513,10 @@ async fn extension_registers_default_footer_factory_on_session_start() {
         .first()
         .cloned()
         .expect("footer factory");
-    let footer_data = FooterDataProvider::with_git_runner(git_fixture_dir(), Arc::new(StubGit));
+    let footer_data = FooterDataProvider::with_git_runner(
+        JsString::from(git_fixture_dir().to_str().expect("fixture path must be UTF-8")),
+        Arc::new(StubGit),
+    );
     let component = factory(ExtensionUiFooterContext {
         tui: ExtensionUiTui::new(Arc::new(StubTui {
             renders: Arc::new(Mutex::new(0)),
@@ -512,5 +525,5 @@ async fn extension_registers_default_footer_factory_on_session_start() {
         footer_data,
     });
     let line = strip_ansi(&component.render(160)[1]);
-    assert!(line.contains("reasoner • effort high"), "{line}");
+    assert!(line.contains("reasoner • effort high"), "{line:?}");
 }

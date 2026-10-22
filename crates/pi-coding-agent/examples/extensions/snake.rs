@@ -267,7 +267,7 @@ impl ExtensionUiComponent for Snake {
             self.done.call(None);
             return;
         }
-        if (data == "q" || data == "Q") {
+        if data == "q" || data == "Q" {
             self.stop();
             (self.save)(None);
             self.done.call(None);

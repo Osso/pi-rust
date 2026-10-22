@@ -4,6 +4,8 @@ use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::core::footer_data_provider::{BranchChangeSubscription, FooterDataProvider};
 use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry};
 use pi_coding_agent::modes::interactive::theme::{Theme, ThemeColor};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::number::{js_number_to_string, to_fixed};
 use pi_tui::utils::{truncate_to_width, visible_width};
 use std::sync::{Arc, Mutex};
@@ -50,7 +52,7 @@ impl ExtensionUiComponent for CustomFooter {
             .data
             .get_git_branch()
             .filter(|branch| !branch.is_empty())
-            .map(|branch| format!(" ({branch})"))
+            .map(|branch| js_format!(" ({})", branch))
             .unwrap_or_default();
         let model = self
             .ctx
@@ -59,13 +61,13 @@ impl ExtensionUiComponent for CustomFooter {
             .map(|model| model.id)
             .filter(|id| !id.is_empty())
             .unwrap_or_else(|| "no-model".into());
-        let right = self.theme.fg(ThemeColor::Dim, &format!("{model}{branch}"));
+        let right = self.theme.fg(ThemeColor::Dim, &js_format!("{}{}", model, branch));
         let pad = " ".repeat(
             width
                 .saturating_sub(visible_width(&left) + visible_width(&right))
                 .max(1),
         );
-        vec![truncate_to_width(&format!("{left}{pad}{right}"), width)]
+        vec![truncate_to_width(&js_format!("{}{}{}", left, pad, right), width)]
     }
     fn invalidate(&self) {}
     fn dispose(&self) {
@@ -99,10 +101,10 @@ pub fn custom_footer_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                             subscription: Mutex::new(Some(subscription)),
                         })
                     })));
-                    ui.notify("Custom footer enabled", Some(NotifyType::Info));
+                    ui.notify(&JsString::from("Custom footer enabled"), Some(NotifyType::Info));
                 } else {
                     ui.set_footer(None);
-                    ui.notify("Default footer restored", Some(NotifyType::Info));
+                    ui.notify(&JsString::from("Default footer restored"), Some(NotifyType::Info));
                 }
                 Ok(())
             })

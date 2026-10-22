@@ -1,4 +1,6 @@
 use futures_util::FutureExt;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 #[path = "extensions.rs"]
 mod fixture;
 #[path = "oracle.rs"]
@@ -63,7 +65,7 @@ impl pi_tui::terminal::Terminal for GameTerminal {
     }
     fn stop(&mut self) {}
     fn drain_input(&mut self, _: u64, _: u64) {}
-    fn write(&mut self, _: &str) {}
+    fn write(&mut self, _: &JsString) {}
     fn columns(&self) -> usize {
         90
     }
@@ -79,7 +81,7 @@ impl pi_tui::terminal::Terminal for GameTerminal {
     fn clear_line(&mut self) {}
     fn clear_from_cursor(&mut self) {}
     fn clear_screen(&mut self) {}
-    fn set_title(&mut self, _: &str) {}
+    fn set_title(&mut self, _: &JsString) {}
     fn set_progress(&mut self, _: bool) {}
     fn poll_events(&mut self) -> Vec<pi_tui::terminal::TerminalEvent> {
         std::mem::take(&mut self.events)
@@ -91,11 +93,11 @@ struct GameHost {
 }
 struct GameInput(std::rc::Rc<dyn ExtensionUiComponent>);
 impl pi_tui::tui::Component for GameInput {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.0.render(width)
     }
-    fn handle_input(&mut self, data: &str) {
-        self.0.handle_input(data);
+    fn handle_input(&mut self, data: &JsString) {
+        self.0.handle_input(&JsString::from(data));
     }
     fn invalidate(&mut self) {
         self.0.invalidate();
@@ -112,21 +114,25 @@ impl ExtensionUiContext for Ui {
     fn theme(&self) -> Arc<pi_coding_agent::modes::interactive::theme::Theme> {
         Arc::new(
             pi_coding_agent::modes::interactive::theme::load_theme_from_path(
-                &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"),
+                &JsString::from(
+                    (&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"))
+                        .to_str()
+                        .expect("fixture path must be UTF-8"),
+                ),
                 Some(pi_coding_agent::modes::interactive::theme::ColorMode::Truecolor),
             )
             .unwrap(),
         )
     }
 
-    fn notify(&self, text: &str, kind: Option<NotifyType>) {
+    fn notify(&self, text: &JsString, kind: Option<NotifyType>) {
         self.trace.lock().unwrap().push(json!(["notify", text, kind]));
     }
     fn custom<'a>(
         &'a self,
         factory: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<Value>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
         let trace = self.trace.clone();
         let item = self.item.clone();
         let theme = self.theme();
@@ -230,10 +236,10 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
     let runtime = create_extension_runtime();
     let extension = load_extension_from_factory(
         factory,
-        "/fixture",
+        &JsString::from("/fixture"),
         fixture::event_bus(),
         runtime.clone(),
-        "<example:l-game>",
+        &JsString::from("<example:l-game>"),
     )
     .await
     .unwrap();
@@ -245,12 +251,17 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
             .map(|c| json!([c.name, c.description]))
             .collect::<Vec<_>>()
     );
-    let manager = Arc::new(Mutex::new(SessionManager::in_memory(Some("/fixture"), None).unwrap()));
+    let manager = Arc::new(Mutex::new(
+        SessionManager::in_memory(Some(&JsString::from("/fixture")), None).unwrap(),
+    ));
     for entry in request["entries"].as_array().into_iter().flatten() {
         manager
             .lock()
             .unwrap()
-            .append_custom_entry(entry["customType"].as_str().unwrap(), Some(entry["data"].clone()))
+            .append_custom_entry(
+                &JsString::from(entry["customType"].as_str().unwrap()),
+                Some(JsValue::from(entry["data"].clone())),
+            )
             .unwrap();
     }
     let models = ModelRuntime::create(CreateModelRuntimeOptions {
@@ -296,7 +307,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
         let command = runner
             .get_command(if name == "snake" { "snake" } else { "invaders" })
             .unwrap();
-        (command.handler)(String::new(), runner.create_command_context())
+        (command.handler)(JsString::default(), runner.create_command_context())
             .await
             .unwrap();
     }

@@ -2,6 +2,7 @@
 //! Enable deliberately: shutdown commits may include unrelated work.
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry};
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::string::{js_trim, utf16_len, utf16_slice_to_utf8};
 
 pub fn auto_commit_on_exit_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
@@ -40,8 +41,10 @@ pub fn auto_commit_on_exit_extension(pi: &ExtensionApi) -> Result<(), HandlerErr
                     .exec("git".into(), vec!["commit".into(), "-m".into(), commit.clone()], None)
                     .await?;
                 if result.code == 0 && ctx.has_ui()? {
-                    ctx.ui()?
-                        .notify(&format!("Auto-committed: {commit}"), Some(NotifyType::Info));
+                    ctx.ui()?.notify(
+                        &JsString::from(format!("Auto-committed: {commit}")),
+                        Some(NotifyType::Info),
+                    );
                 }
                 Ok(None)
             })

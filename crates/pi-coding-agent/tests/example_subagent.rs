@@ -5,6 +5,8 @@ mod subagent;
 #[path = "support/extensions.rs"]
 mod support;
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
 use std::{
     path::PathBuf,
@@ -19,10 +21,10 @@ struct Ui {
 impl ExtensionUiContext for Ui {
     fn confirm<'a>(
         &'a self,
-        title: &str,
-        message: &str,
+        title: &JsString,
+        message: &JsString,
         _: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<bool, String>> {
+    ) -> BoxFuture<'a, Result<bool, JsString>> {
         self.calls.lock().unwrap().push(json!([title, message]));
         let answer = self.answer;
         Box::pin(async move { Ok(answer) })
@@ -75,11 +77,11 @@ async fn runner(
         }),
     );
     let extension = load_extension_from_factory(
-        registry.get("<example:subagent>").unwrap().clone(),
-        root.to_str().unwrap(),
+        registry.get(&JsString::from("<example:subagent>")).unwrap().clone(),
+        &JsString::from(root.to_str().unwrap()),
         support::event_bus(),
         runtime.clone(),
-        "<example:subagent>",
+        &JsString::from("<example:subagent>"),
     )
     .await
     .unwrap();
@@ -150,7 +152,7 @@ async fn modes_dispatch_and_streaming_match_pinned_real_extension_runtime() {
         ui.calls.lock().unwrap().clear();
         let result = (tool.execute)(
             "call".into(),
-            params.clone(),
+            JsValue::from(params.clone()),
             None,
             Some(Arc::new(move |update| {
                 capture.lock().unwrap().push(serde_json::to_value(update).unwrap())
@@ -210,7 +212,7 @@ async fn project_refusal_spawn_error_and_abort_use_private_children() {
     let tool = runner.get_tool_definition("subagent").unwrap();
     let result = (tool.execute)(
         "c".into(),
-        json!({"agentScope":"project","agent":"local","task":"x"}),
+        JsValue::from(json!({"agentScope":"project","agent":"local","task":"x"})),
         None,
         None,
         runner.create_context(),
@@ -230,7 +232,7 @@ async fn project_refusal_spawn_error_and_abort_use_private_children() {
     });
     let error = (tool.execute)(
         "c".into(),
-        json!({"agent":"scout","task":"SLOW"}),
+        JsValue::from(json!({"agent":"scout","task":"SLOW"})),
         Some(token),
         None,
         runner.create_context(),
@@ -248,7 +250,7 @@ async fn project_refusal_spawn_error_and_abort_use_private_children() {
     .await;
     let result = (runner.get_tool_definition("subagent").unwrap().execute)(
         "c".into(),
-        json!({"agent":"scout","task":"x"}),
+        JsValue::from(json!({"agent":"scout","task":"x"})),
         None,
         None,
         runner.create_context(),
@@ -364,13 +366,13 @@ async fn check_renderers(running: bool, ties: bool) {
     .unwrap();
     for (i, r) in renders.iter().enumerate() {
         let context = ToolRenderContext {
-            args: r["args"].clone(),
+            args: JsValue::from(r["args"].clone()),
             tool_call_id: "c".into(),
             invalidate: Arc::new(|| {}),
             last_component: None,
             call_component: None,
             state: Default::default(),
-            cwd: temp.path().display().to_string(),
+            cwd: JsString::from(temp.path().display().to_string()),
             execution_started: true,
             args_complete: true,
             is_partial: r["partial"].as_bool().unwrap_or(false),
@@ -390,7 +392,7 @@ async fn check_renderers(running: bool, ties: bool) {
             )
             .unwrap()
         } else {
-            (tool.render_call.as_ref().unwrap())(&r["args"], &theme, &context).unwrap()
+            (tool.render_call.as_ref().unwrap())(&JsValue::from(r["args"].clone()), &theme, &context).unwrap()
         };
         let actual = component
             .borrow_mut()

@@ -1,6 +1,8 @@
 //! Shared primitives of the question/questionnaire native forms.
 use pi_coding_agent::core::extensions::ExtensionUiFactoryContext;
 use pi_coding_agent::modes::interactive::theme::{Theme, ThemeColor as C};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use pi_tui::{
     components::{
         editor::{Editor, EditorOptions, EditorTheme},
@@ -12,13 +14,13 @@ use std::{cell::RefCell, rc::Rc};
 
 pub struct FormEditor {
     pub editor: Editor,
-    submitted: Rc<RefCell<Option<String>>>,
+    submitted: Rc<RefCell<Option<JsString>>>,
 }
 impl FormEditor {
     pub fn new(context: &ExtensionUiFactoryContext) -> Self {
         let style = |color| {
             let theme = context.theme.clone();
-            Rc::new(move |text: &str| theme.fg(color, text)) as pi_tui::components::StyleFn
+            Rc::new(move |text: &JsString| theme.fg(color, text)) as pi_tui::components::StyleFn
         };
         let theme = EditorTheme {
             border_color: style(C::Accent),
@@ -37,32 +39,34 @@ impl FormEditor {
         editor.on_submit = Some(Rc::new(move |text| *captured.borrow_mut() = Some(text.to_owned())));
         Self { editor, submitted }
     }
-    pub fn input(&mut self, data: &str) -> Option<String> {
-        pi_tui::tui::Component::handle_input(&mut self.editor, data);
+    pub fn input(&mut self, data: &JsString) -> Option<JsString> {
+        pi_tui::tui::Component::handle_input(&mut self.editor, &JsString::from(data));
         self.submitted.borrow_mut().take()
     }
 }
 
-pub fn wrap_prefixed(lines: &mut Vec<String>, width: usize, prefix: &str, text: &str) {
-    let prefix_width = visible_width(prefix);
+pub fn wrap_prefixed(lines: &mut Vec<JsString>, width: usize, prefix: impl Into<JsString>, text: impl Into<JsString>) {
+    let prefix = prefix.into();
+    let text = text.into();
+    let prefix_width = visible_width(&prefix);
     if prefix_width >= width {
-        lines.extend(wrap_text_with_ansi(&format!("{prefix}{text}"), width));
+        lines.extend(wrap_text_with_ansi(&js_format!("{}{}", prefix, text), width));
         return;
     }
-    let continuation = " ".repeat(prefix_width);
+    let continuation = JsString::from(" ".repeat(prefix_width));
     lines.extend(
-        wrap_text_with_ansi(text, width - prefix_width)
+        wrap_text_with_ansi(&text, width - prefix_width)
             .into_iter()
             .enumerate()
-            .map(|(i, line)| format!("{}{line}", if i == 0 { prefix } else { &continuation })),
+            .map(|(i, line)| js_format!("{}{}", if i == 0 { &prefix } else { &continuation }, line)),
     );
 }
 
 pub fn option_lines(
-    lines: &mut Vec<String>,
+    lines: &mut Vec<JsString>,
     width: usize,
     theme: &Theme,
-    options: &[(String, Option<String>, bool)],
+    options: &[(JsString, Option<JsString>, bool)],
     selected: i64,
     editing: bool,
 ) {
@@ -73,7 +77,7 @@ pub fn option_lines(
         } else {
             "  ".into()
         };
-        let label = format!("{}. {label}{}", i + 1, if *other && editing { " ✎" } else { "" });
+        let label = js_format!("{}. {}{}", i + 1, label, if *other && editing { " ✎" } else { "" });
         wrap_prefixed(
             lines,
             width,
@@ -93,12 +97,12 @@ pub fn option_lines(
     }
 }
 
-pub fn editor_lines(lines: &mut Vec<String>, width: usize, theme: &Theme, editor: &mut Editor) {
-    lines.push(String::new());
+pub fn editor_lines(lines: &mut Vec<JsString>, width: usize, theme: &Theme, editor: &mut Editor) {
+    lines.push(JsString::default());
     wrap_prefixed(lines, width, " ", &theme.fg(C::Muted, "Your answer:"));
     lines.extend(
         pi_tui::tui::Component::render(editor, width.saturating_sub(2).max(1))
             .into_iter()
-            .map(|line| format!(" {line}")),
+            .map(|line| js_format!(" {}", line)),
     );
 }

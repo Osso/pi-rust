@@ -1,5 +1,9 @@
 //! Opt-in native `built-in-tool-renderer.ts`; register its factory explicitly.
 //! Execution delegates to the original built-ins; only rendering is replaced.
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::is_truthy as truthy;
+use pi_js_compat::js_regex::JsRegex;
 use std::{cell::RefCell, rc::Rc};
 
 use pi_agent_core::AgentToolResult;
@@ -15,9 +19,8 @@ use pi_coding_agent::core::tools::{
     write::{WriteToolOptions, create_write_tool},
 };
 use pi_coding_agent::modes::interactive::theme::{Theme, ThemeColor};
-use pi_js_compat::string::{js_trim, utf16_slice_to_utf8};
+use pi_js_compat::js_json::JsValue as Value;
 use pi_tui::{Text, tui::ComponentRef};
-use serde_json::Value;
 
 pub fn built_in_tool_renderer_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     let cwd = std::env::current_dir().map_err(|error| HandlerError::new(error.to_string()))?;
@@ -47,36 +50,26 @@ pub fn built_in_tool_renderer_extension(pi: &ExtensionApi) -> Result<(), Handler
     Ok(())
 }
 
-fn text_component(text: String) -> ComponentRef {
+fn text_component(text: JsString) -> ComponentRef {
     Rc::new(RefCell::new(Text::new(text, 0, 0)))
-}
-
-fn truthy(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::Bool(value) => *value,
-        Value::Number(value) => value.as_f64().is_some_and(|value| value != 0.0),
-        Value::String(value) => !value.is_empty(),
-        _ => true,
-    }
 }
 
 fn number_text(value: &Value) -> String {
     pi_js_compat::number::js_number_to_string(value.as_f64().expect("numeric tool parameter"))
 }
 
-fn render_call(name: &str, args: &Value, theme: &Theme) -> String {
+fn render_call(name: &str, args: &Value, theme: &Theme) -> JsString {
     let title = if name == "bash" { "$ " } else { name };
     let title = if name == "bash" {
-        title.to_owned()
+        JsString::from(title)
     } else {
-        format!("{title} ")
+        js_format!("{} ", title)
     };
     let mut text = theme.fg(ThemeColor::ToolTitle, &theme.bold(&title));
     if name == "bash" {
-        let command = args["command"].as_str().unwrap_or_default();
+        let command = args["command"].as_string().cloned().unwrap_or_else(JsString::default);
         let command = if command.encode_utf16().count() > 80 {
-            format!("{}...", utf16_slice_to_utf8(command, 0, 77))
+            js_format!("{}...", command.slice(0, 77))
         } else {
             command.to_owned()
         };
@@ -84,35 +77,43 @@ fn render_call(name: &str, args: &Value, theme: &Theme) -> String {
         if truthy(&args["timeout"]) {
             text.push_str(&theme.fg(
                 ThemeColor::Dim,
-                &format!(" (timeout: {}s)", number_text(&args["timeout"])),
+                &js_format!(" (timeout: {}s)", number_text(&args["timeout"])),
             ));
         }
         return text;
     }
-    text.push_str(&theme.fg(ThemeColor::Accent, args["path"].as_str().unwrap_or_default()));
+    text.push_str(&theme.fg(
+        ThemeColor::Accent,
+        args["path"].as_string().cloned().unwrap_or_else(JsString::default),
+    ));
     if name == "read" && (truthy(&args["offset"]) || truthy(&args["limit"])) {
         let parts = ["offset", "limit"]
             .into_iter()
             .filter(|key| truthy(&args[*key]))
-            .map(|key| format!("{key}={}", number_text(&args[key])))
+            .map(|key| js_format!("{}={}", key, number_text(&args[key])))
             .collect::<Vec<_>>();
-        text.push_str(&theme.fg(ThemeColor::Dim, &format!(" ({})", parts.join(", "))));
+        text.push_str(&theme.fg(ThemeColor::Dim, &js_format!(" ({})", JsString::join(parts, ", "))));
     }
     if name == "write" {
-        let count = args["content"].as_str().unwrap_or_default().split('\n').count();
-        text.push_str(&theme.fg(ThemeColor::Dim, &format!(" ({count} lines)")));
+        let count = args["content"]
+            .as_string()
+            .cloned()
+            .unwrap_or_else(JsString::default)
+            .split('\n')
+            .count();
+        text.push_str(&theme.fg(ThemeColor::Dim, &js_format!(" ({} lines)", count)));
     }
     text
 }
 
-fn first_text(result: &AgentToolResult) -> Option<&str> {
+fn first_text(result: &AgentToolResult) -> Option<&JsString> {
     match result.content.first() {
         Some(TextOrImageContent::Text(content)) => Some(&content.text),
         _ => None,
     }
 }
 
-fn render_result(name: &str, result: &AgentToolResult, options: &ToolRenderResultOptions, theme: &Theme) -> String {
+fn render_result(name: &str, result: &AgentToolResult, options: &ToolRenderResultOptions, theme: &Theme) -> JsString {
     if options.is_partial {
         let message = match name {
             "read" => "Reading...",
@@ -138,10 +139,10 @@ fn truncation(result: &AgentToolResult) -> Option<&Value> {
         .details
         .as_ref()?
         .get("truncation")
-        .filter(|value| value["truncated"] == true)
+        .filter(|value| value["truncated"] == pi_js_compat::js_json!(true))
 }
 
-fn render_read(result: &AgentToolResult, expanded: bool, theme: &Theme) -> String {
+fn render_read(result: &AgentToolResult, expanded: bool, theme: &Theme) -> JsString {
     if matches!(result.content.first(), Some(TextOrImageContent::Image(_))) {
         return theme.fg(ThemeColor::Success, "Image loaded");
     }
@@ -149,47 +150,47 @@ fn render_read(result: &AgentToolResult, expanded: bool, theme: &Theme) -> Strin
         return theme.fg(ThemeColor::Error, "No content");
     };
     let lines = content.split('\n').collect::<Vec<_>>();
-    let mut text = theme.fg(ThemeColor::Success, &format!("{} lines", lines.len()));
+    let mut text = theme.fg(ThemeColor::Success, &js_format!("{} lines", lines.len()));
     if let Some(truncation) = truncation(result) {
         text.push_str(&theme.fg(
             ThemeColor::Warning,
-            &format!(" (truncated from {})", number_text(&truncation["totalLines"])),
+            &js_format!(" (truncated from {})", number_text(&truncation["totalLines"])),
         ));
     }
     if expanded {
         append_lines(&mut text, &lines, 15, theme);
         if lines.len() > 15 {
-            text.push_str(&format!(
+            text.push_str(&js_format!(
                 "\n{}",
-                theme.fg(ThemeColor::Muted, &format!("... {} more lines", lines.len() - 15))
+                theme.fg(ThemeColor::Muted, &js_format!("... {} more lines", lines.len() - 15))
             ));
         }
     }
     text
 }
 
-fn render_bash(result: &AgentToolResult, expanded: bool, theme: &Theme) -> String {
-    let output = first_text(result).unwrap_or_default();
-    let exit_code = output.match_indices("exit code: ").find_map(|(index, _)| {
-        let digits = output[index + "exit code: ".len()..]
-            .chars()
-            .take_while(char::is_ascii_digit)
-            .collect::<String>();
-        if digits.is_empty() {
-            None
-        } else {
-            Some(digits.parse::<f64>().unwrap_or(f64::INFINITY))
-        }
-    });
-    let count = output.split('\n').filter(|line| !js_trim(line).is_empty()).count();
+fn render_bash(result: &AgentToolResult, expanded: bool, theme: &Theme) -> JsString {
+    let output = first_text(result).cloned().unwrap_or_else(JsString::default);
+    let exit_code = JsRegex::new(r"exit code: ([0-9]+)")
+        .expect("valid exit-code regex")
+        .captures(&output)
+        .map(|captures| {
+            let digits = captures.get(1).expect("exit-code digits group").text();
+            let digits = digits.to_utf8().expect("regex captures only ASCII digits");
+            match digits.parse::<f64>() {
+                Ok(value) => value,
+                Err(_) => f64::INFINITY,
+            }
+        });
+    let count = output.split('\n').filter(|line| !(line).trim().is_empty()).count();
     let mut text = match exit_code {
         Some(code) if code != 0.0 => theme.fg(
             ThemeColor::Error,
-            &format!("exit {}", pi_js_compat::number::js_number_to_string(code)),
+            &js_format!("exit {}", pi_js_compat::number::js_number_to_string(code)),
         ),
         _ => theme.fg(ThemeColor::Success, "done"),
     };
-    text.push_str(&theme.fg(ThemeColor::Dim, &format!(" ({count} lines)")));
+    text.push_str(&theme.fg(ThemeColor::Dim, &js_format!(" ({} lines)", count)));
     if truncation(result).is_some() {
         text.push_str(&theme.fg(ThemeColor::Warning, " [truncated]"));
     }
@@ -197,19 +198,19 @@ fn render_bash(result: &AgentToolResult, expanded: bool, theme: &Theme) -> Strin
         let lines = output.split('\n').collect::<Vec<_>>();
         append_lines(&mut text, &lines, 20, theme);
         if lines.len() > 20 {
-            text.push_str(&format!("\n{}", theme.fg(ThemeColor::Muted, "... more output")));
+            text.push_str(&js_format!("\n{}", theme.fg(ThemeColor::Muted, "... more output")));
         }
     }
     text
 }
 
-fn first_error(result: &AgentToolResult) -> Option<&str> {
+fn first_error(result: &AgentToolResult) -> Option<JsString> {
     first_text(result)
         .filter(|text| text.starts_with("Error"))
         .and_then(|text| text.split('\n').next())
 }
 
-fn diff_color(line: &str) -> ThemeColor {
+fn diff_color(line: &JsString) -> ThemeColor {
     if line.starts_with('+') && !line.starts_with("+++") {
         ThemeColor::Success
     } else if line.starts_with('-') && !line.starts_with("---") {
@@ -219,15 +220,16 @@ fn diff_color(line: &str) -> ThemeColor {
     }
 }
 
-fn render_edit(result: &AgentToolResult, expanded: bool, theme: &Theme) -> String {
+fn render_edit(result: &AgentToolResult, expanded: bool, theme: &Theme) -> JsString {
     if let Some(error) = first_error(result) {
         return theme.fg(ThemeColor::Error, error);
     }
     let diff = result
         .details
         .as_ref()
-        .and_then(|details| details["diff"].as_str())
-        .unwrap_or_default();
+        .and_then(|details| details["diff"].as_string())
+        .cloned()
+        .unwrap_or_else(JsString::default);
     if diff.is_empty() {
         return theme.fg(ThemeColor::Success, "Applied");
     }
@@ -240,28 +242,31 @@ fn render_edit(result: &AgentToolResult, expanded: bool, theme: &Theme) -> Strin
         .iter()
         .filter(|line| diff_color(line) == ThemeColor::Error)
         .count();
-    let mut text = format!(
+    let mut text = js_format!(
         "{}{}{}",
-        theme.fg(ThemeColor::Success, &format!("+{additions}")),
+        theme.fg(ThemeColor::Success, &js_format!("+{}", additions)),
         theme.fg(ThemeColor::Dim, " / "),
-        theme.fg(ThemeColor::Error, &format!("-{removals}"))
+        theme.fg(ThemeColor::Error, &js_format!("-{}", removals))
     );
     if expanded {
         for line in lines.iter().take(30) {
-            text.push_str(&format!("\n{}", theme.fg(diff_color(line), line)));
+            text.push_str(&js_format!("\n{}", theme.fg(diff_color(line), line)));
         }
         if lines.len() > 30 {
-            text.push_str(&format!(
+            text.push_str(&js_format!(
                 "\n{}",
-                theme.fg(ThemeColor::Muted, &format!("... {} more diff lines", lines.len() - 30))
+                theme.fg(
+                    ThemeColor::Muted,
+                    &js_format!("... {} more diff lines", lines.len() - 30)
+                )
             ));
         }
     }
     text
 }
 
-fn append_lines(text: &mut String, lines: &[&str], limit: usize, theme: &Theme) {
+fn append_lines(text: &mut JsString, lines: &[JsString], limit: usize, theme: &Theme) {
     for line in lines.iter().take(limit) {
-        text.push_str(&format!("\n{}", theme.fg(ThemeColor::Dim, line)));
+        text.push_str(&js_format!("\n{}", theme.fg(ThemeColor::Dim, line)));
     }
 }

@@ -10,6 +10,8 @@ use pi_coding_agent::core::{
     model_registry::ModelRegistry,
     model_runtime::{CreateModelRuntimeOptions, ModelRuntime},
 };
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -55,7 +57,11 @@ impl ExtensionUiContext for Ui {
     fn theme(&self) -> Arc<pi_coding_agent::modes::interactive::theme::Theme> {
         Arc::new(
             pi_coding_agent::modes::interactive::theme::load_theme_from_path(
-                &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"),
+                &JsString::from(
+                    (&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"))
+                        .to_str()
+                        .expect("fixture path must be UTF-8"),
+                ),
                 Some(pi_coding_agent::modes::interactive::theme::ColorMode::Truecolor),
             )
             .unwrap(),
@@ -65,7 +71,7 @@ impl ExtensionUiContext for Ui {
         &'a self,
         factory: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<Value>, String>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
         Box::pin(async move {
             self.0.lock().unwrap().push(json!(["custom"]));
             let value = Arc::new(Mutex::new(None));
@@ -110,10 +116,10 @@ async fn native(request: &Value) -> Value {
             };
             Box::pin(async move { result })
         }),
-        "/fixture",
+        &JsString::from("/fixture"),
         support::event_bus(),
         runtime.clone(),
-        "<example:interactive-shell>",
+        &JsString::from("<example:interactive-shell>"),
     )
     .await
     .unwrap();

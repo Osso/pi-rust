@@ -1,5 +1,6 @@
 //! Opt-in native `dirty-repo-guard.ts`; embed and register explicitly.
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::string::js_trim;
 
 pub fn dirty_repo_guard_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
@@ -46,14 +47,14 @@ async fn check_dirty_repo(pi: &ExtensionApi, ctx: &ExtensionContext, action: &st
     let ui = ctx.ui()?;
     let choice = ui
         .select(
-            &format!("You have {count} uncommitted file(s). {action} anyway?"),
+            &JsString::from(format!("You have {count} uncommitted file(s). {action} anyway?")),
             &["Yes, proceed anyway".into(), "No, let me commit first".into()],
             None,
         )
         .await?;
-    if choice.as_deref() == Some("Yes, proceed anyway") {
+    if choice.as_ref() == Some(&JsString::from("Yes, proceed anyway")) {
         return Ok(false);
     }
-    ui.notify("Commit your changes first", Some(NotifyType::Warning));
+    ui.notify(&JsString::from("Commit your changes first"), Some(NotifyType::Warning));
     Ok(true)
 }

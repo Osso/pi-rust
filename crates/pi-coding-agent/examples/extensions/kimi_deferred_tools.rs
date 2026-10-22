@@ -2,6 +2,7 @@
 use pi_agent_core::AgentToolResult;
 use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::js_json::JsValue;
 use serde_json::json;
 use std::sync::Arc;
 
@@ -16,7 +17,7 @@ pub fn kimi_deferred_tools_extension(pi: &ExtensionApi) -> Result<(), HandlerErr
         execute: Arc::new(|_, _, _, _, _| Box::pin(async {
             Ok(AgentToolResult {
                 content: vec![TextOrImageContent::Text(TextContent::new("42"))],
-                details: Some(json!({})), is_error: None, terminate: None,
+                details: Some(JsValue::from(json!({}))), is_error: None, terminate: None,
             })
         })),
     })?;
@@ -32,7 +33,7 @@ pub fn kimi_deferred_tools_extension(pi: &ExtensionApi) -> Result<(), HandlerErr
         execute: Arc::new(move |_, params, _, _, _| {
             let api = api.clone();
             Box::pin(async move {
-                let query = params["query"].as_str().ok_or_else(|| HandlerError::new("query must be a string"))?;
+                let query = params["query"].as_string().ok_or_else(|| HandlerError::new("query must be a string"))?;
                 let (text, details) = if query.to_lowercase().contains("calc") {
                     let mut active = api.get_active_tools()?;
                     let added = if active.iter().any(|name| name == "Calculator") { vec![] } else { vec!["Calculator"] };
@@ -45,7 +46,7 @@ pub fn kimi_deferred_tools_extension(pi: &ExtensionApi) -> Result<(), HandlerErr
                     ("The relevant tools do not exist.", json!({"matches":[],"added":[]}))
                 };
                 Ok(AgentToolResult {
-                    content: vec![TextOrImageContent::Text(TextContent::new(text))], details: Some(details),
+                    content: vec![TextOrImageContent::Text(TextContent::new(text))], details: Some(JsValue::from(details)),
                     is_error: None, terminate: None,
                 })
             })

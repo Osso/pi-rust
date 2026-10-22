@@ -1,15 +1,14 @@
 //! Opt-in native custom status messages with expandable local-time details.
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::theme::{ThemeBg, ThemeColor};
-use pi_js_compat::{
-    date::{js_now_millis, to_locale_string},
-    string::{is_js_whitespace_char, js_trim},
-};
+use pi_js_compat::date::{js_now_millis, to_locale_string};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_regex::JsRegex;
 use pi_tui::{
     components::{r#box::BoxComponent, text::Text},
     tui::component,
 };
-use serde_json::json;
 use std::{rc::Rc, sync::Arc};
 
 pub fn message_renderer_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
@@ -19,30 +18,32 @@ pub fn message_renderer_extension(pi: &ExtensionApi) -> Result<(), HandlerError>
             let level = message
                 .details
                 .as_ref()
-                .and_then(|details| details["level"].as_str())
-                .unwrap_or("info");
-            let color = match level {
-                "error" => ThemeColor::Error,
-                "warn" => ThemeColor::Warning,
-                _ => ThemeColor::Success,
+                .and_then(|details| details["level"].as_string())
+                .cloned()
+                .unwrap_or_else(|| JsString::from("info"));
+            let color = if level == "error" {
+                ThemeColor::Error
+            } else if level == "warn" {
+                ThemeColor::Warning
+            } else {
+                ThemeColor::Success
             };
-            let prefix = theme.fg(color, &format!("[{}]", level.to_uppercase()));
+            let prefix = theme.fg(color, &js_format!("[{}]", level.to_uppercase()));
             let content = match &message.content {
-                CustomMessageContent::Text(text) => text.as_str(),
+                CustomMessageContent::Text(text) => text,
                 _ => panic!("status-update content must be a string"),
             };
-            let mut text = format!("{prefix} {content}");
+            let mut text = js_format!("{} {}", prefix, content);
             if let Some(timestamp) = message
                 .details
                 .as_ref()
                 .and_then(|details| details["timestamp"].as_f64())
                 .filter(|time| options.expanded && *time != 0.0)
             {
-                // en-US toLocaleString is date + comma-space + toLocaleTimeString.
                 let local = to_locale_string(timestamp as i64)
                     .expect("cannot format local time: unavailable time zone or unsupported calendar range");
                 let (_, time) = local.split_once(", ").expect("en-US local date separator");
-                text.push_str(&format!("\n{}", theme.fg(ThemeColor::Dim, &format!("  at {time}"))));
+                text.push_str(js_format!("\n{}", theme.fg(ThemeColor::Dim, &format!("  at {time}"))));
             }
             let bg_theme = theme.clone();
             let mut card = BoxComponent::new(
@@ -62,31 +63,32 @@ pub fn message_renderer_extension(pi: &ExtensionApi) -> Result<(), HandlerError>
         Arc::new(move |args, _| {
             let api = api.clone();
             Box::pin(async move {
-                let trimmed = js_trim(&args);
-                let parts: Vec<_> = trimmed
-                    .split(is_js_whitespace_char)
-                    .filter(|part| !part.is_empty())
+                let trimmed = args.trim();
+                let parts: Vec<_> = JsRegex::new(r"\S+")
+                    .expect("valid status token regex")
+                    .find_iter(&trimmed)
+                    .map(|part| part.text())
                     .collect();
-                let (level, content) = match parts.first().copied() {
-                    Some(level @ ("warn" | "error")) => {
-                        let content = parts[1..].join(" ");
+                let (level, content) =
+                    if let Some(level) = parts.first().filter(|level| *level == "warn" || *level == "error") {
+                        let content = JsString::join(&parts[1..], " ");
                         (
-                            level,
+                            level.clone(),
                             if content.is_empty() {
-                                "Status update".into()
+                                JsString::from("Status update")
                             } else {
                                 content
                             },
                         )
-                    }
-                    _ => ("info", trimmed.to_owned()),
-                };
+                    } else {
+                        (JsString::from("info"), trimmed)
+                    };
                 api.send_message(
                     CustomMessagePayload {
                         custom_type: "status-update".into(),
                         content: CustomMessageContent::Text(content),
                         display: true,
-                        details: Some(json!({"level":level,"timestamp":js_now_millis() as i64})),
+                        details: Some(pi_js_compat::js_json!({"level":level,"timestamp":js_now_millis() as i64})),
                     },
                     None,
                 )?;
