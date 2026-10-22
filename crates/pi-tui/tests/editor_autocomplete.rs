@@ -17,7 +17,7 @@ use pi_tui::autocomplete::{
 use pi_tui::components::editor::Editor;
 
 fn apply_completion(
-    lines: &[String],
+    lines: &[JsString],
     cursor_line: usize,
     cursor_col: usize,
     item: &AutocompleteItem,
@@ -36,7 +36,7 @@ fn apply_completion(
 }
 
 type SuggestionsFn = Rc<dyn Fn(Vec<JsString>, usize, usize, AutocompleteOptions) -> AutocompleteFuture>;
-type ShouldTriggerFn = Rc<dyn Fn(&[String], usize, usize) -> bool>;
+type ShouldTriggerFn = Rc<dyn Fn(&[JsString], usize, usize) -> bool>;
 
 struct MockProvider {
     triggers: Vec<JsString>,
@@ -49,7 +49,12 @@ impl AutocompleteProvider for MockProvider {
         self.triggers.clone()
     }
 
-    fn should_trigger_file_completion(&self, lines: &[String], cursor_line: usize, cursor_col: usize) -> Option<bool> {
+    fn should_trigger_file_completion(
+        &self,
+        lines: &[JsString],
+        cursor_line: usize,
+        cursor_col: usize,
+    ) -> Option<bool> {
         self.should_trigger
             .as_ref()
             .map(|should_trigger| should_trigger(lines, cursor_line, cursor_col))
@@ -67,7 +72,7 @@ impl AutocompleteProvider for MockProvider {
 
     fn apply_completion(
         &self,
-        lines: &[String],
+        lines: &[JsString],
         cursor_line: usize,
         cursor_col: usize,
         item: &AutocompleteItem,
@@ -428,7 +433,7 @@ async fn hides_autocomplete_when_backspacing_slash_command_to_empty() {
 
 async fn slash_argument_case(typed: &str, arguments: Vec<&str>, selected_exact: bool) -> JsString {
     let (mut editor, _) = editor();
-    let arguments: Vec<JsString> = arguments.into_iter().map(str::to_string).collect();
+    let arguments: Vec<JsString> = arguments.into_iter().map(JsString::from).collect();
     let mock = provider(Rc::new(move |lines, _line, cursor_col, _options| {
         let before = lines[0].slice(0, cursor_col);
         let Some(argument_text) = before.strip_prefix("/argtest ") else {
@@ -438,7 +443,7 @@ async fn slash_argument_case(typed: &str, arguments: Vec<&str>, selected_exact: 
             .iter()
             .filter(|value| {
                 if selected_exact {
-                    *value == argument_text || value.starts_with(&argument_text)
+                    **value == argument_text || value.starts_with(&argument_text)
                 } else {
                     value.starts_with(&argument_text)
                 }
@@ -498,7 +503,7 @@ async fn works_for_builtin_style_command_argument_completion_path() {
         let models = ["gpt-4o", "gpt-4o-mini", "claude-sonnet"];
         let filtered: Vec<AutocompleteItem> = models
             .into_iter()
-            .filter(|model| model.starts_with(model_text))
+            .filter(|model| JsString::from(*model).starts_with(&model_text))
             .map(|model| AutocompleteItem::new(model, model))
             .collect();
         if filtered.is_empty() {

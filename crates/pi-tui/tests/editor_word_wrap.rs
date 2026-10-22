@@ -1,10 +1,11 @@
 //! Ported from `packages/tui/test/editor.test.ts` (`Word wrapping`).
 
+use pi_js_compat::js_json::JsString;
 use pi_tui::components::editor::{TextSegment, word_wrap_line};
 use pi_tui::utils::visible_width;
 
-fn chunks(line: &str, width: usize) -> Vec<String> {
-    word_wrap_line(line, width, None)
+fn chunks(line: &str, width: usize) -> Vec<JsString> {
+    word_wrap_line(&line.into(), width, None)
         .into_iter()
         .map(|chunk| chunk.text)
         .collect()
@@ -16,20 +17,23 @@ fn segments(_line: &str, pieces: &[&str]) -> Vec<TextSegment> {
         .iter()
         .map(|piece| {
             let segment = TextSegment {
-                text: (*piece).to_string(),
+                text: (*piece).into(),
                 index,
             };
-            index += piece.len();
+            index += JsString::from(*piece).len();
             segment
         })
         .collect()
 }
 
-fn reconstruct(line: &str, width: usize, pieces: Option<&[TextSegment]>) -> String {
-    word_wrap_line(line, width, pieces)
-        .into_iter()
-        .map(|chunk| line[chunk.start_index..chunk.end_index].to_string())
-        .collect()
+fn reconstruct(line: &str, width: usize, pieces: Option<&[TextSegment]>) -> JsString {
+    let line = JsString::from(line);
+    JsString::join(
+        word_wrap_line(&line, width, pieces)
+            .into_iter()
+            .map(|chunk| line.slice(chunk.start_index, chunk.end_index)),
+        "",
+    )
 }
 
 #[test]
@@ -53,7 +57,7 @@ fn does_not_start_lines_with_leading_whitespace_after_word_wrap() {
 #[test]
 fn breaks_long_words_at_character_level() {
     let line = "Check https://example.com/very/long/path/that/exceeds/width here";
-    for chunk in word_wrap_line(line, 30, None) {
+    for chunk in word_wrap_line(&line.into(), 30, None) {
         assert!(visible_width(&chunk.text) <= 30);
     }
 }
@@ -72,7 +76,7 @@ fn handles_empty_string() {
 
 #[test]
 fn handles_single_word_that_fits_exactly() {
-    let rendered = word_wrap_line("1234567890", 11, None);
+    let rendered = word_wrap_line(&"1234567890".into(), 11, None);
     assert_eq!(rendered.len(), 1);
     assert_eq!(rendered[0].text, "1234567890");
 }
