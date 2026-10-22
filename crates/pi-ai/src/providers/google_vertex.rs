@@ -1,5 +1,6 @@
 //! Port of `packages/ai/src/providers/google-vertex.ts`.
 
+use pi_js_compat::{js_format, js_json::JsString};
 use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
@@ -43,21 +44,21 @@ async fn login(interaction: &Arc<dyn AuthInteraction>) -> Result<ApiKeyCredentia
         .prompt(AuthPrompt {
             signal: None,
             kind: AuthPromptKind::Select {
-                message: "Select Google Vertex AI authentication method:".to_owned(),
+                message: "Select Google Vertex AI authentication method:".into(),
                 options: vec![
                     AuthSelectOption {
-                        id: "api-key".to_owned(),
-                        label: "Google Cloud API key".to_owned(),
+                        id: "api-key".into(),
+                        label: "Google Cloud API key".into(),
                         description: None,
                     },
                     AuthSelectOption {
-                        id: "adc".to_owned(),
-                        label: "Application Default Credentials".to_owned(),
+                        id: "adc".into(),
+                        label: "Application Default Credentials".into(),
                         description: None,
                     },
                     AuthSelectOption {
-                        id: "service-account".to_owned(),
-                        label: "Service account credentials file".to_owned(),
+                        id: "service-account".into(),
+                        label: "Service account credentials file".into(),
                         description: None,
                     },
                 ],
@@ -72,7 +73,7 @@ async fn login(interaction: &Arc<dyn AuthInteraction>) -> Result<ApiKeyCredentia
             .prompt(AuthPrompt {
                 signal: None,
                 kind: AuthPromptKind::Secret {
-                    message: "Enter Google Cloud API key".to_owned(),
+                    message: "Enter Google Cloud API key".into(),
                     placeholder: None,
                 },
             })
@@ -85,20 +86,21 @@ async fn login(interaction: &Arc<dyn AuthInteraction>) -> Result<ApiKeyCredentia
     }
 
     if method != "adc" && method != "service-account" {
-        return Err(AuthError::failed(format!(
-            "Unknown Google Vertex AI auth method: {method}"
+        return Err(AuthError::failed(js_format!(
+            "Unknown Google Vertex AI auth method: {}",
+            method
         )));
     }
 
     interaction.notify(AuthEvent::Info {
         message: if method == "adc" {
-            "Run `gcloud auth application-default login`, then provide the project and location.".to_owned()
+            "Run `gcloud auth application-default login`, then provide the project and location.".into()
         } else {
-            "Provide a service account credentials file, project, and location.".to_owned()
+            "Provide a service account credentials file, project, and location.".into()
         },
         links: Some(vec![AuthInfoLink {
-            url: "https://cloud.google.com/docs/authentication/provide-credentials-adc".to_owned(),
-            label: Some("Application Default Credentials".to_owned()),
+            url: "https://cloud.google.com/docs/authentication/provide-credentials-adc".into(),
+            label: Some("Application Default Credentials".into()),
         }]),
     });
 
@@ -111,11 +113,11 @@ async fn login(interaction: &Arc<dyn AuthInteraction>) -> Result<ApiKeyCredentia
     };
 
     let mut env = indexmap::IndexMap::from([
-        ("GOOGLE_CLOUD_PROJECT".to_owned(), project),
-        ("GOOGLE_CLOUD_LOCATION".to_owned(), location),
+        ("GOOGLE_CLOUD_PROJECT".into(), project),
+        ("GOOGLE_CLOUD_LOCATION".into(), location),
     ]);
     if let Some(path) = credentials_path {
-        env.insert("GOOGLE_APPLICATION_CREDENTIALS".to_owned(), path);
+        env.insert("GOOGLE_APPLICATION_CREDENTIALS".into(), path);
     }
     Ok(ApiKeyCredential {
         key: None,
@@ -123,12 +125,12 @@ async fn login(interaction: &Arc<dyn AuthInteraction>) -> Result<ApiKeyCredentia
     })
 }
 
-async fn prompt_text(interaction: &Arc<dyn AuthInteraction>, message: &str) -> Result<String, AuthError> {
+async fn prompt_text(interaction: &Arc<dyn AuthInteraction>, message: &str) -> Result<JsString, AuthError> {
     interaction
         .prompt(AuthPrompt {
             signal: None,
             kind: AuthPromptKind::Text {
-                message: message.to_owned(),
+                message: message.into(),
                 placeholder: None,
             },
         })
@@ -165,7 +167,7 @@ async fn api_key_result(input: &ApiKeyResolveInput) -> Result<Option<AuthResult>
             base_url: None,
         },
         env: None,
-        source: Some(source.to_owned()),
+        source: Some(source.into()),
     }))
 }
 
@@ -187,7 +189,7 @@ async fn adc_result(input: &ApiKeyResolveInput) -> Result<Option<AuthResult>, Au
     Ok(Some(AuthResult {
         auth: ModelAuth::default(),
         env: credential_env.cloned(),
-        source: Some(source.to_owned()),
+        source: Some(source.into()),
     }))
 }
 
@@ -205,7 +207,7 @@ async fn has_adc_credentials(
     check_aborted(&input.signal)?;
     let exists = input
         .ctx
-        .file_exists(adc_path.as_deref().unwrap_or(VERTEX_ADC_PATH))
+        .file_exists(&adc_path.unwrap_or_else(|| VERTEX_ADC_PATH.into()))
         .await;
     check_aborted(&input.signal)?;
     Ok(exists)
@@ -214,7 +216,7 @@ async fn has_adc_credentials(
 async fn project_id(
     input: &ApiKeyResolveInput,
     credential_env: Option<&ProviderEnv>,
-) -> Result<Option<String>, AuthError> {
+) -> Result<Option<JsString>, AuthError> {
     if let Some(project) = credential_env.and_then(|env| env.get("GOOGLE_CLOUD_PROJECT")) {
         return Ok(Some(project.clone()));
     }
@@ -227,7 +229,7 @@ async fn project_id(
 async fn location_id(
     input: &ApiKeyResolveInput,
     credential_env: Option<&ProviderEnv>,
-) -> Result<Option<String>, AuthError> {
+) -> Result<Option<JsString>, AuthError> {
     if let Some(location) = credential_env.and_then(|env| env.get("GOOGLE_CLOUD_LOCATION")) {
         return Ok(Some(location.clone()));
     }
@@ -238,9 +240,9 @@ async fn env_value(
     ctx: &Arc<dyn AuthContext>,
     name: &str,
     signal: &CancellationToken,
-) -> Result<Option<String>, AuthError> {
+) -> Result<Option<JsString>, AuthError> {
     check_aborted(signal)?;
-    let value = ctx.env(name).await;
+    let value = ctx.env(name).await.map(JsString::from);
     check_aborted(signal)?;
     Ok(value.filter(|value| !value.is_empty()))
 }
@@ -265,4 +267,45 @@ pub fn google_vertex_provider() -> Arc<dyn Provider> {
         },
         single_api(google_vertex_api()),
     )
+}
+
+#[cfg(test)]
+mod lossless_login_tests {
+    use super::*;
+    use pi_js_compat::js_json::JsString;
+    use std::sync::Mutex;
+
+    struct Answers(Mutex<std::collections::VecDeque<JsString>>);
+    impl AuthInteraction for Answers {
+        fn signal(&self) -> CancellationToken {
+            CancellationToken::new()
+        }
+        fn prompt(&self, _prompt: AuthPrompt) -> BoxFuture<'_, Result<JsString, crate::CallbackError>> {
+            let answer = self.0.lock().unwrap().pop_front().expect("answer");
+            Box::pin(async move { Ok(answer) })
+        }
+        fn notify(&self, _event: AuthEvent) {}
+    }
+
+    #[tokio::test]
+    async fn vertex_login_retains_raw_project_location_and_credential_path() {
+        let project = JsString::from_utf16(vec![0x70, 0xd800]);
+        let location = JsString::from_utf16(vec![0x6c, 0xdc00]);
+        let path = JsString::from_utf16(vec![0x2f, 0xd801]);
+        let interaction: Arc<dyn AuthInteraction> = Arc::new(Answers(Mutex::new(
+            [
+                "service-account".into(),
+                project.clone(),
+                location.clone(),
+                path.clone(),
+            ]
+            .into_iter()
+            .collect(),
+        )));
+        let credential = login(&interaction).await.expect("login");
+        let env = credential.env.expect("env");
+        assert_eq!(env.get("GOOGLE_CLOUD_PROJECT"), Some(&project));
+        assert_eq!(env.get("GOOGLE_CLOUD_LOCATION"), Some(&location));
+        assert_eq!(env.get("GOOGLE_APPLICATION_CREDENTIALS"), Some(&path));
+    }
 }

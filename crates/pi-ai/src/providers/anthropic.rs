@@ -33,7 +33,7 @@ impl ApiKeyAuth for AnthropicApiKeyAuth {
                 .prompt(AuthPrompt {
                     signal: None,
                     kind: AuthPromptKind::Secret {
-                        message: "Enter Anthropic API key".to_owned(),
+                        message: "Enter Anthropic API key".into(),
                         placeholder: None,
                     },
                 })
@@ -58,7 +58,7 @@ impl ApiKeyAuth for AnthropicApiKeyAuth {
                         base_url: None,
                     },
                     env: input.credential.and_then(|credential| credential.env),
-                    source: Some("stored credential".to_owned()),
+                    source: Some("stored credential".into()),
                 }));
             }
 
@@ -66,7 +66,7 @@ impl ApiKeyAuth for AnthropicApiKeyAuth {
             check_aborted(&input.signal)?;
             if let Some(auth_token) = auth_token {
                 let mut headers = ProviderHeaders::new();
-                headers.insert("Authorization".to_owned(), Some(format!("Bearer {auth_token}")));
+                headers.insert("Authorization".into(), Some(format!("Bearer {auth_token}")));
                 return Ok(Some(AuthResult {
                     auth: ModelAuth {
                         api_key: None,
@@ -74,7 +74,7 @@ impl ApiKeyAuth for AnthropicApiKeyAuth {
                         base_url: None,
                     },
                     env: None,
-                    source: Some(ANTHROPIC_AUTH_TOKEN_ENV.to_owned()),
+                    source: Some(ANTHROPIC_AUTH_TOKEN_ENV.into()),
                 }));
             }
 
@@ -84,12 +84,12 @@ impl ApiKeyAuth for AnthropicApiKeyAuth {
                 if let Some(api_key) = api_key {
                     return Ok(Some(AuthResult {
                         auth: ModelAuth {
-                            api_key: Some(api_key),
+                            api_key: Some(api_key.into()),
                             headers: None,
                             base_url: None,
                         },
                         env: None,
-                        source: Some(env_var.to_owned()),
+                        source: Some(env_var.into()),
                     }));
                 }
             }
@@ -116,7 +116,7 @@ pub fn anthropic_provider() -> Arc<dyn Provider> {
             auth: ProviderAuth {
                 api_key: Some(Arc::new(AnthropicApiKeyAuth)),
                 oauth: Some(Arc::new(lazy_oauth(LazyOAuthInput {
-                    name: "Anthropic (Claude Pro/Max)".to_owned(),
+                    name: "Anthropic (Claude Pro/Max)".into(),
                     is_subscription: Some(true),
                     login_label: None,
                     load: oauth_loader(load_anthropic_oauth),

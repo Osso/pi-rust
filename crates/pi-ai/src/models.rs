@@ -490,7 +490,7 @@ impl ModelsCollection {
     ) -> Result<Option<AuthCheck>, ResolveError> {
         if let Some(Credential::OAuth(_)) = credential {
             return Ok(provider.auth().oauth.as_ref().map(|_| AuthCheck {
-                source: Some("OAuth".to_owned()),
+                source: Some("OAuth".into()),
                 auth_type: AuthType::Oauth,
             }));
         }
@@ -636,7 +636,7 @@ impl ModelsCollection {
         };
         let model_headers: ProviderHeaders = model_headers
             .iter()
-            .map(|(name, value)| (name.clone(), Some(value.clone())))
+            .map(|(name, value)| (name.clone(), Some(value.clone().into())))
             .collect();
         result.auth.headers = merge_headers(result.auth.headers, Some(model_headers));
         Ok(Some(result))
@@ -904,8 +904,8 @@ impl ModelsCollection {
 }
 
 struct AuthRequestParts {
-    api_key: Option<String>,
-    env: Option<IndexMap<String, String>>,
+    api_key: Option<pi_js_compat::js_json::JsString>,
+    env: Option<crate::types::ProviderEnv>,
     headers: Option<ProviderHeaders>,
     transform_headers: Option<HeaderTransform>,
     signal: Option<CancellationToken>,
@@ -913,9 +913,9 @@ struct AuthRequestParts {
 
 struct AppliedAuth {
     model: Model,
-    api_key: Option<String>,
+    api_key: Option<pi_js_compat::js_json::JsString>,
     headers: Option<ProviderHeaders>,
-    env: Option<IndexMap<String, String>>,
+    env: Option<crate::types::ProviderEnv>,
 }
 
 fn resolve_error_to_callback(error: ResolveError) -> CallbackError {

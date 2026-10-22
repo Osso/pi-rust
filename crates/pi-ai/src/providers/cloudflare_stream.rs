@@ -1,5 +1,6 @@
 //! Port of `packages/ai/src/providers/cloudflare-stream.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
 use crate::request::{ProviderStreams, SimpleStreamOptions, StreamOptions};
@@ -17,13 +18,12 @@ pub fn resolve_cloudflare_model(model: &Model, env: Option<&ProviderEnv>) -> Mod
     let account_id = env
         .get(CLOUDFLARE_ACCOUNT_ID)
         .cloned()
-        .unwrap_or_else(|| format!("{{{CLOUDFLARE_ACCOUNT_ID}}}"));
+        .unwrap_or_else(|| "{CLOUDFLARE_ACCOUNT_ID}".into());
     let gateway_id = env
         .get(CLOUDFLARE_GATEWAY_ID)
         .cloned()
-        .unwrap_or_else(|| format!("{{{CLOUDFLARE_GATEWAY_ID}}}"));
-    let base_url = model
-        .base_url
+        .unwrap_or_else(|| "{CLOUDFLARE_GATEWAY_ID}".into());
+    let base_url = JsString::from(&model.base_url)
         .replace(&format!("{{{CLOUDFLARE_ACCOUNT_ID}}}"), &account_id)
         .replace(&format!("{{{CLOUDFLARE_GATEWAY_ID}}}"), &gateway_id);
     if base_url == model.base_url {
