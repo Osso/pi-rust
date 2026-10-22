@@ -1656,7 +1656,7 @@ impl Component for SearchLine {
     fn invalidate(&mut self) {}
 }
 
-const TREE_HELP_ITEMS: [(&[&JsString], &JsString, bool); 8] = [
+const TREE_HELP_ITEMS: [(&[&str], &str, bool); 8] = [
     (&["tui.select.up", "tui.select.down"], "move", false),
     (&["tui.editor.cursorLeft", "tui.editor.cursorRight"], "page", false),
     (&["app.tree.foldOrUp", "app.tree.unfoldOrDown"], "branch", false),
