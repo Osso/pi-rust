@@ -240,3 +240,28 @@ where `(value * 10).round()` or Rust `{:.1}` diverge (`1.15`, `1.25`, `999.95`,
 `1.005`, `1.045`). The `list-models` differential exercises the formatting
 end-to-end; `tests/differential_number.rs::matches_node_to_fixed` covers the
 `toFixed` edge cases, including `(-0).toFixed(1) == "0.0"`.
+
+## Q18 native string replacement (2026-10-22)
+
+`string::replace` and `replace_global` now accept native JsString and return
+JsString. Both share one UTF-16 replacement expansion authority for `$$`, `$&`,
+`$`-prefix and `$`-suffix forms; first/global nonoverlapping matching and the
+existing nonempty-global-search contract are retained. No scalar overload or
+parallel native API. Export HTML retains native template text until FS output.
+SSH path replacement now returns native text; its quote helper serializes native
+JsValue into a JSON wire literal, without a checked/lossy projection. Inline-bash
+replacement output now matches its already-native event text authority. Legacy
+example modules still have separate pre-existing Q18 adaptation gaps.
+
+Proof ledger (mandatory cargo runner, -j4):
+- replace-red.log: new raw-unit API fixture rejected by the old scalar signature
+  (compiler RED, not a behavioral execution failure).
+- replace-green.log:3 exact-unit behavioral fixtures +5 existing scalar replacement
+  tests PASS, no warnings. Covers half-pair matching, first-only behavior, original
+  prefix/suffix expansion, raw replacement units, empty first search and literal
+  unsupported capture forms.
+- replace-oracle-green.log:1 differential test /180 concrete first/global cases
+  matches Node code units in the frozen oracle environment (0.32s).
+
+Production replacement code unchanged after these proofs. Coding exporter/examples
+remain library-blocked; do not infer their runtime PASS from the leaf proof.

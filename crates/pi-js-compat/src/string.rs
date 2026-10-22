@@ -1,5 +1,7 @@
 //! ECMAScript string semantics shared by the ported leaf modules.
 
+use crate::js_json::JsString;
+
 /// ECMAScript `\s` / `trim()` whitespace code units.
 pub fn is_js_whitespace_unit(unit: u16) -> bool {
     matches!(
@@ -97,66 +99,69 @@ pub fn utf16_slice_to_utf8(value: &str, start: usize, end: usize) -> String {
 /// arguments: replaces the first occurrence and expands `$$`, `$&`, `` $` ``
 /// and `$'` in the replacement. Capture references stay literal because a
 /// string search value has no capture groups.
-pub fn replace(input: &str, search: &str, replacement: &str) -> String {
-    let Some(index) = input.find(search) else {
-        return input.to_owned();
+pub fn replace(input: impl Into<JsString>, search: impl Into<JsString>, replacement: impl Into<JsString>) -> JsString {
+    let input = input.into();
+    let search = search.into();
+    let replacement = replacement.into();
+    let Some(index) = input.find(&search) else {
+        return input;
     };
     let end = index + search.len();
-    let mut output = String::with_capacity(input.len());
-    output.push_str(&input[..index]);
-    output.push_str(&expand_replacement(replacement, search, &input[..index], &input[end..]));
-    output.push_str(&input[end..]);
-    output
+    let prefix = input.slice(0, index);
+    let suffix = input.slice(end, input.len());
+    prefix.clone() + expand_replacement(&replacement, &search, &prefix, &suffix) + suffix
 }
 
 /// Global literal-pattern replacement with ECMAScript replacement expansion.
 /// The search must be nonempty (no regex captures or empty UTF-16 matches).
-pub fn replace_global(input: &str, search: &str, replacement: &str) -> String {
+pub fn replace_global(
+    input: impl Into<JsString>,
+    search: impl Into<JsString>,
+    replacement: impl Into<JsString>,
+) -> JsString {
+    let input = input.into();
+    let search = search.into();
+    let replacement = replacement.into();
     assert!(!search.is_empty(), "global replacement requires a nonempty search");
-    let mut output = String::with_capacity(input.len());
+    let mut output = JsString::default();
     let mut previous_end = 0;
-    for (index, matched) in input.match_indices(search) {
-        let end = index + matched.len();
-        output.push_str(&input[previous_end..index]);
-        output.push_str(&expand_replacement(
-            replacement,
-            matched,
-            &input[..index],
-            &input[end..],
+    while let Some(index) = input.find_from(&search, previous_end) {
+        let end = index + search.len();
+        output.push_str(input.slice(previous_end, index));
+        output.push_str(expand_replacement(
+            &replacement,
+            &search,
+            &input.slice(0, index),
+            &input.slice(end, input.len()),
         ));
         previous_end = end;
     }
-    output.push_str(&input[previous_end..]);
+    output.push_str(input.slice(previous_end, input.len()));
     output
 }
 
-fn expand_replacement(replacement: &str, matched: &str, prefix: &str, suffix: &str) -> String {
-    let mut output = String::with_capacity(replacement.len());
-    let mut characters = replacement.chars();
-    while let Some(character) = characters.next() {
-        if character != '$' {
-            output.push(character);
+fn expand_replacement(replacement: &JsString, matched: &JsString, prefix: &JsString, suffix: &JsString) -> JsString {
+    let mut output = JsString::default();
+    let mut index = 0;
+    while index < replacement.len() {
+        let unit = replacement.units()[index];
+        if unit != b'$' as u16 {
+            output.push_unit(unit);
+            index += 1;
             continue;
         }
-        match characters.clone().next() {
-            Some('$') => {
-                characters.next();
-                output.push('$');
+        match replacement.units().get(index + 1) {
+            Some(0x24) => output.push_unit(b'$' as u16),
+            Some(0x26) => output.push_str(matched),
+            Some(0x60) => output.push_str(prefix),
+            Some(0x27) => output.push_str(suffix),
+            _ => {
+                output.push_unit(unit);
+                index += 1;
+                continue;
             }
-            Some('&') => {
-                characters.next();
-                output.push_str(matched);
-            }
-            Some('`') => {
-                characters.next();
-                output.push_str(prefix);
-            }
-            Some('\'') => {
-                characters.next();
-                output.push_str(suffix);
-            }
-            _ => output.push('$'),
         }
+        index += 2;
     }
     output
 }
