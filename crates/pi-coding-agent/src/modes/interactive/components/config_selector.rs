@@ -3,10 +3,9 @@
 use pi_js_compat::{js_format, js_json::JsString};
 use std::cell::RefCell;
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use pi_js_compat::collator::locale_compare;
+use pi_js_compat::collator::locale_compare_utf16;
 use pi_tui::components::input::InputOptions;
 use pi_tui::tui::component;
 use pi_tui::utils::truncate_to_width_with;
@@ -18,7 +17,10 @@ use crate::core::settings_manager::{PackageFilter, PackageSource, SettingsManage
 use crate::modes::interactive::components::dynamic_border::dynamic_border;
 use crate::modes::interactive::components::keybinding_hints::{key_hint, raw_key_hint};
 use crate::modes::interactive::theme::{ThemeColor, with_theme};
-use crate::utils::paths::{PathInputOptions, canonicalize_path, is_local_path, relative_path, resolve_path};
+use crate::utils::paths::{
+    PathInputOptions, canonicalize_path, is_local_path, node_basename, node_dirname, node_join, relative_path,
+    resolve_path,
+};
 
 /// Resource categories managed by the selector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -122,12 +124,12 @@ enum FlatEntry {
 }
 
 fn home_dir() -> JsString {
-    pi_js_compat::process_env::get("HOME").unwrap_or_default()
+    pi_js_compat::process_env::get("HOME").unwrap_or_default().into()
 }
 
 fn format_base_dir(base_dir: &JsString) -> JsString {
     let home_dir = home_dir();
-    let display_path = if base_dir == home_dir {
+    let display_path = if base_dir == &home_dir {
         JsString::from("~")
     } else if let Some(rest) = base_dir.strip_prefix(&home_dir) {
         js_format!("~{}", rest.replace('\\', "/"))
@@ -175,18 +177,10 @@ fn scope_name(scope: SourceScope) -> &'static str {
 }
 
 fn file_name(path: &JsString) -> JsString {
-    Path::new(path)
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| path.to_string())
+    node_basename(path)
 }
-
 fn parent_name(path: &JsString) -> JsString {
-    Path::new(path)
-        .parent()
-        .and_then(Path::file_name)
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default()
+    node_basename(node_dirname(path))
 }
 
 fn build_groups(resolved: &ResolvedPaths, agent_dir: &JsString) -> Vec<ResourceGroup> {
@@ -204,7 +198,7 @@ fn build_groups(resolved: &ResolvedPaths, agent_dir: &JsString) -> Vec<ResourceG
                 origin_name(metadata.origin),
                 scope_name(metadata.scope),
                 metadata.source,
-                metadata.base_dir.as_ref().unwrap_or("")
+                metadata.base_dir.clone().unwrap_or_default()
             );
             let group_index = match group_indices.iter().find(|(key, _)| *key == group_key) {
                 Some((_, index)) => *index,
@@ -231,7 +225,7 @@ fn build_groups(resolved: &ResolvedPaths, agent_dir: &JsString) -> Vec<ResourceG
                 None => {
                     group.subgroups.push(ResourceSubgroup {
                         resource_type,
-                        label: resource_type.label().to_string(),
+                        label: resource_type.label().into(),
                         items: Vec::new(),
                     });
                     group.subgroups.len() - 1
@@ -286,7 +280,7 @@ fn build_groups(resolved: &ResolvedPaths, agent_dir: &JsString) -> Vec<ResourceG
                 std::cmp::Ordering::Greater
             };
         }
-        locale_compare(&a.source, &b.source)
+        locale_compare_utf16(&a.source, &b.source)
     });
 
     for group in &mut groups {
@@ -294,7 +288,7 @@ fn build_groups(resolved: &ResolvedPaths, agent_dir: &JsString) -> Vec<ResourceG
         for subgroup in &mut group.subgroups {
             subgroup
                 .items
-                .sort_by(|a, b| locale_compare(&a.display_name, &b.display_name));
+                .sort_by(|a, b| locale_compare_utf16(&a.display_name, &b.display_name));
         }
     }
     groups
@@ -408,8 +402,8 @@ impl ResourceList {
             search_input: Input::new(InputOptions::default()),
             max_visible,
             settings_manager,
-            cwd: cwd.to_string(),
-            agent_dir: agent_dir.to_string(),
+            cwd: cwd.clone(),
+            agent_dir: agent_dir.clone(),
             write_scope,
             inherited_enabled_by_key,
             on_cancel: None,
@@ -455,7 +449,7 @@ impl ResourceList {
     pub fn set_write_scope(&mut self, write_scope: ConfigWriteScope) {
         self.write_scope = write_scope;
         self.build_flat_list();
-        let query = self.search_input.get_value().to_string();
+        let query = self.search_input.get_value().clone();
         self.filter_items(&query);
     }
 
@@ -502,7 +496,7 @@ impl ResourceList {
             for (subgroup_index, subgroup) in group.subgroups.iter().enumerate() {
                 for (item_index, item) in subgroup.items.iter().enumerate() {
                     if item.display_name.to_lowercase().contains(&lower_query)
-                        || item.resource_type.as_ref().contains(&lower_query)
+                        || JsString::from(item.resource_type.as_str()).contains(&lower_query)
                         || item.path.to_lowercase().contains(&lower_query)
                     {
                         matching_items.insert((group_index, subgroup_index, item_index));
@@ -554,7 +548,7 @@ impl ResourceList {
                 if let Some(item) = subgroup
                     .items
                     .iter_mut()
-                    .find(|item| item.path == path && item.resource_type == resource_type)
+                    .find(|item| &item.path == path && item.resource_type == resource_type)
                 {
                     item.enabled = enabled;
                     return;
@@ -799,7 +793,7 @@ impl ResourceList {
             return;
         }
         self.search_input.handle_input(data);
-        let query = self.search_input.get_value().to_string();
+        let query = self.search_input.get_value().clone();
         self.filter_items(&query);
     }
 
@@ -834,7 +828,7 @@ impl ResourceList {
 
     fn toggle_top_level_resource(&mut self, item: &ResourceItem, enabled: bool) {
         let scope = item.metadata.scope;
-        let array_key = item.resource_type.as_ref();
+        let array_key = item.resource_type.as_str();
         let current = self.settings_array(scope, array_key);
         let pattern = self.get_resource_pattern(item);
         let updated = Self::update_patterns(&current, &pattern, enabled);
@@ -849,8 +843,8 @@ impl ResourceList {
                     .strip_prefix('!')
                     .or_else(|| entry.strip_prefix('+'))
                     .or_else(|| entry.strip_prefix('-'))
-                    .unwrap_or(entry);
-                stripped != pattern
+                    .unwrap_or_else(|| (*entry).clone());
+                stripped != *pattern
             })
             .cloned()
             .collect();
@@ -863,7 +857,7 @@ impl ResourceList {
         let mut packages = self.get_packages(scope);
         let Some(package_index) = packages
             .iter()
-            .position(|package| package.source() == item.metadata.source)
+            .position(|package| package.source() == &item.metadata.source)
         else {
             return;
         };
@@ -884,7 +878,7 @@ impl ResourceList {
 
     fn ensure_filter(package: &mut PackageSource) -> &mut PackageFilter {
         if matches!(package, PackageSource::Name(_)) {
-            let source = package.source().to_string();
+            let source = package.source().clone();
             *package = PackageSource::Filter(PackageFilter {
                 source,
                 ..Default::default()
@@ -921,7 +915,7 @@ impl ResourceList {
         }
     }
 
-    fn settings_array(&self, scope: SourceScope, key: &JsString) -> Vec<JsString> {
+    fn settings_array(&self, scope: SourceScope, key: &str) -> Vec<JsString> {
         let settings = if scope == SourceScope::Project {
             self.settings_manager.borrow().get_project_settings()
         } else {
@@ -933,7 +927,11 @@ impl ResourceList {
             .map(|values| {
                 values
                     .iter()
-                    .filter_map(|value| value.as_ref().map(str::to_string))
+                    .map(|value| {
+                        value.as_string().cloned().unwrap_or_else(|| {
+                            crate::utils::uncaught::throw_uncaught("TypeError", "Expected resource path string")
+                        })
+                    })
                     .collect()
             })
             .unwrap_or_default()
@@ -970,7 +968,10 @@ impl ResourceList {
         };
         settings
             .get("packages")
-            .and_then(|value| serde_json::from_value(value.clone()).ok())
+            .map(|value| {
+                pi_js_compat::js_json::from_value(value)
+                    .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught("Error", error.to_string()))
+            })
             .unwrap_or_default()
     }
 
@@ -1017,7 +1018,7 @@ impl ResourceList {
         }
         if item.metadata.origin == MetadataOrigin::TopLevel {
             return Self::get_override_state_from_entries(
-                &self.settings_array(SourceScope::Project, item.resource_type.as_ref()),
+                &self.settings_array(SourceScope::Project, item.resource_type.as_str()),
                 &self.get_top_level_override_patterns(item, SettingsScope::Project),
                 false,
             );
@@ -1085,12 +1086,16 @@ impl ResourceList {
         let mut patterns: HashSet<JsString> = [
             self.get_resource_pattern_for_scope(item, scope),
             item.path.clone(),
-            relative_path(&base_dir, &item.path),
+            relative_path(&base_dir, &item.path)
+                .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught("Error", error.message().clone())),
         ]
         .into_iter()
         .collect();
         if let Some(metadata_base_dir) = &item.metadata.base_dir {
-            patterns.insert(relative_path(metadata_base_dir, &item.path));
+            patterns.insert(
+                relative_path(metadata_base_dir, &item.path)
+                    .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught("Error", error.message().clone())),
+            );
         }
         patterns
     }
@@ -1106,6 +1111,7 @@ impl ResourceList {
             .clone()
             .unwrap_or_else(|| self.get_top_level_base_dir(source_scope));
         relative_path(&base_dir, &item.path)
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught("Error", error.message().clone()))
     }
 
     fn set_project_resource_override(&mut self, item: &ResourceItem, state: ProjectOverrideState) -> bool {
@@ -1117,7 +1123,7 @@ impl ResourceList {
     }
 
     fn set_project_top_level_override(&mut self, item: &ResourceItem, state: ProjectOverrideState) -> bool {
-        let current = self.settings_array(SourceScope::Project, item.resource_type.as_ref());
+        let current = self.settings_array(SourceScope::Project, item.resource_type.as_str());
         let pattern = if self.is_inherited_global_item(item) {
             item.path.clone()
         } else {
@@ -1220,7 +1226,8 @@ impl ResourceList {
         )
         .unwrap_or(source);
         let project_base = self.get_top_level_base_dir(SettingsScope::Project);
-        let relative = relative_path(&project_base, &source_path);
+        let relative = relative_path(&project_base, &source_path)
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught("Error", error.message().clone()));
         PackageSource::Filter(PackageFilter {
             source: if relative.is_empty() {
                 JsString::from(".")
@@ -1240,7 +1247,10 @@ impl ResourceList {
         };
         let packages: Vec<PackageSource> = settings
             .get("packages")
-            .and_then(|value| serde_json::from_value(value.clone()).ok())
+            .map(|value| {
+                pi_js_compat::js_json::from_value(value)
+                    .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught("Error", error.to_string()))
+            })
             .unwrap_or_default();
         let target_scope_name = match target_scope {
             SettingsScope::Project => "project",
@@ -1264,9 +1274,9 @@ impl ResourceList {
     fn package_sources_match(
         &self,
         left_source: &JsString,
-        left_scope: &JsString,
+        left_scope: &str,
         right_source: &JsString,
-        right_scope: &JsString,
+        right_scope: &str,
     ) -> bool {
         if left_source == right_source {
             return true;
@@ -1283,12 +1293,9 @@ impl ResourceList {
         matches!((left, right), (Ok(left), Ok(right)) if left == right)
     }
 
-    fn get_top_level_base_dir_str(&self, scope: &JsString) -> JsString {
+    fn get_top_level_base_dir_str(&self, scope: &str) -> JsString {
         if scope == "project" {
-            PathBuf::from(&self.cwd)
-                .join(&package_config().config_dir_name)
-                .to_string_lossy()
-                .into_owned()
+            node_join(&self.cwd, package_config().config_dir_name.as_str())
         } else {
             self.agent_dir.clone()
         }
@@ -1299,12 +1306,11 @@ impl ResourceList {
             .strip_prefix('!')
             .or_else(|| entry.strip_prefix('+'))
             .or_else(|| entry.strip_prefix('-'))
-            .unwrap_or(entry)
-            .to_string()
+            .unwrap_or_else(|| entry.clone())
     }
 
     fn resource_item_key(item: &ResourceItem) -> JsString {
-        js_format!("{}:{}", item.resource_type.as_ref(), canonicalize_path(&item.path))
+        js_format!("{}:{}", item.resource_type.as_str(), canonicalize_path(&item.path))
     }
 
     fn get_item_scope(&self, item: &ResourceItem) -> SettingsScope {
@@ -1317,10 +1323,7 @@ impl ResourceList {
 
     fn get_top_level_base_dir(&self, scope: SettingsScope) -> JsString {
         match scope {
-            SettingsScope::Project => PathBuf::from(&self.cwd)
-                .join(&package_config().config_dir_name)
-                .to_string_lossy()
-                .into_owned(),
+            SettingsScope::Project => node_join(&self.cwd, package_config().config_dir_name.as_str()),
             SettingsScope::User => self.agent_dir.clone(),
         }
     }
@@ -1332,16 +1335,17 @@ impl ResourceList {
             .clone()
             .unwrap_or_else(|| self.get_top_level_base_dir(scope_to_settings(item.metadata.scope)));
         relative_path(&base_dir, &item.path)
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught("Error", error.message().clone()))
     }
 
     fn get_package_resource_pattern(&self, item: &ResourceItem) -> JsString {
-        let base_dir = item.metadata.base_dir.clone().unwrap_or_else(|| {
-            Path::new(&item.path)
-                .parent()
-                .map(|path| path.to_string_lossy().into_owned())
-                .unwrap_or_default()
-        });
+        let base_dir = item
+            .metadata
+            .base_dir
+            .clone()
+            .unwrap_or_else(|| node_dirname(&item.path));
         relative_path(&base_dir, &item.path)
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught("Error", error.message().clone()))
     }
 }
 

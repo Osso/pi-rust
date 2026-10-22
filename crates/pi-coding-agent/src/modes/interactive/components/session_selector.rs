@@ -10,7 +10,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use pi_ai::request::BoxFuture;
-use pi_js_compat::string::js_trim;
+use pi_js_compat::js_json::encode_node_utf8;
 use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::keybindings::get_keybindings;
 use pi_tui::tui::{Component, Focusable};
@@ -54,7 +54,7 @@ enum LoadReason {
     Toggle,
 }
 
-fn truncate(text: &JsString, width: usize, ellipsis: &JsString) -> JsString {
+fn truncate(text: &JsString, width: usize, ellipsis: &str) -> JsString {
     truncate_to_width_with(text, width, ellipsis, false)
 }
 
@@ -70,7 +70,7 @@ fn shorten_path(path: &JsString) -> JsString {
         .or_else(|| pi_js_compat::process_env::get("USERPROFILE"))
         .unwrap_or_default();
     if !path.is_empty() && !home.is_empty() && path.starts_with(&home) {
-        return js_format!("~{}", &path[home.len()..]);
+        return js_format!("~{}", path.slice(home.encode_utf16().count(), path.len()));
     }
     path.to_owned()
 }
@@ -200,7 +200,7 @@ impl SessionSelectorHeader {
     }
 
     pub fn status_message(&self) -> Option<&JsString> {
-        self.status_message.as_ref().map(|status| status.message.as_ref())
+        self.status_message.as_ref().map(|status| &status.message)
     }
 
     /// Clear the transient status after its auto-hide delay.
@@ -310,7 +310,10 @@ impl Component for SessionSelectorHeader {
             if self.show_rename_hint {
                 hint_2_parts.push(key_hint("app.session.rename", "rename"));
             }
-            let hint_2 = hint_2_parts.join(&sep);
+            let hint_2 = hint_2_parts
+                .into_iter()
+                .reduce(|left, right| left + &sep + right)
+                .unwrap_or_default();
             (truncate(&hint_1, width, "…"), truncate(&hint_2, width, "…"))
         };
 
@@ -513,14 +516,14 @@ impl SessionList {
             callbacks: SessionListCallbacks::default(),
             focused: false,
         };
-        list.filter_sessions("");
+        list.filter_sessions(&JsString::default());
         list
     }
 
     pub fn get_selected_session_path(&self) -> Option<&JsString> {
         self.filtered_sessions
             .get(self.selected_index)
-            .map(|node| node.session.path.as_ref())
+            .map(|node| &node.session.path)
     }
 
     pub fn set_sort_mode(&mut self, sort_mode: SortMode) {
@@ -554,7 +557,7 @@ impl SessionList {
     }
 
     fn filter_sessions(&mut self, query: &JsString) {
-        let trimmed = js_trim(query);
+        let trimmed = query.trim();
         let sessions_with_messages: Vec<SessionInfo> = self
             .all_sessions
             .iter()
@@ -609,11 +612,12 @@ impl SessionList {
         if node.depth == 0 {
             return JsString::default();
         }
-        let parts: JsString = node
-            .ancestor_continues
-            .iter()
-            .map(|continues| if *continues { "│  " } else { "   " })
-            .collect();
+        let parts: JsString = JsString::join(
+            node.ancestor_continues
+                .iter()
+                .map(|continues| if *continues { "│  " } else { "   " }),
+            "",
+        );
         parts + if node.is_last { "└─ " } else { "├─ " }
     }
 
@@ -766,16 +770,14 @@ impl Component for SessionList {
             let prefix = self.build_tree_prefix(node);
             let has_name = session.name.is_some();
             let display_text = session.name.clone().unwrap_or_else(|| session.first_message.clone());
-            let normalized_message: JsString = js_trim(
-                &display_text
-                    .chars()
-                    .map(|character| {
-                        let code = character as u32;
-                        if code < 0x20 || code == 0x7f { ' ' } else { character }
-                    })
-                    .collect::<JsString>(),
+            let normalized_message = JsString::from_utf16(
+                display_text
+                    .units()
+                    .iter()
+                    .map(|unit| if *unit < 0x20 || *unit == 0x7f { 0x20 } else { *unit })
+                    .collect(),
             )
-            .to_owned();
+            .trim();
 
             let age = format_session_date(session.modified, now);
             let message_count = session.message_count.to_string();
@@ -1059,7 +1061,7 @@ impl SessionSelectorComponent {
         self.header.set_status_message(
             Some(StatusMessage {
                 kind: StatusKind::Error,
-                message: message.to_owned(),
+                message: message.into(),
             }),
             Some(4000),
         );
@@ -1246,7 +1248,7 @@ impl SessionSelectorComponent {
     fn enter_rename_mode(&mut self, session_path: &JsString, current_name: Option<&JsString>) {
         self.mode = SelectorMode::Rename;
         self.rename_target_path = Some(session_path.to_owned());
-        self.rename_input.set_value(current_name.unwrap_or_default());
+        self.rename_input.set_value(current_name.cloned().unwrap_or_default());
         self.rename_input.set_focused(true);
     }
 
@@ -1258,7 +1260,7 @@ impl SessionSelectorComponent {
 
     /// `confirmRename`: save the trimmed name (`None` when empty), refresh, then leave rename mode.
     pub async fn confirm_rename(&mut self, value: &JsString) -> Result<(), JsString> {
-        let next = js_trim(value).to_owned();
+        let next = value.trim().to_owned();
         let Some(target) = self.rename_target_path.clone() else {
             self.exit_rename_mode();
             return Ok(());
@@ -1284,10 +1286,10 @@ impl SessionSelectorComponent {
                 let _ = remove_session_metadata(control_db_path, session_path);
             }
             if let Some(current) = &mut self.current_sessions {
-                current.retain(|session| session.path != session_path);
+                current.retain(|session| &session.path != session_path);
             }
             if let Some(all) = &mut self.all_sessions {
-                all.retain(|session| session.path != session_path);
+                all.retain(|session| &session.path != session_path);
             }
             let sessions = match self.scope {
                 SessionScope::Current => self.current_sessions.clone().unwrap_or_default(),
@@ -1304,7 +1306,7 @@ impl SessionSelectorComponent {
             self.header.set_status_message(
                 Some(StatusMessage {
                     kind: StatusKind::Info,
-                    message: message.to_owned(),
+                    message: message.into(),
                 }),
                 Some(2000),
             );
@@ -1341,7 +1343,7 @@ impl SessionSelectorComponent {
             .chain(self.all_sessions.iter())
             .chain(self.archived_sessions.iter())
             .flat_map(|sessions| sessions.iter())
-            .find(|session| session.path == session_path);
+            .find(|session| &session.path == session_path);
         if selected.is_some_and(|session| session.is_archived.unwrap_or(false)) {
             self.header.set_status_message(
                 Some(StatusMessage {
@@ -1460,13 +1462,13 @@ impl SessionSelectorComponent {
             return;
         }
         let sessions = match self.scope {
-            SessionScope::Current => self.current_sessions.as_ref().unwrap_or(&[]),
-            SessionScope::All => self.all_sessions.as_ref().unwrap_or(&[]),
-            SessionScope::Archived => self.archived_sessions.as_ref().unwrap_or(&[]),
+            SessionScope::Current => self.current_sessions.as_deref().unwrap_or(&[]),
+            SessionScope::All => self.all_sessions.as_deref().unwrap_or(&[]),
+            SessionScope::Archived => self.archived_sessions.as_deref().unwrap_or(&[]),
         };
         let current_name = sessions
             .iter()
-            .find(|session| session.path == session_path)
+            .find(|session| &session.path == session_path)
             .and_then(|session| session.name.clone());
         self.enter_rename_mode(session_path, current_name.as_ref());
     }
@@ -1564,19 +1566,19 @@ async fn delete_session_file(session_path: &JsString) -> DeleteResult {
     if session_path.starts_with('-') {
         command.arg("--");
     }
-    command.arg(session_path);
+    command.arg(encode_node_utf8(session_path));
     let trash_result = command.output().await;
 
     let mut trash_error: Option<JsString> = None;
     let status = match &trash_result {
         Ok(output) => {
-            let stderr = JsString::from_utf8_lossy(&output.stderr).trim().to_owned();
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
             let mut parts = Vec::new();
             if !stderr.is_empty() {
                 parts.push(stderr.lines().next().unwrap_or(&stderr).to_owned());
             }
             if !parts.is_empty() {
-                let joined = parts.join(" · ");
+                let joined = JsString::from(parts.join(" · "));
                 trash_error = Some(js_format!("trash: {}", slice_chars(&joined, 200)));
             }
             Some(output.status)
@@ -1588,7 +1590,7 @@ async fn delete_session_file(session_path: &JsString) -> DeleteResult {
         }
     };
 
-    let exists = Path::new(session_path).exists();
+    let exists = Path::new(&encode_node_utf8(session_path)).exists();
     if status.is_some_and(|status| status.success()) || !exists {
         return DeleteResult {
             ok: true,
@@ -1597,14 +1599,14 @@ async fn delete_session_file(session_path: &JsString) -> DeleteResult {
         };
     }
 
-    match tokio::fs::remove_file(session_path).await {
+    match tokio::fs::remove_file(encode_node_utf8(session_path)).await {
         Ok(()) => DeleteResult {
             ok: true,
             method: DeleteMethod::Unlink,
             error: None,
         },
         Err(error) => {
-            let unlink_error = error.to_string();
+            let unlink_error = pi_js_compat::node_fs::node_fs_error(&error, "unlink", session_path);
             let error = match trash_error {
                 Some(hint) => js_format!("{} ({})", unlink_error, hint),
                 None => unlink_error,
@@ -1619,5 +1621,5 @@ async fn delete_session_file(session_path: &JsString) -> DeleteResult {
 }
 
 fn slice_chars(text: &JsString, limit: usize) -> JsString {
-    text.chars().take(limit).collect()
+    text.slice(0, limit)
 }

@@ -9,15 +9,15 @@ use std::time::{Duration, Instant};
 use pi_agent_core::agent::AgentMessage;
 use pi_ai::types::{AssistantContent, AssistantMessage, StopReason, TextOrImageContent, UserContent};
 use pi_js_compat::date::{date_parse_millis, local_date_fields};
-use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
-use pi_js_compat::string::js_trim;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{self, JsString, JsValue};
+use pi_js_compat::js_regex::JsRegex;
 use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
 use pi_tui::keybindings::{KeyId, get_keybindings};
 use pi_tui::tui::{Component, ComponentRef, Container, Focusable, component};
 use pi_tui::utils::{slice_by_column, truncate_to_width_with, visible_width, wrap_text_with_ansi};
-use regex::Regex;
 
 use super::dynamic_border::dynamic_border;
 use super::keybinding_hints::{format_key_text, key_hint};
@@ -30,7 +30,7 @@ use crate::modes::interactive::theme::{ThemeBg, ThemeColor, with_theme};
 /// Called with the selected entry's copy text.
 pub type CopyHandler = Rc<dyn Fn(Option<JsString>)>;
 /// Called with `(entryId, label)` when a label is edited.
-pub type LabelEditHandler = Rc<dyn Fn(&str, Option<&str>)>;
+pub type LabelEditHandler = Rc<dyn Fn(&str, Option<&JsString>)>;
 
 const TREE_GUTTER_WIDTH: usize = 2;
 const MIN_VISIBLE_ANCHOR_CONTENT_WIDTH: usize = 4;
@@ -38,7 +38,7 @@ const MAX_VISIBLE_ANCHOR_CONTENT_WIDTH: usize = 20;
 const MIN_ANCHOR_CONTEXT_WIDTH: usize = 2;
 const MAX_ANCHOR_CONTEXT_WIDTH: usize = 12;
 
-fn truncate(text: &str, width: usize, ellipsis: &str) -> String {
+fn truncate(text: &JsString, width: usize, ellipsis: &str) -> String {
     truncate_to_width_with(text, width, ellipsis, false)
 }
 
@@ -95,14 +95,14 @@ struct ToolCallInfo {
 }
 
 struct HorizontalViewportRow {
-    gutter: String,
-    body: String,
+    gutter: JsString,
+    body: JsString,
     anchor_col: usize,
     body_width: usize,
     is_selected: bool,
 }
 
-fn render_horizontal_viewport(rows: &[HorizontalViewportRow], width: usize) -> Vec<String> {
+fn render_horizontal_viewport(rows: &[HorizontalViewportRow], width: usize) -> Vec<JsString> {
     let viewport_width = width.saturating_sub(TREE_GUTTER_WIDTH);
     let max_body_width = rows.iter().map(|row| row.body_width).max().unwrap_or(0);
     let max_horizontal_scroll = max_body_width.saturating_sub(viewport_width);
@@ -123,13 +123,13 @@ fn render_horizontal_viewport(rows: &[HorizontalViewportRow], width: usize) -> V
     rows.iter()
         .map(|row| {
             let line = if horizontal_scroll > 0 {
-                format!(
+                js_format!(
                     "{}{}\u{1b}[0m",
                     row.gutter,
                     slice_by_column(&row.body, horizontal_scroll, viewport_width, true)
                 )
             } else {
-                format!("{}{}", row.gutter, row.body)
+                js_format!("{}{}", row.gutter, row.body)
             };
             truncate(&line, width, "")
         })
@@ -140,9 +140,11 @@ fn js_round(value: f64) -> i64 {
     value.round() as i64
 }
 
-fn split_js_whitespace(text: &str) -> Vec<&str> {
-    text.split(|character: char| pi_js_compat::string::is_js_whitespace_char(character))
+fn split_js_whitespace(text: &JsString) -> Vec<JsString> {
+    text.units()
+        .split(|unit| pi_js_compat::string::is_js_whitespace_unit(*unit))
         .filter(|part| !part.is_empty())
+        .map(|part| JsString::from_utf16(part.to_vec()))
         .collect()
 }
 
@@ -240,7 +242,7 @@ mod js_value_tests {
     }
 }
 
-fn format_tool_call(name: &str, args: &JsValue) -> String {
+fn format_tool_call(name: &str, args: &JsValue) -> JsString {
     let string_arg = |key: &str| args.get(key).and_then(JsValue::as_string).cloned().unwrap_or_default();
     let path = || {
         let path = args
@@ -264,10 +266,10 @@ fn format_tool_call(name: &str, args: &JsValue) -> String {
             if offset.is_some() || limit.is_some() {
                 let start = offset.unwrap_or(1.0);
                 let end = limit.map(|limit| start + limit - 1.0);
-                display.push_str(format!(
+                display.push_str(js_format!(
                     ":{}{}",
                     pi_js_compat::number::js_number_to_string(start),
-                    end.map_or_else(String::new, |end| format!(
+                    end.map_or_else(String::new, |end| js_format!(
                         "-{}",
                         pi_js_compat::number::js_number_to_string(end)
                     ))
@@ -275,7 +277,7 @@ fn format_tool_call(name: &str, args: &JsValue) -> String {
             }
             JsString::from("[read: ") + display + "]"
         }
-        "write" | "edit" => JsString::from(format!("[{name}: ")) + path() + "]",
+        "write" | "edit" => JsString::from(js_format!("[{}: ", name)) + path() + "]",
         "bash" => {
             let raw = string_arg("command");
             let command = slice_utf16(&normalize(&raw), 50);
@@ -300,10 +302,10 @@ fn format_tool_call(name: &str, args: &JsValue) -> String {
         _ => {
             let serialized = JsString::from(js_json::stringify_lossless(args));
             let short = slice_utf16(&serialized, 40);
-            JsString::from(format!("[{name}: ")) + short + if serialized.len() > 40 { "...]" } else { "]" }
+            JsString::from(js_format!("[{}: ", name)) + short + if serialized.len() > 40 { "...]" } else { "]" }
         }
     };
-    encode_node_utf8(&text)
+    text
 }
 
 fn format_label_timestamp(timestamp: &str, now_millis: i64) -> String {
@@ -320,11 +322,11 @@ fn format_label_timestamp(timestamp: &str, now_millis: i64) -> String {
     let month = date.month + 1;
     let day = date.day;
     if same_year {
-        return format!("{month}/{day} {time}");
+        return js_format!("{}/{} {}", month, day, time);
     }
     let full_year = date.year.to_string();
     let year = &full_year[full_year.len().saturating_sub(2)..];
-    format!("{year}/{month}/{day} {time}")
+    js_format!("{}/{}/{} {}", year, month, day, time)
 }
 
 fn entry_message(entry: &SessionEntry) -> Option<&AgentMessage> {
@@ -360,7 +362,7 @@ pub struct TreeList {
     current_leaf_id: Option<String>,
     max_visible_lines: usize,
     filter_mode: FilterMode,
-    search_query: String,
+    search_query: JsString,
     tool_call_map: HashMap<String, ToolCallInfo>,
     multiple_roots: bool,
     show_label_timestamps: bool,
@@ -392,7 +394,7 @@ impl TreeList {
             current_leaf_id,
             max_visible_lines,
             filter_mode: initial_filter_mode.unwrap_or(FilterMode::Default),
-            search_query: String::new(),
+            search_query: JsString::new(),
             tool_call_map: HashMap::new(),
             multiple_roots,
             show_label_timestamps: false,
@@ -672,7 +674,7 @@ impl TreeList {
         }
     }
 
-    fn matches_search(&self, flat_node: &FlatNode, search_tokens: &[String]) -> bool {
+    fn matches_search(&self, flat_node: &FlatNode, search_tokens: &[JsString]) -> bool {
         if search_tokens.is_empty() {
             return true;
         }
@@ -689,7 +691,7 @@ impl TreeList {
                 .or_else(|| self.last_selected_id.clone());
         }
 
-        let search_tokens: Vec<String> = split_js_whitespace(&self.search_query.to_lowercase())
+        let search_tokens: Vec<JsString> = split_js_whitespace(&self.search_query.to_lowercase())
             .into_iter()
             .map(str::to_owned)
             .collect();
@@ -950,7 +952,7 @@ impl TreeList {
         JsString::join(parts, " ")
     }
 
-    pub fn get_search_query(&self) -> &str {
+    pub fn get_search_query(&self) -> &JsString {
         &self.search_query
     }
 
@@ -974,10 +976,10 @@ impl TreeList {
         }
     }
 
-    pub fn update_node_label(&mut self, entry_id: &str, label: Option<&str>, label_timestamp: Option<&str>) {
+    pub fn update_node_label(&mut self, entry_id: &str, label: Option<&JsString>, label_timestamp: Option<&str>) {
         for flat in &mut self.flat_nodes {
             if flat.node.entry.id() == Some(entry_id) {
-                flat.node.label = label.map(str::to_owned);
+                flat.node.label = label.cloned();
                 flat.node.label_timestamp = label.map(|_| {
                     label_timestamp
                         .map(str::to_owned)
@@ -988,8 +990,8 @@ impl TreeList {
         }
     }
 
-    fn get_status_labels(&self) -> String {
-        let mut labels = String::new();
+    fn get_status_labels(&self) -> JsString {
+        let mut labels = JsString::default();
         labels.push_str(self.filter_mode.label());
         if self.show_label_timestamps {
             labels.push_str(" [+label time]");
@@ -1026,7 +1028,7 @@ impl TreeList {
         text.filter(|text| !text.trim().is_empty())
     }
 
-    fn get_entry_display_text(&self, node: &SessionTreeNode, is_selected: bool) -> String {
+    fn get_entry_display_text(&self, node: &SessionTreeNode, is_selected: bool) -> JsString {
         let entry = &node.entry;
         let result = match entry {
             SessionEntry::Known(KnownSessionEntry::Message(message)) => {
@@ -1034,21 +1036,20 @@ impl TreeList {
                 match message.role() {
                     role if role == "user" => {
                         with_theme(|theme| theme.fg(ThemeColor::Accent, "user: "))
-                            + &encode_node_utf8(&normalize(&slice_utf16(&extract_message_full_content(message), 200)))
+                            + &&normalize(&slice_utf16(&extract_message_full_content(message), 200))
                     }
                     role if role == "assistant" => {
                         let message = assistant_message(entry).expect("assistant entry");
                         let text_content = normalize(&slice_utf16(&extract_assistant_content(message), 200));
                         if !text_content.is_empty() {
-                            with_theme(|theme| theme.fg(ThemeColor::Success, "assistant: "))
-                                + &encode_node_utf8(&text_content)
+                            with_theme(|theme| theme.fg(ThemeColor::Success, "assistant: ")) + &&text_content
                         } else if message.stop_reason == StopReason::Aborted {
                             with_theme(|theme| theme.fg(ThemeColor::Success, "assistant: "))
                                 + &with_theme(|theme| theme.fg(ThemeColor::Muted, "(aborted)"))
                         } else if let Some(error_message) = &message.error_message {
                             let error = slice_utf16(&normalize(&error_message.clone().into()), 80);
                             with_theme(|theme| theme.fg(ThemeColor::Success, "assistant: "))
-                                + &with_theme(|theme| theme.fg(ThemeColor::Error, &encode_node_utf8(&error)))
+                                + &with_theme(|theme| theme.fg(ThemeColor::Error, &&error))
                         } else {
                             with_theme(|theme| theme.fg(ThemeColor::Success, "assistant: "))
                                 + &with_theme(|theme| theme.fg(ThemeColor::Muted, "(no content)"))
@@ -1071,7 +1072,7 @@ impl TreeList {
                                 AgentMessage::ToolResult(result) => result.tool_name.clone(),
                                 _ => "tool".to_owned(),
                             };
-                            with_theme(|theme| theme.fg(ThemeColor::Muted, &format!("[{tool_name}]")))
+                            with_theme(|theme| theme.fg(ThemeColor::Muted, &js_format!("[{}]", tool_name)))
                         }
                     }
                     role if role == "bashExecution" => {
@@ -1083,42 +1084,40 @@ impl TreeList {
                                 .unwrap_or_default(),
                             _ => JsString::default(),
                         };
-                        with_theme(|theme| {
-                            theme.fg(
-                                ThemeColor::Dim,
-                                &format!("[bash]: {}", encode_node_utf8(&normalize(&command))),
-                            )
-                        })
+                        with_theme(|theme| theme.fg(ThemeColor::Dim, &js_format!("[bash]: {}", (&normalize(&command)))))
                     }
-                    role => with_theme(|theme| theme.fg(ThemeColor::Dim, &format!("[{}]", encode_node_utf8(&role)))),
+                    role => with_theme(|theme| theme.fg(ThemeColor::Dim, &js_format!("[{}]", (&role)))),
                 }
             }
             SessionEntry::Known(KnownSessionEntry::CustomMessage(entry)) => {
-                with_theme(|theme| theme.fg(ThemeColor::CustomMessageLabel, &format!("[{}]: ", entry.custom_type)))
-                    + &encode_node_utf8(&normalize(&extract_custom_message_content(&entry.content)))
+                with_theme(|theme| theme.fg(ThemeColor::CustomMessageLabel, &js_format!("[{}]: ", entry.custom_type)))
+                    + &&normalize(&extract_custom_message_content(&entry.content))
             }
             SessionEntry::Known(KnownSessionEntry::Compaction(entry)) => {
                 let tokens = js_round(entry.tokens_before / 1000.0);
-                with_theme(|theme| theme.fg(ThemeColor::BorderAccent, &format!("[compaction: {tokens}k tokens]: ")))
-                    + &encode_node_utf8(&normalize(&entry.summary))
+                with_theme(|theme| {
+                    theme.fg(
+                        ThemeColor::BorderAccent,
+                        &js_format!("[compaction: {}k tokens]: ", tokens),
+                    )
+                }) + &&normalize(&entry.summary)
             }
             SessionEntry::Known(KnownSessionEntry::BranchSummary(entry)) => {
-                with_theme(|theme| theme.fg(ThemeColor::Warning, "[branch summary]: "))
-                    + &encode_node_utf8(&normalize(&entry.summary))
+                with_theme(|theme| theme.fg(ThemeColor::Warning, "[branch summary]: ")) + &&normalize(&entry.summary)
             }
             SessionEntry::Known(KnownSessionEntry::ModelChange(entry)) => {
-                with_theme(|theme| theme.fg(ThemeColor::Dim, &format!("[model: {}]", entry.model_id)))
+                with_theme(|theme| theme.fg(ThemeColor::Dim, &js_format!("[model: {}]", entry.model_id)))
             }
             SessionEntry::Known(KnownSessionEntry::ThinkingLevelChange(entry)) => {
-                with_theme(|theme| theme.fg(ThemeColor::Dim, &format!("[thinking: {}]", entry.thinking_level)))
+                with_theme(|theme| theme.fg(ThemeColor::Dim, &js_format!("[thinking: {}]", entry.thinking_level)))
             }
             SessionEntry::Known(KnownSessionEntry::Custom(entry)) => {
-                with_theme(|theme| theme.fg(ThemeColor::Dim, &format!("[custom: {}]", entry.custom_type)))
+                with_theme(|theme| theme.fg(ThemeColor::Dim, &js_format!("[custom: {}]", entry.custom_type)))
             }
             SessionEntry::Known(KnownSessionEntry::Label(entry)) => with_theme(|theme| {
                 theme.fg(
                     ThemeColor::Dim,
-                    &format!("[label: {}]", entry.label.as_deref().unwrap_or("(cleared)")),
+                    &js_format!("[label: {}]", entry.label.as_ref().unwrap_or("(cleared)")),
                 )
             }),
             SessionEntry::Known(KnownSessionEntry::SessionInfo(entry)) => match &entry.name {
@@ -1133,7 +1132,7 @@ impl TreeList {
                         + &theme.fg(ThemeColor::Dim, "]")
                 }),
             },
-            _ => String::new(),
+            _ => JsString::default(),
         };
 
         if is_selected {
@@ -1229,7 +1228,7 @@ impl TreeList {
         }
     }
 
-    pub fn handle_input(&mut self, key_data: &str) {
+    pub fn handle_input(&mut self, key_data: &JsString) {
         let keybindings = get_keybindings();
         if keybindings.matches(key_data, "tui.select.up") {
             self.selected_index = if self.selected_index == 0 {
@@ -1372,7 +1371,7 @@ enum BranchDirection {
 }
 
 impl Component for TreeList {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
 
         if self.filtered_indices.is_empty() {
@@ -1382,7 +1381,7 @@ impl Component for TreeList {
                 "",
             ));
             lines.push(truncate(
-                &with_theme(|theme| theme.fg(ThemeColor::Muted, &format!("  (0/0){}", self.get_status_labels()))),
+                &with_theme(|theme| theme.fg(ThemeColor::Muted, &js_format!("  (0/0){}", self.get_status_labels()))),
                 width,
                 "",
             ));
@@ -1428,7 +1427,7 @@ impl Component for TreeList {
 
             let total_chars = display_indent * 3;
             let is_folded = self.folded_nodes.contains(entry_id);
-            let mut prefix_chars = String::new();
+            let mut prefix_chars = JsString::default();
             for character_index in 0..total_chars {
                 let level = character_index / 3;
                 let position_in_level = character_index % 3;
@@ -1474,7 +1473,7 @@ impl Component for TreeList {
                 .node
                 .label
                 .as_deref()
-                .map(|label| with_theme(|theme| theme.fg(ThemeColor::Warning, &format!("[{label}] "))))
+                .map(|label| with_theme(|theme| theme.fg(ThemeColor::Warning, &js_format!("[{}] ", label))))
                 .unwrap_or_default();
             let label_timestamp = if self.show_label_timestamps {
                 flat_node
@@ -1486,7 +1485,7 @@ impl Component for TreeList {
                         with_theme(|theme| {
                             theme.fg(
                                 ThemeColor::Muted,
-                                &format!("{} ", format_label_timestamp(timestamp, pi_ai::request::now_millis())),
+                                &js_format!("{} ", format_label_timestamp(timestamp, pi_ai::request::now_millis())),
                             )
                         })
                     })
@@ -1519,7 +1518,7 @@ impl Component for TreeList {
             &with_theme(|theme| {
                 theme.fg(
                     ThemeColor::Muted,
-                    &format!(
+                    &js_format!(
                         "  ({}/{}){}",
                         self.selected_index + 1,
                         self.filtered_indices.len(),
@@ -1552,11 +1551,11 @@ impl SearchLine {
 }
 
 impl Component for SearchLine {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let query = self.tree_list.borrow().get_search_query().to_owned();
         if query.is_empty() {
             return vec![truncate(
-                &format!(
+                &js_format!(
                     "  {}",
                     with_theme(|theme| theme.fg(ThemeColor::Muted, "Type to search:"))
                 ),
@@ -1565,7 +1564,7 @@ impl Component for SearchLine {
             )];
         }
         vec![truncate(
-            &format!(
+            &js_format!(
                 "  {} {}",
                 with_theme(|theme| theme.fg(ThemeColor::Muted, "Type to search:")),
                 with_theme(|theme| theme.fg(ThemeColor::Accent, &query))
@@ -1607,74 +1606,79 @@ const TREE_HELP_ITEMS: [(&[&str], &str, bool); 8] = [
     ),
 ];
 
-fn help_replacement_pattern() -> &'static Regex {
-    static PATTERN: OnceLock<Regex> = OnceLock::new();
-    PATTERN.get_or_init(|| Regex::new(r"\bpageUp\b|\bpageDown\b|\bup\b|\bdown\b|\bleft\b|\bright\b").expect("regex"))
+fn help_replacement_pattern() -> &'static JsRegex {
+    static PATTERN: OnceLock<JsRegex> = OnceLock::new();
+    PATTERN.get_or_init(|| {
+        JsRegex::new(r"\bpageUp\b|\bpageDown\b|\bup\b|\bdown\b|\bleft\b|\bright\b").expect("static help regex")
+    })
 }
 
-fn format_help_keys(keybindings: &[&str]) -> String {
+fn format_help_keys(keybindings: &[&str]) -> JsString {
     let manager = get_keybindings();
-    let keys: Vec<String> = keybindings
+    let keys: Vec<JsString> = keybindings
         .iter()
-        .filter_map(|binding| manager.get_keys(binding).first().map(KeyId::to_string))
+        .filter_map(|binding| {
+            manager
+                .get_keys(binding)
+                .first()
+                .map(|key| JsString::from(key.to_string()))
+        })
         .collect();
     if keys.is_empty() {
-        return String::new();
+        return JsString::default();
     }
-
     let text = format_key_text(&compact_raw_keys(&keys), Default::default());
-    help_replacement_pattern()
-        .replace_all(&text, |captures: &regex::Captures| {
-            let replacement: &str = match &captures[0] {
-                "pageUp" => "pgup",
-                "pageDown" => "pgdn",
-                "up" => "↑",
-                "down" => "↓",
-                "left" => "←",
-                "right" => "→",
-                other => other,
-            };
-            replacement.to_owned()
-        })
-        .into_owned()
+    help_replacement_pattern().replace_all_with(&text, |captures| {
+        let matched = captures.get(0).expect("whole help-key match").text();
+        for (key, replacement) in [
+            ("pageUp", "pgup"),
+            ("pageDown", "pgdn"),
+            ("up", "↑"),
+            ("down", "↓"),
+            ("left", "←"),
+            ("right", "→"),
+        ] {
+            if matched == key {
+                return replacement.into();
+            }
+        }
+        matched
+    })
 }
 
-fn compact_raw_keys(keys: &[String]) -> String {
+fn compact_raw_keys(keys: &[JsString]) -> JsString {
     if keys.len() == 1 {
         return keys[0].clone();
     }
-    let parts: Vec<(String, String)> = keys
+    let parts: Vec<(JsString, JsString)> = keys
         .iter()
-        .map(|key| match key.rfind('+') {
-            Some(index) => (key[..=index].to_owned(), key[index + 1..].to_owned()),
-            None => (String::new(), key.clone()),
+        .map(|key| match key.units().iter().rposition(|unit| *unit == 0x2b) {
+            Some(index) => (key.slice(0, index + 1), key.slice(index + 1, key.len())),
+            None => (JsString::default(), key.clone()),
         })
         .collect();
     let prefix = &parts[0].0;
     if !prefix.is_empty() && parts.iter().all(|part| &part.0 == prefix) {
-        return format!(
-            "{prefix}{}",
-            parts.iter().map(|part| part.1.as_str()).collect::<Vec<_>>().join("/")
-        );
+        return js_format!("{}{}", prefix, JsString::join(parts.iter().map(|part| &part.1), "/"));
     }
-    keys.join("/")
+    JsString::join(keys, "/")
 }
 
 /// Component that renders tree help as semantic rows with chunk-aware wrapping.
 pub struct TreeHelp;
 
 impl Component for TreeHelp {
-    fn render(&mut self, width: usize) -> Vec<String> {
-        let items: Vec<String> = TREE_HELP_ITEMS
+    fn render(&mut self, width: usize) -> Vec<JsString> {
+        let items: Vec<JsString> = TREE_HELP_ITEMS
             .iter()
             .map(|(keys, label, label_first)| {
                 let text = format_help_keys(keys);
                 if text.is_empty() {
-                    (*label).to_owned()
+                    JsString::from(*label)
                 } else if *label_first {
-                    format!("{label} {text}")
+                    js_format!("{} {}", label, text)
                 } else {
-                    format!("{text} {label}")
+                    js_format!("{} {}", text, label)
                 }
             })
             .collect();
@@ -1682,30 +1686,27 @@ impl Component for TreeHelp {
         let available_width = width.max(1);
         let indent = "  ";
         let separator = " · ";
-        let mut lines: Vec<String> = Vec::new();
-        let mut current_line = String::new();
+        let mut lines: Vec<JsString> = Vec::new();
+        let mut current_line = JsString::default();
 
         for item in items {
             let candidate = if current_line.is_empty() {
-                let indented = format!("{indent}{item}");
+                let indented = js_format!("{}{}", indent, item);
                 if visible_width(&indented) <= available_width {
                     indented
                 } else {
                     item.clone()
                 }
             } else {
-                format!("{current_line}{separator}{item}")
+                js_format!("{}{}{}", current_line, separator, item)
             };
             if current_line.is_empty() || visible_width(&candidate) <= available_width {
                 current_line = candidate;
                 continue;
             }
 
-            lines.extend(wrap_text_with_ansi(
-                pi_js_compat::string::js_trim_end(&current_line),
-                available_width,
-            ));
-            let indented = format!("{indent}{item}");
+            lines.extend(wrap_text_with_ansi(&current_line.trim_end(), available_width));
+            let indented = js_format!("{}{}", indent, item);
             current_line = if visible_width(&indented) <= available_width {
                 indented
             } else {
@@ -1714,10 +1715,7 @@ impl Component for TreeHelp {
         }
 
         if !current_line.is_empty() {
-            lines.extend(wrap_text_with_ansi(
-                pi_js_compat::string::js_trim_end(&current_line),
-                available_width,
-            ));
+            lines.extend(wrap_text_with_ansi(&current_line.trim_end(), available_width));
         }
 
         lines
@@ -1743,7 +1741,7 @@ pub struct LabelInput {
 }
 
 impl LabelInput {
-    pub fn new(entry_id: &str, current_label: Option<&str>) -> Self {
+    pub fn new(entry_id: &str, current_label: Option<&JsString>) -> Self {
         let mut input = Input::new(InputOptions::default());
         if let Some(label) = current_label {
             input.set_value(label);
@@ -1763,24 +1761,26 @@ impl LabelInput {
 }
 
 impl Component for LabelInput {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
         let indent = "  ";
         let available_width = width.saturating_sub(indent.len());
         lines.push(truncate(
-            &format!(
-                "{indent}{}",
+            &js_format!(
+                "{}{}",
+                indent,
                 with_theme(|theme| theme.fg(ThemeColor::Muted, "Label (empty to remove):"))
             ),
             width,
             "",
         ));
         for line in self.input.render(available_width) {
-            lines.push(truncate(&format!("{indent}{line}"), width, ""));
+            lines.push(truncate(&js_format!("{}{}", indent, line), width, ""));
         }
         lines.push(truncate(
-            &format!(
-                "{indent}{}  {}",
+            &js_format!(
+                "{}{}  {}",
+                indent,
                 key_hint("tui.select.confirm", "save"),
                 key_hint("tui.select.cancel", "cancel")
             ),
@@ -1790,13 +1790,13 @@ impl Component for LabelInput {
         lines
     }
 
-    fn handle_input(&mut self, key_data: &str) {
+    fn handle_input(&mut self, key_data: &JsString) {
         let keybindings = get_keybindings();
         if keybindings.matches(key_data, "tui.select.confirm") {
-            let value = js_trim(self.input.get_value()).to_owned();
+            let value = self.input.get_value().trim();
             let label = (!value.is_empty()).then_some(value);
             if let Some(on_submit) = &self.on_submit {
-                on_submit(&self.entry_id, label.as_deref());
+                on_submit(&self.entry_id, label.as_ref());
             }
         } else if keybindings.matches(key_data, "tui.select.cancel") {
             if let Some(on_cancel) = &self.on_cancel {
@@ -1887,7 +1887,7 @@ impl TreeSelectorComponent {
         let label_input_container = Rc::clone(&self.label_input_container);
         let tree_container = Rc::clone(&self.tree_container);
         let on_label_change = self.on_label_change.clone();
-        let show = Rc::new(move |entry_id: &str, current_label: Option<&str>| {
+        let show = Rc::new(move |entry_id: &str, current_label: Option<&JsString>| {
             let mut input = LabelInput::new(entry_id, current_label);
 
             let submit_tree_list = Rc::clone(&tree_list);
@@ -2016,11 +2016,11 @@ impl TreeSelectorComponent {
 }
 
 impl Component for TreeSelectorComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.container.render(width)
     }
 
-    fn handle_input(&mut self, key_data: &str) {
+    fn handle_input(&mut self, key_data: &JsString) {
         let label_input = self.label_input.borrow().clone();
         if let Some(label_input) = label_input {
             label_input.borrow_mut().handle_input(key_data);

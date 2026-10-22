@@ -186,7 +186,7 @@ pub fn parse_search_query(query: &JsString) -> ParsedSearchQuery {
     }
 
     if had_unclosed_quote {
-        let tokens = split_js_whitespace(trimmed)
+        let tokens = split_js_whitespace(&trimmed)
             .into_iter()
             .map(|token| token.trim())
             .filter(|token| !token.is_empty())
