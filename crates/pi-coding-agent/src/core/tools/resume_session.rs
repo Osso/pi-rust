@@ -511,8 +511,8 @@ pub fn render_result(
 /// `createResumeSessionToolDefinition()`.
 pub fn create_resume_session_tool_definition() -> ToolDefinition {
     let mut definition = crate::core::extensions::wrapper::harness_tool_definition(Arc::new(ResumeSessionTool::new()));
-    definition.prompt_snippet = Some(PROMPT_SNIPPET.to_owned());
-    definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).to_owned()).collect());
+    definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
+    definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
     definition.render_call = Some(infallible_render_call(render_call));
     definition.render_result = Some(infallible_render_result(render_result));
     definition

@@ -584,7 +584,7 @@ pub fn code_index_render_result(
 
 fn with_renderers(tool: Arc<dyn AgentTool>, render_call: ToolRenderer, prompt_snippet: &str) -> ToolDefinition {
     let mut definition = create_tool_definition_from_agent_tool(tool);
-    definition.prompt_snippet = Some(prompt_snippet.to_owned());
+    definition.prompt_snippet = Some(prompt_snippet.into());
     definition.approval_kind = Some(crate::core::extensions::types::ApprovalKind::ReadOnly);
     definition.render_call = Some(render_call);
     definition.render_result = Some(infallible_render_result(code_index_render_result));

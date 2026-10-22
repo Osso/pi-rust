@@ -7,8 +7,9 @@ use pi_agent_core::{
     AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
+use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
-use pi_js_compat::js_json::{JsString, JsValue as Value, encode_node_utf8};
+use pi_js_compat::js_json::{JsString, JsValue as Value};
 use pi_tui::tui::ComponentRef;
 use serde::Deserialize;
 use serde_json::Value as SchemaValue;
@@ -39,10 +40,10 @@ pub const PROMPT_GUIDELINES: [&str; 3] = [
 #[derive(Debug, Deserialize)]
 struct BroadcastParams {
     message: JsString,
-    session_ids: Option<Vec<String>>,
-    cwd: Option<String>,
-    name: Option<String>,
-    status: Option<Vec<String>>,
+    session_ids: Option<Vec<JsString>>,
+    cwd: Option<JsString>,
+    name: Option<JsString>,
+    status: Option<Vec<JsString>>,
 }
 
 /// `createBroadcastToolDefinition()`.
@@ -95,35 +96,55 @@ pub fn parameters() -> &'static SchemaValue {
     })
 }
 
-fn parse_statuses(status: Option<Vec<String>>) -> Option<Vec<SessionLiveStatus>> {
+fn parse_statuses(status: Option<Vec<JsString>>) -> Option<Vec<SessionLiveStatus>> {
     status.map(|statuses| {
         statuses
             .into_iter()
-            .filter_map(|status| match status.as_str() {
-                "running" => Some(SessionLiveStatus::Running),
-                "idle" => Some(SessionLiveStatus::Idle),
-                "ended" => Some(SessionLiveStatus::Ended),
+            .filter_map(|status| match status.to_utf8().as_deref() {
+                Ok("running") => Some(SessionLiveStatus::Running),
+                Ok("idle") => Some(SessionLiveStatus::Idle),
+                Ok("ended") => Some(SessionLiveStatus::Ended),
                 _ => None,
             })
             .collect()
     })
 }
 
-fn format_broadcast_result(result: &SessionBroadcastResult) -> String {
+fn format_broadcast_result(result: &SessionBroadcastResult) -> JsString {
     let error = result
         .error
         .as_ref()
         .map(|error| {
-            let encoded = serde_json::to_string(error).expect("error string must serialize");
-            format!(" error={encoded}")
+            let encoded = json::stringify_lossless(&Value::String(error.clone().into()));
+            js_format!(" error={}", encoded)
         })
         .unwrap_or_default();
-    format!(
-        "{} outcome={} check={}{error}",
+    js_format!(
+        "{} outcome={} check={}{}",
         result.session_id,
         result.outcome.as_str(),
-        result.check_status.as_str()
+        result.check_status.as_str(),
+        error
     )
+}
+
+#[cfg(test)]
+mod native_filter_tests {
+    use super::*;
+
+    #[test]
+    fn broadcast_filters_accept_raw_units_without_repair() {
+        let wire = json::parse_lossless(r#"{"message":"body-\ud800","session_ids":["id-\ud801"],"cwd":"cwd-\ud802","name":"name-\ud803","status":["idle","unknown-\ud804"]}"#).unwrap();
+        let params: BroadcastParams = json::from_value(&wire).unwrap();
+        assert_eq!(params.message, wire["message"].as_string().unwrap().clone());
+        assert_eq!(
+            params.session_ids.unwrap()[0],
+            wire["session_ids"][0].as_string().unwrap().clone()
+        );
+        assert_eq!(params.cwd.as_ref(), wire["cwd"].as_string());
+        assert_eq!(params.name.as_ref(), wire["name"].as_string());
+        assert_eq!(parse_statuses(params.status), Some(vec![SessionLiveStatus::Idle]));
+    }
 }
 
 impl AgentHarnessTool<ExtensionContext> for BroadcastTool {
@@ -210,15 +231,15 @@ impl AgentHarnessTool<ExtensionContext> for BroadcastTool {
                 })
                 .count();
             let skipped = results.len() - sent - failed;
-            let lines: Vec<String> = if results.is_empty() {
-                vec!["No sessions matched.".to_owned()]
+            let lines: Vec<JsString> = if results.is_empty() {
+                vec!["No sessions matched.".into()]
             } else {
-                let mut lines = vec![format!("sent={sent} skipped={skipped} failed={failed}")];
+                let mut lines = vec![js_format!("sent={} skipped={} failed={}", sent, skipped, failed)];
                 lines.extend(
                     results
                         .iter()
                         .enumerate()
-                        .map(|(index, result)| format!("{}. {}", index + 1, format_broadcast_result(result))),
+                        .map(|(index, result)| js_format!("{}. {}", index + 1, format_broadcast_result(result))),
                 );
                 lines
             };
@@ -228,54 +249,55 @@ impl AgentHarnessTool<ExtensionContext> for BroadcastTool {
                 "skipped": skipped,
                 "failed": failed
             });
-            Ok(text_result(lines.join("\n"), details))
+            Ok(text_result(JsString::join(lines, "\n"), details))
         })
     }
 }
 
-fn format_call(args: &JsValue, theme: &Theme) -> String {
+fn format_call(args: &JsValue, theme: &Theme) -> JsString {
     let mut filters = Vec::new();
     if let Some(ids) = args
         .get("session_ids")
         .and_then(Value::as_array)
         .filter(|ids| !ids.is_empty())
     {
-        filters.push(format!("ids={}", ids.len()));
+        filters.push(js_format!("ids={}", ids.len()));
     }
     if let Some(cwd) = args.get("cwd").and_then(Value::as_string).filter(|cwd| !cwd.is_empty()) {
-        filters.push(format!("cwd={}", encode_node_utf8(cwd)));
+        filters.push(js_format!("cwd={}", cwd));
     }
     if let Some(name) = args
         .get("name")
         .and_then(Value::as_string)
         .filter(|name| !name.is_empty())
     {
-        filters.push(format!("name={}", encode_node_utf8(name)));
+        filters.push(js_format!("name={}", name));
     }
     if let Some(status) = args
         .get("status")
         .and_then(Value::as_array)
         .filter(|status| !status.is_empty())
     {
-        let status = status
+        let status: Vec<JsString> = status
             .iter()
             .map(|value| {
                 value
                     .as_string()
-                    .map_or_else(|| pi_js_compat::js_json::stringify_lossless(value), encode_node_utf8)
+                    .cloned()
+                    .unwrap_or_else(|| json::stringify_lossless(value).into())
             })
-            .collect::<Vec<_>>()
-            .join(",");
-        filters.push(format!("status={status}"));
+            .collect();
+        filters.push(js_format!("status={}", JsString::join(status, ",")));
     }
     let filter_text = if filters.is_empty() {
-        String::new()
+        JsString::default()
     } else {
-        format!(" {}", theme.fg(ThemeColor::Dim, &filters.join(" ")))
+        js_format!(" {}", theme.fg(ThemeColor::Dim, &JsString::join(filters, " ")))
     };
-    format!(
-        "{}{filter_text}",
-        theme.fg(ThemeColor::ToolTitle, &theme.bold("broadcast"))
+    js_format!(
+        "{}{}",
+        theme.fg(ThemeColor::ToolTitle, &theme.bold("broadcast")),
+        filter_text
     )
 }
 
@@ -297,8 +319,8 @@ pub fn render_result(
 /// `createBroadcastToolDefinition()`.
 pub fn create_broadcast_tool_definition() -> ToolDefinition {
     let mut definition = crate::core::extensions::wrapper::harness_tool_definition(Arc::new(BroadcastTool::new()));
-    definition.prompt_snippet = Some(PROMPT_SNIPPET.to_owned());
-    definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).to_owned()).collect());
+    definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
+    definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
     definition.render_call = Some(infallible_render_call(render_call));
     definition.render_result = Some(infallible_render_result(render_result));
     definition

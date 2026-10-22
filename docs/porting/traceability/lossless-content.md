@@ -14,6 +14,10 @@ Contract: [lossless content](../../specs/lossless-content.md). Frozen source: `4
 | Questions / mailbox / session name | raw contracts and consumers integrated; see checkpoints below | compilation and runtime acceptance pending | compiler-blocked; no end-to-end PASS |
 | Provider ingress | [SSE and Codex WebSocket](lossless-provider-ingress.md) merged at `5909f149` | human errors, scalar metadata and non-stream images remain gaps | six sandbox tests PASS at lane executable revision; not parent integration acceptance |
 
+## Owned tool prompt metadata checkpoint
+
+Tool definitions now construct ASCII prompt snippets/guidelines directly as native strings after the shared `ToolDefinition` API widening. Channel/list/broadcast renderer output is native; change-directory reads the current header cwd accessor without encoding. Compilation and existing integration/renderer tests remain pending while the coding library is blocked. These are native API propagation, not new parity proof.
+
 ## Chalk styling checkpoint
 
 Chalk styling accepts/returns `JsString`; embedded close-code reopening and CRLF/LF encasing operate on UTF-16 units without encoding content. The raw differential invokes pinned Chalk. The original coding target remains compiler-blocked (`chalk-red.jsonl`); a standalone manifest imports the actual Chalk module and actual differential target without coding consumers. Its unchanged mandatory runner uses explicit private `PI_TEST_SANDBOX_DIR`; `chalk-standalone/selected-sandbox-result.log` records 3/3 tests, including raw styles, scalar style cases and supports-color detection. The first hidden-`/tmp` attempt failed before execution. This proves only the module; coding style propagation and independent verification remain pending.

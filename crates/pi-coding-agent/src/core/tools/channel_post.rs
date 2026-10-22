@@ -140,7 +140,7 @@ impl AgentHarnessTool<ExtensionContext> for ChannelPostTool {
     }
 }
 
-fn format_call(theme: &Theme) -> String {
+fn format_call(theme: &Theme) -> JsString {
     theme.fg(ThemeColor::ToolTitle, &theme.bold("channel_post"))
 }
 
@@ -162,8 +162,8 @@ pub fn render_result(
 /// `create_channel_post_tool_definition()`.
 pub fn create_channel_post_tool_definition() -> ToolDefinition {
     let mut definition = crate::core::extensions::wrapper::harness_tool_definition(Arc::new(ChannelPostTool::new()));
-    definition.prompt_snippet = Some(PROMPT_SNIPPET.to_owned());
-    definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).to_owned()).collect());
+    definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
+    definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
     definition.render_call = Some(infallible_render_call(render_call));
     definition.render_result = Some(infallible_render_result(render_result));
     definition
