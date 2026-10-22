@@ -1,5 +1,7 @@
 //! Behavioral tests for `modes/interactive/components/config-selector.ts`.
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -22,13 +24,13 @@ fn extension_paths(package_root: &str, source: &str, scope: SourceScope, names: 
         extensions: names
             .iter()
             .map(|name| ResolvedResource {
-                path: format!("{package_root}/extensions/{name}"),
+                path: JsString::from(format!("{package_root}/extensions/{name}")),
                 enabled: true,
                 metadata: PathMetadata {
-                    source: source.to_string(),
+                    source: JsString::from(source.to_string()),
                     scope,
                     origin: MetadataOrigin::Package,
-                    base_dir: Some(package_root.to_string()),
+                    base_dir: Some(JsString::from(package_root.to_string())),
                 },
             })
             .collect(),
@@ -38,16 +40,16 @@ fn extension_paths(package_root: &str, source: &str, scope: SourceScope, names: 
 
 fn settings_with_global_packages() -> Settings {
     let mut settings = Settings::new();
-    settings.insert("packages".to_string(), json!(["npm:pi-tools"]));
+    settings.insert(JsString::from("packages"), JsValue::from(json!(["npm:pi-tools"])));
     settings
 }
 
-fn project_packages(manager: &SettingsManager) -> Value {
+fn project_packages(manager: &SettingsManager) -> JsValue {
     manager
         .get_project_settings()
         .get("packages")
         .cloned()
-        .unwrap_or(Value::Null)
+        .unwrap_or(JsValue::from(Value::Null))
 }
 
 fn top_level_paths(package_root: &str, names: &[&str], agent_dir: &str) -> ResolvedPaths {
@@ -55,13 +57,13 @@ fn top_level_paths(package_root: &str, names: &[&str], agent_dir: &str) -> Resol
         extensions: names
             .iter()
             .map(|name| ResolvedResource {
-                path: format!("{package_root}/extensions/{name}"),
+                path: JsString::from(format!("{package_root}/extensions/{name}")),
                 enabled: true,
                 metadata: PathMetadata {
-                    source: "auto".to_string(),
+                    source: JsString::from("auto"),
                     scope: SourceScope::User,
                     origin: MetadataOrigin::TopLevel,
-                    base_dir: Some(agent_dir.to_string()),
+                    base_dir: Some(JsString::from(agent_dir.to_string())),
                 },
             })
             .collect(),
@@ -70,18 +72,18 @@ fn top_level_paths(package_root: &str, names: &[&str], agent_dir: &str) -> Resol
 }
 
 fn install_theme() {
-    let colors: Vec<(String, ColorValue)> = REQUIRED_COLORS
+    let colors: Vec<(JsString, ColorValue)> = REQUIRED_COLORS
         .iter()
         .enumerate()
         .map(|(index, key)| {
             (
-                key.to_string(),
-                ColorValue::Text(format!(
+                JsString::from(*key),
+                ColorValue::Text(JsString::from(format!(
                     "#{:02x}{:02x}{:02x}",
                     (16 + 7 * index) % 256,
                     (32 + 11 * index) % 256,
                     (48 + 13 * index) % 256
-                )),
+                ))),
             )
         })
         .collect();
@@ -89,7 +91,7 @@ fn install_theme() {
     set_theme_instance(theme);
 }
 
-fn render_lines(selector: &mut ConfigSelectorComponent) -> Vec<String> {
+fn render_lines(selector: &mut ConfigSelectorComponent) -> Vec<JsString> {
     install_theme();
     selector
         .render(100)
@@ -123,8 +125,8 @@ fn selector_with_scope(
             project: resolved,
         },
         settings_manager,
-        cwd: project_dir.to_string_lossy().into_owned(),
-        agent_dir: agent_dir.to_string_lossy().into_owned(),
+        cwd: JsString::from(project_dir.to_string_lossy().into_owned()),
+        agent_dir: JsString::from(agent_dir.to_string_lossy().into_owned()),
         on_close: Rc::new(|| {}),
         on_exit: Rc::new(|| {}),
         request_render: Rc::new(|| {}),
@@ -152,20 +154,20 @@ fn cycles_project_package_overrides_in_config_local_mode() {
     );
     let mut selector = selector(&temp, manager.clone(), resolved);
 
-    selector.get_resource_list_mut().handle_input(" ");
+    selector.get_resource_list_mut().handle_input(&JsString::from(" "));
     assert_eq!(
         project_packages(&manager.borrow()),
-        json!([{ "source": "npm:pi-tools", "autoload": false, "extensions": ["-extensions/bar.ts"] }])
+        pi_js_compat::js_json!([{ "source": "npm:pi-tools", "autoload": false, "extensions": ["-extensions/bar.ts"] }])
     );
 
-    selector.get_resource_list_mut().handle_input(" ");
+    selector.get_resource_list_mut().handle_input(&JsString::from(" "));
     assert_eq!(
         project_packages(&manager.borrow()),
-        json!([{ "source": "npm:pi-tools", "autoload": false, "extensions": ["+extensions/bar.ts"] }])
+        pi_js_compat::js_json!([{ "source": "npm:pi-tools", "autoload": false, "extensions": ["+extensions/bar.ts"] }])
     );
 
-    selector.get_resource_list_mut().handle_input(" ");
-    assert_eq!(project_packages(&manager.borrow()), json!([]));
+    selector.get_resource_list_mut().handle_input(&JsString::from(" "));
+    assert_eq!(project_packages(&manager.borrow()), pi_js_compat::js_json!([]));
 }
 
 #[test]
@@ -192,18 +194,18 @@ fn tab_switches_write_scope_and_updates_header() {
             .any(|line| line.contains("Global Resources"))
     );
 
-    selector.handle_input("\t");
+    selector.handle_input(&JsString::from("\t"));
     let lines = render_lines(&mut selector);
     assert!(lines.iter().any(|line| line.contains("Project Local Resources")));
 
-    selector.get_resource_list_mut().handle_input(" ");
+    selector.get_resource_list_mut().handle_input(&JsString::from(" "));
     assert_eq!(
         project_packages(&manager.borrow()),
-        json!([{ "source": "npm:pi-tools", "autoload": false, "extensions": ["-extensions/bar.ts"] }])
+        pi_js_compat::js_json!([{ "source": "npm:pi-tools", "autoload": false, "extensions": ["-extensions/bar.ts"] }])
     );
     assert_eq!(
         manager.borrow().get_global_settings().get("packages"),
-        Some(&json!(["npm:pi-tools"]))
+        Some(&json!(["npm:pi-tools"])).map(JsValue::from).as_ref()
     );
 }
 
@@ -225,7 +227,7 @@ fn tab_is_ignored_when_project_mode_is_unavailable() {
     );
     let mut selector = selector_with_scope(&temp, manager.clone(), resolved, ConfigWriteScope::Global, false);
 
-    selector.handle_input("\t");
+    selector.handle_input(&JsString::from("\t"));
     let lines = render_lines(&mut selector);
     assert!(lines.iter().any(|line| line.contains("Global Resources")));
     assert!(!lines.iter().any(|line| line.contains("Project Local Resources")));
@@ -245,16 +247,16 @@ fn toggles_global_top_level_extension_paths() {
     let resolved = top_level_paths(&agent_dir.to_string_lossy(), &["foo.ts"], &agent_dir.to_string_lossy());
     let mut selector = selector_with_scope(&temp, manager.clone(), resolved, ConfigWriteScope::Global, true);
 
-    selector.get_resource_list_mut().handle_input(" ");
+    selector.get_resource_list_mut().handle_input(&JsString::from(" "));
     assert_eq!(
         manager.borrow().get_global_settings().get("extensions"),
-        Some(&json!(["-extensions/foo.ts"]))
+        Some(&json!(["-extensions/foo.ts"])).map(JsValue::from).as_ref()
     );
 
-    selector.get_resource_list_mut().handle_input(" ");
+    selector.get_resource_list_mut().handle_input(&JsString::from(" "));
     assert_eq!(
         manager.borrow().get_global_settings().get("extensions"),
-        Some(&json!(["+extensions/foo.ts"]))
+        Some(&json!(["+extensions/foo.ts"])).map(JsValue::from).as_ref()
     );
 }
 
@@ -273,22 +275,22 @@ fn cycles_project_overrides_for_inherited_global_top_level_resources() {
     let path = format!("{}/extensions/foo.ts", agent_dir.to_string_lossy());
     let mut selector = selector(&temp, manager.clone(), resolved);
 
-    selector.get_resource_list_mut().handle_input(" ");
+    selector.get_resource_list_mut().handle_input(&JsString::from(" "));
     assert_eq!(
         manager.borrow().get_project_settings().get("extensions"),
-        Some(&json!([path, format!("-{path}")]))
+        Some(&json!([path, format!("-{path}")])).map(JsValue::from).as_ref()
     );
 
-    selector.get_resource_list_mut().handle_input(" ");
+    selector.get_resource_list_mut().handle_input(&JsString::from(" "));
     assert_eq!(
         manager.borrow().get_project_settings().get("extensions"),
-        Some(&json!([path, format!("+{path}")]))
+        Some(&json!([path, format!("+{path}")])).map(JsValue::from).as_ref()
     );
 
-    selector.get_resource_list_mut().handle_input(" ");
+    selector.get_resource_list_mut().handle_input(&JsString::from(" "));
     assert_eq!(
         manager.borrow().get_project_settings().get("extensions"),
-        Some(&json!([]))
+        Some(&json!([])).map(JsValue::from).as_ref()
     );
 }
 
@@ -344,14 +346,18 @@ fn search_filters_resources_and_reports_no_matches() {
     let mut selector = selector_with_scope(&temp, manager, resolved, ConfigWriteScope::Global, true);
 
     for character in "baz".chars() {
-        selector.get_resource_list_mut().handle_input(&character.to_string());
+        selector
+            .get_resource_list_mut()
+            .handle_input(&JsString::from(&character.to_string()));
     }
     let lines = render_lines(&mut selector);
     assert!(lines.iter().any(|line| line.contains("baz.ts")), "{lines:#?}");
     assert!(!lines.iter().any(|line| line.contains("bar.ts")), "{lines:#?}");
 
     for character in "zzz".chars() {
-        selector.get_resource_list_mut().handle_input(&character.to_string());
+        selector
+            .get_resource_list_mut()
+            .handle_input(&JsString::from(&character.to_string()));
     }
     let lines = render_lines(&mut selector);
     assert!(

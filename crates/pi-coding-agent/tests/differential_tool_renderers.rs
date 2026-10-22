@@ -14,26 +14,33 @@ use pi_coding_agent::core::tools::grep::{render_call as grep_render_call, render
 use pi_coding_agent::core::tools::ls::{render_call as ls_render_call, render_result as ls_render_result};
 use pi_coding_agent::core::tools::read::{render_call as read_render_call, render_result as read_render_result};
 use pi_coding_agent::core::tools::write::{render_call as write_render_call, render_result as write_render_result};
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
 
 fn dark_theme() -> std::sync::Arc<pi_coding_agent::modes::interactive::theme::Theme> {
     use pi_coding_agent::modes::interactive::theme::{ColorMode, load_theme_from_path, set_theme_instance};
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json");
-    let theme =
-        std::sync::Arc::new(load_theme_from_path(&path, Some(ColorMode::Truecolor)).expect("built-in dark theme"));
+    let theme = std::sync::Arc::new(
+        load_theme_from_path(
+            &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+            Some(ColorMode::Truecolor),
+        )
+        .expect("built-in dark theme"),
+    );
     set_theme_instance(std::sync::Arc::clone(&theme));
     theme
 }
 
 fn context(args: Value, expanded: bool, is_error: bool, show_images: bool) -> ToolRenderContext {
     ToolRenderContext {
-        args,
+        args: JsValue::from(args),
         tool_call_id: "render-differential".to_owned(),
         invalidate: std::sync::Arc::new(|| {}),
         last_component: None,
         call_component: None,
         state: pi_coding_agent::core::extensions::types::ToolRenderState::new(),
-        cwd: "/repo".to_owned(),
+        cwd: JsString::from("/repo"),
         execution_started: false,
         args_complete: true,
         is_partial: false,
@@ -49,7 +56,7 @@ fn result(content: &[&str], details: Option<Value>) -> AgentToolResult {
             .iter()
             .map(|text| TextOrImageContent::Text(TextContent::new(*text)))
             .collect(),
-        details,
+        details: details.map(JsValue::from),
         is_error: None,
         terminate: None,
     }
@@ -143,16 +150,16 @@ fn render_case(case: &Value, theme: &pi_coding_agent::modes::interactive::theme:
     let context = context(args.clone(), expanded, is_error, show_images);
     let component = if kind == "call" {
         match tool {
-            "read" => read_render_call(&args, theme, &context),
-            "write" => write_render_call(&args, theme, &context),
-            "edit" => edit_render_call(&args, theme, &context).expect("edit renderer"),
-            "ls" => ls_render_call(&args, theme, &context),
-            "grep" => grep_render_call(&args, theme, &context),
-            "find" => find_render_call(&args, theme, &context),
-            "outline" => outline_render_call(&args, theme, &context),
-            "symbol" => symbol_render_call(&args, theme, &context),
-            "references" => references_render_call(&args, theme, &context),
-            "bash" => bash_render_call(&args, theme, &context),
+            "read" => read_render_call(&JsValue::from(args.clone()), theme, &context),
+            "write" => write_render_call(&JsValue::from(args.clone()), theme, &context),
+            "edit" => edit_render_call(&JsValue::from(args.clone()), theme, &context).expect("edit renderer"),
+            "ls" => ls_render_call(&JsValue::from(args.clone()), theme, &context),
+            "grep" => grep_render_call(&JsValue::from(args.clone()), theme, &context),
+            "find" => find_render_call(&JsValue::from(args.clone()), theme, &context),
+            "outline" => outline_render_call(&JsValue::from(args.clone()), theme, &context),
+            "symbol" => symbol_render_call(&JsValue::from(args.clone()), theme, &context),
+            "references" => references_render_call(&JsValue::from(args.clone()), theme, &context),
+            "bash" => bash_render_call(&JsValue::from(args.clone()), theme, &context),
             other => panic!("unknown tool {other}"),
         }
     } else {

@@ -1,3 +1,5 @@
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::sync::Arc;
 
 use pi_coding_agent::core::extensions::types::ToolRenderContext;
@@ -19,8 +21,13 @@ use serde_json::json;
 fn dark_theme() -> std::sync::Arc<pi_coding_agent::modes::interactive::theme::Theme> {
     use pi_coding_agent::modes::interactive::theme::{ColorMode, load_theme_from_path, set_theme_instance};
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json");
-    let theme =
-        std::sync::Arc::new(load_theme_from_path(&path, Some(ColorMode::Truecolor)).expect("built-in dark theme"));
+    let theme = std::sync::Arc::new(
+        load_theme_from_path(
+            &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+            Some(ColorMode::Truecolor),
+        )
+        .expect("built-in dark theme"),
+    );
     set_theme_instance(std::sync::Arc::clone(&theme));
     theme
 }
@@ -48,13 +55,13 @@ fn bold(text: &str) -> String {
 
 fn context() -> ToolRenderContext {
     ToolRenderContext {
-        args: json!({}),
+        args: pi_js_compat::js_json!({}),
         tool_call_id: "call".to_owned(),
         invalidate: Arc::new(|| {}),
         last_component: None,
         call_component: None,
         state: pi_coding_agent::core::extensions::types::ToolRenderState::new(),
-        cwd: "/repo".to_owned(),
+        cwd: JsString::from("/repo"),
         execution_started: false,
         args_complete: true,
         is_partial: false,
@@ -67,28 +74,32 @@ fn context() -> ToolRenderContext {
 #[test]
 fn bash_render_call_formats_command_and_timeout() {
     let theme = dark_theme();
-    let component = bash_render_call(&json!({"command": "echo hi", "timeout": 5}), &theme, &context());
+    let component = bash_render_call(
+        &JsValue::from(json!({"command": "echo hi", "timeout": 5}).clone()),
+        &theme,
+        &context(),
+    );
     let lines = component.borrow_mut().render(80);
     assert_eq!(
         lines[0].trim_end(),
         tool_title(&bold("$ echo hi")) + &muted(" (timeout 5s)")
     );
 
-    let component = bash_render_call(&json!({"command": ""}), &theme, &context());
+    let component = bash_render_call(&JsValue::from(json!({"command": ""}).clone()), &theme, &context());
     let lines = component.borrow_mut().render(80);
     assert_eq!(
         lines[0].trim_end(),
         tool_title(&bold(&format!("$ {}", tool_output("..."))))
     );
 
-    let component = bash_render_call(&json!({"command": null}), &theme, &context());
+    let component = bash_render_call(&JsValue::from(json!({"command": null}).clone()), &theme, &context());
     let lines = component.borrow_mut().render(80);
     assert_eq!(
         lines[0].trim_end(),
         tool_title(&bold(&format!("$ {}", tool_output("..."))))
     );
 
-    let component = bash_render_call(&json!({"command": 42}), &theme, &context());
+    let component = bash_render_call(&JsValue::from(json!({"command": 42}).clone()), &theme, &context());
     let lines = component.borrow_mut().render(80);
     assert_eq!(
         lines[0].trim_end(),

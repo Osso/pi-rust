@@ -5,6 +5,8 @@
 //! `stdin`/`stdout` as TTYs and resolves `interactive` mode. Input is written
 //! to the pty on a schedule; `script -e` forwards the child's exit status.
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::encode_node_utf8;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -176,7 +178,7 @@ fn wait_with_timeout(child: &mut Child, timeout: Duration) -> i32 {
     }
 }
 
-fn visible(output: &str) -> String {
+fn visible(output: &str) -> JsString {
     pi_tui::utils::strip_terminal_sequences(output)
 }
 
@@ -194,9 +196,9 @@ fn interactive_mode_starts_the_tui_and_exits_on_double_ctrl_c() {
         &double_ctrl_c("Ctrl+C twice to exit"),
     );
     let text = visible(&outcome.stdout);
-    assert_eq!(outcome.code, 0, "stdout:\n{text}");
-    assert!(text.contains("Ctrl+C twice to exit"), "stdout:\n{text}");
-    assert!(text.contains("Pi can explain its own features"), "stdout:\n{text}");
+    assert_eq!(outcome.code, 0, "stdout:\n{text:?}");
+    assert!(text.contains("Ctrl+C twice to exit"), "stdout:\n{text:?}");
+    assert!(text.contains("Pi can explain its own features"), "stdout:\n{text:?}");
     assert!(!text.contains("Interactive mode is not ported"));
 }
 
@@ -219,10 +221,10 @@ fn resume_flag_opens_the_session_picker_and_cancels_with_escape() {
         ],
     );
     let text = visible(&outcome.stdout);
-    assert_eq!(outcome.code, 0, "stdout:\n{text}");
-    assert!(text.contains("Resume Session"), "stdout:\n{text}");
-    assert!(text.contains("No sessions in current folder"), "stdout:\n{text}");
-    assert!(text.contains("No session selected"), "stdout:\n{text}");
+    assert_eq!(outcome.code, 0, "stdout:\n{text:?}");
+    assert!(text.contains("Resume Session"), "stdout:\n{text:?}");
+    assert!(text.contains("No sessions in current folder"), "stdout:\n{text:?}");
+    assert!(text.contains("No session selected"), "stdout:\n{text:?}");
 }
 
 #[test]
@@ -243,10 +245,10 @@ fn first_time_setup_persists_theme_and_analytics() {
     ];
     let outcome = run_under_pty(&fixture, &[], &environment, &inputs);
     let text = visible(&outcome.stdout);
-    assert_eq!(outcome.code, 0, "stdout:\n{text}");
-    assert!(text.contains("Welcome to pi"), "stdout:\n{text}");
-    assert!(text.contains("Pick a theme."), "stdout:\n{text}");
-    assert!(text.contains("Ctrl+C twice to exit"), "stdout:\n{text}");
+    assert_eq!(outcome.code, 0, "stdout:\n{text:?}");
+    assert!(text.contains("Welcome to pi"), "stdout:\n{text:?}");
+    assert!(text.contains("Pick a theme."), "stdout:\n{text:?}");
+    assert!(text.contains("Ctrl+C twice to exit"), "stdout:\n{text:?}");
 
     let settings_path = fixture.home.join(".config/pi/agent/settings.json");
     let settings = std::fs::read_to_string(&settings_path).expect("settings.json written");
@@ -264,7 +266,7 @@ fn import_failure_exits_through_the_fatal_runtime_handler() {
     ];
     let outcome = run_under_pty(&fixture, &[], &agent_environment(&fixture), &inputs);
     let text = visible(&outcome.stdout);
-    assert_eq!(outcome.code, 1, "stdout:\n{text}");
+    assert_eq!(outcome.code, 1, "stdout:\n{text:?}");
 }
 
 #[test]
@@ -272,12 +274,12 @@ fn quit_prints_the_resume_command() {
     let fixture = fixture();
     let work = fixture.work.display().to_string();
     let session_dir = pi_coding_agent::core::session_manager::get_default_session_dir(
-        &work,
-        Some(&fixture.agent_dir.display().to_string()),
+        &JsString::from(&work),
+        Some(&JsString::from(&fixture.agent_dir.display().to_string())),
     )
     .expect("session dir");
-    std::fs::create_dir_all(&session_dir).expect("session dir");
-    let session_file = Path::new(&session_dir).join("quit-hint.jsonl");
+    std::fs::create_dir_all(&&encode_node_utf8(&session_dir)).expect("session dir");
+    let session_file = Path::new(&encode_node_utf8(&session_dir)).join("quit-hint.jsonl");
     let entries = [
         serde_json::json!({"type":"session","version":3,"id":"quit-hint","timestamp":"2026-08-04T00:00:00.000Z","cwd":work}),
         serde_json::json!({"type":"message","id":"m-1","parentId":null,"timestamp":"2026-08-04T00:00:01.000Z","message":{"role":"user","content":"quit-hint-test","timestamp":1}}),
@@ -297,10 +299,10 @@ fn quit_prints_the_resume_command() {
         &inputs,
     );
     let text = visible(&outcome.stdout);
-    assert_eq!(outcome.code, 0, "stdout:\n{text}");
+    assert_eq!(outcome.code, 0, "stdout:\n{text:?}");
     assert!(
         text.contains("To resume this session: pi --session quit-hint"),
-        "stdout:\n{text}"
+        "stdout:\n{text:?}"
     );
 }
 
@@ -309,17 +311,21 @@ fn resume_flag_selects_a_session_and_starts_interactive_mode() {
     let fixture = fixture();
     let work = fixture.work.display().to_string();
     let session_dir = pi_coding_agent::core::session_manager::get_default_session_dir(
-        &work,
-        Some(&fixture.agent_dir.display().to_string()),
+        &JsString::from(&work),
+        Some(&JsString::from(&fixture.agent_dir.display().to_string())),
     )
     .expect("session dir");
-    std::fs::create_dir_all(&session_dir).expect("session dir");
+    std::fs::create_dir_all(&&encode_node_utf8(&session_dir)).expect("session dir");
     let entries = [
         serde_json::json!({"type":"session","version":3,"id":"resume-pick","timestamp":"2026-08-04T00:00:00.000Z","cwd":work}),
         serde_json::json!({"type":"message","id":"m-1","parentId":null,"timestamp":"2026-08-04T00:00:01.000Z","message":{"role":"user","content":"resume-pick-test","timestamp":1}}),
     ];
     let jsonl: String = entries.iter().map(|entry| format!("{entry}\n")).collect();
-    std::fs::write(Path::new(&session_dir).join("resume-pick.jsonl"), jsonl).expect("session file");
+    std::fs::write(
+        Path::new(&encode_node_utf8(&session_dir)).join("resume-pick.jsonl"),
+        jsonl,
+    )
+    .expect("session file");
 
     let inputs = vec![
         input("resume-pick-test", "\r"),
@@ -328,10 +334,10 @@ fn resume_flag_selects_a_session_and_starts_interactive_mode() {
     ];
     let outcome = run_under_pty(&fixture, &["--resume"], &agent_environment(&fixture), &inputs);
     let text = visible(&outcome.stdout);
-    assert_eq!(outcome.code, 0, "stdout:\n{text}");
-    assert!(text.contains("Resume Session"), "stdout:\n{text}");
-    assert!(text.contains("Ctrl+C twice to exit"), "stdout:\n{text}");
-    assert!(!text.contains("No session selected"), "stdout:\n{text}");
+    assert_eq!(outcome.code, 0, "stdout:\n{text:?}");
+    assert!(text.contains("Resume Session"), "stdout:\n{text:?}");
+    assert!(text.contains("Ctrl+C twice to exit"), "stdout:\n{text:?}");
+    assert!(!text.contains("No session selected"), "stdout:\n{text:?}");
 }
 
 fn share_environment(fixture: &Fixture, gh_body: &str) -> Vec<(String, String)> {
@@ -358,10 +364,10 @@ fn share_command_reports_a_missing_gh_login() {
     ];
     let outcome = run_under_pty(&fixture, &[], &environment, &inputs);
     let text = visible(&outcome.stdout);
-    assert_eq!(outcome.code, 0, "stdout:\n{text}");
+    assert_eq!(outcome.code, 0, "stdout:\n{text:?}");
     assert!(
         text.contains("GitHub CLI is not logged in. Run 'gh auth login' first."),
-        "stdout:\n{text}"
+        "stdout:\n{text:?}"
     );
 }
 
@@ -481,8 +487,8 @@ fn sigterm_shuts_down_interactive_mode_gracefully() {
     let code = wait_with_timeout(&mut child, Duration::from_secs(20));
     reader.join().expect("pty reader");
     let text = visible(&output.lock().expect("pty buffer"));
-    assert_eq!(code, 0, "stdout:\n{text}");
-    assert!(text.contains("Ctrl+C twice to exit"), "stdout:\n{text}");
+    assert_eq!(code, 0, "stdout:\n{text:?}");
+    assert!(text.contains("Ctrl+C twice to exit"), "stdout:\n{text:?}");
 }
 
 #[test]
@@ -506,7 +512,7 @@ fn sighup_restarts_interactive_mode_in_place() {
 
     wait_for_marker_count(&output, "Ctrl+C twice to exit", 2);
     let text = visible(&output.lock().expect("pty buffer"));
-    assert!(text.contains("Pi can explain its own features"), "stdout:\n{text}");
+    assert!(text.contains("Pi can explain its own features"), "stdout:\n{text:?}");
 
     kill_group(group);
     child.kill().ok();

@@ -6,6 +6,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -284,7 +285,10 @@ fn rust_load_theme(directory: &Path, case: &Value) -> Value {
     };
     let path = directory.join(format!("{name}.json"));
     fs::write(&path, content).expect("write differential theme");
-    match load_theme_from_path(&path, Some(mode)) {
+    match load_theme_from_path(
+        &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+        Some(mode),
+    ) {
         Ok(theme) => json!({
             "name": name,
             "ok": true,
@@ -424,7 +428,7 @@ fn rust_helper(case: &Value) -> Value {
         let setting = case.get("themeSetting").and_then(Value::as_str);
         result.insert(
             "resolved".to_owned(),
-            match resolve_theme_setting(setting, terminal_theme) {
+            match resolve_theme_setting(setting.map(JsString::from).as_ref(), terminal_theme) {
                 Some(theme) => json!(theme),
                 None => Value::Null,
             },
@@ -433,7 +437,7 @@ fn rust_helper(case: &Value) -> Value {
     if let Some(path) = case.get("path").and_then(Value::as_str) {
         result.insert(
             "language".to_owned(),
-            match get_language_from_path(path) {
+            match get_language_from_path(&JsString::from(path)) {
                 Some(language) => json!(language),
                 None => Value::Null,
             },

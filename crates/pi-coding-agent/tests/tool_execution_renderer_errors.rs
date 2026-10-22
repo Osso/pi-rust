@@ -2,6 +2,8 @@
 //! back when a renderer throws. Rust renderers return `Result`; an `Err` must take
 //! the same fallback path.
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::sync::Arc;
 
 use pi_agent_core::agent::AgentToolResult;
@@ -18,18 +20,18 @@ use pi_tui::utils::strip_terminal_sequences;
 use serde_json::json;
 
 fn install_theme() -> Arc<Theme> {
-    let colors: Vec<(String, ColorValue)> = REQUIRED_COLORS
+    let colors: Vec<(JsString, ColorValue)> = REQUIRED_COLORS
         .iter()
         .enumerate()
         .map(|(index, key)| {
             (
-                key.to_string(),
-                ColorValue::Text(format!(
+                JsString::from(*key),
+                ColorValue::Text(JsString::from(format!(
                     "#{:02x}{:02x}{:02x}",
                     index % 256,
                     (index * 3) % 256,
                     (index * 7) % 256
-                )),
+                ))),
             )
         })
         .collect();
@@ -75,12 +77,8 @@ fn erring_definition() -> ToolDefinition {
     }
 }
 
-fn plain(lines: &[String]) -> String {
-    lines
-        .iter()
-        .map(|line| strip_terminal_sequences(line))
-        .collect::<Vec<_>>()
-        .join("\n")
+fn plain(lines: &[JsString]) -> JsString {
+    JsString::join(lines.iter().map(|line| strip_terminal_sequences(line)), "\n")
 }
 
 #[test]
@@ -89,7 +87,7 @@ fn failing_call_and_result_renderers_use_the_typescript_fallbacks() {
     let mut component = ToolExecutionComponent::new(
         "erring_tool",
         "call-1",
-        json!({"value": 1}),
+        JsValue::from(json!({"value": 1})),
         ToolExecutionOptions::default(),
         Some(erring_definition()),
         Arc::new(|| {}),
@@ -98,7 +96,7 @@ fn failing_call_and_result_renderers_use_the_typescript_fallbacks() {
 
     let call_text = plain(&component.render(80));
     assert_eq!(call_text.trim(), "erring_tool");
-    assert!(!call_text.contains("call renderer failed"), "{call_text}");
+    assert!(!call_text.contains("call renderer failed"), "{call_text:?}");
 
     component.update_result(
         ToolExecutionResult {
@@ -110,7 +108,7 @@ fn failing_call_and_result_renderers_use_the_typescript_fallbacks() {
         None,
     );
     let result_text = plain(&component.render(80));
-    assert!(result_text.contains("erring_tool"), "{result_text}");
-    assert!(result_text.contains("result output"), "{result_text}");
-    assert!(!result_text.contains("result renderer failed"), "{result_text}");
+    assert!(result_text.contains("erring_tool"), "{result_text:?}");
+    assert!(result_text.contains("result output"), "{result_text:?}");
+    assert!(!result_text.contains("result renderer failed"), "{result_text:?}");
 }

@@ -7,6 +7,8 @@
 #[path = "support/env_probe.rs"]
 mod env_probe;
 
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use std::cell::RefCell;
 use std::fs;
 use std::path::PathBuf;
@@ -46,8 +48,11 @@ impl Terminal for ScriptedTerminal {
 
     fn drain_input(&mut self, _max_ms: u64, _idle_ms: u64) {}
 
-    fn write(&mut self, data: &str) {
-        self.writes.lock().unwrap().push(data.to_owned());
+    fn write(&mut self, data: &JsString) {
+        self.writes
+            .lock()
+            .unwrap()
+            .push(pi_js_compat::js_json::encode_node_utf8(data));
     }
 
     fn columns(&self) -> usize {
@@ -74,7 +79,7 @@ impl Terminal for ScriptedTerminal {
 
     fn clear_screen(&mut self) {}
 
-    fn set_title(&mut self, _title: &str) {}
+    fn set_title(&mut self, _title: &JsString) {}
 
     fn set_progress(&mut self, _active: bool) {}
 
@@ -83,7 +88,7 @@ impl Terminal for ScriptedTerminal {
         if keys.is_empty() {
             return Vec::new();
         }
-        vec![TerminalEvent::Input(keys.remove(0))]
+        vec![TerminalEvent::Input(JsString::from(keys.remove(0)))]
     }
 }
 
@@ -99,7 +104,10 @@ fn temp_dir(name: &str) -> PathBuf {
 
 fn in_memory_settings() -> Rc<RefCell<SettingsManager>> {
     Rc::new(RefCell::new(SettingsManager::in_memory(
-        serde_json::Map::new(),
+        serde_json::Map::new()
+            .into_iter()
+            .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+            .collect::<pi_js_compat::js_json::JsObject>(),
         SettingsManagerCreateOptions {
             project_trusted: Some(false),
         },
@@ -110,7 +118,7 @@ fn run_selector(key: &str, rebind_cancel: bool) -> SelectConfigOutcome {
     if rebind_cancel {
         pi_tui::set_keybindings(pi_tui::KeybindingsManager::new(
             pi_tui::tui_keybindings(),
-            vec![("tui.select.cancel".to_owned(), vec!["escape".to_owned()])],
+            vec![(JsString::from("tui.select.cancel"), vec![JsString::from("escape")])],
         ));
     }
     let terminal = Rc::new(RefCell::new(ScriptedTerminal::new(vec![key.to_owned()])));
@@ -122,8 +130,8 @@ fn run_selector(key: &str, rebind_cancel: bool) -> SelectConfigOutcome {
                 project: Default::default(),
             },
             settings_manager: in_memory_settings(),
-            cwd: "/work".to_owned(),
-            agent_dir,
+            cwd: JsString::from("/work"),
+            agent_dir: JsString::from(agent_dir),
             write_scope: ConfigWriteScope::Global,
             project_mode_available: true,
         },
@@ -201,14 +209,17 @@ fn config_selector_probe_child() {
             project: Default::default(),
             settings: std::sync::Arc::new(pi_coding_agent::core::package_manager::SettingsManagerStore::new(
                 pi_coding_agent::core::settings_manager::SettingsManager::in_memory(
-                    serde_json::Map::new(),
+                    serde_json::Map::new()
+                        .into_iter()
+                        .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                        .collect::<pi_js_compat::js_json::JsObject>(),
                     SettingsManagerCreateOptions {
                         project_trusted: Some(false),
                     },
                 ),
             )),
-            cwd: dir.join("project").display().to_string(),
-            agent_dir: dir.join("agent").display().to_string(),
+            cwd: JsString::from(dir.join("project").display().to_string()),
+            agent_dir: JsString::from(dir.join("agent").display().to_string()),
             write_scope: pi_coding_agent::package_manager_cli::ConfigWriteScope::Project,
             project_mode_available: false,
         };
