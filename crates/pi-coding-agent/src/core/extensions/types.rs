@@ -139,17 +139,17 @@ pub type NewSessionCallback = Arc<
         + Sync,
 >;
 pub type ForkCallback = Arc<
-    dyn Fn(String, Option<ForkOptions>) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
+    dyn Fn(JsString, Option<ForkOptions>) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
         + Send
         + Sync,
 >;
 pub type NavigateTreeCallback = Arc<
-    dyn Fn(String, Option<NavigateTreeOptions>) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
+    dyn Fn(JsString, Option<NavigateTreeOptions>) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
         + Send
         + Sync,
 >;
 pub type SwitchSessionCallback = Arc<
-    dyn Fn(String, Option<SwitchSessionOptions>) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
+    dyn Fn(JsString, Option<SwitchSessionOptions>) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>>
         + Send
         + Sync,
 >;
@@ -816,7 +816,7 @@ pub type RestartHandler =
 /// Session control methods only safe in user-initiated commands.
 #[derive(Clone, Default)]
 pub struct NewSessionOptions {
-    pub parent_session: Option<String>,
+    pub parent_session: Option<JsString>,
     pub setup: Option<SessionSetupCallback>,
     pub with_session: Option<WithSessionCallback>,
 }
@@ -1265,7 +1265,7 @@ impl ExtensionContext {
 
     pub fn switch_session(
         &self,
-        session_path: String,
+        session_path: JsString,
         options: Option<SwitchSessionOptions>,
     ) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>> {
         match self.read(|state| Arc::clone(&state.switch_session_handler)) {
@@ -1337,7 +1337,7 @@ impl ExtensionCommandContext {
 
     pub fn fork(
         &self,
-        entry_id: String,
+        entry_id: JsString,
         options: Option<ForkOptions>,
     ) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>> {
         match self.context.read(|state| Arc::clone(&state.fork_handler)) {
@@ -1348,7 +1348,7 @@ impl ExtensionCommandContext {
 
     pub fn navigate_tree(
         &self,
-        target_id: String,
+        target_id: JsString,
         options: Option<NavigateTreeOptions>,
     ) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>> {
         match self.context.read(|state| Arc::clone(&state.navigate_tree_handler)) {
@@ -1359,7 +1359,7 @@ impl ExtensionCommandContext {
 
     pub fn switch_session(
         &self,
-        session_path: String,
+        session_path: JsString,
         options: Option<SwitchSessionOptions>,
     ) -> BoxFuture<'static, Result<SessionTransitionResult, HandlerError>> {
         match self.context.read(|state| Arc::clone(&state.switch_session_handler)) {

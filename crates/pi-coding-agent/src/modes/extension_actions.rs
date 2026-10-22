@@ -3,6 +3,7 @@
 //! `modes/print-mode.ts` and `modes/rpc/rpc-mode.ts` build the same six runtime
 //! callbacks; the interactive mode adds UI callbacks and is ported separately.
 
+use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::Mutex as AsyncMutex;
@@ -66,7 +67,7 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
                 })
             })
         }),
-        fork: Arc::new(move |entry_id: String, options: Option<ForkOptions>| {
+        fork: Arc::new(move |entry_id: JsString, options: Option<ForkOptions>| {
             let runtime = Arc::clone(&fork_runtime);
             Box::pin(async move {
                 let options = options.unwrap_or_default();
@@ -89,7 +90,7 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
                 })
             })
         }),
-        navigate_tree: Arc::new(move |target_id: String, options: Option<NavigateTreeOptions>| {
+        navigate_tree: Arc::new(move |target_id: JsString, options: Option<NavigateTreeOptions>| {
             let session = Arc::clone(&navigate_tree_session);
             Box::pin(async move {
                 let options = options.unwrap_or_default();
@@ -105,13 +106,13 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
                         },
                     )
                     .await
-                    .map_err(|error| HandlerError::new(pi_js_compat::js_json::encode_node_utf8(error.message())))?;
+                    .map_err(|error| HandlerError::new(error.message().clone()))?;
                 Ok(SessionTransitionResult {
                     cancelled: result.cancelled,
                 })
             })
         }),
-        switch_session: Arc::new(move |session_path: String, options: Option<SwitchSessionOptions>| {
+        switch_session: Arc::new(move |session_path: JsString, options: Option<SwitchSessionOptions>| {
             let runtime = Arc::clone(&switch_session_runtime);
             Box::pin(async move {
                 let options = options.unwrap_or_default();
