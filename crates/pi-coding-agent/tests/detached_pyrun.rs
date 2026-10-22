@@ -37,7 +37,7 @@ fn identity() -> DetachedJobOwnershipIdentity {
             start_time_ticks: 100,
             incarnation: None,
         },
-        output_label: "Pyrun output".to_owned(),
+        output_label: "Pyrun output".into(),
     }
 }
 

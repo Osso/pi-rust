@@ -62,7 +62,7 @@ async fn round_trips_a_durable_request_and_exact_identity_response() {
             session_id: "supervisor-1".to_owned(),
         },
         process_identity: test_process_identity("runner-1"),
-        output_label: "Pyrun output".to_owned(),
+        output_label: "Pyrun output".into(),
     };
 
     let request_id = enqueue_detached_pyrun_bridge_request(EnqueueDetachedPyrunBridgeRequestInput {

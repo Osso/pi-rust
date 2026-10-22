@@ -3724,7 +3724,7 @@ fn prepare_dead_runtime_recovery(
             &expected_owner.owner,
             terminal_revision,
             "lost_runtime",
-            now_iso,
+            &JsString::from(now_iso),
         )?)
     } else {
         None
@@ -3889,7 +3889,7 @@ pub(crate) fn prepare_detached_agent_terminal_transport(
     owner: &MultiAgentRuntimeOwnerIdentity,
     terminal_revision: i64,
     event_kind: &str,
-    terminal_at: &str,
+    terminal_at: &JsString,
 ) -> Result<PreparedTerminalTransport, ControlDbError> {
     let session_path: &JsString = &session_path.into();
     let owner_session_id = &owner.session_id;
@@ -3932,7 +3932,7 @@ pub(crate) fn prepare_detached_agent_terminal_transport(
             message_id,
             session_path: session_path.clone(),
         },
-        updated_at: Some(terminal_at.to_owned()),
+        updated_at: Some(encode_node_utf8(terminal_at)),
     };
     let prepared = prepare_stored_runtime_mailbox_message(&input)?;
     Ok(PreparedTerminalTransport { input, prepared })

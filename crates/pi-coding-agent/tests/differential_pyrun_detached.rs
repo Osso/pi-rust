@@ -38,7 +38,7 @@ fn identity(pid: u32, incarnation: Option<&str>) -> DetachedJobOwnershipIdentity
             start_time_ticks: 1_700,
             incarnation: incarnation.map(str::to_owned),
         },
-        output_label: "Pyrun output".to_owned(),
+        output_label: "Pyrun output".into(),
     }
 }
 

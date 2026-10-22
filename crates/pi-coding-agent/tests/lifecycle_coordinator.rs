@@ -396,7 +396,7 @@ fn requests_detached_cancellation_and_enqueues_the_runner_command() {
         .request_detached_cancellation(&DetachedCancellationCommandInput {
             agent: agent.clone(),
             ownership: ownership.clone(),
-            output_label: "Bash output".to_owned(),
+            output_label: "Bash output".into(),
             reason: Some("user requested".to_owned()),
         })
         .expect("cancel");
@@ -444,7 +444,7 @@ fn rolls_back_detached_cancellation_when_mailbox_insertion_fails() {
         .request_detached_cancellation(&DetachedCancellationCommandInput {
             agent: agent.clone(),
             ownership: ownership.clone(),
-            output_label: "Bash output".to_owned(),
+            output_label: "Bash output".into(),
             reason: None,
         })
         .expect_err("blocked");
@@ -585,7 +585,7 @@ fn settles_a_cancelling_child_to_aborted_on_dead_owner_recovery() {
         .request_detached_cancellation(&DetachedCancellationCommandInput {
             agent: (*agent).clone(),
             ownership: (*ownership).clone(),
-            output_label: "Pyrun output".to_owned(),
+            output_label: "Pyrun output".into(),
             reason: Some("test cancel".to_owned()),
         })
         .expect("cancel");

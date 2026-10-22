@@ -110,7 +110,7 @@ pub struct SessionBroadcastResult {
     pub session_id: JsString,
     pub outcome: SessionBroadcastOutcome,
     pub check_status: SessionCheckStatus,
-    pub error: Option<String>,
+    pub error: Option<JsString>,
 }
 
 pub fn empty_session_health(session_id: impl Into<JsString>, now_iso: &str) -> SessionHealthRecord {

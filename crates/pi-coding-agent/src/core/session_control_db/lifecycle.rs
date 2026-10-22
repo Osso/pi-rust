@@ -24,7 +24,7 @@ pub struct DetachedJobOwnershipIdentity {
     pub job_id: JsString,
     pub owner: MultiAgentRuntimeOwnerIdentity,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
-    pub output_label: String,
+    pub output_label: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -114,8 +114,8 @@ pub struct DetachedJobTerminalInput {
     pub job_id: JsString,
     pub owner: MultiAgentRuntimeOwnerIdentity,
     pub process_identity: crate::core::runtime_process::ProcessIdentity,
-    pub output_label: String,
-    pub terminal_at: String,
+    pub output_label: JsString,
+    pub terminal_at: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -327,7 +327,7 @@ fn prepare_detached_job_finalization(
     terminal_agent.shift_remove("currentActivity");
     terminal_agent.insert("lifecycle".into(), JsValue::String(terminal_lifecycle.into()));
     terminal_agent.insert("revision".into(), JsValue::Number(terminal_revision as f64));
-    terminal_agent.insert("updatedAt".into(), JsValue::String(terminal.terminal_at.clone().into()));
+    terminal_agent.insert("updatedAt".into(), JsValue::String(terminal.terminal_at.clone()));
     terminal_agent.shift_remove("worker");
     let terminal_agent_data = js_json::stringify_lossless(&JsValue::Object(terminal_agent));
     let terminal_agent_snapshot = parse_agent_snapshot(&terminal_agent_data, &context)?;
@@ -430,7 +430,7 @@ fn persist_detached_job_finalization(
                 require_unique_ownership: true,
                 session_path: &plan.session_path,
                 updated_agent_data: &plan.terminal_agent_data,
-                updated_at: &terminal.terminal_at,
+                updated_at: &encode_node_utf8(&terminal.terminal_at),
             },
         )? {
             return Ok(None);

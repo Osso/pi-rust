@@ -107,7 +107,7 @@ fn builds_an_immutable_terminal_input_from_the_completed_output_artifact() {
             session_id: "supervisor-1".to_owned(),
         },
         process_identity: test_process_identity("runtime-1"),
-        output_label: "Bash output".to_owned(),
+        output_label: "Bash output".into(),
     };
     let terminal = create_detached_job_terminal_input(
         &artifacts,

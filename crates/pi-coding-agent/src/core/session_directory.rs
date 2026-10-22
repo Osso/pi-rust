@@ -411,7 +411,7 @@ pub fn broadcast_to_sessions(
                 session_id: entry.session_id,
                 outcome: SessionBroadcastOutcome::Timeout,
                 check_status: entry.check_status,
-                error: Some("session check timed out".to_owned()),
+                error: Some("session check timed out".into()),
             });
             continue;
         }
@@ -421,7 +421,7 @@ pub fn broadcast_to_sessions(
                 session_id: entry.session_id,
                 outcome: SessionBroadcastOutcome::CheckFailed,
                 check_status: entry.check_status,
-                error: Some("session is not eligible to receive messages".to_owned()),
+                error: Some("session is not eligible to receive messages".into()),
             });
             continue;
         }
@@ -437,7 +437,7 @@ pub fn broadcast_to_sessions(
                 session_id: entry.session_id,
                 outcome: SessionBroadcastOutcome::SendFailed,
                 check_status: entry.check_status,
-                error: Some(error.to_string()),
+                error: Some(error.message().clone()),
             }),
         }
     }

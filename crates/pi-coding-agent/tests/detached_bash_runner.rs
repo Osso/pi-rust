@@ -577,7 +577,7 @@ async fn does_not_retry_non_database_terminal_finalization_failures() {
             session_id: "runner".to_owned(),
         },
         process_identity: test_process_identity("retry"),
-        output_label: "Bash output".to_owned(),
+        output_label: "Bash output".into(),
     };
     let terminal = create_detached_job_terminal_input(
         &artifacts,
@@ -620,7 +620,7 @@ async fn retries_the_same_terminal_input_after_transient_database_failures() {
             session_id: "runner".to_owned(),
         },
         process_identity: test_process_identity("retry"),
-        output_label: "Bash output".to_owned(),
+        output_label: "Bash output".into(),
     };
     let terminal = create_detached_job_terminal_input(
         &artifacts,
@@ -668,7 +668,7 @@ async fn default_retry_delay_is_250_milliseconds() {
             session_id: "runner".to_owned(),
         },
         process_identity: test_process_identity("retry"),
-        output_label: "Bash output".to_owned(),
+        output_label: "Bash output".into(),
     };
     let terminal = create_detached_job_terminal_input(
         &artifacts,

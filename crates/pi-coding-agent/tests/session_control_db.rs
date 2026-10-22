@@ -1209,7 +1209,7 @@ fn finalize_detached_job_records_terminal_transport_and_artifacts() {
                 job_id: "bash_1".to_owned(),
                 owner: owner("owner"),
                 process_identity,
-                output_label: "Bash output".to_owned(),
+                output_label: "Bash output".into(),
                 terminal_at: pi_coding_agent::utils::iso_time::now_iso_string(),
                 tool_call_id: Some("tool-1".to_owned()),
                 duration_ms: Some(42),
