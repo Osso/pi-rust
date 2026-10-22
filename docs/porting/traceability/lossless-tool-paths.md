@@ -51,6 +51,10 @@ Artifacts: `/tmp/pi-rust-repin-lossless-tools/`.
 
 `utils::ansi::strip_ansi` is the single native UTF-16 API; removed `strip_ansi_js` and its surrogate sentinel/offset projection. Shared JsRegex removes ANSI ranges directly. `utils::shell::sanitize_binary_output` filters UTF-16 units, preserving retained unmatched units and pairs. `ansi-red.log` is compiler RED for the old API. `ansi-green.log`: 1/1 native cleanup test PASS using actual ANSI, shell and child-process modules, zero warnings. Frozen cleanup comparison was added after that log and remains pending execution.
 
+## Supervisor path-utils caller
+
+Removed `path.to_utf8_lossy()` before native read/general path resolution in `supervisor/main.rs`. The subsequent `resolve_existing_path`/containment helper remains outside the path-utils-call-only ownership and is still scalar/compiler-blocked. Main was asked to migrate that lexical/realpath chain; no premature encoding shim added. No runtime security-policy proof from this adaptation.
+
 ## CLI file-processor checkpoint
 
 `process_file_arguments` takes native cwd and accepts a slice of values convertible to JsString (including decoded CLI `String` argv and raw API paths); each path is resolved natively once. Attachment text and FileProcessorError.message are JsString. Only metadata/read/MIME filesystem calls encode paths. Image/text wrappers interpolate the original raw resolved filename. `file-processor-red.log`: compiler RED. `file-processor-green.log`: **1/1 test PASS, zero warnings**, actual-file original raw filename markup and empty arguments match frozen TS. Actual image processing is excluded from this bounded probe (explicit panic stub).
