@@ -757,3 +757,42 @@ async fn differential_openai_completions() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn tool_scratch_preserves_numeric_indices_and_failure_boundaries() {
+    let mut oracle = TsOracle::spawn(
+        "openai-responses-oracle.ts",
+        "packages/ai/src/api/openai-completions.ts",
+    );
+    let opening = json!({"id":"chat_open","choices":[{"index":0,"delta":{"tool_calls":[
+        {"index":0.5,"id":"call_a","type":"function","function":{"name":"a","arguments":"{\"n\":"}},
+        {"index":0.75,"id":"call_b","type":"function","function":{"name":"b","arguments":"{\"n\":"}}
+    ]}}]});
+    let next = json!({"id":"chat_open","choices":[{"index":0,"delta":{"tool_calls":[
+        {"index":0.75,"function":{"arguments":"2}"}},
+        {"index":0.5,"function":{"arguments":"1}"}}
+    ]}}]});
+    let finish = json!({"id":"chat_open","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]});
+    let cases = [
+        vec![opening.clone(), next, finish.clone()],
+        vec![opening.clone(), json!({"error":{"message":"open tool failed"}})],
+        vec![opening],
+        vec![
+            json!({"id":"chat_open","choices":[{"index":0,"delta":{"tool_calls":[{
+                "index":0,"id":"call_custom","type":"custom","custom":{"name":"old","input":"retired"}
+            }]}}]}),
+            finish,
+        ],
+    ];
+    for (index, events) in cases.into_iter().enumerate() {
+        run_scenario(
+            &mut oracle,
+            Scenario::new(
+                100 + index as i64,
+                model("openai", "gpt-5", "https://api.openai.com/v1", true),
+                &events,
+            ),
+        )
+        .await;
+    }
+}

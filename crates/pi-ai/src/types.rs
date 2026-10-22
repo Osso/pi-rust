@@ -413,6 +413,14 @@ pub struct ToolCall {
     /// Unparsed tool input accumulated during streaming.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub partial_json: Option<JsString>,
+    /// OpenAI Completions argument buffer, retained in streaming snapshots.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partial_args: Option<JsString>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "js_number::serialize_option"
+    )]
+    pub stream_index: Option<f64>,
 }
 
 impl ToolCall {
@@ -427,6 +435,8 @@ impl ToolCall {
             namespace: None,
             index: None,
             partial_json: None,
+            partial_args: None,
+            stream_index: None,
         }
     }
 }

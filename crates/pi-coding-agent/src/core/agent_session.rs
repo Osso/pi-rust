@@ -8398,6 +8398,8 @@ impl AgentSession {
             arguments,
             index: None,
             partial_json: None,
+            partial_args: None,
+            stream_index: None,
             execution: None,
             thought_signature: None,
             namespace: None,

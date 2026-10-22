@@ -48,16 +48,17 @@ RED reproduced the shared harness fixture exactly: Native Faux input48 versus ac
 ## Valid stream scratch fields
 
 `TextContent.index`, `ThinkingContent.index`, and `ToolCall.index` are optional
-`f64` fields, serialized with the shared JS-number convention. `ToolCall.partial_json`
-is an optional string serialized as `partialJson`. Constructors set them to `None`;
+`f64` fields, serialized with the shared JS-number convention. `ToolCall.stream_index`
+uses that same convention for Completions `streamIndex`. `ToolCall.partial_json` and
+`partial_args` are optional native strings serialized as `partialJson`/`partialArgs`. Constructors set them to `None`;
 absent fields stay absent. These are literal runtime output properties in the pinned
 Anthropic adapter and custom Anthropic example, not invalid typed inputs.
 
 `tests/types.rs::valid_stream_scratch_*` reproduces the lost `index: 3` event
 and tool JSON buffer, then proves complete event round trips (including fractional
-and large numeric indices). Producer lifecycle proof is bounded to
-[Anthropic Messages](anthropic-messages.md); other providers' `customInput`,
-`streamIndex`, and `partialArgs` remain unrepresented and unproved here.
+and large numeric indices). Producer lifecycle proof covers
+[Anthropic Messages](anthropic-messages.md), [Responses](openai-responses-shared.md#native-tool-scratch-lifecycle)
+and [Completions](openai-completions.md#native-completions-scratch); other providers' scratch lifecycle remains pending.
 Contract: [content stream scratch](../../specs/content-stream-scratch.md).
 
 ## Symbols → proof
