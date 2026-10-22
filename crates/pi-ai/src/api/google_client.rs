@@ -1225,7 +1225,6 @@ fn apply_finish_reason(output: &mut AssistantMessage, candidate: &GoogleCandidat
     let Some(finish_reason) = &candidate.finish_reason else {
         return Ok(());
     };
-    output.raw_stop_reason = Some(finish_reason.clone());
     output.stop_reason = map_stop_reason(finish_reason).map_err(|message| GoogleRequestError::new(message, None))?;
     if output
         .content
@@ -1335,10 +1334,7 @@ pub(crate) fn completed_reason(
         return Err("Request was aborted".to_owned());
     }
     if matches!(output.stop_reason, StopReason::Aborted | StopReason::Error) {
-        return Err(match &output.raw_stop_reason {
-            Some(reason) => format!("Provider stopped with: {reason}"),
-            None => "An unknown error occurred".to_owned(),
-        });
+        return Err("An unknown error occurred".to_owned());
     }
     match output.stop_reason {
         StopReason::Stop => Ok(DoneReason::Stop),
