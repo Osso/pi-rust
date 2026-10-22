@@ -1579,8 +1579,12 @@ impl SettingsManager {
         string_array(self.settings.get("extensions")).unwrap_or_default()
     }
 
-    pub fn get_disabled_extensions(&self) -> Vec<String> {
-        string_array(self.settings.get("disabledExtensions")).unwrap_or_default()
+    pub fn get_disabled_extensions(&self) -> Vec<JsString> {
+        string_array(self.settings.get("disabledExtensions"))
+            .unwrap_or_default()
+            .into_iter()
+            .map(JsString::from)
+            .collect()
     }
 
     pub fn set_extension_paths(&mut self, paths: &[String]) {
