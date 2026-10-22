@@ -39,7 +39,8 @@ fn realpath_preserves_source_units_for_existing_encoded_names_and_symlinks() {
 #[test]
 fn native_posix_path_helpers_match_node_with_raw_components() {
     use pi_coding_agent::utils::paths::{
-        node_basename, node_dirname, node_is_absolute, node_join, node_normalize, node_resolve, relative_path,
+        node_basename, node_dirname, node_extname, node_is_absolute, node_join, node_normalize, node_resolve,
+        relative_path,
     };
     let mut oracle = oracle::TsOracle::spawn(
         "lossless-node-path-oracle.ts",
@@ -62,6 +63,14 @@ fn native_posix_path_helpers_match_node_with_raw_components() {
         "a\\b",
         "/a/../b/",
         "a/../../b/",
+        ".bashrc",
+        "a.b.c",
+        "a.",
+        "...",
+        "a..",
+        "/x/.y",
+        "x.y/",
+        "s.jsonl.zst",
     ]
     .into_iter()
     .map(JsString::from)
@@ -77,7 +86,7 @@ fn native_posix_path_helpers_match_node_with_raw_components() {
                 {"kind":"normalize","input":input,"base":base}, {"kind":"join","input":input,"base":base},
                 {"kind":"resolve","input":input,"base":base}, {"kind":"relative","input":input,"base":base},
                 {"kind":"dirname","input":input,"base":base}, {"kind":"basename","input":input,"base":base},
-                {"kind":"absolute","input":input,"base":base}
+                {"kind":"absolute","input":input,"base":base}, {"kind":"extname","input":input,"base":base}
             ]}));
             let actual = [
                 JsValue::String(node_normalize(input)),
@@ -87,6 +96,7 @@ fn native_posix_path_helpers_match_node_with_raw_components() {
                 JsValue::String(node_dirname(input)),
                 JsValue::String(node_basename(input)),
                 JsValue::Bool(node_is_absolute(input)),
+                JsValue::String(node_extname(input)),
             ];
             assert_eq!(
                 JsValue::Array(actual.into()),

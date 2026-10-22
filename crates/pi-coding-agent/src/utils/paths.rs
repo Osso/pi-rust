@@ -378,6 +378,18 @@ pub fn node_basename(path: impl Into<JsString>) -> JsString {
     path.slice(start, end)
 }
 
+/// POSIX `path.extname`: the last `.` suffix of the basename, unless that dot leads it.
+pub fn node_extname(path: impl Into<JsString>) -> JsString {
+    let name = node_basename(path);
+    if name == ".." {
+        return JsString::default();
+    }
+    match name.units().iter().rposition(|unit| *unit == u16::from(b'.')) {
+        Some(dot) if dot > 0 => name.slice(dot, name.len()),
+        _ => JsString::default(),
+    }
+}
+
 fn home_directory() -> JsString {
     let key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
     pi_js_compat::process_env::get(key).unwrap_or_default().into()

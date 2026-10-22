@@ -14,6 +14,7 @@ void runOracle((_api, request) => ({
             case "dirname": return path.posix.dirname(item.input);
             case "basename": return path.posix.basename(item.input);
             case "absolute": return path.posix.isAbsolute(item.input);
+            case "extname": return path.posix.extname(item.input);
             default: throw new Error(`Unknown path operation: ${item.kind}`);
         }
     }),
