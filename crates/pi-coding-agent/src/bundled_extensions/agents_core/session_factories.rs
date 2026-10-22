@@ -714,10 +714,7 @@ fn open_attached_session_manager(
     let mut session_manager = SessionManager::open(&input.session_path, session_dir.as_deref(), Some(&input.agent.cwd))
         .map_err(|error| JsString::from(error.to_string()))?;
     validate_attached_session_identity(&input.agent, &session_manager)?;
-    let control_db_path = input
-        .ctx
-        .control_db_path()
-        .map_err(|error| error.message)?;
+    let control_db_path = input.ctx.control_db_path().map_err(|error| error.message)?;
     session_manager
         .set_metadata_control_db_path(control_db_path.as_deref(), Default::default())
         .map_err(|error| JsString::from(error.to_string()))?;
