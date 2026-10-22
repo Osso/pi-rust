@@ -158,8 +158,8 @@ objects. Main integration owns that consumer gate. Native path integration remai
 ### Q18 native identity/path integration and provider payloads
 
 SessionManager's session identity, leaf/index/tree identities, paths and cwd are now
-`JsString`; pure path operations use the native Node-compatible path helpers. Encoding
-is limited to explicit filesystem/SQLite binding arguments. `SessionHeader.fields` and
+`JsString`; pure path operations use the native Node-compatible path helpers. Filesystem
+arguments encode at the actual binding. Legacy metadata API encoding is blocked below. `SessionHeader.fields` and
 imported entry objects remain single authorities through fork/rechain/write.
 
 `lossless_session_manager_io` exercises TS-created raw paths and records → Rust load,
@@ -200,3 +200,20 @@ The new differential proves this source-valid API input (the previous scalar API
 rejected it at compile time). Tree timestamp comparison now keeps JavaScript's NaN
 comparator equality instead of replacing invalid raw timestamps with epoch zero;
 a two-sibling pinned differential reproduced and covers the ordering correction.
+
+### Unapproved metadata-boundary blocker (main-owned handoff)
+
+The legacy `session_control_db` API still takes scalar path/ID/text arguments and
+scalar `WritableSessionMetadata` fields. Manager-side encoding at those calls occurs
+before that module's pure normalization/error construction, earlier than the actual
+SQLite binding. This is **not an approved gap** and is not raw-path/error parity. Main
+will widen those shared APIs and remove caller-side encodings, preserving raw strings
+until DB-open/rusqlite params. The exact call-site inventory and proof ledger live in
+`/tmp/pi-rust-repin-lossless-session-records/REPORT.md` for integration handoff.
+
+Final bounded proof at `7219e8ab`: 17 dedicated exact-module tests pass, including
+NaN-comparator timestamp RED→GREEN. This excludes actual metadata/default config and
+provider-consumer execution. Standalone compilation emits two unused-function warnings
+from unexercised shared paths/transcript exports; no warnings were suppressed. Manual
+Rust/JS readability audit used because `rust-code-analysis-cli` is unavailable; inherited
+long orchestration functions remain, so no whole-module readability pass is claimed.
