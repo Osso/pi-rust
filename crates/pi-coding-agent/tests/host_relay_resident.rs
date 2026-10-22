@@ -4,6 +4,7 @@ mod oracle;
 use pi_coding_agent::core::host_relay_resident::*;
 use pi_coding_agent::core::runtime_process::{is_process_identity_alive, read_process_identity};
 use pi_coding_agent::core::session_control_db::*;
+use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -41,7 +42,12 @@ impl Fixture {
         let temp = tempfile::tempdir().unwrap();
         let exe = temp.path().join("pi");
         fs::copy(env!("CARGO_BIN_EXE_host-relay-harness"), &exe).unwrap();
-        let db = temp.path().join("control.sqlite").display().to_string();
+        let db = temp
+            .path()
+            .join("control.sqlite")
+            .to_str()
+            .expect("utf-8 test path")
+            .to_owned();
         if configured {
             fs::write(
                 temp.path().join("settings.json"),
@@ -219,7 +225,7 @@ async fn absent_settings_spawn_nothing_and_invalid_identity_refuses_unverified_p
     assert!(output.status.success());
     assert!(f.resident().is_none());
     assert!(!f.temp.path().join("starts").exists());
-    ensure_relay_running(&f.db, None).await.unwrap();
+    ensure_relay_running(&JsString::from(&f.db), None).await.unwrap();
     assert!(!Path::new(&format!("{}.relay.log", f.db)).exists());
     let identity = read_process_identity(std::process::id()).unwrap();
     write_relay_identity(
@@ -235,7 +241,9 @@ async fn absent_settings_spawn_nothing_and_invalid_identity_refuses_unverified_p
         peer: "fake-peer".into(),
         remote_command: None,
     };
-    let error = ensure_relay_running(&f.db, Some(&settings)).await.unwrap_err();
+    let error = ensure_relay_running(&JsString::from(&f.db), Some(&settings))
+        .await
+        .unwrap_err();
     assert!(error.starts_with("Refusing to terminate unverified relay process"));
     fs::remove_file(format!("{}.relay.json", f.db)).unwrap();
     fs::write(
@@ -348,7 +356,12 @@ fn frozen_client_runs_same_fake_outage_reconnect_and_ack_on_rust_queue() {
 #[tokio::test]
 async fn resident_identity_bytes_and_reuse_refusal_errors_match_frozen_bidirectionally() {
     let t = tempfile::tempdir().unwrap();
-    let path = t.path().join("control.sqlite").display().to_string();
+    let path = t
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let mut ts = oracle::TsOracle::spawn("host-relay-oracle.ts", "packages/coding-agent/src");
     let result = ts.request(&json!({"op":"writeIdentity","path":path}));
     assert_eq!(result["ok"], true, "{result}");
@@ -373,7 +386,9 @@ async fn resident_identity_bytes_and_reuse_refusal_errors_match_frozen_bidirecti
         peer: "never-invoked".into(),
         remote_command: None,
     };
-    let rust = ensure_relay_running(&path, Some(&settings)).await.unwrap_err();
+    let rust = ensure_relay_running(&JsString::from(&path), Some(&settings))
+        .await
+        .unwrap_err();
     let result = ts.request(&json!({"op":"ensure","path":path,"settings":{"peer":"never-invoked"}}));
     assert_eq!(result["ok"], false, "{result}");
     assert_eq!(result["error"], rust);

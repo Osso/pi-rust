@@ -1,5 +1,6 @@
 //! `core/terminal-outbox-delivery.ts` behavioral tests.
 
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::fs;
 use std::sync::Arc;
 
@@ -59,8 +60,18 @@ struct Fixture {
 
 fn fixture() -> Fixture {
     let directory = tempfile::tempdir().expect("temp dir");
-    let control_db_path = directory.path().join("control.sqlite").to_string_lossy().into_owned();
-    let session_path = directory.path().join("session.jsonl").to_string_lossy().into_owned();
+    let control_db_path = directory
+        .path()
+        .join("control.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
+    let session_path = directory
+        .path()
+        .join("session.jsonl")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     store.set_persistence_session_manager(Some(&FixturePersistence {
         control_db_path: control_db_path.clone(),
@@ -75,48 +86,48 @@ fn fixture() -> Fixture {
 }
 
 fn terminal_job(fixture: &Fixture, job_id: &str) {
-    let root = fixture.directory.path().to_string_lossy().into_owned();
+    let root = fixture.directory.path().to_str().expect("utf-8 test path").to_owned();
     let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
-        control_db_path: fixture.control_db_path.clone(),
-        create_agent_id: Arc::new(|| Ok("unused".to_owned())),
+        control_db_path: fixture.control_db_path.clone().into(),
+        create_agent_id: Arc::new(|| Ok("unused".to_owned().into())),
         now: Arc::new(|| NOW.to_owned()),
         process_identity: test_process_identity("runtime-1"),
-        session_path: fixture.session_path.clone(),
+        session_path: fixture.session_path.clone().into(),
     }));
     let controller = DetachedJobLifecycleController::new(DetachedJobLifecycleControllerOptions {
-        artifact_root: root,
-        control_db_path: fixture.control_db_path.clone(),
+        artifact_root: root.into(),
+        control_db_path: fixture.control_db_path.clone().into(),
         coordinator,
         owner_agent_id: None,
-        owner_session_id: "supervisor-1".to_owned(),
-        session_path: fixture.session_path.clone(),
+        owner_session_id: "supervisor-1".to_owned().into(),
+        session_path: fixture.session_path.clone().into(),
         store: Arc::clone(&fixture.store),
         write_bash_launch_manifest: None,
     });
-    let artifacts = controller.create_artifacts(job_id).expect("artifacts");
+    let artifacts = controller.create_artifacts(&JsString::from(job_id)).expect("artifacts");
     let ownership = controller
         .register(&RegisterDetachedJobInput {
             agent_type: DetachedJobAgentType::Bash,
-            cwd: "/repo".to_owned(),
-            display_name: "Bash command".to_owned(),
-            job_id: job_id.to_owned(),
+            cwd: "/repo".to_owned().into(),
+            display_name: "Bash command".to_owned().into(),
+            job_id: job_id.to_owned().into(),
             process_identity: test_process_identity("runner"),
-            worker_handle_id: "runner".to_owned(),
+            worker_handle_id: "runner".to_owned().into(),
             tool_call_id: None,
             detached: Some(true),
             file_refs: None,
         })
         .expect("register");
-    fs::write(&artifacts.output_path, "done").expect("output");
+    fs::write(&encode_node_utf8(&artifacts.output_path), "done").expect("output");
     let terminal = create_detached_job_terminal_input(
         &artifacts,
         &ownership.identity,
         DetachedJobOutcome::Completed {
             exit_code: Some(0),
-            summary: Some("done".to_owned()),
+            summary: Some("done".to_owned().into()),
         },
         // Frozen mailbox retention rejects historical terminal births.
-        &pi_coding_agent::utils::iso_time::now_iso_string(),
+        &JsString::from(&pi_coding_agent::utils::iso_time::now_iso_string()),
         None,
         None,
     )
@@ -125,7 +136,7 @@ fn terminal_job(fixture: &Fixture, job_id: &str) {
         finalize_detached_job(
             &fixture.control_db_path,
             &FinalizeDetachedJobInput {
-                session_path: fixture.session_path.clone(),
+                session_path: fixture.session_path.clone().into(),
                 terminal,
             },
         )
@@ -139,9 +150,17 @@ fn terminal_job(fixture: &Fixture, job_id: &str) {
 
 fn options(fixture: &Fixture) -> DeliverTerminalOutboxOptions {
     DeliverTerminalOutboxOptions {
-        artifact_root: Some(fixture.directory.path().to_string_lossy().into_owned()),
-        claim_id: "claim-1".to_owned(),
-        control_db_path: fixture.control_db_path.clone(),
+        artifact_root: Some(
+            fixture
+                .directory
+                .path()
+                .to_str()
+                .expect("utf-8 test path")
+                .to_owned()
+                .into(),
+        ),
+        claim_id: "claim-1".to_owned().into(),
+        control_db_path: fixture.control_db_path.clone().into(),
         now: Arc::new(|| NOW.to_owned()),
         store: Arc::clone(&fixture.store),
     }
@@ -153,7 +172,10 @@ fn delivers_a_terminal_projection_and_acknowledges_the_outbox_row() {
     terminal_job(&fixture, "agent_1");
     let delivered = deliver_terminal_outbox_projections(&options(&fixture)).expect("deliver");
     assert_eq!(delivered, 1);
-    let agent = fixture.store.get_agent("agent_1").expect("projected agent");
+    let agent = fixture
+        .store
+        .get_agent(&JsString::from("agent_1"))
+        .expect("projected agent");
     assert_eq!(agent.lifecycle, AgentLifecycle::Completed);
     assert_eq!(agent.revision, 2);
     assert_eq!(
@@ -168,8 +190,8 @@ fn skips_delivery_without_a_persistence_target() {
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     let delivered = deliver_terminal_outbox_projections(&DeliverTerminalOutboxOptions {
         artifact_root: None,
-        claim_id: "claim-1".to_owned(),
-        control_db_path: fixture.control_db_path.clone(),
+        claim_id: "claim-1".to_owned().into(),
+        control_db_path: fixture.control_db_path.clone().into(),
         now: Arc::new(|| NOW.to_owned()),
         store,
     })

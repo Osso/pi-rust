@@ -1,7 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 use pi_coding_agent::core::runtime_mailbox_transcript::read_accepted_runtime_mailbox_store_refs;
-use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::{JsString, JsValue};
 use serde_json::json;
 #[test]
 fn whole_transcript_complete_lf_raw_refs_and_error_order_match_frozen_helper() {
@@ -26,7 +26,8 @@ fn whole_transcript_complete_lf_raw_refs_and_error_order_match_frozen_helper() {
         let response = ts.request(&json!({"id":1,"steps":[{"op":"acceptedRefs","path":path}]}));
         let peer = &response["output"][0];
         assert_eq!(peer["ok"], success, "{response}");
-        let rust = read_accepted_runtime_mailbox_store_refs(path.to_str());
+        let rust =
+            read_accepted_runtime_mailbox_store_refs(Some(&JsString::from(path.to_str().expect("utf-8 test path"))));
         if success {
             assert_eq!(
                 JsValue::Array(rust.expect("TS accepts raw refs")),
@@ -38,7 +39,9 @@ fn whole_transcript_complete_lf_raw_refs_and_error_order_match_frozen_helper() {
     }
     let absent = t.path().join("absent");
     assert_eq!(
-        read_accepted_runtime_mailbox_store_refs(absent.to_str()).unwrap().len(),
+        read_accepted_runtime_mailbox_store_refs(Some(&JsString::from(absent.to_str().expect("utf-8 test path"))))
+            .unwrap()
+            .len(),
         0
     );
     assert_eq!(read_accepted_runtime_mailbox_store_refs(None).unwrap().len(), 0);
@@ -66,7 +69,7 @@ fn source_manager_receipts_preserve_lone_surrogate_values_keys_and_raw_items() {
         let path = made["output"][0]["value"].as_str().unwrap();
         let peer = ts.request(&json!({"id":1,"steps":[{"op":"acceptedRefsWire","path":path}]}));
         assert_eq!(peer["output"][0]["ok"], true, "{peer}");
-        let rust = read_accepted_runtime_mailbox_store_refs(Some(path)).unwrap();
+        let rust = read_accepted_runtime_mailbox_store_refs(Some(&JsString::from(path))).unwrap();
         let encoded = pi_js_compat::js_json::stringify_lossless(&JsValue::Array(rust));
         assert_eq!(
             encoded,
@@ -88,7 +91,9 @@ fn noniterable_ref_collection_throws_at_the_source_spread_boundary() {
     let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
     let peer = ts.request(&json!({"id":1,"steps":[{"op":"acceptedRefsWire","path":path}]}));
     assert_eq!(peer["output"][0]["ok"], false);
-    let error = read_accepted_runtime_mailbox_store_refs(path.to_str()).unwrap_err();
+    let error =
+        read_accepted_runtime_mailbox_store_refs(Some(&JsString::from(path.to_str().expect("utf-8 test path"))))
+            .unwrap_err();
     assert_eq!(error.message(), peer["output"][0]["error"]["message"].as_str().unwrap());
 }
 

@@ -1,6 +1,7 @@
 //! Frozen whole viewer/trace over the same isolated persisted DB and JSONL files.
 #[path = "support/oracle.rs"]
 mod oracle;
+use pi_js_compat::js_json::JsString;
 #[path = "support/tool_context.rs"]
 mod tool_context;
 use pi_coding_agent::bundled_extensions::agents_core::runtime::{
@@ -9,13 +10,13 @@ use pi_coding_agent::bundled_extensions::agents_core::runtime::{
 use pi_coding_agent::core::extensions::{create_extension_runtime, load_extension_from_factory};
 use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
 use pi_coding_agent::core::session_control_db::*;
-use serde_json::{Value, json};
+use pi_js_compat::{js_json, js_json as json};
 use std::sync::Arc;
 
 #[tokio::test]
 async fn persisted_viewer_trace_matches_frozen_descendants_transcripts_ownership_and_outbox() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().to_str().unwrap();
+    let root = dir.path().to_str().expect("utf-8 test path");
     let db = get_control_db_path(dir.path());
     let parent = dir.path().join("parent.jsonl");
     let child = dir.path().join("child.jsonl");
@@ -27,7 +28,12 @@ async fn persisted_viewer_trace_matches_frozen_descendants_transcripts_ownership
     ];
     std::fs::write(
         &parent,
-        entries.iter().map(Value::to_string).collect::<Vec<_>>().join("\n") + "\n",
+        entries
+            .iter()
+            .map(js_json::stringify_lossless)
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n",
     )
     .unwrap();
     let entries = [
@@ -37,10 +43,15 @@ async fn persisted_viewer_trace_matches_frozen_descendants_transcripts_ownership
     ];
     std::fs::write(
         &child,
-        entries.iter().map(Value::to_string).collect::<Vec<_>>().join("\n") + "\n",
+        entries
+            .iter()
+            .map(js_json::stringify_lossless)
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n",
     )
     .unwrap();
-    write_session_metadata(&db,&serde_json::from_value(json!({"sessionPath":parent,"id":"store-session","cwd":root,"createdAt":time,"modifiedAt":time,"messageCount":0,"firstMessage":""})).unwrap()).unwrap();
+    write_session_metadata(&db,&js_json::from_value(&json!({"sessionPath":parent,"id":"store-session","cwd":root,"createdAt":time,"modifiedAt":time,"messageCount":0,"firstMessage":""})).unwrap()).unwrap();
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     let mut agents = Vec::new();
     for (id, parent_id, detached) in [
@@ -52,7 +63,7 @@ async fn persisted_viewer_trace_matches_frozen_descendants_transcripts_ownership
         let mut agent = pi_coding_agent::bundled_extensions::agents_core::shared::empty_agent(id);
         agent.display_name = id.into();
         agent.agent_type = "implement".into();
-        agent.parent_id = parent_id.map(str::to_owned);
+        agent.parent_id = parent_id.map(JsString::from);
         agent.detached = Some(detached);
         agent.created_at = time.into();
         agent.updated_at = time.into();
@@ -60,17 +71,23 @@ async fn persisted_viewer_trace_matches_frozen_descendants_transcripts_ownership
         if id == "a" {
             agent.transcript = Some(pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata {
                 session_id: "child-session".into(),
-                path: Some(child.to_str().unwrap().into()),
+                path: Some(child.to_str().expect("utf-8 test path").into()),
             });
         }
-        let value = serde_json::to_value(&agent).unwrap();
-        bootstrap_multi_agent_agent(&db, parent.to_str().unwrap(), id, &value).unwrap();
+        let value = js_json::to_value(&agent).unwrap();
+        bootstrap_multi_agent_agent(
+            &db,
+            parent.to_str().expect("utf-8 test path"),
+            &JsString::from(id),
+            &value,
+        )
+        .unwrap();
         store.publish_lifecycle_coordinator_snapshot(&agent).unwrap();
         agents.push(value);
     }
     let conn = rusqlite::Connection::open(&db).unwrap();
-    conn.execute("INSERT INTO multi_agent_runtime_owners (session_path,agent_id,process_identity,owner_session_id,owner_agent_id) VALUES (?,'a',?,'owner-session',NULL)",rusqlite::params![parent.to_str().unwrap(),r#"{"pid":123,"startTimeTicks":456,"incarnation":"test"}"#]).unwrap();
-    conn.execute("INSERT INTO multi_agent_terminal_outbox(session_path,agent_id,terminal_revision,event_kind,status,attempt_count,last_error,updated_at) VALUES (?,'b',7,'completed','pending',2,'delivery failed',?)",rusqlite::params![parent.to_str().unwrap(),time]).unwrap();
+    conn.execute("INSERT INTO multi_agent_runtime_owners (session_path,agent_id,process_identity,owner_session_id,owner_agent_id) VALUES (?,'a',?,'owner-session',NULL)",rusqlite::params![parent.to_str().expect("utf-8 test path"),r#"{"pid":123,"startTimeTicks":456,"incarnation":"test"}"#]).unwrap();
+    conn.execute("INSERT INTO multi_agent_terminal_outbox(session_path,agent_id,terminal_revision,event_kind,status,attempt_count,last_error,updated_at) VALUES (?,'b',7,'completed','pending',2,'delivery failed',?)",rusqlite::params![parent.to_str().expect("utf-8 test path"),time]).unwrap();
     let options = MultiAgentExtensionOptions {
         store: Some(store),
         ..Default::default()
@@ -80,10 +97,10 @@ async fn persisted_viewer_trace_matches_frozen_descendants_transcripts_ownership
             let result = register_agent_viewer_tools(pi, &options);
             Box::pin(async move { result })
         }),
-        root,
+        &JsString::from(root),
         Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
         create_extension_runtime(),
-        "<viewer>",
+        &JsString::from("<viewer>"),
     )
     .await
     .unwrap();
@@ -101,11 +118,11 @@ async fn persisted_viewer_trace_matches_frozen_descendants_transcripts_ownership
         json!({"agentId":"missing","trace":true,"storeSessionId":"store-session"}),
     ] {
         let expected = oracle.request(&json!({"agents":agents,"db":db,"params":params}));
-        let result = (tool.execute)("view".into(), params.clone(), None, None, context.clone())
+        let result = (tool.execute)("view".into(), json!(params.clone()), None, None, context.clone())
             .await
             .unwrap();
         let actual = json!({"content":result.content,"details":result.details,"isError":result.is_error});
-        assert_eq!(actual, expected, "{params}");
+        assert_eq!(actual, expected, "{params:?}");
     }
     for ownership in [
         Some(r#"{"pid":100.0,"startTimeTicks":1e21}"#),
@@ -126,7 +143,7 @@ async fn persisted_viewer_trace_matches_frozen_descendants_transcripts_ownership
         }
         let params = json!({"agentId":"a","trace":true,"storeSessionId":"store-session"});
         let expected = oracle.request(&json!({"agents":agents,"db":db,"params":params}));
-        let result = (tool.execute)("view".into(), params, None, None, context.clone())
+        let result = (tool.execute)("view".into(), json!(params), None, None, context.clone())
             .await
             .unwrap();
         assert_eq!(

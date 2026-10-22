@@ -2,10 +2,11 @@
 mod oracle;
 
 use pi_coding_agent::core::session_control_db::*;
-use serde_json::{Value, json};
+use pi_js_compat::js_json::JsValue as Value;
+use pi_js_compat::{js_json, js_json as json};
 
 fn input(id: &str) -> EnqueueStoredRuntimeMailboxMessageInput {
-    serde_json::from_value(json!({
+    js_json::from_value(&json!({
         "recipient":{"sessionId":"recipient"},"sender":{"sessionId":"sender"},
         "kind":"message","storeRef":{"sessionPath":"/fixture/sender.jsonl","messageId":id},
         "message":{"id":id,"body":"hello","kind":"message","status":"pending",
@@ -35,7 +36,7 @@ fn delivery_snapshot(delta: bool, limit: usize) -> Value {
         {"op":"call","args":["listRuntimeMailboxMessages",[db]]}
     ]}));
     for step in response["output"].as_array().unwrap() {
-        assert_eq!(step["ok"], true, "{response}");
+        assert_eq!(step["ok"], json!(true), "{response:?}");
     }
     json!({"delivered":response["output"][3]["value"].as_array().unwrap().len(),
         "statuses":response["output"][4]["value"].as_array().unwrap().iter().map(|row| row["status"].clone()).collect::<Vec<_>>()})
@@ -43,7 +44,12 @@ fn delivery_snapshot(delta: bool, limit: usize) -> Value {
 
 fn native_delivery_snapshot(limit: usize) -> Value {
     let temp = tempfile::tempdir().unwrap();
-    let db = temp.path().join("native.sqlite").display().to_string();
+    let db = temp
+        .path()
+        .join("native.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let recipient = input("one").recipient;
     register_runtime_mailbox_listener(&db, &recipient, std::process::id(), None, Default::default()).unwrap();
     for id in ["one", "two"] {
@@ -51,7 +57,7 @@ fn native_delivery_snapshot(limit: usize) -> Value {
     }
     let delivered = take_runtime_mailbox_messages_for_delivery(&db, &recipient, |_| true, limit).unwrap();
     let rows = list_runtime_mailbox_messages(&db).unwrap();
-    json!({"delivered":delivered.len(),"statuses":rows.iter().map(|row| serde_json::to_value(row.status).unwrap()).collect::<Vec<_>>()})
+    json!({"delivered":delivered.len(),"statuses":rows.iter().map(|row| js_json::to_value(&row.status).unwrap()).collect::<Vec<_>>()})
 }
 
 #[test]
@@ -81,23 +87,23 @@ fn source_retry(delta: bool, host: &str) -> Value {
     let db = temp.path().join("source.sqlite");
     let mut ts = source(delta);
     let mut first = input("retry");
-    first.recipient_host = Some(String::new());
+    first.recipient_host = Some(String::new().into());
     let retry = EnqueueRuntimeMailboxMessageInput {
-        recipient_host: Some(host.to_owned()),
+        recipient_host: Some(host.to_owned().into()),
         recipient: first.recipient.clone(),
         sender: first.sender.clone(),
         kind: first.kind,
         store_ref: first.store_ref.clone(),
     };
     let mut initial = retry.clone();
-    initial.recipient_host = Some(String::new());
+    initial.recipient_host = Some(String::new().into());
     let response = ts.request(&json!({"id":1,"steps":[
         {"op":"call","args":["upsertMultiAgentMailboxMessage",[db,first.store_ref.session_path,first.store_ref.message_id,first.message]]},
         {"op":"call","args":["enqueueRuntimeMailboxMessage",[db,initial]]},
         {"op":"call","args":["enqueueRuntimeMailboxMessage",[db,retry]]}
     ]}));
-    assert_eq!(response["output"][0]["ok"], true, "{response}");
-    assert_eq!(response["output"][1]["ok"], true, "{response}");
+    assert_eq!(response["output"][0]["ok"], json!(true), "{response:?}");
+    assert_eq!(response["output"][1]["ok"], json!(true), "{response:?}");
     if delta && host.is_empty() {
         assert_eq!(
             enqueue_runtime_mailbox_message(db.to_str().unwrap(), &retry).unwrap(),
@@ -110,9 +116,14 @@ fn source_retry(delta: bool, host: &str) -> Value {
 
 fn native_retry(host: &str) -> Result<i64, ControlDbError> {
     let temp = tempfile::tempdir().unwrap();
-    let db = temp.path().join("native.sqlite").display().to_string();
+    let db = temp
+        .path()
+        .join("native.sqlite")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let mut first = input("retry");
-    first.recipient_host = Some(String::new());
+    first.recipient_host = Some(String::new().into());
     upsert_multi_agent_mailbox_message(
         &db,
         &first.store_ref.session_path,
@@ -121,14 +132,14 @@ fn native_retry(host: &str) -> Result<i64, ControlDbError> {
     )
     .unwrap();
     let retry = EnqueueRuntimeMailboxMessageInput {
-        recipient_host: Some(host.to_owned()),
+        recipient_host: Some(host.to_owned().into()),
         recipient: first.recipient,
         sender: first.sender,
         kind: first.kind,
         store_ref: first.store_ref,
     };
     let mut initial = retry.clone();
-    initial.recipient_host = Some(String::new());
+    initial.recipient_host = Some(String::new().into());
     let initial_id = enqueue_runtime_mailbox_message(&db, &initial).unwrap();
     let id = enqueue_runtime_mailbox_message(&db, &retry)?;
     assert_eq!(id, initial_id);
@@ -140,7 +151,7 @@ fn native_retry(host: &str) -> Result<i64, ControlDbError> {
 fn empty_host_retry_matches_approved_delta_and_rejects_other_host() {
     assert_eq!(source_retry(true, ""), json!({"ok":true,"value":1}));
     assert_eq!(native_retry("").unwrap(), 1);
-    assert_eq!(source_retry(true, "other-host")["ok"], false);
+    assert_eq!(source_retry(true, "other-host")["ok"], json!(false));
     assert!(native_retry("other-host").is_err());
 }
 
