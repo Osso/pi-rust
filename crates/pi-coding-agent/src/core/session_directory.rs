@@ -33,18 +33,18 @@ pub struct SessionDirectoryOptions {
 }
 
 pub struct BroadcastSessionFilters {
-    pub session_ids: Option<Vec<String>>,
-    pub cwd: Option<String>,
-    pub name: Option<String>,
+    pub session_ids: Option<Vec<JsString>>,
+    pub cwd: Option<JsString>,
+    pub name: Option<JsString>,
     pub status: Option<Vec<SessionLiveStatus>>,
 }
 
 pub struct BroadcastSessionsInput {
     pub message: JsString,
     pub filters: Option<BroadcastSessionFilters>,
-    pub sender_session_id: String,
-    pub sender_session_path: String,
-    pub sender_agent_id: Option<String>,
+    pub sender_session_id: JsString,
+    pub sender_session_path: JsString,
+    pub sender_agent_id: Option<JsString>,
 }
 
 #[derive(Debug, Clone)]
@@ -73,7 +73,7 @@ fn runtime_probe(options: &SessionDirectoryOptions) -> RuntimeProcessProbe {
         .unwrap_or_else(|| Arc::new(is_pi_runtime_process_alive))
 }
 
-fn health_by_session_id(control_db_path: &str) -> Result<HashMap<String, SessionHealthRecord>, ControlDbError> {
+fn health_by_session_id(control_db_path: &str) -> Result<HashMap<JsString, SessionHealthRecord>, ControlDbError> {
     let mut map = HashMap::new();
     for health in list_session_health(control_db_path)? {
         map.insert(health.session_id.clone(), health);
@@ -102,7 +102,7 @@ fn reconcile_current_main_session_bindings(
     control_db_path: &str,
     now_ms: i64,
     is_runtime_process_alive: &RuntimeProcessProbe,
-) -> Result<HashMap<String, CurrentMainSessionBinding>, ControlDbError> {
+) -> Result<HashMap<JsString, CurrentMainSessionBinding>, ControlDbError> {
     let mut listeners = list_runtime_mailbox_listeners(control_db_path)?;
     listeners.retain(|listener| listener.agent_id.is_none());
     listeners.sort_by(|left, right| {
@@ -131,7 +131,7 @@ fn reconcile_current_main_session_bindings(
             continue;
         }
         bindings.insert(
-            listener.session_id,
+            JsString::from(listener.session_id),
             CurrentMainSessionBinding {
                 pid: listener.pid,
                 updated_at: listener.updated_at,
@@ -192,9 +192,9 @@ fn synchronized_bound_session_health(
 
 fn sync_bound_session_health(
     control_db_path: &str,
-    session_id: &str,
+    session_id: &JsString,
     binding: &CurrentMainSessionBinding,
-    health_map: &mut HashMap<String, SessionHealthRecord>,
+    health_map: &mut HashMap<JsString, SessionHealthRecord>,
     now_iso: &str,
 ) -> Result<(), ControlDbError> {
     let existing = health_map
@@ -205,15 +205,15 @@ fn sync_bound_session_health(
         return Ok(());
     };
     write_session_health(control_db_path, &next)?;
-    health_map.insert(session_id.to_owned(), next);
+    health_map.insert(session_id.clone(), next);
     Ok(())
 }
 
 fn retire_unbound_session_health_if_needed(
     control_db_path: &str,
     metadata: &SessionMetadata,
-    health_map: &mut HashMap<String, SessionHealthRecord>,
-    bindings: &HashMap<String, CurrentMainSessionBinding>,
+    health_map: &mut HashMap<JsString, SessionHealthRecord>,
+    bindings: &HashMap<JsString, CurrentMainSessionBinding>,
     now_iso: &str,
 ) -> Result<(), ControlDbError> {
     let existing = health_map
@@ -233,8 +233,8 @@ fn retire_unbound_session_health_if_needed(
 fn ensure_health_synced_from_listeners(
     control_db_path: &str,
     metadata: &[SessionMetadata],
-    health_map: &mut HashMap<String, SessionHealthRecord>,
-    bindings: &HashMap<String, CurrentMainSessionBinding>,
+    health_map: &mut HashMap<JsString, SessionHealthRecord>,
+    bindings: &HashMap<JsString, CurrentMainSessionBinding>,
     now_ms: i64,
 ) -> Result<(), ControlDbError> {
     let now_iso = format_iso_millis(now_ms);
@@ -264,7 +264,7 @@ fn to_directory_entry(metadata: &SessionMetadata, health: &SessionHealthRecord, 
             metadata
                 .goal_json
                 .as_ref()
-                .map(|goal| Value::String(goal.clone()))
+                .map(|goal| JsValue::String(goal.clone()))
                 .as_ref(),
         ),
         cwd: (!metadata.cwd.is_empty()).then(|| metadata.cwd.clone()),
@@ -310,7 +310,7 @@ fn current_main_session_ids(
     control_db_path: &str,
     now_ms: i64,
     is_runtime_process_alive: &RuntimeProcessProbe,
-) -> Result<HashSet<String>, ControlDbError> {
+) -> Result<HashSet<JsString>, ControlDbError> {
     Ok(
         reconcile_current_main_session_bindings(control_db_path, now_ms, is_runtime_process_alive)?
             .into_keys()
@@ -329,17 +329,13 @@ fn matches_filters(entry: &SessionDirectoryEntry, filters: Option<&BroadcastSess
     {
         return false;
     }
-    if filters
-        .cwd
-        .as_deref()
-        .is_some_and(|cwd| entry.cwd.as_deref() != Some(cwd))
-    {
+    if filters.cwd.as_ref().is_some_and(|cwd| entry.cwd.as_ref() != Some(cwd)) {
         return false;
     }
     if filters
         .name
-        .as_deref()
-        .is_some_and(|name| entry.name.as_deref() != Some(name))
+        .as_ref()
+        .is_some_and(|name| entry.name.as_ref() != Some(name))
     {
         return false;
     }
@@ -379,7 +375,6 @@ pub fn broadcast_to_sessions(
             current_session_ids.contains(&entry.session_id) && seen_session_ids.insert(entry.session_id.clone())
         })
         .collect();
-    let sender_agent_id = input.sender_agent_id.clone();
 
     let mut results = Vec::new();
     for entry in entries {
@@ -437,7 +432,7 @@ pub fn broadcast_to_sessions(
             continue;
         }
 
-        match send_broadcast(control_db_path, &message, input, sender_agent_id.as_deref(), &entry) {
+        match send_broadcast(control_db_path, &message, input, &entry) {
             Ok(()) => results.push(SessionBroadcastResult {
                 session_id: entry.session_id,
                 outcome: SessionBroadcastOutcome::Sent,
@@ -460,7 +455,6 @@ fn send_broadcast(
     control_db_path: &str,
     message: &JsString,
     input: &BroadcastSessionsInput,
-    sender_agent_id: Option<&str>,
     entry: &SessionDirectoryEntry,
 ) -> Result<(), ControlDbError> {
     let message_id = format!("broadcast_{}", random_uuid());
@@ -469,18 +463,18 @@ fn send_broadcast(
         &EnqueueStoredRuntimeMailboxMessageInput {
             recipient_host: None,
             kind: RuntimeMailboxMessageKind::Message,
-            message: mailbox_payload(&message_id, message, sender_agent_id),
+            message: mailbox_payload(&message_id, message, input.sender_agent_id.as_ref()),
             recipient: RuntimeMailboxAddress {
                 agent_id: None,
-                session_id: entry.session_id.clone().into(),
+                session_id: entry.session_id.clone(),
             },
             sender: RuntimeMailboxAddress {
-                agent_id: sender_agent_id.map(Into::into),
-                session_id: input.sender_session_id.clone().into(),
+                agent_id: input.sender_agent_id.clone(),
+                session_id: input.sender_session_id.clone(),
             },
             store_ref: RuntimeMailboxStoreRef {
                 message_id: message_id.into(),
-                session_path: input.sender_session_path.clone().into(),
+                session_path: input.sender_session_path.clone(),
             },
             updated_at: None,
         },
@@ -488,10 +482,10 @@ fn send_broadcast(
     Ok(())
 }
 
-fn mailbox_payload(message_id: &str, body: &JsString, sender_agent_id: Option<&str>) -> JsValue {
+fn mailbox_payload(message_id: &str, body: &JsString, sender_agent_id: Option<&JsString>) -> JsValue {
     pi_js_compat::js_json!({
         "body": body,
-        "fromAgentId": sender_agent_id.unwrap_or("main"),
+        "fromAgentId": sender_agent_id.cloned().unwrap_or_else(|| "main".into()),
         "id": message_id,
         "kind": "message",
         "status": "pending",

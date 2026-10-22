@@ -136,7 +136,7 @@ pub struct ToolExecutionComponent {
     tool_definition: Option<ToolDefinition>,
     built_in_tool_definition: Option<ToolDefinition>,
     request_render: Arc<dyn Fn() + Send + Sync>,
-    cwd: String,
+    cwd: JsString,
     execution_started: bool,
     execution_started_at: Option<f64>,
     execution_finished_at: Option<f64>,
@@ -157,7 +157,7 @@ impl ToolExecutionComponent {
         options: ToolExecutionOptions,
         tool_definition: Option<ToolDefinition>,
         request_render: Arc<dyn Fn() + Send + Sync>,
-        cwd: impl Into<String>,
+        cwd: impl Into<JsString>,
     ) -> Self {
         let tool_name = tool_name.into();
         let cwd = cwd.into();

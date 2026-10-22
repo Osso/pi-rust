@@ -24,7 +24,7 @@ use crate::core::permissions::presets::SandboxProfileName;
 use crate::core::resident_session::is_resident_session;
 use crate::core::session_control_db::{
     ResumeSessionMetadataOptions, SessionMetadata, WritableSessionMetadata, clear_session_sandbox_profile,
-    list_resume_session_metadata, list_session_metadata, normalize_session_name_utf16, read_session_goal,
+    list_resume_session_metadata, list_session_metadata, normalize_session_name, read_session_goal,
     read_session_metadata, read_session_name_state, read_session_sandbox_profile, write_session_goal,
     write_session_metadata, write_session_model, write_session_name, write_session_sandbox_profile,
     write_session_thinking_level,
@@ -85,6 +85,12 @@ fn assert_unarchived_session_file(path: &JsString) -> Result<(), SessionManagerE
 
 fn error(message: impl Into<JsString>) -> SessionManagerError {
     SessionManagerError::new(message)
+}
+
+/// Opaque provider/model/thinking tags stay scalar under the approved metadata gap;
+/// unpaired surrogates are rejected rather than replaced.
+fn opaque_metadata(value: &JsString) -> Result<String, SessionManagerError> {
+    value.to_utf8().map_err(|cause| error(cause.to_string()))
 }
 
 fn path_options() -> PathInputOptions {
@@ -2926,9 +2932,7 @@ impl SessionManager {
         let Some((control_db_path, session_file)) = self.metadata_target() else {
             return Ok(self.in_memory_goal_json.clone());
         };
-        read_session_goal(&encode_node_utf8(control_db_path), &encode_node_utf8(session_file))
-            .map(|value| value.map(Into::into))
-            .map_err(control_db_error)
+        read_session_goal(control_db_path, session_file).map_err(control_db_error)
     }
 
     /// `getSessionGoalJsonForSession`.
@@ -2939,12 +2943,7 @@ impl SessionManager {
         let Some(control_db_path) = self.metadata_control_db_path.as_ref().filter(|path| !path.is_empty()) else {
             return Ok(None);
         };
-        read_session_goal(
-            &encode_node_utf8(control_db_path),
-            &encode_node_utf8(&resolve(session_file)?),
-        )
-        .map(|value| value.map(Into::into))
-        .map_err(control_db_error)
+        read_session_goal(control_db_path, resolve(session_file)?).map_err(control_db_error)
     }
 
     /// `setSessionGoalJson`.
@@ -2954,12 +2953,7 @@ impl SessionManager {
             return Ok(());
         };
         self.write_metadata_snapshot()?;
-        write_session_goal(
-            &encode_node_utf8(control_db_path),
-            &encode_node_utf8(session_file),
-            Some(&encode_node_utf8(goal_json)),
-        )
-        .map_err(control_db_error)
+        write_session_goal(control_db_path, session_file, Some(goal_json)).map_err(control_db_error)
     }
 
     /// `clearSessionGoalJson`.
@@ -2969,12 +2963,7 @@ impl SessionManager {
             return Ok(());
         };
         self.write_metadata_snapshot()?;
-        write_session_goal(
-            &encode_node_utf8(control_db_path),
-            &encode_node_utf8(session_file),
-            None,
-        )
-        .map_err(control_db_error)
+        write_session_goal(control_db_path, session_file, None).map_err(control_db_error)
     }
 
     /// `readPersistedSessionSettings`.
@@ -2982,15 +2971,9 @@ impl SessionManager {
         let Some((control_db_path, session_file)) = self.metadata_target() else {
             return Ok(None);
         };
-        let sandbox_profile = read_session_sandbox_profile(
-            &encode_node_utf8(control_db_path),
-            &encode_node_utf8(session_file),
-            &encode_node_utf8(&self.session_id),
-        )
-        .map_err(control_db_error)?;
-        let Some(metadata) = read_session_metadata(&encode_node_utf8(control_db_path), &encode_node_utf8(session_file))
-            .map_err(control_db_error)?
-        else {
+        let sandbox_profile =
+            read_session_sandbox_profile(control_db_path, session_file, &self.session_id).map_err(control_db_error)?;
+        let Some(metadata) = read_session_metadata(control_db_path, session_file).map_err(control_db_error)? else {
             return Ok(None);
         };
         let model = match (metadata.model_provider, metadata.model_id) {
@@ -3016,10 +2999,10 @@ impl SessionManager {
         };
         self.write_metadata_snapshot()?;
         write_session_model(
-            &encode_node_utf8(control_db_path),
-            &encode_node_utf8(session_file),
-            &encode_node_utf8(provider),
-            &encode_node_utf8(model_id),
+            control_db_path,
+            session_file,
+            &opaque_metadata(provider)?,
+            &opaque_metadata(model_id)?,
         )
         .map_err(control_db_error)
     }
@@ -3030,12 +3013,8 @@ impl SessionManager {
             return Ok(());
         };
         self.write_metadata_snapshot()?;
-        write_session_thinking_level(
-            &encode_node_utf8(control_db_path),
-            &encode_node_utf8(session_file),
-            &encode_node_utf8(thinking_level),
-        )
-        .map_err(control_db_error)
+        write_session_thinking_level(control_db_path, session_file, &opaque_metadata(thinking_level)?)
+            .map_err(control_db_error)
     }
 
     /// `setSessionSandboxProfile`. Returns `false` for an unpersisted session.
@@ -3051,19 +3030,10 @@ impl SessionManager {
         self.persist_for_recovery()?;
         self.write_metadata_snapshot()?;
         match profile {
-            Some(profile) => write_session_sandbox_profile(
-                &encode_node_utf8(&control_db_path),
-                &encode_node_utf8(&session_file),
-                &encode_node_utf8(&self.session_id),
-                profile,
-            )
-            .map_err(|error| SessionManagerError::new(error.to_string()))?,
-            None => clear_session_sandbox_profile(
-                &encode_node_utf8(&control_db_path),
-                &encode_node_utf8(&session_file),
-                &encode_node_utf8(&self.session_id),
-            )
-            .map_err(|error| SessionManagerError::new(error.to_string()))?,
+            Some(profile) => write_session_sandbox_profile(&control_db_path, &session_file, &self.session_id, profile)
+                .map_err(|error| SessionManagerError::new(error.to_string()))?,
+            None => clear_session_sandbox_profile(&control_db_path, &session_file, &self.session_id)
+                .map_err(|error| SessionManagerError::new(error.to_string()))?,
         }
         Ok(true)
     }
@@ -3091,17 +3061,13 @@ impl SessionManager {
         };
         let control_db_path = control_db_path.to_owned();
         let session_file = session_file.to_owned();
-        let name_state = read_session_name_state(&encode_node_utf8(&control_db_path), &encode_node_utf8(&session_file))
-            .map_err(control_db_error)?;
+        let name_state = read_session_name_state(&control_db_path, &session_file).map_err(control_db_error)?;
         self.session_name = name_state.name.map(JsString::from);
         self.has_stored_session_name = name_state.has_stored_value;
-        let Some(metadata) =
-            read_session_metadata(&encode_node_utf8(&control_db_path), &encode_node_utf8(&session_file))
-                .map_err(control_db_error)?
-        else {
+        let Some(metadata) = read_session_metadata(&control_db_path, &session_file).map_err(control_db_error)? else {
             return Ok(());
         };
-        self.cwd = resolve(metadata.cwd.as_str())?;
+        self.cwd = resolve(metadata.cwd)?;
         if metadata.is_subagent != Some(true) {
             return Ok(());
         }
@@ -3117,7 +3083,7 @@ impl SessionManager {
 
     /// `setSessionName`: set or clear the display name.
     pub fn set_session_name(&mut self, name: Option<&JsString>) -> Result<(), SessionManagerError> {
-        self.session_name = normalize_session_name_utf16(name);
+        self.session_name = normalize_session_name(name);
         self.has_stored_session_name = true;
         let Some((control_db_path, session_file)) = self.metadata_target() else {
             return Ok(());
@@ -3125,12 +3091,7 @@ impl SessionManager {
         let control_db_path = control_db_path.to_owned();
         let session_file = session_file.to_owned();
         self.write_metadata_snapshot()?;
-        write_session_name(
-            &encode_node_utf8(&control_db_path),
-            &encode_node_utf8(&session_file),
-            self.session_name.as_ref(),
-        )
-        .map_err(control_db_error)
+        write_session_name(&control_db_path, &session_file, self.session_name.as_ref()).map_err(control_db_error)
     }
 
     /// `getSessionName`.
@@ -3158,11 +3119,11 @@ impl SessionManager {
         }
         let info = finish_session_info(session_file, header, accumulator, pi_ai::request::now_millis());
         let metadata = WritableSessionMetadata {
-            session_path: encode_node_utf8(&info.path),
-            id: encode_node_utf8(&info.id),
-            cwd: encode_node_utf8(&self.cwd),
+            session_path: info.path.clone(),
+            id: info.id.clone(),
+            cwd: self.cwd.clone(),
             name: None,
-            parent_session_path: info.parent_session_path.as_ref().map(encode_node_utf8),
+            parent_session_path: info.parent_session_path.clone(),
             archived_at: None,
             is_archived: info.is_archived,
             is_subagent: Some(self.is_subagent),
@@ -3170,12 +3131,12 @@ impl SessionManager {
             model_provider: None,
             model_id: None,
             thinking_level: None,
-            created_at: iso_time::format_iso_millis(info.created),
-            modified_at: iso_time::format_iso_millis(info.modified),
+            created_at: iso_time::format_iso_millis(info.created).into(),
+            modified_at: iso_time::format_iso_millis(info.modified).into(),
             message_count: i64::try_from(info.message_count).unwrap_or(i64::MAX),
-            first_message: encode_node_utf8(&info.first_message),
+            first_message: info.first_message.clone(),
         };
-        write_session_metadata(&encode_node_utf8(control_db_path), &metadata).map_err(control_db_error)
+        write_session_metadata(control_db_path, &metadata).map_err(control_db_error)
     }
 
     pub fn is_subagent_session(&self) -> bool {
@@ -3241,12 +3202,8 @@ impl SessionManager {
         if let Some(control_db_path) = self.metadata_control_db_path.as_ref().filter(|path| !path.is_empty())
             && let (Some(old), Some(destination)) = (old_session_file.as_ref(), destination.as_ref())
         {
-            crate::core::session_control_db::relocate_session_control_data(
-                &encode_node_utf8(control_db_path),
-                &encode_node_utf8(old),
-                &encode_node_utf8(destination),
-            )
-            .map_err(|error| SessionManagerError::new(error.to_string()))?;
+            crate::core::session_control_db::relocate_session_control_data(control_db_path, old, destination)
+                .map_err(|error| SessionManagerError::new(error.to_string()))?;
         }
 
         self.cwd = resolved_target_cwd;
@@ -3804,20 +3761,18 @@ fn list_metadata_sessions(
         .transpose()?;
     let options = ResumeSessionMetadataOptions {
         archived: scope.archived,
-        cwd: cwd.as_ref().map(encode_node_utf8),
-        session_path_prefix: session_path_prefix.as_ref().map(encode_node_utf8),
+        cwd: cwd.clone(),
+        session_path_prefix: session_path_prefix.clone(),
     };
-    Ok(
-        list_resume_session_metadata(&encode_node_utf8(control_db_path), &options)
-            .map_err(control_db_error)?
-            .map(|metadata| {
-                metadata
-                    .iter()
-                    .map(session_info_from_metadata)
-                    .filter(|session| !is_resident_session(session))
-                    .collect()
-            }),
-    )
+    Ok(list_resume_session_metadata(control_db_path, &options)
+        .map_err(control_db_error)?
+        .map(|metadata| {
+            metadata
+                .iter()
+                .map(session_info_from_metadata)
+                .filter(|session| !is_resident_session(session))
+                .collect()
+        }))
 }
 
 fn exclude_known_subagent_sessions(
@@ -3832,9 +3787,9 @@ fn exclude_known_subagent_sessions(
         return Ok(sessions);
     };
     let mut subagent_paths: Vec<JsString> = Vec::new();
-    for metadata in list_session_metadata(&encode_node_utf8(control_db_path)).map_err(control_db_error)? {
+    for metadata in list_session_metadata(control_db_path).map_err(control_db_error)? {
         if metadata.is_subagent == Some(true) {
-            subagent_paths.push(normalize(metadata.session_path.as_str())?);
+            subagent_paths.push(normalize(metadata.session_path)?);
         }
     }
     if subagent_paths.is_empty() {
@@ -3858,13 +3813,13 @@ fn cache_session_metadata(
     };
     for session in sessions {
         write_session_metadata(
-            &encode_node_utf8(control_db_path),
+            control_db_path,
             &WritableSessionMetadata {
-                session_path: encode_node_utf8(&session.path),
-                id: encode_node_utf8(&session.id),
-                cwd: encode_node_utf8(&session.cwd),
+                session_path: session.path.clone(),
+                id: session.id.clone(),
+                cwd: session.cwd.clone(),
                 name: session.name.clone(),
-                parent_session_path: session.parent_session_path.as_ref().map(encode_node_utf8),
+                parent_session_path: session.parent_session_path.clone(),
                 archived_at: None,
                 is_archived: session.is_archived,
                 is_subagent: None,
@@ -3872,10 +3827,10 @@ fn cache_session_metadata(
                 model_provider: None,
                 model_id: None,
                 thinking_level: None,
-                created_at: iso_time::format_iso_millis(session.created),
-                modified_at: iso_time::format_iso_millis(session.modified),
+                created_at: iso_time::format_iso_millis(session.created).into(),
+                modified_at: iso_time::format_iso_millis(session.modified).into(),
                 message_count: i64::try_from(session.message_count).unwrap_or(i64::MAX),
-                first_message: encode_node_utf8(&session.first_message),
+                first_message: session.first_message.clone(),
             },
         )
         .map_err(control_db_error)?;

@@ -1442,7 +1442,7 @@ pub struct ToolRenderContext {
     /// Component returned by the last `renderCall` (`EditRenderState.callComponent`).
     pub call_component: Option<ComponentRef>,
     pub state: ToolRenderState,
-    pub cwd: String,
+    pub cwd: JsString,
     pub execution_started: bool,
     pub args_complete: bool,
     pub is_partial: bool,

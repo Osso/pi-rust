@@ -6,7 +6,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use pi_ai::types::TextOrImageContent;
-use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::{JsString, JsValue};
 use pi_tui::tui::ComponentRef;
 use regex::Regex;
 
@@ -25,7 +25,7 @@ pub struct ToolHtmlRendererDeps {
     /// Function to look up a tool definition by name.
     pub get_tool_definition: ToolDefinitionLookup,
     pub theme: Arc<Theme>,
-    pub cwd: String,
+    pub cwd: JsString,
     /// Terminal width for rendering (default: 100).
     pub width: Option<usize>,
 }
@@ -41,7 +41,7 @@ struct RendererState {
 pub struct ExtensionToolHtmlRenderer {
     get_tool_definition: ToolDefinitionLookup,
     theme: Arc<Theme>,
-    cwd: String,
+    cwd: JsString,
     width: usize,
     state: RefCell<RendererState>,
 }

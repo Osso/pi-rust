@@ -682,11 +682,13 @@ impl Theme {
 
     /// Wrap `text` in the foreground color and reset only the foreground.
     pub fn fg(&self, color: ThemeColor, text: impl Into<JsString>) -> JsString {
+        let text = text.into();
         js_format!("{}{}\x1b[39m", self.fg_ansi(color), text)
     }
 
     /// Wrap `text` in the background color and reset only the background.
     pub fn bg(&self, color: ThemeBg, text: impl Into<JsString>) -> JsString {
+        let text = text.into();
         js_format!("{}{}\x1b[49m", self.bg_ansi(color), text)
     }
 

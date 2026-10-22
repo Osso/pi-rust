@@ -48,7 +48,7 @@ impl SessionLiveStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionHealthRecord {
-    pub session_id: String,
+    pub session_id: JsString,
     pub agent_generation: u64,
     pub pid: Option<u32>,
     pub last_active_at: Option<String>,
@@ -62,15 +62,15 @@ pub struct SessionHealthRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionDirectoryEntry {
-    pub session_id: String,
-    pub session_path: String,
+    pub session_id: JsString,
+    pub session_path: JsString,
     pub pid: Option<u32>,
     pub status: SessionLiveStatus,
     pub started_at: String,
     pub last_active_at: Option<String>,
-    pub name: Option<String>,
-    pub goal: Option<String>,
-    pub cwd: Option<String>,
+    pub name: Option<JsString>,
+    pub goal: Option<JsString>,
+    pub cwd: Option<JsString>,
     pub last_checked_at: Option<String>,
     pub check_status: SessionCheckStatus,
     pub check_latency_ms: Option<i64>,
@@ -107,7 +107,7 @@ impl SessionBroadcastOutcome {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionBroadcastResult {
-    pub session_id: String,
+    pub session_id: JsString,
     pub outcome: SessionBroadcastOutcome,
     pub check_status: SessionCheckStatus,
     pub error: Option<String>,
