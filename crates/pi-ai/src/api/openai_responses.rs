@@ -26,7 +26,7 @@ use crate::request::{
 };
 use crate::types::{
     AssistantMessage, CacheRetention, Context, ErrorReason, Model, ModelCompat, ModelThinkingLevel, ProviderEnv,
-    ProviderHeaders, ProviderResponse, SessionAffinityFormat, Usage,
+    ProviderHeaders, ProviderResponse, Usage,
 };
 use crate::utils::deferred_tools::split_deferred_tools;
 use crate::utils::event_stream::{AssistantMessageEventSender, create_assistant_message_event_stream};
@@ -36,7 +36,6 @@ use crate::utils::provider_retry::{ProviderRequestError, ProviderRetryOptions, r
 use pi_js_compat::number::js_number_value;
 
 const OPENAI_TOOL_CALL_PROVIDERS: [&str; 3] = ["openai", "openai-codex", "opencode"];
-// OpenAI Responses rejects max_output_tokens below 16.
 
 /// `OpenAIResponsesOptions`.
 #[derive(Debug, Clone, Default)]
@@ -65,21 +64,13 @@ fn string_field(extra: &Map<String, Value>, key: &str) -> Option<String> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResolvedCompat {
     supports_developer_role: bool,
-    session_affinity_format: SessionAffinityFormat,
+    send_session_id_header: bool,
     supports_long_cache_retention: bool,
     supports_strict_mode: bool,
     supports_openai_grammar_tools: bool,
     supports_additional_tools: bool,
     supports_tool_search: bool,
     supports_explicit_prompt_cache_mode: bool,
-}
-
-fn detect_session_affinity_format(model: &Model) -> SessionAffinityFormat {
-    if model.provider == "openrouter" || model.base_url.contains("openrouter.ai") {
-        SessionAffinityFormat::Openrouter
-    } else {
-        SessionAffinityFormat::Openai
-    }
 }
 
 pub fn get_compat(model: &Model) -> ResolvedCompat {
@@ -89,9 +80,7 @@ pub fn get_compat(model: &Model) -> ResolvedCompat {
     };
     ResolvedCompat {
         supports_developer_role: compat.and_then(|compat| compat.supports_developer_role).unwrap_or(true),
-        session_affinity_format: compat
-            .and_then(|compat| compat.session_affinity_format)
-            .unwrap_or_else(|| detect_session_affinity_format(model)),
+        send_session_id_header: compat.and_then(|compat| compat.send_session_id_header).unwrap_or(true),
         supports_long_cache_retention: compat
             .and_then(|compat| compat.supports_long_cache_retention)
             .unwrap_or(true),
@@ -356,19 +345,15 @@ fn create_client(
         let has_images = has_copilot_vision_input(&context.messages);
         build_copilot_dynamic_headers(&context.messages, has_images)
     });
-    let mut headers = merge_provider_headers(model.headers.as_ref(), dynamic, options.request.headers.as_ref());
+    let mut headers = merge_provider_headers(model.headers.as_ref(), dynamic, None);
     if let Some(session_id) = session_id {
-        match compat.session_affinity_format {
-            SessionAffinityFormat::Openrouter => {
-                headers.insert("x-session-id".to_owned(), Some(session_id.clone()));
-            }
-            format => {
-                if format == SessionAffinityFormat::Openai {
-                    headers.insert("session_id".to_owned(), Some(session_id.clone()));
-                }
-                headers.insert("x-client-request-id".to_owned(), Some(session_id.clone()));
-            }
+        if compat.send_session_id_header {
+            headers.insert("session_id".to_owned(), Some(session_id.clone()));
         }
+        headers.insert("x-client-request-id".to_owned(), Some(session_id.clone()));
+    }
+    for (name, value) in options.request.headers.iter().flatten() {
+        headers.insert(name.clone(), value.clone());
     }
     SdkClient::new(SdkClientConfig {
         api_key: api_key.to_owned(),
@@ -629,34 +614,11 @@ pub fn open_ai_responses_api() -> LazyApi {
 mod tests {
     use super::*;
 
-    fn model(provider: &str, id: &str) -> Model {
-        serde_json::from_value(serde_json::json!({
-            "id": id, "name": id, "api": "openai-responses", "provider": provider,
-            "baseUrl": "https://api.openai.com/v1", "reasoning": true,
-            "input": ["text"],
-            "cost": {"input": 0.0, "output": 0.0, "cacheRead": 0.0, "cacheWrite": 0.0},
-            "contextWindow": 128000, "maxTokens": 4096
-        }))
-        .expect("model")
-    }
-
     #[test]
     fn service_tier_multiplier_matches_provider_rules() {
         assert_eq!(get_service_tier_cost_multiplier("gpt-5.5", Some("flex")), 0.5);
         assert_eq!(get_service_tier_cost_multiplier("gpt-5.5", Some("priority")), 2.5);
         assert_eq!(get_service_tier_cost_multiplier("gpt-5.4", Some("priority")), 2.0);
         assert_eq!(get_service_tier_cost_multiplier("gpt-5.4", None), 1.0);
-    }
-
-    #[test]
-    fn compat_defaults_follow_provider_and_url() {
-        assert_eq!(
-            get_compat(&model("openai", "gpt-5.5")).session_affinity_format,
-            SessionAffinityFormat::Openai
-        );
-        assert_eq!(
-            get_compat(&model("openrouter", "x")).session_affinity_format,
-            SessionAffinityFormat::Openrouter
-        );
     }
 }

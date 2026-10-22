@@ -2,7 +2,7 @@
 
 ## Q4 common-pin status
 
-Partial. Corrected global-fetch oracle now drives frozen SDK requests. SDK header6.26.0 restored; current RED is native output minimum16 versus frozen requested5 in scenario0. Later branches remain unported. [Exact audit/proof](../ai-scripted-provider-oracles.md). Historical recorded-fetch parity claims below are superseded. No assertion narrowed; `request.fetch` is an approved Rust-only seam; unset must match frozen default fetch (`AGENTS.md`).
+Partial. Corrected global-fetch oracle now drives frozen SDK requests. SDK header6.26.0 restored; removed native output floor and explicit-cache field. Shared usage/tool/incomplete-event fixes advance the exact differential to scenario10 affinity-header drift. Restoring frozen sendSessionIdHeader (default true), x-client-request-id and options-header precedence; later branches remain unported. [Exact audit/proof](../ai-scripted-provider-oracles.md). Historical recorded-fetch parity claims below are superseded. No assertion narrowed; `request.fetch` is an approved Rust-only seam; unset must match frozen default fetch (`AGENTS.md`).
 
 Source: `packages/ai/src/api/openai-responses.ts` and `openai-responses.lazy.ts`.
 Rust: `crates/pi-ai/src/api/openai_responses.rs`.
