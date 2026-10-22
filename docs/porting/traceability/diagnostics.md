@@ -19,3 +19,7 @@ Pinned source: `packages/ai/src/utils/diagnostics.ts` at commit `532f7d12cd19235
 - `format_thrown_value` returns `""` where TypeScript would return `undefined` when both `message` and `name` are empty.
 - No differential oracle: `createAssistantMessageDiagnostic` reads the wall clock, and the remaining helpers are fully covered by characterization tests. Timestamp behavior is asserted as positive epoch milliseconds.
 - No dependency beyond exact `serde`/`serde_json`.
+
+## Native resource diagnostics
+
+`ResourceDiagnostic.message/path` and every `ResourceCollision` text field retain `JsString`. `raw_resource_diagnostics` reproduces the prior serde rejection of lone-surrogate JSON, then round-trips high/low/pair values in all fields without replacement. The test imports the actual record module; source enum tags/field names are unchanged. Extension shortcut conflict construction retains native IDs/messages; encoding occurs only at actual stderr output when UI is absent. Outside constructors in resource_loader/skills and consumers in package_manager/loaders/prompt templates remain parent-owned integration work.
