@@ -52,6 +52,12 @@ Rust: `crates/pi-coding-agent/src/supervisor/` (`approval_reviewer.rs`, `respons
 | `runSupervisorService` | session open, model runtime, wake + console lifecycle, request loop, abort on SIGINT/SIGTERM | `run_supervisor_service` |
 | `runSupervisorRequestLoop` | recover → claim → process → console prompt → wake | `run_supervisor_request_loop`; differential `differential_supervisor_request_loop` (control rows + session file) |
 
+## Q18 main.ts native checkpoint
+
+Common pin: `4f9e6f8a4`. Console queue IDs/text, snapshots, startup paths/errors, extension diagnostics, request-loop claim tokens/DB paths and session/leaf IDs retain native UTF-16. File APIs receive encoded paths only at OS calls. Main-owned service/client DB-path fields are tracked in the lane prerequisite inventory; no scalar adapter is added.
+
+`tests/lossless_supervisor_main.rs` asserts raw extension diagnostics and queue/snapshot values. Execution and legacy supervisor-test adaptation remain pending coding-library compilation; this checkpoint is not runtime parity evidence.
+
 ## Gaps
 
 - `runSupervisorService` is process-level (signal handlers, real model runtime); its wiring is compiled and exercised
