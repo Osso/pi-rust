@@ -76,8 +76,7 @@ pub fn retain_thought_signature(existing: Option<&str>, incoming: Option<&str>) 
 
 /// Models that require explicit tool call IDs in function calls/responses.
 pub fn requires_tool_call_id(model_id: &str) -> bool {
-    let major = gemini_major_version(model_id);
-    model_id.starts_with("claude-") || model_id.starts_with("gpt-oss-") || major.is_some_and(|major| major >= 3)
+    model_id.starts_with("claude-") || model_id.starts_with("gpt-oss-")
 }
 
 fn gemini_major_version(model_id: &str) -> Option<u32> {
@@ -218,6 +217,10 @@ fn convert_thinking_block(same_provider_and_model: bool, thinking: &crate::types
 
 fn convert_tool_call_block(model: &Model, same_provider_and_model: bool, call: &crate::types::ToolCall) -> JsValue {
     let signature = resolve_thought_signature(same_provider_and_model, call.thought_signature.as_deref());
+    let model_id = model.id.to_lowercase();
+    let thinking_model = model.reasoning || model_id.contains("gemini-3") || model_id.contains("gemini-2.5");
+    let requires_sentinel = model.api == "google-generative-ai" && thinking_model;
+    let signature = signature.or_else(|| requires_sentinel.then(|| "skip_thought_signature_validator".to_owned()));
     let mut function_call = JsObject::new();
     function_call.insert("name".into(), JsValue::String(call.name.clone().into()));
     function_call.insert("args".into(), JsValue::Object(call.arguments.clone()));

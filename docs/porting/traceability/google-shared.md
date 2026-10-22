@@ -4,6 +4,10 @@ Source: `packages/ai/src/api/google-shared.ts`.
 Rust: `crates/pi-ai/src/api/google_shared.rs`.
 Tests: `crates/pi-ai/tests/google_shared.rs` (30 behavioral, ported from `google-thinking-signature.test.ts`, `google-shared-signed-empty-blocks.test.ts`, `google-shared-gemini3-unsigned-tool-call.test.ts`, `google-shared-image-tool-result-routing.test.ts`, `google-shared-convert-tools.test.ts`, `google-shared-retry.test.ts`), plus `crates/pi-ai/tests/differential_google_api.rs` (request bodies exercise `convertMessages`/`convertTools`).
 
+## Q4 replay IDs and unsigned signatures
+
+Frozen requiresToolCallId only recognizes case-sensitive `claude-`/`gpt-oss-`, not Gemini3. AI Studio Gemini thinking models (reasoning flag or case-insensitive gemini-3/gemini-2.5 substring) attach `skip_thought_signature_validator` to unsigned replay calls; Vertex never receives that sentinel. Actual frozen Generative25 and Vertex117 exposed both differences. Native now matches; prior unit tests requiring Gemini IDs and forbidding all sentinels were stale pre-repin assertions, replaced with exact Studio/Vertex behavior. Google shared31 GREEN; whole targets advance to source-absent retry wrapping (`google-replay-ids-signatures-green-1.log`).
+
 ## Q4 function-tool mapping
 
 Frozen `google-shared.ts:304–319` copies plain tool parameters; `mapToolChoice` maps only explicit choices, never infers strict mode. Removed source-absent supports_google_strict_tool_sampling/resolve_google_function_calling_mode, additionalProperties rewriting and strict validation failures. convert_tools now returns its optional array directly, without a fabricated constrained-sampling error. Old strict-helper tests asserted the previous source contract; replaced them with unchanged-schema and literal choice mapping checks, not weakened request assertions. Actual frozen Vertex116 reproduced the extra VALIDATED config and additionalProperties:false; after removal it advances to independent Gemini replay-ID drift. Google shared31 tests GREEN (`google-function-tools-green-1.log`).

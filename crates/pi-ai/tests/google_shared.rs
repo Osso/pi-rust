@@ -170,13 +170,13 @@ fn thought_signatures_are_retained_until_a_new_non_empty_one_arrives() {
 }
 
 #[test]
-fn tool_call_ids_are_required_for_gemini3_claude_and_gpt_oss() {
+fn tool_call_ids_are_required_only_for_claude_and_gpt_oss() {
     assert!(!requires_tool_call_id("gemini-2.5-flash"));
-    assert!(requires_tool_call_id("gemini-3.6-flash"));
+    assert!(!requires_tool_call_id("gemini-3.6-flash"));
     assert!(requires_tool_call_id("claude-sonnet-4-5"));
     assert!(requires_tool_call_id("gpt-oss-120b"));
-    assert!(requires_tool_call_id("GEMINI-3-PRO-PREVIEW"));
-    assert!(requires_tool_call_id("gemini-live-3-flash"));
+    assert!(!requires_tool_call_id("GEMINI-3-PRO-PREVIEW"));
+    assert!(!requires_tool_call_id("gemini-live-3-flash"));
 }
 
 #[test]
@@ -284,7 +284,7 @@ fn signed_empty_blocks_from_another_model_are_dropped_with_their_signature() {
 }
 
 #[test]
-fn gemini3_history_preserves_tool_call_ids_and_never_adds_skip_signatures() {
+fn gemini_history_omits_ids_and_studio_adds_unsigned_call_sentinels() {
     for (api, provider) in [("google-generative-ai", "google"), ("google-vertex", "google-vertex")] {
         let model = model(api, provider, "gemini-3-pro-preview", false);
         let ctx = context(vec![
@@ -309,27 +309,20 @@ fn gemini3_history_preserves_tool_call_ids_and_never_adds_skip_signatures() {
         let converted = contents(&model, &ctx);
 
         let calls = function_calls(&converted);
-        let call_ids: Vec<&str> = calls
-            .iter()
-            .map(|part| part["functionCall"]["id"].as_str().unwrap())
-            .collect();
-        assert_eq!(call_ids, ["call_1", "call_2"]);
+        assert!(calls.iter().all(|part| part["functionCall"].get("id").is_none()));
 
         let responses = function_responses(&converted);
-        let response_ids: Vec<&str> = responses
-            .iter()
-            .map(|part| part["functionResponse"]["id"].as_str().unwrap())
-            .collect();
-        assert_eq!(response_ids, ["call_1", "call_2"]);
-
-        let model_turn = converted.iter().find(|c| c["role"] == "model").unwrap();
         assert!(
-            !serde_json::to_string(model_turn)
-                .unwrap()
-                .contains("skip_thought_signature_validator")
+            responses
+                .iter()
+                .all(|part| part["functionResponse"].get("id").is_none())
         );
         for part in &calls {
-            assert!(part.get("thoughtSignature").is_none());
+            if api == "google-generative-ai" {
+                assert_eq!(part["thoughtSignature"], "skip_thought_signature_validator");
+            } else {
+                assert!(part.get("thoughtSignature").is_none());
+            }
         }
     }
 }
@@ -355,7 +348,7 @@ fn valid_signatures_survive_for_the_same_provider_and_model_only() {
     let calls = function_calls(&converted);
     assert_eq!(calls.len(), 2);
     assert_eq!(calls[0]["thoughtSignature"], VALID_SIG);
-    assert!(calls[1].get("thoughtSignature").is_none());
+    assert_eq!(calls[1]["thoughtSignature"], "skip_thought_signature_validator");
 }
 
 #[test]
@@ -387,7 +380,7 @@ fn non_gemini3_models_omit_tool_call_ids() {
     assert_eq!(calls.len(), 2);
     for part in &calls {
         assert!(part["functionCall"].get("id").is_none());
-        assert!(part.get("thoughtSignature").is_none());
+        assert_eq!(part["thoughtSignature"], "skip_thought_signature_validator");
     }
     let responses = function_responses(&converted);
     assert_eq!(responses.len(), 2);
