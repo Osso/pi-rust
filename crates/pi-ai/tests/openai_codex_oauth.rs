@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::time::Duration;
 
 use pi_ai::auth::oauth::openai_codex::OpenAICodexOAuth;
@@ -97,8 +98,8 @@ async fn device_code_login_notifies_polls_and_extracts_the_account_id() {
     assert_eq!(
         events[0],
         AuthEvent::DeviceCode {
-            user_code: "ABCD-1234".to_owned(),
-            verification_uri: "https://auth.openai.com/codex/device".to_owned(),
+            user_code: "ABCD-1234".into(),
+            verification_uri: "https://auth.openai.com/codex/device".into(),
             interval_seconds: Some(5.0),
             expires_in_seconds: Some(900.0),
         }
@@ -219,7 +220,10 @@ async fn base64url_jwt_payloads_fail_like_atob() {
         )
         .await
         .expect_err("atob rejects base64url '-'");
-    assert_eq!(error.detail(), Some("Failed to extract accountId from token"));
+    assert_eq!(
+        error.detail(),
+        Some(&JsString::from("Failed to extract accountId from token"))
+    );
 }
 
 #[tokio::test]
@@ -229,7 +233,7 @@ async fn rejects_unknown_login_methods_and_missing_account_ids() {
     let error = oauth.login(interaction).await.expect_err("unknown method");
     assert_eq!(
         error.detail(),
-        Some("Unknown OpenAI Codex login method: carrier-pigeon")
+        Some(&JsString::from("Unknown OpenAI Codex login method: carrier-pigeon"))
     );
 
     let fetch = RecordingFetch::new(vec![
@@ -243,7 +247,10 @@ async fn rejects_unknown_login_methods_and_missing_account_ids() {
     let oauth = OpenAICodexOAuth::with_runtime(runtime(fetch, NOW));
     let interaction = TestInteraction::new(vec![PromptAnswer::Text("device_code".to_owned())]);
     let error = oauth.login(interaction).await.expect_err("account id");
-    assert_eq!(error.detail(), Some("Failed to extract accountId from token"));
+    assert_eq!(
+        error.detail(),
+        Some(&JsString::from("Failed to extract accountId from token"))
+    );
 }
 
 #[tokio::test]
@@ -254,9 +261,9 @@ async fn device_code_404_has_the_source_message() {
     let error = oauth.login(interaction).await.expect_err("404");
     assert_eq!(
         error.detail(),
-        Some(
+        Some(&JsString::from(
             "OpenAI Codex device code login is not enabled for this server. Use browser login or verify the server URL."
-        )
+        ))
     );
 }
 
@@ -269,7 +276,7 @@ async fn to_auth_returns_the_access_token_and_marks_subscription_login() {
         .to_auth(OAuthCredential::new("r", "token", 0.0))
         .await
         .expect("auth");
-    assert_eq!(auth.api_key.as_deref(), Some("token"));
+    assert_eq!(auth.api_key.as_ref(), Some(&JsString::from("token")));
 }
 
 #[tokio::test(start_paused = true)]

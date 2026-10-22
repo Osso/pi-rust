@@ -1,5 +1,6 @@
 use pi_ai::auth::oauth::xai::XaiOAuth;
 use pi_ai::auth::{AuthEvent, OAuthAuth, OAuthCredential};
+use pi_js_compat::js_json::JsString;
 use tokio_util::sync::CancellationToken;
 
 #[path = "support/oauth.rs"]
@@ -60,8 +61,8 @@ async fn device_flow_delays_polling_and_handles_pending_and_slow_down() {
     assert_eq!(
         interaction.events()[0],
         AuthEvent::DeviceCode {
-            user_code: "ABCD-1234".to_owned(),
-            verification_uri: "https://accounts.x.ai/oauth2/device".to_owned(),
+            user_code: ("ABCD-1234".to_owned()).into(),
+            verification_uri: ("https://accounts.x.ai/oauth2/device".to_owned()).into(),
             interval_seconds: Some(5.0),
             expires_in_seconds: Some(900.0),
         }
@@ -104,8 +105,8 @@ async fn prefers_verification_uri_complete_and_defaults_interval_zero() {
     assert_eq!(
         interaction.events()[0],
         AuthEvent::DeviceCode {
-            user_code: "ABCD-1234".to_owned(),
-            verification_uri: "https://accounts.x.ai/oauth2/device?user_code=ABCD-1234".to_owned(),
+            user_code: ("ABCD-1234".to_owned()).into(),
+            verification_uri: ("https://accounts.x.ai/oauth2/device?user_code=ABCD-1234".to_owned()).into(),
             interval_seconds: None,
             expires_in_seconds: Some(900.0),
         }
@@ -121,7 +122,10 @@ async fn rejects_untrusted_verification_uris() {
         let oauth = XaiOAuth::with_runtime(runtime(fetch, NOW));
         let interaction = TestInteraction::new(vec![PromptAnswer::Error("unexpected prompt".to_owned())]);
         let error = oauth.login(interaction).await.expect_err("untrusted URI");
-        assert_eq!(error.detail(), Some("Untrusted verification URI in xAI OAuth response"));
+        assert_eq!(
+            error.detail(),
+            Some(&JsString::from("Untrusted verification URI in xAI OAuth response"))
+        );
     }
 
     let fetch = RecordingFetch::new(vec![device_response(serde_json::json!({
@@ -130,7 +134,10 @@ async fn rejects_untrusted_verification_uris() {
     let oauth = XaiOAuth::with_runtime(runtime(fetch, NOW));
     let interaction = TestInteraction::new(vec![PromptAnswer::Error("unexpected prompt".to_owned())]);
     let error = oauth.login(interaction).await.expect_err("untrusted URI");
-    assert_eq!(error.detail(), Some("Untrusted verification URI in xAI OAuth response"));
+    assert_eq!(
+        error.detail(),
+        Some(&JsString::from("Untrusted verification URI in xAI OAuth response"))
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -147,7 +154,7 @@ async fn denied_and_expired_device_codes_have_source_messages() {
         let oauth = XaiOAuth::with_runtime(runtime(fetch, NOW));
         let interaction = TestInteraction::new(vec![PromptAnswer::Error("unexpected prompt".to_owned())]);
         let error = oauth.login(interaction).await.expect_err("device error");
-        assert_eq!(error.detail(), Some(message));
+        assert_eq!(error.detail(), Some(&JsString::from(message)));
     }
 }
 
@@ -208,5 +215,5 @@ async fn to_auth_and_labels_match_the_source() {
         .to_auth(OAuthCredential::new("r", "token", 0.0))
         .await
         .expect("auth");
-    assert_eq!(auth.api_key.as_deref(), Some("token"));
+    assert_eq!(auth.api_key.as_ref(), Some(&JsString::from("token")));
 }

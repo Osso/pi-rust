@@ -1,5 +1,6 @@
 //! Port of `packages/ai/test/github-copilot-oauth.test.ts`.
 
+use pi_js_compat::js_json::JsString;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -342,8 +343,8 @@ fn device_code_login_reports_details_and_normalizes_the_verification_uri() {
         assert_eq!(
             events[0],
             AuthEvent::DeviceCode {
-                user_code: "ABCD-EFGH".to_owned(),
-                verification_uri: normalized,
+                user_code: ("ABCD-EFGH".to_owned()).into(),
+                verification_uri: (normalized).into(),
                 interval_seconds: Some(1.0),
                 expires_in_seconds: Some(900.0),
             }
@@ -360,7 +361,7 @@ fn device_code_login_reports_details_and_normalizes_the_verification_uri() {
         assert_eq!(
             interaction.events()[1],
             AuthEvent::Progress {
-                message: "Enabling models...".to_owned()
+                message: ("Enabling models...".to_owned()).into()
             }
         );
     });
@@ -513,19 +514,24 @@ fn rejects_invalid_enterprise_domains() {
 
 #[test]
 fn normalizes_domains_and_derives_base_urls() {
-    assert_eq!(normalize_domain("  github.com "), Some("github.com".to_owned()));
     assert_eq!(
-        normalize_domain("https://Company.GHE.com/path"),
+        normalize_domain(&JsString::from("  github.com ")),
+        Some("github.com".to_owned())
+    );
+    assert_eq!(
+        normalize_domain(&JsString::from("https://Company.GHE.com/path")),
         Some("company.ghe.com".to_owned())
     );
-    assert_eq!(normalize_domain(""), None);
-    assert_eq!(normalize_domain("not a url"), None);
+    assert_eq!(normalize_domain(&JsString::from("")), None);
+    assert_eq!(normalize_domain(&JsString::from("not a url")), None);
 
     assert_eq!(
-        get_base_url_from_token("tid=1;exp=2;proxy-ep=proxy.individual.githubcopilot.com;"),
-        Some("https://api.individual.githubcopilot.com".to_owned())
+        get_base_url_from_token(&JsString::from(
+            "tid=1;exp=2;proxy-ep=proxy.individual.githubcopilot.com;"
+        )),
+        (Some("https://api.individual.githubcopilot.com".to_owned())).map(JsString::from)
     );
-    assert_eq!(get_base_url_from_token("no proxy here"), None);
+    assert_eq!(get_base_url_from_token(&JsString::from("no proxy here")), None);
 }
 
 #[tokio::test]
@@ -546,10 +552,15 @@ async fn to_auth_derives_the_proxy_endpoint_from_the_access_token() {
     );
     let auth = oauth(fetch).to_auth(credential).await.expect("to auth");
     assert_eq!(
-        auth.api_key.as_deref(),
-        Some("tid=test;exp=9999999999i64;proxy-ep=proxy.business.githubcopilot.com;")
+        auth.api_key.as_ref(),
+        Some(&JsString::from(
+            "tid=test;exp=9999999999i64;proxy-ep=proxy.business.githubcopilot.com;"
+        ))
     );
-    assert_eq!(auth.base_url.as_deref(), Some("https://api.business.githubcopilot.com"));
+    assert_eq!(
+        auth.base_url.as_ref(),
+        Some(&JsString::from("https://api.business.githubcopilot.com"))
+    );
 
     let fallback = oauth(CopilotFetch::new(
         device_code("https://github.com/login/device", 1.0, 900.0),
@@ -560,8 +571,8 @@ async fn to_auth_derives_the_proxy_endpoint_from_the_access_token() {
     .await
     .expect("to auth");
     assert_eq!(
-        fallback.base_url.as_deref(),
-        Some("https://api.individual.githubcopilot.com")
+        fallback.base_url.as_ref(),
+        Some(&JsString::from("https://api.individual.githubcopilot.com"))
     );
 }
 
