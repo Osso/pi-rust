@@ -1,5 +1,6 @@
 //! Ported from `coding-agent/src/modes/interactive/components/session-selector.ts`.
 
+use pi_js_compat::{js_format, js_json::JsString};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::future::Future;
@@ -9,7 +10,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use pi_ai::request::BoxFuture;
-use pi_js_compat::string::js_trim;
+use pi_js_compat::js_json::encode_node_utf8;
 use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::keybindings::get_keybindings;
 use pi_tui::tui::{Component, Focusable};
@@ -34,10 +35,10 @@ pub type ProgressCallback = Rc<dyn Fn(usize, usize)>;
 /// The interactive TUI runs on a single-threaded local set, so the loader
 /// future carries no `Send` bound (a TS promise has none either).
 pub type SessionListLoader =
-    Rc<dyn Fn(Option<ProgressCallback>) -> Pin<Box<dyn Future<Output = Result<Vec<SessionInfo>, String>> + 'static>>>;
+    Rc<dyn Fn(Option<ProgressCallback>) -> Pin<Box<dyn Future<Output = Result<Vec<SessionInfo>, JsString>> + 'static>>>;
 
 /// Async rename callback (`(sessionPath, currentName) => Promise<void>`).
-pub type RenameSessionFn = Rc<dyn Fn(String, Option<String>) -> BoxFuture<'static, Result<(), String>>>;
+pub type RenameSessionFn = Rc<dyn Fn(JsString, Option<JsString>) -> BoxFuture<'static, Result<(), JsString>>>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SessionScope {
@@ -53,7 +54,7 @@ enum LoadReason {
     Toggle,
 }
 
-fn truncate(text: &str, width: usize, ellipsis: &str) -> String {
+fn truncate(text: &JsString, width: usize, ellipsis: &str) -> JsString {
     truncate_to_width_with(text, width, ellipsis, false)
 }
 
@@ -64,43 +65,43 @@ fn now_millis() -> i64 {
         .unwrap_or_default()
 }
 
-fn shorten_path(path: &str) -> String {
+fn shorten_path(path: &JsString) -> JsString {
     let home = pi_js_compat::process_env::get("HOME")
         .or_else(|| pi_js_compat::process_env::get("USERPROFILE"))
         .unwrap_or_default();
     if !path.is_empty() && !home.is_empty() && path.starts_with(&home) {
-        return format!("~{}", &path[home.len()..]);
+        return js_format!("~{}", path.slice(home.encode_utf16().count(), path.len()));
     }
     path.to_owned()
 }
 
-fn format_session_date(modified_ms: i64, now_ms: i64) -> String {
+fn format_session_date(modified_ms: i64, now_ms: i64) -> JsString {
     let diff_ms = now_ms - modified_ms;
     let diff_mins = diff_ms.div_euclid(60_000);
     let diff_hours = diff_ms.div_euclid(3_600_000);
     let diff_days = diff_ms.div_euclid(86_400_000);
     if diff_mins < 1 {
-        return "now".to_owned();
+        return JsString::from("now");
     }
     if diff_mins < 60 {
-        return format!("{diff_mins}m");
+        return js_format!("{}m", diff_mins);
     }
     if diff_hours < 24 {
-        return format!("{diff_hours}h");
+        return js_format!("{}h", diff_hours);
     }
     if diff_days < 7 {
-        return format!("{diff_days}d");
+        return js_format!("{}d", diff_days);
     }
     if diff_days < 30 {
-        return format!("{}w", diff_days.div_euclid(7));
+        return js_format!("{}w", diff_days.div_euclid(7));
     }
     if diff_days < 365 {
-        return format!("{}mo", diff_days.div_euclid(30));
+        return js_format!("{}mo", diff_days.div_euclid(30));
     }
-    format!("{}y", diff_days.div_euclid(365))
+    js_format!("{}y", diff_days.div_euclid(365))
 }
 
-fn canonicalize(path: Option<&str>) -> Option<String> {
+fn canonicalize(path: Option<&JsString>) -> Option<JsString> {
     path.filter(|path| !path.is_empty()).map(canonicalize_path)
 }
 
@@ -115,7 +116,7 @@ pub enum StatusKind {
 #[derive(Clone, Debug)]
 pub struct StatusMessage {
     pub kind: StatusKind,
-    pub message: String,
+    pub message: JsString,
 }
 
 /// Header row with scope/sort/name state, hints, and transient status.
@@ -127,7 +128,7 @@ pub struct SessionSelectorHeader {
     loading: bool,
     load_progress: Option<(usize, usize)>,
     show_path: bool,
-    confirming_delete_path: Option<String>,
+    confirming_delete_path: Option<JsString>,
     status_message: Option<StatusMessage>,
     status_deadline: Option<Instant>,
     show_rename_hint: bool,
@@ -184,7 +185,7 @@ impl SessionSelectorHeader {
         self.show_rename_hint = show;
     }
 
-    pub fn set_confirming_delete_path(&mut self, path: Option<String>) {
+    pub fn set_confirming_delete_path(&mut self, path: Option<JsString>) {
         self.confirming_delete_path = path;
     }
 
@@ -198,8 +199,8 @@ impl SessionSelectorHeader {
         }
     }
 
-    pub fn status_message(&self) -> Option<&str> {
-        self.status_message.as_ref().map(|status| status.message.as_str())
+    pub fn status_message(&self) -> Option<&JsString> {
+        self.status_message.as_ref().map(|status| &status.message)
     }
 
     /// Clear the transient status after its auto-hide delay.
@@ -217,7 +218,7 @@ impl SessionSelectorHeader {
 }
 
 impl Component for SessionSelectorHeader {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let title = match self.scope {
             SessionScope::Current => "Resume Session (Current Folder)",
             SessionScope::All => "Resume Session (All)",
@@ -242,11 +243,12 @@ impl Component for SessionSelectorHeader {
             + &with_theme(|theme| theme.fg(ThemeColor::Accent, name_label));
 
         let scope_text = if self.loading {
-            let progress_text = self
-                .load_progress
-                .map_or_else(|| "...".to_owned(), |(loaded, total)| format!("{loaded}/{total}"));
+            let progress_text = self.load_progress.map_or_else(
+                || JsString::from("..."),
+                |(loaded, total)| js_format!("{}/{}", loaded, total),
+            );
             with_theme(|theme| theme.fg(ThemeColor::Muted, "○ Current Folder | "))
-                + &with_theme(|theme| theme.fg(ThemeColor::Accent, &format!("Loading {progress_text}")))
+                + &with_theme(|theme| theme.fg(ThemeColor::Accent, &js_format!("Loading {}", progress_text)))
         } else {
             match self.scope {
                 SessionScope::Current => {
@@ -265,7 +267,7 @@ impl Component for SessionSelectorHeader {
             }
         };
 
-        let right_text = truncate(&format!("{scope_text}  {name_text}  {sort_text}"), width, "");
+        let right_text = truncate(&js_format!("{}  {}  {}", scope_text, name_text, sort_text), width, "");
         let available_left = width.saturating_sub(visible_width(&right_text)).saturating_sub(1);
         let left = truncate(&left_text, available_left, "");
         let spacing = width
@@ -273,14 +275,14 @@ impl Component for SessionSelectorHeader {
             .saturating_sub(visible_width(&right_text));
 
         let (hint_line_1, hint_line_2) = if let Some(_path) = &self.confirming_delete_path {
-            let confirm_hint = format!(
+            let confirm_hint = js_format!(
                 "Delete session? {} · {}",
                 key_hint("tui.select.confirm", "confirm"),
                 key_hint("tui.select.cancel", "cancel")
             );
             (
                 with_theme(|theme| theme.fg(ThemeColor::Error, &truncate(&confirm_hint, width, "…"))),
-                String::new(),
+                JsString::default(),
             )
         } else if let Some(status) = &self.status_message {
             let color = if status.kind == StatusKind::Error {
@@ -290,7 +292,7 @@ impl Component for SessionSelectorHeader {
             };
             (
                 with_theme(|theme| theme.fg(color, &truncate(&status.message, width, "…"))),
-                String::new(),
+                JsString::default(),
             )
         } else {
             let path_state = if self.show_path { "(on)" } else { "(off)" };
@@ -303,17 +305,20 @@ impl Component for SessionSelectorHeader {
                 key_hint("app.session.toggleNamedFilter", "named"),
                 key_hint("app.session.delete", "delete"),
                 key_hint("app.session.archive", "archive"),
-                key_hint("app.session.togglePath", &format!("path {path_state}")),
+                key_hint("app.session.togglePath", &js_format!("path {}", path_state)),
             ];
             if self.show_rename_hint {
                 hint_2_parts.push(key_hint("app.session.rename", "rename"));
             }
-            let hint_2 = hint_2_parts.join(&sep);
+            let hint_2 = hint_2_parts
+                .into_iter()
+                .reduce(|left, right| left + &sep + right)
+                .unwrap_or_default();
             (truncate(&hint_1, width, "…"), truncate(&hint_2, width, "…"))
         };
 
         vec![
-            format!("{left}{}{right_text}", " ".repeat(spacing)),
+            js_format!("{}{}{}", left, " ".repeat(spacing), right_text),
             hint_line_1,
             hint_line_2,
         ]
@@ -345,7 +350,7 @@ struct FlatSessionNode {
 }
 
 fn build_session_tree(sessions: &[SessionInfo]) -> Vec<SessionTreeNode> {
-    let mut by_path: HashMap<String, usize> = HashMap::new();
+    let mut by_path: HashMap<JsString, usize> = HashMap::new();
     let mut latest_activity: Vec<i64> = sessions.iter().map(|session| session.modified).collect();
     let mut children: Vec<Vec<usize>> = vec![Vec::new(); sessions.len()];
     for (index, session) in sessions.iter().enumerate() {
@@ -355,7 +360,7 @@ fn build_session_tree(sessions: &[SessionInfo]) -> Vec<SessionTreeNode> {
 
     let mut roots: Vec<usize> = Vec::new();
     for (index, session) in sessions.iter().enumerate() {
-        let parent_path = canonicalize(session.parent_session_path.as_deref());
+        let parent_path = canonicalize(session.parent_session_path.as_ref());
         if let Some(parent_index) = parent_path.and_then(|path| by_path.get(&path).copied()) {
             children[parent_index].push(index);
         } else {
@@ -454,18 +459,18 @@ fn flatten_session_tree(roots: &[SessionTreeNode]) -> Vec<FlatSessionNode> {
 /// Callbacks fired by the session list.
 #[derive(Default)]
 pub struct SessionListCallbacks {
-    pub on_select: Option<Rc<dyn Fn(String)>>,
+    pub on_select: Option<Rc<dyn Fn(JsString)>>,
     pub on_cancel: Option<Rc<dyn Fn()>>,
     pub on_exit: Option<Rc<dyn Fn()>>,
     pub on_toggle_scope: Option<Rc<dyn Fn()>>,
     pub on_toggle_sort: Option<Rc<dyn Fn()>>,
     pub on_toggle_name_filter: Option<Rc<dyn Fn()>>,
     pub on_toggle_path: Option<Rc<dyn Fn(bool)>>,
-    pub on_delete_confirmation_change: Option<Rc<dyn Fn(Option<String>)>>,
-    pub on_delete_session: Option<Rc<dyn Fn(String)>>,
-    pub on_archive_session: Option<Rc<dyn Fn(String)>>,
-    pub on_rename_session: Option<Rc<dyn Fn(String)>>,
-    pub on_error: Option<Rc<dyn Fn(String)>>,
+    pub on_delete_confirmation_change: Option<Rc<dyn Fn(Option<JsString>)>>,
+    pub on_delete_session: Option<Rc<dyn Fn(JsString)>>,
+    pub on_archive_session: Option<Rc<dyn Fn(JsString)>>,
+    pub on_rename_session: Option<Rc<dyn Fn(JsString)>>,
+    pub on_error: Option<Rc<dyn Fn(JsString)>>,
 }
 
 /// Custom session list component with multi-line items and search.
@@ -479,8 +484,8 @@ pub struct SessionList {
     name_filter: NameFilter,
     keybindings: KeybindingsManager,
     show_path: bool,
-    confirming_delete_path: Option<String>,
-    current_session_canonical_path: Option<String>,
+    confirming_delete_path: Option<JsString>,
+    current_session_canonical_path: Option<JsString>,
     max_visible: usize,
     pub callbacks: SessionListCallbacks,
     focused: bool,
@@ -493,7 +498,7 @@ impl SessionList {
         sort_mode: SortMode,
         name_filter: NameFilter,
         keybindings: KeybindingsManager,
-        current_session_file_path: Option<&str>,
+        current_session_file_path: Option<&JsString>,
     ) -> Self {
         let mut list = Self {
             all_sessions: sessions,
@@ -511,14 +516,14 @@ impl SessionList {
             callbacks: SessionListCallbacks::default(),
             focused: false,
         };
-        list.filter_sessions("");
+        list.filter_sessions(&JsString::default());
         list
     }
 
-    pub fn get_selected_session_path(&self) -> Option<&str> {
+    pub fn get_selected_session_path(&self) -> Option<&JsString> {
         self.filtered_sessions
             .get(self.selected_index)
-            .map(|node| node.session.path.as_str())
+            .map(|node| &node.session.path)
     }
 
     pub fn set_sort_mode(&mut self, sort_mode: SortMode) {
@@ -540,19 +545,19 @@ impl SessionList {
         self.filter_sessions(&query);
     }
 
-    pub fn set_confirming_delete_path(&mut self, path: Option<String>) {
+    pub fn set_confirming_delete_path(&mut self, path: Option<JsString>) {
         self.confirming_delete_path = path.clone();
         if let Some(callback) = &self.callbacks.on_delete_confirmation_change {
             callback(path);
         }
     }
 
-    pub fn search_value(&self) -> &str {
+    pub fn search_value(&self) -> &JsString {
         self.search_input.get_value()
     }
 
-    fn filter_sessions(&mut self, query: &str) {
-        let trimmed = js_trim(query);
+    fn filter_sessions(&mut self, query: &JsString) {
+        let trimmed = query.trim();
         let sessions_with_messages: Vec<SessionInfo> = self
             .all_sessions
             .iter()
@@ -588,7 +593,7 @@ impl SessionList {
         };
         if self.is_current_session_path(&selected.session.path) {
             if let Some(on_error) = &self.callbacks.on_error {
-                on_error("Cannot delete the currently active session".to_owned());
+                on_error(JsString::from("Cannot delete the currently active session"));
             }
             return;
         }
@@ -596,26 +601,27 @@ impl SessionList {
         self.set_confirming_delete_path(Some(path));
     }
 
-    fn is_current_session_path(&self, path: &str) -> bool {
+    fn is_current_session_path(&self, path: &JsString) -> bool {
         let Some(current) = &self.current_session_canonical_path else {
             return false;
         };
         canonicalize(Some(path)).unwrap_or_else(|| path.to_owned()) == *current
     }
 
-    fn build_tree_prefix(&self, node: &FlatSessionNode) -> String {
+    fn build_tree_prefix(&self, node: &FlatSessionNode) -> JsString {
         if node.depth == 0 {
-            return String::new();
+            return JsString::default();
         }
-        let parts: String = node
-            .ancestor_continues
-            .iter()
-            .map(|continues| if *continues { "│  " } else { "   " })
-            .collect();
+        let parts: JsString = JsString::join(
+            node.ancestor_continues
+                .iter()
+                .map(|continues| if *continues { "│  " } else { "   " }),
+            "",
+        );
         parts + if node.is_last { "└─ " } else { "├─ " }
     }
 
-    pub fn handle_input(&mut self, key_data: &str) {
+    pub fn handle_input(&mut self, key_data: &JsString) {
         let keybindings = get_keybindings();
 
         if self.confirming_delete_path.is_some() {
@@ -718,25 +724,26 @@ impl SessionList {
 }
 
 impl Component for SessionList {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
         lines.extend(self.search_input.render(width));
-        lines.push(String::new());
+        lines.push(JsString::default());
 
         if self.filtered_sessions.is_empty() {
             let empty_message = if self.name_filter == NameFilter::Named {
                 let toggle_key = key_text("app.session.toggleNamedFilter");
                 if self.show_cwd {
-                    format!("  No named sessions found. Press {toggle_key} to show all.")
+                    js_format!("  No named sessions found. Press {} to show all.", toggle_key)
                 } else {
-                    format!(
-                        "  No named sessions in current folder. Press {toggle_key} to show all, or Tab to view all."
+                    js_format!(
+                        "  No named sessions in current folder. Press {} to show all, or Tab to view all.",
+                        toggle_key
                     )
                 }
             } else if self.show_cwd {
-                "  No sessions found".to_owned()
+                JsString::from("  No sessions found")
             } else {
-                "  No sessions in current folder. Press Tab to view all.".to_owned()
+                JsString::from("  No sessions in current folder. Press Tab to view all.")
             };
             lines.push(truncate(
                 &with_theme(|theme| theme.fg(ThemeColor::Muted, &empty_message)),
@@ -763,31 +770,29 @@ impl Component for SessionList {
             let prefix = self.build_tree_prefix(node);
             let has_name = session.name.is_some();
             let display_text = session.name.clone().unwrap_or_else(|| session.first_message.clone());
-            let normalized_message: String = js_trim(
-                &display_text
-                    .chars()
-                    .map(|character| {
-                        let code = character as u32;
-                        if code < 0x20 || code == 0x7f { ' ' } else { character }
-                    })
-                    .collect::<String>(),
+            let normalized_message = JsString::from_utf16(
+                display_text
+                    .units()
+                    .iter()
+                    .map(|unit| if *unit < 0x20 || *unit == 0x7f { 0x20 } else { *unit })
+                    .collect(),
             )
-            .to_owned();
+            .trim();
 
             let age = format_session_date(session.modified, now);
             let message_count = session.message_count.to_string();
-            let mut right_part = format!("{message_count} {age}");
+            let mut right_part = js_format!("{} {}", message_count, age);
             if self.show_cwd && !session.cwd.is_empty() {
-                right_part = format!("{} {right_part}", shorten_path(&session.cwd));
+                right_part = js_format!("{} {}", shorten_path(&session.cwd), right_part);
             }
             if self.show_path {
-                right_part = format!("{} {right_part}", shorten_path(&session.path));
+                right_part = js_format!("{} {}", shorten_path(&session.path), right_part);
             }
 
             let cursor = if is_selected {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, "› "))
             } else {
-                "  ".to_owned()
+                JsString::from("  ")
             };
 
             let prefix_width = visible_width(&prefix);
@@ -840,7 +845,7 @@ impl Component for SessionList {
         }
 
         if start_index > 0 || end_index < self.filtered_sessions.len() {
-            let scroll_text = format!("  ({}/{})", self.selected_index + 1, self.filtered_sessions.len());
+            let scroll_text = js_format!("  ({}/{})", self.selected_index + 1, self.filtered_sessions.len());
             lines.push(with_theme(|theme| {
                 theme.fg(ThemeColor::Muted, &truncate(&scroll_text, width, ""))
             }));
@@ -879,25 +884,25 @@ enum SelectorMode {
 
 #[derive(Default)]
 struct SelectorEvents {
-    select: Option<String>,
+    select: Option<JsString>,
     cancel: bool,
     exit: bool,
     toggle_scope: bool,
     toggle_sort: bool,
     toggle_name_filter: bool,
     toggle_path: Option<bool>,
-    delete_confirmation: Option<Option<String>>,
-    error: Option<String>,
-    delete_session: Option<String>,
-    archive_session: Option<String>,
-    rename_session: Option<String>,
+    delete_confirmation: Option<Option<JsString>>,
+    error: Option<JsString>,
+    delete_session: Option<JsString>,
+    archive_session: Option<JsString>,
+    rename_session: Option<JsString>,
 }
 
 /// Component that renders a session selector.
 pub struct SessionSelectorComponent {
     session_list: SessionList,
     header: SessionSelectorHeader,
-    on_select_callback: Rc<dyn Fn(String)>,
+    on_select_callback: Rc<dyn Fn(JsString)>,
     on_cancel_callback: Rc<dyn Fn()>,
     on_exit_callback: Rc<dyn Fn()>,
     scope: SessionScope,
@@ -911,7 +916,7 @@ pub struct SessionSelectorComponent {
     archived_sessions_loader: Option<SessionListLoader>,
     request_render: Rc<dyn Fn()>,
     rename_session: Option<RenameSessionFn>,
-    control_db_path: Option<String>,
+    control_db_path: Option<JsString>,
     current_loading: bool,
     all_loading: bool,
     archived_loading: bool,
@@ -919,12 +924,12 @@ pub struct SessionSelectorComponent {
     archived_load_seq: u64,
     mode: SelectorMode,
     rename_input: Input,
-    rename_target_path: Option<String>,
+    rename_target_path: Option<JsString>,
     focused: bool,
     events: Rc<RefCell<SelectorEvents>>,
-    pending_delete: Option<String>,
-    pending_archive: Option<String>,
-    pending_rename: Option<String>,
+    pending_delete: Option<JsString>,
+    pending_archive: Option<JsString>,
+    pending_rename: Option<JsString>,
     pending_load_scope: bool,
 }
 
@@ -933,16 +938,16 @@ impl SessionSelectorComponent {
     pub fn new(
         current_sessions_loader: SessionListLoader,
         all_sessions_loader: SessionListLoader,
-        on_select: Rc<dyn Fn(String)>,
+        on_select: Rc<dyn Fn(JsString)>,
         on_cancel: Rc<dyn Fn()>,
         on_exit: Rc<dyn Fn()>,
         request_render: Rc<dyn Fn()>,
         rename_session: Option<RenameSessionFn>,
         show_rename_hint: Option<bool>,
         keybindings: Option<KeybindingsManager>,
-        control_db_path: Option<String>,
+        control_db_path: Option<JsString>,
         archived_sessions_loader: Option<SessionListLoader>,
-        current_session_file_path: Option<&str>,
+        current_session_file_path: Option<&JsString>,
     ) -> Self {
         let keybindings = keybindings.unwrap_or_else(|| KeybindingsManager::new(Default::default(), None));
         let mut session_list = SessionList::new(
@@ -1052,11 +1057,11 @@ impl SessionSelectorComponent {
     }
 
     /// `showError`: surface a validation error in the header.
-    pub fn show_error(&mut self, message: &str) {
+    pub fn show_error(&mut self, message: &JsString) {
         self.header.set_status_message(
             Some(StatusMessage {
                 kind: StatusKind::Error,
-                message: message.to_owned(),
+                message: message.into(),
             }),
             Some(4000),
         );
@@ -1174,7 +1179,7 @@ impl SessionSelectorComponent {
                 self.header.set_status_message(
                     Some(StatusMessage {
                         kind: StatusKind::Error,
-                        message: format!("Failed to load sessions: {message}"),
+                        message: js_format!("Failed to load sessions: {}", message),
                     }),
                     Some(4000),
                 );
@@ -1240,10 +1245,10 @@ impl SessionSelectorComponent {
         !loading
     }
 
-    fn enter_rename_mode(&mut self, session_path: &str, current_name: Option<&str>) {
+    fn enter_rename_mode(&mut self, session_path: &JsString, current_name: Option<&JsString>) {
         self.mode = SelectorMode::Rename;
         self.rename_target_path = Some(session_path.to_owned());
-        self.rename_input.set_value(current_name.unwrap_or_default());
+        self.rename_input.set_value(current_name.cloned().unwrap_or_default());
         self.rename_input.set_focused(true);
     }
 
@@ -1254,8 +1259,8 @@ impl SessionSelectorComponent {
     }
 
     /// `confirmRename`: save the trimmed name (`None` when empty), refresh, then leave rename mode.
-    pub async fn confirm_rename(&mut self, value: &str) -> Result<(), String> {
-        let next = js_trim(value).to_owned();
+    pub async fn confirm_rename(&mut self, value: &JsString) -> Result<(), JsString> {
+        let next = value.trim().to_owned();
         let Some(target) = self.rename_target_path.clone() else {
             self.exit_rename_mode();
             return Ok(());
@@ -1274,17 +1279,17 @@ impl SessionSelectorComponent {
     }
 
     /// Delete a session file, trying `trash` first and falling back to `unlink`.
-    pub async fn delete_session(&mut self, session_path: &str) {
+    pub async fn delete_session(&mut self, session_path: &JsString) {
         let result = delete_session_file(session_path).await;
         if result.ok {
             if let Some(control_db_path) = &self.control_db_path {
                 let _ = remove_session_metadata(control_db_path, session_path);
             }
             if let Some(current) = &mut self.current_sessions {
-                current.retain(|session| session.path != session_path);
+                current.retain(|session| &session.path != session_path);
             }
             if let Some(all) = &mut self.all_sessions {
-                all.retain(|session| session.path != session_path);
+                all.retain(|session| &session.path != session_path);
             }
             let sessions = match self.scope {
                 SessionScope::Current => self.current_sessions.clone().unwrap_or_default(),
@@ -1301,17 +1306,17 @@ impl SessionSelectorComponent {
             self.header.set_status_message(
                 Some(StatusMessage {
                     kind: StatusKind::Info,
-                    message: message.to_owned(),
+                    message: message.into(),
                 }),
                 Some(2000),
             );
             self.refresh_sessions_after_mutation().await;
         } else {
-            let error = result.error.unwrap_or_else(|| "Unknown error".to_owned());
+            let error = result.error.unwrap_or_else(|| JsString::from("Unknown error"));
             self.header.set_status_message(
                 Some(StatusMessage {
                     kind: StatusKind::Error,
-                    message: format!("Failed to delete: {error}"),
+                    message: js_format!("Failed to delete: {}", error),
                 }),
                 Some(3000),
             );
@@ -1320,12 +1325,12 @@ impl SessionSelectorComponent {
     }
 
     /// Archive the selected session and refresh the current scope.
-    pub async fn archive_selected_session(&mut self, session_path: &str) {
+    pub async fn archive_selected_session(&mut self, session_path: &JsString) {
         let Some(control_db_path) = self.control_db_path.clone() else {
             self.header.set_status_message(
                 Some(StatusMessage {
                     kind: StatusKind::Error,
-                    message: "Session archive requires a control database.".to_owned(),
+                    message: JsString::from("Session archive requires a control database."),
                 }),
                 Some(3000),
             );
@@ -1338,12 +1343,12 @@ impl SessionSelectorComponent {
             .chain(self.all_sessions.iter())
             .chain(self.archived_sessions.iter())
             .flat_map(|sessions| sessions.iter())
-            .find(|session| session.path == session_path);
+            .find(|session| &session.path == session_path);
         if selected.is_some_and(|session| session.is_archived.unwrap_or(false)) {
             self.header.set_status_message(
                 Some(StatusMessage {
                     kind: StatusKind::Info,
-                    message: "Session is already archived.".to_owned(),
+                    message: JsString::from("Session is already archived."),
                 }),
                 Some(2000),
             );
@@ -1354,7 +1359,7 @@ impl SessionSelectorComponent {
         self.header.set_status_message(
             Some(StatusMessage {
                 kind: StatusKind::Info,
-                message: "Session archived".to_owned(),
+                message: JsString::from("Session archived"),
             }),
             Some(2000),
         );
@@ -1446,7 +1451,7 @@ impl SessionSelectorComponent {
         }
     }
 
-    fn handle_rename_request(&mut self, session_path: &str) {
+    fn handle_rename_request(&mut self, session_path: &JsString) {
         if self.rename_session.is_none() {
             return;
         }
@@ -1463,33 +1468,33 @@ impl SessionSelectorComponent {
         };
         let current_name = sessions
             .iter()
-            .find(|session| session.path == session_path)
+            .find(|session| &session.path == session_path)
             .and_then(|session| session.name.clone());
-        self.enter_rename_mode(session_path, current_name.as_deref());
+        self.enter_rename_mode(session_path, current_name.as_ref());
     }
 }
 
 impl Component for SessionSelectorComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
-        lines.push(String::new());
+        lines.push(JsString::default());
         lines.push(with_theme(|theme| {
             theme.fg(ThemeColor::Accent, &"─".repeat(width.max(1)))
         }));
-        lines.push(String::new());
+        lines.push(JsString::default());
         if self.mode == SelectorMode::List {
             lines.extend(self.header.render(width));
-            lines.push(String::new());
+            lines.push(JsString::default());
             lines.extend(self.session_list.render(width));
         } else {
             lines.push(with_theme(|theme| theme.bold("Rename Session")));
-            lines.push(String::new());
+            lines.push(JsString::default());
             lines.extend(self.rename_input.render(width));
-            lines.push(String::new());
+            lines.push(JsString::default());
             lines.push(with_theme(|theme| {
                 theme.fg(
                     ThemeColor::Muted,
-                    &format!(
+                    &js_format!(
                         "{} to save · empty to unname · {} to cancel",
                         key_text("tui.select.confirm"),
                         key_text("tui.select.cancel")
@@ -1497,14 +1502,14 @@ impl Component for SessionSelectorComponent {
                 )
             }));
         }
-        lines.push(String::new());
+        lines.push(JsString::default());
         lines.push(with_theme(|theme| {
             theme.fg(ThemeColor::Accent, &"─".repeat(width.max(1)))
         }));
         lines
     }
 
-    fn handle_input(&mut self, data: &str) {
+    fn handle_input(&mut self, data: &JsString) {
         if self.mode == SelectorMode::Rename {
             let keybindings = get_keybindings();
             if keybindings.matches(data, "tui.select.cancel") {
@@ -1553,18 +1558,18 @@ enum DeleteMethod {
 struct DeleteResult {
     ok: bool,
     method: DeleteMethod,
-    error: Option<String>,
+    error: Option<JsString>,
 }
 
-async fn delete_session_file(session_path: &str) -> DeleteResult {
+async fn delete_session_file(session_path: &JsString) -> DeleteResult {
     let mut command = tokio::process::Command::new("trash");
     if session_path.starts_with('-') {
         command.arg("--");
     }
-    command.arg(session_path);
+    command.arg(encode_node_utf8(session_path));
     let trash_result = command.output().await;
 
-    let mut trash_error: Option<String> = None;
+    let mut trash_error: Option<JsString> = None;
     let status = match &trash_result {
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
@@ -1573,19 +1578,19 @@ async fn delete_session_file(session_path: &str) -> DeleteResult {
                 parts.push(stderr.lines().next().unwrap_or(&stderr).to_owned());
             }
             if !parts.is_empty() {
-                let joined = parts.join(" · ");
-                trash_error = Some(format!("trash: {}", slice_chars(&joined, 200)));
+                let joined = JsString::from(parts.join(" · "));
+                trash_error = Some(js_format!("trash: {}", slice_chars(&joined, 200)));
             }
             Some(output.status)
         }
         Err(error) => {
             let message = node_spawn_error_message("spawnSync", &pi_js_compat::js_json::JsString::from("trash"), error);
-            trash_error = Some(format!("trash: {}", slice_chars(&message, 200)));
+            trash_error = Some(js_format!("trash: {}", slice_chars(&message, 200)));
             None
         }
     };
 
-    let exists = Path::new(session_path).exists();
+    let exists = Path::new(&encode_node_utf8(session_path)).exists();
     if status.is_some_and(|status| status.success()) || !exists {
         return DeleteResult {
             ok: true,
@@ -1594,16 +1599,16 @@ async fn delete_session_file(session_path: &str) -> DeleteResult {
         };
     }
 
-    match tokio::fs::remove_file(session_path).await {
+    match tokio::fs::remove_file(encode_node_utf8(session_path)).await {
         Ok(()) => DeleteResult {
             ok: true,
             method: DeleteMethod::Unlink,
             error: None,
         },
         Err(error) => {
-            let unlink_error = error.to_string();
+            let unlink_error = pi_js_compat::node_fs::node_fs_error(&error, "unlink", session_path);
             let error = match trash_error {
-                Some(hint) => format!("{unlink_error} ({hint})"),
+                Some(hint) => js_format!("{} ({})", unlink_error, hint),
                 None => unlink_error,
             };
             DeleteResult {
@@ -1615,6 +1620,6 @@ async fn delete_session_file(session_path: &str) -> DeleteResult {
     }
 }
 
-fn slice_chars(text: &str, limit: usize) -> String {
-    text.chars().take(limit).collect()
+fn slice_chars(text: &JsString, limit: usize) -> JsString {
+    text.slice(0, limit)
 }
