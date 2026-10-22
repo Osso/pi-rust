@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use pi_agent_core::agent::AgentMessage;
 use pi_ai::types::{AssistantContent, AssistantMessage, StopReason, TextOrImageContent, UserContent};
-use pi_js_compat::date::{date_parse_millis, local_date_fields};
+use pi_js_compat::date::{date_parse_utf16, local_date_fields};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{self, JsString, JsValue};
 use pi_js_compat::js_regex::JsRegex;
@@ -269,7 +269,7 @@ fn format_tool_call(name: &str, args: &JsValue) -> JsString {
                 display.push_str(js_format!(
                     ":{}{}",
                     pi_js_compat::number::js_number_to_string(start),
-                    end.map_or_else(JsString::new, |end| js_format!(
+                    end.map_or_else(JsString::default, |end| js_format!(
                         "-{}",
                         pi_js_compat::number::js_number_to_string(end)
                     ))
@@ -310,14 +310,16 @@ fn format_tool_call(name: &str, args: &JsValue) -> JsString {
 
 fn format_label_timestamp(timestamp: &JsString, now_millis: i64) -> JsString {
     let now = local_date_fields(now_millis);
-    let Some(date) = date_parse_millis(timestamp).and_then(local_date_fields) else {
+    let millis = date_parse_utf16(timestamp.units());
+    let parsed = millis.is_finite().then_some(millis as i64);
+    let Some(date) = parsed.and_then(local_date_fields) else {
         // Every getter of an invalid `Date` is NaN, and NaN never compares equal.
         return JsString::from("aN/NaN/NaN NaN:NaN");
     };
     let time = format!("{:02}:{:02}", date.hours, date.minutes);
     let same_year = now.is_some_and(|now| now.year == date.year);
     if same_year && now.is_some_and(|now| now.month == date.month && now.day == date.day) {
-        return time;
+        return time.into();
     }
     let month = date.month + 1;
     let day = date.day;
@@ -330,7 +332,10 @@ fn format_label_timestamp(timestamp: &JsString, now_millis: i64) -> JsString {
 }
 
 fn entry_message(entry: &SessionEntry) -> Option<&AgentMessage> {
-    entry.as_message().map(|entry| entry.message.as_ref())
+    match entry {
+        SessionEntry::Known(KnownSessionEntry::Message(message)) => Some(message.message.as_ref()),
+        _ => None,
+    }
 }
 
 fn assistant_message(entry: &SessionEntry) -> Option<&AssistantMessage> {
@@ -348,10 +353,15 @@ fn has_text_content(message: &AssistantMessage) -> bool {
 }
 
 fn is_settings_entry(entry: &SessionEntry) -> bool {
-    matches!(
-        entry.entry_type(),
-        "label" | "custom" | "model_change" | "thinking_level_change" | "session_info"
-    )
+    [
+        "label",
+        "custom",
+        "model_change",
+        "thinking_level_change",
+        "session_info",
+    ]
+    .iter()
+    .any(|tag| entry.entry_type() == *tag)
 }
 
 /// Tree list component with selection and ASCII art visualization.
@@ -363,7 +373,7 @@ pub struct TreeList {
     max_visible_lines: usize,
     filter_mode: FilterMode,
     search_query: JsString,
-    tool_call_map: HashMap<JsString, ToolCallInfo>,
+    tool_call_map: HashMap<String, ToolCallInfo>,
     multiple_roots: bool,
     show_label_timestamps: bool,
     active_path_ids: HashSet<JsString>,
@@ -431,13 +441,13 @@ impl TreeList {
         if self.filtered_indices.is_empty() {
             return 0;
         }
-        let entry_map: HashMap<&JsString, usize> = self
+        let entry_map: HashMap<JsString, usize> = self
             .flat_nodes
             .iter()
             .enumerate()
             .map(|(index, flat)| (flat.node.entry.id().cloned().unwrap_or_default(), index))
             .collect();
-        let visible_id_to_index: HashMap<&JsString, usize> = self
+        let visible_id_to_index: HashMap<JsString, usize> = self
             .filtered_indices
             .iter()
             .enumerate()
@@ -509,7 +519,7 @@ impl TreeList {
                 let mut has = leaf_id.as_ref() == node.entry.id();
                 for child in &node.children {
                     if contains_active
-                        .get(child.entry.id().cloned().unwrap_or_default())
+                        .get(&child.entry.id().cloned().unwrap_or_default())
                         .copied()
                         .unwrap_or(false)
                     {
@@ -525,7 +535,7 @@ impl TreeList {
         ordered_roots.sort_by_key(|node| {
             std::cmp::Reverse(
                 contains_active
-                    .get(node.entry.id().cloned().unwrap_or_default())
+                    .get(&node.entry.id().cloned().unwrap_or_default())
                     .copied()
                     .unwrap_or(false),
             )
@@ -579,7 +589,7 @@ impl TreeList {
             let mut rest: Vec<&SessionTreeNode> = Vec::new();
             for child in children {
                 if contains_active
-                    .get(child.entry.id().cloned().unwrap_or_default())
+                    .get(&child.entry.id().cloned().unwrap_or_default())
                     .copied()
                     .unwrap_or(false)
                 {
@@ -651,7 +661,7 @@ impl TreeList {
             .collect();
         let nodes = context_entries
             .iter()
-            .filter_map(|entry| nodes_by_id.get(entry.id().cloned().unwrap_or_default()).copied())
+            .filter_map(|entry| nodes_by_id.get(&entry.id().cloned().unwrap_or_default()).copied())
             .collect();
         (nodes, true)
     }
@@ -661,7 +671,7 @@ impl TreeList {
         let Some(message) = assistant_message(entry) else {
             return false;
         };
-        if Some(entry.id().cloned().unwrap_or_default()) == self.current_leaf_id.as_ref() {
+        if entry.id() == self.current_leaf_id.as_ref() {
             return false;
         }
         let has_text = has_text_content(message);
@@ -716,7 +726,6 @@ impl TreeList {
 
         let search_tokens: Vec<JsString> = split_js_whitespace(&self.search_query.to_lowercase())
             .into_iter()
-            .cloned()
             .collect();
         let (candidates, is_compacted_user_view) = self.build_filter_candidates();
         self.is_compacted_user_view = is_compacted_user_view;
@@ -743,7 +752,7 @@ impl TreeList {
                 }
             }
             filtered.retain(|index| {
-                !skip_set.contains(self.flat_nodes[*index].node.entry.id().cloned().unwrap_or_default())
+                !skip_set.contains(&self.flat_nodes[*index].node.entry.id().cloned().unwrap_or_default())
             });
         }
         self.filtered_indices = filtered;
@@ -1046,7 +1055,7 @@ impl TreeList {
                 flat.node.label_timestamp = label.map(|_| {
                     label_timestamp
                         .cloned()
-                        .unwrap_or_else(crate::utils::iso_time::now_iso_string)
+                        .unwrap_or_else(|| crate::utils::iso_time::now_iso_string().into())
                 });
                 break;
             }
@@ -1133,7 +1142,7 @@ impl TreeList {
                         } else {
                             let tool_name = match message {
                                 AgentMessage::ToolResult(result) => result.tool_name.clone(),
-                                _ => JsString::from("tool"),
+                                _ => "tool".to_owned(),
                             };
                             with_theme(|theme| theme.fg(ThemeColor::Muted, &js_format!("[{}]", tool_name)))
                         }
@@ -1235,8 +1244,8 @@ impl TreeList {
                         .node
                         .entry
                         .id()
-                        .unwrap_or_default()
-                        .to_owned(),
+                        .cloned()
+                        .unwrap_or_default(),
                     index,
                 )
             })
@@ -1410,7 +1419,7 @@ impl TreeList {
                 && let Some(on_label_edit) = &self.on_label_edit
             {
                 on_label_edit(
-                    node.entry.id().cloned().unwrap_or_default(),
+                    &node.entry.id().cloned().unwrap_or_default(),
                     node.label.clone().as_ref(),
                 );
             }
@@ -1492,7 +1501,7 @@ impl Component for TreeList {
             };
 
             let total_chars = display_indent * 3;
-            let is_folded = self.folded_nodes.contains(entry_id);
+            let is_folded = self.folded_nodes.contains(&entry_id);
             let mut prefix_chars = JsString::default();
             for character_index in 0..total_chars {
                 let level = character_index / 3;
@@ -1508,7 +1517,7 @@ impl Component for TreeList {
                     if position_in_level == 0 {
                         prefix_chars.push_str(if flat_node.is_last { '└' } else { '├' });
                     } else if position_in_level == 1 {
-                        let foldable = self.is_foldable(entry_id);
+                        let foldable = self.is_foldable(&entry_id);
                         prefix_chars.push_str(if is_folded {
                             '⊞'
                         } else if foldable {
@@ -1530,7 +1539,7 @@ impl Component for TreeList {
             } else {
                 JsString::default()
             };
-            let path_marker = if self.active_path_ids.contains(entry_id) {
+            let path_marker = if self.active_path_ids.contains(&entry_id) {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, "• "))
             } else {
                 JsString::default()

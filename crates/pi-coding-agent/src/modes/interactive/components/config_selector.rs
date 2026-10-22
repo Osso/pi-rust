@@ -280,7 +280,7 @@ fn build_groups(resolved: &ResolvedPaths, agent_dir: &JsString) -> Vec<ResourceG
                 std::cmp::Ordering::Greater
             };
         }
-        locale_compare_utf16(&a.source, &b.source)
+        locale_compare_utf16(a.source.units(), b.source.units())
     });
 
     for group in &mut groups {
@@ -288,7 +288,7 @@ fn build_groups(resolved: &ResolvedPaths, agent_dir: &JsString) -> Vec<ResourceG
         for subgroup in &mut group.subgroups {
             subgroup
                 .items
-                .sort_by(|a, b| locale_compare_utf16(&a.display_name, &b.display_name));
+                .sort_by(|a, b| locale_compare_utf16(a.display_name.units(), b.display_name.units()));
         }
     }
     groups
