@@ -185,13 +185,12 @@ fn list_jsonl_files(root: &JsString) -> Result<Vec<JsString>, SessionManagerErro
     while let Some(dir) = pending.pop() {
         let encoded_dir = encode_node_utf8(&dir);
         let entries = fs::read_dir(&encoded_dir)
-            .map_err(|error| SessionManagerError::new(node_fs_error(&error, "scandir", &encoded_dir)))?;
+            .map_err(|error| SessionManagerError::new(node_fs_error(&error, "scandir", &dir)))?;
         for entry in entries {
-            let entry =
-                entry.map_err(|error| SessionManagerError::new(node_fs_error(&error, "scandir", &encoded_dir)))?;
+            let entry = entry.map_err(|error| SessionManagerError::new(node_fs_error(&error, "scandir", &dir)))?;
             let file_type = entry
                 .file_type()
-                .map_err(|error| SessionManagerError::new(node_fs_error(&error, "scandir", &encoded_dir)))?;
+                .map_err(|error| SessionManagerError::new(node_fs_error(&error, "scandir", &dir)))?;
             // `readdirSync` decodes names as UTF-8 with replacement.
             let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
             let path = node_join(&dir, &name);
@@ -267,8 +266,7 @@ fn read_claude_session(path: &JsString, fallback_cwd: &JsString) -> Result<Sourc
 
 fn read_json_lines(path: &JsString) -> Result<Vec<JsValue>, SessionManagerError> {
     let encoded_path = encode_node_utf8(path);
-    let bytes =
-        fs::read(&encoded_path).map_err(|error| SessionManagerError::new(node_read_error(&error, &encoded_path)))?;
+    let bytes = fs::read(&encoded_path).map_err(|error| SessionManagerError::new(node_read_error(&error, path)))?;
     // `readFileSync(path, "utf8")` decodes with replacement.
     let content = JsString::from(String::from_utf8_lossy(&bytes).as_ref());
     Ok(content
@@ -411,7 +409,7 @@ fn write_imported_session(
 ) -> Result<(), SessionManagerError> {
     let directory = encode_node_utf8(&node_dirname(path));
     fs::create_dir_all(&directory)
-        .map_err(|error| SessionManagerError::new(node_fs_error(&error, "mkdir", &directory)))?;
+        .map_err(|error| SessionManagerError::new(node_fs_error(&error, "mkdir", &node_dirname(path))))?;
     let header = SessionHeader::new(
         session_id.clone(),
         iso_time::now_iso_string().into(),
@@ -444,7 +442,7 @@ fn write_imported_session(
     let lines: Vec<String> = entries.iter().map(serialize_session_entry_for_persistence).collect();
     let encoded_path = encode_node_utf8(path);
     fs::write(&encoded_path, format!("{}\n", lines.join("\n")))
-        .map_err(|error| SessionManagerError::new(node_fs_error(&error, "open", &encoded_path)))
+        .map_err(|error| SessionManagerError::new(node_fs_error(&error, "open", path)))
 }
 
 fn is_codex_file_name_unit(unit: u16) -> bool {
@@ -493,4 +491,16 @@ fn string_or_undefined(value: Option<&JsValue>) -> Option<JsString> {
 /// `typeof value === "object" && value !== null`.
 fn is_record(value: &JsValue) -> bool {
     matches!(value, JsValue::Object(_) | JsValue::Array(_))
+}
+
+#[cfg(test)]
+mod native_error_tests {
+    use super::*;
+    #[test]
+    fn missing_import_file_error_keeps_original_raw_path() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = JsString::from(directory.path().to_str().unwrap()) + "/" + JsString::from_utf16(vec![0xd800]);
+        let error = read_json_lines(&path).unwrap_err();
+        assert!(error.message().contains(&path));
+    }
 }

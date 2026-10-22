@@ -51,3 +51,7 @@ units instead of reusing its encoded filesystem argument.
 and raw UI failure propagation. Written but unexecuted while coding compilation
 is blocked. replacement-cli-2 has zero trust/resource/package module primaries;
 no runtime PASS or renewed frozen differential parity claimed.
+
+NodeFS caller follow-up: pass original JsString to node_read_error, not the
+encoded filesystem argument. Raw unreadable trust-store path fixture written,
+unexecuted while coding compilation remains blocked.
