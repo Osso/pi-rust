@@ -1,9 +1,6 @@
 //! Pure helpers from the pinned plan-mode example. No tool execution.
-use fancy_regex::Regex;
-use pi_js_compat::{
-    js_json::JsString,
-    string::{js_trim, utf16_len},
-};
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_regex::JsRegex as Regex;
 use std::sync::LazyLock;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -13,66 +10,15 @@ pub struct TodoItem {
     pub completed: bool,
 }
 
-// JavaScript uses ASCII word boundaries but Unicode whitespace, including BOM.
 fn js_regex(pattern: &str) -> Regex {
-    let pattern = ascii_case_pattern(pattern);
-    let pattern = pattern
-        .replace(r"\d", "[0-9]")
-        .replace(
-            r"\S",
-            r"[^\t\n\x0b\x0c\r \u{a0}\u{1680}\u{2000}-\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}]",
-        )
-        .replace("(?m)^", r"(?:\A|(?<=[\n\r\u{2028}\u{2029}]))")
-        .replace(
-            r"\b",
-            r"(?:(?<=[A-Za-z0-9_])(?![A-Za-z0-9_])|(?<![A-Za-z0-9_])(?=[A-Za-z0-9_]))",
-        )
-        .replace(
-            r"\s",
-            r"[\t\n\x0b\x0c\r \u{a0}\u{1680}\u{2000}-\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}]",
-        );
-    Regex::new(&pattern).expect("constant JS-compatible pattern")
-}
-// Non-Unicode JS /i never folds Kelvin sign or long-s into ASCII letters.
-fn ascii_case_pattern(pattern: &str) -> String {
-    let Some(pattern) = pattern.strip_prefix("(?i)") else {
-        return pattern.into();
+    let (pattern, flags) = if let Some(pattern) = pattern.strip_prefix("(?i)") {
+        (pattern, "i")
+    } else if let Some(pattern) = pattern.strip_prefix("(?m)") {
+        (pattern, "m")
+    } else {
+        (pattern, "")
     };
-    let mut output = String::new();
-    let mut escaped = false;
-    let mut class = false;
-    for c in pattern.chars() {
-        if escaped {
-            output.push(c);
-            escaped = false;
-            continue;
-        }
-        match c {
-            '\\' => {
-                output.push(c);
-                escaped = true;
-            }
-            '[' => {
-                output.push(c);
-                class = true;
-            }
-            ']' => {
-                output.push(c);
-                class = false;
-            }
-            c if c.is_ascii_alphabetic() && !class => {
-                output.push('[');
-                output.push(c.to_ascii_lowercase());
-                output.push(c.to_ascii_uppercase());
-                output.push(']');
-            }
-            _ => output.push(c),
-        }
-    }
-    output
-}
-fn matches(pattern: &Regex, text: &str) -> bool {
-    pattern.is_match(text).expect("bounded example regex")
+    Regex::with_flags(pattern, flags).expect("constant JavaScript pattern")
 }
 static DESTRUCTIVE: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     [
@@ -167,10 +113,13 @@ static SAFE: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     .map(js_regex)
     .into()
 });
-pub fn is_safe_command(command: &str) -> bool {
-    !DESTRUCTIVE.iter().any(|p| matches(p, command)) && SAFE.iter().any(|p| matches(p, command))
+pub fn is_safe_command(command: impl Into<JsString>) -> bool {
+    let command = command.into();
+    !DESTRUCTIVE.iter().any(|pattern| pattern.is_match(&command))
+        && SAFE.iter().any(|pattern| pattern.is_match(&command))
 }
-pub fn clean_step_text(text: &str) -> JsString {
+
+pub fn clean_step_text(text: impl Into<JsString>) -> JsString {
     static BOLD: LazyLock<Regex> = LazyLock::new(|| js_regex(r"\*{1,2}([^*]+)\*{1,2}"));
     static CODE: LazyLock<Regex> = LazyLock::new(|| js_regex(r"`([^`]+)`"));
     static VERB: LazyLock<Regex> = LazyLock::new(|| {
@@ -181,37 +130,33 @@ pub fn clean_step_text(text: &str) -> JsString {
     static SPACE: LazyLock<Regex> = LazyLock::new(|| js_regex(r"\s+"));
     let cleaned = BOLD.replace_all(text, "$1");
     let cleaned = CODE.replace_all(&cleaned, "$1");
-    let cleaned = VERB.replace(&cleaned, "");
-    let cleaned = SPACE.replace_all(&cleaned, " ");
-    let cleaned = js_trim(&cleaned);
-    let cleaned = match cleaned.chars().next() {
-        Some(first) if first.len_utf16() == 1 => format!("{}{}", first.to_uppercase(), &cleaned[first.len_utf8()..]),
-        _ => cleaned.to_owned(),
-    };
-    let mut units: Vec<_> = cleaned.encode_utf16().collect();
-    if units.len() > 50 {
-        units.truncate(47);
-        units.extend("...".encode_utf16());
+    let cleaned = VERB.replace_all(&cleaned, "");
+    let cleaned = SPACE.replace_all(&cleaned, " ").trim();
+    let cleaned = cleaned.slice(0, 1).to_uppercase() + cleaned.slice(1, cleaned.len());
+    if cleaned.len() > 50 {
+        cleaned.slice(0, 47) + "..."
+    } else {
+        cleaned
     }
-    JsString::from_utf16(units)
 }
-pub fn extract_todo_items(message: &str) -> Vec<TodoItem> {
+
+pub fn extract_todo_items(message: impl Into<JsString>) -> Vec<TodoItem> {
     static HEADER: LazyLock<Regex> = LazyLock::new(|| js_regex(r"(?i)\*{0,2}Plan:\*{0,2}\s*\n"));
     static NUMBERED: LazyLock<Regex> = LazyLock::new(|| js_regex(r"(?m)^\s*(\d+)[.)]\s+\*{0,2}([^*\n]+)"));
     static TRAILING: LazyLock<Regex> = LazyLock::new(|| js_regex(r"\*{1,2}$"));
-    let Some(header) = HEADER.find(message).expect("header regex") else {
+    let message = message.into();
+    let Some(header) = HEADER.find(&message) else {
         return vec![];
     };
     let mut items = Vec::new();
-    for matched in NUMBERED.captures_iter(&message[header.end()..]) {
-        let matched = matched.expect("numbered regex");
-        let text = TRAILING.replace(js_trim(&matched[2]), "");
-        let text = js_trim(&text);
-        if utf16_len(text) <= 5 || text.starts_with(['`', '/', '-']) {
+    for matched in NUMBERED.captures_iter(message.slice(header.end(), message.len())) {
+        let text = matched.get(2).expect("step text capture").text().trim();
+        let text = TRAILING.replace_all(text, "").trim();
+        if text.len() <= 5 || ['`', '/', '-'].iter().any(|prefix| text.starts_with(*prefix)) {
             continue;
         }
         let text = clean_step_text(text);
-        if text.units().len() > 3 {
+        if text.len() > 3 {
             items.push(TodoItem {
                 step: items.len() + 1,
                 text,
@@ -221,13 +166,24 @@ pub fn extract_todo_items(message: &str) -> Vec<TodoItem> {
     }
     items
 }
-pub fn extract_done_steps(message: &str) -> Vec<f64> {
+
+pub fn extract_done_steps(message: impl Into<JsString>) -> Vec<f64> {
     static DONE: LazyLock<Regex> = LazyLock::new(|| js_regex(r"(?i)\[DONE:([0-9]+)\]"));
     DONE.captures_iter(message)
-        .filter_map(|c| c.expect("done regex")[1].parse::<f64>().ok().filter(|n| n.is_finite()))
+        .map(|captures| {
+            let digits = captures
+                .get(1)
+                .expect("done-step capture")
+                .text()
+                .to_utf8()
+                .expect("done-step pattern captures ASCII digits");
+            digits.parse::<f64>().expect("ASCII digits form a number")
+        })
+        .filter(|number| number.is_finite())
         .collect()
 }
-pub fn mark_completed_steps(text: &str, items: &mut [TodoItem]) -> usize {
+
+pub fn mark_completed_steps(text: impl Into<JsString>, items: &mut [TodoItem]) -> usize {
     let steps = extract_done_steps(text);
     for step in &steps {
         if let Some(item) = items.iter_mut().find(|item| item.step as f64 == *step) {
