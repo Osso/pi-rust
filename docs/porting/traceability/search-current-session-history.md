@@ -9,7 +9,7 @@ Frozen source: `packages/coding-agent/src/core/tools/search-current-session-hist
 | `collectSearchTexts`, text/tool name/arguments, thinking/signature/image omission | `collect_search_texts` | assistant/tool fixtures, hidden thinking/signature no-match fixtures; image exclusion inspected |
 | `collectMessageSearchTexts`: nonself tool results, bash command/output, inline summaries | `collect_message_search_texts` | result, bash command/output and compactionSummary fixtures |
 | own tool calls/results excluded | both collection helpers | self-traffic no-match fixture, context retains full original content |
-| `searchableEntry`: message/custom/compaction/branch summary | `searchable_entry` | exact result JSON for each entry family |
+| `searchableEntry`: message/custom/compaction/branch summary (frozen `search-current-session-history.ts:93-118`) | `searchable_entry` reads the raw stored record (loaded entries stay `SessionEntry::Unknown`; no typed decode) | exact result JSON for each entry family; `repin_session_storage::persisted_history_tool_recovers_source_compacted_ancestor` (RED `lossless-targets-a600f578.log`: totalMatches 0 because raw records were skipped; GREEN `search-history-green.log`) |
 | cursor, chronological page, neighboring context/compacted flag | existing execute pipeline | two real deployment matches plus summary; pages 1/2; limit, context, huge/leading-zero/invalid cursors |
 | persisted guard / trimmed empty query / no match / inactive branch | execute guards and history reader | eight behavioral tests + differential empty-query/no-match |
 | `renderCall`, `renderResult` | retained renderers | inspected against frozen; prior renderer differential is historical, not rerun as fresh pin proof |

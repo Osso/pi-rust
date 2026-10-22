@@ -6,8 +6,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, OnceLock};
 
 use pi_agent_core::{
-    AgentHarnessTool, AgentMessage, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError,
-    ToolExecutionMode,
+    AgentHarnessTool, AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
 use pi_js_compat::js_json::{JsString, JsValue as Value};
@@ -150,76 +149,60 @@ fn collect_search_texts(content: &Value) -> Vec<JsString> {
     texts
 }
 
-fn collect_message_search_texts(message: &AgentMessage, content: &Value) -> Vec<JsString> {
-    let value = pi_js_compat::js_json::to_value(message).expect("agent message must serialize");
-    if message.has_role("toolResult")
-        && value["toolName"].as_string() == Some(&JsString::from("search_current_session_history"))
+fn collect_message_search_texts(message: &Value, content: &Value) -> Vec<JsString> {
+    let role = message["role"].as_string();
+    if role == Some(&JsString::from("toolResult"))
+        && message["toolName"].as_string() == Some(&JsString::from("search_current_session_history"))
     {
         return Vec::new();
     }
-    if message.has_role("bashExecution") {
+    if role == Some(&JsString::from("bashExecution")) {
         return ["command", "output"]
-            .map(|key| value[key].as_string().cloned().unwrap_or_default())
+            .map(|key| message[key].as_string().cloned().unwrap_or_default())
             .to_vec();
     }
-    if message.has_role("branchSummary") || message.has_role("compactionSummary") {
-        return vec![value["summary"].as_string().cloned().unwrap_or_default()];
+    if role == Some(&JsString::from("branchSummary")) || role == Some(&JsString::from("compactionSummary")) {
+        return vec![message["summary"].as_string().cloned().unwrap_or_default()];
     }
     collect_search_texts(content)
 }
 
-fn message_content(message: &AgentMessage) -> Value {
-    let value = pi_js_compat::js_json::to_value(message).expect("agent message must serialize");
-    match &value {
-        Value::Object(object) => object.get("content").cloned().unwrap_or_else(|| value.clone()),
-        _ => value,
-    }
-}
-
+/// `searchableEntry()`: reads the raw stored record, as TS does, without a typed decode.
 fn searchable_entry(entry: &SessionEntry) -> Option<SearchableSessionEntry> {
-    match entry {
-        SessionEntry::Known(known) => match known {
-            crate::core::session_manager::KnownSessionEntry::Message(message) => {
-                let role = message.message.role().to_owned();
-                let content = message_content(&message.message);
-                let search_texts = collect_message_search_texts(&message.message, &content);
-                Some(SearchableSessionEntry {
-                    entry: entry.clone(),
-                    role,
-                    content,
-                    search_texts,
-                })
-            }
-            crate::core::session_manager::KnownSessionEntry::CustomMessage(custom_message) => {
-                let value = pi_js_compat::js_json::to_value(custom_message).expect("custom message must serialize");
-                let content = value
-                    .as_object()
-                    .and_then(|object| object.get("content"))
-                    .cloned()
-                    .unwrap_or(Value::Null);
-                Some(SearchableSessionEntry {
-                    entry: entry.clone(),
-                    role: "custom".into(),
-                    search_texts: collect_search_texts(&content),
-                    content,
-                })
-            }
-            crate::core::session_manager::KnownSessionEntry::Compaction(compaction) => Some(SearchableSessionEntry {
-                entry: entry.clone(),
-                role: "compaction".into(),
-                content: Value::String(compaction.summary.clone()),
-                search_texts: vec![compaction.summary.clone()],
-            }),
-            crate::core::session_manager::KnownSessionEntry::BranchSummary(summary) => Some(SearchableSessionEntry {
-                entry: entry.clone(),
-                role: "branchSummary".into(),
-                content: Value::String(summary.summary.clone()),
-                search_texts: vec![summary.summary.clone()],
-            }),
-            _ => None,
-        },
-        SessionEntry::Unknown(_) => None,
-    }
+    let value = pi_js_compat::js_json::to_value(entry).expect("session entry must serialize");
+    let kind = value["type"].as_string()?;
+    let (role, content, search_texts) = if *kind == "message" {
+        let message = &value["message"];
+        let content = match message.as_object().and_then(|object| object.get("content")) {
+            Some(content) => content.clone(),
+            None => message.clone(),
+        };
+        let search_texts = collect_message_search_texts(message, &content);
+        (
+            message["role"].as_string().cloned().unwrap_or_default(),
+            content,
+            search_texts,
+        )
+    } else if *kind == "custom_message" {
+        let content = value["content"].clone();
+        ("custom".into(), content.clone(), collect_search_texts(&content))
+    } else if *kind == "compaction" || *kind == "branch_summary" {
+        let role = if *kind == "compaction" {
+            "compaction"
+        } else {
+            "branchSummary"
+        };
+        let summary = value["summary"].as_string().cloned().unwrap_or_default();
+        (role.into(), Value::String(summary.clone()), vec![summary])
+    } else {
+        return None;
+    };
+    Some(SearchableSessionEntry {
+        entry: entry.clone(),
+        role,
+        content,
+        search_texts,
+    })
 }
 
 fn parse_cursor(cursor: Option<&JsString>) -> Result<usize, ToolError> {
