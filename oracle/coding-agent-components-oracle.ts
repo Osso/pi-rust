@@ -217,11 +217,9 @@ function instantiate(
 						case "show_device_code":
 							instance.showDeviceCode(action.info);
 							return;
-						case "show_details":
+						case "show_info":
 							instance.showInfo(action.lines ?? []);
 							return;
-						case "show_info":
-							throw new Error("Frozen LoginDialog has no provider-owned message/link info API");
 						case "show_waiting":
 							instance.showWaiting(action.message ?? "");
 							return;

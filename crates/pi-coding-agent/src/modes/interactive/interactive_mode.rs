@@ -9000,7 +9000,12 @@ impl InteractiveMode {
                 dialog.show_waiting(&"Waiting for authentication...".into());
             }
             AuthEvent::Info { message, links } => {
-                dialog.show_info(&message, links.as_deref().unwrap_or(&[]), false);
+                let mut lines = vec![message];
+                lines.extend(links.into_iter().flatten().map(|link| match link.label {
+                    Some(label) => js_format!("{}: {}", label, link.url),
+                    None => link.url,
+                }));
+                dialog.show_info(&lines);
             }
             AuthEvent::Progress { message } => dialog.show_progress(&message),
         }
@@ -9402,7 +9407,7 @@ impl InteractiveMode {
         )));
         if provider_id == "amazon-bedrock" {
             let docs_path = crate::config::get_docs_path().join("providers.md");
-            dialog.borrow().show_details(&[
+            dialog.borrow().show_info(&[
                 with_theme(|theme| {
                     theme.fg(
                         ThemeColor::Text,
@@ -9531,17 +9536,13 @@ impl InteractiveMode {
             Some(&provider_option.name),
             Some(&js_format!("{} setup", provider_option.name)),
         )));
-        dialog.borrow().show_info(
-            &js_format!(
-                "{} is configured outside pi.",
-                provider_option
-                    .method_name
-                    .clone()
-                    .unwrap_or_else(|| "Authentication".into())
-            ),
-            &[],
-            true,
-        );
+        dialog.borrow().show_info(&[js_format!(
+            "{} is configured outside pi.",
+            provider_option
+                .method_name
+                .clone()
+                .unwrap_or_else(|| "Authentication".into())
+        )]);
         self.mount_auth_dialog(&dialog);
     }
 

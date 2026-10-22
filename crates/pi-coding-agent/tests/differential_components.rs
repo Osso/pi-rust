@@ -451,11 +451,8 @@ fn login_dialog_cases() -> Vec<Value> {
             "props": {"providerId": "anthropic", "providerNameOverride": null, "titleOverride": "Custom Title"},
             "width": 90,
             "actions": [
-                {"kind": "show_details", "lines": ["First detail", "Second detail"]},
-                {"kind": "show_info", "message": "Provider info", "links": [
-                    {"url": "https://example.com/a", "label": "Docs"},
-                    {"url": "https://example.com/b"},
-                ], "showCloseHint": true},
+                {"kind": "show_info", "lines": ["First detail", "Second detail"]},
+                {"kind": "show_info", "lines": ["Provider info", "Docs: https://example.com/a", "https://example.com/b"]},
                 {"kind": "show_waiting", "message": "Waiting for authorization..."},
                 {"kind": "show_progress", "message": "Step 1 of 2"},
             ],
@@ -467,7 +464,7 @@ fn login_dialog_cases() -> Vec<Value> {
             "props": {"providerId": "anthropic", "providerNameOverride": null, "titleOverride": null},
             "width": 90,
             "actions": [
-                {"kind": "show_details", "lines": ["Enter your key"]},
+                {"kind": "show_info", "lines": ["Enter your key"]},
                 {"kind": "show_prompt", "message": "API key:", "placeholder": "sk-..."},
             ],
             "steps": [
@@ -1127,32 +1124,14 @@ fn run_component_case(case: &Value) -> Value {
                         };
                         dialog.show_device_code(&info);
                     }
-                    "show_details" => {
-                        let lines: Vec<JsString> = action["lines"]
+                    "show_info" => {
+                        let lines = action["lines"]
                             .as_array()
                             .unwrap()
                             .iter()
-                            .map(|line| line.as_str().unwrap().to_owned())
-                            .map(JsString::from)
-                            .collect();
-                        dialog.show_details(&lines.iter().map(JsString::from).collect::<Vec<_>>());
-                    }
-                    "show_info" => {
-                        let links: Vec<pi_ai::auth::types::AuthInfoLink> = action["links"]
-                            .as_array()
-                            .cloned()
-                            .unwrap_or_default()
-                            .iter()
-                            .map(|link| pi_ai::auth::types::AuthInfoLink {
-                                url: JsString::from(link["url"].as_str().unwrap().to_owned()),
-                                label: link["label"].as_str().map(str::to_owned).map(JsString::from),
-                            })
-                            .collect();
-                        dialog.show_info(
-                            &JsString::from(action["message"].as_str().unwrap_or_default()),
-                            &links,
-                            action["showCloseHint"].as_bool().unwrap_or(false),
-                        );
+                            .map(|line| JsString::from(line.as_str().unwrap()))
+                            .collect::<Vec<_>>();
+                        dialog.show_info(&lines);
                     }
                     "show_waiting" => {
                         dialog.show_waiting(&JsString::from(action["message"].as_str().unwrap_or_default()))
