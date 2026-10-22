@@ -4,6 +4,41 @@ use pi_coding_agent::core::session_tool_output::serialize_session_entry;
 use pi_js_compat::js_json::parse_lossless;
 
 #[test]
+fn restart_notice_stays_raw_before_process_environment_encoding() {
+    use pi_coding_agent::core::self_restart::{
+        ENV_SELF_RESTART_PROMPT, SelfRestartHandoff, SelfRestartRequest, build_self_restart_env,
+    };
+    use pi_js_compat::js_json::{JsString, encode_node_utf8};
+    use std::collections::BTreeMap;
+
+    let request = SelfRestartRequest {
+        session_file: "/tmp/restart.jsonl".into(),
+        prompt: Some(JsString::from_utf16(vec![0xd800, 0x78])),
+        old_pid: Some(7),
+    };
+    let handoff = SelfRestartHandoff::from_request(&request);
+    assert_eq!(handoff.prompt.as_ref().unwrap().units(), &[0xd800, 0x78]);
+    let environment = build_self_restart_env(&request, &BTreeMap::new(), 8);
+    let notice = environment.get(ENV_SELF_RESTART_PROMPT).unwrap();
+    assert_eq!(notice.units(), &[0xd800, 0x78]);
+    assert_eq!(encode_node_utf8(notice), "\u{fffd}x");
+}
+
+#[test]
+fn in_memory_session_name_keeps_units_after_source_normalization() {
+    use pi_coding_agent::core::session_manager::SessionManager;
+    use pi_js_compat::js_json::JsString;
+
+    let mut manager = SessionManager::in_memory(None, None).unwrap();
+    let name = JsString::from_utf16(vec![0x20, 0xd800, 0x0d, 0x0a, 0xdfff, 0x20]);
+    manager.set_session_name(Some(&name)).unwrap();
+    assert_eq!(manager.get_session_name().unwrap().units(), &[0xd800, 0x20, 0xdfff]);
+    manager.set_session_name(None).unwrap();
+    assert_eq!(manager.get_session_name(), None);
+    assert!(manager.has_session_name_state());
+}
+
+#[test]
 fn question_parser_and_answer_results_keep_raw_units_and_metadata() {
     use pi_coding_agent::core::tools::ask_questions::{format_answers, parse_params, question_result};
     let params = parse_lossless(r#"{"blocking":true,"questions":[{"question":"\ud800","options":[{"label":"\udfff"},{"label":"x"}]}],"metadata":{"\ud800":"\udfff"}}"#).unwrap();
