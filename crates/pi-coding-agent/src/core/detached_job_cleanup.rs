@@ -78,7 +78,17 @@ pub fn run_detached_job_artifact_cleanup(
     artifact_root: Option<&JsString>,
     now: Option<i64>,
 ) {
-    let artifact_root = artifact_root.cloned().unwrap_or_else(crate::config::get_agent_dir);
+    let artifact_root = match artifact_root {
+        Some(root) => root.clone(),
+        None => {
+            let root = crate::config::get_agent_dir();
+            let Some(root) = root.to_str() else {
+                eprintln!("Detached artifact cleanup failed: agent directory is not UTF-8");
+                return;
+            };
+            root.into()
+        }
+    };
     let now = now.unwrap_or_else(now_millis);
     match cleanup_expired_detached_job_artifacts(control_db_path, &artifact_root, now) {
         Ok(mut errors) => {

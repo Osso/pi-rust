@@ -259,7 +259,7 @@ pub fn launch_detached_bash_runner(manifest_path: &JsString) -> Result<u32, Deta
 /// `runDetachedBashRunner`.
 pub async fn run_detached_bash_runner(
     manifest_path: &JsString,
-    now: Option<&(dyn Fn() -> String + Sync)>,
+    now: Option<&(dyn Fn() -> JsString + Sync)>,
 ) -> Result<DetachedBashRunnerResult, DetachedBashRunnerError> {
     let manifest = wait_for_detached_bash_launch_manifest(manifest_path).await?;
     let env = manifest
@@ -303,7 +303,7 @@ pub async fn run_detached_bash_runner(
     let outcome = detached_bash_outcome(&controlled);
     let terminal_at = match now {
         Some(now) => now(),
-        None => iso_time::now_iso_string(),
+        None => iso_time::now_iso_string().into(),
     };
     let terminal = create_detached_job_terminal_input(
         &manifest.data.artifacts,

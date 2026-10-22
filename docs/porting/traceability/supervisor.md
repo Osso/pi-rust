@@ -4,6 +4,10 @@ Pinned source: `packages/coding-agent/src/supervisor/*.ts` at `532f7d12cd1923508
 Rust: `crates/pi-coding-agent/src/supervisor/` (`approval_reviewer.rs`, `response_tool.rs`, `service.rs`,
 `client.rs`, `main.rs`). Focused tests: `crates/pi-coding-agent/tests/supervisor.rs` (13), `tests/differential_supervisor_request_loop.rs` (1).
 
+## Q18 persisted message views
+
+Supervisor main retains each `SessionEntry::as_message()` borrowed/owned view while reading its message. This supports raw unknown-entry projection without borrowing a temporary; native response content remains unchanged. Existing supervisor request-loop tests await coding-library compilation; this lifetime correction is not runtime proof.
+
 ## approval-reviewer.ts
 
 | TypeScript source | Contract | Rust and proof |

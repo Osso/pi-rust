@@ -440,14 +440,14 @@ pub fn read_current_supervisor_response(
     if previous_leaf_id.is_some() && previous_leaf_index == -1 {
         return Err("Supervisor request boundary is missing from the current session branch".into());
     }
-    let current_messages: Vec<&AgentMessage> = entries
+    let current_messages: Vec<_> = entries
         .iter()
         .skip((previous_leaf_index + 1) as usize)
-        .filter_map(|entry| entry.as_message().map(|message| message.message.as_ref()))
+        .filter_map(|entry| entry.as_message())
         .collect();
     let assistant_messages: Vec<&pi_ai::types::AssistantMessage> = current_messages
         .iter()
-        .filter_map(|message| match message {
+        .filter_map(|message| match message.message.as_ref() {
             AgentMessage::Assistant(assistant) => Some(assistant.as_ref()),
             _ => None,
         })
