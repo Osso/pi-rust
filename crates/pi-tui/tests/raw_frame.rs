@@ -57,7 +57,9 @@ impl Terminal for CaptureTerminal {
     fn clear_screen(&mut self) {
         self.write(&"\x1b[2J\x1b[H".into());
     }
-    fn set_title(&mut self, _: &str) {}
+    fn set_title(&mut self, value: &JsString) {
+        self.write(&(JsString::from("\x1b]0;") + value + "\x07"));
+    }
     fn set_progress(&mut self, _: bool) {}
 }
 struct Lines(Rc<RefCell<Vec<JsString>>>);
@@ -149,4 +151,24 @@ fn process_terminal_encodes_native_write_buffer_only_at_actual_io() {
         let hex: String = bytes.lock().unwrap().iter().map(|byte| format!("{byte:02x}")).collect();
         assert_eq!(serde_json::to_string(&hex).unwrap(), expected["json"].as_str().unwrap());
     }
+}
+
+#[test]
+fn raw_terminal_title_reaches_osc_output_without_sanitation() {
+    let mut oracle = oracle::TsOracle::spawn("raw-tui-oracle.ts", "packages/tui/src");
+    let units = vec![0xd800, 0x1b, 0x07, 0x61, 0xdc00, 0xd83d, 0xde00];
+    let expected = oracle.request(&json!({"operation":"terminal_title", "units":units}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    let title = JsString::from_utf16(units);
+    let mut mock = CaptureTerminal::default();
+    mock.set_title(&title);
+    let bytes = Arc::new(Mutex::new(Vec::new()));
+    let mut terminal = ProcessTerminal::with_output(Box::new(Bytes(bytes.clone())));
+    Terminal::set_title(&mut terminal, &title);
+    let hex: String = bytes.lock().unwrap().iter().map(|byte| format!("{byte:02x}")).collect();
+    let actual = serde_json::to_string(&(mock.writes, hex)).unwrap();
+    assert_eq!(
+        parse_lossless(actual).unwrap(),
+        parse_lossless(expected["json"].as_str().unwrap()).unwrap()
+    );
 }

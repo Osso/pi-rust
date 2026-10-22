@@ -41,6 +41,20 @@ async function main(): Promise<void> {
 				output = { states, submitted };
 			} else if (request.operation === "frame") {
                 output = await captureFrame(source, native(request.units));
+            } else if (request.operation === "terminal_title") {
+                const module = await import(pathToFileURL(path.join(source, "terminal.ts")).href);
+                const terminal = new module.ProcessTerminal();
+                const writes: string[] = [];
+                const original = process.stdout.write;
+                try {
+                    process.stdout.write = ((value: string) => { writes.push(value); return true; }) as typeof original;
+                    terminal.setTitle(native(request.units));
+                } finally {
+                    process.stdout.write = original;
+                }
+                const child = spawnSync(process.execPath, ["-e", "process.stdout.write(JSON.parse(process.argv[1]))", JSON.stringify(writes[0])]);
+                if (child.status !== 0) throw new Error(child.stderr.toString());
+                output = [writes, child.stdout.toString("hex")];
             } else if (request.operation === "terminal_bytes") {
                 const child = spawnSync(process.execPath, ["-e", "process.stdout.write(JSON.parse(process.argv[1]))", JSON.stringify(native(request.units))]);
                 if (child.status !== 0) throw new Error(child.stderr.toString());

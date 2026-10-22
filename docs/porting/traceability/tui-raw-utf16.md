@@ -79,3 +79,8 @@ for high, low, pair, mixed raw strings. Mock captures are never terminal-encoded
 Proof now imports the actual production renderer and ProcessTerminal into the
 module-isolated harness; the earlier unused-interface shim is no longer needed.
 No whole-crate compilation acceptance: remaining component/editor consumers pending.
+
+`Terminal::set_title(&JsString)` appends the unsanitized native title inside OSC 0.
+`raw_frame::raw_terminal_title_reaches_osc_output_without_sanitation` compares a
+high/low/pair/ESC/BEL title against frozen ProcessTerminal's intercepted original
+stdout write and actual Node stdout bytes. Native interface RED then GREEN.

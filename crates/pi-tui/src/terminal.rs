@@ -60,7 +60,7 @@ pub trait Terminal {
     fn clear_line(&mut self);
     fn clear_from_cursor(&mut self);
     fn clear_screen(&mut self);
-    fn set_title(&mut self, title: &str);
+    fn set_title(&mut self, title: &JsString);
     fn set_progress(&mut self, active: bool);
     /// Drain queued input/resize events. The default has no event source.
     fn poll_events(&mut self) -> Vec<TerminalEvent> {
@@ -856,8 +856,8 @@ impl Terminal for ProcessTerminal {
         self.write("\x1b[2J\x1b[H");
     }
 
-    fn set_title(&mut self, title: &str) {
-        self.write(&format!("\x1b]0;{title}\x07"));
+    fn set_title(&mut self, title: &JsString) {
+        self.write(JsString::from("\x1b]0;") + title + "\x07");
     }
 
     fn set_progress(&mut self, active: bool) {
