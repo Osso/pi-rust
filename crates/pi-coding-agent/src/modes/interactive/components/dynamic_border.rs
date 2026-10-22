@@ -2,6 +2,7 @@
 
 use std::rc::Rc;
 
+use pi_js_compat::js_json::JsString;
 use pi_tui::components::dynamic_border::{BorderFormatter, DynamicBorder};
 
 use super::super::theme::{ThemeColor, with_theme};
@@ -12,5 +13,5 @@ pub fn dynamic_border() -> DynamicBorder {
 }
 
 fn themed_border() -> BorderFormatter {
-    Rc::new(|line: &str| with_theme(|theme| theme.fg(ThemeColor::Border, line)))
+    Rc::new(|line: &JsString| with_theme(|theme| theme.fg(ThemeColor::Border, line)))
 }

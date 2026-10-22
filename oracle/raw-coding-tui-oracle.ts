@@ -58,6 +58,34 @@ async function captureSummaries(source: string, units: number[]): Promise<unknow
 	return snapshots;
 }
 
+async function captureDialogs(source: string, units: number[]): Promise<unknown> {
+	const themeModule = await import(pathToFileURL(path.join(source, "modes/interactive/theme/theme.ts")).href);
+	const selectorModule = await import(pathToFileURL(path.join(source, "modes/interactive/components/extension-selector.ts")).href);
+	const inputModule = await import(pathToFileURL(path.join(source, "modes/interactive/components/extension-input.ts")).href);
+	themeModule.setThemeInstance(new themeModule.Theme(
+		{ accent: 0, text: 0, muted: 0, dim: 0, border: 0 }, {}, "256color",
+	));
+	const raw = String.fromCharCode(...units);
+	const callbacks: string[] = [];
+	const selector = new selectorModule.ExtensionSelectorComponent(raw, [raw, `${raw}next`], (value: string) => callbacks.push(value), () => {});
+	const input = new inputModule.ExtensionInputComponent(raw, undefined, (value: string) => callbacks.push(value), () => {});
+	input.handleInput(raw);
+	const plain = (lines: string[]): string[] => lines.map(text => text.replace(/\x1b\[[0-9;]*m/g, ""));
+	const snapshots = [];
+	for (const width of [4, 12, 40]) {
+		snapshots.push([plain(selector.render(width)), plain(input.render(width))]);
+		selector.invalidate();
+		input.invalidate();
+		snapshots.push([plain(selector.render(width)), plain(input.render(width))]);
+	}
+	selector.handleInput("j");
+	selector.handleInput("\r");
+	input.handleInput("\r");
+	selector.dispose();
+	input.dispose();
+	return [snapshots, callbacks];
+}
+
 async function main(): Promise<void> {
 	const source = process.argv[2]!;
 	const module = await import(pathToFileURL(path.join(source, "core/keybindings.ts")).href);
@@ -65,7 +93,9 @@ async function main(): Promise<void> {
 		try {
 			const request = JSON.parse(line);
 			let output: unknown;
-			if (request.operation === "summaries") {
+			if (request.operation === "dialogs") {
+				output = await captureDialogs(source, request.units);
+			} else if (request.operation === "summaries") {
 				output = await captureSummaries(source, request.units);
 			} else if (request.operation === "status") {
 				output = await captureStatus(source, request.units);
