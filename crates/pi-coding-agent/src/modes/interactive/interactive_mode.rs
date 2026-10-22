@@ -1792,10 +1792,8 @@ impl Component for AnyEditorHandle {
     }
 
     fn handle_input(&mut self, data: &JsString) {
-        let callbacks = self.0.borrow_mut().handle_input_deferred(data);
-        for callback in callbacks {
-            callback();
-        }
+        let input = self.0.borrow_mut().handle_input_deferred(data);
+        input.run(|resume| resume(&mut *self.0.borrow_mut()));
     }
 
     fn wants_input(&self) -> bool {
@@ -4236,9 +4234,17 @@ impl InteractiveMode {
         let session_id = self.session.borrow().session_manager().get_session_id().to_owned();
         match steer(agent_id, message.into(), session_id).await {
             Ok(()) => {
-                self.add_submitted_text_to_history(message);
-                self.clear_editor();
-                self.ui.request_render();
+                let result = self.editor().borrow_mut().add_to_history(message);
+                match result {
+                    Ok(()) => {
+                        self.clear_editor();
+                        self.ui.request_render();
+                    }
+                    Err(error) => {
+                        self.show_error(error.message);
+                        self.editor().borrow_mut().set_text(submitted_text);
+                    }
+                }
             }
             Err(error) => {
                 self.show_error(JsString::from("Could not steer ") + &agent.display_name + ": " + error);
@@ -4528,7 +4534,8 @@ impl InteractiveMode {
                     && user.input_source != Some(pi_ai::types::InputSource::Extension)
                     && !is_skill_block
                 {
-                    self.add_rendered_message_to_editor_history(&JsString::from(&(&text).clone()));
+                    self.add_rendered_message_to_editor_history(&JsString::from(&(&text).clone()))
+                        .unwrap_or_else(|error| throw_uncaught(ERROR, error.message));
                 }
             }
             AgentMessage::Assistant(assistant) => {
@@ -5747,23 +5754,29 @@ impl InteractiveMode {
 
     /// `addRenderedMessageToEditorHistory`: the default editor skips persistence
     /// (the prompt is already in the control DB); custom editors use `addToHistory`.
-    fn add_rendered_message_to_editor_history(&self, text: &JsString) {
+    fn add_rendered_message_to_editor_history(
+        &self,
+        text: &JsString,
+    ) -> Result<(), pi_tui::editor_component::EditorHistoryError> {
         let editor = self.editor();
         let default_editor: Rc<RefCell<dyn EditorComponent>> = self.default_editor.clone();
         if Rc::ptr_eq(&editor, &default_editor) {
             self.default_editor
                 .borrow_mut()
                 .add_to_history_without_persistence(text);
-            return;
+            return Ok(());
         }
-        editor.borrow_mut().add_to_history(text);
+        editor.borrow_mut().add_to_history(text)
     }
 
-    fn add_submitted_text_to_history(&self, text: &JsString) {
+    fn add_submitted_text_to_history(
+        &self,
+        text: &JsString,
+    ) -> Result<(), pi_tui::editor_component::EditorHistoryError> {
         if is_skill_invocation(text, &self.session().prompt_templates()) {
-            return;
+            return Ok(());
         }
-        self.editor().borrow_mut().add_to_history(text);
+        self.editor().borrow_mut().add_to_history(text)
     }
 
     fn clear_editor(&self) {
@@ -6848,7 +6861,8 @@ impl InteractiveMode {
         }
         self.close_response_complete_notification();
         if text.starts_with('/') {
-            self.add_submitted_text_to_history(&text);
+            self.add_submitted_text_to_history(&text)
+                .unwrap_or_else(|error| throw_uncaught(ERROR, error.message));
         }
 
         if !text.starts_with('/')
@@ -6883,7 +6897,8 @@ impl InteractiveMode {
                     self.editor().borrow_mut().set_text(&text);
                     return;
                 }
-                self.add_submitted_text_to_history(&text);
+                self.add_submitted_text_to_history(&text)
+                    .unwrap_or_else(|error| throw_uncaught(ERROR, error.message));
                 self.handle_bash_command(command.to_owned(), exclude_from_context).await;
                 self.is_bash_mode.set(false);
                 self.update_editor_border_color();
@@ -6898,7 +6913,8 @@ impl InteractiveMode {
         let session = self.session();
         if session.is_compacting() {
             if self.is_extension_command(&text) {
-                self.add_submitted_text_to_history(&text);
+                self.add_submitted_text_to_history(&text)
+                    .unwrap_or_else(|error| throw_uncaught(ERROR, error.message));
                 self.clear_editor();
                 if let Err(error) = session.prompt(&text, PromptOptions::default()).await {
                     self.show_error(error.message());
@@ -6914,7 +6930,8 @@ impl InteractiveMode {
             return;
         }
 
-        self.add_submitted_text_to_history(&text);
+        self.add_submitted_text_to_history(&text)
+            .unwrap_or_else(|error| throw_uncaught(ERROR, error.message));
         self.clear_editor();
         if session.is_streaming() {
             if let Err(error) = session
@@ -7742,7 +7759,8 @@ impl InteractiveMode {
         if text.is_empty() {
             return;
         }
-        self.add_submitted_text_to_history(&text);
+        self.add_submitted_text_to_history(&text)
+            .unwrap_or_else(|error| throw_uncaught(ERROR, error.message));
         self.clear_editor();
         let mode = self.ui_id.get();
         let session = self.session();
@@ -8697,7 +8715,8 @@ impl InteractiveMode {
             return true;
         }
         *self.pending_compaction_summary_edit_id.borrow_mut() = None;
-        self.add_submitted_text_to_history(summary);
+        self.add_submitted_text_to_history(summary)
+            .unwrap_or_else(|error| throw_uncaught(ERROR, error.message));
         self.editor().borrow_mut().set_text(&JsString::from(""));
         self.chat_container.borrow_mut().clear();
         self.render_initial_messages();
@@ -11971,6 +11990,7 @@ mod ui_tests {
     #[derive(Default)]
     struct TestModeSetup {
         multi_agent_store: Option<Arc<MultiAgentStore>>,
+        steer_multi_agent: Option<SteerMultiAgent>,
     }
 
     async fn build_mode_with_extra_providers(
@@ -12145,6 +12165,7 @@ mod ui_tests {
             runtime,
             InteractiveModeOptions {
                 multi_agent_store: setup.multi_agent_store,
+                steer_multi_agent: setup.steer_multi_agent,
                 ..Default::default()
             },
             Some(terminal_trait),
@@ -13489,6 +13510,7 @@ mod ui_tests {
             false,
             TestModeSetup {
                 multi_agent_store: Some(store),
+                ..Default::default()
             },
         )
         .await
@@ -15236,6 +15258,81 @@ mod ui_tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn rendered_message_history_persistence_error_bubbles_before_later_work() {
+        tokio::task::LocalSet::new().run_until(async {
+            let (mode, _terminal, _faux, temp) = build_mode().await;
+            let database = temp.path().join("failing-history.db");
+            let editor = CustomEditor::new(
+                Rc::new(InteractiveTuiHost(Rc::clone(&mode.ui))),
+                crate::modes::interactive::theme::get_editor_theme(),
+                KeybindingsManager::new(Default::default(), None),
+                CustomEditorOptions {
+                    prompt_history_control_db_path: Some(database.display().to_string().into()),
+                    ..Default::default()
+                },
+            ).unwrap();
+            let editor = Rc::new(RefCell::new(editor));
+            *mode.editor.borrow_mut() = editor.clone();
+            let connection = rusqlite::Connection::open(&database).unwrap();
+            connection.execute_batch("CREATE TRIGGER deny_history BEFORE INSERT ON prompt_history BEGIN SELECT RAISE(ABORT, 'history-write-failed'); END;").unwrap();
+            let message = AgentMessage::User(pi_ai::types::UserMessage {
+                role: pi_ai::types::UserRole::Tag,
+                content: pi_ai::types::UserContent::Text("persist me".into()),
+                input_source: None,
+                provider_native: None,
+                timestamp: 1.0,
+            });
+            let result = crate::utils::uncaught::catch_panics(|| mode.add_message_to_chat(&message, true));
+            assert!(result.is_err(), "frozen render aborts when inherited addToHistory throws");
+            let error = result.unwrap_err();
+            assert!(format_uncaught(error.as_ref()).contains("history-write-failed"));
+            assert_eq!(editor.borrow().get_history(), vec![JsString::from("persist me")]);
+            assert_eq!(connection.query_row("SELECT count(*) FROM prompt_history", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+        }).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn selected_agent_history_persistence_error_is_reported_and_restores_submitted_text() {
+        tokio::task::LocalSet::new().run_until(async {
+            let store = test_store();
+            let id = spawn_agent(&store, "writer", Some(1), Some(&"/tmp/child.jsonl".into()), None);
+            let mut child = store.get_agent(&id).unwrap();
+            child.parent_id = Some("main".into());
+            child.revision += 1;
+            store.publish_lifecycle_coordinator_snapshot(&child).unwrap();
+            let (mode, _terminal, _faux, temp) = build_mode_with_extra_providers(
+                StaticResourceLoader::new(), None,
+                SettingsManager::in_memory(Default::default(), SettingsManagerCreateOptions::default()),
+                Vec::new(), serde_json::Map::new(), false,
+                TestModeSetup {
+                    multi_agent_store: Some(store.clone()),
+                    steer_multi_agent: Some(Arc::new(|_, _, _| Box::pin(async { Ok(()) }))),
+                },
+            ).await;
+            assert!(matches!(store.select_agent_view_with_status(&id), crate::core::multi_agent_store::AgentViewSelectionResult::Ok(_)));
+            let database = temp.path().join("failing-steering-history.db");
+            let editor = CustomEditor::new(
+                Rc::new(InteractiveTuiHost(Rc::clone(&mode.ui))),
+                crate::modes::interactive::theme::get_editor_theme(),
+                KeybindingsManager::new(Default::default(), None),
+                CustomEditorOptions {
+                    prompt_history_control_db_path: Some(database.display().to_string().into()),
+                    ..Default::default()
+                },
+            ).unwrap();
+            let editor = Rc::new(RefCell::new(editor));
+            *mode.editor.borrow_mut() = editor.clone();
+            let connection = rusqlite::Connection::open(&database).unwrap();
+            connection.execute_batch("CREATE TRIGGER deny_history BEFORE INSERT ON prompt_history BEGIN SELECT RAISE(ABORT, 'history-write-failed'); END;").unwrap();
+            assert!(mode.submit_selected_agent_steering(&"persist me".into(), &" persist me ".into()).await);
+            assert_eq!(editor.borrow().get_text(), " persist me ");
+            assert!(chat_text(&mode).contains("history-write-failed"));
+            assert_eq!(editor.borrow().get_history(), vec![JsString::from("persist me")]);
+            assert_eq!(connection.query_row("SELECT count(*) FROM prompt_history", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+        }).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn initial_render_adds_interactive_user_messages_to_editor_history() {
         let local = tokio::task::LocalSet::new();
         local
@@ -15622,9 +15719,7 @@ mod ui_tests {
             Vec::new(),
             serde_json::Map::new(),
             false,
-            TestModeSetup {
-                multi_agent_store: None,
-            },
+            TestModeSetup::default(),
         )
         .await;
         (mode, terminal, temp)
