@@ -101,7 +101,7 @@ fn response() -> Value {
         .iter()
         .enumerate()
         .map(|(index, source)| {
-            let value = parse_git_url(&*JsString::from(source))
+            let value = parse_git_url(&JsString::from(*source))
                 .map(|parsed| serde_json::to_value(parsed).expect("GitSource must serialize"))
                 .unwrap_or(Value::Null);
             json!({"name": format!("case {index}"), "value": value})

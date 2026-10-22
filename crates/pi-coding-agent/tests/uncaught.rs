@@ -1,6 +1,7 @@
 //! Process-level uncaught errors (`utils/uncaught.rs`).
 
-use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::any::Any;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::process::Command;
@@ -82,7 +83,8 @@ fn run_crash_handler_child(mode: &str) -> std::process::Output {
 
 fn reporting_handler() -> ProcessCrashHandler {
     Arc::new(|payload| {
-        eprintln!("crash handler: {}", format_uncaught(payload));
+        let line = js_format!("crash handler: {}\n", format_uncaught(payload));
+        std::io::Write::write_all(&mut std::io::stderr(), encode_node_utf8(&line).as_bytes()).expect("stderr");
         std::process::exit(7);
     })
 }

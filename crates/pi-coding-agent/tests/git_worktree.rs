@@ -1,6 +1,6 @@
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::collections::VecDeque;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Mutex;
 
 use pi_coding_agent::utils::git_worktree::{
@@ -131,10 +131,10 @@ fn falls_back_to_origin_master() {
         .expect("worktree");
     assert_eq!(worktree, JsString::from("/repo/project-feature"));
     assert!(git.calls().contains(&vec![
-        "worktree".to_owned(),
-        "add".to_owned(),
-        "/repo/project-feature".to_owned(),
-        "origin/master".to_owned()
+        JsString::from("worktree"),
+        JsString::from("add"),
+        JsString::from("/repo/project-feature"),
+        JsString::from("origin/master")
     ]));
 }
 

@@ -4,7 +4,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::{JsString, JsValue};
 use std::fs;
 
 use pi_agent_core::agent::AgentMessage;
@@ -518,8 +518,8 @@ fn differential_serialize_conversation_and_file_lists() {
 
     let expected = oracle.request(COMPACTION, "serializeConversation", json!({ "messages": messages }));
     assert_eq!(
-        Value::String(serialize_conversation(&llm_messages(&messages))),
-        expected
+        JsValue::String(serialize_conversation(&llm_messages(&messages))),
+        JsValue::from(expected)
     );
 
     let agent_calls = json!([

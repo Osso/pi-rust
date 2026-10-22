@@ -1,9 +1,9 @@
-use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::{JsString, JsValue};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use pi_coding_agent::modes::rpc::{RpcClient, RpcClientOptions, RpcCommandBody};
-use serde_json::{Value, json};
+use serde_json::json;
 use tempfile::TempDir;
 
 const EVENT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -61,7 +61,7 @@ lines.on("line", (line) => {
 "#,
     );
     let client = RpcClient::new(options(script));
-    let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+    let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::<JsValue>::new()));
     let captured = std::sync::Arc::clone(&events);
     let _subscription = client.on_event(move |event| {
         captured.lock().expect("events").push(event.clone());

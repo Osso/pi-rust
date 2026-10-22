@@ -1405,7 +1405,7 @@ async fn collects_renderers_and_transformers_in_load_order() {
 async fn command_context_passes_fork_options_through() {
     let runtime = support::runtime();
     let runner = support::runner_for(Vec::new(), "/tmp", runtime, support::model_registry().await);
-    let calls = Arc::new(Mutex::new(Vec::<(String, Option<ForkOptions>)>::new()));
+    let calls = Arc::new(Mutex::new(Vec::<(JsString, Option<ForkOptions>)>::new()));
     let fork_calls = Arc::clone(&calls);
     let mut runner = runner;
     runner.bind_command_context(Some(ExtensionCommandContextActions {

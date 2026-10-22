@@ -118,7 +118,7 @@ struct Env(Value);
 impl AuthContext for Env {
     fn env(&self, name: &str) -> BoxFuture<'_, Option<JsString>> {
         assert_eq!(name, "CUSTOM_ANTHROPIC_API_KEY");
-        let value = self.0[name].as_str().map(str::to_owned);
+        let value = self.0[name].as_str().map(JsString::from);
         Box::pin(async move { value })
     }
     fn file_exists(&self, _: &JsString) -> BoxFuture<'_, bool> {

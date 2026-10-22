@@ -70,7 +70,7 @@ async fn stream_write_failure_retains_message_and_disposes_owned_session() {
     let disposed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let flag = std::sync::Arc::clone(&disposed);
     let registration = pi_ai::session_resources::register_session_resource_cleanup(Box::new(move |session| {
-        if session == Some(id.as_str()) {
+        if session == Some(&id) {
             flag.store(true, std::sync::atomic::Ordering::SeqCst);
         }
         Ok(())

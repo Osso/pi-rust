@@ -13,7 +13,7 @@ fn install_oracle_theme() {
         .enumerate()
         .map(|(index, key)| {
             (
-                key.to_string(),
+                JsString::from(*key),
                 ColorValue::Text(format!(
                     "#{:02x}{:02x}{:02x}",
                     (16 + 7 * index) % 256,

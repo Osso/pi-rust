@@ -279,7 +279,10 @@ async fn manual_compaction_uses_the_compaction_hook_and_marks_from_hook() {
     };
     assert_eq!(entry.summary, "summary from extension");
     assert_eq!(entry.from_hook, Some(true));
-    assert_eq!(entry.details.as_deref(), Some(&json!({"origin": "extension"})));
+    assert_eq!(
+        entry.details.as_deref(),
+        Some(&JsValue::from(json!({"origin": "extension"})))
+    );
 
     let captured = env.captured.lock().expect("captured");
     assert_eq!(captured.before.len(), 1);
@@ -391,7 +394,7 @@ async fn local_compaction_marks_the_entry_as_not_from_a_hook() {
     let result = env.session.compact(None).await.expect("compact");
     assert!(
         result.summary.ends_with("local summary"),
-        "unexpected summary: {}",
+        "unexpected summary: {:?}",
         result.summary
     );
     let SessionEntry::Known(pi_coding_agent::core::session_manager::KnownSessionEntry::Compaction(entry)) =

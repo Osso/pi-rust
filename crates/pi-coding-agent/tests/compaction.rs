@@ -106,7 +106,7 @@ impl EntryBuilder {
         self.entry(json!({ "type": "message", "message": message }))
     }
 
-    fn compaction(&mut self, summary: &str, first_kept_entry_id: &str) -> SessionEntry {
+    fn compaction(&mut self, summary: &str, first_kept_entry_id: &JsString) -> SessionEntry {
         self.entry(json!({
             "type": "compaction",
             "summary": summary,

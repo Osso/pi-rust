@@ -198,7 +198,7 @@ fn store_with(agents: &[AgentSnapshot]) -> Arc<MultiAgentStore> {
     store
 }
 
-fn error_text(result: Result<Option<Arc<dyn ViewedSessionMutationTarget>>, HandlerError>) -> String {
+fn error_text(result: Result<Option<Arc<dyn ViewedSessionMutationTarget>>, HandlerError>) -> JsString {
     match result {
         Ok(_) => panic!("expected an error"),
         Err(error) => error.message,

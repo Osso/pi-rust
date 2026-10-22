@@ -17,6 +17,7 @@ use pi_coding_agent::{
     format_size, generate_unified_patch, get_agent_dir, get_markdown_theme, load_skills_from_dir, parse_args,
     parse_skill_block, render_diff, session_entry_to_context_messages, truncate_head, version,
 };
+use pi_js_compat::js_json::JsString;
 
 fn assert_paths_exist() {
     // Type-only imports above are the proof; these function pointers keep the
@@ -26,22 +27,22 @@ fn assert_paths_exist() {
     let _: fn() -> &'static str = config_dir_name;
     let _: fn() -> std::path::PathBuf = get_agent_dir;
     let _: fn(usize) -> String = format_size;
-    let _ = generate_unified_patch;
+    let _: fn(JsString, JsString, JsString, usize) -> JsString = generate_unified_patch;
     let _ = convert_to_llm;
     let _ = create_event_bus;
     let _ = create_extension_runtime;
     let _ = discover_and_load_extensions;
     let _ = create_synthetic_source_info;
     let _ = load_skills_from_dir;
-    let _ = parse_skill_block;
+    let _: fn(JsString) -> Option<_> = parse_skill_block;
     let _ = render_diff;
     let _ = session_entry_to_context_messages;
-    let _ = truncate_head;
+    let _: fn(JsString, _) -> _ = truncate_head;
     let _ = compact::<pi_agent_core::harness::compaction::NoRetryCallbacks>;
     let _ = create_agent_session;
     let _ = create_coding_tools;
     let _ = create_read_only_tools;
-    let _ = create_edit_tool;
+    let _: fn(JsString, _) -> _ = create_edit_tool;
     let _ = create_ask_architect_tool_definition;
     let _ = get_markdown_theme;
     let _: Option<fn()> = None::<fn()>;

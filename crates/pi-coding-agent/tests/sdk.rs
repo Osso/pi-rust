@@ -154,7 +154,7 @@ async fn create_agent_session_keeps_running_without_models() {
         .expect_err("prompt requires auth");
     assert!(
         error.message().starts_with("No API key found for the selected model."),
-        "error: {}",
+        "error: {:?}",
         error.message()
     );
 }

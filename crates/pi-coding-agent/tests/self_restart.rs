@@ -125,12 +125,12 @@ fn resumes_the_requested_session_without_submitting_the_restart_notice_as_a_prom
     assert_eq!(args.session_id, None);
 }
 
-fn create_session(directory: &TempDir) -> (SessionManager, String) {
+fn create_session(directory: &TempDir) -> (SessionManager, JsString) {
     let root = directory.path().to_string_lossy().into_owned();
     let sessions = directory.path().join("sessions").to_string_lossy().into_owned();
     let session = SessionManager::create(&JsString::from(&root), Some(&JsString::from(&sessions)), None)
         .expect("session manager");
-    let session_file = session.get_session_file().expect("session file").to_owned();
+    let session_file = session.get_session_file().expect("session file").clone();
     (session, session_file)
 }
 

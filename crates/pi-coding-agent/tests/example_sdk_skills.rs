@@ -28,7 +28,7 @@ async fn filters_discovered_skills_and_appends_virtual_skill() {
     let session = example::run(fixture.options, output.clone()).await.unwrap();
     let skills = session.resource_loader().get_skills().skills;
     assert_eq!(
-        skills.iter().map(|skill| skill.name.as_str()).collect::<Vec<_>>(),
+        skills.iter().map(|skill| skill.name.clone()).collect::<Vec<_>>(),
         ["browser-local", "search-local", "my-skill"]
     );
     assert_eq!(serde_json::to_value(&skills).unwrap(), state["skills"]);

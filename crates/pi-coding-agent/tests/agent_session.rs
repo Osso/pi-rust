@@ -953,8 +953,11 @@ async fn binds_extension_relocation_handlers_on_the_session() {
     let fixture = fixture().await;
     let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
     let recorded = Arc::clone(&calls);
-    let relocate = Arc::new(move |cwd: &str| {
-        recorded.lock().unwrap().push(format!("relocate:{cwd}"));
+    let relocate = Arc::new(move |cwd: &JsString| {
+        recorded
+            .lock()
+            .unwrap()
+            .push(format!("relocate:{}", encode_node_utf8(cwd)));
         Box::pin(async { Ok(()) })
             as pi_ai::request::BoxFuture<'static, Result<(), pi_coding_agent::core::extensions::types::HandlerError>>
     });
@@ -1213,7 +1216,7 @@ async fn record_bash_result_commits_immediately_without_message_end() {
     use pi_coding_agent::core::bash_executor::BashResult;
 
     let fixture = fixture().await;
-    let message_end_roles = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let message_end_roles = Arc::new(std::sync::Mutex::new(Vec::<JsString>::new()));
     let sink = Arc::clone(&message_end_roles);
     fixture.session.subscribe(Arc::new(move |event| {
         if let AgentSessionEvent::Agent(pi_agent_core::agent::types::AgentEvent::MessageEnd { message }) = event {
@@ -1489,7 +1492,7 @@ impl pi_agent_core::agent::types::AgentTool for ScreenshotTool {
 }
 
 struct PermissionEchoTool {
-    executed: Arc<std::sync::Mutex<Vec<String>>>,
+    executed: Arc<std::sync::Mutex<Vec<JsString>>>,
 }
 
 impl pi_agent_core::agent::types::AgentTool for PermissionEchoTool {
@@ -2242,22 +2245,22 @@ async fn human_allow_always_spawns_the_permission_config_agent() {
     assert_eq!(tool_call_id, "allow-always:call-1");
     assert_eq!(
         params.get("agentType").and_then(JsValue::as_string),
-        Some("permission-config")
+        Some(&JsString::from("permission-config"))
     );
     assert_eq!(
         params.get("displayName").and_then(JsValue::as_string),
-        Some("Allow command")
+        Some(&JsString::from("Allow command"))
     );
     let prompt = params.get("prompt").and_then(JsValue::as_string).expect("prompt");
     assert!(
         prompt.contains("Target project: /syncthing/Sync/Projects/claude/claude-bash-hook"),
-        "prompt: {prompt}"
+        "prompt: {prompt:?}"
     );
-    assert!(prompt.contains("Original cwd: "), "prompt: {prompt}");
-    assert!(prompt.contains("Tool name: echo"), "prompt: {prompt}");
-    assert!(prompt.contains("\"text\": \"hello\""), "prompt: {prompt}");
+    assert!(prompt.contains("Original cwd: "), "prompt: {prompt:?}");
+    assert!(prompt.contains("Tool name: echo"), "prompt: {prompt:?}");
+    assert!(prompt.contains("\"text\": \"hello\""), "prompt: {prompt:?}");
     let expected_input = "{\n  \"1\": 1,\n  \"2\": 2,\n  \"text\": \"hello\"\n}";
-    assert!(prompt.contains(expected_input), "prompt: {prompt}");
+    assert!(prompt.contains(expected_input), "prompt: {prompt:?}");
     let titles = ui.titles.lock().unwrap().clone();
     assert_eq!(titles.len(), 1);
     assert_eq!(titles[0], format!("Approve echo?\n{expected_input}"));
@@ -2270,7 +2273,7 @@ async fn human_allow_always_spawns_the_permission_config_agent() {
 
 fn recording_supervisor(
     response: pi_coding_agent::core::session_control_db::SupervisorResponse,
-) -> (SupervisorDecisionRequester, Arc<std::sync::Mutex<Vec<String>>>) {
+) -> (SupervisorDecisionRequester, Arc<std::sync::Mutex<Vec<JsString>>>) {
     let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
     let recorded = Arc::clone(&calls);
     let requester: SupervisorDecisionRequester = Arc::new(move |input| {
@@ -2705,7 +2708,7 @@ impl ExtensionUiContext for FailingApprovalUi {
     }
 }
 
-fn tool_result_text(fixture: &Fixture) -> (bool, String) {
+fn tool_result_text(fixture: &Fixture) -> (bool, JsString) {
     let result = fixture
         .session
         .messages()
@@ -2719,9 +2722,8 @@ fn tool_result_text(fixture: &Fixture) -> (bool, String) {
             pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
             _ => None,
         })
-        .collect::<Vec<_>>()
-        .join("");
-    (result.is_error, text)
+        .collect::<Vec<_>>();
+    (result.is_error, JsString::join(text, ""))
 }
 
 #[tokio::test]

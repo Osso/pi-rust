@@ -23,7 +23,10 @@ async fn client_retains_frozen_identity_metadata_in_the_attached_snapshot() {
         .as_object_mut()
         .unwrap()
         .insert("type".into(), JsValue::String("attached".into()));
-    frame.as_object_mut().unwrap().insert("version".into(), 1.into());
+    frame
+        .as_object_mut()
+        .unwrap()
+        .insert("version".into(), JsValue::Number(1.0));
     let listener = tokio::net::UnixListener::bind(&path).unwrap();
     let send_frame = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();

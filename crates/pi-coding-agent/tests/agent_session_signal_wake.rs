@@ -93,7 +93,8 @@ async fn sigusr2_wakes_the_idle_session_without_the_poll_interval() {
             control_db_path: Some(JsString::from(control_db.clone())),
             ..Default::default()
         })
-        .await;
+        .await
+        .expect("bind extensions");
     faux.set_responses(vec![
         faux_assistant_message("signal reply", FauxAssistantMessageOptions::default()).into(),
     ]);

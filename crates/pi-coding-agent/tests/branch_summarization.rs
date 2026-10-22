@@ -343,7 +343,7 @@ fn carries_branch_summary_details_and_compaction_entries_into_preparation() {
     };
     assert_eq!(
         summary.get("summary").and_then(JsValue::as_string),
-        Some("earlier branch")
+        Some(&JsString::from("earlier branch"))
     );
     let AgentMessage::Custom(compaction_message) = &preparation.messages[1] else {
         panic!("compaction summary message must be custom");
@@ -372,7 +372,10 @@ fn includes_custom_message_entries_in_branch_messages() {
     let AgentMessage::Custom(message) = &preparation.messages[0] else {
         panic!("custom message must be custom");
     };
-    assert_eq!(message.get("customType").and_then(JsValue::as_string), Some("test"));
+    assert_eq!(
+        message.get("customType").and_then(JsValue::as_string),
+        Some(&JsString::from("test"))
+    );
 }
 
 #[test]
@@ -455,15 +458,17 @@ async fn generates_a_preambled_summary_with_usage_and_file_lists() {
     );
     assert_eq!(result.usage.expect("usage").total_tokens, 7.0);
     assert_eq!(result.read_files, Some(Vec::new()));
-    assert_eq!(result.modified_files, Some(vec!["src/a.ts".to_owned()]));
+    assert_eq!(result.modified_files, Some(vec![JsString::from("src/a.ts")]));
 
     let calls = log.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].max_tokens, Some(2048.0));
     assert_eq!(calls[0].cache_retention, Some(pi_ai::types::CacheRetention::None));
     assert_eq!(
-        calls[0].system_prompt.as_deref(),
-        Some(pi_coding_agent::core::compaction::SUMMARIZATION_SYSTEM_PROMPT)
+        calls[0].system_prompt.as_ref(),
+        Some(&JsString::from(
+            pi_coding_agent::core::compaction::SUMMARIZATION_SYSTEM_PROMPT
+        ))
     );
     assert!(calls[0].prompt.starts_with("<conversation>\n[User]: explore\n\n[Assistant tool calls]: edit(path=\"src/a.ts\")\n</conversation>\n\nCreate a structured summary"));
 }

@@ -208,11 +208,11 @@ fn openai_remote_compact_helpers_match_typescript() {
                     &JsString::from(case["base"].as_str().unwrap()),
                     case["custom"].as_str().map(JsString::from).as_ref(),
                 );
-                assert_eq!(Value::String(actual), *expected, "{name}");
+                assert_eq!(JsValue::String(actual), JsValue::from(expected.clone()), "{name}");
             }
             "endpoint" => {
                 let actual = build_compact_endpoint(&parse_model(&case["model"]));
-                assert_eq!(Value::String(actual), *expected, "{name}");
+                assert_eq!(JsValue::String(actual), JsValue::from(expected.clone()), "{name}");
             }
             "headers" => {
                 let headers: Option<pi_ai::types::ProviderHeaders> = case.get("headers").map(|headers| {
@@ -220,7 +220,7 @@ fn openai_remote_compact_helpers_match_typescript() {
                         .as_object()
                         .unwrap()
                         .iter()
-                        .map(|(name, value)| (name.clone(), value.as_str().map(str::to_owned)))
+                        .map(|(name, value)| (name.clone(), value.as_str().map(JsString::from)))
                         .collect()
                 });
                 let actual = headers_value(
@@ -243,17 +243,14 @@ fn openai_remote_compact_helpers_match_typescript() {
                     .as_array()
                     .map(|indices| indices.iter().map(|index| index.as_u64().unwrap() as usize).collect())
                     .unwrap_or_default();
-                let actual = Value::Array(limit_openai_compact_input(
-                    items.into_iter().map(JsValue::from).collect::<Vec<_>>(),
-                    &pinned,
-                    &native,
-                ));
-                assert_eq!(actual, *expected, "{name}");
+                let items = items.into_iter().map(JsValue::from).collect();
+                let actual = JsValue::Array(limit_openai_compact_input(items, &pinned, &native));
+                assert_eq!(actual, JsValue::from(expected.clone()), "{name}");
             }
             "extract" => {
                 let details = extract_openai_compact_details(
                     &parse_model(&case["model"]),
-                    &case["response"],
+                    &JsValue::from(case["response"].clone()),
                     &JsString::from(case["endpoint"].as_str().unwrap()),
                 )
                 .expect("details");
@@ -273,7 +270,13 @@ fn openai_remote_compact_helpers_match_typescript() {
                     .map(|message| serde_json::from_value(message.clone()).expect("agent message"))
                     .collect();
 
-                let previous: Vec<Value> = case["previous"].as_array().cloned().unwrap_or_default();
+                let previous: Vec<JsValue> = case["previous"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(JsValue::from)
+                    .collect();
                 let pinned: HashSet<usize> = case["pinnedMessageIndices"]
                     .as_array()
                     .map(|indices| indices.iter().map(|index| index.as_u64().unwrap() as usize).collect())

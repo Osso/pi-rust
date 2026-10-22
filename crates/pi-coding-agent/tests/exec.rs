@@ -29,7 +29,7 @@ async fn runs_in_the_requested_directory() {
     let result = exec_command(
         "sh",
         &["-c", "pwd"],
-        &directory.path().to_string_lossy(),
+        &JsString::from(directory.path().to_str().expect("utf-8 tempdir")),
         &ExecOptions::default(),
     )
     .await;

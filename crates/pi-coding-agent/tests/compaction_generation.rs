@@ -138,7 +138,8 @@ fn compaction_entry(provider_native: Option<ProviderNativeContext>) -> Compactio
         extra: Default::default(),
         duration_ms: None,
         details: Some(Box::new(JsValue::from(json!({"type": "openai-remote-compaction"})))),
-        provider_native: provider_native.map(|value| Box::new(JsValue::from(value))),
+        provider_native: provider_native
+            .map(|value| Box::new(pi_js_compat::js_json::to_value(&value).expect("provider native context"))),
         from_hook: None,
         first_kept_entry_index: None,
     }
@@ -210,7 +211,7 @@ async fn materializes_native_context_and_returns_the_summary() {
     );
     let calls = log.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
     assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].api_key.as_deref(), Some("test-key"));
+    assert_eq!(calls[0].api_key.as_ref(), Some(&JsString::from("test-key")));
     assert_eq!(calls[0].max_tokens, Some(8192.0));
     assert_eq!(calls[0].cache_retention, Some(pi_ai::types::CacheRetention::None));
     assert!(calls[0].session_id_is_set);
@@ -315,8 +316,10 @@ async fn generates_a_summary_with_the_exact_request_shape() {
     let calls = log.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
     assert_eq!(calls[0].max_tokens, Some(1600.0));
     assert_eq!(
-        calls[0].system_prompt.as_deref(),
-        Some(pi_coding_agent::core::compaction::SUMMARIZATION_SYSTEM_PROMPT)
+        calls[0].system_prompt.as_ref(),
+        Some(&JsString::from(
+            pi_coding_agent::core::compaction::SUMMARIZATION_SYSTEM_PROMPT
+        ))
     );
     assert_eq!(
         calls[0].prompt,
