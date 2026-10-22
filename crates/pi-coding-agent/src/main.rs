@@ -2392,7 +2392,6 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
             initial_messages: parsed.messages.iter().map(JsString::from).collect(),
             control_message,
             verbose: parsed.verbose.is_some_and(|value| value),
-            tui_mode: parsed.tui_mode,
             control_db_path: Some(control_db_path.clone()),
             multi_agent_store: Some(Arc::clone(&multi_agent_store)),
             wake_wait_agents_after_steering: Some(Arc::new({

@@ -3,7 +3,6 @@ use pi_coding_agent::cli::args::{
     ApprovalPresetName, DiagnosticType, ExtensionFlag, ListModels, Mode, UnknownFlagValue, parse_args,
     parse_thinking_level, print_help,
 };
-use pi_tui::tui::TuiMode;
 
 fn parse(values: &[&str]) -> pi_coding_agent::cli::args::Args {
     parse_args(&values.iter().map(|value| (*value).to_owned()).collect::<Vec<_>>())
@@ -329,29 +328,13 @@ fn parses_approval_presets_and_policies() {
 }
 
 #[test]
-fn parses_tui_mode() {
-    assert_eq!(parse(&["--tui-mode", "regular"]).tui_mode, Some(TuiMode::Regular));
-    assert_eq!(parse(&["--tui-mode", "fullscreen"]).tui_mode, Some(TuiMode::Fullscreen));
+fn removed_tui_mode_uses_unknown_flag_contract() {
+    let parsed = parse(&["--tui-mode", "fullscreen"]);
     assert_eq!(
-        parse(&["--tui-mode", "other"]).diagnostics,
-        vec![pi_coding_agent::cli::args::Diagnostic {
-            kind: DiagnosticType::Error,
-            message: "Invalid TUI mode \"other\". Valid values: regular, fullscreen".to_owned(),
-        }]
-    );
-    assert_eq!(
-        parse(&["--tui-mode"]).diagnostics,
-        vec![pi_coding_agent::cli::args::Diagnostic {
-            kind: DiagnosticType::Error,
-            message: "--tui-mode requires regular or fullscreen".to_owned(),
-        }]
-    );
-    let legacy = parse(&["--ui-mode", "fullscreen"]);
-    assert_eq!(legacy.tui_mode, None);
-    assert_eq!(
-        legacy.unknown_flags.get("ui-mode"),
+        parsed.unknown_flags.get("tui-mode"),
         Some(&UnknownFlagValue::String("fullscreen".to_owned()))
     );
+    assert!(parsed.diagnostics.is_empty());
 }
 
 #[test]

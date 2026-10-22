@@ -4,6 +4,10 @@ Pinned source: `packages/coding-agent/src/cli/args.ts` at `532f7d12cd19235081bd4
 
 Rust: `crates/pi-coding-agent/src/cli/args.rs`.
 
+## Common-pin renderer flag removal (2026-10-22)
+
+Frozen args.ts has no `--tui-mode` option/help entry. Removed native parser branch, typed field and main/interactive plumbing. Existing differential requests28035–28037 cover old flag names through the frozen unknown-long-flag contract, retaining values and repeated/missing-value behavior. Native `removed_tui_mode_uses_unknown_flag_contract` asserts `--tui-mode fullscreen` is unknown data, not a renderer selector. RED `test-args-fullscreen-red.log` observed old native parse/help divergence before deletion.
+
 ## Exported symbols
 
 | TypeScript | Rust | Proof |

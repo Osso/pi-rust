@@ -316,9 +316,9 @@ fn worker_panic_child() {
     }));
 }
 
-fn capture_stop_output(fixture: &Fixture, fullscreen: bool, worker: bool) -> String {
+fn capture_stop_output(fixture: &Fixture, worker: bool) -> String {
     let mut environment = agent_environment(fixture);
-    environment.push(("PI_RUST_STOP_MODE".to_owned(), format!("{fullscreen}:{worker}")));
+    environment.push(("PI_RUST_STOP_MODE".to_owned(), worker.to_string()));
     let mut child = pty::spawn(
         &std::env::current_exe().expect("test executable"),
         &["--ignored", "--exact", "terminal_stop_child", "--nocapture"],
@@ -345,14 +345,9 @@ fn capture_stop_output(fixture: &Fixture, fullscreen: bool, worker: bool) -> Str
 #[test]
 fn worker_restore_matches_normal_ui_stop_bytes() {
     let fixture = fixture();
-    for fullscreen in [false, true] {
-        let normal = capture_stop_output(&fixture, fullscreen, false);
-        let worker = capture_stop_output(&fixture, fullscreen, true);
-        assert_eq!(
-            worker, normal,
-            "stop output must be byte-identical; fullscreen={fullscreen}"
-        );
-    }
+    let normal = capture_stop_output(&fixture, false);
+    let worker = capture_stop_output(&fixture, true);
+    assert_eq!(worker, normal, "stop output must be byte-identical");
 }
 
 #[test]
@@ -370,15 +365,10 @@ fn terminal_stop_child() {
     let Ok(mode) = std::env::var("PI_RUST_STOP_MODE") else {
         return;
     };
-    let (fullscreen, worker) = mode.split_once(':').expect("stop mode");
+    let worker = mode.as_str();
     let terminal: Rc<RefCell<dyn Terminal>> = Rc::new(RefCell::new(pi_tui::ProcessTerminal::new()));
     let restore = terminal.borrow().crash_restore().expect("real terminal restore");
     let ui = InteractiveTuiHandle::new(create_interactive_tui(InteractiveTuiOptions {
-        tui_mode: if fullscreen == "true" {
-            pi_tui::tui::TuiMode::Fullscreen
-        } else {
-            pi_tui::tui::TuiMode::Regular
-        },
         show_hardware_cursor: false,
         log_directory: JsString::from(std::env::var("PI_CODING_AGENT_DIR").expect("agent dir")),
         terminal: Some(terminal.clone()),

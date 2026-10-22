@@ -2,6 +2,12 @@
 
 Ported to `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs`.
 
+## Frozen single-renderer reconciliation (2026-10-22)
+
+Frozen `interactive-mode.ts:674` constructs one `TUI`; its stop paths (:5150–5176, :5317) call `ui.stop()` without alternate-screen output modes. Removed unreachable native `switch_tui_mode`, fullscreen teardown/transcript rerender, shared fullscreen flag and fullscreen-only short copy confirmation. Removed old-only settings rows/config/callbacks for TUI mode, fullscreen exit output and scrollbar; frozen `settings-selector.ts` contains none. Existing regular teardown/editor/settings behavior remains.
+
+Deleted four old-only failing UI tests (fullscreen message placement, transcript-on-fullscreen-exit, fullscreen resume-hint preservation, and TUI-mode setting switch). Their RED logs are `lib-*-95fcd282.log`; none has a frozen-valid fullscreen remainder. Retained unrelated status/persist tests. The base fixed-cell extension factory test now explicitly uses regular renderer; it still checks real custom editor input. Removed CLI `--tui-mode`, typed interactive options, help entry and known settings accessors/enums. The removed CLI name follows frozen unknown-flag handling rather than gaining a compatibility alias. Persistent legacy keys remain arbitrary settings data; [settings-manager proof](settings-manager.md#legacy-renderer-key-persistence-2026-10-22) compares frozen load/flush/unrelated-save/reload exactly.
+
 ## Native POSIX parse directory (2026-10-22)
 
 Frozen interactive-mode.ts:1561 uses `path.posix.parse`, whose bare-file directory is empty, not dirname's `.`. Native `parse_posix_path` now extracts the directory at the last non-trailing separator without normalization and preserves root/repeated separators. Existing `parsed_posix_paths_match_node_shape` reproduced bare-file `.` versus empty RED; added local Node-confirmed root/trailing/repeated/empty cases. No user-content encoding or filesystem access occurs in this helper.

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use pi_coding_agent::core::permissions::presets::{ApprovalPresetName, SandboxProfileName};
 use pi_coding_agent::core::settings_manager::{
-    DefaultProjectTrust, DoubleEscapeAction, FullscreenExitOutput, MermaidRenderingMode, Settings, SettingsManager,
+    DefaultProjectTrust, DoubleEscapeAction, MermaidRenderingMode, Settings, SettingsManager,
     SettingsManagerCreateOptions, SettingsScope, TreeFilterMode,
 };
 use serde_json::{Value, json};
@@ -392,38 +392,6 @@ fn http_idle_timeout_defaults_merges_and_rejects_invalid_values() {
     workspace.write_project("{}");
     let manager = workspace.manager();
     assert!(manager.get_http_idle_timeout_ms().is_err());
-}
-
-#[test]
-fn tui_mode_and_fullscreen_settings_validate_stored_values() {
-    let workspace = Workspace::new();
-    let mut manager = workspace.manager();
-    assert_eq!(manager.get_tui_mode(), pi_tui::tui::TuiMode::Regular);
-    assert_eq!(manager.get_fullscreen_exit_output(), FullscreenExitOutput::Transcript);
-    assert_eq!(
-        manager.get_fullscreen_scrollbar(),
-        pi_coding_agent::core::settings_manager::ScrollViewScrollbar::Auto
-    );
-
-    manager.set_tui_mode(pi_tui::tui::TuiMode::Fullscreen);
-    manager.set_fullscreen_exit_output(FullscreenExitOutput::ResumeHint);
-    manager.set_fullscreen_scrollbar(pi_coding_agent::core::settings_manager::ScrollViewScrollbar::Hidden);
-    manager.flush();
-    let saved = workspace.global();
-    assert_eq!(saved["tuiMode"], "fullscreen");
-    assert_eq!(saved["fullscreenExitOutput"], "resume-hint");
-    assert_eq!(saved["fullscreenScrollbar"], "hidden");
-
-    workspace.write_global(
-        r#"{"tuiMode":"other","uiMode":"fullscreen","fullscreenExitOutput":"nothing","fullscreenScrollbar":"sometimes"}"#,
-    );
-    let manager = workspace.manager();
-    assert_eq!(manager.get_tui_mode(), pi_tui::tui::TuiMode::Regular);
-    assert_eq!(manager.get_fullscreen_exit_output(), FullscreenExitOutput::Transcript);
-    assert_eq!(
-        manager.get_fullscreen_scrollbar(),
-        pi_coding_agent::core::settings_manager::ScrollViewScrollbar::Auto
-    );
 }
 
 #[test]

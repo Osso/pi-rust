@@ -12,16 +12,8 @@ use std::time::Duration;
 use pi_agent_core::harness::ThinkingLevel;
 use pi_ai::types::Transport;
 use pi_ai::utils::uuid::random_uuid;
-use pi_js_compat::number as js_number;
-/// Legacy settings value retained for Q13 consumer cleanup; not a TUI renderer API.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScrollViewScrollbar {
-    Auto,
-    Always,
-    Hidden,
-}
 use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
-use pi_tui::tui::TuiMode;
+use pi_js_compat::number as js_number;
 use serde::{Deserialize, Serialize};
 
 use crate::config::{get_agent_dir, package_config};
@@ -505,12 +497,6 @@ pub enum DefaultProjectTrust {
     Ask,
     Always,
     Never,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FullscreenExitOutput {
-    Transcript,
-    ResumeHint,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1729,61 +1715,6 @@ impl SettingsManager {
             Value::Bool(enabled),
         );
         self.mark_modified("terminal", Some("showTerminalProgress"));
-        self.save();
-    }
-
-    pub fn get_tui_mode(&self) -> TuiMode {
-        if enum_literal(self.settings.get("tuiMode")).as_deref() == Some("fullscreen") {
-            TuiMode::Fullscreen
-        } else {
-            TuiMode::Regular
-        }
-    }
-
-    pub fn set_tui_mode(&mut self, mode: TuiMode) {
-        let value = match mode {
-            TuiMode::Fullscreen => "fullscreen",
-            TuiMode::Regular => "regular",
-        };
-        set_string(&mut self.global_settings, "tuiMode", value);
-        self.mark_modified("tuiMode", None);
-        self.save();
-    }
-
-    pub fn get_fullscreen_exit_output(&self) -> FullscreenExitOutput {
-        if enum_literal(self.settings.get("fullscreenExitOutput")).as_deref() == Some("resume-hint") {
-            FullscreenExitOutput::ResumeHint
-        } else {
-            FullscreenExitOutput::Transcript
-        }
-    }
-
-    pub fn set_fullscreen_exit_output(&mut self, output: FullscreenExitOutput) {
-        let value = match output {
-            FullscreenExitOutput::ResumeHint => "resume-hint",
-            FullscreenExitOutput::Transcript => "transcript",
-        };
-        set_string(&mut self.global_settings, "fullscreenExitOutput", value);
-        self.mark_modified("fullscreenExitOutput", None);
-        self.save();
-    }
-
-    pub fn get_fullscreen_scrollbar(&self) -> ScrollViewScrollbar {
-        match enum_literal(self.settings.get("fullscreenScrollbar")).as_deref() {
-            Some("always") => ScrollViewScrollbar::Always,
-            Some("hidden") => ScrollViewScrollbar::Hidden,
-            _ => ScrollViewScrollbar::Auto,
-        }
-    }
-
-    pub fn set_fullscreen_scrollbar(&mut self, mode: ScrollViewScrollbar) {
-        let value = match mode {
-            ScrollViewScrollbar::Always => "always",
-            ScrollViewScrollbar::Hidden => "hidden",
-            ScrollViewScrollbar::Auto => "auto",
-        };
-        set_string(&mut self.global_settings, "fullscreenScrollbar", value);
-        self.mark_modified("fullscreenScrollbar", None);
         self.save();
     }
 

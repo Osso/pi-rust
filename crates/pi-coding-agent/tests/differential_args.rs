@@ -412,13 +412,6 @@ fn args_json(args: &Args) -> Value {
     insert_bool(&mut output, "listExtensions", args.list_extensions);
     insert_string(&mut output, "loginProvider", &args.login_provider);
     insert_bool(&mut output, "offline", args.offline);
-    if let Some(tui_mode) = args.tui_mode {
-        let value = match tui_mode {
-            pi_tui::tui::TuiMode::Regular => "regular",
-            pi_tui::tui::TuiMode::Fullscreen => "fullscreen",
-        };
-        output.insert("tuiMode".to_owned(), json!(value));
-    }
     insert_bool(&mut output, "verbose", args.verbose);
     insert_bool(&mut output, "projectTrustOverride", args.project_trust_override);
     output.insert("messages".to_owned(), json!(args.messages));

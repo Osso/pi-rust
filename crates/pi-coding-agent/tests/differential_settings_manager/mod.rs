@@ -22,6 +22,29 @@ struct Scenario {
     steps: Vec<Value>,
 }
 
+#[test]
+fn legacy_tui_mode_keys_remain_unknown_settings_on_load_and_save() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "coding-agent-settings-manager-oracle.ts",
+        "packages/coding-agent/src/core/settings-manager.ts",
+    );
+    let scenario = Scenario {
+        name: "legacy-tui-mode-is-unknown-data",
+        global: Some(
+            r#"{"tuiMode":"fullscreen","fullscreenExitOutput":"transcript","fullscreenScrollbar":"hidden","theme":"dark"}"#,
+        ),
+        project: Some(r#"{"tuiMode":{"retained":"unknown object"}}"#),
+        steps: vec![
+            json!({"op":"flush"}),
+            json!({"op":"set_theme","value":"light"}),
+            json!({"op":"external_edit","scope":"global","content":"{\"tuiMode\":17,\"fullscreenExitOutput\":null,\"fullscreenScrollbar\":[\"unknown\"],\"theme\":\"dark\"}"}),
+            json!({"op":"reload"}),
+            json!({"op":"set_theme","value":"light"}),
+        ],
+    };
+    run_scenario(&mut oracle, 999, &scenario);
+}
+
 pub(crate) fn run() {
     let mut oracle = oracle::TsOracle::spawn(
         "coding-agent-settings-manager-oracle.ts",
