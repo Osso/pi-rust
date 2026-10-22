@@ -1,5 +1,11 @@
 # agents-core traceability
 
+## Queued source-backed error boundaries
+
+`agents-core-drift-oracle.ts` imports the actual unmodified frozen runtime module and SettingsManager. Protected source-only execution (exit 0; lane log `agents-core-drift-source-2.log`) confirms public `agents.spawn` with a truthy numeric configured model throws `TypeError: modelReference.trim is not a function`, and public registration propagates a late `list_agents` registration exception. `tests/agents_core_drift.rs` records public Rust handler/registration RED intents; unexecuted while the coding library is blocked. Registration failure injection invalidates the real ExtensionRuntime after early tool setup, rather than substituting an API implementation. Production `.ok()`/registration swallowing corrections remain queued until in-crate behavioral RED.
+
+Frozen getter (`settings-manager.ts:509–516`) only structured-clones the configured/default profile; it does not reject malformed untouched fields. A future fix must keep that permissiveness and fail only at the accessed model field, matching the frozen error. UI acquisition and spawn session-manager `.ok()` cases still require source-backed public-boundary fixtures; no production correction yet.
+
 ## Foreground wait slice refresh
 
 Frozen runtime.ts:196,2126-2295,3157-3168 maps to shared `latest_model_request_started_at`, model-request-start and agent/session-end hooks, and the captured deadline in native wait_runtime.rs. `wait_slice_uses_latest_model_request_and_does_not_cancel_active_agents` uses a real SQLite active child and paused Tokio timers: timedOut true, child still running, agent_end clears the deadline. Model-request-start/end events now exist in extension types/runner and AgentSession forwarding. [Contract and remaining event-boundary proof](../../specs/agent-wait-slice.md).
