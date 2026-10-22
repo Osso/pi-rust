@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::time::Duration;
 
 use pi_ai::auth::oauth::anthropic::AnthropicOAuth;
@@ -141,7 +142,7 @@ async fn to_auth_returns_the_access_token_and_marks_subscription_login() {
         .to_auth(OAuthCredential::new("r", "token", 0.0))
         .await
         .expect("auth");
-    assert_eq!(auth.api_key.as_deref(), Some("token"));
+    assert_eq!(auth.api_key.as_ref(), Some(&JsString::from("token")));
     assert!(auth.headers.is_none());
 }
 

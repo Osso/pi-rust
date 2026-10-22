@@ -1,3 +1,4 @@
+use pi_js_compat::js_json::JsString;
 use std::time::Duration;
 
 use pi_ai::auth::oauth::radius::{RadiusOAuthOptions, create_radius_oauth};
@@ -17,7 +18,7 @@ const UUID: &str = "00000000-0000-4000-8000-000000000000";
 fn oauth(fetch: std::sync::Arc<RecordingFetch>) -> impl OAuthAuth {
     create_radius_oauth(RadiusOAuthOptions {
         name: "Radius".to_owned(),
-        gateway: GATEWAY.to_owned(),
+        gateway: GATEWAY.into(),
     })
     .with_runtime(runtime(fetch, NOW))
 }
@@ -61,8 +62,8 @@ async fn device_login_uses_gateway_endpoints_and_keeps_the_scope() {
     assert_eq!(
         interaction.events()[0],
         AuthEvent::DeviceCode {
-            user_code: "ABCD-1234".to_owned(),
-            verification_uri: "https://radius-ui.example/pair".to_owned(),
+            user_code: "ABCD-1234".into(),
+            verification_uri: "https://radius-ui.example/pair".into(),
             interval_seconds: Some(5.0),
             expires_in_seconds: Some(600.0),
         }
@@ -112,7 +113,9 @@ async fn browser_discovery_requires_the_authorization_endpoint() {
     let error = oauth.login(interaction).await.expect_err("invalid discovery");
     assert_eq!(
         error.detail(),
-        Some("Invalid Radius OAuth config from https://radius.example")
+        Some(&JsString::from(
+            "Invalid Radius OAuth config from https://radius.example"
+        ))
     );
     assert_eq!(recorded_requests(&fetch).len(), 1);
 }
@@ -153,7 +156,7 @@ async fn browser_login_runs_the_callback_and_token_exchange() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     let auth_url = auth_url.expect("auth_url");
-    let parsed = url::Url::parse(&auth_url).expect("authorize URL");
+    let parsed = url::Url::parse(&pi_js_compat::js_json::encode_node_utf8(&auth_url)).expect("authorize URL");
     assert_eq!(parsed.origin().ascii_serialization(), "https://radius-ui.example");
     assert_eq!(parsed.path(), "/authorize");
     let params: std::collections::BTreeMap<_, _> = parsed.query_pairs().into_owned().collect();
@@ -206,13 +209,16 @@ async fn device_denials_and_unknown_methods_have_source_messages() {
         let oauth = oauth(fetch);
         let interaction = TestInteraction::new(vec![PromptAnswer::Text("device-code".to_owned())]);
         let error = oauth.login(interaction).await.expect_err("device error");
-        assert_eq!(error.detail(), Some(message));
+        assert_eq!(error.detail(), Some(&JsString::from(message)));
     }
 
     let oauth = oauth(RecordingFetch::new(vec![]));
     let interaction = TestInteraction::new(vec![PromptAnswer::Text("carrier-pigeon".to_owned())]);
     let error = oauth.login(interaction).await.expect_err("unknown method");
-    assert_eq!(error.detail(), Some("Unknown Radius sign-in method: carrier-pigeon"));
+    assert_eq!(
+        error.detail(),
+        Some(&JsString::from("Unknown Radius sign-in method: carrier-pigeon"))
+    );
 }
 
 #[tokio::test]
@@ -224,5 +230,5 @@ async fn to_auth_uses_the_access_token() {
         .to_auth(OAuthCredential::new("r", "token", 0.0))
         .await
         .expect("auth");
-    assert_eq!(auth.api_key.as_deref(), Some("token"));
+    assert_eq!(auth.api_key.as_ref(), Some(&JsString::from("token")));
 }
