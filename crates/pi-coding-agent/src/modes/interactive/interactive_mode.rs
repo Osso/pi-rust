@@ -10101,7 +10101,7 @@ impl InteractiveMode {
 
     fn report_uncaught_and_exit(payload: &(dyn Any + Send)) -> ! {
         eprintln!("pi exiting due to uncaughtException:");
-        eprintln!("{}", format_uncaught(payload));
+        eprintln!("{}", encode_node_utf8(&format_uncaught(payload)));
         std::process::exit(1)
     }
 
