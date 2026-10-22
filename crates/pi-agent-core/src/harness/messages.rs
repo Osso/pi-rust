@@ -4,7 +4,7 @@ use pi_ai::types::{
 use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value, is_truthy};
 use serde::{Deserialize, Serialize};
 
-use crate::agent::AgentMessage;
+use crate::agent::{AgentError, AgentMessage};
 
 /// Role tag for shell-command execution messages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,7 +80,7 @@ pub struct CompactionSummaryOptions {
     pub tokens_after: Option<f64>,
     pub kept_from_previous_context_tokens: Option<f64>,
     pub compacted_result_tokens: Option<f64>,
-    pub provider_native: Option<ProviderNativeContext>,
+    pub provider_native: Option<Value>,
 }
 
 /// `CustomMessage.content`: `string | (TextContent | ImageContent)[]`.
@@ -149,32 +149,39 @@ pub fn bash_execution_to_text(message: &BashExecutionMessage) -> JsString {
 }
 
 /// Map agent messages onto provider messages before an LLM request.
-pub fn convert_to_llm(messages: &[AgentMessage]) -> Vec<Message> {
-    messages.iter().filter_map(convert_message_to_llm).collect()
+pub fn convert_to_llm(messages: &[AgentMessage]) -> Result<Vec<Message>, AgentError> {
+    let converted = messages
+        .iter()
+        .map(convert_message_to_llm)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(converted.into_iter().flatten().collect())
 }
 
-fn convert_message_to_llm(message: &AgentMessage) -> Option<Message> {
+fn convert_message_to_llm(message: &AgentMessage) -> Result<Option<Message>, AgentError> {
     match message {
-        AgentMessage::User(user) => Some(Message::User(user.clone())),
-        AgentMessage::Assistant(assistant) => Some(Message::Assistant(assistant.clone())),
-        AgentMessage::ToolResult(result) => Some(Message::ToolResult(result.clone())),
+        AgentMessage::User(user) => Ok(Some(Message::User(user.clone()))),
+        AgentMessage::Assistant(assistant) => Ok(Some(Message::Assistant(assistant.clone()))),
+        AgentMessage::ToolResult(result) => Ok(Some(Message::ToolResult(result.clone()))),
         AgentMessage::Custom(object) => custom_message_to_llm(object),
     }
 }
 
-fn custom_message_to_llm(object: &JsObject) -> Option<Message> {
-    let role = object.get("role").and_then(Value::as_string)?;
-    if role == "bashExecution" {
+fn custom_message_to_llm(object: &JsObject) -> Result<Option<Message>, AgentError> {
+    let Some(role) = object.get("role").and_then(Value::as_string) else {
+        return Ok(None);
+    };
+    let message = if role == "bashExecution" {
         bash_execution_message_to_llm(object)
     } else if role == "custom" {
         Some(custom_content_message(object))
     } else if role == "branchSummary" {
         Some(summary_message(object, BRANCH_SUMMARY_PREFIX, BRANCH_SUMMARY_SUFFIX))
     } else if role == "compactionSummary" {
-        Some(compaction_summary_message(object))
+        Some(compaction_summary_message(object)?)
     } else {
         None
-    }
+    };
+    Ok(message)
 }
 
 fn bash_execution_message_to_llm(object: &JsObject) -> Option<Message> {
@@ -219,9 +226,14 @@ fn summary_message(object: &JsObject, prefix: &str, suffix: &str) -> Message {
     })
 }
 
-fn compaction_summary_message(object: &JsObject) -> Message {
+fn compaction_summary_message(object: &JsObject) -> Result<Message, AgentError> {
     let summary = string_field(object, "summary");
-    Message::User(UserMessage {
+    let provider_native = object
+        .get("providerNative")
+        .map(pi_js_compat::js_json::from_value::<ProviderNativeContext>)
+        .transpose()
+        .map_err(|error| AgentError::new(format!("Invalid provider-native context: {error}")))?;
+    Ok(Message::User(UserMessage {
         role: UserRole::Tag,
         content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(JsString::join(
             [
@@ -232,11 +244,9 @@ fn compaction_summary_message(object: &JsObject) -> Message {
             "",
         )))]),
         input_source: None,
-        provider_native: object
-            .get("providerNative")
-            .and_then(|value| pi_js_compat::js_json::from_value::<ProviderNativeContext>(value).ok()),
+        provider_native,
         timestamp: timestamp_field(object),
-    })
+    }))
 }
 
 fn text_message(text: JsString, message: &BashExecutionMessage) -> Message {
@@ -310,14 +320,7 @@ pub fn create_compaction_summary_message(
         options.compacted_result_tokens.map(Value::Number),
     );
     insert_optional(&mut message, "durationMs", options.duration_ms.map(Value::Number));
-    insert_optional(
-        &mut message,
-        "providerNative",
-        options
-            .provider_native
-            .as_ref()
-            .and_then(|value| Some(pi_js_compat::js_json::to_value(value).expect("provider context serializes"))),
-    );
+    insert_optional(&mut message, "providerNative", options.provider_native.clone());
     message.insert("timestamp".into(), Value::Number(timestamp as f64));
     AgentMessage::Custom(message)
 }

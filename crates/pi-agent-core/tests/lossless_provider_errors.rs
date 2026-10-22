@@ -424,6 +424,39 @@ async fn provider_failure_survives_jsonl_repo_close_and_reopen() {
 }
 
 #[test]
+fn invalid_provider_native_metadata_is_not_silently_discarded() {
+    use pi_agent_core::harness::messages::convert_to_llm;
+    let message: AgentMessage = serde_json::from_str(r#"{"role":"compactionSummary","summary":"summary","providerNative":{"provider":"\ud800","api":"openai-responses","format":"openai.responses.input","value":{"error":"\udfff"}},"timestamp":0}"#).unwrap();
+    let error = convert_to_llm(&[message]).expect_err("invalid opaque metadata must be rejected explicitly");
+    assert!(error.message().starts_with("Invalid provider-native context: "));
+}
+
+#[test]
+fn provider_native_summary_sink_keeps_original_payload_and_valid_raw_value() {
+    use pi_agent_core::harness::messages::{
+        CompactionSummaryOptions, convert_to_llm, create_compaction_summary_message,
+    };
+    use pi_ai::types::Message;
+    let native = parse_lossless(r#"{"provider":"openai","api":"openai-responses","format":"openai.responses.input","value":{"\ud800":"\udfff"}}"#).unwrap();
+    let message = create_compaction_summary_message(
+        "summary",
+        0.0,
+        0,
+        &CompactionSummaryOptions {
+            provider_native: Some(native.clone()),
+            ..Default::default()
+        },
+    );
+    let wire = parse_lossless(&serde_json::to_string(&message).unwrap()).unwrap();
+    assert_eq!(wire.get("providerNative"), Some(&native));
+    let output = convert_to_llm(&[message]).unwrap();
+    let Message::User(user) = &output[0] else {
+        panic!("summary user message")
+    };
+    assert_eq!(user.provider_native.as_ref().unwrap().value, native["value"]);
+}
+
+#[test]
 fn persisted_provider_failure_keeps_native_units() {
     let mut message = AssistantMessage::empty("openai-responses", "openai", "probe", 0);
     message.stop_reason = StopReason::Error;
