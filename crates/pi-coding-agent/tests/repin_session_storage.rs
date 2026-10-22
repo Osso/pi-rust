@@ -134,7 +134,7 @@ async fn export_uses_read_only_stale_archive_and_legacy_source() {
     let marker = "<script id=\"session-data\" type=\"application/json\">";
     let start = html.find(marker).unwrap() + marker.len();
     let end = start + html[start..].find("</script>").unwrap();
-    let data: Value = serde_json::from_slice(&pi_js_compat::base64::atob(&html[start..end]).unwrap()).unwrap();
+    let data: Value = serde_json::from_slice(&pi_js_compat::base64::atob(&html[start..end].into()).unwrap()).unwrap();
     assert_eq!(data["header"]["id"], created["id"]);
     assert_eq!(data["entries"][0]["message"]["content"], "hello 😀漢字");
     assert!(!std::path::Path::new(path).exists());

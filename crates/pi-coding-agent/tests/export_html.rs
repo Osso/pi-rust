@@ -321,6 +321,6 @@ fn decode_session_data(html: &str) -> serde_json::Value {
     let start = html.find(marker).expect("session data script") + marker.len();
     let end = html[start..].find("</script>").expect("session data end") + start;
     let encoded = &html[start..end];
-    let bytes = pi_js_compat::base64::atob(encoded).expect("session data base64");
+    let bytes = pi_js_compat::base64::atob(&encoded.into()).expect("session data base64");
     serde_json::from_slice(&bytes).expect("session data json")
 }
