@@ -97,7 +97,6 @@ fn normalize_event(value: &Value) -> Value {
         && let Some(partial) = normalized.get_mut("partial").and_then(Value::as_object_mut)
     {
         partial.remove("responseId");
-        partial.remove("endTurn");
     }
     normalized
 }

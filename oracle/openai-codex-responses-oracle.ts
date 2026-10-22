@@ -78,7 +78,6 @@ function normalizeEvent(value: unknown): unknown {
 		normalized.partial &&
 		typeof normalized.partial === "object"
 	) {
-		delete (normalized.partial as Record<string, unknown>).endTurn;
 		delete (normalized.partial as Record<string, unknown>).responseId;
 	}
 	stripScratch(normalized);

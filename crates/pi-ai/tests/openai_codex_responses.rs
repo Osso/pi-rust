@@ -332,7 +332,7 @@ async fn completes_after_response_completed_while_body_stays_open() {
     .1;
 
     assert_eq!(result.stop_reason, StopReason::Stop);
-    assert_eq!(result.end_turn, Some(false));
+    assert!(serde_json::to_value(&result).unwrap().get("endTurn").is_none());
 }
 
 #[tokio::test]
@@ -1185,7 +1185,7 @@ async fn response_done_is_normalized_to_completed() {
     let (_, result) = collect(stream(model(), context(), options(fetch, Transport::Sse))).await;
 
     assert_eq!(result.stop_reason, StopReason::Stop);
-    assert_eq!(result.end_turn, Some(true));
+    assert!(serde_json::to_value(&result).unwrap().get("endTurn").is_none());
     assert_eq!(result.raw_stop_reason.as_deref(), Some("completed"));
 }
 

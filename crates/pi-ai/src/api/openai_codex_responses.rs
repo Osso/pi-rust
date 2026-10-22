@@ -431,14 +431,13 @@ async fn execute_stream(
         });
     }
 
-    let end_turn = Arc::new(Mutex::new(None));
     let source = SseEventSource::new(
         response.body,
         http_timeout_ms,
         options.stream.request.signal.clone(),
         request_token,
     );
-    let mut mapped = CodexMappedSource::new(source, end_turn.clone());
+    let mut mapped = CodexMappedSource::new(source);
     let result = process_responses_stream(
         &mut mapped,
         output,
@@ -448,9 +447,6 @@ async fn execute_stream(
     )
     .await;
     drop(mapped);
-    if let Some(value) = *end_turn.lock().expect("codex end-turn mutex poisoned") {
-        output.end_turn = Some(value);
-    }
     result.map_err(CodexStreamError::from_responses_failure)?;
     assert_successful_output(output)
 }
@@ -1426,17 +1422,12 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 
 struct CodexMappedSource<S> {
     inner: S,
-    end_turn: Arc<Mutex<Option<bool>>>,
     finished: bool,
 }
 
 impl<S> CodexMappedSource<S> {
-    fn new(inner: S, end_turn: Arc<Mutex<Option<bool>>>) -> Self {
-        Self {
-            inner,
-            end_turn,
-            finished: false,
-        }
+    fn new(inner: S) -> Self {
+        Self { inner, finished: false }
     }
 }
 
@@ -1455,7 +1446,7 @@ where
                 let Some(event) = self.inner.next_event().await? else {
                     return Ok(None);
                 };
-                match map_codex_event(event, &self.end_turn)? {
+                match map_codex_event(event)? {
                     Some(event) => {
                         if matches!(
                             event.get("type").and_then(ingress_metadata_text).as_deref(),
@@ -1472,10 +1463,7 @@ where
     }
 }
 
-fn map_codex_event(
-    mut event: JsValue,
-    end_turn: &Arc<Mutex<Option<bool>>>,
-) -> Result<Option<JsValue>, CodexStreamError> {
+fn map_codex_event(mut event: JsValue) -> Result<Option<JsValue>, CodexStreamError> {
     crate::api::openai_responses_shared::validate_responses_metadata(&event)
         .map_err(|error| CodexStreamError::Transport(error.into()))?;
     let Some(event_type) = event
@@ -1526,9 +1514,6 @@ fn map_codex_event(
         }
         "response.done" | "response.completed" | "response.incomplete" => {
             let response = event.get("response").cloned().unwrap_or(JsValue::Null);
-            if let Some(value) = response.get("end_turn").and_then(JsValue::as_bool) {
-                *end_turn.lock().expect("codex end-turn mutex poisoned") = Some(value);
-            }
             let normalized = normalize_codex_response(response);
             let object = event.as_object_mut().expect("codex event is an object");
             object.insert(
@@ -2249,7 +2234,6 @@ async fn process_websocket_stream(
         return Err(CodexStreamError::Transport(websocket_error_message(&error).into()));
     }
 
-    let end_turn = Arc::new(Mutex::new(None));
     let mut source = WsEventSource::new(
         sink,
         split_stream,
@@ -2260,7 +2244,6 @@ async fn process_websocket_stream(
             partial: output.clone(),
             websocket_started,
             start_emitted,
-            end_turn: end_turn.clone(),
         },
     );
     let result = process_responses_stream(
@@ -2272,9 +2255,6 @@ async fn process_websocket_stream(
     )
     .await;
     let mut connection = source.into_connection();
-    if let Some(value) = *end_turn.lock().expect("codex end-turn mutex poisoned") {
-        output.end_turn = Some(value);
-    }
 
     let mut keep_connection = true;
     let mut failure = None;
@@ -2436,7 +2416,6 @@ struct WsEventSourceConfig {
     partial: AssistantMessage,
     websocket_started: Arc<AtomicBool>,
     start_emitted: Arc<AtomicBool>,
-    end_turn: Arc<Mutex<Option<bool>>>,
 }
 
 struct WsEventSource {
@@ -2454,7 +2433,6 @@ struct WsEventSource {
     partial: AssistantMessage,
     websocket_started: Arc<AtomicBool>,
     start_emitted: Arc<AtomicBool>,
-    end_turn: Arc<Mutex<Option<bool>>>,
     ping_interval: tokio::time::Interval,
     idle_deadline: Option<tokio::time::Instant>,
 }
@@ -2476,7 +2454,6 @@ impl WsEventSource {
             partial: config.partial,
             websocket_started: config.websocket_started,
             start_emitted: config.start_emitted,
-            end_turn: config.end_turn,
             ping_interval: tokio::time::interval_at(
                 tokio::time::Instant::now() + Duration::from_millis(WEBSOCKET_PING_INTERVAL_MS),
                 Duration::from_millis(WEBSOCKET_PING_INTERVAL_MS),
@@ -2542,7 +2519,7 @@ impl WsEventSource {
         if terminal {
             self.saw_completion = true;
         }
-        match map_codex_event(parsed, &self.end_turn) {
+        match map_codex_event(parsed) {
             Ok(Some(event)) => {
                 self.queue.push_back(event);
                 if terminal {

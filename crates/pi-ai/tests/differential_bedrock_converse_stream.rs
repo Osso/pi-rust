@@ -474,7 +474,6 @@ fn scenarios() -> Vec<Scenario> {
             stop_reason: StopReason::ToolUse,
             error_message: None,
             raw_stop_reason: None,
-            end_turn: None,
             timestamp: 0.0,
         })),
         Message::ToolResult(ToolResultMessage {

@@ -33,7 +33,6 @@ fn assistant_wire() -> Value {
             "cost": {"input": 0.25, "output": 1.5, "cacheRead": 0, "cacheWrite": 0.125, "total": 1.875}
         },
         "stopReason": "toolUse",
-        "endTurn": false,
         "timestamp": 1_760_000_000_123_i64
     })
 }
