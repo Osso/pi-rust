@@ -9,7 +9,7 @@ Current evidence and exclusions: [slice-1 proof ledger](agent-core-api-repin.md)
 | agentLoop / runAgentLoop | agent_loop / run_agent_loop | agent_loop.rs lifecycle, text/tools/error/length differential scenarios |
 | agentLoopContinue / runAgentLoopContinue | agent_loop_continue / run_agent_loop_continue | empty context, restored/partly completed batch, continue queue tests |
 | restoredPendingToolMessage (public) | restored_pending_tool_message (root and module exports) | restoration tests, failed assistant replay regression |
-| createAgentStream | create_agent_stream | streamed event/result lifecycle tests |
+| createAgentStream | create_agent_stream | streamed event/result lifecycle tests; Q18 `lossless_provider_errors::native_stream_failure_reaches_agent_result_without_display_projection` proves native error result; `tool_hook_failures_keep_native_units_in_result_messages` proves before/after hook human messages |
 | runLoop | run_loop, start_turn, inject_pending_messages, request_assistant_message, run_turn_tools, finish_turn | steering/follow-up/end_turn/prepare_next_turn/should_stop differential; replaced context regression; `agent_verifier_regressions::steering` covers steering after an end-turn reminder |
 | agentAbortError / throwIfAborted / awaitWithAbort / iterateWithAbort | run_aborted / throw_if_aborted / await_with_abort / consume_assistant_stream | acquisition/iteration abort and stream-failure tests; iterator-return gap below |
 | prepareAssistantToolExecutions | prepare_assistant_tool_executions | prepare_execution differential, persisted identity tests, last duplicate definition regression |

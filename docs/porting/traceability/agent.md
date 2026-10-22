@@ -17,7 +17,7 @@ Evidence and exclusions: [slice-1 proof ledger](agent-core-api-repin.md). Status
 | continue | continue_run, ContinueOptions | steering first, skip initial drain, follow-up first when requested, restored pending tools |
 | runPromptMessages/runContinuation/createContextSnapshot/createLoopConfig | corresponding Rust functions | agent and 35-scenario differential |
 | runWithLifecycle | begin_run/finish_run_with/finish_run | concurrency rejection, idle settlement, failures |
-| handleRunFailure | build_failure_message and failure event sequence | preserve thinking/text/tool call/usage/identity on steer/abort/stream failure; one assistant start |
+| handleRunFailure | build_failure_message and failure event sequence | preserve thinking/text/tool call/usage/identity on steer/abort/stream failure; one assistant start; Q18 `lossless_provider_errors::agent_failure_keeps_state_listener_and_persisted_message_native` proves exact UTF16 error text through state, listener and serialized final message |
 | processEvents | process_events | state reduction, truthy error text, awaited listeners; log rejection and continue |
 | prepareNextTurn wrappers | build_prepare_next_turn_hook | context-hook precedence and dynamic replacement after turn listeners |
 

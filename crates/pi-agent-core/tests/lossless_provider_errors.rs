@@ -166,6 +166,167 @@ async fn compaction_retry_callbacks_keep_raw_provider_messages() {
     assert_eq!(error.message, JsString::from("Summarization failed: ") + raw_error());
 }
 
+#[tokio::test]
+async fn branch_failures_preserve_raw_error_and_source_defaults() {
+    use pi_agent_core::harness::compaction::branch_summarization::{
+        GenerateBranchSummaryOptions, generate_branch_summary,
+    };
+    use pi_agent_core::harness::session::{Entry, EntryBody};
+    let faux = faux_provider(RegisterFauxProviderOptions::default());
+    let model = faux.get_model(None).unwrap();
+    let models = create_models(CreateModelsOptions::default());
+    models.set_provider(Arc::clone(&faux.provider));
+    let user: AgentMessage = serde_json::from_str(r#"{"role":"user","content":"branch","timestamp":0}"#).unwrap();
+    let entries = [Entry {
+        body: EntryBody::Message {
+            id: "entry".into(),
+            message: user,
+            terminate: None,
+        },
+        parent_id: None,
+        seq: 1,
+        timestamp: 0,
+    }];
+    for (reason, detail, expected) in [
+        (
+            StopReason::Error,
+            Some(raw_error()),
+            JsString::from("Branch summary failed: ") + raw_error(),
+        ),
+        (StopReason::Aborted, Some(raw_error()), raw_error()),
+        (StopReason::Error, None, "Branch summary failed: Unknown error".into()),
+        (StopReason::Aborted, None, "Branch summary aborted".into()),
+        (
+            StopReason::Error,
+            Some(JsString::default()),
+            "Branch summary failed: ".into(),
+        ),
+    ] {
+        let mut response = faux_assistant_message("", FauxAssistantMessageOptions::default());
+        response.stop_reason = reason;
+        response.error_message = detail;
+        faux.set_responses(vec![FauxResponseStep::message(response)]);
+        let error = generate_branch_summary(
+            &entries,
+            &GenerateBranchSummaryOptions {
+                models: &models,
+                model: &model,
+                signal: None,
+                custom_instructions: None,
+                replace_instructions: false,
+                reserve_tokens: None,
+                retry: None,
+            },
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.message, expected);
+    }
+}
+
+#[tokio::test]
+async fn tool_hook_failures_keep_native_units_in_result_messages() {
+    use pi_agent_core::agent::{
+        Agent, AgentInitialState, AgentOptions, AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError,
+    };
+    use pi_ai::request::BoxFuture;
+    use pi_ai::types::{AssistantContent, AssistantMessageEvent, DoneReason, ToolCall};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct Tool {
+        schema: serde_json::Value,
+    }
+    impl AgentTool for Tool {
+        fn name(&self) -> &str {
+            "probe"
+        }
+        fn description(&self) -> &str {
+            "probe"
+        }
+        fn label(&self) -> &str {
+            "probe"
+        }
+        fn parameters(&self) -> &serde_json::Value {
+            &self.schema
+        }
+        fn execute(
+            &self,
+            _: String,
+            _: JsValue,
+            _: Option<tokio_util::sync::CancellationToken>,
+            _: AgentToolUpdateCallback,
+            _: Option<pi_agent_core::harness::AgentToolExecutionContext>,
+        ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
+            Box::pin(async {
+                Ok(AgentToolResult {
+                    content: vec![],
+                    details: None,
+                    is_error: None,
+                    terminate: None,
+                })
+            })
+        }
+    }
+    for before in [true, false] {
+        let turn = Arc::new(AtomicUsize::new(0));
+        let stream_fn: StreamFn = Arc::new(move |model, _, _| {
+            let first = turn.fetch_add(1, Ordering::SeqCst) == 0;
+            Box::pin(async move {
+                let mut message = AssistantMessage::empty(model.api, model.provider, model.id, 0);
+                let reason = if first {
+                    message.content.push(AssistantContent::ToolCall(ToolCall::new(
+                        "call",
+                        "probe",
+                        pi_js_compat::js_json::JsObject::new(),
+                    )));
+                    message.stop_reason = StopReason::ToolUse;
+                    DoneReason::ToolUse
+                } else {
+                    DoneReason::Stop
+                };
+                let (sender, stream) = create_assistant_message_event_stream();
+                sender.push(AssistantMessageEvent::Done { reason, message });
+                stream
+            })
+        });
+        let mut options = AgentOptions {
+            stream_fn: Some(stream_fn),
+            initial_state: Some(AgentInitialState {
+                tools: Some(vec![Arc::new(Tool {
+                    schema: serde_json::json!({"type":"object","properties":{}}),
+                })]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        if before {
+            options.before_tool_call = Some(Arc::new(|_, _| Box::pin(async { Err(AgentError::new(raw_error())) })));
+        } else {
+            options.after_tool_call = Some(Arc::new(|_, _| Box::pin(async { Err(AgentError::new(raw_error())) })));
+        }
+        let agent = Agent::new(options).unwrap();
+        agent.prompt("probe").await.unwrap();
+        let messages = agent.messages();
+        let result = messages
+            .iter()
+            .find_map(|message| {
+                if let AgentMessage::ToolResult(result) = message {
+                    Some(result)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        let wire = parse_lossless(&serde_json::to_string(result).unwrap()).unwrap();
+        assert_eq!(
+            wire.get("content").unwrap().as_array().unwrap()[0]
+                .get("text")
+                .and_then(JsValue::as_string),
+            Some(&raw_error())
+        );
+        assert!(result.is_error);
+    }
+}
+
 #[test]
 fn persisted_provider_failure_keeps_native_units() {
     let mut message = AssistantMessage::empty("openai-responses", "openai", "probe", 0);
