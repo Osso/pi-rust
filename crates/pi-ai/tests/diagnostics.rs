@@ -12,7 +12,7 @@ fn error_info(
 ) -> DiagnosticErrorInfo {
     DiagnosticErrorInfo {
         name: name.map(str::to_owned),
-        message: message.to_owned(),
+        message: message.to_owned().into(),
         stack: stack.map(str::to_owned),
         code,
     }
@@ -29,7 +29,10 @@ fn formats_errors_strings_and_json_values_like_javascript_string() {
     let named_only = ThrownValue::Error(error_info(Some("AbortError"), "", None, None));
     assert_eq!(format_thrown_value(&named_only), "AbortError");
 
-    assert_eq!(format_thrown_value(&ThrownValue::Text("plain".to_owned())), "plain");
+    assert_eq!(
+        format_thrown_value(&ThrownValue::Text("plain".to_owned().into())),
+        "plain"
+    );
     assert_eq!(format_thrown_value(&ThrownValue::Json(json!("text"))), "text");
     assert_eq!(format_thrown_value(&ThrownValue::Json(json!(null))), "null");
     assert_eq!(format_thrown_value(&ThrownValue::Json(json!(true))), "true");
@@ -57,7 +60,7 @@ fn extracts_error_fields_and_keeps_supported_codes() {
         extracted,
         DiagnosticErrorInfo {
             name: Some("Error".to_owned()),
-            message: "request failed".to_owned(),
+            message: "request failed".to_owned().into(),
             stack: Some("Error: request failed\n    at handler".to_owned()),
             code: Some(DiagnosticCode::Number(429.0)),
         }
@@ -89,7 +92,7 @@ fn non_error_values_are_reported_as_thrown_values() {
     assert_eq!(extracted.stack, None);
     assert_eq!(extracted.code, None);
 
-    let text = extract_diagnostic_error(&ThrownValue::Text("string failure".to_owned()));
+    let text = extract_diagnostic_error(&ThrownValue::Text("string failure".to_owned().into()));
     assert_eq!(text.name.as_deref(), Some("ThrownValue"));
     assert_eq!(text.message, "string failure");
 }

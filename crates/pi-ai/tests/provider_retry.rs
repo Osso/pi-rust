@@ -16,7 +16,7 @@ fn provider_error(status: Option<f64>, headers: &[(&str, &str)]) -> ProviderErro
         error_headers.insert(*name, *value);
     }
     ProviderError {
-        message: format!("Provider error: {status:?}"),
+        message: format!("Provider error: {status:?}").into(),
         status,
         headers: error_headers,
         body: None,
@@ -321,7 +321,7 @@ fn retry_delay_limit_display_uses_ceiling_seconds() {
     let limit = RetryDelayLimitError {
         delay_ms: 1501.0,
         max_ms: 1000.0,
-        provider_message: "boom".to_owned(),
+        provider_message: "boom".to_owned().into(),
     };
     assert_eq!(limit.to_string(), "Server requested 2s retry delay (max: 1s). boom");
 }

@@ -238,5 +238,5 @@ fn error_message(value: &pi_js_compat::js_json::JsValue) -> Option<pi_js_compat:
             other => stringify_lossless(other).into(),
         });
     }
-    object.get("error").and_then(error_message)
+    is_truthy(value).then(|| stringify_lossless(value).into())
 }

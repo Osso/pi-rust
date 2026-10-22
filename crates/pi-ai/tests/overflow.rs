@@ -4,7 +4,7 @@ use pi_ai::utils::overflow::{get_overflow_patterns, is_context_overflow, is_reco
 fn error_message(message: &str) -> AssistantMessage {
     AssistantMessage {
         stop_reason: StopReason::Error,
-        error_message: Some(message.to_owned()),
+        error_message: Some(message.to_owned().into()),
         ..AssistantMessage::empty("openai-completions", "ollama", "qwen3.5:35b", 1)
     }
 }
