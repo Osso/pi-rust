@@ -266,7 +266,7 @@ fn now_millis() -> i64 {
         .unwrap_or(0)
 }
 
-fn required_claim_token(request: &SupervisorRequest) -> Result<String, ControlDbError> {
+fn required_claim_token(request: &SupervisorRequest) -> Result<JsString, ControlDbError> {
     request
         .claim_token
         .clone()
