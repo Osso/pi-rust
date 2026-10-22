@@ -633,7 +633,9 @@ fn build_proxy_request_options(options: &SimpleStreamOptions) -> Result<JsValue,
     insert_some(&mut object, "cacheRetention", stream.cache_retention)?;
     insert_some(&mut object, "sessionId", stream.session_id.clone())?;
     insert_some(&mut object, "headers", stream.request.headers.clone())?;
-    insert_some(&mut object, "metadata", stream.metadata.clone())?;
+    if let Some(metadata) = &stream.metadata {
+        object.insert("metadata".into(), JsValue::Object(metadata.clone()));
+    }
     insert_some(&mut object, "transport", stream.transport)?;
     insert_some(&mut object, "thinkingBudgets", options.thinking_budgets.clone())?;
     insert_some(&mut object, "maxRetryDelayMs", stream.request.max_retry_delay_ms)?;

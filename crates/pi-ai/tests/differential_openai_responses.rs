@@ -169,7 +169,9 @@ fn stream_options(
             .map(pi_js_compat::js_json::JsString::from),
         on_retry: None,
         websocket_connect_timeout_ms: stream.get("websocketConnectTimeoutMs").and_then(Value::as_f64),
-        metadata: stream.get("metadata").and_then(Value::as_object).cloned(),
+        metadata: stream
+            .get("metadata")
+            .and_then(|value| pi_js_compat::js_json::JsValue::from(value.clone()).as_object().cloned()),
         extra: extra_map,
     }
 }

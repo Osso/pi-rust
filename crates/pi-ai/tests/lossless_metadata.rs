@@ -92,5 +92,5 @@ fn simple_options_keep_all_nested_metadata_code_units() {
         Some(&simple),
         Some(&"key".into()),
     );
-    assert_eq!(pi_js_compat::js_json::to_value(&base.metadata).unwrap(), expected);
+    assert_eq!(pi_js_compat::js_json::JsValue::Object(base.metadata.unwrap()), expected);
 }
