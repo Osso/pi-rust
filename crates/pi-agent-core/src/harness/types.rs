@@ -362,6 +362,8 @@ impl Error for ExecutionError {
 pub enum CompactionErrorCode {
     Aborted,
     SummarizationFailed,
+    InvalidSession,
+    Unknown,
 }
 
 impl CompactionErrorCode {
@@ -370,6 +372,8 @@ impl CompactionErrorCode {
         match self {
             Self::Aborted => "aborted",
             Self::SummarizationFailed => "summarization_failed",
+            Self::InvalidSession => "invalid_session",
+            Self::Unknown => "unknown",
         }
     }
 }
@@ -415,6 +419,7 @@ impl Error for CompactionError {
 pub enum BranchSummaryErrorCode {
     Aborted,
     SummarizationFailed,
+    InvalidSession,
 }
 
 impl BranchSummaryErrorCode {
@@ -423,6 +428,7 @@ impl BranchSummaryErrorCode {
         match self {
             Self::Aborted => "aborted",
             Self::SummarizationFailed => "summarization_failed",
+            Self::InvalidSession => "invalid_session",
         }
     }
 }

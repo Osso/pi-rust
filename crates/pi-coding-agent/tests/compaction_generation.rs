@@ -5,13 +5,13 @@ use pi_js_compat::js_json::JsValue;
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::agent::{AgentMessage, StreamFn};
-use pi_agent_core::harness::compaction::NoRetryCallbacks;
 use pi_ai::request::SimpleStreamOptions;
 use pi_ai::types::{
     AssistantContent, AssistantMessage, Context, Message, Model, ProviderNativeContext, ProviderNativeFormat,
     StopReason, TextContent, Usage, UsageCost, UserContent, UserMessage, UserRole,
 };
 use pi_ai::utils::retry::RetryPolicy;
+use pi_coding_agent::core::compaction::NoRetryCallbacks;
 use pi_coding_agent::core::compaction::{
     CompactionPreparation, CompactionSettings, CompactionSourceType, CompactionSummaryOptions,
     GenerateSummaryWithUsageOptions, MaterializeCompactionSummaryOptions, MaterializeCompactionSummaryResult, compact,

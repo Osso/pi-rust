@@ -2075,7 +2075,6 @@ dependencies = [
  "indexmap",
  "pi-ai",
  "pi-js-compat",
- "pi-telemetry",
  "rustix 1.1.5",
  "serde",
  "serde_json",

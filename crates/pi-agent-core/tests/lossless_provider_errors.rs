@@ -38,7 +38,6 @@ async fn failed_compaction_keeps_provider_units_and_exact_prefix() {
             custom_instructions: None,
             previous_summary: None,
             thinking_level: None,
-            retry: None,
         })
         .await
         .unwrap_err();
@@ -107,86 +106,24 @@ async fn agent_failure_keeps_state_listener_and_persisted_message_native() {
 }
 
 #[tokio::test]
-async fn compaction_retry_callbacks_keep_raw_provider_messages() {
-    use pi_agent_core::harness::compaction::generate_summary_with_usage_with_callbacks;
-    use pi_ai::utils::retry::{RetryCallbacks, RetryPolicy};
-    #[derive(Default)]
-    struct Callbacks {
-        scheduled: Vec<JsString>,
-        finished: Vec<Option<JsString>>,
-    }
-    impl RetryCallbacks for Callbacks {
-        async fn on_retry_scheduled<'a>(&'a mut self, _: u32, _: u32, _: f64, message: &'a JsString) {
-            self.scheduled.push(message.clone());
-        }
-        async fn on_retry_finished(&mut self, _: bool, _: u32, message: Option<&JsString>) {
-            self.finished.push(message.cloned());
-        }
-    }
-    let faux = faux_provider(RegisterFauxProviderOptions::default());
-    let model = faux.get_model(None).unwrap();
-    let models = create_models(CreateModelsOptions::default());
-    models.set_provider(Arc::clone(&faux.provider));
-    let failure = faux_assistant_message(
-        "",
-        FauxAssistantMessageOptions {
-            stop_reason: Some(StopReason::Error),
-            error_message: Some(raw_error()),
-            ..Default::default()
-        },
-    );
-    faux.set_responses(vec![
-        FauxResponseStep::message(failure.clone()),
-        FauxResponseStep::message(failure),
-    ]);
-    let policy = RetryPolicy {
-        enabled: true,
-        max_retries: 1,
-        base_delay_ms: 0.0,
-    };
-    let mut callbacks = Callbacks::default();
-    let error = generate_summary_with_usage_with_callbacks(
-        &GenerateSummaryOptions {
-            current_messages: &[],
-            models: &models,
-            model: &model,
-            reserve_tokens: 100.0,
-            signal: None,
-            custom_instructions: None,
-            previous_summary: None,
-            thinking_level: None,
-            retry: Some(&policy),
-        },
-        Some(&mut callbacks),
-    )
-    .await
-    .unwrap_err();
-    assert_eq!(callbacks.scheduled, vec![raw_error()]);
-    assert_eq!(callbacks.finished, vec![Some(raw_error())]);
-    assert_eq!(error.message, JsString::from("Summarization failed: ") + raw_error());
-}
-
-#[tokio::test]
 async fn branch_failures_preserve_raw_error_and_source_defaults() {
     use pi_agent_core::harness::compaction::branch_summarization::{
         GenerateBranchSummaryOptions, generate_branch_summary,
     };
-    use pi_agent_core::harness::session::{Entry, EntryBody};
+    use pi_agent_core::harness::session::{KnownSessionEntry, SessionTreeEntry, SessionTreeEntryBase};
     let faux = faux_provider(RegisterFauxProviderOptions::default());
     let model = faux.get_model(None).unwrap();
     let models = create_models(CreateModelsOptions::default());
     models.set_provider(Arc::clone(&faux.provider));
     let user: AgentMessage = serde_json::from_str(r#"{"role":"user","content":"branch","timestamp":0}"#).unwrap();
-    let entries = [Entry {
-        body: EntryBody::Message {
+    let entries = [SessionTreeEntry::from_known(KnownSessionEntry::Message {
+        base: SessionTreeEntryBase {
             id: "entry".into(),
-            message: user,
-            terminate: None,
+            parent_id: None,
+            timestamp: "1970-01-01T00:00:00.000Z".into(),
         },
-        parent_id: None,
-        seq: 1,
-        timestamp: 0,
-    }];
+        message: user,
+    })];
     for (reason, detail, expected) in [
         (
             StopReason::Error,
@@ -199,7 +136,7 @@ async fn branch_failures_preserve_raw_error_and_source_defaults() {
         (
             StopReason::Error,
             Some(JsString::default()),
-            "Branch summary failed: ".into(),
+            "Branch summary failed: Unknown error".into(),
         ),
     ] {
         let mut response = faux_assistant_message("", FauxAssistantMessageOptions::default());
@@ -215,7 +152,6 @@ async fn branch_failures_preserve_raw_error_and_source_defaults() {
                 custom_instructions: None,
                 replace_instructions: false,
                 reserve_tokens: None,
-                retry: None,
             },
         )
         .await
@@ -330,18 +266,16 @@ async fn tool_hook_failures_keep_native_units_in_result_messages() {
 #[tokio::test]
 async fn provider_failure_survives_jsonl_repo_close_and_reopen() {
     use pi_agent_core::agent::{Agent, AgentOptions};
-    use pi_agent_core::harness::session::jsonl::types::NativeFileSystem;
-    use pi_agent_core::harness::session::{
-        EntryBody, EntryQuery, JsonlSessionCreateOptions, JsonlSessionRepo, JsonlSessionRepoOptions,
-    };
+    use pi_agent_core::harness::env::{NodeExecutionEnv, NodeExecutionEnvOptions};
+    use pi_agent_core::harness::session::{JsonlSessionCreateOptions, JsonlSessionRepo, JsonlSessionRepoOptions};
     let root = tempfile::tempdir().unwrap();
-    let repo = JsonlSessionRepo::with_clock(
-        JsonlSessionRepoOptions {
-            fs: Arc::new(NativeFileSystem::new(root.path().to_str().unwrap())),
-            sessions_root: root.path().to_str().expect("utf-8 test path").to_owned().into(),
-        },
-        Arc::new(|| 1_700_000_000_000),
-    );
+    let repo = JsonlSessionRepo::new(JsonlSessionRepoOptions {
+        fs: Arc::new(NodeExecutionEnv::new(NodeExecutionEnvOptions {
+            cwd: root.path().to_str().unwrap().into(),
+            ..Default::default()
+        })),
+        sessions_root: root.path().to_str().unwrap().into(),
+    });
     let agent = Agent::new(AgentOptions {
         stream_fn: Some(Arc::new(|_, _, _| {
             Box::pin(async {
@@ -357,70 +291,30 @@ async fn provider_failure_survives_jsonl_repo_close_and_reopen() {
     let session = repo
         .create(JsonlSessionCreateOptions {
             id: Some("native-error".into()),
-            parent_session_id: None,
-            cwd: root.path().to_str().expect("utf-8 test path").to_owned().into(),
-            metadata: None,
+            parent_session_path: None,
+            cwd: root.path().to_str().unwrap().into(),
         })
         .await
         .unwrap();
-    session
-        .append_entry(
-            EntryBody::Message {
-                id: "failure".into(),
-                message: agent.messages().last().unwrap().clone(),
-                terminate: None,
-            },
-            "main",
-        )
+    let failure_id = session
+        .append_message(agent.messages().last().unwrap().clone())
         .await
         .unwrap();
     let raw_payload: AgentMessage =
         serde_json::from_str(r#"{"role":"raw-custom","content":"\ud800","\udfff":{"error":"\ud800!\udfff"}}"#).unwrap();
-    session
-        .append_entry(
-            EntryBody::Message {
-                id: "raw-payload".into(),
-                message: raw_payload.clone(),
-                terminate: None,
-            },
-            "main",
-        )
-        .await
-        .unwrap();
-    use pi_agent_core::harness::session::{OperationError, OperationOutcome, RecordBody, RecordQuery};
-    session
-        .append_record(RecordBody::OperationFinished {
-            id: "failed-op".into(),
-            lane: "main".into(),
-            run_id: "run".into(),
-            outcome: OperationOutcome::Failed,
-            error: Some(OperationError {
-                code: "provider_error".into(),
-                message: raw_error(),
-            }),
-        })
-        .await
-        .unwrap();
+    let payload_id = session.append_message(raw_payload.clone()).await.unwrap();
     let metadata = session.get_metadata().await.unwrap();
     drop(session);
     let restored = repo.open(&metadata).await.unwrap();
-    let entries = restored.find_entries(EntryQuery::default()).await.unwrap();
+    let entries = restored.get_entries().await.unwrap();
     assert_eq!(entries.len(), 2);
-    let failure = entries.iter().find(|entry| entry.id() == "failure").unwrap();
-    let EntryBody::Message { message, .. } = &failure.body else {
-        panic!("persisted failure message")
-    };
-    assert_eq!(message.as_assistant().unwrap().error_message, Some(raw_error()));
-    let payload = entries.iter().find(|entry| entry.id() == "raw-payload").unwrap();
-    let EntryBody::Message { message, .. } = &payload.body else {
-        panic!("persisted raw custom payload")
-    };
-    assert_eq!(message, &raw_payload);
-    let records = restored.find_records(RecordQuery::default()).await.unwrap();
-    let RecordBody::OperationFinished { error: Some(error), .. } = &records[0].body else {
-        panic!("persisted provider operation failure")
-    };
-    assert_eq!(error.message, raw_error());
+    let failure = entries.iter().find(|entry| entry.id() == &failure_id).unwrap();
+    assert_eq!(
+        failure.message().unwrap().as_assistant().unwrap().error_message,
+        Some(raw_error())
+    );
+    let payload = entries.iter().find(|entry| entry.id() == &payload_id).unwrap();
+    assert_eq!(payload.message().unwrap(), &raw_payload);
 }
 
 #[test]
@@ -441,7 +335,7 @@ fn provider_native_summary_sink_keeps_original_payload_and_valid_raw_value() {
     let message = create_compaction_summary_message(
         "summary",
         0.0,
-        0,
+        "1970-01-01T00:00:00.000Z",
         &CompactionSummaryOptions {
             provider_native: Some(native.clone()),
             ..Default::default()
@@ -475,8 +369,14 @@ fn custom_type_and_branch_origin_keep_native_units() {
     use pi_agent_core::harness::messages::{
         CustomMessageContent, create_branch_summary_message, create_custom_message,
     };
-    let custom = create_custom_message(&raw_error(), CustomMessageContent::Text("body".into()), true, None, 0);
-    let branch = create_branch_summary_message("summary", &raw_error(), 0);
+    let custom = create_custom_message(
+        &raw_error(),
+        CustomMessageContent::Text("body".into()),
+        true,
+        None,
+        "1970-01-01T00:00:00.000Z",
+    );
+    let branch = create_branch_summary_message("summary", &raw_error(), "1970-01-01T00:00:00.000Z");
     for (message, field) in [(custom, "customType"), (branch, "fromId")] {
         let wire = serde_json::to_string(&message).unwrap();
         assert_eq!(

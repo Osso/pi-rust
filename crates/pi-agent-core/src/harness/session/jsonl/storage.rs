@@ -1,383 +1,246 @@
-//! Port of `packages/agent/src/harness/session/jsonl/storage.ts`.
-
-use pi_js_compat::js_format;
-use pi_js_compat::js_json::JsString;
-
-use std::sync::Arc;
+//! Frozen session/jsonl-storage.ts: v3 header plus raw tree entries.
 
 use pi_ai::request::BoxFuture;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{JsString, JsValue, from_value, parse_lossless, stringify_lossless, to_value};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::harness::session::jsonl::codec::{
-    encode_header, encode_mutation, metadata_from_header, parse_header, parse_mutation,
-};
-use crate::harness::session::jsonl::errors::{file_result, invalid_file, invalid_mutation_file};
-use crate::harness::session::jsonl::types::{JsonlSessionMetadata, JsonlSessionRepoFileSystem, JsonlV4Header};
-use crate::harness::session::state::SessionState;
-use crate::harness::session::types::{
-    Clock, Entry, EntryBody, EntryQuery, FactItem, ForkOptions, JsonlDecodeKind, LanePointer, LaneRecord, LogItem,
-    LogOptions, RecordBody, RecordQuery, SessionError, SessionErrorCode, SessionMutation, SessionStats, SessionStorage,
-    StorageBranchQuery, system_clock,
-};
+use super::super::repo_utils::get_file_system_result_or_throw;
+use super::super::state::TreeState;
+use super::super::types::*;
+use super::types::{JsonlSessionMetadata, JsonlSessionStorageCreateOptions, SessionHeader};
+use crate::harness::types::{FileContent, FileSystem, ReadTextLinesOptions};
 
-/// JSONL-backed per-session storage.
-pub struct JsonlSessionStorage {
-    fs: Arc<dyn JsonlSessionRepoFileSystem>,
-    metadata: JsonlSessionMetadata,
-    state: Mutex<SessionState>,
-    clock: Clock,
+fn invalid_session(path: &JsString, message: &str) -> SessionError {
+    SessionError::new(
+        SessionErrorCode::InvalidSession,
+        js_format!("Invalid JSONL session file {}: {}", path, message),
+    )
+}
+fn invalid_entry(path: &JsString, line: usize, message: &str) -> SessionError {
+    SessionError::new(
+        SessionErrorCode::InvalidEntry,
+        js_format!("Invalid JSONL session file {}: line {} {}", path, line, message),
+    )
 }
 
-impl JsonlSessionStorage {
-    pub fn new(fs: Arc<dyn JsonlSessionRepoFileSystem>, metadata: JsonlSessionMetadata) -> Self {
-        Self::with_clock(fs, metadata, system_clock())
+fn parse_header_line(line: &JsString, path: &JsString) -> Result<SessionHeader, SessionError> {
+    let value = parse_lossless(line).map_err(|cause| {
+        let mut error = invalid_session(path, "first line is not a valid session header");
+        error.cause = Some(Box::new(cause));
+        error
+    })?;
+    let Some(header) = value.as_object() else {
+        return Err(invalid_session(path, "first line is not a valid session header"));
+    };
+    if header
+        .get("type")
+        .and_then(JsValue::as_string)
+        .is_none_or(|kind| kind != "session")
+    {
+        return Err(invalid_session(path, "first line is not a valid session header"));
     }
-
-    pub fn with_clock(fs: Arc<dyn JsonlSessionRepoFileSystem>, metadata: JsonlSessionMetadata, clock: Clock) -> Self {
-        Self {
-            fs,
-            metadata,
-            state: Mutex::new(SessionState::new()),
-            clock,
+    if header.get("version").and_then(JsValue::as_f64) != Some(3.0) {
+        return Err(invalid_session(path, "unsupported session version"));
+    }
+    for (key, message) in [
+        ("id", "session header is missing id"),
+        ("timestamp", "session header is missing timestamp"),
+        ("cwd", "session header is missing cwd"),
+    ] {
+        if header
+            .get(key)
+            .and_then(JsValue::as_string)
+            .is_none_or(JsString::is_empty)
+        {
+            return Err(invalid_session(path, message));
         }
     }
-
-    /// Create a new session file from its header.
-    pub async fn create(
-        fs: Arc<dyn JsonlSessionRepoFileSystem>,
-        path: &JsString,
-        header: &JsonlV4Header,
-        clock: Clock,
-    ) -> Result<Self, SessionError> {
-        file_result(
-            fs.write_file(path, &encode_header(header)).await,
-            &js_format!("Failed to initialize session {}", path),
-        )?;
-        let file_info = file_result(
-            fs.file_info(path).await,
-            &js_format!("Failed to read session metadata {}", path),
-        )?;
-        Ok(Self::with_clock(
-            fs,
-            metadata_from_header(header, path.to_owned(), file_info.mtime_ms),
-            clock,
-        ))
+    if header
+        .get("parentSession")
+        .is_some_and(|parent| parent.as_string().is_none())
+    {
+        return Err(invalid_session(path, "session header parentSession must be a string"));
     }
+    from_value(&value).map_err(|error| {
+        SessionError::with_cause(SessionErrorCode::InvalidSession, "Invalid native session header", error)
+    })
+}
 
-    /// Load and replay a session file, repairing a torn final append.
-    pub async fn load(
-        fs: Arc<dyn JsonlSessionRepoFileSystem>,
-        path: &JsString,
+fn parse_entry_line(line: &JsString, path: &JsString, number: usize) -> Result<SessionTreeEntry, SessionError> {
+    let value = parse_lossless(line).map_err(|cause| {
+        let mut error = invalid_entry(path, number, "is not valid JSON");
+        error.cause = Some(Box::new(cause));
+        error
+    })?;
+    validate_entry(&value).map_err(|message| invalid_entry(path, number, message))?;
+    SessionTreeEntry::from_value(value)
+}
+
+pub async fn load_jsonl_session_metadata(
+    fs: &dyn FileSystem,
+    path: &JsString,
+) -> Result<JsonlSessionMetadata, SessionError> {
+    let lines = get_file_system_result_or_throw(
+        fs.read_text_lines(
+            path,
+            ReadTextLinesOptions {
+                max_lines: Some(1),
+                abort: None,
+            },
+        )
+        .await,
+        &js_format!("Failed to read session header {}", path),
+    )?;
+    let Some(line) = lines.first().map(JsString::from).filter(|line| !line.trim().is_empty()) else {
+        return Err(invalid_session(path, "missing session header"));
+    };
+    Ok(parse_header_line(&line, path)?.metadata(path))
+}
+
+pub struct JsonlSessionStorage {
+    fs: Arc<dyn FileSystem>,
+    path: JsString,
+    metadata: JsonlSessionMetadata,
+    state: Mutex<TreeState>,
+    clock: Clock,
+    ids: IdGenerator,
+}
+impl JsonlSessionStorage {
+    pub async fn open(fs: Arc<dyn FileSystem>, path: JsString) -> Result<Self, SessionError> {
+        Self::open_with_runtime(fs, path, system_clock(), uuid_generator()).await
+    }
+    pub async fn open_with_runtime(
+        fs: Arc<dyn FileSystem>,
+        path: JsString,
         clock: Clock,
+        ids: IdGenerator,
     ) -> Result<Self, SessionError> {
-        let content = file_result(
-            fs.read_text_file(path).await,
+        let content = get_file_system_result_or_throw(
+            fs.read_text_file(&path, None).await,
             &js_format!("Failed to read session {}", path),
         )?;
-        let physical_lines = split_physical_lines(&content);
-        let storage = load_storage_from_lines(Arc::clone(&fs), path, clock, &physical_lines).await?;
-        if replay_mutations(&storage, path, &physical_lines).await? {
-            return Ok(storage);
-        }
-        if !content.ends_with('\n') {
-            file_result(
-                fs.append_file(path, "\n").await,
-                &js_format!("Failed to repair unterminated session tail {}", path),
-            )?;
-        }
-        Ok(storage)
-    }
-
-    /// Fork this storage into `path`, copying entries, lanes, and facts.
-    pub async fn fork(
-        &self,
-        path: &JsString,
-        header: &JsonlV4Header,
-        options: &ForkOptions,
-    ) -> Result<Self, SessionError> {
-        let mutations = self.state.lock().await.create_fork_mutations(options)?;
-        let temp_path = js_format!("{}.tmp", path);
-        let populate_result = async {
-            let target = Self::create(Arc::clone(&self.fs), &temp_path, header, Arc::clone(&self.clock)).await?;
-            for mutation in &mutations {
-                target.append_mutation(mutation).await?;
-                target.state.lock().await.apply_mutation(mutation)?;
-            }
-            file_result(
-                self.fs.rename_file(&temp_path, path).await,
-                &js_format!("Failed to publish staged file {}", path),
-            )
-        }
-        .await;
-        if let Err(error) = populate_result {
-            let _ = self.fs.remove(&temp_path, false, true).await;
-            return Err(error);
-        }
-        Self::load(Arc::clone(&self.fs), path, Arc::clone(&self.clock)).await
-    }
-
-    /// Wait for queued writes to finish. Mutex-based serialization has no tail.
-    pub async fn drain(&self) {}
-
-    async fn append_mutation(&self, mutation: &SessionMutation) -> Result<(), SessionError> {
-        let line = encode_mutation(mutation)?;
-        file_result(
-            self.fs.append_file(&self.metadata.path, &line).await,
-            &js_format!("Failed to append session {}", &self.metadata.path),
-        )
-    }
-}
-
-async fn publish_file_atomically(
-    fs: &Arc<dyn JsonlSessionRepoFileSystem>,
-    destination: &JsString,
-    content: &str,
-    label: &str,
-) -> Result<(), SessionError> {
-    let temp_path = js_format!("{}.tmp", destination);
-    let result = async {
-        file_result(
-            fs.write_file(&temp_path, content).await,
-            &js_format!("Failed to stage {} {}", label, destination),
-        )?;
-        file_result(
-            fs.rename_file(&temp_path, destination).await,
-            &js_format!("Failed to publish staged file {}", destination),
-        )
-    }
-    .await;
-    if result.is_err() {
-        let _ = fs.remove(&temp_path, false, true).await;
-    }
-    result
-}
-
-fn split_physical_lines(content: &str) -> Vec<String> {
-    let mut lines: Vec<String> = content.split('\n').map(str::to_owned).collect();
-    if lines.last().is_some_and(String::is_empty) {
-        lines.pop();
-    }
-    lines
-}
-
-async fn load_storage_from_lines(
-    fs: Arc<dyn JsonlSessionRepoFileSystem>,
-    path: &JsString,
-    clock: Clock,
-    physical_lines: &[String],
-) -> Result<JsonlSessionStorage, SessionError> {
-    let Some(first_line) = physical_lines.first().filter(|line| !line.is_empty()) else {
-        return Err(invalid_file(
-            path,
-            1,
-            &crate::harness::session::types::JsonlDecodeError::new(JsonlDecodeKind::Schema, "is missing a header"),
-        ));
-    };
-    let header = parse_header(first_line).map_err(|error| invalid_file(path, 1, &error))?;
-    let file_info = file_result(
-        fs.file_info(path).await,
-        &js_format!("Failed to read session metadata {}", path),
-    )?;
-    Ok(JsonlSessionStorage::with_clock(
-        fs,
-        metadata_from_header(&header, path.to_owned(), file_info.mtime_ms),
-        clock,
-    ))
-}
-
-async fn replay_mutations(
-    storage: &JsonlSessionStorage,
-    path: &JsString,
-    physical_lines: &[String],
-) -> Result<bool, SessionError> {
-    for (index, line) in physical_lines.iter().enumerate().skip(1) {
-        let mutation = match parse_mutation(line) {
-            Ok(mutation) => mutation,
-            Err(error) => {
-                let is_torn_tail = index == physical_lines.len() - 1 && error.kind == JsonlDecodeKind::Syntax;
-                if is_torn_tail {
-                    let valid_prefix = format!("{}\n", physical_lines[..index].join("\n"));
-                    publish_file_atomically(&storage.fs, path, &valid_prefix, "torn-tail repair").await?;
-                    return Ok(true);
-                }
-                return Err(invalid_file(path, index + 1, &error));
-            }
+        let lines = JsString::from(content)
+            .split('\n')
+            .filter(|line| !line.trim().is_empty())
+            .collect::<Vec<_>>();
+        let Some(first) = lines.first() else {
+            return Err(invalid_session(&path, "missing session header"));
         };
-        if let Err(error) = storage.state.lock().await.apply_mutation(&mutation) {
-            if error.code() == SessionErrorCode::InvalidEntry {
-                return Err(invalid_mutation_file(path, index + 1, &error));
-            }
-            return Err(error);
-        }
+        let header = parse_header_line(first, &path)?;
+        let entries = lines
+            .iter()
+            .skip(1)
+            .enumerate()
+            .map(|(index, line)| parse_entry_line(line, &path, index + 2))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self {
+            metadata: header.metadata(&path),
+            fs,
+            path,
+            state: Mutex::new(TreeState::from_entries(entries)),
+            clock,
+            ids,
+        })
     }
-    Ok(false)
+    pub async fn create(
+        fs: Arc<dyn FileSystem>,
+        path: JsString,
+        options: JsonlSessionStorageCreateOptions,
+    ) -> Result<Self, SessionError> {
+        Self::create_with_runtime(fs, path, options, system_clock(), uuid_generator()).await
+    }
+    pub async fn create_with_runtime(
+        fs: Arc<dyn FileSystem>,
+        path: JsString,
+        options: JsonlSessionStorageCreateOptions,
+        clock: Clock,
+        ids: IdGenerator,
+    ) -> Result<Self, SessionError> {
+        let header = SessionHeader {
+            kind: "session".into(),
+            version: 3,
+            id: options.session_id,
+            timestamp: clock(),
+            cwd: options.cwd,
+            parent_session: options.parent_session_path,
+        };
+        let text = JsString::from(stringify_lossless(&to_value(&header).expect("header serializes")) + "\n");
+        get_file_system_result_or_throw(
+            fs.write_file(&path, FileContent::Text(&text), None).await,
+            &js_format!("Failed to create session {}", path),
+        )?;
+        Ok(Self {
+            metadata: header.metadata(&path),
+            fs,
+            path,
+            state: Mutex::new(TreeState::default()),
+            clock,
+            ids,
+        })
+    }
+    async fn persist_entry(&self, entry: SessionTreeEntry, leaf: bool) -> Result<(), SessionError> {
+        let text = JsString::from(stringify_lossless(&entry.value()) + "\n");
+        let message = if leaf {
+            js_format!("Failed to append session leaf {}", entry.id())
+        } else {
+            js_format!("Failed to append session entry {}", entry.id())
+        };
+        get_file_system_result_or_throw(
+            self.fs.append_file(&self.path, FileContent::Text(&text), None).await,
+            &message,
+        )?;
+        self.state.lock().await.append(entry);
+        Ok(())
+    }
 }
-
-macro_rules! lock_state {
-    ($self:ident) => {
-        $self.state.lock().await
-    };
-}
-
 impl SessionStorage<JsonlSessionMetadata> for JsonlSessionStorage {
-    fn get_metadata<'a>(&'a self) -> BoxFuture<'a, Result<JsonlSessionMetadata, SessionError>> {
-        Box::pin(async move { Ok(self.metadata.clone()) })
+    fn get_metadata(&self) -> BoxFuture<'_, Result<JsonlSessionMetadata, SessionError>> {
+        Box::pin(async { Ok(self.metadata.clone()) })
     }
-
-    fn get_lanes<'a>(&'a self) -> BoxFuture<'a, Result<Vec<LanePointer>, SessionError>> {
-        Box::pin(async move { Ok(lock_state!(self).get_lanes()) })
+    fn get_leaf_id(&self) -> BoxFuture<'_, Result<Option<JsString>, SessionError>> {
+        Box::pin(async { self.state.lock().await.validate_leaf() })
     }
-
-    fn create_lane<'a>(&'a self, lane: &'a str, at: Option<&'a str>) -> BoxFuture<'a, Result<(), SessionError>> {
+    fn create_entry_id(&self) -> BoxFuture<'_, Result<JsString, SessionError>> {
+        Box::pin(async { Ok(self.state.lock().await.create_entry_id(&self.ids)) })
+    }
+    fn set_leaf_id<'a>(&'a self, leaf: Option<&'a JsString>) -> BoxFuture<'a, Result<(), SessionError>> {
         Box::pin(async move {
-            let mut state = lock_state!(self);
-            state.validate_new_lane(lane)?;
-            state.validate_target(at)?;
-            let mutation = SessionMutation::Lane {
-                seq: state.next_sequence(),
-                lane: lane.to_owned(),
-                leaf_id: at.map(str::to_owned),
+            let entry = {
+                let state = self.state.lock().await;
+                state.validate_target(leaf)?;
+                SessionTreeEntry::from_known(KnownSessionEntry::Leaf {
+                    base: SessionTreeEntryBase {
+                        id: state.create_entry_id(&self.ids),
+                        parent_id: state.leaf_id.clone(),
+                        timestamp: (self.clock)(),
+                    },
+                    target_id: leaf.cloned(),
+                })
             };
-            self.append_mutation(&mutation).await?;
-            state.apply_mutation(&mutation)
+            self.persist_entry(entry, true).await
         })
     }
-
-    fn move_lane<'a>(&'a self, lane: &'a str, to: Option<&'a str>) -> BoxFuture<'a, Result<(), SessionError>> {
-        Box::pin(async move {
-            let mut state = lock_state!(self);
-            state.require_lane(lane)?;
-            state.validate_target(to)?;
-            let mutation = SessionMutation::Lane {
-                seq: state.next_sequence(),
-                lane: lane.to_owned(),
-                leaf_id: to.map(str::to_owned),
-            };
-            self.append_mutation(&mutation).await?;
-            state.apply_mutation(&mutation)
-        })
+    fn append_entry(&self, entry: SessionTreeEntry) -> BoxFuture<'_, Result<(), SessionError>> {
+        Box::pin(async move { self.persist_entry(entry, false).await })
     }
-
-    fn append_entry<'a>(&'a self, entry: EntryBody, lane: &'a str) -> BoxFuture<'a, Result<Entry, SessionError>> {
-        Box::pin(async move {
-            let mut state = lock_state!(self);
-            let parent_id = state.require_lane(lane)?;
-            state.validate_unused_id(entry.id())?;
-            let entry = Entry {
-                body: entry,
-                parent_id,
-                seq: state.next_sequence(),
-                timestamp: (self.clock)(),
-            };
-            let mutation = SessionMutation::Entry {
-                lane: Some(lane.to_owned()),
-                entry: entry.clone(),
-            };
-            self.append_mutation(&mutation).await?;
-            state.apply_mutation(&mutation)?;
-            Ok(entry)
-        })
+    fn get_entry<'a>(&'a self, id: &'a JsString) -> BoxFuture<'a, Result<Option<SessionTreeEntry>, SessionError>> {
+        Box::pin(async move { Ok(self.state.lock().await.by_id.get(id).cloned()) })
     }
-
-    fn append_record<'a>(&'a self, record: RecordBody) -> BoxFuture<'a, Result<LaneRecord, SessionError>> {
-        Box::pin(async move {
-            let mut state = lock_state!(self);
-            state.require_lane(record.lane())?;
-            state.validate_unused_id(record.id())?;
-            let open_operation_id = state
-                .find_open_operations(record.lane(), Some(1))?
-                .first()
-                .map(|record| record.id().to_owned());
-            if record.record_type() == crate::harness::session::types::RecordType::OperationStarted
-                && let Some(open_id) = open_operation_id
-            {
-                return Err(SessionError::new(
-                    SessionErrorCode::Storage,
-                    format!("Lane {} already has an open operation {open_id}", record.lane()),
-                ));
-            }
-            let record = LaneRecord {
-                body: record,
-                seq: state.next_sequence(),
-                timestamp: (self.clock)(),
-            };
-            let mutation = SessionMutation::Record { record: record.clone() };
-            self.append_mutation(&mutation).await?;
-            state.apply_mutation(&mutation)?;
-            Ok(record)
-        })
+    fn find_entries<'a>(&'a self, kind: &'a JsString) -> BoxFuture<'a, Result<Vec<SessionTreeEntry>, SessionError>> {
+        Box::pin(async move { Ok(self.state.lock().await.find_entries(kind)) })
     }
-
-    fn get_entry<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Option<Entry>, SessionError>> {
-        Box::pin(async move { Ok(lock_state!(self).get_entry(id).cloned()) })
+    fn get_label<'a>(&'a self, id: &'a JsString) -> BoxFuture<'a, Result<Option<JsString>, SessionError>> {
+        Box::pin(async move { Ok(self.state.lock().await.labels.get(id).cloned()) })
     }
-
-    fn find_entries<'a>(&'a self, query: EntryQuery) -> BoxFuture<'a, Result<Vec<Entry>, SessionError>> {
-        Box::pin(async move { lock_state!(self).find_entries(&query) })
-    }
-
-    fn find_entries_on_branch<'a>(
+    fn get_path_to_root<'a>(
         &'a self,
-        query: StorageBranchQuery,
-    ) -> BoxFuture<'a, Result<Vec<Entry>, SessionError>> {
-        Box::pin(async move { lock_state!(self).find_entries_on_branch(&query) })
+        leaf: Option<&'a JsString>,
+    ) -> BoxFuture<'a, Result<Vec<SessionTreeEntry>, SessionError>> {
+        Box::pin(async move { self.state.lock().await.path_to_root(leaf) })
     }
-
-    fn find_records<'a>(&'a self, query: RecordQuery) -> BoxFuture<'a, Result<Vec<LaneRecord>, SessionError>> {
-        Box::pin(async move { lock_state!(self).find_records(&query) })
-    }
-
-    fn find_open_operations<'a>(
-        &'a self,
-        lane: &'a str,
-        limit: Option<usize>,
-    ) -> BoxFuture<'a, Result<Vec<LaneRecord>, SessionError>> {
-        Box::pin(async move { lock_state!(self).find_open_operations(lane, limit) })
-    }
-
-    fn get_log<'a>(&'a self, options: LogOptions) -> BoxFuture<'a, Result<Vec<LogItem>, SessionError>> {
-        Box::pin(async move { lock_state!(self).get_log(&options) })
-    }
-
-    fn get_name<'a>(&'a self) -> BoxFuture<'a, Result<Option<String>, SessionError>> {
-        Box::pin(async move { Ok(lock_state!(self).get_name()) })
-    }
-
-    fn set_name<'a>(&'a self, name: Option<&'a str>) -> BoxFuture<'a, Result<(), SessionError>> {
-        Box::pin(async move {
-            let mut state = lock_state!(self);
-            let mutation = SessionMutation::Fact {
-                seq: state.next_sequence(),
-                fact: FactItem::Name {
-                    name: name.map(str::to_owned),
-                },
-            };
-            self.append_mutation(&mutation).await?;
-            state.apply_mutation(&mutation)
-        })
-    }
-
-    fn get_label<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Option<String>, SessionError>> {
-        Box::pin(async move { Ok(lock_state!(self).get_label(id)) })
-    }
-
-    fn set_label<'a>(&'a self, id: &'a str, label: Option<&'a str>) -> BoxFuture<'a, Result<(), SessionError>> {
-        Box::pin(async move {
-            let mut state = lock_state!(self);
-            state.validate_target(Some(id))?;
-            let mutation = SessionMutation::Fact {
-                seq: state.next_sequence(),
-                fact: FactItem::Label {
-                    target_id: id.to_owned(),
-                    label: label.map(str::to_owned),
-                },
-            };
-            self.append_mutation(&mutation).await?;
-            state.apply_mutation(&mutation)
-        })
-    }
-
-    fn get_stats<'a>(&'a self) -> BoxFuture<'a, Result<SessionStats, SessionError>> {
-        Box::pin(async move { Ok(lock_state!(self).get_stats()) })
+    fn get_entries(&self) -> BoxFuture<'_, Result<Vec<SessionTreeEntry>, SessionError>> {
+        Box::pin(async { Ok(self.state.lock().await.entries.clone()) })
     }
 }

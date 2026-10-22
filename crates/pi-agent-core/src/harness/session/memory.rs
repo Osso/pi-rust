@@ -1,320 +1,191 @@
-//! Port of `packages/agent/src/harness/session/memory.ts`.
-
-use std::sync::Arc;
+//! Frozen session/memory-storage.ts and session/memory-repo.ts.
 
 use indexmap::IndexMap;
+use pi_ai::request::BoxFuture;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use pi_ai::request::BoxFuture;
+use super::facade::Session;
+use super::repo_utils::{create_session_id, create_timestamp, get_entries_to_fork};
+use super::state::TreeState;
+use super::types::*;
 
-use crate::harness::session::facade::Session;
-use crate::harness::session::state::SessionState;
-use crate::harness::session::types::{
-    Clock, Entry, EntryBody, EntryQuery, FactItem, ForkOptions, IdGenerator, LanePointer, LaneRecord, LogItem,
-    LogOptions, RecordBody, RecordQuery, SessionCreateOptions, SessionError, SessionErrorCode, SessionMetadata,
-    SessionMutation, SessionStats, SessionStorage, StorageBranchQuery, UuidV7IdGenerator, system_clock,
-};
-
-/// In-memory session storage.
-pub struct InMemorySessionStorage {
-    metadata: SessionMetadata,
-    state: Mutex<SessionState>,
-    clock: Clock,
+#[derive(Default)]
+pub struct InMemorySessionStorageOptions {
+    pub entries: Vec<SessionTreeEntry>,
+    pub metadata: Option<SessionMetadata>,
 }
 
-impl InMemorySessionStorage {
-    pub fn new(metadata: SessionMetadata) -> Self {
-        Self::with_clock(metadata, system_clock())
-    }
+pub struct InMemorySessionStorage<M: SessionMetadataValue = SessionMetadata> {
+    metadata: M,
+    state: Mutex<TreeState>,
+    clock: Clock,
+    ids: IdGenerator,
+}
 
-    pub fn with_clock(metadata: SessionMetadata, clock: Clock) -> Self {
-        Self {
+impl InMemorySessionStorage<SessionMetadata> {
+    pub fn new(options: InMemorySessionStorageOptions) -> Result<Self, SessionError> {
+        let state = TreeState::from_entries(options.entries);
+        state.validate_leaf()?;
+        let metadata = options.metadata.unwrap_or_else(|| SessionMetadata {
+            id: create_session_id(),
+            created_at: create_timestamp(),
+        });
+        Ok(Self {
             metadata,
-            state: Mutex::new(SessionState::new()),
+            state: Mutex::new(state),
+            clock: system_clock(),
+            ids: uuid_generator(),
+        })
+    }
+}
+
+impl<M: SessionMetadataValue> InMemorySessionStorage<M> {
+    pub fn with_metadata(metadata: M, entries: Vec<SessionTreeEntry>) -> Result<Self, SessionError> {
+        Self::with_runtime(metadata, entries, system_clock(), uuid_generator())
+    }
+    pub fn with_runtime(
+        metadata: M,
+        entries: Vec<SessionTreeEntry>,
+        clock: Clock,
+        ids: IdGenerator,
+    ) -> Result<Self, SessionError> {
+        let state = TreeState::from_entries(entries);
+        state.validate_leaf()?;
+        Ok(Self {
+            metadata,
+            state: Mutex::new(state),
             clock,
-        }
-    }
-
-    /// Create a fork storage by replaying fork mutations into fresh state.
-    pub fn fork(&self, metadata: SessionMetadata, options: &ForkOptions) -> Result<Self, SessionError> {
-        let storage = Self::with_clock(metadata, Arc::clone(&self.clock));
-        let mutations = self
-            .state
-            .try_lock()
-            .expect("in-memory state is not contended during fork")
-            .create_fork_mutations(options)?;
-        {
-            let mut state = storage
-                .state
-                .try_lock()
-                .expect("fresh in-memory state is not contended");
-            for mutation in mutations {
-                state.apply_mutation(&mutation)?;
-            }
-        }
-        Ok(storage)
+            ids,
+        })
     }
 }
 
-impl SessionStorage<SessionMetadata> for InMemorySessionStorage {
-    fn get_metadata<'a>(&'a self) -> BoxFuture<'a, Result<SessionMetadata, SessionError>> {
-        Box::pin(async move { Ok(self.metadata.clone()) })
+impl<M: SessionMetadataValue> SessionStorage<M> for InMemorySessionStorage<M> {
+    fn get_metadata(&self) -> BoxFuture<'_, Result<M, SessionError>> {
+        Box::pin(async { Ok(self.metadata.clone()) })
     }
-
-    fn get_lanes<'a>(&'a self) -> BoxFuture<'a, Result<Vec<LanePointer>, SessionError>> {
-        Box::pin(async move { Ok(self.state.lock().await.get_lanes()) })
+    fn get_leaf_id(&self) -> BoxFuture<'_, Result<Option<JsString>, SessionError>> {
+        Box::pin(async { self.state.lock().await.validate_leaf() })
     }
-
-    fn create_lane<'a>(&'a self, lane: &'a str, at: Option<&'a str>) -> BoxFuture<'a, Result<(), SessionError>> {
+    fn create_entry_id(&self) -> BoxFuture<'_, Result<JsString, SessionError>> {
+        Box::pin(async { Ok(self.state.lock().await.create_entry_id(&self.ids)) })
+    }
+    fn set_leaf_id<'a>(&'a self, leaf: Option<&'a JsString>) -> BoxFuture<'a, Result<(), SessionError>> {
         Box::pin(async move {
             let mut state = self.state.lock().await;
-            state.validate_new_lane(lane)?;
-            state.validate_target(at)?;
-            let mutation = SessionMutation::Lane {
-                seq: state.next_sequence(),
-                lane: lane.to_owned(),
-                leaf_id: at.map(str::to_owned),
-            };
-            state.apply_mutation(&mutation)
-        })
-    }
-
-    fn move_lane<'a>(&'a self, lane: &'a str, to: Option<&'a str>) -> BoxFuture<'a, Result<(), SessionError>> {
-        Box::pin(async move {
-            let mut state = self.state.lock().await;
-            state.require_lane(lane)?;
-            state.validate_target(to)?;
-            let mutation = SessionMutation::Lane {
-                seq: state.next_sequence(),
-                lane: lane.to_owned(),
-                leaf_id: to.map(str::to_owned),
-            };
-            state.apply_mutation(&mutation)
-        })
-    }
-
-    fn append_entry<'a>(&'a self, entry: EntryBody, lane: &'a str) -> BoxFuture<'a, Result<Entry, SessionError>> {
-        Box::pin(async move {
-            let mut state = self.state.lock().await;
-            let parent_id = state.require_lane(lane)?;
-            state.validate_unused_id(entry.id())?;
-            let entry = Entry {
-                body: entry,
-                parent_id,
-                seq: state.next_sequence(),
-                timestamp: (self.clock)(),
-            };
-            state.apply_mutation(&SessionMutation::Entry {
-                lane: Some(lane.to_owned()),
-                entry: entry.clone(),
-            })?;
-            Ok(entry)
-        })
-    }
-
-    fn append_record<'a>(&'a self, record: RecordBody) -> BoxFuture<'a, Result<LaneRecord, SessionError>> {
-        Box::pin(async move {
-            let mut state = self.state.lock().await;
-            state.require_lane(record.lane())?;
-            state.validate_unused_id(record.id())?;
-            let open_operation_id = state
-                .find_open_operations(record.lane(), Some(1))?
-                .first()
-                .map(|record| record.id().to_owned());
-            if record.record_type() == crate::harness::session::types::RecordType::OperationStarted
-                && let Some(open_id) = open_operation_id
-            {
-                return Err(SessionError::new(
-                    SessionErrorCode::Storage,
-                    format!("Lane {} already has an open operation {open_id}", record.lane()),
-                ));
-            }
-            let record = LaneRecord {
-                body: record,
-                seq: state.next_sequence(),
-                timestamp: (self.clock)(),
-            };
-            state.apply_mutation(&SessionMutation::Record { record: record.clone() })?;
-            Ok(record)
-        })
-    }
-
-    fn get_entry<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Option<Entry>, SessionError>> {
-        Box::pin(async move { Ok(self.state.lock().await.get_entry(id).cloned()) })
-    }
-
-    fn find_entries<'a>(&'a self, query: EntryQuery) -> BoxFuture<'a, Result<Vec<Entry>, SessionError>> {
-        Box::pin(async move { self.state.lock().await.find_entries(&query) })
-    }
-
-    fn find_entries_on_branch<'a>(
-        &'a self,
-        query: StorageBranchQuery,
-    ) -> BoxFuture<'a, Result<Vec<Entry>, SessionError>> {
-        Box::pin(async move { self.state.lock().await.find_entries_on_branch(&query) })
-    }
-
-    fn find_records<'a>(&'a self, query: RecordQuery) -> BoxFuture<'a, Result<Vec<LaneRecord>, SessionError>> {
-        Box::pin(async move { self.state.lock().await.find_records(&query) })
-    }
-
-    fn find_open_operations<'a>(
-        &'a self,
-        lane: &'a str,
-        limit: Option<usize>,
-    ) -> BoxFuture<'a, Result<Vec<LaneRecord>, SessionError>> {
-        Box::pin(async move { self.state.lock().await.find_open_operations(lane, limit) })
-    }
-
-    fn get_log<'a>(&'a self, options: LogOptions) -> BoxFuture<'a, Result<Vec<LogItem>, SessionError>> {
-        Box::pin(async move { self.state.lock().await.get_log(&options) })
-    }
-
-    fn get_name<'a>(&'a self) -> BoxFuture<'a, Result<Option<String>, SessionError>> {
-        Box::pin(async move { Ok(self.state.lock().await.get_name()) })
-    }
-
-    fn set_name<'a>(&'a self, name: Option<&'a str>) -> BoxFuture<'a, Result<(), SessionError>> {
-        Box::pin(async move {
-            let mut state = self.state.lock().await;
-            let mutation = SessionMutation::Fact {
-                seq: state.next_sequence(),
-                fact: FactItem::Name {
-                    name: name.map(str::to_owned),
+            state.validate_target(leaf)?;
+            let entry = SessionTreeEntry::from_known(KnownSessionEntry::Leaf {
+                base: SessionTreeEntryBase {
+                    id: state.create_entry_id(&self.ids),
+                    parent_id: state.leaf_id.clone(),
+                    timestamp: (self.clock)(),
                 },
-            };
-            state.apply_mutation(&mutation)
+                target_id: leaf.cloned(),
+            });
+            state.append(entry);
+            Ok(())
         })
     }
-
-    fn get_label<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Option<String>, SessionError>> {
-        Box::pin(async move { Ok(self.state.lock().await.get_label(id)) })
-    }
-
-    fn set_label<'a>(&'a self, id: &'a str, label: Option<&'a str>) -> BoxFuture<'a, Result<(), SessionError>> {
+    fn append_entry(&self, entry: SessionTreeEntry) -> BoxFuture<'_, Result<(), SessionError>> {
         Box::pin(async move {
-            let mut state = self.state.lock().await;
-            state.validate_target(Some(id))?;
-            let mutation = SessionMutation::Fact {
-                seq: state.next_sequence(),
-                fact: FactItem::Label {
-                    target_id: id.to_owned(),
-                    label: label.map(str::to_owned),
-                },
-            };
-            state.apply_mutation(&mutation)
+            self.state.lock().await.append(entry);
+            Ok(())
         })
     }
-
-    fn get_stats<'a>(&'a self) -> BoxFuture<'a, Result<SessionStats, SessionError>> {
-        Box::pin(async move { Ok(self.state.lock().await.get_stats()) })
+    fn get_entry<'a>(&'a self, id: &'a JsString) -> BoxFuture<'a, Result<Option<SessionTreeEntry>, SessionError>> {
+        Box::pin(async move { Ok(self.state.lock().await.by_id.get(id).cloned()) })
+    }
+    fn find_entries<'a>(&'a self, kind: &'a JsString) -> BoxFuture<'a, Result<Vec<SessionTreeEntry>, SessionError>> {
+        Box::pin(async move { Ok(self.state.lock().await.find_entries(kind)) })
+    }
+    fn get_label<'a>(&'a self, id: &'a JsString) -> BoxFuture<'a, Result<Option<JsString>, SessionError>> {
+        Box::pin(async move { Ok(self.state.lock().await.labels.get(id).cloned()) })
+    }
+    fn get_path_to_root<'a>(
+        &'a self,
+        leaf: Option<&'a JsString>,
+    ) -> BoxFuture<'a, Result<Vec<SessionTreeEntry>, SessionError>> {
+        Box::pin(async move { self.state.lock().await.path_to_root(leaf) })
+    }
+    fn get_entries(&self) -> BoxFuture<'_, Result<Vec<SessionTreeEntry>, SessionError>> {
+        Box::pin(async { Ok(self.state.lock().await.entries.clone()) })
     }
 }
 
-/// In-memory session repository.
 pub struct InMemorySessionRepo {
-    sessions: Mutex<IndexMap<String, Arc<InMemorySessionStorage>>>,
+    sessions: Mutex<IndexMap<JsString, Session<SessionMetadata>>>,
     clock: Clock,
-    id_generator: Arc<dyn IdGenerator>,
+    ids: IdGenerator,
 }
-
 impl Default for InMemorySessionRepo {
     fn default() -> Self {
-        Self::new()
+        Self::with_runtime(system_clock(), uuid_generator())
     }
 }
-
 impl InMemorySessionRepo {
     pub fn new() -> Self {
-        Self::with_clock_and_id_generator(system_clock(), Arc::new(UuidV7IdGenerator))
+        Self::default()
     }
-
-    pub fn with_clock(clock: Clock) -> Self {
-        Self::with_clock_and_id_generator(clock, Arc::new(UuidV7IdGenerator))
-    }
-
-    pub fn with_clock_and_id_generator(clock: Clock, id_generator: Arc<dyn IdGenerator>) -> Self {
+    pub fn with_runtime(clock: Clock, ids: IdGenerator) -> Self {
         Self {
             sessions: Mutex::new(IndexMap::new()),
             clock,
-            id_generator,
+            ids,
         }
     }
-
     pub async fn create(&self, options: SessionCreateOptions) -> Result<Session<SessionMetadata>, SessionError> {
-        let id = options.id.unwrap_or_else(|| self.id_generator.next());
-        let mut sessions = self.sessions.lock().await;
-        if sessions.contains_key(&id) {
-            return Err(SessionError::new(
-                SessionErrorCode::AlreadyExists,
-                format!("Session already exists: {id}"),
-            ));
-        }
-        let storage = Arc::new(InMemorySessionStorage::with_clock(
-            SessionMetadata {
-                id: id.clone(),
-                created_at: (self.clock)(),
-                parent_session_id: options.parent_session_id,
-            },
-            Arc::clone(&self.clock),
-        ));
-        sessions.insert(id, Arc::clone(&storage));
-        Ok(Session::new(storage))
+        let metadata = SessionMetadata {
+            id: options.id.unwrap_or_else(|| (self.ids)()),
+            created_at: (self.clock)(),
+        };
+        self.persist_new_session(metadata, Vec::new()).await
     }
-
+    async fn persist_new_session(
+        &self,
+        metadata: SessionMetadata,
+        entries: Vec<SessionTreeEntry>,
+    ) -> Result<Session<SessionMetadata>, SessionError> {
+        let id = metadata.id.clone();
+        let storage =
+            InMemorySessionStorage::with_runtime(metadata, entries, Arc::clone(&self.clock), Arc::clone(&self.ids))?;
+        let session = Session::with_clock(Arc::new(storage), Arc::clone(&self.clock));
+        self.sessions.lock().await.insert(id, session.clone());
+        Ok(session)
+    }
     pub async fn open(&self, metadata: &SessionMetadata) -> Result<Session<SessionMetadata>, SessionError> {
-        Ok(Session::new(self.require_storage(&metadata.id).await?))
+        self.sessions.lock().await.get(&metadata.id).cloned().ok_or_else(|| {
+            SessionError::new(
+                SessionErrorCode::NotFound,
+                js_format!("Session not found: {}", metadata.id),
+            )
+        })
     }
-
     pub async fn list(&self) -> Result<Vec<SessionMetadata>, SessionError> {
-        let sessions: Vec<_> = self.sessions.lock().await.values().cloned().collect();
-        let mut metadata = Vec::with_capacity(sessions.len());
-        for storage in sessions {
-            metadata.push(storage.get_metadata().await?);
+        let sessions = self.sessions.lock().await.values().cloned().collect::<Vec<_>>();
+        let mut metadata = Vec::new();
+        for session in sessions {
+            metadata.push(session.get_metadata().await?);
         }
         Ok(metadata)
     }
-
     pub async fn delete(&self, metadata: &SessionMetadata) -> Result<(), SessionError> {
         self.sessions.lock().await.shift_remove(&metadata.id);
         Ok(())
     }
-
     pub async fn fork(
         &self,
-        source: &SessionMetadata,
-        options: ForkOptions,
-        create_options: SessionCreateOptions,
+        metadata: &SessionMetadata,
+        options: SessionForkOptions,
     ) -> Result<Session<SessionMetadata>, SessionError> {
-        let source_storage = self.require_storage(&source.id).await?;
-        let id = create_options.id.unwrap_or_else(|| self.id_generator.next());
-        let mut sessions = self.sessions.lock().await;
-        if sessions.contains_key(&id) {
-            return Err(SessionError::new(
-                SessionErrorCode::AlreadyExists,
-                format!("Session already exists: {id}"),
-            ));
-        }
-        let parent_session_id = create_options.parent_session_id.or_else(|| Some(source.id.clone()));
-        let storage = Arc::new(source_storage.fork(
-            SessionMetadata {
-                id: id.clone(),
-                created_at: (self.clock)(),
-                parent_session_id,
-            },
-            &options,
-        )?);
-        sessions.insert(id, Arc::clone(&storage));
-        Ok(Session::new(storage))
-    }
-
-    async fn require_storage(&self, id: &str) -> Result<Arc<InMemorySessionStorage>, SessionError> {
-        match self.sessions.lock().await.get(id) {
-            Some(storage) => Ok(Arc::clone(storage)),
-            None => Err(SessionError::new(
-                SessionErrorCode::NotFound,
-                format!("Session not found: {id}"),
-            )),
-        }
+        let source = self.open(metadata).await?;
+        let entries = get_entries_to_fork(source.get_storage(), &options).await?;
+        let metadata = SessionMetadata {
+            id: options.id.unwrap_or_else(|| (self.ids)()),
+            created_at: (self.clock)(),
+        };
+        self.persist_new_session(metadata, entries).await
     }
 }

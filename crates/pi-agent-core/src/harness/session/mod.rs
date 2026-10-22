@@ -1,24 +1,19 @@
-//! Port of `packages/agent/src/harness/session/index.ts`.
+//! Frozen agent-core v3 session tree; old v4 lane records are retired.
 
 pub mod context;
 pub mod facade;
 pub mod jsonl;
 pub mod memory;
-pub mod state;
-pub mod testing;
+pub mod repo_utils;
+mod state;
 pub mod types;
 pub mod uuid;
 
-pub use context::{
-    ContextEntryTransform, CustomEntryContextMessageProjector, SessionContext, SessionContextBuildOptions,
-    SessionModel, build_context_entries, build_session_context, default_context_entry_transform,
-    session_entry_to_context_messages,
+pub use context::{SessionContext, SessionModel, build_session_context};
+pub use facade::{CompactionAppendOptions, MoveSummary, Session};
+pub use jsonl::*;
+pub use memory::{InMemorySessionRepo, InMemorySessionStorage, InMemorySessionStorageOptions};
+pub use repo_utils::{
+    create_session_id, create_timestamp, get_entries_to_fork, get_file_system_result_or_throw, to_session,
 };
-pub use facade::{CompactionAppendOptions, Session, SessionView};
-pub use jsonl::{
-    JsonlSessionCreateOptions, JsonlSessionListOptions, JsonlSessionMetadata, JsonlSessionRepo,
-    JsonlSessionRepoFileSystem, JsonlSessionRepoOptions, JsonlV4Header, list_jsonl_session_metadata,
-    load_jsonl_session_storage,
-};
-pub use memory::{InMemorySessionRepo, InMemorySessionStorage};
 pub use types::*;
