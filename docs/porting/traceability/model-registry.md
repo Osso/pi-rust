@@ -1,5 +1,7 @@
 # model-registry
 
+Q18 native error consumers: ResolvedRequestAuth::Err.error and its accessor retain JsString; get_error preserves native runtime errors. Existing no-API-key modifier applies only to the exact source sentinel; arbitrary provider human text is never Display-projected. Runtime proof remains blocked by concurrent coding-library dependencies.
+
 Source: `packages/coding-agent/src/core/model-registry.ts` (158 lines).
 Rust: `crates/pi-coding-agent/src/core/model_registry.rs`.
 Tests: `crates/pi-coding-agent/tests/model_registry.rs` (ports

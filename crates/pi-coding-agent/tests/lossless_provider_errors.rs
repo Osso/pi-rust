@@ -27,6 +27,45 @@ fn model_runtime_message_keeps_raw_resolve_callback() {
     assert_eq!(error.message(), raw_error());
 }
 
+#[tokio::test]
+async fn coding_compaction_keeps_failed_stream_message_with_source_prefix() {
+    use pi_agent_core::agent::StreamFn;
+    use pi_ai::providers::faux::{RegisterFauxProviderOptions, faux_provider};
+    use pi_ai::utils::event_stream::{StreamFailure, create_assistant_message_event_stream};
+    use pi_coding_agent::core::compaction::{GenerateSummaryWithUsageOptions, generate_summary};
+    use std::sync::Arc;
+    let model = faux_provider(RegisterFauxProviderOptions::default())
+        .get_model(None)
+        .unwrap();
+    let stream_fn: StreamFn = Arc::new(|_, _, _| {
+        Box::pin(async {
+            let (sender, stream) = create_assistant_message_event_stream();
+            sender.fail(StreamFailure::new(raw_error()));
+            stream
+        })
+    });
+    let error = generate_summary(&GenerateSummaryWithUsageOptions {
+        current_messages: &[],
+        model: &model,
+        reserve_tokens: 100.0,
+        api_key: None,
+        headers: None,
+        signal: None,
+        custom_instructions: None,
+        previous_summary: None,
+        thinking_level: None,
+        stream_fn: Some(&stream_fn),
+        env: None,
+        retry: None,
+    })
+    .await
+    .unwrap_err();
+    assert_eq!(
+        error.message(),
+        &(JsString::from("Summarization failed: ") + raw_error())
+    );
+}
+
 #[test]
 fn retry_finished_event_keeps_native_units_in_wire() {
     let event = AutoRetryEndEvent {

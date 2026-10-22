@@ -8,20 +8,21 @@ use pi_ai::auth::types::{
 };
 use pi_ai::models::Provider;
 use pi_ai::request::{BoxFuture, CallbackError};
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use tokio_util::sync::CancellationToken;
 
 use crate::core::model_runtime::ModelRuntime;
 use crate::utils::chalk::Chalk;
 
 /// Opens one OAuth URL through `browser-cli`.
-pub type BrowserCliOpener = Arc<dyn Fn(String) -> BoxFuture<'static, Result<(), String>> + Send + Sync>;
+pub type BrowserCliOpener = Arc<dyn Fn(String) -> BoxFuture<'static, Result<(), JsString>> + Send + Sync>;
 
 /// Terminal IO used by the login flow.
 pub trait LoginIo: Send + Sync {
-    fn stdout(&self, message: &str);
-    fn stderr(&self, message: &str);
+    fn stdout(&self, message: &JsString);
+    fn stderr(&self, message: &JsString);
     /// Write `prompt`, then return one input line (without its newline).
-    fn read_line<'a>(&'a self, prompt: &'a str) -> BoxFuture<'a, Result<String, String>>;
+    fn read_line<'a>(&'a self, prompt: &'a str) -> BoxFuture<'a, Result<String, JsString>>;
 }
 
 /// Process stdio: prompts read one line on a TTY, or consume buffered lines
@@ -71,23 +72,23 @@ fn split_lines(text: &str) -> Vec<String> {
 }
 
 impl LoginIo for StdioLoginIo {
-    fn stdout(&self, message: &str) {
+    fn stdout(&self, message: &JsString) {
         use std::io::Write;
         let mut stdout = std::io::stdout().lock();
-        let _ = stdout.write_all(message.as_bytes());
+        let _ = stdout.write_all(encode_node_utf8(message).as_bytes());
         let _ = stdout.flush();
     }
 
-    fn stderr(&self, message: &str) {
+    fn stderr(&self, message: &JsString) {
         use std::io::Write;
         let mut stderr = std::io::stderr().lock();
-        let _ = stderr.write_all(message.as_bytes());
+        let _ = stderr.write_all(encode_node_utf8(message).as_bytes());
         let _ = stderr.flush();
     }
 
-    fn read_line<'a>(&'a self, prompt: &'a str) -> BoxFuture<'a, Result<String, String>> {
+    fn read_line<'a>(&'a self, prompt: &'a str) -> BoxFuture<'a, Result<String, JsString>> {
         Box::pin(async move {
-            self.stdout(prompt);
+            self.stdout(&prompt.into());
             if !self.is_tty {
                 return Ok(self.next_buffered_line());
             }
@@ -95,11 +96,11 @@ impl LoginIo for StdioLoginIo {
                 let mut line = String::new();
                 std::io::stdin()
                     .read_line(&mut line)
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| JsString::from(error.to_string()))?;
                 Ok(line.trim_end_matches(['\r', '\n']).to_owned())
             })
             .await
-            .map_err(|error| error.to_string())?
+            .map_err(|error| JsString::from(error.to_string()))?
         })
     }
 }
@@ -138,22 +139,19 @@ fn pad_end(value: &str, width: usize) -> String {
 }
 
 fn print_login_usage(io: &dyn LoginIo, model_runtime: &ModelRuntime) {
-    io.stderr("Usage: pi login <provider> [--browser-cli]\n");
-    io.stderr(&format!(
-        "Available OAuth providers:\n{}\n",
-        format_provider_list(model_runtime)
-    ));
+    io.stderr(&"Usage: pi login <provider> [--browser-cli]\n".into());
+    io.stderr(&format!("Available OAuth providers:\n{}\n", format_provider_list(model_runtime)).into());
 }
 
 fn select_option<'a>(
     io: &'a dyn LoginIo,
     message: &'a str,
     options: &'a [AuthSelectOption],
-) -> BoxFuture<'a, Result<String, String>> {
+) -> BoxFuture<'a, Result<String, JsString>> {
     Box::pin(async move {
-        io.stdout(&format!("{message}\n"));
+        io.stdout(&(JsString::from(message) + "\n"));
         for (index, option) in options.iter().enumerate() {
-            io.stdout(&format!("  {}. {} ({})\n", index + 1, option.label, option.id));
+            io.stdout(&format!("  {}. {} ({})\n", index + 1, option.label, option.id).into());
         }
 
         let default_option_id = options.first().map(|option| option.id.as_str());
@@ -202,7 +200,7 @@ fn format_prompt(message: &str, placeholder: Option<&str>) -> String {
     }
 }
 
-fn prompt_for_auth<'a>(io: &'a dyn LoginIo, prompt: &'a AuthPrompt) -> BoxFuture<'a, Result<String, String>> {
+fn prompt_for_auth<'a>(io: &'a dyn LoginIo, prompt: &'a AuthPrompt) -> BoxFuture<'a, Result<String, JsString>> {
     Box::pin(async move {
         match &prompt.kind {
             AuthPromptKind::Select { message, options } => select_option(io, message, options).await,
@@ -212,11 +210,11 @@ fn prompt_for_auth<'a>(io: &'a dyn LoginIo, prompt: &'a AuthPrompt) -> BoxFuture
 }
 
 fn print_info_event(event_message: &str, links: Option<&[AuthInfoLink]>, io: &dyn LoginIo) {
-    io.stdout(&format!("{event_message}\n"));
+    io.stdout(&format!("{event_message}\n").into());
     for link in links.unwrap_or_default() {
         match &link.label {
-            Some(label) => io.stdout(&format!("{label}: {}\n", link.url)),
-            None => io.stdout(&format!("{}\n", link.url)),
+            Some(label) => io.stdout(&format!("{label}: {}\n", link.url).into()),
+            None => io.stdout(&format!("{}\n", link.url).into()),
         }
     }
 }
@@ -233,19 +231,22 @@ fn print_auth_instructions(event: &AuthEvent, io: &dyn LoginIo) -> String {
         _ => return String::new(),
     };
 
-    io.stdout("\n");
-    io.stdout("Open this URL in your browser:\n");
-    io.stdout(&format!("{url}\n"));
+    io.stdout(&"\n".into());
+    io.stdout(&"Open this URL in your browser:\n".into());
+    io.stdout(&format!("{url}\n").into());
     if let Some(instructions) = instructions {
-        io.stdout(&format!("{instructions}\n"));
+        io.stdout(&format!("{instructions}\n").into());
     }
     if let Some((user_code, expires_in_seconds)) = device_code {
-        io.stdout(&format!("Enter code: {user_code}\n"));
+        io.stdout(&format!("Enter code: {user_code}\n").into());
         if let Some(expires_in_seconds) = expires_in_seconds {
-            io.stdout(&format!(
-                "Code expires in {} seconds.\n",
-                pi_js_compat::number::js_number_to_string(expires_in_seconds)
-            ));
+            io.stdout(
+                &format!(
+                    "Code expires in {} seconds.\n",
+                    pi_js_compat::number::js_number_to_string(expires_in_seconds)
+                )
+                .into(),
+            );
         }
     }
     url
@@ -259,7 +260,7 @@ fn notify_auth_event(
 ) {
     match event {
         AuthEvent::Progress { message } => {
-            io.stdout(&format!("{message}\n"));
+            io.stdout(&format!("{message}\n").into());
             return;
         }
         AuthEvent::Info { message, links } => {
@@ -275,8 +276,8 @@ fn notify_auth_event(
         let io = Arc::clone(io);
         let handle = tokio::spawn(async move {
             match opener(url).await {
-                Ok(()) => io.stdout("Opened auth URL with browser-cli.\n"),
-                Err(error) => io.stdout(&format!("browser-cli open failed: {error}\n")),
+                Ok(()) => io.stdout(&"Opened auth URL with browser-cli.\n".into()),
+                Err(error) => io.stdout(&(JsString::from("browser-cli open failed: ") + error + "\n")),
             }
         });
         browser_cli_open_tasks
@@ -284,7 +285,7 @@ fn notify_auth_event(
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .push(handle);
     }
-    io.stdout("\n");
+    io.stdout(&"\n".into());
 }
 
 struct CliAuthInteraction {
@@ -321,7 +322,7 @@ async fn run_login_with_prompt(
     provider_id: &str,
     io: Arc<dyn LoginIo>,
     browser_cli_opener: Option<BrowserCliOpener>,
-) -> Result<(), String> {
+) -> Result<(), JsString> {
     let interaction = Arc::new(CliAuthInteraction {
         io,
         signal: CancellationToken::new(),
@@ -331,7 +332,7 @@ async fn run_login_with_prompt(
     model_runtime
         .login(provider_id, AuthType::Oauth, interaction.clone())
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.message())?;
 
     let tasks = std::mem::take(
         &mut *interaction
@@ -346,13 +347,13 @@ async fn run_login_with_prompt(
 }
 
 /// Default browser opener: `browser-cli open <url>`.
-pub fn open_url_with_browser_cli(url: String) -> BoxFuture<'static, Result<(), String>> {
+pub fn open_url_with_browser_cli(url: String) -> BoxFuture<'static, Result<(), JsString>> {
     Box::pin(async move {
         let mut child = crate::utils::child_process::spawn_process("browser-cli", &["open", &url])
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| JsString::from(error.to_string()))?;
         let output = crate::utils::child_process::wait_for_child_process(&mut child)
             .await
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| JsString::from(error.to_string()))?;
         if output.status == Some(0) {
             return Ok(());
         }
@@ -361,7 +362,8 @@ pub fn open_url_with_browser_cli(url: String) -> BoxFuture<'static, Result<(), S
             output
                 .status
                 .map_or_else(|| "unknown".to_owned(), |status| status.to_string())
-        ))
+        )
+        .into())
     })
 }
 
@@ -373,18 +375,19 @@ pub async fn run_login_command(options: RunLoginCommandOptions) -> i32 {
         options
             .io
             .stderr(&Chalk::stderr().red(&format!("Unknown OAuth provider: {}\n", options.provider_id)));
-        options.io.stderr(&format!(
-            "Available OAuth providers:\n{}\n",
-            format_provider_list(&options.model_runtime)
-        ));
+        options.io.stderr(
+            &format!(
+                "Available OAuth providers:\n{}\n",
+                format_provider_list(&options.model_runtime)
+            )
+            .into(),
+        );
         return 1;
     };
 
-    options.io.stdout(&format!(
-        "Logging in to {} ({})...\n",
-        provider.name(),
-        options.provider_id
-    ));
+    options
+        .io
+        .stdout(&format!("Logging in to {} ({})...\n", provider.name(), options.provider_id).into());
     let browser_cli_opener = options.use_browser_cli.then(|| {
         options
             .open_browser_cli_url
@@ -407,9 +410,10 @@ pub async fn run_login_command(options: RunLoginCommandOptions) -> i32 {
             0
         }
         Err(message) => {
-            options
-                .io
-                .stderr(&Chalk::stderr().red(&format!("Failed to login to {}: {message}\n", provider.name())));
+            options.io.stderr(
+                &Chalk::stderr()
+                    .red(JsString::from(format!("Failed to login to {}: ", provider.name())) + message + "\n"),
+            );
             1
         }
     }
@@ -434,7 +438,7 @@ pub struct LoginCommandOutcome {
 pub async fn handle_login_command(
     args: &[String],
     dependencies: LoginCommandDependencies,
-) -> Result<LoginCommandOutcome, String> {
+) -> Result<LoginCommandOutcome, JsString> {
     if args.first().map(String::as_str) != Some("login") {
         return Ok(LoginCommandOutcome {
             handled: false,
@@ -448,7 +452,7 @@ pub async fn handle_login_command(
         Some(model_runtime) => model_runtime,
         None => ModelRuntime::create(Default::default())
             .await
-            .map_err(|error| error.to_string())?,
+            .map_err(|error| error.message())?,
     };
 
     if parsed.provider_id.is_none() || parsed.has_help_flag || parsed.has_unknown_flags {

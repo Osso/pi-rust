@@ -869,7 +869,7 @@ fn estimate_messages_tokens(messages: &[AgentMessage]) -> f64 {
     messages.iter().map(estimate_tokens).sum()
 }
 
-fn normalize_required_request_auth_error(message: String, provider: &str) -> AgentSessionError {
+fn normalize_required_request_auth_error(message: JsString, provider: &str) -> AgentSessionError {
     if message == "authHeader requires a resolved API key" {
         return error(crate::core::auth_guidance::format_no_api_key_found_message(provider));
     }
@@ -6626,7 +6626,12 @@ impl AgentSession {
             .model_runtime
             .get_auth(&model.provider, Default::default())
             .await
-            .map_err(|error| normalize_required_request_auth_error(error.to_string(), &model.provider))?;
+            .map_err(|error| {
+                normalize_required_request_auth_error(
+                    crate::core::model_runtime::resolve_error_message(&error),
+                    &model.provider,
+                )
+            })?;
         if let Some(result) = result
             && (result.auth.api_key.is_some() || result.auth.headers.is_some())
         {

@@ -1,5 +1,7 @@
 # coding-agent package-manager-cli.ts traceability
 
+Q18 native error consumers: model_catalog_refresh_outcome and refresh_model_catalogs return JsString errors; CommandEffects preserves those errors; captured CommandOutcome stdout/stderr and output-formatting helpers retain JsString through Chalk. No capture-time UTF8 encoding. `tests/lossless_provider_errors.rs` asserts exact raw catalog error prefix/units; currently compiler-blocked by concurrent coding-library dependencies. Earlier done status below does not claim Q18 integration proof.
+
 Source: `packages/coding-agent/src/package-manager-cli.ts` (889 lines, pinned
 revision in `docs/porting/source-lock.json`). Rust:
 `crates/pi-coding-agent/src/package_manager_cli.rs`.
