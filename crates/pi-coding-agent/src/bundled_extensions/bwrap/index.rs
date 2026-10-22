@@ -10,7 +10,10 @@ use std::sync::Arc;
 
 use pi_agent_core::AgentToolResult;
 use pi_ai::types::{TextContent, TextOrImageContent};
-use serde_json::{Map, Value, json};
+use pi_js_compat::{
+    js_json as json,
+    js_json::{self, JsObject as Map, JsString, JsValue as Value, encode_node_utf8},
+};
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
@@ -96,10 +99,10 @@ fn worker_path() -> String {
 fn build_sandbox_worker_invocation(
     params: &SandboxParams,
     operation: &str,
-    payload: &Map<String, Value>,
+    payload: &Map,
 ) -> Result<crate::bundled_extensions::bwrap::backend::BwrapInvocation, String> {
     let mut worker_payload = payload.clone();
-    worker_payload.insert("workspace".to_owned(), Value::String(params.cwd.clone()));
+    worker_payload.insert("workspace".into(), Value::String(params.cwd.clone()));
     let worker = worker_path();
     let command = vec![
         worker.clone(),
@@ -127,7 +130,7 @@ fn build_sandbox_worker_invocation(
 async fn run_json_in_sandbox(
     params: &SandboxParams,
     operation: &str,
-    payload: Map<String, Value>,
+    payload: Map,
     signal: Option<CancellationToken>,
 ) -> Result<Value, String> {
     run_bwrap_availability_check(&params.bwrap_command)?;
@@ -190,21 +193,21 @@ async fn run_json_in_sandbox(
             trimmed.to_owned()
         });
     }
-    pi_js_compat::js_json::parse(&stdout_text).map_err(|error| error.to_string())
+    js_json::parse_lossless(&stdout_text).map_err(|error| error.to_string())
 }
 
 fn run_sandbox_operation<'a>(
     params: &'a SandboxParams,
     operation: &'a str,
-    payload: Map<String, Value>,
+    payload: Map,
     signal: Option<CancellationToken>,
 ) -> BoxFuture<'a, Result<Value, String>> {
     Box::pin(async move { run_json_in_sandbox(params, operation, payload, signal).await })
 }
 
-fn path_payload(path: &str) -> Map<String, Value> {
+fn path_payload(path: &str) -> Map {
     let mut payload = Map::new();
-    payload.insert("path".to_owned(), Value::String(path.to_owned()));
+    payload.insert("path".into(), Value::String(path.to_owned()));
     payload
 }
 
@@ -219,7 +222,7 @@ impl ReadOperations for SandboxReadOperations {
                 .await
                 .map_err(std::io::Error::other)?;
             Ok(pi_js_compat::base64::buffer_from_base64(
-                value.get("data").and_then(Value::as_str).unwrap_or_default(),
+                value.get("data").and_then(Value::as_string).unwrap_or_default(),
             ))
         })
     }
@@ -236,14 +239,14 @@ impl ReadOperations for SandboxReadOperations {
     ) -> BoxFuture<'a, std::io::Result<Vec<u8>>> {
         Box::pin(async move {
             let mut payload = Map::new();
-            payload.insert("end".to_owned(), json!(end));
-            payload.insert("path".to_owned(), Value::String(absolute_path.to_owned()));
-            payload.insert("start".to_owned(), json!(start));
+            payload.insert("end".into(), json!(end));
+            payload.insert("path".into(), Value::String(absolute_path.to_owned()));
+            payload.insert("start".into(), json!(start));
             let value = run_sandbox_operation(&self.params, "readRange", payload, None)
                 .await
                 .map_err(std::io::Error::other)?;
             Ok(pi_js_compat::base64::buffer_from_base64(
-                value.get("data").and_then(Value::as_str).unwrap_or_default(),
+                value.get("data").and_then(Value::as_string).unwrap_or_default(),
             ))
         })
     }
@@ -293,8 +296,8 @@ impl WriteOperations for SandboxWriteOperations {
     fn write_file<'a>(&'a self, absolute_path: &'a str, content: &'a str) -> BoxFuture<'a, std::io::Result<()>> {
         Box::pin(async move {
             let mut payload = Map::new();
-            payload.insert("content".to_owned(), Value::String(content.to_owned()));
-            payload.insert("path".to_owned(), Value::String(absolute_path.to_owned()));
+            payload.insert("content".into(), Value::String(content.to_owned()));
+            payload.insert("path".into(), Value::String(absolute_path.to_owned()));
             run_sandbox_operation(&self.params, "writeFile", payload, None)
                 .await
                 .map(|_| ())
@@ -362,7 +365,7 @@ impl LsOperations for SandboxLsOperations {
             Ok(value
                 .get("entries")
                 .and_then(Value::as_array)
-                .map(|entries| entries.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .map(|entries| entries.iter().filter_map(Value::as_string).map(str::to_owned).collect())
                 .unwrap_or_default())
         })
     }
@@ -395,25 +398,22 @@ impl FindOperations for SandboxFindOperations {
     ) -> BoxFuture<'a, std::io::Result<Vec<String>>> {
         Box::pin(async move {
             let mut payload = Map::new();
-            payload.insert("cwd".to_owned(), Value::String(cwd.to_owned()));
-            payload.insert("limit".to_owned(), json!(limit));
-            payload.insert("pattern".to_owned(), Value::String(pattern.to_owned()));
+            payload.insert("cwd".into(), Value::String(cwd.to_owned()));
+            payload.insert("limit".into(), json!(limit));
+            payload.insert("pattern".into(), Value::String(pattern.to_owned()));
             let value = run_sandbox_operation(&self.params, "find", payload, None)
                 .await
                 .map_err(std::io::Error::other)?;
             Ok(value
                 .get("results")
                 .and_then(Value::as_array)
-                .map(|results| results.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .map(|results| results.iter().filter_map(Value::as_string).map(str::to_owned).collect())
                 .unwrap_or_default())
         })
     }
 }
 
-fn build_grep_notices(
-    details: &Map<String, Value>,
-    truncation: &pi_agent_core::harness::utils::TruncationResult,
-) -> Vec<String> {
+fn build_grep_notices(details: &Map, truncation: &pi_agent_core::harness::utils::TruncationResult) -> Vec<String> {
     let mut notices = Vec::new();
     if let Some(limit) = details.get("matchLimitReached") {
         notices.push(format!("{limit} matches limit reached"));
@@ -435,7 +435,7 @@ async fn execute_sandboxed_grep(
     input: &Value,
     signal: Option<CancellationToken>,
 ) -> Result<AgentToolResult, String> {
-    let search_path = input.get("path").and_then(Value::as_str).unwrap_or(".");
+    let search_path = input.get("path").and_then(Value::as_string).unwrap_or(".");
     let mut payload = Map::new();
     for key in ["context", "glob", "ignoreCase"] {
         if let Some(value) = input.get(key).filter(|value| !value.is_null()) {
@@ -443,7 +443,7 @@ async fn execute_sandboxed_grep(
         }
     }
     payload.insert(
-        "limit".to_owned(),
+        "limit".into(),
         input
             .get("limit")
             .cloned()
@@ -451,14 +451,14 @@ async fn execute_sandboxed_grep(
             .unwrap_or_else(|| json!(DEFAULT_GREP_LIMIT)),
     );
     if let Some(value) = input.get("literal").filter(|value| !value.is_null()) {
-        payload.insert("literal".to_owned(), value.clone());
+        payload.insert("literal".into(), value.clone());
     }
-    payload.insert("path".to_owned(), Value::String(search_path.to_owned()));
+    payload.insert("path".into(), Value::String(search_path.to_owned()));
     if let Some(value) = input.get("pattern").filter(|value| !value.is_null()) {
-        payload.insert("pattern".to_owned(), value.clone());
+        payload.insert("pattern".into(), value.clone());
     }
     let result = run_sandbox_operation(params, "grep", payload, signal).await?;
-    let text = result.get("text").and_then(Value::as_str).unwrap_or_default();
+    let text = result.get("text").and_then(Value::as_string).unwrap_or_default();
     let truncation = pi_agent_core::harness::utils::truncate_head(
         text,
         pi_agent_core::harness::utils::TruncationOptions {
@@ -473,8 +473,8 @@ async fn execute_sandboxed_grep(
         .unwrap_or_default();
     if truncation.truncated {
         details.insert(
-            "truncation".to_owned(),
-            serde_json::to_value(&truncation).unwrap_or(Value::Null),
+            "truncation".into(),
+            js_json::to_value(&truncation).unwrap_or(Value::Null),
         );
     }
     let notices = build_grep_notices(&details, &truncation);
@@ -485,7 +485,7 @@ async fn execute_sandboxed_grep(
     };
     Ok(AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
-        details: (!details.is_empty()).then_some(Value::Object(details)),
+        details: (!details.is_empty()).then_some(Value::Object(details).into()),
         is_error: None,
         terminate: None,
     })
@@ -551,7 +551,7 @@ fn register_bwrap_tool_gate(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Result
                 Err(reason) => Ok(Some(crate::core::extensions::types::ToolCallEventResult {
                     block: Some(true),
                     input: None,
-                    reason: Some(reason),
+                    reason: Some(reason.into()),
                     terminate: None,
                 })),
             }
@@ -712,7 +712,7 @@ fn register_sandboxed_grep_tool(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Re
                     .map_err(HandlerError::new),
                 None => {
                     let tool = create_grep_tool_definition(&cwd, GrepToolOptions::default());
-                    (tool.execute)("grep".to_owned(), params, signal, on_update, ctx).await
+                    (tool.execute)("grep".into(), params, signal, on_update, ctx).await
                 }
             }
         })

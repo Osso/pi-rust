@@ -10,7 +10,10 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use pi_js_compat::minimatch::{MinimatchOptions, minimatch};
-use serde_json::{Value, json};
+use pi_js_compat::{
+    js_json as json,
+    js_json::{self, JsString, JsValue as Value, encode_node_utf8},
+};
 
 use crate::utils::child_process::node_error_code;
 
@@ -53,7 +56,9 @@ fn read_nearest_existing_real_path(target: &Path) -> Result<PathBuf, String> {
     std::fs::canonicalize(&current).map_err(|error| error.to_string())
 }
 
-fn resolve_workspace_path(value: Option<&str>, workspace: &Path, allow_missing: bool) -> Result<PathBuf, String> {
+fn resolve_workspace_path(value: Option<&JsString>, workspace: &Path, allow_missing: bool) -> Result<PathBuf, String> {
+    let encoded = value.map(encode_node_utf8);
+    let value = encoded.as_deref();
     let resolved = match value {
         Some(value) if !value.is_empty() => {
             if Path::new(value).is_absolute() {
@@ -119,7 +124,7 @@ fn read_files_recursively(root: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(files)
 }
 
-fn matches_glob(file_path: &str, pattern: &str) -> bool {
+fn matches_glob(file_path: &str, pattern: &JsString) -> bool {
     let normalized = file_path.replace('\\', "/");
     let base = Path::new(&normalized)
         .file_name()
@@ -159,17 +164,17 @@ fn normalize_grep_lines(content: &str) -> Vec<String> {
 
 struct GrepOptions {
     context: usize,
-    glob: Option<String>,
+    glob: Option<JsString>,
     ignore_case: bool,
     limit: usize,
     literal: bool,
-    pattern: String,
+    pattern: JsString,
     root_is_directory: bool,
     root_path: PathBuf,
 }
 
 enum LineMatcher {
-    Literal { needle: String, ignore_case: bool },
+    Literal { needle: JsString, ignore_case: bool },
     Regex(fancy_regex::Regex),
 }
 
@@ -178,9 +183,9 @@ impl LineMatcher {
         match self {
             Self::Literal { needle, ignore_case } => {
                 let matched = if *ignore_case {
-                    line.to_lowercase().contains(&needle.to_lowercase())
+                    JsString::from(line).to_lowercase().contains(&needle.to_lowercase())
                 } else {
-                    line.contains(needle)
+                    JsString::from(line).contains(needle)
                 };
                 Ok(matched)
             }
@@ -197,7 +202,7 @@ fn compile_matcher(options: &GrepOptions) -> Result<LineMatcher, String> {
         });
     }
     let pattern = if options.ignore_case {
-        format!("(?i){}", options.pattern)
+        JsString::from("(?i)") + &options.pattern
     } else {
         options.pattern.clone()
     };
@@ -319,8 +324,8 @@ fn collect_grep_results(
     Ok((count, file_result.lines_truncated || remaining_truncated, text_parts))
 }
 
-fn payload_string(payload: &Value, key: &str) -> Option<String> {
-    payload.get(key).and_then(Value::as_str).map(str::to_owned)
+fn payload_string(payload: &Value, key: &str) -> Option<JsString> {
+    payload.get(key).and_then(Value::as_string).cloned()
 }
 
 fn payload_usize(payload: &Value, key: &str) -> Option<usize> {
@@ -333,27 +338,27 @@ fn payload_usize(payload: &Value, key: &str) -> Option<usize> {
 /// Executes one worker operation; exposed for the Node-vs-Rust differential.
 pub fn run_operation_json(operation: &str, payload: &Value) -> Result<Value, String> {
     let workspace = payload_string(payload, "workspace")
-        .map(|workspace| absolute(&workspace))
+        .map(|workspace| absolute(&encode_node_utf8(&workspace)))
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     let path_value = payload_string(payload, "path");
     match operation {
         "access" => {
-            resolve_workspace_path(path_value.as_deref(), &workspace, false)?;
+            resolve_workspace_path(path_value.as_ref(), &workspace, false)?;
             Ok(json!({"ok": true}))
         }
         "exists" => {
-            let exists = resolve_workspace_path(path_value.as_deref(), &workspace, false)
+            let exists = resolve_workspace_path(path_value.as_ref(), &workspace, false)
                 .ok()
                 .is_some_and(|path| path.exists());
             Ok(json!({"exists": exists}))
         }
         "readFile" => {
-            let path = resolve_workspace_path(path_value.as_deref(), &workspace, false)?;
+            let path = resolve_workspace_path(path_value.as_ref(), &workspace, false)?;
             let content = std::fs::read(&path).map_err(|error| error.to_string())?;
             Ok(json!({"data": pi_js_compat::base64::buffer_to_base64(&content)}))
         }
         "readRange" => {
-            let path = resolve_workspace_path(path_value.as_deref(), &workspace, false)?;
+            let path = resolve_workspace_path(path_value.as_ref(), &workspace, false)?;
             let start = payload_usize(payload, "start").unwrap_or(0);
             let end = payload_usize(payload, "end").unwrap_or(0);
             let length = end.saturating_sub(start);
@@ -364,23 +369,23 @@ pub fn run_operation_json(operation: &str, payload: &Value) -> Result<Value, Str
             Ok(json!({"data": pi_js_compat::base64::buffer_to_base64(slice)}))
         }
         "writeFile" => {
-            let path = resolve_workspace_path(path_value.as_deref(), &workspace, true)?;
+            let path = resolve_workspace_path(path_value.as_ref(), &workspace, true)?;
             let content = payload_string(payload, "content").unwrap_or_default();
-            std::fs::write(&path, content).map_err(|error| error.to_string())?;
+            std::fs::write(&path, encode_node_utf8(&content)).map_err(|error| error.to_string())?;
             Ok(json!({"ok": true}))
         }
         "mkdir" => {
-            let path = resolve_workspace_path(path_value.as_deref(), &workspace, true)?;
+            let path = resolve_workspace_path(path_value.as_ref(), &workspace, true)?;
             std::fs::create_dir_all(&path).map_err(|error| error.to_string())?;
             Ok(json!({"ok": true}))
         }
         "stat" => {
-            let path = resolve_workspace_path(path_value.as_deref(), &workspace, false)?;
+            let path = resolve_workspace_path(path_value.as_ref(), &workspace, false)?;
             let metadata = std::fs::metadata(&path).map_err(|error| error.to_string())?;
             Ok(json!({"isDirectory": metadata.is_dir(), "size": metadata.len()}))
         }
         "readdir" => {
-            let path = resolve_workspace_path(path_value.as_deref(), &workspace, false)?;
+            let path = resolve_workspace_path(path_value.as_ref(), &workspace, false)?;
             let mut entries = Vec::new();
             for entry in std::fs::read_dir(&path).map_err(|error| error.to_string())? {
                 entries.push(
@@ -395,7 +400,7 @@ pub fn run_operation_json(operation: &str, payload: &Value) -> Result<Value, Str
             Ok(json!({"entries": entries}))
         }
         "find" => {
-            let cwd = resolve_workspace_path(payload_string(payload, "cwd").as_deref(), &workspace, false)?;
+            let cwd = resolve_workspace_path(payload_string(payload, "cwd").as_ref(), &workspace, false)?;
             let pattern = payload_string(payload, "pattern").unwrap_or_default();
             let limit = payload_usize(payload, "limit");
             let mut results = Vec::new();
@@ -414,7 +419,7 @@ pub fn run_operation_json(operation: &str, payload: &Value) -> Result<Value, Str
             Ok(json!({"results": results}))
         }
         "grep" => {
-            let root_path = resolve_workspace_path(path_value.as_deref(), &workspace, false)?;
+            let root_path = resolve_workspace_path(path_value.as_ref(), &workspace, false)?;
             let root_is_directory = std::fs::metadata(&root_path)
                 .map_err(|error| error.to_string())?
                 .is_dir();
@@ -444,18 +449,18 @@ pub fn run_operation_json(operation: &str, payload: &Value) -> Result<Value, Str
             if count == 0 {
                 return Ok(json!({"text": "No matches found"}));
             }
-            let mut details = serde_json::Map::new();
+            let mut details = pi_js_compat::js_json::JsObject::new();
             if count >= options.limit {
-                details.insert("matchLimitReached".to_owned(), json!(options.limit));
+                details.insert("matchLimitReached".into(), json!(options.limit));
             }
             if lines_truncated {
-                details.insert("linesTruncated".to_owned(), json!(true));
+                details.insert("linesTruncated".into(), json!(true));
             }
             let text = text_parts.join("\n");
             Ok(json!({"text": text, "details": Value::Object(details)}))
         }
         "readText" => {
-            let path = resolve_workspace_path(path_value.as_deref(), &workspace, false)?;
+            let path = resolve_workspace_path(path_value.as_ref(), &workspace, false)?;
             let text = std::fs::read_to_string(&path).map_err(|error| error.to_string())?;
             Ok(json!({"text": text}))
         }
@@ -468,7 +473,7 @@ pub fn run_bwrap_fs_worker(args: &[String]) -> i32 {
     let operation = args.first().map(String::as_str).unwrap_or_default();
     let payload: Value = args
         .get(1)
-        .map(|payload| serde_json::from_str(payload).unwrap_or_else(|_| json!({})))
+        .map(|payload| js_json::parse_lossless(payload).unwrap_or_else(|_| json!({})))
         .unwrap_or_else(|| json!({}));
     match run_operation_json(operation, &payload) {
         Ok(value) => {

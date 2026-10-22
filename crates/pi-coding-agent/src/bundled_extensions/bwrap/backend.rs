@@ -38,7 +38,7 @@ impl BwrapSandboxProfile {
 #[derive(Debug, Clone)]
 pub struct BwrapInvocationOptions {
     pub bwrap_command: String,
-    pub command: Vec<String>,
+    pub command: Vec<pi_js_compat::js_json::JsString>,
     pub cwd: String,
     pub env: Option<IndexMap<String, String>>,
     pub extra_read_only_paths: Option<Vec<String>>,
@@ -48,7 +48,7 @@ pub struct BwrapInvocationOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BwrapInvocation {
-    pub argv: Vec<String>,
+    pub argv: Vec<pi_js_compat::js_json::JsString>,
     pub command: String,
     pub env: IndexMap<String, String>,
 }
@@ -179,7 +179,7 @@ pub fn create_sandboxed_bash_operations(
 impl BashOperations for SandboxedBashOperations {
     fn exec<'a>(
         &'a self,
-        command: &'a str,
+        command: &'a pi_js_compat::js_json::JsString,
         cwd: &'a str,
         options: BashExecOptions,
     ) -> crate::core::extensions::types::BoxFuture<'a, Result<BashExecResult, ToolError>> {
@@ -195,7 +195,7 @@ impl BashOperations for SandboxedBashOperations {
             run_bwrap_availability_check(&bwrap_command).map_err(ToolError::new)?;
             let invocation = build_bwrap_invocation(&BwrapInvocationOptions {
                 bwrap_command,
-                command: vec![shell_path, "-lc".to_owned(), command.to_owned()],
+                command: vec![shell_path.into(), "-lc".into(), command.clone()],
                 cwd: cwd.to_owned(),
                 env: Some(
                     options
@@ -220,7 +220,7 @@ async fn execute_bwrap_command(
 ) -> Result<BashExecResult, ToolError> {
     let mut command = Command::new(&invocation.command);
     command
-        .args(&invocation.argv)
+        .args(invocation.argv.iter().map(pi_js_compat::js_json::encode_node_utf8))
         .env_clear()
         .envs(&invocation.env)
         .stdin(Stdio::null())
@@ -385,14 +385,14 @@ pub struct BwrapRunnerCommandOptions {
     pub cwd: String,
     pub extra_read_only_paths: Option<Vec<String>>,
     pub profile: BwrapSandboxProfile,
-    pub runner_args: Vec<String>,
+    pub runner_args: Vec<pi_js_compat::js_json::JsString>,
     pub runner_command: String,
     pub runner_env: Option<IndexMap<String, String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BwrapRunnerCommand {
-    pub args: Vec<String>,
+    pub args: Vec<pi_js_compat::js_json::JsString>,
     pub command: String,
     pub env: IndexMap<String, String>,
 }
