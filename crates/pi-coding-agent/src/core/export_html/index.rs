@@ -2,20 +2,22 @@
 
 use std::path::Path;
 
+use indexmap::IndexMap;
 use pi_agent_core::agent::AgentState;
 use pi_ai::types::TextOrImageContent;
 use pi_js_compat::base64::btoa;
-use pi_js_compat::js_json::{JsString, JsValue};
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use pi_js_compat::number::{js_number_to_string, parse_int};
 use pi_js_compat::string::replace;
 use regex::Regex;
 use serde::Serialize;
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use crate::config::package_config;
 use crate::core::session_manager::{SessionEntry, SessionHeader, SessionManager, SessionManagerError};
 use crate::modes::interactive::theme::{ThemeError, get_resolved_theme_colors, get_theme_export_colors};
-use crate::utils::paths::{PathError, PathInputOptions, normalize_path, resolve_path};
+use crate::utils::paths::{PathError, PathInputOptions, node_basename, normalize_path, process_cwd, resolve_path};
 
 const TEMPLATE_HTML: &str = include_str!("templates/template.html");
 const TEMPLATE_CSS: &str = include_str!("templates/template.css");
@@ -29,7 +31,7 @@ const TEMPLATE_RENDERED_TOOLS: [&str; 5] = ["bash", "read", "write", "edit", "ls
 /// Failure raised while exporting a session to HTML.
 #[derive(Debug)]
 pub enum ExportError {
-    Message(String),
+    Message(JsString),
     Theme(ThemeError),
     Path(PathError),
     Session(SessionManagerError),
@@ -37,15 +39,19 @@ pub enum ExportError {
 }
 
 impl ExportError {
-    pub fn message(&self) -> String {
-        self.to_string()
+    pub fn message(&self) -> JsString {
+        match self {
+            Self::Message(message) => message.clone(),
+            Self::Path(error) => error.message().clone(),
+            other => other.to_string().into(),
+        }
     }
 }
 
 impl std::fmt::Display for ExportError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Message(message) => formatter.write_str(message),
+            Self::Message(message) => formatter.write_str(&encode_node_utf8(message)),
             Self::Theme(error) => error.fmt(formatter),
             Self::Path(error) => error.fmt(formatter),
             Self::Session(error) => error.fmt(formatter),
@@ -85,18 +91,18 @@ impl From<std::io::Error> for ExportError {
 #[serde(rename_all = "camelCase")]
 pub struct RenderedToolHtml {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub call_html: Option<String>,
+    pub call_html: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub result_html_collapsed: Option<String>,
+    pub result_html_collapsed: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub result_html_expanded: Option<String>,
+    pub result_html_expanded: Option<JsString>,
 }
 
 /// Collapsed/expanded HTML produced for one tool result.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RenderedToolResult {
-    pub collapsed: Option<String>,
-    pub expanded: Option<String>,
+    pub collapsed: Option<JsString>,
+    pub expanded: Option<JsString>,
 }
 
 /// Renders custom tools to HTML using their TUI renderers.
@@ -104,7 +110,7 @@ pub struct RenderedToolResult {
 /// `ComponentRef` is `Rc`-based, so the renderer is single-threaded like the
 /// TypeScript object it replaces.
 pub trait ToolHtmlRenderer {
-    fn render_call(&self, tool_call_id: &str, tool_name: &str, args: &JsValue) -> Option<String>;
+    fn render_call(&self, tool_call_id: &str, tool_name: &str, args: &JsValue) -> Option<JsString>;
     fn render_result(
         &self,
         tool_call_id: &str,
@@ -118,14 +124,14 @@ pub trait ToolHtmlRenderer {
 /// Export options.
 #[derive(Clone, Default)]
 pub struct ExportOptions {
-    pub output_path: Option<String>,
+    pub output_path: Option<JsString>,
     pub theme_name: Option<String>,
     pub tool_renderer: Option<std::rc::Rc<dyn ToolHtmlRenderer>>,
 }
 
 impl ExportOptions {
     /// `options: string` shorthand from the source.
-    pub fn from_output_path(output_path: impl Into<String>) -> Self {
+    pub fn from_output_path(output_path: impl Into<JsString>) -> Self {
         Self {
             output_path: Some(output_path.into()),
             ..Self::default()
@@ -280,13 +286,13 @@ pub struct ToolSummary {
 pub struct SessionData {
     pub header: Option<SessionHeader>,
     pub entries: Vec<SessionEntry>,
-    pub leaf_id: Option<String>,
+    pub leaf_id: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_prompt: Option<JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<ToolSummary>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub rendered_tools: Option<Map<String, Value>>,
+    pub rendered_tools: Option<IndexMap<String, RenderedToolHtml>>,
 }
 
 fn generate_html(session_data: &SessionData, theme_name: Option<&str>) -> Result<String, ExportError> {
@@ -304,9 +310,10 @@ fn generate_html(session_data: &SessionData, theme_name: Option<&str>) -> Result
         .info_bg
         .unwrap_or_else(|| derived_export_colors.info_bg.clone());
 
-    let session_json = serde_json::to_string(session_data).map_err(|error| ExportError::Message(error.to_string()))?;
+    let session_json =
+        serde_json::to_string(session_data).map_err(|error| ExportError::Message(error.to_string().into()))?;
     let session_value = pi_js_compat::js_json::parse_lossless(&session_json)
-        .map_err(|error| ExportError::Message(error.to_string()))?;
+        .map_err(|error| ExportError::Message(error.to_string().into()))?;
     let session_json = pi_js_compat::js_json::stringify_lossless(&session_value);
     let session_data_base64 = btoa(session_json.as_bytes());
 
@@ -326,8 +333,11 @@ fn is_template_rendered_tool(tool_name: &str) -> bool {
     TEMPLATE_RENDERED_TOOLS.contains(&tool_name)
 }
 
-fn pre_render_custom_tools(entries: &[SessionEntry], tool_renderer: &dyn ToolHtmlRenderer) -> Map<String, Value> {
-    let mut rendered_tools = Map::new();
+fn pre_render_custom_tools(
+    entries: &[SessionEntry],
+    tool_renderer: &dyn ToolHtmlRenderer,
+) -> IndexMap<String, RenderedToolHtml> {
+    let mut rendered_tools = IndexMap::new();
 
     for entry in entries {
         let Some(message) = entry.as_message() else {
@@ -347,11 +357,10 @@ fn pre_render_custom_tools(entries: &[SessionEntry], tool_renderer: &dyn ToolHtm
                     if let Some(call_html) = call_html {
                         rendered_tools.insert(
                             call.id.clone(),
-                            serde_json::to_value(RenderedToolHtml {
+                            RenderedToolHtml {
                                 call_html: Some(call_html),
                                 ..RenderedToolHtml::default()
-                            })
-                            .unwrap_or(Value::Null),
+                            },
                         );
                     }
                 }
@@ -371,14 +380,12 @@ fn pre_render_custom_tools(entries: &[SessionEntry], tool_renderer: &dyn ToolHtm
                         result.is_error,
                     );
                     if let Some(rendered) = rendered {
-                        let mut entry = existing.and_then(Value::as_object).cloned().unwrap_or_default();
-                        if let Some(collapsed) = rendered.collapsed {
-                            entry.insert("resultHtmlCollapsed".to_owned(), Value::String(collapsed));
-                        }
-                        if let Some(expanded) = rendered.expanded {
-                            entry.insert("resultHtmlExpanded".to_owned(), Value::String(expanded));
-                        }
-                        rendered_tools.insert(result.tool_call_id.clone(), Value::Object(entry));
+                        let entry = RenderedToolHtml {
+                            call_html: existing.and_then(|existing| existing.call_html.clone()),
+                            result_html_collapsed: rendered.collapsed,
+                            result_html_expanded: rendered.expanded,
+                        };
+                        rendered_tools.insert(result.tool_call_id.clone(), entry);
                     }
                 }
             }
@@ -389,20 +396,34 @@ fn pre_render_custom_tools(entries: &[SessionEntry], tool_renderer: &dyn ToolHtm
     rendered_tools
 }
 
-fn basename(path: &str, suffix: &str) -> String {
-    let name = Path::new(path)
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    name.strip_suffix(suffix).unwrap_or(&name).to_owned()
+/// `basename(path, suffix)` from `node:path`.
+fn basename(path: &JsString, suffix: &str) -> JsString {
+    let name = node_basename(path);
+    name.strip_suffix(suffix).unwrap_or(name)
 }
 
-fn default_output_path(input_path: &str) -> String {
-    format!(
+fn output_path_or_default(output_path: Option<JsString>, input_path: &JsString) -> Result<JsString, ExportError> {
+    let normalized = match output_path {
+        Some(path) if !path.is_empty() => normalize_path(path, &PathInputOptions::default())?,
+        _ => JsString::default(),
+    };
+    if !normalized.is_empty() {
+        return Ok(normalized);
+    }
+    Ok(js_format!(
         "{}-session-{}.html",
         package_config().app_name,
         basename(input_path, ".jsonl")
-    )
+    ))
+}
+
+fn path_exists(path: &JsString) -> bool {
+    Path::new(&encode_node_utf8(path)).exists()
+}
+
+fn write_html(output_path: &JsString, html: String) -> Result<(), ExportError> {
+    std::fs::write(encode_node_utf8(output_path), html)?;
+    Ok(())
 }
 
 /// Export a session to HTML using its [`SessionManager`].
@@ -410,15 +431,15 @@ pub async fn export_session_to_html(
     sm: &SessionManager,
     state: Option<&AgentState>,
     options: Option<ExportOptions>,
-) -> Result<String, ExportError> {
+) -> Result<JsString, ExportError> {
     let options = options.unwrap_or_default();
     let session_file = sm
         .get_session_file()
-        .ok_or_else(|| ExportError::Message("Cannot export in-memory session to HTML".to_owned()))?
-        .to_owned();
-    if !Path::new(&session_file).exists() {
+        .ok_or_else(|| ExportError::Message("Cannot export in-memory session to HTML".into()))?
+        .clone();
+    if !path_exists(&session_file) {
         return Err(ExportError::Message(
-            "Nothing to export yet - start a conversation first".to_owned(),
+            "Nothing to export yet - start a conversation first".into(),
         ));
     }
 
@@ -432,7 +453,7 @@ pub async fn export_session_to_html(
     let session_data = SessionData {
         header: sm.get_header().cloned(),
         entries,
-        leaf_id: sm.get_leaf_id().map(str::to_owned),
+        leaf_id: sm.get_leaf_id().cloned(),
         system_prompt: state.map(|state| state.system_prompt.clone().into()),
         tools: state.map(|state| {
             state
@@ -450,29 +471,25 @@ pub async fn export_session_to_html(
 
     let html = generate_html(&session_data, options.theme_name.as_deref())?;
 
-    let output_path = match options.output_path.filter(|path| !path.is_empty()) {
-        Some(path) => normalize_path(&path, &PathInputOptions::default())?,
-        None => default_output_path(&session_file),
-    };
-
-    std::fs::write(&output_path, html)?;
+    let output_path = output_path_or_default(options.output_path, &session_file)?;
+    write_html(&output_path, html)?;
     Ok(output_path)
 }
 
 /// Export a session file to HTML without an agent state.
-pub async fn export_from_file(input_path: &str, options: Option<ExportOptions>) -> Result<String, ExportError> {
+pub async fn export_from_file(input_path: &JsString, options: Option<ExportOptions>) -> Result<JsString, ExportError> {
     let options = options.unwrap_or_default();
-    let cwd = std::env::current_dir()
-        .map(|path| path.display().to_string())
-        .unwrap_or_default();
-    let resolved_input_path = crate::core::session_transcript::read_session_transcript_path(&resolve_path(
+    let resolved_input_path = crate::core::session_transcript::read_session_transcript_path(resolve_path(
         input_path,
-        &cwd,
+        process_cwd()?,
         &PathInputOptions::default(),
     )?);
 
-    if !Path::new(&resolved_input_path).exists() {
-        return Err(ExportError::Message(format!("File not found: {resolved_input_path}")));
+    if !path_exists(&resolved_input_path) {
+        return Err(ExportError::Message(js_format!(
+            "File not found: {}",
+            resolved_input_path
+        )));
     }
 
     let sm = SessionManager::open_read_only(&resolved_input_path, None)?;
@@ -480,7 +497,7 @@ pub async fn export_from_file(input_path: &str, options: Option<ExportOptions>) 
     let session_data = SessionData {
         header: sm.get_header().cloned(),
         entries: sm.get_entries(),
-        leaf_id: sm.get_leaf_id().map(str::to_owned),
+        leaf_id: sm.get_leaf_id().cloned(),
         system_prompt: None,
         tools: None,
         rendered_tools: None,
@@ -488,12 +505,8 @@ pub async fn export_from_file(input_path: &str, options: Option<ExportOptions>) 
 
     let html = generate_html(&session_data, options.theme_name.as_deref())?;
 
-    let output_path = match options.output_path.filter(|path| !path.is_empty()) {
-        Some(path) => normalize_path(&path, &PathInputOptions::default())?,
-        None => default_output_path(&resolved_input_path),
-    };
-
-    std::fs::write(&output_path, html)?;
+    let output_path = output_path_or_default(options.output_path, &resolved_input_path)?;
+    write_html(&output_path, html)?;
     Ok(output_path)
 }
 

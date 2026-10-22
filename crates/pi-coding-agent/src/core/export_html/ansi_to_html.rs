@@ -1,5 +1,6 @@
 //! Converts terminal ANSI SGR styling to inline-styled HTML.
 
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::number::js_number_to_string;
 
 const ANSI_COLORS: [&str; 16] = [
@@ -7,7 +8,7 @@ const ANSI_COLORS: [&str; 16] = [
     "#00ff00", "#ffff00", "#0000ff", "#ff00ff", "#00ffff", "#ffffff",
 ];
 
-const ESCAPE: char = '\u{1b}';
+const ESCAPE: u16 = 0x1b;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 struct TextStyle {
@@ -53,36 +54,30 @@ impl TextStyle {
 }
 
 /// Converts ANSI-escaped text to HTML with inline styles.
-pub fn ansi_to_html(text: &str) -> String {
+pub fn ansi_to_html(text: &JsString) -> JsString {
+    let units = text.units();
     let mut style = TextStyle::default();
-    let mut result = String::new();
+    let mut result = JsString::default();
     let mut last_index = 0;
     let mut in_span = false;
 
-    for (start, end) in escape_sequences(text) {
-        let before = &text[last_index..start];
-        if !before.is_empty() {
-            push_escaped(&mut result, before);
-        }
-
+    for (start, end) in escape_sequences(units) {
+        push_escaped(&mut result, &units[last_index..start]);
         if in_span {
             result.push_str("</span>");
             in_span = false;
         }
-        apply_sgr(&parse_params(&text[start + 2..end]), &mut style);
+        apply_sgr(&parse_params(&units[start + 2..end]), &mut style);
         if !style.is_empty() {
             result.push_str("<span style=\"");
-            result.push_str(&style.to_inline_css());
+            result.push_str(style.to_inline_css());
             result.push_str("\">");
             in_span = true;
         }
         last_index = end + 1;
     }
 
-    let remaining = &text[last_index..];
-    if !remaining.is_empty() {
-        push_escaped(&mut result, remaining);
-    }
+    push_escaped(&mut result, &units[last_index..]);
     if in_span {
         result.push_str("</span>");
     }
@@ -90,29 +85,45 @@ pub fn ansi_to_html(text: &str) -> String {
 }
 
 /// Converts ANSI-escaped lines to `<div class="ansi-line">` elements without extra whitespace.
-pub fn ansi_lines_to_html(lines: &[String]) -> String {
-    lines
-        .iter()
-        .map(|line| {
-            let html = ansi_to_html(line);
-            let content = if html.is_empty() { "&nbsp;" } else { &html };
-            format!("<div class=\"ansi-line\">{content}</div>")
-        })
-        .collect()
+pub fn ansi_lines_to_html(lines: &[JsString]) -> JsString {
+    let mut result = JsString::default();
+    for line in lines {
+        let html = ansi_to_html(line);
+        result.push_str("<div class=\"ansi-line\">");
+        if html.is_empty() {
+            result.push_str("&nbsp;");
+        } else {
+            result.push_str(html);
+        }
+        result.push_str("</div>");
+    }
+    result
+}
+
+/// `text.replace(/\x1b\[[\d;]*m/g, "")`.
+pub fn strip_sgr_sequences(text: &JsString) -> JsString {
+    let units = text.units();
+    let mut result = JsString::default();
+    let mut last_index = 0;
+    for (start, end) in escape_sequences(units) {
+        result.push_str(JsString::from_utf16(units[last_index..start].to_vec()));
+        last_index = end + 1;
+    }
+    result.push_str(JsString::from_utf16(units[last_index..].to_vec()));
+    result
 }
 
 /// Returns `(start, m_index)` for each `ESC [ params m` sequence, where `params` spans `start + 2..m_index`.
-fn escape_sequences(text: &str) -> Vec<(usize, usize)> {
-    let bytes = text.as_bytes();
+fn escape_sequences(units: &[u16]) -> Vec<(usize, usize)> {
     let mut sequences = Vec::new();
     let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == ESCAPE as u8 && bytes.get(index + 1) == Some(&b'[') {
+    while index < units.len() {
+        if units[index] == ESCAPE && units.get(index + 1) == Some(&u16::from(b'[')) {
             let mut cursor = index + 2;
-            while matches!(bytes.get(cursor), Some(b'0'..=b'9' | b';')) {
+            while units.get(cursor).is_some_and(|unit| is_param_unit(*unit)) {
                 cursor += 1;
             }
-            if bytes.get(cursor) == Some(&b'm') {
+            if units.get(cursor) == Some(&u16::from(b'm')) {
                 sequences.push((index, cursor));
                 index = cursor + 1;
                 continue;
@@ -123,10 +134,16 @@ fn escape_sequences(text: &str) -> Vec<(usize, usize)> {
     sequences
 }
 
-fn parse_params(params: &str) -> Vec<f64> {
+fn is_param_unit(unit: u16) -> bool {
+    unit == u16::from(b';') || (u16::from(b'0')..=u16::from(b'9')).contains(&unit)
+}
+
+/// `params` holds only ASCII digits and `;` (see `escape_sequences`).
+fn parse_params(params: &[u16]) -> Vec<f64> {
     if params.is_empty() {
         return vec![0.0];
     }
+    let params: String = params.iter().map(|unit| char::from(*unit as u8)).collect();
     params.split(';').map(parse_leading_integer).collect()
 }
 
@@ -268,15 +285,15 @@ fn js_number_to_radix16(value: f64) -> String {
     digits
 }
 
-fn push_escaped(output: &mut String, text: &str) {
-    for character in text.chars() {
-        match character {
-            '&' => output.push_str("&amp;"),
-            '<' => output.push_str("&lt;"),
-            '>' => output.push_str("&gt;"),
-            '"' => output.push_str("&quot;"),
-            '\'' => output.push_str("&#039;"),
-            other => output.push(other),
+fn push_escaped(output: &mut JsString, units: &[u16]) {
+    for unit in units {
+        match *unit {
+            0x26 => output.push_str("&amp;"),
+            0x3c => output.push_str("&lt;"),
+            0x3e => output.push_str("&gt;"),
+            0x22 => output.push_str("&quot;"),
+            0x27 => output.push_str("&#039;"),
+            other => output.push_unit(other),
         }
     }
 }

@@ -8,9 +8,8 @@ use std::sync::Arc;
 use pi_ai::types::TextOrImageContent;
 use pi_js_compat::js_json::{JsString, JsValue};
 use pi_tui::tui::ComponentRef;
-use regex::Regex;
 
-use super::ansi_to_html::ansi_lines_to_html;
+use super::ansi_to_html::{ansi_lines_to_html, strip_sgr_sequences};
 use super::index::{RenderedToolResult, ToolHtmlRenderer};
 use pi_agent_core::agent::types::AgentToolResult;
 
@@ -91,16 +90,11 @@ impl ExtensionToolHtmlRenderer {
     }
 }
 
-fn ansi_escape_pattern() -> &'static Regex {
-    static PATTERN: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    PATTERN.get_or_init(|| Regex::new("\u{1b}\\[[\\d;]*m").expect("valid pattern"))
+fn is_blank_rendered_line(line: &JsString) -> bool {
+    strip_sgr_sequences(line).trim().is_empty()
 }
 
-fn is_blank_rendered_line(line: &str) -> bool {
-    pi_js_compat::string::js_trim(&ansi_escape_pattern().replace_all(line, "")).is_empty()
-}
-
-fn trim_rendered_result_lines(lines: Vec<String>) -> Vec<String> {
+fn trim_rendered_result_lines(lines: Vec<JsString>) -> Vec<JsString> {
     let mut start = 0;
     let mut end = lines.len();
     while start < end && is_blank_rendered_line(&lines[start]) {
@@ -112,12 +106,12 @@ fn trim_rendered_result_lines(lines: Vec<String>) -> Vec<String> {
     lines[start..end].to_vec()
 }
 
-fn render_component(component: &ComponentRef, width: usize) -> Vec<String> {
+fn render_component(component: &ComponentRef, width: usize) -> Vec<JsString> {
     component.borrow_mut().render(width)
 }
 
 impl ToolHtmlRenderer for ExtensionToolHtmlRenderer {
-    fn render_call(&self, tool_call_id: &str, tool_name: &str, args: &JsValue) -> Option<String> {
+    fn render_call(&self, tool_call_id: &str, tool_name: &str, args: &JsValue) -> Option<JsString> {
         self.state
             .borrow_mut()
             .rendered_args
