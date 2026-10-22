@@ -1,7 +1,5 @@
 //! Coding-agent keybindings (`core/keybindings.ts`), layered on the TUI registry.
 
-use std::path::Path;
-
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use pi_tui::keybindings::{
     KeyId, KeybindingDefinition, KeybindingsConfig, KeybindingsManager as TuiKeybindingsManager, tui_keybindings,
@@ -358,11 +356,12 @@ fn compare_utf16(left: &JsString, right: &JsString) -> std::cmp::Ordering {
     left.units().cmp(right.units())
 }
 
-fn load_raw_config(path: &Path) -> Option<JsObject> {
-    if !path.exists() {
+fn load_raw_config(path: &JsString) -> Option<JsObject> {
+    let encoded_path = js_json::encode_node_utf8(path);
+    if !std::path::Path::new(&encoded_path).exists() {
         return None;
     }
-    let content = std::fs::read_to_string(path).ok()?;
+    let content = std::fs::read_to_string(&encoded_path).ok()?;
     match js_json::parse_lossless(content).ok()? {
         JsValue::Object(object) => Some(object),
         _ => None,
@@ -402,11 +401,13 @@ impl KeybindingsManager {
     }
 
     /// Loads `keybindings.json` from the agent directory.
-    pub fn create(agent_dir: Option<&Path>) -> Self {
-        let agent_dir = agent_dir.map_or_else(get_agent_dir, Path::to_path_buf);
-        let config_path = agent_dir.join("keybindings.json");
+    pub fn create(agent_dir: Option<&JsString>) -> Self {
+        let agent_dir = agent_dir
+            .cloned()
+            .unwrap_or_else(|| get_agent_dir().to_string_lossy().as_ref().into());
+        let config_path = crate::utils::paths::node_join(&agent_dir, "keybindings.json");
         let user_bindings = Self::load_from_file(&config_path);
-        Self::new(user_bindings, Some(config_path.to_string_lossy().as_ref().into()))
+        Self::new(user_bindings, Some(config_path))
     }
 
     /// Install this manager as the process-wide TUI keybinding registry
@@ -419,7 +420,7 @@ impl KeybindingsManager {
         let Some(config_path) = &self.config_path else {
             return;
         };
-        let user_bindings = Self::load_from_file(Path::new(&js_json::encode_node_utf8(config_path)));
+        let user_bindings = Self::load_from_file(config_path);
         self.inner.set_user_bindings(user_bindings);
     }
 
@@ -444,7 +445,7 @@ impl KeybindingsManager {
         self.inner.get_conflicts()
     }
 
-    fn load_from_file(path: &Path) -> KeybindingsConfig {
+    fn load_from_file(path: &JsString) -> KeybindingsConfig {
         let Some(raw_config) = load_raw_config(path) else {
             return KeybindingsConfig::new();
         };

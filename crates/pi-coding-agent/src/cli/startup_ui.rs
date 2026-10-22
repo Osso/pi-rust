@@ -142,7 +142,7 @@ pub async fn create_startup_tui(
         .unwrap_or_else(|| JsString::from(terminal_theme.as_str()));
     init_theme(Some(&theme_name), false).map_err(|error| JsString::from(error.to_string()))?;
     let agent_dir = config::get_agent_dir();
-    KeybindingsManager::create(Some(&agent_dir)).install();
+    KeybindingsManager::create(Some(&JsString::from(agent_dir.to_string_lossy().as_ref()))).install();
     let ui = TUI::with_options(
         terminal,
         Some(settings_manager.get_show_hardware_cursor()),

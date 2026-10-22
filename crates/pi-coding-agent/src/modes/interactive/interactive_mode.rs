@@ -2962,7 +2962,7 @@ impl InteractiveMode {
         let (editor_container, editor_ref) = SharedContainer::create();
         let (footer_container, footer_ref) = SharedContainer::create();
 
-        let keybindings = KeybindingsManager::create(Some(Path::new(&agent_dir)));
+        let keybindings = KeybindingsManager::create(Some(&agent_dir));
         keybindings.clone().install();
 
         let default_editor = Rc::new(RefCell::new(
@@ -9306,7 +9306,7 @@ impl InteractiveMode {
                 dialog.show_waiting("Waiting for authentication...");
             }
             AuthEvent::Info { message, links } => {
-                dialog.show_info(&message, links.as_ref().unwrap_or(&[]), false);
+                dialog.show_info(&message, links.as_deref().unwrap_or(&[]), false);
             }
             AuthEvent::Progress { message } => dialog.show_progress(&message),
         }
@@ -9384,13 +9384,13 @@ impl InteractiveMode {
 
     async fn handle_login_command(&self, provider_ref: Option<&JsString>) {
         let provider_ref = provider_ref
-            .map(str::trim)
+            .map(|text| text.trim())
             .filter(|provider_ref| !provider_ref.is_empty());
         let Some(provider_ref) = provider_ref else {
             self.show_login_auth_type_selector(None);
             return;
         };
-        let provider_options = self.find_login_provider_options(provider_ref);
+        let provider_options = self.find_login_provider_options(&provider_ref);
         if provider_options.len() == 1 {
             self.start_provider_login(provider_options[0].clone()).await;
             return;
@@ -13958,7 +13958,7 @@ mod ui_tests {
                 )))
                 .await;
                 let chat = chat_text(&mode);
-                let normalized = chat.lines().map(str::trim).collect::<Vec<_>>().join("\n");
+                let normalized = chat.lines().map(|text| text.trim()).collect::<Vec<_>>().join("\n");
                 assert!(
                     normalized.contains(
                         &[
@@ -13993,7 +13993,7 @@ mod ui_tests {
                 )))
                 .await;
                 let chat = chat_text(&mode);
-                let normalized = chat.lines().map(str::trim).collect::<Vec<_>>().join("\n");
+                let normalized = chat.lines().map(|text| text.trim()).collect::<Vec<_>>().join("\n");
                 assert!(
                     normalized.contains(
                         &[
