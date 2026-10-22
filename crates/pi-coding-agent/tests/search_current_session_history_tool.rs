@@ -9,14 +9,22 @@ use pi_agent_core::{AgentHarnessTool, AgentMessage};
 use pi_ai::types::{AssistantContent, AssistantMessage, TextContent};
 use pi_coding_agent::core::session_manager::{CompactionAppendOptions, SessionManager, SharedSessionManager};
 use pi_coding_agent::core::tools::search_current_session_history::SearchCurrentSessionHistoryTool;
-use serde_json::{Value, json};
+use pi_js_compat::js_json::{JsString, JsValue as Value};
+use pi_js_compat::{js_json, js_json as json};
 use tempfile::TempDir;
 
 fn manager_fixture() -> (TempDir, SessionManager) {
     let temp_dir = tempfile::tempdir().expect("temp dir");
     let manager = SessionManager::create(
-        "/repo",
-        Some(&temp_dir.path().join("sessions").display().to_string()),
+        &JsString::from("/repo"),
+        Some(&JsString::from(
+            &temp_dir
+                .path()
+                .join("sessions")
+                .to_str()
+                .expect("utf-8 test path")
+                .to_owned(),
+        )),
         None,
     )
     .expect("session manager");
@@ -24,7 +32,7 @@ fn manager_fixture() -> (TempDir, SessionManager) {
 }
 
 fn user_message(text: &str, timestamp: i64) -> AgentMessage {
-    serde_json::from_value(json!({ "role": "user", "content": text, "timestamp": timestamp })).expect("user message")
+    js_json::from_value(&json!({ "role": "user", "content": text, "timestamp": timestamp })).expect("user message")
 }
 
 fn assistant_message(text: &str, timestamp: i64) -> AgentMessage {
@@ -39,7 +47,7 @@ async fn search(manager: &SharedSessionManager, params: Value) -> pi_agent_core:
         .await
         .1;
     SearchCurrentSessionHistoryTool::new()
-        .execute("search-history".to_owned(), params, None, None, context, None)
+        .execute("search-history".to_owned(), json!(params), None, None, context, None)
         .await
         .expect("search history")
 }
@@ -65,12 +73,12 @@ async fn matches_user_and_assistant_messages() {
     let user_match = search(&manager, json!({ "query": "list-skills" })).await;
     let assistant_match = search(&manager, json!({ "query": "reddit" })).await;
 
-    assert_eq!(details(&user_match)["totalMatches"], 1);
-    assert_eq!(details(&user_match)["entries"][0]["role"], "user");
-    assert_eq!(details(&user_match)["entries"][0]["content"], "list-skills");
-    assert_eq!(details(&user_match)["entries"][0]["matched"], true);
-    assert_eq!(details(&assistant_match)["totalMatches"], 1);
-    assert_eq!(details(&assistant_match)["entries"][0]["role"], "assistant");
+    assert_eq!(details(&user_match)["totalMatches"], json!(1));
+    assert_eq!(details(&user_match)["entries"][0]["role"], json!("user"));
+    assert_eq!(details(&user_match)["entries"][0]["content"], json!("list-skills"));
+    assert_eq!(details(&user_match)["entries"][0]["matched"], json!(true));
+    assert_eq!(details(&assistant_match)["totalMatches"], json!(1));
+    assert_eq!(details(&assistant_match)["entries"][0]["role"], json!("assistant"));
 }
 
 #[tokio::test]
@@ -84,7 +92,7 @@ async fn searches_full_active_branch_entries_hidden_by_compaction_and_includes_n
         .expect("append kept");
     manager
         .append_compaction(
-            "Earlier deployment discussion",
+            &JsString::from("Earlier deployment discussion"),
             &kept_id,
             1000.0,
             CompactionAppendOptions::default(),
@@ -97,20 +105,20 @@ async fn searches_full_active_branch_entries_hidden_by_compaction_and_includes_n
 
     let result = search(&manager, json!({ "query": "COBALT", "context_entries": 1 })).await;
 
-    assert_eq!(details(&result)["totalMatches"], 1);
+    assert_eq!(details(&result)["totalMatches"], json!(1));
     let entries = details(&result)["entries"].as_array().expect("entries");
     assert_eq!(entries.len(), 2);
-    assert_eq!(entries[0]["id"], first_id);
-    assert_eq!(entries[0]["matched"], true);
-    assert_eq!(entries[0]["compacted"], true);
-    assert_eq!(entries[0]["role"], "user");
-    assert_eq!(entries[1]["matched"], false);
-    assert_eq!(entries[1]["content"], "Neighbor before compaction");
-    assert_eq!(entries[1]["role"], "user");
-    let content = serde_json::to_value(&result.content).expect("content");
+    assert_eq!(entries[0]["id"], json!(first_id));
+    assert_eq!(entries[0]["matched"], json!(true));
+    assert_eq!(entries[0]["compacted"], json!(true));
+    assert_eq!(entries[0]["role"], json!("user"));
+    assert_eq!(entries[1]["matched"], json!(false));
+    assert_eq!(entries[1]["content"], json!("Neighbor before compaction"));
+    assert_eq!(entries[1]["role"], json!("user"));
+    let content = js_json::to_value(&&result.content).expect("content");
     assert!(
         content[0]["text"]
-            .as_str()
+            .as_string()
             .expect("text")
             .contains("Original deployment used cobalt")
     );
@@ -136,14 +144,14 @@ async fn context_tool_arguments_use_javascript_json_in_visible_text() {
         json!({"query":"needle", "context_entries":1}),
     )
     .await;
-    let text = serde_json::to_value(result.content).unwrap();
-    let text = text[0]["text"].as_str().unwrap();
-    assert!(text.contains("\"1\": 1,"), "{text}");
+    let text = js_json::to_value(&result.content).unwrap();
+    let text = text[0]["text"].as_string().unwrap();
+    assert!(text.contains("\"1\": 1,"), "{text:?}");
     assert!(
         text.find("\"1\": 1,").unwrap() < text.find("\"2\": 2").unwrap(),
-        "{text}"
+        "{text:?}"
     );
-    assert!(!text.contains("2.0"), "{text}");
+    assert!(!text.contains("2.0"), "{text:?}");
 }
 
 #[tokio::test]
@@ -163,10 +171,10 @@ async fn excludes_entries_from_inactive_branches() {
 
     let result = search(&manager, json!({ "query": "inactive branch secret" })).await;
 
-    assert_eq!(details(&result)["totalMatches"], 0);
+    assert_eq!(details(&result)["totalMatches"], json!(0));
     assert_eq!(details(&result)["entries"], json!([]));
     assert_eq!(
-        serde_json::to_value(&result.content).expect("content"),
+        js_json::to_value(&&result.content).expect("content"),
         json!([{ "type": "text", "text": "No matches found in current session history." }])
     );
 }
@@ -182,9 +190,9 @@ async fn matches_literal_multiline_and_escaped_characters_in_message_content() {
 
     let result = search(&manager, json!({ "query": content })).await;
 
-    assert_eq!(details(&result)["totalMatches"], 1);
-    assert_eq!(details(&result)["entries"][0]["content"], content);
-    assert_eq!(details(&result)["entries"][0]["matched"], true);
+    assert_eq!(details(&result)["totalMatches"], json!(1));
+    assert_eq!(details(&result)["entries"][0]["content"], json!(content));
+    assert_eq!(details(&result)["entries"][0]["matched"], json!(true));
 }
 
 #[tokio::test]
@@ -199,18 +207,18 @@ async fn paginates_matches_while_returning_full_matching_content() {
     let manager = Arc::new(Mutex::new(manager));
 
     let first_page = search(&manager, json!({ "query": "needle", "limit": 1 })).await;
-    assert_eq!(details(&first_page)["totalMatches"], 2);
-    assert_eq!(details(&first_page)["returnedMatches"], 1);
-    assert_eq!(details(&first_page)["nextCursor"], "1");
-    assert_eq!(details(&first_page)["entries"][0]["content"], "needle one");
-    assert_eq!(details(&first_page)["entries"][0]["matched"], true);
+    assert_eq!(details(&first_page)["totalMatches"], json!(2));
+    assert_eq!(details(&first_page)["returnedMatches"], json!(1));
+    assert_eq!(details(&first_page)["nextCursor"], json!("1"));
+    assert_eq!(details(&first_page)["entries"][0]["content"], json!("needle one"));
+    assert_eq!(details(&first_page)["entries"][0]["matched"], json!(true));
 
     let second_page = search(&manager, json!({ "query": "needle", "limit": 1, "cursor": "1" })).await;
-    assert_eq!(details(&second_page)["totalMatches"], 2);
-    assert_eq!(details(&second_page)["returnedMatches"], 1);
+    assert_eq!(details(&second_page)["totalMatches"], json!(2));
+    assert_eq!(details(&second_page)["returnedMatches"], json!(1));
     assert!(details(&second_page).get("nextCursor").is_none());
-    assert_eq!(details(&second_page)["entries"][0]["content"], "needle two");
-    assert_eq!(details(&second_page)["entries"][0]["matched"], true);
+    assert_eq!(details(&second_page)["entries"][0]["content"], json!("needle two"));
+    assert_eq!(details(&second_page)["entries"][0]["matched"], json!(true));
 }
 
 #[tokio::test]
@@ -222,7 +230,7 @@ async fn requires_a_persisted_current_session() {
     let error = SearchCurrentSessionHistoryTool::new()
         .execute(
             "search-history".to_owned(),
-            json!({ "query": "needle" }),
+            json!(json!({ "query": "needle" })),
             None,
             None,
             context,
@@ -250,7 +258,7 @@ async fn rejects_an_invalid_cursor() {
     let error = SearchCurrentSessionHistoryTool::new()
         .execute(
             "search-history".to_owned(),
-            json!({ "query": "needle", "cursor": "-1" }),
+            json!(json!({ "query": "needle", "cursor": "-1" })),
             None,
             None,
             context,

@@ -17,16 +17,17 @@ use pi_coding_agent::core::tools::ask_supervisor::{AskSupervisorTool, parameters
 use pi_coding_agent::core::tools::broadcast::BroadcastTool;
 use pi_coding_agent::core::tools::channel_post::ChannelPostTool;
 use pi_coding_agent::core::tools::list_sessions::ListSessionsTool;
-use serde_json::json;
+use pi_js_compat::js_json::{JsString, JsValue};
+use pi_js_compat::{js_json, js_json as json};
 use tempfile::TempDir;
 
 fn write_metadata(control_db_path: &str, id: &str, session_path: &str, modified_at: &str, subagent: bool) {
     write_session_metadata(
         control_db_path,
         &WritableSessionMetadata {
-            session_path: session_path.to_owned(),
-            id: id.to_owned(),
-            cwd: format!("/repo/{id}"),
+            session_path: session_path.to_owned().into(),
+            id: id.to_owned().into(),
+            cwd: format!("/repo/{id}").into(),
             name: None,
             parent_session_path: None,
             archived_at: None,
@@ -36,10 +37,10 @@ fn write_metadata(control_db_path: &str, id: &str, session_path: &str, modified_
             model_provider: None,
             model_id: None,
             thinking_level: None,
-            created_at: "2026-01-01T00:00:00.000Z".to_owned(),
-            modified_at: modified_at.to_owned(),
+            created_at: "2026-01-01T00:00:00.000Z".to_owned().into(),
+            modified_at: modified_at.to_owned().into(),
             message_count: 1,
-            first_message: "hello".to_owned(),
+            first_message: "hello".to_owned().into(),
         },
     )
     .expect("write metadata");
@@ -50,10 +51,10 @@ fn register_listener(control_db_path: &str, session_id: &str, session_path: Opti
         control_db_path,
         &RuntimeMailboxAddress {
             agent_id: None,
-            session_id: session_id.to_owned(),
+            session_id: session_id.to_owned().into(),
         },
         std::process::id(),
-        session_path,
+        session_path.map(JsString::from).as_ref(),
         Default::default(),
     )
     .expect("register listener");
@@ -62,7 +63,15 @@ fn register_listener(control_db_path: &str, session_id: &str, session_path: Opti
 async fn context(control_db_path: &str, session_id: &str, persisted: bool) -> ExtensionContext {
     let session = if persisted {
         let dir = tempfile::tempdir().expect("session dir");
-        tool_context::persisted_session("/repo", &dir.path().join("sessions").display().to_string(), session_id)
+        tool_context::persisted_session(
+            "/repo",
+            &dir.path()
+                .join("sessions")
+                .to_str()
+                .expect("utf-8 test path")
+                .to_owned(),
+            session_id,
+        )
     } else {
         tool_context::in_memory_session("/repo", session_id)
     };
@@ -84,10 +93,10 @@ async fn subagent_context(control_db_path: &str, session_id: &str, agent_id: &st
 
 async fn execute<T: AgentHarnessTool<ExtensionContext>>(
     tool: &T,
-    params: serde_json::Value,
+    params: JsValue,
     context: ExtensionContext,
 ) -> Result<pi_agent_core::AgentToolResult, pi_agent_core::ToolError> {
-    tool.execute("tool-call".to_owned(), params, None, None, context, None)
+    tool.execute("tool-call".to_owned(), json!(params), None, None, context, None)
         .await
 }
 
@@ -146,17 +155,17 @@ async fn returns_only_active_and_ended_non_archived_main_sessions_with_include_e
     .expect("list sessions");
 
     let details = result.details.as_ref().expect("details");
-    let ids: Vec<&str> = details["sessions"]
+    let ids: Vec<JsString> = details["sessions"]
         .as_array()
         .expect("sessions")
         .iter()
-        .map(|session| session["sessionId"].as_str().expect("session id"))
+        .map(|session| session["sessionId"].as_string().expect("session id").clone())
         .collect();
-    assert_eq!(ids, vec!["active-main", "ended-main"]);
-    assert_eq!(details["sessions"][0]["status"], "running");
-    assert_eq!(details["sessions"][1]["status"], "ended");
-    let content = serde_json::to_value(&result.content).expect("content");
-    let text = content[0]["text"].as_str().expect("text");
+    assert_eq!(ids, vec![JsString::from("active-main"), JsString::from("ended-main")]);
+    assert_eq!(details["sessions"][0]["status"], json!("running"));
+    assert_eq!(details["sessions"][1]["status"], json!("ended"));
+    let content = js_json::to_value(&&result.content).expect("content");
+    let text = content[0]["text"].as_string().expect("text");
     assert!(text.contains("active-main"));
     assert!(text.contains("ended-main"));
     assert!(!text.contains("archived-main"));
@@ -191,7 +200,7 @@ async fn excludes_ended_rows_when_include_ended_is_false() {
 
     assert_eq!(result.details.as_ref().expect("details")["sessions"], json!([]));
     assert_eq!(
-        serde_json::to_value(&result.content).expect("content"),
+        js_json::to_value(&&result.content).expect("content"),
         json!([{ "type": "text", "text": "No sessions found." }])
     );
 }
@@ -222,7 +231,7 @@ async fn channel_post_posts_the_message_and_advances_the_sender_cursor() {
     .expect("channel post");
 
     assert_eq!(
-        serde_json::to_value(&result.content).expect("content"),
+        js_json::to_value(&&result.content).expect("content"),
         json!([{ "type": "text", "text": "Posted shared channel message 1." }])
     );
     assert_eq!(result.details.as_ref().expect("details"), &json!({ "messageId": 1 }));
@@ -234,7 +243,7 @@ async fn channel_post_posts_the_message_and_advances_the_sender_cursor() {
         &control_db_path,
         &RuntimeMailboxAddress {
             agent_id: None,
-            session_id: "main-session".to_owned(),
+            session_id: "main-session".to_owned().into(),
         },
     )
     .expect("cursor");
@@ -274,13 +283,13 @@ async fn ask_architect_persists_the_canonical_project_path() {
 
     assert_eq!(
         result.details.as_ref().expect("details")["senderSessionId"],
-        "main-session"
+        json!("main-session")
     );
     let requests = list_pending_architect_requests(&control_db_path, 10).expect("requests");
     assert_eq!(requests.len(), 1);
     assert_eq!(
-        requests[0].project_cwd.as_deref(),
-        Some(project_path.to_string_lossy().as_ref())
+        requests[0].project_cwd.as_ref(),
+        Some(&JsString::from(project_path.to_str().expect("utf-8 test path")))
     );
 }
 
@@ -297,7 +306,7 @@ async fn ask_architect_defaults_the_project_context_to_the_session_cwd() {
     .expect("ask architect");
 
     let requests = list_pending_architect_requests(&control_db_path, 10).expect("requests");
-    assert_eq!(requests[0].project_cwd.as_deref(), Some("/repo"));
+    assert_eq!(requests[0].project_cwd.as_ref(), Some(&JsString::from("/repo")));
 }
 
 #[tokio::test]
@@ -384,15 +393,17 @@ async fn ask_supervisor_returns_the_advisory_answer() {
     let responder_path = control_db_path.clone();
     let responder = tokio::spawn(async move {
         loop {
-            if let Some(request) = claim_next_supervisor_request(&responder_path, "test-runtime").expect("claim") {
+            if let Some(request) =
+                claim_next_supervisor_request(&responder_path, &JsString::from("test-runtime")).expect("claim")
+            {
                 assert_eq!(request.sender_session_id, "main-session");
-                assert_eq!(request.payload["question"], "Is this complete?");
+                assert_eq!(request.payload["question"], json!("Is this complete?"));
                 complete_supervisor_request(
                     &responder_path,
                     request.id,
-                    "test-runtime",
+                    &JsString::from("test-runtime"),
                     &SupervisorResponse::Advisory {
-                        answer: "Continue.".to_owned(),
+                        answer: "Continue.".to_owned().into(),
                     },
                 )
                 .expect("complete");
@@ -412,14 +423,14 @@ async fn ask_supervisor_returns_the_advisory_answer() {
     responder.await.expect("responder");
 
     assert_eq!(
-        serde_json::to_value(&result.content).expect("content"),
+        js_json::to_value(&&result.content).expect("content"),
         json!([{ "type": "text", "text": "Continue." }])
     );
     assert_eq!(
         result.details.as_ref().expect("details")["senderSessionId"],
-        "main-session"
+        json!("main-session")
     );
-    assert_eq!(result.details.as_ref().expect("details")["answer"], "Continue.");
+    assert_eq!(result.details.as_ref().expect("details")["answer"], json!("Continue."));
 }
 
 #[tokio::test]
@@ -455,7 +466,7 @@ async fn list_sessions_requires_a_control_database_path() {
     let error = ListSessionsTool::new()
         .execute(
             "tool-call".to_owned(),
-            json!({}),
+            json!(json!({})),
             None,
             None,
             tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "session"))

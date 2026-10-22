@@ -7,15 +7,15 @@ use pi_coding_agent::core::extensions::{ExtensionContext, SwitchSessionCallback}
 use pi_coding_agent::core::session_control_db::{WritableSessionMetadata, get_control_db_path, write_session_metadata};
 use pi_coding_agent::core::session_manager::{NewSessionOptions, SessionManager};
 use pi_coding_agent::core::tools::resume_session::ResumeSessionTool;
-use serde_json::json;
+use pi_js_compat::js_json::{JsString, JsValue};
+use pi_js_compat::{js_json, js_json as json};
 use tempfile::TempDir;
 
 #[path = "support/tool_context.rs"]
 mod tool_context;
 
 fn seed_message(text: &str, timestamp: i64) -> pi_agent_core::AgentMessage {
-    serde_json::from_value(json!({ "role": "user", "content": text, "timestamp": timestamp }))
-        .expect("seed user message")
+    js_json::from_value(&json!({ "role": "user", "content": text, "timestamp": timestamp })).expect("seed user message")
 }
 
 fn seed_assistant(text: &str, timestamp: i64) -> pi_agent_core::AgentMessage {
@@ -39,8 +39,8 @@ fn materialize(manager: &mut SessionManager) {
 
 struct SwitchRecorder {
     cancelled: bool,
-    path: Arc<Mutex<Option<String>>>,
-    starter_prompt: Arc<Mutex<Option<String>>>,
+    path: Arc<Mutex<Option<JsString>>>,
+    starter_prompt: Arc<Mutex<Option<JsString>>>,
 }
 
 impl SwitchRecorder {
@@ -72,14 +72,24 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let temp_dir = tempfile::tempdir().expect("temp dir");
-        let session_dir = temp_dir.path().join("sessions").display().to_string();
-        let cwd = temp_dir.path().join("current").display().to_string();
+        let session_dir = temp_dir
+            .path()
+            .join("sessions")
+            .to_str()
+            .expect("utf-8 test path")
+            .to_owned();
+        let cwd = temp_dir
+            .path()
+            .join("current")
+            .to_str()
+            .expect("utf-8 test path")
+            .to_owned();
         std::fs::create_dir_all(&cwd).expect("current cwd");
         let mut current = SessionManager::create(
-            &cwd,
-            Some(&session_dir),
+            &JsString::from(&cwd),
+            Some(&JsString::from(&session_dir)),
             Some(NewSessionOptions {
-                id: Some("current-session".to_owned()),
+                id: Some("current-session".to_owned().into()),
                 ..Default::default()
             }),
         )
@@ -88,7 +98,7 @@ impl Fixture {
         let control_db_path = get_control_db_path(temp_dir.path());
         current
             .set_metadata_control_db_path(
-                Some(&control_db_path),
+                Some(&JsString::from(&control_db_path)),
                 pi_coding_agent::core::session_manager::SetMetadataControlDbPathOptions::default(),
             )
             .expect("attach control db");
@@ -103,10 +113,10 @@ impl Fixture {
     fn target(&self, cwd: &str, id: &str) -> SessionManager {
         std::fs::create_dir_all(cwd).expect("target cwd");
         let mut manager = SessionManager::create(
-            cwd,
-            Some(&self.session_dir),
+            &JsString::from(cwd),
+            Some(&JsString::from(&self.session_dir)),
             Some(NewSessionOptions {
-                id: Some(id.to_owned()),
+                id: Some(id.to_owned().into()),
                 ..Default::default()
             }),
         )
@@ -115,7 +125,7 @@ impl Fixture {
         // Real runtimes register session metadata; listing prefers it over file scans.
         manager
             .set_metadata_control_db_path(
-                Some(&self.control_db_path),
+                Some(&JsString::from(&self.control_db_path)),
                 pi_coding_agent::core::session_manager::SetMetadataControlDbPathOptions::default(),
             )
             .expect("attach control db");
@@ -128,8 +138,8 @@ impl Fixture {
             .get_session_file()
             .expect("current session file")
             .to_owned();
-        let reader =
-            SessionManager::open(&current_path, Some(self.session_dir.as_str()), None).expect("reopen current session");
+        let reader = SessionManager::open(&current_path, Some(&JsString::from(self.session_dir.as_str())), None)
+            .expect("reopen current session");
         let mut builder = tool_context::TestContextBuilder::new(self.current.get_cwd(), Arc::new(Mutex::new(reader)))
             .control_db_path(&self.control_db_path);
         if let Some(agent_id) = agent_id {
@@ -147,10 +157,10 @@ impl Fixture {
 
 async fn execute(
     context: ExtensionContext,
-    params: serde_json::Value,
+    params: JsValue,
 ) -> Result<pi_agent_core::AgentToolResult, pi_agent_core::ToolError> {
     ResumeSessionTool::new()
-        .execute("resume-session".to_owned(), params, None, None, context, None)
+        .execute("resume-session".to_owned(), json!(params), None, None, context, None)
         .await
 }
 
@@ -172,7 +182,7 @@ async fn rejects_resuming_the_current_session_by_path_id_or_name() {
     let mut fixture = Fixture::new();
     fixture
         .current
-        .set_session_name(Some("current session"))
+        .set_session_name(Some(&JsString::from("current session")))
         .expect("set name");
     let session_path = fixture
         .current
@@ -196,14 +206,22 @@ async fn rejects_resuming_the_current_session_by_path_id_or_name() {
 #[tokio::test]
 async fn resolves_target_sessions_by_id_and_name() {
     let fixture = Fixture::new();
-    let target_cwd = fixture._temp_dir.path().join("target").display().to_string();
+    let target_cwd = fixture
+        ._temp_dir
+        .path()
+        .join("target")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let mut target = fixture.target(&target_cwd, "019f7421-2000-7000-8000-000000000001");
     target
         .append_message(
-            serde_json::from_value(json!({ "role": "user", "content": "target", "timestamp": 1 })).expect("message"),
+            js_json::from_value(&json!({ "role": "user", "content": "target", "timestamp": 1 })).expect("message"),
         )
         .expect("append");
-    target.set_session_name(Some("named target")).expect("name");
+    target
+        .set_session_name(Some(&JsString::from("named target")))
+        .expect("name");
     let target_path = target.get_session_file().expect("target file").to_owned();
 
     let recorder = SwitchRecorder::new(false);
@@ -217,13 +235,10 @@ async fn resolves_target_sessions_by_id_and_name() {
         id_result.details.as_ref().expect("details"),
         &json!({ "cancelled": false, "resumed": true, "sessionPath": target_path })
     );
+    assert_eq!(recorder.path.lock().expect("path").as_ref(), Some(&target_path));
     assert_eq!(
-        recorder.path.lock().expect("path").as_deref(),
-        Some(target_path.as_str())
-    );
-    assert_eq!(
-        serde_json::to_value(&id_result.content).expect("content"),
-        json!([{ "type": "text", "text": format!("Resumed session: {target_path}") }])
+        js_json::to_value(&&id_result.content).expect("content"),
+        json!([{ "type": "text", "text": pi_js_compat::js_format!("Resumed session: {}", target_path) }])
     );
     assert_eq!(id_result.terminate, Some(true));
 
@@ -235,7 +250,7 @@ async fn resolves_target_sessions_by_id_and_name() {
     .expect("resume by name");
     assert_eq!(
         name_result.details.as_ref().expect("details")["sessionPath"],
-        target_path
+        json!(target_path)
     );
 }
 
@@ -265,12 +280,28 @@ async fn rejects_missing_and_multiple_targets() {
 #[tokio::test]
 async fn rejects_ambiguous_named_targets() {
     let fixture = Fixture::new();
-    let first_cwd = fixture._temp_dir.path().join("first").display().to_string();
-    let second_cwd = fixture._temp_dir.path().join("second").display().to_string();
+    let first_cwd = fixture
+        ._temp_dir
+        .path()
+        .join("first")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
+    let second_cwd = fixture
+        ._temp_dir
+        .path()
+        .join("second")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let mut first = fixture.target(&first_cwd, "first-session");
-    first.set_session_name(Some("duplicate target")).expect("name");
+    first
+        .set_session_name(Some(&JsString::from("duplicate target")))
+        .expect("name");
     let mut second = fixture.target(&second_cwd, "second-session");
-    second.set_session_name(Some("duplicate target")).expect("name");
+    second
+        .set_session_name(Some(&JsString::from("duplicate target")))
+        .expect("name");
 
     let error = execute(
         fixture.context(Some(SwitchRecorder::new(false)), None).await,
@@ -288,10 +319,10 @@ async fn rejects_targets_whose_metadata_points_at_missing_session_files() {
     write_session_metadata(
         &fixture.control_db_path,
         &WritableSessionMetadata {
-            session_path: stale_path.clone(),
-            id: "019f7421-stale-7000-8000-000000000001".to_owned(),
+            session_path: stale_path.clone().into(),
+            id: "019f7421-stale-7000-8000-000000000001".to_owned().into(),
             cwd: fixture.current.get_cwd().to_owned(),
-            name: Some("stale target".to_owned()),
+            name: Some("stale target".to_owned().into()),
             parent_session_path: None,
             archived_at: None,
             is_archived: None,
@@ -300,10 +331,10 @@ async fn rejects_targets_whose_metadata_points_at_missing_session_files() {
             model_provider: None,
             model_id: None,
             thinking_level: None,
-            created_at: "2026-07-04T00:00:00.000Z".to_owned(),
-            modified_at: "2026-07-04T00:00:00.000Z".to_owned(),
+            created_at: "2026-07-04T00:00:00.000Z".to_owned().into(),
+            modified_at: "2026-07-04T00:00:00.000Z".to_owned().into(),
             message_count: 1,
-            first_message: "stale".to_owned(),
+            first_message: "stale".to_owned().into(),
         },
     )
     .expect("write metadata");
@@ -319,11 +350,17 @@ async fn rejects_targets_whose_metadata_points_at_missing_session_files() {
 #[tokio::test]
 async fn resolves_id_targets_across_a_custom_session_directory() {
     let fixture = Fixture::new();
-    let target_cwd = fixture._temp_dir.path().join("target").display().to_string();
+    let target_cwd = fixture
+        ._temp_dir
+        .path()
+        .join("target")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let mut target = fixture.target(&target_cwd, "019f7421-1000-7000-8000-000000000001");
     target
         .append_message(
-            serde_json::from_value(json!({ "role": "user", "content": "target", "timestamp": 1 })).expect("message"),
+            js_json::from_value(&json!({ "role": "user", "content": "target", "timestamp": 1 })).expect("message"),
         )
         .expect("append");
     let target_path = target.get_session_file().expect("target file").to_owned();
@@ -335,10 +372,7 @@ async fn resolves_id_targets_across_a_custom_session_directory() {
     )
     .await
     .expect("resume");
-    assert_eq!(
-        recorder.path.lock().expect("path").as_deref(),
-        Some(target_path.as_str())
-    );
+    assert_eq!(recorder.path.lock().expect("path").as_ref(), Some(&target_path));
     assert_eq!(
         result.details.as_ref().expect("details"),
         &json!({ "cancelled": false, "resumed": true, "sessionPath": target_path })
@@ -348,7 +382,13 @@ async fn resolves_id_targets_across_a_custom_session_directory() {
 #[tokio::test]
 async fn forwards_the_starter_prompt_and_reports_cancellation() {
     let fixture = Fixture::new();
-    let target_cwd = fixture._temp_dir.path().join("target").display().to_string();
+    let target_cwd = fixture
+        ._temp_dir
+        .path()
+        .join("target")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let target = fixture.target(&target_cwd, "019f7421-3000-7000-8000-000000000001");
     let target_path = target.get_session_file().expect("target file").to_owned();
 
@@ -360,12 +400,12 @@ async fn forwards_the_starter_prompt_and_reports_cancellation() {
     .await
     .expect("resume");
     assert_eq!(
-        recorder.starter_prompt.lock().expect("starter").as_deref(),
-        Some("continue in target")
+        recorder.starter_prompt.lock().expect("starter").as_ref(),
+        Some(&JsString::from("continue in target"))
     );
     assert_eq!(
-        serde_json::to_value(&result.content).expect("content"),
-        json!([{ "type": "text", "text": format!("Resumed session: {target_path} and sent instructions") }])
+        js_json::to_value(&&result.content).expect("content"),
+        json!([{ "type": "text", "text": pi_js_compat::js_format!("Resumed session: {} and sent instructions", target_path) }])
     );
 
     let cancelled = execute(
@@ -379,15 +419,21 @@ async fn forwards_the_starter_prompt_and_reports_cancellation() {
         &json!({ "cancelled": true, "resumed": false, "sessionPath": target_path })
     );
     assert_eq!(
-        serde_json::to_value(&cancelled.content).expect("content"),
-        json!([{ "type": "text", "text": format!("Resume cancelled: {target_path}") }])
+        js_json::to_value(&&cancelled.content).expect("content"),
+        json!([{ "type": "text", "text": pi_js_compat::js_format!("Resume cancelled: {}", target_path) }])
     );
 }
 
 #[tokio::test]
 async fn rejects_missing_or_non_jsonl_session_files() {
     let fixture = Fixture::new();
-    let missing = fixture._temp_dir.path().join("missing.jsonl").display().to_string();
+    let missing = fixture
+        ._temp_dir
+        .path()
+        .join("missing.jsonl")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let error = execute(
         fixture.context(Some(SwitchRecorder::new(false)), None).await,
         json!({ "path": missing }),
@@ -398,7 +444,7 @@ async fn rejects_missing_or_non_jsonl_session_files() {
 
     let text_path = fixture._temp_dir.path().join("session.txt");
     std::fs::write(&text_path, "not a session").expect("write file");
-    let text_path = text_path.display().to_string();
+    let text_path = text_path.to_str().expect("utf-8 test path").to_owned();
     let error = execute(
         fixture.context(Some(SwitchRecorder::new(false)), None).await,
         json!({ "path": text_path }),
@@ -414,7 +460,13 @@ async fn rejects_missing_or_non_jsonl_session_files() {
 #[tokio::test]
 async fn requires_switch_session_capability() {
     let fixture = Fixture::new();
-    let target_cwd = fixture._temp_dir.path().join("target").display().to_string();
+    let target_cwd = fixture
+        ._temp_dir
+        .path()
+        .join("target")
+        .to_str()
+        .expect("utf-8 test path")
+        .to_owned();
     let target = fixture.target(&target_cwd, "019f7421-4000-7000-8000-000000000001");
     let target_path = target.get_session_file().expect("target file").to_owned();
     let error = execute(fixture.context(None, None).await, json!({ "path": target_path }))
