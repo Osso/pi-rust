@@ -363,10 +363,7 @@ fn detached_job_replay_result(
     let context = format!("multi_agent_agents:{session_path}#{}", terminal.job_id);
     validate_persisted_agent_payload(terminal_agent, &context)?;
     Ok(FinalizeDetachedJobResult::Ok {
-        terminal_agent: Box::new(parse_agent_snapshot(
-            &js_json::stringify_lossless(&JsValue::Object(terminal_agent.clone())),
-            &context,
-        )?),
+        terminal_agent: Box::new(parse_agent_snapshot(agent_data, &context)?),
         terminal_revision,
     })
 }
@@ -422,7 +419,7 @@ fn detached_job_agent_details(
     terminal_lifecycle: &str,
 ) -> Result<JsObject, ControlDbError> {
     let existing_file_refs = match agent.get("result") {
-        Some(JsValue::Object(result)) => parse_file_refs(
+        Some(Value::Object(result)) => parse_file_refs(
             result.get("fileRefs"),
             &format!("detached job {} result", terminal.job_id),
         )?

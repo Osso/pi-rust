@@ -166,3 +166,68 @@ fn session_name_normalization_retains_units_until_sql_text_binding() {
     );
     assert_eq!(input.units()[1], 0xd800);
 }
+
+#[test]
+fn detached_control_delivery_keeps_result_error_and_cancel_reason() {
+    use pi_coding_agent::core::detached_job_control::{
+        DetachedJobRuntimeCommand, EnqueueDetachedJobStatusResponseInput, claim_detached_job_runtime_commands,
+        enqueue_detached_job_status_response,
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("control.sqlite").display().to_string();
+    let recipient = RuntimeMailboxAddress {
+        session_id: "to".into(),
+        agent_id: None,
+    };
+    let runner = RuntimeMailboxAddress {
+        session_id: "runner".into(),
+        agent_id: None,
+    };
+    register_runtime_mailbox_listener(&database, &recipient, std::process::id(), None, Default::default()).unwrap();
+    let identity = DetachedJobOwnershipIdentity {
+        job_id: "job".into(),
+        owner: MultiAgentRuntimeOwnerIdentity {
+            session_id: "owner".into(),
+            agent_id: None,
+        },
+        process_identity: pi_coding_agent::core::runtime_process::read_process_identity(std::process::id()).unwrap(),
+        output_label: "output".into(),
+    };
+    let result = js_json::parse_lossless(r#"{"\ud800":["\udfff",null],"�":"replacement"}"#).unwrap();
+    enqueue_detached_job_status_response(&EnqueueDetachedJobStatusResponseInput {
+        control_db_path: database.clone(),
+        identity: identity.clone(),
+        reply_to: recipient.clone(),
+        request_id: "request".into(),
+        runner_address: runner.clone(),
+        session_path: "/fixture/s".into(),
+        status: result.clone(),
+    })
+    .unwrap();
+    let raw_error = js_json::parse_lossless(r#""error\ud800""#).unwrap();
+    for (id, command, key) in [("cancel", "cancel", "reason"), ("error", "respond", "error")] {
+        let mut body = pi_js_compat::js_json!({"command":command,"identity":identity,"requestId":"request"});
+        body.as_object_mut().unwrap().insert(key.into(), raw_error.clone());
+        enqueue_stored_runtime_mailbox_message(&database, &EnqueueStoredRuntimeMailboxMessageInput {
+            recipient_host: None, recipient: recipient.clone(), sender: runner.clone(), kind: RuntimeMailboxMessageKind::System,
+            store_ref: RuntimeMailboxStoreRef { message_id: id.into(), session_path: "/fixture/s".into() },
+            message: pi_js_compat::js_json!({"id":id,"fromAgentId":"main","toAgentId":"main","kind":"system","status":"pending","body":js_json::stringify_lossless(&body)}),
+            updated_at: None,
+        }).unwrap();
+    }
+    let commands = claim_detached_job_runtime_commands(&database, &recipient, &identity).unwrap();
+    assert_eq!(commands.len(), 3);
+    let DetachedJobRuntimeCommand::Response(response) = &commands[0] else {
+        panic!("response");
+    };
+    assert_eq!(response.result.as_ref(), Some(&result));
+    let DetachedJobRuntimeCommand::Cancel(cancel) = &commands[1] else {
+        panic!("cancel");
+    };
+    assert_eq!(cancel.reason.as_ref(), raw_error.as_string());
+    let DetachedJobRuntimeCommand::Response(error) = &commands[2] else {
+        panic!("error");
+    };
+    assert_eq!(error.error.as_ref(), raw_error.as_string());
+    assert_eq!(error.result, None);
+}
