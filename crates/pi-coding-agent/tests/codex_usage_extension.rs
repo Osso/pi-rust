@@ -182,7 +182,7 @@ async fn usage_command_sends_formatted_message_and_headers() {
     let handler = extension
         .read()
         .commands
-        .get("usage")
+        .get(&pi_js_compat::js_json::JsString::from("usage"))
         .expect("usage command")
         .handler
         .clone();
@@ -223,17 +223,17 @@ async fn usage_command_argument_completions() {
     let completions = extension
         .read()
         .commands
-        .get("usage")
+        .get(&pi_js_compat::js_json::JsString::from("usage"))
         .expect("usage command")
         .get_argument_completions
         .clone()
         .expect("completions");
 
     assert_eq!(
-        completions("re"),
-        Some(vec![json!({"value": "reset", "label": "reset"})])
+        completions(&"re".into()).unwrap(),
+        Some(vec![pi_js_compat::js_json!({"value": "reset", "label": "reset"})])
     );
-    assert_eq!(completions("x"), None);
+    assert_eq!(completions(&"x".into()).unwrap(), None);
 }
 
 #[tokio::test]
@@ -245,7 +245,7 @@ async fn usage_command_rejects_extra_arguments() {
     let handler = extension
         .read()
         .commands
-        .get("usage")
+        .get(&pi_js_compat::js_json::JsString::from("usage"))
         .expect("usage command")
         .handler
         .clone();
@@ -276,7 +276,7 @@ async fn reset_asks_for_confirmation_before_consuming() {
     let handler = extension
         .read()
         .commands
-        .get("usage")
+        .get(&pi_js_compat::js_json::JsString::from("usage"))
         .expect("usage command")
         .handler
         .clone();
@@ -313,7 +313,7 @@ async fn reset_consumes_credit_and_reports_new_usage() {
     let handler = extension
         .read()
         .commands
-        .get("usage")
+        .get(&pi_js_compat::js_json::JsString::from("usage"))
         .expect("usage command")
         .handler
         .clone();
@@ -359,7 +359,7 @@ async fn reset_without_credits_reports_unavailable() {
     let handler = extension
         .read()
         .commands
-        .get("usage")
+        .get(&pi_js_compat::js_json::JsString::from("usage"))
         .expect("usage command")
         .handler
         .clone();
@@ -385,7 +385,7 @@ async fn reports_missing_login() {
     let handler = extension
         .read()
         .commands
-        .get("usage")
+        .get(&pi_js_compat::js_json::JsString::from("usage"))
         .expect("usage command")
         .handler
         .clone();
@@ -413,7 +413,7 @@ async fn reports_failed_usage_requests() {
     let handler = extension
         .read()
         .commands
-        .get("usage")
+        .get(&pi_js_compat::js_json::JsString::from("usage"))
         .expect("usage command")
         .handler
         .clone();

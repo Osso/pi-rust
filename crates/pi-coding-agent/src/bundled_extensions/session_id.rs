@@ -9,7 +9,7 @@ use crate::core::session_manager::lock_session_manager;
 pub fn session_id_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     pi.register_command(
         "session-id",
-        Some("Show the current session id".to_owned()),
+        Some("Show the current session id".into()),
         None,
         Arc::new(|_args, ctx| {
             Box::pin(async move {

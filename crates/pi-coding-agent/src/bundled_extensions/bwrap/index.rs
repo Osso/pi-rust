@@ -796,7 +796,7 @@ fn register_bwrap_status_command(pi: &ExtensionApi, runtime: &BwrapRuntime) -> R
     let bwrap_command = runtime.bwrap_command.clone();
     pi.register_command(
         "bwrap",
-        Some("Show bubblewrap sandbox status".to_owned()),
+        Some("Show bubblewrap sandbox status".into()),
         None,
         Arc::new(move |_args, ctx| {
             let bwrap_command = bwrap_command.clone();

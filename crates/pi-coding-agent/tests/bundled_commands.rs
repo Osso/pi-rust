@@ -111,7 +111,7 @@ async fn loop_registers_command_and_tool() {
         extension
             .read()
             .commands
-            .get("loop")
+            .get(&pi_js_compat::js_json::JsString::from("loop"))
             .expect("loop command")
             .description
             .as_deref(),
@@ -127,7 +127,7 @@ async fn loop_command_injects_prompt_at_interval() {
     let command = extension
         .read()
         .commands
-        .get("loop")
+        .get(&pi_js_compat::js_json::JsString::from("loop"))
         .expect("loop command")
         .handler
         .clone();
@@ -166,7 +166,7 @@ async fn loop_command_stops_active_loop() {
     let command = extension
         .read()
         .commands
-        .get("loop")
+        .get(&pi_js_compat::js_json::JsString::from("loop"))
         .expect("loop command")
         .handler
         .clone();
@@ -232,7 +232,7 @@ async fn loop_shutdown_clears_timer() {
     let command = extension
         .read()
         .commands
-        .get("loop")
+        .get(&pi_js_compat::js_json::JsString::from("loop"))
         .expect("loop command")
         .handler
         .clone();
@@ -259,7 +259,7 @@ async fn loop_command_reports_usage_and_missing_prompt() {
     let command = extension
         .read()
         .commands
-        .get("loop")
+        .get(&pi_js_compat::js_json::JsString::from("loop"))
         .expect("loop command")
         .handler
         .clone();
@@ -295,7 +295,7 @@ async fn fast_toggles_priority_and_updates_status() {
     let command = extension
         .read()
         .commands
-        .get("fast")
+        .get(&pi_js_compat::js_json::JsString::from("fast"))
         .expect("fast command")
         .handler
         .clone();
@@ -331,7 +331,7 @@ async fn fast_persists_explicit_on_and_off() {
     let command = extension
         .read()
         .commands
-        .get("fast")
+        .get(&pi_js_compat::js_json::JsString::from("fast"))
         .expect("fast command")
         .handler
         .clone();
@@ -359,7 +359,7 @@ async fn fast_ultra_adds_service_tier_until_disabled() {
     let command = extension
         .read()
         .commands
-        .get("fast")
+        .get(&pi_js_compat::js_json::JsString::from("fast"))
         .expect("fast command")
         .handler
         .clone();
@@ -405,7 +405,7 @@ async fn fast_rejects_unsupported_providers() {
     let command = extension
         .read()
         .commands
-        .get("fast")
+        .get(&pi_js_compat::js_json::JsString::from("fast"))
         .expect("fast command")
         .handler
         .clone();
@@ -433,7 +433,7 @@ async fn fast_skips_non_object_payload_without_losing_mode() {
     let command = extension
         .read()
         .commands
-        .get("fast")
+        .get(&pi_js_compat::js_json::JsString::from("fast"))
         .expect("fast command")
         .handler
         .clone();
@@ -549,7 +549,7 @@ async fn effort_registers_command_and_opens_selector() {
         extension
             .read()
             .commands
-            .get("effort")
+            .get(&pi_js_compat::js_json::JsString::from("effort"))
             .expect("effort command")
             .description
             .as_deref(),
@@ -562,7 +562,7 @@ async fn effort_registers_command_and_opens_selector() {
     let command = extension
         .read()
         .commands
-        .get("effort")
+        .get(&pi_js_compat::js_json::JsString::from("effort"))
         .expect("effort command")
         .handler
         .clone();
@@ -592,7 +592,7 @@ async fn effort_only_offers_supported_levels() {
     let command = extension
         .read()
         .commands
-        .get("effort")
+        .get(&pi_js_compat::js_json::JsString::from("effort"))
         .expect("effort command")
         .handler
         .clone();
@@ -614,7 +614,7 @@ async fn effort_cancelled_selector_changes_nothing() {
     let command = extension
         .read()
         .commands
-        .get("effort")
+        .get(&pi_js_compat::js_json::JsString::from("effort"))
         .expect("effort command")
         .handler
         .clone();
@@ -636,7 +636,7 @@ async fn effort_rejects_unsupported_levels() {
     let command = extension
         .read()
         .commands
-        .get("effort")
+        .get(&pi_js_compat::js_json::JsString::from("effort"))
         .expect("effort command")
         .handler
         .clone();
@@ -663,7 +663,7 @@ async fn effort_reports_missing_model() {
     let command = extension
         .read()
         .commands
-        .get("effort")
+        .get(&pi_js_compat::js_json::JsString::from("effort"))
         .expect("effort command")
         .handler
         .clone();
@@ -701,7 +701,7 @@ async fn effort_injects_proactive_policy_and_restores_explicit_mode() {
     let multi_agent = extension
         .read()
         .commands
-        .get("multi-agent")
+        .get(&pi_js_compat::js_json::JsString::from("multi-agent"))
         .expect("multi-agent command")
         .handler
         .clone();
@@ -773,7 +773,7 @@ async fn effort_ultra_activates_proactive_and_maps_thinking() {
     let command = extension
         .read()
         .commands
-        .get("effort")
+        .get(&pi_js_compat::js_json::JsString::from("effort"))
         .expect("effort command")
         .handler
         .clone();
@@ -804,7 +804,7 @@ async fn effort_explicit_from_ultra_keeps_max_reasoning() {
     let multi_agent = extension
         .read()
         .commands
-        .get("multi-agent")
+        .get(&pi_js_compat::js_json::JsString::from("multi-agent"))
         .expect("multi-agent command")
         .handler
         .clone();
@@ -826,7 +826,7 @@ async fn effort_thinking_level_ultra_reactivates_proactive() {
     let multi_agent = extension
         .read()
         .commands
-        .get("multi-agent")
+        .get(&pi_js_compat::js_json::JsString::from("multi-agent"))
         .expect("multi-agent command")
         .handler
         .clone();
@@ -858,7 +858,7 @@ async fn effort_child_runtime_cannot_change_mode_or_receive_policy() {
     let multi_agent = extension
         .read()
         .commands
-        .get("multi-agent")
+        .get(&pi_js_compat::js_json::JsString::from("multi-agent"))
         .expect("multi-agent command")
         .handler
         .clone();

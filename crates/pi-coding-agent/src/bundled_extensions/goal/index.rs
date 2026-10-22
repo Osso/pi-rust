@@ -1222,7 +1222,7 @@ fn register_goal_command(pi: &ExtensionApi, runtime: &GoalExtensionRuntime) -> R
     let clear = Arc::clone(&runtime.clear_goal_schedules);
     pi.register_command(
         "goal",
-        Some("Set, view, pause, resume, or clear the objective for a long-running task (/goal set <objective> | /goal | /goal pause | /goal resume | /goal clear)".to_owned()),
+        Some("Set, view, pause, resume, or clear the objective for a long-running task (/goal set <objective> | /goal | /goal pause | /goal resume | /goal clear)".into()),
         None,
         Arc::new(move |args: JsString, ctx: ExtensionCommandContext| {
             let pi = pi_for_command.clone();

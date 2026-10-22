@@ -65,7 +65,7 @@ pub fn custom_header_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
 
     pi.register_command(
         "builtin-header",
-        Some("Restore built-in header with keybinding hints".to_owned()),
+        Some("Restore built-in header with keybinding hints".into()),
         None,
         Arc::new(|_args, ctx| {
             Box::pin(async move {

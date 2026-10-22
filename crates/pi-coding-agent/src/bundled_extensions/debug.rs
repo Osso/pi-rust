@@ -18,7 +18,7 @@ pub type DebugReplControllerProvider = Arc<dyn Fn() -> Arc<dyn DebugReplControll
 pub fn debug_extension(pi: &ExtensionApi, get_controller: DebugReplControllerProvider) -> Result<(), HandlerError> {
     pi.register_command(
         "debug",
-        Some("Enable or disable the privileged live-process debug REPL".to_owned()),
+        Some("Enable or disable the privileged live-process debug REPL".into()),
         None,
         Arc::new(move |args, ctx| {
             let get_controller = Arc::clone(&get_controller);

@@ -926,14 +926,20 @@ async fn registration_exposes_the_source_tools_and_commands() {
         json!({"type": "object", "properties": {}, "additionalProperties": false})
     );
     assert_eq!(
-        extension.read().commands.get("bg").expect("bg").description.as_deref(),
+        extension
+            .read()
+            .commands
+            .get(&pi_js_compat::js_json::JsString::from("bg"))
+            .expect("bg")
+            .description
+            .as_deref(),
         Some("Run a prompt as a background agent job.")
     );
     assert_eq!(
         extension
             .read()
             .commands
-            .get("jobs")
+            .get(&pi_js_compat::js_json::JsString::from("jobs"))
             .expect("jobs")
             .description
             .as_deref(),

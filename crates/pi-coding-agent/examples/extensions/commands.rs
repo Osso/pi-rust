@@ -12,14 +12,14 @@ pub fn commands_extension(api: &ExtensionApi) -> Result<(), HandlerError> {
     let commands_api = api.clone();
     api.register_command(
         "commands",
-        Some("List available slash commands".to_owned()),
+        Some("List available slash commands".into()),
         Some(Arc::new(|prefix| {
             let matches: Vec<_> = ["extension", "prompt", "skill"]
                 .into_iter()
-                .filter(|source| source.starts_with(prefix))
-                .map(|source| json!({"value":source,"label":source}))
+                .filter(|source| pi_js_compat::js_json::JsString::from(*source).starts_with(prefix))
+                .map(|source| pi_js_compat::js_json!({"value":source,"label":source}))
                 .collect();
-            (!matches.is_empty()).then_some(matches)
+            Ok((!matches.is_empty()).then_some(matches))
         })),
         Arc::new(move |args, ctx| {
             let api = commands_api.clone();

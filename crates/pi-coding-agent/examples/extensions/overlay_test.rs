@@ -185,7 +185,7 @@ impl ExtensionUiComponent for OverlayTest {
 pub fn overlay_test_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     pi.register_command(
         "overlay-test",
-        Some("Test overlay rendering with edge cases".to_owned()),
+        Some("Test overlay rendering with edge cases".into()),
         None,
         Arc::new(|_, ctx| {
             Box::pin(async move {

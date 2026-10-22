@@ -158,7 +158,12 @@ async fn pinned_custom_header_composition_matches_all_modes_and_colors() {
                 "example must register session_start"
             );
             assert_eq!(extension.read().commands.len(), 1);
-            let command = extension.read().commands.get("builtin-header").unwrap().clone();
+            let command = extension
+                .read()
+                .commands
+                .get(&pi_js_compat::js_json::JsString::from("builtin-header"))
+                .unwrap()
+                .clone();
             assert!(command.get_argument_completions.is_none());
             let registrations = json!([["on", "session_start"], ["command", command.name, command.description],]);
             let ui = Arc::new(CaptureUi {

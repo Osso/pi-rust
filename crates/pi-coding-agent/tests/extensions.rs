@@ -458,7 +458,7 @@ async fn commands_scenario(temp_dir: &str) -> Value {
     let a = support::extension(&runtime, temp_dir, &path_in(temp_dir, "a.ts"), |api| {
         api.register_command(
             "shared-cmd",
-            Some("First command".to_owned()),
+            Some("First command".into()),
             None,
             Arc::new(|_args: String, _ctx: ExtensionCommandContext| {
                 Box::pin(async { Ok(()) })
@@ -471,7 +471,7 @@ async fn commands_scenario(temp_dir: &str) -> Value {
     let b = support::extension(&runtime, temp_dir, &path_in(temp_dir, "b.ts"), |api| {
         api.register_command(
             "shared-cmd",
-            Some("Second command".to_owned()),
+            Some("Second command".into()),
             None,
             Arc::new(|_args: String, _ctx: ExtensionCommandContext| {
                 Box::pin(async { Ok(()) })
@@ -481,7 +481,7 @@ async fn commands_scenario(temp_dir: &str) -> Value {
         .unwrap();
         api.register_command(
             "solo",
-            Some("Solo".to_owned()),
+            Some("Solo".into()),
             None,
             Arc::new(|_args: String, _ctx: ExtensionCommandContext| {
                 Box::pin(async { Ok(()) })

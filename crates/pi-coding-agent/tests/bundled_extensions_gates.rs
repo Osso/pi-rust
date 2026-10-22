@@ -76,7 +76,7 @@ async fn safe_matches_typescript() {
         .get_argument_completions
         .expect("safe completions");
     for (index, prefix) in ["o", "s", "x"].iter().enumerate() {
-        let actual = completions(prefix).map(Value::Array).unwrap_or(Value::Null);
+        let actual = serde_json::json!(completions(&pi_js_compat::js_json::JsString::from(*prefix)).unwrap());
         assert_eq!(actual, steps[index + 1]["result"], "completions {prefix}");
     }
 

@@ -3,13 +3,12 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use serde_json::{Value, json};
+use pi_js_compat::js_json::JsString;
 
 use crate::core::extensions::types::{
     ArgumentCompletions, BoxFuture, ExtensionApi, ExtensionCommandContext, ExtensionContext, HandlerError, NotifyType,
     ToolCallEvent, ToolCallEventResult, ToolGate,
 };
-use pi_js_compat::js_json::JsString;
 
 const SAFE_STATUS_KEY: &str = "safe";
 const SAFE_STATUS_TEXT: &str = "safe:on";
@@ -42,53 +41,51 @@ pub fn safe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         .map_err(HandlerError::new)?;
 
     let command_enabled = Arc::clone(&enabled);
-    let completions: ArgumentCompletions = Arc::new(|prefix: &str| {
-        let matches: Vec<Value> = SAFE_COMMAND_ACTIONS
+    let completions: ArgumentCompletions = Arc::new(|prefix: &JsString| {
+        let matches: Vec<pi_js_compat::js_json::JsValue> = SAFE_COMMAND_ACTIONS
             .iter()
-            .filter(|action| action.starts_with(prefix))
-            .map(|action| json!({"value": action, "label": action}))
+            .filter(|action| JsString::from(**action).starts_with(prefix))
+            .map(|action| pi_js_compat::js_json!({"value": *action, "label": *action}))
             .collect();
-        if matches.is_empty() { None } else { Some(matches) }
+        Ok(if matches.is_empty() { None } else { Some(matches) })
     });
     pi.register_command(
         "safe",
-        Some("Restrict tool calls to web_search and ask_questions for this session.".to_owned()),
+        Some("Restrict tool calls to web_search and ask_questions for this session.".into()),
         Some(completions),
-        Arc::new(
-            move |args: pi_js_compat::js_json::JsString, ctx: ExtensionCommandContext| {
-                let enabled = Arc::clone(&command_enabled);
-                Box::pin(async move {
-                    let action = parse_safe_command(if args.is_empty() { "status".into() } else { args });
-                    let Some(action) = action else {
-                        ctx.ui()?
-                            .notify(&"Usage: /safe on|off|status".into(), Some(NotifyType::Error));
-                        return Ok(());
-                    };
+        Arc::new(move |args: JsString, ctx: ExtensionCommandContext| {
+            let enabled = Arc::clone(&command_enabled);
+            Box::pin(async move {
+                let action = parse_safe_command(if args.is_empty() { "status".into() } else { args });
+                let Some(action) = action else {
+                    ctx.ui()?
+                        .notify(&"Usage: /safe on|off|status".into(), Some(NotifyType::Error));
+                    return Ok(());
+                };
 
-                    if action == "status" {
-                        ctx.ui()?.notify(
-                            &safe_mode_status(enabled.load(Ordering::SeqCst)).into(),
-                            Some(NotifyType::Info),
-                        );
-                        return Ok(());
-                    }
-
-                    let next = action == "on";
-                    enabled.store(next, Ordering::SeqCst);
-                    update_safe_status(&ctx, next)?;
+                if action == "status" {
                     ctx.ui()?.notify(
-                        &if next {
-                            "Safe mode enabled".into()
-                        } else {
-                            "Safe mode disabled".into()
-                        },
+                        &safe_mode_status(enabled.load(Ordering::SeqCst)).into(),
                         Some(NotifyType::Info),
                     );
-                    ctx.ui()?.set_editor_text(&JsString::default());
-                    Ok(())
-                })
-            },
-        ),
+                    return Ok(());
+                }
+
+                let next = action == "on";
+                enabled.store(next, Ordering::SeqCst);
+                update_safe_status(&ctx, next)?;
+                ctx.ui()?.notify(
+                    &if next {
+                        "Safe mode enabled".into()
+                    } else {
+                        "Safe mode disabled".into()
+                    },
+                    Some(NotifyType::Info),
+                );
+                ctx.ui()?.set_editor_text(&JsString::default());
+                Ok(())
+            })
+        }),
     )
     .map_err(HandlerError::new)
 }
@@ -103,7 +100,7 @@ fn update_safe_status(ctx: &ExtensionContext, enabled: bool) -> Result<(), Handl
     Ok(())
 }
 
-fn parse_safe_command(args: pi_js_compat::js_json::JsString) -> Option<&'static str> {
+fn parse_safe_command(args: JsString) -> Option<&'static str> {
     let value = args.trim();
     SAFE_COMMAND_ACTIONS.into_iter().find(|action| value == *action)
 }

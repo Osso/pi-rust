@@ -16,7 +16,7 @@ struct SandboxCommandSelection {
 pub fn approval_controls_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     pi.register_command(
         "approvals",
-        Some("Select approval preset".to_owned()),
+        Some("Select approval preset".into()),
         None,
         Arc::new(|_args: pi_js_compat::js_json::JsString, ctx: ExtensionCommandContext| {
             Box::pin(async move {
@@ -30,7 +30,7 @@ pub fn approval_controls_extension(pi: &ExtensionApi) -> Result<(), HandlerError
 
     pi.register_command(
         "sandbox",
-        Some("Select or set sandbox profile".to_owned()),
+        Some("Select or set sandbox profile".into()),
         None,
         Arc::new(|args: pi_js_compat::js_json::JsString, ctx: ExtensionCommandContext| {
             Box::pin(async move { handle_sandbox_command(&args, &ctx).await })
