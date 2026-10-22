@@ -324,7 +324,7 @@ fn parse_identity(value: &JsValue) -> Option<DetachedJobOwnershipIdentity> {
 fn parse_process_identity(record: &JsObject) -> Option<crate::core::runtime_process::ProcessIdentity> {
     let pid = safe_integer(record.get("pid")?)?;
     let start_time_ticks = safe_integer(record.get("startTimeTicks")?)?;
-    let incarnation = record.get("incarnation").and_then(scalar_text);
+    let incarnation = record.get("incarnation").and_then(JsValue::as_string).cloned();
     Some(crate::core::runtime_process::ProcessIdentity {
         pid: u32::try_from(pid).ok()?,
         start_time_ticks: u64::try_from(start_time_ticks).ok()?,

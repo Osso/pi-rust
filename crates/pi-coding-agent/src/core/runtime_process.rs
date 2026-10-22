@@ -3,6 +3,7 @@
 use std::fmt;
 use std::path::Path;
 
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use rustix::io::Errno;
 use rustix::process::{Pid, test_kill_process};
 
@@ -18,24 +19,26 @@ pub struct ProcessIdentity {
     pub pid: u32,
     pub start_time_ticks: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub incarnation: Option<String>,
+    pub incarnation: Option<JsString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessIdentityError {
-    pub message: String,
+    pub message: JsString,
 }
 
 impl fmt::Display for ProcessIdentityError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&encode_node_utf8(&self.message))
     }
 }
 
 impl std::error::Error for ProcessIdentityError {}
 
-fn error(message: String) -> ProcessIdentityError {
-    ProcessIdentityError { message }
+fn error(message: impl Into<JsString>) -> ProcessIdentityError {
+    ProcessIdentityError {
+        message: message.into(),
+    }
 }
 
 struct ProcessStat {

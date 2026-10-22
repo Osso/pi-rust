@@ -51,6 +51,10 @@ Artifacts: `/tmp/pi-rust-repin-lossless-tools/`.
 
 `utils::ansi::strip_ansi` is the single native UTF-16 API; removed `strip_ansi_js` and its surrogate sentinel/offset projection. Shared JsRegex removes ANSI ranges directly. `utils::shell::sanitize_binary_output` filters UTF-16 units, preserving retained unmatched units and pairs. `ansi-red.log` is compiler RED for the old API. `ansi-green.log`: 1/1 native cleanup test PASS using actual ANSI, shell and child-process modules, zero warnings. Frozen cleanup comparison was added after that log and remains pending execution.
 
+## RuntimeProcess prerequisite
+
+Main granted native incarnation and human errors. [Module traceability](runtime-process.md#q18-native-identityerror-checkpoint) records the actual-module behavioral RED and **2/2 runner PASS** with no DB/mocked runtime. Detached control no longer drops an unpaired incarnation; remaining identity fields migrate in the control slice. Outside callers listed in `/tmp/pi-rust-repin-lossless-tools/LANE.md` as requested.
+
 ## Detached Bash manifest/transport checkpoint (runtime pending)
 
 Manifest paths/command/cwd/session/tool-call fields, runner invocation paths/argv, activation/foreground completion paths/reasons/signals, artifact JSONL paths and human runner errors are native. Manifest env uses one JsObject authority with lossless object serde (raw keys/values, original order), not a scalar BTreeMap. String-valued env records are the typed source contract; no unpaired-unit restriction. Gated payload launch receives native arguments directly. Only real FS and Command boundaries encode; JSON file bytes use the lossless writer. Error accessors preserve native payload/control/IO-carried messages; Display alone encodes.
