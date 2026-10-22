@@ -362,7 +362,11 @@ impl CallbackServer {
     }
 }
 
-pub async fn start_callback_server(host: &str, port: u16, handler: CallbackHandler) -> std::io::Result<CallbackServer> {
+pub async fn start_callback_server(
+    host: &pi_js_compat::js_json::JsString,
+    port: u16,
+    handler: CallbackHandler,
+) -> std::io::Result<CallbackServer> {
     let listener = TcpListener::bind((pi_js_compat::js_json::encode_node_utf8(host).as_str(), port)).await?;
     let local_port = listener.local_addr()?.port();
     let shutdown = CancellationToken::new();

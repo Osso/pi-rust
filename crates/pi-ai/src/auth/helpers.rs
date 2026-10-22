@@ -44,7 +44,7 @@ impl ApiKeyAuth for EnvApiKeyAuth {
                 .prompt(AuthPrompt {
                     signal: None,
                     kind: AuthPromptKind::Secret {
-                        message: format!("Enter {name}"),
+                        message: pi_js_compat::js_format!("Enter {}", name),
                         placeholder: None,
                     },
                 })

@@ -187,9 +187,9 @@ fn credentials_from_token_response(
     let access = required_string(body, "access_token")?;
     let refresh = match body.get("refresh_token") {
         None => previous_refresh_token
-            .map(str::to_owned)
+            .cloned()
             .ok_or_else(|| CallbackError::new("Invalid xAI OAuth response field: refresh_token"))?,
-        Some(_) => required_string(body, "refresh_token")?,
+        Some(_) => required_string(body, "refresh_token")?.into(),
     };
     let expires_in_seconds = match body.get("expires_in") {
         None => DEFAULT_TOKEN_LIFETIME_SECONDS,

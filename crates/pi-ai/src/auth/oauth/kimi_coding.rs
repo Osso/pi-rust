@@ -245,7 +245,10 @@ async fn poll_for_token(
         let oauth_host = oauth_host.clone();
         let signal = signal.clone();
         async move {
-            let url = crate::request::request_url(&js_format!("{}/api/oauth/token", oauth_host))?;
+            let url = match crate::request::request_url(&js_format!("{}/api/oauth/token", oauth_host)) {
+                Ok(url) => url,
+                Err(error) => return OAuthDeviceCodePollResult::Failed { message: error.message },
+            };
             let body = form_encode(&[
                 ("client_id", CLIENT_ID),
                 ("device_code", device.device_code.as_str()),

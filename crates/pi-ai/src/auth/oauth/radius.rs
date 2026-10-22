@@ -275,7 +275,7 @@ async fn start_callback(expected_state: String, _signal: CancellationToken) -> C
             )
         }) as crate::request::BoxFuture<'static, CallbackReply>
     });
-    match start_callback_server(CALLBACK_HOST, CALLBACK_PORT, handler).await {
+    match start_callback_server(&CALLBACK_HOST.into(), CALLBACK_PORT, handler).await {
         Ok(server) => CallbackCodeServer {
             server: Some(server),
             receiver,
@@ -315,7 +315,7 @@ async fn login_with_browser(
     );
     let callback = start_callback(state, interaction.signal()).await;
     interaction.notify(AuthEvent::Progress {
-        message: format!("Listening for OAuth callback on {REDIRECT_URI}"),
+        message: pi_js_compat::js_format!("Listening for OAuth callback on {}", REDIRECT_URI),
     });
     interaction.notify(AuthEvent::AuthUrl {
         url: (authorize_url).into(),
@@ -500,7 +500,7 @@ async fn login_radius(
         .prompt(AuthPrompt {
             signal: None,
             kind: AuthPromptKind::Select {
-                message: format!("Sign in to {name}:"),
+                message: pi_js_compat::js_format!("Sign in to {}:", name),
                 options: vec![
                     AuthSelectOption {
                         id: (LOGIN_METHOD_BROWSER.to_owned()).into(),
