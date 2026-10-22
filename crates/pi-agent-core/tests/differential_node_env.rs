@@ -397,3 +397,47 @@ async fn node_filesystem_mutation_failures_and_state_match_frozen() {
         assert!(!root.join("link").is_symlink());
     }
 }
+
+#[tokio::test]
+async fn temporary_files_and_raw_directory_prefix_match_node_contract() {
+    let root = tempfile::tempdir().unwrap();
+    let env = env(root.path().to_str().unwrap());
+    let expected = oracle().request(&json!({"kind":"temp","root":root.path()}));
+    let file = env
+        .create_temp_file(pi_agent_core::harness::CreateTempFileOptions {
+            prefix: Some("pre".into()),
+            suffix: Some(".end".into()),
+            abort: None,
+        })
+        .await
+        .unwrap();
+    let name = file.split('/').last().unwrap();
+    let uuid = name.slice(3, name.len() - 4).to_utf8().unwrap();
+    let valid = uuid.len() == 36
+        && uuid.bytes().enumerate().all(|(index, byte)| match index {
+            8 | 13 | 18 | 23 => byte == b'-',
+            14 => byte == b'4',
+            19 => b"89ab".contains(&byte),
+            _ => byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase(),
+        });
+    let directory = std::path::PathBuf::from(pi_js_compat::js_json::encode_node_utf8(&file))
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let parent = directory.file_name().unwrap().to_str().unwrap();
+    let raw = env
+        .create_temp_dir(&(JsString::from("raw") + JsString::from_utf16(vec![0xd800]) + "-"))
+        .await
+        .unwrap();
+    let text = std::fs::read_to_string(pi_js_compat::js_json::encode_node_utf8(&file)).unwrap();
+    let raw_name = raw.split('/').last().unwrap();
+    let actual = json!({"uuid":valid,"prefix":name.starts_with("pre"),"suffix":name.ends_with(".end"),"text":text,"tempDirectory":parent.starts_with("tmp-")&&parent.len()==10&&parent[4..].bytes().all(|byte|byte.is_ascii_alphanumeric()),"rawDirectoryPrefix":raw_name.slice(0,raw_name.len()-6)});
+    std::fs::remove_dir_all(directory).unwrap();
+    std::fs::remove_dir_all(pi_js_compat::js_json::encode_node_utf8(&raw)).unwrap();
+    assert!(
+        actual == expected,
+        "actual={}\nexpected={}",
+        pi_js_compat::js_json::stringify_lossless(&actual),
+        pi_js_compat::js_json::stringify_lossless(&expected)
+    );
+}

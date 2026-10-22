@@ -270,7 +270,7 @@ impl FileSystem for NodeExecutionEnv {
             let name = js_format!(
                 "{}{}{}",
                 options.prefix.unwrap_or_default(),
-                random_name(),
+                pi_ai::utils::random_uuid::random_uuid(),
                 options.suffix.unwrap_or_default()
             );
             let file_path = join_paths(&[directory, name]);
@@ -823,10 +823,11 @@ async fn remove_path(resolved: &JsString, options: RemoveOptions) -> Result<(), 
 
 async fn create_temp_dir(prefix: &JsString) -> Result<JsString, FileError> {
     let base = JsString::from(std::env::temp_dir().to_string_lossy().into_owned());
+    let prefix = join_paths(&[base, prefix.clone()]);
     for _ in 0..100 {
-        let candidate = join_paths(&[base.clone(), prefix.clone() + random_name_suffix()]);
+        let candidate = prefix.clone() + random_name_suffix();
         match tokio::fs::create_dir(encode_node_utf8(&candidate)).await {
-            Ok(()) => return Ok(candidate),
+            Ok(()) => return Ok(JsString::from(encode_node_utf8(&candidate))),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(file_error(&error, "mkdir", &candidate)),
         }
@@ -837,15 +838,6 @@ async fn create_temp_dir(prefix: &JsString) -> Result<JsString, FileError> {
         None,
         None,
     ))
-}
-
-fn random_name() -> String {
-    let counter = TEMP_NAME_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_default();
-    format!("{nanos:032x}{counter:016x}")
 }
 
 fn random_name_suffix() -> String {
