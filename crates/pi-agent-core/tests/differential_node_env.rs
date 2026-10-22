@@ -186,3 +186,50 @@ async fn post_exit_pipe_wait_keeps_timeout_abort_and_callback_live() {
         assert_eq!(actual, expected, "{mode}");
     }
 }
+
+#[tokio::test]
+async fn relative_env_paths_decode_raw_process_cwd_like_node() {
+    const PROBE: &str = "PI_RAW_CWD_PROBE";
+    if std::env::var_os(PROBE).is_some() {
+        let env = env("base");
+        let actual = env.absolute_path(&"child".into(), None).await.unwrap();
+        let output = std::process::Command::new("node")
+            .args([
+                "--eval",
+                "console.log(JSON.stringify({cwd:process.cwd(),path:require('node:path').resolve('base','child')}))",
+            ])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let expected = pi_js_compat::js_json::parse_lossless(std::str::from_utf8(&output.stdout).unwrap()).unwrap();
+        assert_eq!(actual, expected["path"].as_string().unwrap().clone());
+        assert_eq!(
+            pi_js_compat::node_fs::decode_node_path(std::env::current_dir().unwrap().as_os_str()),
+            expected["cwd"].as_string().unwrap().clone()
+        );
+        assert!(actual.units().contains(&0xfffd));
+        return;
+    }
+    use std::os::unix::ffi::OsStringExt;
+    let root = tempfile::tempdir().unwrap();
+    let raw = root
+        .path()
+        .join(std::ffi::OsString::from_vec(b"cwd-\xff-\xed\xa0\x80".to_vec()));
+    std::fs::create_dir(&raw).unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "relative_env_paths_decode_raw_process_cwd_like_node",
+            "--nocapture",
+        ])
+        .env(PROBE, "1")
+        .current_dir(&raw)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

@@ -9,6 +9,12 @@ use std::io;
 use crate::js_format;
 use crate::js_json::{JsString, encode_node_utf8};
 
+/// Decode a POSIX OS path at Node's UTF-8 byte-ingress boundary.
+/// Invalid sequences become U+FFFD; native JS strings must not use this decoder.
+pub fn decode_node_path(path: &std::ffi::OsStr) -> JsString {
+    JsString::from(String::from_utf8_lossy(path.as_encoded_bytes()).as_ref())
+}
+
 /// Node's path argument validation error, without invented IO syscall/errno fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodePathArgumentError {
