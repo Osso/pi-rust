@@ -88,6 +88,10 @@ impl UserMessageComponent {
 }
 
 impl Component for UserMessageComponent {
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
+
     fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = self.container.render(width);
         if lines.is_empty() {

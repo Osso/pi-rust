@@ -4469,6 +4469,8 @@ impl InteractiveMode {
     }
 
     fn add_message_to_chat(&self, message: &AgentMessage, populate_history: bool) {
+        let coordination = crate::modes::interactive::coordination_visibility::is_coordination_message(message);
+        let previous_child_count = self.chat_container.borrow().children().len();
         match message {
             AgentMessage::User(user) => {
                 let text = Self::get_user_message_text(message);
@@ -4529,6 +4531,16 @@ impl InteractiveMode {
             }
             AgentMessage::ToolResult(_) => {}
             AgentMessage::Custom(object) => self.add_custom_message_to_chat(object),
+        }
+        if coordination && self.chat_container.borrow().children().len() > previous_child_count {
+            use crate::modes::interactive::components::coordination_message::CoordinationMessageComponent;
+            let mut chat = self.chat_container.borrow_mut();
+            let mut retained = chat.children().to_vec();
+            let components = retained.split_off(previous_child_count);
+            let session = self.session();
+            let hidden = Rc::new(move || session.settings_manager().get_hide_coordination_messages());
+            *chat = Container::with_children(retained);
+            chat.add_child(component(CoordinationMessageComponent::new(components, hidden)));
         }
     }
 
@@ -11724,6 +11736,30 @@ mod ui_tests {
                 assert_eq!(mode.get_all_queued_messages(true).1.len(), 2);
                 gate.notify_one();
                 task.await.unwrap().unwrap();
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn coordination_transcript_hides_and_restores_existing_components() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                mode.settings_mut(|settings| settings.set_hide_coordination_messages(true));
+                let message: AgentMessage = pi_js_compat::js_json::from_value(&pi_js_compat::js_json!({
+                    "role":"user", "content":"From:\n- agent: peer\n\nMessage:\ncoordination body",
+                    "inputSource":"extension", "timestamp":0,
+                }))
+                .unwrap();
+                mode.add_message_to_chat(&message, false);
+                assert!(mode.chat_container.borrow_mut().render(100).is_empty());
+                let children = mode.chat_container.borrow().children().to_vec();
+                mode.settings_mut(|settings| settings.set_hide_coordination_messages(false));
+                let frame = JsString::join(mode.chat_container.borrow_mut().render(100), "\n");
+                assert!(frame.contains("coordination body"), "{frame:?}");
+                assert_eq!(children.len(), mode.chat_container.borrow().children().len());
+                assert!(Rc::ptr_eq(&children[0], &mode.chat_container.borrow().children()[0]));
             })
             .await;
     }

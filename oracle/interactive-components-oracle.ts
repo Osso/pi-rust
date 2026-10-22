@@ -420,6 +420,25 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		}
 		return footer.render(request.width);
 	},
+	coordinationComponent: async (api, request, sourceRoot) => {
+		const tui = await import(pathToFileURL(`${sourceRoot}/../../tui/src/index.ts`).href);
+		const custom = await import(pathToFileURL(`${sourceRoot}/modes/interactive/components/custom-message.ts`).href);
+		const user = await import(pathToFileURL(`${sourceRoot}/modes/interactive/components/user-message.ts`).href);
+		let hidden = false;
+		const children = request.rich
+			? [new user.UserMessageComponent(request.text), new custom.CustomMessageComponent(
+				{ customType: "shared_channel", content: "custom", display: true, timestamp: 0 },
+				(_message: any, options: any) => new tui.Text(`expanded:${options.expanded}`, 0, 0),
+			), new tui.Text("ordinary", 0, 0)]
+			: [new tui.Text(request.text, 0, 0)];
+		const component = new api.CoordinationMessageComponent(children, () => hidden);
+		return request.states.map((state: any) => {
+			hidden = state.hidden;
+			component.setExpanded(state.expanded ?? false);
+			component.setInTransit(state.inTransit ?? false);
+			return component.render(request.width);
+		});
+	},
 	coordinationVisibility: (api, request) => ({
 		previews: request.previews.map((preview: any) => api.isCoordinationPreview(preview)),
 		messages: request.messages.map((message: any) => api.isCoordinationMessage(message)),

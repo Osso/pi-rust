@@ -120,6 +120,10 @@ impl CustomMessageComponent {
 }
 
 impl Component for CustomMessageComponent {
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
+
     fn render(&mut self, width: usize) -> Vec<JsString> {
         self.container.render(width)
     }
