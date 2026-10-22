@@ -684,18 +684,19 @@ fn migrate_legacy_lifecycle_rows(db: &Connection, now_iso: &str) -> Result<(), C
         }
         let terminal_revision = agent
             .get("revision")
-            .and_then(Value::as_i64)
+            .and_then(Value::as_f64)
+            .map(|value| value as i64)
             .map_or(1, |revision| revision + 1);
         let mut updated = agent.clone();
         updated.insert(
             "error".into(),
-            js_json::json!({
+            pi_js_compat::js_json!({
                 "code": "lost_runtime",
                 "message": "Legacy active agent had no fenced runtime ownership during protocol migration.",
             }),
         );
         updated.insert("lifecycle".into(), Value::String("failed".into()));
-        updated.insert("revision".into(), Value::from(terminal_revision));
+        updated.insert("revision".into(), Value::Number(terminal_revision as f64));
         updated.insert("updatedAt".into(), Value::String(now_iso.into()));
         updated.shift_remove("worker");
         db.execute(

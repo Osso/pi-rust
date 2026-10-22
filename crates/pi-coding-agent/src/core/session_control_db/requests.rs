@@ -444,7 +444,7 @@ pub fn renew_architect_request_claims(
         return Ok(());
     }
     let request_ids_json = js_json::stringify_lossless(&Value::Array(
-        unique_request_ids.iter().copied().map(Value::from).collect(),
+        unique_request_ids.iter().map(|id| Value::Number(*id as f64)).collect(),
     ));
     let now = crate::utils::iso_time::now_iso_string();
     with_control_db(&control_db_path, |db| {
@@ -562,7 +562,7 @@ pub fn cancel_supervisor_request(
     let control_db_path = control_db_path.into();
     with_control_db(&control_db_path, |db| {
         with_immediate_transaction(db, |db| {
-            let response = js_json::stringify_lossless(&js_json::json!({"kind":"error","reason":reason}));
+            let response = js_json::stringify_lossless(&pi_js_compat::js_json!({"kind":"error","reason":reason}));
             Ok(db.execute("UPDATE supervisor_requests SET status = 'cancelled', completed_at = ?, claim_token = NULL, response_json = ?
             WHERE id = ? AND sender_session_id = ? AND status IN ('pending','claimed')",params![crate::utils::iso_time::now_iso_string(),response,request_id,sender_session_id])? == 1)
         })
@@ -719,7 +719,7 @@ pub fn recover_supervisor_requests(control_db_path: impl Into<JsString>) -> Resu
         if !has_supervisor_recovery_work(db, &now_iso)? {
             return Ok(());
         }
-        let error_response = js_json::stringify_lossless(&js_json::json!({
+        let error_response = js_json::stringify_lossless(&pi_js_compat::js_json!({
             "kind": "error",
             "reason": "Supervisor request deadline expired",
         }));

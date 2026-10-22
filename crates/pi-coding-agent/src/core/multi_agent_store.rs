@@ -267,7 +267,7 @@ pub struct AgentNode {
 }
 
 fn agent_node_json(agent: &AgentNode) -> JsValue {
-    let JsValue::Object(mut object) = js_json::json!({
+    let JsValue::Object(mut object) = pi_js_compat::js_json!({
         "id": agent.id,
         "parentId": agent.parent_id,
         "displayName": agent.display_name,

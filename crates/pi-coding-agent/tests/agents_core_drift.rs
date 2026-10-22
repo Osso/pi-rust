@@ -74,7 +74,7 @@ async fn public_spawn_propagates_the_accessed_malformed_model_error_before_child
     let handler = create_multi_agent_pi_request_handler(&options, None);
     let error = handler
         .handle(
-            &js_json::json!({"method":"agents.spawn","params":{"agentType":"bad","prompt":"inspect fixture"}}),
+            &pi_js_compat::js_json!({"method":"agents.spawn","params":{"agentType":"bad","prompt":"inspect fixture"}}),
             &runner.create_context(),
             None,
             None,
@@ -173,7 +173,7 @@ async fn public_spawn_does_not_commit_an_agent_after_the_session_getter_fails() 
     let handler = create_multi_agent_pi_request_handler(&options, None);
     let result = handler
         .handle(
-            &js_json::json!({"method":"agents.spawn","params":{"prompt":"inspect fixture"}}),
+            &pi_js_compat::js_json!({"method":"agents.spawn","params":{"prompt":"inspect fixture"}}),
             &runner.create_context(),
             None,
             None,

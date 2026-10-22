@@ -582,7 +582,8 @@ fn recover_runtime_mailbox_claim(
             .map(JsString::from)
             .as_ref(),
     )?;
-    let expected = js_json::json!({"sessionPath":candidate.row.session_path,"messageId":candidate.row.message_id});
+    let expected =
+        pi_js_compat::js_json!({"sessionPath":candidate.row.session_path,"messageId":candidate.row.message_id});
     let mut accepted = false;
     for reference in refs {
         if crate::core::runtime_mailbox_transcript::mailbox_store_refs_equal(&reference, &expected)? {
@@ -756,7 +757,7 @@ fn current_runtime_owns_mailbox_authority(
 ) -> Result<bool, ControlDbError> {
     if let Some(listener) = &authority.listener
         && listener.pid == std::process::id()
-        && listener.runtime_instance_id.as_deref() == Some(&JsString::from(get_runtime_process_instance_id()?))
+        && listener.runtime_instance_id.as_deref() == Some(get_runtime_process_instance_id()?)
     {
         return Ok(true);
     }
@@ -1297,7 +1298,7 @@ pub fn read_live_runtime_mailbox_session_agent_ids(
         let mut agents = Vec::new();
         for (key, identity) in rows {
             if let Some(identity) = identity.filter(|identity| !identity.is_empty())
-                && runtime_mailbox_claimant_is_live(&identity)?
+                && runtime_mailbox_claimant_is_live(&JsString::from(identity))?
             {
                 agents.push((!key.is_empty()).then_some(key));
             }
@@ -1609,7 +1610,7 @@ pub(crate) fn is_lifecycle_notification_payload(message: &Map) -> bool {
         .is_some_and(|thread_id| {
             ["agent-completed:", "agent-failed:", "agent-waiting-for-input:"]
                 .iter()
-                .any(|prefix| thread_id.starts_with(prefix))
+                .any(|prefix| thread_id.starts_with(*prefix))
         })
 }
 
