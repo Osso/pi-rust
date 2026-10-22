@@ -597,8 +597,37 @@ async fn stream_assistant_response(
     options.stream.request.signal = signal.clone();
 
     let mut response = await_with_abort(stream_fn(config.model.clone(), llm_context, options), signal).await??;
-    let streamed = consume_assistant_stream(&mut response, context, signal, emit).await?;
-    finish_assistant_message(context, signal, emit, streamed.message, streamed.added_partial).await
+    let mut should_close = true;
+    let streamed = consume_assistant_stream(&mut response, context, signal, emit, &mut should_close).await;
+    let result = match streamed {
+        Ok(streamed) => finish_assistant_message(context, signal, emit, streamed.message, streamed.added_partial).await,
+        Err(error) => Err(error),
+    };
+    if should_close {
+        close_assistant_iterator(&response, signal).await?;
+    }
+    result
+}
+
+async fn close_assistant_iterator(
+    response: &AssistantMessageEventStream,
+    signal: &Option<CancellationToken>,
+) -> Result<(), AgentError> {
+    let Some(close) = response
+        .return_iterator()
+        .map_err(|error| AgentError::new(error.message()))?
+    else {
+        return Ok(());
+    };
+    // JS promises keep running when awaitWithAbort stops waiting for them.
+    let close = tokio::spawn(close);
+    if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+        return Ok(());
+    }
+    let result = await_with_abort(close, signal)
+        .await?
+        .map_err(|error| AgentError::new(error.to_string()))?;
+    result.map_err(|error| AgentError::new(error.message()))
 }
 
 struct StreamedAssistant {
@@ -660,16 +689,31 @@ async fn consume_assistant_stream(
     context: &mut AgentContext,
     signal: &Option<CancellationToken>,
     emit: &AgentEventSink,
+    should_close: &mut bool,
 ) -> Result<StreamedAssistant, AgentError> {
     let mut partial_message: Option<AssistantMessage> = None;
     let mut added_partial = false;
 
     loop {
-        let next = await_with_abort(response.next(), signal).await?;
+        let next = await_with_abort(response.next(), signal).await;
+        let next = match next {
+            Ok(Some(Ok(event))) => Some(event),
+            Ok(None) => {
+                *should_close = false;
+                None
+            }
+            failed => {
+                *should_close = signal.as_ref().is_some_and(CancellationToken::is_cancelled);
+                return Err(match failed {
+                    Err(error) => error,
+                    Ok(Some(Err(error))) => AgentError::new(error.message()),
+                    _ => unreachable!("handled successful next result"),
+                });
+            }
+        };
         let Some(event) = next else {
             break;
         };
-        let event = event.map_err(|failure| AgentError::new(failure.message()))?;
         match &event {
             AssistantMessageEvent::Start { partial } => {
                 partial_message = Some(partial.clone());
