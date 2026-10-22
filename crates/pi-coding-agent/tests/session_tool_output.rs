@@ -206,7 +206,7 @@ fn migrates_oversized_sessions_atomically_and_idempotently() {
     let non_session_path = agent_dir.join("other.jsonl");
     fs::write(&non_session_path, "{\"type\":\"event\"}\n").unwrap();
 
-    let first = migrate_tool_result_session_files(&agent_dir.display().to_string(), || 1_700_000_000_000);
+    let first = migrate_tool_result_session_files(&agent_dir.to_str().unwrap().into(), || 1_700_000_000_000);
     assert_eq!(first.changed_files, 1);
     assert_eq!(first.truncated_messages, 1);
     assert_eq!(first.skipped_malformed_files, 1);
@@ -229,7 +229,7 @@ fn migrates_oversized_sessions_atomically_and_idempotently() {
         assert_eq!(fs::metadata(&session_path).unwrap().permissions().mode() & 0o777, 0o600);
     }
 
-    let second = migrate_tool_result_session_files(&agent_dir.display().to_string(), || 1_700_000_000_000);
+    let second = migrate_tool_result_session_files(&agent_dir.to_str().unwrap().into(), || 1_700_000_000_000);
     assert_eq!(second.changed_files, 0);
     assert_eq!(second.truncated_messages, 0);
     let backups_after: Vec<String> = fs::read_dir(&session_dir)
@@ -253,7 +253,7 @@ fn skips_a_session_that_changes_during_migration() {
         tool_result(&"z".repeat(MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES + 1)),
     );
 
-    let report = migrate_tool_result_session_files(&agent_dir.display().to_string(), || {
+    let report = migrate_tool_result_session_files(&agent_dir.to_str().unwrap().into(), || {
         let mut content = fs::read_to_string(&session_path).unwrap();
         content.push('\n');
         fs::write(&session_path, content).unwrap();
@@ -262,5 +262,10 @@ fn skips_a_session_that_changes_during_migration() {
 
     assert_eq!(report.changed_files, 0);
     assert_eq!(report.skipped_error_files, 1);
-    assert!(report.errors[0].contains("session changed while scanning"));
+    assert!(
+        report.errors[0]
+            .to_utf8()
+            .unwrap()
+            .contains("session changed while scanning")
+    );
 }

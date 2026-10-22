@@ -3,7 +3,8 @@
 use std::io::Write;
 
 use pi_ai::request::BoxFuture;
-use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 
 use crate::config::{get_agent_dir, get_user_state_root};
 use crate::core::session_control_db::{
@@ -41,15 +42,15 @@ impl SessionsCommandOutcome {
 
 /// Injectable effects used by [`handle_sessions_command`].
 pub trait SessionsCommandDependencies {
-    fn stdout(&self, text: &str) {
+    fn stdout(&self, text: &JsString) {
         let mut stdout = std::io::stdout().lock();
-        let _ = stdout.write_all(text.as_bytes());
+        let _ = stdout.write_all(encode_node_utf8(text).as_bytes());
         let _ = stdout.flush();
     }
 
-    fn stderr(&self, text: &str) {
+    fn stderr(&self, text: &JsString) {
         let mut stderr = std::io::stderr().lock();
-        let _ = stderr.write_all(text.as_bytes());
+        let _ = stderr.write_all(encode_node_utf8(text).as_bytes());
         let _ = stderr.flush();
     }
 
@@ -74,11 +75,11 @@ pub trait SessionsCommandDependencies {
         archive_sessions_older_than(control_db_path, cutoff_iso).map_err(|error| error.message().clone())
     }
 
-    fn agent_dir(&self) -> String {
-        get_agent_dir().display().to_string()
+    fn agent_dir(&self) -> JsString {
+        JsString::from(get_agent_dir().to_string_lossy().as_ref())
     }
 
-    fn truncate_tool_output(&self, agent_dir: &str) -> ToolResultSessionMigrationReport {
+    fn truncate_tool_output(&self, agent_dir: &JsString) -> ToolResultSessionMigrationReport {
         migrate_tool_result_session_files(agent_dir, now_millis)
     }
 }
@@ -146,7 +147,10 @@ fn handle_truncate(args: &[String], dependencies: &dyn SessionsCommandDependenci
         return SessionsCommandOutcome::handled();
     }
 
-    dependencies.stderr(&format!("Migration errors:\n{}\n", report.errors.join("\n")));
+    dependencies.stderr(&js_format!(
+        "Migration errors:\n{}\n",
+        JsString::join(report.errors.iter(), "\n")
+    ));
     SessionsCommandOutcome::failed()
 }
 
@@ -165,10 +169,12 @@ async fn handle_archive(
     let archived = dependencies.archive_older_than(&control_db_path, &format_iso_millis(cutoff.trunc() as i64))?;
     let session_suffix = if archived.len() == 1 { "" } else { "s" };
     let day_suffix = if days == 1.0 { "" } else { "s" };
-    dependencies.stdout(&format!(
-        "Archived {} session{session_suffix} older than {} day{day_suffix}.\n",
+    dependencies.stdout(&js_format!(
+        "Archived {} session{} older than {} day{}.\n",
         archived.len(),
+        session_suffix,
         pi_js_compat::number::js_number_to_string(days),
+        day_suffix
     ));
     Ok(SessionsCommandOutcome::handled())
 }
@@ -184,28 +190,34 @@ fn parse_days(args: &[String]) -> Option<f64> {
     (days.is_finite() && days > 0.0).then_some(days)
 }
 
-fn format_truncate_tool_output_report(report: &ToolResultSessionMigrationReport) -> String {
+fn plural_suffix(count: usize) -> &'static str {
+    if count == 1 { "" } else { "s" }
+}
+
+fn format_truncate_tool_output_report(report: &ToolResultSessionMigrationReport) -> JsString {
     let skipped = report.skipped_malformed_files + report.skipped_non_session_files + report.skipped_error_files;
     let skipped_text = if skipped > 0 {
-        format!(" Skipped {skipped} file{}.", if skipped == 1 { "" } else { "s" })
+        js_format!(" Skipped {} file{}.", skipped, plural_suffix(skipped))
     } else {
-        String::new()
+        JsString::default()
     };
-    format!(
-        "Truncated {} tool result{} in {} session{}.{skipped_text}\n",
+    js_format!(
+        "Truncated {} tool result{} in {} session{}.{}\n",
         report.truncated_messages,
-        if report.truncated_messages == 1 { "" } else { "s" },
+        plural_suffix(report.truncated_messages),
         report.changed_files,
-        if report.changed_files == 1 { "" } else { "s" },
+        plural_suffix(report.changed_files),
+        skipped_text
     )
 }
 
 fn print_sessions_help(dependencies: &dyn SessionsCommandDependencies, to_stdout: bool) {
     let help = "Usage:\n  pi sessions archive [--older-than <days>]\n  pi sessions truncate-tool-output\n\nCommands:\n  archive                  Archive sessions older than the cutoff (default: 5 days).\n  truncate-tool-output    Rewrite oversized persisted tool results under the agent directory.\n                           Changed files receive a .tool-output-backup-* copy.\n";
+    let help = JsString::from(help);
     if to_stdout {
-        dependencies.stdout(help);
+        dependencies.stdout(&help);
     } else {
-        dependencies.stderr(help);
+        dependencies.stderr(&help);
     }
 }
 

@@ -1049,14 +1049,17 @@ fn source_lossless_tool_migration_preserves_receipt_summary_and_classifications(
     assert_eq!(expected["changedFiles"], 1);
     assert_eq!(expected["skippedMalformedFiles"], 1);
     assert_eq!(expected["skippedNonSessionFiles"], 1);
-    let report = migrate_tool_result_session_files(rust_dir.to_str().unwrap(), || 1792584000000);
+    let report = migrate_tool_result_session_files(&rust_dir.to_str().unwrap().into(), || 1792584000000);
     assert_eq!(report.changed_files, 1, "{report:?}");
     assert_eq!(report.truncated_messages, 1);
     assert_eq!(report.scanned_files, 3);
     assert_eq!(report.skipped_malformed_files, 1);
     assert_eq!(report.skipped_non_session_files, 1);
     assert_eq!(report.skipped_error_files, 0);
-    assert_eq!(std::fs::read(&report.backup_paths[0]).unwrap(), before);
+    assert_eq!(
+        std::fs::read(pi_js_compat::js_json::encode_node_utf8(&report.backup_paths[0])).unwrap(),
+        before
+    );
     for op in ["receiptTokens", "extraTokens"] {
         assert_eq!(
             call(&mut ts, json!({"op":op,"path":path})),
@@ -1069,9 +1072,65 @@ fn source_lossless_tool_migration_preserves_receipt_summary_and_classifications(
         "frozen source must read semantically identical entries including raw UTF16 fields"
     );
     assert_eq!(
-        migrate_tool_result_session_files(rust_dir.to_str().unwrap(), || 1792584000000).changed_files,
+        migrate_tool_result_session_files(&rust_dir.to_str().unwrap().into(), || 1792584000000).changed_files,
         0
     );
+}
+
+#[test]
+fn tool_migration_classifies_empty_ids_js_blank_lines_and_read_errors_like_source() {
+    use pi_coding_agent::core::session_tool_output::migrate_tool_result_session_files;
+    use std::os::unix::fs::PermissionsExt;
+    configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let rust_dir = tmp.path().join("rust");
+    let source_dir = tmp.path().join("source");
+    for dir in [&rust_dir, &source_dir] {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(dir.join("empty-id.jsonl"), "{\"type\":\"session\",\"id\":\"\"}\n").unwrap();
+        std::fs::write(
+            dir.join("bom-blank.jsonl"),
+            "{\"type\":\"session\",\"id\":\"s\"}\n\u{feff}\n",
+        )
+        .unwrap();
+        let unreadable = dir.join("unreadable.jsonl");
+        std::fs::write(&unreadable, "{}\n").unwrap();
+        std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o000)).unwrap();
+        assert!(std::fs::read(&unreadable).is_err(), "fixture must be unreadable");
+    }
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let expected = call(&mut ts, json!({"op":"migrateTools","dir":source_dir}));
+    let report = migrate_tool_result_session_files(&rust_dir.to_str().unwrap().into(), || 1792584000000);
+    let source_prefix = source_dir.to_str().unwrap();
+    let rust_prefix = rust_dir.to_str().unwrap();
+    let rust_errors: Vec<String> = report
+        .errors
+        .iter()
+        .map(|error| error.to_utf8().unwrap().replace(rust_prefix, source_prefix))
+        .collect();
+    assert_eq!(
+        json!({
+            "scannedFiles": report.scanned_files,
+            "changedFiles": report.changed_files,
+            "truncatedMessages": report.truncated_messages,
+            "skippedMalformedFiles": report.skipped_malformed_files,
+            "skippedNonSessionFiles": report.skipped_non_session_files,
+            "skippedErrorFiles": report.skipped_error_files,
+            "backupPaths": report.backup_paths.len(),
+            "errors": rust_errors,
+        }),
+        json!({
+            "scannedFiles": expected["scannedFiles"],
+            "changedFiles": expected["changedFiles"],
+            "truncatedMessages": expected["truncatedMessages"],
+            "skippedMalformedFiles": expected["skippedMalformedFiles"],
+            "skippedNonSessionFiles": expected["skippedNonSessionFiles"],
+            "skippedErrorFiles": expected["skippedErrorFiles"],
+            "backupPaths": expected["backupPaths"].as_array().unwrap().len(),
+            "errors": expected["errors"],
+        })
+    );
+    assert_eq!(report.skipped_error_files, 1, "{report:?}");
 }
 
 #[tokio::test]

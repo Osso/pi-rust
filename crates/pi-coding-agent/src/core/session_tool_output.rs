@@ -2,13 +2,20 @@
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use pi_ai::utils::uuid::random_uuid;
+use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value, encode_node_utf8, stringify_lossless};
+use pi_js_compat::node_fs::{
+    node_file_write_error_record, node_fs_dest_error, node_fs_error, node_read_error, node_rm_error,
+};
 
-use crate::core::session_manager::{FileEntry, SessionEntry, UnknownSessionEntry, parse_session_file_entry};
+use crate::core::session_manager::{
+    FileEntry, SessionEntry, SessionHeader, UnknownSessionEntry, parse_session_file_entry,
+};
 use crate::utils::iso_time;
+use crate::utils::paths::node_join;
 
 /// Maximum UTF-8 byte length persisted for a tool result's content.
 pub const MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES: usize = 1_048_576;
@@ -25,8 +32,8 @@ pub struct ToolResultSessionMigrationReport {
     pub skipped_malformed_files: usize,
     pub skipped_non_session_files: usize,
     pub skipped_error_files: usize,
-    pub backup_paths: Vec<String>,
-    pub errors: Vec<String>,
+    pub backup_paths: Vec<JsString>,
+    pub errors: Vec<JsString>,
 }
 
 fn utf8_bytes(text: impl Into<JsString>) -> usize {
@@ -231,32 +238,38 @@ pub fn serialize_session_entry_for_persistence(entry: &FileEntry) -> String {
     }
 }
 
-fn list_jsonl_files(root: &str) -> Vec<String> {
-    if !Path::new(root).exists() {
+fn list_jsonl_files(root: &JsString) -> Vec<JsString> {
+    if !Path::new(&encode_node_utf8(root)).exists() {
         return Vec::new();
     }
     let mut files = Vec::new();
-    let mut pending = vec![PathBuf::from(root)];
+    let mut pending = vec![root.clone()];
     while let Some(directory) = pending.pop() {
-        let Ok(entries) = fs::read_dir(&directory) else {
+        // `readdirSync` throws for the whole directory; the scan skips it.
+        let Ok(entries) = read_dir_entries(&directory) else {
             continue;
         };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+        for entry in entries {
+            // `readdirSync` decodes entry names as UTF-8.
+            let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
+            let path = node_join(directory.clone(), name.clone());
+            let file_type = entry.file_type();
+            if file_type.as_ref().is_ok_and(fs::FileType::is_dir) {
                 pending.push(path);
-            } else if entry.file_type().is_ok_and(|kind| kind.is_file())
-                && entry.file_name().to_string_lossy().ends_with(".jsonl")
-            {
-                files.push(path.display().to_string());
+            } else if file_type.as_ref().is_ok_and(fs::FileType::is_file) && name.ends_with(".jsonl") {
+                files.push(path);
             }
         }
     }
     files
 }
 
+fn read_dir_entries(directory: &JsString) -> std::io::Result<Vec<fs::DirEntry>> {
+    fs::read_dir(encode_node_utf8(directory))?.collect()
+}
+
 struct ParsedSessionFile {
-    lines: Vec<String>,
+    lines: Vec<JsString>,
     entries: Vec<FileEntry>,
     size: u64,
     mtime_ms: f64,
@@ -291,46 +304,51 @@ fn metadata_mode(metadata: &fs::Metadata) -> u32 {
     }
 }
 
-fn read_session_file_for_migration(file_path: &str) -> SessionFileParseResult {
-    let Ok(metadata) = fs::metadata(file_path) else {
-        return SessionFileParseResult::Malformed;
-    };
-    let Ok(bytes) = fs::read(file_path) else {
-        return SessionFileParseResult::Malformed;
-    };
-    let content = String::from_utf8_lossy(&bytes);
-    let lines: Vec<String> = content.split('\n').map(str::to_owned).collect();
+fn stat_file(file_path: &JsString) -> Result<fs::Metadata, JsString> {
+    fs::metadata(encode_node_utf8(file_path)).map_err(|error| node_fs_error(&error, "stat", file_path))
+}
+
+/// `typeof header.id === "string"`: an empty id still identifies a session.
+fn has_string_id(header: &SessionHeader) -> bool {
+    header.fields.get("id").and_then(Value::as_string).is_some()
+}
+
+fn read_session_file_for_migration(file_path: &JsString) -> Result<SessionFileParseResult, JsString> {
+    let metadata = stat_file(file_path)?;
+    let bytes = fs::read(encode_node_utf8(file_path)).map_err(|error| node_read_error(&error, file_path))?;
+    let content = JsString::from(String::from_utf8_lossy(&bytes).as_ref());
+    let lines: Vec<JsString> = content.split('\n').collect();
     let mut entries = Vec::new();
     for line in &lines {
         if line.trim().is_empty() {
             continue;
         }
-        match parse_session_file_entry(line) {
+        match parse_session_file_entry(line.clone()) {
             Ok(entry) => entries.push(entry),
-            Err(_) => return SessionFileParseResult::Malformed,
+            Err(_) => return Ok(SessionFileParseResult::Malformed),
         }
     }
     let Some(FileEntry::Header(header)) = entries.first() else {
-        return SessionFileParseResult::NonSession;
+        return Ok(SessionFileParseResult::NonSession);
     };
-    if header.id().is_empty() {
-        return SessionFileParseResult::NonSession;
+    if !has_string_id(header) {
+        return Ok(SessionFileParseResult::NonSession);
     }
-    SessionFileParseResult::Session(ParsedSessionFile {
+    Ok(SessionFileParseResult::Session(ParsedSessionFile {
         lines,
         entries,
         size: metadata.len(),
         mtime_ms: metadata_mtime_ms(&metadata),
         mode: metadata_mode(&metadata),
-    })
+    }))
 }
 
 fn build_rewritten_session_content(
-    file_path: &str,
-    lines: &[String],
+    file_path: &JsString,
+    lines: &[JsString],
     entries: &[FileEntry],
     changed_indexes: &[usize],
-) -> Result<String, String> {
+) -> Result<JsString, JsString> {
     let mut rewritten_lines = Vec::new();
     let mut entry_index = 0;
     for (line_index, line) in lines.iter().enumerate() {
@@ -339,117 +357,154 @@ fn build_rewritten_session_content(
             continue;
         }
         let Some(entry) = entries.get(entry_index) else {
-            return Err(format!("Missing parsed entry for {file_path}:{}", line_index + 1));
+            return Err(js_format!("Missing parsed entry for {}:{}", file_path, line_index + 1));
         };
         if changed_indexes.contains(&entry_index) {
-            rewritten_lines.push(serialize_session_entry_for_persistence(entry));
+            rewritten_lines.push(serialize_session_entry_for_persistence(entry).into());
         } else {
             rewritten_lines.push(line.clone());
         }
         entry_index += 1;
     }
-    Ok(rewritten_lines.join("\n"))
+    Ok(JsString::join(rewritten_lines, "\n"))
 }
 
-fn backup_path_for(file_path: &str, now_ms: i64) -> String {
+fn backup_path_for(file_path: &JsString, now_ms: i64) -> JsString {
     let timestamp = iso_time::format_iso_millis(now_ms).replace([':', '.'], "-");
     let suffix: String = random_uuid().chars().take(8).collect();
-    format!("{file_path}.tool-output-backup-{timestamp}-{suffix}")
+    js_format!("{}.tool-output-backup-{}-{}", file_path, timestamp, suffix)
+}
+
+/// `writeFileSync(tempPath, content, { flag: "wx", mode })`, `chmodSync`, then `renameSync`.
+fn replace_with_temp_file(
+    file_path: &JsString,
+    temp_path: &JsString,
+    content: &JsString,
+    mode: u32,
+) -> Result<(), JsString> {
+    let encoded_temp = encode_node_utf8(temp_path);
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, mode);
+    let mut file = options
+        .open(&encoded_temp)
+        .map_err(|error| node_fs_error(&error, "open", temp_path))?;
+    file.write_all(encode_node_utf8(content).as_bytes())
+        .map_err(|error| node_file_write_error_record(&error).message)?;
+    drop(file);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&encoded_temp, fs::Permissions::from_mode(mode))
+            .map_err(|error| node_fs_error(&error, "chmod", temp_path))?;
+    }
+    fs::rename(&encoded_temp, encode_node_utf8(file_path))
+        .map_err(|error| node_fs_dest_error(&error, "rename", temp_path, file_path))
+}
+
+/// `rmSync(tempPath, { force: true })` in `finally`: a missing file is ignored,
+/// any other failure replaces the write outcome.
+fn remove_temp_file(temp_path: &JsString) -> Result<(), JsString> {
+    match fs::remove_file(encode_node_utf8(temp_path)) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(node_rm_error(&error, temp_path)),
+        _ => Ok(()),
+    }
 }
 
 fn write_session_file_atomically(
-    file_path: &str,
-    content: &str,
+    file_path: &JsString,
+    content: &JsString,
     parsed: &ParsedSessionFile,
     now_ms: i64,
-) -> Result<String, String> {
-    let current = fs::metadata(file_path).map_err(|error| error.to_string())?;
+) -> Result<JsString, JsString> {
+    let current = stat_file(file_path)?;
     if current.len() != parsed.size || metadata_mtime_ms(&current) != parsed.mtime_ms {
-        return Err("session changed while scanning; rerun after it is idle".to_owned());
+        return Err("session changed while scanning; rerun after it is idle".into());
     }
 
     let backup_path = backup_path_for(file_path, now_ms);
-    let temp_path = format!("{file_path}.tool-output-temp-{}", random_uuid());
-    fs::copy(file_path, &backup_path).map_err(|error| error.to_string())?;
-    let result = (|| {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp_path)
-            .map_err(|error| error.to_string())?;
-        file.write_all(content.as_bytes()).map_err(|error| error.to_string())?;
-        drop(file);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&temp_path, fs::Permissions::from_mode(parsed.mode))
-                .map_err(|error| error.to_string())?;
-        }
-        fs::rename(&temp_path, file_path).map_err(|error| error.to_string())
-    })();
-    let _ = fs::remove_file(&temp_path);
+    let temp_path = js_format!("{}.tool-output-temp-{}", file_path, random_uuid());
+    fs::copy(encode_node_utf8(file_path), encode_node_utf8(&backup_path))
+        .map_err(|error| node_fs_dest_error(&error, "copyfile", file_path, &backup_path))?;
+    let result = replace_with_temp_file(file_path, &temp_path, content, parsed.mode);
+    remove_temp_file(&temp_path)?;
     result?;
     Ok(backup_path)
 }
 
 fn rewrite_session_file(
-    file_path: &str,
+    file_path: &JsString,
     parsed: &ParsedSessionFile,
     entries: &[FileEntry],
     changed_indexes: &[usize],
     now_ms: i64,
-) -> Result<String, String> {
+) -> Result<JsString, JsString> {
     let content = build_rewritten_session_content(file_path, &parsed.lines, entries, changed_indexes)?;
     write_session_file_atomically(file_path, &content, parsed, now_ms)
 }
 
+fn cap_session_entries(entries: &[FileEntry]) -> (Vec<FileEntry>, Vec<usize>) {
+    let mut capped_entries = Vec::with_capacity(entries.len());
+    let mut changed_indexes = Vec::new();
+    for (index, entry) in entries.iter().enumerate() {
+        let capped = match entry {
+            FileEntry::Entry(entry) => {
+                let (truncated, changed) = truncate_tool_result_for_persistence(entry);
+                if changed {
+                    changed_indexes.push(index);
+                }
+                FileEntry::Entry(truncated)
+            }
+            FileEntry::Header(_) | FileEntry::Json(_) => entry.clone(),
+        };
+        capped_entries.push(capped);
+    }
+    (capped_entries, changed_indexes)
+}
+
+/// One file of `migrateToolResultSessionFiles`; `Err` is the caught error message.
+fn migrate_session_file(
+    file_path: &JsString,
+    report: &mut ToolResultSessionMigrationReport,
+    now: &impl Fn() -> i64,
+) -> Result<(), JsString> {
+    let parsed = match read_session_file_for_migration(file_path)? {
+        SessionFileParseResult::Session(parsed) => parsed,
+        SessionFileParseResult::Malformed => {
+            report.skipped_malformed_files += 1;
+            report.errors.push(js_format!("{}: malformed JSONL", file_path));
+            return Ok(());
+        }
+        SessionFileParseResult::NonSession => {
+            report.skipped_non_session_files += 1;
+            return Ok(());
+        }
+    };
+
+    let (capped_entries, changed_indexes) = cap_session_entries(&parsed.entries);
+    if changed_indexes.is_empty() {
+        return Ok(());
+    }
+
+    let backup_path = rewrite_session_file(file_path, &parsed, &capped_entries, &changed_indexes, now())?;
+    report.changed_files += 1;
+    report.truncated_messages += changed_indexes.len();
+    report.backup_paths.push(backup_path);
+    Ok(())
+}
+
 /// Scan and atomically rewrite oversized tool-result content under an agent directory.
-pub fn migrate_tool_result_session_files(agent_dir: &str, now: impl Fn() -> i64) -> ToolResultSessionMigrationReport {
+pub fn migrate_tool_result_session_files(
+    agent_dir: &JsString,
+    now: impl Fn() -> i64,
+) -> ToolResultSessionMigrationReport {
     let mut report = ToolResultSessionMigrationReport::default();
     for file_path in list_jsonl_files(agent_dir) {
         report.scanned_files += 1;
-        let parsed = match read_session_file_for_migration(&file_path) {
-            SessionFileParseResult::Session(parsed) => parsed,
-            SessionFileParseResult::Malformed => {
-                report.skipped_malformed_files += 1;
-                report.errors.push(format!("{file_path}: malformed JSONL"));
-                continue;
-            }
-            SessionFileParseResult::NonSession => {
-                report.skipped_non_session_files += 1;
-                continue;
-            }
-        };
-
-        let mut capped_entries = Vec::with_capacity(parsed.entries.len());
-        let mut changed_indexes = Vec::new();
-        for (index, entry) in parsed.entries.iter().enumerate() {
-            let capped = match entry {
-                FileEntry::Entry(entry) => {
-                    let (truncated, changed) = truncate_tool_result_for_persistence(entry);
-                    if changed {
-                        changed_indexes.push(index);
-                    }
-                    FileEntry::Entry(truncated)
-                }
-                FileEntry::Header(_) | FileEntry::Json(_) => entry.clone(),
-            };
-            capped_entries.push(capped);
-        }
-        if changed_indexes.is_empty() {
-            continue;
-        }
-
-        match rewrite_session_file(&file_path, &parsed, &capped_entries, &changed_indexes, now()) {
-            Ok(backup_path) => {
-                report.changed_files += 1;
-                report.truncated_messages += changed_indexes.len();
-                report.backup_paths.push(backup_path);
-            }
-            Err(message) => {
-                report.skipped_error_files += 1;
-                report.errors.push(format!("{file_path}: {message}"));
-            }
+        if let Err(message) = migrate_session_file(&file_path, &mut report, &now) {
+            report.skipped_error_files += 1;
+            report.errors.push(js_format!("{}: {}", file_path, message));
         }
     }
     report
