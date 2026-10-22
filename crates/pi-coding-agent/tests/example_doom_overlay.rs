@@ -315,7 +315,10 @@ impl ExtensionUiContext for Ui {
 }
 fn engine(path: &JsString, trace: Trace, current: Arc<Mutex<Value>>) -> example::doom_engine::DoomEngine {
     let mut engine = example::doom_engine::DoomEngine::new(pi_js_compat::js_json::encode_node_utf8(path).into());
-    engine.init_with_module(Box::new(Module { trace, current })).unwrap();
+    engine
+        .init_with_module(Box::new(Module { trace, current }))
+        .map_err(|error| error.message())
+        .unwrap();
     assert!(engine.is_initialized());
     engine
 }

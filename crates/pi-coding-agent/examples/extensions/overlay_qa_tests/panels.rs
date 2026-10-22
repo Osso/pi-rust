@@ -161,7 +161,7 @@ impl Panel {
         let display = if typed.is_empty() {
             fg(ThemeColor::Dim, "(type here)")
         } else {
-            JsString::from(String::from_utf16_lossy(&typed))
+            JsString::from_utf16(typed.clone())
         };
         let truncated = truncate_to_width_with(&js_format!(" > {}", display), inner, "...", true);
         let content = [

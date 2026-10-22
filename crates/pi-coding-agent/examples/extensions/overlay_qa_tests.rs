@@ -6,7 +6,7 @@ use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 use pi_tui::tui::{OverlayAnchor as Anchor, OverlayMargin, SizeValue};
 use pi_tui::{matches_key, visible_width};
-use serde_json::{Value, json};
+use serde_json::json;
 use std::{
     cell::{Cell, RefCell},
     rc::{Rc, Weak},
