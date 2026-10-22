@@ -403,14 +403,14 @@ async fn execute_stream(
     let cache_session_id = if options.stream.cache_retention == Some(crate::types::CacheRetention::None) {
         None
     } else {
-        options.stream.session_id.as_deref()
+        options.stream.session_id.as_ref()
     };
-    let codex_session_id = clamp_openai_prompt_cache_key(cache_session_id).map(str::to_owned);
+    let codex_session_id = clamp_openai_prompt_cache_key(cache_session_id);
     let body = build_request_body(
         model,
         context,
         options,
-        codex_session_id.as_deref(),
+        codex_session_id.as_ref(),
         &grammar_tool_input_properties,
     )?;
     let mut body = JsValue::from(body);
@@ -421,13 +421,13 @@ async fn execute_stream(
     {
         body = next_body;
     }
-    let websocket_request_id = codex_session_id.clone().unwrap_or_else(uuidv7);
+    let websocket_request_id = codex_session_id.clone().unwrap_or_else(|| uuidv7().into());
     let sse_headers = build_sse_headers(
         model.headers.as_ref(),
         options.stream.request.headers.as_ref(),
         &account_id,
         api_key,
-        codex_session_id.as_deref(),
+        codex_session_id.as_ref(),
     );
     let websocket_headers = build_websocket_headers(
         model.headers.as_ref(),
@@ -522,7 +522,7 @@ fn build_request_body(
     model: &Model,
     context: &Context,
     options: &OpenAICodexResponsesOptions,
-    cache_session_id: Option<&str>,
+    cache_session_id: Option<&JsString>,
     grammar_tool_input_properties: &IndexMap<String, String>,
 ) -> Result<JsValue, CodexStreamError> {
     let supports_strict = supports_strict_mode(model);
@@ -801,15 +801,23 @@ fn build_sse_headers(
     additional_headers: Option<&crate::types::ProviderHeaders>,
     account_id: &str,
     token: &str,
-    session_id: Option<&str>,
+    session_id: Option<&JsString>,
 ) -> IndexMap<String, String> {
     let mut headers = build_base_codex_headers(init_headers, additional_headers, account_id, token);
     set_header(&mut headers, "openai-beta", "responses=experimental");
     set_header(&mut headers, "accept", "text/event-stream");
     set_header(&mut headers, "content-type", "application/json");
     if let Some(session_id) = session_id {
-        set_header(&mut headers, "session-id", session_id);
-        set_header(&mut headers, "x-client-request-id", session_id);
+        set_header(
+            &mut headers,
+            "session-id",
+            &pi_js_compat::js_json::encode_node_utf8(session_id),
+        );
+        set_header(
+            &mut headers,
+            "x-client-request-id",
+            &pi_js_compat::js_json::encode_node_utf8(session_id),
+        );
     }
     headers
 }
@@ -1696,7 +1704,7 @@ struct CachedWebSocketContinuationState {
 
 struct WsLease {
     connection: Option<WsConnection>,
-    cache_key: Option<(String, String)>,
+    cache_key: Option<(JsString, String)>,
     entry: Option<Arc<Mutex<CacheEntry>>>,
     reused: bool,
 }
@@ -1730,7 +1738,7 @@ fn cache_lock() -> std::sync::MutexGuard<'static, WebSocketSessionCache> {
 }
 
 /// `getOpenAICodexWebSocketDebugStats`.
-pub fn get_openai_codex_websocket_debug_stats(session_id: &str) -> Option<OpenAICodexWebSocketDebugStats> {
+pub fn get_openai_codex_websocket_debug_stats(session_id: &JsString) -> Option<OpenAICodexWebSocketDebugStats> {
     websocket_debug_stats_store()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -1739,7 +1747,7 @@ pub fn get_openai_codex_websocket_debug_stats(session_id: &str) -> Option<OpenAI
 }
 
 /// `resetOpenAICodexWebSocketDebugStats`.
-pub fn reset_openai_codex_websocket_debug_stats(session_id: Option<&str>) {
+pub fn reset_openai_codex_websocket_debug_stats(session_id: Option<&JsString>) {
     let mut stats = websocket_debug_stats_store()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -1751,7 +1759,7 @@ pub fn reset_openai_codex_websocket_debug_stats(session_id: Option<&str>) {
     }
 }
 
-fn update_websocket_debug_stats(session_id: &str, update: impl FnOnce(&mut OpenAICodexWebSocketDebugStats)) {
+fn update_websocket_debug_stats(session_id: &JsString, update: impl FnOnce(&mut OpenAICodexWebSocketDebugStats)) {
     let mut stats = websocket_debug_stats_store()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -1760,7 +1768,7 @@ fn update_websocket_debug_stats(session_id: &str, update: impl FnOnce(&mut OpenA
 }
 
 /// `closeOpenAICodexWebSocketSessions`.
-pub fn close_openai_codex_websocket_sessions(session_id: Option<&str>) {
+pub fn close_openai_codex_websocket_sessions(session_id: Option<&JsString>) {
     let mut cache = cache_lock();
     let mut sockets = Vec::new();
     match session_id.filter(|session_id| !session_id.is_empty()) {
@@ -1807,7 +1815,7 @@ fn register_websocket_cleanup() {
     });
 }
 
-fn record_websocket_failure(session_id: Option<&str>, error: &CodexStreamError) {
+fn record_websocket_failure(session_id: Option<&JsString>, error: &CodexStreamError) {
     let Some(session_id) = session_id else {
         return;
     };
@@ -1918,7 +1926,7 @@ enum AcquireDecision {
     Fresh,
 }
 
-fn take_cached_connection(session_id: &str, account_id: &str) -> AcquireDecision {
+fn take_cached_connection(session_id: &JsString, account_id: &str) -> AcquireDecision {
     let mut cache = cache_lock();
     let Some(entry) = cache
         .get(session_id)
@@ -1951,7 +1959,7 @@ fn take_cached_connection(session_id: &str, account_id: &str) -> AcquireDecision
 async fn acquire_websocket(
     url: &str,
     headers: &IndexMap<String, String>,
-    session_id: Option<&str>,
+    session_id: Option<&JsString>,
     account_id: &str,
     signal: Option<CancellationToken>,
     connect_timeout_ms: Option<f64>,
@@ -2010,7 +2018,7 @@ async fn acquire_websocket(
     }
 }
 
-fn insert_cached_entry(session_id: &str, account_id: &str) -> Arc<Mutex<CacheEntry>> {
+fn insert_cached_entry(session_id: &JsString, account_id: &str) -> Arc<Mutex<CacheEntry>> {
     let entry = Arc::new(Mutex::new(CacheEntry {
         socket: None,
         busy: true,
@@ -2027,7 +2035,7 @@ fn insert_cached_entry(session_id: &str, account_id: &str) -> Arc<Mutex<CacheEnt
 
 fn remove_cached_entry(
     cache: &mut WebSocketSessionCache,
-    session_id: &str,
+    session_id: &JsString,
     account_id: &str,
     entry: &Arc<Mutex<CacheEntry>>,
 ) {
@@ -2084,7 +2092,7 @@ async fn release_websocket(lease: WsLease, connection: Option<WsConnection>, kee
 }
 
 fn schedule_session_websocket_expiry(
-    session_id: String,
+    session_id: JsString,
     account_id: String,
     entry: Arc<Mutex<CacheEntry>>,
     idle_cancel: CancellationToken,
@@ -2119,7 +2127,7 @@ struct WebSocketExecution<'a> {
     headers: IndexMap<String, String>,
     http_timeout_ms: Option<f64>,
     websocket_connect_timeout_ms: Option<f64>,
-    cache_session_id: Option<&'a str>,
+    cache_session_id: Option<&'a JsString>,
     account_id: &'a str,
     grammar_tool_input_properties: &'a IndexMap<String, String>,
 }

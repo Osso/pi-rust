@@ -229,7 +229,7 @@ impl FileModelsStore {
             let outcome = storage
                 .with_lock_async(
                     Box::new(move |current| {
-                        let revision = get_file_revision(&path);
+                        let revision = get_file_revision(&encode_node_utf8(&path));
                         let parsed = parse_stored_models(current.as_deref());
                         let state = Arc::clone(&state);
                         Box::pin(async move {

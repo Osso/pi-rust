@@ -459,3 +459,36 @@ async fn native_context_items_reach_http_json_without_scalar_projection() {
     );
     assert_eq!(oracle.request(&serde_json::json!({"wire":body}))["wire"], body);
 }
+
+#[tokio::test]
+async fn openai_prompt_cache_key_keeps_utf16_slice_in_http_json() {
+    use pi_ai::types::{Context, Model};
+    use pi_js_compat::js_json::{JsString, JsValue};
+    let model: Model = serde_json::from_value(serde_json::json!({
+        "id":"probe", "name":"probe", "api":"openai-responses", "provider":"openai", "baseUrl":"https://provider.invalid/v1", "reasoning":false, "input":["text"],
+        "cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, "contextWindow":10000, "maxTokens":1000
+    })).unwrap();
+    let fetch = std::sync::Arc::new(CaptureRequest::default());
+    let mut options = pi_ai::request::StreamOptions::default();
+    options.request.fetch = Some(fetch.clone());
+    options.request.api_key = Some("test".into());
+    options.request.max_retries = Some(0.0);
+    let key = JsString::from("a".repeat(63)) + JsString::from_utf16(vec![0xd83d, 0xde00, 0xd800]);
+    options.session_id = Some(key.clone());
+    let mut stream = pi_ai::api::openai_responses::stream(
+        model,
+        Context {
+            system_prompt: None,
+            messages: vec![],
+            tools: None,
+        },
+        options,
+    );
+    while stream.next().await.is_some() {}
+    let requests = fetch.0.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    let body = std::str::from_utf8(requests[0].body.as_ref().unwrap()).unwrap();
+    let parsed = parse_lossless(body).unwrap();
+    assert_eq!(parsed["prompt_cache_key"], JsValue::String(key.slice(0, 64)));
+    assert!(body.contains("\\ud83d"));
+}

@@ -1094,12 +1094,12 @@ impl SettingsManager {
         self.save();
     }
 
-    pub fn get_session_dir(&self) -> Option<String> {
+    pub fn get_session_dir(&self) -> Option<pi_js_compat::js_json::JsString> {
         let value = self.settings.get("sessionDir").and_then(Value::as_str)?;
         if value.is_empty() {
-            return Some(String::new());
+            return Some(Default::default());
         }
-        Some(normalize_path(value, &PathInputOptions::default()).unwrap_or_else(|_| value.to_owned()))
+        Some(normalize_path(value, &PathInputOptions::default()).unwrap_or_else(|_| value.into()))
     }
 
     pub fn get_default_provider(&self) -> Option<&str> {

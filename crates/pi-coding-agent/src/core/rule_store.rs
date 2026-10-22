@@ -4,7 +4,9 @@
 //! `permissionRules` value and otherwise appends one before the final brace, preserving the rest of
 //! the file byte-for-byte (compact files stay compact, formatted files get a two-space block).
 
-use std::path::{Path, PathBuf};
+use crate::utils::paths::node_join;
+use pi_js_compat::js_json::encode_node_utf8;
+use std::path::Path;
 
 use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value};
 
@@ -47,8 +49,8 @@ impl PermissionRuleUpdate {
 /// Inputs for a persisted allow-rule write.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WritePermissionRulesOptions {
-    pub cwd: String,
-    pub agent_dir: String,
+    pub cwd: JsString,
+    pub agent_dir: JsString,
     pub destination: PermissionRuleDestination,
     pub behavior: PermissionRuleBehavior,
     pub tool_name: String,
@@ -76,8 +78,8 @@ type AllowRules = Vec<(JsString, Vec<JsString>)>;
 /// In-memory allow rules plus the optional persistence hook.
 pub struct PermissionRuleStore {
     allow_rules: AllowRules,
-    cwd: Option<String>,
-    agent_dir: Option<String>,
+    cwd: Option<JsString>,
+    agent_dir: Option<JsString>,
     writer: PermissionRuleWriter,
 }
 
@@ -109,7 +111,7 @@ impl PermissionRuleStore {
         store
     }
 
-    pub fn set_locations(&mut self, cwd: Option<String>, agent_dir: Option<String>) {
+    pub fn set_locations(&mut self, cwd: Option<JsString>, agent_dir: Option<JsString>) {
         self.cwd = cwd;
         self.agent_dir = agent_dir;
     }
@@ -189,7 +191,15 @@ pub fn build_permission_rule_content(tool_name: &str, input: &Map) -> JsString {
 /// Persists an allow rule, preserving the rest of the settings file.
 pub fn write_permission_rules(options: &WritePermissionRulesOptions) -> Result<(), RuleStoreError> {
     let settings_path = resolve_settings_path(options);
-    let current_content = std::fs::read_to_string(&settings_path).ok();
+    let current_content = match std::fs::read_to_string(encode_node_utf8(&settings_path)) {
+        Ok(content) => Some(content),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => {
+            return Err(RuleStoreError {
+                message: error.to_string(),
+            });
+        }
+    };
     let mut current_settings = read_settings(&settings_path)?;
     let permission_rules = read_permission_rules(current_settings.get("permissionRules"));
     let existing_rules = permission_rules
@@ -208,18 +218,18 @@ pub fn write_permission_rules(options: &WritePermissionRulesOptions) -> Result<(
     let permission_rules_value = permission_rules_to_value(&behavior_rules);
     current_settings.insert("permissionRules".into(), permission_rules_value.clone());
 
-    if let Some(parent) = Path::new(&settings_path).parent() {
+    if let Some(parent) = Path::new(&encode_node_utf8(&settings_path)).parent() {
         std::fs::create_dir_all(parent).map_err(|error| RuleStoreError {
             message: error.to_string(),
         })?;
     }
     let content = update_permission_rules_content(current_content.as_deref(), &permission_rules_value)?;
-    std::fs::write(&settings_path, content).map_err(|error| RuleStoreError {
+    std::fs::write(encode_node_utf8(&settings_path), content).map_err(|error| RuleStoreError {
         message: error.to_string(),
     })
 }
 
-fn resolve_settings_path(options: &WritePermissionRulesOptions) -> String {
+fn resolve_settings_path(options: &WritePermissionRulesOptions) -> JsString {
     match options.destination {
         PermissionRuleDestination::UserSettings => join(&options.agent_dir, "settings.json"),
         PermissionRuleDestination::ProjectSettings => {
@@ -233,15 +243,15 @@ fn resolve_settings_path(options: &WritePermissionRulesOptions) -> String {
     }
 }
 
-fn join(base: &str, segment: &str) -> String {
-    PathBuf::from(base).join(segment).display().to_string()
+fn join(base: &JsString, segment: &str) -> JsString {
+    node_join(base, segment)
 }
 
-fn read_settings(path: &str) -> Result<Map, RuleStoreError> {
-    if !Path::new(path).exists() {
+fn read_settings(path: &JsString) -> Result<Map, RuleStoreError> {
+    if !Path::new(&encode_node_utf8(path)).exists() {
         return Ok(Map::new());
     }
-    let content = std::fs::read_to_string(path).map_err(|error| RuleStoreError {
+    let content = std::fs::read_to_string(encode_node_utf8(path)).map_err(|error| RuleStoreError {
         message: error.to_string(),
     })?;
     let parsed = js_json::parse_lossless(&content).map_err(|error| RuleStoreError {

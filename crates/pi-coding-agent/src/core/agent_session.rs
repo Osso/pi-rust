@@ -290,8 +290,8 @@ pub struct AgentSessionConfig {
     pub thinking_phase_timeout_ms: Option<u64>,
     pub supervisor_decision_requester: Option<SupervisorDecisionRequester>,
     pub multi_agent_store: Option<Arc<crate::core::multi_agent_store::MultiAgentStore>>,
-    pub multi_agent_agent_id: Option<String>,
-    pub multi_agent_parent_session_id: Option<String>,
+    pub multi_agent_agent_id: Option<JsString>,
+    pub multi_agent_parent_session_id: Option<JsString>,
     pub multi_agent_requires_agent_id: bool,
     pub disable_runtime_coordination_inbound: bool,
     pub on_shared_channel_message_delivered: Option<Arc<dyn Fn(JsString) + Send + Sync>>,
@@ -966,8 +966,8 @@ struct Inner {
     permission_rule_store: Arc<Mutex<crate::core::rule_store::PermissionRuleStore>>,
     supervisor_decision_requester: SupervisorDecisionRequester,
     multi_agent_store: Option<Arc<crate::core::multi_agent_store::MultiAgentStore>>,
-    multi_agent_agent_id: Option<String>,
-    multi_agent_parent_session_id: Option<String>,
+    multi_agent_agent_id: Option<JsString>,
+    multi_agent_parent_session_id: Option<JsString>,
     multi_agent_requires_agent_id: bool,
     multi_agent_runtime_role: Option<MultiAgentRuntimeRole>,
     thinking_phase_timeout_ms: u64,
@@ -2349,7 +2349,7 @@ impl AgentSession {
     }
 
     /// Parent runtime session ID for supervisor-directed messages.
-    pub fn multi_agent_parent_session_id(&self) -> Option<String> {
+    pub fn multi_agent_parent_session_id(&self) -> Option<JsString> {
         self.inner.multi_agent_parent_session_id.clone()
     }
 
@@ -2485,7 +2485,7 @@ impl AgentSession {
 
     fn runtime_mailbox_recipient(&self) -> crate::core::session_control_db::RuntimeMailboxAddress {
         crate::core::session_control_db::RuntimeMailboxAddress {
-            agent_id: self.inner.multi_agent_agent_id.clone().map(JsString::from),
+            agent_id: self.inner.multi_agent_agent_id.clone(),
             session_id: self.session_id().into(),
         }
     }
@@ -3024,7 +3024,7 @@ impl AgentSession {
             return;
         };
         let agent_id = self.inner.multi_agent_agent_id.clone();
-        self.register_runtime_mailbox_listeners(&control_db_path, agent_id.as_deref());
+        self.register_runtime_mailbox_listeners(&control_db_path, agent_id.as_ref());
         let recipient = self.runtime_mailbox_recipient();
         if let Err(error) =
             crate::core::session_control_db::initialize_shared_channel_cursor_at_tail(&control_db_path, &recipient)
@@ -3035,7 +3035,7 @@ impl AgentSession {
         self.start_runtime_mailbox_signal_handler();
     }
 
-    fn register_runtime_mailbox_listeners(&self, control_db_path: &JsString, agent_id: Option<&str>) {
+    fn register_runtime_mailbox_listeners(&self, control_db_path: &JsString, agent_id: Option<&JsString>) {
         let recipient = self.runtime_mailbox_recipient();
         let session_file = if agent_id.is_none() { self.session_file() } else { None };
         if let Err(error) = crate::core::session_control_db::register_runtime_mailbox_listener(
@@ -3071,7 +3071,7 @@ impl AgentSession {
                         let Some(control_db_path) = session.runtime_mailbox_control_db_path() else {
                             continue;
                         };
-                        session.register_runtime_mailbox_listeners(&control_db_path, agent_id.as_deref());
+                        session.register_runtime_mailbox_listeners(&control_db_path, agent_id.as_ref());
                     }
                 }
             }
@@ -3468,7 +3468,7 @@ impl AgentSession {
         let Some(store) = self.inner.multi_agent_store.as_ref() else {
             return Ok(());
         };
-        let Some(agent_id) = self.inner.multi_agent_agent_id.as_deref() else {
+        let Some(agent_id) = self.inner.multi_agent_agent_id.as_ref() else {
             return Ok(());
         };
         let ownership = self.current_agent_activity_owner();
@@ -4954,7 +4954,7 @@ impl AgentSession {
         let Some(store) = self.inner.multi_agent_store.as_ref() else {
             return Ok(());
         };
-        let Some(agent_id) = self.inner.multi_agent_agent_id.as_deref() else {
+        let Some(agent_id) = self.inner.multi_agent_agent_id.as_ref() else {
             return Ok(());
         };
         store
@@ -6394,7 +6394,7 @@ impl AgentSession {
         });
         let event_id = options.id.clone();
         let session = self.clone();
-        let stream_chunk: crate::core::bash_executor::BashChunkCallback = Arc::new(move |delta: &str| {
+        let stream_chunk: crate::core::bash_executor::BashChunkCallback = Arc::new(move |delta: &JsString| {
             if let Some(on_chunk) = &on_chunk {
                 on_chunk(delta);
             }
@@ -7089,13 +7089,13 @@ impl AgentSession {
             &session_manager,
             Some(&state),
             Some(ExportOptions {
-                output_path: output_path.map(str::to_owned),
+                output_path: output_path.cloned(),
                 theme_name,
                 tool_renderer: Some(tool_renderer),
             }),
         )
         .await
-        .map_err(|export_error| error(export_error.to_string()))
+        .map_err(|export_error| error(export_error.message()))
     }
 
     /// Text content of the last assistant message.

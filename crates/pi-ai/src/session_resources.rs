@@ -1,12 +1,14 @@
+use pi_js_compat::js_json::JsString;
 use std::error::Error;
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 pub type SessionResourceCleanupErrorBox = Box<dyn Error + Send + Sync>;
-pub type SessionResourceCleanup = Box<dyn Fn(Option<&str>) -> Result<(), SessionResourceCleanupErrorBox> + Send + Sync>;
+pub type SessionResourceCleanup =
+    Box<dyn Fn(Option<&JsString>) -> Result<(), SessionResourceCleanupErrorBox> + Send + Sync>;
 
-type SharedCleanup = Arc<dyn Fn(Option<&str>) -> Result<(), SessionResourceCleanupErrorBox> + Send + Sync>;
+type SharedCleanup = Arc<dyn Fn(Option<&JsString>) -> Result<(), SessionResourceCleanupErrorBox> + Send + Sync>;
 
 static REGISTRY: OnceLock<Mutex<Vec<(u64, SharedCleanup)>>> = OnceLock::new();
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -44,7 +46,7 @@ pub fn register_session_resource_cleanup(cleanup: SessionResourceCleanup) -> Ses
     SessionResourceCleanupRegistration { id }
 }
 
-pub fn cleanup_session_resources(session_id: Option<&str>) -> Result<(), SessionResourceCleanupError> {
+pub fn cleanup_session_resources(session_id: Option<&JsString>) -> Result<(), SessionResourceCleanupError> {
     let snapshot: Vec<SharedCleanup> = {
         let registry = registry();
         let cleanups = registry.lock().expect("session resource registry mutex poisoned");

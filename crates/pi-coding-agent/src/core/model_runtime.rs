@@ -5,7 +5,6 @@
 //! registrations, availability snapshots, and serialized credential flows.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 

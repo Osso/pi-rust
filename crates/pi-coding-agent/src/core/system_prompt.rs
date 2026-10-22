@@ -1,5 +1,6 @@
 //! System prompt construction (`core/system-prompt.ts`).
 
+use pi_js_compat::js_json::JsString;
 use std::collections::{HashMap, HashSet};
 
 use crate::config::{get_docs_path, get_examples_path, get_readme_path};
@@ -29,7 +30,7 @@ pub struct BuildSystemPromptOptions {
     /// Text to append to system prompt.
     pub append_system_prompt: Option<String>,
     /// Working directory.
-    pub cwd: String,
+    pub cwd: JsString,
     /// Pre-loaded context files.
     pub context_files: Option<Vec<ContextFile>>,
     /// Pre-loaded user rules.
@@ -63,8 +64,8 @@ fn append_context_files(prompt: &mut String, context_files: &[ContextFile]) {
 }
 
 /// Builds the system prompt with tools, guidelines, and context.
-pub fn build_system_prompt(options: &BuildSystemPromptOptions) -> String {
-    let prompt_cwd = options.cwd.replace('\\', "/");
+pub fn build_system_prompt(options: &BuildSystemPromptOptions) -> JsString {
+    let prompt_cwd = options.cwd.replace_all('\\', "/");
     let append_section = options
         .append_system_prompt
         .as_ref()
@@ -87,8 +88,7 @@ pub fn build_system_prompt(options: &BuildSystemPromptOptions) -> String {
             prompt.push_str(&format_skills_for_prompt(skills));
         }
 
-        prompt.push_str(&format!("\nCurrent working directory: {prompt_cwd}\n"));
-        return prompt;
+        return JsString::from(prompt) + "\nCurrent working directory: " + &prompt_cwd + "\n";
     }
 
     let readme_path = get_readme_path().to_string_lossy().into_owned();
@@ -219,6 +219,5 @@ Pi documentation (read only when the user asks about pi itself, its SDK, extensi
         prompt.push_str(&format_skills_for_prompt(skills));
     }
 
-    prompt.push_str(&format!("\nCurrent working directory: {prompt_cwd}"));
-    prompt
+    JsString::from(prompt) + "\nCurrent working directory: " + &prompt_cwd
 }

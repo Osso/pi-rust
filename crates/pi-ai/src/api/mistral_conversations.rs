@@ -494,7 +494,7 @@ fn build_mistral_headers(model: &Model, api_key: &str, options: &MistralOptions)
     if should_use_prompt_caching(options) && !has_explicit_affinity {
         headers.insert(
             "x-affinity".to_owned(),
-            options.stream.session_id.clone().unwrap_or_default(),
+            pi_js_compat::js_json::encode_node_utf8(&options.stream.session_id.clone().unwrap_or_default()),
         );
     }
     headers

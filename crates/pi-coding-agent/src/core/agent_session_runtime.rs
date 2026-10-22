@@ -593,7 +593,7 @@ impl AgentSessionRuntime {
             .session_manager()
             .get_entry(entry_id)
             .cloned()
-            .ok_or_else(|| "Invalid entry ID for forking".into())?;
+            .ok_or_else(|| JsString::from("Invalid entry ID for forking"))?;
         let mut selected_text = None;
         let target_leaf_id = if position == ForkPosition::At {
             selected_entry.id().cloned()
@@ -605,7 +605,7 @@ impl AgentSessionRuntime {
                 )
             });
             if !is_user_message {
-                return Err("Invalid entry ID for forking".into());
+                return Err(JsString::from("Invalid entry ID for forking"));
             }
             if let Some(entry) = selected_entry.as_message()
                 && let pi_agent_core::agent::types::AgentMessage::User(user) = entry.message.as_ref()
@@ -621,7 +621,7 @@ impl AgentSessionRuntime {
             let current_session_file = self
                 .session
                 .session_file()
-                .ok_or_else(|| "Persisted session is missing a session file".into())?;
+                .ok_or_else(|| JsString::from("Persisted session is missing a session file"))?;
             let session_dir = self.session.session_manager().get_session_dir().to_owned();
             let Some(target_leaf_id) = target_leaf_id else {
                 let mut session_manager = SessionManager::create(self.cwd(), Some(&session_dir), None)
@@ -993,7 +993,7 @@ pub struct DefaultRuntimeFactoryOptions {
     pub tools: Option<Vec<String>>,
     pub exclude_tools: Option<Vec<String>>,
     pub no_tools: Option<crate::core::sdk::NoTools>,
-    pub permission_prompt_tool: Option<JsString>,
+    pub permission_prompt_tool: Option<String>,
     pub custom_tools: Vec<crate::core::agent_session::ToolDefinition>,
     pub base_tools: Vec<Arc<dyn pi_agent_core::agent::types::AgentTool>>,
 }

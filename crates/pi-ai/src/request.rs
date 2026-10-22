@@ -144,7 +144,7 @@ pub struct StreamOptions {
     pub transport: Option<Transport>,
     /// Default "short".
     pub cache_retention: Option<CacheRetention>,
-    pub session_id: Option<String>,
+    pub session_id: Option<JsString>,
     pub on_retry: Option<OnRetry>,
     pub websocket_connect_timeout_ms: Option<f64>,
     pub metadata: Option<JsonObject>,

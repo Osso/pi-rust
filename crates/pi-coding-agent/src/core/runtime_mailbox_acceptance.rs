@@ -3,7 +3,7 @@
 use std::collections::VecDeque;
 
 use pi_agent_core::AgentMessage;
-use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::{JsString, JsValue};
 use serde::Deserialize;
 
 use super::runtime_mailbox_transcript::{
@@ -34,7 +34,7 @@ impl From<&RuntimeMailboxMessage> for RuntimeMailboxAcceptanceRef {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeMailboxToolDelivery {
-    pub control_db_path: String,
+    pub control_db_path: JsString,
     pub messages: Vec<RuntimeMailboxAcceptanceRef>,
 }
 
@@ -63,7 +63,7 @@ impl RuntimeMailboxAcceptance {
     pub fn accept_messages(
         &mut self,
         session: &mut SessionManager,
-        control_db_path: &str,
+        control_db_path: &JsString,
         messages: &[RuntimeMailboxAcceptanceRef],
         accepted_message: Option<&AgentMessage>,
     ) -> Result<(), ControlDbError> {
@@ -75,9 +75,11 @@ impl RuntimeMailboxAcceptance {
                 "Mailbox acceptance requires a persisted recipient session",
             ));
         }
-        session.persist_for_recovery().map_err(control_error)?;
+        session
+            .persist_for_recovery()
+            .map_err(|error| ControlDbError::new(error.message()))?;
         self.append_receipt(session, messages, accepted_message)?;
-        session.fsync().map_err(control_error)?;
+        session.fsync().map_err(|error| ControlDbError::new(error.message()))?;
         delete_accepted_claims(control_db_path, messages)
     }
 
@@ -102,7 +104,7 @@ impl RuntimeMailboxAcceptance {
         } else {
             session
                 .append_custom_entry(
-                    RUNTIME_MAILBOX_ACCEPTANCE_CUSTOM_TYPE,
+                    &RUNTIME_MAILBOX_ACCEPTANCE_CUSTOM_TYPE.into(),
                     Some(pi_js_compat::js_json!({"mailboxStoreRefs": refs})),
                 )
                 .map_err(control_error)?;
@@ -116,7 +118,7 @@ fn control_error(error: impl std::fmt::Display) -> ControlDbError {
 }
 
 fn delete_accepted_claims(
-    control_db_path: &str,
+    control_db_path: &JsString,
     messages: &[RuntimeMailboxAcceptanceRef],
 ) -> Result<(), ControlDbError> {
     for message in messages {
@@ -132,7 +134,7 @@ fn delete_accepted_claims(
 
 pub fn release_unaccepted_runtime_mailbox_messages(
     session: &SessionManager,
-    control_db_path: &str,
+    control_db_path: &JsString,
     messages: &[RuntimeMailboxAcceptanceRef],
 ) -> Result<(), ControlDbError> {
     if messages.is_empty() {
