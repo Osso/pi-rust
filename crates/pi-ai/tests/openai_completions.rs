@@ -248,7 +248,7 @@ fn thinking_token_budget_leaves_answer_room() {
 }
 
 #[test]
-fn grammar_tools_use_custom_shape() {
+fn grammar_metadata_does_not_change_frozen_function_tools() {
     let model = serde_json::from_value::<Model>(json!({
         "id": "gpt-5", "name": "gpt-5", "api": "openai-completions", "provider": "openai",
         "baseUrl": "https://api.openai.com/v1", "reasoning": true, "input": ["text"],
@@ -282,11 +282,12 @@ fn grammar_tools_use_custom_shape() {
     );
     assert_eq!(
         params["tools"][0]["type"],
-        pi_js_compat::js_json::JsValue::String(("custom").into())
+        pi_js_compat::js_json::JsValue::String(("function").into())
     );
+    assert_eq!(params["tools"][0]["function"]["strict"].as_bool(), Some(false));
     assert_eq!(
-        params["tools"][0]["custom"]["format"]["grammar"]["syntax"],
-        pi_js_compat::js_json::JsValue::String(("lark").into())
+        params["tools"][0]["function"]["parameters"],
+        pi_js_compat::js_json::JsValue::from(context.tools.as_ref().unwrap()[0].parameters.clone())
     );
 }
 

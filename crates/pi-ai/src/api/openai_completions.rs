@@ -12,8 +12,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::api::constrained_sampling::{
     GrammarToolInputJsonBuffer, append_grammar_tool_input_json_delta, create_grammar_tool_input_properties,
-    get_grammar_tool_input, get_json_schema_tool_parameters, resolve_grammar_constrained_sampling,
-    resolve_json_schema_strict_sampling,
+    get_grammar_tool_input,
 };
 use crate::api::github_copilot_headers::{build_copilot_dynamic_headers, has_copilot_vision_input};
 use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
@@ -749,43 +748,13 @@ pub fn convert_messages(
 fn convert_tools(tools: &[Tool], compat: &ResolvedOpenAICompletionsCompat) -> Value {
     let mut converted = Vec::new();
     for tool in tools {
-        if let Ok(Some(grammar)) = resolve_grammar_constrained_sampling(tool, compat.supports_openai_grammar_tools) {
-            converted.push(json_object(vec![
-                ("type", Value::String("custom".to_owned())),
-                (
-                    "custom",
-                    json_object(vec![
-                        ("name", Value::String(tool.name.clone())),
-                        ("description", Value::String(tool.description.clone())),
-                        (
-                            "format",
-                            json_object(vec![
-                                ("type", Value::String("grammar".to_owned())),
-                                (
-                                    "grammar",
-                                    json_object(vec![
-                                        ("syntax", serde_json::to_value(grammar.format).unwrap_or(Value::Null)),
-                                        ("definition", Value::String(grammar.definition)),
-                                    ]),
-                                ),
-                            ]),
-                        ),
-                    ]),
-                ),
-            ]));
-            continue;
-        }
-
-        let strict = resolve_json_schema_strict_sampling(tool, compat.supports_strict_mode)
-            .ok()
-            .flatten();
-        let parameters = get_json_schema_tool_parameters(tool, strict).unwrap_or(Value::Null);
+        let parameters = tool.parameters.clone();
         let mut function = Map::new();
         function.insert("name".to_owned(), Value::String(tool.name.clone()));
         function.insert("description".to_owned(), Value::String(tool.description.clone()));
         function.insert("parameters".to_owned(), parameters);
         if compat.supports_strict_mode {
-            function.insert("strict".to_owned(), Value::Bool(strict.unwrap_or(false)));
+            function.insert("strict".to_owned(), Value::Bool(false));
         }
         converted.push(json_object(vec![
             ("type", Value::String("function".to_owned())),
