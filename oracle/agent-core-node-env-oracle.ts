@@ -1,5 +1,7 @@
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
+import { basename, dirname } from "node:path";
+import { readFile, rm } from "node:fs/promises";
 
 async function main(): Promise<void> {
 	const { NodeExecutionEnv } = await import(pathToFileURL(process.argv[2]!).href);
@@ -9,10 +11,21 @@ async function main(): Promise<void> {
 		const controller = new AbortController();
 		controller.abort();
 		let result: unknown;
-		if (input.kind === "fs") {
+		if (input.kind === "temp") {
+			const file = await env.createTempFile({ prefix: "pre", suffix: ".end" });
+			if (!file.ok) throw file.error;
+			const name = basename(file.value);
+			const uuid = name.slice(3, -4);
+			const text = await readFile(file.value, "utf8");
+			const dir = await env.createTempDir("raw\ud800-");
+			if (!dir.ok) throw dir.error;
+			result = { uuid: /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(uuid), prefix: name.startsWith("pre"), suffix: name.endsWith(".end"), text, tempDirectory: /^tmp-[a-zA-Z0-9]{6}$/.test(basename(dirname(file.value))), rawDirectoryPrefix: basename(dir.value).slice(0, -6) };
+			await rm(dirname(file.value), { recursive: true });
+			await rm(dir.value, { recursive: true });
+		} else if (input.kind === "fs") {
 			result = [];
-			for (const [method, path] of input.operations) {
-				(result as unknown[]).push(await env[method](path));
+			for (const [method, ...args] of input.operations) {
+				(result as unknown[]).push(await env[method](...args));
 			}
 		} else if (input.kind === "paths") {
 			result = [];
