@@ -188,3 +188,12 @@ This slice does not claim all `Intl` options, arbitrary calendar ranges, or exha
 - In-place mutation of extension `context` messages and `before_provider_request` payloads without a return value. Native handlers receive owned events and must return the replacement. Approved typed-API deviation, user October 21, 2026 (“Approve return-only”) ([traceability](../porting/traceability/extensions-runner.md#discrepancies)).
 - Lone-surrogate output from openai-remote-compact `utf16_prefix` when a UTF-16 budget cut splits a surrogate pair; Rust emits U+FFFD. Approved by user October 20, 2026, like `truncateLine` ([traceability](../porting/traceability/openai-remote-compact.md#discrepancies)).
 - Claiming full Pi compatibility before all package contracts are ported and integrated.
+
+### Package resource manifests: invalid runtime arrays
+
+Resource declarations use arrays of native JavaScript strings. Non-string array
+elements are excluded invalid JS runtime input (August 12, 2026 typed-core
+decision): frozen extension discovery throws on `path.resolve(dir, 123)`. The
+Rust typed manifest rejects the whole malformed resource field; it must not
+claim differential parity or silently retain a filtered partial resource list.
+See [manifest traceability](../porting/traceability/pi-manifest.md).
