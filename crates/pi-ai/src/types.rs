@@ -640,7 +640,7 @@ pub struct AssistantMessage {
 }
 
 impl AssistantMessage {
-    /// Empty `pending` message with zero usage, the shape providers start streaming from.
+    /// Empty message with zero usage and the frozen providers' initial `stop` reason.
     pub fn empty(
         api: impl Into<Api>,
         provider: impl Into<ProviderId>,
@@ -658,7 +658,7 @@ impl AssistantMessage {
             image_generation_result: None,
             diagnostics: None,
             usage: Usage::default(),
-            stop_reason: StopReason::Pending,
+            stop_reason: StopReason::Stop,
             deferred: None,
             error_message: None,
             raw_stop_reason: None,
