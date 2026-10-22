@@ -55,6 +55,9 @@ function createLoopHarness(loopExtension: (pi: AnyRecord) => void): AnyRecord {
 	loopExtension(pi);
 	const ctx = {
 		cwd: "/repo",
+		sessionManager: { getSessionId: () => "fixture-session" },
+		isIdle: () => true,
+		hasPendingMessages: () => false,
 		ui: {
 			notify(message: string, type?: string) {
 				notifications.push([message, notifyType(type)]);
@@ -146,8 +149,9 @@ function createFastHarness(
 			setEditorText(text: string) {
 				editor.push(text);
 			},
-			setStatus(key: string, value: string | undefined) {
-				statuses.push([key, value ?? null]);
+			setStatus(key: string, value: string | undefined | ((session?: unknown) => string | undefined)) {
+				const displayed = typeof value === "function" ? value() : value;
+				statuses.push([key, displayed ?? null]);
 			},
 		},
 		getThinkingLevel: () => thinkingLevel,
@@ -206,7 +210,12 @@ async function runEffortCase(
 	const entries: unknown[] = [];
 	const selectCalls: Array<[string, string[]]> = [];
 	let thinkingLevel = input.thinkingLevel ?? "off";
+	let activeTools: string[] = [];
 	const pi = {
+		getActiveTools: () => [...activeTools],
+		setActiveTools(names: string[]) {
+			activeTools = [...names];
+		},
 		getThinkingLevel: () => thinkingLevel,
 		setThinkingLevel(level: string) {
 			thinkingLevel = level;

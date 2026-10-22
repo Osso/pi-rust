@@ -1,9 +1,13 @@
-// Real c248b0067 session-autoname extension; all generated names/errors are captured.
+// Common-pin session naming tool; names, errors, and provider calls are observed directly.
 import { dirname, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
+
+type NamingTool = {
+	execute: (id: string, params: { name: string }, signal: undefined, update: undefined, ctx: unknown) => Promise<unknown>;
+};
 
 async function main(): Promise<void> {
 	const extensionPath = process.argv[2];
@@ -17,7 +21,7 @@ async function main(): Promise<void> {
 		const faux = ai.registerFauxProvider({ api: "faux", tokenSize: { min: 1, max: 1 }, tokensPerSecond: 1000000 });
 		const names: string[] = [];
 		const errors: string[] = [];
-		const handlers = new Map<string, Function>();
+		const namingTools: NamingTool[] = [];
 		let stored = false;
 		const originalError = console.error;
 		console.error = (...values: unknown[]) => errors.push(values.map(String).join(" "));
@@ -25,24 +29,23 @@ async function main(): Promise<void> {
 			faux.setResponses([ai.fauxAssistantMessage(request.title)]);
 			const manager = {
 				getSessionFile: () => "/fixture/session.jsonl",
+				getSessionName: () => names.at(-1),
 				isSubagentSession: () => false,
 				hasSessionNameState: () => stored,
 				getBranch: () => [{ type: "message", message: { role: "user", content: "Fix schema migration", timestamp: 1 } }],
 			};
 			const pi = {
-				on: (type: string, handler: Function) => handlers.set(type, handler),
-				setSessionName: (name: string) => { names.push(name); stored = true; handlers.get("session_info_changed")?.({ name }); },
+				registerTool: (tool: NamingTool) => { namingTools.push(tool); },
+				setSessionName: (name: string) => { names.push(name); stored = true; },
 			};
 			const ctx = {
 				mode: "tui", sessionManager: manager, model: faux.getModel(),
 				modelRegistry: { getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "faux-key" }) },
 			};
 			register(pi);
-			handlers.get("agent_end")?.({ messages: [{ role: "user", content: "Fix schema migration", timestamp: 1 }] }, ctx);
-			const deadline = Date.now() + 2000;
-			while (names.length === 0 && errors.length === 0 && Date.now() < deadline) {
-				await new Promise((done) => setTimeout(done, 2));
-			}
+			const namingTool = namingTools[0];
+			if (!namingTool) throw new Error("session naming tool was not registered");
+			await namingTool.execute("fixture-name", { name: request.title }, undefined, undefined, ctx);
             if (request.probeUTF16) {
                 const db = await import(pathToFileURL(resolve(packages, "coding-agent/src/core/session-control-db.ts")).href);
                 const root = mkdtempSync(resolve(tmpdir(), "pi-autoname-utf16-"));
