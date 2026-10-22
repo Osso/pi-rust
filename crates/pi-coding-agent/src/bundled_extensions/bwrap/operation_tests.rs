@@ -1,4 +1,24 @@
 use super::*;
+use std::path::Path;
+
+#[test]
+fn worker_invocation_keeps_raw_workspace_and_payload_units_until_argv() {
+    let directory = tempfile::tempdir().unwrap();
+    let cwd = JsString::from(directory.path().to_str().unwrap()) + "/cwd-" + JsString::from_utf16(vec![0xd800]);
+    std::fs::create_dir(encode_node_utf8(&cwd)).unwrap();
+    let path = cwd.clone() + "/file-" + JsString::from_utf16(vec![0xdfff]);
+    let params = SandboxParams {
+        bwrap_command: "bwrap".into(),
+        cwd: cwd.clone(),
+        profile: BwrapSandboxProfile(SandboxProfileName::ReadOnly),
+    };
+    let invocation = build_sandbox_worker_invocation(&params, "readFile", &path_payload(&path)).unwrap();
+    let wire = invocation.argv.last().unwrap();
+    let payload = js_json::parse_lossless(wire).unwrap();
+    assert_eq!(payload["workspace"].as_string(), Some(&cwd));
+    assert_eq!(payload["path"].as_string(), Some(&path));
+    assert!(invocation.argv.contains(&cwd));
+}
 
 #[test]
 fn operation_path_payload_keeps_distinct_surrogates() {
@@ -22,8 +42,8 @@ fn unavailable_sandbox(directory: &Path) -> (SandboxParams, String) {
     let expected = format!("bubblewrap is required for sandbox profile but is unavailable: spawnSync {command} ENOENT");
     (
         SandboxParams {
-            bwrap_command: command,
-            cwd: directory.display().to_string(),
+            bwrap_command: command.into(),
+            cwd: directory.to_string_lossy().into_owned().into(),
             profile: BwrapSandboxProfile(SandboxProfileName::ReadOnly),
         },
         expected,
