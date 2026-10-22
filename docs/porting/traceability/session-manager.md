@@ -53,7 +53,7 @@ The session file is the shared contract with TypeScript Pi. Request `41000` prov
 
 ## Gaps
 
-- `SessionInfo.created`/`modified` are epoch milliseconds (`i64`) instead of JavaScript `Date`; invalid timestamps map to `0` instead of an invalid Date.
+- `SessionInfo.created`/`modified` remain epoch milliseconds (`i64`) pending Date representation. Message-time accumulation retains f64; the temporary Date boundary TimeClips valid numbers and explicitly errors on invalid numbers. Historical invalid-header→0 behavior remains outside this slice. [Pending Date migration and bounded proof](message-timestamps.md#temporary-sessioninfo-dependency).
 - Listing loads session files sequentially; TypeScript uses at most 10 concurrent loads. Observable only through progress-callback interleaving.
 - `truncateMessageToFit` measures JavaScript UTF-16 lengths. Rust truncates at whole-char boundaries, so a cut inside a surrogate pair yields one fewer character than `String#slice` would; the source data (text content) does not rely on lone surrogates.
 - Typed boundary: a `type:"session"` first line whose header fields do not match `SessionHeader` (for example a non-string `timestamp`) is rejected, where TypeScript only requires `type` and string `id`. Unknown *entry* types are preserved as raw JSON.

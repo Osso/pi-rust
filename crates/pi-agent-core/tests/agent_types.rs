@@ -13,7 +13,7 @@ fn user(text: &str) -> AgentMessage {
         content: pi_ai::types::UserContent::Text(JsString::from(text.to_owned())),
         input_source: None,
         provider_native: None,
-        timestamp: 1000,
+        timestamp: 1000.0,
     })
 }
 
@@ -36,7 +36,7 @@ fn agent_message_round_trips_custom_objects_verbatim() {
 
 #[test]
 fn agent_message_round_trips_assistant_and_tool_result() {
-    let assistant = AssistantMessage::empty("openai-responses", "openai", "mock", 2000);
+    let assistant = AssistantMessage::empty("openai-responses", "openai", "mock", 2000.0);
     let message = AgentMessage::Assistant(Box::new(assistant.clone()));
     let value = serde_json::to_value(&message).unwrap();
     assert_eq!(value["role"], json!("assistant"));
@@ -51,7 +51,7 @@ fn agent_message_round_trips_assistant_and_tool_result() {
         usage: None,
         added_tool_names: None,
         is_error: false,
-        timestamp: 3000,
+        timestamp: 3000.0,
     });
     let value = serde_json::to_value(&tool_result).unwrap();
     assert_eq!(value["role"], json!("toolResult"));
@@ -189,7 +189,7 @@ fn agent_context_and_hook_contexts_are_constructible() {
             .collect::<pi_js_compat::js_json::JsObject>(),
     );
     let before = BeforeToolCallContext {
-        assistant_message: AssistantMessage::empty("api", "provider", "model", 1),
+        assistant_message: AssistantMessage::empty("api", "provider", "model", 1.0),
         tool_call: call.clone(),
         args: std::sync::Arc::new(std::sync::Mutex::new(JsValue::from(json!({})))),
         context: context.clone(),

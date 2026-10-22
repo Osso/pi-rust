@@ -765,7 +765,7 @@ async fn run_scenario(name: &str) -> Value {
                 usage: None,
                 added_tool_names: None,
                 is_error: false,
-                timestamp: 1000,
+                timestamp: 1000.0,
             };
             let mut tool = echo_tool();
             tool.execute = Arc::new(|_id, params, _signal, _on_update| {
@@ -857,7 +857,7 @@ async fn run_scenario(name: &str) -> Value {
                     Box::pin(async {
                         let (sender, stream) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
                         sender.push(pi_ai::types::AssistantMessageEvent::Start {
-                            partial: AssistantMessage::empty("openai-responses", "openai", "mock", 1000),
+                            partial: AssistantMessage::empty("openai-responses", "openai", "mock", 1000.0),
                         });
                         std::mem::forget(sender);
                         stream

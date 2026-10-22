@@ -178,7 +178,7 @@ fn block_on<F: std::future::Future>(future: F) -> F::Output {
 #[test]
 fn stream_without_terminal_event_fails() {
     let model = model("openai", "openai-responses", "gpt-5.5");
-    let mut output = AssistantMessage::empty("openai-responses", "openai", "gpt-5.5", 1234);
+    let mut output = AssistantMessage::empty("openai-responses", "openai", "gpt-5.5", 1234.0);
     let mut source = VecResponsesEventSource::new(vec![json!({
         "type": "response.created", "response": {"id": "resp_early"}
     })]);
@@ -204,7 +204,7 @@ fn stream_without_terminal_event_fails() {
 #[test]
 fn function_call_arguments_are_parsed_and_scratch_state_removed() {
     let model = model("openai", "openai-responses", "gpt-5.5");
-    let mut output = AssistantMessage::empty("openai-responses", "openai", "gpt-5.5", 1234);
+    let mut output = AssistantMessage::empty("openai-responses", "openai", "gpt-5.5", 1234.0);
     let events = vec![
         json!({"type": "response.output_item.added", "output_index": 0,
             "item": {"type": "function_call", "id": "fc_test", "call_id": "call_test", "name": "edit", "arguments": ""}}),

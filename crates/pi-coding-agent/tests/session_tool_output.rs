@@ -30,7 +30,7 @@ fn tool_result(text: &str) -> AgentMessage {
         usage: None,
         added_tool_names: None,
         is_error: false,
-        timestamp: 1,
+        timestamp: 1.0,
     })
 }
 
@@ -71,7 +71,7 @@ fn assistant_message(text: &str) -> AgentMessage {
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
-        timestamp: 1,
+        timestamp: 1.0,
     }))
 }
 

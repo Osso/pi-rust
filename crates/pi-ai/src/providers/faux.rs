@@ -113,7 +113,7 @@ pub struct FauxAssistantMessageOptions {
     pub stop_reason: Option<StopReason>,
     pub error_message: Option<pi_js_compat::js_json::JsString>,
     pub response_id: Option<String>,
-    pub timestamp: Option<i64>,
+    pub timestamp: Option<f64>,
 }
 
 /// `fauxAssistantMessage()`.
@@ -126,13 +126,13 @@ pub fn faux_assistant_message(
         FauxContent::Block(block) => vec![*block],
         FauxContent::Blocks(blocks) => blocks,
     };
-    let mut message = AssistantMessage::empty(DEFAULT_API, DEFAULT_PROVIDER, DEFAULT_MODEL_ID, 0);
+    let mut message = AssistantMessage::empty(DEFAULT_API, DEFAULT_PROVIDER, DEFAULT_MODEL_ID, 0.0);
     message.content = content;
     message.usage = default_usage();
     message.stop_reason = options.stop_reason.unwrap_or(StopReason::Stop);
     message.error_message = options.error_message;
     message.response_id = options.response_id;
-    message.timestamp = options.timestamp.unwrap_or_else(now_millis);
+    message.timestamp = options.timestamp.unwrap_or_else(|| now_millis() as f64);
     message
 }
 
@@ -565,7 +565,7 @@ fn create_error_message(
     provider: &str,
     model_id: &str,
 ) -> AssistantMessage {
-    let mut message = AssistantMessage::empty(api, provider, model_id, now_millis());
+    let mut message = AssistantMessage::empty(api, provider, model_id, now_millis() as f64);
     message.usage = default_usage();
     message.stop_reason = StopReason::Error;
     message.error_message = Some(error.into());
@@ -576,7 +576,7 @@ fn create_aborted_message(partial: &AssistantMessage) -> AssistantMessage {
     let mut message = partial.clone();
     message.stop_reason = StopReason::Aborted;
     message.error_message = Some("Request was aborted".to_owned().into());
-    message.timestamp = now_millis();
+    message.timestamp = now_millis() as f64;
     message
 }
 
@@ -729,37 +729,28 @@ async fn stream_with_deltas(
         }
     }
 
-    match message.stop_reason {
-        StopReason::Error => {
-            sender.push(AssistantMessageEvent::Error {
-                reason: ErrorReason::Error,
-                error: message.clone(),
-            });
-            sender.end(Some(message));
-            Ok(())
-        }
-        StopReason::Aborted => {
-            sender.push(AssistantMessageEvent::Error {
-                reason: ErrorReason::Aborted,
-                error: message.clone(),
-            });
-            sender.end(Some(message));
-            Ok(())
-        }
-        reason => {
-            let done_reason = match reason {
-                StopReason::Stop => DoneReason::Stop,
-                StopReason::Length => DoneReason::Length,
-                StopReason::ToolUse => DoneReason::ToolUse,
-                StopReason::Error | StopReason::Aborted => unreachable!(),
-            };
-            sender.push(AssistantMessageEvent::Done {
-                reason: done_reason,
-                message: message.clone(),
-            });
-            sender.end(Some(message));
-            Ok(())
-        }
+    let event = match message.stop_reason {
+        StopReason::Error => AssistantMessageEvent::Error {
+            reason: ErrorReason::Error,
+            error: message.clone(),
+        },
+        StopReason::Aborted => AssistantMessageEvent::Error {
+            reason: ErrorReason::Aborted,
+            error: message.clone(),
+        },
+        StopReason::Stop => completed_event(DoneReason::Stop, &message),
+        StopReason::Length => completed_event(DoneReason::Length, &message),
+        StopReason::ToolUse => completed_event(DoneReason::ToolUse, &message),
+    };
+    sender.push(event);
+    sender.end(Some(message));
+    Ok(())
+}
+
+fn completed_event(reason: DoneReason, message: &AssistantMessage) -> AssistantMessageEvent {
+    AssistantMessageEvent::Done {
+        reason,
+        message: message.clone(),
     }
 }
 

@@ -515,7 +515,7 @@ pub fn convert_responses_messages(
         &context.messages,
         model,
         Some(&normalize_tool_call_id),
-        crate::request::now_millis(),
+        crate::request::now_millis() as f64,
     );
 
     let include_system_prompt = options.include_system_prompt.unwrap_or(true);
@@ -1261,12 +1261,6 @@ fn finalize_response(
         .and_then(|details| details.get("reason"))
         .and_then(ingress_metadata_text);
     let incomplete_reason = incomplete_reason_text.as_deref();
-    output.raw_stop_reason = match (status, incomplete_reason) {
-        (Some(status), Some(reason)) => Some(format!("{status}.{reason}")),
-        (Some(status), None) => Some(status.to_owned()),
-        (None, Some(reason)) => Some(format!("undefined.{reason}")),
-        (None, None) => None,
-    };
     let mapped = map_stop_reason(status, incomplete_reason)?;
     output.stop_reason = mapped.stop_reason;
     output.error_message = mapped.error_message;
@@ -1811,11 +1805,6 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
             }
             "response.failed" => {
                 let response = event.get("response").cloned().unwrap_or(JsValue::Null);
-                output.raw_stop_reason = response
-                    .get("status")
-                    .and_then(ingress_metadata_text)
-                    .as_deref()
-                    .map(str::to_owned);
                 let error = response.get("error");
                 let details = response.get("incomplete_details");
                 let message = match error.filter(|error| is_truthy(error)) {

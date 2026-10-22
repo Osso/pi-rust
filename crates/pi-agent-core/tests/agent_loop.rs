@@ -1725,7 +1725,7 @@ async fn restarts_only_unfinished_tool_calls_when_earlier_result_exists() {
         usage: None,
         added_tool_names: None,
         is_error: false,
-        timestamp: 1000,
+        timestamp: 1000.0,
     };
     let stream = agent_loop_continue(
         context(
@@ -1797,7 +1797,7 @@ async fn allows_custom_message_types_as_last_message() {
                         ),
                         input_source: None,
                         provider_native: None,
-                        timestamp: 1000,
+                        timestamp: 1000.0,
                     }),
                     AgentMessage::User(message) => pi_ai::types::Message::User(message),
                     AgentMessage::Assistant(message) => pi_ai::types::Message::Assistant(message),

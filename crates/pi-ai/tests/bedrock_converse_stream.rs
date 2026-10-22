@@ -20,7 +20,7 @@ fn context() -> Context {
             content: UserContent::Text(("hi".to_owned()).into()),
             input_source: None,
             provider_native: None,
-            timestamp: 0,
+            timestamp: 0.0,
         })],
         tools: None,
     }
@@ -606,7 +606,7 @@ async fn converts_replayed_messages_and_documents() {
             error_message: None,
             raw_stop_reason: None,
             end_turn: None,
-            timestamp: 0,
+            timestamp: 0.0,
         })),
         pi_ai::types::Message::ToolResult(pi_ai::types::ToolResultMessage {
             role: pi_ai::types::ToolResultRole::Tag,
@@ -620,14 +620,14 @@ async fn converts_replayed_messages_and_documents() {
             usage: None,
             added_tool_names: None,
             is_error: false,
-            timestamp: 0,
+            timestamp: 0.0,
         }),
         pi_ai::types::Message::User(UserMessage {
             role: pi_ai::types::UserRole::Tag,
             content: UserContent::Text(("   ".to_owned()).into()),
             input_source: None,
             provider_native: None,
-            timestamp: 0,
+            timestamp: 0.0,
         }),
     ];
     context.tools = Some(vec![Tool::new(

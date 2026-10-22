@@ -1975,7 +1975,7 @@ async fn binds_detached_job_lifecycle_when_a_store_is_configured() {
             content: pi_ai::types::UserContent::Text(JsString::from("hello")),
             input_source: None,
             provider_native: None,
-            timestamp: 1_700_000_000_000,
+            timestamp: 1_700_000_000_000.0,
         }))
         .expect("append");
     session_manager.persist_for_recovery().expect("persist");
@@ -2146,7 +2146,7 @@ async fn update_compaction_summary_returns_the_persistence_error() {
                 content: UserContent::Text(JsString::from("kept")),
                 input_source: None,
                 provider_native: None,
-                timestamp: 1,
+                timestamp: 1.0,
             }))
             .expect("user message");
         let id = manager

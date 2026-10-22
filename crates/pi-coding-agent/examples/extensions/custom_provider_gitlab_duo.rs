@@ -366,7 +366,7 @@ impl Provider for GitlabDuo {
             }
             .await;
             if let Err(error) = run {
-                let event:AssistantMessageEvent=serde_json::from_value(json!({"type":"error","reason":"error","error":{"role":"assistant","content":[],"api":model.api,"provider":model.provider,"model":model.id,"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"error","errorMessage":error.to_string(),"timestamp":state.runtime.now() as i64}})).expect("error event");
+                let event:AssistantMessageEvent=serde_json::from_value(json!({"type":"error","reason":"error","error":{"role":"assistant","content":[],"api":model.api,"provider":model.provider,"model":model.id,"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"error","errorMessage":error.to_string(),"timestamp":state.runtime.now()}})).expect("error event");
                 tx.push(event);
             }
             tx.end(None);

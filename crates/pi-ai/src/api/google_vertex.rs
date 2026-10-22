@@ -152,8 +152,12 @@ fn run_stream(model: Model, context: Context, options: GoogleVertexOptions) -> A
     let (sender, stream) = create_assistant_message_event_stream();
     let signal = options.stream.request.signal.clone();
     tokio::spawn(async move {
-        let mut output =
-            AssistantMessage::empty("google-vertex", model.provider.clone(), model.id.clone(), now_millis());
+        let mut output = AssistantMessage::empty(
+            "google-vertex",
+            model.provider.clone(),
+            model.id.clone(),
+            now_millis() as f64,
+        );
         match run(&sender, &mut output, &model, &context, &options, signal.as_ref()).await {
             Ok(()) => {}
             Err(message) => {
@@ -263,7 +267,7 @@ fn build_params(
         tool_choice: options.tool_choice.as_deref(),
         thinking_config: thinking_config(model, options.thinking.as_ref()),
         request_aborted,
-        now: now_millis(),
+        now: now_millis() as f64,
     })
 }
 

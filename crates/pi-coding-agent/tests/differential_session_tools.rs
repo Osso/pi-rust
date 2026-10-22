@@ -1011,7 +1011,7 @@ async fn search_current_session_history_live_numbers_differential() {
             js_json::from_value::<AgentMessage>(&json!({"role":"user","content":"fixture","timestamp":1})).unwrap(),
         )
         .unwrap();
-    let mut assistant = AssistantMessage::empty("openai-responses", "openai", "fixture", 2);
+    let mut assistant = AssistantMessage::empty("openai-responses", "openai", "fixture", 2.0);
     assistant.content.push(AssistantContent::ToolCall(ToolCall::new(
         "call",
         "inspect",

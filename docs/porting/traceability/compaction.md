@@ -16,6 +16,6 @@ Frozen intentionally ignores `thinkingLevel`; requests contain only maxTokens/si
 
 Native-tree `firstKeptEntryId` replaces embedded retained tails. [Session proof](agent-core-tree-session.md).
 
-Partial dependency: `pi-ai` provider timestamps still use i64 at this checkpoint. Summary/custom creators parse timestamp strings with native Date.parse, including NaN; conversion to typed provider messages explicitly rejects non-integral/nonfinite/signed-zero/out-of-i64 values until the coordinated f64 migration. No clamp or replacement. Remove this temporary boundary with that migration before claiming full parity.
+Provider-message timestamps now retain f64. Summary/custom creators parse timestamp strings with native Date.parse, including NaN; typed conversion no longer rejects non-integral/nonfinite/signed-zero values. [Timestamp integration and bounded proof](message-timestamps.md).
 
 GREEN: `tree-compaction-dev2.log` (31 compaction +13 branch tests), `tree-compaction-oracle-dev2.log` (whole frozen matrix), `tree-native-boundaries-dev.log`. Artifacts under `/tmp/pi-rust-repin-delta-agent-core/`; no final suite claim.

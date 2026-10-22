@@ -41,7 +41,7 @@ fn user_message(content: &str, input_source: Option<pi_ai::types::InputSource>, 
         content: UserContent::Text(content.to_owned().into()),
         input_source,
         provider_native: None,
-        timestamp,
+        timestamp: timestamp as f64,
     })
 }
 
@@ -61,7 +61,7 @@ fn assistant_message(text: &str) -> AgentMessage {
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
-        timestamp: 0,
+        timestamp: 0.0,
     }))
 }
 

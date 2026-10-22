@@ -5,7 +5,7 @@ fn error_message(message: &str) -> AssistantMessage {
     AssistantMessage {
         stop_reason: StopReason::Error,
         error_message: Some(message.to_owned().into()),
-        ..AssistantMessage::empty("openai-completions", "ollama", "qwen3.5:35b", 1)
+        ..AssistantMessage::empty("openai-completions", "ollama", "qwen3.5:35b", 1.0)
     }
 }
 
@@ -20,7 +20,7 @@ fn length_stop(input: f64, cache_read: f64, cache_write: f64, output: f64) -> As
             ..Usage::default()
         },
         stop_reason: StopReason::Length,
-        ..AssistantMessage::empty("openai-completions", "test-provider", "test-model", 1)
+        ..AssistantMessage::empty("openai-completions", "test-provider", "test-model", 1.0)
     }
 }
 

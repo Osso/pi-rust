@@ -50,7 +50,7 @@ fn test_model(provider: &str, id: &str) -> Model {
 }
 
 fn done_message(model: &Model, text: &str) -> AssistantMessage {
-    let mut message = AssistantMessage::empty(&model.api, &model.provider, &model.id, 1);
+    let mut message = AssistantMessage::empty(&model.api, &model.provider, &model.id, 1.0);
     message.content = vec![AssistantContent::Text(TextContent::new(text))];
     message.stop_reason = StopReason::Stop;
     message
@@ -64,7 +64,7 @@ fn context() -> Context {
             content: pi_ai::types::UserContent::Text(("hi".to_owned()).into()),
             input_source: None,
             provider_native: None,
-            timestamp: 1,
+            timestamp: 1.0,
         })],
         tools: None,
     }

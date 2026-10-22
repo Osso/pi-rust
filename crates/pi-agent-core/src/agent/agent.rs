@@ -790,7 +790,7 @@ impl Agent {
             state.model.api.clone(),
             state.model.provider.clone(),
             state.model.id.clone(),
-            pi_ai::request::now_millis(),
+            pi_ai::request::now_millis() as f64,
         );
         message.content = vec![pi_ai::types::AssistantContent::Text(TextContent::new(""))];
         if let Some(partial) = partial.and_then(AgentMessage::as_assistant) {
@@ -1035,7 +1035,7 @@ fn normalize_prompt_input(input: PromptInput, images: Vec<ImageContent>) -> Vec<
                 content: UserContent::Blocks(content),
                 input_source: None,
                 provider_native: None,
-                timestamp: pi_ai::request::now_millis(),
+                timestamp: pi_ai::request::now_millis() as f64,
             })]
         }
     }

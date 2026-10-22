@@ -219,7 +219,7 @@ async fn run_hosted_web_search(request: WebSearchRequest) -> Result<JsString, Js
             content: UserContent::Text(request.query.clone().into()),
             input_source: None,
             provider_native: None,
-            timestamp: crate::core::compaction::now_millis(),
+            timestamp: pi_js_compat::date::js_now_millis(),
         })],
         tools: None,
     };

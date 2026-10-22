@@ -524,7 +524,7 @@ async fn passes_active_abort_signal_to_subscribers() {
         Box::pin(async move {
             let (sender, stream) = create_assistant_message_event_stream();
             sender.push(AssistantMessageEvent::Start {
-                partial: AssistantMessage::empty("openai-responses", "openai", "mock", 1000),
+                partial: AssistantMessage::empty("openai-responses", "openai", "mock", 1000.0),
             });
             tokio::spawn(async move {
                 loop {
@@ -576,7 +576,7 @@ async fn aborts_active_model_request_when_steering_is_queued() {
         Box::pin(async move {
             let (sender, stream) = create_assistant_message_event_stream();
             sender.push(AssistantMessageEvent::Start {
-                partial: AssistantMessage::empty("openai-responses", "openai", "mock", 1000),
+                partial: AssistantMessage::empty("openai-responses", "openai", "mock", 1000.0),
             });
             tokio::spawn(async move {
                 loop {
@@ -792,7 +792,7 @@ async fn reset_during_pending_response_keeps_run_reserved_and_completes() {
         Box::pin(async move {
             let (sender, stream) = create_assistant_message_event_stream();
             sender.push(AssistantMessageEvent::Start {
-                partial: AssistantMessage::empty("openai-responses", "openai", "mock", 1000),
+                partial: AssistantMessage::empty("openai-responses", "openai", "mock", 1000.0),
             });
             tokio::spawn(async move {
                 release_hook.notified().await;
@@ -845,7 +845,7 @@ async fn aborting_agent() -> Agent {
         Box::pin(async move {
             let (sender, stream) = create_assistant_message_event_stream();
             sender.push(AssistantMessageEvent::Start {
-                partial: AssistantMessage::empty("openai-responses", "openai", "mock", 1000),
+                partial: AssistantMessage::empty("openai-responses", "openai", "mock", 1000.0),
             });
             tokio::spawn(async move {
                 loop {

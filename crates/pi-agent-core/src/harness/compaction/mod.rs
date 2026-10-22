@@ -731,8 +731,7 @@ pub(super) async fn complete_summary(
             content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(prompt))]),
             input_source: None,
             provider_native: None,
-            timestamp: crate::harness::messages::checked_provider_timestamp(now_ms())
-                .map_err(message_conversion_failure)?,
+            timestamp: now_ms(),
         })],
         tools: None,
     };

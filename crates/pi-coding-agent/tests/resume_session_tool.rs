@@ -19,7 +19,7 @@ fn seed_message(text: &str, timestamp: i64) -> pi_agent_core::AgentMessage {
 }
 
 fn seed_assistant(text: &str, timestamp: i64) -> pi_agent_core::AgentMessage {
-    let mut message = pi_ai::types::AssistantMessage::empty("openai-responses", "openai", "gpt-5.5", timestamp);
+    let mut message = pi_ai::types::AssistantMessage::empty("openai-responses", "openai", "gpt-5.5", timestamp as f64);
     message
         .content
         .push(pi_ai::types::AssistantContent::Text(pi_ai::types::TextContent::new(

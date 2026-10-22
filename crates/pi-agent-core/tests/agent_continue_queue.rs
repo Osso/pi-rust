@@ -52,7 +52,7 @@ async fn processes_agent_end_follow_up_before_continuing_terminal_tool_result_ta
             usage: None,
             added_tool_names: None,
             is_error: false,
-            timestamp: 1000,
+            timestamp: 1000.0,
         }),
     ]);
     agent.follow_up(AgentMessage::User(user_block("Queued follow-up")));

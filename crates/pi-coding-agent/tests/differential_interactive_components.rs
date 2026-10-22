@@ -129,6 +129,17 @@ fn config_selector_matches_the_pinned_typescript_source() {
 }
 
 #[test]
+fn status_indicators_match_the_pinned_typescript_source() {
+    install_theme();
+    let mut oracle = oracle::TsOracle::spawn("interactive-components-oracle.ts", "packages/coding-agent/src");
+    for (request, actual) in status_indicator_cases() {
+        let expected = oracle.request(&request);
+        assert_eq!(expected["ok"], true, "{expected}");
+        assert_eq!(actual, expected["output"], "{request}");
+    }
+}
+
+#[test]
 fn interactive_leaf_helpers_match_the_pinned_typescript_source() {
     install_theme();
     let mut oracle = oracle::TsOracle::spawn("interactive-components-oracle.ts", "packages/coding-agent/src");
@@ -150,7 +161,6 @@ fn requests() -> Vec<(Value, Value)> {
     cases.extend(compaction_summary_cases());
     cases.extend(assistant_message_cases());
     cases.extend(bordered_loader_cases());
-    cases.extend(status_indicator_cases());
     cases.extend(extension_input_cases());
     cases.extend(extension_editor_cases());
     cases.extend(first_time_setup_cases());
@@ -653,7 +663,7 @@ fn assistant_fixture(content: Vec<AssistantContent>, stop_reason: StopReason) ->
         model: "gpt-4o-mini".to_owned(),
         usage: Usage::default(),
         stop_reason,
-        timestamp: 1_700_000_000_000,
+        timestamp: 1_700_000_000_000.0,
         response_model: None,
         response_id: None,
         image_generation_result: None,
@@ -842,7 +852,7 @@ fn status_indicator_cases() -> Vec<(Value, Value)> {
     );
     working.dispose();
 
-    let mut retry = RetryStatusIndicator::new(std::rc::Rc::new(|| {}), 1, 3, 2500);
+    let mut retry = RetryStatusIndicator::new(std::rc::Rc::new(|| {}), 1.0, 3.0, 2500.0);
     push(
         81,
         json!({
@@ -1320,7 +1330,7 @@ fn tree_entries_user(
             content: UserContent::Text(JsString::from(content.to_owned())),
             input_source: None,
             provider_native: None,
-            timestamp: 0,
+            timestamp: 0.0,
         })),
     }))
 }
@@ -1333,7 +1343,7 @@ fn tree_entries_assistant(
     use pi_agent_core::agent::AgentMessage;
     use pi_ai::types::{AssistantContent, AssistantMessage, StopReason, TextContent};
     use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry, SessionMessageEntry};
-    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4", 0);
+    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4", 0.0);
     message.content = vec![AssistantContent::Text(TextContent::new(text))];
     message.stop_reason = StopReason::Stop;
     SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
@@ -2115,7 +2125,7 @@ fn footer_cases() -> Vec<(Value, Value)> {
                 manager
                     .set_session_name(Some(&JsString::from("Test Session")))
                     .expect("session name");
-                let mut assistant = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux-1", 0);
+                let mut assistant = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux-1", 0.0);
                 assistant.usage.input = input;
                 assistant.usage.output = output;
                 assistant.usage.cache_read = cache_read;
@@ -2140,7 +2150,7 @@ fn footer_cases() -> Vec<(Value, Value)> {
                             }),
                             added_tool_names: None,
                             is_error: false,
-                            timestamp: 0,
+                            timestamp: 0.0,
                         },
                     ))
                     .expect("tool result");
@@ -2159,7 +2169,7 @@ fn footer_cases() -> Vec<(Value, Value)> {
                 manager
                     .set_session_name(Some(&JsString::from("Override Session")))
                     .expect("override name");
-                let mut assistant = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux-1", 0);
+                let mut assistant = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux-1", 0.0);
                 assistant.usage.input = 7000.0;
                 assistant.usage.output = 8000.0;
                 assistant.usage.cache_read = 9000.0;

@@ -27,7 +27,7 @@ fn user_message(text: &str, timestamp: i64) -> AgentMessage {
         content: UserContent::Text(JsString::from(text.to_owned())),
         input_source: None,
         provider_native: None,
-        timestamp,
+        timestamp: timestamp as f64,
     })
 }
 
@@ -47,7 +47,7 @@ fn assistant_message(text: &str, timestamp: i64) -> AgentMessage {
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
-        timestamp,
+        timestamp: timestamp as f64,
     }))
 }
 
@@ -61,7 +61,7 @@ fn tool_result_message(tool_call_id: &str, text: &str) -> AgentMessage {
         usage: None,
         added_tool_names: None,
         is_error: false,
-        timestamp: 1,
+        timestamp: 1.0,
     })
 }
 
@@ -333,7 +333,7 @@ fn drops_orphaned_tool_results_from_capped_pre_compaction_suffix() {
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
-        timestamp: 1,
+        timestamp: 1.0,
     }));
     let entries = vec![
         user_entry("1", None, "start"),
@@ -1395,7 +1395,7 @@ fn session_info_listing_uses_message_timestamps_and_skips_extension_prompts() {
             content: UserContent::Text(JsString::from("coordination update")),
             input_source: Some(pi_ai::types::InputSource::Extension),
             provider_native: None,
-            timestamp: 1,
+            timestamp: 1.0,
         }))
         .unwrap();
     session

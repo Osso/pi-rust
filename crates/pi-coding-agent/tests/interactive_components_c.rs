@@ -153,7 +153,7 @@ fn assistant_message(content: Vec<AssistantContent>, stop_reason: StopReason) ->
         model: "gpt-4o-mini".to_owned(),
         usage: Usage::default(),
         stop_reason,
-        timestamp: 0,
+        timestamp: 0.0,
         response_model: None,
         response_id: None,
         image_generation_result: None,
@@ -483,7 +483,12 @@ fn retry_status_formats_countdown_and_disposes() {
     theme();
     let renders = std::rc::Rc::new(Cell::new(0));
     let counter = renders.clone();
-    let mut indicator = RetryStatusIndicator::new(std::rc::Rc::new(move || counter.set(counter.get() + 1)), 1, 3, 2500);
+    let mut indicator = RetryStatusIndicator::new(
+        std::rc::Rc::new(move || counter.set(counter.get() + 1)),
+        1.0,
+        3.0,
+        2500.0,
+    );
     let rendered = plain(&indicator.render(80));
     assert!(rendered.contains("Retrying (1/3) in 3s..."), "{rendered:?}");
     let calls_before_dispose = renders.get();
@@ -1069,13 +1074,13 @@ fn user_entry(id: &str, parent_id: Option<&str>, content: &str) -> SessionEntry 
             content: UserContent::Text(JsString::from(content.to_owned())),
             input_source: None,
             provider_native: None,
-            timestamp: 0,
+            timestamp: 0.0,
         })),
     }))
 }
 
 fn assistant_entry(id: &str, parent_id: Option<&str>, text: &str) -> SessionEntry {
-    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4", 0);
+    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4", 0.0);
     message.content = vec![pi_ai::types::AssistantContent::Text(pi_ai::types::TextContent::new(
         text,
     ))];
@@ -1090,7 +1095,7 @@ fn assistant_entry(id: &str, parent_id: Option<&str>, text: &str) -> SessionEntr
 }
 
 fn tool_only_assistant_entry(id: &str, parent_id: Option<&str>) -> SessionEntry {
-    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4", 0);
+    let mut message = AssistantMessage::empty("anthropic-messages", "anthropic", "claude-sonnet-4", 0.0);
     message.content = vec![pi_ai::types::AssistantContent::ToolCall(pi_ai::types::ToolCall::new(
         format!("tc-{id}"),
         "read",
@@ -1129,7 +1134,7 @@ fn tool_result_entry(id: &str, parent_id: Option<&str>, tool_call_id: &str, text
             usage: None,
             added_tool_names: None,
             is_error: false,
-            timestamp: 0,
+            timestamp: 0.0,
         })),
     }))
 }
@@ -1860,7 +1865,7 @@ fn assistant_with_usage(
     cache_write: f64,
     cost: f64,
 ) -> pi_ai::types::AssistantMessage {
-    let mut message = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux-1", 0);
+    let mut message = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux-1", 0.0);
     message.usage.input = input;
     message.usage.output = output;
     message.usage.cache_read = cache_read;
@@ -1901,7 +1906,7 @@ async fn footer_renders_override_stats_context_and_model() {
                 }),
                 added_tool_names: None,
                 is_error: false,
-                timestamp: 0,
+                timestamp: 0.0,
             }))
             .expect("append tool result");
     }

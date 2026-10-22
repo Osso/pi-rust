@@ -647,7 +647,7 @@ async fn import_from_jsonl_switches_to_the_imported_session() {
             content: pi_ai::types::UserContent::Text(JsString::from("imported")),
             input_source: None,
             provider_native: None,
-            timestamp: 1_700_000_000_000,
+            timestamp: 1_700_000_000_000.0,
         }))
         .expect("append");
     source_manager.persist_for_recovery().expect("persist");
@@ -732,7 +732,7 @@ async fn bound_runtime_actions_relocate_through_the_extension_context() {
             content: pi_ai::types::UserContent::Text(JsString::from("relocate me")),
             input_source: None,
             provider_native: None,
-            timestamp: 1,
+            timestamp: 1.0,
         }))
         .expect("append user message");
 
@@ -817,7 +817,7 @@ async fn import_through_a_symlinked_session_dir_preserves_the_source_file() {
             content: pi_ai::types::UserContent::Text(JsString::from("symlinked import")),
             input_source: None,
             provider_native: None,
-            timestamp: 1_700_000_000_001,
+            timestamp: 1_700_000_000_001.0,
         }))
         .expect("append");
     source_manager.persist_for_recovery().expect("persist");

@@ -13,7 +13,7 @@ fn user_text(text: &str) -> Message {
         content: UserContent::Text((text.to_owned()).into()),
         input_source: None,
         provider_native: None,
-        timestamp: 1,
+        timestamp: 1.0,
     })
 }
 
@@ -23,7 +23,7 @@ fn user_blocks(blocks: Vec<TextOrImageContent>) -> Message {
         content: UserContent::Blocks(blocks),
         input_source: None,
         provider_native: None,
-        timestamp: 1,
+        timestamp: 1.0,
     })
 }
 
@@ -32,7 +32,7 @@ fn assistant() -> Message {
         "openai-completions",
         "github-copilot",
         "gpt-5",
-        1,
+        1.0,
     )))
 }
 
@@ -46,7 +46,7 @@ fn tool_result(blocks: Vec<TextOrImageContent>) -> Message {
         usage: None,
         added_tool_names: None,
         is_error: false,
-        timestamp: 1,
+        timestamp: 1.0,
     })
 }
 

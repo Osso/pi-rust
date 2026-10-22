@@ -376,7 +376,7 @@ pub fn build_title_context(exchange: &FirstExchange) -> Context {
             content: UserContent::Text(content.into()),
             input_source: None,
             provider_native: None,
-            timestamp: now_millis(),
+            timestamp: pi_js_compat::date::js_now_millis(),
         })],
         tools: None,
     }
@@ -524,8 +524,4 @@ fn report_autoname_failure(error: &HandlerError, signal_cancelled: bool) {
         return;
     }
     eprintln!("Session autoname failed: {error}");
-}
-
-fn now_millis() -> i64 {
-    pi_ai::request::now_millis()
 }

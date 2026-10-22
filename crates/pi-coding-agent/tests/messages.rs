@@ -11,13 +11,13 @@ fn accepts_conversational_boundaries_and_rejects_continuation_messages() {
         content: UserContent::Text(JsString::from("continue")),
         input_source: None,
         provider_native: None,
-        timestamp: 1,
+        timestamp: 1.0,
     });
     let assistant = AgentMessage::Assistant(Box::new(pi_ai::types::AssistantMessage::empty(
         "anthropic-messages",
         "anthropic",
         "test-model",
-        1,
+        1.0,
     )));
     let tool_result = AgentMessage::ToolResult(pi_ai::types::ToolResultMessage {
         role: pi_ai::types::ToolResultRole::Tag,
@@ -28,7 +28,7 @@ fn accepts_conversational_boundaries_and_rejects_continuation_messages() {
         usage: None,
         added_tool_names: None,
         is_error: false,
-        timestamp: 1,
+        timestamp: 1.0,
     });
     let custom = AgentMessage::Custom(
         (serde_json::Map::from_iter([

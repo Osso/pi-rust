@@ -135,7 +135,7 @@ fn context() -> Context {
             content: UserContent::Text(("hi".to_owned()).into()),
             input_source: None,
             provider_native: None,
-            timestamp: 0,
+            timestamp: 0.0,
         })],
         tools: None,
     }

@@ -11170,12 +11170,12 @@ impl InteractiveMode {
                 self.retry_countdown.borrow_mut().take();
                 let attempt = event.attempt;
                 let max_attempts = event.max_attempts;
-                let retry_message = move |seconds: i64| {
+                let retry_message = move |seconds: f64| {
                     js_format!(
                         "Retrying ({}/{}) in {}s... ({} to cancel)",
                         attempt,
                         max_attempts,
-                        seconds,
+                        pi_js_compat::number::js_number_to_string(seconds),
                         crate::modes::interactive::components::keybinding_hints::key_text("app.interrupt")
                     )
                 };
@@ -11187,13 +11187,13 @@ impl InteractiveMode {
                     Rc::clone(&request_render),
                     Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Warning, text))),
                     Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Muted, text))),
-                    retry_message((event.delay_ms / 1000.0).ceil() as i64),
+                    retry_message((event.delay_ms / 1000.0).ceil()),
                     Some(self.get_working_loader_indicator(WorkingLoaderView::Main)),
                 ));
                 *self.retry_loader.borrow_mut() = Some(Rc::clone(&loader));
                 let tick_loader = Rc::clone(&loader);
                 let countdown = CountdownTimer::new(
-                    event.delay_ms.max(0.0) as u64,
+                    event.delay_ms,
                     Some(request_render),
                     Rc::new(move |seconds| set_loader_message(&tick_loader, retry_message(seconds))),
                     Rc::new(|| {}),
@@ -12741,7 +12741,7 @@ mod ui_tests {
                             content: pi_ai::types::UserContent::Text("resume target prompt".into()),
                             input_source: None,
                             provider_native: None,
-                            timestamp: 1,
+                            timestamp: 1.0,
                         },
                     ))
                     .expect("append message");
@@ -13514,7 +13514,7 @@ mod ui_tests {
                     content: pi_ai::types::UserContent::Text((*text).into()),
                     input_source: None,
                     provider_native: None,
-                    timestamp: 0,
+                    timestamp: 0.0,
                 }))
                 .expect("child message");
         }
@@ -14094,7 +14094,7 @@ mod ui_tests {
                         content: pi_ai::types::UserContent::Text("second child message".into()),
                         input_source: None,
                         provider_native: None,
-                        timestamp: 0,
+                        timestamp: 0.0,
                     }))
                     .expect("append child message");
                 manager.persist_for_recovery().expect("persist child");
@@ -15252,7 +15252,7 @@ mod ui_tests {
                         content: pi_ai::types::UserContent::Text(text.into()),
                         input_source,
                         provider_native: None,
-                        timestamp: 1,
+                        timestamp: 1.0,
                     })
                 };
                 {
@@ -15305,7 +15305,7 @@ mod ui_tests {
                 let previous = faux_assistant_message(
                     "previous",
                     pi_ai::providers::faux::FauxAssistantMessageOptions {
-                        timestamp: Some(0),
+                        timestamp: Some(0.0),
                         ..Default::default()
                     },
                 );
@@ -15323,7 +15323,7 @@ mod ui_tests {
                 let mut current = faux_assistant_message(
                     "current",
                     pi_ai::providers::faux::FauxAssistantMessageOptions {
-                        timestamp: Some(600_000),
+                        timestamp: Some(600_000.0),
                         ..Default::default()
                     },
                 );
@@ -15368,7 +15368,7 @@ mod ui_tests {
                     usage: None,
                     added_tool_names: None,
                     is_error: false,
-                    timestamp: 0,
+                    timestamp: 0.0,
                 };
                 let entries = vec![
                     SessionEntry::Known(KnownSessionEntry::Message(
@@ -15668,7 +15668,7 @@ mod ui_tests {
                     content: pi_ai::types::UserContent::Text("prepared-bubble-marker".into()),
                     input_source: None,
                     provider_native: None,
-                    timestamp: 1,
+                    timestamp: 1.0,
                 });
 
                 prepared_user_message_callback()(&message);
