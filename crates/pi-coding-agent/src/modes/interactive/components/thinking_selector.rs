@@ -3,6 +3,7 @@
 use std::rc::Rc;
 
 use pi_agent_core::ThinkingLevel;
+use pi_js_compat::js_json::JsString;
 use pi_tui::components::select_list::{SelectItem, SelectList, SelectListLayoutOptions};
 use pi_tui::tui::{Component, ComponentRef, Container, component};
 
@@ -28,18 +29,19 @@ fn level_description(level: ThinkingLevel) -> &'static str {
     }
 }
 
-fn parse_level(value: &str) -> Option<ThinkingLevel> {
-    match value {
-        "off" => Some(ThinkingLevel::Off),
-        "minimal" => Some(ThinkingLevel::Minimal),
-        "low" => Some(ThinkingLevel::Low),
-        "medium" => Some(ThinkingLevel::Medium),
-        "high" => Some(ThinkingLevel::High),
-        "xhigh" => Some(ThinkingLevel::XHigh),
-        "max" => Some(ThinkingLevel::Max),
-        "ultra" => Some(ThinkingLevel::Ultra),
-        _ => None,
-    }
+fn parse_level(value: &JsString) -> Option<ThinkingLevel> {
+    [
+        ThinkingLevel::Off,
+        ThinkingLevel::Minimal,
+        ThinkingLevel::Low,
+        ThinkingLevel::Medium,
+        ThinkingLevel::High,
+        ThinkingLevel::XHigh,
+        ThinkingLevel::Max,
+        ThinkingLevel::Ultra,
+    ]
+    .into_iter()
+    .find(|level| value == level.as_str())
 }
 
 /// Thinking level selector with borders.
@@ -95,7 +97,7 @@ impl ThinkingSelectorComponent {
 }
 
 impl Component for ThinkingSelectorComponent {
-    fn render(&mut self, width: usize) -> Vec<String> {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
         self.container.render(width)
     }
 
