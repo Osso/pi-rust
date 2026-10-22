@@ -75,6 +75,6 @@ replacement retains a byte offset instead of the frozen UTF16 offset. Source
 also permits `a` → `😀`, leaving cursor UTF16 index1 inside a surrogate pair;
 render separates the halves with ANSI bytes, and inserting `!` yields a value
 with lone surrogates. Current Rust String API cannot express those strings.
-User decision is pending, not an approved gap or approximation. Production is
+User chose “Widen Input to UTF-16” on 2026-10-21; no representation gap or approximation is approved. Native migration/proof is in progress; this historical checkpoint is not current acceptance. Production is
 unchanged; mixed BMP/astral/combining regression patch and exact frozen outputs
 are saved under `/tmp/pi-rust-repin-tui-components-fix/` (see REPORT.md).
