@@ -91,8 +91,8 @@ fn both_errors_keep_raw_human_units_and_native_cause_messages() {
     assert_eq!(outer.message.units(), text.units());
     let cause = outer.source().unwrap().downcast_ref::<CompactionError>().unwrap();
     assert_eq!(cause.message.units(), text.units());
-    assert_eq!(outer.to_string(), "\uFFFD!\uFFFD");
-    assert_eq!(cause.to_string(), "\uFFFD!\uFFFD");
+    assert_eq!(outer.to_string(), "�!�");
+    assert_eq!(cause.to_string(), "�!�");
 }
 
 #[test]

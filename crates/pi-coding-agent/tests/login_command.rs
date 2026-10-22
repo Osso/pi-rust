@@ -16,8 +16,8 @@ use pi_coding_agent::cli::login_command::{
 };
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
-use serde_json::{Map, Value};
 use pi_js_compat::js_json::JsString;
+use serde_json::{Map, Value};
 
 struct TestIo {
     lines: Mutex<Vec<String>>,
@@ -466,17 +466,23 @@ fn prints_usage_for_help_and_unknown_flags() {
 fn raw_oauth_error_reaches_captured_stderr_without_display_projection() {
     runtime().block_on(async {
         let model_runtime = create_runtime(auth_storage()).await;
-        model_runtime.register_native_provider(oauth_provider("raw-error", "Raw Provider", Box::new(|_| Box::pin(async {
-            Err(AuthError::failed(JsString::from_utf16(vec![0xd800, 0x21, 0xdfff])))
-        }))));
+        model_runtime.register_native_provider(oauth_provider(
+            "raw-error",
+            "Raw Provider",
+            Box::new(|_| Box::pin(async { Err(AuthError::failed(JsString::from_utf16(vec![0xd800, 0x21, 0xdfff]))) })),
+        ));
         let io = TestIo::new(&[]);
         let exit = run_login_command(RunLoginCommandOptions {
-            model_runtime, provider_id: "raw-error".into(), io: io.clone(),
-            use_browser_cli: false, open_browser_cli_url: None,
-        }).await;
+            model_runtime,
+            provider_id: "raw-error".into(),
+            io: io.clone(),
+            use_browser_cli: false,
+            open_browser_cli_url: None,
+        })
+        .await;
         assert_eq!(exit, 1);
         assert!(io.error().contains(&JsString::from_utf16(vec![0xd800, 0x21, 0xdfff])));
-        assert!(!io.error().contains("\uFFFD"));
+        assert!(!io.error().contains("�"));
     });
 }
 
