@@ -109,3 +109,12 @@ including scroll selection, selected item values, actual `onSelect` raw callback
 raw prefix filters, no-match paths, and wide description columns. Interface RED then
 source differential GREEN. Custom primary callback raw signature migrated; dedicated
 custom callback corpus pending.
+
+## Fuzzy matcher
+
+Queries, lowercase input, swap-alphanumeric fragments, slash/whitespace tokens and
+candidate strings are native UTF-16. Generic query/candidate inputs lift once into
+`JsString`; matching/scoring has no scalar alternate path. `raw_fuzzy` compares
+7 raw queries against 6 concrete candidates, matching scores and filter identity:
+high, low, half-pair, pair/slash, digit/letter swaps, Greek combining/lowercase tokens.
+Native API RED then frozen source differential GREEN.

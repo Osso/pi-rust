@@ -39,7 +39,12 @@ async function main(): Promise<void> {
 					states.push({ value: input.getValue(), cursor: (input as unknown as { cursor: number }).cursor, lines: input.render(request.width) });
 				}
 				output = { states, submitted };
-			} else if (request.operation === "select") {
+			} else if (request.operation === "fuzzy") {
+                const module = await import(pathToFileURL(path.join(source, "fuzzy.ts")).href);
+                const query = native(request.query);
+                const items = request.items.map(native);
+                output = [items.map((item: string) => { const result = module.fuzzyMatch(query, item); return [result.matches, result.score]; }), module.fuzzyFilter(items, query, (item: string) => item)];
+            } else if (request.operation === "select") {
                 output = await captureSelect(source, native(request.units), request.width);
             } else if (request.operation === "components") {
                 output = await captureComponents(source, native(request.units), request.width, request.padding);

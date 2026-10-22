@@ -4,7 +4,8 @@
 //! Lower score is better. Ported from `packages/tui/src/fuzzy.ts`; scoring runs
 //! over UTF-16 code units so astral characters keep the TypeScript index weights.
 
-use pi_js_compat::string::{is_js_whitespace_char, is_js_whitespace_unit, js_trim};
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::string::is_js_whitespace_unit;
 
 /// Result of a fuzzy match attempt.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -19,7 +20,9 @@ const NO_MATCH: FuzzyMatch = FuzzyMatch {
 };
 
 /// Match `query` against `text` using the TypeScript algorithm.
-pub fn fuzzy_match(query: &str, text: &str) -> FuzzyMatch {
+pub fn fuzzy_match(query: impl Into<JsString>, text: impl Into<JsString>) -> FuzzyMatch {
+    let query = query.into();
+    let text = text.into();
     let query_lower = query.to_lowercase();
     let text_lower = text.to_lowercase();
 
@@ -43,9 +46,9 @@ pub fn fuzzy_match(query: &str, text: &str) -> FuzzyMatch {
     }
 }
 
-fn match_query(normalized_query: &str, text_lower: &str) -> FuzzyMatch {
-    let query: Vec<u16> = normalized_query.encode_utf16().collect();
-    let text: Vec<u16> = text_lower.encode_utf16().collect();
+fn match_query(normalized_query: &JsString, text_lower: &JsString) -> FuzzyMatch {
+    let query = normalized_query.units();
+    let text = text_lower.units();
 
     if query.is_empty() {
         return FuzzyMatch {
@@ -110,24 +113,24 @@ fn is_word_boundary_unit(unit: u16) -> bool {
     matches!(unit, 0x20 | 0x2d | 0x5f | 0x2e | 0x2f | 0x3a) || is_js_whitespace_unit(unit)
 }
 
-fn swapped_alphanumeric(query_lower: &str) -> Option<String> {
-    let bytes = query_lower.as_bytes();
-    let letters_then_digits = bytes.iter().position(|byte| byte.is_ascii_digit());
+fn swapped_alphanumeric(query_lower: &JsString) -> Option<JsString> {
+    let bytes = query_lower.units();
+    let letters_then_digits = bytes.iter().position(|byte| (48..=57).contains(byte));
     if let Some(split) = letters_then_digits
         && split > 0
-        && bytes[..split].iter().all(u8::is_ascii_lowercase)
-        && bytes[split..].iter().all(u8::is_ascii_digit)
+        && bytes[..split].iter().all(|unit| (97..=122).contains(unit))
+        && bytes[split..].iter().all(|unit| (48..=57).contains(unit))
     {
-        return Some(format!("{}{}", &query_lower[split..], &query_lower[..split]));
+        return Some(query_lower.slice(split, query_lower.len()) + query_lower.slice(0, split));
     }
 
-    let digits_then_letters = bytes.iter().position(|byte| byte.is_ascii_lowercase());
+    let digits_then_letters = bytes.iter().position(|byte| (97..=122).contains(byte));
     if let Some(split) = digits_then_letters
         && split > 0
-        && bytes[..split].iter().all(u8::is_ascii_digit)
-        && bytes[split..].iter().all(u8::is_ascii_lowercase)
+        && bytes[..split].iter().all(|unit| (48..=57).contains(unit))
+        && bytes[split..].iter().all(|unit| (97..=122).contains(unit))
     {
-        return Some(format!("{}{}", &query_lower[split..], &query_lower[..split]));
+        return Some(query_lower.slice(split, query_lower.len()) + query_lower.slice(0, split));
     }
 
     None
@@ -138,15 +141,21 @@ fn swapped_alphanumeric(query_lower: &str) -> Option<String> {
 /// Supports whitespace- and slash-separated tokens: all tokens must match.
 /// Each token is scored against every candidate returned by `get_text`
 /// independently; candidates are never concatenated.
-pub fn fuzzy_filter<T: Clone>(items: &[T], query: &str, get_text: impl Fn(&T) -> Vec<String>) -> Vec<T> {
-    let trimmed_query = js_trim(query);
+pub fn fuzzy_filter<T: Clone, S: Into<JsString>>(
+    items: &[T],
+    query: impl Into<JsString>,
+    get_text: impl Fn(&T) -> Vec<S>,
+) -> Vec<T> {
+    let trimmed_query = query.into().trim();
     if trimmed_query.is_empty() {
         return items.to_vec();
     }
 
-    let tokens: Vec<&str> = trimmed_query
-        .split(|ch: char| is_js_whitespace_char(ch) || ch == '/')
+    let tokens: Vec<JsString> = trimmed_query
+        .units()
+        .split(|unit| is_js_whitespace_unit(*unit) || *unit == u16::from(b'/'))
         .filter(|token| !token.is_empty())
+        .map(|token| JsString::from_utf16(token.to_vec()))
         .collect();
     if tokens.is_empty() {
         return items.to_vec();
@@ -154,7 +163,7 @@ pub fn fuzzy_filter<T: Clone>(items: &[T], query: &str, get_text: impl Fn(&T) ->
 
     let mut results: Vec<(T, f64)> = Vec::new();
     for item in items {
-        let candidates = get_text(item);
+        let candidates: Vec<JsString> = get_text(item).into_iter().map(Into::into).collect();
         let mut total_score = 0.0;
         let mut all_match = true;
 
@@ -177,7 +186,7 @@ pub fn fuzzy_filter<T: Clone>(items: &[T], query: &str, get_text: impl Fn(&T) ->
     results.into_iter().map(|(item, _)| item).collect()
 }
 
-fn best_token_match(token: &str, candidates: &[String]) -> FuzzyMatch {
+fn best_token_match(token: &JsString, candidates: &[JsString]) -> FuzzyMatch {
     let mut best = NO_MATCH;
     for candidate in candidates {
         let matched = fuzzy_match(token, candidate);
