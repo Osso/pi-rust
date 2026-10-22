@@ -79,7 +79,7 @@ fn matches_node_base64_semantics() {
         .collect();
     let actual_atob: Vec<String> = VALUES
         .iter()
-        .map(|value| match atob(value) {
+        .map(|value| match atob(&(*value).into()) {
             Ok(bytes) => hex(&bytes),
             Err(_) => "ERR".to_owned(),
         })
