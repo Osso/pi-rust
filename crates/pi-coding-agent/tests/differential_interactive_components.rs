@@ -1718,7 +1718,7 @@ fn custom_tool_definition(call: &'static str, result: &'static str, shell: Rende
     ToolDefinition {
         name: "custom_tool".to_owned(),
         label: "custom_tool".into(),
-        description: JsString::new(),
+        description: JsString::default(),
         prompt_snippet: None,
         prompt_guidelines: None,
         approval_required: None,
