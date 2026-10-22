@@ -21,6 +21,8 @@ use std::time::Duration;
 
 use pi_agent_core::ThinkingLevel;
 use pi_js_compat::compare_in_locale;
+use pi_js_compat::js_format;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::number::parse_int;
 use pi_tui::components::editor::EditorTheme;
 use pi_tui::components::markdown::MarkdownTheme;
@@ -679,32 +681,32 @@ impl Theme {
     }
 
     /// Wrap `text` in the foreground color and reset only the foreground.
-    pub fn fg(&self, color: ThemeColor, text: &str) -> String {
-        format!("{}{text}\x1b[39m", self.fg_ansi(color))
+    pub fn fg(&self, color: ThemeColor, text: impl Into<JsString>) -> JsString {
+        js_format!("{}{}\x1b[39m", self.fg_ansi(color), text)
     }
 
     /// Wrap `text` in the background color and reset only the background.
-    pub fn bg(&self, color: ThemeBg, text: &str) -> String {
-        format!("{}{text}\x1b[49m", self.bg_ansi(color))
+    pub fn bg(&self, color: ThemeBg, text: impl Into<JsString>) -> JsString {
+        js_format!("{}{}\x1b[49m", self.bg_ansi(color), text)
     }
 
-    pub fn bold(&self, text: &str) -> String {
+    pub fn bold(&self, text: impl Into<JsString>) -> JsString {
         self.chalk.bold(text)
     }
 
-    pub fn italic(&self, text: &str) -> String {
+    pub fn italic(&self, text: impl Into<JsString>) -> JsString {
         self.chalk.italic(text)
     }
 
-    pub fn underline(&self, text: &str) -> String {
+    pub fn underline(&self, text: impl Into<JsString>) -> JsString {
         self.chalk.underline(text)
     }
 
-    pub fn inverse(&self, text: &str) -> String {
+    pub fn inverse(&self, text: impl Into<JsString>) -> JsString {
         self.chalk.inverse(text)
     }
 
-    pub fn strikethrough(&self, text: &str) -> String {
+    pub fn strikethrough(&self, text: impl Into<JsString>) -> JsString {
         self.chalk.strikethrough(text)
     }
 
@@ -732,12 +734,12 @@ impl Theme {
             ThinkingLevel::Max | ThinkingLevel::Ultra => ThemeColor::ThinkingMax,
         };
         let theme = Arc::clone(self);
-        Rc::new(move |text: &str| theme.fg(color, text))
+        Rc::new(move |text: &JsString| theme.fg(color, text))
     }
 
     pub fn get_bash_mode_border_color(self: &Arc<Self>) -> StyleFn {
         let theme = Arc::clone(self);
-        Rc::new(move |text: &str| theme.fg(ThemeColor::BashMode, text))
+        Rc::new(move |text: &JsString| theme.fg(ThemeColor::BashMode, text))
     }
 }
 
@@ -1728,13 +1730,13 @@ pub fn get_theme_export_colors(theme_name: Option<&str>) -> ThemeExportColors {
 
 fn syntax_formatter(color: ThemeColor) -> HighlightFormatter {
     let theme = current_theme();
-    let ansi = theme.get_fg_ansi(color).to_owned();
-    std::sync::Arc::new(move |text: &str| format!("{ansi}{text}\x1b[39m"))
+    let ansi = JsString::from(theme.get_fg_ansi(color));
+    std::sync::Arc::new(move |text: &JsString| js_format!("{}{}\x1b[39m", &ansi, text))
 }
 
 fn style_formatter(style: Style) -> HighlightFormatter {
     let chalk = Chalk::stdout();
-    std::sync::Arc::new(move |text: &str| chalk.paint(&[style], text))
+    std::sync::Arc::new(move |text: &JsString| chalk.paint(&[style], text))
 }
 
 fn build_cli_highlight_theme(_theme: &Theme) -> HighlightTheme {
@@ -1770,7 +1772,7 @@ fn build_cli_highlight_theme(_theme: &Theme) -> HighlightTheme {
     highlight_theme
 }
 
-fn styled_lines(code: &str) -> Vec<String> {
+fn styled_lines(code: &JsString) -> Vec<JsString> {
     let theme = current_theme();
     code.split('\n')
         .map(|line| theme.fg(ThemeColor::MdCodeBlock, line))
@@ -1778,27 +1780,29 @@ fn styled_lines(code: &str) -> Vec<String> {
 }
 
 /// Highlight code with syntax coloring based on the language name.
-pub fn highlight_code(code: &str, lang: Option<&str>) -> Vec<String> {
+pub fn highlight_code(code: &JsString, lang: Option<&JsString>) -> Vec<JsString> {
     let valid_lang = lang.filter(|language| supports_language(language));
     let Some(valid_lang) = valid_lang else {
         return styled_lines(code);
     };
     let theme = current_theme();
     let options = HighlightOptions {
-        language: Some(valid_lang.to_owned()),
+        language: Some(valid_lang.clone()),
         ignore_illegals: Some(true),
         language_subset: None,
         theme: build_cli_highlight_theme(&theme),
     };
-    highlight(code, &options).split('\n').map(str::to_owned).collect()
+    highlight(code, &options).split('\n').collect()
 }
 
 /// Get a language identifier from a file path extension.
-pub fn get_language_from_path(file_path: &str) -> Option<&'static str> {
-    let extension = file_path.rsplit('.').next()?.to_lowercase();
+pub fn get_language_from_path(file_path: &JsString) -> Option<&'static str> {
+    let extension = file_path.split('.').last()?.to_lowercase();
     if extension.is_empty() {
         return None;
     }
+    // Extensions with unmatched surrogates name no language.
+    let extension = extension.to_utf8().ok()?;
     let language = match extension.as_str() {
         "ts" | "tsx" => "typescript",
         "js" | "jsx" | "mjs" | "cjs" => "javascript",
@@ -1851,75 +1855,64 @@ pub fn get_language_from_path(file_path: &str) -> Option<&'static str> {
 struct PiMarkdownTheme;
 
 impl MarkdownTheme for PiMarkdownTheme {
-    fn heading(&self, text: &str) -> String {
+    fn heading(&self, text: &JsString) -> JsString {
         with_theme(|theme| theme.fg(ThemeColor::MdHeading, text))
     }
 
-    fn link(&self, text: &str) -> String {
+    fn link(&self, text: &JsString) -> JsString {
         with_theme(|theme| theme.fg(ThemeColor::MdLink, text))
     }
 
-    fn link_url(&self, text: &str) -> String {
+    fn link_url(&self, text: &JsString) -> JsString {
         with_theme(|theme| theme.fg(ThemeColor::MdLinkUrl, text))
     }
 
-    fn code(&self, text: &str) -> String {
+    fn code(&self, text: &JsString) -> JsString {
         with_theme(|theme| theme.fg(ThemeColor::MdCode, text))
     }
 
-    fn code_block(&self, text: &str) -> String {
+    fn code_block(&self, text: &JsString) -> JsString {
         with_theme(|theme| theme.fg(ThemeColor::MdCodeBlock, text))
     }
 
-    fn code_block_border(&self, text: &str) -> String {
+    fn code_block_border(&self, text: &JsString) -> JsString {
         with_theme(|theme| theme.fg(ThemeColor::MdCodeBlockBorder, text))
     }
 
-    fn quote(&self, text: &str) -> String {
+    fn quote(&self, text: &JsString) -> JsString {
         with_theme(|theme| theme.fg(ThemeColor::MdQuote, text))
     }
 
-    fn quote_border(&self, text: &str) -> String {
+    fn quote_border(&self, text: &JsString) -> JsString {
         with_theme(|theme| theme.fg(ThemeColor::MdQuoteBorder, text))
     }
 
-    fn hr(&self, text: &str) -> String {
+    fn hr(&self, text: &JsString) -> JsString {
         with_theme(|theme| theme.fg(ThemeColor::MdHr, text))
     }
 
-    fn list_bullet(&self, text: &str) -> String {
+    fn list_bullet(&self, text: &JsString) -> JsString {
         with_theme(|theme| theme.fg(ThemeColor::MdListBullet, text))
     }
 
-    fn bold(&self, text: &str) -> String {
+    fn bold(&self, text: &JsString) -> JsString {
         with_theme(|theme| theme.bold(text))
     }
 
-    fn italic(&self, text: &str) -> String {
+    fn italic(&self, text: &JsString) -> JsString {
         with_theme(|theme| theme.italic(text))
     }
 
-    fn strikethrough(&self, text: &str) -> String {
+    fn strikethrough(&self, text: &JsString) -> JsString {
         with_theme(|theme| theme.strikethrough(text))
     }
 
-    fn underline(&self, text: &str) -> String {
+    fn underline(&self, text: &JsString) -> JsString {
         with_theme(|theme| theme.underline(text))
     }
 
-    fn highlight_code(&self, code: &str, lang: Option<&str>) -> Option<Vec<String>> {
-        let valid_lang = lang.filter(|language| supports_language(language));
-        let Some(valid_lang) = valid_lang else {
-            return Some(styled_lines(code));
-        };
-        let theme = current_theme();
-        let options = HighlightOptions {
-            language: Some(valid_lang.to_owned()),
-            ignore_illegals: Some(true),
-            language_subset: None,
-            theme: build_cli_highlight_theme(&theme),
-        };
-        Some(highlight(code, &options).split('\n').map(str::to_owned).collect())
+    fn highlight_code(&self, code: &JsString, lang: Option<&JsString>) -> Option<Vec<JsString>> {
+        Some(highlight_code(code, lang))
     }
 }
 
@@ -1929,18 +1922,18 @@ pub fn get_markdown_theme() -> Box<dyn MarkdownTheme> {
 
 pub fn get_select_list_theme() -> SelectListTheme {
     SelectListTheme {
-        selected_prefix: Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Accent, text))),
-        selected_text: Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Accent, text))),
-        description: Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Muted, text))),
-        scroll_info: Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Muted, text))),
-        no_match: Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Muted, text))),
+        selected_prefix: Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Accent, text))),
+        selected_text: Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Accent, text))),
+        description: Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Muted, text))),
+        scroll_info: Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Muted, text))),
+        no_match: Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Muted, text))),
     }
 }
 
 pub fn get_editor_theme() -> EditorTheme {
     EditorTheme {
-        border_color: Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::BorderMuted, text))),
-        prompt_prefix: Some(Rc::new(|text: &str| {
+        border_color: Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::BorderMuted, text))),
+        prompt_prefix: Some(Rc::new(|text: &JsString| {
             with_theme(|theme| theme.fg(ThemeColor::Accent, text))
         })),
         select_list: get_select_list_theme(),
@@ -1949,22 +1942,22 @@ pub fn get_editor_theme() -> EditorTheme {
 
 pub fn get_settings_list_theme() -> SettingsListTheme {
     SettingsListTheme {
-        label: Rc::new(|text: &str, selected: bool| {
+        label: Rc::new(|text: &JsString, selected: bool| {
             if selected {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, text))
             } else {
-                text.to_owned()
+                text.clone()
             }
         }),
-        value: Rc::new(|text: &str, selected: bool| {
+        value: Rc::new(|text: &JsString, selected: bool| {
             if selected {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, text))
             } else {
                 with_theme(|theme| theme.fg(ThemeColor::Muted, text))
             }
         }),
-        description: Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Dim, text))),
+        description: Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Dim, text))),
         cursor: with_theme(|theme| theme.fg(ThemeColor::Accent, "→ ")),
-        hint: Rc::new(|text: &str| with_theme(|theme| theme.fg(ThemeColor::Dim, text))),
+        hint: Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Dim, text))),
     }
 }
