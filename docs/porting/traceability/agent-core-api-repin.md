@@ -11,6 +11,10 @@ Module-by-module comparison: [loop](agent-loop.md), [Agent](agent.md), [types](a
 
 The first differential run exposed a stale oracle-only `assistant([], "pending")` fixture in abort_stream, not frozen runtime behavior. Corrected to `"stop"` per frozen `ai/src/types.ts:407` and faux.ts:89; assertions were not normalized or weakened. Harness rollback itself remains part of the working-harness slice.
 
+## Native iterator-return carrier (2026-10-22)
+
+Frozen `agent-loop.ts:390–418` invokes an iterable's `return()` on early termination, not normal iterator exhaustion or non-abort next rejection. Native AI EventStream now carries an optional return callback (absent by default), preserving synchronous callback rejection separately from its returned future. RED: `iterator-return-red.log`; carrier GREEN: `iterator-carrier-green.log` (one contract test). Loop invocation/differential is the next change, not claimed complete by the carrier alone.
+
 ## Current evidence
 
 All Cargo invocations use the mandatory `.cargo/config.toml` runner, `CARGO_BUILD_JOBS=4`, and `CARGO_TARGET_DIR=/home/osso/.worktrees/pi-rust-repin-agent-core-api/target`. Initial proof below predates the verifier corrections; no package-wide/workspace test suite, push, or delegation was run. The final targeted clippy and branch-local master merge are recorded below.
