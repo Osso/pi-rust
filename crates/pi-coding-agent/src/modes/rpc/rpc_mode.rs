@@ -1211,8 +1211,8 @@ mod tests {
 
     fn select_request() -> RpcExtensionUiRequestPayload {
         RpcExtensionUiRequestPayload::Select {
-            title: "Pick".to_owned(),
-            options: vec!["one".to_owned(), "two".to_owned()],
+            title: "Pick".into(),
+            options: vec!["one".into(), "two".into()],
             timeout: None,
         }
     }
@@ -1221,9 +1221,7 @@ mod tests {
         RpcExtensionUiResponse {
             kind: crate::modes::rpc::rpc_types::ExtensionUiResponseTag::ExtensionUiResponse,
             id: id.to_owned(),
-            payload: RpcExtensionUiResponsePayload::Value {
-                value: value.to_owned(),
-            },
+            payload: RpcExtensionUiResponsePayload::Value { value: value.into() },
         }
     }
 
@@ -1250,7 +1248,7 @@ mod tests {
             assert!(broker.resolve(value_response(&id, "two")));
         };
         let (result, ()) = tokio::join!(promise, resolver);
-        assert_eq!(result, Some("two".to_owned()));
+        assert_eq!(result, Some(JsString::from("two")));
     }
 
     #[tokio::test]
@@ -1337,11 +1335,11 @@ mod tests {
     #[test]
     fn rpc_ui_context_theme_switching_is_rejected() {
         let context = RpcUiContext { state: Weak::new() };
-        let result = context.set_theme("dark");
+        let result = context.set_theme(&"dark".into());
         assert!(!result.success);
         assert_eq!(
-            result.error.as_deref(),
-            Some("Theme switching not supported in RPC mode")
+            result.error,
+            Some(JsString::from("Theme switching not supported in RPC mode"))
         );
     }
 }
@@ -1373,7 +1371,7 @@ mod bash_operation_tests {
         fn exec<'a>(
             &'a self,
             command: &'a JsString,
-            _cwd: &'a str,
+            _cwd: &'a JsString,
             options: BashExecOptions,
         ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
             self.commands
@@ -1415,14 +1413,15 @@ mod bash_operation_tests {
             Box::pin(async { Ok(()) })
         });
         let temp = tempfile::tempdir().expect("temp dir");
-        let cwd = temp.path().display().to_string();
+        let temp_path = |path: &std::path::Path| JsString::from(path.to_str().expect("UTF-8 temp path"));
+        let cwd = temp_path(temp.path());
         let runtime = create_extension_runtime();
         let extension = load_extension_from_factory(
             factory,
             &cwd,
             Arc::new(EventBusController::new()),
             runtime.clone(),
-            "user-bash-extension",
+            &"user-bash-extension".into(),
         )
         .await
         .expect("extension");
@@ -1434,8 +1433,8 @@ mod bash_operation_tests {
             }),
             ..StaticResourceLoader::default()
         });
-        let session_dir = temp.path().join("sessions").display().to_string();
-        let control_db = temp.path().join("control.db").display().to_string();
+        let session_dir = temp_path(&temp.path().join("sessions"));
+        let control_db = temp_path(&temp.path().join("control.db"));
         let mut session_manager = SessionManager::create(&cwd, Some(&session_dir), None).expect("session manager");
         session_manager
             .set_metadata_control_db_path(Some(&control_db), Default::default())

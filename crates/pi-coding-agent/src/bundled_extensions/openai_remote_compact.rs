@@ -1146,14 +1146,14 @@ mod js_value_tests {
             .unwrap();
             body
         });
-        let model: Model = serde_json::from_value(json!({
+        let model: Model = js_json::from_value(&json!({
             "id":"gpt", "name":"gpt", "provider":"openai", "api":"openai-responses", "baseUrl":"http://localhost",
             "reasoning":false, "input":["text"], "cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, "contextWindow":1000,"maxTokens":100
         })).unwrap();
         let payload = OpenAiCompactPayload {
             model: "gpt".into(),
             input: vec![serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap()],
-            instructions: String::new(),
+            instructions: JsString::default(),
             tools: Vec::new(),
             parallel_tool_calls: false,
         };
@@ -1170,7 +1170,10 @@ mod js_value_tests {
         let call =
             pi_ai::types::ToolCall::new("call", "unknown", serde_json::from_str(r#"{"2":2.0,"1":1.0}"#).unwrap());
         let items = convert_assistant_message(&[AssistantContent::ToolCall(call)]);
-        assert_eq!(items[0]["arguments"], r#"{"1":1,"2":2}"#);
+        assert_eq!(
+            items[0]["arguments"],
+            pi_js_compat::js_json::JsValue::String(r#"{"1":1,"2":2}"#.into())
+        );
     }
 
     #[test]

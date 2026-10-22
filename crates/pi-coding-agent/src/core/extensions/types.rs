@@ -3587,8 +3587,8 @@ mod tests {
         let done = ExtensionUiDone::new(Rc::new(move |value| captured.borrow_mut().push(value)));
         let cloned = done.clone();
         drop(done);
-        cloned.call(Some(serde_json::json!("closed")));
+        cloned.call(Some(pi_js_compat::js_json!("closed")));
         cloned.call(None);
-        assert_eq!(*values.borrow(), vec![Some(serde_json::json!("closed")), None]);
+        assert_eq!(*values.borrow(), vec![Some(pi_js_compat::js_json!("closed")), None]);
     }
 }

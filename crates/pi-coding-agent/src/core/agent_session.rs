@@ -8482,7 +8482,9 @@ mod supervisor_project_failure_tests {
         runtime.register_native_provider(Arc::clone(&faux.provider));
         let mut settings =
             crate::core::settings_manager::SettingsManager::in_memory(Default::default(), Default::default());
-        settings.set_approval_preset(ApprovalPresetName::LlmApprovedDeny);
+        settings
+            .set_approval_preset(ApprovalPresetName::LlmApprovedDeny, SettingsScope::Global)
+            .expect("approval preset");
         let called = Arc::new(AtomicBool::new(false));
         let request_called = Arc::clone(&called);
         let session = create_agent_session(CreateAgentSessionOptions {
