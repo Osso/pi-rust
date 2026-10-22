@@ -238,15 +238,9 @@ impl FileSystem for NodeExecutionEnv {
             if let Some(error) = abort_result(abort, &resolved) {
                 return Err(error);
             }
-            let mut entries = tokio::fs::read_dir(&encode_node_utf8(&resolved))
-                .await
-                .map_err(|error| file_error(&error, "scandir", &resolved))?;
+            let entries = read_sorted_directory(&resolved).await?;
             let mut infos = Vec::new();
-            while let Some(entry) = entries
-                .next_entry()
-                .await
-                .map_err(|error| file_error(&error, "scandir", &resolved))?
-            {
+            for entry in entries {
                 if let Some(error) = abort_result(abort, &resolved) {
                     return Err(error);
                 }
@@ -1057,6 +1051,23 @@ fn unknown_file_error(error: &io::Error, syscall: &str, path: &JsString) -> File
         Some(path.to_owned()),
         Some(Box::new(io::Error::new(error.kind(), error.to_string()))),
     )
+}
+
+async fn read_sorted_directory(path: &JsString) -> Result<Vec<tokio::fs::DirEntry>, FileError> {
+    let mut directory = tokio::fs::read_dir(encode_node_utf8(path))
+        .await
+        .map_err(|error| file_error(&error, "scandir", path))?;
+    let mut entries = Vec::new();
+    while let Some(entry) = directory
+        .next_entry()
+        .await
+        .map_err(|error| file_error(&error, "scandir", path))?
+    {
+        entries.push(entry);
+    }
+    // Node's libuv scandir orders native names before decoding and lstat.
+    entries.sort_by_key(tokio::fs::DirEntry::file_name);
+    Ok(entries)
 }
 
 fn resolve_path(cwd: &JsString, path: &JsString) -> JsString {

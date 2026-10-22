@@ -3,6 +3,10 @@
 Source: common-pin `agent-core/src/harness/session/memory-repo.ts:1–50`.
 Rust: `harness/session/memory.rs` (`InMemorySessionRepo`).
 
-`create/list/open/delete/fork` implemented against native trees and shared fork selector. Fork selector has direct frozen differential proof; repository list/order/delete/identity and fork orchestration still lack their own behavioral differential. Status: partial; compilation is not runtime parity evidence.
+| Export/branch | Proof |
+|---|---|
+| `create/list/open/delete`, empty list, insertion order, repeated delete and missing open | `differential_tree_repository` |
+| Replacement of an existing ID without moving map position | Same differential |
+| `fork`, all entries, before/at target, missing/non-user/empty target | Same differential plus shared selector matrix |
 
-[Shared representation and owned-copy approval](agent-core-tree-session.md).
+GREEN: `tree-repository-green.log`. [Shared representation and owned-copy approval](agent-core-tree-session.md).

@@ -75,11 +75,13 @@ impl FixtureRepo for JsonlFixture {
             .fork(
                 metadata,
                 JsonlSessionForkOptions {
-                    cwd: self.cwd.clone(),
-                    parent_session_path: None,
+                    create: JsonlSessionCreateOptions {
+                        cwd: self.cwd.clone(),
+                        parent_session_path: None,
+                        id: options.id,
+                    },
                     entry_id: options.entry_id,
                     position: options.position,
-                    id: options.id,
                 },
             )
             .await
@@ -184,6 +186,11 @@ async fn memory_and_jsonl_repositories_match_frozen_orchestration() {
         let request = pi_js_compat::js_json!({"kind":"repository","mode":mode,"root":root_string,"cwd":cwd,"entries":fixture_entries()});
         let response = ts.request(&serde_json::json!({"wire":js_json::stringify_lossless(&request)}));
         let expected = parse_lossless(response["wire"].as_str().unwrap()).unwrap();
-        assert_eq!(pi_js_compat::js_json!({"value":actual}), expected, "repository {mode}");
+        let actual = pi_js_compat::js_json!({"value":actual});
+        if actual != expected {
+            eprintln!("ACTUAL={}", js_json::stringify_lossless(&actual));
+            eprintln!("EXPECTED={}", js_json::stringify_lossless(&expected));
+        }
+        assert_eq!(actual, expected, "repository {mode}");
     }
 }
