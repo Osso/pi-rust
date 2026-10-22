@@ -4,6 +4,7 @@ Authority: frozen `packages/coding-agent/src/modes/interactive/components/extens
 
 - Compose the inherited Container and Editor. Preserve title, prefill truthiness, editor options, Enter submission, cancel priority, external-editor keybinding and propagated focus.
 - Resolve the external editor when invoked: explicit nonempty command, live VISUAL, live EDITOR, then platform default. Split on literal spaces, preserving empty arguments.
+- Resolve the temporary directory from the same live process.env authority as other native Node boundaries. On Unix, follow TMPDIR, TMP, TEMP, then `/tmp`; preserve the source platform branch rather than consulting a separate host-only environment view.
 - Write native text through Node UTF-8 to `pi-extension-editor-<Date.now()>.md` in the platform temporary directory before stopping TUI. Spawn asynchronously with inherited stdio. Input returns while the child is running; do not block TUI's event loop waiting for exit.
 - Only exit code zero reads the saved file. Decode as Node UTF-8 and remove exactly one final LF before updating the same Editor. Spawn error, signal termination or nonzero exit leaves original text unchanged.
 - Empty executable and embedded NUL in executable/argv reject with the frozen `TypeError [ERR_INVALID_ARG_VALUE]` message. Use the shared Node inspection/truncation authority. Do not misclassify validation rejection as an ordinary spawn error.

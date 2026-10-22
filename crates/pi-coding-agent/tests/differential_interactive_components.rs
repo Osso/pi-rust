@@ -140,10 +140,19 @@ fn status_indicators_match_the_pinned_typescript_source() {
 }
 
 #[test]
+fn extension_editor_constructor_rendering_matches_the_pinned_typescript_source() {
+    compare_component_cases(extension_editor_cases);
+}
+
+#[test]
 fn interactive_leaf_helpers_match_the_pinned_typescript_source() {
+    compare_component_cases(requests);
+}
+
+fn compare_component_cases(case_factory: fn() -> Vec<(Value, Value)>) {
     install_theme();
     let mut oracle = oracle::TsOracle::spawn("interactive-components-oracle.ts", "packages/coding-agent/src");
-    for (request, actual) in requests() {
+    for (request, actual) in case_factory() {
         let expected = oracle.request(&request);
         assert_eq!(expected["ok"], true, "oracle error for {request}: {expected}");
         assert_eq!(actual, expected["output"], "mismatch for {request}");
@@ -162,7 +171,6 @@ fn requests() -> Vec<(Value, Value)> {
     cases.extend(assistant_message_cases());
     cases.extend(bordered_loader_cases());
     cases.extend(extension_input_cases());
-    cases.extend(extension_editor_cases());
     cases.extend(first_time_setup_cases());
     cases.extend(custom_entry_cases());
     cases.extend(bash_execution_cases());
