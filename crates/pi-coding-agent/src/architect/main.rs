@@ -371,7 +371,7 @@ impl ResidentConsoleHost<SessionEntry, AgentSessionEvent> for ArchitectConsoleHo
         )
     }
 
-    fn enqueue_prompt(&self, text: String, id: String) -> BoxFuture<'static, Result<(), String>> {
+    fn enqueue_prompt(&self, text: JsString, id: JsString) -> BoxFuture<'static, Result<(), JsString>> {
         self.prompt_queue.enqueue(text, id);
         Box::pin(async { Ok(()) })
     }
