@@ -80,7 +80,7 @@ impl AuthStorageBackend for BoundaryBackend {
     ) -> BoxFuture<'_, Result<(), StorageError>> {
         let signal = self.signal.clone();
         let fault = self.fault;
-        let file = self.inner.auth_path().to_owned();
+        let file = pi_js_compat::js_json::encode_node_utf8(self.inner.auth_path());
         self.inner.with_lock_async(
             Box::new(move |current| {
                 Box::pin(async move {

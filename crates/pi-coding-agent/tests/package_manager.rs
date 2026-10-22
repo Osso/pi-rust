@@ -130,7 +130,7 @@ fn ends_with(path: &JsString, suffix: &str) -> bool {
     path.replace('\\', "/").ends_with(suffix)
 }
 
-fn enabled_paths(resources: &[pi_coding_agent::core::package_manager::ResolvedResource]) -> Vec<String> {
+fn enabled_paths(resources: &[pi_coding_agent::core::package_manager::ResolvedResource]) -> Vec<JsString> {
     resources
         .iter()
         .filter(|resource| resource.enabled)
@@ -161,7 +161,7 @@ fn parses_npm_sources() {
             panic!("{source} must parse as npm");
         };
         assert_eq!(parsed.name, name, "{source}");
-        assert_eq!(parsed.version.as_ref(), version, "{source}");
+        assert_eq!(parsed.version, version.map(JsString::from), "{source}");
         assert_eq!(parsed.pinned, pinned, "{source}");
         assert_eq!(parsed.spec, source.trim_start_matches("npm:"), "{source}");
     }
@@ -251,7 +251,7 @@ fn applies_include_exclude_and_force_patterns_to_top_level_entries() {
             extensions: vec![
                 "extensions".to_owned().into(),
                 "!extensions/beta.ts".to_owned().into(),
-                "-extensions/foo.ts".to_owned(),
+                JsString::from("-extensions/foo.ts"),
             ],
             ..PackageSettingsSnapshot::default()
         },
@@ -261,7 +261,7 @@ fn applies_include_exclude_and_force_patterns_to_top_level_entries() {
     let manager = fixture.manager(settings);
 
     let resolved = futures_block(manager.resolve(None)).unwrap();
-    let disabled: Vec<String> = resolved
+    let disabled: Vec<JsString> = resolved
         .extensions
         .iter()
         .filter(|resource| !resource.enabled)
@@ -288,7 +288,7 @@ fn force_include_restores_an_excluded_file() {
             extensions: vec![
                 "extensions".to_owned().into(),
                 "!extensions/*.ts".to_owned().into(),
-                "+extensions/beta.ts".to_owned(),
+                JsString::from("+extensions/beta.ts"),
             ],
             ..PackageSettingsSnapshot::default()
         },
@@ -594,7 +594,7 @@ fn gitignore_files_filter_package_resources_but_not_pi_auto_discovery() {
     );
     let manager = fixture.manager(settings);
     let resolved = futures_block(manager.resolve(None)).unwrap();
-    let package_paths: Vec<String> = resolved
+    let package_paths: Vec<JsString> = resolved
         .extensions
         .iter()
         .filter(|resource| resource.metadata.origin == pi_coding_agent::core::package_manager::MetadataOrigin::Package)
@@ -755,8 +755,8 @@ exit 0
     );
     let settings = FakeSettings::new(Default::default(), Default::default(), false).with_npm_command(vec![
         "env".to_owned().into(),
-        "NODE=20".to_owned(),
-        npm,
+        JsString::from("NODE=20"),
+        npm.into(),
     ]);
     let manager = fixture.manager(settings);
     futures_block(manager.install(&JsString::from("npm:pkg"), false)).unwrap();
@@ -890,7 +890,7 @@ fn replaces_a_filtered_source_while_keeping_its_filters() {
         panic!("filtered source expected");
     };
     assert_eq!(filter.source, "npm:left-pad@2.0.0");
-    assert_eq!(filter.extensions.as_deref(), Some(&["!bad.ts".to_owned()][..]));
+    assert_eq!(filter.extensions.as_deref(), Some(&[JsString::from("!bad.ts")][..]));
 }
 
 #[test]
@@ -1067,7 +1067,10 @@ fn settings_manager_store_adapts_the_ported_settings_manager() {
     settings.insert("extensions".to_owned(), json!(["extensions"]));
     settings.insert("npmCommand".to_owned(), json!(["mise", "exec", "node@20", "--", "npm"]));
     let settings_manager = SettingsManager::in_memory(
-        settings,
+        pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(settings))
+            .as_object()
+            .unwrap()
+            .clone(),
         SettingsManagerCreateOptions {
             project_trusted: Some(false),
         },
@@ -1091,11 +1094,11 @@ fn settings_manager_store_adapts_the_ported_settings_manager() {
     assert_eq!(
         store.with(|manager| manager.get_npm_command()),
         Some(vec![
-            "mise".to_owned(),
-            "exec".to_owned(),
-            "node@20".to_owned(),
-            "--".to_owned(),
-            "npm".to_owned()
+            JsString::from("mise"),
+            JsString::from("exec"),
+            JsString::from("node@20"),
+            JsString::from("--"),
+            JsString::from("npm")
         ])
     );
     assert!(!manager.list_configured_packages().is_empty());

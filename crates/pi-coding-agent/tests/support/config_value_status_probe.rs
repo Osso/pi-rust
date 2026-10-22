@@ -13,7 +13,7 @@ pub(crate) const ENV_B: &str = "PI_RUST_CONFIG_STATUS_B_7D9F";
 pub(crate) const ENV_C: &str = "PI_RUST_CONFIG_STATUS_C_7D9F";
 pub(crate) const ENV_LOWERCASE_A: &str = "pi_rust_config_status_a_7d9f";
 
-pub(crate) fn normalized_status(config: &str, env: Option<&HashMap<String, String>>) -> Value {
+pub(crate) fn normalized_status(config: &str, env: Option<&HashMap<String, JsString>>) -> Value {
     json!({
         "missing": get_missing_config_value_env_var_names(&JsString::from(config), env),
         "configured": is_config_value_configured(&JsString::from(config), env),
@@ -113,9 +113,9 @@ pub(crate) fn run_child_probe() {
     println!("{OUTPUT_PREFIX}{status}");
 }
 
-fn map_from<const N: usize>(entries: [(&str, &str); N]) -> HashMap<String, String> {
+fn map_from<const N: usize>(entries: [(&str, &str); N]) -> HashMap<String, JsString> {
     entries
         .into_iter()
-        .map(|(name, value)| (name.to_owned(), value.to_owned()))
+        .map(|(name, value)| (name.to_owned(), JsString::from(value)))
         .collect()
 }

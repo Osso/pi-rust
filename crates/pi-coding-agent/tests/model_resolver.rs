@@ -47,7 +47,7 @@ fn all_models() -> Vec<Model> {
     models
 }
 
-fn pattern(pattern: &str, models: &[Model]) -> (Option<String>, Option<ThinkingLevel>, Option<String>) {
+fn pattern(pattern: &str, models: &[Model]) -> (Option<String>, Option<ThinkingLevel>, Option<JsString>) {
     let result = parse_model_pattern(&JsString::from(pattern), models, ParseModelPatternOptions::default());
     (
         result.model.map(|model| model.id),
@@ -218,7 +218,7 @@ fn scope_diagnostics_match_the_source_order() {
         &[
             "sonnet:high".to_owned().into(),
             "gpt-4o:invalid".to_owned().into(),
-            "missing".to_owned(),
+            JsString::from("missing"),
         ],
         &all_models(),
     );
@@ -353,7 +353,7 @@ fn stub(models: Vec<Model>, authenticated: Vec<&'static str>) -> StubRuntime {
 fn cli(
     options: ResolveCliModelOptions,
     runtime: &dyn ModelResolverRuntime,
-) -> (Option<String>, Option<String>, Option<ThinkingLevel>, Option<String>) {
+) -> (Option<String>, Option<String>, Option<ThinkingLevel>, Option<JsString>) {
     let result = resolve_cli_model(&options, runtime);
     (
         result.model.as_ref().map(|model| model.provider.clone()),

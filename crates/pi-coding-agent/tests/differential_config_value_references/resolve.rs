@@ -29,18 +29,18 @@ struct HeaderCase<'a> {
     throw_on_error: bool,
 }
 
-fn env(pairs: EnvPairs<'_>) -> HashMap<String, String> {
+fn env(pairs: EnvPairs<'_>) -> HashMap<String, JsString> {
     pairs
         .iter()
-        .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+        .map(|(key, value)| ((*key).to_owned(), JsString::from(*value)))
         .collect()
 }
 
-fn optional_env(pairs: Option<EnvPairs<'_>>) -> Option<HashMap<String, String>> {
+fn optional_env(pairs: Option<EnvPairs<'_>>) -> Option<HashMap<String, JsString>> {
     pairs.map(env)
 }
 
-fn json_headers(headers: Option<HashMap<String, String>>) -> Value {
+fn json_headers(headers: Option<HashMap<String, JsString>>) -> Value {
     headers.map_or(Value::Null, |headers| json!(headers))
 }
 
@@ -126,7 +126,7 @@ pub(crate) fn run(oracle: &mut TsOracle) {
         let explicit_env = request["env"].as_object().map(|object| {
             object
                 .iter()
-                .map(|(key, value)| (key.clone(), value.as_str().unwrap().to_owned()))
+                .map(|(key, value)| (key.clone(), JsString::from(value.as_str().unwrap())))
                 .collect::<HashMap<_, _>>()
         });
         let uncached = request["uncached"].as_bool().unwrap_or(false);

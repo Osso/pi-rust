@@ -20,7 +20,7 @@ use tempfile::TempDir;
 struct FakeSettings {
     global: Mutex<PackageSettingsSnapshot>,
     trusted: bool,
-    npm_command: Option<Vec<String>>,
+    npm_command: Option<Vec<JsString>>,
 }
 
 impl PackageSettingsStore for FakeSettings {
@@ -122,7 +122,7 @@ impl Fixture {
         self.manager_with(package, None)
     }
 
-    fn manager_with(&self, package: &str, npm_command: Option<Vec<String>>) -> DefaultPackageManager {
+    fn manager_with(&self, package: &str, npm_command: Option<Vec<JsString>>) -> DefaultPackageManager {
         DefaultPackageManager::new(
             &JsString::from(self.cwd.to_str().unwrap()),
             &JsString::from(self.agent_dir.to_str().unwrap()),
@@ -212,7 +212,12 @@ fn missing_git_dependencies_run_npm_install() {
         log.display()
     ));
 
-    block(fixture.manager_with(SOURCE, Some(vec![npm.clone()])).update(None)).unwrap();
+    block(
+        fixture
+            .manager_with(SOURCE, Some(vec![JsString::from(&npm)]))
+            .update(None),
+    )
+    .unwrap();
     assert_eq!(
         fs::read_to_string(&log).unwrap().trim(),
         format!("{}|install", fixture.installed.to_string_lossy())

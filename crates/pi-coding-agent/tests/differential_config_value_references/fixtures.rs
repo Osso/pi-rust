@@ -110,7 +110,7 @@ fn fixture(id: u64, name: &'static str, config: &'static str, expected: Expected
     let env_var_name = get_config_value_env_var_name(&JsString::from(config));
     let env_var_names = get_config_value_env_var_names(&JsString::from(config));
     let is_command = is_command_config_value(&JsString::from(config));
-    assert_fixture_expectation(name, env_var_name, &env_var_names, is_command, &expected);
+    assert_fixture_expectation(name, env_var_name.as_deref(), &env_var_names, is_command, &expected);
 
     Fixture {
         name,

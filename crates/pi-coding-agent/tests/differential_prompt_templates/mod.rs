@@ -9,7 +9,7 @@ use pi_coding_agent::core::prompt_templates::{
     LoadPromptTemplatesOptions, PromptTemplate, expand_prompt_template, load_prompt_templates, parse_command_args,
     substitute_args,
 };
-use serde_json::{Value, json};
+use serde_json::json;
 use tempfile::TempDir;
 
 pub(crate) fn run() {
@@ -48,7 +48,7 @@ fn compare_parse_args(oracle: &mut oracle::TsOracle) {
         let response = oracle.request(&json!({"id": index, "operation": "parse_args", "input": input}));
         assert_eq!(response["ok"], true, "oracle failed: {response}");
         assert_eq!(
-            Value::Array(parse_command_args(*input).into_iter().map(Value::String).collect()),
+            json!(parse_command_args(*input)),
             response["output"]["args"],
             "{input:?}"
         );
@@ -137,9 +137,9 @@ fn compare_substitute(oracle: &mut oracle::TsOracle) {
         }));
         assert_eq!(response["ok"], true, "oracle failed: {response}");
         assert_eq!(
-            Value::String(substitute_args(
-                content,
-                &args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>()
+            json!(substitute_args(
+                &JsString::from(*content),
+                &args.iter().map(|arg| JsString::from(*arg)).collect::<Vec<_>>()
             )),
             response["output"]["content"],
             "{content:?} with {args:?}"
@@ -171,7 +171,7 @@ fn compare_expand(oracle: &mut oracle::TsOracle) {
         }));
         assert_eq!(response["ok"], true, "oracle failed: {response}");
         assert_eq!(
-            Value::String(expand_prompt_template(*text, templates)),
+            json!(expand_prompt_template(*text, templates)),
             response["output"]["content"],
             "{text:?}"
         );
@@ -243,7 +243,7 @@ fn compare_load(oracle: &mut oracle::TsOracle) {
         let actual = load_prompt_templates(&LoadPromptTemplatesOptions {
             cwd: cwd.to_string_lossy().into_owned().into(),
             agent_dir: agent_dir.to_string_lossy().into_owned().into(),
-            prompt_paths: prompt_paths.clone(),
+            prompt_paths: prompt_paths.iter().map(JsString::from).collect(),
             include_defaults: *include_defaults,
         })
         .expect("templates load");

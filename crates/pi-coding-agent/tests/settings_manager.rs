@@ -73,7 +73,7 @@ fn read_json(path: &Path) -> Value {
 }
 
 fn settings(value: Value) -> Settings {
-    value.as_object().unwrap().clone()
+    JsValue::from(value).as_object().unwrap().clone()
 }
 
 #[test]
@@ -128,22 +128,22 @@ fn project_enabled_models_override_global() {
 
     assert_eq!(manager.get_enabled_models(), Some(Vec::new()));
     manager
-        .set_enabled_models(Some(&["faux/faux-1".to_owned().into()]), SettingsScope::Project)
+        .set_enabled_models(Some(&[JsString::from("faux/faux-1").into()]), SettingsScope::Project)
         .unwrap();
-    assert_eq!(manager.get_enabled_models(), Some(vec!["faux/faux-1".to_owned()]));
+    assert_eq!(manager.get_enabled_models(), Some(vec![JsString::from("faux/faux-1")]));
 }
 
 #[test]
 fn agent_profiles_use_builtin_defaults_and_overrides() {
     let manager = SettingsManager::in_memory(Settings::new(), SettingsManagerCreateOptions::default());
     let explore = manager.get_agent_profile(&JsString::from("explore")).unwrap();
-    assert_eq!(explore.model.as_ref(), Some(&JsString::from("openai/gpt-5-mini")));
-    assert_eq!(
-        explore.thinking_level,
-        Some(pi_coding_agent::core::settings_manager::AgentProfileThinkingLevel::Low)
-    );
+    assert_eq!(explore["model"], JsValue::String("openai/gpt-5-mini".into()));
+    assert_eq!(explore["thinkingLevel"], JsValue::String("low".into()));
     let browser = manager.get_agent_profile(&JsString::from("browser")).unwrap();
-    assert_eq!(browser.tools, Some(vec!["browser-cli".to_owned()]));
+    assert_eq!(
+        browser["tools"],
+        JsValue::Array(vec![JsValue::String("browser-cli".into())])
+    );
     assert!(manager.get_agent_profile(&JsString::from("unknown")).is_none());
     assert!(manager.get_agent_profile(&JsString::from("   ")).is_none());
 
@@ -152,7 +152,7 @@ fn agent_profiles_use_builtin_defaults_and_overrides() {
         SettingsManagerCreateOptions::default(),
     );
     let explore = manager.get_agent_profile(&JsString::from("explore")).unwrap();
-    assert_eq!(explore.model.as_ref(), Some(&JsString::from("faux/explore-model")));
+    assert_eq!(explore["model"], JsValue::String("faux/explore-model".into()));
 }
 
 #[test]
@@ -228,7 +228,10 @@ fn sandbox_profile_precedence_and_persistence() {
         manager.get_explicit_sandbox_profile(),
         Some(SandboxProfileName::WorkspaceWrite)
     );
-    assert_eq!(manager.get_merged_settings()["sandboxProfile"], "workspace-write");
+    assert_eq!(
+        manager.get_merged_settings()["sandboxProfile"],
+        JsValue::String("workspace-write".into())
+    );
 
     manager.set_session_sandbox_profile(None);
     assert_eq!(
@@ -268,7 +271,7 @@ fn packages_migration_keeps_local_extensions_and_filter_objects() {
         panic!("expected filter package");
     };
     assert_eq!(filter.source, "npm:shitty-extensions");
-    assert_eq!(filter.extensions, Some(vec!["extensions/oracle.ts".to_owned()]));
+    assert_eq!(filter.extensions, Some(vec![JsString::from("extensions/oracle.ts")]));
     assert_eq!(filter.skills, Some(Vec::new()));
 }
 
@@ -528,7 +531,7 @@ fn analytics_generates_a_tracking_id_on_first_opt_in() {
 
     manager.set_enable_analytics(true);
     manager.flush();
-    assert_eq!(manager.get_tracking_id(), Some(tracking_id.as_str()));
+    assert_eq!(manager.get_tracking_id(), Some(&tracking_id));
 }
 
 #[test]

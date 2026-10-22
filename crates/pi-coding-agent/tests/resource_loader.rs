@@ -8,18 +8,21 @@ use tempfile::TempDir;
 fn names_first_party_and_inline_extension_paths() {
     assert_eq!(
         first_party_extension_name(&JsString::from("<first-party:browser>")),
-        Some("browser")
+        Some(JsString::from("browser"))
     );
     assert_eq!(first_party_extension_name(&JsString::from("<inline>")), None);
     assert_eq!(first_party_extension_name(&JsString::from("<first-party:broken")), None);
 
     assert_eq!(
         inline_extension_name(&JsString::from("<first-party:browser>")),
-        Some("browser")
+        Some(JsString::from("browser"))
     );
-    assert_eq!(inline_extension_name(&JsString::from("<inline>")), Some("inline"));
+    assert_eq!(
+        inline_extension_name(&JsString::from("<inline>")),
+        Some(JsString::from("inline"))
+    );
     assert_eq!(inline_extension_name(&JsString::from("/tmp/extension.ts")), None);
-    assert_eq!(inline_extension_name(&JsString::from("<>")), Some(""));
+    assert_eq!(inline_extension_name(&JsString::from("<>")), Some(JsString::from("")));
 }
 
 #[test]
@@ -56,8 +59,8 @@ use serde_json::json;
 fn settings(cwd: &Path, agent_dir: &Path, trusted: bool) -> Arc<Mutex<SettingsManager>> {
     Arc::new(Mutex::new(
         SettingsManager::create(
-            &JsString::from((&cwd.to_string_lossy()).as_ref()),
-            Some(agent_dir),
+            &JsString::from(cwd.to_str().unwrap()),
+            Some(&JsString::from(agent_dir.to_str().unwrap())),
             SettingsManagerCreateOptions {
                 project_trusted: Some(trusted),
             },
@@ -174,7 +177,7 @@ async fn project_resources_win_name_collisions() {
         .unwrap();
     assert_eq!(
         theme.source_path.as_ref(),
-        Some(&JsString::from(cwd.join(".pi/themes/collision.json").as_path()))
+        Some(&JsString::from(cwd.join(".pi/themes/collision.json").to_str().unwrap()))
     );
     assert_eq!(themes.diagnostics.len(), 1);
     assert_eq!(themes.diagnostics[0].message, "name \"collision-theme\" collision");
@@ -214,7 +217,7 @@ async fn agents_context_files_layer_with_memory() {
     let resource_loader = loader(&nested, &agent_dir, true);
     resource_loader.reload().await.unwrap();
     let files = resource_loader.get_agents_files().agents_files;
-    let contents: Vec<&str> = files.iter().map(|file| file.content.as_str()).collect();
+    let contents: Vec<JsString> = files.iter().map(|file| file.content.clone()).collect();
     assert_eq!(
         contents,
         vec![
@@ -261,7 +264,7 @@ async fn claude_family_loads_when_no_agents_family_exists() {
 
     let resource_loader = loader(&nested, &agent_dir, true);
     resource_loader.reload().await.unwrap();
-    let contents: Vec<String> = resource_loader
+    let contents: Vec<JsString> = resource_loader
         .get_agents_files()
         .agents_files
         .into_iter()
@@ -352,8 +355,8 @@ async fn rules_load_in_sorted_order_and_respect_scope() {
     .unwrap();
     child_loader.reload().await.unwrap();
     assert_eq!(
-        child_loader.get_rules_content().as_deref(),
-        Some("First rule.\n\nSecond rule.\n\nChild rule.")
+        child_loader.get_rules_content().as_ref(),
+        Some(&JsString::from("First rule.\n\nSecond rule.\n\nChild rule."))
     );
 }
 
@@ -475,8 +478,8 @@ async fn literal_prompts_are_not_exposed_as_sources() {
     .unwrap();
     resource_loader.reload().await.unwrap();
     assert_eq!(
-        resource_loader.get_system_prompt().as_deref(),
-        Some("Custom system prompt.")
+        resource_loader.get_system_prompt().as_ref(),
+        Some(&JsString::from("Custom system prompt."))
     );
     assert_eq!(
         resource_loader.get_append_system_prompt(),
@@ -493,7 +496,10 @@ async fn literal_prompts_are_not_exposed_as_sources() {
     })
     .unwrap();
     literal.reload().await.unwrap();
-    assert_eq!(literal.get_system_prompt().as_deref(), Some("Literal system prompt."));
+    assert_eq!(
+        literal.get_system_prompt().as_ref(),
+        Some(&JsString::from("Literal system prompt."))
+    );
     assert!(literal.get_system_prompt_source().is_none());
 }
 
@@ -564,8 +570,8 @@ async fn overrides_replace_loaded_resources() {
     assert_eq!(resource_loader.get_skills().skills.len(), 1);
     assert_eq!(resource_loader.get_skills().skills[0].name, "injected");
     assert_eq!(
-        resource_loader.get_system_prompt().as_deref(),
-        Some("Custom system prompt")
+        resource_loader.get_system_prompt().as_ref(),
+        Some(&JsString::from("Custom system prompt"))
     );
 }
 
@@ -707,7 +713,7 @@ async fn extension_conflicts_report_tools_and_flags() {
     resource_loader.reload().await.unwrap();
     let result = resource_loader.get_extensions();
     assert_eq!(result.extensions.len(), 2);
-    let messages: Vec<String> = result.errors.iter().map(|error| error.error.clone()).collect();
+    let messages: Vec<JsString> = result.errors.iter().map(|error| error.error.clone()).collect();
     assert_eq!(
         messages,
         vec![
@@ -755,7 +761,7 @@ async fn disabled_inline_extension_factories_are_skipped() {
     })
     .unwrap();
     resource_loader.reload().await.unwrap();
-    let paths: Vec<String> = resource_loader
+    let paths: Vec<JsString> = resource_loader
         .get_extensions()
         .extensions
         .into_iter()
@@ -806,10 +812,13 @@ fn submodule_and_missing_gitdir_climb_normally() {
     std::fs::write(sub_git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
     std::fs::write(sub.join(".git"), format!("gitdir: {}\n", sub_git_dir.display())).unwrap();
 
-    let contents: Vec<String> = load_project_context_files(&sub_src.to_string_lossy(), &agent_dir.to_string_lossy())
-        .into_iter()
-        .map(|file| file.content)
-        .collect();
+    let contents: Vec<JsString> = load_project_context_files(
+        &JsString::from(sub_src.to_str().unwrap()),
+        &JsString::from(agent_dir.to_str().unwrap()),
+    )
+    .into_iter()
+    .map(|file| file.content)
+    .collect();
     assert_eq!(contents, vec!["superproject instructions", "submodule instructions"]);
 
     let corrupt = temp.path().join("corrupt");
@@ -818,11 +827,13 @@ fn submodule_and_missing_gitdir_climb_normally() {
     std::fs::write(corrupt.join(".git"), "gitdir: /nonexistent/path/worktrees/feat\n").unwrap();
     std::fs::write(corrupt.join("AGENTS.md"), "repo instructions").unwrap();
     std::fs::write(corrupt_src.join("AGENTS.md"), "src instructions").unwrap();
-    let contents: Vec<String> =
-        load_project_context_files(&corrupt_src.to_string_lossy(), &agent_dir.to_string_lossy())
-            .into_iter()
-            .map(|file| file.content)
-            .collect();
+    let contents: Vec<JsString> = load_project_context_files(
+        &JsString::from(corrupt_src.to_str().unwrap()),
+        &JsString::from(agent_dir.to_str().unwrap()),
+    )
+    .into_iter()
+    .map(|file| file.content)
+    .collect();
     assert_eq!(contents, vec!["repo instructions", "src instructions"]);
 }
 
@@ -865,7 +876,7 @@ async fn default_project_trust_loader_forces_untrusted_and_loads_inline_factorie
     .unwrap();
     let manager = Arc::new(Mutex::new(
         SettingsManager::create(
-            &JsString::from((&cwd.to_string_lossy()).as_ref()),
+            &JsString::from(cwd.to_str().unwrap()),
             Some(&JsString::from((&agent_dir).to_string_lossy().as_ref())),
             SettingsManagerCreateOptions {
                 project_trusted: Some(true),
@@ -877,8 +888,8 @@ async fn default_project_trust_loader_forces_untrusted_and_loads_inline_factorie
     let loader = pi_coding_agent::package_manager_cli::DefaultProjectTrustExtensionsLoader::default();
     let result = loader
         .load(
-            &cwd.to_string_lossy(),
-            &agent_dir.to_string_lossy(),
+            &JsString::from(cwd.to_str().unwrap()),
+            &JsString::from(agent_dir.to_str().unwrap()),
             &manager,
             &[InlineExtension::Factory {
                 extension_path: Some("<first-party:goal>".to_owned().into()),
@@ -889,7 +900,7 @@ async fn default_project_trust_loader_forces_untrusted_and_loads_inline_factorie
         .unwrap()
         .unwrap();
 
-    let paths: Vec<String> = result
+    let paths: Vec<JsString> = result
         .extensions
         .into_iter()
         .map(|extension| extension.read().path.clone())

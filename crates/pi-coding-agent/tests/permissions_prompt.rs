@@ -22,7 +22,7 @@ fn event(input: Map<String, Value>) -> ToolCallEvent {
         tool_name: ToolName::Bash,
         tool_call_id: "toolu_01".to_owned(),
         bypass_permissions: false,
-        input,
+        input: JsValue::from(Value::Object(input)).as_object().unwrap().clone(),
     }
 }
 
@@ -207,7 +207,12 @@ fn parses_allow_decisions_with_updated_input() {
             "{\"behavior\":\"allow\",\"updatedInput\":{\"command\":\"git status --short\"}}"
         ))),
         Some(PermissionPromptDecision::Allow {
-            updated_input: Some(json!({ "command": "git status --short" }).as_object().unwrap().clone()),
+            updated_input: Some(
+                JsValue::from(json!({ "command": "git status --short" }))
+                    .as_object()
+                    .unwrap()
+                    .clone()
+            ),
             updated_permissions: None,
         })
     );
@@ -339,7 +344,9 @@ fn caller(response: Result<Value, String>, calls: Calls) -> PermissionPromptCall
         Box::pin(async move {
             calls.lock().unwrap().push((tool, input));
             response
-        }) as BoxFuture<'static, Result<Value, String>>
+                .map(JsValue::from)
+                .map_err(pi_js_compat::js_json::JsString::from)
+        })
     })
 }
 
@@ -371,7 +378,10 @@ async fn allows_tool_calls_without_further_prompting() {
     assert_eq!(handler(&mut event).await, None);
     assert_eq!(
         event.input,
-        json!({ "command": "git status" }).as_object().unwrap().clone()
+        JsValue::from(json!({ "command": "git status" }))
+            .as_object()
+            .unwrap()
+            .clone()
     );
 
     let calls = calls.lock().unwrap();
@@ -381,7 +391,10 @@ async fn allows_tool_calls_without_further_prompting() {
         calls[0].1,
         PermissionPromptInput {
             cwd: "/repo".to_owned().into(),
-            input: json!({ "command": "git status" }).as_object().unwrap().clone(),
+            input: JsValue::from(json!({ "command": "git status" }))
+                .as_object()
+                .unwrap()
+                .clone(),
             tool_name: "bash".to_owned(),
             tool_use_id: "toolu_01".to_owned(),
         }
@@ -428,7 +441,10 @@ async fn allows_tool_calls_with_updated_input_in_place() {
     assert_eq!(handler(&mut event).await, None);
     assert_eq!(
         event.input,
-        json!({ "command": "git status --short" }).as_object().unwrap().clone()
+        JsValue::from(json!({ "command": "git status --short" }))
+            .as_object()
+            .unwrap()
+            .clone()
     );
 }
 

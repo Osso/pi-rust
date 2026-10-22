@@ -7,7 +7,7 @@ mod oracle;
 #[path = "support/extensions.rs"]
 mod support;
 
-use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::{JsString, JsValue};
 use std::sync::Arc;
 
 use bundled::{Harness, HarnessOptions, StubFetch, test_model};
@@ -184,7 +184,7 @@ async fn run_command_case(input: &Value) -> Value {
     )
     .await
     .err()
-    .map(|error| Value::String(error.message))
+    .map(|error| json!(error.message))
     .unwrap_or(Value::Null);
 
     let messages: Vec<Value> = harness
@@ -195,7 +195,7 @@ async fn run_command_case(input: &Value) -> Value {
         .iter()
         .map(|message| {
             let content = match &message.content {
-                CustomMessageContent::Text(text) => Value::String(text.clone()),
+                CustomMessageContent::Text(text) => json!(text),
                 CustomMessageContent::Blocks(_) => Value::Null,
             };
             json!([message.custom_type, content, message.display])
@@ -233,7 +233,7 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
             "format" => {
                 let usage: CodexUsage =
                     serde_json::from_value(case.get("usage").cloned().unwrap_or(Value::Null)).expect("usage");
-                output.insert("text".to_owned(), Value::String(format_codex_usage(&usage)));
+                output.insert("text".to_owned(), json!(format_codex_usage(&usage)));
             }
             "token" => {
                 let token = token_with_claims(case.get("claims").unwrap_or(&Value::Null));
@@ -242,18 +242,21 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
                         output.insert("account".to_owned(), serde_json::to_value(info).expect("account"));
                     }
                     Err(error) => {
-                        output.insert("error".to_owned(), Value::String(error));
+                        output.insert("error".to_owned(), json!(error));
                     }
                 }
             }
             "display_email" => {
                 let token = token_with_claims(case.get("claims").unwrap_or(&Value::Null));
-                match resolve_codex_display_email(&JsString::from(&token), case.get("storedEmail")) {
+                match resolve_codex_display_email(
+                    &JsString::from(&token),
+                    case.get("storedEmail").map(JsValue::from).as_ref(),
+                ) {
                     Ok(email) => {
                         output.insert("email".to_owned(), json!(email));
                     }
                     Err(error) => {
-                        output.insert("error".to_owned(), Value::String(error));
+                        output.insert("error".to_owned(), json!(error));
                     }
                 }
             }

@@ -258,6 +258,6 @@ fn non_session_updates_are_skipped_without_locations() {
     assert!(recorded.lock().unwrap().is_empty());
     assert_eq!(
         store.allow_rules(),
-        std::collections::BTreeMap::from([("bash".to_owned(), vec!["session-only".to_owned()])])
+        std::collections::BTreeMap::from([(JsString::from("bash"), vec![JsString::from("session-only")])])
     );
 }

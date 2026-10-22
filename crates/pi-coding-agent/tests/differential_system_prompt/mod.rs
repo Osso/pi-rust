@@ -91,7 +91,7 @@ fn cases() -> Vec<BuildSystemPromptOptions> {
         ..base("/repo/project")
     });
 
-    let snippets: HashMap<String, String> = [
+    let snippets: HashMap<String, JsString> = [
         ("read", "Read file contents"),
         ("bash", "Execute bash commands"),
         ("edit", "Make surgical edits"),
@@ -101,7 +101,7 @@ fn cases() -> Vec<BuildSystemPromptOptions> {
         ("ls", "List directory contents"),
     ]
     .into_iter()
-    .map(|(name, snippet)| (name.to_owned(), snippet.to_owned()))
+    .map(|(name, snippet)| (name.to_owned(), JsString::from(snippet)))
     .collect();
     cases.push(BuildSystemPromptOptions {
         tool_snippets: Some(snippets.clone()),
@@ -109,7 +109,7 @@ fn cases() -> Vec<BuildSystemPromptOptions> {
     });
     cases.push(BuildSystemPromptOptions {
         selected_tools: Some(vec!["read".to_owned(), "dynamic_tool".to_owned()]),
-        tool_snippets: Some([("dynamic_tool".to_owned(), "Run dynamic test behavior".to_owned())].into()),
+        tool_snippets: Some([("dynamic_tool".to_owned(), JsString::from("Run dynamic test behavior"))].into()),
         ..base("/repo/project")
     });
     cases.push(BuildSystemPromptOptions {
@@ -146,7 +146,7 @@ fn cases() -> Vec<BuildSystemPromptOptions> {
         prompt_guidelines: Some(vec![
             "Use dynamic_tool for summaries.".to_owned().into(),
             "  Use dynamic_tool for summaries.  ".to_owned().into(),
-            "   ".to_owned(),
+            JsString::from("   "),
         ]),
         ..base("/repo/project")
     });

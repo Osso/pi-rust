@@ -18,7 +18,7 @@ fn auth_with(api_key: Option<&str>, headers: Option<&[(&str, Option<&str>)]>) ->
             headers: headers.map(|entries| {
                 entries
                     .iter()
-                    .map(|(name, value)| ((*name).to_owned(), value.map(str::to_owned)))
+                    .map(|(name, value)| ((*name).to_owned(), value.map(JsString::from)))
                     .collect::<ProviderHeaders>()
             }),
             base_url: None,

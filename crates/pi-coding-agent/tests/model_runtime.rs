@@ -187,7 +187,7 @@ async fn resolves_configured_auth_from_request_scoped_env_overrides() {
                 base_url: Some("https://example.test/v1".to_owned().into()),
                 api_key: Some("$REQUEST_SCOPED_API_KEY".to_owned().into()),
                 headers: Some(
-                    [("x-request-value".to_owned(), "$REQUEST_SCOPED_HEADER".to_owned())]
+                    [("x-request-value".to_owned(), JsString::from("$REQUEST_SCOPED_HEADER"))]
                         .into_iter()
                         .collect(),
                 ),
@@ -232,7 +232,11 @@ fn capturing_provider() -> (ProviderConfigInput, Arc<Mutex<Option<pi_ai::types::
         base_url: Some("https://example.test/v1".to_owned().into()),
         api_key: Some("generated-key".to_owned().into()),
         auth_header: Some(true),
-        headers: Some([("x-provider".to_owned(), "provider".to_owned())].into_iter().collect()),
+        headers: Some(
+            [("x-provider".to_owned(), JsString::from("provider"))]
+                .into_iter()
+                .collect(),
+        ),
         api: Some("openai-completions".to_owned()),
         stream_simple: Some(Arc::new(move |model, _context, options| {
             *sink.lock().unwrap() = options.and_then(|options| options.stream.request.headers);
@@ -282,12 +286,12 @@ async fn transforms_fully_assembled_headers_once() {
     let (config, captured) = capturing_provider();
     runtime.register_provider("header-provider", config).unwrap();
     let mut model = runtime.get_model("header-provider", "header-model").unwrap();
-    model.headers = Some([("x-model".to_owned(), "model".to_owned())].into());
+    model.headers = Some([("x-model".to_owned(), JsString::from("model"))].into());
     let transforms = Arc::new(AtomicUsize::new(0));
     let counter = Arc::clone(&transforms);
     let mut options = SimpleStreamOptions::default();
     options.stream.request.headers = Some(
-        [("x-explicit".to_owned(), Some("explicit".to_owned()))]
+        [("x-explicit".to_owned(), Some(JsString::from("explicit")))]
             .into_iter()
             .collect(),
     );
@@ -675,7 +679,7 @@ async fn compatibility_request_config_is_exposed_for_unconfigured_models() {
     let runtime = ModelRuntime::create(create_options(storage_with(&[]))).await.unwrap();
     let mut model = test_model("ghost");
     model.provider = "missing-provider".to_owned();
-    model.headers = Some([("X-Static-Model".to_owned(), "static-value".to_owned())].into());
+    model.headers = Some([("X-Static-Model".to_owned(), JsString::from("static-value"))].into());
     let config = runtime.get_compatibility_request_config(&model).unwrap();
     assert!(!config.auth_header);
     assert_eq!(

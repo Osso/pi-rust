@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 use pi_coding_agent::core::model_config::ModelConfig;
-use serde_json::{Value, json};
+use serde_json::json;
 
 use oracle::TsOracle;
 
@@ -154,12 +154,12 @@ fn model_config_matches_the_pinned_typescript_module() {
             expected["providerIds"],
             "{name}: provider ids"
         );
-        let providers: serde_json::Map<String, Value> = config
+        let providers: std::collections::BTreeMap<String, pi_js_compat::js_json::JsValue> = config
             .get_provider_ids()
             .into_iter()
             .filter_map(|id| config.get_provider(&id).map(|provider| (id, provider.clone())))
             .collect();
-        assert_eq!(Value::Object(providers), expected["providers"], "{name}: providers");
+        assert_eq!(json!(providers), expected["providers"], "{name}: providers");
         assert_eq!(json!(config.get_error()), expected["error"], "{name}: error");
     }
 }
@@ -176,7 +176,10 @@ fn focused_model_config_behavior() {
     let config = ModelConfig::load(Some(&JsString::from(&path.display().to_string())));
     assert_eq!(config.get_error(), None);
     assert_eq!(config.get_provider_ids(), ["zeta", "alpha"]);
-    assert_eq!(config.get_provider("zeta").unwrap()["name"], "Z");
+    assert_eq!(
+        config.get_provider("zeta").unwrap()["name"],
+        pi_js_compat::js_json::JsValue::String("Z".into())
+    );
     assert_eq!(config.get_provider("missing"), None);
 
     let missing = dir.join("none.json");
