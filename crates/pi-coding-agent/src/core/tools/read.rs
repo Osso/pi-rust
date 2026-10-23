@@ -542,7 +542,7 @@ fn truncation_details(truncation: &TruncationResult, force_bytes: bool, total_by
         details.insert("truncated".into(), Value::Bool(true));
         details.insert("truncatedBy".into(), json!("bytes"));
         if let Some(total_bytes) = total_bytes {
-            details.insert("totalBytes".into(), json!(total_bytes));
+            details.insert("totalBytes".into(), Value::Number(total_bytes));
         }
     }
     json!({"truncation": value})
