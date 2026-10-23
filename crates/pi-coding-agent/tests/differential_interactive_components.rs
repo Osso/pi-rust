@@ -159,6 +159,11 @@ fn footer_component_matches_the_pinned_typescript_source() {
 }
 
 #[test]
+fn session_selector_matches_the_pinned_typescript_source() {
+    compare_component_cases(session_selector_cases);
+}
+
+#[test]
 fn interactive_leaf_helpers_match_the_pinned_typescript_source() {
     compare_component_cases(requests);
 }
@@ -188,7 +193,6 @@ fn requests() -> Vec<(Value, Value)> {
     cases.extend(custom_entry_cases());
     cases.extend(bash_execution_cases());
     cases.extend(tree_selector_cases());
-    cases.extend(session_selector_cases());
     cases.extend(tool_execution_cases());
     cases.extend(tool_renderer_cases());
     cases
@@ -1686,14 +1690,18 @@ fn session_selector_cases() -> Vec<(Value, Value)> {
             selector.load_current_sessions().await;
 
             let mut renders = vec![json!(selector.render(width))];
-            let mut selected = vec![json!(selector.session_list().get_selected_session_path().cloned())];
+            let mut selected = vec![json!(
+                selector.session_list().borrow().get_selected_session_path().cloned()
+            )];
             for input in &inputs {
                 selector.handle_input(&JsString::from(*input));
                 if selector.has_pending_action() {
                     selector.run_pending_action().await;
                 }
                 renders.push(json!(selector.render(width)));
-                selected.push(json!(selector.session_list().get_selected_session_path().cloned()));
+                selected.push(json!(
+                    selector.session_list().borrow().get_selected_session_path().cloned()
+                ));
             }
             json!({"renders": renders, "selected": selected})
         });

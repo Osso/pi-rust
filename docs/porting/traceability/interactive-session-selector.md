@@ -1,50 +1,38 @@
-# components/session-selector.ts
+# session-selector.ts
 
-Source: `coding-agent/src/modes/interactive/components/session-selector.ts`
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/session_selector.rs`
+Frozen: `coding-agent/src/modes/interactive/components/session-selector.ts` at `4f9e6f8a4` (1073 lines).
+Native: `crates/pi-coding-agent/src/modes/interactive/components/session_selector.rs`.
 
-Tests: `crates/pi-coding-agent/tests/interactive_components_c.rs` (session_selector_*),
-differential `sessionSelector` cases (9 scope/filter/sort/search/path sequences with exact
-ANSI lines and selected paths).
+## Symbol and branch map
 
-| Symbol / branch | Rust item | Proof |
+| Frozen symbols / branches | Native representation | Proof |
 |---|---|---|
-| `shortenPath` | `shorten_path` | path-toggle differential |
-| `formatSessionDate` | `format_session_date` | age buckets in render |
-| `canonicalizePath` | `canonicalize` (`utils::paths`) | current-session marker |
-| `SessionSelectorHeader` (scope/sort/name, loading progress, hints, status) | `SessionSelectorHeader` | differential + status tests |
-| header status auto-hide | `SessionSelectorHeader::poll` | status test |
-| `buildSessionTree` / `compareSessionTreeNodes` / `flattenSessionTree` | same-named helpers | threaded differential |
-| `SessionList` constructor and filtering | `SessionList::new`/`filter_sessions` | differential |
-| `setSortMode`/`setNameFilter`/`setSessions` | same-named methods | differential |
-| `startDeleteConfirmationForSelectedSession` | same-named method | delete test |
-| `isCurrentSessionPath` | same-named method | current-delete test |
-| `buildTreePrefix` | `build_tree_prefix` | threaded differential |
-| `render` (search line, empty messages, rows, scroll indicator) | `Component::render` | differential |
-| `handleInput` (confirm state, tab, sort, named, path, archive, delete, rename, non-invasive delete, navigation, confirm/cancel, search) | `SessionList::handle_input` | differential + behavioral |
-| `deleteSessionFile` (`trash` then `unlink`, error hint) | `delete_session_file` | delete test |
-| `SessionSelectorComponent` scope cache/toggle | `toggle_scope` | scope differential |
-| `loadScope` (initial/refresh/toggle, seq guards, progress, error) | `load_scope` | scope/error tests |
-| `toggleSortMode` / `toggleNameFilter` | same-named methods | differential |
-| `enterRenameMode` / `exitRenameMode` / `confirmRename` | same-named methods | rename test |
-| `onDeleteSession` (metadata removal, list update, refresh) | `delete_session` | delete test |
-| `onArchiveSession` (control DB required, already-archived, archive+refresh) | `archive_selected_session` | archive test |
-| `loadCurrentSessions` from constructor | `load_current_sessions` (async) | differential |
-| `getSessionList` | `session_list` | differential |
-| `showError` | `show_error` (error status, 4 s auto-hide, render) | `resume_flag_opens_the_session_picker_and_cancels_with_escape` error path; header status tests |
+| shortenPath, formatSessionDate, canonicalizePath (:30–58) | unit-native paths; f64 Date values; JS age bucket number formatting | existing nine sequences; raw selector tests; list corpus |
+| SessionSelectorHeader setters/render/loading/progress/hints/status (:60–200) | typed header child, f64 progress, deadline-driven status timeout | lifecycle/numeric/full-list frame+event differential, widths0/1/8/30/90; status timeout proof pending |
+| buildSessionTree/compareSessionTreeNodes/flattenSessionTree (:221–297) | indexed last-node Map identity, shared JS sort, literal connectors/activity propagation | fourteen-row corpus with parent/grandchild, duplicate paths and two pages |
+| SessionList constructor/accessors/filter/sort/name/session/current-delete guards/render/input (:302–670) | typed shared list/input; Component input and focus delegates; native UTF-16 normalization/search | six list sequences include empty name, lone surrogate/control units, paging, sort/search/path/delete confirmation; direct child input/focus RED→GREEN |
+| SessionSelectorComponent constructor/layout/focus/handleInput/getSessionList/showError (:677–844,1065–1072) | actual inherited Container; typed retained header/list/rename handles; getter returns actual list handle | complete child/component frames and selected paths; direct list input/focus, padded rename panel, errors and callback state sequences |
+| archive/delete callbacks (:846–917) | shared archive_persisted_session/delete_session_tree; no local duplicate deletion or ignored metadata errors | five real-file/control-DB differential cases: recursive delete, partial delete, archive/compressed relocation, missing DB, already archived |
+| loadCurrentSessions/loadScope/toggleScope (:924–926,973–1036,1047–1063) | constructor-started independent futures; live progress; cache-before-scope/sequence guards; bounded driver polling | held current/all/archived promises, stale progress, out-of-scope completion, cache re-entry, initial rejection; double refresh newest-first |
+| enterRenameMode/exitRenameMode/confirmRename (:929–971) | actual panel rebuild; trim/undefined name, refresh before finally exit | current archived rename with held refresh, existing rename behavior test; rejected rename proof pending |
+| toggleSortMode/toggleNameFilter/refreshSessionsAfterMutation (:1038–1045) | literal state cycles and header/list updates | exact frames and render events in lifecycle/list/mutation sequences |
 
-## Q13 common-pin scheduling/container port (2026-10-22)
+The Rust poll driver starts each loader's synchronous prefix at invocation, then processes promise continuations without holding the selector mutex across awaits. `load_current_sessions` drains the already-started constructor task, never issues a second initial request. Interactive mode no longer awaits full loads/actions. CLI driver integration remains open pending its blocked-loader proof. No historical async/progress gap is retained or approved.
 
-Frozen constructor :746–921 starts current load immediately. Native constructor now starts/polls the loader's synchronous prefix, retains its promise, and updates loading/progress live. Source :974–1036 uses independent scope tasks, caches before scope/sequence guards and suppresses stale progress/rendering. Native poll driver implements those transitions without holding the selector mutex across awaits; interactive mode polls rather than awaits full loads/actions. `load_current_sessions` only drains the constructor's existing task, not a second request.
+`getSessionList` built-in consumer audit: frozen `cli/session-picker.ts:70` focuses the returned live list. Native returns the retained typed handle; the list implements Component input/focus, and selector polling drains its events. Direct-child regression RED demonstrated both formerly missing trait delegates. Owned-copy approval does not erase this required live-child behavior.
 
-`differential_session_selector` compares all render lines, inherited child frames, selected paths and full load/render/select/rename events after constructor and every operation. Held promises exercise progress, current/all/archived overlap, ignored stale progress, out-of-scope completion, cache re-entry, rename followed by held refresh, explicit error and initial load rejection. RED `session-selector-red.log` → GREEN `session-selector-green-attempt1.log` in `/tmp/pi-rust-repin-lossless-interactive/`.
+## Current proof ledger
 
-Actual Container with typed shared header/list/input children replaces manual rendering; rename panel retains frozen Text padding and inherited invalidation/focus. The old local delete helper is removed; source :872 now calls the shared `delete_session_tree`, archive :864 calls `archive_persisted_session`, and failures are not silently ignored. Mutation proof is still in progress; coverage remains open. No historical async/progress gaps are approved or retained.
+All logs under `/tmp/pi-rust-repin-lossless-interactive/`.
 
-## Discrepancies
+- `session-selector-red.log` → `session-selector-green-attempt1.log`: constructor/progress/concurrent scope and rename frames/events.
+- `session-selector-numeric-red.log` → `session-selector-numeric-green2.log`: fractional/negative/NaN/Infinity header progress, shared JS number formatting.
+- `session-selector-list-red2.log` → `session-selector-list-green-attempt1.log`: empty-message color applied after truncation (:455), empty-name truthiness (:477), default final-row ellipsis `...` (:533), last-node Map identity (:225–242). Six full-list scenarios; fourteen rows exceed page size.
+- `session-selector-child-input-red.log`, `session-selector-child-focus-red.log` → `session-selector-child-green2.log`: direct list input/focus, plus double-refresh ordering. Five lifecycle/numeric/child scenarios and six full-list scenarios GREEN.
+- `session-selector-mutations-green.log`: five isolated source/native real file+SQLite cases. Private Python trash fixture; no live data. `session-selector-existing.log`: seven behavior tests GREEN. `session-selector-old-nine-green.log`: nine existing frozen differential cases GREEN, moved to a separately filterable test without changing assertions or dropping cases.
 
-None found.
+## DISCREPANCY — stale cache publication
 
-## Q18 native UTF-16 integration (2026-10-22)
+Frozen :991–1005 publishes a completed all-scope load to `allSessions` before checking its sequence. An older completion is suppressed on screen, but overwrites the cache and becomes visible after cycling away/back. Parent classified/preserved this literally on 2026-10-22. Double-Enter rename refreshes completed newest-first exercise the exact boundary; native matches. No corrective delta is introduced.
 
-Session names/paths, rename/status/error callbacks and rendered frames use JsString. Search tokens, phrases, whitespace normalization and regex input are unit-native. `lossless_interactive_selectors` covers raw name render/path selection and raw query units; authored, unexecuted while coding-agent does not compile. No primary diagnostics at interactive6.
+No other source discrepancy identified. Human text and callbacks remain JsString; OS paths use the existing shared Node boundaries. Progress is f64. No lossy projection or alternate delete/archive implementation remains in this module.
