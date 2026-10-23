@@ -2618,6 +2618,7 @@ pub fn bind_interactive_mode_session_mutation_target_resolver(
 
 pub struct InteractiveMode {
     runtime: AgentSessionRuntime,
+    auto_trust_on_reload_cwd: RefCell<Option<JsString>>,
     options: InteractiveModeOptions,
     multi_agent_store: Option<Arc<MultiAgentStore>>,
     child_view: RefCell<Option<ChildAgentView>>,
@@ -2944,6 +2945,7 @@ impl InteractiveMode {
 
         let mode = Rc::new(Self {
             runtime,
+            auto_trust_on_reload_cwd: RefCell::new(options.auto_trust_on_reload_cwd.clone()),
             options,
             multi_agent_store,
             child_view: RefCell::new(None),
@@ -8126,6 +8128,10 @@ impl InteractiveMode {
             self.show_warning("Wait for the current response to finish before reloading.");
             return;
         }
+        if self.session().is_compacting() {
+            self.show_warning("Wait for compaction to finish before reloading.");
+            return;
+        }
         self.reset_extension_ui();
         let reload_box = self.build_reload_box();
         let previous_editor = self.editor_handle.borrow().clone();
@@ -8170,10 +8176,15 @@ impl InteractiveMode {
                 .set_clear_on_shrink(self.settings(|settings| settings.get_clear_on_shrink()));
             self.setup_autocomplete_provider();
             self.show_loaded_resources(false, true)?;
+            let saved_project_trust = self.maybe_save_implicit_project_trust_after_reload()?;
             if let Some(error) = self.session().model_registry().get_error() {
                 self.show_error(&js_format!("models.json error: {}", error));
             }
-            self.show_status("Reloaded keybindings, extensions, skills, prompts, themes");
+            self.show_status(if saved_project_trust {
+                "Reloaded keybindings, extensions, skills, prompts, themes; saved project trust"
+            } else {
+                "Reloaded keybindings, extensions, skills, prompts, themes"
+            });
             Ok::<(), CallbackError>(())
         }
         .await;
@@ -8182,6 +8193,39 @@ impl InteractiveMode {
             Err(error) => {
                 self.mount_reload_editor(previous_editor);
                 self.show_error(&js_format!("Reload failed: {}", error.message));
+            }
+        }
+    }
+
+    fn maybe_save_implicit_project_trust_after_reload(&self) -> Result<bool, CallbackError> {
+        use crate::core::trust_manager::{ProjectTrustDecision, has_trust_requiring_project_resources};
+        let cwd = self.cwd();
+        if self.auto_trust_on_reload_cwd.borrow().as_ref() != Some(&cwd) {
+            return Ok(false);
+        }
+        if !self.settings(|settings| settings.is_project_trusted())
+            || !has_trust_requiring_project_resources(&cwd).map_err(CallbackError::from)?
+        {
+            return Ok(false);
+        }
+        let store = ProjectTrustStore::new(&self.runtime.services().agent_dir).map_err(CallbackError::from)?;
+        let save = || -> Result<bool, crate::core::trust_manager::TrustError> {
+            if store.get(&cwd)? != ProjectTrustDecision::Unknown {
+                self.auto_trust_on_reload_cwd.borrow_mut().take();
+                return Ok(false);
+            }
+            store.set(&cwd, ProjectTrustDecision::Trusted)?;
+            self.auto_trust_on_reload_cwd.borrow_mut().take();
+            Ok(true)
+        };
+        match save() {
+            Ok(saved) => Ok(saved),
+            Err(error) => {
+                self.show_warning(&js_format!(
+                    "Could not save project trust after reload: {}",
+                    error.message()
+                ));
+                Ok(false)
             }
         }
     }
@@ -12616,6 +12660,141 @@ mod ui_tests {
                 mode.stop();
             }
         }).await;
+    }
+
+    #[tokio::test]
+    async fn reload_implicit_trust_matches_frozen_persistence_and_status_branches() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        use crate::core::trust_manager::ProjectTrustDecision;
+        tokio::task::LocalSet::new().run_until(async {
+            let mut source = oracle::TsOracle::spawn("interactive-reload-body-oracle.mts", "packages/coding-agent/src");
+            for (resources, trusted, auto_matches, prior) in [
+                (true, true, true, None), (true, true, true, Some(true)),
+                (true, true, true, Some(false)), (true, true, false, None),
+                (true, false, true, None), (false, true, true, None),
+            ] {
+                let (initial, terminal, _faux, temp) = build_mode().await;
+                let cwd = initial.cwd();
+                let source_cwd = temp.path().join("source-cwd");
+                let source_agent = temp.path().join("source-agent");
+                std::fs::create_dir(&source_cwd).unwrap();
+                std::fs::create_dir(&source_agent).unwrap();
+                if resources {
+                    std::fs::create_dir_all(temp.path().join(".pi/extensions")).unwrap();
+                    std::fs::create_dir_all(source_cwd.join(".pi/extensions")).unwrap();
+                }
+                if let Some(prior) = prior {
+                    let decision = if prior { ProjectTrustDecision::Trusted } else { ProjectTrustDecision::Untrusted };
+                    ProjectTrustStore::new(&cwd).unwrap().set(&cwd, decision).unwrap();
+                    ProjectTrustStore::new(&js_path(&source_agent)).unwrap().set(&js_path(&source_cwd), decision).unwrap();
+                }
+                let expected = source.request(&serde_json::json!({"trust":true,"projectTrusted":trusted,"cwd":source_cwd,"agentDir":source_agent,"autoCwd":if auto_matches { js_path(&source_cwd) } else { "/not-fixture".into() },"colors":crate::modes::interactive::theme::REQUIRED_COLORS}));
+                assert_eq!(expected["ok"], true, "source: {expected}");
+                let terminal_trait: Rc<RefCell<dyn Terminal>> = terminal;
+                let mode = InteractiveMode::new(initial.runtime.clone(), InteractiveModeOptions {
+                    auto_trust_on_reload_cwd: Some(if auto_matches { cwd.clone() } else { "/not-fixture".into() }),
+                    ..Default::default()
+                }, Some(terminal_trait)).await.unwrap();
+                mode.settings_mut(|settings| settings.set_project_trusted(trusted));
+                mode.bind_extensions().await.unwrap();
+                mode.handle_reload_command().await;
+                let decision = match ProjectTrustStore::new(&cwd).unwrap().get(&cwd).unwrap() {
+                    ProjectTrustDecision::Unknown => serde_json::Value::Null,
+                    ProjectTrustDecision::Trusted => serde_json::json!(true),
+                    ProjectTrustDecision::Untrusted => serde_json::json!(false),
+                };
+                let messages: Vec<_> = mode.chat_container.borrow_mut().render(200).into_iter()
+                    .map(|line|pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line|!line.is_empty()).map(|line|line.units().to_vec()).collect();
+                assert_eq!(decision, expected["output"]["decision"], "resources={resources},trusted={trusted},auto={auto_matches},prior={prior:?}");
+                assert_eq!(serde_json::json!(messages), expected["output"]["messages"]);
+                mode.stop();
+            }
+        }).await;
+    }
+
+    #[tokio::test]
+    async fn reload_while_compacting_matches_frozen_warning_without_reloading_resources() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let mut source =
+                    oracle::TsOracle::spawn("interactive-reload-busy-oracle.mts", "packages/coding-agent/src");
+                let expected = source.request(&serde_json::json!({"streaming":false,"compacting":true}));
+                assert_eq!(expected["ok"], true, "source: {expected}");
+                let entered = Arc::new(tokio::sync::Notify::new());
+                let release = Arc::new(tokio::sync::Notify::new());
+                let extension_runtime = crate::core::extensions::create_extension_runtime();
+                let factory: crate::core::extensions::ExtensionFactory = Arc::new({
+                    let entered = entered.clone();
+                    let release = release.clone();
+                    move |api| {
+                        let entered = entered.clone();
+                        let release = release.clone();
+                        api.on_session_compaction_source(
+                            move |_: crate::core::extensions::SessionCompactionSourceEvent,
+                                  _: crate::core::extensions::ExtensionContext|
+                                  -> crate::core::extensions::BoxFuture<
+                                'static,
+                                Result<Option<crate::core::extensions::SessionCompactionSourceResult>, HandlerError>,
+                            > {
+                                let entered = entered.clone();
+                                let release = release.clone();
+                                Box::pin(async move {
+                                    entered.notify_one();
+                                    release.notified().await;
+                                    Ok(None)
+                                })
+                            },
+                        )
+                        .unwrap();
+                        Box::pin(async { Ok(()) })
+                    }
+                });
+                let extension = crate::core::extensions::load_extension_from_factory(
+                    factory,
+                    &"/tmp".into(),
+                    Arc::new(crate::core::event_bus::EventBusController::new()),
+                    extension_runtime.clone(),
+                    &"/tmp/held-compaction".into(),
+                )
+                .await
+                .unwrap();
+                let loader = Arc::new(StaticResourceLoader {
+                    extensions: Some(crate::core::extensions::LoadExtensionsResult {
+                        extensions: vec![extension],
+                        errors: Vec::new(),
+                        runtime: extension_runtime,
+                    }),
+                    ..Default::default()
+                });
+                let (mode, _terminal, _faux, _temp) = build_mode_with_loader(loader, None).await;
+                let compact = tokio::task::spawn_local({
+                    let session = mode.session();
+                    async move { session.compact(None).await }
+                });
+                tokio::time::timeout(Duration::from_secs(5), entered.notified())
+                    .await
+                    .unwrap();
+                assert!(mode.session().is_compacting());
+                assert!(!mode.session().is_streaming());
+                mode.handle_reload_command().await;
+                release.notify_one();
+                let _result = compact.await.unwrap();
+                let lines: Vec<_> = mode
+                    .chat_container
+                    .borrow_mut()
+                    .render(120)
+                    .into_iter()
+                    .map(|line| pi_tui::utils::strip_terminal_sequences(&line).trim())
+                    .filter(|line| !line.is_empty())
+                    .collect();
+                assert_eq!(serde_json::json!(lines), expected["output"]);
+            })
+            .await;
     }
 
     #[tokio::test(flavor = "current_thread")]

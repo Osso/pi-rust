@@ -3,6 +3,7 @@ import { pathToFileURL } from "node:url";
 const root = process.argv[2];
 if (!root) throw new Error("coding-agent source root required");
 const { InteractiveMode } = await import(pathToFileURL(`${root}/modes/interactive/interactive-mode.ts`).href);
+const { ProjectTrustStore } = await import(pathToFileURL(`${root}/core/trust-manager.ts`).href);
 const { SettingsManager } = await import(pathToFileURL(`${root}/core/settings-manager.ts`).href);
 const { Container } = await import(pathToFileURL(`${root}/../../tui/src/index.ts`).href);
 const themes = await import(pathToFileURL(`${root}/modes/interactive/theme/theme.ts`).href);
@@ -19,6 +20,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		settings.setAutocompleteMaxVisible(9);
 		settings.setShowHardwareCursor(true);
 		settings.setClearOnShrink(true);
+		if (request.trust) settings.setProjectTrusted(request.projectTrusted);
 		let release!: () => void;
 		let entered!: () => void;
 		const held = new Promise<void>((resolve) => { release = resolve; });
@@ -33,7 +35,9 @@ for await (const line of createInterface({ input: process.stdin })) {
 			setShowHardwareCursor(value: boolean) { this.hardware = value; },
 			setClearOnShrink(value: boolean) { this.clear = value; } };
 		const receiver = Object.assign(Object.create(InteractiveMode.prototype), {
-			options: {}, runtimeHost: { session: {
+			options: {}, autoTrustOnReloadCwd: request.autoCwd,
+			runtimeHost: { services: { agentDir: request.agentDir }, session: {
+				sessionManager: { getCwd: () => request.cwd },
 				isStreaming: false, isCompacting: false,
 				settingsManager: settings,
 				resourceLoader: { getThemes: () => ({ themes: [] }) },
@@ -43,11 +47,13 @@ for await (const line of createInterface({ input: process.stdin })) {
 				if (request.error) throw new Error(String.fromCharCode(...request.error));
 				beforeSessionStart();
 			} },
-			editor, defaultEditor: editor, editorContainer: new Container(), ui,
+			editor, defaultEditor: editor, editorContainer: new Container(), chatContainer: new Container(), ui,
 			keybindings: { reload: () => {} }, themeController: { applyFromSettings: async () => {} },
-			resetExtensionUI: () => {}, rebuildChatFromMessages: () => {},
+			resetExtensionUI: () => {}, rebuildChatFromMessages: () => {
+				if (request.trust) InteractiveMode.prototype.renderProjectTrustWarningIfNeeded.call(receiver);
+			},
 			setupAutocompleteProvider: () => {}, setupExtensionShortcuts: () => {}, showLoadedResources: () => {},
-			maybeSaveImplicitProjectTrustAfterReload: () => false,
+			maybeSaveImplicitProjectTrustAfterReload: () => request.trust ? InteractiveMode.prototype.maybeSaveImplicitProjectTrustAfterReload.call(receiver) : false,
 			showStatus: (message: string) => messages.push(message), showError: (message: string) => messages.push(message),
 		});
 		const reload = receiver.handleReloadCommand();
@@ -55,8 +61,9 @@ for await (const line of createInterface({ input: process.stdin })) {
 		const loading = visible(receiver.editorContainer.render(80));
 		release(); await reload;
 		console.log(JSON.stringify({ ok: true, output: { loading, padding: editor.padding, visible: editor.visible,
-			hardware: ui.hardware, clear: ui.clear, messages: messages.map((message) => Array.from({ length: message.length }, (_, i) => message.charCodeAt(i))),
-			restored: receiver.editorContainer.children[0] === editor } }));
+			hardware: ui.hardware, clear: ui.clear, messages: [...visible(receiver.chatContainer.render(200)), ...messages].map((message) => Array.from({ length: message.length }, (_, i) => message.charCodeAt(i))),
+			restored: receiver.editorContainer.children[0] === editor,
+			...(request.trust ? { decision: new ProjectTrustStore(request.agentDir).get(request.cwd) } : {}) } }));
 	} catch (error) {
 		console.log(JSON.stringify({ ok: false, error: String(error) }));
 	}
