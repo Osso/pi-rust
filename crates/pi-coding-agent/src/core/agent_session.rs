@@ -128,7 +128,7 @@ impl From<crate::config::ConfigError> for AgentSessionError {
 }
 impl From<SessionManagerError> for AgentSessionError {
     fn from(error: SessionManagerError) -> Self {
-        match error.config_error().and_then(crate::config::ConfigError::native_error) {
+        match error.native_error() {
             Some(native) => Self::from(native.clone()),
             None => Self::new(error.message()),
         }

@@ -8,6 +8,7 @@
 use std::fmt;
 
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::node_error::NativeNodeError;
 use rusqlite::{Connection, ErrorCode, OpenFlags};
 
 /// Default multi-consumer open settings for shared process-local SQLite DBs.
@@ -23,6 +24,7 @@ pub struct ControlDbError {
     message: JsString,
     contention: bool,
     config: Option<Box<crate::config::ConfigError>>,
+    original: Option<NativeNodeError>,
 }
 
 impl ControlDbError {
@@ -31,6 +33,7 @@ impl ControlDbError {
             message: message.into(),
             contention: false,
             config: None,
+            original: None,
         }
     }
 
@@ -42,6 +45,14 @@ impl ControlDbError {
         self.contention
     }
 
+    pub(crate) fn native_error(&self) -> Option<&NativeNodeError> {
+        self.original.as_ref().or_else(|| {
+            self.config
+                .as_deref()
+                .and_then(crate::config::ConfigError::native_error)
+        })
+    }
+
     fn from_sqlite(error: rusqlite::Error) -> Self {
         let contention = matches!(
             error.sqlite_error_code(),
@@ -51,6 +62,7 @@ impl ControlDbError {
             message: error.to_string().into(),
             contention,
             config: None,
+            original: None,
         }
     }
 }
@@ -63,7 +75,10 @@ impl fmt::Display for ControlDbError {
 
 impl std::error::Error for ControlDbError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.config.as_deref().map(|error| error as &dyn std::error::Error)
+        self.original
+            .as_ref()
+            .map(|error| error as &dyn std::error::Error)
+            .or_else(|| self.config.as_deref().map(|error| error as &dyn std::error::Error))
     }
 }
 impl From<ControlDbError> for pi_ai::request::CallbackError {
@@ -77,6 +92,18 @@ impl From<crate::config::ConfigError> for ControlDbError {
             message: error.message().clone(),
             contention: false,
             config: Some(Box::new(error)),
+            original: None,
+        }
+    }
+}
+
+impl From<NativeNodeError> for ControlDbError {
+    fn from(error: NativeNodeError) -> Self {
+        Self {
+            message: error.message.clone(),
+            contention: false,
+            config: None,
+            original: Some(error),
         }
     }
 }

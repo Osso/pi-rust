@@ -52,6 +52,7 @@ pub struct SessionManagerError {
     name: &'static str,
     message: JsString,
     config: Option<Box<crate::config::ConfigError>>,
+    control_db: Option<Box<crate::core::sqlite::ControlDbError>>,
 }
 
 impl SessionManagerError {
@@ -60,6 +61,7 @@ impl SessionManagerError {
             name: "Error",
             message: message.into(),
             config: None,
+            control_db: None,
         }
     }
 
@@ -74,7 +76,17 @@ impl SessionManagerError {
         self.config.as_deref()
     }
 
+    pub(crate) fn native_error(&self) -> Option<&pi_js_compat::node_error::NativeNodeError> {
+        self.control_db
+            .as_deref()
+            .and_then(crate::core::sqlite::ControlDbError::native_error)
+            .or_else(|| self.config_error().and_then(crate::config::ConfigError::native_error))
+    }
+
     pub(crate) fn raise_uncaught(self) -> ! {
+        if let Some(native) = self.native_error() {
+            crate::utils::uncaught::throw_native_uncaught(native.clone());
+        }
         match self.config {
             Some(error) => error.raise_uncaught(),
             None => crate::utils::uncaught::throw_uncaught(self.name, self.message),
@@ -96,7 +108,10 @@ impl std::fmt::Display for SessionManagerError {
 
 impl std::error::Error for SessionManagerError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.config_error().map(|error| error as &dyn std::error::Error)
+        self.control_db
+            .as_deref()
+            .map(|error| error as &dyn std::error::Error)
+            .or_else(|| self.config_error().map(|error| error as &dyn std::error::Error))
     }
 }
 impl From<crate::config::ConfigError> for SessionManagerError {
@@ -105,6 +120,7 @@ impl From<crate::config::ConfigError> for SessionManagerError {
             name: error.label(),
             message: error.message().clone(),
             config: Some(Box::new(error)),
+            control_db: None,
         }
     }
 }
@@ -115,12 +131,24 @@ impl From<pi_js_compat::date::InvalidTimeValue> for SessionManagerError {
             name: cause.name(),
             message: cause.to_string().into(),
             config: None,
+            control_db: None,
         }
     }
 }
 
-fn control_db_error(cause: impl std::fmt::Display) -> SessionManagerError {
+fn format_session_error(cause: impl std::fmt::Display) -> SessionManagerError {
     error(cause.to_string())
+}
+
+fn control_db_error(cause: crate::core::sqlite::ControlDbError) -> SessionManagerError {
+    SessionManagerError {
+        name: cause
+            .native_error()
+            .map_or("Error", |error| error.constructor_class().name()),
+        message: cause.message().clone(),
+        config: None,
+        control_db: Some(Box::new(cause)),
+    }
 }
 
 fn assert_unarchived_session_file(path: &JsString) -> Result<(), SessionManagerError> {
@@ -1631,7 +1659,7 @@ pub fn get_default_session_dir(cwd: &JsString, agent_dir: Option<&JsString>) -> 
         None => get_agent_dir()?,
     };
     let session_dir = get_default_session_dir_path(cwd, &agent_dir)?;
-    fs::create_dir_all(encode_node_utf8(&session_dir)).map_err(control_db_error)?;
+    fs::create_dir_all(encode_node_utf8(&session_dir)).map_err(format_session_error)?;
     Ok(session_dir)
 }
 
@@ -1646,7 +1674,7 @@ fn parse_session_entry_line(line: &str) -> Option<FileEntry> {
 pub(crate) fn parse_session_file_entry(line: impl Into<JsString>) -> Result<FileEntry, SessionManagerError> {
     pi_js_compat::js_json::parse_lossless(line)
         .map_err(|cause| error(cause.into_message()))
-        .and_then(|value| pi_js_compat::js_json::from_value(&value).map_err(control_db_error))
+        .and_then(|value| pi_js_compat::js_json::from_value(&value).map_err(format_session_error))
 }
 
 fn decode_utf8_lossy(bytes: &[u8]) -> String {
@@ -1660,10 +1688,10 @@ pub fn load_entries_from_file(file_path: &JsString) -> Result<Vec<FileEntry>, Se
         return Ok(Vec::new());
     }
     super::session_transcript_spool::with_seekable_session_transcript(&source, |plain| {
-        let file = File::open(encode_node_utf8(&plain)).map_err(control_db_error)?;
+        let file = File::open(encode_node_utf8(&plain)).map_err(format_session_error)?;
         let mut entries = Vec::new();
         for line in BufReader::with_capacity(SESSION_READ_BUFFER_SIZE, file).split(b'\n') {
-            let line = line.map_err(control_db_error)?;
+            let line = line.map_err(format_session_error)?;
             if let Some(entry) = parse_session_entry_line(&decode_utf8_lossy(&line)) {
                 entries.push(entry);
             }
@@ -2172,6 +2200,7 @@ fn new_date_value(value: Option<&JsValue>) -> Result<f64, SessionManagerError> {
                 name: "TypeError",
                 message: message.into(),
                 config: None,
+                control_db: None,
             })?;
             Ok(pi_js_compat::date::date_parse_utf16(text.units()))
         }
@@ -3409,10 +3438,10 @@ impl SessionManager {
     ) -> Result<JsString, SessionManagerError> {
         let mailbox_store_refs = mailbox_store_refs
             .map(|refs| {
-                let json = serde_json::to_string(refs).map_err(control_db_error)?;
+                let json = serde_json::to_string(refs).map_err(format_session_error)?;
                 pi_js_compat::js_json::parse_lossless(&json)
                     .map(PersistedJsonValue)
-                    .map_err(control_db_error)
+                    .map_err(format_session_error)
             })
             .transpose()?;
         let entry = SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
@@ -3807,7 +3836,7 @@ impl SessionManager {
             .write(true)
             .open(encode_node_utf8(path))
             .and_then(|file| file.sync_all())
-            .map_err(control_db_error)
+            .map_err(format_session_error)
     }
 
     /// List sessions for a directory, preferring control-db metadata when present.

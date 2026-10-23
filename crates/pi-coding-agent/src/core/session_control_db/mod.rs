@@ -20,7 +20,6 @@ mod schema;
 mod sessions;
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use rusqlite::{Connection, Row, params};
@@ -416,20 +415,24 @@ fn close_released_control_db(control_db_path: &JsString, retained: &Arc<Retained
 }
 
 fn create_writable_control_db(control_db_path: &JsString) -> Result<Connection, ControlDbError> {
-    let file_name = encode_node_utf8(control_db_path);
-    if let Some(parent) = Path::new(&file_name).parent() {
-        create_private_directory(parent)?;
-    }
-    create_sqlite_database(&file_name)
+    let directory = crate::utils::paths::node_dirname(control_db_path.clone());
+    create_private_directory(&directory)?;
+    create_sqlite_database(&encode_node_utf8(control_db_path))
 }
 
-fn create_private_directory(directory: &Path) -> Result<(), ControlDbError> {
+fn create_private_directory(directory: &JsString) -> Result<(), ControlDbError> {
+    use pi_js_compat::node_error::NativeNodeError;
+    use pi_js_compat::node_fs::{node_fs_error_record, node_path_argument_error};
     use std::os::unix::fs::DirBuilderExt;
+
+    if let Some(error) = node_path_argument_error(directory) {
+        return Err(NativeNodeError::from(error).into());
+    }
     let mut builder = std::fs::DirBuilder::new();
     builder.recursive(true).mode(0o700);
     builder
-        .create(directory)
-        .map_err(|error| ControlDbError::new(error.to_string()))
+        .create(encode_node_utf8(directory))
+        .map_err(|error| NativeNodeError::from(node_fs_error_record(&error, "mkdir", directory)).into())
 }
 
 fn open_retained_control_db(control_db_path: &JsString) -> Result<Arc<RetainedControlDb>, ControlDbError> {
