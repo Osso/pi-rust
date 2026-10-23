@@ -1394,19 +1394,12 @@ fn apply_finish_reason(output: &mut AssistantMessage, choice: &JsValue) {
     if reason.is_empty() {
         return;
     }
-    output.raw_stop_reason = Some(reason.to_owned());
     match reason.as_str() {
         "stop" => output.stop_reason = StopReason::Stop,
         "length" | "model_length" => output.stop_reason = StopReason::Length,
         "tool_calls" => output.stop_reason = StopReason::ToolUse,
-        "error" => {
-            output.stop_reason = StopReason::Error;
-            output.error_message = Some("Provider stopped with: error".to_owned().into());
-        }
-        other => {
-            output.stop_reason = StopReason::Error;
-            output.error_message = Some(format!("Provider stopped with: {other}").into());
-        }
+        "error" => output.stop_reason = StopReason::Error,
+        _ => output.stop_reason = StopReason::Stop,
     }
 }
 

@@ -574,6 +574,43 @@ fn scenarios() -> Vec<Value> {
     scenarios
 }
 
+#[tokio::test]
+async fn mistral_valid_sdk_events_preserve_full_native_snapshots() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "mistral-conversations-oracle.ts",
+        "packages/ai/src/api/mistral-conversations.ts",
+    );
+    let text = json!({"id":"r_valid","model":"mistral-large-latest","choices":[{"index":0,"delta":{"content":"hello"},"finish_reason":null}]}).to_string();
+    let start = json!({"id":"r_valid","model":"mistral-large-latest","choices":[{"index":0,"delta":{"tool_calls":[{
+        "index":0,"id":"abc123456","function":{"name":"lookup","arguments":"{\"n\":"}
+    }]},"finish_reason":null}]})
+    .to_string();
+    let delta = json!({"id":"r_valid","model":"mistral-large-latest","choices":[{"index":0,"delta":{"tool_calls":[{
+        "index":0,"id":"abc123456","function":{"name":"lookup","arguments":"1}"}
+    }]},"finish_reason":null}]})
+    .to_string();
+    let mut stop: Value = serde_json::from_str(&terminal(json!("tool_calls"))).unwrap();
+    stop["model"] = json!("mistral-large-latest");
+    let cases = [
+        vec![text.clone(), stop.to_string()],
+        vec![start.clone(), delta, stop.to_string()],
+        vec![start],
+        vec![text],
+    ];
+    for (index, events) in cases.into_iter().enumerate() {
+        let request = scenario(
+            400 + index,
+            model("mistral-large-latest", false),
+            json!({"messages":[]}),
+            json!({"apiKey":"test"}),
+            json!({"chunks":sse(&events)}),
+        );
+        let expected = oracle.request(&request);
+        let actual = observe(&request).await;
+        assert_eq!(actual, expected, "valid SDK event case{index}");
+    }
+}
+
 #[test]
 fn mistral_sdk_chunk_header_validation_matches_frozen_errors() {
     let mut oracle = oracle::TsOracle::spawn(
