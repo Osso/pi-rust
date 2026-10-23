@@ -157,6 +157,11 @@ fn native(request: &Value) -> Value {
         });
         json!({"lines":lines,"children":children,"sameSignal":same,"aborted":signal.aborted(),"reason":reason(&signal),"events":events.lock().unwrap().clone(),"renders":renders.get()})
     };
+    let extra = pi_tui::tui::component(pi_tui::Text::new(
+        JsString::from_utf16(vec![101, 120, 116, 114, 97, 0xd800]),
+        0,
+        0,
+    ));
     let mut output = vec![snapshot(&mut view)];
     for step in request["steps"].as_array().unwrap() {
         match step["op"].as_str().unwrap() {
@@ -165,6 +170,17 @@ fn native(request: &Value) -> Value {
             "theme" => set_theme_instance(other.clone()),
             "invalidate" => view.component().invalidate(),
             "dispose" => view.component().dispose(),
+            "add" | "remove" | "clear" => {
+                let View::Bordered(loader) = &mut view else {
+                    panic!("container operation on bare loader");
+                };
+                match step["op"].as_str().unwrap() {
+                    "add" => loader.add_child(extra.clone()),
+                    "remove" => loader.remove_child(&extra),
+                    "clear" => loader.clear(),
+                    _ => unreachable!(),
+                }
+            }
             op => panic!("unknown operation {op}"),
         }
         output.push(snapshot(&mut view));
@@ -201,6 +217,21 @@ fn loader_theme_container_and_default_abort_producers_match_frozen() {
                     key("\u{1b}"),
                 ];
                 cases.push(request(bare, cancellable, separate, steps));
+                if !bare {
+                    cases.push(request(
+                        bare,
+                        cancellable,
+                        separate,
+                        vec![
+                            json!({"op":"add"}),
+                            json!({"op":"remove"}),
+                            json!({"op":"add"}),
+                            json!({"op":"clear"}),
+                            key("\u{1b}"),
+                            json!({"op":"dispose"}),
+                        ],
+                    ));
+                }
             }
         }
     }

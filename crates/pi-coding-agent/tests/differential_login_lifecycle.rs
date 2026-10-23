@@ -16,6 +16,15 @@ use std::{
 
 type Answer = Pin<Box<dyn Future<Output = Value>>>;
 
+fn describe_reason(reason: Option<pi_js_compat::abort::AbortReason>) -> Value {
+    use pi_js_compat::{abort::AbortReason, js_json::JsValue};
+    let Some(reason) = reason else {
+        return Value::Null;
+    };
+    let error = reason.as_error().unwrap();
+    json!({"name":error.name,"message":error.message,"code":error.value().get("code").and_then(JsValue::as_f64).unwrap() as i64,"dom":matches!(reason,AbortReason::DomException(_))})
+}
+
 #[test]
 fn login_prompt_lifetimes_and_empty_optionals_match_frozen() {
     use std::os::unix::fs::PermissionsExt;
@@ -92,6 +101,10 @@ fn login_lifecycle_probe() {
             None,
             Some(&"Fixture".into()),
         );
+        let signal = dialog.signal();
+        let aborts = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let observed = aborts.clone();
+        signal.add_listener(move |reason| observed.lock().unwrap().push(describe_reason(Some(reason.clone()))));
         let mut pending = Vec::<Option<Answer>>::new();
         let mut answers = Vec::<Value>::new();
         let mut states = Vec::new();
@@ -145,7 +158,7 @@ fn login_lifecycle_probe() {
                 }
             }
             let frames: Vec<Vec<u16>> = dialog.render(50).iter().map(|line| line.units().to_vec()).collect();
-            states.push(json!({"frames":frames,"answers":answers,"cancelled":dialog.signal().aborted(),"focused":dialog.focused()}));
+            states.push(json!({"frames":frames,"answers":answers,"cancelled":dialog.signal().aborted(),"focused":dialog.focused(),"sameSignal":signal==dialog.signal(),"reason":describe_reason(signal.reason()),"aborts":aborts.lock().unwrap().clone()}));
         }
         all_actual.push(json!({"states":states,"events":*events.borrow()}));
         all_expected.push(expected["output"].clone());

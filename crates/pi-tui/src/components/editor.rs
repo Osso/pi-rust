@@ -1854,6 +1854,11 @@ impl Editor {
     /// Start deferred autocomplete work whose debounce deadline has elapsed,
     /// leaving the request future pending for [`Editor::poll_autocomplete`].
     pub fn begin_autocomplete_request(&mut self) {
+        // Frozen startAutocompleteRequest awaits the previous provider task,
+        // even after its signal aborts; poll_autocomplete drains that task first.
+        if !self.autocomplete_cancelled.is_empty() {
+            return;
+        }
         if let Some(deferred) = self.autocomplete_deferred.take() {
             if Instant::now() < deferred.deadline {
                 self.autocomplete_deferred = Some(deferred);

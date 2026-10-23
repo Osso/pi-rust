@@ -1169,6 +1169,170 @@ fn verify_signature(scenario: &Scenario, oracle_request: &Value) {
     );
 }
 
+struct AbortLoopbackFetch(String);
+impl pi_ai::request::Fetch for AbortLoopbackFetch {
+    fn fetch(
+        &self,
+        mut request: HttpRequest,
+        signal: Option<AbortSignal>,
+    ) -> pi_ai::request::BoxFuture<'_, Result<pi_ai::request::HttpResponse, pi_ai::request::CallbackError>> {
+        request.url = self.0.clone();
+        Box::pin(async move { pi_ai::http::default_fetch().fetch(request, signal).await })
+    }
+}
+
+fn decode_bedrock_reason(input: &pi_js_compat::js_json::JsValue) -> Option<pi_js_compat::abort::AbortReason> {
+    use pi_js_compat::{abort::AbortReason, js_json::JsValue, node_error::NativeNodeError};
+    if input["kind"] == JsValue::String("default".into()) {
+        return None;
+    }
+    if input["kind"] == JsValue::String("value".into()) {
+        return Some(AbortReason::Value(input["value"].clone()));
+    }
+    let mut error = NativeNodeError::new(
+        input["name"].as_string().cloned().unwrap_or_else(|| "Error".into()),
+        input["message"].as_string().unwrap().clone(),
+    );
+    if input["kind"] == JsValue::String("dom".into()) {
+        error = error.with_property("code", JsValue::Number(23.0));
+        Some(AbortReason::DomException(error))
+    } else {
+        Some(AbortReason::Error(error))
+    }
+}
+
+async fn run_bedrock_abort_boundary(
+    scenario: &Scenario,
+    phase: &str,
+    reason: Option<pi_js_compat::abort::AbortReason>,
+) -> AssistantMessage {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/", listener.local_addr().unwrap());
+    let controller = pi_js_compat::abort::AbortController::new();
+    let server_controller = controller.clone();
+    let server_reason = reason.clone();
+    let is_headers = phase == "headers";
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut bytes = Vec::new();
+        while !bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+            let mut chunk = [0; 4096];
+            let read = socket.read(&mut chunk).await.unwrap();
+            if read == 0 {
+                return;
+            }
+            bytes.extend_from_slice(&chunk[..read]);
+        }
+        if is_headers {
+            server_controller.abort(server_reason);
+        } else {
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/vnd.amazon.eventstream\r\nTransfer-Encoding: chunked\r\n\r\n").await.unwrap();
+            let frame = FrameSpec::event("messageStart", json!({"role":"assistant"})).to_bytes();
+            socket
+                .write_all(format!("{:x}\r\n", frame.len()).as_bytes())
+                .await
+                .unwrap();
+            socket.write_all(&frame).await.unwrap();
+            socket.write_all(b"\r\n").await.unwrap();
+        }
+        std::future::pending::<()>().await;
+    });
+    let mut options = scenario.options.clone();
+    options.request.fetch = Some(Arc::new(AbortLoopbackFetch(url)));
+    options.request.signal = Some(controller.signal());
+    if phase == "immediate" {
+        controller.abort(reason.clone());
+    }
+    if phase == "body" {
+        options.request.on_response = Some(Arc::new(move |_, _| {
+            controller.abort(reason.clone());
+            Box::pin(async { Ok(()) })
+        }));
+    }
+    let result = tokio::time::timeout(std::time::Duration::from_secs(4), async {
+        let mut stream = stream(scenario.model.clone(), scenario.context.clone(), options);
+        while stream.next().await.is_some() {}
+        stream.result().await.unwrap()
+    })
+    .await;
+    server.abort();
+    if let Err(error) = server.await {
+        assert!(error.is_cancelled(), "server task failed: {error}");
+    }
+    result.expect("bounded Bedrock abort boundary")
+}
+
+#[tokio::test]
+async fn bedrock_custom_abort_reasons_match_real_smithy_header_and_body_boundaries() {
+    use pi_js_compat::js_json::{JsString, JsValue};
+    let mut oracle = oracle::TsOracle::spawn("bedrock-converse-stream-oracle.ts", "packages/ai/src");
+    let scenario = scenarios().remove(0);
+    let reasons = pi_js_compat::js_json::parse_lossless(
+        r#"[
+        {"kind":"default"},{"kind":"value","value":null},{"kind":"value","value":false},
+        {"kind":"value","value":0},{"kind":"value","value":""},
+        {"kind":"value","value":"native\ud800"},
+        {"kind":"value","value":{"name":"Error","message":"not Error"}},
+        {"kind":"value","value":["native\ud800",null]},
+        {"kind":"error","name":"CallerError","message":"native\ud800"},
+        {"kind":"dom","name":"TimeoutError","message":"deadline"}
+    ]"#,
+    )
+    .unwrap();
+    let mut failures = Vec::new();
+    for phase in ["immediate", "headers", "body"] {
+        for reason in reasons.as_array().unwrap() {
+            let mut request = JsValue::from(scenario_to_oracle_request(1, &scenario));
+            request
+                .as_object_mut()
+                .unwrap()
+                .insert("abort".into(), JsValue::String(phase.into()));
+            request
+                .as_object_mut()
+                .unwrap()
+                .insert("abortReason".into(), reason.clone());
+            if phase == "body" {
+                request
+                    .as_object_mut()
+                    .unwrap()
+                    .get_mut(&JsString::from("script"))
+                    .unwrap()
+                    .as_array_mut()
+                    .unwrap()[0]
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("pendingBody".into(), JsValue::Bool(true));
+            }
+            eprintln!(
+                "source phase={phase} reason={}",
+                pi_js_compat::js_json::stringify_lossless(reason)
+            );
+            let source = oracle.request(&request);
+            assert_eq!(source["ok"], JsValue::Bool(true), "{source:?}");
+            eprintln!("native phase={phase}");
+            let message = run_bedrock_abort_boundary(&scenario, phase, decode_bedrock_reason(reason)).await;
+            let mut actual = pi_js_compat::js_json::to_value(&message).unwrap();
+            let mut expected = source["output"]["message"].clone();
+            for value in [&mut actual, &mut expected] {
+                value
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("timestamp".into(), JsValue::Number(0.0));
+            }
+            if actual != expected {
+                failures.push(format!(
+                    "phase={phase} reason={} actual={} source={}",
+                    pi_js_compat::js_json::stringify_lossless(reason),
+                    pi_js_compat::js_json::stringify_lossless(&actual),
+                    pi_js_compat::js_json::stringify_lossless(&expected)
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 #[tokio::test]
 async fn bedrock_converse_stream_matches_the_pinned_typescript_module() {
     let mut oracle = oracle::TsOracle::spawn("bedrock-converse-stream-oracle.ts", "packages/ai/src");

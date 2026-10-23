@@ -495,6 +495,10 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		const events: unknown[] = [];
 		const answers: unknown[] = [];
 		const dialog = new api.LoginDialogComponent({ requestRender: () => events.push(["render"]) }, "fixture", (success: boolean, message: string) => events.push(["complete", success, message]), undefined, "Fixture");
+		const signal = dialog.signal;
+		const aborts: unknown[] = [];
+		const describeReason = () => signal.reason ? { name: signal.reason.name, message: signal.reason.message, code: signal.reason.code, dom: signal.reason instanceof DOMException } : null;
+		signal.addEventListener("abort", () => aborts.push(describeReason()));
 		const states: unknown[] = [];
 		for (const step of request.steps) {
 			if (step.op === "prompt" || step.op === "manual") {
@@ -511,7 +515,7 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 			else if (step.op === "focus") dialog.focused = step.value;
 			else throw new Error(`unknown login step ${step.op}`);
 			await Promise.resolve();
-			states.push({ frames: dialog.render(request.width).map((line: string) => Array.from({ length: line.length }, (_, i) => line.charCodeAt(i))), answers: structuredClone(answers), cancelled: dialog.signal.aborted, focused: dialog.focused });
+			states.push({ frames: dialog.render(request.width).map((line: string) => Array.from({ length: line.length }, (_, i) => line.charCodeAt(i))), answers: structuredClone(answers), cancelled: dialog.signal.aborted, focused: dialog.focused, sameSignal: signal === dialog.signal, reason: describeReason(), aborts: structuredClone(aborts) });
 		}
 		return { states, events };
 	},

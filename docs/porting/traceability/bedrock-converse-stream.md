@@ -5,6 +5,14 @@ Source: `packages/ai/src/api/bedrock-converse-stream.ts` (pinned revision in
 plus the Rust-only helpers `bedrock_sigv4.rs`, `bedrock_eventstream.rs`,
 `bedrock_credentials.rs`, and `utils/base64.rs`.
 
+## Real Smithy abort-reason boundaries
+
+`differential_bedrock_converse_stream::bedrock_custom_abort_reasons_match_real_smithy_header_and_body_boundaries` drives actual frozen provider + Smithy NodeHttpHandler over loopback HTTP, and Rust default_fetch over an equivalent real socket. Ten reasons × pre-abort/pending headers/after-response body boundaries compare the complete final AssistantMessage, normalizing only timestamp. Reasons include default/null/false/zero/empty string, native UTF-16 text/arrays, plain Error lookalike, native Error and TimeoutError DOMException.
+
+`bedrock-abort-reasons-red-2.log` → `bedrock-abort-reasons-green-2.log`30 GREEN: header handling reads the original signal reason. Error/DOMException and falsey raw values yield Request aborted; truthy raw values use native String conversion. Response-body cancellation yields Node's aborted failure, not a fabricated early Request was aborted; final post-stream cancellation check remains separate. No raw reason is inferred as an Error from name/message fields. HTTP non-2xx body cancellation, malformed custom coercion and later partial-content cancellation remain unproven.
+
+The initial oracle blocked because Smithy's deserializer reads the first event frame before client.send/onResponse resolves. Fixture now writes the same messageStart frame on both real sockets, then holds the body. A new request-specific2s source watchdog plus native4s bound prevents recurrence. First unexpected10-minute job was cancelled; cargo/tsx process groups and descendants were verified gone. Raw failure/progress logs remain under `/tmp/pi-rust-repin-delta-ai`; no hung source run counts as behavioral RED.
+
 ## Q4 SDK identity boundary
 
 Unmasked source request headers exposed native lang/rust and missing SDK language/compiler/feature labels. Native now retains frozen aws-sdk-js3.1048.0, ua2.1, lang/js, md/tsc5.9.3, Bedrock API version and retry/credential feature labels (standardE, directe, profilen). Host kernel/Node versions are unavailable in Rust and emitted as unknown; only those version substrings are masked at captured default User-Agent. Explicit caller User-Agent remains exact. A concrete helper test preserves changed SDK/compiler/language/feature values. The first signed source request now matches all headers/signature inputs; next RED exposes start/delta index, empty-start ordering and source-absent rawStopReason (`bedrock-sdk-identity-{red,green-1}.log`). No full-provider acceptance yet.

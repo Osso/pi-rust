@@ -14,6 +14,10 @@ Removed old-only `show_details` and provider-message/links/optional-hint compone
 
 All prompt answers/labels/info remain JsString. Browser launch utility owns argv encoding. LoginError Display only encodes for Rust formatting. No fallback API retained.
 
+## Abort reason audit (2026-10-22)
+
+`differential_login_lifecycle` additionally compares stable signal identity, default DOMException AbortError/message/code20 and abort listener snapshots on every step. Repeated Escape keeps the original reason and emits only one abort event. GREEN `/tmp/pi-rust-repin-lossless-interactive/login-abort-green.log`; no production change needed. See [Q13 audit](interactive-abort-audit.md).
+
 ## Whole common-pin comparison / Q13 proof
 
 Compared all 222 frozen lines, including focus propagation (:21–28), provider-title truthiness/nullish title (:41–43), input submission only with live resolver (:58–67), replacing every matching input reference (:81–85), repeated cancellation (:88–96), auth hyperlinks/browser launch (:102–119), device-code URL/code/no browser (:125–139), append-vs-clear behavior and exact hints (:144–211), global cancel routing (:214–221).
