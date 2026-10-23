@@ -94,9 +94,6 @@ impl AgentSessionError {
     pub fn message(&self) -> &JsString {
         &self.message
     }
-    pub(crate) fn native_error(&self) -> Option<&pi_js_compat::node_error::NativeNodeError> {
-        self.original.as_ref()
-    }
 }
 impl From<AgentSessionError> for pi_ai::request::CallbackError {
     fn from(error: AgentSessionError) -> Self {
