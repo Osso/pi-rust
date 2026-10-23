@@ -239,20 +239,19 @@ fn parse_edit_input(input: &Value) -> Result<(JsString, Vec<Edit>), ToolError> {
         .to_owned();
     let edits = edits
         .iter()
-        .map(|edit| Edit {
-            old_text: edit
-                .get("oldText")
-                .and_then(Value::as_string)
-                .cloned()
-                .unwrap_or_default(),
-            new_text: edit
-                .get("newText")
-                .and_then(Value::as_string)
-                .cloned()
-                .unwrap_or_default(),
+        .map(|edit| {
+            parse_string_edit(edit)
+                .ok_or_else(|| ToolError::new("edit tool requires string oldText and newText fields"))
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
     Ok((path, edits))
+}
+
+fn parse_string_edit(value: &Value) -> Option<Edit> {
+    Some(Edit {
+        old_text: value.get("oldText")?.as_string()?.clone(),
+        new_text: value.get("newText")?.as_string()?.clone(),
+    })
 }
 
 async fn execute_edit(
@@ -419,17 +418,8 @@ fn get_renderable_preview_input(args: &JsValue) -> Option<(JsString, Vec<Edit>, 
 
     if let Some(Value::Array(edits)) = args.get("edits")
         && !edits.is_empty()
-        && edits.iter().all(|edit| {
-            edit.get("oldText").is_some_and(Value::is_string) && edit.get("newText").is_some_and(Value::is_string)
-        })
+        && let Some(parsed) = edits.iter().map(parse_string_edit).collect::<Option<Vec<_>>>()
     {
-        let parsed = edits
-            .iter()
-            .map(|edit| Edit {
-                old_text: edit["oldText"].as_string().cloned().unwrap_or_default(),
-                new_text: edit["newText"].as_string().cloned().unwrap_or_default(),
-            })
-            .collect();
         return Some((path, parsed, Value::Array(edits.clone())));
     }
 
