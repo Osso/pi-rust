@@ -128,10 +128,10 @@ fn maps_presets_policies_and_bypass_flags() {
     );
     assert!(approval_preset_to_bypass_permissions(ApprovalPresetName::AutoApprove));
     assert!(!approval_preset_to_bypass_permissions(ApprovalPresetName::NeverAskDeny));
-    assert!(is_approval_preset_name("never-ask-deny"));
-    assert!(!is_approval_preset_name("Ask Me"));
-    assert!(is_sandbox_profile_name("full-access"));
-    assert!(!is_sandbox_profile_name("inherit"));
+    assert!(is_approval_preset_name(&"never-ask-deny".into()));
+    assert!(!is_approval_preset_name(&"Ask Me".into()));
+    assert!(is_sandbox_profile_name(&"full-access".into()));
+    assert!(!is_sandbox_profile_name(&"inherit".into()));
     assert_eq!(
         SandboxProfileName::parse("read-only"),
         Some(SandboxProfileName::ReadOnly)

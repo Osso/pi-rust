@@ -247,6 +247,34 @@ fn sandbox_profile_precedence_and_persistence() {
 }
 
 #[test]
+fn permission_membership_rejects_unpaired_settings_values_without_repair() {
+    for (global, project, expected) in [
+        (
+            r#"{"approvalPolicy":"never","approvalPreset":"ask-me\ud800","sandboxProfile":"full-access"}"#,
+            r#"{"sandboxProfile":"read-only\udc00"}"#,
+            Some(SandboxProfileName::FullAccess),
+        ),
+        (
+            r#"{"approvalPolicy":"never","approvalPreset":"\udc00","sandboxProfile":"full-access\ud800"}"#,
+            r#"{}"#,
+            None,
+        ),
+        (
+            r#"{"approvalPolicy":"never","approvalPreset":"\ud800","sandboxProfile":"\udc00"}"#,
+            r#"{"sandboxProfile":"read-only"}"#,
+            Some(SandboxProfileName::ReadOnly),
+        ),
+    ] {
+        let workspace = Workspace::new();
+        workspace.write_global(global);
+        workspace.write_project(project);
+        let manager = workspace.manager();
+        assert_eq!(manager.get_approval_preset(), ApprovalPresetName::NeverAskDeny);
+        assert_eq!(manager.get_explicit_sandbox_profile(), expected);
+    }
+}
+
+#[test]
 fn packages_migration_keeps_local_extensions_and_filter_objects() {
     let workspace = Workspace::new();
     workspace.write_global(r#"{"extensions":["/local/ext.ts","./relative/ext.ts"]}"#);
