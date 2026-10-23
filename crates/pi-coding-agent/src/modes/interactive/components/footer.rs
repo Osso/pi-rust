@@ -4,15 +4,18 @@ use std::sync::Arc;
 
 use pi_ai::types::Model;
 use pi_js_compat::number::to_fixed;
-use pi_js_compat::{js_format, js_json::JsString};
+use pi_js_compat::{
+    js_format,
+    js_json::{JsString, JsValue, is_truthy},
+};
 use pi_tui::tui::Component;
 use pi_tui::utils::{truncate_to_width_with, visible_width};
 
 use crate::core::agent_session::AgentSession;
 use crate::core::experimental::are_experimental_features_enabled;
 use crate::core::footer_data_provider::{FooterDataProvider, FooterSessionOverride};
-use crate::core::session_manager::{KnownSessionEntry, SessionEntry};
-use crate::core::usage_totals::{UsageTotals, add_usage_to_totals, create_usage_totals};
+use crate::core::session_manager::KnownSessionEntry;
+use crate::core::usage_totals::{add_usage_to_totals, create_usage_totals};
 use crate::modes::interactive::theme::{ThemeColor, with_theme};
 use crate::utils::footer_status::format_extension_status_text_lines;
 
@@ -38,24 +41,6 @@ struct SessionFooterData {
     latest_cache_hit_rate: Option<f64>,
     context_usage: Option<FooterContextUsage>,
     session_name: Option<JsString>,
-}
-
-fn add_entry_usage(totals: &mut UsageTotals, entry: &SessionEntry) {
-    let known = entry.known();
-    let Some(KnownSessionEntry::Message(message)) = known.as_deref() else {
-        return;
-    };
-    match message.message.as_ref() {
-        pi_agent_core::agent::AgentMessage::Assistant(assistant) => {
-            add_usage_to_totals(totals, &assistant.usage);
-        }
-        pi_agent_core::agent::AgentMessage::ToolResult(result) => {
-            if let Some(usage) = &result.usage {
-                add_usage_to_totals(totals, usage);
-            }
-        }
-        _ => {}
-    }
 }
 
 /// Footer showing pwd, token stats, context usage, and extension statuses.
@@ -121,7 +106,8 @@ impl FooterComponent {
             .session_override
             .as_ref()
             .and_then(|override_| override_.session_manager.clone());
-        let live_manager = override_manager
+        let live_manager = self
+            .session_override
             .is_none()
             .then(|| self.session.session_manager_handle());
         let session_manager = match &override_manager {
@@ -154,9 +140,7 @@ impl FooterComponent {
                     assistant.usage.input + assistant.usage.cache_read + assistant.usage.cache_write;
                 data.latest_cache_hit_rate =
                     (latest_prompt_tokens > 0.0).then(|| assistant.usage.cache_read / latest_prompt_tokens * 100.0);
-                continue;
             }
-            add_entry_usage(&mut usage_totals, &entry);
         }
         data.input = usage_totals.input;
         data.output = usage_totals.output;
@@ -203,7 +187,9 @@ impl Component for FooterComponent {
             || self.session.session_manager().get_cwd().to_owned(),
             |override_| override_.cwd.clone(),
         );
-        let home = pi_js_compat::process_env::get("HOME").or_else(|| pi_js_compat::process_env::get("USERPROFILE"));
+        let home = pi_js_compat::process_env::get("HOME")
+            .filter(|home| !home.is_empty())
+            .or_else(|| pi_js_compat::process_env::get("USERPROFILE"));
         let home = home.map(JsString::from);
         let mut pwd = format_cwd_for_footer(&cwd, home.as_ref());
 
@@ -212,27 +198,27 @@ impl Component for FooterComponent {
         } else {
             self.footer_data.get_git_branch()
         };
-        if let Some(branch) = branch {
+        if let Some(branch) = branch.filter(|branch| !branch.is_empty()) {
             pwd = js_format!("{} ({})", pwd, branch);
         }
-        if let Some(session_name) = &session_data.session_name {
+        if let Some(session_name) = session_data.session_name.as_ref().filter(|name| !name.is_empty()) {
             pwd = js_format!("{} • {}", pwd, session_name);
         }
 
         let mut stats_parts: Vec<JsString> = Vec::new();
-        if let Some(executable_name) = self.footer_data.get_executable_name() {
+        if let Some(executable_name) = self.footer_data.get_executable_name().filter(|name| !name.is_empty()) {
             stats_parts.push(js_format!("[{}]", executable_name));
         }
-        if session_data.input != 0.0 {
+        if is_truthy(&JsValue::Number(session_data.input)) {
             stats_parts.push(js_format!("↑{}", format_tokens(session_data.input)));
         }
-        if session_data.output != 0.0 {
+        if is_truthy(&JsValue::Number(session_data.output)) {
             stats_parts.push(js_format!("↓{}", format_tokens(session_data.output)));
         }
-        if session_data.cache_read != 0.0 {
+        if is_truthy(&JsValue::Number(session_data.cache_read)) {
             stats_parts.push(js_format!("R{}", format_tokens(session_data.cache_read)));
         }
-        if session_data.cache_write != 0.0 {
+        if is_truthy(&JsValue::Number(session_data.cache_write)) {
             stats_parts.push(js_format!("W{}", format_tokens(session_data.cache_write)));
         }
         if (session_data.cache_read > 0.0 || session_data.cache_write > 0.0)
@@ -246,7 +232,7 @@ impl Component for FooterComponent {
                 .session
                 .model_runtime()
                 .is_using_subscription(&state.model.provider);
-        if session_data.cost != 0.0 || using_subscription {
+        if is_truthy(&JsValue::Number(session_data.cost)) || using_subscription {
             stats_parts.push(js_format!(
                 "${}{}",
                 to_fixed(session_data.cost, 3),
@@ -286,15 +272,12 @@ impl Component for FooterComponent {
         let min_padding = 2;
         let model_name = displayed_model
             .as_ref()
+            .filter(|model| !model.id.is_empty())
             .map_or_else(|| "no-model".to_owned(), |model| model.id.clone());
         let mut right_side_without_provider = JsString::from(model_name);
         if displayed_model.as_ref().is_some_and(|model| model.reasoning) {
-            let effort_level = if displayed_thinking_level.is_empty() {
-                "off".into()
-            } else {
-                displayed_thinking_level.clone()
-            };
-            right_side_without_provider = js_format!("{} • effort {}", right_side_without_provider, effort_level);
+            right_side_without_provider =
+                js_format!("{} • effort {}", right_side_without_provider, displayed_thinking_level);
         }
 
         let mut right_side = right_side_without_provider.clone();
@@ -350,6 +333,3 @@ impl Component for FooterComponent {
         self.cached_session_data = None;
     }
 }
-
-/// `dispose`: git watcher cleanup is owned by the provider.
-pub fn dispose() {}

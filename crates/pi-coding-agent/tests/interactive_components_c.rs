@@ -1920,7 +1920,7 @@ async fn footer_renders_override_stats_context_and_model() {
     };
     footer.set_session_override(FooterSessionOverride {
         cwd: JsString::from("/repo"),
-        session_manager: None,
+        session_manager: Some(session.session_manager_handle()),
         model: Some(model),
         thinking_level: JsString::from("high"),
         context_usage: Some(pi_coding_agent::core::footer_data_provider::ContextUsage {
@@ -1931,8 +1931,8 @@ async fn footer_renders_override_stats_context_and_model() {
     });
     let rendered = plain(&footer.render(120));
     assert!(rendered.contains("/repo • Test Session"), "{rendered:?}");
-    assert!(rendered.contains("↑11k"), "{rendered:?}");
-    assert!(rendered.contains("↓2.1k"), "{rendered:?}");
+    assert!(rendered.contains("↑10k"), "{rendered:?}");
+    assert!(rendered.contains("↓2.0k"), "{rendered:?}");
     assert!(rendered.contains("R3.0k"), "{rendered:?}");
     assert!(rendered.contains("W4.0k"), "{rendered:?}");
     assert!(rendered.contains("CH17.6%"), "{rendered:?}");
