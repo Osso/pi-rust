@@ -41,7 +41,8 @@ for await (const line of createInterface({ input: process.stdin })) {
 			showLoginDialog: async (id: string, name: string) => logins.push({ id, name }),
 		});
 		if (request.modelsPath) {
-			const registry = ModelRegistry.create(AuthStorage.inMemory(request.credentials ?? {}), request.modelsPath);
+			const storage = request.authPath ? AuthStorage.create(request.authPath) : AuthStorage.inMemory(request.credentials ?? {});
+			const registry = ModelRegistry.create(storage, request.modelsPath);
 			for (const provider of request.oauthProviders ?? []) {
 				registry.registerProvider(provider.id, { oauth: {
 					name: provider.name, login: async () => { throw new Error("unused login"); },
