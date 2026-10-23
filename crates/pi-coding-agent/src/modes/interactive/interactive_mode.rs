@@ -2461,10 +2461,13 @@ enum AuthUiEvent {
     Notify(AuthEvent),
 }
 
+type ManualCodePromise = tokio::sync::watch::Sender<Option<Result<JsString, CallbackError>>>;
+
 /// `AuthInteraction` backed by the mode's UI loop.
 struct InteractiveAuthInteraction {
     sender: std::sync::Mutex<std::sync::mpsc::Sender<AuthUiEvent>>,
     signal: pi_js_compat::abort::AbortSignal,
+    manual_code: ManualCodePromise,
 }
 
 impl InteractiveAuthInteraction {
@@ -2546,12 +2549,17 @@ impl pi_ai::oauth::OAuthLoginCallbacks for InteractiveAuthInteraction {
         });
     }
     fn on_manual_code_input(&self) -> Option<pi_ai::request::BoxFuture<'_, Result<JsString, CallbackError>>> {
-        Some(self.prompt(AuthPrompt {
-            signal: Some(self.signal.clone()),
-            kind: AuthPromptKind::ManualCode {
-                message: "Paste authorization code or redirect URL:".into(),
-                placeholder: None,
-            },
+        Some(Box::pin(async move {
+            let mut receiver = self.manual_code.subscribe();
+            loop {
+                if let Some(result) = receiver.borrow_and_update().clone() {
+                    return result;
+                }
+                receiver
+                    .changed()
+                    .await
+                    .expect("manual promise sender lives with callbacks");
+            }
         }))
     }
     fn on_select(
@@ -2586,6 +2594,8 @@ impl pi_ai::oauth::OAuthLoginCallbacks for InteractiveAuthInteraction {
 struct AuthUiState {
     receiver: std::sync::mpsc::Receiver<AuthUiEvent>,
     dialog: Rc<RefCell<LoginDialogComponent>>,
+    manual_code: ManualCodePromise,
+    uses_callback_server: bool,
 }
 
 /// Which session the status loader reflects (`workingLoaderView`).
@@ -9283,18 +9293,25 @@ impl InteractiveMode {
 
     fn poll_auth_ui(&self) {
         loop {
-            let (event, dialog) = {
+            let (event, dialog, manual_code, uses_callback_server) = {
                 let auth = self.auth_ui.borrow();
                 let Some(state) = auth.as_ref() else {
                     return;
                 };
-                (state.receiver.try_recv().ok(), Rc::clone(&state.dialog))
+                (
+                    state.receiver.try_recv().ok(),
+                    Rc::clone(&state.dialog),
+                    state.manual_code.clone(),
+                    state.uses_callback_server,
+                )
             };
             let Some(event) = event else {
                 return;
             };
             match event {
-                AuthUiEvent::Notify(event) => self.notify_auth_dialog(&dialog, event),
+                AuthUiEvent::Notify(event) => {
+                    self.notify_auth_dialog(&dialog, event, manual_code, uses_callback_server)
+                }
                 AuthUiEvent::Prompt(prompt, respond) => self.show_auth_prompt(&dialog, prompt, respond),
             }
         }
@@ -9312,11 +9329,36 @@ impl InteractiveMode {
         self.mount_auth_dialog(dialog);
     }
 
-    fn notify_auth_dialog(&self, dialog: &Rc<RefCell<LoginDialogComponent>>, event: AuthEvent) {
+    fn notify_auth_dialog(
+        &self,
+        dialog: &Rc<RefCell<LoginDialogComponent>>,
+        event: AuthEvent,
+        manual_code: ManualCodePromise,
+        uses_callback_server: bool,
+    ) {
         let dialog = dialog.borrow();
         match event {
             AuthEvent::AuthUrl { url, instructions } => {
                 dialog.show_auth(&url, instructions.as_ref());
+                if uses_callback_server {
+                    let input = dialog.show_manual_input(&JsString::from(
+                        "Paste redirect URL below, or complete login in browser:",
+                    ));
+                    tokio::task::spawn_local(async move {
+                        let result = match input.await {
+                            Ok(value) if value.is_empty() => return,
+                            Ok(value) => Ok(value),
+                            Err(_) => Err(CallbackError::new("Login cancelled")),
+                        };
+                        manual_code.send_if_modified(|settled| {
+                            if settled.is_some() {
+                                return false;
+                            }
+                            *settled = Some(result.clone());
+                            true
+                        });
+                    });
+                }
             }
             AuthEvent::DeviceCode {
                 user_code,
@@ -9644,14 +9686,26 @@ impl InteractiveMode {
         }
         self.mount_auth_dialog(&dialog);
         let (sender, receiver) = std::sync::mpsc::channel();
+        let (manual_code, _) = tokio::sync::watch::channel(None);
+        let uses_callback_server = self
+            .session()
+            .auth_storage()
+            .get_oauth_providers()
+            .iter()
+            .find(|provider| provider.id() == provider_id)
+            .and_then(|provider| provider.uses_callback_server())
+            .unwrap_or(false);
         let signal = dialog.borrow().signal();
         *self.auth_ui.borrow_mut() = Some(AuthUiState {
             receiver,
             dialog: Rc::clone(&dialog),
+            manual_code: manual_code.clone(),
+            uses_callback_server,
         });
         let interaction = Arc::new(InteractiveAuthInteraction {
             sender: std::sync::Mutex::new(sender),
             signal,
+            manual_code,
         });
         let runtime = self.session().model_registry().clone();
         let result = match auth_type {
@@ -12613,6 +12667,11 @@ mod ui_tests {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/support/interactive_login_callbacks.rs"
+    ));
+
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/support/interactive_login_manual.rs"
     ));
 
     mod reload_fixture {

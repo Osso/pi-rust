@@ -16,3 +16,7 @@ Proof: actual frozen InteractiveMode methods via `interactive-login-oracle.mts`,
 ## OAuth select callback
 
 Frozen `showOAuthLoginSelect` restores the login dialog before resolving. Cancel and a label with no matching option resolve undefined, not a Login-cancelled rejection. Selecting an empty-string option ID returns that string, not undefined. Native optional replies preserve this distinction; text-prompt cancellation still rejects. `interactive-login-callback-oracle.mts` exercises the actual source login/dialog/select methods; native tests drive the queued UI and compare full selector frames, returned values, outer error and restored editor.
+
+## OAuth callback-server manual input
+
+Frozen `showLoginDialog` creates one manual-code promise per login. `onAuth` mounts the redirect input immediately only for callback-server providers, before any request to read its value. `onManualCodeInput` returns that same settlement, without adding/replacing UI. Nonempty input resolves once; an empty submission leaves it pending; prompt cancellation rejects with `Login cancelled`. Repeated readers observe the same exact UTF-16 value. Native shared settlement is separate from the dialog's replaceable prompt future. Browser launches in differential proofs use an owned, isolated xdg-open fake; no live authorization occurs.

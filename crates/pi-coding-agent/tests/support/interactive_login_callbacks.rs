@@ -41,8 +41,7 @@ async fn oauth_select_cancel_and_empty_ids_match_frozen_callback_values() {
             let deadline = std::time::Instant::now()+Duration::from_secs(5);
             let frames = loop {
                 mode.poll_auth_ui();
-                let frames: Vec<_> = mode.editor_container.borrow_mut().render(80).into_iter()
-                    .map(|line| pi_tui::utils::strip_terminal_sequences(&line)).collect();
+                let frames = mode.editor_container.borrow_mut().render(80);
                 if frames.iter().any(|line| line.contains("Choose fixture")) {break frames;}
                 assert!(std::time::Instant::now()<deadline,"selector did not mount");
                 tokio::task::yield_now().await;
