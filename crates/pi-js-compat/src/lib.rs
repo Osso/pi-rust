@@ -5,6 +5,7 @@
 //! `Number`/`parseInt`/`parseFloat`/`Date.parse`, Base64 (`atob`, `btoa`,
 //! `Buffer`), JavaScript string whitespace, and `minimatch`.
 
+pub mod abort;
 pub mod array_sort;
 pub mod base64;
 pub mod collator;
@@ -13,6 +14,7 @@ pub mod js_format;
 pub mod js_json;
 mod js_json_macros;
 pub mod minimatch;
+pub mod node_error;
 pub mod node_fs;
 pub mod node_ignore;
 pub mod node_timers;

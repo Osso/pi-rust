@@ -1,0 +1,39 @@
+# Reason-bearing abort signals
+
+One shared native signal carrier matches Node AbortController/AbortSignal and the frozen `ai/src/utils/abort-signals.ts` consumers at `4f9e6f8a4`. [Semantics and proof](../porting/traceability/shared-abort.md).
+
+## What it must do
+
+- [x] Distinguish undefined-before-abort from supplied null, false, numbers, native UTF-16 text, arrays and objects; retain only the first reason.
+- [x] Preserve Error versus DOMException versus plain-object branding without inferring a class from name/message fields.
+- [x] Default omitted/undefined abort reasons to the AbortError DOMException with Node's message/code; timeout produces TimeoutError DOMException.
+- [x] Forward any's first reason synchronously; deliver one-shot listeners in source order and honor removal during dispatch.
+- [x] Await cancellation without lost wakeups; retain composite sources and release subscriptions/timers with their owners.
+- [x] Validate timeout's binary64 integer/uint32 domain with exact Node errors; normalize accepted oversized timer delays like Node.
+- [x] Share NativeNodeError from pi-js-compat::node_error, with no old core re-export. Preserve native human fields and arbitrary metadata; omit error.stack.
+
+## How it works
+
+- [Carrier API, consumer audit and proof](../porting/traceability/shared-abort.md).
+
+## Implementation inventory
+
+- `crates/pi-js-compat/src/abort.rs` — shared controller, signal, branded reason and subscription capabilities.
+- `crates/pi-js-compat/src/node_error.rs` — single native error-record authority.
+- `crates/pi-agent-core/src/harness/types.rs` — native IO rejection uses the shared error type.
+- `crates/pi-coding-agent/src/core/model_catalog_cache.rs` — shared error import only in this slice.
+
+## Tests asserting this spec
+
+- `crates/pi-js-compat/tests/abort_signal.rs` — direct Node/frozen-consumer differential and native threaded wakeup/lifetime tests.
+- `oracle/abort-signal-oracle.ts` — Node builtins plus direct frozen combineAbortSignals import.
+
+## Known gaps (current cycle)
+
+- [ ] Migrate production consumers off tokio_util CancellationToken; no compatibility aliases or token fallback.
+- [ ] Propagate supplied reasons through Node IO nested causes and coding/provider consumers.
+
+## Out of scope
+
+- Invalid JS runtime input types excluded by the typed Rust API; JSON/native Error/DOMException reasons remain supported.
+- JS object identity/mutation-through-returned-reference and error.stack text follow the approved deviations in AGENTS.md.

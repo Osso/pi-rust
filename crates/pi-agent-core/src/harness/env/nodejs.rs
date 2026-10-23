@@ -4,7 +4,8 @@
 //! targets the Unix runtime the harness executes on.
 
 mod read_lines;
-use crate::harness::types::{NativeNodeError, NodeRejection, OperationFailure};
+use crate::harness::types::{NodeRejection, OperationFailure};
+use pi_js_compat::node_error::NativeNodeError;
 
 use indexmap::IndexMap;
 use std::io;
@@ -992,14 +993,23 @@ fn random_name_suffix() -> String {
     format!("{:06x}", (nanos as u64 ^ counter) & 0xff_ffff)
 }
 
+fn aborted_io_error(path: &JsString) -> FileError {
+    let reason =
+        NativeNodeError::new("AbortError", "This operation was aborted").with_property("code", JsValue::Number(20.0));
+    let cause = NativeNodeError::new("AbortError", "The operation was aborted")
+        .with_property("code", JsValue::String("ABORT_ERR".into()))
+        .with_property("cause", reason.value());
+    FileError::new(
+        FileErrorCode::Aborted,
+        cause.message.clone(),
+        Some(path.clone()),
+        Some(Box::new(cause)),
+    )
+}
+
 fn io_abort_result(abort: Option<&CancellationToken>, path: &JsString) -> Result<(), FileError> {
     if abort.is_some_and(CancellationToken::is_cancelled) {
-        return Err(FileError::new(
-            FileErrorCode::Aborted,
-            "The operation was aborted",
-            Some(path.clone()),
-            None,
-        ));
+        return Err(aborted_io_error(path));
     }
     Ok(())
 }

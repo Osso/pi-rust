@@ -1,6 +1,6 @@
 //! Node readline file boundary: stream until the requested number of lines, not EOF.
-use super::{abort_result, file_error};
-use crate::harness::types::{FileError, FileErrorCode, ReadTextLinesOptions};
+use super::{abort_result, aborted_io_error, file_error};
+use crate::harness::types::{FileError, ReadTextLinesOptions};
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use tokio::io::AsyncReadExt;
 use tokio_util::sync::CancellationToken;
@@ -47,24 +47,13 @@ async fn await_file_io<T>(
     let result = if let Some(abort) = abort {
         tokio::select! {
             biased;
-            () = abort.cancelled() => return Err(stream_abort_error(path)),
+            () = abort.cancelled() => return Err(aborted_io_error(path)),
             result = future => result,
         }
     } else {
         future.await
     };
     result.map_err(|error| file_error(&error, operation, path))
-}
-fn stream_abort_error(path: &JsString) -> FileError {
-    let mut cause = pi_ai::request::CallbackError::new("The operation was aborted");
-    cause.name = "AbortError".into();
-    cause.code = Some("ABORT_ERR".into());
-    FileError::new(
-        FileErrorCode::Aborted,
-        cause.message.clone(),
-        Some(path.clone()),
-        Some(Box::new(cause)),
-    )
 }
 #[derive(Default)]
 struct LineBuffer {
