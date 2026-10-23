@@ -46,6 +46,7 @@ type RetryNotifier = Arc<dyn Fn(pi_ai::types::ProviderRetryEvent) + Send + Sync>
 /// `CreateAgentSessionOptions`.
 #[derive(Default)]
 pub struct CreateAgentSessionOptions {
+    pub no_supervisor: Option<bool>,
     pub cwd: Option<JsString>,
     pub agent_dir: Option<JsString>,
     pub model_registry: Option<ModelRegistry>,
@@ -123,6 +124,22 @@ fn read_process_cwd() -> Result<JsString, JsString> {
 async fn create_agent_session_internal(
     options: CreateAgentSessionOptions,
 ) -> Result<CreateAgentSessionResult, pi_ai::request::CallbackError> {
+    crate::core::agent_session::assert_standalone_worker_options(
+        &crate::core::agent_session::StandaloneWorkerOptions {
+            no_supervisor: options.no_supervisor.unwrap_or(false),
+            session_is_persisted: options
+                .session_manager
+                .as_ref()
+                .is_some_and(SessionManager::is_persisted),
+            has_multi_agent_store: options.multi_agent_store.is_some(),
+            multi_agent_runtime_role: options.multi_agent_runtime_role,
+            has_execution_capability: options.multi_agent_execution_capability.is_some(),
+            multi_agent_agent_id: options.multi_agent_agent_id.as_ref(),
+            multi_agent_parent_session_id: options.multi_agent_parent_session_id.as_ref(),
+            multi_agent_requires_agent_id: options.multi_agent_requires_agent_id,
+        },
+    )
+    .map_err(|error| error.message().clone())?;
     let process_cwd = read_process_cwd()?;
     let cwd_input = options
         .cwd
@@ -161,6 +178,9 @@ async fn create_agent_session_internal(
     };
     let session_manager = match options.session_manager {
         Some(manager) => manager,
+        None if options.no_supervisor == Some(true) => {
+            SessionManager::in_memory(Some(&cwd), None).map_err(|error| JsString::from(error.message()))?
+        }
         None => {
             let session_dir =
                 get_default_session_dir(&cwd, Some(&agent_dir)).map_err(|error| JsString::from(error.message()))?;
@@ -534,6 +554,7 @@ async fn create_agent_session_internal(
         multi_agent_runtime_role: options.multi_agent_runtime_role,
         multi_agent_execution_capability: options.multi_agent_execution_capability,
         thinking_phase_timeout_ms: None,
+        no_supervisor: options.no_supervisor,
         supervisor_decision_requester: options.supervisor_decision_requester,
         multi_agent_store: options.multi_agent_store,
         multi_agent_agent_id: options.multi_agent_agent_id,

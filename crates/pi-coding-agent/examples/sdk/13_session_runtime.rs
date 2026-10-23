@@ -53,6 +53,7 @@ fn create_factory(options: CreateAgentSessionOptions) -> CreateAgentSessionRunti
             let reason = js_json::from_value(&JsValue::String(request.session_start_reason.into()))
                 .map_err(|e| JsString::from(e.to_string()))?;
             let result = create_agent_session_from_services(CreateAgentSessionFromServicesOptions {
+                no_supervisor: options.no_supervisor,
                 services: services.clone(),
                 session_manager: request.session_manager,
                 model,
@@ -93,7 +94,7 @@ pub async fn create_runtime(mut options: CreateAgentSessionOptions) -> Result<Ag
             SessionManager::create(&paths.cwd, Some(&dir), None).map_err(|e| e.message().clone())?
         }
     };
-    create_agent_session_runtime(create_factory(options), &paths.cwd, &paths.agent_dir, manager).await
+    create_agent_session_runtime(create_factory(options), &paths.cwd, &paths.agent_dir, manager, None).await
 }
 
 pub async fn bind_session<W: Write + Send + 'static>(

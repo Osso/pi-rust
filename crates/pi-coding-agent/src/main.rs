@@ -79,7 +79,9 @@ use crate::core::settings_manager::{DefaultProjectTrust, SettingsManager, Settin
 use crate::core::timings::{TimingLabel, print_timings, reset_timings, time};
 use crate::core::trust_manager::{ProjectTrustDecision, ProjectTrustStore, has_trust_requiring_project_resources};
 use crate::migrations::{run_migrations, show_deprecation_warnings};
-use crate::modes::interactive::interactive_mode::{InteractiveMode, InteractiveModeOptions};
+use crate::modes::interactive::interactive_mode::{
+    CancelMultiAgent, InteractiveMode, InteractiveModeOptions, SteerMultiAgent,
+};
 use crate::modes::interactive::theme::{init_theme, stop_theme_watcher};
 use crate::modes::print_mode::{PrintMode, PrintModeOptions, run_print_mode};
 use crate::modes::rpc::rpc_mode::run_rpc_mode;
@@ -154,13 +156,18 @@ pub fn first_party_extension_factory(name: &str, factory: ExtensionFactory) -> I
 ///
 /// The factories are registered under their source ids and then emitted in
 /// `main.ts` order, so loading order matches the TypeScript list.
+#[derive(Clone)]
+pub struct FirstPartyOrchestration {
+    pub store: Arc<MultiAgentStore>,
+    pub runtime_handles: crate::bundled_extensions::agents_core::runtime::MultiAgentRuntimeHandles,
+    pub select_agent_view: Arc<Mutex<Option<crate::bundled_extensions::agents_core::runtime::SelectAgentView>>>,
+}
+
 pub fn create_first_party_extension_factories(
-    store: Arc<MultiAgentStore>,
-    runtime_handles: crate::bundled_extensions::agents_core::runtime::MultiAgentRuntimeHandles,
+    orchestration: Option<FirstPartyOrchestration>,
     fetch: Arc<dyn pi_ai::request::Fetch>,
     agent_dir: JsString,
     runtime_extension_factories: Arc<dyn Fn() -> Vec<InlineExtension> + Send + Sync>,
-    select_agent_view: Option<Arc<Mutex<Option<crate::bundled_extensions::agents_core::runtime::SelectAgentView>>>>,
 ) -> Vec<InlineExtension> {
     use crate::bundled_extensions::agents_core::session_factories::{
         AgentSessionChildSession, ChildExtensionFactories, CreateChildSession, CreateChildSessionManager,
@@ -168,53 +175,57 @@ pub fn create_first_party_extension_factories(
         create_production_attached_session_factory, create_production_child_agent_session_factory,
     };
 
-    let create_session: CreateChildSession = Arc::new(|options: CreateAgentSessionOptions| {
-        Box::pin(async move {
-            let result = crate::core::sdk::create_agent_session(options)
-                .await
-                .map_err(|error| error.message)?;
-            Ok(Arc::new(AgentSessionChildSession::new(result.session)) as Arc<dyn UnboundChildAgentSession>)
-        })
-    });
-    let create_session_manager: CreateChildSessionManager = Arc::new(|cwd, session_dir, options| {
-        SessionManager::create(cwd, session_dir, Some(options)).map_err(|error| error.message().clone())
-    });
-    let child_agent_session_factory =
-        create_production_child_agent_session_factory(ProductionChildAgentSessionFactoryOptions {
-            agent_dir: Some(agent_dir.clone()),
-            create_session: Arc::clone(&create_session),
-            create_session_manager,
-            extension_factories: Some(ChildExtensionFactories::Dynamic(Arc::clone(
-                &runtime_extension_factories,
-            ))),
-            multi_agent_store: Some(Arc::clone(&store)),
-            session_dir: None,
+    let agent_options = orchestration.as_ref().map(|orchestration| {
+        let store = &orchestration.store;
+        let create_session: CreateChildSession = Arc::new(|options: CreateAgentSessionOptions| {
+            Box::pin(async move {
+                let result = crate::core::sdk::create_agent_session(options)
+                    .await
+                    .map_err(|error| error.message)?;
+                Ok(Arc::new(AgentSessionChildSession::new(result.session)) as Arc<dyn UnboundChildAgentSession>)
+            })
         });
-    let attached_session_factory =
-        create_production_attached_session_factory(ProductionAttachedSessionFactoryOptions {
-            agent_dir: Some(agent_dir),
-            create_session,
-            extension_factories: Some(ChildExtensionFactories::Dynamic(runtime_extension_factories)),
-            multi_agent_store: Some(Arc::clone(&store)),
-            session_dir: None,
+        let create_session_manager: CreateChildSessionManager = Arc::new(|cwd, session_dir, options| {
+            SessionManager::create(cwd, session_dir, Some(options)).map_err(|error| error.message().clone())
         });
-    let select_agent_view = select_agent_view.map(|slot| {
-        Arc::new(move |agent_id: &JsString| {
-            let selector = slot.lock().expect("agent view selector").clone();
-            match selector {
-                Some(selector) => selector(agent_id),
-                None => Box::pin(async { None }),
-            }
-        }) as crate::bundled_extensions::agents_core::runtime::SelectAgentView
+        let child_agent_session_factory =
+            create_production_child_agent_session_factory(ProductionChildAgentSessionFactoryOptions {
+                agent_dir: Some(agent_dir.clone()),
+                create_session: Arc::clone(&create_session),
+                create_session_manager,
+                extension_factories: Some(ChildExtensionFactories::Dynamic(Arc::clone(
+                    &runtime_extension_factories,
+                ))),
+                multi_agent_store: Some(Arc::clone(&store)),
+                session_dir: None,
+            });
+        let attached_session_factory =
+            create_production_attached_session_factory(ProductionAttachedSessionFactoryOptions {
+                agent_dir: Some(agent_dir),
+                create_session,
+                extension_factories: Some(ChildExtensionFactories::Dynamic(runtime_extension_factories)),
+                multi_agent_store: Some(Arc::clone(&store)),
+                session_dir: None,
+            });
+        let select_agent_view = {
+            let slot = Arc::clone(&orchestration.select_agent_view);
+            Arc::new(move |agent_id: &JsString| {
+                let selector = slot.lock().expect("agent view selector").clone();
+                match selector {
+                    Some(selector) => selector(agent_id),
+                    None => Box::pin(async { None }),
+                }
+            }) as crate::bundled_extensions::agents_core::runtime::SelectAgentView
+        };
+        crate::bundled_extensions::agents_core::runtime::MultiAgentExtensionOptions {
+            create_attached_session: Some(attached_session_factory),
+            create_child_session: Some(child_agent_session_factory),
+            runtime_handles: Some(orchestration.runtime_handles.clone()),
+            select_agent_view: Some(select_agent_view),
+            store: Some(Arc::clone(store)),
+            ..Default::default()
+        }
     });
-    let options = crate::bundled_extensions::agents_core::runtime::MultiAgentExtensionOptions {
-        create_attached_session: Some(attached_session_factory),
-        create_child_session: Some(child_agent_session_factory),
-        runtime_handles: Some(runtime_handles),
-        select_agent_view,
-        store: Some(Arc::clone(&store)),
-        ..Default::default()
-    };
     let mut registry = ExtensionRegistry::new();
     crate::bundled_extensions::register_small_extensions(
         &mut registry,
@@ -222,15 +233,27 @@ pub fn create_first_party_extension_factories(
             get_debug_repl: debug_repl_gap_provider(),
             fast_mode_authority: crate::bundled_extensions::codex_fast::FastModeAuthority::default(),
             fetch: Some(fetch),
-            multi_agent_store: Some(Arc::clone(&store)),
+            multi_agent_store: orchestration
+                .as_ref()
+                .map(|orchestration| Arc::clone(&orchestration.store)),
         },
     );
-    crate::bundled_extensions::register_agents_extensions(&mut registry, &options);
+    if let Some(agent_options) = &agent_options {
+        crate::bundled_extensions::register_agents_extensions(&mut registry, agent_options);
+    }
     crate::bundled_extensions::register_bundled_extensions(&mut registry);
-    registry.register("<first-party:pyrun>", pyrun_extension_factory(options));
+    let pyrun_factory = match agent_options {
+        Some(options) => pyrun_extension_factory(options),
+        None => crate::bundled_extensions::pyrun::index::pyrun_extension_factory(Default::default()),
+    };
+    registry.register("<first-party:pyrun>", pyrun_factory);
 
     FIRST_PARTY_EXTENSION_NAMES
         .iter()
+        .filter(|name| {
+            orchestration.is_some()
+                || !["agents-core", "agent-viewer", "agents-mailbox", "agents-status", "goal"].contains(name)
+        })
         .filter_map(|name| {
             registry
                 .get(&JsString::from(format!("<first-party:{name}>")))
@@ -331,8 +354,74 @@ pub struct RuntimeFactoryOptions {
     pub additional_prompt_template_paths: Vec<JsString>,
     pub additional_theme_paths: Vec<JsString>,
     pub extension_factories: Vec<InlineExtension>,
-    pub multi_agent_store: Arc<MultiAgentStore>,
-    pub multi_agent_runtime_handles: crate::bundled_extensions::agents_core::runtime::MultiAgentRuntimeHandles,
+    pub orchestration: Option<FirstPartyOrchestration>,
+}
+
+struct InteractiveOrchestrationControls {
+    wake_wait_agents_after_steering: Option<Arc<dyn Fn() + Send + Sync>>,
+    steer_multi_agent: SteerMultiAgent,
+    cancel_multi_agent: Option<CancelMultiAgent>,
+}
+
+fn create_interactive_orchestration_controls(
+    orchestration: Option<&FirstPartyOrchestration>,
+    control_db_path: JsString,
+) -> InteractiveOrchestrationControls {
+    let Some(orchestration) = orchestration else {
+        return InteractiveOrchestrationControls {
+            wake_wait_agents_after_steering: None,
+            steer_multi_agent: Arc::new(|_, _, _| Box::pin(async { Err("Agent steering is unavailable".into()) })),
+            cancel_multi_agent: None,
+        };
+    };
+    let wake_handles = orchestration.runtime_handles.clone();
+    let store = Arc::clone(&orchestration.store);
+    let handles = orchestration.runtime_handles.clone();
+    let steer_multi_agent: SteerMultiAgent = Arc::new(move |agent_id, message, session_id| {
+        let store = Arc::clone(&store);
+        let handles = handles.clone();
+        let control_db_path = control_db_path.clone();
+        Box::pin(async move {
+            if control_db_path.is_empty() {
+                return Err("Agent steering is unavailable".into());
+            }
+            crate::bundled_extensions::agents_core::control_runtime::request_interactive_agent_steering(
+                &store,
+                &handles,
+                &agent_id,
+                &message,
+                &crate::bundled_extensions::agents_core::control_runtime::AgentSteeringRuntimeBinding {
+                    actor_agent_id: None,
+                    control_db_path,
+                    session_id,
+                },
+            )
+        })
+    });
+    let store = Arc::clone(&orchestration.store);
+    let handles = orchestration.runtime_handles.clone();
+    let cancel_multi_agent: CancelMultiAgent = Arc::new(move |agent_id| {
+        let store = Arc::clone(&store);
+        let handles = handles.clone();
+        Box::pin(async move {
+            crate::bundled_extensions::agents_core::control_runtime::cancel_owned_agent_runtime(
+                &store,
+                &handles,
+                &agent_id,
+                Some(&"cancelled interactively".into()),
+            )
+            .await
+            .map(|_| ())
+            .map_err(|error| error.message)
+        })
+    });
+    InteractiveOrchestrationControls {
+        wake_wait_agents_after_steering: Some(Arc::new(move || {
+            crate::bundled_extensions::agents_core::control_runtime::wake_wait_agents_after_steering(&wake_handles)
+        })),
+        steer_multi_agent,
+        cancel_multi_agent: Some(cancel_multi_agent),
+    }
 }
 
 fn trust_decision_is_trusted(store: &ProjectTrustStore, cwd: &JsString) -> Result<bool, JsString> {
@@ -390,10 +479,12 @@ async fn create_runtime(
             },
         )
         .map_err(|error| error.message().clone())?;
-    options
-        .multi_agent_store
-        .restore_from_session_manager(&session_manager)
-        .map_err(|error| error.message().clone())?;
+    if let Some(orchestration) = &options.orchestration {
+        orchestration
+            .store
+            .restore_from_session_manager(&session_manager)
+            .map_err(|error| error.message().clone())?;
+    }
 
     let is_initial_runtime = request.session_start_reason == "startup";
     let project_trust_diagnostics = Arc::new(Mutex::new(Vec::new()));
@@ -583,6 +674,7 @@ async fn create_runtime(
     }
 
     let result = create_agent_session_from_services(CreateAgentSessionFromServicesOptions {
+        no_supervisor: options.parsed.no_supervisor,
         services: AgentSessionServices {
             cwd: services.cwd.clone(),
             agent_dir: services.agent_dir.clone(),
@@ -600,17 +692,21 @@ async fn create_runtime(
         exclude_tools: session_options.exclude_tools,
         no_tools: session_options.no_tools,
         permission_prompt_tool: session_options.permission_prompt_tool,
-        multi_agent_runtime_role: Some(MultiAgentRuntimeRole::Orchestrator),
-        multi_agent_execution_capability: Some(create_multi_agent_execution_capability()),
+        multi_agent_runtime_role: (parsed.no_supervisor != Some(true)).then_some(MultiAgentRuntimeRole::Orchestrator),
+        multi_agent_execution_capability: (parsed.no_supervisor != Some(true))
+            .then(create_multi_agent_execution_capability),
         custom_tools: Vec::new(),
         base_tools: Vec::new(),
-        multi_agent_store: Some(Arc::clone(&options.multi_agent_store)),
-        on_shared_channel_message_delivered: {
-            let handles = options.multi_agent_runtime_handles.clone();
-            Some(Arc::new(move |prompt: JsString| {
+        multi_agent_store: options
+            .orchestration
+            .as_ref()
+            .map(|orchestration| Arc::clone(&orchestration.store)),
+        on_shared_channel_message_delivered: options.orchestration.as_ref().map(|orchestration| {
+            let handles = orchestration.runtime_handles.clone();
+            Arc::new(move |prompt: JsString| {
                 crate::bundled_extensions::agents_core::runtime::wake_wait_agents_after_coordination(&handles, &prompt);
-            }))
-        },
+            }) as Arc<dyn Fn(JsString) + Send + Sync>
+        }),
         session_start_event: Some(session_start_event(
             &request.session_start_reason,
             request.previous_session_file.clone(),
@@ -618,18 +714,19 @@ async fn create_runtime(
     })
     .await?;
 
-    {
-        let store = Arc::clone(&options.multi_agent_store);
-        let handles = options.multi_agent_runtime_handles.clone();
-        bind_agent_session_mutation_target_resolver(
-            &result.session,
-            Arc::new(move || {
+    let orchestration = options.orchestration.clone();
+    bind_agent_session_mutation_target_resolver(
+        &result.session,
+        Arc::new(move || match &orchestration {
+            Some(orchestration) => {
                 crate::bundled_extensions::agents_core::runtime::resolve_selected_session_mutation_target(
-                    &store, &handles,
+                    &orchestration.store,
+                    &orchestration.runtime_handles,
                 )
-            }),
-        );
-    }
+            }
+            None => Ok(None),
+        }),
+    );
 
     let cli_thinking_override = parsed.thinking.is_some() || cli_thinking_from_model;
     if cli_thinking_override {
@@ -1355,7 +1452,10 @@ pub fn build_session_options(
     model_registry: &ModelRegistry,
     settings_manager: &SettingsManager,
 ) -> Result<SessionOptionsBuild, pi_js_compat::node_error::NativeNodeError> {
-    let mut options = CreateAgentSessionOptions::default();
+    let mut options = CreateAgentSessionOptions {
+        no_supervisor: parsed.no_supervisor,
+        ..Default::default()
+    };
     let mut diagnostics = Vec::new();
     let mut cli_thinking_from_model = false;
 
@@ -1770,7 +1870,11 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
 
     let mut parsed = parse_args(args);
     let mut env: BTreeMap<String, String> = pi_js_compat::process_env::vars().into_iter().collect();
-    let handoff = consume_self_restart_request(&mut env, std::process::id(), parent_process_id());
+    let handoff = if parsed.no_supervisor == Some(true) {
+        None
+    } else {
+        consume_self_restart_request(&mut env, std::process::id(), parent_process_id())
+    };
     apply_self_restart_request(&mut parsed, handoff.as_ref());
     wait_for_self_restart_parent_exit(handoff.as_ref(), &SelfRestartWaitDependencies::default()).await;
     if handoff.as_ref().and_then(|handoff| handoff.old_pid) == Some(std::process::id()) {
@@ -1778,23 +1882,23 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
             .map_err(|error| error.message().clone())?;
     }
 
-    let multi_agent_store = create_first_party_multi_agent_store();
-    let multi_agent_runtime_handles =
-        crate::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles();
     let runtime_extension_factories: Arc<Mutex<Vec<InlineExtension>>> = Arc::new(Mutex::new(Vec::new()));
     let interactive_agent_view_selector: Arc<
         Mutex<Option<crate::bundled_extensions::agents_core::runtime::SelectAgentView>>,
     > = Arc::new(Mutex::new(None));
+    let orchestration = (parsed.no_supervisor != Some(true)).then(|| FirstPartyOrchestration {
+        store: create_first_party_multi_agent_store(),
+        runtime_handles: crate::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles(),
+        select_agent_view: Arc::clone(&interactive_agent_view_selector),
+    });
     let first_party_extension_factories = create_first_party_extension_factories(
-        Arc::clone(&multi_agent_store),
-        multi_agent_runtime_handles.clone(),
+        orchestration.clone(),
         Arc::clone(&fetch),
         agent_dir.clone(),
         Arc::new({
             let factories = Arc::clone(&runtime_extension_factories);
             move || factories.lock().expect("runtime extension factories").clone()
         }),
-        Some(Arc::clone(&interactive_agent_view_selector)),
     );
     let extension_factories = if parsed.no_extensions.is_some_and(|value| value) {
         options.extension_factories.clone()
@@ -1947,7 +2051,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         take_over_stdout();
     }
     time(&"createSessionManager".into(), TimingLabel::Main);
-    let control_message = if app_mode == AppMode::Interactive {
+    let control_message = if parsed.no_supervisor != Some(true) && app_mode == AppMode::Interactive {
         claim_latest_incoming_message(&control_db_path).map_err(|error| error.message().clone())?
     } else {
         None
@@ -1983,17 +2087,25 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         additional_prompt_template_paths,
         additional_theme_paths,
         extension_factories,
-        multi_agent_store: Arc::clone(&multi_agent_store),
-        multi_agent_runtime_handles: multi_agent_runtime_handles.clone(),
+        orchestration: orchestration.clone(),
     });
     time(&"createRuntime".into(), TimingLabel::Main);
     let session_cwd = session_manager.get_cwd().clone();
-    let runtime = create_agent_session_runtime(create_runtime, &session_cwd, &agent_dir, session_manager).await?;
+    let runtime = create_agent_session_runtime(
+        create_runtime,
+        &session_cwd,
+        &agent_dir,
+        session_manager,
+        parsed.no_supervisor,
+    )
+    .await?;
     let runtime = share_agent_session_runtime(runtime).await;
-    reconcile_session_runtime_bindings(&control_db_path, &SessionDirectoryOptions::default())
-        .map_err(|error| error.message().clone())?;
-    LifecycleCoordinator::reconcile_dead_detached_runtimes(&control_db_path, &now_iso_string())
-        .map_err(|error| error.message().clone())?;
+    if parsed.no_supervisor != Some(true) {
+        reconcile_session_runtime_bindings(&control_db_path, &SessionDirectoryOptions::default())
+            .map_err(|error| error.message().clone())?;
+        LifecycleCoordinator::reconcile_dead_detached_runtimes(&control_db_path, &now_iso_string())
+            .map_err(|error| error.message().clone())?;
+    }
     time(&"createAgentSessionRuntime".into(), TimingLabel::Main);
 
     let (services, session, model_fallback_message, diagnostics) = {
@@ -2139,6 +2251,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         } else {
             None
         };
+        let controls = create_interactive_orchestration_controls(orchestration.as_ref(), control_db_path.clone());
         let options = InteractiveModeOptions {
             migrated_providers: migrations.migrated_auth_providers.clone(),
             model_fallback_message: model_fallback_message.clone(),
@@ -2149,56 +2262,12 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
             control_message,
             verbose: parsed.verbose.is_some_and(|value| value),
             control_db_path: Some(control_db_path.clone()),
-            multi_agent_store: Some(Arc::clone(&multi_agent_store)),
-            wake_wait_agents_after_steering: Some(Arc::new({
-                let handles = multi_agent_runtime_handles.clone();
-                move || {
-                    crate::bundled_extensions::agents_core::control_runtime::wake_wait_agents_after_steering(&handles)
-                }
-            })),
-            steer_multi_agent: Some(Arc::new({
-                let store = Arc::clone(&multi_agent_store);
-                let handles = multi_agent_runtime_handles.clone();
-                let control_db_path = control_db_path.clone();
-                move |agent_id: JsString, message: JsString, session_id: JsString| {
-                    let store = Arc::clone(&store);
-                    let handles = handles.clone();
-                    let control_db_path = control_db_path.clone();
-                    Box::pin(async move {
-                        if control_db_path.is_empty() {
-                            return Err(JsString::from("Agent steering is unavailable"));
-                        }
-                        crate::bundled_extensions::agents_core::control_runtime::request_interactive_agent_steering(
-                            &store,
-                            &handles,
-                            &agent_id,
-                            &message,
-                            &crate::bundled_extensions::agents_core::control_runtime::AgentSteeringRuntimeBinding {
-                                actor_agent_id: None,
-                                control_db_path,
-                                session_id,
-                            },
-                        )
-                    }) as pi_ai::request::BoxFuture<'static, Result<(), JsString>>
-                }
-            })),
-            cancel_multi_agent: Some(Arc::new({
-                let store = Arc::clone(&multi_agent_store);
-                let handles = multi_agent_runtime_handles.clone();
-                move |agent_id: JsString| {
-                    let store = Arc::clone(&store);
-                    let handles = handles.clone();
-                    Box::pin(async move {
-                        crate::bundled_extensions::agents_core::control_runtime::cancel_owned_agent_runtime(
-                            &store, &handles, &agent_id, None,
-                        )
-                        .await
-                        .map(|_| ())
-                        .map_err(|error| error.message)
-                    })
-                        as pi_ai::request::BoxFuture<'static, Result<(), pi_js_compat::js_json::JsString>>
-                }
-            })),
+            multi_agent_store: orchestration
+                .as_ref()
+                .map(|orchestration| Arc::clone(&orchestration.store)),
+            wake_wait_agents_after_steering: controls.wake_wait_agents_after_steering,
+            steer_multi_agent: Some(controls.steer_multi_agent),
+            cancel_multi_agent: controls.cancel_multi_agent,
             agent_view_selector_slot: Some(Arc::clone(&interactive_agent_view_selector)),
         };
         if startup_benchmark {

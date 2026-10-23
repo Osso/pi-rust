@@ -193,6 +193,7 @@ async fn services_and_from_services_create_a_working_session() {
         .set_metadata_control_db_path(Some(&JsString::from(&control_db)), Default::default())
         .expect("metadata control db");
     let result = create_agent_session_from_services(CreateAgentSessionFromServicesOptions {
+        no_supervisor: None,
         services,
         session_manager,
         model: Some(model),

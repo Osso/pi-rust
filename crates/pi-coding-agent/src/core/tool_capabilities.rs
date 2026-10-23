@@ -13,3 +13,19 @@ pub const CHILD_DISABLED_AGENT_TOOL_NAMES: [&str; 9] = [
 ];
 
 pub const SUPERVISOR_ONLY_TOOL_NAMES: [&str; 2] = ["ask_supervisor", "manage_goal"];
+
+pub static STANDALONE_DISABLED_TOOL_NAMES: std::sync::LazyLock<indexmap::IndexSet<&'static str>> =
+    std::sync::LazyLock::new(|| {
+        CHILD_DISABLED_AGENT_TOOL_NAMES
+            .into_iter()
+            .chain(SUPERVISOR_ONLY_TOOL_NAMES)
+            .chain([
+                "send_agent_message",
+                "contact_parent",
+                "list_sessions",
+                "broadcast",
+                "channel_post",
+                "resume_session",
+            ])
+            .collect()
+    });

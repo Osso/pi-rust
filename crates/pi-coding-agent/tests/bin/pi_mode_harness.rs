@@ -290,6 +290,7 @@ async fn build_runtime(
     let tools = (Vec::new(), Vec::new(), vec![end_turn]);
     let session_manager = SessionManager::create(cwd, Some(session_dir), None).expect("session manager");
     let result = create_agent_session_from_services(CreateAgentSessionFromServicesOptions {
+        no_supervisor: None,
         services: services.clone(),
         session_manager,
         model: Some(model.clone()),
@@ -338,6 +339,7 @@ async fn build_runtime(
             })
             .await?;
             let created = create_agent_session_from_services(CreateAgentSessionFromServicesOptions {
+                no_supervisor: None,
                 services: services.clone(),
                 session_manager: options.session_manager,
                 model: Some(model),
@@ -375,6 +377,57 @@ async fn build_runtime(
     .await
 }
 
+async fn run_main_fixture(handle: &FauxProviderHandle) -> i32 {
+    use pi_coding_agent::core::extensions::types::{ExtensionContext, HandlerError, SessionStartEvent};
+    let provider: Arc<dyn pi_ai::models::Provider> = handle.provider.clone();
+    let factory: pi_coding_agent::core::extensions::ExtensionFactory = Arc::new(move |api| {
+        let provider = provider.clone();
+        let models = provider.get_models();
+        let first = models.first().unwrap();
+        let result = (|| {
+            api.register_provider(
+                provider.id(),
+                ProviderConfigInput {
+                    name: Some(provider.name().into()),
+                    api: Some(first.api.clone()),
+                    base_url: Some(first.base_url.clone()),
+                    api_key: Some("fixture".into()),
+                    models: Some(models.clone()),
+                    stream_simple: Some(Arc::new({
+                        let provider = provider.clone();
+                        move |model, context, options| {
+                            provider.stream_simple(model, context, options.unwrap_or_default())
+                        }
+                    })),
+                    ..Default::default()
+                },
+            )
+            .map_err(HandlerError::new)?;
+            api.on_session_start(|_:SessionStartEvent,context:ExtensionContext| {
+                Box::pin(async move {
+                    let manager=context.session_manager()?;
+                    let persisted=manager.lock().unwrap().is_persisted();
+                    let state=js_json!({"noSupervisor":context.no_supervisor()?,"persisted":persisted,"hasStore":context.multi_agent_store()?.is_some(),"hasDetach":context.tool_detach_registry()?.is_some()});
+                    std::fs::write(env("PI_HARNESS_STANDALONE_STATE"),pi_js_compat::js_json::stringify_lossless(&state)).map_err(|error| HandlerError::new(error.to_string()))?;
+                    Ok(None)
+                }) as pi_ai::request::BoxFuture<'static,Result<Option<()>,HandlerError>>
+            }).map_err(HandlerError::new)?;
+            Ok(())
+        })();
+        Box::pin(async move { result })
+    });
+    pi_coding_agent::main_runner::run_main_or_report_error(
+        &std::env::args().skip(1).collect::<Vec<_>>(),
+        pi_coding_agent::main_runner::MainOptions {
+            extension_factories: vec![pi_coding_agent::core::resource_loader::InlineExtension::Factory {
+                extension_path: Some("<fixture:standalone-main>".into()),
+                factory,
+            }],
+        },
+    )
+    .await
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let mode = env("PI_HARNESS_MODE");
@@ -383,6 +436,9 @@ async fn main() {
     let session_dir = JsString::from(env("PI_HARNESS_SESSION_DIR"));
     let responses = parse_json_array(&env("PI_HARNESS_RESPONSES"));
     let handle = faux_handle(&responses);
+    if mode == "main" {
+        std::process::exit(run_main_fixture(&handle).await);
+    }
     pi_coding_agent::modes::interactive::theme::init_theme(None, false).expect("theme");
     let runtime = build_runtime(&handle, &cwd, &agent_dir, &session_dir).await;
     if std::env::var("PI_HARNESS_RESUME").as_deref() == Ok("1") {

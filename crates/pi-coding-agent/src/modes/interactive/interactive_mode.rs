@@ -12019,6 +12019,7 @@ mod ui_tests {
                         multi_agent_runtime_role: None,
                         multi_agent_execution_capability: None,
                         thinking_phase_timeout_ms: None,
+                        no_supervisor: None,
                         supervisor_decision_requester: None,
                         multi_agent_store: None,
                         multi_agent_agent_id: None,
@@ -12055,10 +12056,15 @@ mod ui_tests {
         } else {
             SessionManager::in_memory(Some(&JsString::from(&cwd)), None).expect("session manager")
         };
-        let runtime =
-            create_agent_session_runtime(factory, &JsString::from(&cwd), &JsString::from(&cwd), session_manager)
-                .await
-                .expect("runtime");
+        let runtime = create_agent_session_runtime(
+            factory,
+            &JsString::from(&cwd),
+            &JsString::from(&cwd),
+            session_manager,
+            None,
+        )
+        .await
+        .expect("runtime");
         let runtime = share_agent_session_runtime(runtime).await;
         let terminal = Rc::new(RefCell::new(CaptureTerminal {
             rows: 24,

@@ -47,6 +47,7 @@ pub struct CreateAgentSessionServicesOptions {
 
 /// Inputs for creating an AgentSession from already-created services.
 pub struct CreateAgentSessionFromServicesOptions {
+    pub no_supervisor: Option<bool>,
     pub services: AgentSessionServices,
     pub session_manager: SessionManager,
     pub model: Option<pi_ai::types::Model>,
@@ -238,6 +239,7 @@ pub async fn create_agent_session_from_services(
 ) -> Result<CreateAgentSessionResult, JsString> {
     let services = options.services;
     create_agent_session(CreateAgentSessionOptions {
+        no_supervisor: options.no_supervisor,
         cwd: Some(services.cwd),
         agent_dir: Some(services.agent_dir),
         model_registry: Some(services.model_registry),
