@@ -92,6 +92,7 @@ impl Loader {
         // Empty indicator means no timer state; construct Rc UI only on the UI thread.
         let mut loader = BorderedLoader::new(
             Rc::new(|| {}),
+            pi_coding_agent::modes::interactive::theme::current_theme(),
             "Generating handoff prompt...",
             BorderedLoaderOptions::default(),
         );

@@ -7962,6 +7962,7 @@ impl InteractiveMode {
         });
         let loader = Rc::new(RefCell::new(BorderedLoader::new(
             request_render,
+            crate::modes::interactive::theme::current_theme(),
             "Creating gist...",
             BorderedLoaderOptions::default(),
         )));

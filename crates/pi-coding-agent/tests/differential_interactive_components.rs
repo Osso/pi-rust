@@ -825,6 +825,7 @@ fn bordered_loader_cases() -> Vec<(Value, Value)> {
         });
         let mut loader = BorderedLoader::new(
             std::rc::Rc::new(|| {}),
+            pi_coding_agent::modes::interactive::theme::current_theme(),
             "Working...",
             BorderedLoaderOptions {
                 cancellable: Some(cancellable),
