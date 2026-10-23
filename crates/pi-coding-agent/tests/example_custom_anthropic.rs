@@ -189,7 +189,7 @@ async fn provider(
         register_provider: Arc::new(move |name, config, path| {
             assert_eq!(name, "custom-anthropic");
             assert_eq!(path, Some(&JsString::from("<example:custom-anthropic>")));
-            *capture.lock().unwrap() = Some(config);
+            *capture.lock().unwrap() = Some(config.clone());
             Ok(())
         }),
         unregister_provider: Arc::new(|_, _| panic!("not an unregister flow")),

@@ -159,7 +159,7 @@ async fn provider(input: Value, calls: Arc<Mutex<Vec<Value>>>, clock: Arc<Mutex<
         Some(ProviderActions {
             register_provider: Some(Arc::new(move |name, config| {
                 target
-                    .register_provider(name, config)
+                    .register_provider(name, config.clone())
                     .map_err(|error| error.message().clone())
             })),
             ..Default::default()
