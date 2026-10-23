@@ -19,7 +19,7 @@ Differential: `oracle/coding-agent-edit-write-tool-oracle.ts` (request `27300`, 
 
 ## Current cycle
 
-`differential_write_render_sequence` uses actual frozen components across partial appends, completion, path/language changes, replacement, invalid content and empty/plain text. RED: native full highlighting differs from frozen incremental colors after line50 (`write-render-sequence-red-2.log`). The cache is observable state, not an omitted performance optimization. Native now follows the frozen transition rules; streaming and inherited-language/catch differentials are GREEN (language-prototype-green-2.log). Execution/abort matrices and the whole write row remain pending.
+`differential_write_render_sequence` uses actual frozen components across partial appends, completion, path/language changes, replacement, invalid content and empty/plain text. RED: native full highlighting differs from frozen incremental colors after line50 (`write-render-sequence-red-2.log`). The cache is observable state, not an omitted performance optimization. Native now follows the frozen transition rules; streaming and inherited-language/catch differentials are GREEN (language-prototype-green-2.log). `differential_write_queue` adds eight actual-frozen gated-operation scenarios with real file effects: pre-abort, abort during mkdir/write, raw mkdir/write failure winning over abort, normal serialized success, independent-file progress and a raw surrogate filename. Native explicitly polls the blocked first/queued second futures before releasing the gate, avoiding an unpolled-second false positive. GREEN1/0 (`write-queue-green.log`). Default filesystem/error matrix and whole-write closure remain pending.
 
 ## Source quirks / classifications
 
