@@ -32,6 +32,7 @@ CLDR collation data for the tested locales.
 | `Number.parseInt(string, radix)` (`radix` 0/16 prefix handling, longest digit prefix) | sole `parse_int(&[u16], radix)`; native whitespace/sign/prefix/digit scan, no replacement | `tests/number.rs`, `tests/differential_number.rs` |
 | `Number.parseFloat(string)` (leading numeric prefix, exponent rollback) | `parse_float` | `tests/number.rs`, `tests/differential_number.rs` |
 | ECMA-262 `Number::toString`: shortest digits, even-digit ties, exponent thresholds, signed zero, non-finite | `js_number_to_string` via `ryu_js::Buffer::format` | `tests/number.rs`, `tests/differential_number.rs`, `tests/differential_number_bits.rs::shared_formatter_and_json_consumers_match_node_same_bits` |
+| Default Number.toLocaleString en-US grouping, max3 fraction digits, half-expand, -0/NaN/±∞ | sole `number::to_locale_string` in `number_locale.rs`; shortest-decimal expansion and rounding, no new dependency | `tests/differential_number_locale.rs`,1043 same-bit pinned Node outputs; `/tmp/pi-rust-repin-lossless-interactive/test-number-locale-*` |
 | Generic serde finite numeric meaning without i128 range errors; Some/None and non-finite null | `serialize`, `serialize_option`; exact integer conversion only in i64/u64 range | `generic_serde_preserves_finite_numeric_meaning_without_range_errors` exercises actual attributed fields through `serde_json::to_value` |
 | Numeric value storage, not shortest-decimal integer substitution | `js_number_value` | Same test: as_f64 bits/range and exact unsafe-integer storage; historical `matches_node_json_stringify_numbers` is semantic-only |
 | Literal compact/pretty JSON and String coercion | `js_json` shared writer / `to_js_string` | Same-bit test compares Node text literally for lossless writer, serde writer, parse/write and scalar coercion |
@@ -64,6 +65,8 @@ by the shortest decimal integer. No arbitrary_precision, wire-body/tool serde
 migration, provider changes or new parse/toFixed algorithms are claimed.
 The finite corpus does not establish exhaustive binary64 parity; the primitive
 uses the published ECMAScript formatter rather than corpus-specific cases.
+
+Default en-US locale checkpoint: the interactive integer-only formatter failed on `-0` (`test-number-locale-red-1.log`); shared output matches1043 edge/random same-bit Node results. Coding-agent/tui grouping audit found and removed the custom-compaction example's three-helper decimal/grouping copy; no other number-grouping implementation was found there. Date locale helpers are untouched. The pi-ai model-catalog-generator boundary is219-owned and not modified. Default Intl options and the user-approved fixed locale are the scope, not general Intl.NumberFormat. No whole-example or whole-mode acceptance is claimed.
 
 ## `Date.parse` (`src/date.rs`, `src/date_parser.rs`)
 

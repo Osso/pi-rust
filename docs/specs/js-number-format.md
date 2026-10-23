@@ -11,6 +11,13 @@
 - [x] `parse_int(&[u16], radix)` is the sole parseInt API: scan JS whitespace, optional sign, radix0/16 `0x` handling and longest digit prefix directly over native units. Surrogates terminate the prefix; never replace them. Callers share it rather than local parsers.
 - [x] Retain other public helper APIs and parseNumber/parseInt/parseFloat/toFixed behavior; toFixed's existing non-finite/large-number formatter delegation uses the corrected primitive.
 
+## Default locale number formatting
+
+- [x] `number::to_locale_string(f64) -> JsString` is the single default en-US authority: comma grouping, zero to three fractional digits, decimal half-expand rounding, signed zero/rounded negative zero, NaN and ±∞. No arbitrary Intl options or host-locale selection are added.
+- [x] Expand the shared shortest decimal before fractional rounding; do not substitute binary toFixed rounding or truncate fractions.
+- [x] Interactive token display and custom-compaction notifications consume the shared helper; local grouping/rounding copies are deleted. Date locale formatting is a different API and stays unchanged.
+- [x] Prove literal outputs from1043 identical binary64 values against pinned Node's built-in en-US formatter (edges, half-rounding neighbors, exponents, nonfinite and1000 deterministic bit samples). This bounded corpus is not exhaustive binary64 proof.
+
 ## How it works
 
 - [Shared module trace and evidence](../porting/traceability/js-compat.md).
@@ -19,7 +26,7 @@
 
 ## Implementation inventory
 
-- `crates/pi-js-compat/src/number.rs` — primitive formatting and numeric serde helpers.
+- `crates/pi-js-compat/src/number.rs` — primitive formatting and numeric serde helpers; `number_locale.rs` holds the one default en-US formatter.
 - `crates/pi-js-compat/src/js_json.rs` — existing shared writer and String-coercion consumers, unchanged.
 
 ## Tests asserting this spec
@@ -27,6 +34,8 @@
 - `crates/pi-js-compat/tests/differential_number_bits.rs` — 4,346 same-bit samples; literal formatter/JSON/coercion output; numeric serde bits and no-error proof.
 - `oracle/js-compat-oracle.ts` — Node DataView reconstruction from big-endian hex and built-in String/JSON.stringify; ASCII-LF framing.
 - `crates/pi-js-compat/tests/{number,differential_number}.rs` — existing parsing/formatting/toFixed regression corpus.
+
+- `crates/pi-js-compat/tests/differential_number_locale.rs` and `oracle/number-locale-oracle.mjs` —1043 same-bit default en-US outputs; interactive old integer-only helper RED on negative zero.
 
 ## Known gaps (current cycle)
 
