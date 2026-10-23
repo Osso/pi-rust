@@ -545,7 +545,7 @@ fn truncation_details(truncation: &TruncationResult, force_bytes: bool, total_by
             details.insert("totalBytes".into(), Value::Number(total_bytes));
         }
     }
-    json!({"truncation": value})
+    Value::Object([("truncation".into(), value)].into_iter().collect())
 }
 
 // ============================================================================
