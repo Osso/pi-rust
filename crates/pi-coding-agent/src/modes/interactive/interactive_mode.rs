@@ -571,21 +571,12 @@ fn git_path_regex() -> &'static Regex {
 }
 
 fn home_directory() -> JsString {
-    #[cfg(windows)]
-    {
-        pi_js_compat::process_env::get("USERPROFILE")
-            .or_else(|| pi_js_compat::process_env::get("HOME"))
-            .unwrap_or_default()
-    }
-    #[cfg(not(windows))]
-    {
-        pi_js_compat::process_env::get("HOME").unwrap_or_default().into()
-    }
+    pi_js_compat::node_os::homedir().unwrap_or_else(|error| std::panic::panic_any(error))
 }
 
 pub(crate) fn format_display_path(path: &JsString) -> JsString {
     let home = home_directory();
-    if !home.is_empty() && path.starts_with(&home) {
+    if path.starts_with(&home) {
         return js_format!("~{}", path.slice(home.len(), path.len()));
     }
     path.to_owned()

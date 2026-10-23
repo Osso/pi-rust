@@ -367,8 +367,7 @@ pub fn node_extname(path: impl Into<JsString>) -> JsString {
 }
 
 pub(crate) fn home_directory() -> JsString {
-    let key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
-    pi_js_compat::process_env::get(key).unwrap_or_default().into()
+    pi_js_compat::node_os::homedir().unwrap_or_else(|error| std::panic::panic_any(error))
 }
 
 fn file_url_to_path(value: &JsString) -> Result<JsString, PathError> {

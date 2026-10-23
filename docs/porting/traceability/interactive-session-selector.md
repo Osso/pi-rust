@@ -34,9 +34,9 @@ All logs under `/tmp/pi-rust-repin-lossless-interactive/`.
 
 `session-selector-full-green-attempt1.log`: both tests GREEN after all production changes; eleven lifecycle/numeric/concurrency/child/container/no-archive-loader/rejected-rename/status scenarios plus six full-list scenarios. Real status timers prove replacement fires once, timeout clears displayed text and requests render, and selecting a session cancels the next status timeout. Inherited add/remove/clear/invalidate retain private list behavior and rebuild the layout on rename/exit.
 
-## Reopened OS-home boundary
+## OS-home boundary
 
-Isolated `differential_session_selector` HOME probes are RED in `session-selector-home-red.log`. Frozen :31–36 calls os.homedir(), not HOME||USERPROFILE. Missing HOME on POSIX uses the account database; native currently chooses USERPROFILE. Present-empty HOME is distinct: os.homedir() returns empty, so frozen prefixes every nonempty displayed path with `~` (DISCREPANCY to preserve literally). Native currently suppresses that prefix. Shared Node os.homedir authority is requested from parent; this boundary is pending, not an approved gap. Existing non-environment proofs above remain valid.
+Isolated `differential_session_selector` HOME probes went RED in `session-selector-home-red.log`, now GREEN in `homedir-consumers-green.log`. Frozen :31–36 calls os.homedir(), not HOME||USERPROFILE. Native uses the [shared Node authority](node-os.md): missing HOME on POSIX uses the effective-UID passwd entry. Present-empty HOME remains distinct and prefixes every nonempty displayed path with `~` (DISCREPANCY preserved literally). Existing non-environment proofs above remain valid.
 
 ## DISCREPANCY — empty-list navigation
 
