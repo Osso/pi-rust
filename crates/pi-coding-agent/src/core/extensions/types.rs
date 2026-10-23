@@ -1966,6 +1966,7 @@ pub struct ModelRequestEndEvent {}
 #[serde(rename_all = "snake_case")]
 pub enum AgentEndSessionContinuation {
     CwdRelocation,
+    CodexRestrictionValidation,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
