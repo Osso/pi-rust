@@ -21,14 +21,29 @@ pub(crate) fn run() {
         "packages/coding-agent/src/core/system-prompt.ts",
     );
 
-    for (index, options) in cases().into_iter().enumerate() {
-        let request = options_json(&options);
-        let response = oracle.request(&json!({"id": index, "options": request}));
-        assert_eq!(response["ok"], true, "oracle failed: {response}");
-
-        let actual = probe::spawn_child_probe(&package_dir(), &request);
-        let expected = response["output"]["prompt"].as_str().expect("prompt string");
-        assert_eq!(actual, expected, "case {index}");
+    for (now_millis, time_zone) in [
+        (1709251200000.0, "UTC"),
+        (1709251200000.0, "America/Los_Angeles"),
+        (-62135510400000.0, "UTC"),
+    ] {
+        for (index, options) in cases().into_iter().enumerate() {
+            let request = options_json(&options);
+            let response = oracle.request(
+                &pi_js_compat::js_json!({"id":index,"options":request,"nowMillis":now_millis,"timeZone":time_zone}),
+            );
+            assert_eq!(
+                response.get("ok"),
+                Some(&pi_js_compat::js_json::JsValue::Bool(true)),
+                "oracle failed: {response:?}"
+            );
+            let actual = probe::spawn_child_probe(&package_dir(), &request, now_millis, time_zone);
+            let expected = response["output"]["prompt"].as_string().expect("native prompt string");
+            assert_eq!(
+                pi_js_compat::js_json::stringify_lossless(&pi_js_compat::js_json::JsValue::String(actual)),
+                pi_js_compat::js_json::stringify_lossless(&pi_js_compat::js_json::JsValue::String(expected.clone())),
+                "case {index} at {now_millis} in {time_zone}"
+            );
+        }
     }
 }
 
@@ -43,34 +58,13 @@ fn package_dir() -> String {
     format!("{worktree}/packages/coding-agent")
 }
 
-fn options_json(options: &BuildSystemPromptOptions) -> Value {
-    let mut object = serde_json::Map::new();
-    object.insert("cwd".to_owned(), json!(options.cwd));
-    if let Some(custom_prompt) = &options.custom_prompt {
-        object.insert("customPrompt".to_owned(), json!(custom_prompt));
-    }
-    if let Some(selected_tools) = &options.selected_tools {
-        object.insert("selectedTools".to_owned(), json!(selected_tools));
-    }
-    if let Some(tool_snippets) = &options.tool_snippets {
-        object.insert("toolSnippets".to_owned(), json!(tool_snippets));
-    }
-    if let Some(prompt_guidelines) = &options.prompt_guidelines {
-        object.insert("promptGuidelines".to_owned(), json!(prompt_guidelines));
-    }
-    if let Some(append_system_prompt) = &options.append_system_prompt {
-        object.insert("appendSystemPrompt".to_owned(), json!(append_system_prompt));
-    }
-    if let Some(context_files) = &options.context_files {
-        object.insert("contextFiles".to_owned(), json!(context_files));
-    }
-    if let Some(rules_content) = &options.rules_content {
-        object.insert("rulesContent".to_owned(), json!(rules_content));
-    }
-    if let Some(skills) = &options.skills {
-        object.insert("skills".to_owned(), json!(skills));
-    }
-    Value::Object(object)
+fn options_json(options: &BuildSystemPromptOptions) -> pi_js_compat::js_json::JsValue {
+    let mut value = pi_js_compat::js_json::to_value(options).expect("typed prompt options");
+    value
+        .as_object_mut()
+        .unwrap()
+        .retain(|_, value| !matches!(value, pi_js_compat::js_json::JsValue::Null));
+    value
 }
 
 fn cases() -> Vec<BuildSystemPromptOptions> {
@@ -206,6 +200,45 @@ fn cases() -> Vec<BuildSystemPromptOptions> {
         ..base("/repo/project")
     });
 
+    cases.push(BuildSystemPromptOptions {
+        selected_tools: Some(vec!["spawn_agent".into(), "pyrun_eval".into(), "wait_agent".into()]),
+        ..base("/repo/pyrun")
+    });
+    cases.push(BuildSystemPromptOptions {
+        selected_tools: Some(vec!["read".into(), "bash".into()]),
+        tool_snippets: Some([("read".into(), JsString::default()), ("bash".into(), " ".into())].into()),
+        append_system_prompt: Some(JsString::default()),
+        ..base("/repo/empty")
+    });
+    cases.push(BuildSystemPromptOptions {
+        custom_prompt: Some("Header\n".into()),
+        rules_content: Some("Rule".into()),
+        append_system_prompt: Some(JsString::default()),
+        ..base("/repo/custom")
+    });
+    let raw = JsString::from_utf16(vec![0xd800, 0x21, 0xdc00]);
+    cases.push(BuildSystemPromptOptions {
+        custom_prompt: Some(raw.clone()),
+        append_system_prompt: Some(raw.clone()),
+        cwd: JsString::from("C:\\raw-") + &raw,
+        context_files: Some(vec![ContextFile {
+            path: raw.clone(),
+            content: raw.clone(),
+        }]),
+        rules_content: Some(raw.clone()),
+        ..base("/repo/raw")
+    });
+    cases.push(BuildSystemPromptOptions {
+        selected_tools: Some(vec!["read".into()]),
+        tool_snippets: Some([("read".into(), raw.clone())].into()),
+        prompt_guidelines: Some(vec![raw.clone(), raw.clone(), "  ".into()]),
+        context_files: Some(vec![ContextFile {
+            path: raw.clone(),
+            content: raw.clone(),
+        }]),
+        rules_content: Some(raw),
+        ..base("/repo/raw-default")
+    });
     cases
 }
 

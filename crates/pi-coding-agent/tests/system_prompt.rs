@@ -102,7 +102,7 @@ fn custom_prompt_appends_context_rules_and_skills() {
 
     assert!(prompt.starts_with("Custom prompt.\n\nAppended.\n\n<project_context>"));
     assert!(prompt.contains("<name>visible-skill</name>"));
-    assert!(prompt.ends_with("Current working directory: /repo/project\n"));
+    assert!(prompt.ends_with("Current working directory: /repo/project"));
 }
 
 #[test]

@@ -23,7 +23,7 @@ function harnessTools(): string[] {
 function endTurnTool(ai: any): unknown {
 	return {
 		name: "end_turn",
-		label: undefined,
+		label: "end_turn",
 		description: "End the current model turn. Provide a concise reason explaining why the turn is finished.",
 		promptSnippet: "End the current model turn with a required reason",
 		promptGuidelines: [
@@ -40,7 +40,7 @@ function endTurnTool(ai: any): unknown {
 			},
 			required: ["reason"],
 		},
-		executionMode: undefined,
+		executionMode: "sequential",
 		approvalRequired: process.env.PI_HARNESS_APPROVAL === "1",
 		execute: async (_toolCallId: string, params: { reason: string }) => {
 			if (params.reason.trim() === "") throw new Error("end_turn reason must be a non-empty string");

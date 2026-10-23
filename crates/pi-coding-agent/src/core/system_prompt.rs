@@ -49,6 +49,17 @@ fn append_user_rules_section(prompt: &JsString, rules_content: Option<&JsString>
     js_format!("{}{}<user_rules>\n{}\n</user_rules>", prompt, separator, rules_content)
 }
 
+fn append_date_and_cwd(prompt: JsString, date: &str, cwd: &JsString) -> JsString {
+    js_format!("{}\nCurrent date: {}\nCurrent working directory: {}", prompt, date, cwd)
+}
+
+fn build_pyrun_agent_guidelines(tools: &[&str]) -> Vec<JsString> {
+    if !tools.contains(&"spawn_agent") || !tools.contains(&"pyrun_eval") {
+        return Vec::new();
+    }
+    vec!["Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(), pi.agents.current(), pi.agents.select(agent_id), pi.messages.last(), pi.messages.enqueue(...), and pi.messages.send(...) for the supported Pi runtime bridge; pi.agents.wait() waits for any active agent and returns no agent output.".into()]
+}
+
 fn append_context_files(prompt: &mut JsString, context_files: &[ContextFile]) {
     if context_files.is_empty() {
         return;
@@ -65,12 +76,21 @@ fn append_context_files(prompt: &mut JsString, context_files: &[ContextFile]) {
     prompt.push_str("</project_context>\n");
 }
 
-/// Builds the system prompt with tools, guidelines, and context.
+/// Builds the prompt using the current local date, like the frozen Date constructor.
 pub fn build_system_prompt(options: &BuildSystemPromptOptions) -> JsString {
+    build_system_prompt_with_clock(options, pi_js_compat::date::js_now_millis)
+}
+
+/// Rust-only clock injection for deterministic module/consumer proofs; production uses the wrapper above.
+pub fn build_system_prompt_with_clock(options: &BuildSystemPromptOptions, now: impl FnOnce() -> f64) -> JsString {
+    let millis = pi_js_compat::date::time_clip_millis(now()).expect("system clock must be a valid JavaScript date");
+    let fields = pi_js_compat::date::local_date_fields(millis).expect("local system date must be representable");
+    let date = format!("{}-{:02}-{:02}", fields.year, fields.month + 1, fields.day);
     let prompt_cwd = options.cwd.replace('\\', "/");
     let append_section = options
         .append_system_prompt
         .as_ref()
+        .filter(|text| !text.is_empty())
         .map_or_else(JsString::default, |text| js_format!("\n\n{}", text));
 
     let context_files = options.context_files.as_deref().unwrap_or(&[]);
@@ -90,12 +110,12 @@ pub fn build_system_prompt(options: &BuildSystemPromptOptions) -> JsString {
             prompt.push_str(&format_skills_for_prompt(skills));
         }
 
-        return JsString::from(prompt) + "\nCurrent working directory: " + &prompt_cwd + "\n";
+        return append_date_and_cwd(prompt, &date, &prompt_cwd);
     }
 
-    let readme_path = get_readme_path().to_string_lossy().into_owned();
-    let docs_path = get_docs_path().to_string_lossy().into_owned();
-    let examples_path = get_examples_path().to_string_lossy().into_owned();
+    let readme_path = pi_js_compat::node_fs::decode_node_path(get_readme_path().as_os_str());
+    let docs_path = pi_js_compat::node_fs::decode_node_path(get_docs_path().as_os_str());
+    let examples_path = pi_js_compat::node_fs::decode_node_path(get_examples_path().as_os_str());
 
     let tools: Vec<&str> = match &options.selected_tools {
         Some(tools) => tools.iter().map(String::as_str).collect(),
@@ -105,7 +125,9 @@ pub fn build_system_prompt(options: &BuildSystemPromptOptions) -> JsString {
     let visible_tools: Vec<&str> = tools
         .iter()
         .copied()
-        .filter(|name| tool_snippets.is_some_and(|snippets| snippets.contains_key(*name)))
+        .filter(|name| {
+            tool_snippets.is_some_and(|snippets| snippets.get(*name).is_some_and(|snippet| !snippet.is_empty()))
+        })
         .collect();
     let tools_list = if visible_tools.is_empty() {
         JsString::from("(none)")
@@ -166,7 +188,10 @@ pub fn build_system_prompt(options: &BuildSystemPromptOptions) -> JsString {
         add_guideline("Before making tool calls, identify all calls whose inputs are already known and independent. Emit those calls together in the same assistant response; do not serialize independent exploration calls. Only wait when a later call requires an earlier result.".into());
     }
 
-    for guideline in options.prompt_guidelines.as_deref().unwrap_or(&[]) {
+    for guideline in build_pyrun_agent_guidelines(&tools)
+        .iter()
+        .chain(options.prompt_guidelines.as_deref().unwrap_or(&[]))
+    {
         let normalized = guideline.trim();
         if !normalized.is_empty() {
             add_guideline(normalized);
@@ -200,7 +225,7 @@ Pi documentation (read only when the user asks about pi itself, its SDK, extensi
 - Additional docs: {}
 - Examples: {} (extensions, custom tools, SDK)
 - When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory
-- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md)
+- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md)
 - When working on pi topics, read the docs and examples, and follow .md cross-references before implementing
 - Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)", tools_list, guidelines, readme_path, docs_path, examples_path
     );
@@ -213,5 +238,5 @@ Pi documentation (read only when the user asks about pi itself, its SDK, extensi
         prompt.push_str(&format_skills_for_prompt(skills));
     }
 
-    JsString::from(prompt) + "\nCurrent working directory: " + &prompt_cwd
+    append_date_and_cwd(prompt, &date, &prompt_cwd)
 }
