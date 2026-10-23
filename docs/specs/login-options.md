@@ -9,7 +9,7 @@ Frozen authority: `interactive-mode.ts:6706–6751,6753–6809,7013–7022` at c
 - Logout options derive from truthy stored credentials, not effective/runtime/environment auth, and retain credential type and display-name order.
 - Frozen has no login argument completion provider or completion grouping/search/description API.
 
-`login_options.rs` extracts methods from interactive-mode; no frozen `login-options.ts` module exists. Typed native APIs exclude invalid JavaScript call argument types. Malformed persisted credential types require separate classification; no parity claim is made for that boundary.
+`login_options.rs` extracts methods from interactive-mode; no frozen `login-options.ts` module exists. Typed native APIs exclude invalid JavaScript call argument types. [Approved gap](../../AGENTS.md),2026-10-23: truthy persisted auth.json records with unknown/missing type fail explicitly in the logout list; their raw type is not widened into AuthSelectorProvider. Frozen passes the raw value through (undefined omits authType in JSON), proved separately from valid-record parity.
 
 Proof: actual frozen InteractiveMode methods via `interactive-login-oracle.mts`, native capture UI and live registry/storage fixtures in `tests/support/interactive_login.rs`. OAuth callback flow, authentication completion, catalog refresh and whole-mode acceptance are separate proof scopes.
 

@@ -75,3 +75,32 @@ async fn login_options_match_frozen_assembly_filtering_order_and_stored_credenti
         mode.stop();
     }).await;
 }
+
+#[test]
+fn logout_unknown_persisted_types_fail_explicitly_under_approved_gap() {
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let mut source = oracle::TsOracle::spawn("interactive-login-oracle.mts", "packages/coding-agent/src");
+    let id = "q15-unsupported";
+    for record in [
+        serde_json::json!({}),
+        serde_json::json!({"type":"unexpected"}),
+        serde_json::json!({"type":7}),
+        serde_json::json!({"type":null}),
+    ] {
+        let expected=source.request(&serde_json::json!({"operation":"options","providers":[],"modelProviders":[],"credentials":{(id):record},"names":{(id):id}}));
+        assert_eq!(expected["ok"], true, "{expected}");
+        let mut option = serde_json::json!({"id":id,"name":JsString::from(id).units()});
+        if let Some(kind) = record.get("type") {
+            option["authType"] = kind.clone();
+        }
+        assert_eq!(expected["output"]["logout"], serde_json::json!([option]));
+        let storage = crate::core::auth_storage::AuthStorage::in_memory([(id, record)]);
+        let registry = ModelRegistry::in_memory(storage);
+        assert_eq!(
+            get_logout_provider_options(&registry).unwrap_err(),
+            "Invalid credential type for provider q15-unsupported"
+        );
+    }
+}
