@@ -1308,33 +1308,13 @@ fn tree_selector_help_fits_narrow_width_without_ellipsis() {
     let mut selector = tree_selector(entries, "asst-1", None);
     let lines = selector.render(30);
     let rendered = plain(&lines);
-    for expected in ["branch", "copy", "filters", "cycle", "label time"] {
+    for expected in ["branch", "filters", "cycle", "label time"] {
         assert!(rendered.contains(expected), "missing {expected}: {rendered:?}");
     }
     assert!(!rendered.contains("..."), "{rendered:?}");
     for line in &lines {
         assert!(pi_tui::visible_width(line) <= 30, "{line:?}");
     }
-}
-
-#[test]
-fn tree_selector_copies_full_selected_message() {
-    use std::cell::RefCell;
-
-    theme();
-    let message = format!("{}\nsecond line", "long message ".repeat(30));
-    let entries = vec![
-        user_entry("user-1", None, "hello"),
-        assistant_entry("asst-1", Some("user-1"), &message),
-    ];
-    let mut selector = tree_selector(entries, "asst-1", None);
-    let copied: std::rc::Rc<RefCell<Option<JsString>>> = std::rc::Rc::new(RefCell::new(None));
-    let sink = copied.clone();
-    selector.set_on_copy(Some(std::rc::Rc::new(move |text| {
-        *sink.borrow_mut() = text;
-    })));
-    selector.handle_input(&JsString::from("\u{18}"));
-    assert_eq!(copied.borrow().as_ref(), Some(&JsString::from(&message)));
 }
 
 fn branching_tree() -> Vec<SessionEntry> {

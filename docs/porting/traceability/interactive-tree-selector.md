@@ -5,7 +5,7 @@ Rust: `crates/pi-coding-agent/src/modes/interactive/components/tree_selector.rs`
 
 Tests: `crates/pi-coding-agent/tests/interactive_components_c.rs` (tree_selector_*),
 differential `treeSelector` cases in `differential_interactive_components.rs` (9 trees/input
-sequences, exact ANSI lines, selected ids, copy payload).
+sequences, exact ANSI lines and selected ids).
 
 | Symbol / branch | Rust item | Proof |
 |---|---|---|
@@ -25,21 +25,23 @@ sequences, exact ANSI lines, selected ids, copy payload).
 | `recalculateCompactedUserStructure` | `recalculate_compacted_user_structure` | compaction view |
 | `getSearchableText` (all entry types) | `get_searchable_text` | search cases |
 | `getSelectedNode` / `getSearchQuery` | `get_selected_node` / `get_search_query` | differential |
-| `copySelected` | `copy_selected` | copy differential |
 | `updateNodeLabel` (timestamp default) | `update_node_label` | labels differential |
 | `getStatusLabels` | `get_status_labels` | `[user]`/`[all]` assertions |
 | `render` (cursor, gutters, fold marker, path marker, label/time, content) | `Component::render` | differential |
 | `getEntryDisplayText` (all entry types) | `get_entry_display_text` | differential + behavioral |
 | `formatLabelTimestamp` (local time) | `format_label_timestamp` (chrono Local) | labels differential |
 | `extractContent` 200-unit cap | `slice_utf16` | render tests |
-| `getEntryCopyText` | `get_entry_copy_text` | copy differential |
 | `formatToolCall` (read/write/edit/bash/grep/find/ls/default) | `format_tool_call` | differential tool result |
-| `handleInput` (up/down, fold/unfold, page, confirm, copy, cancel, filters, cycles, search, label edit/time) | `TreeList::handle_input` | differential input sequences + behavioral |
+| `handleInput` (up/down, fold/unfold, page, confirm, cancel, filters, cycles, search, label edit/time) | `TreeList::handle_input` | differential input sequences + behavioral |
 | `isFoldable` / `findBranchSegmentStart` | same-named methods | fold differential |
 | `SearchLine` | `SearchLine` | differential |
 | `TreeHelp` / `TREE_HELP_ITEMS` / `formatHelpKeys` / `compactRawKeys` | `TreeHelp`/`format_help_keys`/`compact_raw_keys` | narrow-width help test |
 | `LabelInput` | `LabelInput` | label edit path |
 | `TreeSelectorComponent` (layout, focus, deferred empty cancel) | `TreeSelectorComponent` | differential + poll test |
+
+## Q13 common-pin audit (in progress, 2026-10-22)
+
+Actual frozen tree-selector.ts contains no copy API, callback or help item. Removed old-only CopyHandler/on_copy/copy_selected/set_on_copy/get_entry_copy_text and interactive_mode copy_tree_selection integration. Deleted the old-only copy behavior test and nonexistent source-property injection; all remaining exact frame/selection assertions stay intact. Existing Ctrl+X scenario now proves the source's ignored control input. `interactive-components-current.log` established RED on the old copy help row; new `tree-selector-red.log` additionally reproduces Container, label focus/hide/show, numeric height, argument coercion, entry truthiness and large-token formatting differences. The whole module remains open.
 
 ## Gaps
 

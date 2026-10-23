@@ -28,8 +28,6 @@ use crate::core::session_manager::{
 };
 use crate::modes::interactive::theme::{ThemeBg, ThemeColor, with_theme};
 
-/// Called with the selected entry's copy text.
-pub type CopyHandler = Rc<dyn Fn(Option<JsString>)>;
 /// Called with `(entryId, label)` when a label is edited.
 pub type LabelEditHandler = Rc<dyn Fn(&JsString, Option<&JsString>)>;
 
@@ -383,7 +381,6 @@ pub struct TreeList {
     is_compacted_user_view: bool,
     pub on_select: Option<Rc<dyn Fn(JsString)>>,
     pub on_cancel: Option<Rc<dyn Fn()>>,
-    pub on_copy: Option<CopyHandler>,
     pub on_label_edit: Option<LabelEditHandler>,
 }
 
@@ -415,7 +412,6 @@ impl TreeList {
             is_compacted_user_view: false,
             on_select: None,
             on_cancel: None,
-            on_copy: None,
             on_label_edit: None,
         };
         list.flat_nodes = list.flatten_tree(&tree);
@@ -1034,14 +1030,6 @@ impl TreeList {
             .map(|index| &self.flat_nodes[*index].node)
     }
 
-    pub fn copy_selected(&self) {
-        let node = self.get_selected_node();
-        let text = node.and_then(|node| self.get_entry_copy_text(node));
-        if let Some(on_copy) = &self.on_copy {
-            on_copy(text);
-        }
-    }
-
     pub fn update_node_label(
         &mut self,
         entry_id: &JsString,
@@ -1068,33 +1056,6 @@ impl TreeList {
             labels.push_str(" [+label time]");
         }
         labels
-    }
-
-    fn get_entry_copy_text(&self, node: &SessionTreeNode) -> Option<JsString> {
-        let entry = &node.entry;
-        let text = match entry.known().as_deref() {
-            Some(KnownSessionEntry::Message(message)) => {
-                let message = message.message.as_ref();
-                if message.role() == "bashExecution" {
-                    match message {
-                        AgentMessage::Custom(object) => object.get("command").and_then(JsValue::as_string).cloned(),
-                        _ => None,
-                    }
-                } else {
-                    let text = extract_message_full_content(message);
-                    if text.is_empty() {
-                        assistant_message(entry).and_then(|message| message.error_message.clone().map(JsString::from))
-                    } else {
-                        Some(text)
-                    }
-                }
-            }
-            Some(KnownSessionEntry::CustomMessage(entry)) => Some(extract_custom_message_content(&entry.content)),
-            Some(KnownSessionEntry::Compaction(entry)) => Some(entry.summary.clone()),
-            Some(KnownSessionEntry::BranchSummary(entry)) => Some(entry.summary.clone()),
-            _ => None,
-        };
-        text.filter(|text| !text.trim().is_empty())
     }
 
     fn get_entry_display_text(&self, node: &SessionTreeNode, is_selected: bool) -> JsString {
@@ -1347,8 +1308,6 @@ impl TreeList {
             {
                 on_select(entry_id);
             }
-        } else if keybindings.matches(key_data, "app.message.copy") {
-            self.copy_selected();
         } else if keybindings.matches(key_data, "tui.select.cancel") {
             if !self.search_query.is_empty() {
                 self.search_query = JsString::default();
@@ -1657,7 +1616,6 @@ const TREE_HELP_ITEMS: [(&[&str], &str, bool); 8] = [
     (&["tui.select.up", "tui.select.down"], "move", false),
     (&["tui.editor.cursorLeft", "tui.editor.cursorRight"], "page", false),
     (&["app.tree.foldOrUp", "app.tree.unfoldOrDown"], "branch", false),
-    (&["app.message.copy"], "copy", false),
     (&["app.tree.editLabel"], "label", false),
     (&["app.tree.toggleLabelTimestamp"], "label time", false),
     (
@@ -1899,7 +1857,6 @@ pub struct TreeSelectorComponent {
     label_input_container: ComponentRef,
     tree_container: ComponentRef,
     on_label_change: Option<LabelEditHandler>,
-    pub on_copy: Option<CopyHandler>,
     focused: bool,
     container: Container,
     empty_cancel_at: Option<Instant>,
@@ -1935,7 +1892,6 @@ impl TreeSelectorComponent {
             label_input_container: component(Container::new()),
             tree_container: component(Container::new()),
             on_label_change,
-            on_copy: None,
             focused: false,
             container: Container::new(),
             empty_cancel_at: None,
@@ -2054,16 +2010,6 @@ impl TreeSelectorComponent {
 
     pub fn tree_list(&self) -> &Rc<RefCell<TreeList>> {
         &self.tree_list
-    }
-
-    pub fn set_on_copy(&mut self, on_copy: Option<CopyHandler>) {
-        self.on_copy = on_copy.clone();
-        let tree_list = Rc::clone(&self.tree_list);
-        self.tree_list.borrow_mut().on_copy = on_copy.map(|on_copy| {
-            let tree_list = Rc::clone(&tree_list);
-            let _ = tree_list;
-            Rc::new(move |text: Option<JsString>| on_copy(text)) as CopyHandler
-        });
     }
 
     /// Fire the deferred empty-tree cancel once the 100ms delay elapsed.
