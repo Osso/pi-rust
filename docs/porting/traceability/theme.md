@@ -6,7 +6,7 @@
 
 `raw_theme_native.rs` tests native file metadata/registry/get-set, raw variable resolution/errors, and frozen source differential 24 file scenarios: high/low/pair × valid, slash-name error, raw variable validation error, missing reference, partial/invalid surrogate hex channels, circular reference and missing file. Paths themselves contain raw units and map to Node UTF8 only at file IO. Actual theme/controller/chalk/watch modules compile in the isolated harness; settings/source-info/highlighter/config fixtures bound proof to explicit theme files. No watcher/controller integration or full theme acceptance is claimed. `/tmp/q18-theme-native-source-green3.log` records GREEN. Parent owns SettingsManager native migration and whole-coding gate.
 
-Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1337 lines). Rust: `crates/pi-coding-agent/src/modes/interactive/theme/mod.rs`. JSON asset identity, actual inclusion paths and unresolved schema distribution are mapped separately in [theme assets](theme-assets.md).
+Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1290 lines). Rust: `crates/pi-coding-agent/src/modes/interactive/theme/mod.rs`. JSON asset identity, actual inclusion paths and unresolved schema distribution are mapped separately in [theme assets](theme-assets.md).
 
 ## Exported symbols
 
@@ -79,7 +79,7 @@ Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1337 lines
 - `current_theme()` routes an uninitialized theme through the process-level uncaught handler with the TypeScript message (`Theme not initialized. Call initTheme() first.`); `try_current_theme()` exposes the error. `ThemeColor`/`ThemeBg` are enums, so `Unknown theme color` is unreachable (typed-API exclusion).
 - Built-in themes are read without schema validation, exactly like `JSON.parse` in `getBuiltinThemes`.
 - `getLanguageFromPath` keeps TypeScript's extension map semantics, including `Makefile` → `makefile` and `Dockerfile` → `dockerfile` (no-dot names are treated as extensions).
-- `highlightCode`'s `try/catch` fallback is not reproduced: the Rust `syntax_highlight` port returns a `String` and cannot throw. The markdown-theme variant's styled fallback is likewise unreachable.
+- Both highlighter catch boundaries include theme-formatter throws: direct highlight returns raw code; Markdown adapter returns mdCodeBlock-styled code. `syntax_formatter` resolves the live global theme lazily, matching the source proxy callbacks; sparse valid constructor palettes exercise actual error branches.
 
 ## Common-pin token reconciliation (2026-10-22)
 
@@ -93,8 +93,17 @@ Extended existing differential snapshots with complete styled borders for xhigh/
 
 ## Gaps / exclusions
 
-- Theme file watcher behavior is implemented but not covered by a test (timing/filesystem events); `notify` is already a crate dependency.
-- `getThinkingBorderColor`'s `default` arm is unreachable (typed enum); `max`/`ultra` map to `thinkingMax`.
+- Watcher lifecycle now has real-file source/native differential proof above; no watcher gap remains.
+- `getThinkingBorderColor`'s `default` arm is unreachable (typed enum); `max`/`ultra` map to frozen `thinkingXhigh`.
+- External detector RGB range is under audit: frozen OSC parser can yield NaN for an overflowing hex channel. This is not an approved exclusion.
+
+## Constructor and callback boundary reconciliation
+
+`differential_theme_api` compares both color modes using actual source class instances:15 direct color vectors (fractional/negative/large/NaN/Infinity/-0, signed/partial hex, empty and errors), raw UTF-16 fg/bg text, ANSI getters, partial registration before a slash-name throw, last duplicate value and locale-equal insertion order, callback TypeError with lone surrogate and caught dark fallback, sparse-palette raw-vs-Markdown highlighter error returns. ColorValue is f64; signed hex channels never pass through u8. Source schema still validates loaded indices as integer0..255.
+
+`setRegisteredThemes` clears first, inserts incrementally, skips absent/empty names and keeps insertion slots on replacement (IndexMap). No transactional rollback is invented. `setTheme` catches callback throws and uses the error message, not its string prefix. Source accepts signed/partial parseInt channel forms (e.g. #-1ff00); preserved as a DISCREPANCY, not repaired.
+
+Theme RGB-to-256 gray rounding now uses shared `pi_js_compat::number::math_round`; `pi-js-compat/tests/math_round.rs` compares14 Node binary64 tie/negative-zero/nonfinite fixtures. Logs: `theme-api-red.log` missing f64 domain; `theme-api-behavior-red.log` actual source failures; `theme-api-green.log` complete GREEN; `math-round-{red,green}.log` shared helper proof. Artifact root remains `/tmp/pi-rust-repin-lossless-interactive`.
 
 ## Native ThemeError values
 

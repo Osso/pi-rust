@@ -9,6 +9,10 @@ Frozen `modes/interactive/theme/theme.ts` defines theme loading, styling, global
 - [x] Keep the last valid theme after invalid/missing files; observe atomic replacements and later recreation.
 - [x] Cache a reload under the watched setting name even when the file's internal name differs.
 - [x] Stopping or switching a watcher cancels its pending timer; sibling edits never reload it.
+- [x] Direct constructor numeric indices preserve f64 and JS formatting; signed/partial parseInt hex channels retain source values.
+- [x] Registration clears first and retains successful earlier inserts on a later name error; duplicates preserve insertion slots.
+- [x] setTheme catches callback errors, activates dark, and returns the original UTF-16 message.
+- [x] Highlighter formatter throws return raw lines in highlightCode and styled lines in the Markdown adapter.
 
 ## How it works
 
@@ -22,10 +26,12 @@ Frozen `modes/interactive/theme/theme.ts` defines theme loading, styling, global
 ## Tests asserting this spec
 
 - `crates/pi-coding-agent/tests/differential_theme_lifecycle.rs` — real-file events against frozen source, ten complete snapshots.
+- `crates/pi-coding-agent/tests/differential_theme_api.rs` — constructor, registration and catch boundaries against frozen source.
+- `crates/pi-js-compat/tests/math_round.rs` — exact JS gray-rounding authority.
 
 ## Known gaps (current cycle)
 
-- [ ] Remaining whole-module audit: constructor numeric inputs, registration failure ordering, adapter/error branches and existing source proofs.
+- [ ] Remaining whole-module audit: external RGB overflow domain and existing source proofs.
 
 ## Out of scope
 

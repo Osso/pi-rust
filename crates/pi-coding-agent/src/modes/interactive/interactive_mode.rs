@@ -11787,7 +11787,7 @@ mod ui_tests {
             let mut oracle = oracle::TsOracle::spawn("session-info-oracle.ts", "packages/coding-agent/src");
             for persisted in [false, true] {
                 let (mode, _terminal, _faux, _temp) = if persisted { build_mode_with_persisted_session().await } else { build_mode().await };
-                let colors: Vec<_> = crate::modes::interactive::theme::REQUIRED_COLORS.iter().map(|name| ((*name).into(),crate::modes::interactive::theme::ColorValue::Index(0))).collect();
+                let colors: Vec<_> = crate::modes::interactive::theme::REQUIRED_COLORS.iter().map(|name| ((*name).into(),crate::modes::interactive::theme::ColorValue::Index(0.0))).collect();
                 crate::modes::interactive::theme::set_theme_instance(Arc::new(Theme::new(&colors,&colors,crate::modes::interactive::theme::ColorMode::Color256,None,None).unwrap()));
                 for populated in [false,true] {
                     if populated {
