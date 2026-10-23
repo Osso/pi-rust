@@ -19,12 +19,12 @@ use std::sync::OnceLock;
 
 use serde_json::Value;
 
-use crate::core::tools::node_fs::node_read_error;
 use crate::utils::child_process::node_spawn_error_message;
 use crate::utils::paths::{PathInputOptions, node_dirname, node_join, node_resolve, normalize_path, process_cwd};
 use crate::utils::uncaught::{ERROR, throw_uncaught};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{self, JsString, encode_node_utf8};
+use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
 use pi_js_compat::string::is_js_whitespace_unit;
 
 const DEFAULT_PACKAGE_NAME: &str = "@earendil-works/pi-coding-agent";
@@ -38,10 +38,11 @@ const EMBEDDED_DARK_THEME: &str = include_str!("../theme/dark.json");
 const EMBEDDED_LIGHT_THEME: &str = include_str!("../theme/light.json");
 
 /// Failure while reading the package configuration.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ConfigError {
     label: &'static str,
     message: JsString,
+    native: Option<Box<NativeNodeError>>,
 }
 
 impl ConfigError {
@@ -49,18 +50,23 @@ impl ConfigError {
         &self.message
     }
 
+    pub fn native_error(&self) -> Option<&NativeNodeError> {
+        self.native.as_deref()
+    }
+
     fn new(message: impl Into<JsString>) -> Self {
         Self {
             label: ERROR,
             message: message.into(),
+            native: None,
         }
     }
 
     fn syntax(message: impl Into<JsString>) -> Self {
-        Self {
-            label: "SyntaxError",
-            message: message.into(),
-        }
+        Self::from(NativeNodeError::from_constructor(
+            NativeErrorClass::SyntaxError,
+            message,
+        ))
     }
 
     /// Node error name used by the process-level uncaught handler.
@@ -75,7 +81,28 @@ impl std::fmt::Display for ConfigError {
     }
 }
 
-impl std::error::Error for ConfigError {}
+impl std::error::Error for ConfigError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.native_error().map(|error| error as &dyn std::error::Error)
+    }
+}
+impl From<NativeNodeError> for ConfigError {
+    fn from(error: NativeNodeError) -> Self {
+        Self {
+            label: error.constructor_class().name(),
+            message: error.message.clone(),
+            native: Some(Box::new(error)),
+        }
+    }
+}
+impl From<crate::utils::paths::PathError> for ConfigError {
+    fn from(error: crate::utils::paths::PathError) -> Self {
+        match error.native_error() {
+            Some(native) => Self::from(native.clone()),
+            None => Self::new(error.message().clone()),
+        }
+    }
+}
 
 /// Package identity derived from `package.json` (`piConfig` overrides the app name and config dir).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,9 +124,12 @@ impl PackageConfig {
                 return Ok(Self::defaults());
             }
             Err(error) => {
-                return Err(ConfigError::new(node_read_error(
-                    &error,
-                    &JsString::from(path.display().to_string()),
+                return Err(ConfigError::from(NativeNodeError::from(
+                    pi_js_compat::node_fs::node_read_error_record(
+                        &error,
+                        &pi_js_compat::node_fs::decode_node_path(path.as_os_str()),
+                        pi_js_compat::node_fs::NodeReadApi::ReadFileSync,
+                    ),
                 )));
             }
         };

@@ -81,7 +81,8 @@ fn capability_dependent_output_matches_the_source() {
             &JsString::from(styled),
             &JsString::from("file.txt"),
             &JsString::from("/tmp")
-        ),
+        )
+        .unwrap(),
         styled
     );
 
@@ -100,7 +101,8 @@ fn capability_dependent_output_matches_the_source() {
             &JsString::from(styled),
             &JsString::from("/tmp/file.txt"),
             &JsString::from("/tmp")
-        ),
+        )
+        .unwrap(),
         format!("\u{1b}]8;;file:///tmp/file.txt\u{1b}\\{styled}\u{1b}]8;;\u{1b}\\")
     );
 }
