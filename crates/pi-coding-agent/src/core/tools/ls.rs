@@ -166,15 +166,11 @@ impl AgentTool for LsTool {
         let cwd = self.cwd.clone();
         let operations = Arc::clone(&self.operations);
         let can_use_rtk = self.can_use_rtk;
-        Box::pin(async move {
-            let result = crate::utils::abort::race_with_abort_signal(
-                execute_ls(&cwd, operations, can_use_rtk, params, signal.clone()),
-                signal.as_ref(),
-            )
-            .await;
-            check_aborted(signal.as_ref())?;
-            result.map_err(|_| ToolError::new("Operation aborted"))?
-        })
+        let producer_signal = signal.clone();
+        Box::pin(super::abortable::observe_tool_producer(
+            async move { execute_ls(&cwd, operations, can_use_rtk, params, producer_signal).await },
+            signal,
+        ))
     }
 }
 
@@ -187,13 +183,12 @@ async fn execute_ls(
     params: JsValue,
     signal: Option<AbortSignal>,
 ) -> Result<AgentToolResult, ToolError> {
-    check_aborted(signal.as_ref())?;
     let path = params.get("path").and_then(Value::as_string);
     let limit = params.get("limit").and_then(Value::as_f64);
     if can_use_rtk && let Some(result) = execute_rtk_ls(cwd, path, limit, signal.as_ref()).await? {
         return Ok(result);
     }
-    list_with_operations(operations.as_ref(), cwd, path, limit, signal.as_ref()).await
+    list_with_operations(operations.as_ref(), cwd, path, limit).await
 }
 
 async fn list_with_operations(
@@ -201,7 +196,6 @@ async fn list_with_operations(
     cwd: &JsString,
     path: Option<&JsString>,
     limit: Option<f64>,
-    signal: Option<&AbortSignal>,
 ) -> Result<AgentToolResult, ToolError> {
     let dir_path = resolve_to_cwd(path.cloned().unwrap_or_else(|| ".".into()), cwd)
         .map_err(|error| ToolError::new(error.message().clone()))?;
@@ -224,8 +218,6 @@ async fn list_with_operations(
         ToolError::new(JsString::from("Cannot read directory: ") + super::node_fs::operation_error_message(&error))
     })?;
     entries.sort_by(|left, right| locale_compare_utf16(left.to_lowercase().units(), right.to_lowercase().units()));
-    check_aborted(signal)?;
-
     let mut results = Vec::new();
     let mut entry_limit_reached = false;
     for entry in &entries {
@@ -463,13 +455,6 @@ fn format_rtk_ls_output(stdout: &str, limit: Option<f64>) -> AgentToolResult {
         truncation.content.clone() + notice_text,
         (!details.is_empty()).then_some(Value::Object(details)),
     )
-}
-
-fn check_aborted(signal: Option<&AbortSignal>) -> Result<(), ToolError> {
-    if signal.is_some_and(AbortSignal::aborted) {
-        return Err(ToolError::new("Operation aborted"));
-    }
-    Ok(())
 }
 
 // ============================================================================
