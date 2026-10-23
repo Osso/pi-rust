@@ -6,8 +6,9 @@ use serde_json::json;
 
 fn model(id: &str, provider: &str, name: &str) -> Model {
     Model {
+        properties: Default::default(),
         id: id.to_owned(),
-        name: name.to_owned(),
+        name: name.into(),
         api: "openai-completions".to_owned(),
         provider: provider.to_owned(),
         base_url: ("https://example.invalid".to_owned()).into(),

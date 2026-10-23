@@ -159,8 +159,9 @@ mod tests {
 
     fn model() -> Model {
         Model {
+            properties: Default::default(),
             id: "test".to_owned(),
-            name: "test".to_owned(),
+            name: "test".into(),
             api: "openai-completions".to_owned(),
             provider: "openai".to_owned(),
             base_url: ("https://example.com".to_owned()).into(),

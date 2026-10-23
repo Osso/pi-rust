@@ -53,7 +53,11 @@ async function main(): Promise<void> {
 					negativeZero: Object.is(model.cost.input, -0),
 				}))
 				: undefined;
-			return { result, calls, memoized: api.getOpenRouterCatalogModels(), numericStates };
+			const models = (result as { models?: Array<{ id: string }> }).models;
+			const modelWire = typeof request.inspectId === "string"
+				? JSON.stringify(models?.find((model) => model.id === request.inspectId))
+				: undefined;
+			return { result, calls, memoized: api.getOpenRouterCatalogModels(), numericStates, modelWire };
 		} catch (error) {
 			if (!request.inspectError) throw error;
 			return { error: snapshotError(error), calls };

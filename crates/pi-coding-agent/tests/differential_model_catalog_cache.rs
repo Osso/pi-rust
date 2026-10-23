@@ -434,3 +434,70 @@ async fn direct_fetch_keeps_nonfinite_cost_and_signed_zero_until_json_serializat
         json!([{"url":"https://openrouter.ai/api/v1/models","signal":false}])
     );
 }
+
+#[tokio::test]
+async fn typed_cached_model_keeps_interleaved_unknown_keys_in_frozen_json_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pi/models/openrouter.json");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let model = r#"{"extraBefore":{"native":"\ud800"},"maxTokens":2000.5,"id":"q15-ordered-model","middleExtra":3,"name":"Display","cost":{"input":1,"output":2,"cacheRead":3,"cacheWrite":4},"provider":"openrouter","input":["text"],"api":"openai-completions","reasoning":true,"baseUrl":"https://openrouter.ai/api/v1","contextWindow":8000,"extraAfter":[true,null]}"#;
+    std::fs::write(
+        &path,
+        format!(r#"{{"fetchedAt":"2025-12-18T00:00:00.000Z","models":[{model}]}}"#),
+    )
+    .unwrap();
+    let mut oracle = oracle::TsOracle::spawn_with_environment(
+        "model-catalog-cache-oracle.ts",
+        "packages/coding-agent/src/core/model-catalog-cache.ts",
+        &[("XDG_CACHE_HOME", dir.path().as_os_str().to_owned())],
+    );
+    let expected = oracle.request(&JsValue::from(
+        json!({"operation":"startup","now":1766000000000.0,"inspectId":"q15-ordered-model"}),
+    ));
+    let native: pi_ai::types::Model = serde_json::from_str(model).unwrap();
+    let expected_wire = expected
+        .get("output")
+        .unwrap()
+        .get("modelWire")
+        .unwrap()
+        .as_string()
+        .unwrap()
+        .to_utf8()
+        .unwrap();
+    assert_eq!(serde_json::to_string(&native).unwrap(), expected_wire);
+}
+
+#[tokio::test]
+async fn typed_cached_model_keeps_native_human_name_and_rejects_opaque_unpaired_id() {
+    let mut model = cached_model();
+    model["name"] = json!("raw-name-marker");
+    let wire = serde_json::to_string(&model)
+        .unwrap()
+        .replace("raw-name-marker", "\\ud800");
+    let native: pi_ai::types::Model = serde_json::from_str(&wire).expect("model name is native human text");
+    let serialized = pi_js_compat::js_json::parse_lossless(serde_json::to_string(&native).unwrap()).unwrap();
+    assert_eq!(serialized.get("name").unwrap().as_string().unwrap().units(), &[0xd800]);
+    let opaque = serde_json::to_string(&cached_model())
+        .unwrap()
+        .replace("q15-cache-probe", "\\ud800");
+    let error = serde_json::from_str::<pi_ai::types::Model>(&opaque).unwrap_err();
+    assert!(error.to_string().contains("surrogate"), "{error}");
+}
+
+#[test]
+fn typed_cached_optional_null_is_an_explicit_failure_not_silent_drop() {
+    for field in [
+        "headers",
+        "compat",
+        "samplingParams",
+        "thinkingLevelMap",
+        "autoCompactionThreshold",
+    ] {
+        let mut model = cached_model();
+        model[field] = Value::Null;
+        assert!(
+            serde_json::from_value::<pi_ai::types::Model>(model).is_err(),
+            "null {field} must fail explicitly"
+        );
+    }
+}

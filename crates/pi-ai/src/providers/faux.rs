@@ -228,8 +228,9 @@ pub fn create_faux_core(options: RegisterFauxProviderOptions) -> FauxCore {
     let models = definitions
         .into_iter()
         .map(|definition| Model {
+            properties: Default::default(),
             id: definition.id.clone(),
-            name: definition.name.unwrap_or_else(|| definition.id.clone()),
+            name: definition.name.unwrap_or_else(|| definition.id.clone()).into(),
             api: api.clone(),
             provider: provider.clone(),
             base_url: DEFAULT_BASE_URL.into(),

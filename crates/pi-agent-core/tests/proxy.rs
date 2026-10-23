@@ -60,8 +60,9 @@ impl Fetch for ScriptedFetch {
 
 fn model() -> Model {
     Model {
+        properties: Default::default(),
         id: "gpt-5.4".to_owned(),
-        name: "GPT-5.4".to_owned(),
+        name: "GPT-5.4".into(),
         api: "openai-responses".to_owned(),
         provider: "openai".to_owned(),
         base_url: JsString::from("https://api.openai.com/v1"),

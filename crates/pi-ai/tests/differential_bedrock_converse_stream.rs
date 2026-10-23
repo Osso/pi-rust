@@ -224,8 +224,9 @@ fn default_env() -> ProviderEnv {
 
 fn model() -> Model {
     Model {
+        properties: Default::default(),
         id: "us.anthropic.claude-opus-4-8".to_owned(),
-        name: "Claude Opus 4.8".to_owned(),
+        name: "Claude Opus 4.8".into(),
         api: "bedrock-converse-stream".to_owned(),
         provider: "amazon-bedrock".to_owned(),
         base_url: ("https://bedrock-runtime.us-east-1.amazonaws.com".to_owned()).into(),

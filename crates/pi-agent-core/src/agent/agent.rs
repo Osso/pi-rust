@@ -1067,8 +1067,9 @@ fn default_convert_to_llm(messages: Vec<AgentMessage>) -> BoxFuture<'static, Res
 
 fn default_model() -> Model {
     Model {
+        properties: Default::default(),
         id: "unknown".to_owned(),
-        name: "unknown".to_owned(),
+        name: "unknown".into(),
         api: "unknown".to_owned(),
         provider: "unknown".to_owned(),
         base_url: JsString::default(),

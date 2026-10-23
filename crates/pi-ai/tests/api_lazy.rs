@@ -16,8 +16,9 @@ use pi_ai::utils::event_stream::{
 
 fn model() -> Model {
     Model {
+        properties: Default::default(),
         id: "m1".to_owned(),
-        name: "m1".to_owned(),
+        name: "m1".into(),
         api: "test-api".to_owned(),
         provider: "p1".to_owned(),
         base_url: ("https://example.test/v1".to_owned()).into(),

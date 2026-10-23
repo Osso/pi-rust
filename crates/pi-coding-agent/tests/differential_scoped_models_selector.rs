@@ -55,6 +55,7 @@ fn initialize(request: &Value) {
 }
 fn model(value: &Value) -> Model {
     Model {
+        properties: Default::default(),
         id: value["id"].as_str().unwrap().into(),
         name: value["name"].as_str().unwrap().into(),
         provider: value["provider"].as_str().unwrap().into(),

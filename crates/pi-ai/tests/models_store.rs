@@ -6,8 +6,9 @@ use tokio_util::sync::CancellationToken;
 
 fn model(provider: &str, id: &str) -> Model {
     Model {
+        properties: Default::default(),
         id: id.to_owned(),
-        name: id.to_owned(),
+        name: id.into(),
         api: "test-api".to_owned(),
         provider: provider.to_owned(),
         base_url: ("https://example.test/v1".to_owned()).into(),
