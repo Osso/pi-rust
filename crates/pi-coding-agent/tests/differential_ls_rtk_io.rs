@@ -18,6 +18,9 @@ fn ordinary_cases() -> Vec<JsValue> {
         json!({"stdout":"\u{85}","stderr":"","code":3}),
         json!({"stdout":" ignored \n","stderr":" diagnostic \n","code":3}),
         json!({"stdout":" out \n","stderr":"\n","code":3}),
+        json!({"stdout":"","stderr":"","code":0,"path":"bad\0argument"}),
+        json!({"stdout":"","stderr":"","code":0,"cwd":"bad\0cwd"}),
+        json!({"stdout":"","stderr":"","code":0,"path":"bad\0argument","cwd":"bad\0cwd"}),
     ]
 }
 fn fake_rtk(root: &std::path::Path) -> String {
@@ -38,14 +41,11 @@ fn fake_rtk(root: &std::path::Path) -> String {
 }
 async fn execute_case(tool: &LsTool, case: &JsValue) -> JsValue {
     pi_js_compat::process_env::set("PI_FAKE_RTK_IO_CASE", &js_json::stringify_lossless(case));
+    let override_tool = case.get("cwd").and_then(JsValue::as_string).map(LsTool::new);
+    let tool = override_tool.as_ref().unwrap_or(tool);
+    let path = case.get("path").cloned().unwrap_or_else(|| json!("list"));
     match tool
-        .execute(
-            "rtk-io".into(),
-            json!({"path":"list"}),
-            None,
-            Arc::new(|_| Ok(())),
-            None,
-        )
+        .execute("rtk-io".into(), json!({"path":path}), None, Arc::new(|_| Ok(())), None)
         .await
     {
         Ok(value) => json!({"ok":true,"value":js_json::to_value(&value).unwrap()}),

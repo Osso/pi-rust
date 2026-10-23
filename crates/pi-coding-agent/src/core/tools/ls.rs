@@ -349,7 +349,26 @@ async fn run_rtk_ls(cwd: &JsString, path: &JsString, signal: Option<&AbortSignal
     })
 }
 
+fn validate_rtk_ls_arguments(cwd: &JsString, path: &JsString) -> Result<(), RtkError> {
+    use pi_js_compat::node_child_process::{validate_spawn_arguments, validate_string_argument};
+
+    validate_spawn_arguments(&"rtk".into(), &["ls".into(), path.clone()])
+        .and_then(|()| {
+            validate_string_argument(
+                "options.cwd",
+                "must be a string, Uint8Array, or URL without null bytes",
+                cwd,
+            )
+        })
+        .map_err(|error| RtkError::Failed {
+            message: error.message.clone(),
+            stdout: String::new(),
+            stderr: String::new(),
+        })
+}
+
 fn spawn_rtk_ls(cwd: &JsString, path: &JsString) -> Result<tokio::process::Child, RtkError> {
+    validate_rtk_ls_arguments(cwd, path)?;
     let mut command = tokio::process::Command::new("rtk");
     command
         .arg("ls")
