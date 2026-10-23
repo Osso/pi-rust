@@ -13851,7 +13851,7 @@ mod ui_tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn login_selector_opens_the_ambient_auth_dialog() {
+    async fn login_selector_opens_frozen_bedrock_setup_dialog() {
         let local = tokio::task::LocalSet::new();
         local
             .run_until(async {
@@ -13877,15 +13877,15 @@ mod ui_tests {
                 })
                 .await;
 
-                terminal.borrow_mut().send_input("faux");
+                terminal.borrow_mut().send_input("amazon-bedrock");
                 mode.ui.process_events();
                 terminal.borrow_mut().send_input("\r");
                 mode.ui.process_events();
                 let output = pump(&mode, &mut events, &terminal, |output| {
-                    output.contains("is configured outside pi.")
+                    output.contains("Amazon Bedrock uses AWS credentials instead of a single API key.")
                 })
                 .await;
-                assert!(output.contains("Faux is configured outside pi."));
+                assert!(output.contains("Amazon Bedrock uses AWS credentials instead of a single API key."));
             })
             .await;
     }
