@@ -2782,7 +2782,7 @@ impl ExtensionHandlers {
         self.len() == 0
     }
 
-    fn event_lists_empty(&self) -> [bool; 36] {
+    fn event_lists_empty(&self) -> [bool; 35] {
         [
             self.project_trust.is_empty(),
             self.resources_discover.is_empty(),
