@@ -47,3 +47,44 @@ async fn filters_discovered_skills_and_appends_virtual_skill() {
     );
     assert!(fixture.requests.lock().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn warning_diagnostics_use_literal_node_object_inspection() {
+    let fixture = support::fixture().await;
+    for (name, content) in [
+        (
+            "browser-local",
+            "---\nname: browser-local\ndescription: fixture\n---\nInstructions\n",
+        ),
+        (
+            "missing-description",
+            "---\nname: missing-description\n---\nInstructions\n",
+        ),
+    ] {
+        let path = fixture.home.path().join("agent/skills").join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        std::fs::write(path.join("SKILL.md"), content).unwrap();
+    }
+    let mut state_source = oracle::TsOracle::spawn(
+        "sdk-resources-state-oracle.ts",
+        "packages/coding-agent/examples/sdk/04-skills.ts",
+    );
+    let state = state_source.request(&json!({"cwd":fixture.options.cwd,"agentDir":fixture.options.agent_dir}));
+    assert!(
+        !state["diagnostics"].as_array().unwrap().is_empty(),
+        "fixture must exercise warning rendering"
+    );
+    let mut source = oracle::TsOracle::spawn(
+        "sdk-examples-oracle.ts",
+        "packages/coding-agent/examples/sdk/04-skills.ts",
+    );
+    let expected = source.request(&json!({"skills":{"skills":state["skills"],"diagnostics":state["diagnostics"]}}));
+    let output = support::Output::default();
+    let session = example::run(fixture.options, output.clone()).await.unwrap();
+    assert_eq!(
+        serde_json::to_value(&session.resource_loader().get_skills().diagnostics).unwrap(),
+        state["diagnostics"]
+    );
+    assert_eq!(output.text(), expected["stdout"]);
+    assert!(fixture.requests.lock().unwrap().is_empty());
+}

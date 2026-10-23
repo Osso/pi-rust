@@ -4,9 +4,9 @@ SDK examples use the shared Node IO/argument inspection authority in `pi-js-comp
 
 ## What it must do
 
-- [ ] Preserve Node's non-colored inspection of SDK string arrays and diagnostic objects: quoting, spacing, compact rows, multiline indentation, depth and truncation.
-- [ ] Preserve UTF-16 string units until inspection escapes or the final UTF-8 output boundary.
-- [ ] Keep existing filesystem/spawn error inspection on the same formatting authority.
+- [x] Preserve Node's non-colored inspection of SDK string arrays and diagnostic objects: quoting, spacing, compact rows, multiline indentation, depth and truncation.
+- [x] Preserve UTF-16 string units until inspection escapes or the final UTF-8 output boundary.
+- [x] Keep existing filesystem/spawn error inspection on the same formatting authority.
 
 ## How it works
 
@@ -26,7 +26,7 @@ SDK examples use the shared Node IO/argument inspection authority in `pi-js-comp
 
 ## Known gaps (current cycle)
 
-- [ ] Current default-inspection matrix and SDK complete-output proofs pending.
+- [x] Fourteen default-inspection cases plus13 IO regression cases pass at3129cc56; SDK02 full-output/error cases pass. SDK04 warning-object integration remains pending.
 - [ ] TTY automatic-color behavior is not established by non-TTY fixture output.
 
 ## Out of scope

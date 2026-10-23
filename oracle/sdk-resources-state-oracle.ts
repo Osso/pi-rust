@@ -51,6 +51,7 @@ async function run(request: any) {
 			observed = {
 				systemPrompt: session.systemPrompt,
 				skills: session.resourceLoader.getSkills().skills,
+                diagnostics: session.resourceLoader.getSkills().diagnostics,
 				agents: session.resourceLoader.getAgentsFiles().agentsFiles,
 				prompts: session.promptTemplates,
 			};
