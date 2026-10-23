@@ -1,3 +1,5 @@
+#[path = "support/operation.rs"]
+mod operation;
 use pi_agent_core::harness::types::{NodeRejection, OperationFailure};
 #[path = "../../pi-ai/tests/support/oracle.rs"]
 mod oracle;
@@ -748,8 +750,7 @@ async fn deleted_process_cwd_rejects_without_returned_file_error_or_panic() {
 }
 
 fn rejection_value(rejection: NodeRejection) -> JsValue {
-    let error = rejection.error;
-    json!({"name":error.name,"code":error.code,"errno":error.errno,"syscall":error.syscall,"message":error.message})
+    rejection.error.value()
 }
 
 #[tokio::test]
@@ -928,4 +929,78 @@ async fn raw_os_filename_and_realpath_bytes_match_node_repair_boundary() {
         pi_js_compat::js_json::stringify_lossless(&expected)
     );
     assert_eq!(std::fs::read(root.path().join(&name)).unwrap(), b"raw bytes");
+}
+
+fn native_error_shape(error: &(dyn std::error::Error + 'static)) -> JsValue {
+    if let Some(error) = error.downcast_ref::<pi_agent_core::harness::FileError>() {
+        let mut value = json!({"name":error.name,"message":error.message,"code":error.code.as_str()});
+        if let Some(path) = &error.path {
+            value["path"] = json!(path);
+        }
+        if let Some(cause) = &error.cause {
+            value["cause"] = native_error_shape(cause.as_ref());
+        }
+        return value;
+    }
+    if let Some(error) = error.downcast_ref::<pi_agent_core::harness::ExecutionError>() {
+        let mut value = json!({"name":error.name,"message":error.message,"code":error.code.as_str()});
+        if let Some(cause) = &error.cause {
+            value["cause"] = native_error_shape(cause.as_ref());
+        }
+        return value;
+    }
+    if let Some(error) = error.downcast_ref::<pi_agent_core::harness::types::NativeNodeError>() {
+        return error.value();
+    }
+    if let Some(error) = error.downcast_ref::<NodeRejection>() {
+        return rejection_value(error.clone());
+    }
+    json!({"message":error.to_string()})
+}
+#[tokio::test]
+async fn native_error_causes_retain_node_error_metadata_and_utf16() {
+    let root = tempfile::tempdir().unwrap();
+    let env = env(root.path().to_str().unwrap());
+    let expected = oracle().request(&json!({"kind":"error-causes","root":root.path(),"withCauses":true}));
+    let missing = JsString::from("missing") + JsString::from_utf16(vec![0xd800]);
+    let file = operation::returned_error(env.read_text_file(&missing, None).await.unwrap_err());
+    let invalid = operation::returned_error(env.file_info(&"bad\0path".into()).await.unwrap_err());
+    let spawn = operation::returned_error(
+        env.exec(
+            &"true".into(),
+            ShellExecOptions {
+                cwd: Some("missing".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap_err(),
+    );
+    let arguments = operation::returned_error(env.exec(&"bad\0command".into(), Default::default()).await.unwrap_err());
+    let callback = operation::returned_error(
+        env.exec(
+            &"printf out".into(),
+            ShellExecOptions {
+                on_stdout: Some(Arc::new(|_| {
+                    Err(JsString::from("native") + JsString::from_utf16(vec![0xd800]) + "cause")
+                })),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap_err(),
+    );
+    let actual = json!([
+        native_error_shape(&file),
+        native_error_shape(&invalid),
+        native_error_shape(&spawn),
+        native_error_shape(&arguments),
+        native_error_shape(&callback)
+    ]);
+    assert!(
+        actual == expected,
+        "actual={}\nexpected={}",
+        pi_js_compat::js_json::stringify_lossless(&actual),
+        pi_js_compat::js_json::stringify_lossless(&expected)
+    );
 }

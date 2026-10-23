@@ -4,7 +4,7 @@
 //! targets the Unix runtime the harness executes on.
 
 mod read_lines;
-use crate::harness::types::{NodeRejection, OperationFailure};
+use crate::harness::types::{NativeNodeError, NodeRejection, OperationFailure};
 
 use indexmap::IndexMap;
 use std::io;
@@ -14,7 +14,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use pi_ai::request::BoxFuture;
 use pi_js_compat::js_format;
-use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use pi_js_compat::number::js_number_to_string;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
@@ -403,10 +403,11 @@ impl NodeExecutionEnv {
         process.process_group(0);
 
         process.spawn().map_err(|error| {
+            let cause = NativeNodeError::from(pi_js_compat::node_fs::node_spawn_error_record(&error, &shell.shell));
             ExecutionError::new(
                 ExecutionErrorCode::SpawnError,
-                pi_js_compat::node_fs::node_spawn_error_record(&error, &shell.shell).message,
-                Some(Box::new(error)),
+                cause.message.clone(),
+                Some(Box::new(cause)),
             )
         })
     }
@@ -570,7 +571,12 @@ fn exec_outcome_to_result(
     options: &ShellExecOptions,
 ) -> Result<ShellExecResult, ExecutionError> {
     if let Some(message) = wait.callback_error {
-        return Err(ExecutionError::new(ExecutionErrorCode::CallbackError, message, None));
+        let cause = NativeNodeError::new("Error", message.clone());
+        return Err(ExecutionError::new(
+            ExecutionErrorCode::CallbackError,
+            message,
+            Some(Box::new(cause)),
+        ));
     }
     if wait.timed_out {
         return Err(ExecutionError::new(
@@ -793,10 +799,22 @@ fn validate_spawn_arguments(
     Ok(())
 }
 
+fn argument_error(name: &str, reason: &str, value: &JsString) -> NativeNodeError {
+    NativeNodeError::new(
+        "TypeError",
+        pi_js_compat::node_fs::invalid_argument_value_message(name, reason, value),
+    )
+    .with_property("code", JsValue::String("ERR_INVALID_ARG_VALUE".into()))
+}
+
 fn validate_spawn_string(name: &str, reason: &str, value: &JsString) -> Result<(), ExecutionError> {
     if value.contains('\0') {
-        let message = pi_js_compat::node_fs::invalid_argument_value_message(name, reason, value);
-        return Err(ExecutionError::new(ExecutionErrorCode::SpawnError, message, None));
+        let cause = argument_error(name, reason, value);
+        return Err(ExecutionError::new(
+            ExecutionErrorCode::SpawnError,
+            cause.message.clone(),
+            Some(Box::new(cause)),
+        ));
     }
     Ok(())
 }
@@ -933,12 +951,17 @@ async fn create_temp_dir(prefix: &JsString) -> Result<JsString, FileError> {
     let base = pi_js_compat::node_fs::decode_node_path(std::env::temp_dir().as_os_str());
     let prefix = join_paths(&[base, prefix.clone()]);
     if prefix.contains('\0') {
-        let message = pi_js_compat::node_fs::invalid_argument_value_message(
+        let cause = argument_error(
             "prefix",
             "must be a string, Uint8Array, or URL without null bytes",
             &prefix,
         );
-        return Err(FileError::new(FileErrorCode::Unknown, message, None, None));
+        return Err(FileError::new(
+            FileErrorCode::Unknown,
+            cause.message.clone(),
+            None,
+            Some(Box::new(cause)),
+        ));
     }
     for _ in 0..100 {
         let candidate = prefix.clone() + random_name_suffix();
@@ -1035,9 +1058,19 @@ fn read_file_error(error: &io::Error, path: &JsString) -> FileError {
 
 fn file_error(error: &io::Error, syscall: &str, path: &JsString) -> FileError {
     if let Some(invalid) = pi_js_compat::node_fs::node_path_argument_error(path) {
-        return FileError::new(FileErrorCode::Unknown, invalid.message, Some(path.clone()), None);
+        let cause = NativeNodeError::from(invalid);
+        return FileError::new(
+            FileErrorCode::Unknown,
+            cause.message.clone(),
+            Some(path.clone()),
+            Some(Box::new(cause)),
+        );
     }
-    let record = pi_js_compat::node_fs::node_fs_error_record(error, syscall, path);
+    let record = if syscall == "read" {
+        pi_js_compat::node_fs::node_read_error_record(error, path, pi_js_compat::node_fs::NodeReadApi::PromisesReadFile)
+    } else {
+        pi_js_compat::node_fs::node_fs_error_record(error, syscall, path)
+    };
     let code = match record.code {
         "ABORT_ERR" => FileErrorCode::Aborted,
         "ENOENT" => FileErrorCode::NotFound,
@@ -1047,17 +1080,8 @@ fn file_error(error: &io::Error, syscall: &str, path: &JsString) -> FileError {
         "EINVAL" => FileErrorCode::Invalid,
         _ => FileErrorCode::Unknown,
     };
-    let message = if syscall == "read" {
-        pi_js_compat::node_fs::node_promises_read_error(error, path)
-    } else {
-        record.message
-    };
-    FileError::new(
-        code,
-        message,
-        Some(path.clone()),
-        Some(Box::new(io::Error::new(error.kind(), error.to_string()))),
-    )
+    let cause = NativeNodeError::from(record);
+    FileError::new(code, cause.message.clone(), Some(path.clone()), Some(Box::new(cause)))
 }
 
 async fn read_sorted_directory(path: &JsString) -> Result<Vec<tokio::fs::DirEntry>, FileError> {
@@ -1085,7 +1109,7 @@ fn resolve_path(cwd: &JsString, path: &JsString) -> Result<JsString, NodeRejecti
         cwd.clone()
     } else {
         let current = std::env::current_dir().map_err(|error| NodeRejection {
-            error: pi_js_compat::node_fs::node_fs_error_record(&error, "uv_cwd", &JsString::default()),
+            error: pi_js_compat::node_fs::node_fs_error_record(&error, "uv_cwd", &JsString::default()).into(),
         })?;
         pi_js_compat::node_fs::decode_node_path(current.as_os_str()) + "/" + cwd
     };
