@@ -6880,7 +6880,7 @@ impl InteractiveMode {
             let handled = self
                 .handle_slash_command(&name, &args)
                 .await
-                .unwrap_or_else(|error| crate::utils::uncaught::throw_native_uncaught(error));
+                .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
             if handled {
                 self.clear_editor();
                 return;
@@ -6995,11 +6995,7 @@ impl InteractiveMode {
         self.session.borrow().extension_runner().get_command(name).is_some()
     }
 
-    async fn handle_slash_command(
-        &self,
-        name: &JsString,
-        args: &JsString,
-    ) -> Result<bool, pi_js_compat::node_error::NativeNodeError> {
+    async fn handle_slash_command(&self, name: &JsString, args: &JsString) -> Result<bool, CallbackError> {
         let accepts_arguments = ["model", "export", "import", "cd", "name", "compact", "login"]
             .iter()
             .any(|command| name == *command);
@@ -7018,7 +7014,7 @@ impl InteractiveMode {
             }
             value if value == "model" => {
                 let search = (!args.is_empty()).then(|| args.to_owned());
-                self.handle_model_command(search).await;
+                self.handle_model_command(search).await?;
             }
             value if value == "export" => {
                 self.handle_export_command(js_format!("/export {}", args)).await;
@@ -7456,11 +7452,12 @@ impl InteractiveMode {
         self.ui.request_render();
     }
 
-    fn update_available_provider_count(&self) {
-        let models = self.get_model_candidates();
+    fn update_available_provider_count(&self) -> Result<(), CallbackError> {
+        let models = self.get_model_candidates()?;
         let unique_providers: HashSet<&str> = models.iter().map(|model| model.provider.as_str()).collect();
         self.footer_data_provider
             .set_available_provider_count(unique_providers.len());
+        Ok(())
     }
 
     fn persist_enabled_models_for_selector(&self, enabled_ids: EnabledIds, available_model_count: usize) {
@@ -7522,7 +7519,8 @@ impl InteractiveMode {
                 };
                 session.set_scoped_models(scoped_models);
                 with_mode(mode_id, |mode| {
-                    mode.update_available_provider_count();
+                    mode.update_available_provider_count()
+                        .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
                     mode.ui.request_render();
                 });
             }),
@@ -7577,33 +7575,33 @@ impl InteractiveMode {
         }
     }
 
-    fn get_model_candidates(&self) -> Vec<Model> {
-        let session = self.session();
+    fn get_model_candidates(&self) -> Result<Vec<Model>, CallbackError> {
+        let session = self.resolve_viewed_session_target()?;
         let scoped = session.scoped_models();
         if !scoped.is_empty() {
-            return scoped.into_iter().map(|scoped| scoped.model).collect();
+            return Ok(scoped.into_iter().map(|scoped| scoped.model).collect());
         }
         session.model_registry().refresh();
-        match session.model_registry().get_available() {
-            Ok(models) => models,
-            Err(_) => Vec::new(), // Frozen getModelCandidates catch.
-        }
+        Ok(session.model_registry().get_available().unwrap_or_default()) // Frozen registry-only catch.
     }
 
-    fn show_model_selector(&self, initial_search: Option<&JsString>) {
-        let session = self.session();
+    fn show_model_selector(&self, initial_search: Option<&JsString>) -> Result<(), CallbackError> {
+        let session = self.resolve_viewed_session_target()?;
         let mode_id = self.ui_id.get();
         let on_select: Rc<dyn Fn(&Model)> = Rc::new(move |model| {
             let model = model.clone();
             with_mode(mode_id, |mode| {
                 tokio::task::spawn_local(async move {
-                    let result = mode.session().set_model(model.clone()).await;
+                    let result = match mode.resolve_viewed_session_target() {
+                        Ok(target) => target.set_model(model.clone()).await.map_err(CallbackError::from),
+                        Err(error) => Err(error),
+                    };
                     mode.restore_editor();
                     match result {
-                        Ok(()) => {
+                        Ok(_) => {
                             mode.finish_model_selection(&model);
                         }
-                        Err(error) => mode.show_error(error.message()),
+                        Err(error) => mode.show_error(error.message),
                     }
                 });
             });
@@ -7616,14 +7614,15 @@ impl InteractiveMode {
         });
         let selector = ModelSelectorComponent::new(
             self.ui.clone(),
-            Some(session.model()),
-            session.model_registry().clone(),
+            session.model(),
+            (*session.model_registry()).clone(),
             session.scoped_models(),
             on_select,
             on_cancel,
             initial_search,
         );
         self.show_selector(selector);
+        Ok(())
     }
 
     fn finish_model_selection(&self, model: &Model) {
@@ -7641,22 +7640,25 @@ impl InteractiveMode {
         self.check_daxnuts_easter_egg(model);
     }
 
-    async fn handle_model_command(&self, search_term: Option<JsString>) {
+    async fn handle_model_command(&self, search_term: Option<JsString>) -> Result<(), CallbackError> {
         let Some(search) = search_term.filter(|term| !term.is_empty()) else {
-            self.show_model_selector(None);
-            return;
+            return self.show_model_selector(None);
         };
-        let model = find_exact_model_reference_match(&search, &self.get_model_candidates());
+        let model = find_exact_model_reference_match(&search, &self.get_model_candidates()?);
         let Some(model) = model else {
-            self.show_model_selector(Some(&search));
-            return;
+            return self.show_model_selector(Some(&search));
         };
-        match self.session().set_model(model.clone()).await {
-            Ok(()) => {
+        let result = match self.resolve_viewed_session_target() {
+            Ok(target) => target.set_model(model.clone()).await.map_err(CallbackError::from),
+            Err(error) => Err(error),
+        };
+        match result {
+            Ok(_) => {
                 self.finish_model_selection(&model);
             }
-            Err(error) => self.show_error(error.message()),
+            Err(error) => self.show_error(error.message),
         }
+        Ok(())
     }
 
     async fn cycle_model(&self, direction: CycleDirection) {
@@ -9310,10 +9312,16 @@ impl InteractiveMode {
                 };
                 tokio::task::spawn_local(async move {
                     let runtime = mode.session().model_registry().clone();
-                    match runtime.auth_storage().logout(&provider_option.id) {
-                        Ok(()) => {
+                    let result = runtime
+                        .auth_storage()
+                        .logout(&provider_option.id)
+                        .map_err(crate::core::auth_storage::StorageError::into_callback)
+                        .and_then(|()| {
                             runtime.refresh();
-                            mode.update_available_provider_count();
+                            mode.update_available_provider_count()
+                        });
+                    match result {
+                        Ok(()) => {
                             let message = if provider_option.auth_type == AuthType::Oauth {
                                 js_format!("Logged out of {}", provider_option.name)
                             } else {
@@ -9325,7 +9333,7 @@ impl InteractiveMode {
                             mode.show_status(&message);
                         }
                         Err(error) => {
-                            let message = error.message();
+                            let message = error.message;
                             mode.show_error(&js_format!("Logout failed: {}", message));
                         }
                     }
@@ -9369,7 +9377,7 @@ impl InteractiveMode {
             .run_provider_login(provider_id, provider_name, AuthType::Oauth)
             .await
         {
-            let message = error.message();
+            let message = error.message;
             if message != "Login cancelled" {
                 self.show_error(&js_format!("Failed to login to {}: {}", provider_name, message));
             }
@@ -9381,7 +9389,7 @@ impl InteractiveMode {
             .run_provider_login(provider_id, provider_name, AuthType::ApiKey)
             .await
         {
-            let message = error.message();
+            let message = error.message;
             if message != "Login cancelled" {
                 self.show_error(&js_format!("Failed to save API key for {}: {}", provider_name, message));
             }
@@ -9393,7 +9401,7 @@ impl InteractiveMode {
         provider_id: &str,
         provider_name: &JsString,
         auth_type: AuthType,
-    ) -> Result<(), crate::core::auth_storage::StorageError> {
+    ) -> Result<(), CallbackError> {
         let previous_model = self.session().model();
         let mode_id = self.ui_id.get();
         let request_render: Rc<dyn Fn()> = Rc::new(move || {
@@ -9461,7 +9469,7 @@ impl InteractiveMode {
         };
         *self.auth_ui.borrow_mut() = None;
         self.restore_editor();
-        result?;
+        result.map_err(crate::core::auth_storage::StorageError::into_callback)?;
         self.complete_provider_authentication(provider_id, provider_name, auth_type, previous_model)
             .await?;
         Ok(())
@@ -9579,7 +9587,7 @@ impl InteractiveMode {
         provider_name: &JsString,
         auth_type: AuthType,
         previous_model: Model,
-    ) -> Result<(), crate::core::auth_storage::StorageError> {
+    ) -> Result<(), CallbackError> {
         self.session().model_registry().refresh();
         let action_label = if auth_type == AuthType::Oauth {
             js_format!("Logged in to {}", provider_name)
@@ -9636,7 +9644,7 @@ impl InteractiveMode {
             }
         }
 
-        self.update_available_provider_count();
+        self.update_available_provider_count()?;
         self.footer.borrow_mut().invalidate();
         self.update_editor_border_color();
         let auth_path = crate::config::get_auth_path()?.display().to_string();
@@ -12242,6 +12250,39 @@ mod ui_tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn viewed_child_model_command_mutates_child_not_main() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        use crate::bundled_extensions::agents_core::session_factories::AgentSessionMutationTarget;
+        tokio::task::LocalSet::new().run_until(async {
+            let mut source = oracle::TsOracle::spawn("interactive-model-command-oracle.mts", "packages/coding-agent/src");
+            for (search, keys) in [(Some("faux-2"), vec![]), (Some("2"), vec!["\r"]), (None, vec!["\x1b[B", "\r"])] {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let (child_mode, _child_terminal, _child_faux, _child_temp) = build_mode().await;
+                let child_session = child_mode.session();
+                let target = Arc::new(AgentSessionMutationTarget::new(child_session.clone()));
+                bind_interactive_mode_session_mutation_target_resolver(&mode, Arc::new(move || Ok(Some(ResolvedMutationTarget::Interactive(target.clone())))));
+                *mode.child_view.borrow_mut() = Some(ChildAgentView {transcript_path: None, agent_id: "child".into(), session_manager: None, watcher: None, watch_path: None, reload_deadline: None, watch_retry_deadline: None, reload_retries: 0});
+                let models = ["faux-1", "faux-2"].map(|id| mode.session().model_registry().find("faux", id).unwrap());
+                let expected = source.request(&serde_json::json!({"models":models,"search":search,"keys":keys,"colors":crate::modes::interactive::theme::REQUIRED_COLORS}));
+                assert_eq!(expected["ok"], true, "{expected}");
+                mode.handle_model_command(search.map(JsString::from)).await.unwrap();
+                tokio::time::sleep(Duration::from_millis(1)).await;
+                for key in keys {
+                    terminal.borrow_mut().send_input(key);
+                    mode.ui.process_events();
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+                assert_eq!(child_session.model().id, expected["output"]["model"].as_str().unwrap(), "search {search:?}");
+                assert_eq!(mode.session().model().id, "faux-1", "main must not change");
+                mode.stop();
+            }
+        }).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn model_command_uses_exact_references_and_the_frozen_model_selector() {
         mod oracle {
             include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
@@ -12258,7 +12299,7 @@ mod ui_tests {
                 assert_eq!(expected["ok"], true, "{expected}");
                 let colors: Vec<_> = crate::modes::interactive::theme::REQUIRED_COLORS.iter().map(|name| ((*name).into(),crate::modes::interactive::theme::ColorValue::Index(0.0))).collect();
                 crate::modes::interactive::theme::set_theme_instance(Arc::new(Theme::new(&colors,&[],crate::modes::interactive::theme::ColorMode::Color256,None,None).unwrap()));
-                mode.handle_model_command(search.map(JsString::from)).await;
+                mode.handle_model_command(search.map(JsString::from)).await.unwrap();
                 tokio::time::sleep(Duration::from_millis(1)).await;
                 for key in &keys {
                     terminal.borrow_mut().send_input(key);

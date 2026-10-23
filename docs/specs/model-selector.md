@@ -31,7 +31,8 @@ Common-pin `components/model-selector.ts` selects a model from the actual refres
 ## Known gaps (current cycle)
 
 - [x] Viewed-child cycling resolves a live interactive target; absent/core-only targets fail explicitly without mutating main.
-- [ ] Viewed-child model candidates/selection, main binding and footer refresh remain a whole-mode integration slice.
+- [x] Viewed-child model candidates, exact selection and selector callbacks use the live target; main post-binds the first-party resolver.
+- [ ] Selected-agent footer refresh and callback-target-change proof remain a whole-mode integration slice.
 - [ ] `app.model.select` key-action wiring remains in the whole-mode key-handler audit.
 
 ## Out of scope
