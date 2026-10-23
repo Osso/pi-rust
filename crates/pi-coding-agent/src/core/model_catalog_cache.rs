@@ -4,11 +4,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use pi_ai::request::{CallbackError, Fetch, HttpRequest, read_body_text};
-use pi_js_compat::abort::AbortSignal;
+use pi_ai::request::{CallbackError, Fetch, HttpRequest, HttpResponse, read_body_text};
+use pi_js_compat::abort::{AbortReason, AbortSignal};
 use pi_js_compat::date::{date_parse_utf16, js_now_millis};
 use pi_js_compat::js_json::{self, JsString, JsValue};
-use pi_js_compat::node_error::NativeNodeError;
+use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
 use serde::Serialize;
 
 const BASE_URL: &str = "https://openrouter.ai/api/v1";
@@ -318,7 +318,7 @@ fn map_pricing(pricing: Option<&JsValue>) -> JsValue {
 }
 
 struct CatalogRequestError {
-    error: NativeNodeError,
+    error: AbortReason,
     retryable: bool,
     retry_after_ms: f64,
 }
@@ -328,13 +328,14 @@ impl CatalogRequestError {
         Self {
             error: error
                 .with_property("retryable", JsValue::Bool(retryable))
-                .with_property("retryAfterMs", JsValue::Number(retry_after_ms)),
+                .with_property("retryAfterMs", JsValue::Number(retry_after_ms))
+                .into(),
             retryable,
             retry_after_ms,
         }
     }
 
-    fn terminal(error: NativeNodeError) -> Self {
+    fn terminal(error: AbortReason) -> Self {
         Self {
             error,
             retryable: false,
@@ -355,43 +356,59 @@ async fn fetch_catalog(fetch: &dyn Fetch, signal: Option<AbortSignal>) -> Result
             signal,
         )
         .await
-        .map_err(|error| {
-            let retryable = error.name == "TypeError" && error.message == "fetch failed";
-            CatalogRequestError::new(
-                catalog_error("OpenRouter model catalog request failed")
-                    .with_property("cause", callback_error(error).value()),
-                retryable,
-                0.0,
-            )
-        })?;
+        .map_err(wrap_catalog_transport_failure)?;
     if !(200..300).contains(&response.status) {
-        let retry_after_ms = response
-            .headers
-            .iter()
-            .find(|(key, _)| key.eq_ignore_ascii_case("retry-after"))
-            .map_or(0.0, |(_, value)| parse_retry_after(value));
-        return Err(CatalogRequestError::new(
-            catalog_error(format!(
-                "OpenRouter model catalog request failed with HTTP {}",
-                response.status
-            )),
-            response.status == 429 || response.status >= 500,
-            retry_after_ms,
-        ));
+        return Err(parse_catalog_http_failure(&response));
     }
     let body = read_body_text(response.body)
         .await
-        .map_err(|error| CatalogRequestError::terminal(callback_error(error)))?;
-    let payload = js_json::parse_lossless(body)
-        .map_err(|error| CatalogRequestError::terminal(NativeNodeError::new("SyntaxError", error.to_string())))?;
+        .map_err(|error| CatalogRequestError::terminal(error.thrown_value()))?;
+    parse_catalog_payload(body)
+}
+
+fn wrap_catalog_transport_failure(error: CallbackError) -> CatalogRequestError {
+    let reason = error.thrown_value();
+    let retryable = matches!(&reason,
+        AbortReason::Error(error) | AbortReason::DomException(error)
+        if error.is_instance_of(NativeErrorClass::TypeError) && error.message == "fetch failed"
+    );
+    CatalogRequestError::new(
+        catalog_error("OpenRouter model catalog request failed").with_cause(reason),
+        retryable,
+        0.0,
+    )
+}
+
+fn parse_catalog_http_failure(response: &HttpResponse) -> CatalogRequestError {
+    let retry_after_ms = response
+        .headers
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case("retry-after"))
+        .map_or(0.0, |(_, value)| parse_retry_after(value));
+    CatalogRequestError::new(
+        catalog_error(format!(
+            "OpenRouter model catalog request failed with HTTP {}",
+            response.status
+        )),
+        response.status == 429 || response.status >= 500,
+        retry_after_ms,
+    )
+}
+
+fn parse_catalog_payload(body: JsString) -> Result<Vec<JsValue>, CatalogRequestError> {
+    let payload = js_json::parse_lossless(body).map_err(|error| {
+        CatalogRequestError::terminal(
+            NativeNodeError::from_constructor(NativeErrorClass::SyntaxError, error.to_string()).into(),
+        )
+    })?;
     let data = payload.get("data").and_then(JsValue::as_array).ok_or_else(|| {
-        CatalogRequestError::terminal(catalog_error("OpenRouter model catalog response has no data array"))
+        CatalogRequestError::terminal(catalog_error("OpenRouter model catalog response has no data array").into())
     })?;
     let models: Vec<_> = data.iter().filter_map(map_model).collect();
     if models.is_empty() {
-        return Err(CatalogRequestError::terminal(catalog_error(
-            "OpenRouter model catalog contains no tool-capable models",
-        )));
+        return Err(CatalogRequestError::terminal(
+            catalog_error("OpenRouter model catalog contains no tool-capable models").into(),
+        ));
     }
     Ok(models)
 }
@@ -400,7 +417,7 @@ async fn fetch_catalog(fetch: &dyn Fetch, signal: Option<AbortSignal>) -> Result
 pub async fn fetch_openrouter_catalog(
     fetch: &dyn Fetch,
     signal: Option<AbortSignal>,
-) -> Result<Vec<JsValue>, NativeNodeError> {
+) -> Result<Vec<JsValue>, AbortReason> {
     fetch_catalog(fetch, signal).await.map_err(|error| error.error)
 }
 
@@ -460,39 +477,41 @@ fn catalog_error(message: impl Into<JsString>) -> NativeNodeError {
     NativeNodeError::new("Error", message)
 }
 
-fn callback_error(error: CallbackError) -> NativeNodeError {
-    let mut native = NativeNodeError::new(error.name, error.message);
-    if let Some(code) = error.code {
-        native = native.with_property("code", JsValue::String(code.into()));
-    }
-    if let Some(cause) = error.cause {
-        native = native.with_property("cause", JsValue::String(cause.into()));
-    }
-    native
-}
-
-// Object causes here originate only from NativeNodeError::value(); Fetch's current
-// carrier admits only scalar String causes, not arbitrary JS Error/object causes.
-fn describe_error(value: &JsValue) -> JsString {
-    let Some(message) = value.get("message").and_then(JsValue::as_string) else {
-        return js_json::to_js_string(value).expect("JSON value supports String conversion");
-    };
-    match value.get("cause") {
-        Some(cause) if js_json::is_truthy(cause) => {
-            pi_js_compat::js_format!("{}: {}", message, describe_error(cause))
+fn describe_error(reason: &AbortReason) -> Result<JsString, NativeNodeError> {
+    let error = match reason {
+        AbortReason::Value(value) => {
+            return js_json::to_js_string(value)
+                .map_err(|message| NativeNodeError::from_constructor(NativeErrorClass::TypeError, message));
         }
-        _ => message.clone(),
+        AbortReason::Error(error) | AbortReason::DomException(error) => error,
+    };
+    match error.cause() {
+        Some(cause) if reason_is_truthy(cause) => Ok(pi_js_compat::js_format!(
+            "{}: {}",
+            error.message,
+            describe_error(cause)?
+        )),
+        _ => Ok(error.message.clone()),
     }
 }
 
-fn wrap_error(prefix: &str, error: NativeNodeError) -> NativeNodeError {
-    let value = error.value();
-    catalog_error(pi_js_compat::js_format!("{}: {}", prefix, describe_error(&value))).with_property("cause", value)
+fn reason_is_truthy(reason: &AbortReason) -> bool {
+    match reason {
+        AbortReason::Value(value) => js_json::is_truthy(value),
+        AbortReason::Error(_) | AbortReason::DomException(_) => true,
+    }
+}
+
+fn wrap_error(prefix: &str, reason: AbortReason) -> NativeNodeError {
+    match describe_error(&reason) {
+        Ok(message) => catalog_error(pi_js_compat::js_format!("{}: {}", prefix, message)).with_cause(reason),
+        Err(coercion) => coercion,
+    }
 }
 
 async fn write_cached_catalog(path: &Path, now: f64, models: &[JsValue]) -> Result<(), NativeNodeError> {
     let fetched_at = pi_js_compat::date::to_iso_string_value(now)
-        .map_err(|error| NativeNodeError::new(error.name(), error.to_string()))?;
+        .map_err(|error| NativeNodeError::from_constructor(NativeErrorClass::RangeError, error.to_string()))?;
     let parent = path.parent().expect("catalog path has parent");
     let temporary = parent.join(format!(
         ".openrouter-{}-{}.tmp",
@@ -526,7 +545,7 @@ async fn write_cached_catalog(path: &Path, now: f64, models: &[JsValue]) -> Resu
             path.display().to_string(),
             primary.message
         ));
-        wrapped = wrapped.with_property("cause", primary.value());
+        wrapped = wrapped.with_cause(primary.clone().into());
         if let Err(cleanup) = tokio::fs::remove_file(&temporary).await {
             if cleanup.kind() != std::io::ErrorKind::NotFound {
                 let cleanup = fs_error(&cleanup, "unlink", &temporary);

@@ -2,6 +2,8 @@
 
 Frozen source: `packages/coding-agent/src/core/model-catalog-cache.ts`, common pin `4f9e6f8a4`. Contract: [spec](../../specs/model-catalog-cache.md).
 
+Q15 constructor/cause slice: actual frozen REDs show renamed plain Error incorrectly retried3× instead of1, raw null body rejection synthesized into an Error, and null/nested causes flattened. New code uses constructor identity, CallbackError.thrown_value and branded NativeNodeError causes; describeError only treats actual Errors as Errors, preserving String-coercion failures. Public unretried fetch now returns AbortReason. Focused GREEN pending; deadline still uses the old race until its separate RED.
+
 | Export / branch | Native mapping | Current proof |
 | --- | --- | --- |
 | `loadOpenRouterCatalogAtStartup` | global load_openrouter_catalog_at_startup → ModelCatalogCache::load_at_startup with per-call path/clock | Actual module differential: fresh, exact seven-day expiry, future, stale; invalid dates, incomplete model, non-array models |
@@ -20,7 +22,7 @@ RED evidence: `/tmp/pi-rust-repin-delta-ai/catalog-cache-red-clean.log` (new sou
 
 Retry/error-own-property correction: `catalog-cache-retry-green.log` is RED despite filename (oracle began exposing actual enumerable error properties); `catalog-cache-retry-green-2.log` is six-test GREEN after restoring frozen CatalogRequestError retryable/retryAfterMs properties. No error-field stripping.
 
-Cause correction RED: `catalog-cache-causes-red-2.log` reproduced a duplicated description, a flattened causal object and U+FFFD through Display. GREEN: `catalog-cache-causes-green-1.log`, five tests. Public errors reuse `pi_agent_core::harness::types::NativeNodeError`; only its property-builder visibility changed (parent clearance). Fetch still exposes `CallbackError.cause: Option<String>`: arbitrary native Error/object causes cannot originate at that boundary, so their proof remains partial. No cause objects or stacks are fabricated; runtime stack omission is user-approved (2026-10-22).
+Cause correction RED: `catalog-cache-causes-red-2.log` reproduced a duplicated description, a flattened causal object and U+FFFD through Display. GREEN: `catalog-cache-causes-green-1.log`, five tests. Public errors reuse `pi_agent_core::harness::types::NativeNodeError`; only its property-builder visibility changed (parent clearance). That earlier slice consumed only legacy scalar CallbackError fields; the Q15 continuation replaces that limitation with thrown_value and the shared branded cause map. Its new proof scope is tracked above. No cause objects or stacks are fabricated; runtime stack omission is user-approved (2026-10-22).
 
 Atomic failure correction RED: `catalog-cache-rename-red.log` reproduced missing errno/code/syscall/path/dest in rename cause. `catalog-cache-atomic-green-1.log`: two OS-boundary tests GREEN after reusing Node filesystem metadata. Normalization touches only the genuinely generated `.openrouter-<pid>-<uuid>.tmp` filename at root-message, cause-message and cause-path locations; no recursive error rewriting or user-data masking.
 

@@ -1,6 +1,7 @@
 // Real frozen catalog module; only HTTP is scripted. Files and public return values stay literal.
 import { pathToFileURL } from "node:url";
 import { serve } from "./config-auth-oracle-support.ts";
+import { materializeThrownValue, snapshotThrownValue, type ThrownValueSpec } from "./thrown-value-support.ts";
 
 type CatalogApi = {
 	loadOpenRouterCatalogAtStartup(options: { now: () => Date }): Promise<unknown>;
@@ -8,16 +9,6 @@ type CatalogApi = {
 	fetchOpenRouterCatalog(): Promise<unknown>;
 	getOpenRouterCatalogModels(): unknown;
 };
-
-function snapshotError(error: unknown): unknown {
-	if (!(error instanceof Error)) return error;
-	return {
-		name: error.name,
-		message: error.message,
-		...Object.fromEntries(Object.entries(error).filter(([key]) => key !== "cause")),
-		...("cause" in error ? { cause: snapshotError(error.cause) } : {}),
-	};
-}
 
 async function main(): Promise<void> {
 	const sourcePath = process.argv[2];
@@ -27,6 +18,12 @@ async function main(): Promise<void> {
 		const calls: unknown[] = [];
 		const scriptedFetch: typeof fetch = async (input, init) => {
 			calls.push({ url: String(input), signal: init?.signal instanceof AbortSignal });
+			if (request.failureSpec) throw materializeThrownValue(request.failureSpec as ThrownValueSpec);
+			if (request.bodyFailureSpec) {
+				return new Response(new ReadableStream({ start(controller) {
+					controller.error(materializeThrownValue(request.bodyFailureSpec as ThrownValueSpec));
+				} }));
+			}
 			if (typeof request.failure === "string") {
 				throw new TypeError(request.failure, { cause: request.failureCause });
 			}
@@ -66,7 +63,7 @@ async function main(): Promise<void> {
 			return { result, calls, memoized: api.getOpenRouterCatalogModels(), numericStates, modelWire, optionalNumberState };
 		} catch (error) {
 			if (!request.inspectError) throw error;
-			return { error: snapshotError(error), calls };
+			return { error: snapshotThrownValue(error), calls };
 		}
 	});
 }
