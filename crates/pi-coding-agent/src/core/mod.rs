@@ -34,6 +34,7 @@ pub mod http_dispatcher;
 pub mod keybindings;
 pub mod lifecycle_coordinator;
 pub mod messages;
+pub mod model_catalog_cache;
 pub mod model_config;
 pub mod model_registry;
 pub mod model_resolver;
