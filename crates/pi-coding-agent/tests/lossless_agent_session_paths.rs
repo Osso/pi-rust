@@ -68,6 +68,7 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
         multi_agent_runtime_role: None,
         multi_agent_execution_capability: None,
         thinking_phase_timeout_ms: None,
+        no_supervisor: None,
         supervisor_decision_requester: None,
         multi_agent_store: Some(store.clone()),
         multi_agent_agent_id: None,
@@ -174,7 +175,7 @@ async fn runtime_factory_error_and_cwd_keep_original_units() {
         }
     });
     let manager = SessionManager::in_memory(Some(&raw), None).unwrap();
-    let result = create_agent_session_runtime(factory, &raw, &raw, manager).await;
+    let result = create_agent_session_runtime(factory, &raw, &raw, manager, None).await;
     assert_eq!(result.err(), Some(expected_error));
     assert_eq!(*seen.lock().unwrap(), Some((raw.clone(), raw)));
 }

@@ -1,7 +1,7 @@
 //! Reason-bearing AbortController/AbortSignal semantics shared by every Rust package.
 
 use crate::js_json::JsValue;
-use crate::node_error::NativeNodeError;
+use crate::node_error::{NativeErrorClass, NativeNodeError};
 use crate::number::js_number_to_string;
 use indexmap::IndexMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -312,11 +312,11 @@ fn validate_timeout(delay: f64) -> Result<Duration, NativeNodeError> {
         return Ok(Duration::from_millis(normalized as u64));
     };
     let received = format_range_number(delay);
-    Err(NativeNodeError::new(
-        "RangeError",
+    Err(NativeNodeError::from_node_constructor(
+        NativeErrorClass::RangeError,
+        "ERR_OUT_OF_RANGE",
         format!("The value of \"delay\" is out of range. It must be {constraint}. Received {received}"),
-    )
-    .with_property("code", JsValue::String("ERR_OUT_OF_RANGE".into())))
+    ))
 }
 fn format_range_number(value: f64) -> String {
     let text = js_number_to_string(value);

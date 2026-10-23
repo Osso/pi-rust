@@ -68,7 +68,7 @@ async fn startup_cancel_retry_timeout_and_numeric_boundaries_match_frozen() {
                         controller.abort(None);
                     }
                     if let Some(error) = case["startupError"].as_string() {
-                        return Err(error.clone());
+                        return Err(pi_js_compat::node_error::NativeNodeError::new("Error", error.clone()));
                     }
                     Ok(())
                 })

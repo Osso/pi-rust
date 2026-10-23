@@ -35,6 +35,7 @@ pub struct CreateAgentSessionRuntimeResult {
 
 /// Options passed to a runtime factory.
 pub struct CreateAgentSessionRuntimeOptions {
+    pub no_supervisor: Option<bool>,
     pub cwd: JsString,
     pub agent_dir: JsString,
     pub session_manager: SessionManager,
@@ -309,6 +310,7 @@ impl AgentSessionRuntime {
         previous_session_file: Option<JsString>,
     ) -> Result<CreateAgentSessionRuntimeResult, JsString> {
         (self.create_runtime)(CreateAgentSessionRuntimeOptions {
+            no_supervisor: Some(self.session.no_supervisor()),
             cwd: cwd.to_owned(),
             agent_dir: self.services.agent_dir.clone(),
             session_manager,
@@ -325,6 +327,9 @@ impl AgentSessionRuntime {
         cwd_override: Option<&JsString>,
         with_session: Option<ReplacedSessionCallback>,
     ) -> Result<SessionTransitionResult, JsString> {
+        if self.session.no_supervisor() {
+            return Err("Session resume is unavailable in standalone worker mode".into());
+        }
         if self
             .emit_before_switch(SessionSwitchReason::Resume, Some(session_path.to_owned()))
             .await
@@ -643,9 +648,6 @@ impl AgentSessionRuntime {
                     selected_text,
                 });
             };
-            if !std::path::Path::new(&encode_node_utf8(&current_session_file)).exists() {
-                return Err("This session has not been saved yet. Wait for the first assistant response before cloning or forking it.".into());
-            }
             let mut session_manager = SessionManager::open(&current_session_file, Some(&session_dir), None)
                 .map_err(|error| error.message().clone())?;
             let forked_session_path = session_manager
@@ -699,6 +701,9 @@ impl AgentSessionRuntime {
         input_path: &JsString,
         cwd_override: Option<&JsString>,
     ) -> Result<SessionTransitionResult, JsString> {
+        if self.session.no_supervisor() {
+            return Err("Session import is unavailable in standalone worker mode".into());
+        }
         let resolved = resolve_path(
             input_path,
             &process_cwd().map_err(|error| error.message().clone())?,
@@ -889,12 +894,19 @@ pub async fn create_agent_session_runtime(
     cwd: &JsString,
     agent_dir: &JsString,
     session_manager: SessionManager,
+    no_supervisor: Option<bool>,
 ) -> Result<AgentSessionRuntime, JsString> {
+    if no_supervisor == Some(true) && session_manager.is_persisted() {
+        return Err("Standalone worker requires an in-memory session".into());
+    }
     assert_session_cwd_exists(&session_manager, cwd).map_err(|error| error.message().clone())?;
-    if let Some(control_db_path) = session_manager.get_metadata_control_db_path() {
+    if no_supervisor != Some(true)
+        && let Some(control_db_path) = session_manager.get_metadata_control_db_path()
+    {
         crate::core::detached_job_cleanup::run_detached_job_artifact_cleanup(control_db_path, Some(agent_dir), None);
     }
     let result = create_runtime(CreateAgentSessionRuntimeOptions {
+        no_supervisor,
         cwd: cwd.to_owned(),
         agent_dir: agent_dir.to_owned(),
         session_manager,
@@ -940,6 +952,7 @@ pub fn default_runtime_factory(options: DefaultRuntimeFactoryOptions) -> CreateA
                 .await?;
             let result: CreateAgentSessionResult = create_agent_session_from_services(
                 crate::core::agent_session_services::CreateAgentSessionFromServicesOptions {
+                    no_supervisor: request.no_supervisor,
                     services: AgentSessionServices {
                         cwd: services.cwd.clone(),
                         agent_dir: services.agent_dir.clone(),

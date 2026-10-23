@@ -24,6 +24,10 @@ Rust: `crates/pi-coding-agent/src/core/agent_session_runtime.rs`.
 
 ## Port fixes
 
+- Common-pin fork correction2026-10-23: remove the old-only file-exists/unsaved-session guard. Frozen runtime.ts:568–583 opens the manager then calls createBranchedSession, so a fork containing only restriction context followed by clone reports `Entry <leafId> not found`. Full RPC differential exercises this persisted fork→clone boundary and asserts both complete serialized errors using each side's captured leaf ID and the identical literal error template; no error output is normalized or removed.
+
+- Standalone runtime creation/resume/import gates and proof: [standalone slice](standalone-worker.md).
+
 - `fork` captures the current session file before locking the shared
   `SessionManager`; the earlier Rust body called `AgentSession::session_file()`
   while holding the manager guard for `newSession`, which deadlocked on the

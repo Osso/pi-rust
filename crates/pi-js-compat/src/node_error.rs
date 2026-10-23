@@ -38,6 +38,7 @@ pub struct NativeNodeError {
     pub name: JsString,
     pub message: JsString,
     constructor_class: NativeErrorClass,
+    node_error_code: Option<JsString>,
     properties: JsObject,
 }
 impl NativeNodeError {
@@ -46,6 +47,7 @@ impl NativeNodeError {
             name: name.into(),
             message: message.into(),
             constructor_class: NativeErrorClass::Error,
+            node_error_code: None,
             properties: JsObject::default(),
         }
     }
@@ -53,6 +55,18 @@ impl NativeNodeError {
         let mut error = Self::new(class.name(), message);
         error.constructor_class = class;
         error
+    }
+    /// Node's internal error constructors capture their code in the toString override.
+    /// Assigning a code property to an ordinary Error does not install that override.
+    pub fn from_node_constructor(
+        class: NativeErrorClass,
+        code: impl Into<JsString>,
+        message: impl Into<JsString>,
+    ) -> Self {
+        let code = code.into();
+        let mut error = Self::from_constructor(class, message);
+        error.node_error_code = Some(code.clone());
+        error.with_property("code", JsValue::String(code))
     }
     pub fn constructor_class(&self) -> NativeErrorClass {
         self.constructor_class
@@ -80,7 +94,7 @@ impl NativeNodeError {
         }
         self
     }
-    /// Error.prototype.toString, or Node SystemError's code-aware override.
+    /// Error.prototype.toString, captured-code NodeError, or dynamic-code SystemError override.
     pub fn string_value(&self) -> JsString {
         if self.constructor_class == NativeErrorClass::SystemError {
             let code = self
@@ -88,6 +102,9 @@ impl NativeNodeError {
                 .get(&JsString::from("code"))
                 .map(|value| crate::js_json::to_js_string(value).expect("native error code is string-coercible"))
                 .unwrap_or_else(|| "undefined".into());
+            return crate::js_format!("{} [{}]: {}", self.name, code, self.message);
+        }
+        if let Some(code) = &self.node_error_code {
             return crate::js_format!("{} [{}]: {}", self.name, code, self.message);
         }
         if self.name.is_empty() {
@@ -123,7 +140,7 @@ impl From<crate::node_fs::NodeFsError> for NativeNodeError {
 }
 impl From<crate::node_fs::NodePathArgumentError> for NativeNodeError {
     fn from(error: crate::node_fs::NodePathArgumentError) -> Self {
-        Self::new(error.name, error.message).with_property("code", JsValue::String(error.code.into()))
+        Self::from_node_constructor(NativeErrorClass::TypeError, error.code, error.message)
     }
 }
 impl Display for NativeNodeError {

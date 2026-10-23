@@ -28,8 +28,8 @@ use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::core::settings_manager::{DefaultProjectTrust, SettingsManager, SettingsManagerCreateOptions};
 use pi_coding_agent::core::trust_manager::ProjectTrustStore;
 use pi_coding_agent::main_runner::{
-    DEBUG_REPL_GAP, FIRST_PARTY_EXTENSION_NAMES, MainExit, ResolvedSession, RuntimeFactoryOptions,
-    build_session_options, collect_settings_diagnostics, create_first_party_extension_factories,
+    DEBUG_REPL_GAP, FIRST_PARTY_EXTENSION_NAMES, FirstPartyOrchestration, MainExit, ResolvedSession,
+    RuntimeFactoryOptions, build_session_options, collect_settings_diagnostics, create_first_party_extension_factories,
     create_first_party_multi_agent_store, create_runtime_factory, create_session_manager, debug_repl_gap_provider,
     fork_flag_conflict, is_plain_runtime_metadata_command, is_truthy_env_flag, prepare_initial_message,
     resolve_app_mode, resolve_cli_paths, resolve_session_path, run_cli_action_or_report_error,
@@ -546,12 +546,14 @@ fn first_party_factory_list_partitions_the_source_names() {
     let handles = pi_coding_agent::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles();
     let fetch = pi_ai::http::default_fetch();
     let factories = create_first_party_extension_factories(
-        store,
-        handles,
+        Some(FirstPartyOrchestration {
+            store,
+            runtime_handles: handles,
+            select_agent_view: Arc::new(Mutex::new(None)),
+        }),
         fetch,
         JsString::from("/tmp/pi-test-agent"),
         std::sync::Arc::new(Vec::new),
-        None,
     );
     let registered: Vec<JsString> = factories
         .iter()
@@ -583,12 +585,14 @@ async fn first_party_factories_load_and_register_agent_tools() {
     let handles = pi_coding_agent::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles();
     let fetch = pi_ai::http::default_fetch();
     let factories = create_first_party_extension_factories(
-        store,
-        handles,
+        Some(FirstPartyOrchestration {
+            store,
+            runtime_handles: handles,
+            select_agent_view: Arc::new(Mutex::new(None)),
+        }),
         fetch,
         JsString::from("/tmp/pi-test-agent"),
         std::sync::Arc::new(Vec::new),
-        None,
     );
     let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
         cwd: JsString::from(cwd.clone()),
@@ -665,11 +669,15 @@ async fn runtime_factory_creates_services_and_reports_missing_models() {
         additional_prompt_template_paths: Vec::new(),
         additional_theme_paths: Vec::new(),
         extension_factories: Vec::new(),
-        multi_agent_store: Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default())),
-        multi_agent_runtime_handles:
-            pi_coding_agent::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles(),
+        orchestration: Some(FirstPartyOrchestration {
+            store: Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default())),
+            runtime_handles:
+                pi_coding_agent::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles(),
+            select_agent_view: Arc::new(Mutex::new(None)),
+        }),
     });
     let result = factory(CreateAgentSessionRuntimeOptions {
+        no_supervisor: None,
         cwd: JsString::from(cwd_string.clone()),
         agent_dir: JsString::from(agent_dir_string),
         session_manager,

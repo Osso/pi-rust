@@ -308,6 +308,7 @@ impl ExtensionRunner {
         state.get_multi_agent_parent_session_id_fn = actions
             .get_multi_agent_parent_session_id
             .unwrap_or_else(|| Arc::new(|| None));
+        state.get_no_supervisor_fn = actions.get_no_supervisor.unwrap_or_else(|| Arc::new(|| false));
         state.get_multi_agent_requires_agent_id_fn = actions
             .get_multi_agent_requires_agent_id
             .unwrap_or_else(|| Arc::new(|| false));
