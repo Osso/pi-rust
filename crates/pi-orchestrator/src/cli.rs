@@ -93,7 +93,11 @@ pub async fn run_cli<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncWrite 
     mut stdout: W,
     mut stderr: E,
 ) -> i32 {
-    match execute_cli(args, cwd, config, stdin, &mut stdout, &mut stderr).await {
+    // Frozen cli.ts statically imports serve.ts -> radius.ts; its auth storage is
+    // initialized before main dispatch, even for --help/--version. No catch exists.
+    let radius_options =
+        crate::radius::RadiusOptions::from_environment().unwrap_or_else(|error| error.raise_uncaught());
+    match execute_cli(args, cwd, config, radius_options, stdin, &mut stdout, &mut stderr).await {
         Ok(code) => code,
         Err(error) => {
             if let Err(write_error) = stderr
@@ -110,6 +114,7 @@ async fn execute_cli<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncWrite 
     args: &[JsString],
     cwd: &JsString,
     config: Config,
+    radius_options: crate::radius::RadiusOptions,
     stdin: R,
     stdout: &mut W,
     stderr: &mut E,
@@ -144,7 +149,7 @@ async fn execute_cli<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncWrite 
             Ok(0)
         }
         CliAction::Serve => {
-            run_serve(config, stdout).await?;
+            run_serve(config, radius_options, stdout).await?;
             Ok(0)
         }
     }
@@ -218,8 +223,12 @@ async fn forward_complete_line(socket: &mut tokio::net::UnixStream, bytes: &[u8]
     Ok(false)
 }
 
-async fn run_serve<W: AsyncWrite + Unpin>(config: Config, stdout: &mut W) -> Result<(), JsString> {
-    let runtime = crate::serve::RunningOrchestrator::start_default(config).await?;
+async fn run_serve<W: AsyncWrite + Unpin>(
+    config: Config,
+    radius_options: crate::radius::RadiusOptions,
+    stdout: &mut W,
+) -> Result<(), JsString> {
+    let runtime = crate::serve::RunningOrchestrator::start_with_radius_options(config, radius_options).await?;
     for line in &runtime.logs {
         stdout
             .write_all(encode_node_utf8(&js_format!("{}\n", line)).as_bytes())

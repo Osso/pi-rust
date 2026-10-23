@@ -70,9 +70,9 @@ pub struct RadiusOptions {
     pub pid: u32,
 }
 impl RadiusOptions {
-    pub fn from_environment() -> Self {
-        let auth = Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::create(None));
-        Self {
+    pub fn from_environment() -> Result<Self, pi_coding_agent::config::ConfigError> {
+        let auth = Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::create(None)?);
+        Ok(Self {
             env: Arc::new(|| {
                 std::env::vars()
                     .map(|(key, value)| (key, JsString::from(value)))
@@ -101,7 +101,7 @@ impl RadiusOptions {
             }
             .into(),
             pid: std::process::id(),
-        }
+        })
     }
 }
 pub trait RadiusPresenceCoordinator: Send + Sync {
