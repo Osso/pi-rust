@@ -19,6 +19,10 @@ Completion refreshes the registry first. Only an unknown previous model triggers
 
 The test-only registry override leaves existing capture-mode callers unchanged and supplies actual models.json-backed registries. Source proofs invoke actual InteractiveMode completion/count/notification methods and actual ModelRegistry. Session setter, footer invalidation and editor-border hooks remain structural fixture dependencies; notification helpers are not replaced. Real frozen Container/Text/Spacer/Theme render full chat frames. Native uses the real AgentSession and capture UI; compare complete UTF-16 output, including ANSI, padding, blank lines and notification prefixes. Warning scheduling and remaining completion branches stay separately tracked.
 
+## Subscription warning
+
+Warnings honor the disabled setting and once-per-mode flag, ignore non-Anthropic models, and prefer stored OAuth classification over effective runtime auth. Otherwise they check the resolved key's subscription prefix; warning-only lookup failures produce no diagnostic. Use the exact frozen warning text, ending at the usage URL; no additional settings guidance. Render through real showWarning, including its prefix and Spacer. Direct warning branches and completion's fire-and-forget scheduling have separate proof scopes.
+
 ## OAuth select callback
 
 Frozen `showOAuthLoginSelect` restores the login dialog before resolving. Cancel and a label with no matching option resolve undefined, not a Login-cancelled rejection. Selecting an empty-string option ID returns that string, not undefined. Native optional replies preserve this distinction; text-prompt cancellation still rejects. `interactive-login-callback-oracle.mts` exercises the actual source login/dialog/select methods; native tests drive the queued UI and compare full selector frames, returned values, outer error and restored editor.
