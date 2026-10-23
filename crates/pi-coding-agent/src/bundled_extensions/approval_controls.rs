@@ -89,7 +89,7 @@ fn parse_sandbox_selection(args: &pi_js_compat::js_json::JsString) -> Option<San
     if profile_argument == "inherit" {
         return (scope == SandboxProfileScope::Session).then_some(SandboxCommandSelection { profile: None, scope });
     }
-    if !is_sandbox_profile_name(profile_argument) {
+    if !is_sandbox_profile_name(&profile_argument.into()) {
         return None;
     }
     Some(SandboxCommandSelection {

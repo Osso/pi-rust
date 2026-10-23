@@ -732,10 +732,14 @@ impl SettingsManager {
     }
 
     pub fn get_approval_preset(&self) -> ApprovalPresetName {
-        if let Some(preset) =
-            enum_literal(self.settings.get("approvalPreset")).filter(|preset| is_approval_preset_name(preset))
+        if let Some(preset) = self
+            .settings
+            .get("approvalPreset")
+            .and_then(Value::as_string)
+            .filter(|preset| is_approval_preset_name(preset))
         {
-            return ApprovalPresetName::parse(&preset).expect("validated approval preset");
+            return ApprovalPresetName::parse(&preset.to_utf8().expect("validated ASCII preset"))
+                .expect("validated approval preset");
         }
         approval_preset_for_policy(self.get_approval_policy())
     }
@@ -787,14 +791,19 @@ impl SettingsManager {
     }
 
     fn get_explicit_configured_sandbox_profile(&self) -> Option<SandboxProfileName> {
-        if let Some(profile) =
-            enum_literal(self.project_settings.get("sandboxProfile")).filter(|profile| is_sandbox_profile_name(profile))
-        {
-            return SandboxProfileName::parse(&profile);
-        }
-        enum_literal(self.global_settings.get("sandboxProfile"))
+        if let Some(profile) = self
+            .project_settings
+            .get("sandboxProfile")
+            .and_then(Value::as_string)
             .filter(|profile| is_sandbox_profile_name(profile))
-            .and_then(|profile| SandboxProfileName::parse(&profile))
+        {
+            return SandboxProfileName::parse(&profile.to_utf8().expect("validated ASCII profile"));
+        }
+        self.global_settings
+            .get("sandboxProfile")
+            .and_then(Value::as_string)
+            .filter(|profile| is_sandbox_profile_name(profile))
+            .and_then(|profile| SandboxProfileName::parse(&profile.to_utf8().expect("validated ASCII profile")))
     }
 
     pub fn get_explicit_sandbox_profile(&self) -> Option<SandboxProfileName> {
