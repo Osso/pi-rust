@@ -63,14 +63,14 @@ async fn queue_subscription_rebinds_without_duplicate_or_stale_output() {
             ..Default::default()
         },
     ));
-    let mut runtime = example::create_runtime(fixture.options).await.unwrap();
+    let runtime = example::create_runtime(fixture.options).await.unwrap();
     let first = example::bind_session(&runtime, None, std::sync::Arc::clone(&output))
         .await
         .unwrap();
     assert_eq!(starts.load(std::sync::atomic::Ordering::SeqCst), 1);
     first.0.steer("first", &[]).await.unwrap();
     let replacement_fixture = support::fixture().await;
-    let mut replacement = example::create_runtime(replacement_fixture.options).await.unwrap();
+    let replacement = example::create_runtime(replacement_fixture.options).await.unwrap();
     let old = first.0.clone();
     let second = example::bind_session(&replacement, Some(first), std::sync::Arc::clone(&output))
         .await

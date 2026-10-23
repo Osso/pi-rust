@@ -23,7 +23,7 @@ async fn standalone_runtime_rejects_resume_and_import_before_path_or_factory_wor
         base_tools: vec![],
     });
     let manager = SessionManager::in_memory(Some(&cwd), None).unwrap();
-    let mut runtime = create_agent_session_runtime(factory, &cwd, &cwd, manager, Some(true))
+    let runtime = create_agent_session_runtime(factory, &cwd, &cwd, manager, Some(true))
         .await
         .unwrap();
     assert!(runtime.session().no_supervisor());
