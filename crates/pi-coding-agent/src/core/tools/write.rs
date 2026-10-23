@@ -13,8 +13,8 @@ use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, 
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_js_compat::abort::AbortSignal;
-use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
+use pi_tui::{Component, Text};
 use serde_json::{Value, json};
 
 use super::file_mutation_queue::with_file_mutation_queue;
@@ -182,6 +182,139 @@ fn check_aborted(signal: Option<&AbortSignal>) -> Result<(), ToolError> {
     Ok(())
 }
 
+const WRITE_PARTIAL_FULL_HIGHLIGHT_LINES: usize = 50;
+
+struct WriteHighlightCache {
+    raw_path: Option<JsString>,
+    lang: JsString,
+    raw_content: JsString,
+    normalized_lines: Vec<JsString>,
+    highlighted_lines: Vec<JsString>,
+}
+
+struct WriteCallRenderComponent {
+    text: Text,
+    cache: Option<WriteHighlightCache>,
+}
+
+impl WriteCallRenderComponent {
+    fn new() -> Self {
+        Self {
+            text: Text::new("", 0, 0),
+            cache: None,
+        }
+    }
+
+    fn update(&mut self, args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<(), PathError> {
+        let raw_path = render_args_path(args);
+        self.cache = str_value(args.get("content")).and_then(|content| {
+            if context.args_complete {
+                rebuild_write_highlight_cache_full(raw_path, &content)
+            } else {
+                update_write_highlight_cache_incremental(self.cache.take(), raw_path, &content)
+            }
+        });
+        let options = ToolRenderResultOptions {
+            expanded: context.expanded,
+            is_partial: context.is_partial,
+        };
+        self.text.set_text(format_write_call(
+            args,
+            &options,
+            theme,
+            self.cache.as_ref(),
+            &context.cwd,
+        )?);
+        Ok(())
+    }
+}
+
+impl Component for WriteCallRenderComponent {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
+        self.text.render(width)
+    }
+    fn invalidate(&mut self) {
+        self.text.invalidate();
+    }
+    fn wants_input(&self) -> bool {
+        false
+    }
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
+}
+
+fn highlight_single_line(line: &JsString, lang: &JsString) -> JsString {
+    highlight_code(line, Some(lang)).into_iter().next().unwrap_or_default()
+}
+
+fn refresh_write_highlight_prefix(cache: &mut WriteHighlightCache) {
+    let count = WRITE_PARTIAL_FULL_HIGHLIGHT_LINES.min(cache.normalized_lines.len());
+    if count == 0 {
+        return;
+    }
+    let prefix = JsString::join(&cache.normalized_lines[..count], "\n");
+    let highlighted = highlight_code(&prefix, Some(&cache.lang));
+    for index in 0..count {
+        cache.highlighted_lines[index] = highlighted
+            .get(index)
+            .cloned()
+            .unwrap_or_else(|| highlight_single_line(&cache.normalized_lines[index], &cache.lang));
+    }
+}
+
+fn rebuild_write_highlight_cache_full(raw_path: Option<JsString>, content: &JsString) -> Option<WriteHighlightCache> {
+    let lang = raw_path.as_ref().and_then(get_language_from_path).map(JsString::from)?;
+    let normalized = replace_tabs(&normalize_display_text(content));
+    Some(WriteHighlightCache {
+        raw_path,
+        lang: lang.clone(),
+        raw_content: content.clone(),
+        normalized_lines: normalized.split('\n').collect(),
+        highlighted_lines: highlight_code(&normalized, Some(&lang)),
+    })
+}
+
+fn update_write_highlight_cache_incremental(
+    cache: Option<WriteHighlightCache>,
+    raw_path: Option<JsString>,
+    content: &JsString,
+) -> Option<WriteHighlightCache> {
+    let lang = raw_path.as_ref().and_then(get_language_from_path).map(JsString::from)?;
+    let Some(mut cache) = cache else {
+        return rebuild_write_highlight_cache_full(raw_path, content);
+    };
+    if cache.lang != lang || cache.raw_path != raw_path || !content.starts_with(&cache.raw_content) {
+        return rebuild_write_highlight_cache_full(raw_path, content);
+    }
+    if content.len() == cache.raw_content.len() {
+        return Some(cache);
+    }
+    let delta = content.slice(cache.raw_content.len(), content.len());
+    cache.raw_content = content.clone();
+    append_write_highlight_delta(&mut cache, &delta);
+    Some(cache)
+}
+
+fn append_write_highlight_delta(cache: &mut WriteHighlightCache, delta: &JsString) {
+    let normalized = replace_tabs(&normalize_display_text(delta));
+    if cache.normalized_lines.is_empty() {
+        cache.normalized_lines.push(JsString::default());
+        cache.highlighted_lines.push(JsString::default());
+    }
+    let mut segments = normalized.split('\n');
+    let last_index = cache.normalized_lines.len() - 1;
+    cache.normalized_lines[last_index].push_str(segments.next().expect("split yields a segment"));
+    cache.highlighted_lines[last_index] = highlight_single_line(&cache.normalized_lines[last_index], &cache.lang);
+    for segment in segments {
+        cache
+            .highlighted_lines
+            .push(highlight_single_line(&segment, &cache.lang));
+        cache.normalized_lines.push(segment);
+    }
+    refresh_write_highlight_prefix(cache);
+}
+
 fn render_args_path(args: &JsValue) -> Option<JsString> {
     let value = args.get("file_path").filter(|value| !value.is_null());
     str_value(value.or_else(|| args.get("path")))
@@ -198,6 +331,7 @@ fn format_write_call(
     args: &JsValue,
     options: &ToolRenderResultOptions,
     theme: &Theme,
+    cache: Option<&WriteHighlightCache>,
     cwd: &JsString,
 ) -> Result<JsString, PathError> {
     let raw_path = render_args_path(args);
@@ -218,10 +352,11 @@ fn format_write_call(
         return Ok(text);
     }
     let lang = raw_path.as_ref().and_then(get_language_from_path).map(JsString::from);
-    let normalized = normalize_display_text(&file_content);
     let rendered_lines = match lang.as_ref() {
-        Some(lang) => highlight_code(&replace_tabs(&normalized), Some(lang)),
-        None => normalized.split('\n').collect(),
+        Some(lang) => cache
+            .map(|cache| cache.highlighted_lines.clone())
+            .unwrap_or_else(|| highlight_code(&replace_tabs(&normalize_display_text(&file_content)), Some(lang))),
+        None => normalize_display_text(&file_content).split('\n').collect(),
     };
     let lines = trim_trailing_empty_lines(rendered_lines);
     append_write_preview(&mut text, &lines, lang.is_some(), options.expanded, theme);
@@ -274,15 +409,18 @@ fn format_write_result(result: &AgentToolResult, theme: &Theme, is_error: bool) 
 }
 
 pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
-    let options = ToolRenderResultOptions {
-        expanded: context.expanded,
-        is_partial: context.is_partial,
-    };
-    Ok(Rc::new(RefCell::new(Text::new(
-        format_write_call(args, &options, theme, &context.cwd).map_err(HandlerError::from)?,
-        0,
-        0,
-    ))))
+    if let Some(component) = &context.last_component
+        && let Some(write) = component
+            .borrow_mut()
+            .as_any_mut()
+            .and_then(|component| component.downcast_mut::<WriteCallRenderComponent>())
+    {
+        write.update(args, theme, context).map_err(HandlerError::from)?;
+        return Ok(Rc::clone(component));
+    }
+    let mut component = WriteCallRenderComponent::new();
+    component.update(args, theme, context).map_err(HandlerError::from)?;
+    Ok(Rc::new(RefCell::new(component)))
 }
 
 pub fn render_result(
