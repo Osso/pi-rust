@@ -12,3 +12,7 @@ Frozen authority: `interactive-mode.ts:6706–6751,6753–6809,7013–7022` at c
 `login_options.rs` extracts methods from interactive-mode; no frozen `login-options.ts` module exists. Typed native APIs exclude invalid JavaScript call argument types. Malformed persisted credential types require separate classification; no parity claim is made for that boundary.
 
 Proof: actual frozen InteractiveMode methods via `interactive-login-oracle.mts`, native capture UI and live registry/storage fixtures in `tests/support/interactive_login.rs`. OAuth callback flow, authentication completion, catalog refresh and whole-mode acceptance are separate proof scopes.
+
+## OAuth select callback
+
+Frozen `showOAuthLoginSelect` restores the login dialog before resolving. Cancel and a label with no matching option resolve undefined, not a Login-cancelled rejection. Selecting an empty-string option ID returns that string, not undefined. Native optional replies preserve this distinction; text-prompt cancellation still rejects. `interactive-login-callback-oracle.mts` exercises the actual source login/dialog/select methods; native tests drive the queued UI and compare full selector frames, returned values, outer error and restored editor.

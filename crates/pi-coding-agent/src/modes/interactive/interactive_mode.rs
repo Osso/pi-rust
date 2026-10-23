@@ -2454,7 +2454,10 @@ fn prepared_user_message_callback() -> crate::core::agent_session::UserMessagePr
 
 /// UI work produced by a provider auth flow running off the TUI thread.
 enum AuthUiEvent {
-    Prompt(AuthPrompt, tokio::sync::oneshot::Sender<Result<JsString, JsString>>),
+    Prompt(
+        AuthPrompt,
+        tokio::sync::oneshot::Sender<Result<Option<JsString>, JsString>>,
+    ),
     Notify(AuthEvent),
 }
 
@@ -2472,6 +2475,24 @@ impl InteractiveAuthInteraction {
             .send(event)
             .map_err(|_| CallbackError::new("Login cancelled"))
     }
+
+    async fn request_prompt(&self, prompt: AuthPrompt) -> Result<Option<JsString>, CallbackError> {
+        let prompt_signal = prompt.signal.clone();
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        self.send(AuthUiEvent::Prompt(prompt, sender))?;
+        let result = match prompt_signal {
+            Some(signal) => tokio::select! {
+                result = receiver => result,
+                _ = signal.wait() => return Err(CallbackError::new("Login cancelled")),
+            },
+            None => receiver.await,
+        };
+        match result {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(message)) => Err(CallbackError::new(message)),
+            Err(_) => Err(CallbackError::new("Login cancelled")),
+        }
+    }
 }
 
 impl AuthInteraction for InteractiveAuthInteraction {
@@ -2481,21 +2502,9 @@ impl AuthInteraction for InteractiveAuthInteraction {
 
     fn prompt(&self, prompt: AuthPrompt) -> pi_ai::request::BoxFuture<'_, Result<JsString, CallbackError>> {
         Box::pin(async move {
-            let prompt_signal = prompt.signal.clone();
-            let (sender, receiver) = tokio::sync::oneshot::channel();
-            self.send(AuthUiEvent::Prompt(prompt, sender))?;
-            let result = match prompt_signal {
-                Some(signal) => tokio::select! {
-                    result = receiver => result,
-                    _ = signal.wait() => return Err(CallbackError::new("Login cancelled")),
-                },
-                None => receiver.await,
-            };
-            match result {
-                Ok(Ok(value)) => Ok(value),
-                Ok(Err(message)) => Err(CallbackError::new(message)),
-                Err(_) => Err(CallbackError::new("Login cancelled")),
-            }
+            self.request_prompt(prompt)
+                .await?
+                .ok_or_else(|| CallbackError::new("Login cancelled"))
         })
     }
 
@@ -2550,24 +2559,22 @@ impl pi_ai::oauth::OAuthLoginCallbacks for InteractiveAuthInteraction {
         prompt: pi_ai::oauth::OAuthSelectPrompt,
     ) -> pi_ai::request::BoxFuture<'_, Result<Option<JsString>, CallbackError>> {
         Box::pin(async move {
-            let value = self
-                .prompt(AuthPrompt {
-                    signal: Some(self.signal.clone()),
-                    kind: AuthPromptKind::Select {
-                        message: prompt.message,
-                        options: prompt
-                            .options
-                            .into_iter()
-                            .map(|option| pi_ai::auth::types::AuthSelectOption {
-                                id: option.id,
-                                label: option.label,
-                                description: None,
-                            })
-                            .collect(),
-                    },
-                })
-                .await?;
-            Ok((!value.is_empty()).then_some(value))
+            self.request_prompt(AuthPrompt {
+                signal: Some(self.signal.clone()),
+                kind: AuthPromptKind::Select {
+                    message: prompt.message,
+                    options: prompt
+                        .options
+                        .into_iter()
+                        .map(|option| pi_ai::auth::types::AuthSelectOption {
+                            id: option.id,
+                            label: option.label,
+                            description: None,
+                        })
+                        .collect(),
+                },
+            })
+            .await
         })
     }
     fn signal(&self) -> Option<pi_js_compat::abort::AbortSignal> {
@@ -9341,7 +9348,7 @@ impl InteractiveMode {
         &self,
         dialog: &Rc<RefCell<LoginDialogComponent>>,
         prompt: AuthPrompt,
-        respond: tokio::sync::oneshot::Sender<Result<JsString, JsString>>,
+        respond: tokio::sync::oneshot::Sender<Result<Option<JsString>, JsString>>,
     ) {
         match prompt.kind {
             AuthPromptKind::Select { message, options } => {
@@ -9357,17 +9364,14 @@ impl InteractiveMode {
                             .iter()
                             .find(|option| option.label == label)
                             .map(|option| option.id.clone());
-                        let _ = respond.send(match id {
-                            Some(id) => Ok((id).into()),
-                            None => Err(JsString::from("Login cancelled")),
-                        });
+                        let _ = respond.send(Ok(id));
                     }
                     with_mode(mode_id, |mode| mode.restore_auth_dialog(&select_dialog));
                 });
                 let cancel_respond = Rc::clone(&respond);
                 let cancel_dialog = Rc::clone(&dialog);
                 let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
-                    respond_once(&cancel_respond, Err(JsString::from("Login cancelled")));
+                    respond_once(&cancel_respond, Ok(None));
                     with_mode(mode_id, |mode| mode.restore_auth_dialog(&cancel_dialog));
                 });
                 let selector = ExtensionSelectorComponent::new(
@@ -9396,7 +9400,7 @@ impl InteractiveMode {
                     AuthPromptKind::Select { .. } => unreachable!(),
                 };
                 tokio::task::spawn_local(async move {
-                    let result = receiver.await.map_err(|error| error.0);
+                    let result = receiver.await.map(Some).map_err(|error| error.0);
                     let _ = respond.send(result);
                 });
             }
@@ -12604,6 +12608,11 @@ mod ui_tests {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/support/interactive_login.rs"
+    ));
+
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/support/interactive_login_callbacks.rs"
     ));
 
     mod reload_fixture {
