@@ -99,36 +99,30 @@ enum SelectEvent {
 
 /// TUI child that lends the selector to the picker loop.
 ///
-/// The loop takes the component out while it awaits async work, so no
-/// `RefCell` borrow is ever held across an await point.
+/// Async selector work is polled once per UI turn without blocking input.
 struct SelectorHost {
-    component: Option<SessionSelectorComponent>,
+    component: SessionSelectorComponent,
 }
 
 impl Component for SelectorHost {
     fn render(&mut self, width: usize) -> Vec<JsString> {
-        self.component
-            .as_mut()
-            .map(|component| component.render(width))
-            .unwrap_or_default()
+        self.component.render(width)
     }
 
     fn handle_input(&mut self, data: &JsString) {
-        if let Some(component) = self.component.as_mut() {
-            component.handle_input(data);
-        }
+        self.component.handle_input(data);
     }
 
     fn invalidate(&mut self) {
-        if let Some(component) = self.component.as_mut() {
-            component.invalidate();
-        }
+        self.component.invalidate();
     }
 
     fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
-        self.component
-            .as_mut()
-            .and_then(|component| component.as_focusable_mut())
+        self.component.as_focusable_mut()
+    }
+
+    fn as_container(&self) -> Option<&pi_tui::tui::Container> {
+        self.component.as_container()
     }
 }
 
@@ -186,7 +180,7 @@ pub async fn select_session(
     };
 
     let control_db_path = options.control_db_path.cloned();
-    let mut selector = SessionSelectorComponent::new(
+    let selector = SessionSelectorComponent::new(
         session_list_loader(current_sessions_loader, false),
         session_list_loader(all_sessions_loader, false),
         on_select,
@@ -202,39 +196,23 @@ pub async fn select_session(
             .map(|loader| session_list_loader(loader, true)),
         None,
     );
-    selector.load_current_sessions().await;
-
-    let host = Rc::new(RefCell::new(SelectorHost {
-        component: Some(selector),
-    }));
+    let list: ComponentRef = selector.session_list();
+    let host = Rc::new(RefCell::new(SelectorHost { component: selector }));
     let host_ref: ComponentRef = Rc::clone(&host) as ComponentRef;
     ui.add_child(Rc::clone(&host_ref));
-    ui.set_focus(Some(host_ref));
+    ui.set_focus(Some(list));
     start_startup_tui(&ui, options.settings_manager, options.env)?;
 
     let outcome = loop {
         ui.process_events();
+        host.borrow_mut().component.poll(std::time::Instant::now());
         ui.flush_pending();
-        let pending = host
-            .borrow()
-            .component
-            .as_ref()
-            .is_some_and(SessionSelectorComponent::has_pending_action);
-        if pending {
-            let Some(mut selector) = host.borrow_mut().component.take() else {
-                continue;
-            };
-            selector.run_pending_action().await;
-            host.borrow_mut().component = Some(selector);
-        }
         match receiver.try_recv() {
             Ok(SelectEvent::Selected(path)) => break SelectSessionOutcome::Selected(path),
             Ok(SelectEvent::Cancelled) => break SelectSessionOutcome::Cancelled,
             Ok(SelectEvent::Exited) => break SelectSessionOutcome::Exited,
             Ok(SelectEvent::ValidationError(message)) => {
-                if let Some(selector) = host.borrow_mut().component.as_mut() {
-                    selector.show_error(&message);
-                }
+                host.borrow_mut().component.show_error(&message);
                 ui.request_render(false);
             }
             Err(TryRecvError::Empty) => std::thread::sleep(POLL_INTERVAL),
