@@ -6,8 +6,8 @@ use std::time::Duration;
 use pi_coding_agent::supervisor::request_wake::{
     SupervisorRequestWakeServer, get_supervisor_request_socket_path, notify_supervisor_request,
 };
+use pi_js_compat::abort::AbortSignal;
 use tokio::net::UnixStream;
-use tokio_util::sync::CancellationToken;
 
 fn socket_path() -> (tempfile::TempDir, JsString) {
     let directory = tempfile::tempdir().unwrap();
@@ -39,7 +39,7 @@ async fn wakes_waiters_and_advances_the_generation_on_each_request() {
     let waiter = tokio::spawn({
         let server = Arc::clone(&server);
         async move {
-            server.wait_for_wake_after(observed, &CancellationToken::new()).await;
+            server.wait_for_wake_after(observed, &AbortSignal::default()).await;
             server.current_generation()
         }
     });
@@ -66,13 +66,14 @@ async fn returns_immediately_for_already_observed_generations_and_aborts() {
     let generation = server.current_generation();
     tokio::time::timeout(
         Duration::from_secs(1),
-        server.wait_for_wake_after(generation - 1, &CancellationToken::new()),
+        server.wait_for_wake_after(generation - 1, &AbortSignal::default()),
     )
     .await
     .expect("an already-advanced generation must resolve immediately");
 
-    let signal = CancellationToken::new();
-    signal.cancel();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
+    controller_signal.abort(None);
     tokio::time::timeout(Duration::from_secs(1), server.wait_for_wake_after(generation, &signal))
         .await
         .expect("an aborted signal must resolve immediately");
@@ -128,7 +129,7 @@ async fn close_resolves_pending_waiters() {
     server.start().await.unwrap();
     let waiter = tokio::spawn({
         let server = Arc::clone(&server);
-        async move { server.wait_for_wake_after(0, &CancellationToken::new()).await }
+        async move { server.wait_for_wake_after(0, &AbortSignal::default()).await }
     });
     tokio::time::sleep(Duration::from_millis(20)).await;
     server.close().await.unwrap();

@@ -1033,7 +1033,7 @@ async fn title_requests_carry_the_source_limits_and_abort_after_fifteen_seconds(
                     assert_eq!(options.stream.request.max_retries, Some(1.0));
                     assert_eq!(options.stream.request.max_retry_delay_ms, Some(3000.0));
                     assert_eq!(options.stream.request.timeout_ms, Some(15000.0));
-                    options.stream.request.signal.expect("abort signal").cancelled().await;
+                    options.stream.request.signal.expect("abort signal").wait().await;
                     observe_abort.notify_one();
                     let mut response = faux_assistant_message("", Default::default());
                     response.stop_reason = StopReason::Aborted;

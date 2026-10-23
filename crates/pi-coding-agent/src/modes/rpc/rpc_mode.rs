@@ -13,12 +13,12 @@ use pi_agent_core::agent::types::AgentEvent;
 use pi_ai::request::BoxFuture;
 use pi_ai::types::InputSource;
 use pi_ai::utils::random_uuid::random_uuid;
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use serde::Serialize;
 use tokio::sync::oneshot;
 use tokio::task::{JoinHandle, LocalSet};
-use tokio_util::sync::CancellationToken;
 
 use crate::config::get_user_state_root;
 use crate::core::agent_session::{
@@ -799,7 +799,7 @@ async fn rebind_session(state: &Arc<RpcState>) -> Result<(), JsString> {
     let backpressure_state = Arc::downgrade(state);
     let id = session
         .agent()
-        .subscribe(Arc::new(move |_event: AgentEvent, _signal: CancellationToken| {
+        .subscribe(Arc::new(move |_event: AgentEvent, _signal: AbortSignal| {
             let backpressure_state = backpressure_state.clone();
             Box::pin(async move {
                 let _ = backpressure_state;
@@ -1156,7 +1156,7 @@ where
         Some(opts) => (opts.signal, opts.timeout),
         None => (None, None),
     };
-    if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+    if signal.as_ref().is_some_and(AbortSignal::aborted) {
         return default;
     }
 
@@ -1180,7 +1180,7 @@ where
 
 async fn await_dialog(
     receiver: oneshot::Receiver<RpcExtensionUiResponse>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     timeout: Option<f64>,
 ) -> Option<RpcExtensionUiResponse> {
     let timeout = timeout
@@ -1189,12 +1189,12 @@ async fn await_dialog(
     match (signal, timeout) {
         (Some(signal), Some(timeout)) => tokio::select! {
             response = receiver => response.ok(),
-            () = signal.cancelled() => None,
+            _ = signal.wait() => None,
             () = tokio::time::sleep(timeout) => None,
         },
         (Some(signal), None) => tokio::select! {
             response = receiver => response.ok(),
-            () = signal.cancelled() => None,
+            _ = signal.wait() => None,
         },
         (None, Some(timeout)) => tokio::select! {
             response = receiver => response.ok(),
@@ -1286,8 +1286,9 @@ mod tests {
         let emit = move |value: &JsValue| {
             let _ = sender.send(value.clone());
         };
-        let signal = CancellationToken::new();
-        signal.cancel();
+        let controller = pi_js_compat::abort::AbortController::new();
+        let signal = controller.signal();
+        controller.abort(None);
         let options = ExtensionUiDialogOptions {
             signal: Some(signal),
             ..ExtensionUiDialogOptions::default()
@@ -1305,7 +1306,8 @@ mod tests {
         let emit = move |value: &JsValue| {
             let _ = sender.send(value.clone());
         };
-        let signal = CancellationToken::new();
+        let controller = pi_js_compat::abort::AbortController::new();
+        let signal = controller.signal();
         let options = ExtensionUiDialogOptions {
             signal: Some(signal.clone()),
             ..ExtensionUiDialogOptions::default()
@@ -1320,7 +1322,7 @@ mod tests {
         );
         let resolver = async {
             let _request = receiver.recv().await.expect("request line");
-            signal.cancel();
+            controller.abort(None);
         };
         let (result, ()) = tokio::join!(promise, resolver);
         assert_eq!(result, "default");

@@ -14,8 +14,8 @@ use pi_coding_agent::utils::version_check::{
     compare_package_versions, format_version_check_error, get_latest_pi_release, get_latest_pi_version,
     is_newer_package_version,
 };
+use pi_js_compat::abort::AbortSignal;
 use serde_json::{Value, json};
-use tokio_util::sync::CancellationToken;
 
 use oracle::TsOracle;
 
@@ -190,7 +190,7 @@ impl Fetch for StubFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        _signal: Option<CancellationToken>,
+        _signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         self.requests.lock().unwrap().push(request);
         let next = self.responses.lock().unwrap().remove(0);

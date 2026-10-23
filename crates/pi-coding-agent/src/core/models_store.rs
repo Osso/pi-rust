@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex};
 use pi_ai::auth::types::{AuthError, AuthOperationOptions};
 use pi_ai::models_store::{ModelsStore, ModelsStoreEntry, ModelsStoreOperationOptions};
 use pi_ai::request::BoxFuture;
+use pi_js_compat::abort::AbortSignal;
 use serde_json::{Map, Value};
-use tokio_util::sync::CancellationToken;
 
 use crate::config::get_agent_dir;
 use crate::core::auth_storage::{AsyncLockOperation, AuthStorageBackend, FileAuthStorageBackend, StorageError};
@@ -43,7 +43,7 @@ impl ModelsStore for InMemoryCodingAgentModelsStore {
     ) -> BoxFuture<'_, Result<Option<ModelsStoreEntry>, AuthError>> {
         let provider_id = provider_id.to_owned();
         Box::pin(async move {
-            if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+            if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
                 return Err(AuthError::Aborted);
             }
             Ok(lock(&self.entries).get(&provider_id).cloned())
@@ -58,7 +58,7 @@ impl ModelsStore for InMemoryCodingAgentModelsStore {
     ) -> BoxFuture<'_, Result<(), AuthError>> {
         let provider_id = provider_id.to_owned();
         Box::pin(async move {
-            if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+            if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
                 return Err(AuthError::Aborted);
             }
             lock(&self.entries).insert(provider_id, entry);
@@ -69,7 +69,7 @@ impl ModelsStore for InMemoryCodingAgentModelsStore {
     fn delete(&self, provider_id: &str, options: ModelsStoreOperationOptions) -> BoxFuture<'_, Result<(), AuthError>> {
         let provider_id = provider_id.to_owned();
         Box::pin(async move {
-            if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+            if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
                 return Err(AuthError::Aborted);
             }
             lock(&self.entries).remove(&provider_id);
@@ -115,7 +115,7 @@ fn parse_stored_models(content: Option<&str>) -> Result<StoredModels, StorageErr
 }
 
 struct Reload {
-    signal: CancellationToken,
+    signal: pi_js_compat::abort::AbortController,
     readers: AtomicUsize,
     outcome: Arc<Mutex<Option<Result<StoredModels, StorageError>>>>,
     notify: Arc<tokio::sync::Notify>,
@@ -174,7 +174,7 @@ impl FileModelsStore {
     }
 
     async fn read_latest(&self, options: ModelsStoreOperationOptions) -> Result<StoredModels, StorageError> {
-        if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+        if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
             return Err(StorageError::new("The operation was aborted"));
         }
         let revision = self.current_revision();
@@ -190,7 +190,7 @@ impl FileModelsStore {
                 Some(reload) => Arc::clone(reload),
                 None => {
                     let reload = Arc::new(Reload {
-                        signal: CancellationToken::new(),
+                        signal: pi_js_compat::abort::AbortController::new(),
                         readers: AtomicUsize::new(0),
                         outcome: Arc::new(Mutex::new(None)),
                         notify: Arc::new(tokio::sync::Notify::new()),
@@ -212,7 +212,7 @@ impl FileModelsStore {
                 .is_some_and(|current| Arc::ptr_eq(current, &reload))
             {
                 state.reload = None;
-                reload.signal.cancel();
+                reload.signal.abort(None);
             }
         }
         outcome
@@ -223,7 +223,7 @@ impl FileModelsStore {
         let path = self.path.clone();
         let storage = Arc::clone(&self.storage);
         let reload = Arc::clone(reload);
-        let signal = reload.signal.clone();
+        let signal = reload.signal.signal();
         let outcome_state = Arc::clone(&state);
         tokio::spawn(async move {
             let outcome = storage
@@ -283,10 +283,7 @@ impl FileModelsStore {
     }
 }
 
-async fn wait_for_reload(
-    reload: &Arc<Reload>,
-    signal: Option<&CancellationToken>,
-) -> Result<StoredModels, StorageError> {
+async fn wait_for_reload(reload: &Arc<Reload>, signal: Option<&AbortSignal>) -> Result<StoredModels, StorageError> {
     loop {
         if let Some(outcome) = lock(&reload.outcome).clone() {
             return outcome;
@@ -295,7 +292,7 @@ async fn wait_for_reload(
         if let Some(signal) = signal {
             tokio::select! {
                 () = notified => {}
-                () = signal.cancelled() => return Err(StorageError::new("The operation was aborted")),
+                _ = signal.wait() => return Err(StorageError::new("The operation was aborted")),
             }
         } else {
             notified.await;
@@ -315,7 +312,7 @@ impl ModelsStore for FileModelsStore {
                 .read_latest(options.clone())
                 .await
                 .map_err(|error| AuthError::failed(error.to_string()))?;
-            if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+            if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
                 return Err(AuthError::Aborted);
             }
             data.get(&provider_id)

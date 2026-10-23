@@ -3,9 +3,9 @@
 use pi_ai::auth::types::AuthOperationOptions;
 use pi_ai::request::BoxFuture;
 use pi_ai::types::Model;
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::JsString;
 use pi_tui::fuzzy::fuzzy_filter;
-use tokio_util::sync::CancellationToken;
 
 use crate::core::auth_guidance::format_no_models_available_message;
 use crate::core::model_runtime::ModelRuntime;
@@ -44,7 +44,7 @@ pub struct ListModelsOutput {
 pub async fn list_models(
     runtime: &dyn ListModelsRuntime,
     search_pattern: Option<&str>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> Result<ListModelsOutput, JsString> {
     let warning = runtime
         .get_error()

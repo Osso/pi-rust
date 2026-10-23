@@ -6,10 +6,10 @@ use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_coding_agent::core::tools::tool_definition_wrapper::{
     ToolOutputSpill, cap_tool_result_output, create_tool_definition_from_agent_tool, wrap_agent_tool,
 };
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
 
 struct StubTool {
     parameters: Value,
@@ -37,7 +37,7 @@ impl AgentTool for StubTool {
         &self,
         _tool_call_id: String,
         _params: JsValue,
-        _signal: Option<CancellationToken>,
+        _signal: Option<AbortSignal>,
         on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
@@ -97,7 +97,7 @@ impl AgentTool for PrepareTool {
         &self,
         _tool_call_id: String,
         _params: JsValue,
-        _signal: Option<CancellationToken>,
+        _signal: Option<AbortSignal>,
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {

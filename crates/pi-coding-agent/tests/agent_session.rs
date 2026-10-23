@@ -915,7 +915,7 @@ impl pi_agent_core::agent::types::AgentTool for EchoTool {
         &self,
         _tool_call_id: String,
         params: JsValue,
-        _signal: Option<tokio_util::sync::CancellationToken>,
+        _signal: Option<pi_js_compat::abort::AbortSignal>,
         _on_update: pi_agent_core::agent::types::AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> pi_ai::request::BoxFuture<
@@ -1344,7 +1344,7 @@ impl pi_coding_agent::core::tools::bash::BashOperations for BlockingBashOperatio
     > {
         Box::pin(async move {
             if let Some(signal) = options.signal {
-                signal.cancelled().await;
+                signal.wait().await;
             }
             Err(pi_agent_core::agent::ToolError::new("aborted"))
         })
@@ -1562,7 +1562,7 @@ impl pi_agent_core::agent::types::AgentTool for ScreenshotTool {
         &self,
         _tool_call_id: String,
         _params: JsValue,
-        _signal: Option<tokio_util::sync::CancellationToken>,
+        _signal: Option<pi_js_compat::abort::AbortSignal>,
         _on_update: pi_agent_core::agent::types::AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> pi_ai::request::BoxFuture<
@@ -1605,7 +1605,7 @@ impl pi_agent_core::agent::types::AgentTool for PermissionEchoTool {
         &self,
         _tool_call_id: String,
         params: JsValue,
-        _signal: Option<tokio_util::sync::CancellationToken>,
+        _signal: Option<pi_js_compat::abort::AbortSignal>,
         _on_update: pi_agent_core::agent::types::AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> pi_ai::request::BoxFuture<
@@ -1661,7 +1661,7 @@ impl pi_agent_core::agent::types::AgentTool for ApprovalPromptTool {
         &self,
         _tool_call_id: String,
         params: JsValue,
-        _signal: Option<tokio_util::sync::CancellationToken>,
+        _signal: Option<pi_js_compat::abort::AbortSignal>,
         _on_update: pi_agent_core::agent::types::AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> pi_ai::request::BoxFuture<
@@ -2258,7 +2258,7 @@ impl pi_agent_core::agent::types::AgentTool for SpawnRecorderTool {
         &self,
         tool_call_id: String,
         params: JsValue,
-        _signal: Option<tokio_util::sync::CancellationToken>,
+        _signal: Option<pi_js_compat::abort::AbortSignal>,
         _on_update: pi_agent_core::agent::types::AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> pi_ai::request::BoxFuture<
@@ -2566,7 +2566,7 @@ impl pi_agent_core::agent::types::AgentTool for GatedTool {
         &self,
         _tool_call_id: String,
         _params: JsValue,
-        _signal: Option<tokio_util::sync::CancellationToken>,
+        _signal: Option<pi_js_compat::abort::AbortSignal>,
         _on_update: pi_agent_core::agent::types::AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> pi_ai::request::BoxFuture<

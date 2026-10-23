@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use pi_ai::http::ABORT_ERROR_MESSAGE;
 use pi_ai::request::{CallbackError, Fetch, HttpRequest, HttpResponse};
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 const RETRYABLE_STATUS_CODES: [u16; 7] = [408, 425, 429, 500, 502, 503, 504];
 const DEFAULT_MAX_RETRIES: usize = 2;
@@ -39,7 +39,7 @@ impl Default for FetchRetryOptions {
 pub async fn fetch_with_retry(
     fetch: &dyn Fetch,
     request: HttpRequest,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     options: &FetchRetryOptions,
 ) -> Result<HttpResponse, CallbackError> {
     let max_retries = options.max_retries.unwrap_or(DEFAULT_MAX_RETRIES);
@@ -73,21 +73,22 @@ pub async fn fetch_with_retry(
 /// `AbortSignal.any([init.signal, AbortSignal.timeout(timeoutMs)])`.
 pub(crate) struct RequestDeadline {
     /// Signal handed to `fetch`: cancelled by either the caller or the timeout.
-    signal: CancellationToken,
-    timed_out: CancellationToken,
+    signal: AbortSignal,
+    timed_out: AbortSignal,
     timer: tokio::task::JoinHandle<()>,
 }
 
 impl RequestDeadline {
-    pub(crate) fn start(parent: Option<&CancellationToken>, timeout_ms: Option<u64>) -> Option<Self> {
+    pub(crate) fn start(parent: Option<&AbortSignal>, timeout_ms: Option<u64>) -> Option<Self> {
         let timeout = Duration::from_millis(timeout_ms.filter(|ms| *ms > 0)?);
-        let signal = parent.map_or_else(CancellationToken::new, CancellationToken::child_token);
-        let timed_out = CancellationToken::new();
-        let (timer_signal, timer_flag) = (signal.clone(), timed_out.clone());
+        let timer_signal = pi_js_compat::abort::AbortController::new();
+        let signal = AbortSignal::any(&[parent.cloned().unwrap_or_default(), timer_signal.signal()]);
+        let timer_flag = pi_js_compat::abort::AbortController::new();
+        let timed_out = timer_flag.signal();
         let timer = tokio::spawn(async move {
             tokio::time::sleep(timeout).await;
-            timer_flag.cancel();
-            timer_signal.cancel();
+            timer_flag.abort(None);
+            timer_signal.abort(None);
         });
         Some(Self {
             signal,
@@ -105,13 +106,13 @@ impl Drop for RequestDeadline {
 
 /// `signal?.throwIfAborted()` with the reason of whichever source fired.
 pub(crate) fn throw_if_aborted(
-    parent: Option<&CancellationToken>,
+    parent: Option<&AbortSignal>,
     deadline: Option<&RequestDeadline>,
 ) -> Result<(), CallbackError> {
-    if parent.is_some_and(CancellationToken::is_cancelled) {
+    if parent.is_some_and(AbortSignal::aborted) {
         return Err(CallbackError::new(ABORT_ERROR_MESSAGE));
     }
-    if deadline.is_some_and(|deadline| deadline.timed_out.is_cancelled()) {
+    if deadline.is_some_and(|deadline| deadline.timed_out.aborted()) {
         return Err(CallbackError::new(TIMEOUT_ERROR_MESSAGE));
     }
     Ok(())

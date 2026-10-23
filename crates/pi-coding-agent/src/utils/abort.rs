@@ -1,6 +1,6 @@
 use std::future::Future;
 
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 /// An operation abandoned because its abort signal fired.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,7 +29,7 @@ impl std::fmt::Display for AbortError {
 impl std::error::Error for AbortError {}
 
 /// Normalize an optional public cancellation token.
-pub fn operation_signal(signal: Option<CancellationToken>) -> CancellationToken {
+pub fn operation_signal(signal: Option<AbortSignal>) -> AbortSignal {
     signal.unwrap_or_default()
 }
 
@@ -38,7 +38,7 @@ pub fn operation_signal(signal: Option<CancellationToken>) -> CancellationToken 
 ///
 /// Rust futures are lazy: when the signal is already cancelled the operation is
 /// dropped without being polled.
-pub async fn race_with_abort_signal<T, F>(operation: F, signal: Option<&CancellationToken>) -> Result<T, AbortError>
+pub async fn race_with_abort_signal<T, F>(operation: F, signal: Option<&AbortSignal>) -> Result<T, AbortError>
 where
     F: Future<Output = T>,
 {
@@ -46,13 +46,13 @@ where
         return Ok(operation.await);
     };
 
-    if signal.is_cancelled() {
+    if signal.aborted() {
         return Err(abort_error());
     }
 
     tokio::select! {
         value = operation => Ok(value),
-        () = signal.cancelled() => Err(abort_error()),
+        _ = signal.wait() => Err(abort_error()),
     }
 }
 

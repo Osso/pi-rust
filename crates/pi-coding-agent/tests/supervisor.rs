@@ -241,7 +241,7 @@ async fn completes_a_request_with_the_parsed_response() {
         .unwrap();
     assert_eq!(request.id, request_id);
 
-    let evaluate = Arc::new(|_prompt: JsString, _signal: tokio_util::sync::CancellationToken| {
+    let evaluate = Arc::new(|_prompt: JsString, _signal: pi_js_compat::abort::AbortSignal| {
         Box::pin(async { Ok(json!({"kind": "approve", "reason": "bounded"})) })
             as BoxFuture<'static, Result<Value, JsString>>
     });
@@ -274,7 +274,7 @@ async fn expired_requests_complete_with_the_deadline_error() {
         .unwrap();
     request.deadline_at = pi_coding_agent::utils::iso_time::format_iso_millis(now_millis() - 1);
 
-    let evaluate = Arc::new(|_prompt: JsString, _signal: tokio_util::sync::CancellationToken| {
+    let evaluate = Arc::new(|_prompt: JsString, _signal: pi_js_compat::abort::AbortSignal| {
         Box::pin(async {
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             Ok(json!({"kind": "complete", "reason": "late"}))

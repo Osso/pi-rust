@@ -61,7 +61,7 @@ struct WaitAgentsWakeWatcherOptions {
     control_db_path: JsString,
     recipient: Option<RuntimeCoordinationRecipient>,
     session_path: JsString,
-    signal: Option<tokio_util::sync::CancellationToken>,
+    signal: Option<pi_js_compat::abort::AbortSignal>,
     store: Arc<MultiAgentStore>,
     wait_wake_listeners: WaitWakeListeners,
 }
@@ -71,7 +71,7 @@ struct WaitAgentsWakeWatcher {
     control_db_path: JsString,
     recipient: Option<RuntimeCoordinationRecipient>,
     session_path: JsString,
-    signal: Option<tokio_util::sync::CancellationToken>,
+    signal: Option<pi_js_compat::abort::AbortSignal>,
     store: Arc<MultiAgentStore>,
     tracked_agent_ids: HashSet<JsString>,
     wait_wake_listeners: WaitWakeListeners,
@@ -92,7 +92,7 @@ impl WaitAgentsWakeWatcher {
     }
 
     async fn wait(self) -> WaitNotificationsWake {
-        if self.signal.as_ref().is_some_and(|signal| signal.is_cancelled()) {
+        if self.signal.as_ref().is_some_and(|signal| signal.aborted()) {
             return WaitNotificationsWake::Cancelled;
         }
         if self.tracked_agent_ids.is_empty() {
@@ -140,14 +140,16 @@ impl WaitAgentsWakeWatcher {
             tokio::pin!(notified);
             let cancelled = async {
                 match self.signal.as_ref() {
-                    Some(signal) => signal.cancelled().await,
+                    Some(signal) => {
+                        signal.wait().await;
+                    }
                     None => std::future::pending().await,
                 }
             };
             tokio::pin!(cancelled);
             tokio::select! {
                 () = &mut deadline_timer => return self.settle_for_terminal_agent_or_check_coordination().unwrap_or(WaitNotificationsWake::Timeout),
-                () = &mut cancelled => return WaitNotificationsWake::Cancelled,
+                _ = &mut cancelled => return WaitNotificationsWake::Cancelled,
                 () = &mut sleep => {
                     if let Some(wake) = self.on_poll() {
                         return wake;
@@ -281,7 +283,7 @@ mod tracked_read_failure_tests {
 pub async fn wait_notifications_runtime(
     store: &Arc<MultiAgentStore>,
     runtime_handles: &super::runtime::MultiAgentRuntimeHandles,
-    signal: Option<tokio_util::sync::CancellationToken>,
+    signal: Option<pi_js_compat::abort::AbortSignal>,
     ctx: Option<&ExtensionContext>,
 ) -> Result<WaitNotificationsWake, HandlerError> {
     if let Some(ctx) = ctx

@@ -282,7 +282,7 @@ impl Fetch for Download {
     fn fetch(
         &self,
         request: HttpRequest,
-        _signal: Option<tokio_util::sync::CancellationToken>,
+        _signal: Option<pi_js_compat::abort::AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         self.calls.lock().unwrap().push(json!([request.method, request.url]));
         Box::pin(async move {

@@ -1,12 +1,12 @@
 //! Frozen `host-relay-client.ts`: SSH stdio transport and bounded jittered reconnect.
 use super::host_relay::{HostRelayOptions, run_host_relay};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
-use tokio_util::sync::CancellationToken;
 
 /// `RelaySettings` from the `relay` settings object; text stays UTF-16 until the ssh argv boundary.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,7 +86,7 @@ async fn cleanup_child(child: &mut Child) -> Result<(), JsString> {
     }
     Ok(())
 }
-async fn connect_relay(path: &JsString, settings: &RelaySettings, signal: &CancellationToken) -> Result<(), JsString> {
+async fn connect_relay(path: &JsString, settings: &RelaySettings, signal: &AbortSignal) -> Result<(), JsString> {
     let mut child = Command::new("ssh")
         .args(ssh_arguments(settings).iter().map(encode_node_utf8))
         .stdin(Stdio::piped())
@@ -112,16 +112,13 @@ async fn connect_relay(path: &JsString, settings: &RelaySettings, signal: &Cance
     };
     cleanup_child(&mut child).await?;
     let tail = stderr.await.map_err(io_message)??;
-    check_ssh_status(status?, &tail, signal.is_cancelled())
+    check_ssh_status(status?, &tail, signal.aborted())
 }
 
-async fn wait_for_ssh_exit(
-    child: &mut Child,
-    signal: &CancellationToken,
-) -> Result<std::process::ExitStatus, JsString> {
+async fn wait_for_ssh_exit(child: &mut Child, signal: &AbortSignal) -> Result<std::process::ExitStatus, JsString> {
     tokio::select! {
         biased;
-        _ = signal.cancelled() => { terminate(child)?; child.wait().await },
+        _ = signal.wait() => { terminate(child)?; child.wait().await },
         status = child.wait() => status,
     }
     .map_err(io_message)
@@ -142,16 +139,16 @@ fn check_ssh_status(status: std::process::ExitStatus, stderr: &JsString, cancell
 pub async fn run_ssh_relay_client(
     path: &JsString,
     settings: &RelaySettings,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<(), String> {
     let mut failures = 0u32;
-    while !signal.is_cancelled() {
+    while !signal.aborted() {
         let started = tokio::time::Instant::now();
         let result = match validate_peer(&settings.peer) {
             Ok(()) => connect_relay(path, settings, &signal).await,
             Err(e) => Err(e),
         };
-        if signal.is_cancelled() {
+        if signal.aborted() {
             break;
         }
         match result {
@@ -171,7 +168,7 @@ pub async fn run_ssh_relay_client(
         }
         let delay = reconnect_delay_ms(failures, random_fraction()?);
         failures = failures.saturating_add(1);
-        tokio::select! { _ = signal.cancelled() => break, _ = tokio::time::sleep(Duration::from_millis(delay)) => {} }
+        tokio::select! { _ = signal.wait() => break, _ = tokio::time::sleep(Duration::from_millis(delay)) => {} }
     }
     Ok(())
 }

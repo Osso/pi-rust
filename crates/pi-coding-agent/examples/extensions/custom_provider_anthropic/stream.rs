@@ -35,7 +35,7 @@ pub(super) fn start(
             for block in output["content"].as_array_mut().expect("content") {
                 block.as_object_mut().expect("block").shift_remove("index");
             }
-            let reason = if options.stream.request.signal.as_ref().is_some_and(|s| s.is_cancelled()) {
+            let reason = if options.stream.request.signal.as_ref().is_some_and(|s| s.aborted()) {
                 "aborted"
             } else {
                 "error"
@@ -145,7 +145,7 @@ async fn drive(
             _ => {}
         }
     }
-    if options.stream.request.signal.as_ref().is_some_and(|s| s.is_cancelled()) {
+    if options.stream.request.signal.as_ref().is_some_and(|s| s.aborted()) {
         return Err("Request was aborted".into());
     }
     match output["stopReason"].as_string() {

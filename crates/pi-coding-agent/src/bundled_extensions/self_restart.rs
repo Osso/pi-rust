@@ -44,7 +44,7 @@ pub fn self_restart_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         execute: Arc::new(
             |_tool_call_id: String,
              _params: pi_js_compat::js_json::JsValue,
-             _signal: Option<tokio_util::sync::CancellationToken>,
+             _signal: Option<pi_js_compat::abort::AbortSignal>,
              _on_update: Option<AgentToolUpdateCallback>,
              ctx: ExtensionContext| {
                 Box::pin(async move {

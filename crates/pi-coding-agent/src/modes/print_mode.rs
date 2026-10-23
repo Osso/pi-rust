@@ -7,10 +7,10 @@ use std::sync::{Arc, Mutex};
 
 use pi_agent_core::agent::types::{AgentEvent, AgentMessage};
 use pi_ai::types::{AssistantContent, AssistantMessage, ImageContent, StopReason};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use tokio::task::JoinHandle;
-use tokio_util::sync::CancellationToken;
 
 use crate::core::agent_session::{AgentSession, AgentSessionEvent, ExtensionBindings, PromptOptions};
 use crate::core::agent_session_runtime::AgentSessionRuntime;
@@ -298,7 +298,7 @@ async fn rebind_session(state: &Arc<PrintState>) -> Result<(), JsString> {
     if json_mode {
         let id = session
             .agent()
-            .subscribe(Arc::new(move |_event: AgentEvent, _signal: CancellationToken| {
+            .subscribe(Arc::new(move |_event: AgentEvent, _signal: AbortSignal| {
                 Box::pin(async move {
                     wait_for_raw_stdout_backpressure().await;
                     Ok(())

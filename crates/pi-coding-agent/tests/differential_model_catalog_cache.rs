@@ -4,10 +4,10 @@ mod oracle;
 
 use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
 use pi_coding_agent::core::model_catalog_cache::{EnsureModelCatalogOptions, ModelCatalogCache};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, JsValue};
 use serde_json::{Value, json};
 use std::sync::Arc;
-use tokio_util::sync::CancellationToken;
 
 struct Body(Option<Vec<u8>>);
 impl HttpBody for Body {
@@ -20,7 +20,7 @@ impl Fetch for ScriptedFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         assert_eq!(request.url, "https://openrouter.ai/api/v1/models");
         assert!(signal.is_some());
@@ -124,11 +124,7 @@ struct ResponseFetch {
     retry_after: Option<String>,
 }
 impl Fetch for ResponseFetch {
-    fn fetch(
-        &self,
-        _: HttpRequest,
-        _: Option<CancellationToken>,
-    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+    fn fetch(&self, _: HttpRequest, _: Option<AbortSignal>) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         let status = self.status;
         let body = self.body.clone();
         let headers = self
@@ -214,11 +210,7 @@ async fn cached_unknown_properties_and_unpaired_units_remain_native() {
 
 struct FailureFetch(CallbackError);
 impl Fetch for FailureFetch {
-    fn fetch(
-        &self,
-        _: HttpRequest,
-        _: Option<CancellationToken>,
-    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+    fn fetch(&self, _: HttpRequest, _: Option<AbortSignal>) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         let error = self.0.clone();
         Box::pin(async move { Err(error) })
     }
@@ -258,11 +250,7 @@ struct SequenceFetch {
     body: Vec<u8>,
 }
 impl Fetch for SequenceFetch {
-    fn fetch(
-        &self,
-        _: HttpRequest,
-        signal: Option<CancellationToken>,
-    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+    fn fetch(&self, _: HttpRequest, signal: Option<AbortSignal>) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         assert!(signal.is_some());
         let call = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let status = self.statuses[call.min(self.statuses.len() - 1)];

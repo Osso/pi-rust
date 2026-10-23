@@ -1259,7 +1259,8 @@ async fn wait_slice_uses_latest_model_request_and_does_not_cancel_active_agents(
     let mut end: pi_coding_agent::core::extensions::types::ExtensionEvent =
         pi_js_compat::js_json::from_value(&json!({"type":"agent_end","messages":[]})).unwrap();
     runner.emit(&mut end).await;
-    let signal = tokio_util::sync::CancellationToken::new();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
     let waiting = tokio::spawn({
         let store = store.clone();
         let handles = handles.clone();
@@ -1270,6 +1271,6 @@ async fn wait_slice_uses_latest_model_request_and_does_not_cancel_active_agents(
     tokio::task::yield_now().await;
     tokio::time::advance(std::time::Duration::from_secs(30 * 60)).await;
     assert!(!waiting.is_finished(), "idle wait has no foreground slice deadline");
-    signal.cancel();
+    controller_signal.abort(None);
     waiting.await.unwrap();
 }

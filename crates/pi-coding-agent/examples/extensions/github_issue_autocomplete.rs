@@ -209,7 +209,7 @@ impl AutocompleteProvider for Provider {
                     .clone()
                     .await
                     .expect("GitHub issue request execution failed");
-                if !options.signal.is_cancelled()
+                if !options.signal.aborted()
                     && let Some(issues) = issues
                 {
                     let items = filter(&issues, &query);

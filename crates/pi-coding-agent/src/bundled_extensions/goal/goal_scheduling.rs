@@ -7,9 +7,9 @@ use std::time::Duration;
 use pi_agent_core::AgentToolResult;
 use pi_agent_core::agent::types::AgentMessage;
 use pi_ai::types::TextOrImageContent;
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{self, JsObject as Map, JsString, JsValue as Value};
 use tokio::task::JoinHandle;
-use tokio_util::sync::CancellationToken;
 
 use crate::core::extensions::types::{BoxFuture, ExtensionApi, ExtensionContext, HandlerError};
 use crate::core::session_manager::lock_session_manager;
@@ -51,7 +51,7 @@ struct GoalSchedulerInner<TGoal, TDecision> {
     options: GoalSchedulingOptions<TGoal, TDecision>,
     pending_decision_timers: Mutex<HashMap<JsString, JoinHandle<()>>>,
     cancellation_epochs: Mutex<HashMap<JsString, i64>>,
-    wait_controllers: Mutex<HashMap<JsString, CancellationToken>>,
+    wait_controllers: Mutex<HashMap<JsString, pi_js_compat::abort::AbortController>>,
     wait_review_timers: Mutex<HashMap<JsString, JoinHandle<()>>>,
 }
 
@@ -177,7 +177,7 @@ where
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         for controller in controllers.values() {
-            controller.cancel();
+            controller.abort(None);
         }
         controllers.clear();
     }
@@ -280,7 +280,7 @@ where
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(session_id);
         if let Some(controller) = controller {
-            controller.cancel();
+            controller.abort(None);
         }
     }
 
@@ -430,7 +430,7 @@ where
             return;
         };
         self.clear_wait(&session_id);
-        let controller = CancellationToken::new();
+        let controller = pi_js_compat::abort::AbortController::new();
         self.inner
             .wait_controllers
             .lock()
@@ -440,9 +440,9 @@ where
         let on_review_scheduled = callbacks.on_review_scheduled.clone();
         tokio::spawn(async move {
             let result = scheduler
-                .wait_for_agent_wake(ctx.clone(), goal.clone(), terminal_turn.clone(), controller.clone())
+                .wait_for_agent_wake(ctx.clone(), goal.clone(), terminal_turn.clone(), controller.signal())
                 .await;
-            if controller.is_cancelled() {
+            if controller.signal().aborted() {
                 return;
             }
             if let Err(error) = result {
@@ -463,7 +463,7 @@ where
         ctx: ExtensionContext,
         goal: TGoal,
         terminal_turn: TerminalTurn,
-        controller: CancellationToken,
+        controller: AbortSignal,
     ) -> Result<(), HandlerError> {
         let wait_result = self
             .inner
@@ -476,7 +476,7 @@ where
                 None,
             )
             .await?;
-        if controller.is_cancelled() {
+        if controller.aborted() {
             return Ok(());
         }
         if let Some(wait_error) = tool_error(&wait_result, "wait_agent") {

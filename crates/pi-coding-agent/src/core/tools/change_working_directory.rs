@@ -10,10 +10,10 @@ use pi_agent_core::{
     AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsObject as Map, JsValue as Value, encode_node_utf8};
 use pi_tui::tui::ComponentRef;
 use serde_json::Value as SchemaValue;
-use tokio_util::sync::CancellationToken;
 
 use super::result::terminating_text_result;
 use super::resume_session::{find_session_file_by_id, resolve_session_path};
@@ -221,7 +221,7 @@ impl ContextTool<ExtensionContext> for ChangeWorkingDirectoryTool {
         &self,
         tool_call_id: String,
         params: JsValue,
-        _signal: Option<CancellationToken>,
+        _signal: Option<AbortSignal>,
         _on_update: Option<AgentToolUpdateCallback>,
         context: ExtensionContext,
         _execution: Option<AgentToolExecutionContext>,

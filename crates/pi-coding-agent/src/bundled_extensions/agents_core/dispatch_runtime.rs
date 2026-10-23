@@ -185,7 +185,7 @@ fn reserve_attached_runtime(
     match acquired {
         crate::core::session_control_db::AcquireAttachedRuntimeOwnershipResult::Ok { agent, ownership } => {
             Ok(Some(Arc::new(OwnedAgentRuntime {
-                abort_controller: tokio_util::sync::CancellationToken::new(),
+                abort_controller: pi_js_compat::abort::AbortController::default(),
                 coordinator,
                 lifecycle: OwnedLifecycleCommandInput {
                     agent: *agent,
@@ -388,7 +388,7 @@ async fn create_reserved_child_session(
             context: SpawnContext::Fresh,
             ctx: input.ctx.clone(),
             prompt: input.prompt.clone(),
-            signal: Some(input.reserved_runtime.abort_controller.clone()),
+            signal: Some(input.reserved_runtime.abort_controller.signal()),
         })
         .await
     {
@@ -496,20 +496,20 @@ async fn create_active_child_session(
             context: SpawnContext::Fresh,
             ctx: input.ctx.clone(),
             prompt: input.prompt.clone(),
-            signal: Some(input.reserved_runtime.abort_controller.clone()),
+            signal: Some(input.reserved_runtime.abort_controller.signal()),
         })
         .await
 }
 
 struct LeaseLossAbort {
     task: tokio::task::JoinHandle<()>,
-    token: tokio_util::sync::CancellationToken,
+    token: pi_js_compat::abort::AbortSignal,
     session: Arc<dyn ChildAgentSession>,
 }
 
 impl LeaseLossAbort {
     fn abort_if_lease_already_lost(&self) {
-        if self.token.is_cancelled() {
+        if self.token.aborted() {
             self.session.abort();
         }
     }
@@ -525,11 +525,11 @@ fn register_lease_loss_abort(
     input: &RunAgentSessionInput,
     active_session: Arc<dyn ChildAgentSession>,
 ) -> LeaseLossAbort {
-    let token = input.reserved_runtime.abort_controller.clone();
+    let token = input.reserved_runtime.abort_controller.signal();
     let task_token = token.clone();
     let task_session = Arc::clone(&active_session);
     let task = tokio::spawn(async move {
-        task_token.cancelled().await;
+        task_token.wait().await;
         task_session.abort();
     });
     LeaseLossAbort {
@@ -563,7 +563,7 @@ fn register_store_abort_handler(input: &RunAgentSessionInput) -> crate::core::mu
     input
         .store
         .register_agent_abort_handler(&input.running_agent.id, move || {
-            abort_controller.cancel();
+            abort_controller.abort(None);
             if let Some(handles) = handles.as_ref() {
                 handles.lock().expect("handles").remove(&agent_id);
             }
@@ -592,7 +592,7 @@ async fn prompt_child_and_wait_for_descendants(
     wait_for_active_descendants(
         &input.store,
         &input.running_agent.id,
-        Some(&input.reserved_runtime.abort_controller),
+        Some(&input.reserved_runtime.abort_controller.signal()),
     )
     .await;
     Ok(())
@@ -698,7 +698,7 @@ async fn fail_child_session(
 async fn wait_for_active_descendants(
     store: &MultiAgentStore,
     agent_id: &JsString,
-    signal: Option<&tokio_util::sync::CancellationToken>,
+    signal: Option<&pi_js_compat::abort::AbortSignal>,
 ) {
     let has_active_descendants = || {
         store
@@ -706,7 +706,7 @@ async fn wait_for_active_descendants(
             .iter()
             .any(|agent| is_active_lifecycle(agent.lifecycle))
     };
-    if !has_active_descendants() || signal.is_some_and(|signal| signal.is_cancelled()) {
+    if !has_active_descendants() || signal.is_some_and(|signal| signal.aborted()) {
         return;
     }
     let notify = Arc::new(tokio::sync::Notify::new());
@@ -715,20 +715,22 @@ async fn wait_for_active_descendants(
         listener.notify_waiters();
     });
     loop {
-        if !has_active_descendants() || signal.is_some_and(|signal| signal.is_cancelled()) {
+        if !has_active_descendants() || signal.is_some_and(|signal| signal.aborted()) {
             break;
         }
         let notified = notify.notified();
         tokio::pin!(notified);
         let cancelled = async {
             match signal {
-                Some(signal) => signal.cancelled().await,
+                Some(signal) => {
+                    signal.wait().await;
+                }
                 None => std::future::pending().await,
             }
         };
         tokio::pin!(cancelled);
         tokio::select! {
-            () = &mut cancelled => break,
+            _ = &mut cancelled => break,
             () = &mut notified => {}
         }
     }

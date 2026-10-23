@@ -376,7 +376,7 @@ async fn aborts_active_at_autocomplete_when_typing_continues() {
                     items: vec![AutocompleteItem::new("@main.ts", "main.ts")],
                     prefix: JsString::from("@main"),
                 }),
-                _ = signal.cancelled() => {
+                _ = signal.wait() => {
                     counter.set(counter.get() + 1);
                     None
                 }

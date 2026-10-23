@@ -376,7 +376,7 @@ async fn post_openai_compact(
     model: &Model,
     api_key: Option<&JsString>,
     headers: Option<&ProviderHeaders>,
-    signal: Option<tokio_util::sync::CancellationToken>,
+    signal: Option<pi_js_compat::abort::AbortSignal>,
 ) -> Result<Value, HandlerError> {
     let request_headers = build_openai_request_headers(model, api_key, headers)?;
     let url = pi_ai::request::request_url(endpoint).map_err(|error| HandlerError::new(error.message))?;

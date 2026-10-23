@@ -23,7 +23,11 @@ Implementation: `pi-js-compat/src/{abort,node_error}.rs`. `wait` uses Notify wit
 
 Core Agent/AgentTool/StreamFn/harness/env/compaction signal fields and all core fixtures now use the shared carrier; Agent and harness run owners use controllers. The in-flight FIFO file test `abort_reasons::in_flight_file_abort_preserves_supplied_reason_in_nested_node_cause` compares null/false/raw UTF-16/native Error reasons to frozen Node env, including ABORT_ERR nested cause. Pre-aborted env operations deliberately retain the frozen generic returned error without a native cause. Core no longer depends on tokio-util.
 
-At this ordered checkpoint, coding callers and pi-ai integration fixtures still require migration. `cargo test -p pi-ai --lib --no-run` proves the production boundary compiles; it does not prove old callers compile or reason semantics.
+Coding production APIs, controller owners, tools/session/auth/management/codex extension callers and coding fixtures are mechanically migrated. Old timeout/error synthesis and asynchronous combine semantics remain explicitly unproven; lanes219/221 own their reason audits. Source contains no production CancellationToken, and the direct tokio-util dependencies are removed.
+
+Mechanical cross-lane sites: TUI `autocomplete.rs`, `components/{editor,cancellable_loader}.rs`, `tests/editor_autocomplete.rs`; coding interactive `interactive_mode.rs`, `components/{bordered_loader,login_dialog,model_selector}.rs`; examples `extensions/{custom_provider_anthropic,custom_provider_gitlab_duo,handoff,qna,ssh,timed_confirm}.rs`, `extensions/custom_provider_anthropic/stream.rs`, `extensions/subagent/index.rs`; orchestrator Fetch fixtures `tests/{radius,radius_body}.rs`. These changes update only carrier types, ownership and wait/aborted calls, not their frozen semantic classifications.
+
+At this ordered checkpoint, pi-ai integration fixtures still require lane219's migration. `cargo test -p pi-ai --lib --no-run` proves the production boundary compiles; it does not prove old callers compile or reason semantics.
 
 ## Consumer audit and remaining work
 

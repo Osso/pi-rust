@@ -12,9 +12,9 @@ use std::pin::Pin;
 use std::process::Stdio;
 use std::rc::Rc;
 
+use pi_js_compat::abort::AbortSignal;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
-use tokio_util::sync::CancellationToken;
 
 use crate::fuzzy::fuzzy_filter;
 use pi_js_compat::collator::locale_compare_utf16;
@@ -87,7 +87,7 @@ pub struct AutocompleteSuggestions {
 #[derive(Default)]
 pub struct SuggestionsOptions<'a> {
     /// Cancellation signal, mapping the TypeScript `AbortSignal`.
-    pub signal: Option<&'a CancellationToken>,
+    pub signal: Option<&'a AbortSignal>,
     /// Force path extraction even when the text does not look path-like.
     pub force: bool,
 }
@@ -106,7 +106,7 @@ pub type AutocompleteFuture = Pin<Box<dyn Future<Output = Option<AutocompleteSug
 /// Options passed to a provider request.
 #[derive(Clone, Debug)]
 pub struct AutocompleteOptions {
-    pub signal: CancellationToken,
+    pub signal: AbortSignal,
     pub force: bool,
 }
 
@@ -452,12 +452,12 @@ impl CombinedAutocompleteProvider {
         &self,
         query: &JsString,
         is_quoted_prefix: bool,
-        signal: Option<&CancellationToken>,
+        signal: Option<&AbortSignal>,
     ) -> Vec<AutocompleteItem> {
         let Some(fd_path) = &self.fd_path else {
             return Vec::new();
         };
-        if signal.is_some_and(CancellationToken::is_cancelled) {
+        if signal.is_some_and(AbortSignal::aborted) {
             return Vec::new();
         }
 
@@ -469,7 +469,7 @@ impl CombinedAutocompleteProvider {
             .as_ref()
             .map_or_else(|| query.clone(), |scoped| scoped.query.clone());
         let entries = walk_directory_with_fd(&fd_base_dir, fd_path, &fd_query, 100, signal).await;
-        if signal.is_some_and(CancellationToken::is_cancelled) {
+        if signal.is_some_and(AbortSignal::aborted) {
             return Vec::new();
         }
 
@@ -920,7 +920,7 @@ async fn walk_directory_with_fd(
     fd_path: &JsString,
     query: &JsString,
     max_results: usize,
-    signal: Option<&CancellationToken>,
+    signal: Option<&AbortSignal>,
 ) -> Vec<FdEntry> {
     let mut args: Vec<JsString> = vec![
         JsString::from("--base-directory"),
@@ -954,7 +954,7 @@ async fn walk_directory_with_fd(
         args.push(build_fd_path_query(query));
     }
 
-    if signal.is_some_and(CancellationToken::is_cancelled) {
+    if signal.is_some_and(AbortSignal::aborted) {
         return Vec::new();
     }
 
@@ -980,7 +980,7 @@ async fn walk_directory_with_fd(
     let status = match signal {
         Some(token) => tokio::select! {
             status = child.wait() => status,
-            _ = token.cancelled() => {
+            _ = token.wait() => {
                 let _ = child.start_kill();
                 let _ = child.wait().await;
                 let _ = reader.await;

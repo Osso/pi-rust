@@ -11,6 +11,7 @@ use crate::utils::paths::node_join;
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::collator::locale_compare_utf16;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
@@ -19,7 +20,6 @@ use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
 use serde_json::Value as SchemaValue;
 use tokio::io::AsyncReadExt;
-use tokio_util::sync::CancellationToken;
 
 use super::path_utils::{path_exists, resolve_to_cwd};
 use super::render_utils::{get_text_output, render_tool_path, str_value};
@@ -158,7 +158,7 @@ impl AgentTool for LsTool {
         &self,
         _tool_call_id: String,
         params: JsValue,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
@@ -184,7 +184,7 @@ async fn execute_ls(
     operations: Arc<dyn LsOperations>,
     can_use_rtk: bool,
     params: JsValue,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> Result<AgentToolResult, ToolError> {
     check_aborted(signal.as_ref())?;
     let path = params.get("path").and_then(Value::as_string);
@@ -200,7 +200,7 @@ async fn list_with_operations(
     cwd: &JsString,
     path: Option<&JsString>,
     limit: Option<usize>,
-    signal: Option<&CancellationToken>,
+    signal: Option<&AbortSignal>,
 ) -> Result<AgentToolResult, ToolError> {
     let dir_path = resolve_to_cwd(path.cloned().unwrap_or_else(|| ".".into()), cwd)
         .map_err(|error| ToolError::new(error.message().clone()))?;
@@ -295,7 +295,7 @@ async fn execute_rtk_ls(
     cwd: &JsString,
     path: Option<&JsString>,
     limit: Option<usize>,
-    signal: Option<&CancellationToken>,
+    signal: Option<&AbortSignal>,
 ) -> Result<Option<AgentToolResult>, ToolError> {
     match run_rtk_ls(cwd, &path.cloned().unwrap_or_else(|| ".".into()), signal).await {
         Ok(stdout) => Ok(Some(format_rtk_ls_output(&stdout, limit))),
@@ -329,7 +329,7 @@ fn format_rtk_ls_error(message: &JsString, stdout: &str, stderr: &str) -> JsStri
     }
 }
 
-async fn run_rtk_ls(cwd: &JsString, path: &JsString, signal: Option<&CancellationToken>) -> Result<String, RtkError> {
+async fn run_rtk_ls(cwd: &JsString, path: &JsString, signal: Option<&AbortSignal>) -> Result<String, RtkError> {
     let mut command = tokio::process::Command::new("rtk");
     command
         .arg("ls")
@@ -399,14 +399,14 @@ async fn run_rtk_ls(cwd: &JsString, path: &JsString, signal: Option<&Cancellatio
 
 async fn wait_with_cancellation(
     child: &mut tokio::process::Child,
-    signal: Option<&CancellationToken>,
+    signal: Option<&AbortSignal>,
 ) -> io::Result<Option<std::process::ExitStatus>> {
     let Some(signal) = signal else {
         return child.wait().await.map(Some);
     };
     tokio::select! {
         status = child.wait() => status.map(Some),
-        () = signal.cancelled() => {
+        _ = signal.wait() => {
             let _ = child.kill().await;
             Ok(None)
         }
@@ -461,8 +461,8 @@ fn format_rtk_ls_output(stdout: &str, limit: Option<usize>) -> AgentToolResult {
     )
 }
 
-fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
-    if signal.is_some_and(CancellationToken::is_cancelled) {
+fn check_aborted(signal: Option<&AbortSignal>) -> Result<(), ToolError> {
+    if signal.is_some_and(AbortSignal::aborted) {
         return Err(ToolError::new("Operation aborted"));
     }
     Ok(())

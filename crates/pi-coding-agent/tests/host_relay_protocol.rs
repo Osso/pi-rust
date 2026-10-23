@@ -2,9 +2,9 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 use pi_coding_agent::core::host_relay::{HostRelayOptions, run_host_relay};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
-use tokio_util::sync::CancellationToken;
 #[derive(Clone, Default)]
 struct RecordedOutput(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
 impl tokio::io::AsyncWrite for RecordedOutput {
@@ -106,7 +106,7 @@ async fn validation_handshake_routes_and_acks_match_frozen() {
                 control_db_path: &JsString::from(rust.to_str().expect("utf-8 test path")),
                 host: Some(&JsString::from("fixture-local")),
                 poll_ms: Some(20),
-                signal: CancellationToken::new(),
+                signal: AbortSignal::default(),
             },
         )
         .await
@@ -139,7 +139,8 @@ async fn paired_streams_retry_lost_ack_without_resurrecting_deleted_mailbox() {
     enqueue_stored_runtime_mailbox_message(&a, &input).unwrap();
     let (left, right) = tokio::io::duplex(65536);
     let (_read, mut write) = tokio::io::split(right);
-    let stop = CancellationToken::new();
+    let controller_stop = pi_js_compat::abort::AbortController::new();
+    let stop = controller_stop.signal();
     let relay_db = JsString::from(&b);
     let relay_host = JsString::from("peer");
     let relay = run_host_relay(
@@ -175,7 +176,7 @@ async fn paired_streams_retry_lost_ack_without_resurrecting_deleted_mailbox() {
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
         assert!(list_runtime_mailbox_messages(&b).unwrap().is_empty());
         assert_eq!(list_runtime_mailbox_messages(&a).unwrap().len(), 1);
-        stop.cancel();
+        controller_stop.abort(None);
     };
     let (result, ()) = tokio::join!(relay, action);
     assert_eq!(result, Ok(()));
@@ -242,8 +243,9 @@ async fn incoming_mailbox_progresses_while_writer_is_blocked_and_queued_ack_drai
     let output = GateOutput::default();
     let writer = output.clone();
     let path = db.clone();
-    let signal = CancellationToken::new();
-    let stop = signal.clone();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
+    let controller_stop = controller_signal.clone();
     let relay = tokio::spawn(async move {
         run_host_relay(
             input,
@@ -267,7 +269,7 @@ async fn incoming_mailbox_progresses_while_writer_is_blocked_and_queued_ack_drai
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     }
     if count != 1 {
-        stop.cancel();
+        controller_stop.abort(None);
         output.open.store(true, std::sync::atomic::Ordering::SeqCst);
         output.waker.wake();
         let _ = relay.await;
@@ -315,7 +317,7 @@ async fn assert_surrogate_retry_matches_frozen(field: &str) {
             control_db_path: &JsString::from(rust.to_str().expect("utf-8 test path")),
             host: Some(&JsString::from("fixture-local")),
             poll_ms: Some(20),
-            signal: CancellationToken::new(),
+            signal: AbortSignal::default(),
         },
     )
     .await;
@@ -378,7 +380,7 @@ async fn eof_completes_without_drain_and_retains_queued_output() {
                 control_db_path: &JsString::from("/unused"),
                 host: Some(&JsString::from("fixture-local")),
                 poll_ms: Some(20),
-                signal: CancellationToken::new(),
+                signal: AbortSignal::default(),
             },
         ),
     )

@@ -53,7 +53,7 @@ impl Fetch for Fake {
     fn fetch(
         &self,
         request: HttpRequest,
-        _signal: Option<tokio_util::sync::CancellationToken>,
+        _signal: Option<pi_js_compat::abort::AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         Box::pin(async move {
             tokio::task::yield_now().await;
@@ -243,7 +243,7 @@ impl Fetch for ScriptedFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        _signal: Option<tokio_util::sync::CancellationToken>,
+        _signal: Option<pi_js_compat::abort::AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         Box::pin(async move {
             tokio::task::yield_now().await;

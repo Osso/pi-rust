@@ -19,12 +19,12 @@ use pi_ai::types::{
     AssistantMessageEvent, ConstrainedSampling, ImageContent, Model, ProviderHeaders, TextOrImageContent,
     ToolCallExecution, Usage,
 };
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use pi_tui::keybindings::KeyId;
 use pi_tui::tui::ComponentRef;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
 
 use crate::core::detached_job_runner::DetachedJobLifecycleController;
 use crate::core::event_bus::EventBus;
@@ -236,7 +236,7 @@ pub type ToolGateHandle = Arc<dyn ToolGate + Send + Sync>;
 /// `AbortSignal` replacement for dialog dismissal.
 #[derive(Debug, Clone, Default)]
 pub struct ExtensionUiDialogOptions {
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
     /// Timeout in milliseconds.
     pub timeout: Option<f64>,
     pub secret: Option<bool>,
@@ -877,7 +877,7 @@ pub struct ExtensionContextState {
     pub(super) is_idle_fn: Arc<dyn Fn() -> bool + Send + Sync>,
     pub(super) has_active_retry_fn: Arc<dyn Fn() -> bool + Send + Sync>,
     pub(super) is_project_trusted_fn: Arc<dyn Fn() -> bool + Send + Sync>,
-    pub(super) get_signal_fn: Arc<dyn Fn() -> Option<CancellationToken> + Send + Sync>,
+    pub(super) get_signal_fn: Arc<dyn Fn() -> Option<AbortSignal> + Send + Sync>,
     pub(super) abort_fn: Arc<dyn Fn() + Send + Sync>,
     pub(super) has_pending_messages_fn: Arc<dyn Fn() -> bool + Send + Sync>,
     pub(super) shutdown_handler: Arc<dyn Fn() + Send + Sync>,
@@ -1208,7 +1208,7 @@ impl ExtensionContext {
         self.callback(|state| Arc::clone(&state.is_project_trusted_fn))
     }
 
-    pub fn signal(&self) -> Result<Option<CancellationToken>, HandlerError> {
+    pub fn signal(&self) -> Result<Option<AbortSignal>, HandlerError> {
         self.callback(|state| Arc::clone(&state.get_signal_fn))
     }
 
@@ -1470,7 +1470,7 @@ pub type PrepareArguments = Arc<dyn Fn(&JsValue) -> Result<JsValue, HandlerError
 pub type PrepareExecution = Arc<
     dyn Fn(
             String,
-            Option<CancellationToken>,
+            Option<AbortSignal>,
             ExtensionContext,
         ) -> BoxFuture<'static, Result<Option<ToolCallExecution>, HandlerError>>
         + Send
@@ -1481,7 +1481,7 @@ pub type ToolExecute = Arc<
     dyn Fn(
             String,
             JsValue,
-            Option<CancellationToken>,
+            Option<AbortSignal>,
             Option<AgentToolUpdateCallback>,
             ExtensionContext,
         ) -> BoxFuture<'static, Result<AgentToolResult, HandlerError>>
@@ -1551,7 +1551,7 @@ pub trait ContextTool<TContext>: Send + Sync {
     fn prepare_execution(
         &self,
         _tool_call_id: String,
-        _signal: Option<CancellationToken>,
+        _signal: Option<AbortSignal>,
     ) -> BoxFuture<'static, Option<pi_ai::types::ToolCallExecution>> {
         Box::pin(async { None })
     }
@@ -1560,7 +1560,7 @@ pub trait ContextTool<TContext>: Send + Sync {
         &self,
         tool_call_id: String,
         params: JsValue,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
         on_update: Option<AgentToolUpdateCallback>,
         context: TContext,
         execution: Option<pi_agent_core::AgentToolExecutionContext>,
@@ -1753,7 +1753,7 @@ pub struct SessionBeforeCompactEvent {
     pub reason: CompactionReason,
     pub will_retry: bool,
     #[serde(skip)]
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1766,7 +1766,7 @@ pub struct CompactionEvent {
     pub reason: CompactionReason,
     pub will_retry: bool,
     #[serde(skip)]
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1831,7 +1831,7 @@ pub struct TreePreparation {
 pub struct SessionBeforeTreeEvent {
     pub preparation: TreePreparation,
     #[serde(skip)]
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2917,7 +2917,7 @@ pub type CallToolHandler = Arc<
     dyn Fn(
             String,
             JsValue,
-            Option<CancellationToken>,
+            Option<AbortSignal>,
             Option<String>,
         ) -> BoxFuture<'static, Result<AgentToolResult, HandlerError>>
         + Send
@@ -2961,7 +2961,7 @@ pub struct ExtensionContextActions {
     pub is_idle: Arc<dyn Fn() -> bool + Send + Sync>,
     pub has_active_retry: Arc<dyn Fn() -> bool + Send + Sync>,
     pub is_project_trusted: Arc<dyn Fn() -> bool + Send + Sync>,
-    pub get_signal: Arc<dyn Fn() -> Option<CancellationToken> + Send + Sync>,
+    pub get_signal: Arc<dyn Fn() -> Option<AbortSignal> + Send + Sync>,
     pub abort: Arc<dyn Fn() + Send + Sync>,
     pub has_pending_messages: Arc<dyn Fn() -> bool + Send + Sync>,
     pub shutdown: Arc<dyn Fn() + Send + Sync>,
@@ -3546,7 +3546,7 @@ impl ExtensionApi {
         &self,
         name: String,
         params: JsValue,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
         tool_call_id: Option<String>,
     ) -> BoxFuture<'static, Result<AgentToolResult, HandlerError>> {
         if let Err(error) = self.runtime.assert_active() {
@@ -3613,7 +3613,7 @@ impl ExtensionApi {
 /// working directory before calling it.
 #[derive(Debug, Clone, Default)]
 pub struct ExtensionExecOptions {
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
     pub timeout: Option<u64>,
     pub cwd: Option<JsString>,
 }

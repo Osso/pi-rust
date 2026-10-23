@@ -11,7 +11,7 @@ use pi_ai::auth::types::{
     AuthError, AuthOperationOptions, Credential, CredentialInfo, CredentialModifier, CredentialStore,
 };
 use pi_ai::request::BoxFuture;
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 use crate::config::get_agent_dir;
 use crate::core::config_value::{is_command_config_value, resolve_config_value};
@@ -116,8 +116,8 @@ pub trait AuthStorageBackend: Send + Sync {
     ) -> BoxFuture<'_, Result<(), StorageError>>;
 }
 
-fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), StorageError> {
-    if signal.is_some_and(CancellationToken::is_cancelled) {
+fn check_aborted(signal: Option<&AbortSignal>) -> Result<(), StorageError> {
+    if signal.is_some_and(AbortSignal::aborted) {
         Err(StorageError::aborted())
     } else {
         Ok(())
@@ -218,7 +218,7 @@ impl FileAuthStorageBackend {
     /// Frozen `proper-lockfile` options: ten retries, randomized 100ms–10s exponential delays.
     async fn acquire_async(
         &self,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> Result<(crate::utils::lockfile::LockGuard, Arc<Mutex<Option<String>>>), StorageError> {
         let compromised: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let options = LockOptions {
@@ -238,7 +238,7 @@ impl FileAuthStorageBackend {
             check_aborted(signal.as_ref())?;
             match acquire(Path::new(&js_json::encode_node_utf8(&self.auth_path)), &options).await {
                 Ok(guard) => {
-                    if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+                    if signal.as_ref().is_some_and(AbortSignal::aborted) {
                         let _ = guard.release();
                         return Err(StorageError::aborted());
                     }
@@ -254,7 +254,7 @@ impl FileAuthStorageBackend {
                     if let Some(signal) = &signal {
                         tokio::select! {
                             () = tokio::time::sleep(Duration::from_millis(delay)) => {}
-                            () = signal.cancelled() => return Err(StorageError::aborted()),
+                            _ = signal.wait() => return Err(StorageError::aborted()),
                         }
                     } else {
                         tokio::time::sleep(Duration::from_millis(delay)).await;
@@ -431,7 +431,7 @@ fn source_now_millis() -> f64 {
 }
 #[derive(Clone)]
 pub struct GetApiKeyOptions {
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
     pub include_fallback: bool,
     pub throw_on_refresh_failure: bool,
 }

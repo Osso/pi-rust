@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 /// A sleep interrupted by its abort signal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,19 +17,19 @@ impl std::fmt::Display for SleepError {
 impl std::error::Error for SleepError {}
 
 /// Sleep for `ms` milliseconds unless the cancellation token fires.
-pub async fn sleep(ms: u64, signal: Option<&CancellationToken>) -> Result<(), SleepError> {
+pub async fn sleep(ms: u64, signal: Option<&AbortSignal>) -> Result<(), SleepError> {
     let duration = Duration::from_millis(ms);
     let Some(signal) = signal else {
         tokio::time::sleep(duration).await;
         return Ok(());
     };
 
-    if signal.is_cancelled() {
+    if signal.aborted() {
         return Err(SleepError::Aborted);
     }
 
     tokio::select! {
         () = tokio::time::sleep(duration) => Ok(()),
-        () = signal.cancelled() => Err(SleepError::Aborted),
+        _ = signal.wait() => Err(SleepError::Aborted),
     }
 }

@@ -5,7 +5,7 @@ use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
 use indexmap::IndexMap;
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 use crate::cli::args::UnknownFlagValue;
 use crate::config::get_agent_dir;
@@ -34,7 +34,7 @@ pub struct CreateAgentSessionServicesOptions {
     pub agent_dir: Option<JsString>,
     pub settings_manager: Option<SettingsManager>,
     pub model_runtime: Option<ModelRuntime>,
-    pub model_runtime_signal: Option<CancellationToken>,
+    pub model_runtime_signal: Option<AbortSignal>,
     /// CLI values for extension-declared flags, in argument order.
     pub extension_flag_values: Option<IndexMap<String, UnknownFlagValue>>,
     /// `DefaultResourceLoaderOptions` minus `cwd`/`agentDir`/`settingsManager`.

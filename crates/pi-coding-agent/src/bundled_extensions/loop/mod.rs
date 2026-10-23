@@ -8,7 +8,6 @@ use pi_js_compat::number::js_number_to_string;
 use pi_js_compat::string::js_trim;
 use regex::Regex;
 use serde_json::json;
-use tokio_util::sync::CancellationToken;
 
 use crate::core::extensions::types::{
     BoxFuture, ExtensionApi, ExtensionCommandContext, ExtensionContext, HandlerError, NotifyType,
@@ -76,7 +75,7 @@ pub enum ParsedLoopCommand {
 
 struct LoopState {
     active: Option<ActiveLoop>,
-    cancellation: Option<CancellationToken>,
+    cancellation: Option<pi_js_compat::abort::AbortController>,
     task: Option<tokio::task::JoinHandle<()>>,
 }
 
@@ -109,7 +108,7 @@ impl LoopController {
             return false;
         }
         if let Some(cancellation) = state.cancellation.take() {
-            cancellation.cancel();
+            cancellation.abort(None);
         }
         if let Some(task) = state.task.take() {
             task.abort();
@@ -124,17 +123,17 @@ impl LoopController {
 
     pub fn start(&self, interval_ms: f64, prompt: JsString) -> ActiveLoop {
         self.stop();
-        let cancellation = CancellationToken::new();
+        let cancellation = pi_js_compat::abort::AbortController::new();
         let api = self.api.clone();
         let prompt_for_task = prompt.clone();
-        let task_cancellation = cancellation.clone();
+        let task_cancellation = cancellation.signal();
         let task = tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_millis(interval_ms as u64));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             interval.tick().await;
             loop {
                 tokio::select! {
-                    _ = task_cancellation.cancelled() => break,
+                    _ = task_cancellation.wait() => break,
                     _ = interval.tick() => {
                         let result = api.send_user_message(
                             UserMessageContent::Text(prompt_for_task.clone().into()),

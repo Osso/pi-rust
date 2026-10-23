@@ -1,16 +1,16 @@
 //! Frozen `host-relay.ts`: newline protocol over caller-owned streams.
 use super::host_relay_store::*;
 use super::session_control_db::ControlDbError;
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{self, JsString, JsValue};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio_util::sync::CancellationToken;
 
 pub struct HostRelayOptions<'a> {
     pub control_db_path: &'a JsString,
     pub host: Option<&'a JsString>,
     pub poll_ms: Option<u64>,
-    pub signal: CancellationToken,
+    pub signal: AbortSignal,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -280,13 +280,13 @@ pub async fn run_host_relay(
     output: impl AsyncWrite + Unpin + Send + 'static,
     options: HostRelayOptions<'_>,
 ) -> Result<(), String> {
-    if options.signal.is_cancelled() {
+    if options.signal.aborted() {
         return Ok(());
     }
     let (output, mut finished) = start_output_writer(output);
     let result = tokio::select! {
         biased;
-        _ = options.signal.cancelled() => Ok(()),
+        _ = options.signal.wait() => Ok(()),
         result = &mut finished => return result.map_err(|error| error.to_string())?,
         result = relay_stream(input, &output, &options) => result,
     };
@@ -343,7 +343,7 @@ pub async fn run_relay_serve() -> Result<(), String> {
             control_db_path: &path,
             host: None,
             poll_ms: None,
-            signal: CancellationToken::new(),
+            signal: AbortSignal::default(),
         },
     )
     .await

@@ -8,11 +8,11 @@ use pi_ai::auth::types::{
 };
 use pi_ai::models::Provider;
 use pi_ai::request::{BoxFuture, CallbackError};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::{
     js_format,
     js_json::{JsString, encode_node_utf8},
 };
-use tokio_util::sync::CancellationToken;
 
 use crate::core::model_runtime::ModelRuntime;
 use crate::utils::chalk::Chalk;
@@ -292,13 +292,13 @@ fn notify_auth_event(
 
 struct CliAuthInteraction {
     io: Arc<dyn LoginIo>,
-    signal: CancellationToken,
+    signal: AbortSignal,
     browser_cli_opener: Option<BrowserCliOpener>,
     browser_cli_open_tasks: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 impl AuthInteraction for CliAuthInteraction {
-    fn signal(&self) -> CancellationToken {
+    fn signal(&self) -> AbortSignal {
         self.signal.clone()
     }
 
@@ -327,7 +327,7 @@ async fn run_login_with_prompt(
 ) -> Result<(), JsString> {
     let interaction = Arc::new(CliAuthInteraction {
         io,
-        signal: CancellationToken::new(),
+        signal: AbortSignal::default(),
         browser_cli_opener,
         browser_cli_open_tasks: Mutex::new(Vec::new()),
     });

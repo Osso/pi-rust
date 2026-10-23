@@ -1,9 +1,9 @@
 //! Opt-in native `timed-confirm.ts`; embed and register explicitly.
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
 use std::{sync::Arc, time::Duration};
-use tokio_util::sync::CancellationToken;
 
 pub fn timed_confirm_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     pi.register_command(
@@ -73,12 +73,13 @@ pub fn timed_confirm_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
 }
 
 async fn confirm_with_signal(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
-    let signal = CancellationToken::new();
-    let abort = signal.clone();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
+    let controller_abort = controller_signal.clone();
     let deadline = tokio::time::Instant::now() + Duration::from_millis(5000);
     let timer = tokio::spawn(async move {
         tokio::time::sleep_until(deadline).await;
-        abort.cancel();
+        controller_abort.abort(None);
     });
     let ui = ctx.ui()?;
     ui.notify(
@@ -99,7 +100,7 @@ async fn confirm_with_signal(ctx: ExtensionCommandContext) -> Result<(), Handler
     timer.abort();
     let (message, level) = if confirmed {
         ("Confirmed by user!", NotifyType::Info)
-    } else if signal.is_cancelled() {
+    } else if signal.aborted() {
         ("Dialog timed out (auto-cancelled)", NotifyType::Warning)
     } else {
         ("Cancelled by user", NotifyType::Info)

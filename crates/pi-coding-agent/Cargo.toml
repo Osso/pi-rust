@@ -38,7 +38,6 @@ serde_yaml_ng = "=0.10.0"
 url = "=2.5.8"
 percent-encoding = "=2.3.2"
 tokio = { version = "=1.53.3", features = ["rt", "macros", "time", "sync", "process", "io-util", "io-std", "fs", "signal"] }
-tokio-util = "=0.7.20"
 notify = "=8.2.0"
 # Same photon-rs release and transitive `image` stack as the WASM build behind @silvia-odwyer/photon-node 0.3.4.
 photon-rs = { version = "=0.3.3", default-features = false }

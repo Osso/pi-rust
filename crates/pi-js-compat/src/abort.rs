@@ -53,7 +53,7 @@ impl PartialEq for AbortSignal {
 }
 impl Eq for AbortSignal {}
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct AbortController {
     signal: AbortSignal,
 }

@@ -11,13 +11,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{self, JsObject, JsString, JsValue as Value};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStdin, Command};
 use tokio::sync::{Mutex as AsyncMutex, oneshot};
-use tokio_util::sync::CancellationToken;
 
 use crate::core::extensions::types::{BoxFuture, HandlerError};
 use crate::utils::child_process::node_spawn_error_message;
@@ -343,10 +343,10 @@ impl PyrunRunnerClient {
         &self,
         params: CanonicalPyrunEvalParams,
         on_progress: Option<PyrunProgressCallback>,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
         on_pi_request: Option<PyrunPiRequestHandler>,
     ) -> Result<CanonicalPyrunEvalResult, PyrunRunnerError> {
-        if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+        if signal.as_ref().is_some_and(AbortSignal::aborted) {
             return Err(PyrunRunnerError::new("Pyrun evaluation aborted"));
         }
         let process = self.ensure_process().await?;
@@ -359,7 +359,7 @@ impl PyrunRunnerClient {
             let pid = process.pid;
             let detached = should_detach(&self.options);
             tokio::spawn(async move {
-                signal.cancelled().await;
+                signal.wait().await;
                 terminate_generation(&state, generation, pid, detached);
                 let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 reject_generation_locked(

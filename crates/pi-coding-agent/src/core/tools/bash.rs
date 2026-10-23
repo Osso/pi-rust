@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
 use pi_js_compat::number::js_number_to_string;
@@ -27,7 +28,6 @@ use pi_tui::tui::{Component, ComponentRef, Container};
 use pi_tui::utils::truncate_to_width_with;
 use serde_json::Value as SchemaValue;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio_util::sync::CancellationToken;
 
 use super::output_accumulator::{OutputAccumulator, OutputAccumulatorOptions, SnapshotOptions};
 use super::render_utils::{get_text_output, invalid_arg_text, str_value};
@@ -88,7 +88,7 @@ pub struct BashDetachedResult {
 pub struct BashDetachOptions {
     pub artifacts: Option<DetachedJobArtifacts>,
     pub job_id: Option<JsString>,
-    pub signal: CancellationToken,
+    pub signal: AbortSignal,
 }
 
 /// `BashSpawnContext`: command, cwd, and environment before execution.
@@ -136,7 +136,7 @@ pub type BashDataCallback = Arc<dyn Fn(&[u8]) + Send + Sync>;
 /// Data and lifecycle hooks for one shell execution.
 pub struct BashExecOptions {
     pub on_data: BashDataCallback,
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
     pub timeout: Option<f64>,
     pub env: BTreeMap<JsString, JsString>,
     pub detach: Option<BashDetachOptions>,
@@ -213,7 +213,7 @@ async fn exec_local(
     options: BashExecOptions,
 ) -> Result<BashExecResult, ToolError> {
     let timeout_ms = resolve_timeout_ms(options.timeout)?;
-    if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+    if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
         return Err(ToolError::new("aborted"));
     }
     let shell_config = get_shell_config(shell_path).map_err(|error| ToolError::new(error.message().clone()))?;
@@ -360,7 +360,7 @@ async fn exec_local(
     if let Some(artifacts) = options.detach.as_ref().and_then(|detach| detach.artifacts.as_ref()) {
         let _ = std::fs::remove_dir_all(encode_node_utf8(&artifacts.directory));
     }
-    if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+    if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
         return Err(ToolError::new("aborted"));
     }
     if timed_out {
@@ -459,9 +459,11 @@ fn poll_durable_output(path: &JsString, offset: &AtomicU64, on_data: &BashDataCa
     }
 }
 
-async fn cancellation(signal: Option<&CancellationToken>) {
+async fn cancellation(signal: Option<&AbortSignal>) {
     match signal {
-        Some(signal) => signal.cancelled().await,
+        Some(signal) => {
+            signal.wait().await;
+        }
         None => std::future::pending().await,
     }
 }
@@ -583,7 +585,7 @@ impl AgentTool for BashTool {
         &self,
         tool_call_id: String,
         params: JsValue,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
         on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
@@ -682,7 +684,7 @@ async fn execute_bash(
     options: BashExecutionOptions,
     tool_call_id: String,
     params: JsValue,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     on_update: AgentToolUpdateCallback,
 ) -> Result<AgentToolResult, ToolError> {
     let command = params
@@ -708,7 +710,7 @@ async fn execute_bash(
         .and_then(|jobs| (jobs.get_lifecycle)().or_else(|| jobs.lifecycle.clone()));
     let detach_controller =
         if options.configured_detach.is_none() && lifecycle.is_some() && options.detach_registry.is_some() {
-            Some(CancellationToken::new())
+            Some(pi_js_compat::abort::AbortController::new())
         } else {
             None
         };
@@ -716,7 +718,7 @@ async fn execute_bash(
         detach_controller.as_ref().map(|signal| BashDetachOptions {
             artifacts: None,
             job_id: None,
-            signal: signal.clone(),
+            signal: signal.signal(),
         })
     });
     let detach_subscription = detach_controller.as_ref().and_then(|signal| {
@@ -830,15 +832,15 @@ async fn execute_bash(
 }
 
 struct BashDetachHandle {
-    signal: CancellationToken,
+    signal: pi_js_compat::abort::AbortController,
 }
 
 impl ToolDetachHandle for BashDetachHandle {
     fn detach(&self) -> bool {
-        if self.signal.is_cancelled() {
+        if self.signal.signal().aborted() {
             return false;
         }
-        self.signal.cancel();
+        self.signal.abort(None);
         true
     }
 }
@@ -849,7 +851,7 @@ struct RunnerOwnedOptions {
     lifecycle: Arc<DetachedJobLifecycleController>,
     on_data: BashDataCallback,
     shell_path: Option<JsString>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     timeout: Option<f64>,
     tool_call_id: String,
 }
@@ -980,12 +982,12 @@ async fn observe_foreground_bash_runner(
         if let Some(completion) = settle_foreground_bash_runner(&runner, aborted, options.timeout)? {
             return Ok(completion);
         }
-        if options.detach.signal.is_cancelled()
+        if options.detach.signal.aborted()
             && let Some(activation) = activate_detached_bash_runner(&runner, cwd, options)?
         {
             return Ok(activation.1);
         }
-        if !aborted && options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+        if !aborted && options.signal.as_ref().is_some_and(AbortSignal::aborted) {
             aborted = true;
             terminate_foreground_bash_runner(runner.runner_pid);
         }

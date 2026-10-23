@@ -20,6 +20,7 @@ use pi_agent_core::{
     AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsValue as Value;
@@ -30,7 +31,6 @@ use serde_json::Value as SchemaValue;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use tokio::sync::{mpsc, oneshot};
-use tokio_util::sync::CancellationToken;
 
 pub const NAME: &str = "ask_questions";
 pub const LABEL: &str = "ask_questions";
@@ -361,7 +361,7 @@ impl ContextTool<ExtensionContext> for AskQuestionsTool {
         &self,
         tool_call_id: String,
         params: JsValue,
-        _signal: Option<CancellationToken>,
+        _signal: Option<AbortSignal>,
         _on_update: Option<AgentToolUpdateCallback>,
         context: ExtensionContext,
         _execution: Option<AgentToolExecutionContext>,

@@ -23,10 +23,10 @@ use pi_ai::request::{
 };
 use pi_ai::types::{AssistantMessage, Context, DeferredHandle, Model, ProviderEnv, ProviderHeaders, ProviderId};
 use pi_ai::utils::event_stream::{AssistantMessageEventStream, StreamFailure};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use serde_json::Map;
 use tokio::sync::Mutex as AsyncMutex;
-use tokio_util::sync::CancellationToken;
 
 use crate::config::get_agent_dir;
 use crate::core::auth_storage::AuthStorage;
@@ -156,7 +156,7 @@ pub struct CreateModelRuntimeOptions {
     pub allow_model_network: bool,
     pub model_refresh_timeout_ms: Option<f64>,
     pub catalog_base_url: Option<String>,
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
     /// Skip the initial catalog/availability refresh.
     pub refresh_on_create: Option<bool>,
 }
@@ -286,29 +286,19 @@ impl ModelRuntime {
         let signal = options.signal.clone();
         let timeout_signal = match (refresh_from_network, options.model_refresh_timeout_ms) {
             (true, Some(timeout_ms)) => {
-                let controller = CancellationToken::new();
+                let controller = pi_js_compat::abort::AbortController::new();
                 let timer = controller.clone();
                 let duration = std::time::Duration::from_millis(timeout_ms.max(0.0) as u64);
                 tokio::spawn(async move {
                     tokio::time::sleep(duration).await;
-                    timer.cancel();
+                    timer.abort(None);
                 });
-                Some(controller)
+                Some(controller.signal())
             }
             _ => None,
         };
         let effective_signal = match (signal, timeout_signal) {
-            (Some(signal), Some(timeout)) => {
-                let combined = CancellationToken::new();
-                let child = combined.clone();
-                tokio::spawn(async move {
-                    tokio::select! {
-                        _ = signal.cancelled() => child.cancel(),
-                        _ = timeout.cancelled() => child.cancel(),
-                    }
-                });
-                Some(combined)
-            }
+            (Some(signal), Some(timeout)) => Some(AbortSignal::any(&[signal, timeout])),
             (signal, None) => signal,
             (None, timeout) => timeout,
         };
@@ -408,7 +398,7 @@ impl ModelRuntime {
         &self,
         seq: u64,
         error_seq: u64,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> Result<(), ResolveError> {
         let providers = self.inner.models.get_providers();
         let available = self
@@ -466,7 +456,7 @@ impl ModelRuntime {
         Ok(())
     }
 
-    async fn queue_availability_refresh(&self, signal: Option<CancellationToken>) -> Result<(), ResolveError> {
+    async fn queue_availability_refresh(&self, signal: Option<AbortSignal>) -> Result<(), ResolveError> {
         let seq = self.inner.availability_refresh_seq.fetch_add(1, Ordering::SeqCst) + 1;
         {
             let mut provider_seq = lock(&self.inner.provider_availability_seq);
@@ -481,18 +471,14 @@ impl ModelRuntime {
             .await;
         if let Err(error) = &result
             && error_seq == self.inner.availability_error_seq.load(Ordering::SeqCst)
-            && !effective_signal.is_cancelled()
+            && !effective_signal.aborted()
         {
             *lock(&self.inner.availability_error) = Some(resolve_error_message(error));
         }
         result
     }
 
-    async fn refresh_provider_availability(
-        &self,
-        provider_id: &str,
-        signal: CancellationToken,
-    ) -> Result<(), ResolveError> {
+    async fn refresh_provider_availability(&self, provider_id: &str, signal: AbortSignal) -> Result<(), ResolveError> {
         self.inner.availability_refresh_seq.fetch_add(1, Ordering::SeqCst);
         let provider_seq = {
             let mut sequences = lock(&self.inner.provider_availability_seq);
@@ -526,7 +512,7 @@ impl ModelRuntime {
                 });
             }
         };
-        if signal.is_cancelled() {
+        if signal.aborted() {
             return Err(ResolveError::Aborted);
         }
         if lock(&self.inner.provider_availability_seq).get(provider_id).copied() != Some(provider_seq) {
@@ -633,7 +619,7 @@ impl ModelRuntime {
                 }
                 Err(error) => {
                     if error_seq == self.inner.availability_error_seq.load(Ordering::SeqCst)
-                        && !options.signal.as_ref().is_some_and(CancellationToken::is_cancelled)
+                        && !options.signal.as_ref().is_some_and(AbortSignal::aborted)
                     {
                         *lock(&self.inner.availability_error) = Some(resolve_error_message(&error));
                     }
@@ -789,7 +775,7 @@ impl ModelRuntime {
     async fn enqueue_credential_operation<T, F>(
         &self,
         provider_id: &str,
-        signal: CancellationToken,
+        signal: AbortSignal,
         task: F,
     ) -> Result<T, ModelRuntimeError>
     where
@@ -798,9 +784,9 @@ impl ModelRuntime {
         let gate = self.credential_gate(provider_id);
         let guard = tokio::select! {
             guard = gate.lock() => guard,
-            _ = signal.cancelled() => return Err(ModelRuntimeError::Aborted),
+            _ = signal.wait() => return Err(ModelRuntimeError::Aborted),
         };
-        if signal.is_cancelled() {
+        if signal.aborted() {
             return Err(ModelRuntimeError::Aborted);
         }
         let result = task().await;
@@ -813,7 +799,7 @@ impl ModelRuntime {
         provider_id: &str,
         operation: CredentialSynchronizationOperation,
         credential: Option<Credential>,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> Result<(), ModelRuntimeError> {
         let result = self
             .synchronize_credential_state_inner(provider_id, signal.clone())
@@ -834,9 +820,9 @@ impl ModelRuntime {
     async fn synchronize_credential_state_inner(
         &self,
         provider_id: &str,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> Result<(), ModelRuntimeError> {
-        if signal.is_cancelled() {
+        if signal.aborted() {
             return Err(ModelRuntimeError::Aborted);
         }
         self.recompose_provider(provider_id);
@@ -1258,7 +1244,7 @@ impl ModelRuntime {
                     if let Err(error) = self
                         .refresh_provider_availability(provider_id, refresh_options.signal.clone().unwrap_or_default())
                         .await
-                        && !options.signal.as_ref().is_some_and(CancellationToken::is_cancelled)
+                        && !options.signal.as_ref().is_some_and(AbortSignal::aborted)
                     {
                         errors.insert(provider_id.clone(), CallbackError::new(resolve_error_message(&error)));
                     }
@@ -1269,7 +1255,7 @@ impl ModelRuntime {
             }
         }
         Ok(ModelsRefreshResult {
-            aborted: result.aborted || options.signal.as_ref().is_some_and(CancellationToken::is_cancelled),
+            aborted: result.aborted || options.signal.as_ref().is_some_and(AbortSignal::aborted),
             errors,
         })
     }

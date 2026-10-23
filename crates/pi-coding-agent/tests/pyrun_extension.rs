@@ -31,7 +31,6 @@ use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRunti
 use pi_coding_agent::core::session_manager::SessionManager;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{self, JsObject as Map, JsString, JsValue as Value};
-use tokio_util::sync::CancellationToken;
 
 fn temp_dir(name: &str) -> String {
     let dir = std::env::temp_dir().join(format!(
@@ -251,11 +250,12 @@ time.sleep(30)
 "#,
     );
     let runner = runner_for(&dir);
-    let signal = CancellationToken::new();
-    let signal_for_task = signal.clone();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
+    let controller_signal_for_task = controller_signal.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(50)).await;
-        signal_for_task.cancel();
+        controller_signal_for_task.abort(None);
     });
     let error = runner
         .evaluate(params("x"), None, Some(signal), None)

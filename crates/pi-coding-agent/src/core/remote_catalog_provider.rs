@@ -159,7 +159,7 @@ impl Provider for RemoteCatalogProvider {
             if !published {
                 return Ok(());
             }
-            if !context.allow_network || context.signal.is_cancelled() {
+            if !context.allow_network || context.signal.aborted() {
                 return Ok(());
             }
             let stored = context.stored.clone();
@@ -178,7 +178,7 @@ impl Provider for RemoteCatalogProvider {
                 &FetchRetryOptions::default(),
             )
             .await?;
-            if context.signal.is_cancelled() {
+            if context.signal.aborted() {
                 return Ok(());
             }
             let checked_at = now_ms();
@@ -196,7 +196,7 @@ impl Provider for RemoteCatalogProvider {
                         etag,
                     } => (models, last_modified, etag),
                 };
-            if context.signal.is_cancelled() {
+            if context.signal.aborted() {
                 return Ok(());
             }
             let entry = ModelsStoreEntry {

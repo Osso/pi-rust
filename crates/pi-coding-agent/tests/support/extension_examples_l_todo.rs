@@ -299,9 +299,10 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
             "event" => {
                 let mut event = serde_json::from_value(case["value"].clone()).unwrap();
                 if let ExtensionEvent::Compaction(compaction) = &mut event {
-                    let signal = tokio_util::sync::CancellationToken::new();
+                    let controller_signal = pi_js_compat::abort::AbortController::new();
+                    let signal = controller_signal.signal();
                     if case["aborted"] == true {
-                        signal.cancel();
+                        controller_signal.abort(None);
                     }
                     compaction.signal = Some(signal);
                 }
@@ -578,7 +579,7 @@ fn configure_faux(
                 .is_match(session)
             );
         }
-        calls.lock().unwrap().push(json!({"model":[model.provider,model.id],"context":context,"options":{"maxTokens":options.max_tokens.map(|n|n as u64),"cacheRetention":options.cache_retention,"sessionId":options.session_id.map(|_|"<uuid-v7>"),"aborted":options.request.signal.as_ref().is_some_and(|s|s.is_cancelled())}}));
+        calls.lock().unwrap().push(json!({"model":[model.provider,model.id],"context":context,"options":{"maxTokens":options.max_tokens.map(|n|n as u64),"cacheRetention":options.cache_retention,"sessionId":options.session_id.map(|_|"<uuid-v7>"),"aborted":options.request.signal.as_ref().is_some_and(|s|s.aborted())}}));
         let response = faux_assistant_message(
             FauxContent::Blocks(content.clone()),
             FauxAssistantMessageOptions {

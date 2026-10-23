@@ -5,6 +5,7 @@ use agents::{AgentConfig, AgentDiscoveryResult, discover_agents};
 use pi_agent_core::{AgentToolResult, AgentToolUpdateCallback};
 use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsString;
@@ -19,7 +20,6 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, BufReader},
     process::Command,
 };
-use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
 pub struct Invocation {
@@ -96,7 +96,7 @@ pub fn subagent_extension(api: &ExtensionApi, agent_dir: PathBuf, invocation: In
 }
 async fn execute(
     params: Value,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     update: Option<AgentToolUpdateCallback>,
     ctx: ExtensionContext,
     dir: PathBuf,
@@ -200,7 +200,7 @@ async fn execute(
 async fn run_chain(
     dispatch: &Dispatch,
     chain: &[Value],
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
     update: &Option<AgentToolUpdateCallback>,
     mut base: Value,
 ) -> Result<AgentToolResult, HandlerError> {
@@ -264,7 +264,7 @@ async fn run_chain(
 async fn run_parallel(
     dispatch: &Dispatch,
     tasks: &[Value],
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
     update: &Option<AgentToolUpdateCallback>,
     mut base: Value,
 ) -> Result<AgentToolResult, HandlerError> {
@@ -390,7 +390,7 @@ async fn run_single(
     dispatch: &Dispatch,
     item: &Value,
     step: Option<usize>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     update: Option<AgentToolUpdateCallback>,
     mut base: Value,
 ) -> Result<Value, HandlerError> {
@@ -489,7 +489,7 @@ async fn run_single(
     loop {
         bytes.clear();
         let read = tokio::select! {biased;
-         ()=cancel.cancelled(),if !aborted=>{aborted=true;if let Some(pid)=child.id().and_then(|p|rustix::process::Pid::from_raw(p as i32)){let _=rustix::process::kill_process(pid,rustix::process::Signal::TERM);}continue;},
+         _=cancel.wait(),if !aborted=>{aborted=true;if let Some(pid)=child.id().and_then(|p|rustix::process::Pid::from_raw(p as i32)){let _=rustix::process::kill_process(pid,rustix::process::Signal::TERM);}continue;},
          read=reader.read_until(b'\n',&mut bytes)=>read.map_err(|e|HandlerError::new(e.to_string()))?,
         };
         if read == 0 {

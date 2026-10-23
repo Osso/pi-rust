@@ -13,13 +13,13 @@ use std::sync::Arc;
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
 use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
 use serde_json::Value as SchemaValue;
 use tokio::io::AsyncReadExt;
-use tokio_util::sync::CancellationToken;
 
 use super::render_utils::{get_text_output, invalid_arg_text, shorten_path, str_value};
 use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
@@ -61,7 +61,7 @@ pub trait CodeIndexOperations: Send + Sync {
         &'a self,
         args: &'a [JsString],
         cwd: &'a JsString,
-        signal: Option<&'a CancellationToken>,
+        signal: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, io::Result<CodeIndexCommandResult>>;
 }
 
@@ -74,7 +74,7 @@ impl CodeIndexOperations for LocalCodeIndexOperations {
         &'a self,
         args: &'a [JsString],
         cwd: &'a JsString,
-        signal: Option<&'a CancellationToken>,
+        signal: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, io::Result<CodeIndexCommandResult>> {
         Box::pin(async move { run_code_index_command("code-index", args, cwd, signal).await })
     }
@@ -91,9 +91,9 @@ async fn run_code_index_command(
     code_index_path: &str,
     args: &[JsString],
     cwd: &JsString,
-    signal: Option<&CancellationToken>,
+    signal: Option<&AbortSignal>,
 ) -> io::Result<CodeIndexCommandResult> {
-    if signal.is_some_and(CancellationToken::is_cancelled) {
+    if signal.is_some_and(AbortSignal::aborted) {
         return Err(io::Error::new(io::ErrorKind::Interrupted, "aborted"));
     }
     let mut command = tokio::process::Command::new(code_index_path);
@@ -131,14 +131,14 @@ async fn run_code_index_command(
 
 async fn wait_with_cancellation(
     child: &mut tokio::process::Child,
-    signal: Option<&CancellationToken>,
+    signal: Option<&AbortSignal>,
 ) -> io::Result<Option<std::process::ExitStatus>> {
     let Some(signal) = signal else {
         return child.wait().await.map(Some);
     };
     tokio::select! {
         status = child.wait() => status.map(Some),
-        () = signal.cancelled() => {
+        _ = signal.wait() => {
             let _ = child.start_kill();
             let _ = child.wait().await;
             Err(io::Error::new(io::ErrorKind::Interrupted, "aborted"))
@@ -150,11 +150,11 @@ fn execute_code_index(
     operations: Arc<dyn CodeIndexOperations>,
     cwd: JsString,
     args: Vec<JsString>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
     Box::pin(async move {
         let result = operations.run(&args, &cwd, signal.as_ref()).await.map_err(|error| {
-            if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+            if signal.as_ref().is_some_and(AbortSignal::aborted) {
                 ToolError::new("Operation aborted")
             } else {
                 ToolError::new(format!(
@@ -163,7 +163,7 @@ fn execute_code_index(
                 ))
             }
         })?;
-        if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+        if signal.as_ref().is_some_and(AbortSignal::aborted) {
             return Err(ToolError::new("Operation aborted"));
         }
         if result.exit_code != Some(0) {
@@ -269,7 +269,7 @@ impl AgentTool for OutlineTool {
         &self,
         _tool_call_id: String,
         params: JsValue,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
@@ -353,7 +353,7 @@ impl AgentTool for SymbolTool {
         &self,
         _tool_call_id: String,
         params: JsValue,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
@@ -424,7 +424,7 @@ impl AgentTool for ReferencesTool {
         &self,
         _tool_call_id: String,
         params: JsValue,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {

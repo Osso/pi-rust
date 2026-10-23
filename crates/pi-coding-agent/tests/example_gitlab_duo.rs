@@ -16,10 +16,10 @@ use pi_ai::{
     utils::event_stream::*,
 };
 use pi_coding_agent::core::extensions::*;
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
-use tokio_util::sync::CancellationToken;
 struct Random;
 impl RandomSource for Random {
     fn fill(&self, b: &mut [u8]) {
@@ -42,11 +42,7 @@ struct FetchFixture {
     input: Value,
 }
 impl Fetch for FetchFixture {
-    fn fetch(
-        &self,
-        r: HttpRequest,
-        signal: Option<CancellationToken>,
-    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+    fn fetch(&self, r: HttpRequest, signal: Option<AbortSignal>) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         Box::pin(async move {
             self.calls.lock().unwrap().push(json!({"type":"fetch","url":r.url,"method":r.method,"headers":r.headers.into_iter().map(|(k,v)|(k,Value::String(v))).collect::<serde_json::Map<String,Value>>(),"body":String::from_utf8(r.body.unwrap()).unwrap(),"signal":signal.is_some()}));
             if let Some(e) = self.input["fetchError"].as_str() {
@@ -92,8 +88,8 @@ struct Interaction {
     code: String,
 }
 impl AuthInteraction for Interaction {
-    fn signal(&self) -> CancellationToken {
-        CancellationToken::new()
+    fn signal(&self) -> AbortSignal {
+        AbortSignal::default()
     }
     fn notify(&self, e: AuthEvent) {
         if let AuthEvent::AuthUrl { url, .. } = e {
@@ -225,7 +221,7 @@ async fn registration_login_refresh_and_errors_match_pinned_example() {
             oauth
                 .refresh(
                     OAuthCredential::new("old-refresh", "old-access", 0.0),
-                    CancellationToken::new(),
+                    AbortSignal::default(),
                 )
                 .await
         };
@@ -296,7 +292,7 @@ async fn backend_dispatch_errors_cache_expiry_and_oauth_invalidation() {
                 .oauth
                 .as_ref()
                 .unwrap()
-                .refresh(OAuthCredential::new("r", "a", 0.0), CancellationToken::new())
+                .refresh(OAuthCredential::new("r", "a", 0.0), AbortSignal::default())
                 .await
                 .unwrap();
         }

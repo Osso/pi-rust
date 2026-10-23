@@ -29,7 +29,7 @@ impl ContextTool<Value> for EchoTool {
         &self,
         _tool_call_id: String,
         _params: pi_js_compat::js_json::JsValue,
-        _signal: Option<tokio_util::sync::CancellationToken>,
+        _signal: Option<pi_js_compat::abort::AbortSignal>,
         _on_update: Option<pi_agent_core::agent::AgentToolUpdateCallback>,
         context: Value,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,

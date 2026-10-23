@@ -7,9 +7,9 @@ use pi_js_compat::{
 use std::path::Path;
 use std::sync::Mutex;
 
+use pi_js_compat::abort::AbortSignal;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::watch;
-use tokio_util::sync::CancellationToken;
 
 use crate::utils::private_paths::{create_private_directory, remove_socket_file_if_present, set_private_socket_mode};
 
@@ -27,7 +27,7 @@ pub struct SupervisorRequestWakeServer {
     socket_path: JsString,
     generation: watch::Sender<u64>,
     generation_rx: watch::Receiver<u64>,
-    shutdown: CancellationToken,
+    shutdown: pi_js_compat::abort::AbortController,
     accept_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
@@ -38,7 +38,7 @@ impl SupervisorRequestWakeServer {
             socket_path: get_supervisor_request_socket_path(control_db_path),
             generation,
             generation_rx,
-            shutdown: CancellationToken::new(),
+            shutdown: pi_js_compat::abort::AbortController::new(),
             accept_task: Mutex::new(None),
         }
     }
@@ -59,11 +59,11 @@ impl SupervisorRequestWakeServer {
         let listener = listen_with_stale_socket_recovery(&self.socket_path).await?;
         set_private_socket_mode(Path::new(&encode_node_utf8(&self.socket_path)))?;
         let generation = self.generation.clone();
-        let shutdown = self.shutdown.clone();
+        let shutdown = self.shutdown.signal();
         let task = tokio::spawn(async move {
             loop {
                 tokio::select! {
-                    () = shutdown.cancelled() => break,
+                    _ = shutdown.wait() => break,
                     accepted = listener.accept() => {
                         let Ok((stream, _address)) = accepted else { break };
                         generation.send_modify(|value| *value += 1);
@@ -80,20 +80,21 @@ impl SupervisorRequestWakeServer {
         *self.generation_rx.borrow()
     }
 
-    pub async fn wait_for_wake_after(&self, observed_generation: u64, signal: &CancellationToken) {
+    pub async fn wait_for_wake_after(&self, observed_generation: u64, signal: &AbortSignal) {
         let mut receiver = self.generation_rx.clone();
-        if signal.is_cancelled() || self.current_generation() > observed_generation {
+        let shutdown = self.shutdown.signal();
+        if signal.aborted() || self.current_generation() > observed_generation {
             return;
         }
         tokio::select! {
             _ = receiver.changed() => {}
-            () = signal.cancelled() => {}
-            () = self.shutdown.cancelled() => {}
+            _ = signal.wait() => {}
+            _ = shutdown.wait() => {}
         }
     }
 
     pub async fn close(&self) -> Result<(), JsString> {
-        self.shutdown.cancel();
+        self.shutdown.abort(None);
         if let Some(task) = self.accept_task().take() {
             task.abort();
         }
@@ -110,7 +111,7 @@ impl SupervisorRequestWakeServer {
 
 impl Drop for SupervisorRequestWakeServer {
     fn drop(&mut self) {
-        self.shutdown.cancel();
+        self.shutdown.abort(None);
         if let Some(task) = self
             .accept_task
             .get_mut()

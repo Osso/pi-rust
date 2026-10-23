@@ -51,7 +51,7 @@ Format the summary as structured markdown with clear sections.
             };
             let summary=JsString::join(response.content.iter().filter_map(|c|match c{AssistantContent::Text(t)=>Some(t.text.clone()),_=>None}), "\n");
             if summary.trim().is_empty(){
-                if !signal.is_some_and(|s|s.is_cancelled()){ui.notify(&JsString::from("Compaction summary was empty, using default compaction"),Some(NotifyType::Warning));}
+                if !signal.is_some_and(|s|s.aborted()){ui.notify(&JsString::from("Compaction summary was empty, using default compaction"),Some(NotifyType::Warning));}
                 return Ok(None);
             }
             let compaction=pi_js_compat::js_json::from_value(&pi_js_compat::js_json!({"summary":summary,"firstKeptEntryId":preparation.first_kept_entry_id,"tokensBefore":preparation.tokens_before,"usage":response.usage})).map_err(|e|HandlerError::new(e.to_string()))?;

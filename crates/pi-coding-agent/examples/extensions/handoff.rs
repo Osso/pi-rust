@@ -14,6 +14,7 @@ use pi_coding_agent::{
     },
     modes::interactive::components::bordered_loader::{BorderedLoader, BorderedLoaderOptions},
 };
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsString;
@@ -21,7 +22,6 @@ use pi_js_compat::js_json::JsValue;
 use pi_js_compat::js_json::JsValue as Value;
 use pi_tui::tui::Component;
 use std::{rc::Rc, sync::Arc};
-use tokio_util::sync::CancellationToken;
 
 const SYSTEM_PROMPT: &str = r#"You are a context transfer assistant. Given a conversation history and the user's goal for a new thread, generate a focused prompt that:
 
@@ -85,7 +85,7 @@ fn handoff_messages(branch: &[SessionEntry]) -> Result<Vec<AgentMessage>, Handle
 }
 struct Loader {
     done: ExtensionUiDone,
-    signal: CancellationToken,
+    controller: pi_js_compat::abort::AbortController,
 }
 impl Loader {
     fn component(&self) -> BorderedLoader {
@@ -96,9 +96,9 @@ impl Loader {
             BorderedLoaderOptions::default(),
         );
         let done = self.done.clone();
-        let signal = self.signal.clone();
+        let controller_signal = self.controller.clone();
         loader.set_on_abort(Some(Rc::new(move || {
-            signal.cancel();
+            controller_signal.abort(None);
             done.call(Some(JsValue::from(Value::Null)));
         })));
         loader
@@ -182,7 +182,8 @@ async fn generate_draft(
         .ui()?
         .custom(
             Arc::new(move |context, done| {
-                let signal = CancellationToken::new();
+                let controller_signal = pi_js_compat::abort::AbortController::new();
+                let signal = controller_signal.signal();
                 tokio::task::spawn_local(complete_draft(
                     registry.clone(),
                     model.clone(),
@@ -191,7 +192,10 @@ async fn generate_draft(
                     done.clone(),
                 ));
                 context.tui.request_render();
-                pi_coding_agent::core::extensions::ready_custom_component(Box::new(Loader { done, signal }))
+                pi_coding_agent::core::extensions::ready_custom_component(Box::new(Loader {
+                    done,
+                    controller: controller_signal,
+                }))
             }),
             None,
         )
@@ -204,7 +208,7 @@ async fn complete_draft(
     registry: Arc<pi_coding_agent::core::model_registry::ModelRegistry>,
     model: pi_ai::types::Model,
     prompt: JsString,
-    signal: CancellationToken,
+    signal: AbortSignal,
     done: ExtensionUiDone,
 ) {
     let context = Context {

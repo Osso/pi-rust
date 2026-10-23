@@ -3,12 +3,12 @@
 use pi_js_compat::js_json::JsString;
 use std::rc::Rc;
 
+use pi_js_compat::abort::AbortSignal;
 use pi_tui::components::cancellable_loader::CancellableLoader;
 use pi_tui::components::dynamic_border::DynamicBorder;
 use pi_tui::components::loader::{Loader, LoaderIndicatorOptions};
 use pi_tui::tui::{Component, ComponentRef, Container, component};
 use pi_tui::{Spacer, Text};
-use tokio_util::sync::CancellationToken;
 
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{ThemeColor, with_theme};
@@ -24,7 +24,7 @@ pub struct BorderedLoader {
     container: Container,
     loader: ComponentRef,
     cancellable: bool,
-    signal: CancellationToken,
+    signal: AbortSignal,
 }
 
 impl BorderedLoader {
@@ -59,7 +59,7 @@ impl BorderedLoader {
                     interval_ms: None,
                 }),
             );
-            (component(loader), CancellationToken::new())
+            (component(loader), AbortSignal::default())
         };
 
         container.add_child(Rc::clone(&loader));
@@ -79,7 +79,7 @@ impl BorderedLoader {
     }
 
     /// `signal`: fires when the user cancels a cancellable loader.
-    pub fn signal(&self) -> CancellationToken {
+    pub fn signal(&self) -> AbortSignal {
         self.signal.clone()
     }
 

@@ -2,6 +2,8 @@
 
 All direct dependencies are exact-pinned.
 
+Shared reason-bearing abort signals replace all direct tokio-util cancellation dependencies; the existing Tokio runtime supplies notification/timers. [Contract and migration status](specs/abort-signals.md).
+
 ## Test infrastructure
 
 - `rustix = 1.1.5` (`process`; development dependency of `pi-ai`, `pi-js-compat`, `pi-telemetry`, and `pi-tui`) — `process::kill_process_group` tears down the tsx oracle process group in `tests/support/oracle.rs`; oracle children are spawned with `process_group(0)` so a dead test process cannot leave Node/esbuild descendants behind. Crates that already depend on `rustix` at runtime reuse the same pinned release.
@@ -52,7 +54,6 @@ All direct dependencies are exact-pinned.
 - `url = 2.5.8` — parses WHATWG URLs in `utils::git` and `file://` paths in `utils::paths`.
 - `percent-encoding = 2.3.2` — decodes percent-encoded URL components in `utils::git` and `utils::paths`.
 - `tokio = 1.53.3` (`rt`, `macros`, `time`, `sync`, `process`, `io-util`, `io-std`, `fs`) — provides async sleep, cancellation, process I/O for `utils::{sleep, abort, child_process}`, and the stdin/stdout line read behind `main::prompt_confirm`.
-- `tokio-util = 0.7.20` — supplies `CancellationToken` as the Rust `AbortSignal` mapping.
 - `notify = 8.2.0` — provides the platform file watcher behind `utils::fs_watch`.
 - Removed the unused coding-agent `fancy-regex` dependency: session-selector search, syntax highlighting and bwrap grep use shared native UTF-16 `pi-js-compat::js_regex::JsRegex`. The separate pi-tui dependency is unchanged.
 - `photon-rs = 0.3.3` (exact, `default-features = false`) — the Rust image library compiled to the `@silvia-odwyer/photon-node` 0.3.4 WASM used by `utils::{photon, exif_orientation, image_convert, image_resize_core}`. Resize (Lanczos3), flips, and `PhotonImage` come from this crate so output bytes match.
@@ -81,7 +82,6 @@ All direct dependencies are exact-pinned.
 - `url = 2.5.8` — parses manual OAuth redirect input, validates/normalizes verification URIs, and builds authorize/token query strings with `URLSearchParams`-compatible encoding.
 - `tokio = 1.53.3` (`io-util`, `macros`, `net`, `rt`, `sync`, `time`; dev adds `rt-multi-thread`, `test-util`) — `Notify` for `EventStream`, timers/cancellation for abort, retry, and OAuth polling, the loopback TCP listener behind the OAuth callback servers, and TCP/WebSocket transport for Codex.
 - `reqwest = 0.13.5` (default features: rustls/aws-lc TLS, HTTP/2) — default `Fetch` implementation replacing `globalThis.fetch`.
-- `tokio-util = 0.7.20` (`rt`) — `CancellationToken`, the Rust mapping for `AbortSignal`.
 - `tokio-tungstenite = 0.30.0` (`rustls-tls-webpki-roots`) — Codex WebSocket transport, including header-carrying handshakes and ping/close control frames.
 - `futures-util = 0.3.34` (`sink`) — `SinkExt`/`StreamExt` over the split WebSocket stream.
 - `zstd = 0.14.3` — compresses Codex SSE request bodies at the source's level 3.
@@ -102,7 +102,6 @@ All direct dependencies are exact-pinned.
 - `serde = 1.0.229` — derives the agent event, message, and tool-result wire records.
 - `serde_json = 1.0.151` (`preserve_order`) — carries JSON-shaped tool arguments/details and preserves TypeScript object insertion order in proxy request bodies.
 - `tokio = 1.53.3` (`macros`, `rt`, `sync`, `time`, `fs`, `process`, `io-util`) — runs the agent loop, event stream notifications, scripted-stream tests, and the node execution environment's async filesystem/process I/O.
-- `tokio-util = 0.7.20` (`rt`) — `CancellationToken` as the `AbortSignal` mapping.
 - `rustix = 1.1.5` (`process`, exact) — kills shell process groups with SIGKILL for timeout, abort, and cleanup without `unsafe` or libc.
 - Q9 moves `icu_normalizer = 2.3.0` (exact, `compiled_data`, no default features) from `pi-agent-core` to `pi-coding-agent`: NFC/NFD/NFKC/NFKD normalization belongs to the rehomed fuzzy-edit and read-path primitives. ICU4X scalar runs preserve lone-surrogate boundaries.
 - Skill loader ignore matching reuses native `pi-js-compat::node_ignore::Ignore` (npm ignore 7.0.5), preserving UTF16 paths and thrown errors. The former direct `ignore = 0.4.23` dependency is removed from pi-agent-core; coding package-manager use remains separate.
@@ -123,7 +122,6 @@ The harness events, messages, reducer, and orchestration-type slices add no runt
 - `serde_json = 1.0.151` (exact) — emits the frozen TUI debug-dump JSON fields and terminal output; also drives differential-oracle transport in tests.
 - `icu_segmenter = 2.3.0` (exact, default `compiled_data`/`auto`) — dictionary/LSTM word segmentation behind `word_navigation`, chosen as the pure-Rust mapping of `Intl.Segmenter` (decision 2026-10-18; dictionary-word deviations documented in the traceability doc).
 - `tokio = 1.53.3` (`process`, `rt`, `sync`, `io-util`, `macros`; dev adds `rt-multi-thread`, `time`) — spawns `fd` asynchronously, drives autocomplete cancellation/select branches, and runs editor autocomplete futures and debounce timers in tests.
-- `tokio-util = 0.7.20` (`rt`) — `CancellationToken` maps the `AbortSignal` passed to autocomplete suggestions and kills an in-flight `fd` child; the editor aborts superseded requests and `CancellableLoader` maps its abort signal.
 - `tempfile = 3.27.0` (development) — creates isolated directory trees and symlinks for autocomplete tests.
 - `pi-js-compat` (path, `=0.0.0`) — shared ECMAScript string whitespace, `Number`, `Buffer` Base64, and `localeCompare`; `terminal_image` no longer carries a crate-local Base64 implementation.
 - `rustix = 1.1.5` (exact, `termios`/`event` features; `process` as a development feature) — safe termios raw-mode/window-size syscalls and cancellable stdin polling for `ProcessTerminal`, plus `process::kill_process_group` for the shared tsx oracle teardown; `unsafe_code = "forbid"` rules out `libc`/`nix` wrappers that need unsafe call sites.

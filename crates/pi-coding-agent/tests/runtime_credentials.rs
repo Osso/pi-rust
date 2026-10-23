@@ -10,8 +10,8 @@ use pi_ai::auth::types::{
 use pi_ai::request::BoxFuture;
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::runtime_credentials::RuntimeCredentials;
+use pi_js_compat::abort::AbortSignal;
 use serde_json::{Map, json};
-use tokio_util::sync::CancellationToken;
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()
@@ -97,7 +97,7 @@ fn enumeration_merges_overrides_without_exposing_keys() {
 }
 
 struct RecordingStore {
-    signals: std::sync::Mutex<Vec<Option<CancellationToken>>>,
+    signals: std::sync::Mutex<Vec<Option<AbortSignal>>>,
 }
 
 impl CredentialStore for RecordingStore {
@@ -133,7 +133,8 @@ impl CredentialStore for RecordingStore {
 
 #[test]
 fn forwards_operation_signals_to_the_persistent_store() {
-    let signal = CancellationToken::new();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
     let store = Arc::new(RecordingStore {
         signals: std::sync::Mutex::new(Vec::new()),
     });
@@ -191,7 +192,7 @@ impl CredentialStore for FailingDeleteStore {
 }
 
 #[test]
-fn keeps_a_runtime_override_when_persistent_deletion_is_cancelled() {
+fn keeps_a_runtime_override_when_persistent_deletion_aborted() {
     let storage = storage_with(&[("anthropic", json!({"type": "api_key", "key": "stored-key"}))]);
     let failing = Arc::new(FailingDeleteStore {
         inner: Arc::clone(&storage),

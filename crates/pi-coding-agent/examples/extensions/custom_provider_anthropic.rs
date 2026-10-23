@@ -10,10 +10,10 @@ use pi_ai::utils::event_stream::AssistantMessageEventStream;
 use pi_coding_agent::core::extensions::ExtensionApi;
 use pi_coding_agent::core::model_config::ModelConfig;
 use pi_coding_agent::core::provider_composer::{ProviderConfigInput, compose_model_provider};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::JsString;
 use serde_json::json;
 use std::sync::Arc;
-use tokio_util::sync::CancellationToken;
 
 #[path = "custom_provider_anthropic/request.rs"]
 mod request;
@@ -95,7 +95,7 @@ impl OAuthAuth for CustomOAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let runtime = self.0.clone();
         Box::pin(async move {
@@ -123,7 +123,7 @@ impl OAuthAuth for CustomOAuth {
 async fn exchange_token(
     runtime: &OAuthRuntime,
     body: impl Into<pi_js_compat::js_json::JsValue>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     failure: &str,
 ) -> Result<OAuthCredential, CallbackError> {
     let response = runtime

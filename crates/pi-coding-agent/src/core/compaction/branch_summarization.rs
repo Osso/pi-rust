@@ -13,9 +13,9 @@ use pi_ai::types::{
     Model, ProviderEnv, ProviderHeaders, StopReason, TextOrImageContent, Usage, UserContent, UserMessage, UserRole,
 };
 use pi_ai::utils::text::{ContentText, content_text};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, JsValue};
 use serde::{Deserialize, Serialize};
-use tokio_util::sync::CancellationToken;
 
 use super::utils::{SUMMARIZATION_SYSTEM_PROMPT, serialize_conversation};
 use super::{complete_summarization, estimate_tokens};
@@ -73,7 +73,7 @@ pub struct GenerateBranchSummaryOptions<'a> {
     pub api_key: Option<JsString>,
     pub headers: Option<ProviderHeaders>,
     pub env: Option<ProviderEnv>,
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
     pub custom_instructions: Option<&'a JsString>,
     /// When true, `custom_instructions` replaces the default prompt instead of being appended.
     pub replace_instructions: bool,

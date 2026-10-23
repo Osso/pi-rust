@@ -724,12 +724,13 @@ async fn detaches_to_a_handle_while_the_runner_keeps_running() {
 }
 
 #[tokio::test]
-async fn aborts_a_foreground_runner_when_the_signal_is_cancelled() {
+async fn aborts_a_foreground_runner_when_the_signal_aborted() {
     let fixture = fixture("abort-live").await;
     let artifact = write_artifact(&fixture, "pyrun_1", Some("abort-call"), "original code", "");
     let mut runner = spawn_live_runner(&artifact, "import time\ntime.sleep(30)\n");
     set_runner_process_identity(&artifact, read_process_identity(runner.id()).expect("runner identity"));
-    let signal = tokio_util::sync::CancellationToken::new();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
     let registry = Arc::new(ToolDetachRegistry::new());
     let mut input = evaluation_input(&fixture, "pyrun_1", "original code", Some("abort-call"));
     input.detach_registry = Arc::clone(&registry);
@@ -737,7 +738,7 @@ async fn aborts_a_foreground_runner_when_the_signal_is_cancelled() {
     let evaluation = tokio::spawn(run_durable_detachable_pyrun_evaluation(input));
     wait_for(|| registry.has_running(), "foreground observation").await;
 
-    signal.cancel();
+    controller_signal.abort(None);
     let error = evaluation.await.expect("join").expect_err("aborted runner");
     assert_eq!(
         error.message,

@@ -203,7 +203,7 @@ enum CursorPlacement {
 
 struct PendingAutocomplete {
     request_id: u64,
-    controller: tokio_util::sync::CancellationToken,
+    controller: pi_js_compat::abort::AbortController,
     snapshot_text: JsString,
     snapshot_line: usize,
     snapshot_col: usize,
@@ -256,7 +256,7 @@ pub struct Editor {
     autocomplete_state: Option<AutocompleteState>,
     autocomplete_prefix: JsString,
     autocomplete_max_visible: usize,
-    autocomplete_abort: Option<tokio_util::sync::CancellationToken>,
+    autocomplete_abort: Option<pi_js_compat::abort::AbortController>,
     autocomplete_start_token: u64,
     autocomplete_request_id: u64,
     autocomplete_pending: Option<PendingAutocomplete>,
@@ -1820,7 +1820,7 @@ impl Editor {
         let Some(provider) = self.autocomplete_provider.clone() else {
             return;
         };
-        let controller = tokio_util::sync::CancellationToken::new();
+        let controller = pi_js_compat::abort::AbortController::new();
         self.autocomplete_abort = Some(controller.clone());
         self.autocomplete_request_id += 1;
         let request_id = self.autocomplete_request_id;
@@ -1832,7 +1832,7 @@ impl Editor {
             snapshot_line,
             snapshot_col,
             AutocompleteOptions {
-                signal: controller.clone(),
+                signal: controller.signal(),
                 force: options.force,
             },
         );
@@ -1843,7 +1843,7 @@ impl Editor {
             snapshot_line,
             snapshot_col,
             options: AutocompleteOptions {
-                signal: tokio_util::sync::CancellationToken::new(),
+                signal: pi_js_compat::abort::AbortSignal::default(),
                 force: options.force,
             },
             explicit_tab: options.explicit_tab,
@@ -1875,7 +1875,7 @@ impl Editor {
             return;
         };
         let suggestions = pending.future.await;
-        if pending.controller.is_cancelled()
+        if pending.controller.signal().aborted()
             || pending.request_id != self.autocomplete_request_id
             || self.get_text() != pending.snapshot_text
             || self.state.cursor_line != pending.snapshot_line
@@ -1971,7 +1971,7 @@ impl Editor {
         self.autocomplete_start_token += 1;
         self.autocomplete_deferred = None;
         if let Some(abort) = self.autocomplete_abort.take() {
-            abort.cancel();
+            abort.abort(None);
         }
         if let Some(pending) = self.autocomplete_pending.take() {
             self.autocomplete_cancelled.push(pending);

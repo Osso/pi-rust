@@ -39,7 +39,7 @@ impl CodeIndexOperations for RecordingOperations {
         &'a self,
         args: &'a [JsString],
         cwd: &'a JsString,
-        _signal: Option<&'a tokio_util::sync::CancellationToken>,
+        _signal: Option<&'a pi_js_compat::abort::AbortSignal>,
     ) -> BoxFuture<'a, std::io::Result<CodeIndexCommandResult>> {
         assert_eq!(cwd, "/repo");
         self.calls.lock().expect("calls").push(args.to_vec());

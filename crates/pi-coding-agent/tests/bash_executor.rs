@@ -8,7 +8,6 @@ use std::time::Duration;
 
 use pi_coding_agent::core::bash_executor::{BashExecutorOptions, execute_bash_with_operations};
 use pi_coding_agent::core::tools::bash::create_local_bash_operations;
-use tokio_util::sync::CancellationToken;
 
 fn operations() -> Arc<dyn pi_coding_agent::core::tools::bash::BashOperations> {
     Arc::new(create_local_bash_operations(None))
@@ -95,11 +94,12 @@ async fn reports_the_process_exit_code() {
 
 #[tokio::test]
 async fn reports_cancellation_without_an_exit_code() {
-    let signal = CancellationToken::new();
-    let cancel = signal.clone();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
+    let controller_cancel = controller_signal.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(100)).await;
-        cancel.cancel();
+        controller_cancel.abort(None);
     });
     let result = execute_bash_with_operations(
         &"printf 'started\\n'; sleep 5".into(),

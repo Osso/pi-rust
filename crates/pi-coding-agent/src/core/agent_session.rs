@@ -25,11 +25,11 @@ use pi_ai::types::{
     AssistantContent, AssistantMessage, ImageContent, InputSource, Model, ProviderHeaders, ProviderRetryEvent,
     StopReason, TextContent, TextOrImageContent, Usage, UserContent, UserMessage, UserRole,
 };
+use pi_js_compat::abort::{AbortController, AbortSignal};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
 
 use crate::core::defaults::DEFAULT_THINKING_LEVEL;
 use crate::core::extensions::types::NoOpUiContext;
@@ -958,14 +958,14 @@ struct Inner {
     turn_start_lock: tokio::sync::Mutex<()>,
     last_assistant_message: Mutex<Option<AssistantMessage>>,
     retry_attempt: AtomicU64,
-    retry_abort_controller: Mutex<Option<CancellationToken>>,
+    retry_abort_controller: Mutex<Option<AbortController>>,
     quota_fallback_attempted: AtomicBool,
-    compaction_abort_controller: Mutex<Option<CancellationToken>>,
-    auto_compaction_abort_controller: Mutex<Option<CancellationToken>>,
-    compaction_summary_materialization_abort_controller: Mutex<Option<CancellationToken>>,
-    branch_summary_abort_controller: Mutex<Option<CancellationToken>>,
+    compaction_abort_controller: Mutex<Option<AbortController>>,
+    auto_compaction_abort_controller: Mutex<Option<AbortController>>,
+    compaction_summary_materialization_abort_controller: Mutex<Option<AbortController>>,
+    branch_summary_abort_controller: Mutex<Option<AbortController>>,
     pending_bash_messages: Mutex<Vec<BashExecutionMessage>>,
-    bash_abort_controllers: Mutex<Vec<CancellationToken>>,
+    bash_abort_controllers: Mutex<Vec<AbortController>>,
     disposed: AtomicBool,
     extension_runner: Mutex<ExtensionRunner>,
     extension_runner_ref: Option<Arc<Mutex<Option<ExtensionRunner>>>>,
@@ -1003,9 +1003,9 @@ struct Inner {
     runtime_mailbox_acceptance: Mutex<crate::core::runtime_mailbox_acceptance::RuntimeMailboxAcceptance>,
     runtime_mailbox_pending_terminal: Mutex<indexmap::IndexMap<JsString, PendingSteeringTerminal>>,
     runtime_mailbox_pending_terminal_unsubscribe: Mutex<Option<crate::core::multi_agent_store::AgentSubscription>>,
-    runtime_mailbox_poll_token: Mutex<Option<CancellationToken>>,
-    runtime_mailbox_heartbeat_token: Mutex<Option<CancellationToken>>,
-    runtime_mailbox_signal_token: Mutex<Option<CancellationToken>>,
+    runtime_mailbox_poll_token: Mutex<Option<AbortController>>,
+    runtime_mailbox_heartbeat_token: Mutex<Option<AbortController>>,
+    runtime_mailbox_signal_token: Mutex<Option<AbortController>>,
     runtime_mailbox_control_db_path: Mutex<Option<JsString>>,
     runtime_mailbox_control_db_release: Mutex<Option<crate::core::session_control_db::RetainedControlDbGuard>>,
     session_mutation_target_resolver:
@@ -1059,7 +1059,7 @@ struct BackgroundCompactionCache {
     thinking_level: ThinkingLevel,
     system_prompt: JsString,
     runner: ExtensionRunner,
-    abort: CancellationToken,
+    abort: AbortController,
     compaction: Option<crate::core::compaction::CompactionResult>,
     from_extension: bool,
     generation_duration_ms: Option<i64>,
@@ -1101,7 +1101,7 @@ async fn emit_compaction_event(
     custom_instructions: Option<&JsString>,
     reason: &str,
     will_retry: bool,
-    abort: &CancellationToken,
+    abort: &AbortSignal,
 ) -> CompactionExtensionDecision {
     if !runner.has_handlers("compaction") {
         return CompactionExtensionDecision::None;
@@ -1444,7 +1444,7 @@ impl AgentSession {
 
     fn subscribe_agent(&self) {
         let weak = Arc::downgrade(&self.inner);
-        let listener: AgentListener = Arc::new(move |event: AgentEvent, _signal: CancellationToken| {
+        let listener: AgentListener = Arc::new(move |event: AgentEvent, _signal: AbortSignal| {
             let weak = weak.clone();
             Box::pin(async move {
                 if let Some(inner) = weak.upgrade() {
@@ -1461,7 +1461,7 @@ impl AgentSession {
     fn install_agent_hooks(&self) {
         let weak = Arc::downgrade(&self.inner);
         self.inner.agent.set_before_tool_call(Some(Arc::new(
-            move |context: BeforeToolCallContext, _signal: Option<CancellationToken>| {
+            move |context: BeforeToolCallContext, _signal: Option<AbortSignal>| {
                 let weak = weak.clone();
                 Box::pin(async move {
                     let Some(inner) = weak.upgrade() else {
@@ -1474,7 +1474,7 @@ impl AgentSession {
         )));
         let weak = Arc::downgrade(&self.inner);
         self.inner.agent.set_after_tool_call(Some(Arc::new(
-            move |context: AfterToolCallContext, _signal: Option<CancellationToken>| {
+            move |context: AfterToolCallContext, _signal: Option<AbortSignal>| {
                 let weak = weak.clone();
                 Box::pin(async move {
                     let Some(inner) = weak.upgrade() else {
@@ -1492,7 +1492,7 @@ impl AgentSession {
         let previous_signal_only = self.inner.agent.prepare_next_turn_hook();
         let weak = Arc::downgrade(&self.inner);
         self.inner.agent.set_prepare_next_turn_with_context(Some(Arc::new(
-            move |turn: PrepareNextTurnContext, signal: Option<CancellationToken>| {
+            move |turn: PrepareNextTurnContext, signal: Option<AbortSignal>| {
                 let weak = weak.clone();
                 let previous_with_context = previous_with_context.clone();
                 let previous_signal_only = previous_signal_only.clone();
@@ -3008,8 +3008,9 @@ impl AgentSession {
         let release = crate::core::session_control_db::retain_control_db_connection(&control_db_path)
             .expect("control db connection must be retainable");
         *lock(&self.inner.runtime_mailbox_control_db_release) = Some(release);
-        let token = CancellationToken::new();
-        *lock(&self.inner.runtime_mailbox_poll_token) = Some(token.clone());
+        let controller_token = AbortController::new();
+        let token = controller_token.signal();
+        *lock(&self.inner.runtime_mailbox_poll_token) = Some(controller_token.clone());
         let weak = Arc::downgrade(&self.inner);
         tokio::spawn(async move {
             let mut interval = tokio::time::interval_at(
@@ -3018,7 +3019,7 @@ impl AgentSession {
             );
             loop {
                 tokio::select! {
-                    () = token.cancelled() => break,
+                    _ = token.wait() => break,
                     _ = interval.tick() => {
                         let Some(inner) = weak.upgrade() else { break };
                         let session = AgentSession { inner };
@@ -3040,7 +3041,7 @@ impl AgentSession {
 
     fn stop_runtime_mailbox_polling(&self) {
         if let Some(token) = lock(&self.inner.runtime_mailbox_poll_token).take() {
-            token.cancel();
+            token.abort(None);
         }
         lock(&self.inner.runtime_mailbox_control_db_release).take();
         *lock(&self.inner.runtime_mailbox_control_db_path) = None;
@@ -3083,8 +3084,9 @@ impl AgentSession {
         if lock(&self.inner.runtime_mailbox_heartbeat_token).is_some() {
             return;
         }
-        let token = CancellationToken::new();
-        *lock(&self.inner.runtime_mailbox_heartbeat_token) = Some(token.clone());
+        let controller_token = AbortController::new();
+        let token = controller_token.signal();
+        *lock(&self.inner.runtime_mailbox_heartbeat_token) = Some(controller_token.clone());
         let agent_id = self.inner.multi_agent_agent_id.clone();
         let weak = Arc::downgrade(&self.inner);
         tokio::spawn(async move {
@@ -3094,7 +3096,7 @@ impl AgentSession {
             );
             loop {
                 tokio::select! {
-                    () = token.cancelled() => break,
+                    _ = token.wait() => break,
                     _ = interval.tick() => {
                         let Some(inner) = weak.upgrade() else { break };
                         let session = AgentSession { inner };
@@ -3110,11 +3112,11 @@ impl AgentSession {
 
     fn stop_runtime_mailbox_signal_wake(&self) {
         if let Some(token) = lock(&self.inner.runtime_mailbox_heartbeat_token).take() {
-            token.cancel();
+            token.abort(None);
         }
         self.retire_runtime_mailbox_listeners();
         if let Some(token) = lock(&self.inner.runtime_mailbox_signal_token).take() {
-            token.cancel();
+            token.abort(None);
         }
     }
 
@@ -3146,13 +3148,14 @@ impl AgentSession {
                 }
             };
             crate::core::session_control_db::mark_runtime_mailbox_signal_keepalive_installed();
-            let token = CancellationToken::new();
-            *lock(&self.inner.runtime_mailbox_signal_token) = Some(token.clone());
+            let controller_token = AbortController::new();
+            let token = controller_token.signal();
+            *lock(&self.inner.runtime_mailbox_signal_token) = Some(controller_token.clone());
             let weak = Arc::downgrade(&self.inner);
             tokio::spawn(async move {
                 loop {
                     tokio::select! {
-                        () = token.cancelled() => break,
+                        _ = token.wait() => break,
                         received = signal.recv() => {
                             if received.is_none() {
                                 break;
@@ -3686,7 +3689,7 @@ impl AgentSession {
             thinking_level: self.thinking_level(),
             system_prompt: self.inner.agent.state().system_prompt,
             runner: self.runner(),
-            abort: CancellationToken::new(),
+            abort: AbortController::new(),
             compaction: None,
             from_extension: false,
             generation_duration_ms: None,
@@ -3710,7 +3713,7 @@ impl AgentSession {
                 (
                     cache.preparation.clone(),
                     cache.branch_entries.clone(),
-                    cache.abort.clone(),
+                    cache.abort.signal(),
                     cache.runner.clone(),
                     self.inner.agent.model(),
                 )
@@ -3734,7 +3737,7 @@ impl AgentSession {
                 self.run_local_compaction(&preparation, &auth, None, &abort).await
             }
         };
-        if abort.is_cancelled() {
+        if abort.aborted() {
             return;
         }
         let mut cache_guard = lock(&self.inner.background_compaction_cache);
@@ -3764,7 +3767,7 @@ impl AgentSession {
         custom_instructions: Option<&JsString>,
         reason: &str,
         will_retry: bool,
-        abort: &CancellationToken,
+        abort: &AbortSignal,
     ) -> CompactionExtensionDecision {
         let runner = self.runner();
         if !runner.has_handlers("session_before_compact") {
@@ -3789,7 +3792,7 @@ impl AgentSession {
         preparation: &crate::core::compaction::CompactionPreparation,
         auth: &CompactionRequestAuth,
         custom_instructions: Option<&JsString>,
-        abort: &CancellationToken,
+        abort: &AbortSignal,
     ) -> Result<crate::core::compaction::CompactionResult, AgentSessionError> {
         let stream_fn = self.inner.agent.stream_fn();
         let summary_options = crate::core::compaction::CompactionSummaryOptions {
@@ -3892,7 +3895,7 @@ impl AgentSession {
         let Some(abort) = abort else {
             return;
         };
-        abort.cancel();
+        abort.abort(None);
         *lock(&self.inner.background_compaction_cache) = None;
     }
 
@@ -3905,7 +3908,7 @@ impl AgentSession {
             (cache.token, cache.state, cache.abort.clone())
         };
         if state == BackgroundCompactionState::Pending {
-            abort.cancel();
+            abort.abort(None);
             *lock(&self.inner.background_compaction_cache) = None;
             return Ok(None);
         }
@@ -5209,11 +5212,12 @@ impl AgentSession {
             messages.pop();
             self.inner.agent.set_messages(messages);
         }
-        let token = CancellationToken::new();
-        *lock(&self.inner.retry_abort_controller) = Some(token.clone());
+        let controller_token = AbortController::new();
+        let token = controller_token.signal();
+        *lock(&self.inner.retry_abort_controller) = Some(controller_token.clone());
         let cancelled = tokio::select! {
             () = tokio::time::sleep(std::time::Duration::from_millis(delay_ms.max(0.0) as u64)) => false,
-            () = token.cancelled() => true,
+            _ = token.wait() => true,
         };
         *lock(&self.inner.retry_abort_controller) = None;
         if cancelled {
@@ -5232,7 +5236,7 @@ impl AgentSession {
     /// Cancels an in-progress retry.
     pub fn abort_retry(&self) {
         if let Some(token) = lock(&self.inner.retry_abort_controller).as_ref() {
-            token.cancel();
+            token.abort(None);
         }
     }
 
@@ -5843,8 +5847,9 @@ impl AgentSession {
         self.disconnect_from_agent();
         self.abort().await?;
         self.cancel_background_compaction().await;
-        let abort = CancellationToken::new();
-        *lock(&self.inner.compaction_abort_controller) = Some(abort.clone());
+        let controller_abort = AbortController::new();
+        let abort = controller_abort.signal();
+        *lock(&self.inner.compaction_abort_controller) = Some(controller_abort.clone());
         let source_hint = self.get_compaction_source_hint("manual", false).await;
         self.emit(AgentSessionEvent::CompactionStart(CompactionStartEvent {
             event_type: "compaction_start",
@@ -5915,7 +5920,7 @@ impl AgentSession {
         path_entries: &[SessionEntry],
         custom_instructions: Option<&JsString>,
         reason: &str,
-        abort: &CancellationToken,
+        abort: &AbortSignal,
     ) -> Result<Option<crate::core::compaction::CompactionResult>, AgentSessionError> {
         let mut extension_compaction = match self
             .emit_session_before_compact_event(preparation, path_entries, custom_instructions, reason, false, abort)
@@ -5947,7 +5952,7 @@ impl AgentSession {
     async fn compact_with_settings(
         &self,
         custom_instructions: Option<&JsString>,
-        abort: &CancellationToken,
+        abort: &AbortSignal,
         was_running_agent_turn: bool,
         compaction_started_during_tool_execution: bool,
         started_at: i64,
@@ -5987,7 +5992,7 @@ impl AgentSession {
                     .await?
             }
         };
-        if abort.is_cancelled() {
+        if abort.aborted() {
             return Err(error("Compaction cancelled"));
         }
         let duration_ms = (now_millis() - started_at) as f64;
@@ -6125,30 +6130,30 @@ impl AgentSession {
     /// Cancels in-progress compaction (manual or auto).
     pub fn abort_compaction(&self) {
         if let Some(token) = lock(&self.inner.compaction_abort_controller).as_ref() {
-            token.cancel();
+            token.abort(None);
         }
         if let Some(token) = lock(&self.inner.background_compaction_cache)
             .as_ref()
             .map(|cache| cache.abort.clone())
         {
-            token.cancel();
+            token.abort(None);
         }
         if let Some(token) = lock(&self.inner.auto_compaction_abort_controller).as_ref() {
-            token.cancel();
+            token.abort(None);
         }
     }
 
     /// Cancels in-progress compaction-summary materialization.
     pub fn abort_compaction_summary_materialization(&self) {
         if let Some(token) = lock(&self.inner.compaction_summary_materialization_abort_controller).as_ref() {
-            token.cancel();
+            token.abort(None);
         }
     }
 
     /// Cancels in-progress branch summarization.
     pub fn abort_branch_summary(&self) {
         if let Some(token) = lock(&self.inner.branch_summary_abort_controller).as_ref() {
-            token.cancel();
+            token.abort(None);
         }
     }
 
@@ -6276,8 +6281,9 @@ impl AgentSession {
             reason: reason.to_owned(),
             source_hint,
         }));
-        let abort = CancellationToken::new();
-        *lock(&self.inner.auto_compaction_abort_controller) = Some(abort.clone());
+        let controller_abort = AbortController::new();
+        let abort = controller_abort.signal();
+        *lock(&self.inner.auto_compaction_abort_controller) = Some(controller_abort.clone());
         let started_at = now_millis();
         let mut extension_compaction = cached.as_ref().and_then(|cache| cache.compaction.clone());
         let mut from_extension = cached.as_ref().is_some_and(|cache| cache.from_extension);
@@ -6350,7 +6356,7 @@ impl AgentSession {
                     let model = self.inner.agent.model();
                     let auth = self.get_compaction_request_auth(&model).await;
                     let generated = self.run_local_compaction(&preparation, &auth, None, &abort).await;
-                    if abort.is_cancelled() {
+                    if abort.aborted() {
                         Err(error("Compaction cancelled"))
                     } else {
                         generated.and_then(|compaction| {
@@ -6386,7 +6392,7 @@ impl AgentSession {
                 Ok(self.inner.agent.has_queued_messages())
             }
             Err(error) => {
-                let aborted = abort.is_cancelled() || error.message() == "Compaction cancelled";
+                let aborted = abort.aborted() || error.message() == "Compaction cancelled";
                 self.emit(AgentSessionEvent::CompactionEnd(Box::new(CompactionEndEvent {
                     event_type: "compaction_end",
                     reason: reason.to_owned(),
@@ -6427,8 +6433,9 @@ impl AgentSession {
     ) -> Result<crate::core::bash_executor::BashResult, AgentSessionError> {
         use crate::core::bash_executor::{BashExecutorOptions, execute_bash_with_operations};
 
-        let abort = CancellationToken::new();
-        lock(&self.inner.bash_abort_controllers).push(abort.clone());
+        let controller_abort = AbortController::new();
+        let abort = controller_abort.signal();
+        lock(&self.inner.bash_abort_controllers).push(controller_abort.clone());
         let (prefix, shell_path) = {
             let settings = lock(&self.inner.settings_manager);
             (settings.get_shell_command_prefix().cloned(), settings.get_shell_path())
@@ -6465,7 +6472,7 @@ impl AgentSession {
             },
         )
         .await;
-        lock(&self.inner.bash_abort_controllers).retain(|token| token != &abort);
+        lock(&self.inner.bash_abort_controllers).retain(|token| token != &controller_abort);
         let result = result.map_err(|bash_error| error(bash_error.message))?;
         self.record_bash_result(command, &result, options.exclude_from_context);
         Ok(result)
@@ -6508,9 +6515,9 @@ impl AgentSession {
 
     /// Cancels a running bash command.
     pub fn abort_bash(&self) {
-        let tokens: Vec<CancellationToken> = lock(&self.inner.bash_abort_controllers).clone();
+        let tokens: Vec<AbortController> = lock(&self.inner.bash_abort_controllers).clone();
         for token in tokens {
-            token.cancel();
+            token.abort(None);
         }
     }
 
@@ -6623,8 +6630,9 @@ impl AgentSession {
         if lock(&self.inner.compaction_summary_materialization_abort_controller).is_some() {
             return Err(error("Compaction summary materialization is already running"));
         }
-        let abort = CancellationToken::new();
-        *lock(&self.inner.compaction_summary_materialization_abort_controller) = Some(abort.clone());
+        let controller_abort = AbortController::new();
+        let abort = controller_abort.signal();
+        *lock(&self.inner.compaction_summary_materialization_abort_controller) = Some(controller_abort.clone());
         let auth = self.get_required_request_auth(&model).await?;
         let settings = compaction_settings(&self.inner.settings_manager)?;
         let stream_fn = self.inner.agent.stream_fn();
@@ -6768,8 +6776,9 @@ impl AgentSession {
         let mut custom_instructions = options.custom_instructions.clone();
         let mut replace_instructions = options.replace_instructions;
         let mut label = options.label.clone();
-        let abort = CancellationToken::new();
-        *lock(&self.inner.branch_summary_abort_controller) = Some(abort.clone());
+        let controller_abort = AbortController::new();
+        let abort = controller_abort.signal();
+        *lock(&self.inner.branch_summary_abort_controller) = Some(controller_abort.clone());
 
         let runner = self.runner();
         let mut extension_summary = None;
@@ -7937,7 +7946,7 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
         });
     let call_tool_weak = weak.clone();
     let call_tool: crate::core::extensions::types::CallToolHandler = Arc::new(
-        move |name: String, params: JsValue, signal: Option<CancellationToken>, tool_call_id: Option<String>| {
+        move |name: String, params: JsValue, signal: Option<AbortSignal>, tool_call_id: Option<String>| {
             let Some(inner) = call_tool_weak.upgrade() else {
                 return Box::pin(async {
                     Err(crate::core::extensions::types::HandlerError::new("Session is disposed"))
@@ -8086,7 +8095,7 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
             .is_some_and(|inner| lock(&inner.settings_manager).is_project_trusted())
     });
     let signal_weak = weak.clone();
-    let get_signal: Arc<dyn Fn() -> Option<CancellationToken> + Send + Sync> =
+    let get_signal: Arc<dyn Fn() -> Option<AbortSignal> + Send + Sync> =
         Arc::new(move || signal_weak.upgrade().and_then(|inner| inner.agent.signal()));
     let abort_weak = weak.clone();
     let abort: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
@@ -8369,7 +8378,7 @@ impl AgentSession {
         &self,
         tool_name: &str,
         params: JsValue,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
         active_tool_call_id: Option<String>,
     ) -> Result<pi_agent_core::agent::types::AgentToolResult, crate::core::extensions::types::HandlerError> {
         if !self.get_active_tool_names().iter().any(|name| name == tool_name) {

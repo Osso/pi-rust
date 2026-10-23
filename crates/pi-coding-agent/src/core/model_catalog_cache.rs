@@ -5,11 +5,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use pi_ai::request::{CallbackError, Fetch, HttpRequest, read_body_text};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::date::{date_parse_utf16, js_now_millis};
 use pi_js_compat::js_json::{self, JsString, JsValue};
 use pi_js_compat::node_error::NativeNodeError;
 use serde::Serialize;
-use tokio_util::sync::CancellationToken;
 
 const BASE_URL: &str = "https://openrouter.ai/api/v1";
 const MAX_AGE_MS: f64 = 604_800_000.0;
@@ -312,10 +312,7 @@ impl CatalogRequestError {
     }
 }
 
-async fn fetch_catalog(
-    fetch: &dyn Fetch,
-    signal: Option<CancellationToken>,
-) -> Result<Vec<JsValue>, CatalogRequestError> {
+async fn fetch_catalog(fetch: &dyn Fetch, signal: Option<AbortSignal>) -> Result<Vec<JsValue>, CatalogRequestError> {
     let response = fetch
         .fetch(
             HttpRequest {
@@ -371,7 +368,7 @@ async fn fetch_catalog(
 /// Unretried public fetch helper; caller's abort signal is passed unchanged.
 pub async fn fetch_openrouter_catalog(
     fetch: &dyn Fetch,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> Result<Vec<JsValue>, NativeNodeError> {
     fetch_catalog(fetch, signal).await.map_err(|error| error.error)
 }
@@ -393,7 +390,8 @@ fn parse_retry_after(value: &str) -> f64 {
 }
 
 async fn fetch_catalog_with_retries(fetch: &dyn Fetch) -> Result<Vec<JsValue>, NativeNodeError> {
-    let signal = CancellationToken::new();
+    let controller = pi_js_compat::abort::AbortController::new();
+    let signal = controller.signal();
     let deadline = Instant::now() + Duration::from_millis(FETCH_TIMEOUT_MS);
     let operation = async {
         for attempt in 0..3 {
@@ -419,7 +417,7 @@ async fn fetch_catalog_with_retries(fetch: &dyn Fetch) -> Result<Vec<JsValue>, N
     match tokio::time::timeout_at(deadline.into(), operation).await {
         Ok(result) => result.map_err(|error| wrap_error("OpenRouter model catalog refresh failed", error)),
         Err(_) => {
-            signal.cancel();
+            controller.abort(None);
             Err(catalog_error(
                 "OpenRouter model catalog refresh failed: timed out after 5000 ms",
             ))

@@ -11,11 +11,11 @@ use std::time::Duration;
 
 use pi_agent_core::harness::types::BeforeToolCallResult;
 use pi_ai::request::BoxFuture;
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, JsValue};
 use pi_js_compat::number::parse_number;
 use tokio::sync::Notify;
-use tokio_util::sync::CancellationToken;
 
 use crate::architect::observer::ArchitectObserver;
 use crate::architect::project_spec::register_architect_project_spec_tool;
@@ -98,13 +98,13 @@ impl ArchitectConsolePromptQueue {
     }
 
     /// Wait for a prompt, the abort signal, or the observer interval.
-    pub async fn wait(&self, signal: &CancellationToken, timeout_ms: u64) {
-        if signal.is_cancelled() || !self.is_empty() {
+    pub async fn wait(&self, signal: &AbortSignal, timeout_ms: u64) {
+        if signal.aborted() || !self.is_empty() {
             return;
         }
         tokio::select! {
             () = self.waiters.notified() => {}
-            () = signal.cancelled() => {}
+            _ = signal.wait() => {}
             () = tokio::time::sleep(Duration::from_millis(timeout_ms)) => {}
         }
     }
@@ -275,7 +275,7 @@ where
 
 /// `createArchitectStopHandler`.
 pub fn create_architect_stop_handler(
-    abort_controller: CancellationToken,
+    abort_controller: pi_js_compat::abort::AbortController,
     abort_session: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
     exit: Arc<dyn Fn(i32) + Send + Sync>,
 ) -> impl Fn() + Send + Sync {
@@ -284,7 +284,7 @@ pub fn create_architect_stop_handler(
         if stopping.swap(true, Ordering::SeqCst) {
             return;
         }
-        abort_controller.cancel();
+        abort_controller.abort(None);
         let abort_session = Arc::clone(&abort_session);
         tokio::spawn(async move {
             abort_session().await;
@@ -298,10 +298,10 @@ pub fn create_architect_stop_handler(
 }
 
 /// `waitForArchitectInterval`.
-pub async fn wait_for_architect_interval(signal: &CancellationToken) {
+pub async fn wait_for_architect_interval(signal: &AbortSignal) {
     tokio::select! {
         () = tokio::time::sleep(Duration::from_millis(OBSERVER_INTERVAL_MS)) => {}
-        () = signal.cancelled() => {}
+        _ = signal.wait() => {}
     }
 }
 
@@ -317,7 +317,7 @@ pub async fn run_architect_service_loop<O, P, PFut>(
     observer: Arc<O>,
     prompt: P,
     prompt_queue: Arc<ArchitectConsolePromptQueue>,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<(), JsString>
 where
     O: ArchitectCycleObserver + Send + Sync + 'static,
@@ -328,11 +328,11 @@ where
         console_server.start().await?;
     }
     let result = async {
-        while !signal.is_cancelled() {
+        while !signal.aborted() {
             run_architect_cycle(Arc::clone(&observer), &prompt).await?;
             let mut console_prompt = prompt_queue.take();
             while let Some(prompt_entry) = console_prompt {
-                if signal.is_cancelled() {
+                if signal.aborted() {
                     break;
                 }
                 prompt(prompt_entry.text).await?;
@@ -566,7 +566,7 @@ pub async fn run_architect_service() -> Result<(), JsString> {
     })
     .await?;
     let session = result.session;
-    let abort_controller = CancellationToken::new();
+    let abort_controller = pi_js_compat::abort::AbortController::new();
     let prompt_queue = Arc::new(ArchitectConsolePromptQueue::new());
     let console_server = create_architect_console_server(CreateArchitectConsoleServerInput {
         control_db_path,
@@ -604,7 +604,7 @@ pub async fn run_architect_service() -> Result<(), JsString> {
         observer,
         prompt,
         prompt_queue,
-        abort_controller,
+        abort_controller.signal(),
     )
     .await
 }

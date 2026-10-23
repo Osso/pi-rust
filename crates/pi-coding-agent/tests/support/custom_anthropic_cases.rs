@@ -2,7 +2,7 @@ use super::*;
 use pi_ai::request::{SimpleStreamOptions, StreamOptions};
 use pi_js_compat::js_json::JsString;
 
-fn options(input: &Value, signal: CancellationToken) -> SimpleStreamOptions {
+fn options(input: &Value, signal: AbortSignal) -> SimpleStreamOptions {
     let mut options = SimpleStreamOptions::default();
     options.stream.request.signal = Some(signal);
     options.stream.request.api_key = input["options"]["apiKey"]
@@ -36,13 +36,13 @@ fn terminal(reason: &str) -> Value {
 async fn compare(input: Value, oracle: &mut oracle::TsOracle) -> Vec<Value> {
     let expected = oracle.request(&input);
     let calls = Arc::new(Mutex::new(vec![]));
-    let provider = provider(&input, calls.clone()).await;
+    let (provider, fixture_controller) = provider(&input, calls.clone()).await;
     let mut model = provider.get_models()[input["modelIndex"].as_u64().unwrap_or(0) as usize].clone();
     if input["model"]["reasoning"] == false {
         model.reasoning = false;
     }
     let context = serde_json::from_value(input.get("context").cloned().unwrap_or(json!({"messages":[]}))).unwrap();
-    let signal = CancellationToken::new();
+    let signal = fixture_controller.signal();
     let options = options(&input, signal);
     let mut stream = if input["raw"] == true {
         provider.stream(
@@ -139,7 +139,7 @@ async fn native_registered_api_key_auth_matches_pinned_composed_registration() {
         for check in [false, true] {
             input["check"] = json!(check);
             let expected = oracle.request(&input);
-            let provider = provider(&input, Arc::new(Mutex::new(vec![]))).await;
+            let (provider, _) = provider(&input, Arc::new(Mutex::new(vec![]))).await;
             let ctx: Arc<dyn AuthContext> = Arc::new(Env(input["env"].clone()));
             let credential = input
                 .get("credential")
@@ -153,7 +153,7 @@ async fn native_registered_api_key_auth_matches_pinned_composed_registration() {
                 match auth.check(ApiKeyCheckInput {
                     ctx,
                     credential,
-                    signal: CancellationToken::new(),
+                    signal: AbortSignal::default(),
                 }) {
                     Some(future) => future.await.map(|r| serde_json::to_value(r).unwrap()),
                     None => Ok(Value::Null),
@@ -163,7 +163,7 @@ async fn native_registered_api_key_auth_matches_pinned_composed_registration() {
                     model: None,
                     ctx,
                     credential,
-                    signal: CancellationToken::new(),
+                    signal: AbortSignal::default(),
                 })
                 .await
                 .map(|r| serde_json::to_value(r).unwrap())

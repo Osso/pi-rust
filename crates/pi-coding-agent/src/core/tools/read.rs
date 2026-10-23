@@ -13,13 +13,13 @@ use std::rc::Rc;
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{ImageContent, TextContent, TextOrImageContent};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsValue as Value;
 use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
 use serde_json::Value as SchemaValue;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
-use tokio_util::sync::CancellationToken;
 
 use super::node_fs::node_fs_error;
 use super::path_utils::resolve_read_path_async;
@@ -230,7 +230,7 @@ impl AgentTool for ReadTool {
         &self,
         _tool_call_id: String,
         params: JsValue,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
@@ -252,7 +252,7 @@ async fn execute_read(
     operations: std::sync::Arc<dyn ReadOperations>,
     auto_resize_images: bool,
     params: JsValue,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> Result<AgentToolResult, ToolError> {
     let input = parse_read_input(&params)?;
     check_aborted(signal.as_ref())?;
@@ -283,8 +283,8 @@ async fn execute_read(
     })
 }
 
-fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
-    if signal.is_some_and(CancellationToken::is_cancelled) {
+fn check_aborted(signal: Option<&AbortSignal>) -> Result<(), ToolError> {
+    if signal.is_some_and(AbortSignal::aborted) {
         return Err(ToolError::new("Operation aborted"));
     }
     Ok(())

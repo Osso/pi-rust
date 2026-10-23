@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use pi_ai::request::BoxFuture;
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
-use tokio_util::sync::CancellationToken;
 
 use crate::core::session_control_db::{
     ControlDbError, SupervisorRequest, SupervisorRequestKind, SupervisorResponse, complete_supervisor_request,
@@ -17,7 +17,7 @@ const DEFAULT_POLL_INTERVAL_MS: u64 = 50;
 
 /// Evaluates one Supervisor prompt and returns the raw model response.
 pub type SupervisorEvaluator =
-    Arc<dyn Fn(JsString, CancellationToken) -> BoxFuture<'static, Result<JsValue, JsString>> + Send + Sync>;
+    Arc<dyn Fn(JsString, AbortSignal) -> BoxFuture<'static, Result<JsValue, JsString>> + Send + Sync>;
 
 /// Inputs for one Supervisor request evaluation.
 #[derive(Clone)]
@@ -165,8 +165,8 @@ pub enum RunSupervisorRequestOutcome {
 pub async fn run_supervisor_request(
     input: RunSupervisorRequestInput,
 ) -> Result<RunSupervisorRequestOutcome, ControlDbError> {
-    let cancel = CancellationToken::new();
-    let evaluation = (input.evaluate)(build_supervisor_prompt(&input.request), cancel.clone());
+    let cancel = pi_js_compat::abort::AbortController::new();
+    let evaluation = (input.evaluate)(build_supervisor_prompt(&input.request), cancel.signal());
     let evaluation = tokio::spawn(evaluation);
     let poll_interval_ms = input.poll_interval_ms.unwrap_or(DEFAULT_POLL_INTERVAL_MS);
     let deadline_ms = pi_js_compat::date::date_parse_millis(&input.request.deadline_at);
@@ -206,7 +206,7 @@ enum EvaluationWait {
 async fn wait_for_evaluation(
     input: &RunSupervisorRequestInput,
     mut evaluation: tokio::task::JoinHandle<Result<JsValue, JsString>>,
-    cancel: &CancellationToken,
+    cancel: &pi_js_compat::abort::AbortController,
     poll_interval_ms: u64,
     deadline_ms: Option<i64>,
 ) -> Result<EvaluationWait, ControlDbError> {
@@ -222,7 +222,7 @@ async fn wait_for_evaluation(
             () = tokio::time::sleep(delay) => {}
         }
         if now_millis() >= deadline_ms.unwrap_or(i64::MAX) {
-            cancel.cancel();
+            cancel.abort(None);
             evaluation.abort();
             let _ = evaluation.await;
             complete_supervisor_request(
@@ -240,7 +240,7 @@ async fn wait_for_evaluation(
         {
             continue;
         }
-        cancel.cancel();
+        cancel.abort(None);
         evaluation.abort();
         let _ = evaluation.await;
         requeue_supervisor_request(
