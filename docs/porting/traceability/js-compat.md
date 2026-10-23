@@ -5,6 +5,10 @@ refactoring source of truth: it replaces the duplicated helpers that grew inside
 `pi-ai`, `pi-agent-core`, `pi-tui`, and `pi-coding-agent`. There is no
 TypeScript module behind this crate.
 
+## Slice relative index (`number::js_slice_index`)
+
+Shared read/RTK authority applies ToIntegerOrInfinity before sign/clamp, including negative zero fractions, NaN and infinities. Actual-frozen read RED and RTK numeric RED prove why sign-before-truncation/integer coercion is wrong. [Contract and concrete controls](../../specs/js-slice-index.md);17 read and34 ls cases GREEN with ordinary ls tests (`ls-numbers-green-1.log`).
+
 ## `String.prototype.localeCompare` (`src/collator.rs`)
 
 | Source behaviour | Rust item | Proof |

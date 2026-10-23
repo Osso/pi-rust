@@ -17,6 +17,7 @@ use pi_ai::types::{ImageContent, TextContent, TextOrImageContent};
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsValue as Value;
+use pi_js_compat::number::js_slice_index as slice_index;
 use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
 use serde_json::Value as SchemaValue;
@@ -549,19 +550,6 @@ fn select_lines(all_lines: &[&str], start_line: f64, limit: Option<f64>) -> (Str
     };
     let end_index = end_index.max(start_index);
     (all_lines[start_index..end_index].join("\n"), limited_lines)
-}
-
-/// Array.slice converts each index only after the read tool's floating-point arithmetic.
-fn slice_index(index: f64, length: usize) -> usize {
-    if index.is_nan() {
-        return 0;
-    }
-    let index = if index < 0.0 {
-        length as f64 + index.trunc()
-    } else {
-        index.trunc()
-    };
-    pi_js_compat::number::js_math_max(0.0, pi_js_compat::number::js_math_min(index, length as f64)) as usize
 }
 
 struct ReadRenderInput<'a> {
