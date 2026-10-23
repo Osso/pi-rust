@@ -1,11 +1,12 @@
 //! Ported from `coding-agent/src/modes/interactive/components/tree-selector.ts`.
 
 use std::borrow::Cow;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
+use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 use std::sync::OnceLock;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use pi_agent_core::agent::AgentMessage;
 use pi_ai::types::{AssistantContent, AssistantMessage, StopReason, TextOrImageContent, UserContent};
@@ -17,7 +18,7 @@ use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
 use pi_tui::keybindings::get_keybindings;
-use pi_tui::tui::{Component, ComponentRef, Container, Focusable, component};
+use pi_tui::tui::{Component, Container, Focusable, component};
 use pi_tui::utils::{slice_by_column, truncate_to_width_with, visible_width, wrap_text_with_ansi};
 
 use super::dynamic_border::dynamic_border;
@@ -1402,6 +1403,9 @@ enum BranchDirection {
 }
 
 impl Component for TreeList {
+    fn handle_input(&mut self, data: &JsString) {
+        TreeList::handle_input(self, data);
+    }
     fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
 
@@ -1409,12 +1413,12 @@ impl Component for TreeList {
             lines.push(truncate(
                 &with_theme(|theme| theme.fg(ThemeColor::Muted, "  No entries found")),
                 width,
-                "",
+                "...",
             ));
             lines.push(truncate(
                 &with_theme(|theme| theme.fg(ThemeColor::Muted, &js_format!("  (0/0){}", self.get_status_labels()))),
                 width,
-                "",
+                "...",
             ));
             return lines;
         }
@@ -1558,7 +1562,7 @@ impl Component for TreeList {
                 )
             }),
             width,
-            "",
+            "...",
         ));
         lines
     }
@@ -1591,7 +1595,7 @@ impl Component for SearchLine {
                     with_theme(|theme| theme.fg(ThemeColor::Muted, "Type to search:"))
                 ),
                 width,
-                "",
+                "...",
             )];
         }
         vec![truncate(
@@ -1601,7 +1605,7 @@ impl Component for SearchLine {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, &query))
             ),
             width,
-            "",
+            "...",
         )]
     }
 
@@ -1786,6 +1790,9 @@ impl LabelInput {
 }
 
 impl Component for LabelInput {
+    fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
+        Some(self)
+    }
     fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
         let indent = "  ";
@@ -1797,10 +1804,10 @@ impl Component for LabelInput {
                 with_theme(|theme| theme.fg(ThemeColor::Muted, "Label (empty to remove):"))
             ),
             width,
-            "",
+            "...",
         ));
         for line in self.input.render(available_width) {
-            lines.push(truncate(&js_format!("{}{}", indent, line), width, ""));
+            lines.push(truncate(&js_format!("{}{}", indent, line), width, "..."));
         }
         lines.push(truncate(
             &js_format!(
@@ -1810,7 +1817,7 @@ impl Component for LabelInput {
                 key_hint("tui.select.cancel", "cancel")
             ),
             width,
-            "",
+            "...",
         ));
         lines
     }
@@ -1850,16 +1857,29 @@ impl Focusable for LabelInput {
     }
 }
 
+type LabelInputHandle = Rc<RefCell<Option<Rc<RefCell<LabelInput>>>>>;
+
+fn hide_label_input(
+    input: &LabelInputHandle,
+    label_container: &Rc<RefCell<Container>>,
+    tree_container: &Rc<RefCell<Container>>,
+    tree_list: &Rc<RefCell<TreeList>>,
+) {
+    *input.borrow_mut() = None;
+    label_container.borrow_mut().clear();
+    tree_container.borrow_mut().clear();
+    tree_container.borrow_mut().add_child(tree_list.clone());
+}
+
 /// Component that renders a session tree selector for navigation.
 pub struct TreeSelectorComponent {
     tree_list: Rc<RefCell<TreeList>>,
-    label_input: Rc<RefCell<Option<ComponentRef>>>,
-    label_input_container: ComponentRef,
-    tree_container: ComponentRef,
+    label_input: LabelInputHandle,
+    label_input_container: Rc<RefCell<Container>>,
+    tree_container: Rc<RefCell<Container>>,
     on_label_change: Option<LabelEditHandler>,
-    focused: bool,
+    focused: Rc<Cell<bool>>,
     container: Container,
-    empty_cancel_at: Option<Instant>,
 }
 
 impl TreeSelectorComponent {
@@ -1875,107 +1895,83 @@ impl TreeSelectorComponent {
         initial_filter_mode: Option<FilterMode>,
     ) -> Self {
         let max_visible_lines = 5.max(terminal_height / 2);
+        let is_empty = tree.is_empty();
         let mut tree_list = TreeList::new(
-            tree.clone(),
+            tree,
             current_leaf_id,
             max_visible_lines,
             initial_selected_id,
             initial_filter_mode,
         );
         tree_list.on_select = Some(on_select);
-        tree_list.on_cancel = Some(on_cancel);
+        tree_list.on_cancel = Some(on_cancel.clone());
         let tree_list = Rc::new(RefCell::new(tree_list));
 
         let mut component = Self {
             tree_list,
             label_input: Rc::new(RefCell::new(None)),
-            label_input_container: component(Container::new()),
-            tree_container: component(Container::new()),
+            label_input_container: Rc::new(RefCell::new(Container::new())),
+            tree_container: Rc::new(RefCell::new(Container::new())),
             on_label_change,
-            focused: false,
+            focused: Rc::new(Cell::new(false)),
             container: Container::new(),
-            empty_cancel_at: None,
         };
         component.wire_label_edit();
         component.rebuild_layout();
-        if tree.is_empty() {
-            component.empty_cancel_at = Some(Instant::now() + Duration::from_millis(100));
+        if is_empty {
+            tokio::task::spawn_local(async move {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                on_cancel();
+            });
         }
         component
     }
 
     fn wire_label_edit(&mut self) {
-        let tree_list = Rc::clone(&self.tree_list);
-        let label_input = Rc::clone(&self.label_input);
-        let label_input_container = Rc::clone(&self.label_input_container);
-        let tree_container = Rc::clone(&self.tree_container);
+        let tree_list = self.tree_list.clone();
+        let label_input = self.label_input.clone();
+        let label_input_container = self.label_input_container.clone();
+        let tree_container = self.tree_container.clone();
         let on_label_change = self.on_label_change.clone();
-        let show = Rc::new(move |entry_id: &JsString, current_label: Option<&JsString>| {
+        let focused = self.focused.clone();
+        self.tree_list.borrow_mut().on_label_edit = Some(Rc::new(move |entry_id, current_label| {
             let mut input = LabelInput::new(entry_id, current_label);
-
-            let submit_tree_list = Rc::clone(&tree_list);
-            let submit_label_input = Rc::clone(&label_input);
-            let submit_label_container = Rc::clone(&label_input_container);
-            let submit_tree_container = Rc::clone(&tree_container);
+            input.set_focused(focused.get());
+            let submit_tree_list = tree_list.clone();
+            let submit_label_input = label_input.clone();
+            let submit_label_container = label_input_container.clone();
+            let submit_tree_container = tree_container.clone();
             let submit_label_change = on_label_change.clone();
             input.on_submit = Some(Rc::new(move |id, label| {
                 submit_tree_list.borrow_mut().update_node_label(id, label, None);
-                if let Some(on_label_change) = &submit_label_change {
-                    on_label_change(id, label);
+                if let Some(callback) = &submit_label_change {
+                    callback(id, label);
                 }
-                *submit_label_input.borrow_mut() = None;
-                if let Some(container) = submit_label_container
-                    .borrow_mut()
-                    .as_any_mut()
-                    .and_then(|any| any.downcast_mut::<Container>())
-                {
-                    container.clear();
-                }
-                if let Some(container) = submit_tree_container
-                    .borrow_mut()
-                    .as_any_mut()
-                    .and_then(|any| any.downcast_mut::<Container>())
-                {
-                    container.clear();
-                    container.add_child(Rc::clone(&submit_tree_list) as ComponentRef);
-                }
+                hide_label_input(
+                    &submit_label_input,
+                    &submit_label_container,
+                    &submit_tree_container,
+                    &submit_tree_list,
+                );
             }));
-
-            let cancel_tree_list = Rc::clone(&tree_list);
-            let cancel_label_input = Rc::clone(&label_input);
-            let cancel_label_container = Rc::clone(&label_input_container);
-            let cancel_tree_container = Rc::clone(&tree_container);
+            let cancel_tree_list = tree_list.clone();
+            let cancel_label_input = label_input.clone();
+            let cancel_label_container = label_input_container.clone();
+            let cancel_tree_container = tree_container.clone();
             input.on_cancel = Some(Rc::new(move || {
-                *cancel_label_input.borrow_mut() = None;
-                if let Some(container) = cancel_label_container
-                    .borrow_mut()
-                    .as_any_mut()
-                    .and_then(|any| any.downcast_mut::<Container>())
-                {
-                    container.clear();
-                }
-                if let Some(container) = cancel_tree_container
-                    .borrow_mut()
-                    .as_any_mut()
-                    .and_then(|any| any.downcast_mut::<Container>())
-                {
-                    container.clear();
-                    container.add_child(Rc::clone(&cancel_tree_list) as ComponentRef);
-                }
+                hide_label_input(
+                    &cancel_label_input,
+                    &cancel_label_container,
+                    &cancel_tree_container,
+                    &cancel_tree_list,
+                );
             }));
-
-            let input = component(input);
-            *label_input.borrow_mut() = Some(Rc::clone(&input));
-            if let Some(container) = label_input_container
-                .borrow_mut()
-                .as_any_mut()
-                .and_then(|any| any.downcast_mut::<Container>())
-            {
-                container.clear();
-                container.add_child(input);
-            }
-        });
-        self.tree_list.borrow_mut().on_label_edit = Some(show);
+            let input = Rc::new(RefCell::new(input));
+            *label_input.borrow_mut() = Some(input.clone());
+            tree_container.borrow_mut().clear();
+            label_input_container.borrow_mut().clear();
+            label_input_container.borrow_mut().add_child(input);
+        }));
     }
 
     fn rebuild_layout(&mut self) {
@@ -1993,17 +1989,10 @@ impl TreeSelectorComponent {
         self.container.add_child(component(dynamic_border()));
         self.container.add_child(component(Spacer::new(1)));
 
-        if let Some(container) = self
-            .tree_container
-            .borrow_mut()
-            .as_any_mut()
-            .and_then(|any| any.downcast_mut::<Container>())
-        {
-            container.clear();
-            container.add_child(Rc::clone(&self.tree_list) as ComponentRef);
-        }
-        self.container.add_child(Rc::clone(&self.tree_container));
-        self.container.add_child(Rc::clone(&self.label_input_container));
+        self.tree_container.borrow_mut().clear();
+        self.tree_container.borrow_mut().add_child(self.tree_list.clone());
+        self.container.add_child(self.tree_container.clone());
+        self.container.add_child(self.label_input_container.clone());
         self.container.add_child(component(Spacer::new(1)));
         self.container.add_child(component(dynamic_border()));
     }
@@ -2011,24 +2000,38 @@ impl TreeSelectorComponent {
     pub fn tree_list(&self) -> &Rc<RefCell<TreeList>> {
         &self.tree_list
     }
+}
 
-    /// Fire the deferred empty-tree cancel once the 100ms delay elapsed.
-    pub fn poll(&mut self, now: Instant) -> bool {
-        if let Some(deadline) = self.empty_cancel_at
-            && now >= deadline
-        {
-            self.empty_cancel_at = None;
-            let cancel = self.tree_list.borrow().on_cancel.clone();
-            if let Some(cancel) = cancel {
-                cancel();
-            }
-            return true;
-        }
-        false
+impl Drop for TreeSelectorComponent {
+    fn drop(&mut self) {
+        self.tree_list.borrow_mut().on_label_edit = None;
+        self.label_input.borrow_mut().take();
+        self.label_input_container.borrow_mut().clear();
+        self.tree_container.borrow_mut().clear();
     }
 }
 
+impl Deref for TreeSelectorComponent {
+    type Target = Container;
+    fn deref(&self) -> &Container {
+        &self.container
+    }
+}
+impl DerefMut for TreeSelectorComponent {
+    fn deref_mut(&mut self) -> &mut Container {
+        &mut self.container
+    }
+}
 impl Component for TreeSelectorComponent {
+    fn as_container(&self) -> Option<&Container> {
+        Some(&self.container)
+    }
+    fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
+        Some(self)
+    }
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
     fn render(&mut self, width: usize) -> Vec<JsString> {
         self.container.render(width)
     }
@@ -2049,19 +2052,12 @@ impl Component for TreeSelectorComponent {
 
 impl Focusable for TreeSelectorComponent {
     fn focused(&self) -> bool {
-        self.focused
+        self.focused.get()
     }
-
     fn set_focused(&mut self, focused: bool) {
-        self.focused = focused;
-        let label_input = self.label_input.borrow().clone();
-        if let Some(label_input) = label_input
-            && let Some(label_input) = label_input
-                .borrow_mut()
-                .as_any_mut()
-                .and_then(|any| any.downcast_mut::<LabelInput>())
-        {
-            label_input.set_focused(focused);
+        self.focused.set(focused);
+        if let Some(input) = self.label_input.borrow().as_ref() {
+            input.borrow_mut().set_focused(focused);
         }
     }
 }

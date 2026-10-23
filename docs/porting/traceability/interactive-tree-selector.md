@@ -43,6 +43,10 @@ sequences, exact ANSI lines and selected ids).
 
 Actual frozen tree-selector.ts contains no copy API, callback or help item. Removed old-only CopyHandler/on_copy/copy_selected/set_on_copy/get_entry_copy_text and interactive_mode copy_tree_selection integration. Deleted the old-only copy behavior test and nonexistent source-property injection; all remaining exact frame/selection assertions stay intact. Existing Ctrl+X scenario now proves the source's ignored control input. `interactive-components-current.log` established RED on the old copy help row; new `tree-selector-red.log` additionally reproduces Container, label focus/hide/show, numeric height, argument coercion, entry truthiness and large-token formatting differences. The whole module remains open.
 
+Q13 label/container GREEN `/tmp/pi-rust-repin-lossless-interactive/tree-selector-label-green.log`: actual Container inheritance and typed TreeList/LabelInput/child containers replace erased downcasts. Show-label hides the tree, captures current focus, submit updates label then calls the callback before restoring the tree, and cancel restores it. Full UTF-16 component/child/list frames, raw label callbacks and widths2/8/30/90 match. Default `...` truncation is restored for list status, SearchLine and LabelInput; horizontal body clipping retains its explicit empty suffix.
+
+Empty-tree constructor now schedules the actual 100ms local-runtime callback, retaining it independently of the component. The old undriven poll field/API is deleted. Real130ms tests cover live and drop-before-timeout cases; cancellation still fires after owner drop. Native drop releases the local UI callback cycle, not the independent timer. Frozen getTreeList has no built-in consumers; typed shared children stay live within the component under the general owned-value approval. No source gap is claimed for this timer.
+
 ## Gaps
 
 - `setTimeout(onCancel, 100)` for an empty tree is exposed as `poll(now)`; the caller drives it.

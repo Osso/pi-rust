@@ -20,7 +20,7 @@ async function main(): Promise<void> {
             if (parent) parent.children.push(node); else roots.push(node);
         }
         const events: unknown[] = [];
-        const selector = new TreeSelectorComponent(roots, request.leaf ?? null, Number(request.height ?? 24), (id: string) => events.push(["select", units(id)]), () => events.push(["cancel"]), (id: string, label: string | undefined) => events.push(["label", units(id), label === undefined ? null : units(label)]), request.selected ?? undefined, request.filter ?? undefined);
+        let selector: any = new TreeSelectorComponent(roots, request.leaf ?? null, Number(request.height ?? 24), (id: string) => events.push(["select", units(id)]), () => events.push(["cancel"]), (id: string, label: string | undefined) => events.push(["label", units(id), label === undefined ? null : units(label)]), request.selected ?? undefined, request.filter ?? undefined);
         const list = selector.getTreeList();
         const extra = new tui.Text(`extra${String.fromCharCode(0xd800)}`, 0, 0);
         const width = request.width ?? 90;
@@ -34,6 +34,12 @@ async function main(): Promise<void> {
             events: structuredClone(events),
         });
         const output = [snapshot()];
+        if (request.drop) {
+            selector = undefined;
+            await new Promise((resolve) => setTimeout(resolve, 130));
+            output.push({ events: structuredClone(events) });
+            return output;
+        }
         for (const step of request.steps) {
             if (step.op === "key") selector.handleInput(text(step.units));
             else if (step.op === "listKey") list.handleInput(text(step.units));

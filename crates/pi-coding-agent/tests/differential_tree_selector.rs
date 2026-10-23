@@ -13,12 +13,7 @@ use pi_coding_agent::{
 use pi_js_compat::js_json::{JsString, JsValue, from_value};
 use pi_tui::{Component, Focusable};
 use serde_json::{Value, json};
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    rc::Rc,
-    time::{Duration, Instant},
-};
+use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Duration};
 fn raw(value: &Value) -> JsString {
     JsString::from_utf16(
         value
@@ -93,7 +88,7 @@ fn number(value: &Value) -> f64 {
         .as_f64()
         .unwrap_or_else(|| value.as_str().unwrap().parse().unwrap())
 }
-fn native(request: &Value) -> Value {
+async fn native(request: &Value) -> Value {
     init_theme(Some(&"dark".into()), false).unwrap();
     KeybindingsManager::new(Vec::new(), None).install();
     let events = Rc::new(RefCell::new(Vec::<Value>::new()));
@@ -123,6 +118,17 @@ fn native(request: &Value) -> Value {
     );
     let width = request["width"].as_u64().unwrap_or(90) as usize;
     let mut output = vec![snapshot(&mut selector, &events, width)];
+    if request["drop"] == true {
+        let list = Rc::downgrade(selector.tree_list());
+        drop(selector);
+        assert!(
+            list.upgrade().is_none(),
+            "dropped selector must release its callback cycle"
+        );
+        tokio::time::sleep(Duration::from_millis(130)).await;
+        output.push(json!({"events":events.borrow().clone()}));
+        return json!(output);
+    }
     for step in request["steps"].as_array().unwrap() {
         match step["op"].as_str().unwrap() {
             "key" => selector.handle_input(&raw(&step["units"])),
@@ -135,8 +141,7 @@ fn native(request: &Value) -> Value {
             ),
             "invalidate" => selector.invalidate(),
             "wait" => {
-                std::thread::sleep(Duration::from_millis(step["ms"].as_u64().unwrap()));
-                selector.poll(Instant::now());
+                tokio::time::sleep(Duration::from_millis(step["ms"].as_u64().unwrap())).await;
             }
             _ => panic!("unknown step {step}"),
         }
@@ -153,13 +158,13 @@ fn user(id: &str, parent: Option<&str>, content: &str) -> Value {
 fn assistant(id: &str, parent: Option<&str>, content: Value) -> Value {
     json!({"entry":{"type":"message","id":id,"parentId":parent,"timestamp":"2026-01-01T00:00:00.000Z","message":{"role":"assistant","content":content,"api":"anthropic-messages","provider":"fixture","model":"fixture","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":0}}})
 }
-fn compare(cases: Vec<Value>) {
+async fn compare(cases: Vec<Value>) {
     let mut oracle = oracle::TsOracle::spawn("tree-selector-oracle.mts", "packages/coding-agent/src");
     let mut failures = Vec::new();
     for (index, case) in cases.iter().enumerate() {
         let expected = oracle.request(case);
         assert_eq!(expected["ok"], true, "source case{index}: {expected}");
-        let actual = native(case);
+        let actual = native(case).await;
         if actual != expected["output"] {
             let mut fields = std::collections::BTreeSet::new();
             for (step, (a, e)) in actual
@@ -184,8 +189,8 @@ fn compare(cases: Vec<Value>) {
     }
     assert!(failures.is_empty(), "differing tree cases {failures:?}");
 }
-#[test]
-fn tree_container_label_focus_and_navigation_match_frozen() {
+#[tokio::test(flavor = "current_thread")]
+async fn tree_container_label_focus_and_navigation_match_frozen() {
     let nodes = vec![
         user("u", None, "hello"),
         assistant("a", Some("u"), json!([{"type":"text","text":"answer"}])),
@@ -205,20 +210,27 @@ fn tree_container_label_focus_and_navigation_match_frozen() {
         key("\u{1b}"),
         json!({"op":"invalidate"}),
     ];
-    let mut cases = Vec::new();
+    let mut cases = vec![json!({"nodes":[],"drop":true,"steps":[]})];
     for width in [2, 8, 30, 90] {
         cases.push(json!({"nodes":nodes,"leaf":"a","steps":steps,"width":width}));
-    }
-    for height in [json!(2), json!(13.5), json!("NaN"), json!("Infinity")] {
-        cases.push(json!({"nodes":nodes,"leaf":"a","height":height,"steps":[key("\u{1b}[C"),key("\u{1b}[D"),key("\u{1b}[B"),key("\r")]}));
     }
     cases.push(
         json!({"nodes":[],"steps":[key("\u{1b}[A"),key("\u{1b}[B"),key("\u{1b}[6~"),json!({"op":"wait","ms":130})]}),
     );
-    compare(cases);
+    tokio::task::LocalSet::new().run_until(compare(cases)).await;
 }
-#[test]
-fn tree_tool_arguments_and_entry_truthiness_match_frozen() {
+#[tokio::test(flavor = "current_thread")]
+async fn tree_terminal_height_numbers_match_frozen() {
+    let nodes = vec![
+        user("u", None, "hello"),
+        assistant("a", Some("u"), json!([{"type":"text","text":"answer"}])),
+    ];
+    let cases=[json!(2),json!(13.5),json!("NaN"),json!("Infinity")].into_iter().map(|height|json!({"nodes":nodes,"leaf":"a","height":height,"steps":[key("\u{1b}[C"),key("\u{1b}[D"),key("\u{1b}[B"),key("\r")]})).collect();
+    tokio::task::LocalSet::new().run_until(compare(cases)).await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn tree_tool_arguments_and_entry_truthiness_match_frozen() {
     let mut cases = Vec::new();
     let values = [
         json!({"name":"read","args":{"path":42,"offset":1,"limit":0}}),
@@ -241,5 +253,5 @@ fn tree_tool_arguments_and_entry_truthiness_match_frozen() {
     let title = json!({"entry":{"type":"session_info","id":"title","parentId":"a","timestamp":"2026-01-01T00:00:00.000Z","name":""}});
     cases.push(json!({"nodes":[empty_error,title],"leaf":"a","filter":"all","steps":[]}));
     cases.push(json!({"nodes":[{"entry":{"type":"compaction","id":"c","parentId":null,"timestamp":"2026-01-01T00:00:00.000Z","summary":"large","firstKeptEntryId":"none","tokensBefore":1e30}}],"leaf":"c","filter":"all","steps":[]}));
-    compare(cases);
+    tokio::task::LocalSet::new().run_until(compare(cases)).await;
 }
