@@ -20,6 +20,7 @@ pub(crate) fn paths_payload() -> Value {
         "envStateDir": config::env_state_dir(),
         "userConfigRoot": config::get_user_config_root().unwrap(),
         "userStateRoot": config::get_user_state_root().unwrap(),
+        "userCacheRoot": config::get_user_cache_root().unwrap(),
         "legacyAgentDir": config::get_legacy_agent_dir().unwrap(),
         "agentDir": config::get_agent_dir().unwrap(),
         "customThemesDir": config::get_custom_themes_dir().unwrap(),

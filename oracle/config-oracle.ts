@@ -35,6 +35,7 @@ type ConfigApi = {
 	expandTildePath(path: string): string;
 	getUserConfigRoot(): string;
 	getUserStateRoot(): string;
+	getUserCacheRoot(): string;
 	getLegacyAgentDir(): string;
 	getAgentDir(): string;
 	getCustomThemesDir(): string;
@@ -120,6 +121,7 @@ function pathsPayload(api: ConfigApi): Record<string, unknown> {
 		envStateDir: api.ENV_STATE_DIR,
 		userConfigRoot: api.getUserConfigRoot(),
 		userStateRoot: api.getUserStateRoot(),
+		userCacheRoot: api.getUserCacheRoot(),
 		legacyAgentDir: api.getLegacyAgentDir(),
 		agentDir: api.getAgentDir(),
 		customThemesDir: api.getCustomThemesDir(),

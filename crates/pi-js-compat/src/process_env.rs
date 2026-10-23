@@ -25,8 +25,15 @@ fn lock() -> std::sync::MutexGuard<'static, Overlay> {
     overlay().lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// Node passes the name to the native environment as a NUL-terminated string.
+fn native_environment_name(name: &str) -> Option<&str> {
+    let name = name.split_once('\0').map_or(name, |(prefix, _)| prefix);
+    (!name.is_empty() && !name.contains('=')).then_some(name)
+}
+
 /// Native `process.env[name]`: one overlay authority; decode OS bytes at the Node boundary.
 pub fn get_native(name: &str) -> Option<crate::js_json::JsString> {
+    let name = native_environment_name(name)?;
     let override_value = lock().values.get(name).cloned();
     match override_value {
         Some(value) => value.map(crate::js_json::JsString::from),
@@ -45,6 +52,9 @@ pub fn get(name: &str) -> Option<String> {
 
 /// `process.env[name] = value`.
 pub fn set(name: &str, value: &str) {
+    let Some(name) = native_environment_name(name) else {
+        return;
+    };
     let mut overlay = lock();
     if !overlay.values.contains_key(name) {
         overlay.order.push(name.to_owned());
@@ -54,6 +64,9 @@ pub fn set(name: &str, value: &str) {
 
 /// `delete process.env[name]`.
 pub fn remove(name: &str) {
+    let Some(name) = native_environment_name(name) else {
+        return;
+    };
     let mut overlay = lock();
     if !overlay.values.contains_key(name) {
         overlay.order.push(name.to_owned());

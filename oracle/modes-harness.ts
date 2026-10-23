@@ -7,6 +7,7 @@
 import { pathToFileURL } from "node:url";
 import { appendFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { installAssistantSnapshots } from "./assistant-snapshots.ts";
 
 type Json = Record<string, unknown>;
 
@@ -86,6 +87,9 @@ async function main(): Promise<void> {
 	const responses = JSON.parse(requiredEnv("PI_HARNESS_RESPONSES")) as Json[];
 	const prompts = JSON.parse(optionalEnv("PI_HARNESS_PROMPTS") ?? "[]") as string[];
 
+	// AGENTS.md:19 owns per-event partial snapshots; reuse the push-boundary oracle,
+	// not consumer-time field replacement. Scoped to the async-factory timeout case.
+	if (optionalEnv("PI_HARNESS_IMMUTABLE_PARTIALS") === "1") await installAssistantSnapshots(aiRoot);
 	const faux = ai.fauxProvider({ api: "faux", tokenSize: { min: 1, max: 1 } });
 	faux.setResponses(
 		responses.map((response) => {

@@ -23,4 +23,6 @@ Revision `8fe7b79d` + Faux slice. `/tmp/pi-rust-repin-delta-ai/ledger.md`; `faux
 
 Whole-Tool JSON also now retains AgentTool label/executionMode. The exact frozen harness fixture reproduces48-vs53 RED and passes53 after the carrier; four variants compare Faux usage, estimator and Tool JSON bytes, including lone-surrogate label data. [Carrier/consumer audit](ai-types.md#enumerable-agenttool-metadata), `tool_metadata` GREEN at eede786f.
 
+**Approved async-factory interleaving deviation2026-10-23**, [AGENTS.md](../../../AGENTS.md):39: native does not reproduce JS microtask ordering between a user-supplied async factory's abort continuation and the agent abort. Usage totals match; input/cacheRead split may differ. Only `thinking_timeout_recovery_matches_frozen_rpc` applies that scoped usage comparison; all output/cacheWrite/cost/totalTokens fields and other RPC values/types/presence remain exact. It also reuses `oracle/assistant-snapshots.ts` at push under the existing immutable-partial approval (AGENTS.md:19). q15-thinking-timeout-rpc-approved-deviation-green-4.log GREEN. No continuation driver or async-factory fallback was added.
+
 Additional unproven boundaries: random chunk distribution/IDs, scalar `FauxContent::Text` convenience input, fractional/nonfinite token-size runtime values. These are not silently approved exclusions.

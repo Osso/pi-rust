@@ -13,6 +13,7 @@ const GETTERS: &[(&str, Getter)] = &[
     ("getExamplesPath", config::get_examples_path),
     ("getUserConfigRoot", config::get_user_config_root),
     ("getUserStateRoot", config::get_user_state_root),
+    ("getUserCacheRoot", config::get_user_cache_root),
     ("getLegacyAgentDir", config::get_legacy_agent_dir),
     ("getAgentDir", config::get_agent_dir),
     ("getCustomThemesDir", config::get_custom_themes_dir),
@@ -52,6 +53,9 @@ fn config_getters_preserve_native_error_class_properties_and_source() {
         json!({"fail":true,"getters":home_getters}),
         json!({"home":"/explicit/home","fail":true,"getters":home_getters}),
         json!({"home":"","fail":true,"getters":home_getters}),
+        json!({"home":"/fixture-home", "cacheHome":"~/cache-data", "getters":["getUserCacheRoot"]}),
+        json!({"fail":true, "cacheHome":"/absolute/cache", "getters":["getUserCacheRoot"]}),
+        json!({"home":"/fixture-home", "cacheHome":"file://not-local/cache", "getters":["getUserCacheRoot"]}),
     ];
     for package in [
         "file://not-local/pkg",
@@ -100,11 +104,21 @@ fn config_error_child() {
     let case: Value = serde_json::from_str(&std::env::var("PI_CONFIG_ERROR_CASE").unwrap()).unwrap();
     let agent_env = config::env_agent_dir();
     let state_env = config::env_state_dir();
-    for name in ["HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", &agent_env, &state_env] {
+    for name in [
+        "HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_STATE_HOME",
+        "XDG_CACHE_HOME",
+        &agent_env,
+        &state_env,
+    ] {
         process_env::remove(name);
     }
     if let Some(home) = case["home"].as_str() {
         process_env::set("HOME", home);
+    }
+    if let Some(cache) = case["cacheHome"].as_str() {
+        process_env::set("XDG_CACHE_HOME", cache);
     }
     process_env::set(
         "PI_TEST_FAIL_PASSWD",
