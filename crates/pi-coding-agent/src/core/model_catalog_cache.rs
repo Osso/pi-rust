@@ -2,7 +2,7 @@
 //! Raw catalog objects retain unknown properties and UTF-16 until a typed consumer boundary.
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use pi_ai::request::{CallbackError, Fetch, HttpRequest, HttpResponse, read_body_text};
 use pi_js_compat::abort::{AbortReason, AbortSignal};
@@ -344,7 +344,11 @@ impl CatalogRequestError {
     }
 }
 
-async fn fetch_catalog(fetch: &dyn Fetch, signal: Option<AbortSignal>) -> Result<Vec<JsValue>, CatalogRequestError> {
+async fn fetch_catalog(
+    fetch: &dyn Fetch,
+    signal: Option<AbortSignal>,
+    now: &(dyn Fn() -> f64 + Sync),
+) -> Result<Vec<JsValue>, CatalogRequestError> {
     let response = fetch
         .fetch(
             HttpRequest {
@@ -358,7 +362,7 @@ async fn fetch_catalog(fetch: &dyn Fetch, signal: Option<AbortSignal>) -> Result
         .await
         .map_err(wrap_catalog_transport_failure)?;
     if !(200..300).contains(&response.status) {
-        return Err(parse_catalog_http_failure(&response));
+        return Err(parse_catalog_http_failure(&response, now));
     }
     let body = read_body_text(response.body)
         .await
@@ -379,12 +383,14 @@ fn wrap_catalog_transport_failure(error: CallbackError) -> CatalogRequestError {
     )
 }
 
-fn parse_catalog_http_failure(response: &HttpResponse) -> CatalogRequestError {
-    let retry_after_ms = response
+fn parse_catalog_http_failure(response: &HttpResponse, now: &(dyn Fn() -> f64 + Sync)) -> CatalogRequestError {
+    let values: Vec<_> = response
         .headers
         .iter()
-        .find(|(key, _)| key.eq_ignore_ascii_case("retry-after"))
-        .map_or(0.0, |(_, value)| parse_retry_after(value));
+        .filter(|(key, _)| key.eq_ignore_ascii_case("retry-after"))
+        .map(|(_, value)| value.trim_matches([' ', '\t', '\r', '\n']))
+        .collect();
+    let retry_after_ms = parse_retry_after(&values.join(", "), now);
     CatalogRequestError::new(
         catalog_error(format!(
             "OpenRouter model catalog request failed with HTTP {}",
@@ -418,17 +424,19 @@ pub async fn fetch_openrouter_catalog(
     fetch: &dyn Fetch,
     signal: Option<AbortSignal>,
 ) -> Result<Vec<JsValue>, AbortReason> {
-    fetch_catalog(fetch, signal).await.map_err(|error| error.error)
+    fetch_catalog(fetch, signal, &js_now_millis)
+        .await
+        .map_err(|error| error.error)
 }
 
-fn parse_retry_after(value: &str) -> f64 {
+fn parse_retry_after(value: &str, now: &(dyn Fn() -> f64 + Sync)) -> f64 {
     if value.is_empty() {
         return 0.0;
     }
     let milliseconds = if value.bytes().all(|byte| byte.is_ascii_digit()) {
         value.parse::<f64>().unwrap_or(f64::INFINITY) * 1000.0
     } else {
-        date_parse_utf16(JsString::from(value).units()) - js_now_millis()
+        date_parse_utf16(JsString::from(value).units()) - now()
     };
     if milliseconds.is_finite() {
         milliseconds.max(0.0)
@@ -437,39 +445,95 @@ fn parse_retry_after(value: &str) -> f64 {
     }
 }
 
+struct CatalogRetryRuntime<'a> {
+    now: &'a (dyn Fn() -> f64 + Sync),
+    random: &'a (dyn Fn() -> f64 + Sync),
+}
+
+struct CatalogAbortTimer(tokio::task::JoinHandle<()>);
+impl CatalogAbortTimer {
+    fn start(controller: pi_js_compat::abort::AbortController) -> Self {
+        let timeout = tokio::time::sleep(Duration::from_millis(FETCH_TIMEOUT_MS));
+        Self(tokio::spawn(async move {
+            timeout.await;
+            controller.abort(None);
+        }))
+    }
+}
+impl Drop for CatalogAbortTimer {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 async fn fetch_catalog_with_retries(fetch: &dyn Fetch) -> Result<Vec<JsValue>, NativeNodeError> {
+    fetch_catalog_with_runtime(
+        fetch,
+        CatalogRetryRuntime {
+            now: &js_now_millis,
+            random: &catalog_jitter,
+        },
+    )
+    .await
+}
+
+async fn fetch_catalog_with_runtime(
+    fetch: &dyn Fetch,
+    runtime: CatalogRetryRuntime<'_>,
+) -> Result<Vec<JsValue>, NativeNodeError> {
     let controller = pi_js_compat::abort::AbortController::new();
     let signal = controller.signal();
-    let deadline = Instant::now() + Duration::from_millis(FETCH_TIMEOUT_MS);
-    let operation = async {
-        for attempt in 0..3 {
-            match fetch_catalog(fetch, Some(signal.clone())).await {
-                Ok(models) => return Ok(models),
-                Err(error) => {
-                    if !error.retryable || attempt == 2 {
-                        return Err(error.error);
-                    }
-                    let mut bytes = [0; 8];
-                    getrandom::fill(&mut bytes).expect("OS randomness available");
-                    let jitter = (u64::from_ne_bytes(bytes) >> 11) as f64 / ((1_u64 << 53) as f64);
-                    let wait_ms = error.retry_after_ms.max(250.0 * 2_f64.powi(attempt) * (1.0 + jitter));
-                    if wait_ms >= deadline.saturating_duration_since(Instant::now()).as_secs_f64() * 1000.0 {
-                        return Err(error.error);
-                    }
-                    tokio::time::sleep(Duration::from_secs_f64(wait_ms / 1000.0)).await;
-                }
-            }
+    let deadline = (runtime.now)() + FETCH_TIMEOUT_MS as f64;
+    let _abort_timer = CatalogAbortTimer::start(controller);
+    match run_catalog_attempts(fetch, &signal, deadline, &runtime).await {
+        Ok(models) => Ok(models),
+        Err(reason) if signal.aborted() => {
+            Err(catalog_error("OpenRouter model catalog refresh failed: timed out after 5000 ms").with_cause(reason))
         }
-        unreachable!("final attempt returns")
-    };
-    match tokio::time::timeout_at(deadline.into(), operation).await {
-        Ok(result) => result.map_err(|error| wrap_error("OpenRouter model catalog refresh failed", error)),
-        Err(_) => {
-            controller.abort(None);
-            Err(catalog_error(
-                "OpenRouter model catalog refresh failed: timed out after 5000 ms",
-            ))
+        Err(reason) => Err(wrap_error("OpenRouter model catalog refresh failed", reason)),
+    }
+}
+
+async fn run_catalog_attempts(
+    fetch: &dyn Fetch,
+    signal: &AbortSignal,
+    deadline: f64,
+    runtime: &CatalogRetryRuntime<'_>,
+) -> Result<Vec<JsValue>, AbortReason> {
+    for attempt in 0..3 {
+        let error = match fetch_catalog(fetch, Some(signal.clone()), runtime.now).await {
+            Ok(models) => return Ok(models),
+            Err(error) => error,
+        };
+        if !error.retryable || attempt == 2 || signal.aborted() {
+            return Err(error.error);
         }
+        let wait_ms = retry_wait_ms(error.retry_after_ms, attempt, (runtime.random)());
+        if (runtime.now)() + wait_ms >= deadline {
+            return Err(error.error);
+        }
+        delay_catalog_retry(wait_ms, signal).await?;
+    }
+    unreachable!("final attempt returns")
+}
+
+fn catalog_jitter() -> f64 {
+    let mut bytes = [0; 8];
+    getrandom::fill(&mut bytes).expect("OS randomness available");
+    (u64::from_ne_bytes(bytes) >> 11) as f64 / ((1_u64 << 53) as f64)
+}
+
+fn retry_wait_ms(retry_after_ms: f64, attempt: u32, jitter: f64) -> f64 {
+    retry_after_ms.max(250.0 * 2_f64.powi(attempt as i32) * (1.0 + jitter))
+}
+
+async fn delay_catalog_retry(wait_ms: f64, signal: &AbortSignal) -> Result<(), AbortReason> {
+    let delay_ms = pi_js_compat::node_timers::normalize_timeout_delay(wait_ms) as u64;
+    tokio::select! {
+        biased;
+        reason = signal.wait() => Err(NativeNodeError::new("AbortError", "The operation was aborted")
+            .with_cause(reason).with_property("code", JsValue::String("ABORT_ERR".into())).into()),
+        _ = tokio::time::sleep(Duration::from_millis(delay_ms)) => Ok(()),
     }
 }
 
@@ -570,4 +634,12 @@ fn fs_error(error: &std::io::Error, operation: &str, path: &Path) -> NativeNodeE
         operation,
         &JsString::from(path.display().to_string()),
     ))
+}
+
+#[cfg(test)]
+mod retry_runtime_tests {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/support/catalog_retry_runtime.rs"
+    ));
 }

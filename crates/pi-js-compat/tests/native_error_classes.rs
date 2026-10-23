@@ -80,7 +80,9 @@ fn native_error_causes_keep_branding_values_order_and_string_conversion() {
         ),
         (
             pi_js_compat::js_json!({"kind":"dom","name":"AbortError","message":"cancel"}),
-            AbortReason::DomException(NativeNodeError::new("AbortError", "cancel")),
+            AbortReason::DomException(
+                NativeNodeError::new("AbortError", "cancel").with_property("code", JsValue::Number(20.0)),
+            ),
         ),
     ];
     for (spec, cause) in cases {

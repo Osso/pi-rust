@@ -14,7 +14,8 @@ Frozen `packages/coding-agent/src/core/model-catalog-cache.ts` supplies startup 
 - [x] Request/refresh wrapping preserves branded nested Error causes, plain values, native human text and original error properties. Plain objects with message fields are not Errors; String conversion failures propagate their actual TypeError.
 - [x] Public unretried fetch preserves raw response-body rejections; its error is the shared thrown-value carrier, not a synthesized Error.
 - [x] Retry HTTP429/5xx at most twice; stop on success or permanent HTTP400. Preserve enumerable retry metadata in returned nested errors.
-- [ ] Retry eligible transport failures with jitter/Retry-After under one five-second deadline.
+- [x] Retry eligible transport failures with constructor-based TypeError checks, exponential jitter and Retry-After under one five-second abort timer. Headers.get trims HTTP whitespace and joins repeated values; date parsing and retry admission use the same wall clock. Retry waits follow Node timer truncation and reject on abort with the original reason.
+- The timer aborts rather than racing the operation. An injected fetch ignoring its signal may still succeed after five seconds; timeout errors retain the actual request/delay cause. Clear the timer on every settled path.
 - [x] Preserve rename/mkdir primary errors and cleanup failure context, including actual Node filesystem cause metadata. Failed writes do not publish models.
 
 ## Startup and CLI consumers
@@ -42,7 +43,7 @@ Frozen `packages/coding-agent/src/core/model-catalog-cache.ts` supplies startup 
 - [x] Normal startup/registry/list-models process proof, forced offline failure, forced positive summary, shared getter/registry lifetime, refresh-only snapshot updates and dynamic cache-root proof. Architect/Supervisor startup calls are wired/type-checked; their services are not launched by this lane.
 - [ ] Retry/deadline/transport/atomic-failure matrices and direct public fetch helper proof pending.
 - [x] Per-call production cache-root and same-process module/registry lifetime proof, including raw names, unknown properties and exact model JSON key order.
-- [ ] New constructor/cause/body-rejection matrices await post-change proof; callbacks now use the shared thrown-value carrier, including branded nested causes. Runtime JS stack omission is user-approved (2026-10-22).
+- [x] Constructor/cause/body-rejection matrices pass at976af57e; callbacks use the shared thrown-value carrier, including branded nested causes. Runtime JS stack omission is user-approved (2026-10-22).
 
 ## Out of scope
 
