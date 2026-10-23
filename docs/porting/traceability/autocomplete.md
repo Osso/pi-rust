@@ -70,3 +70,7 @@ Source: `packages/tui/src/autocomplete.ts` (793 lines). Rust: `crates/pi-tui/src
 ## Discrepancies
 
 None found. Sorting is the only intentional approximation, recorded above as a gap because the source itself delegates to locale-dependent `Intl.Collator`.
+
+## Homedir throw/catch parity (2026-10-23)
+
+`expand_home_path` and `resolve_scoped_fuzzy_query` return NativeNodeError through Result. Frozen getFileSuggestions and getFuzzyFileSuggestions catches consume those failures and return no suggestions. `differential_autocomplete::nss_home` forces getpwuid_r EIO in isolated source/native processes for `~/` and `@~/`; both return null without a panic. RED/GREEN logs: `/tmp/pi-rust-repin-lossless-interactive/autocomplete-home-{red,green}.log`.
