@@ -4,7 +4,7 @@ mod oracle;
 
 use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
 use pi_coding_agent::core::model_catalog_cache::{EnsureModelCatalogOptions, ModelCatalogCache};
-use pi_js_compat::js_json::JsValue;
+use pi_js_compat::js_json::{JsString, JsValue};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
@@ -185,7 +185,7 @@ async fn terminal_http_schema_and_json_errors_match_frozen_module() {
             expected["error"]["message"].as_str().unwrap(),
             "status={status}, body={body}"
         );
-        assert_eq!(error.name, expected["error"]["name"]);
+        assert_eq!(error.name, expected["error"]["name"].as_str().unwrap());
     }
 }
 
@@ -210,4 +210,44 @@ async fn cached_unknown_properties_and_unpaired_units_remain_native() {
     let result = ModelCatalogCache::new(path).load_at_startup(1_766_000_000_000.0).await;
     let actual = pi_js_compat::js_json::parse_lossless(serde_json::to_string(&result).unwrap()).unwrap();
     assert_eq!(&actual, expected.get("output").unwrap().get("result").unwrap());
+}
+
+struct FailureFetch(CallbackError);
+impl Fetch for FailureFetch {
+    fn fetch(
+        &self,
+        _: HttpRequest,
+        _: Option<CancellationToken>,
+    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+        let error = self.0.clone();
+        Box::pin(async move { Err(error) })
+    }
+}
+
+#[tokio::test]
+async fn wrapped_native_errors_preserve_cause_objects_and_raw_human_units() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pi/models/openrouter.json");
+    let mut oracle = oracle::TsOracle::spawn_with_environment(
+        "model-catalog-cache-oracle.ts",
+        "packages/coding-agent/src/core/model-catalog-cache.ts",
+        &[("XDG_CACHE_HOME", dir.path().as_os_str().to_owned())],
+    );
+    let request = pi_js_compat::js_json::parse_lossless(r#"{"operation":"ensure","force":true,"now":1766000000000,"failure":"human\ud800","failureCause":"primitive cause","inspectError":true}"#).unwrap();
+    let expected = oracle.request(&request);
+    let mut failure = CallbackError::new(JsString::from_utf16(vec![104, 117, 109, 97, 110, 0xd800]));
+    failure.name = "TypeError".into();
+    failure.cause = Some("primitive cause".into());
+    let error = ModelCatalogCache::new(path)
+        .ensure_fresh(EnsureModelCatalogOptions {
+            force: true,
+            fetch: Arc::new(FailureFetch(failure)),
+            now: Arc::new(|| 1_766_000_000_000.0),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.value(),
+        expected.get("output").unwrap().get("error").unwrap().clone()
+    );
 }
