@@ -649,7 +649,7 @@ fn compare_find_cut_point(oracle: &mut TsOracle) {
     });
     let response = oracle.request(&request);
     for (name, entries, start, end, keep) in &cases {
-        let result = find_cut_point(entries, *start, *end, *keep);
+        let result = find_cut_point(entries, *start as f64, *end as f64, *keep).unwrap();
         expect_output(
             &response,
             name,
@@ -685,7 +685,7 @@ fn compare_find_turn_start_index(oracle: &mut TsOracle) {
         expect_output(
             &response,
             name,
-            &json!(find_turn_start_index(&entries, entry_index, start_index)),
+            &json!(find_turn_start_index(&entries, entry_index as f64, start_index as f64).unwrap()),
         );
     }
 }

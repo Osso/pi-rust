@@ -19,3 +19,10 @@ Native-tree `firstKeptEntryId` replaces embedded retained tails. [Session proof]
 Provider-message timestamps now retain f64. Summary/custom creators parse timestamp strings with native Date.parse, including NaN; typed conversion no longer rejects non-integral/nonfinite/signed-zero values. [Timestamp integration and bounded proof](message-timestamps.md).
 
 GREEN: `tree-compaction-dev2.log` (31 compaction +13 branch tests), `tree-compaction-oracle-dev2.log` (whole frozen matrix), `tree-native-boundaries-dev.log`. Artifacts under `/tmp/pi-rust-repin-delta-agent-core/`; no final suite claim.
+
+## Public index number domain
+
+[Contract](../../specs/compaction-index-domain.md). Public findTurnStartIndex/findCutPoint now accept f64 and return NativeNodeError when frozen array access throws. Direct numeric loop/dereference order preserves NaN/empty/fractional ranges and signed zero rather than pre-clamping to usize. Protected suffix calculations keep their bounded usize representation; prepareCompaction derives its bounds from the entry slice and calls the same public helper with that invariant.
+
+RED `compaction-index-domain-red.log` exposed the usize-only infallible API. GREEN `compaction-index-domain-green1.log` and `compaction-index-domain-regression.log`:765 direct frozen cases (full/metadata/empty arrays),31 existing focused tests, and the unchanged whole frozen compaction differential. This closes the last index-domain proof gap. The parent-reported old find_cut_point differential RED was not reproduced: that target was already GREEN in `compaction-index-existing-red.log` before this slice, despite the artifact filename; no assertions were weakened to make it pass.
+
