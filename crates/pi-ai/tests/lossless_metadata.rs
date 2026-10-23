@@ -44,8 +44,10 @@ async fn anthropic_metadata_user_id_matches_frozen_request_without_utf16_project
         "script":[{"status":400,"headers":[["content-type","application/json"]],"chunks":["{\"error\":{\"message\":\"captured\"}}"]}]
     }));
     assert_eq!(expected["ok"].as_bool(), Some(true), "{expected:?}");
-    let mut options = StreamOptions::default();
-    options.metadata = Some(serde_json::from_str(METADATA).expect("metadata must accept arbitrary UTF-16 JSON"));
+    let mut options = StreamOptions {
+        metadata: Some(serde_json::from_str(METADATA).expect("metadata must accept arbitrary UTF-16 JSON")),
+        ..Default::default()
+    };
     options.request.api_key = Some("fixture".into());
     options.request.max_retries = Some(0.0);
     let fetch = Arc::new(Capture::default());
@@ -75,8 +77,10 @@ async fn anthropic_metadata_user_id_matches_frozen_request_without_utf16_project
 
 #[test]
 fn simple_options_keep_all_nested_metadata_code_units() {
-    let mut options = StreamOptions::default();
-    options.metadata = Some(serde_json::from_str(METADATA).expect("native metadata"));
+    let options = StreamOptions {
+        metadata: Some(serde_json::from_str(METADATA).expect("native metadata")),
+        ..Default::default()
+    };
     let expected = parse_lossless(METADATA).unwrap();
     let simple = pi_ai::request::SimpleStreamOptions {
         stream: options,

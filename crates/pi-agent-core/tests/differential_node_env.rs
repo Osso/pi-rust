@@ -490,7 +490,8 @@ async fn shell_spawn_argument_validation_and_envpair_encoding_match_node() {
     let root = tempfile::tempdir().unwrap();
     let native = env(root.path().to_str().unwrap());
     let mut oracle = oracle();
-    let cases: Vec<(&str, Option<JsString>, Option<indexmap::IndexMap<String, JsString>>)> = vec![
+    type EnvCase<'a> = (&'a str, Option<JsString>, Option<indexmap::IndexMap<String, JsString>>);
+    let cases: Vec<EnvCase> = vec![
         ("true\0bad", None, None),
         ("true", Some("bad\0cwd".into()), None),
         ("true", None, Some([("EXTRA".into(), "bad\0value".into())].into())),

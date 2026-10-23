@@ -16,9 +16,7 @@ pub async fn run(
     options: CreateAgentSessionOptions,
     output: impl Write + Send + 'static,
 ) -> Result<(), pi_ai::request::CallbackError> {
-    let result = create_agent_session(options)
-        .await
-        .map_err(pi_ai::request::CallbackError::from)?;
+    let result = create_agent_session(options).await?;
     let session = result.session;
     let output = Arc::new(Mutex::new(Ok(output)));
     let stream_output = Arc::clone(&output);

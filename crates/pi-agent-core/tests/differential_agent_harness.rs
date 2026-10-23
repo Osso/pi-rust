@@ -620,7 +620,8 @@ async fn run(request: &JsValue) -> JsValue {
             "compact" => harness.compact(operation.get("instructions").map(string)).await.map(|value| compact_value(&value)),
             "navigate" => {
                 let options = operation.get("options").map(|value| NavigateTreeOptions {summarize:value.get("summarize").and_then(JsValue::as_bool).unwrap_or(false),custom_instructions:value.get("customInstructions").map(string),replace_instructions:value.get("replaceInstructions").and_then(JsValue::as_bool).unwrap_or(false),label:value.get("label").map(string)});
-                harness.navigate_tree(string(&operation["id"]),options).await.map(|value| {let mut result = json!({"cancelled":value.cancelled}); if let Some(text) = value.editor_text {result["editorText"] = JsValue::String(text);} if let Some(entry) = value.summary_entry {result["summaryEntry"] = entry_value(&entry);} result})
+                harness.navigate_tree(string(&operation["id"]),options).await.map(|value| {let mut result = json!({"cancelled":value.cancelled}); if let Some(text) = value.editor_text {result["editorText"] = JsValue::String(text);}
+                if let Some(entry) = value.summary_entry {result["summaryEntry"] = entry_value(&entry);} result})
             },
             "active" => harness.set_active_tools(operation["names"].as_array().unwrap().iter().map(|name| string(name).to_utf8().unwrap()).collect()).await.map(|_| JsValue::Null),
             "tools" => harness.set_tools(operation["names"].as_array().unwrap().iter().map(|name| tool(&string(name).to_utf8().unwrap())).collect(),operation.get("active").and_then(JsValue::as_array).map(|names| names.iter().map(|name| string(name).to_utf8().unwrap()).collect())).await.map(|_| JsValue::Null),

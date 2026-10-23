@@ -30,10 +30,7 @@ pub async fn run(
         options.tools = Some(names.iter().map(|name| (*name).into()).collect());
         options.session_manager =
             Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(pi_ai::request::CallbackError::from)?);
-        let session = create_agent_session(options)
-            .await
-            .map_err(pi_ai::request::CallbackError::from)?
-            .session;
+        let session = create_agent_session(options).await?.session;
         writeln!(output, "{message}").map_err(|e| JsString::from(e.to_string()))?;
         selections.push((session.cwd().to_owned(), session.get_active_tool_names()));
         session.dispose();

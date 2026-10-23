@@ -40,10 +40,7 @@ pub async fn run(
     custom.settings_manager = Some(Arc::clone(&manager));
     custom.session_manager =
         Some(SessionManager::in_memory(custom.cwd.as_ref(), None).map_err(pi_ai::request::CallbackError::from)?);
-    let session = create_agent_session(custom)
-        .await
-        .map_err(pi_ai::request::CallbackError::from)?
-        .session;
+    let session = create_agent_session(custom).await?.session;
     writeln!(output, "Session created with custom settings").map_err(|e| JsString::from(e.to_string()))?;
     session.dispose();
     let snapshot = {
@@ -71,10 +68,7 @@ pub async fn run(
     ))));
     test.session_manager =
         Some(SessionManager::in_memory(test.cwd.as_ref(), None).map_err(pi_ai::request::CallbackError::from)?);
-    let session = create_agent_session(test)
-        .await
-        .map_err(pi_ai::request::CallbackError::from)?
-        .session;
+    let session = create_agent_session(test).await?.session;
     writeln!(output, "Test session created with in-memory settings").map_err(|e| JsString::from(e.to_string()))?;
     session.dispose();
     Ok(snapshot)
