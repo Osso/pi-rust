@@ -12267,6 +12267,23 @@ mod ui_tests {
         receiver
     }
 
+    async fn wait_for_fixture_model_selector(mode: &InteractiveMode) {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            let frame = JsString::join(mode.editor_container.borrow_mut().render(100), "\n");
+            let has_selector = frame.contains("Only showing models from configured providers");
+            let has_models = frame.contains("faux-1") || frame.contains("faux-2");
+            if !has_selector || has_models || frame.contains("No matching models") {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "selector did not publish fixture models: {frame:?}"
+            );
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn viewed_child_cycle_routes_live_targets_and_preserves_frozen_errors() {
         mod oracle {
@@ -12365,7 +12382,7 @@ mod ui_tests {
             let expected = source.request(&serde_json::json!({"models":models,"search":null,"keys":["\x1b[B","\r"],"rebind":true,"colors":crate::modes::interactive::theme::REQUIRED_COLORS}));
             assert_eq!(expected["ok"], true, "{expected}");
             mode.handle_model_command(None).await.unwrap();
-            tokio::time::sleep(Duration::from_millis(1)).await;
+            wait_for_fixture_model_selector(&mode).await;
             *selected.lock().unwrap() = second.session();
             for key in ["\x1b[B", "\r"] {
                 terminal.borrow_mut().send_input(key);
@@ -12438,7 +12455,7 @@ mod ui_tests {
                 let expected = source.request(&serde_json::json!({"models":models,"search":search,"keys":keys,"colors":crate::modes::interactive::theme::REQUIRED_COLORS}));
                 assert_eq!(expected["ok"], true, "{expected}");
                 mode.handle_model_command(search.map(JsString::from)).await.unwrap();
-                tokio::time::sleep(Duration::from_millis(1)).await;
+                wait_for_fixture_model_selector(&mode).await;
                 for key in keys {
                     terminal.borrow_mut().send_input(key);
                     mode.ui.process_events();
@@ -12470,7 +12487,7 @@ mod ui_tests {
                 let colors: Vec<_> = crate::modes::interactive::theme::REQUIRED_COLORS.iter().map(|name| ((*name).into(),crate::modes::interactive::theme::ColorValue::Index(0.0))).collect();
                 crate::modes::interactive::theme::set_theme_instance(Arc::new(Theme::new(&colors,&[],crate::modes::interactive::theme::ColorMode::Color256,None,None).unwrap()));
                 mode.handle_model_command(search.map(JsString::from)).await.unwrap();
-                tokio::time::sleep(Duration::from_millis(1)).await;
+                wait_for_fixture_model_selector(&mode).await;
                 for key in &keys {
                     terminal.borrow_mut().send_input(key);
                     mode.ui.process_events();

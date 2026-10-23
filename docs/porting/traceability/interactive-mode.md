@@ -52,6 +52,11 @@ TypeError + `code` + raw surrogate rejection preservation before the registry
 catch. The selector rebind differential mounts on child A, changes the resolver
 to child B, then sends arrow/Enter: only B changes and main/A remain unchanged.
 Five targeted viewed-child tests pass (19 source/native scenarios total).
+The retained 11-case main-model regression also passes
+`viewed-main-model-regression-phase.log`. Its old fixed 1ms delay raced deferred
+publication (initial mounted rows versus source's loaded rows); the fixture now
+waits boundedly for observable loaded/no-match rows before keys/frame comparison.
+No production timing or selector behavior was changed for this fixture issue.
 This closes this bounded ranked finding, not whole-mode parity. Main owns final
 clippy/readability/independent gates; whole-mode row remains TODO.
 
