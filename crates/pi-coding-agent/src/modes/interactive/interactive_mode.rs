@@ -8160,20 +8160,14 @@ impl InteractiveMode {
         );
         let user_agent = crate::utils::pi_user_agent::get_pi_user_agent(&version.into());
         tokio::task::spawn_local(async move {
-            let abort = pi_js_compat::abort::AbortController::new();
-            let timeout = abort.clone();
-            let timeout_task = tokio::task::spawn_local(async move {
-                tokio::time::sleep(Duration::from_secs(5)).await;
-                timeout.abort(None);
-            });
+            let signal = pi_js_compat::abort::AbortSignal::timeout(5000.0).expect("valid constant timeout");
             let request = HttpRequest {
                 method: "GET".into(),
                 url: encode_node_utf8(&url),
                 headers: vec![("User-Agent".into(), encode_node_utf8(&user_agent))],
                 body: None,
             };
-            let _ = fetch.fetch(request, Some(abort.signal())).await;
-            timeout_task.abort();
+            let _ = fetch.fetch(request, Some(signal)).await;
         });
     }
 
@@ -11761,6 +11755,97 @@ mod ui_tests {
                 assert_eq!(pi_js_compat::js_json!({"frames":frames,"focus":focus,"focusAgain":focus_again}),expected.get("output").unwrap().clone());
             }
         }).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn install_telemetry_abort_timeout_matches_frozen() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        const CHILD: &str = "PI_TELEMETRY_ABORT_CHILD";
+        if let Ok(branch) = std::env::var(CHILD) {
+            struct ProbeFetch {
+                captured: Arc<std::sync::Mutex<Option<pi_js_compat::abort::AbortSignal>>>,
+                complete: bool,
+            }
+            impl Fetch for ProbeFetch {
+                fn fetch(
+                    &self,
+                    _request: HttpRequest,
+                    signal: Option<pi_js_compat::abort::AbortSignal>,
+                ) -> pi_ai::request::BoxFuture<'_, Result<pi_ai::request::HttpResponse, CallbackError>>
+                {
+                    *self.captured.lock().unwrap() = signal.clone();
+                    let complete = self.complete;
+                    Box::pin(async move {
+                        if !complete {
+                            signal.unwrap().wait().await;
+                        }
+                        Err(CallbackError::new("fixture request finished"))
+                    })
+                }
+            }
+            tokio::task::LocalSet::new().run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let captured = Arc::new(std::sync::Mutex::new(None));
+                *mode.http_fetch.borrow_mut() = Some(Arc::new(ProbeFetch { captured:captured.clone(),complete:branch=="complete" }));
+                mode.report_install_telemetry(&JsString::from("abort-proof"));
+                let signal = tokio::time::timeout(Duration::from_secs(1), async {
+                    loop { if let Some(signal) = captured.lock().unwrap().clone() { break signal; } tokio::task::yield_now().await; }
+                }).await.expect("mock fetch received signal");
+                let output = match tokio::time::timeout(Duration::from_secs(6),signal.wait()).await {
+                    Ok(reason) => {
+                        let kind = match &reason { pi_js_compat::abort::AbortReason::DomException(_) => "DOMException", pi_js_compat::abort::AbortReason::Error(_) => "Error", _ => "value" };
+                        let value = reason.value();
+                        serde_json::json!({"aborted":signal.aborted(),"kind":kind,"name":value.get("name"),"message":value.get("message"),"code":value.get("code")})
+                    }
+                    Err(_) => serde_json::json!({"aborted":signal.aborted(),"kind":"missing"}),
+                };
+                println!("ABORT_REPORT_RESULT={}",output);
+            }).await;
+            return;
+        }
+        let mut oracle = oracle::TsOracle::spawn("interactive-abort-timeout-oracle.ts", "packages/coding-agent/src");
+        let mut mismatches = Vec::new();
+        for complete in [false, true] {
+            let child = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "modes::interactive::interactive_mode::ui_tests::install_telemetry_abort_timeout_matches_frozen",
+                    "--nocapture",
+                ])
+                .env(CHILD, if complete { "complete" } else { "pending" })
+                .env_remove("PI_OFFLINE")
+                .env("PI_TELEMETRY", "1")
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
+            let expected = oracle.request(&serde_json::json!({"complete":complete}));
+            assert_eq!(expected["ok"], true, "source: {expected}");
+            let child = child.wait_with_output().unwrap();
+            assert!(
+                child.status.success(),
+                "native child: {}",
+                String::from_utf8_lossy(&child.stderr)
+            );
+            let stdout = std::str::from_utf8(&child.stdout).unwrap();
+            let actual: serde_json::Value = serde_json::from_str(
+                stdout
+                    .lines()
+                    .find_map(|line| line.strip_prefix("ABORT_REPORT_RESULT="))
+                    .expect("native reason result"),
+            )
+            .unwrap();
+            if actual != expected["output"] {
+                eprintln!("complete={complete}: native {actual} / source {}", expected["output"]);
+                mismatches.push(complete);
+            }
+        }
+        assert!(
+            mismatches.is_empty(),
+            "timeout reason/lifetime mismatches: {mismatches:?}"
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]
