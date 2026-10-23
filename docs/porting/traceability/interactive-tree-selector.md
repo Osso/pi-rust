@@ -43,4 +43,4 @@ Human fields and arbitrary argument JSON retain UTF-16. A non-scalar numeric str
 
 `tree-selector-existing-green.log`:10 current behavioral tests GREEN. `tree-selector-existing-oracle-green.log`:10 existing source scenarios GREEN. Raw argument strings (path/pattern/numeric offset) retain unpaired units, with an invalid numeric offset producing NaN without replacement; active label focus toggles also match the source. `tree-selector-date-green.log` additionally proves valid same-day, same-year and other-year label timestamps against Node, alongside the invalid/empty timestamp cases. The original exact frame/selection assertions remain intact.
 
-No source discrepancy identified. No async timer, chrono timestamp or inherited-container gap remains. Parent owns final readability/clippy/workspace gates; local all-target checkpoint is recorded separately.
+No source discrepancy identified. No async timer, chrono timestamp or inherited-container gap remains. Parent owns final readability/clippy/workspace gates; local all-target checkpoint `tree-selector-check-final.log` at dd37452e passed with0 warnings; subsequent coverage/trace changes are documentation-only.
