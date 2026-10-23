@@ -8,9 +8,9 @@ use pi_ai::types::{
     AssistantMessage, ImageContent, Message, Model, ModelCost, ModelCostRates, StopReason, TextContent,
     TextOrImageContent, ThinkingBudgets, Transport, UserContent, UserMessage, UserRole,
 };
+use pi_js_compat::abort::{AbortController, AbortSignal};
 use pi_js_compat::js_json::JsString;
 use tokio::sync::Notify;
-use tokio_util::sync::CancellationToken;
 
 use crate::agent::agent_loop::{AgentEventSink, run_agent_loop, run_agent_loop_continue};
 use crate::agent::stream_fn::default_stream_fn;
@@ -23,16 +23,14 @@ use crate::harness::types::{QueueMode, ThinkingLevel, ToolExecutionMode};
 
 /// `prepareNextTurn(signal?)`: legacy signal-only hook.
 pub type PrepareNextTurnSignalHook = Arc<
-    dyn Fn(Option<CancellationToken>) -> BoxFuture<'static, Result<Option<AgentLoopTurnUpdate>, AgentError>>
-        + Send
-        + Sync,
+    dyn Fn(Option<AbortSignal>) -> BoxFuture<'static, Result<Option<AgentLoopTurnUpdate>, AgentError>> + Send + Sync,
 >;
 
 /// `prepareNextTurnWithContext(context, signal?)` hook exposed by `AgentOptions`.
 pub type PrepareNextTurnContextHook = Arc<
     dyn Fn(
             PrepareNextTurnContext,
-            Option<CancellationToken>,
+            Option<AbortSignal>,
         ) -> BoxFuture<'static, Result<Option<AgentLoopTurnUpdate>, AgentError>>
         + Send
         + Sync,
@@ -40,7 +38,7 @@ pub type PrepareNextTurnContextHook = Arc<
 
 /// Event listener registered through [`Agent::subscribe`].
 pub type AgentListener =
-    Arc<dyn Fn(AgentEvent, CancellationToken) -> BoxFuture<'static, Result<(), AgentError>> + Send + Sync>;
+    Arc<dyn Fn(AgentEvent, AbortSignal) -> BoxFuture<'static, Result<(), AgentError>> + Send + Sync>;
 
 /// Prompt input accepted by [`Agent::prompt`].
 #[derive(Debug, Clone)]
@@ -197,7 +195,7 @@ impl RunHandle {
 }
 
 struct ActiveRun {
-    token: CancellationToken,
+    token: AbortController,
     handle: Arc<RunHandle>,
 }
 
@@ -596,7 +594,7 @@ impl Agent {
         if self.state_lock().is_model_request_active
             && let Some(run) = self.active_run_lock().as_ref()
         {
-            run.token.cancel();
+            run.token.abort(None);
         }
     }
 
@@ -624,13 +622,13 @@ impl Agent {
     }
 
     /// Active abort signal for the current run.
-    pub fn signal(&self) -> Option<CancellationToken> {
-        self.active_run_lock().as_ref().map(|run| run.token.clone())
+    pub fn signal(&self) -> Option<AbortSignal> {
+        self.active_run_lock().as_ref().map(|run| run.token.signal())
     }
 
     pub fn abort(&self) {
         if let Some(run) = self.active_run_lock().as_ref() {
-            run.token.cancel();
+            run.token.abort(None);
         }
     }
 
@@ -738,7 +736,7 @@ impl Agent {
             return Err(AgentError::already_processing());
         }
         *active_run = Some(ActiveRun {
-            token: CancellationToken::new(),
+            token: AbortController::new(),
             handle: Arc::new(RunHandle::new()),
         });
         let mut state = self.state_lock();
@@ -752,7 +750,7 @@ impl Agent {
     async fn finish_run_with(
         &self,
         result: Result<Vec<AgentMessage>, AgentError>,
-        signal: &CancellationToken,
+        signal: &AbortSignal,
     ) -> Result<(), AgentError> {
         let mut listener_error = None;
         if let Err(error) = result {
@@ -761,7 +759,7 @@ impl Agent {
                 .streaming_message
                 .clone()
                 .filter(|message| message.as_assistant().is_some());
-            let failure = self.build_failure_message(&error, signal.is_cancelled(), partial.as_ref());
+            let failure = self.build_failure_message(&error, signal.aborted(), partial.as_ref());
             let mut events = Vec::new();
             if partial.is_none() {
                 events.push(AgentEvent::MessageStart {
@@ -1024,7 +1022,7 @@ impl Agent {
         queue.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn current_signal(&self) -> CancellationToken {
+    fn current_signal(&self) -> AbortSignal {
         self.signal().expect("run has an active abort signal")
     }
 }

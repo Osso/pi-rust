@@ -9,11 +9,11 @@ use std::sync::{Arc, Mutex};
 use futures_util::future::Shared;
 use pi_agent_core::AgentToolResult;
 use pi_ai::request::BoxFuture;
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::{
     js_json as json,
     js_json::{self, JsObject as Map, JsString, JsValue as Value},
 };
-use tokio_util::sync::CancellationToken;
 
 use crate::core::desktop_notification::{DesktopNotifier, send_desktop_notification};
 use crate::core::extensions::types::{
@@ -190,7 +190,7 @@ fn lifecycle_name(lifecycle: crate::core::multi_agent_store::AgentLifecycle) -> 
 pub async fn wait_agents(
     store: &Arc<MultiAgentStore>,
     runtime_handles: &MultiAgentRuntimeHandles,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     ctx: Option<&ExtensionContext>,
 ) -> Result<AgentToolResult, HandlerError> {
     let wake = super::wait_runtime::wait_notifications_runtime(store, runtime_handles, signal, ctx).await?;
@@ -200,7 +200,7 @@ pub async fn wait_agents(
 pub async fn wait_notifications(
     store: &Arc<MultiAgentStore>,
     runtime_handles: &MultiAgentRuntimeHandles,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     ctx: Option<&ExtensionContext>,
 ) -> Result<super::wait_runtime::WaitNotificationsWake, HandlerError> {
     super::wait_runtime::wait_notifications_runtime(store, runtime_handles, signal, ctx).await
@@ -295,7 +295,7 @@ impl MultiAgentPiRequestHandler {
         &self,
         request: &Value,
         ctx: &ExtensionContext,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
         active_tool_call_id: Option<String>,
     ) -> Result<Value, HandlerError> {
         if self.disposed.load(Ordering::SeqCst) {
@@ -322,7 +322,7 @@ impl MultiAgentPiRequestHandler {
         method: &JsString,
         params: Value,
         ctx: &ExtensionContext,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
         active_tool_call_id: Option<String>,
     ) -> Result<Value, HandlerError> {
         // A method name with unpaired surrogates matches no route, as in JavaScript.

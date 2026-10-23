@@ -5,13 +5,13 @@ use crate::{
     request::{BoxFuture, CallbackError},
     types::Model,
 };
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, JsValue};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, OnceLock},
     time::SystemTime,
 };
-use tokio_util::sync::CancellationToken;
 
 pub type OAuthProviderId = String;
 pub type OAuthProvider = OAuthProviderId;
@@ -178,7 +178,7 @@ impl OAuthProviderInterface for Builtin {
         self.flow.login(Arc::new(Callbacks(callbacks)))
     }
     fn refresh_token(&self, credentials: OAuthCredentials) -> BoxFuture<'static, Result<OAuthCredentials, AuthError>> {
-        self.flow.refresh(credentials, CancellationToken::new())
+        self.flow.refresh(credentials, AbortSignal::default())
     }
     fn get_api_key(&self, credentials: &OAuthCredentials) -> JsString {
         credentials.access.clone()
@@ -219,7 +219,7 @@ impl OAuthProviderInterface for Builtin {
 }
 struct Callbacks(Arc<dyn OAuthLoginCallbacks>);
 impl AuthInteraction for Callbacks {
-    fn signal(&self) -> CancellationToken {
+    fn signal(&self) -> AbortSignal {
         self.0.signal().unwrap_or_default()
     }
     fn prompt(&self, prompt: AuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>> {

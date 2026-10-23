@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use pi_coding_agent::utils::abort::{AbortError, operation_signal, race_with_abort_signal};
-use tokio_util::sync::CancellationToken;
 
 #[tokio::test]
 async fn returns_the_operation_value_without_a_signal() {
@@ -15,8 +14,9 @@ async fn returns_the_operation_value_without_a_signal() {
 
 #[tokio::test]
 async fn rejects_an_already_aborted_operation_without_polling_it() {
-    let token = CancellationToken::new();
-    token.cancel();
+    let controller_token = pi_js_compat::abort::AbortController::new();
+    let token = controller_token.signal();
+    controller_token.abort(None);
     let polled = Arc::new(AtomicBool::new(false));
     let polled_by_operation = polled.clone();
 
@@ -36,11 +36,12 @@ async fn rejects_an_already_aborted_operation_without_polling_it() {
 
 #[tokio::test]
 async fn rejects_a_pending_operation_when_aborted() {
-    let token = CancellationToken::new();
-    let canceller = token.clone();
+    let controller_token = pi_js_compat::abort::AbortController::new();
+    let token = controller_token.signal();
+    let controller_canceller = controller_token.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(20)).await;
-        canceller.cancel();
+        controller_canceller.abort(None);
     });
 
     let started = Instant::now();
@@ -66,10 +67,11 @@ async fn propagates_operation_errors() {
 
 #[tokio::test]
 async fn operation_signal_returns_the_supplied_token_or_a_fresh_one() {
-    let supplied = CancellationToken::new();
+    let controller_supplied = pi_js_compat::abort::AbortController::new();
+    let supplied = controller_supplied.signal();
     let returned = operation_signal(Some(supplied.clone()));
     assert_eq!(returned, supplied);
 
     let fresh = operation_signal(None);
-    assert!(!fresh.is_cancelled());
+    assert!(!fresh.aborted());
 }

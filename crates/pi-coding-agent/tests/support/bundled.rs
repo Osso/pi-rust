@@ -55,7 +55,7 @@ impl Fetch for StubFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        _signal: Option<tokio_util::sync::CancellationToken>,
+        _signal: Option<pi_js_compat::abort::AbortSignal>,
     ) -> FetchFuture<'_, Result<HttpResponse, CallbackError>> {
         self.requests.lock().unwrap().push(request);
         let (status, status_text, body) = self.responses.lock().unwrap().remove(0);

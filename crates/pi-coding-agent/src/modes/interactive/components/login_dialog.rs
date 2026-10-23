@@ -2,7 +2,7 @@
 //!
 //! The TypeScript `Promise` returned by `showManualInput`/`showPrompt` is a
 //! future backed by a `tokio::sync::oneshot`, resolved by the input submit
-//! handler. Superseded promises remain pending; `AbortSignal` is a CancellationToken.
+//! handler. Superseded promises remain pending; cancellation uses the shared native abort carrier.
 
 use pi_js_compat::{
     js_format,
@@ -12,13 +12,13 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use pi_ai::OAuthDeviceCodeInfo;
+use pi_js_compat::abort::AbortSignal;
 use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
 use pi_tui::keybindings::get_keybindings;
 use pi_tui::tui::{Component, ComponentRef, Focusable, component};
 use tokio::sync::oneshot;
-use tokio_util::sync::CancellationToken;
 
 use super::super::theme::{ThemeColor, with_theme};
 use super::dynamic_border::dynamic_border;
@@ -43,7 +43,7 @@ struct LoginDialogCore {
     content: Vec<ComponentRef>,
     input: ComponentRef,
     pending: Option<oneshot::Sender<Result<JsString, LoginError>>>,
-    cancellation: CancellationToken,
+    cancellation: pi_js_compat::abort::AbortController,
     on_complete: Rc<dyn Fn(bool, Option<JsString>)>,
     request_render: Rc<dyn Fn()>,
 }
@@ -68,7 +68,7 @@ impl LoginDialogCore {
     }
 
     fn cancel(&mut self) {
-        self.cancellation.cancel();
+        self.cancellation.abort(None);
         if let Some(sender) = self.pending.take() {
             let _ = sender.send(Err(LoginError("Login cancelled".into())));
         }
@@ -129,7 +129,7 @@ impl LoginDialogComponent {
             content: Vec::new(),
             input: Rc::clone(&input),
             pending: None,
-            cancellation: CancellationToken::new(),
+            cancellation: pi_js_compat::abort::AbortController::new(),
             on_complete,
             request_render,
         }));
@@ -164,8 +164,8 @@ impl LoginDialogComponent {
         }
     }
 
-    pub fn signal(&self) -> CancellationToken {
-        self.core.borrow().cancellation.clone()
+    pub fn signal(&self) -> AbortSignal {
+        self.core.borrow().cancellation.signal()
     }
 
     fn clear_content(&self) {

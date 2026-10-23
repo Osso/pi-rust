@@ -6,10 +6,10 @@ use std::sync::{Arc, Mutex};
 use indexmap::IndexMap;
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::types::{ImageContent, ProviderHeaders};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use pi_tui::keybindings::{KeyId, KeybindingsConfig};
 use serde::{Deserialize, Serialize};
-use tokio_util::sync::CancellationToken;
 
 use crate::core::detached_job_runner::DetachedJobLifecycleController;
 use crate::core::diagnostics::{ResourceDiagnostic, ResourceDiagnosticType};
@@ -1460,7 +1460,7 @@ impl ExtensionRunner {
                     }
                     Ok(None) => {}
                     Err(error) => {
-                        if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+                        if signal.as_ref().is_some_and(AbortSignal::aborted) {
                             return Err(error);
                         }
                         self.emit_handler_error(extension, "context", error);
@@ -1686,14 +1686,14 @@ impl ExtensionRunner {
 
 async fn call_context_handler_abortable(
     future: BoxFuture<'_, Result<Option<ContextEventResult>, HandlerError>>,
-    signal: &CancellationToken,
+    signal: &AbortSignal,
 ) -> Result<Option<ContextEventResult>, HandlerError> {
-    if signal.is_cancelled() {
+    if signal.aborted() {
         return Err(HandlerError::new("Agent run aborted"));
     }
     tokio::select! {
         result = future => result,
-        _ = signal.cancelled() => Err(HandlerError::new("Agent run aborted")),
+        _ = signal.wait() => Err(HandlerError::new("Agent run aborted")),
     }
 }
 

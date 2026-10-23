@@ -10,7 +10,7 @@ async fn nonobject_tool_arguments_fail_explicitly_without_losing_scratch() {
             {"type":"content_block_stop","index":7},
             {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{}}
         ]});
-        let provider = provider(&input, Arc::new(Mutex::new(vec![]))).await;
+        let (provider, _) = provider(&input, Arc::new(Mutex::new(vec![]))).await;
         let mut stream = provider.stream_simple(
             provider.get_models()[0].clone(),
             serde_json::from_value(json!({"messages":[]})).unwrap(),
@@ -59,7 +59,7 @@ async fn literal_lifecycle_keeps_unclosed_scratch_and_first_duplicate_index() {
             input["streamError"] = json!("wire failure");
         }
         let expected = oracle.request(&input);
-        let provider = provider(&input, Arc::new(Mutex::new(vec![]))).await;
+        let (provider, _) = provider(&input, Arc::new(Mutex::new(vec![]))).await;
         let mut stream = provider.stream_simple(
             provider.get_models()[0].clone(),
             serde_json::from_value(json!({"messages":[]})).unwrap(),

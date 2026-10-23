@@ -4,7 +4,7 @@ use std::error::Error;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 use url::Url;
 
@@ -19,7 +19,7 @@ struct ReqwestFetch {
 
 struct ReqwestBody {
     response: reqwest::Response,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 }
 
 /// Process-wide default HTTP client.
@@ -40,7 +40,7 @@ fn default_client() -> reqwest::Client {
 /// Send a request through reqwest, optionally through `proxy`.
 pub(crate) async fn send_reqwest(
     request: HttpRequest,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     proxy: Option<&Url>,
 ) -> Result<HttpResponse, CallbackError> {
     let client = match proxy {
@@ -59,7 +59,7 @@ pub(crate) async fn send_reqwest(
 async fn send_with_client(
     client: &reqwest::Client,
     request: HttpRequest,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> Result<HttpResponse, CallbackError> {
     let builder = build_request(client, request)?;
     let response = until_aborted(signal.as_ref(), async { builder.send().await.map_err(to_send_error) }).await?;
@@ -92,7 +92,7 @@ impl Fetch for ReqwestFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         Box::pin(send_with_client(&self.client, request, signal))
     }
@@ -130,7 +130,7 @@ fn build_request(client: &reqwest::Client, request: HttpRequest) -> Result<reqwe
     Ok(builder)
 }
 
-fn into_http_response(response: reqwest::Response, signal: Option<CancellationToken>) -> HttpResponse {
+fn into_http_response(response: reqwest::Response, signal: Option<AbortSignal>) -> HttpResponse {
     let headers = response
         .headers()
         .iter()
@@ -150,14 +150,14 @@ fn into_http_response(response: reqwest::Response, signal: Option<CancellationTo
 }
 
 async fn until_aborted<T>(
-    signal: Option<&CancellationToken>,
+    signal: Option<&AbortSignal>,
     operation: impl Future<Output = Result<T, CallbackError>>,
 ) -> Result<T, CallbackError> {
     let Some(signal) = signal else {
         return operation.await;
     };
     tokio::select! {
-        () = signal.cancelled() => Err(CallbackError::new(ABORT_ERROR_MESSAGE)),
+        _ = signal.wait() => Err(CallbackError::new(ABORT_ERROR_MESSAGE)),
         result = operation => result,
     }
 }

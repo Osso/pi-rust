@@ -129,7 +129,7 @@ impl BedrockOptions {
         })
     }
 
-    pub fn signal(&self) -> Option<tokio_util::sync::CancellationToken> {
+    pub fn signal(&self) -> Option<pi_js_compat::abort::AbortSignal> {
         self.stream.request.signal.clone()
     }
 }
@@ -268,7 +268,7 @@ async fn run_stream(
     for block in &mut output.content {
         strip_bedrock_stream_scratch(block);
     }
-    output.stop_reason = if signal.as_ref().is_some_and(|signal| signal.is_cancelled()) {
+    output.stop_reason = if signal.as_ref().is_some_and(|signal| signal.aborted()) {
         StopReason::Aborted
     } else {
         StopReason::Error
@@ -350,7 +350,7 @@ async fn drive(
     let mut body = response.body;
     let mut decoder = EventStreamDecoder::new();
     loop {
-        if options.signal().as_ref().is_some_and(|signal| signal.is_cancelled()) {
+        if options.signal().as_ref().is_some_and(|signal| signal.aborted()) {
             return Err(BedrockError::abort("Request was aborted"));
         }
         let Some(chunk) = body.next_chunk().await else {
@@ -366,7 +366,7 @@ async fn drive(
         }
     }
 
-    if options.signal().as_ref().is_some_and(|signal| signal.is_cancelled()) {
+    if options.signal().as_ref().is_some_and(|signal| signal.aborted()) {
         return Err(BedrockError::abort("Request was aborted"));
     }
     match output.stop_reason {
@@ -1432,7 +1432,7 @@ async fn execute_request(
         let response = match fetch.fetch(request, options.signal()).await {
             Ok(response) => response,
             Err(error) => {
-                if options.signal().as_ref().is_some_and(|signal| signal.is_cancelled()) {
+                if options.signal().as_ref().is_some_and(|signal| signal.aborted()) {
                     return Err(BedrockError::abort(error.message));
                 }
                 if attempt < MAX_ATTEMPTS {
@@ -1632,14 +1632,14 @@ fn random_u64() -> u64 {
 
 async fn sleep_or_abort(
     delay: std::time::Duration,
-    signal: Option<tokio_util::sync::CancellationToken>,
+    signal: Option<pi_js_compat::abort::AbortSignal>,
 ) -> Result<(), BedrockError> {
     let Some(signal) = signal else {
         tokio::time::sleep(delay).await;
         return Ok(());
     };
     tokio::select! {
-        () = signal.cancelled() => Err(BedrockError::abort("Request was aborted")),
+        _ = signal.wait() => Err(BedrockError::abort("Request was aborted")),
         () = tokio::time::sleep(delay) => Ok(()),
     }
 }

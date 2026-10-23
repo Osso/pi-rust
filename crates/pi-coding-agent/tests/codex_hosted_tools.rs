@@ -21,8 +21,8 @@ use pi_coding_agent::bundled_extensions::codex_web_search::{
 };
 use pi_coding_agent::core::extensions::ExtensionRuntime;
 use pi_coding_agent::core::extensions::{Extension, create_extension_runtime};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json as json;
-use tokio_util::sync::CancellationToken;
 
 fn oauth_auth(provider: &str, token: &str) -> Option<pi_js_compat::js_json::JsObject> {
     json!({(provider): {
@@ -276,7 +276,7 @@ async fn web_search_executes_with_injected_search() {
 
 #[tokio::test(start_paused = true)]
 async fn web_search_times_out_with_source_message() {
-    let captured_signal: Arc<Mutex<Option<CancellationToken>>> = Arc::new(Mutex::new(None));
+    let captured_signal: Arc<Mutex<Option<AbortSignal>>> = Arc::new(Mutex::new(None));
     let capture = Arc::clone(&captured_signal);
     let run_search: RunWebSearch = Arc::new(move |request, _ctx| {
         *capture.lock().unwrap() = request.signal.clone();
@@ -324,17 +324,17 @@ async fn web_search_times_out_with_source_message() {
             .lock()
             .unwrap()
             .as_ref()
-            .is_some_and(CancellationToken::is_cancelled)
+            .is_some_and(AbortSignal::aborted)
     );
 }
 
 #[tokio::test(start_paused = true)]
 async fn web_search_preserves_caller_abort() {
-    let controller = CancellationToken::new();
+    let controller_controller = pi_js_compat::abort::AbortController::new();
+    let controller = controller_controller.signal();
     let run_search: RunWebSearch = Arc::new(move |request, _ctx| {
-        if let Some(signal) = request.signal {
-            signal.cancel();
-        }
+        assert!(request.signal.is_some());
+        controller_controller.abort(None);
         Box::pin(async { std::future::pending::<Result<JsString, JsString>>().await })
     });
     let runtime = create_extension_runtime();
@@ -539,7 +539,7 @@ async fn image_generation_applies_timeout_to_the_request_signal() {
     let run_generation: RunImageGeneration = Arc::new(|request, _ctx| {
         Box::pin(async move {
             let signal = request.signal.expect("signal");
-            signal.cancelled().await;
+            signal.wait().await;
             Err(JsString::from("aborted"))
         })
     });

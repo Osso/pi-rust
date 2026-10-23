@@ -4,8 +4,8 @@ use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use pi_js_compat::abort::{AbortController, AbortSignal};
 use tokio::sync::oneshot;
-use tokio_util::sync::CancellationToken;
 
 use crate::auth::oauth::oauth_page::{oauth_error_html, oauth_success_html};
 use crate::auth::oauth::pkce::generate_pkce_with;
@@ -84,7 +84,7 @@ impl OAuthAuth for AnthropicOAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let runtime = self.runtime.clone();
         Box::pin(async move {
@@ -170,7 +170,7 @@ async fn post_json(
     runtime: &OAuthRuntime,
     url: &str,
     body: impl Into<pi_js_compat::js_json::JsValue>,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<String, CallbackError> {
     let request = json_request(url, body, true);
     let response = tokio::time::timeout(REQUEST_TIMEOUT, send(&runtime.fetch, request, Some(signal)))
@@ -195,7 +195,7 @@ async fn exchange_authorization_code(
     state: &JsString,
     verifier: &str,
     redirect_uri: &str,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<OAuthCredential, CallbackError> {
     let body = pi_js_compat::js_json!({
         "grant_type": "authorization_code",
@@ -255,7 +255,7 @@ async fn login_anthropic(
         .await
         .map_err(AuthError::from)?;
 
-    let manual_abort = CancellationToken::new();
+    let manual_abort = AbortController::new();
     let authorize_url = crate::auth::oauth::support::url_with_query(
         AUTHORIZE_URL,
         &[
@@ -279,7 +279,7 @@ async fn login_anthropic(
 
     let mut prompt = Box::pin(
         interaction.prompt(AuthPrompt {
-            signal: Some(manual_abort.clone()),
+            signal: Some(manual_abort.signal()),
             kind: AuthPromptKind::ManualCode {
                 message: ("Complete login in your browser, or paste the authorization code / redirect URL here:"
                     .to_owned())
@@ -305,7 +305,7 @@ async fn login_anthropic(
                 manual = Some(response);
                 settle_wait(&wait_settle, None);
             }
-            () = interaction_signal.cancelled() => {
+            _ = interaction_signal.wait() => {
                 settle_wait(&wait_settle, None);
             }
         }
@@ -316,7 +316,7 @@ async fn login_anthropic(
     }
     if let Some(Err(error)) = &manual {
         server.close();
-        manual_abort.cancel();
+        manual_abort.abort(None);
         return Err(AuthError::from(error.clone()));
     }
 
@@ -327,7 +327,7 @@ async fn login_anthropic(
                 Ok(resolved) => resolved,
                 Err(error) => {
                     server.close();
-                    manual_abort.cancel();
+                    manual_abort.abort(None);
                     return Err(error);
                 }
             },
@@ -337,12 +337,12 @@ async fn login_anthropic(
 
     let Some(code) = code else {
         server.close();
-        manual_abort.cancel();
+        manual_abort.abort(None);
         return Err(AuthError::failed("Missing authorization code"));
     };
     let Some(state) = state else {
         server.close();
-        manual_abort.cancel();
+        manual_abort.abort(None);
         return Err(AuthError::failed("Missing OAuth state"));
     };
 
@@ -359,7 +359,7 @@ async fn login_anthropic(
     )
     .await;
     server.close();
-    manual_abort.cancel();
+    manual_abort.abort(None);
     credential.map_err(AuthError::from)
 }
 
@@ -374,7 +374,7 @@ fn resolve_manual_input(input: &JsString, verifier: &str) -> Result<(Option<JsSt
 async fn refresh_anthropic(
     runtime: &OAuthRuntime,
     refresh_token: &pi_js_compat::js_json::JsString,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<OAuthCredential, CallbackError> {
     use pi_js_compat::js_json::{JsObject, JsValue};
     let body = JsValue::Object(JsObject::from_iter([

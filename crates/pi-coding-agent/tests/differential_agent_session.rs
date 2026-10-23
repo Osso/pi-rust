@@ -62,7 +62,7 @@ impl pi_agent_core::agent::types::AgentTool for EndTurnTool {
         &self,
         _tool_call_id: String,
         params: JsValue,
-        _signal: Option<tokio_util::sync::CancellationToken>,
+        _signal: Option<pi_js_compat::abort::AbortSignal>,
         _on_update: pi_agent_core::agent::types::AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> pi_ai::request::BoxFuture<

@@ -7,8 +7,8 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
 use indexmap::IndexMap;
+use pi_js_compat::abort::AbortSignal;
 use serde_json::{Map, Value};
-use tokio_util::sync::CancellationToken;
 
 use crate::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
 use crate::utils::provider_retry::{ProviderError, ProviderErrorHeaders, ProviderRequestError};
@@ -86,7 +86,7 @@ impl SdkClient {
     pub fn create_chat_completion_stream(
         &self,
         params: JsValue,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<SdkResponse, ProviderRequestError<CallbackError>>> {
         self.create_stream("/chat/completions", params, signal)
     }
@@ -95,7 +95,7 @@ impl SdkClient {
     pub fn create_chat_completion(
         &self,
         params: JsValue,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<SdkJsonResponse, ProviderRequestError<CallbackError>>> {
         Box::pin(async move { self.send_json("/chat/completions", params, signal).await })
     }
@@ -104,7 +104,7 @@ impl SdkClient {
     pub fn create_response_stream(
         &self,
         params: JsValue,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<SdkResponse, ProviderRequestError<CallbackError>>> {
         // The pinned Azure SDK does not list `/responses` as a deployment
         // endpoint, so both clients call `/responses` directly and send the
@@ -116,7 +116,7 @@ impl SdkClient {
         &self,
         path: &str,
         params: JsValue,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<SdkResponse, ProviderRequestError<CallbackError>>> {
         let path = path.to_owned();
         Box::pin(async move { self.send(&path, params, signal).await })
@@ -126,7 +126,7 @@ impl SdkClient {
         &self,
         path: &str,
         params: JsValue,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> Result<SdkResponse, ProviderRequestError<CallbackError>> {
         let response = self.send_raw(path, &params, signal.clone()).await?;
         let headers = response.headers.clone();
@@ -141,7 +141,7 @@ impl SdkClient {
         &self,
         path: &str,
         params: JsValue,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> Result<SdkJsonResponse, ProviderRequestError<CallbackError>> {
         let response = self.send_raw(path, &params, signal.clone()).await?;
         let status = response.status;
@@ -156,9 +156,9 @@ impl SdkClient {
         &self,
         path: &str,
         params: &JsValue,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> Result<HttpResponse, ProviderRequestError<CallbackError>> {
-        if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+        if signal.as_ref().is_some_and(AbortSignal::aborted) {
             return Err(ProviderRequestError::Abort(crate::utils::abort::AbortError::new()));
         }
         let body = serde_json::to_vec(params)
@@ -172,7 +172,7 @@ impl SdkClient {
         let fetch = self.config.fetch.clone().unwrap_or_else(crate::http::default_fetch);
         let response = match fetch.fetch(request, signal.clone()).await {
             Ok(response) => response,
-            Err(_) if signal.as_ref().is_some_and(CancellationToken::is_cancelled) => {
+            Err(_) if signal.as_ref().is_some_and(AbortSignal::aborted) => {
                 return Err(ProviderRequestError::Abort(crate::utils::abort::AbortError::new()));
             }
             Err(_) => {
@@ -315,16 +315,16 @@ fn platform_arch() -> &'static str {
 
 async fn read_success_body(
     mut body: Box<dyn HttpBody>,
-    signal: Option<&CancellationToken>,
+    signal: Option<&AbortSignal>,
 ) -> Result<Vec<u8>, ProviderRequestError<CallbackError>> {
     let mut bytes = Vec::new();
     loop {
-        if signal.is_some_and(CancellationToken::is_cancelled) {
+        if signal.is_some_and(AbortSignal::aborted) {
             return Err(ProviderRequestError::Abort(crate::utils::abort::AbortError::new()));
         }
         match body.next_chunk().await {
             Some(Ok(chunk)) => bytes.extend_from_slice(&chunk),
-            Some(Err(_)) if signal.is_some_and(CancellationToken::is_cancelled) => {
+            Some(Err(_)) if signal.is_some_and(AbortSignal::aborted) => {
                 return Err(ProviderRequestError::Abort(crate::utils::abort::AbortError::new()));
             }
             Some(Err(error)) => return Err(ProviderRequestError::Other(error)),
@@ -333,11 +333,11 @@ async fn read_success_body(
     }
 }
 
-async fn read_http_error(response: HttpResponse, signal: Option<CancellationToken>) -> ProviderError {
+async fn read_http_error(response: HttpResponse, signal: Option<AbortSignal>) -> ProviderError {
     let mut body = response.body;
     let mut bytes = Vec::new();
     loop {
-        if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+        if signal.as_ref().is_some_and(AbortSignal::aborted) {
             break;
         }
         match body.next_chunk().await {
@@ -399,7 +399,7 @@ pub struct SseJsonStream {
     buffer: Vec<u8>,
     eof: bool,
     done: bool,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     headers: BTreeMap<String, String>,
     pending: VecDeque<SseEvent>,
 }
@@ -409,7 +409,7 @@ struct SseEvent {
 }
 
 impl SseJsonStream {
-    fn new(body: Box<dyn HttpBody>, signal: Option<CancellationToken>, headers: Vec<(String, String)>) -> Self {
+    fn new(body: Box<dyn HttpBody>, signal: Option<AbortSignal>, headers: Vec<(String, String)>) -> Self {
         Self {
             body,
             buffer: Vec::new(),
@@ -474,13 +474,13 @@ impl SseJsonStream {
                     .extend(decode_sse_segment(&String::from_utf8_lossy(&remaining)));
                 return Ok(());
             }
-            if self.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+            if self.signal.as_ref().is_some_and(AbortSignal::aborted) {
                 self.eof = true;
                 continue;
             }
             match self.body.next_chunk().await {
                 Some(Ok(chunk)) => self.buffer.extend_from_slice(&chunk),
-                Some(Err(_)) if self.signal.as_ref().is_some_and(CancellationToken::is_cancelled) => {
+                Some(Err(_)) if self.signal.as_ref().is_some_and(AbortSignal::aborted) => {
                     // The SDK swallows abort errors while iterating a stream.
                     self.eof = true;
                 }

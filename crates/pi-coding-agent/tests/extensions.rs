@@ -1321,7 +1321,6 @@ async fn extensions_match_the_pinned_typescript_runner() {
 // ===== Behavioral runner cases =====
 
 use pi_coding_agent::core::extensions::loader::{command_handler, shortcut_handler};
-use tokio_util::sync::CancellationToken;
 
 fn tool_definition(name: &str, description: &str) -> ToolDefinition {
     ToolDefinition {
@@ -1708,8 +1707,9 @@ async fn cancelled_context_signal_aborts_dispatch() {
     })
     .await;
     let mut runner = support::runner_for(vec![a], "/tmp", runtime, support::model_registry().await);
-    let token = CancellationToken::new();
-    token.cancel();
+    let controller_token = pi_js_compat::abort::AbortController::new();
+    let token = controller_token.signal();
+    controller_token.abort(None);
     let mut actions = support::context_actions();
     let signal = token.clone();
     actions.get_signal = Arc::new(move || Some(signal.clone()));

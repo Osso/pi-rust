@@ -17,9 +17,9 @@ use pi_ai::types::{
 use pi_ai::utils::estimate::{
     TextOrImageInput, estimate_assistant_message_tokens, estimate_text_and_image_content_tokens,
 };
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
 use serde::{Deserialize, Serialize};
-use tokio_util::sync::CancellationToken;
 
 pub mod branch_summarization;
 pub mod utils;
@@ -663,7 +663,7 @@ pub struct GenerateSummaryOptions<'a> {
     pub models: &'a dyn Models,
     pub model: &'a Model,
     pub reserve_tokens: f64,
-    pub signal: Option<&'a CancellationToken>,
+    pub signal: Option<&'a AbortSignal>,
     pub custom_instructions: Option<&'a JsString>,
     pub previous_summary: Option<&'a JsString>,
     pub thinking_level: Option<ThinkingLevel>,
@@ -679,7 +679,7 @@ pub struct CompactResult {
 #[derive(Clone, Copy, Default)]
 pub struct CompactOptions<'a> {
     pub custom_instructions: Option<&'a JsString>,
-    pub signal: Option<&'a CancellationToken>,
+    pub signal: Option<&'a AbortSignal>,
     pub thinking_level: Option<ThinkingLevel>,
 }
 
@@ -722,7 +722,7 @@ pub(super) async fn complete_summary(
     model: &Model,
     prompt: JsString,
     max_tokens: f64,
-    signal: Option<&CancellationToken>,
+    signal: Option<&AbortSignal>,
 ) -> Result<AssistantMessage, CompactionError> {
     let context = Context {
         system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.into()),

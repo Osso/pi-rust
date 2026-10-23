@@ -14,6 +14,7 @@ use std::time::Duration;
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use indexmap::IndexMap;
+use pi_js_compat::abort::{AbortController, AbortSignal};
 use serde_json::{Map, Value};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -21,7 +22,6 @@ use tokio_tungstenite::tungstenite::http::{HeaderName, HeaderValue};
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::{CloseFrame, Message};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
-use tokio_util::sync::CancellationToken;
 
 use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
 use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
@@ -655,8 +655,8 @@ fn compress_request_body_zstd(body_json: &str) -> Option<Vec<u8>> {
     zstd::stream::encode_all(body_json.as_bytes(), REQUEST_COMPRESSION_ZSTD_LEVEL).ok()
 }
 
-fn is_aborted(signal: Option<&CancellationToken>) -> bool {
-    signal.is_some_and(CancellationToken::is_cancelled)
+fn is_aborted(signal: Option<&AbortSignal>) -> bool {
+    signal.is_some_and(AbortSignal::aborted)
 }
 
 fn set_header(headers: &mut IndexMap<String, JsString>, name: &str, value: impl Into<JsString>) {
@@ -987,7 +987,7 @@ fn validate_retry_delay_ms(delay_ms: f64, options: &OpenAICodexResponsesOptions)
     Ok(delay_ms)
 }
 
-async fn sleep_abortable(ms: f64, signal: Option<&CancellationToken>) -> Result<(), CodexStreamError> {
+async fn sleep_abortable(ms: f64, signal: Option<&AbortSignal>) -> Result<(), CodexStreamError> {
     if is_aborted(signal) {
         return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
     }
@@ -995,7 +995,7 @@ async fn sleep_abortable(ms: f64, signal: Option<&CancellationToken>) -> Result<
     match signal {
         Some(signal) => tokio::select! {
             () = tokio::time::sleep(delay) => Ok(()),
-            () = signal.cancelled() => Err(CodexStreamError::Transport("Request was aborted".to_owned().into())),
+            _ = signal.wait() => Err(CodexStreamError::Transport("Request was aborted".to_owned().into())),
         },
         None => {
             tokio::time::sleep(delay).await;
@@ -1010,7 +1010,7 @@ async fn fetch_sse_with_retries(
     headers: &IndexMap<String, JsString>,
     body: Vec<u8>,
     http_timeout_ms: Option<f64>,
-) -> Result<(HttpResponse, CancellationToken), CodexStreamError> {
+) -> Result<(HttpResponse, AbortController), CodexStreamError> {
     let fetch = options.stream.request.fetch.clone().unwrap_or_else(default_fetch);
     let max_retries = options.stream.request.max_retries.unwrap_or(DEFAULT_MAX_RETRIES);
     let url = resolve_codex_url(&model.base_url);
@@ -1136,34 +1136,35 @@ fn notify_retry(
 async fn fetch_with_header_timeout(
     fetch: &dyn Fetch,
     request: HttpRequest,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     timeout_ms: Option<f64>,
-) -> Result<(HttpResponse, CancellationToken), CodexStreamError> {
+) -> Result<(HttpResponse, AbortController), CodexStreamError> {
     if is_aborted(signal.as_ref()) {
         return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
     }
-    let request_token = signal.as_ref().map(CancellationToken::child_token).unwrap_or_default();
-    let future = fetch.fetch(request, Some(request_token.clone()));
+    let request_token = AbortController::new();
+    let request_signal = AbortSignal::any(&[signal.clone().unwrap_or_default(), request_token.signal()]);
+    let future = fetch.fetch(request, Some(request_signal));
     tokio::pin!(future);
 
     match timeout_ms.filter(|timeout| *timeout > 0.0) {
         Some(timeout_ms) => {
             let abort = async {
                 match &signal {
-                    Some(signal) => signal.cancelled().await,
+                    Some(signal) => signal.wait().await,
                     None => std::future::pending().await,
                 }
             };
             tokio::select! {
                 result = &mut future => map_fetch_result(result, signal.as_ref()).map(|response| (response, request_token)),
                 () = tokio::time::sleep(Duration::from_secs_f64(timeout_ms / 1000.0)) => {
-                    request_token.cancel();
+                    request_token.abort(None);
                     Err(CodexStreamError::Transport(format!(
                         "Codex SSE response headers timed out after {timeout_ms}ms"
                     ).into()))
                 }
-                () = abort => {
-                    request_token.cancel();
+                _ = abort => {
+                    request_token.abort(None);
                     Err(CodexStreamError::Transport("Request was aborted".to_owned().into()))
                 }
             }
@@ -1171,14 +1172,14 @@ async fn fetch_with_header_timeout(
         None => {
             let abort = async {
                 match &signal {
-                    Some(signal) => signal.cancelled().await,
+                    Some(signal) => signal.wait().await,
                     None => std::future::pending().await,
                 }
             };
             tokio::select! {
                 result = &mut future => map_fetch_result(result, signal.as_ref()).map(|response| (response, request_token)),
-                () = abort => {
-                    request_token.cancel();
+                _ = abort => {
+                    request_token.abort(None);
                     Err(CodexStreamError::Transport("Request was aborted".to_owned().into()))
                 }
             }
@@ -1188,7 +1189,7 @@ async fn fetch_with_header_timeout(
 
 fn map_fetch_result(
     result: Result<HttpResponse, CallbackError>,
-    signal: Option<&CancellationToken>,
+    signal: Option<&AbortSignal>,
 ) -> Result<HttpResponse, CodexStreamError> {
     match result {
         Ok(response) => Ok(response),
@@ -1288,8 +1289,8 @@ struct SseEventSource {
     body: Box<dyn HttpBody>,
     buffer: Vec<u8>,
     timeout_ms: Option<f64>,
-    signal: Option<CancellationToken>,
-    request_token: CancellationToken,
+    signal: Option<AbortSignal>,
+    request_token: AbortController,
     eof: bool,
 }
 
@@ -1297,8 +1298,8 @@ impl SseEventSource {
     fn new(
         body: Box<dyn HttpBody>,
         timeout_ms: Option<f64>,
-        signal: Option<CancellationToken>,
-        request_token: CancellationToken,
+        signal: Option<AbortSignal>,
+        request_token: AbortController,
     ) -> Self {
         Self {
             body,
@@ -1342,7 +1343,7 @@ impl SseEventSource {
         tokio::pin!(read);
         let abort = async {
             match &signal {
-                Some(signal) => signal.cancelled().await,
+                Some(signal) => signal.wait().await,
                 None => std::future::pending().await,
             }
         };
@@ -1352,13 +1353,13 @@ impl SseEventSource {
                 tokio::select! {
                     chunk = &mut read => chunk,
                     () = tokio::time::sleep(Duration::from_secs_f64(timeout_ms / 1000.0)) => {
-                        self.request_token.cancel();
+                        self.request_token.abort(None);
                         return Err(CodexStreamError::Transport(format!(
                             "Codex SSE body read timed out after {timeout_ms}ms"
                         ).into()));
                     }
-                    () = abort => {
-                        self.request_token.cancel();
+                    _ = abort => {
+                        self.request_token.abort(None);
                         return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
                     }
                 }
@@ -1366,8 +1367,8 @@ impl SseEventSource {
             None => {
                 tokio::select! {
                     chunk = &mut read => chunk,
-                    () = abort => {
-                        self.request_token.cancel();
+                    _ = abort => {
+                        self.request_token.abort(None);
                         return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
                     }
                 }
@@ -1390,7 +1391,7 @@ impl SseEventSource {
 
 impl Drop for SseEventSource {
     fn drop(&mut self) {
-        self.request_token.cancel();
+        self.request_token.abort(None);
     }
 }
 
@@ -1401,7 +1402,7 @@ impl ResponsesEventSource for SseEventSource {
         Box::pin(async move {
             loop {
                 if is_aborted(self.signal.as_ref()) {
-                    self.request_token.cancel();
+                    self.request_token.abort(None);
                     return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
                 }
                 match self.take_event()? {
@@ -1604,7 +1605,7 @@ struct CacheEntry {
     socket: Option<WsConnection>,
     busy: bool,
     created_at: tokio::time::Instant,
-    idle_cancel: CancellationToken,
+    idle_cancel: AbortController,
     continuation: Option<CachedWebSocketContinuationState>,
 }
 
@@ -1689,7 +1690,7 @@ pub fn close_openai_codex_websocket_sessions(session_id: Option<&JsString>) {
             if let Some(account_entries) = cache.remove(session_id) {
                 for entry in account_entries.into_values() {
                     let mut entry = cache_entry_mutex(&entry);
-                    entry.idle_cancel.cancel();
+                    entry.idle_cancel.abort(None);
                     if let Some(socket) = entry.socket.take() {
                         sockets.push(socket);
                     }
@@ -1700,7 +1701,7 @@ pub fn close_openai_codex_websocket_sessions(session_id: Option<&JsString>) {
             for account_entries in std::mem::take(&mut *cache).into_values() {
                 for entry in account_entries.into_values() {
                     let mut entry = cache_entry_mutex(&entry);
-                    entry.idle_cancel.cancel();
+                    entry.idle_cancel.abort(None);
                     if let Some(socket) = entry.socket.take() {
                         sockets.push(socket);
                     }
@@ -1752,7 +1753,7 @@ async fn close_websocket(mut connection: WsConnection, code: u16, reason: &str) 
 async fn connect_websocket(
     url: &JsString,
     headers: &IndexMap<String, JsString>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     connect_timeout_ms: Option<f64>,
 ) -> Result<WsConnection, CodexStreamError> {
     if is_aborted(signal.as_ref()) {
@@ -1775,7 +1776,7 @@ async fn connect_websocket(
     tokio::pin!(connect);
     let abort = async {
         match &signal {
-            Some(signal) => signal.cancelled().await,
+            Some(signal) => signal.wait().await,
             None => std::future::pending().await,
         }
     };
@@ -1789,14 +1790,14 @@ async fn connect_websocket(
                     "WebSocket connect timeout after {timeout_ms}ms"
                 ).into()));
             }
-            () = abort => {
+            _ = abort => {
                 return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
             }
         }
     } else {
         tokio::select! {
             result = &mut connect => Some(result),
-            () = abort => {
+            _ = abort => {
                 return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
             }
         }
@@ -1851,7 +1852,7 @@ fn take_cached_connection(session_id: &JsString, account_id: &str) -> AcquireDec
         return AcquireDecision::Fresh;
     };
     let mut entry_state = cache_entry_mutex(&entry);
-    entry_state.idle_cancel.cancel();
+    entry_state.idle_cancel.abort(None);
     if entry_state.busy {
         return AcquireDecision::Busy;
     }
@@ -1876,7 +1877,7 @@ async fn acquire_websocket(
     headers: &IndexMap<String, JsString>,
     session_id: Option<&JsString>,
     account_id: &str,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     connect_timeout_ms: Option<f64>,
 ) -> Result<WsLease, CodexStreamError> {
     let Some(session_id) = session_id else {
@@ -1938,7 +1939,7 @@ fn insert_cached_entry(session_id: &JsString, account_id: &str) -> Arc<Mutex<Cac
         socket: None,
         busy: true,
         created_at: tokio::time::Instant::now(),
-        idle_cancel: CancellationToken::new(),
+        idle_cancel: AbortController::new(),
         continuation: None,
     }));
     cache_lock()
@@ -1985,7 +1986,7 @@ async fn release_websocket(lease: WsLease, connection: Option<WsConnection>, kee
         {
             let mut cache = cache_lock();
             let mut entry_state = cache_entry_mutex(&entry);
-            entry_state.idle_cancel.cancel();
+            entry_state.idle_cancel.abort(None);
             entry_state.busy = false;
             entry_state.socket = None;
             remove_cached_entry(&mut cache, &session_id, &account_id, &entry);
@@ -2000,8 +2001,8 @@ async fn release_websocket(lease: WsLease, connection: Option<WsConnection>, kee
         let mut entry_state = cache_entry_mutex(&entry);
         entry_state.socket = connection;
         entry_state.busy = false;
-        entry_state.idle_cancel = CancellationToken::new();
-        entry_state.idle_cancel.clone()
+        entry_state.idle_cancel = AbortController::new();
+        entry_state.idle_cancel.signal()
     };
     schedule_session_websocket_expiry(session_id, account_id, entry, idle_cancel);
 }
@@ -2010,12 +2011,12 @@ fn schedule_session_websocket_expiry(
     session_id: JsString,
     account_id: String,
     entry: Arc<Mutex<CacheEntry>>,
-    idle_cancel: CancellationToken,
+    idle_cancel: AbortSignal,
 ) {
     tokio::spawn(async move {
         tokio::select! {
             () = tokio::time::sleep(Duration::from_millis(SESSION_WEBSOCKET_CACHE_TTL_MS)) => {}
-            () = idle_cancel.cancelled() => return,
+            _ = idle_cancel.wait() => return,
         }
         let socket = {
             let mut cache = cache_lock();
@@ -2415,7 +2416,7 @@ enum WsWait {
 }
 
 struct WsEventSourceConfig {
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     idle_timeout_ms: Option<f64>,
     sender: AssistantMessageEventSender,
     partial: AssistantMessage,
@@ -2426,7 +2427,7 @@ struct WsEventSourceConfig {
 struct WsEventSource {
     sink: SplitSink<WsStream, Message>,
     stream: SplitStream<WsStream>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     idle_timeout_ms: Option<f64>,
     queue: VecDeque<JsValue>,
     done: bool,
@@ -2539,7 +2540,7 @@ impl WsEventSource {
     async fn wait(&mut self) -> WsWait {
         let abort = async {
             match &self.signal {
-                Some(signal) => signal.cancelled().await,
+                Some(signal) => signal.wait().await,
                 None => std::future::pending().await,
             }
         };
@@ -2559,7 +2560,7 @@ impl WsEventSource {
                     None => std::future::pending().await,
                 }
             } => WsWait::Idle,
-            () = abort => WsWait::Aborted,
+            _ = abort => WsWait::Aborted,
         }
     }
 

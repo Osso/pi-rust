@@ -22,7 +22,7 @@ impl Fetch for Fake {
     fn fetch(
         &self,
         r: HttpRequest,
-        _: Option<tokio_util::sync::CancellationToken>,
+        _: Option<pi_js_compat::abort::AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         Box::pin(async move {
             Ok(HttpResponse {

@@ -5,8 +5,8 @@ use pi_js_compat::js_json::{JsObject, JsValue};
 use std::sync::Arc;
 
 use indexmap::IndexMap;
+use pi_js_compat::abort::AbortSignal;
 use serde_json::{Map, Value};
-use tokio_util::sync::CancellationToken;
 
 use crate::api::github_copilot_headers::{build_copilot_dynamic_headers, has_copilot_vision_input};
 use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
@@ -432,12 +432,7 @@ async fn run_stream(
             crate::api::openai_responses_shared::ResponsesStreamFailure::Message(message) => Failure::Message(message),
         })?;
 
-    if stream_options
-        .request
-        .signal
-        .as_ref()
-        .is_some_and(CancellationToken::is_cancelled)
-    {
+    if stream_options.request.signal.as_ref().is_some_and(AbortSignal::aborted) {
         return Err(Failure::Message("Request was aborted".to_owned().into()));
     }
     if matches!(
@@ -478,12 +473,7 @@ fn run_and_emit(
                     }
                 }
             }
-            output.stop_reason = if stream_options
-                .request
-                .signal
-                .as_ref()
-                .is_some_and(CancellationToken::is_cancelled)
-            {
+            output.stop_reason = if stream_options.request.signal.as_ref().is_some_and(AbortSignal::aborted) {
                 crate::types::StopReason::Aborted
             } else {
                 crate::types::StopReason::Error

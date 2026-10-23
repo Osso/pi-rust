@@ -11,12 +11,12 @@ use pi_ai::types::{
     AssistantContent, Context, Model, ProviderEnv, ProviderHeaders, TextContent, TextOrImageContent, UserContent,
     UserMessage, UserRole,
 };
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::{
     js_json,
     js_json::{JsString, JsValue as Value},
 };
 use serde_json::json as schema_json;
-use tokio_util::sync::CancellationToken;
 
 use crate::core::extensions::types::{
     BeforeProviderRequestEvent, ExtensionApi, ExtensionContext, HandlerError, ToolDefinition,
@@ -32,7 +32,7 @@ pub struct WebSearchRequest {
     pub api_key: Option<JsString>,
     pub headers: Option<ProviderHeaders>,
     pub env: Option<ProviderEnv>,
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
 }
 
 pub type RunWebSearch =
@@ -122,7 +122,7 @@ fn text_result(text: JsString) -> AgentToolResult {
 async fn execute_web_search(
     params: &Value,
     ctx: &ExtensionContext,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     run_search: &RunWebSearch,
     timeout_ms: u64,
 ) -> Result<JsString, HandlerError> {
@@ -170,14 +170,14 @@ async fn run_search_with_timeout(
     run_search: RunWebSearch,
     timeout_ms: u64,
 ) -> Result<JsString, HandlerError> {
-    let combined = CancellationToken::new();
+    let combined = pi_js_compat::abort::AbortController::new();
     let timed_out = Arc::new(std::sync::atomic::AtomicBool::new(false));
     if let Some(signal) = &request.signal {
         let combined = combined.clone();
         let signal = signal.clone();
         tokio::spawn(async move {
-            signal.cancelled().await;
-            combined.cancel();
+            signal.wait().await;
+            combined.abort(None);
         });
     }
     {
@@ -186,15 +186,16 @@ async fn run_search_with_timeout(
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(timeout_ms)).await;
             timed_out.store(true, std::sync::atomic::Ordering::SeqCst);
-            combined.cancel();
+            combined.abort(None);
         });
     }
     let mut request = request;
-    request.signal = Some(combined.clone());
+    request.signal = Some(combined.signal());
+    let signal = combined.signal();
     let future = run_search(request, ctx);
     tokio::select! {
         result = future => result.map_err(HandlerError::new),
-        _ = combined.cancelled() => {
+        _ = signal.wait() => {
             if timed_out.load(std::sync::atomic::Ordering::SeqCst) {
                 Err(HandlerError::new(format!(
                     "OpenAI hosted web_search timed out after {}",

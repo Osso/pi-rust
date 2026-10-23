@@ -19,11 +19,11 @@ use pi_coding_agent::core::{
     model_config::ModelConfig,
     provider_composer::{ProviderConfigInput, compose_model_provider},
 };
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
-use tokio_util::sync::CancellationToken;
 const CLIENT_ID: &str = "da4edff2e6ebd2bc3208611e2768bc1c1dd7be791dc5ff26ca34ca9ee44f7d4b";
 const REDIRECT: &str = "http://127.0.0.1:8080/callback";
 const GATEWAY: &str = "https://cloud.gitlab.com";
@@ -99,7 +99,7 @@ impl State {
     async fn exchange(
         &self,
         pairs: &[(&str, &str)],
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
         failure: &str,
     ) -> Result<OAuthCredential, CallbackError> {
         let response = self
@@ -199,7 +199,7 @@ impl OAuthAuth for GitlabOAuth {
     fn refresh(
         &self,
         c: OAuthCredential,
-        _signal: CancellationToken,
+        _signal: AbortSignal,
     ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let state = self.0.clone();
         Box::pin(async move {
@@ -388,11 +388,7 @@ mod native_direct_token_tests {
     }
     struct Reply(&'static str);
     impl Fetch for Reply {
-        fn fetch(
-            &self,
-            _: HttpRequest,
-            _: Option<CancellationToken>,
-        ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+        fn fetch(&self, _: HttpRequest, _: Option<AbortSignal>) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
             Box::pin(async move {
                 Ok(HttpResponse {
                     status: 200,

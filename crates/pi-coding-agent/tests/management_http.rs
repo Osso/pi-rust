@@ -6,9 +6,9 @@ use std::time::Duration;
 use pi_ai::http::default_fetch;
 use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
 use pi_coding_agent::utils::management_http::{FetchRetryOptions, TIMEOUT_ERROR_MESSAGE, fetch_with_retry};
+use pi_js_compat::abort::AbortSignal;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
-use tokio_util::sync::CancellationToken;
 
 enum Scripted {
     Status(u16),
@@ -48,7 +48,7 @@ impl Fetch for MockFetch {
     fn fetch(
         &self,
         _request: HttpRequest,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         let next = self.script.lock().unwrap().pop_front().expect("unexpected fetch call");
@@ -62,7 +62,7 @@ impl Fetch for MockFetch {
                 }),
                 Scripted::Fail(message) => Err(CallbackError::new(message)),
                 Scripted::Hang => {
-                    signal.expect("hanging fetch needs a signal").cancelled().await;
+                    signal.expect("hanging fetch needs a signal").wait().await;
                     Err(CallbackError::new("This operation was aborted"))
                 }
             }
@@ -79,7 +79,7 @@ fn get(url: &str) -> HttpRequest {
     }
 }
 
-async fn status_of(fetch: &MockFetch, signal: Option<CancellationToken>, options: FetchRetryOptions) -> u16 {
+async fn status_of(fetch: &MockFetch, signal: Option<AbortSignal>, options: FetchRetryOptions) -> u16 {
     fetch_with_retry(fetch, get("https://example.test"), signal, &options)
         .await
         .expect("response")
@@ -156,8 +156,9 @@ async fn transport_failure_exhaustion_returns_the_last_error() {
 
 #[tokio::test]
 async fn caller_cancellation_before_start_never_calls_fetch() {
-    let signal = CancellationToken::new();
-    signal.cancel();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
+    controller_signal.abort(None);
     let fetch = MockFetch::with(vec![Scripted::Status(200)]);
     let error = fetch_with_retry(
         &fetch,
@@ -174,11 +175,12 @@ async fn caller_cancellation_before_start_never_calls_fetch() {
 
 #[tokio::test]
 async fn caller_cancellation_in_flight_is_terminal() {
-    let signal = CancellationToken::new();
-    let cancel = signal.clone();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
+    let controller_cancel = controller_signal.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(10)).await;
-        cancel.cancel();
+        controller_cancel.abort(None);
     });
     let fetch = MockFetch::with(vec![Scripted::Hang, Scripted::Status(200)]);
     let error = fetch_with_retry(

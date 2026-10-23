@@ -4,8 +4,8 @@ use pi_js_compat::{js_format, js_json::JsString};
 use std::sync::Arc;
 use std::time::Duration;
 
+use pi_js_compat::abort::AbortSignal;
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
 
 use crate::auth::oauth::device_code::{
     OAuthDeviceCodeError, OAuthDeviceCodePollOptions, OAuthDeviceCodePollResult, poll_oauth_device_code_flow,
@@ -79,7 +79,7 @@ impl OAuthAuth for KimiCodingOAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let runtime = self.runtime.clone();
         let oauth_host = self.oauth_host.clone();
@@ -134,7 +134,7 @@ struct TokenResponse {
 async fn send_with_timeout(
     runtime: &OAuthRuntime,
     request: crate::request::HttpRequest,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<OAuthHttpResponse, CallbackError> {
     match tokio::time::timeout(REQUEST_TIMEOUT, send(&runtime.fetch, request, Some(signal))).await {
         Ok(result) => result,
@@ -154,7 +154,7 @@ fn trusted_http_url(value: &Value) -> Option<String> {
 async fn start_device_authorization(
     runtime: &OAuthRuntime,
     oauth_host: &JsString,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<DeviceAuthorization, CallbackError> {
     let url = crate::request::request_url(&js_format!("{}/api/oauth/device_authorization", oauth_host))?;
     let request = form_request(&url, form_encode(&[("client_id", CLIENT_ID)]), true);
@@ -228,7 +228,7 @@ async fn poll_for_token(
     runtime: &OAuthRuntime,
     oauth_host: &JsString,
     device: &DeviceAuthorization,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<TokenResponse, CallbackError> {
     let options = OAuthDeviceCodePollOptions {
         interval_seconds: Some(device.interval_seconds),
@@ -347,10 +347,10 @@ fn is_retryable_refresh_failure(status: u16) -> bool {
     status == 429 || status >= 500
 }
 
-async fn abortable_sleep(delay: Duration, signal: &CancellationToken) -> Result<(), CallbackError> {
+async fn abortable_sleep(delay: Duration, signal: &AbortSignal) -> Result<(), CallbackError> {
     tokio::select! {
         biased;
-        () = signal.cancelled() => Err(CallbackError::new(ABORT_ERROR_MESSAGE)),
+        _ = signal.wait() => Err(CallbackError::new(ABORT_ERROR_MESSAGE)),
         () = tokio::time::sleep(delay) => Ok(()),
     }
 }
@@ -359,7 +359,7 @@ async fn refresh_token(
     runtime: &OAuthRuntime,
     oauth_host: &JsString,
     refresh_token_value: &JsString,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<OAuthCredential, CallbackError> {
     let mut last_error: Option<CallbackError> = None;
     for attempt in 0..=REFRESH_MAX_RETRIES {
@@ -367,7 +367,7 @@ async fn refresh_token(
             let delay = Duration::from_millis(1000 * 2_u64.pow(attempt as u32 - 1));
             abortable_sleep(delay, &signal).await?;
         }
-        if signal.is_cancelled() {
+        if signal.aborted() {
             return Err(CallbackError::new("Kimi Code token refresh aborted"));
         }
 

@@ -131,7 +131,7 @@ struct ValidSpawnInput {
 }
 
 struct PreparedSpawn {
-    abort_controller: tokio_util::sync::CancellationToken,
+    abort_controller: pi_js_compat::abort::AbortController,
     context: SpawnContext,
     coordinator: Arc<crate::core::lifecycle_coordinator::LifecycleCoordinator>,
     prepared: AgentSnapshot,
@@ -336,7 +336,7 @@ fn prepare_spawn(input: &ValidSpawnInput) -> Result<PrepareResult, HandlerError>
         _ => profile.context.unwrap_or(SpawnContext::Inherit),
     };
     Ok(PrepareResult::Prepared(Box::new(PreparedSpawn {
-        abort_controller: tokio_util::sync::CancellationToken::new(),
+        abort_controller: pi_js_compat::abort::AbortController::default(),
         context,
         coordinator,
         prepared,
@@ -355,7 +355,7 @@ async fn construct_child_session(
             context: spawn.context,
             ctx: input.ctx.clone(),
             prompt: input.params.prompt.clone(),
-            signal: Some(spawn.abort_controller.clone()),
+            signal: Some(spawn.abort_controller.signal()),
         })
         .await
     {

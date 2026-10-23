@@ -15,9 +15,9 @@ use std::sync::{Arc, Mutex};
 
 use pi_ai::auth::types::{AuthOperationOptions, CredentialStore};
 use pi_ai::models::models_are_equal;
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
-use tokio_util::sync::CancellationToken;
 
 use crate::cli::args::{
     Args, ExtensionFlag, ExtensionFlagDefault, ExtensionFlagType, ListModels, Mode, parse_args, print_help,
@@ -810,22 +810,23 @@ pub fn refresh_rpc_model_catalogs(model_runtime: &ModelRuntime, offline_mode: bo
 /// `AbortSignal.timeout(ms)` as a cancellation token. The timer is aborted when
 /// the returned guard is dropped.
 pub struct TimeoutSignal {
-    signal: CancellationToken,
+    signal: AbortSignal,
     timer: tokio::task::JoinHandle<()>,
 }
 
 impl TimeoutSignal {
     pub fn new(timeout_ms: u64) -> Self {
-        let signal = CancellationToken::new();
-        let timer_signal = signal.clone();
+        let controller = pi_js_compat::abort::AbortController::new();
+        let signal = controller.signal();
+        let timer_signal = controller;
         let timer = tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(timeout_ms)).await;
-            timer_signal.cancel();
+            timer_signal.abort(None);
         });
         Self { signal, timer }
     }
 
-    pub fn token(&self) -> CancellationToken {
+    pub fn token(&self) -> AbortSignal {
         self.signal.clone()
     }
 }
@@ -1732,7 +1733,7 @@ pub fn list_models_search(parsed: &Args) -> Option<Option<&str>> {
 }
 
 /// `AuthOperationOptions` carrying a 15 second abort timeout.
-pub fn auth_operation_options(signal: CancellationToken) -> AuthOperationOptions {
+pub fn auth_operation_options(signal: AbortSignal) -> AuthOperationOptions {
     AuthOperationOptions::new(Some(signal))
 }
 

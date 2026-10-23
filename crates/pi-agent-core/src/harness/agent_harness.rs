@@ -9,11 +9,11 @@ use crate::agent::{AgentMessage, AgentTool};
 use indexmap::{IndexMap, IndexSet};
 use pi_ai::models::Models;
 use pi_ai::types::{AssistantMessage, Model};
+use pi_js_compat::abort::{AbortController, AbortSignal};
 use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 use tokio::sync::watch;
-use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
 pub struct AgentHarness<M: SessionMetadataValue = SessionMetadata> {
@@ -35,7 +35,7 @@ struct Handlers {
 struct State<M: SessionMetadataValue> {
     phase: AgentHarnessPhase,
     completion: Option<watch::Receiver<bool>>,
-    abort: Option<CancellationToken>,
+    abort: Option<AbortController>,
     pending: Vec<PendingWrite>,
     model: Model,
     thinking_level: ThinkingLevel,
@@ -331,7 +331,7 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
             .find(|(id, _)| after.is_none_or(|after| **id > after))
             .map(|(id, listener)| (*id, listener.clone()))
     }
-    async fn emit(&self, event: HarnessEvent, signal: Option<CancellationToken>) -> Result<(), AgentHarnessError> {
+    async fn emit(&self, event: HarnessEvent, signal: Option<AbortSignal>) -> Result<(), AgentHarnessError> {
         let mut cursor = None;
         while let Some((id, listener)) = self.next_listener(cursor) {
             cursor = Some(id);

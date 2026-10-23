@@ -23,9 +23,9 @@ use pi_ai::types::{
 };
 pub use pi_ai::utils::estimate::calculate_context_tokens;
 use pi_ai::utils::text::{ContentText, content_text};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, JsValue as Value};
 use serde::{Deserialize, Serialize};
-use tokio_util::sync::CancellationToken;
 
 pub use self::utils::{
     FileLists, FileOperations, SUMMARIZATION_SYSTEM_PROMPT, compute_file_lists, create_file_ops,
@@ -593,7 +593,7 @@ fn create_summarization_options(
     api_key: Option<JsString>,
     headers: Option<ProviderHeaders>,
     env: Option<pi_ai::types::ProviderEnv>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> SimpleStreamOptions {
     SimpleStreamOptions {
         stream: StreamOptions {
@@ -633,7 +633,7 @@ pub struct GenerateSummaryWithUsageOptions<'a> {
     pub reserve_tokens: f64,
     pub api_key: Option<JsString>,
     pub headers: Option<ProviderHeaders>,
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
     pub custom_instructions: Option<&'a JsString>,
     pub previous_summary: Option<&'a JsString>,
     pub thinking_level: Option<pi_agent_core::harness::types::ThinkingLevel>,
@@ -654,7 +654,7 @@ pub struct MaterializeCompactionSummaryOptions<'a> {
     pub api_key: Option<JsString>,
     pub headers: Option<ProviderHeaders>,
     pub env: Option<pi_ai::types::ProviderEnv>,
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
     pub stream_fn: Option<&'a StreamFn>,
 }
 
@@ -986,7 +986,7 @@ pub struct CompactionSummaryOptions<'a> {
     pub api_key: Option<JsString>,
     pub headers: Option<ProviderHeaders>,
     pub custom_instructions: Option<&'a JsString>,
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
     pub thinking_level: Option<pi_agent_core::harness::types::ThinkingLevel>,
     pub stream_fn: Option<&'a StreamFn>,
     pub env: Option<pi_ai::types::ProviderEnv>,
@@ -1018,7 +1018,7 @@ struct TurnPrefixSummaryRequestOptions<'a> {
     api_key: Option<JsString>,
     headers: Option<ProviderHeaders>,
     env: Option<pi_ai::types::ProviderEnv>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 }
 
 fn build_turn_prefix_summary_request(

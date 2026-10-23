@@ -14,7 +14,6 @@ use pi_coding_agent::core::session_manager::lock_session_manager;
 use pi_js_compat::js_json::{JsString, JsValue as Value};
 use pi_js_compat::{js_json, js_json as json};
 use std::sync::Arc;
-use tokio_util::sync::CancellationToken;
 
 struct Persistence {
     db: String,
@@ -183,8 +182,9 @@ async fn child_nonblocking_relays_formatted_request_and_correlates_answers() {
 #[tokio::test]
 async fn child_blocking_cancellation_preserves_sent_request() {
     let f = Fixture::new().await;
-    let cancel = CancellationToken::new();
-    cancel.cancel();
+    let controller_cancel = pi_js_compat::abort::AbortController::new();
+    let cancel = controller_cancel.signal();
+    controller_cancel.abort(None);
     let result = (f.ask.execute)(
         "cancelled".into(),
         json!(questions(true)),
@@ -390,8 +390,9 @@ async fn relay_requests_validation_and_cancellation_match_frozen_whole_module() 
         let expected = oracle.request(
             &json!({"id":"call","params":params,"agentId":agent_id,"requiresId":requires,"db":f.db,"cancelled":true}),
         );
-        let cancel = CancellationToken::new();
-        cancel.cancel();
+        let controller_cancel = pi_js_compat::abort::AbortController::new();
+        let cancel = controller_cancel.signal();
+        controller_cancel.abort(None);
         let result = (f.ask.execute)(
             "call".into(),
             json!(params.clone()),

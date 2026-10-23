@@ -11,7 +11,6 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
-use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -224,8 +223,9 @@ pub async fn run_relay_connect() -> Result<(), String> {
     let Some(guard) = acquire_relay_lock(&path, false).await? else {
         return Ok(());
     };
-    let signal = CancellationToken::new();
-    let signals = spawn_signal_listener(signal.clone())?;
+    let controller = pi_js_compat::abort::AbortController::new();
+    let signal = controller.signal();
+    let signals = spawn_signal_listener(controller.clone())?;
     let result = async {
         let process = read_process_identity(std::process::id()).map_err(|e| e.to_string())?;
         write_relay_identity(
@@ -239,7 +239,7 @@ pub async fn run_relay_connect() -> Result<(), String> {
         run_ssh_relay_client(&JsString::from(path.as_str()), &settings, signal.clone()).await
     }
     .await;
-    signal.cancel();
+    controller.abort(None);
     signals.abort();
     let removed = fs::remove_file(format!("{path}.relay.json")).map_err(|e| e.to_string());
     guard.release().map_err(|e| e.to_string())?;
@@ -260,12 +260,14 @@ pub fn write_relay_identity(path: &str, identity: &RelayIdentity) -> Result<(), 
     file.write_all(wire.as_bytes()).map_err(|e| e.to_string())?;
     fs::rename(format!("{filename}.tmp"), filename).map_err(|e| e.to_string())
 }
-fn spawn_signal_listener(signal: CancellationToken) -> Result<tokio::task::JoinHandle<()>, String> {
+fn spawn_signal_listener(
+    controller: pi_js_compat::abort::AbortController,
+) -> Result<tokio::task::JoinHandle<()>, String> {
     use tokio::signal::unix::{SignalKind, signal as listen};
     let mut term = listen(SignalKind::terminate()).map_err(|e| e.to_string())?;
     let mut interrupt = listen(SignalKind::interrupt()).map_err(|e| e.to_string())?;
     Ok(tokio::spawn(async move {
         tokio::select! { _ = term.recv() => {}, _ = interrupt.recv() => {} }
-        signal.cancel();
+        controller.abort(None);
     }))
 }

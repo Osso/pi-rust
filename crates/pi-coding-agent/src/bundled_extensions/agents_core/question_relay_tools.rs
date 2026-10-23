@@ -14,6 +14,7 @@ use crate::core::tools::ask_questions::{
     self, AskQuestionsParams, Question, parse_params, question_result, validate_questions,
 };
 use pi_agent_core::AgentToolResult;
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::{
     js_json as raw_json,
@@ -22,7 +23,6 @@ use pi_js_compat::{
 use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
-use tokio_util::sync::CancellationToken;
 
 #[cfg(test)]
 mod lossless_tests {
@@ -218,7 +218,7 @@ fn send_questions_to_parent(
 async fn wait_for_answer(
     inbox: &Inbox,
     request_id: &JsString,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> Result<Option<RuntimeMailboxMessage>, HandlerError> {
     let message_id = answer_message_id(&inbox.agent_id, request_id);
     let recipient = RuntimeMailboxAddress {
@@ -226,7 +226,7 @@ async fn wait_for_answer(
         session_id: inbox.session_id.clone().into(),
     };
     loop {
-        if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+        if signal.as_ref().is_some_and(AbortSignal::aborted) {
             return Ok(None);
         }
         let mut messages = take_runtime_mailbox_messages_for_delivery(
@@ -241,7 +241,7 @@ async fn wait_for_answer(
         }
         let delay = tokio::time::sleep(std::time::Duration::from_millis(500));
         if let Some(signal) = &signal {
-            tokio::select! { _ = delay => {}, _ = signal.cancelled() => return Ok(None) }
+            tokio::select! { _ = delay => {}, _ = signal.wait() => return Ok(None) }
         } else {
             delay.await;
         }
@@ -251,7 +251,7 @@ async fn ask_parent(
     store: Arc<MultiAgentStore>,
     request_id: JsString,
     params: Value,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     ctx: ExtensionContext,
 ) -> Result<AgentToolResult, HandlerError> {
     let parsed = parse_params(&params).map_err(|error| HandlerError::new(error.message))?;

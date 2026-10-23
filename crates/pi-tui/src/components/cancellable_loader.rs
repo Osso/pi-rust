@@ -1,12 +1,12 @@
 //! Ported from `packages/tui/src/components/cancellable-loader.ts`.
 //!
-//! The TypeScript `AbortSignal` maps to a `CancellationToken`; pressing the
+//! The native signal preserves abort reasons; pressing the
 //! `tui.select.cancel` key cancels it and invokes `on_abort`.
 
 use std::rc::Rc;
 use std::time::Instant;
 
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::{AbortController, AbortSignal};
 
 use super::loader::{Loader, LoaderIndicatorOptions};
 use super::text::StyleFn;
@@ -17,7 +17,7 @@ use crate::tui::Component;
 
 pub struct CancellableLoader {
     loader: Loader,
-    abort_controller: CancellationToken,
+    abort_controller: AbortController,
     pub on_abort: Option<Rc<dyn Fn()>>,
 }
 
@@ -31,18 +31,18 @@ impl CancellableLoader {
     ) -> Self {
         Self {
             loader: Loader::new(request_render, spinner_color_fn, message_color_fn, message, indicator),
-            abort_controller: CancellationToken::new(),
+            abort_controller: AbortController::new(),
             on_abort: None,
         }
     }
 
     /// Abort signal that fires when the user presses Escape.
-    pub fn signal(&self) -> CancellationToken {
-        self.abort_controller.clone()
+    pub fn signal(&self) -> AbortSignal {
+        self.abort_controller.signal()
     }
 
     pub fn is_aborted(&self) -> bool {
-        self.abort_controller.is_cancelled()
+        self.abort_controller.signal().aborted()
     }
 
     pub fn start(&mut self) {
@@ -83,7 +83,7 @@ impl Component for CancellableLoader {
     fn handle_input(&mut self, data: &JsString) {
         let keybindings = get_keybindings();
         if keybindings.matches(data, "tui.select.cancel") {
-            self.abort_controller.cancel();
+            self.abort_controller.abort(None);
             if let Some(on_abort) = &self.on_abort {
                 on_abort();
             }

@@ -2081,7 +2081,6 @@ dependencies = [
  "serde_yaml_ng",
  "tempfile",
  "tokio",
- "tokio-util",
 ]
 
 [[package]]
@@ -2106,7 +2105,6 @@ dependencies = [
  "sha2",
  "tokio",
  "tokio-tungstenite",
- "tokio-util",
  "url",
  "zstd",
 ]
@@ -2143,7 +2141,6 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
- "tokio-util",
  "url",
  "zstd",
 ]
@@ -2182,7 +2179,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
- "tokio-util",
  "url",
 ]
 
@@ -2210,7 +2206,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
- "tokio-util",
  "unicode-segmentation",
 ]
 
@@ -3359,7 +3354,6 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
- "futures-util",
  "libc",
  "pin-project-lite",
  "tokio",

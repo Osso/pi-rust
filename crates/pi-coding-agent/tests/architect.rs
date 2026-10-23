@@ -497,7 +497,8 @@ fn console_snapshot_and_settings_match_the_service_contract() {
 #[tokio::test]
 async fn console_prompt_queue_is_fifo_and_wakes_waiters() {
     let queue = Arc::new(ArchitectConsolePromptQueue::new());
-    let signal = tokio_util::sync::CancellationToken::new();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
     queue.enqueue("first".to_owned().into(), "1".to_owned().into());
     queue.enqueue("second".to_owned().into(), "2".to_owned().into());
     assert_eq!(queue.take().unwrap().text, "first");

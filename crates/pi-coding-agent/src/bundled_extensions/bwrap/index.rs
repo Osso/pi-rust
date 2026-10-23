@@ -11,6 +11,7 @@ use crate::utils::child_process::node_spawn_error_message;
 use crate::utils::paths::{node_dirname, process_cwd};
 use pi_agent_core::AgentToolResult;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::{
     js_json as json,
@@ -18,7 +19,6 @@ use pi_js_compat::{
 };
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
-use tokio_util::sync::CancellationToken;
 
 use crate::core::extensions::loader::ExtensionFactory;
 use crate::core::extensions::types::{
@@ -135,7 +135,7 @@ async fn run_json_in_sandbox(
     params: &SandboxParams,
     operation: &str,
     payload: Map,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> Result<Value, JsString> {
     run_bwrap_availability_check(&params.bwrap_command)?;
     let invocation = build_sandbox_worker_invocation(params, operation, &payload)?;
@@ -178,7 +178,7 @@ async fn run_json_in_sandbox(
         status = child.wait() => status.map_err(|error| error.to_string())?,
         _ = async {
             match signal_for_wait {
-                Some(signal) => signal.cancelled().await,
+                Some(signal) => { signal.wait().await; },
                 None => std::future::pending::<()>().await,
             }
         } => {
@@ -194,7 +194,7 @@ async fn run_json_in_sandbox(
         .await
         .map_err(|error| JsString::from(error.to_string()))?
         .map_err(|error| JsString::from(error.to_string()))?;
-    if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+    if signal.as_ref().is_some_and(AbortSignal::aborted) {
         return Err("Operation aborted".into());
     }
     let stdout_text = JsString::from(String::from_utf8_lossy(&stdout_bytes).into_owned());
@@ -218,7 +218,7 @@ fn run_sandbox_operation<'a>(
     params: &'a SandboxParams,
     operation: &'a str,
     payload: Map,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> BoxFuture<'a, Result<Value, JsString>> {
     Box::pin(async move { run_json_in_sandbox(params, operation, payload, signal).await })
 }
@@ -475,7 +475,7 @@ fn build_grep_notices(details: &Map, truncation: &crate::core::tools::truncate::
 async fn execute_sandboxed_grep(
     params: &SandboxParams,
     input: &Value,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> Result<AgentToolResult, JsString> {
     let search_path = input
         .get("path")

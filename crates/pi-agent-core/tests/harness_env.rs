@@ -15,7 +15,6 @@ use pi_agent_core::harness::types::{
     ReadTextLinesOptions, RemoveOptions, Shell, ShellExecOptions,
 };
 use tempfile::TempDir;
-use tokio_util::sync::CancellationToken;
 
 fn temp_dir() -> TempDir {
     tempfile::tempdir().expect("test temp dir must be created")
@@ -392,8 +391,9 @@ async fn returns_aborted_results_for_pre_aborted_cancellable_operations() {
     env.write_file(&JsString::from("file.txt"), text(&JsString::from("hello")), None)
         .await
         .unwrap();
-    let signal = CancellationToken::new();
-    signal.cancel();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
+    controller_signal.abort(None);
 
     let join_arg_0 = JsString::from("file.txt");
     let join_arg_1 = JsString::from("file.txt");
@@ -619,7 +619,8 @@ async fn returns_an_aborted_result_for_aborted_commands() {
     let sleep_command = JsString::from("sleep 5");
     let root = temp_dir();
     let env = env_at(root.path());
-    let signal = CancellationToken::new();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
     let execution = env.exec(
         &sleep_command,
         ShellExecOptions {
@@ -627,7 +628,7 @@ async fn returns_an_aborted_result_for_aborted_commands() {
             ..ShellExecOptions::default()
         },
     );
-    signal.cancel();
+    controller_signal.abort(None);
     let error = execution.await.map_err(operation::returned_error).unwrap_err();
     assert_eq!(error.code, ExecutionErrorCode::Aborted);
     assert_eq!(error.message, "aborted");

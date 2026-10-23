@@ -13,12 +13,12 @@ use std::sync::Arc;
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
 use pi_tui::tui::{ComponentRef, Container};
 use pi_tui::{Box as BoxComponent, Spacer, Text};
 use serde_json::Value as SchemaValue;
-use tokio_util::sync::CancellationToken;
 
 use super::edit_diff::{
     Edit, EditDiffOutcome, apply_edits_to_normalized_content, compute_edits_diff, detect_line_ending,
@@ -177,7 +177,7 @@ impl AgentTool for EditTool {
         &self,
         _tool_call_id: String,
         params: JsValue,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
@@ -258,7 +258,7 @@ async fn execute_edit(
     cwd: &JsString,
     operations: Arc<dyn EditOperations>,
     params: JsValue,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> Result<AgentToolResult, ToolError> {
     let (path, edits) = parse_edit_input(&params)?;
     let absolute_path = resolve_to_cwd(&path, cwd).map_err(|error| ToolError::new(error.message().clone()))?;
@@ -314,8 +314,8 @@ async fn execute_edit(
     .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?
 }
 
-fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
-    if signal.is_some_and(CancellationToken::is_cancelled) {
+fn check_aborted(signal: Option<&AbortSignal>) -> Result<(), ToolError> {
+    if signal.is_some_and(AbortSignal::aborted) {
         return Err(ToolError::new("Operation aborted"));
     }
     Ok(())

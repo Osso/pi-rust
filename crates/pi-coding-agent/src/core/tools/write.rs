@@ -11,10 +11,10 @@ use std::sync::Arc;
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::abort::AbortSignal;
 use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
 use serde_json::{Value, json};
-use tokio_util::sync::CancellationToken;
 
 use super::file_mutation_queue::with_file_mutation_queue;
 use super::node_fs::node_fs_error;
@@ -121,7 +121,7 @@ impl AgentTool for WriteTool {
         &self,
         _tool_call_id: String,
         params: JsValue,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
@@ -135,7 +135,7 @@ async fn execute_write(
     cwd: &JsString,
     operations: Arc<dyn WriteOperations>,
     params: JsValue,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> Result<AgentToolResult, ToolError> {
     let path = params
         .get("path")
@@ -174,8 +174,8 @@ async fn execute_write(
     .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?
 }
 
-fn check_aborted(signal: Option<&CancellationToken>) -> Result<(), ToolError> {
-    if signal.is_some_and(CancellationToken::is_cancelled) {
+fn check_aborted(signal: Option<&AbortSignal>) -> Result<(), ToolError> {
+    if signal.is_some_and(AbortSignal::aborted) {
         return Err(ToolError::new("Operation aborted"));
     }
     Ok(())

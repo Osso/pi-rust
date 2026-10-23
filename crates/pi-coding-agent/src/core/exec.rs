@@ -5,10 +5,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use rustix::process::{Pid, Signal, kill_process};
 use tokio::process::Command;
-use tokio_util::sync::CancellationToken;
 
 use crate::utils::child_process::wait_for_child_process;
 
@@ -16,7 +16,7 @@ const SIGKILL_DELAY: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Default)]
 pub struct ExecOptions {
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
     /// Milliseconds; `None` or `0` disables the timeout.
     pub timeout: Option<u64>,
 }
@@ -79,7 +79,7 @@ fn start_terminator(
 ) -> Option<tokio::task::JoinHandle<()>> {
     let pid = pid?;
     let signal = options.signal.clone();
-    if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+    if signal.as_ref().is_some_and(AbortSignal::aborted) {
         terminate(pid, &killed);
         return None;
     }
@@ -91,11 +91,13 @@ fn start_terminator(
         match (signal, timeout) {
             (Some(signal), Some(timeout)) => {
                 tokio::select! {
-                    () = signal.cancelled() => {}
+                    _ = signal.wait() => {}
                     () = tokio::time::sleep(Duration::from_millis(timeout)) => {}
                 }
             }
-            (Some(signal), None) => signal.cancelled().await,
+            (Some(signal), None) => {
+                signal.wait().await;
+            }
             (None, Some(timeout)) => tokio::time::sleep(Duration::from_millis(timeout)).await,
             (None, None) => return,
         }

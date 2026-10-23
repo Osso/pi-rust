@@ -3,9 +3,9 @@
 use pi_js_compat::{js_format, js_json::JsString};
 use std::sync::{Arc, Mutex};
 
+use pi_js_compat::abort::AbortSignal;
 use serde_json::Value;
 use tokio::sync::oneshot;
-use tokio_util::sync::CancellationToken;
 
 use crate::auth::oauth::device_code::{
     OAuthDeviceCodeError, OAuthDeviceCodePollOptions, OAuthDeviceCodePollResult, poll_oauth_device_code_flow,
@@ -78,7 +78,7 @@ impl OAuthAuth for RadiusOAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let runtime = self.runtime.clone();
         let gateway = self.gateway.clone();
@@ -169,7 +169,7 @@ async fn request_oauth_token(
     runtime: &OAuthRuntime,
     gateway: &JsString,
     pairs: &[(&str, &str)],
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<OAuthCredential, RadiusRequestError> {
     let request = form_request(
         &crate::request::request_url(&js_format!("{}/v1/oauth/token", gateway)).map_err(RadiusRequestError::Other)?,
@@ -179,7 +179,7 @@ async fn request_oauth_token(
     let response = send(&runtime.fetch, request, Some(signal.clone()))
         .await
         .map_err(|error| {
-            if signal.is_cancelled() {
+            if signal.aborted() {
                 RadiusRequestError::Other(CallbackError::new("Login cancelled"))
             } else {
                 RadiusRequestError::Other(error)
@@ -216,7 +216,7 @@ async fn request_oauth_token(
 async fn load_discovery(
     runtime: &OAuthRuntime,
     gateway: &JsString,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<String, CallbackError> {
     let request = crate::request::HttpRequest {
         method: "GET".to_owned(),
@@ -253,7 +253,7 @@ fn settle_code(sender: &Arc<Mutex<Option<oneshot::Sender<Option<String>>>>>, val
     }
 }
 
-async fn start_callback(expected_state: String, _signal: CancellationToken) -> CallbackCodeServer {
+async fn start_callback(expected_state: String, _signal: AbortSignal) -> CallbackCodeServer {
     let (sender, receiver) = oneshot::channel();
     let settle = Arc::new(Mutex::new(Some(sender)));
     let handler_settle = Arc::clone(&settle);
@@ -340,7 +340,7 @@ async fn login_with_browser(
         tokio::select! {
             biased;
             response = &mut receiver => break response.ok().flatten(),
-            () = signal.cancelled() => {
+            _ = signal.wait() => {
                 settle_code(&settle, None);
             }
         }
@@ -349,7 +349,7 @@ async fn login_with_browser(
         if let Some(server) = server {
             server.close();
         }
-        if signal.is_cancelled() {
+        if signal.aborted() {
             return Err(AuthError::failed("Login cancelled"));
         }
         return Err(AuthError::failed("OAuth callback did not complete."));
@@ -386,7 +386,7 @@ struct DeviceAuthorization {
 async fn request_device_authorization(
     runtime: &OAuthRuntime,
     gateway: &JsString,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<DeviceAuthorization, CallbackError> {
     let request = form_request(
         &crate::request::request_url(&js_format!("{}/v1/oauth/device", gateway))?,
@@ -396,7 +396,7 @@ async fn request_device_authorization(
     let response = send(&runtime.fetch, request, Some(signal.clone()))
         .await
         .map_err(|error| {
-            if signal.is_cancelled() {
+            if signal.aborted() {
                 CallbackError::new("Login cancelled")
             } else {
                 error

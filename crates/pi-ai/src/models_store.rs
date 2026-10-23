@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use pi_js_compat::abort::AbortSignal;
 use serde::{Deserialize, Serialize};
-use tokio_util::sync::CancellationToken;
 
 use crate::request::BoxFuture;
 use crate::types::Model;
@@ -47,7 +47,7 @@ impl ModelsStoreEntry {
 
 #[derive(Debug, Clone, Default)]
 pub struct ModelsStoreOperationOptions {
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
 }
 
 /// Persistent model catalogs keyed by provider ID.
@@ -122,8 +122,8 @@ impl ModelsStore for InMemoryModelsStore {
     }
 }
 
-fn check_aborted(signal: &CancellationToken) -> Result<(), AuthError> {
-    if signal.is_cancelled() {
+fn check_aborted(signal: &AbortSignal) -> Result<(), AuthError> {
+    if signal.aborted() {
         Err(AuthError::Aborted)
     } else {
         Ok(())

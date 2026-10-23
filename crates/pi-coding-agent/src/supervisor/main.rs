@@ -15,7 +15,7 @@ use pi_ai::session_resources::cleanup_session_resources;
 use pi_ai::types::{AssistantContent, StopReason};
 use pi_js_compat::js_json::{JsString, JsValue};
 
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 use crate::core::agent_session::{AgentSession, AgentSessionEvent, PromptOptions};
 use crate::core::extensions::loader::ExtensionFactory;
@@ -304,7 +304,7 @@ pub struct RunSupervisorRequestLoopInput {
     pub console_prompts: Arc<Mutex<SupervisorConsolePromptQueue>>,
     pub control_db_path: JsString,
     pub session: Arc<dyn SupervisorSession>,
-    pub signal: CancellationToken,
+    pub signal: AbortSignal,
     pub wake_server: Arc<SupervisorRequestWakeServer>,
     pub claim_next_request: Option<ClaimNextRequest>,
     pub process_request: Option<ProcessRequest>,
@@ -327,7 +327,7 @@ pub async fn run_supervisor_request_loop(input: RunSupervisorRequestLoopInput) -
             },
         )
     });
-    while !input.signal.is_cancelled() {
+    while !input.signal.aborted() {
         let observed_generation = input.wake_server.current_generation();
         let request = claim_request(&input.control_db_path, &input.claim_token)?;
         if let Some(request) = request {
@@ -380,7 +380,7 @@ pub async fn process_supervisor_request(
 }
 
 fn supervisor_evaluator(session: Arc<dyn SupervisorSession>) -> SupervisorEvaluator {
-    Arc::new(move |prompt: JsString, signal: CancellationToken| {
+    Arc::new(move |prompt: JsString, signal: AbortSignal| {
         let session = Arc::clone(&session);
         Box::pin(async move { evaluate_supervisor_prompt(session, prompt, signal).await })
             as BoxFuture<'static, Result<JsValue, JsString>>
@@ -390,9 +390,9 @@ fn supervisor_evaluator(session: Arc<dyn SupervisorSession>) -> SupervisorEvalua
 async fn evaluate_supervisor_prompt(
     session: Arc<dyn SupervisorSession>,
     prompt: JsString,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<JsValue, JsString> {
-    if signal.is_cancelled() {
+    if signal.aborted() {
         session.abort().await?;
         return Err("Supervisor request aborted".into());
     }
@@ -407,13 +407,13 @@ async fn evaluate_supervisor_prompt(
             cleanup_supervisor_provider_context(&session_id);
         }
     }
-    if signal.is_cancelled() {
+    if signal.aborted() {
         return Err("Supervisor request aborted".into());
     }
     let previous_leaf_id = session.get_leaf_id();
     tokio::select! {
         result = session.prompt(prompt) => result?,
-        () = signal.cancelled() => {
+        _ = signal.wait() => {
             session.abort().await?;
             return Err("Supervisor request aborted".into());
         }
@@ -752,8 +752,9 @@ pub async fn run_supervisor_service() -> Result<(), JsString> {
     }));
     wake_server.start().await?;
     console_server.start().await?;
-    let signal = CancellationToken::new();
-    install_stop_signals(&signal);
+    let controller = pi_js_compat::abort::AbortController::new();
+    let signal = controller.signal();
+    install_stop_signals(&controller);
     let loop_result = run_supervisor_request_loop(RunSupervisorRequestLoopInput {
         claim_token: pi_ai::utils::random_uuid::random_uuid().into(),
         console_prompts,
@@ -771,7 +772,7 @@ pub async fn run_supervisor_service() -> Result<(), JsString> {
     loop_result.map_err(|error| error.message().clone())
 }
 
-fn install_stop_signals(signal: &CancellationToken) {
+fn install_stop_signals(signal: &pi_js_compat::abort::AbortController) {
     let signal = signal.clone();
     tokio::spawn(async move {
         let mut interrupt = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()) {
@@ -786,6 +787,6 @@ fn install_stop_signals(signal: &CancellationToken) {
             _ = interrupt.recv() => {}
             _ = terminate.recv() => {}
         }
-        signal.cancel();
+        signal.abort(None);
     });
 }

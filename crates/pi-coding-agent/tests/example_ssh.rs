@@ -19,7 +19,6 @@ use std::{
     path::Path,
     sync::{Arc, Mutex},
 };
-use tokio_util::sync::CancellationToken;
 
 struct Ui {
     trace: Mutex<Vec<Value>>,
@@ -182,10 +181,11 @@ async fn run_user_operations(ops: Option<UserBashEventResult>, cwd: &str) -> Vec
     for mode in ["success", "exit", "timeout", "overflow", "huge", "abort", "preabort"] {
         let output = Arc::new(Mutex::new(Vec::new()));
         let data = output.clone();
-        let token = CancellationToken::new();
-        let cancel = token.clone();
+        let controller_token = pi_js_compat::abort::AbortController::new();
+        let token = controller_token.signal();
+        let controller_cancel = controller_token.clone();
         if mode == "preabort" {
-            token.cancel();
+            controller_token.abort(None);
         }
         let command = match mode {
             "timeout" | "overflow" | "huge" => "exec sleep 30",
@@ -204,7 +204,7 @@ async fn run_user_operations(ops: Option<UserBashEventResult>, cwd: &str) -> Vec
                 on_data: Arc::new(move |bytes| {
                     data.lock().unwrap().extend_from_slice(bytes);
                     if mode == "abort" {
-                        cancel.cancel();
+                        controller_cancel.abort(None);
                     }
                 }),
                 signal: Some(token),

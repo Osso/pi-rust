@@ -12,8 +12,8 @@ use pi_ai::request::{
 use pi_ai::types::{Context, DeferredHandle, Model};
 use pi_ai::utils::event_stream::AssistantMessageEventStream;
 use pi_coding_agent::core::remote_catalog_provider::{REMOTE_CATALOG_REFRESH_INTERVAL_MS, with_remote_catalog};
+use pi_js_compat::abort::AbortSignal;
 use serde_json::{Value, json};
-use tokio_util::sync::CancellationToken;
 
 type StubResponse = (u16, Vec<(String, String)>, String);
 
@@ -59,7 +59,7 @@ impl Fetch for StubFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        _signal: Option<CancellationToken>,
+        _signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         self.requests.lock().unwrap().push(request);
         let response = self.responses.lock().unwrap().remove(0);
@@ -179,7 +179,7 @@ fn refresh_context(
         publish,
         allow_network,
         force: Some(force),
-        signal: CancellationToken::new(),
+        signal: AbortSignal::default(),
     }
 }
 
@@ -426,8 +426,8 @@ fn an_aborted_signal_stops_before_fetching() {
     let provider = catalog_provider(fetch.clone());
     let publications = Arc::new(Mutex::new(Vec::new()));
     let context = {
-        let context = refresh_context(None, true, true, publications);
-        context.signal.cancel();
+        let mut context = refresh_context(None, true, true, publications);
+        context.signal = AbortSignal::abort(None);
         context
     };
     runtime()

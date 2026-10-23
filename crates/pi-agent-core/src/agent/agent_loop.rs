@@ -11,9 +11,9 @@ use pi_ai::types::{
 };
 use pi_ai::utils::event_stream::{AssistantMessageEventStream, EventStream, StreamFailure, event_stream};
 use pi_ai::utils::validation::validate_tool_arguments;
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, JsValue as Value};
 use tokio::task::JoinSet;
-use tokio_util::sync::CancellationToken;
 
 use crate::agent::stream_fn::default_stream_fn;
 use crate::agent::types::{
@@ -36,7 +36,7 @@ pub fn agent_loop(
     prompts: Vec<AgentMessage>,
     context: AgentContext,
     config: AgentLoopConfig,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     stream_fn: Option<StreamFn>,
 ) -> EventStream<AgentEvent, Vec<AgentMessage>> {
     let (sender, stream) = create_agent_stream();
@@ -54,7 +54,7 @@ pub fn agent_loop(
 pub fn agent_loop_continue(
     context: AgentContext,
     config: AgentLoopConfig,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     stream_fn: Option<StreamFn>,
 ) -> Result<EventStream<AgentEvent, Vec<AgentMessage>>, AgentError> {
     if context.messages.is_empty() {
@@ -100,7 +100,7 @@ pub async fn run_agent_loop(
     context: AgentContext,
     config: AgentLoopConfig,
     emit: AgentEventSink,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     stream_fn: Option<StreamFn>,
 ) -> Result<Vec<AgentMessage>, AgentError> {
     let new_messages = prompts.clone();
@@ -139,7 +139,7 @@ pub async fn run_agent_loop_continue(
     context: AgentContext,
     config: AgentLoopConfig,
     emit: AgentEventSink,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     stream_fn: Option<StreamFn>,
 ) -> Result<Vec<AgentMessage>, AgentError> {
     if context.messages.is_empty() {
@@ -187,7 +187,7 @@ async fn resume_pending_tool_batch(
     current_context: &mut AgentContext,
     new_messages: &mut Vec<AgentMessage>,
     config: &mut AgentLoopConfig,
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
     emit: &AgentEventSink,
 ) -> Result<ResumeOutcome, AgentError> {
     let Some(pending_tool_message) = restored_pending_tool_message(&current_context.messages) else {
@@ -296,7 +296,7 @@ async fn run_loop(
     initial_context: AgentContext,
     new_messages: Vec<AgentMessage>,
     initial_config: AgentLoopConfig,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     emit: &AgentEventSink,
     stream_fn: StreamFn,
 ) -> Result<Vec<AgentMessage>, AgentError> {
@@ -404,7 +404,7 @@ async fn inject_pending_messages(
 
 async fn request_assistant_message(
     state: &mut LoopState,
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
     emit: &AgentEventSink,
     stream_fn: &StreamFn,
 ) -> Result<AssistantMessage, AgentError> {
@@ -435,7 +435,7 @@ async fn run_turn_tools(
     context: &AgentContext,
     message: &AssistantMessage,
     config: &AgentLoopConfig,
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
     emit: &AgentEventSink,
 ) -> Result<TurnToolOutcome, AgentError> {
     if tool_calls_of(message).is_empty() {
@@ -466,7 +466,7 @@ async fn finish_turn(
     state: &mut LoopState,
     message: &AssistantMessage,
     tool_results: &[ToolResultMessage],
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
     emit: &AgentEventSink,
 ) -> Result<Option<Vec<AgentMessage>>, AgentError> {
     emit_event(
@@ -567,7 +567,7 @@ async fn should_stop_after_turn(
 async fn stream_assistant_response(
     context: &mut AgentContext,
     config: &AgentLoopConfig,
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
     emit: &AgentEventSink,
     stream_fn: &StreamFn,
     runtime_continuation_message: Option<UserMessage>,
@@ -611,7 +611,7 @@ async fn stream_assistant_response(
 
 async fn close_assistant_iterator(
     response: &AssistantMessageEventStream,
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
 ) -> Result<(), AgentError> {
     let Some(close) = response
         .return_iterator()
@@ -621,7 +621,7 @@ async fn close_assistant_iterator(
     };
     // JS promises keep running when awaitWithAbort stops waiting for them.
     let close = tokio::spawn(close);
-    if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+    if signal.as_ref().is_some_and(AbortSignal::aborted) {
         return Ok(());
     }
     let result = await_with_abort(close, signal)
@@ -687,7 +687,7 @@ fn assistant_event_partial(event: &AssistantMessageEvent) -> Option<&AssistantMe
 async fn consume_assistant_stream(
     response: &mut AssistantMessageEventStream,
     context: &mut AgentContext,
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
     emit: &AgentEventSink,
     should_close: &mut bool,
 ) -> Result<StreamedAssistant, AgentError> {
@@ -703,7 +703,7 @@ async fn consume_assistant_stream(
                 None
             }
             failed => {
-                *should_close = signal.as_ref().is_some_and(CancellationToken::is_cancelled);
+                *should_close = signal.as_ref().is_some_and(AbortSignal::aborted);
                 return Err(match failed {
                     Err(error) => error,
                     Ok(Some(Err(error))) => AgentError::new(error.message()),
@@ -747,7 +747,7 @@ async fn consume_assistant_stream(
 
 async fn finish_assistant_message(
     context: &mut AgentContext,
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
     emit: &AgentEventSink,
     provider_message: AssistantMessage,
     added_partial: bool,
@@ -780,7 +780,7 @@ async fn finish_assistant_message(
 async fn prepare_assistant_tool_executions(
     message: AssistantMessage,
     tools: Option<&[Arc<dyn AgentTool>]>,
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
 ) -> Result<AssistantMessage, AgentError> {
     let Some(tools) = tools else {
         return Ok(message);
@@ -903,7 +903,7 @@ async fn execute_tool_calls(
     current_context: &AgentContext,
     assistant_message: &AssistantMessage,
     config: &AgentLoopConfig,
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
     emit: &AgentEventSink,
 ) -> Result<ExecutedToolCallBatch, AgentError> {
     let tool_calls = tool_calls_of(assistant_message);
@@ -924,7 +924,7 @@ async fn execute_tool_calls_sequential(
     assistant_message: &AssistantMessage,
     tool_calls: &[ToolCall],
     config: &AgentLoopConfig,
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
     emit: &AgentEventSink,
 ) -> Result<ExecutedToolCallBatch, AgentError> {
     let mut finalized_calls: Vec<FinalizedToolCallOutcome> = Vec::new();
@@ -968,7 +968,7 @@ async fn execute_tool_calls_parallel(
     assistant_message: &AssistantMessage,
     tool_calls: &[ToolCall],
     config: &AgentLoopConfig,
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
     emit: &AgentEventSink,
 ) -> Result<ExecutedToolCallBatch, AgentError> {
     let mut entries: Vec<FinalizedEntry> = Vec::new();
@@ -999,7 +999,7 @@ async fn build_parallel_entry(
     assistant_message: &AssistantMessage,
     tool_call: &ToolCall,
     config: &AgentLoopConfig,
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
     emit: &AgentEventSink,
 ) -> Result<FinalizedEntry, AgentError> {
     let preparation = prepare_tool_call(current_context, assistant_message, tool_call, config, signal).await;
@@ -1111,7 +1111,7 @@ async fn prepare_tool_call(
     assistant_message: &AssistantMessage,
     tool_call: &ToolCall,
     config: &AgentLoopConfig,
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
 ) -> Preparation {
     let Some(tool) = current_context.find_tool(&tool_call.name) else {
         return immediate_error(
@@ -1158,7 +1158,7 @@ async fn apply_before_tool_call(
     tool_call: &ToolCall,
     current_context: &AgentContext,
     validated_args: Value,
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
 ) -> Result<Value, Box<Preparation>> {
     let Some(before_tool_call) = &config.before_tool_call else {
         return Ok(validated_args);
@@ -1205,7 +1205,7 @@ type UpdateTasks = Arc<Mutex<Vec<tokio::task::JoinHandle<Result<(), AgentError>>
 
 async fn execute_prepared_tool_call(
     prepared: PreparedToolCall,
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
     emit: &AgentEventSink,
     started_at: f64,
 ) -> Result<ExecutedToolCallOutcome, AgentError> {
@@ -1252,7 +1252,7 @@ fn tool_update_callback(
 
 async fn run_prepared_tool(
     prepared: PreparedToolCall,
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
     on_update: AgentToolUpdateCallback,
     started_at: f64,
 ) -> ExecutedToolCallOutcome {
@@ -1293,7 +1293,7 @@ async fn run_prepared_tool(
 /// observer consumes task panics rather than leaving a failed JoinHandle unread.
 async fn await_tool_execution<T: Send + 'static>(
     execution: impl Future<Output = T> + Send + 'static,
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
 ) -> Result<T, AgentError> {
     let mut task = tokio::spawn(execution);
     match await_with_abort(&mut task, signal).await {
@@ -1343,7 +1343,7 @@ async fn finalize_executed_tool_call(
     prepared: PreparedToolCall,
     executed: ExecutedToolCallOutcome,
     config: &AgentLoopConfig,
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
 ) -> FinalizedToolCallOutcome {
     let (result, is_error) = match &config.after_tool_call {
         Some(after_tool_call) => {
@@ -1373,7 +1373,7 @@ async fn apply_after_tool_call(
     assistant_message: &AssistantMessage,
     prepared: &PreparedToolCall,
     executed: ExecutedToolCallOutcome,
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
 ) -> (AgentToolResult, bool) {
     let after_context = AfterToolCallContext {
         assistant_message: assistant_message.clone(),
@@ -1575,11 +1575,11 @@ async fn emit_event(emit: &AgentEventSink, event: AgentEvent) -> Result<(), Agen
     emit(event).await
 }
 
-fn is_aborted(signal: &Option<CancellationToken>) -> bool {
-    signal.as_ref().is_some_and(CancellationToken::is_cancelled)
+fn is_aborted(signal: &Option<AbortSignal>) -> bool {
+    signal.as_ref().is_some_and(AbortSignal::aborted)
 }
 
-fn throw_if_aborted(signal: &Option<CancellationToken>) -> Result<(), AgentError> {
+fn throw_if_aborted(signal: &Option<AbortSignal>) -> Result<(), AgentError> {
     if is_aborted(signal) {
         Err(AgentError::run_aborted())
     } else {
@@ -1587,19 +1587,16 @@ fn throw_if_aborted(signal: &Option<CancellationToken>) -> Result<(), AgentError
     }
 }
 
-async fn await_with_abort<T>(
-    future: impl Future<Output = T>,
-    signal: &Option<CancellationToken>,
-) -> Result<T, AgentError> {
+async fn await_with_abort<T>(future: impl Future<Output = T>, signal: &Option<AbortSignal>) -> Result<T, AgentError> {
     let Some(signal) = signal else {
         return Ok(future.await);
     };
-    if signal.is_cancelled() {
+    if signal.aborted() {
         return Err(AgentError::run_aborted());
     }
     tokio::select! {
         biased;
-        () = signal.cancelled() => Err(AgentError::run_aborted()),
+        _ = signal.wait() => Err(AgentError::run_aborted()),
         value = future => Ok(value),
     }
 }

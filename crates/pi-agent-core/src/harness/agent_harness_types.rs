@@ -9,9 +9,9 @@ use crate::agent::{AfterToolCallResult, AgentError, AgentEvent, AgentMessage, Ag
 use pi_ai::models::Models;
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{ImageContent, Model, TextOrImageContent};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, JsValue};
 use std::sync::Arc;
-use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentHarnessPhase {
@@ -313,7 +313,7 @@ pub enum HarnessEvent {
         preparation: CompactionPreparation,
         branch_entries: Vec<SessionTreeEntry>,
         custom_instructions: Option<JsString>,
-        signal: CancellationToken,
+        signal: AbortSignal,
     },
     SessionCompact {
         compaction_entry: SessionTreeEntry,
@@ -321,7 +321,7 @@ pub enum HarnessEvent {
     },
     SessionBeforeTree {
         preparation: TreePreparation,
-        signal: CancellationToken,
+        signal: AbortSignal,
     },
     SessionTree {
         new_leaf_id: Option<JsString>,
@@ -393,7 +393,6 @@ pub enum HarnessHookResult {
 }
 pub type HarnessHook =
     Arc<dyn Fn(HarnessEvent) -> BoxFuture<'static, Result<Option<HarnessHookResult>, AgentHarnessError>> + Send + Sync>;
-pub type HarnessListener = Arc<
-    dyn Fn(HarnessEvent, Option<CancellationToken>) -> BoxFuture<'static, Result<(), AgentHarnessError>> + Send + Sync,
->;
+pub type HarnessListener =
+    Arc<dyn Fn(HarnessEvent, Option<AbortSignal>) -> BoxFuture<'static, Result<(), AgentHarnessError>> + Send + Sync>;
 pub type Unsubscribe = Box<dyn Fn() + Send + Sync>;

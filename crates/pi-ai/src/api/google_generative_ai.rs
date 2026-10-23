@@ -1,9 +1,9 @@
 //! Port of `packages/ai/src/api/google-generative-ai.ts`.
 
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsObject, JsValue};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
-use tokio_util::sync::CancellationToken;
 
 use crate::api::google_client::{GoogleClient, completed_reason, open_generate_stream, pump_stream};
 use crate::api::google_shared::{
@@ -160,7 +160,7 @@ fn run_stream(model: Model, context: Context, options: GoogleOptions) -> Assista
         match run(&sender, &mut output, &model, &context, &options, signal.as_ref()).await {
             Ok(()) => {}
             Err(message) => {
-                let reason = if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+                let reason = if signal.as_ref().is_some_and(AbortSignal::aborted) {
                     output.stop_reason = StopReason::Aborted;
                     ErrorReason::Aborted
                 } else {
@@ -185,7 +185,7 @@ async fn run(
     model: &Model,
     context: &Context,
     options: &GoogleOptions,
-    signal: Option<&CancellationToken>,
+    signal: Option<&AbortSignal>,
 ) -> Result<(), pi_js_compat::js_json::JsString> {
     let client = resolve_client(model, options)?;
     let params = prepare_params(model, context, options).await?;
@@ -236,12 +236,7 @@ async fn prepare_params(
 }
 
 fn build_params(model: &Model, context: &Context, options: &GoogleOptions) -> Result<JsObject, GoogleRequestError> {
-    let request_aborted = options
-        .stream
-        .request
-        .signal
-        .as_ref()
-        .is_some_and(CancellationToken::is_cancelled);
+    let request_aborted = options.stream.request.signal.as_ref().is_some_and(AbortSignal::aborted);
     build_generate_content_params(GenerateContentParamsInput {
         model,
         context,

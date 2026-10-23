@@ -13,9 +13,9 @@ use crate::harness::session::{
 use crate::harness::types::{BranchSummaryError, BranchSummaryErrorCode};
 use pi_ai::models::Models;
 use pi_ai::types::{Model, StopReason};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::JsString;
 use std::collections::HashSet;
-use tokio_util::sync::CancellationToken;
 
 const BRANCH_SUMMARY_PREAMBLE: &str = "The user explored a different conversation branch before returning here.
 Summary of that exploration:
@@ -78,7 +78,7 @@ pub struct CollectEntriesResult {
 pub struct GenerateBranchSummaryOptions<'a> {
     pub models: &'a dyn Models,
     pub model: &'a Model,
-    pub signal: Option<&'a CancellationToken>,
+    pub signal: Option<&'a AbortSignal>,
     pub custom_instructions: Option<&'a JsString>,
     pub replace_instructions: bool,
     pub reserve_tokens: Option<f64>,

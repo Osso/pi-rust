@@ -158,11 +158,11 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
         } else {
             None
         };
-        let abort = CancellationToken::new();
+        let abort = AbortController::new();
         self.state().abort = Some(abort.clone());
         let active = Arc::new(Mutex::new(turn.clone()));
         let harness = self.clone();
-        let signal = abort.clone();
+        let signal = abort.signal();
         let emit = Arc::new(move |event| {
             let harness = harness.clone();
             let signal = signal.clone();
@@ -178,7 +178,7 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
             turn.context(system_prompt),
             self.loop_config(active.clone()),
             emit,
-            Some(abort.clone()),
+            Some(abort.signal()),
             Some(self.stream_fn(active.clone())),
         )
         .await;
@@ -186,7 +186,7 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
             Ok(messages) => Ok(messages),
             Err(error) => {
                 let model = active.lock().expect("turn state").model.clone();
-                self.emit_failure(model, error, abort.clone()).await
+                self.emit_failure(model, error, abort.signal()).await
             }
         };
         let result = result.and_then(|messages| {
@@ -213,10 +213,9 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
         &self,
         model: Model,
         error: AgentError,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> Result<Vec<AgentMessage>, AgentHarnessError> {
-        let message: AgentMessage =
-            create_failure_message(&model, error.message().clone(), signal.is_cancelled()).into();
+        let message: AgentMessage = create_failure_message(&model, error.message().clone(), signal.aborted()).into();
         let events = [
             AgentEvent::MessageStart {
                 message: message.clone(),
@@ -246,7 +245,7 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
     async fn handle_agent_event(
         &self,
         event: AgentEvent,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> Result<(), AgentHarnessError> {
         match &event {
             AgentEvent::MessageEnd { message } => {
@@ -590,7 +589,7 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
                 cleared_follow_up: std::mem::take(&mut state.follow_up),
             };
             if let Some(abort) = &state.abort {
-                abort.cancel();
+                abort.abort(None);
             }
             result
         };

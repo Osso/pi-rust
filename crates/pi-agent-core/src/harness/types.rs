@@ -6,9 +6,9 @@ use indexmap::IndexMap;
 
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{CacheRetention, Transport};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use pi_js_compat::node_error::NativeNodeError;
-use tokio_util::sync::CancellationToken;
 
 /// Skill loaded from a `SKILL.md` file or provided by an application.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -439,7 +439,7 @@ impl<'a> FileContent<'a> {
 #[derive(Debug, Clone, Default)]
 pub struct ReadTextLinesOptions {
     pub max_lines: Option<f64>,
-    pub abort: Option<CancellationToken>,
+    pub abort: Option<AbortSignal>,
 }
 
 /// Options for [`FileSystem::create_dir`]. `recursive` defaults to `true`.
@@ -460,7 +460,7 @@ pub struct RemoveOptions {
 pub struct CreateTempFileOptions {
     pub prefix: Option<JsString>,
     pub suffix: Option<JsString>,
-    pub abort: Option<CancellationToken>,
+    pub abort: Option<AbortSignal>,
 }
 
 /// Shell stdout/stderr callback. `Err` carries the callback error message.
@@ -476,7 +476,7 @@ pub struct ShellExecOptions {
     /// Timeout in seconds. No timeout when absent.
     pub timeout: Option<f64>,
     /// Cancellation token used to terminate the command.
-    pub abort: Option<CancellationToken>,
+    pub abort: Option<AbortSignal>,
     /// Called with stdout chunks as they are produced. `Err` carries the callback error message.
     pub on_stdout: Option<Arc<ShellOutputHandler>>,
     /// Called with stderr chunks as they are produced. `Err` carries the callback error message.
@@ -565,18 +565,18 @@ pub trait FileSystem: Send + Sync {
     fn absolute_path<'a>(
         &'a self,
         path: &'a JsString,
-        abort: Option<&'a CancellationToken>,
+        abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<JsString, OperationFailure<FileError>>>;
     /// Join path segments without requiring the result to exist.
     fn join_path<'a>(
         &'a self,
         parts: &'a [JsString],
-        abort: Option<&'a CancellationToken>,
+        abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<JsString, FileError>>;
     fn read_text_file<'a>(
         &'a self,
         path: &'a JsString,
-        abort: Option<&'a CancellationToken>,
+        abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<String, OperationFailure<FileError>>>;
     fn read_text_lines<'a>(
         &'a self,
@@ -586,32 +586,32 @@ pub trait FileSystem: Send + Sync {
     fn read_binary_file<'a>(
         &'a self,
         path: &'a JsString,
-        abort: Option<&'a CancellationToken>,
+        abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<Vec<u8>, OperationFailure<FileError>>>;
     fn write_file<'a>(
         &'a self,
         path: &'a JsString,
         content: FileContent<'a>,
-        abort: Option<&'a CancellationToken>,
+        abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<(), OperationFailure<FileError>>>;
     fn append_file<'a>(
         &'a self,
         path: &'a JsString,
         content: FileContent<'a>,
-        abort: Option<&'a CancellationToken>,
+        abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<(), OperationFailure<FileError>>>;
     fn file_info<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<FileInfo, OperationFailure<FileError>>>;
     fn list_dir<'a>(
         &'a self,
         path: &'a JsString,
-        abort: Option<&'a CancellationToken>,
+        abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<Vec<FileInfo>, OperationFailure<FileError>>>;
     fn canonical_path<'a>(&'a self, path: &'a JsString)
     -> BoxFuture<'a, Result<JsString, OperationFailure<FileError>>>;
     fn exists<'a>(
         &'a self,
         path: &'a JsString,
-        abort: Option<&'a CancellationToken>,
+        abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<bool, OperationFailure<FileError>>>;
     fn create_dir<'a>(
         &'a self,

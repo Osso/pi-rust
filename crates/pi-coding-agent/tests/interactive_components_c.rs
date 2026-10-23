@@ -438,7 +438,7 @@ fn bordered_loader_cancels_on_cancel_key() {
     loader.set_on_abort(Some(std::rc::Rc::new(move || flag.set(true))));
     loader.handle_input(&JsString::from("\u{1b}"));
     assert!(aborted.get());
-    assert!(loader.signal().is_cancelled());
+    assert!(loader.signal().aborted());
     loader.dispose();
 }
 

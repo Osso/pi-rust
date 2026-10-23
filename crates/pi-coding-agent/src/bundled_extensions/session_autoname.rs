@@ -13,8 +13,8 @@ use pi_ai::types::{
     AssistantContent, AssistantMessage, Context, InputSource, Message, StopReason, TextContent, TextOrImageContent,
     UserContent, UserMessage, UserRole,
 };
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::{js_json::JsString, string::is_js_whitespace_unit};
-use tokio_util::sync::CancellationToken;
 
 use crate::core::extensions::types::{AgentEndEvent, ExtensionApi, ExtensionContext, ExtensionMode, HandlerError};
 use crate::core::session_manager::{SessionEntry, SessionManager, lock_session_manager};
@@ -59,7 +59,7 @@ struct AutonameCandidate {
 struct AutonameState {
     attempted: bool,
     pending_real_user_turn: bool,
-    pending_controller: Option<CancellationToken>,
+    pending_controller: Option<pi_js_compat::abort::AbortController>,
 }
 
 type SharedAutonameState = Arc<Mutex<AutonameState>>;
@@ -107,7 +107,7 @@ pub fn session_autoname_extension(pi: &ExtensionApi) -> Result<(), HandlerError>
 fn abort_pending_generation(state: &SharedAutonameState) {
     let mut state = lock_state(state);
     if let Some(controller) = state.pending_controller.take() {
-        controller.cancel();
+        controller.abort(None);
     }
 }
 
@@ -135,14 +135,14 @@ async fn handle_agent_end(
     let controller = {
         let mut guard = lock_state(&state);
         guard.attempted = true;
-        let controller = CancellationToken::new();
+        let controller = pi_js_compat::abort::AbortController::new();
         guard.pending_controller = Some(controller.clone());
         controller
     };
 
     let settle_state = Arc::clone(&state);
     tokio::spawn(async move {
-        launch_title_generation(extension, candidate, controller.clone()).await;
+        launch_title_generation(extension, candidate, controller.signal()).await;
         let mut guard = lock_state(&settle_state);
         if guard
             .pending_controller
@@ -192,9 +192,9 @@ fn create_autoname_candidate(ctx: &ExtensionContext) -> Result<Option<AutonameCa
     }))
 }
 
-async fn launch_title_generation(extension: ExtensionApi, candidate: AutonameCandidate, controller: CancellationToken) {
+async fn launch_title_generation(extension: ExtensionApi, candidate: AutonameCandidate, controller: AbortSignal) {
     if let Err(error) = generate_and_set_title(&extension, &candidate, &controller).await {
-        report_autoname_failure(&error, controller.is_cancelled());
+        report_autoname_failure(&error, controller.aborted());
     }
 }
 
@@ -250,13 +250,13 @@ pub fn find_first_exchange(session_manager: &SessionManager) -> Option<FirstExch
 async fn generate_and_set_title(
     extension: &ExtensionApi,
     candidate: &AutonameCandidate,
-    controller: &CancellationToken,
+    controller: &AbortSignal,
 ) -> Result<(), HandlerError> {
     let title = request_generated_title(&candidate.request, &candidate.exchange, controller).await?;
     let Some(title) = title else {
         return Ok(());
     };
-    if controller.is_cancelled() {
+    if controller.aborted() {
         return Ok(());
     }
     let has_name_state = lock_session_manager(&candidate.request.session_manager).has_session_name_state();
@@ -269,7 +269,7 @@ async fn generate_and_set_title(
 async fn request_generated_title(
     request: &TitleRequest,
     exchange: &FirstExchange,
-    session_signal: &CancellationToken,
+    session_signal: &AbortSignal,
 ) -> Result<Option<JsString>, HandlerError> {
     let auth = request.model_registry.get_api_key_and_headers(&request.model).await;
     let (api_key, headers, env) = match auth {
@@ -278,12 +278,13 @@ async fn request_generated_title(
         } => (api_key, headers, env),
         crate::core::model_registry::ResolvedRequestAuth::Err { error } => return Err(HandlerError::new(error)),
     };
-    if session_signal.is_cancelled() {
+    if session_signal.aborted() {
         return Ok(None);
     }
 
-    let request_signal = session_signal.child_token();
-    let timeout = spawn_title_timeout(request_signal.clone());
+    let request_controller = pi_js_compat::abort::AbortController::new();
+    let request_signal = AbortSignal::any(&[session_signal.clone(), request_controller.signal()]);
+    let timeout = spawn_title_timeout(request_controller);
 
     let options = SimpleStreamOptions {
         stream: StreamOptions {
@@ -310,7 +311,7 @@ async fn request_generated_title(
         .await;
     timeout.abort();
 
-    if request_signal.is_cancelled() {
+    if request_signal.aborted() {
         return Ok(None);
     }
     match response {
@@ -319,10 +320,10 @@ async fn request_generated_title(
     }
 }
 
-fn spawn_title_timeout(request_signal: CancellationToken) -> tokio::task::JoinHandle<()> {
+fn spawn_title_timeout(request_signal: pi_js_compat::abort::AbortController) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(TITLE_TIMEOUT_MS)).await;
-        request_signal.cancel();
+        request_signal.abort(None);
     })
 }
 

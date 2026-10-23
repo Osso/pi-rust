@@ -44,7 +44,7 @@ async fn rpc_entry_prepends_the_rpc_mode_arguments_and_returns_the_configured_fe
                     headers: Vec::new(),
                     body: None,
                 },
-                Some(tokio_util::sync::CancellationToken::new()),
+                Some(pi_js_compat::abort::AbortSignal::default()),
             )
             .await
             .is_err()

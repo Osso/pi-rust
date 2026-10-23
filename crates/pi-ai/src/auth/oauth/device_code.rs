@@ -2,8 +2,8 @@ use std::fmt;
 use std::future::Future;
 use std::time::Duration;
 
+use pi_js_compat::abort::AbortSignal;
 use tokio::time::Instant;
-use tokio_util::sync::CancellationToken;
 
 const CANCEL_MESSAGE: &str = "Login cancelled";
 const TIMEOUT_MESSAGE: &str = "Device flow timed out";
@@ -25,7 +25,7 @@ pub struct OAuthDeviceCodePollOptions {
     pub interval_seconds: Option<f64>,
     pub expires_in_seconds: Option<f64>,
     pub wait_before_first_poll: bool,
-    pub signal: CancellationToken,
+    pub signal: AbortSignal,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,7 +65,7 @@ where
     }
 
     while !is_expired(deadline) {
-        if options.signal.is_cancelled() {
+        if options.signal.aborted() {
             return Err(OAuthDeviceCodeError::Cancelled);
         }
         match poll().await {
@@ -126,7 +126,7 @@ fn slow_down_interval(current_interval_ms: f64, interval_seconds: Option<f64>) -
 async fn sleep_until_deadline(
     interval_ms: f64,
     deadline: Option<Instant>,
-    signal: &CancellationToken,
+    signal: &AbortSignal,
 ) -> Result<(), OAuthDeviceCodeError> {
     let delay_ms = match deadline {
         Some(deadline) => {
@@ -141,14 +141,14 @@ async fn sleep_until_deadline(
     abortable_sleep(delay_ms, signal).await
 }
 
-async fn abortable_sleep(delay_ms: f64, signal: &CancellationToken) -> Result<(), OAuthDeviceCodeError> {
-    if signal.is_cancelled() {
+async fn abortable_sleep(delay_ms: f64, signal: &AbortSignal) -> Result<(), OAuthDeviceCodeError> {
+    if signal.aborted() {
         return Err(OAuthDeviceCodeError::Cancelled);
     }
 
     tokio::select! {
         biased;
-        _ = signal.cancelled() => Err(OAuthDeviceCodeError::Cancelled),
+        _ = signal.wait() => Err(OAuthDeviceCodeError::Cancelled),
         _ = tokio::time::sleep(duration_from_ms(delay_ms)) => Ok(()),
     }
 }

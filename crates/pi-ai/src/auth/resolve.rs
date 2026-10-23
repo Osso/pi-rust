@@ -3,7 +3,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::{AbortController, AbortSignal};
 
 use crate::request::{BoxFuture, CallbackError, now_millis};
 use crate::types::ProviderEnv;
@@ -136,7 +136,7 @@ pub struct AuthResolutionOverrides {
     pub env: Option<ProviderEnv>,
     /// Require this much remaining OAuth-token validity.
     pub min_oauth_validity_ms: Option<f64>,
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
 }
 
 /// Frozen request-auth entrypoint: callers supply the actual requested model.
@@ -204,7 +204,7 @@ async fn resolve_with_signal(
     credentials: Arc<dyn CredentialStore>,
     auth_context: Arc<dyn AuthContext>,
     overrides: AuthResolutionOverrides,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<Option<AuthResult>, ResolveError> {
     check_aborted(&signal)?;
     let request_context: Arc<dyn AuthContext> = match &overrides.env {
@@ -294,7 +294,7 @@ async fn resolve_stored_oauth(
     provider_id: String,
     provider_auth: ProviderAuth,
     stored: OAuthCredential,
-    signal: CancellationToken,
+    signal: AbortSignal,
     min_oauth_validity_ms: Option<f64>,
 ) -> Result<Option<AuthResult>, ResolveError> {
     let minimum_validity_ms = DEFAULT_OAUTH_MINIMUM_VALIDITY_MS.max(min_oauth_validity_ms.unwrap_or(0.0));
@@ -319,15 +319,16 @@ async fn resolve_stored_oauth(
                     if !expires_soon(&current, minimum_validity_ms) {
                         return Ok(None);
                     }
-                    let refresh_signal = signal.child_token();
-                    let timer = spawn_timeout(refresh_signal.clone(), DEFAULT_OAUTH_REFRESH_TIMEOUT_MS);
+                    let controller = AbortController::new();
+                    let refresh_signal = AbortSignal::any(&[signal.clone(), controller.signal()]);
+                    let timer = spawn_timeout(controller, DEFAULT_OAUTH_REFRESH_TIMEOUT_MS);
                     let result =
                         race_with_abort_signal(oauth.refresh(current, refresh_signal.clone()), &refresh_signal).await;
                     timer.abort();
                     match result {
                         Ok(Ok(credential)) => Ok(Some(Credential::OAuth(credential))),
                         Ok(Err(AuthError::Aborted)) | Err(_) => {
-                            if signal.is_cancelled() {
+                            if signal.aborted() {
                                 return Err(AuthError::Aborted);
                             }
                             let models_error = ModelsError::with_cause(
@@ -365,7 +366,7 @@ async fn resolve_stored_oauth(
             .await;
         let post = match post {
             Ok(post) => post,
-            Err(AuthError::Aborted) if signal.is_cancelled() => return Err(ResolveError::Aborted),
+            Err(AuthError::Aborted) if signal.aborted() => return Err(ResolveError::Aborted),
             Err(error) => {
                 if let Some(models_error) = refresh_error
                     .lock()
@@ -424,7 +425,7 @@ async fn resolve_api_key(
     credential: Option<ApiKeyCredential>,
     provider_id: String,
     model: Option<AuthModel>,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<Option<AuthResult>, ResolveError> {
     let error_provider = match &model {
         Some(model) => model.provider().to_owned(),
@@ -452,7 +453,7 @@ async fn resolve_api_key(
 async fn read_credential(
     credentials: Arc<dyn CredentialStore>,
     provider_id: &str,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<Option<Credential>, ResolveError> {
     match credentials
         .read(provider_id, super::types::AuthOperationOptions { signal: Some(signal) })
@@ -472,15 +473,15 @@ fn expires_soon(credential: &OAuthCredential, minimum_validity_ms: f64) -> bool 
     now_millis() as f64 + minimum_validity_ms >= credential.expires
 }
 
-fn spawn_timeout(token: CancellationToken, milliseconds: u64) -> tokio::task::JoinHandle<()> {
+fn spawn_timeout(token: AbortController, milliseconds: u64) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(milliseconds)).await;
-        token.cancel();
+        token.abort(None);
     })
 }
 
-fn check_aborted(signal: &CancellationToken) -> Result<(), ResolveError> {
-    if signal.is_cancelled() {
+fn check_aborted(signal: &AbortSignal) -> Result<(), ResolveError> {
+    if signal.aborted() {
         Err(ResolveError::Aborted)
     } else {
         Ok(())

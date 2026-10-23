@@ -11,11 +11,11 @@ use pi_agent_core::{
     AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
 };
 use pi_ai::request::BoxFuture;
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
 use pi_tui::tui::ComponentRef;
 use serde_json::Value as SchemaValue;
-use tokio_util::sync::CancellationToken;
 
 use std::sync::Arc;
 
@@ -390,7 +390,7 @@ impl ContextTool<ExtensionContext> for ResumeSessionTool {
         &self,
         _tool_call_id: String,
         params: JsValue,
-        _signal: Option<CancellationToken>,
+        _signal: Option<AbortSignal>,
         _on_update: Option<AgentToolUpdateCallback>,
         context: ExtensionContext,
         _execution: Option<AgentToolExecutionContext>,

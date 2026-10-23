@@ -4,10 +4,10 @@ use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, JsValue as Value};
 use pi_js_compat::process_env;
 use tokio::io::AsyncWriteExt;
-use tokio_util::sync::CancellationToken;
 
 use crate::core::extensions::types::{
     BeforeAgentStartEvent, BeforeAgentStartEventResult, BoxFuture, ExtensionApi, ExtensionContext, HandlerError,
@@ -100,7 +100,7 @@ pub fn parse_additional_context(stdout: &str) -> Result<Option<JsString>, Handle
 async fn run_enrich(
     command: &str,
     prompt: &JsString,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> Result<Option<JsString>, HandlerError> {
     let mut child = tokio::process::Command::new(command)
         .arg("enrich")
@@ -168,9 +168,11 @@ async fn run_enrich(
     parse_additional_context(&String::from_utf8_lossy(&output.stdout))
 }
 
-async fn wait_for_cancellation(signal: Option<CancellationToken>) {
+async fn wait_for_cancellation(signal: Option<AbortSignal>) {
     match signal {
-        Some(token) => token.cancelled().await,
+        Some(token) => {
+            token.wait().await;
+        }
         None => std::future::pending().await,
     }
 }

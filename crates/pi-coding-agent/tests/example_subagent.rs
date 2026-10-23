@@ -235,11 +235,12 @@ async fn project_refusal_spawn_error_and_abort_use_private_children() {
         "Canceled: project-local agents not approved."
     );
     assert!(!temp.path().join("journal.jsonl").exists());
-    let token = tokio_util::sync::CancellationToken::new();
-    let trigger = token.clone();
+    let controller_token = pi_js_compat::abort::AbortController::new();
+    let token = controller_token.signal();
+    let controller_trigger = controller_token.clone();
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-        trigger.cancel();
+        controller_trigger.abort(None);
     });
     let error = (tool.execute)(
         "c".into(),

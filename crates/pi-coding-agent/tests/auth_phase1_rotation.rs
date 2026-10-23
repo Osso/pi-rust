@@ -20,7 +20,6 @@ use std::{
     },
     time::SystemTime,
 };
-use tokio_util::sync::CancellationToken;
 #[path = "support/oracle.rs"]
 mod oracle;
 static SERIAL: Mutex<()> = Mutex::new(());
@@ -61,7 +60,7 @@ impl OAuthProviderInterface for Fake {
 }
 struct BoundaryBackend {
     inner: FileAuthStorageBackend,
-    signal: CancellationToken,
+    signal: pi_js_compat::abort::AbortController,
     fault: &'static str,
     syncs: AtomicUsize,
 }
@@ -78,7 +77,7 @@ impl AuthStorageBackend for BoundaryBackend {
         operation: AsyncLockOperation,
         options: AuthOperationOptions,
     ) -> BoxFuture<'_, Result<(), StorageError>> {
-        let signal = self.signal.clone();
+        let controller_signal = self.signal.clone();
         let fault = self.fault;
         let file = pi_js_compat::js_json::encode_node_utf8(self.inner.auth_path());
         self.inner.with_lock_async(
@@ -87,7 +86,7 @@ impl AuthStorageBackend for BoundaryBackend {
                     let next = operation(current).await?;
                     // Barrier is AFTER fake provider result and storage callback, BEFORE native write.
                     if fault == "cancel" {
-                        signal.cancel();
+                        controller_signal.abort(None);
                         return Ok(next);
                     }
                     if fault == "compromise" {
@@ -131,7 +130,8 @@ fn successful_rotation_callback_then_cancel_or_write_failure_rescues_exact_resul
     let _serial = SERIAL.lock().unwrap();
     for fault in ["cancel", "write-fails", "compromise"] {
         let file = fixture();
-        let signal = CancellationToken::new();
+        let controller_signal = pi_js_compat::abort::AbortController::new();
+        let signal = controller_signal.signal();
         let count = Arc::new(AtomicUsize::new(0));
         register_oauth_provider(Arc::new(Fake {
             count: count.clone(),
@@ -139,7 +139,7 @@ fn successful_rotation_callback_then_cancel_or_write_failure_rescues_exact_resul
         }));
         let storage = AuthStorage::from_storage(Arc::new(BoundaryBackend {
             inner: FileAuthStorageBackend::new(&JsString::from(file.to_str().unwrap())),
-            signal: signal.clone(),
+            signal: controller_signal.clone(),
             fault,
             syncs: AtomicUsize::new(0),
         }));
@@ -205,7 +205,7 @@ fn unsuccessful_refresh_does_not_rescue_and_failed_rescue_surfaces_source_error(
         }));
         let storage = AuthStorage::from_storage(Arc::new(BoundaryBackend {
             inner: FileAuthStorageBackend::new(&JsString::from(file.to_str().unwrap())),
-            signal: CancellationToken::new(),
+            signal: pi_js_compat::abort::AbortController::new(),
             fault,
             syncs: AtomicUsize::new(0),
         }));
@@ -243,7 +243,7 @@ fn failed_rotation_persistence_and_reload_never_succeed_from_memory() {
         }));
         let backend = Arc::new(BoundaryBackend {
             inner: FileAuthStorageBackend::new(&JsString::from(file.to_str().unwrap())),
-            signal: CancellationToken::new(),
+            signal: pi_js_compat::abort::AbortController::new(),
             fault: "all-sync-fails",
             syncs: AtomicUsize::new(0),
         });

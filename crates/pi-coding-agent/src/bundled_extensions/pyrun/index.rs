@@ -70,7 +70,7 @@ pub type PyrunEvaluate = Arc<
             PyrunEvalParams,
             ExtensionContext,
             Option<super::eval_tool::PyrunProgressUpdateCallback>,
-            Option<tokio_util::sync::CancellationToken>,
+            Option<pi_js_compat::abort::AbortSignal>,
             Option<String>,
         ) -> BoxFuture<'static, Result<AgentToolResult, HandlerError>>
         + Send
@@ -653,7 +653,7 @@ async fn dispatch_builtin_pyrun_request(
     request: &PiRequest,
     pi: &ExtensionApi,
     ctx: &ExtensionContext,
-    signal: Option<tokio_util::sync::CancellationToken>,
+    signal: Option<pi_js_compat::abort::AbortSignal>,
     active_tool_call_id: Option<&str>,
 ) -> Result<Option<Value>, HandlerError> {
     match request.method.to_utf8().as_deref() {

@@ -75,7 +75,7 @@ fn tool_definition(render_call: Option<RenderCall>, render_result: Option<Render
         execute: Arc::new(
             |_id: String,
              _params: JsValue,
-             _signal: Option<tokio_util::sync::CancellationToken>,
+             _signal: Option<pi_js_compat::abort::AbortSignal>,
              _on_update: Option<AgentToolUpdateCallback>,
              _context: ExtensionContext| {
                 Box::pin(async { Err::<AgentToolResult, HandlerError>(HandlerError::new("unused")) })

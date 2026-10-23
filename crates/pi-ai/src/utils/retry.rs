@@ -2,8 +2,8 @@ use std::future::Future;
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use pi_js_compat::abort::AbortSignal;
 use regress::Regex;
-use tokio_util::sync::CancellationToken;
 
 use crate::types::{AssistantMessage, StopReason};
 
@@ -113,7 +113,7 @@ struct LastRetry {
 pub async fn retry_assistant_call<P, F, C>(
     mut produce: P,
     policy: Option<&RetryPolicy>,
-    signal: Option<&CancellationToken>,
+    signal: Option<&AbortSignal>,
     mut callbacks: Option<&mut C>,
 ) -> AssistantMessage
 where
@@ -198,7 +198,7 @@ async fn wait_for_retry<C>(
     mut response: AssistantMessage,
     last_retry: &LastRetry,
     delay_ms: f64,
-    signal: Option<&CancellationToken>,
+    signal: Option<&AbortSignal>,
     callbacks: &mut Option<&mut C>,
 ) -> Option<AssistantMessage>
 where
@@ -208,7 +208,7 @@ where
     let aborted = match signal {
         Some(token) => tokio::select! {
             () = tokio::time::sleep(delay) => false,
-            () = token.cancelled() => true,
+            _ = token.wait() => true,
         },
         None => {
             tokio::time::sleep(delay).await;

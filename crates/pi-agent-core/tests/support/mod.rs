@@ -10,9 +10,9 @@ use pi_ai::types::{
     ModelCost, ModelCostRates, StopReason, TextContent, ToolCall, ToolCallExecution, UserMessage, UserRole,
 };
 use pi_ai::utils::event_stream::{AssistantMessageEventStream, EventStream, create_assistant_message_event_stream};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, JsValue as Value};
 use serde_json::Value as SchemaValue;
-use tokio_util::sync::CancellationToken;
 
 pub fn model() -> Model {
     Model {
@@ -108,7 +108,7 @@ pub type PrepareArgumentsFn = Arc<dyn Fn(Value) -> Result<Value, pi_agent_core::
 pub type PrepareExecutionFn = Arc<
     dyn Fn(
             String,
-            Option<CancellationToken>,
+            Option<AbortSignal>,
         ) -> BoxFuture<'static, Result<Option<ToolCallExecution>, pi_agent_core::agent::ToolError>>
         + Send
         + Sync,
@@ -117,7 +117,7 @@ pub type ExecuteFn = Arc<
     dyn Fn(
             String,
             Value,
-            Option<CancellationToken>,
+            Option<AbortSignal>,
             AgentToolUpdateCallback,
         ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>>
         + Send
@@ -272,7 +272,7 @@ impl AgentTool for TestTool {
     fn prepare_execution(
         &self,
         tool_call_id: String,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> BoxFuture<'static, Result<Option<ToolCallExecution>, pi_agent_core::agent::ToolError>> {
         match &self.prepare_execution {
             Some(prepare) => prepare(tool_call_id, signal),
@@ -284,7 +284,7 @@ impl AgentTool for TestTool {
         &self,
         tool_call_id: String,
         params: Value,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
         on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {

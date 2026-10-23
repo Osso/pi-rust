@@ -7,7 +7,7 @@ use std::fmt::{self, Display, Formatter};
 use pi_ai::auth::AuthResolutionOverrides;
 use pi_ai::auth::types::{AuthOperationOptions, CredentialInfo, CredentialType};
 use pi_ai::types::Model;
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 use super::args::Args;
 use super::auth_command::{AuthCommandError, AuthCommandKind, get_auth_credential, validate_auth_command_args};
@@ -84,7 +84,7 @@ pub async fn resolve_credential_for_print(
     model_runtime: &ModelRuntime,
     kind: CredentialPrintKind,
     min_expiry_ms: Option<f64>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> Result<JsString, CredentialPrintError> {
     let target = validate_auth_command_args(args, kind.auth_command_kind())?;
     let credential_types = credential_types(model_runtime, signal.clone()).await?;
@@ -122,7 +122,7 @@ pub async fn resolve_credential_for_print(
 
 async fn credential_types(
     model_runtime: &ModelRuntime,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> Result<Vec<CredentialInfo>, CredentialPrintError> {
     model_runtime
         .list_credentials(AuthOperationOptions::new(signal))
@@ -236,7 +236,7 @@ async fn collect_credentials(
     model_runtime: &ModelRuntime,
     kind: CredentialPrintKind,
     min_expiry_ms: Option<f64>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     providers: impl Iterator<Item = &CredentialProvider>,
     credential_types: &[CredentialInfo],
 ) -> Vec<(String, JsString)> {

@@ -8,6 +8,14 @@ use pi_js_compat::{js_json as json, number::js_number_to_string};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+#[test]
+fn signal_equality_compares_shared_signal_not_current_reason() {
+    let signal = AbortSignal::default();
+    assert_eq!(signal, signal.clone());
+    assert_ne!(signal, AbortSignal::default());
+    assert_ne!(AbortSignal::abort(None), AbortSignal::abort(None));
+}
+
 fn oracle() -> oracle::TsOracle {
     oracle::TsOracle::spawn("abort-signal-oracle.ts", "packages/ai/src/utils/abort-signals.ts")
 }

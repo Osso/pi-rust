@@ -7,7 +7,7 @@ use pi_agent_core::{
 };
 use pi_ai::request::BoxFuture;
 use pi_ai::types::TextOrImageContent;
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 struct FixtureTool {
     name: String,
@@ -30,7 +30,7 @@ impl AgentTool for FixtureTool {
         &self,
         _id: String,
         args: JsValue,
-        _signal: Option<CancellationToken>,
+        _signal: Option<AbortSignal>,
         _update: AgentToolUpdateCallback,
         _execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {

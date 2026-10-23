@@ -9,7 +9,6 @@ use std::sync::{Arc, Mutex};
 use crate::core::extensions::types::NotifyType;
 use pi_ai::request::BoxFuture;
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
 
 use crate::core::desktop_notification::DesktopNotifier;
 use crate::core::extensions::types::{
@@ -190,7 +189,7 @@ fn register_session_shutdown_hook(
                 }
                 registration.store.invalidate_in_flight_dispatches();
                 for runtime in registration.ownerships.lock().expect("ownerships").values() {
-                    runtime.abort_controller.cancel();
+                    runtime.abort_controller.abort(None);
                 }
                 let background_ids: Vec<JsString> = registration
                     .background_sessions
@@ -666,7 +665,7 @@ async fn background_command(
 }
 
 struct PreparedBackgroundRuntime {
-    abort_controller: CancellationToken,
+    abort_controller: pi_js_compat::abort::AbortController,
     child_session: Arc<dyn ChildAgentSession>,
     prepared: AgentSnapshot,
 }
@@ -735,7 +734,7 @@ async fn prepare_background_runtime(
             result: None,
         })
         .map_err(|error| HandlerError::new(error.message()))?;
-    let abort_controller = CancellationToken::new();
+    let abort_controller = pi_js_compat::abort::AbortController::new();
     match create_child_session
         .call(super::shared::ChildAgentDispatchInput {
             active_tool_call_id: None,
@@ -743,7 +742,7 @@ async fn prepare_background_runtime(
             context: SpawnContext::Fresh,
             ctx: ctx.context.clone(),
             prompt: prompt.to_owned().into(),
-            signal: Some(abort_controller.clone()),
+            signal: Some(abort_controller.signal()),
         })
         .await
     {

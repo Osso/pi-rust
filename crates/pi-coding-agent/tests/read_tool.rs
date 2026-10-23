@@ -316,8 +316,9 @@ fn treats_image_extension_with_non_image_content_as_text() {
 #[test]
 fn aborted_reads_return_the_source_error() {
     let temp = tempfile::tempdir().expect("temp dir");
-    let token = tokio_util::sync::CancellationToken::new();
-    token.cancel();
+    let controller_token = pi_js_compat::abort::AbortController::new();
+    let token = controller_token.signal();
+    controller_token.abort(None);
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let error = runtime
         .block_on(ReadTool::new(temp.path().to_str().expect("utf-8 test path")).execute(

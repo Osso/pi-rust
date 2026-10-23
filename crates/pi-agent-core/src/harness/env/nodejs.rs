@@ -14,13 +14,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use pi_ai::request::BoxFuture;
+use pi_js_compat::abort::{AbortReason, AbortSignal};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use pi_js_compat::number::js_number_to_string;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
-use tokio_util::sync::CancellationToken;
 
 use crate::harness::types::{
     CreateDirOptions, CreateTempFileOptions, ExecutionError, ExecutionErrorCode, FileContent, FileError, FileErrorCode,
@@ -69,7 +69,7 @@ impl FileSystem for NodeExecutionEnv {
     fn absolute_path<'a>(
         &'a self,
         path: &'a JsString,
-        _abort: Option<&'a CancellationToken>,
+        _abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<JsString, OperationFailure<FileError>>> {
         Box::pin(async move { resolve_path(&self.cwd, path).map_err(OperationFailure::Rejected) })
     }
@@ -77,7 +77,7 @@ impl FileSystem for NodeExecutionEnv {
     fn join_path<'a>(
         &'a self,
         parts: &'a [JsString],
-        _abort: Option<&'a CancellationToken>,
+        _abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<JsString, FileError>> {
         Box::pin(async move { Ok(join_paths(parts)) })
     }
@@ -85,7 +85,7 @@ impl FileSystem for NodeExecutionEnv {
     fn read_text_file<'a>(
         &'a self,
         path: &'a JsString,
-        abort: Option<&'a CancellationToken>,
+        abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<String, OperationFailure<FileError>>> {
         Box::pin(async move {
             let resolved = resolve_path(&self.cwd, path).map_err(OperationFailure::Rejected)?;
@@ -128,7 +128,7 @@ impl FileSystem for NodeExecutionEnv {
     fn read_binary_file<'a>(
         &'a self,
         path: &'a JsString,
-        abort: Option<&'a CancellationToken>,
+        abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<Vec<u8>, OperationFailure<FileError>>> {
         Box::pin(async move {
             let resolved = resolve_path(&self.cwd, path).map_err(OperationFailure::Rejected)?;
@@ -151,7 +151,7 @@ impl FileSystem for NodeExecutionEnv {
         &'a self,
         path: &'a JsString,
         content: FileContent<'a>,
-        abort: Option<&'a CancellationToken>,
+        abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<(), OperationFailure<FileError>>> {
         Box::pin(async move {
             let resolved = resolve_path(&self.cwd, path).map_err(OperationFailure::Rejected)?;
@@ -177,7 +177,7 @@ impl FileSystem for NodeExecutionEnv {
         &'a self,
         path: &'a JsString,
         content: FileContent<'a>,
-        _abort: Option<&'a CancellationToken>,
+        _abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<(), OperationFailure<FileError>>> {
         Box::pin(async move {
             let resolved = resolve_path(&self.cwd, path).map_err(OperationFailure::Rejected)?;
@@ -219,7 +219,7 @@ impl FileSystem for NodeExecutionEnv {
     fn list_dir<'a>(
         &'a self,
         path: &'a JsString,
-        abort: Option<&'a CancellationToken>,
+        abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<Vec<FileInfo>, OperationFailure<FileError>>> {
         Box::pin(async move {
             let resolved = resolve_path(&self.cwd, path).map_err(OperationFailure::Rejected)?;
@@ -271,7 +271,7 @@ impl FileSystem for NodeExecutionEnv {
     fn exists<'a>(
         &'a self,
         path: &'a JsString,
-        _abort: Option<&'a CancellationToken>,
+        _abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<bool, OperationFailure<FileError>>> {
         Box::pin(async move {
             match self.file_info(path).await {
@@ -361,7 +361,7 @@ impl NodeExecutionEnv {
         command: &JsString,
         options: ShellExecOptions,
     ) -> Result<ShellExecResult, OperationFailure<ExecutionError>> {
-        if options.abort.as_ref().is_some_and(CancellationToken::is_cancelled) {
+        if options.abort.as_ref().is_some_and(AbortSignal::aborted) {
             return Err(ExecutionError::new(ExecutionErrorCode::Aborted, "aborted", None).into());
         }
         let timeout_ms = resolve_timeout_ms(options.timeout)?;
@@ -482,7 +482,7 @@ async fn wait_for_exit(
     child: &mut tokio::process::Child,
     pid: Option<u32>,
     timeout_ms: Option<f64>,
-    abort: Option<CancellationToken>,
+    abort: Option<AbortSignal>,
     tasks: &mut StreamTasks,
 ) -> ExitWait {
     let deadline = timeout_ms.map(|millis| {
@@ -504,7 +504,7 @@ async fn wait_for_status(
     child: &mut tokio::process::Child,
     pid: Option<u32>,
     deadline: Option<tokio::time::Instant>,
-    abort: Option<&CancellationToken>,
+    abort: Option<&AbortSignal>,
     tasks: &mut StreamTasks,
     done: &mut [bool; 2],
     flags: &mut WaitFlags,
@@ -546,9 +546,11 @@ async fn sleep_until_deadline(deadline: Option<tokio::time::Instant>) {
     }
 }
 
-async fn cancel_on_abort(abort: Option<&CancellationToken>) {
+async fn cancel_on_abort(abort: Option<&AbortSignal>) {
     match abort {
-        Some(token) => token.cancelled().await,
+        Some(token) => {
+            token.wait().await;
+        }
         None => std::future::pending::<()>().await,
     }
 }
@@ -586,7 +588,7 @@ fn exec_outcome_to_result(
             None,
         ));
     }
-    let cancelled = options.abort.as_ref().is_some_and(CancellationToken::is_cancelled);
+    let cancelled = options.abort.as_ref().is_some_and(AbortSignal::aborted);
     if wait.aborted || cancelled {
         return Err(ExecutionError::new(ExecutionErrorCode::Aborted, "aborted", None));
     }
@@ -993,9 +995,7 @@ fn random_name_suffix() -> String {
     format!("{:06x}", (nanos as u64 ^ counter) & 0xff_ffff)
 }
 
-fn aborted_io_error(path: &JsString) -> FileError {
-    let reason =
-        NativeNodeError::new("AbortError", "This operation was aborted").with_property("code", JsValue::Number(20.0));
+fn aborted_io_error(path: &JsString, reason: AbortReason) -> FileError {
     let cause = NativeNodeError::new("AbortError", "The operation was aborted")
         .with_property("code", JsValue::String("ABORT_ERR".into()))
         .with_property("cause", reason.value());
@@ -1007,16 +1007,16 @@ fn aborted_io_error(path: &JsString) -> FileError {
     )
 }
 
-fn io_abort_result(abort: Option<&CancellationToken>, path: &JsString) -> Result<(), FileError> {
-    if abort.is_some_and(CancellationToken::is_cancelled) {
-        return Err(aborted_io_error(path));
+fn io_abort_result(abort: Option<&AbortSignal>, path: &JsString) -> Result<(), FileError> {
+    if let Some(reason) = abort.and_then(AbortSignal::reason) {
+        return Err(aborted_io_error(path, reason));
     }
     Ok(())
 }
 
-fn abort_result(abort: Option<&CancellationToken>, path: &JsString) -> Option<FileError> {
+fn abort_result(abort: Option<&AbortSignal>, path: &JsString) -> Option<FileError> {
     abort
-        .filter(|token| token.is_cancelled())
+        .filter(|token| token.aborted())
         .map(|_| FileError::new(FileErrorCode::Aborted, "aborted", Some(path.to_owned()), None))
 }
 

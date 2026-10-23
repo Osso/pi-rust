@@ -11,6 +11,7 @@ use pi_ai::types::{
     Context, ImageContent, Model, ProviderEnv, ProviderHeaders, TextContent, TextOrImageContent, UserContent,
     UserMessage, UserRole,
 };
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::node_fs::node_file_write_error_record;
 use pi_js_compat::{
@@ -18,7 +19,6 @@ use pi_js_compat::{
     js_json::{JsString, JsValue as Value, encode_node_utf8},
 };
 use serde_json::json as schema_json;
-use tokio_util::sync::CancellationToken;
 
 use crate::core::extensions::types::{ExtensionApi, ExtensionContext, HandlerError, ToolDefinition};
 use crate::core::model_registry::ResolvedRequestAuth;
@@ -34,7 +34,7 @@ pub struct ImageGenerationRequest {
     pub api_key: Option<JsString>,
     pub headers: Option<ProviderHeaders>,
     pub env: Option<ProviderEnv>,
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
 }
 
 pub type RunImageGeneration = Arc<
@@ -107,33 +107,30 @@ fn is_function_image_generation_tool(value: &Value) -> bool {
         && value.get("name").and_then(Value::as_string) == Some(&JsString::from("image_gen"))
 }
 
-fn combined_signal(
-    signal: Option<CancellationToken>,
-    timeout_ms: u64,
-) -> (CancellationToken, Vec<tokio::task::JoinHandle<()>>) {
-    let combined = CancellationToken::new();
+fn combined_signal(signal: Option<AbortSignal>, timeout_ms: u64) -> (AbortSignal, Vec<tokio::task::JoinHandle<()>>) {
+    let combined = pi_js_compat::abort::AbortController::new();
     let mut handles = Vec::new();
     if let Some(signal) = signal {
         let combined = combined.clone();
         handles.push(tokio::spawn(async move {
-            signal.cancelled().await;
-            combined.cancel();
+            signal.wait().await;
+            combined.abort(None);
         }));
     }
     {
         let combined = combined.clone();
         handles.push(tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(timeout_ms)).await;
-            combined.cancel();
+            combined.abort(None);
         }));
     }
-    (combined, handles)
+    (combined.signal(), handles)
 }
 
 async fn execute_image_generation(
     params: &Value,
     ctx: &ExtensionContext,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     run_generation: &RunImageGeneration,
     timeout_ms: u64,
 ) -> Result<ImageContent, HandlerError> {

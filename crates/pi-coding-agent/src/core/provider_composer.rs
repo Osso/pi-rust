@@ -30,9 +30,9 @@ use pi_ai::types::{
     ProviderEnv, ProviderHeaders, ThinkingLevelMap,
 };
 use pi_ai::utils::event_stream::AssistantMessageEventStream;
+use pi_js_compat::abort::AbortSignal;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use tokio_util::sync::CancellationToken;
 
 use crate::core::config_value::{
     clear_config_value_cache, get_config_value_env_var_names, is_command_config_value, is_config_value_configured,
@@ -205,9 +205,8 @@ pub type RefreshModelsFn =
 
 pub type ExtensionOAuthLoginFn =
     Arc<dyn Fn(Arc<dyn OAuthLoginCallbacks>) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> + Send + Sync>;
-pub type ExtensionOAuthRefreshFn = Arc<
-    dyn Fn(OAuthCredential, CancellationToken) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> + Send + Sync,
->;
+pub type ExtensionOAuthRefreshFn =
+    Arc<dyn Fn(OAuthCredential, AbortSignal) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> + Send + Sync>;
 pub type ModifyModelsFn = Arc<dyn Fn(Vec<Model>, &OAuthCredential) -> Vec<Model> + Send + Sync>;
 type ComposedRefreshFn =
     Arc<dyn Fn(RefreshModelsContext) -> BoxFuture<'static, Result<(), CallbackError>> + Send + Sync>;
@@ -984,7 +983,7 @@ impl OAuthAuth for ExtensionOAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         (self.config.refresh_token)(credential, signal)
     }
@@ -1079,7 +1078,7 @@ impl OAuthLoginCallbacks for InteractionOAuthCallbacks {
         })
     }
 
-    fn signal(&self) -> Option<CancellationToken> {
+    fn signal(&self) -> Option<AbortSignal> {
         Some(self.interaction.signal())
     }
 }
@@ -1111,7 +1110,7 @@ impl OAuthAuth for ComposedOAuthAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         self.oauth.refresh(credential, signal)
     }
@@ -1548,7 +1547,7 @@ fn compose_refresh_models(
                 Some(refresh) => Some(refresh(context.clone()).await?),
                 None => None,
             };
-            if context.signal.is_cancelled() {
+            if context.signal.aborted() {
                 return Ok(());
             }
             let oauth_credential = match &context.credential {

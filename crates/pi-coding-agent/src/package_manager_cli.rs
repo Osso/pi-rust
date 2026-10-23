@@ -14,7 +14,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::request::BoxFuture;
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 use pi_js_compat::js_json::JsString;
 
@@ -881,18 +881,18 @@ const MODEL_CATALOG_REFRESH_TIMEOUT_MS: u64 = 15_000;
 
 /// `refreshModelCatalogs`.
 pub async fn refresh_model_catalogs(agent_dir: &JsString) -> Result<(), JsString> {
-    let signal = CancellationToken::new();
-    let timeout_signal = signal.clone();
+    let timeout_signal = pi_js_compat::abort::AbortController::new();
+    let signal = timeout_signal.signal();
     let timer = tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(MODEL_CATALOG_REFRESH_TIMEOUT_MS)).await;
-        timeout_signal.cancel();
+        timeout_signal.abort(None);
     });
     let result = refresh_model_catalogs_inner(agent_dir, signal).await;
     timer.abort();
     result
 }
 
-async fn refresh_model_catalogs_inner(agent_dir: &JsString, signal: CancellationToken) -> Result<(), JsString> {
+async fn refresh_model_catalogs_inner(agent_dir: &JsString, signal: AbortSignal) -> Result<(), JsString> {
     let agent_dir_path = agent_dir;
     let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
         auth_path: Some(crate::utils::paths::node_join(agent_dir_path, "auth.json")),

@@ -8,7 +8,6 @@ use pi_agent_core::harness::{CreateDirOptions, FileContent, FileSystem, RemoveOp
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsString, JsValue, to_value};
 use std::sync::Arc;
-use tokio_util::sync::CancellationToken;
 
 fn oracle() -> oracle::TsOracle {
     oracle::TsOracle::spawn(
@@ -129,8 +128,9 @@ async fn node_concrete_ignores_extra_abort_arguments() {
     let reference = tempfile::tempdir().unwrap();
     let env = env(native.path().to_str().unwrap());
     let expected = oracle().request(&json!({"kind":"ignored-abort","root":reference.path()}));
-    let token = CancellationToken::new();
-    token.cancel();
+    let controller_token = pi_js_compat::abort::AbortController::new();
+    let token = controller_token.signal();
+    controller_token.abort(None);
     let path = JsString::from("nested/file");
     let content = JsString::from("a");
     env.append_file(&path, FileContent::Text(&content), Some(&token))
@@ -164,18 +164,19 @@ async fn post_exit_pipe_wait_keeps_timeout_abort_and_callback_live() {
     let mut oracle = oracle();
     for mode in ["timeout", "abort", "callback"] {
         let expected = oracle.request(&json!({"kind":"post-exit","root":root,"mode":mode}));
-        let abort = CancellationToken::new();
-        let signal = abort.clone();
+        let controller_abort = pi_js_compat::abort::AbortController::new();
+        let abort = controller_abort.signal();
+        let controller_signal = controller_abort.clone();
         let mode_string = mode.to_owned();
         let options = ShellExecOptions {
             timeout: (mode == "timeout").then_some(0.05),
             abort: (mode == "abort").then_some(abort),
             on_stdout: Some(Arc::new(move |chunk| {
                 if mode_string == "abort" && chunk.contains("early") {
-                    let signal = signal.clone();
+                    let controller_signal = controller_signal.clone();
                     tokio::spawn(async move {
                         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                        signal.cancel();
+                        controller_signal.abort(None);
                     });
                 }
                 if mode_string == "callback" && chunk.contains("late") {
@@ -556,7 +557,8 @@ async fn read_file_abort_after_io_started_matches_node() {
         let mut writer = std::fs::OpenOptions::new().read(true).write(true).open(path).unwrap();
         writer.write_all(b"prefix").unwrap();
         let native = env(root.path().to_str().unwrap());
-        let token = CancellationToken::new();
+        let controller_token = pi_js_compat::abort::AbortController::new();
+        let token = controller_token.signal();
         let signal = token.clone();
         let task = tokio::spawn(async move {
             if method == "readTextFile" {
@@ -572,7 +574,7 @@ async fn read_file_abort_after_io_started_matches_node() {
             }
         });
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
-        token.cancel();
+        controller_token.abort(None);
         drop(writer);
         let result = task.await.unwrap();
         let actual = match result {
@@ -604,14 +606,15 @@ async fn write_file_abort_after_blocked_open_preserves_frozen_written_bytes_and_
             .success()
     );
     let env = env(native.path().to_str().unwrap());
-    let token = CancellationToken::new();
+    let controller_token = pi_js_compat::abort::AbortController::new();
+    let token = controller_token.signal();
     let signal = token.clone();
     let task = tokio::spawn(async move {
         env.write_file(&"write.fifo".into(), FileContent::Text(&"hello".into()), Some(&signal))
             .await
     });
     tokio::time::sleep(std::time::Duration::from_millis(30)).await;
-    token.cancel();
+    controller_token.abort(None);
     let text = tokio::task::spawn_blocking(move || std::fs::read_to_string(path).unwrap())
         .await
         .unwrap();
@@ -1034,7 +1037,8 @@ async fn in_flight_abort_errors_preserve_nested_native_cause_records() {
                 .success()
         );
         let environment = env(native.path().to_str().unwrap());
-        let token = CancellationToken::new();
+        let controller_token = pi_js_compat::abort::AbortController::new();
+        let token = controller_token.signal();
         let signal = token.clone();
         let actual = if mode == "write" {
             let task = tokio::spawn(async move {
@@ -1043,7 +1047,7 @@ async fn in_flight_abort_errors_preserve_nested_native_cause_records() {
                     .await
             });
             tokio::time::sleep(std::time::Duration::from_millis(30)).await;
-            token.cancel();
+            controller_token.abort(None);
             let text = tokio::task::spawn_blocking(move || std::fs::read_to_string(path).unwrap())
                 .await
                 .unwrap();
@@ -1076,7 +1080,7 @@ async fn in_flight_abort_errors_preserve_nested_native_cause_records() {
                 }
             });
             tokio::time::sleep(std::time::Duration::from_millis(30)).await;
-            token.cancel();
+            controller_token.abort(None);
             if mode != "lines" {
                 drop(writer);
                 let error = operation::returned_error(task.await.unwrap().unwrap_err());

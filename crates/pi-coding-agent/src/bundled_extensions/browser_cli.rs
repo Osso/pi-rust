@@ -4,10 +4,10 @@ use std::sync::Arc;
 
 use pi_agent_core::agent::types::{AgentToolResult, AgentToolUpdateCallback};
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tokio_util::sync::CancellationToken;
 
 use crate::core::extensions::types::{BoxFuture, ExtensionApi, ExtensionContext, HandlerError, ToolDefinition};
 use crate::utils::child_process::node_spawn_error_message;
@@ -50,7 +50,7 @@ pub type BrowserCliCommandRunner = Arc<
     dyn Fn(
             String,
             Vec<JsString>,
-            Option<CancellationToken>,
+            Option<AbortSignal>,
         ) -> BoxFuture<'static, Result<BrowserCliCommandResult, HandlerError>>
         + Send
         + Sync,
@@ -93,7 +93,7 @@ pub fn create_browser_cli_tool_definition(options: BrowserCliExtensionOptions) -
         execute: Arc::new(
             move |_tool_call_id: String,
                   params: JsValue,
-                  signal: Option<CancellationToken>,
+                  signal: Option<AbortSignal>,
                   _on_update: Option<AgentToolUpdateCallback>,
                   _ctx: ExtensionContext| {
                 let run_command = Arc::clone(&run_command);
@@ -127,7 +127,7 @@ fn browser_cli_schema() -> serde_json::Value {
 async fn execute_browser_cli(
     run_command: BrowserCliCommandRunner,
     params: JsValue,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> Result<AgentToolResult, HandlerError> {
     let commands = parse_commands(&params)?;
     let executions = run_browser_cli_batch(run_command, commands, signal).await?;
@@ -177,7 +177,7 @@ fn parse_commands(params: &JsValue) -> Result<Vec<Vec<JsString>>, HandlerError> 
 async fn run_browser_cli_batch(
     run_command: BrowserCliCommandRunner,
     commands: Vec<Vec<JsString>>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> Result<Vec<BrowserCliCommandExecution>, HandlerError> {
     let mut results = Vec::new();
     for (index, args) in commands.into_iter().enumerate() {
@@ -202,26 +202,26 @@ async fn run_browser_cli_batch(
 
 async fn wait_for_abort<T>(
     future: BoxFuture<'static, Result<T, HandlerError>>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> Result<T, HandlerError> {
     let Some(token) = signal else {
         return future.await;
     };
-    if token.is_cancelled() {
+    if token.aborted() {
         return Err(create_abort_error());
     }
     tokio::select! {
         result = future => result,
-        () = token.cancelled() => Err(create_abort_error()),
+        _ = token.wait() => Err(create_abort_error()),
     }
 }
 
 async fn run_browser_cli_command(
     executable: String,
     args: Vec<JsString>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> Result<BrowserCliCommandResult, HandlerError> {
-    if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+    if signal.as_ref().is_some_and(AbortSignal::aborted) {
         return Err(create_abort_error());
     }
     let mut child = tokio::process::Command::new(&executable)
@@ -236,7 +236,7 @@ async fn run_browser_cli_command(
     let output = match signal {
         Some(token) => {
             tokio::select! {
-                () = token.cancelled() => {
+                _ = token.wait() => {
                     let _ = child.kill().await;
                     return Err(create_abort_error());
                 }

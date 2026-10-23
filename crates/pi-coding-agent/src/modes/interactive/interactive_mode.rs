@@ -2470,7 +2470,7 @@ enum AuthUiEvent {
 /// `AuthInteraction` backed by the mode's UI loop.
 struct InteractiveAuthInteraction {
     sender: std::sync::Mutex<std::sync::mpsc::Sender<AuthUiEvent>>,
-    signal: tokio_util::sync::CancellationToken,
+    signal: pi_js_compat::abort::AbortSignal,
 }
 
 impl InteractiveAuthInteraction {
@@ -2484,7 +2484,7 @@ impl InteractiveAuthInteraction {
 }
 
 impl AuthInteraction for InteractiveAuthInteraction {
-    fn signal(&self) -> tokio_util::sync::CancellationToken {
+    fn signal(&self) -> pi_js_compat::abort::AbortSignal {
         self.signal.clone()
     }
 
@@ -2496,7 +2496,7 @@ impl AuthInteraction for InteractiveAuthInteraction {
             let result = match prompt_signal {
                 Some(signal) => tokio::select! {
                     result = receiver => result,
-                    _ = signal.cancelled() => return Err(CallbackError::new("Login cancelled")),
+                    _ = signal.wait() => return Err(CallbackError::new("Login cancelled")),
                 },
                 None => receiver.await,
             };
@@ -8011,14 +8011,14 @@ impl InteractiveMode {
         let run = match run_gh_gist(gh_program, &JsString::from(&tmp_path), &pid).await {
             Ok(run) => run,
             Err(message) => {
-                if !signal.is_cancelled() {
+                if !signal.aborted() {
                     self.finish_share_loader(&loader, &JsString::from(&tmp_path));
                     self.show_error(&js_format!("Failed to create gist: {}", message));
                 }
                 return;
             }
         };
-        if signal.is_cancelled() {
+        if signal.aborted() {
             return;
         }
         self.finish_share_loader(&loader, &JsString::from(&tmp_path));
@@ -8160,11 +8160,11 @@ impl InteractiveMode {
         );
         let user_agent = crate::utils::pi_user_agent::get_pi_user_agent(&version.into());
         tokio::task::spawn_local(async move {
-            let abort = tokio_util::sync::CancellationToken::new();
+            let abort = pi_js_compat::abort::AbortController::new();
             let timeout = abort.clone();
             let timeout_task = tokio::task::spawn_local(async move {
                 tokio::time::sleep(Duration::from_secs(5)).await;
-                timeout.cancel();
+                timeout.abort(None);
             });
             let request = HttpRequest {
                 method: "GET".into(),
@@ -8172,7 +8172,7 @@ impl InteractiveMode {
                 headers: vec![("User-Agent".into(), encode_node_utf8(&user_agent))],
                 body: None,
             };
-            let _ = fetch.fetch(request, Some(abort)).await;
+            let _ = fetch.fetch(request, Some(abort.signal())).await;
             timeout_task.abort();
         });
     }
@@ -9635,7 +9635,7 @@ impl InteractiveMode {
         let runtime = self.session().model_runtime().clone();
         let provider_id = provider_id.to_owned();
         tokio::task::spawn_local(async move {
-            let abort = tokio_util::sync::CancellationToken::new();
+            let abort = pi_js_compat::abort::AbortController::new();
             let timed_out = Rc::new(Cell::new(false));
             let timeout_task = {
                 let abort = abort.clone();
@@ -9643,13 +9643,13 @@ impl InteractiveMode {
                 tokio::task::spawn_local(async move {
                     tokio::time::sleep(Duration::from_secs(15)).await;
                     timed_out.set(true);
-                    abort.cancel();
+                    abort.abort(None);
                 })
             };
             let result = runtime
                 .refresh(pi_ai::models::ModelsRefreshOptions {
                     providers: Some(vec![provider_id]),
-                    signal: Some(abort),
+                    signal: Some(abort.signal()),
                     ..Default::default()
                 })
                 .await;
@@ -12966,7 +12966,7 @@ mod ui_tests {
         fn fetch(
             &self,
             request: HttpRequest,
-            _signal: Option<tokio_util::sync::CancellationToken>,
+            _signal: Option<pi_js_compat::abort::AbortSignal>,
         ) -> pi_ai::request::BoxFuture<'_, Result<pi_ai::request::HttpResponse, CallbackError>> {
             self.requests.lock().expect("requests").push(request);
             Box::pin(async {

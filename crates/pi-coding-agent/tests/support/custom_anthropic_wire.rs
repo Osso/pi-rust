@@ -99,12 +99,12 @@ async fn compare_wire(key: &str, status: u16, body: String, truncated: bool) {
         expected["sdkVersion"], "0.91.1",
         "wire oracle must use installed SDK, not fake client"
     );
-    let provider = provider(&input, Arc::new(Mutex::new(vec![]))).await;
+    let (provider, _) = provider(&input, Arc::new(Mutex::new(vec![]))).await;
     let mut model = provider.get_models()[0].clone();
     model.base_url = JsString::from(server.url);
     let mut options = SimpleStreamOptions::default();
     options.stream.request.api_key = Some(key.into());
-    options.stream.request.signal = Some(CancellationToken::new());
+    options.stream.request.signal = Some(AbortSignal::default());
     options.stream.request.fetch = Some(pi_ai::http::default_fetch());
     options.reasoning = Some(pi_ai::types::ThinkingLevel::High);
     let mut stream = provider.stream_simple(

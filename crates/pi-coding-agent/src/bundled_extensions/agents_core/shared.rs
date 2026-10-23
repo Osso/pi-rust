@@ -170,7 +170,7 @@ pub struct ChildAgentDispatchInput {
     pub context: SpawnContext,
     pub ctx: ExtensionContext,
     pub prompt: pi_js_compat::js_json::JsString,
-    pub signal: Option<tokio_util::sync::CancellationToken>,
+    pub signal: Option<pi_js_compat::abort::AbortSignal>,
 }
 
 #[derive(Clone)]
@@ -179,7 +179,7 @@ pub struct AttachedSessionDispatchInput {
     pub agent: AgentSnapshot,
     pub ctx: ExtensionContext,
     pub prompt: pi_js_compat::js_json::JsString,
-    pub signal: Option<tokio_util::sync::CancellationToken>,
+    pub signal: Option<pi_js_compat::abort::AbortSignal>,
     pub session_path: JsString,
 }
 

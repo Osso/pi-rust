@@ -11,8 +11,8 @@ use std::time::SystemTime;
 
 use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
 use pi_coding_agent::utils::tools_manager::{ToolsManager, asset_name};
+use pi_js_compat::abort::AbortSignal;
 use serde_json::json;
-use tokio_util::sync::CancellationToken;
 
 struct StubBody(Vec<u8>);
 
@@ -42,7 +42,7 @@ impl Fetch for StubFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        _signal: Option<CancellationToken>,
+        _signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         self.requests.lock().unwrap().push(request);
         let (status, body) = self.responses.lock().unwrap().remove(0);

@@ -10,7 +10,7 @@
 use pi_js_compat::{js_format, js_json::JsString};
 use std::sync::Arc;
 
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 use crate::request::{CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
 use crate::types::{Model, ProviderHeaders};
@@ -141,9 +141,9 @@ impl HeaderSet {
 pub async fn execute(
     request: &SdkRequest,
     fetch: Arc<dyn Fetch>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> Result<HttpResponse, ProviderRequestError<CallbackError>> {
-    if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+    if signal.as_ref().is_some_and(AbortSignal::aborted) {
         return Err(ProviderRequestError::Abort(AbortError::new()));
     }
     let http_request = HttpRequest {
@@ -160,7 +160,7 @@ pub async fn execute(
     let response = match fetch.fetch(http_request, signal.clone()).await {
         Ok(response) => response,
         Err(_) => {
-            if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+            if signal.as_ref().is_some_and(AbortSignal::aborted) {
                 return Err(ProviderRequestError::Abort(AbortError::new()));
             }
             return Err(ProviderRequestError::Provider(ProviderError {

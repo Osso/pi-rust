@@ -16,7 +16,6 @@ use pi_coding_agent::bundled_extensions::browser_cli::{
 };
 use pi_js_compat::js_json as json;
 use support::{Harness, RecordingUi, calls_json};
-use tokio_util::sync::CancellationToken;
 
 fn oracle_for(module: &str) -> oracle::TsOracle {
     oracle::TsOracle::spawn("bundled-extensions-oracle.ts", module)
@@ -310,11 +309,12 @@ async fn browser_cli_matches_typescript() {
 
 #[tokio::test]
 async fn browser_cli_rejects_an_aborted_command() {
-    let token = CancellationToken::new();
+    let controller_token = pi_js_compat::abort::AbortController::new();
+    let token = controller_token.signal();
     let runner: BrowserCliCommandRunner = Arc::new(|_executable, _args, signal| {
         Box::pin(async move {
             if let Some(signal) = signal {
-                signal.cancelled().await;
+                signal.wait().await;
             }
             Ok(BrowserCliCommandResult {
                 stdout: "late".to_owned(),
@@ -347,7 +347,7 @@ async fn browser_cli_rejects_an_aborted_command() {
         }
     });
     tokio::task::yield_now().await;
-    token.cancel();
+    controller_token.abort(None);
     let error = execution.await.unwrap().unwrap_err();
     assert_eq!(error.message, "browser-cli command aborted");
 }

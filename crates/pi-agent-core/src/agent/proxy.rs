@@ -16,9 +16,9 @@ use pi_ai::utils::event_stream::{
     AssistantMessageEventSender, AssistantMessageEventStream, create_assistant_message_event_stream,
 };
 use pi_ai::utils::json_parse::parse_streaming_json;
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use serde::Deserialize;
-use tokio_util::sync::CancellationToken;
 
 /// Proxy event types: the server strips `partial` to reduce bandwidth.
 #[derive(Debug, Clone)]
@@ -170,7 +170,7 @@ pub struct ProxyStreamOptions {
     /// Serializable stream options forwarded to the proxy server.
     pub stream_options: SimpleStreamOptions,
     /// Local abort signal for the proxy request.
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
     /// Auth token for the proxy server.
     pub auth_token: JsString,
     /// Proxy server URL (for example `https://genai.example.com`).
@@ -218,7 +218,7 @@ async fn run_proxy(sender: AssistantMessageEventSender, model: Model, context: C
     match proxy_events(&sender, &model, &context, &options, &mut state).await {
         Ok(()) => sender.end(None),
         Err(message) => {
-            let reason = if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+            let reason = if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
                 StopReason::Aborted
             } else {
                 StopReason::Error
@@ -288,14 +288,14 @@ async fn proxy_events(
 
     let mut buffer: Vec<u8> = Vec::new();
     while let Some(chunk) = read_proxy_chunk(response.body.as_mut(), &options.signal).await {
-        if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+        if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
             return Err("Request aborted by user".into());
         }
         buffer.extend(chunk.map_err(|error| error.message)?);
         drain_lines(&mut buffer, sender, state)?;
     }
 
-    if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+    if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
         return Err("Request aborted by user".into());
     }
     Ok(())
@@ -303,14 +303,14 @@ async fn proxy_events(
 
 async fn read_proxy_chunk(
     body: &mut dyn HttpBody,
-    signal: &Option<CancellationToken>,
+    signal: &Option<AbortSignal>,
 ) -> Option<Result<Vec<u8>, CallbackError>> {
     let Some(signal) = signal else {
         return body.next_chunk().await;
     };
     tokio::select! {
         biased;
-        () = signal.cancelled() => Some(Err(CallbackError::new("Request aborted by user"))),
+        _ = signal.wait() => Some(Err(CallbackError::new("Request aborted by user"))),
         chunk = body.next_chunk() => chunk,
     }
 }

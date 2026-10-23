@@ -110,7 +110,7 @@ impl ExtensionUiContext for CaptureUi {
                 return Err(error.into());
             }
             if answer == "abort" {
-                signal.unwrap().cancelled().await;
+                signal.unwrap().wait().await;
                 return Ok(false);
             }
             Ok(answer.as_bool().unwrap())

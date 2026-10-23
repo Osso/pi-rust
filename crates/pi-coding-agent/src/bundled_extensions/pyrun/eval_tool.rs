@@ -4,11 +4,11 @@ use std::sync::Arc;
 
 use pi_agent_core::AgentToolResult;
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::{
     js_json as json,
     js_json::{self, JsObject as Map, JsString, JsValue as Value, encode_node_utf8},
 };
-use tokio_util::sync::CancellationToken;
 
 use crate::core::extensions::types::{BoxFuture, ExtensionContext, HandlerError};
 use crate::core::session_manager::lock_session_manager;
@@ -31,7 +31,7 @@ pub type PyrunPiRequestDispatcher = Arc<
     dyn Fn(
             PiRequest,
             ExtensionContext,
-            Option<CancellationToken>,
+            Option<AbortSignal>,
             Option<String>,
         ) -> BoxFuture<'static, Result<Option<Value>, HandlerError>>
         + Send
@@ -405,7 +405,7 @@ pub type PyrunEvaluator = Arc<
             PyrunEvalParams,
             ExtensionContext,
             Option<PyrunProgressUpdateCallback>,
-            Option<CancellationToken>,
+            Option<AbortSignal>,
             Option<String>,
         ) -> BoxFuture<'static, Result<AgentToolResult, HandlerError>>
         + Send

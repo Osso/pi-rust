@@ -85,9 +85,9 @@ async fn bordered_loader_keeps_raw_message_and_cancellation_contract() {
             },
         );
         assert!(loader.render(80).iter().any(|line| line.contains(&message)));
-        assert!(!loader.signal().is_cancelled());
+        assert!(!loader.signal().aborted());
         loader.handle_input(&"\u{1b}".into());
-        assert_eq!(loader.signal().is_cancelled(), cancellable);
+        assert_eq!(loader.signal().aborted(), cancellable);
         loader.dispose();
     }
 }

@@ -10,7 +10,7 @@ use pi_ai::auth::types::{
     CredentialType,
 };
 use pi_ai::request::BoxFuture;
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -73,7 +73,7 @@ impl CredentialStore for RuntimeCredentials {
     ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
         let provider_id = provider_id.to_owned();
         Box::pin(async move {
-            if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+            if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
                 return Err(AuthError::Aborted);
             }
             match self.override_for(&provider_id) {
@@ -89,7 +89,7 @@ impl CredentialStore for RuntimeCredentials {
     fn list(&self, options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<CredentialInfo>, AuthError>> {
         Box::pin(async move {
             let entries = self.store.list(options.clone()).await?;
-            if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+            if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
                 return Err(AuthError::Aborted);
             }
             let mut merged: Vec<CredentialInfo> = Vec::new();
@@ -128,7 +128,7 @@ impl CredentialStore for RuntimeCredentials {
     fn delete(&self, provider_id: &str, options: AuthOperationOptions) -> BoxFuture<'_, Result<(), AuthError>> {
         let provider_id = provider_id.to_owned();
         Box::pin(async move {
-            if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+            if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
                 return Err(AuthError::Aborted);
             }
             self.store.delete(&provider_id, options).await?;

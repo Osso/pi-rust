@@ -16,7 +16,6 @@ use pi_coding_agent::core::auth_storage::{
 };
 use pi_coding_agent::core::models_store::{FileModelsStore, InMemoryCodingAgentModelsStore};
 use serde_json::{Value, json};
-use tokio_util::sync::CancellationToken;
 
 fn temp_dir(name: &str) -> PathBuf {
     let unique = SystemTime::now()
@@ -216,7 +215,8 @@ fn cancels_a_catalog_write_waiting_for_a_held_file_lock() {
     )
     .unwrap();
     let store = FileModelsStore::new(Some(&JsString::from(&path.display().to_string())));
-    let signal = CancellationToken::new();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
 
     runtime().block_on(async {
         let holder = pi_coding_agent::utils::lockfile::acquire(
@@ -245,7 +245,7 @@ fn cancels_a_catalog_write_waiting_for_a_held_file_lock() {
             result = &mut pending => panic!("must not finish while the lock is held: {result:?}"),
             () = tokio::time::sleep(Duration::from_millis(50)) => {}
         }
-        signal.cancel();
+        controller_signal.abort(None);
         let error = pending.await.unwrap_err();
         assert_eq!(error.to_string(), "The operation was aborted");
         holder.release().unwrap();

@@ -8,9 +8,9 @@ use pi_coding_agent::core::tools::bash::{
     BashDetachOptions, BashDetachedResult, BashExecOptions, BashExecResult, BashOperations, BashTool, BashToolOptions,
     DetachedJobArtifacts, create_local_bash_operations,
 };
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
-use tokio_util::sync::CancellationToken;
 
 fn execute(tool: &BashTool, params: JsValue) -> Result<AgentToolResult, JsString> {
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
@@ -314,8 +314,9 @@ fn coalesces_streaming_updates() {
 #[test]
 fn abort_signal_reports_command_aborted() {
     let temp = tempfile::tempdir().expect("temp dir");
-    let token = CancellationToken::new();
-    token.cancel();
+    let controller_token = pi_js_compat::abort::AbortController::new();
+    let token = controller_token.signal();
+    controller_token.abort(None);
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let error = runtime
         .block_on(BashTool::new(temp.path().to_str().expect("utf-8 test path")).execute(
@@ -401,7 +402,7 @@ fn local_operations_remove_artifacts_when_not_detached() {
                 detach: Some(BashDetachOptions {
                     artifacts: Some(artifacts),
                     job_id: None,
-                    signal: CancellationToken::new(),
+                    signal: AbortSignal::default(),
                 }),
             },
         ))
@@ -425,8 +426,9 @@ fn local_operations_detach_uses_the_default_result() {
             .to_owned()
             .into(),
     };
-    let detach_signal = CancellationToken::new();
-    detach_signal.cancel();
+    let controller_detach_signal = pi_js_compat::abort::AbortController::new();
+    let detach_signal = controller_detach_signal.signal();
+    controller_detach_signal.abort(None);
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let result = runtime
         .block_on(create_local_bash_operations(None).exec(
@@ -466,8 +468,9 @@ fn detach_keeps_the_timeout_active() {
             .into(),
     };
     let marker = temp.path().join("alive.txt");
-    let detach_signal = CancellationToken::new();
-    detach_signal.cancel();
+    let controller_detach_signal = pi_js_compat::abort::AbortController::new();
+    let detach_signal = controller_detach_signal.signal();
+    controller_detach_signal.abort(None);
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let result = runtime
         .block_on(create_local_bash_operations(None).exec(

@@ -177,7 +177,7 @@ impl AgentTool for DefinitionTool {
     fn prepare_execution(
         &self,
         tool_call_id: String,
-        signal: Option<tokio_util::sync::CancellationToken>,
+        signal: Option<pi_js_compat::abort::AbortSignal>,
     ) -> BoxFuture<'static, Result<Option<pi_ai::types::ToolCallExecution>, ToolError>> {
         let Some(prepare) = self.definition.prepare_execution.clone() else {
             return Box::pin(async { Ok(None) });
@@ -194,7 +194,7 @@ impl AgentTool for DefinitionTool {
         &self,
         tool_call_id: String,
         params: JsValue,
-        signal: Option<tokio_util::sync::CancellationToken>,
+        signal: Option<pi_js_compat::abort::AbortSignal>,
         on_update: pi_agent_core::agent::AgentToolUpdateCallback,
         execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
@@ -286,7 +286,7 @@ impl AgentTool for CappedTool {
         &self,
         tool_call_id: String,
         params: JsValue,
-        signal: Option<tokio_util::sync::CancellationToken>,
+        signal: Option<pi_js_compat::abort::AbortSignal>,
         on_update: pi_agent_core::agent::AgentToolUpdateCallback,
         execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, pi_agent_core::agent::ToolError>> {

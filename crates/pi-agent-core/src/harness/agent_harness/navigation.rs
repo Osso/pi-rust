@@ -35,7 +35,7 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
                     preparation: preparation.clone(),
                     branch_entries,
                     custom_instructions: custom_instructions.clone(),
-                    signal: CancellationToken::new(),
+                    signal: AbortSignal::default(),
                 },
             )
             .await?;
@@ -141,7 +141,7 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
                 HarnessHookKind::SessionBeforeTree,
                 HarnessEvent::SessionBeforeTree {
                     preparation,
-                    signal: CancellationToken::new(),
+                    signal: AbortSignal::default(),
                 },
             )
             .await?;
@@ -159,7 +159,7 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
             .unwrap_or_default();
         if summary.as_ref().is_none_or(JsString::is_empty) && options.summarize && !collected.entries.is_empty() {
             let model = self.get_model();
-            let abort = CancellationToken::new();
+            let abort = AbortSignal::default();
             let instructions = hook.custom_instructions.or(options.custom_instructions);
             match compaction::generate_branch_summary(
                 &collected.entries,

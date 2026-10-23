@@ -23,7 +23,7 @@ use crate::core::session_control_db::{
     RuntimeMailboxStoreRef, enqueue_runtime_mailbox_message, list_runtime_mailbox_messages, read_session_metadata,
 };
 use crate::core::session_manager::lock_session_manager;
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 use super::runtime_utils::create_failed_mailbox_message;
 use super::shared::empty_agent;
@@ -936,7 +936,7 @@ pub fn register_mailbox_tools(
         execute: Arc::new(
             move |_tool_call_id: String,
                   params: Value,
-                  _signal: Option<CancellationToken>,
+                  _signal: Option<AbortSignal>,
                   _on_update: Option<AgentToolUpdateCallback>,
                   ctx: ExtensionContext| {
                 let store = Arc::clone(&send_store);
@@ -969,7 +969,7 @@ pub fn register_mailbox_tools(
         execute: Arc::new(
             move |_tool_call_id: String,
                   params: Value,
-                  _signal: Option<CancellationToken>,
+                  _signal: Option<AbortSignal>,
                   _on_update: Option<AgentToolUpdateCallback>,
                   ctx: ExtensionContext| {
                 let store = Arc::clone(&store);

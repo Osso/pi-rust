@@ -58,7 +58,7 @@ pub struct DurablePyrunEvaluationInput {
     pub pi_bridge_enabled: bool,
     pub tool_call_id: Option<JsString>,
     pub runner_options: PyrunRunnerOptions,
-    pub signal: Option<tokio_util::sync::CancellationToken>,
+    pub signal: Option<pi_js_compat::abort::AbortSignal>,
     pub store: Arc<MultiAgentStore>,
 }
 
@@ -983,7 +983,7 @@ async fn observe_detachable_pyrun_evaluation(
             match &input.signal {
                 Some(signal) if !cancel_applied => {
                     tokio::select! {
-                        () = signal.cancelled() => {
+                        _ = signal.wait() => {
                             cancel_applied = true;
                             cancel_pyrun_evaluation(&detach_state)?;
                         }

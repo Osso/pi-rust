@@ -372,7 +372,7 @@ async fn live_request_keeps_old_model_next_request_uses_effective_model_and_effo
     );
     assert!(!pending.is_finished(), "held request must remain in flight");
     assert!(
-        !first_signal.lock().unwrap().as_ref().unwrap().is_cancelled(),
+        !first_signal.lock().unwrap().as_ref().unwrap().aborted(),
         "setter cancelled held request"
     );
     assert_eq!(

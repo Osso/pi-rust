@@ -30,7 +30,7 @@ const MAIN_THREAD_AGENT_ID: &str = "main";
 
 #[derive(Clone)]
 pub struct OwnedAgentRuntime {
-    pub abort_controller: tokio_util::sync::CancellationToken,
+    pub abort_controller: pi_js_compat::abort::AbortController,
     pub coordinator: Arc<crate::core::lifecycle_coordinator::LifecycleCoordinator>,
     pub lifecycle: OwnedLifecycleCommandInput,
 }

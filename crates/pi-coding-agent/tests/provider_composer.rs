@@ -118,7 +118,7 @@ impl TestProvider {
             fn refresh(
                 &self,
                 credential: pi_ai::auth::types::OAuthCredential,
-                _signal: tokio_util::sync::CancellationToken,
+                _signal: pi_js_compat::abort::AbortSignal,
             ) -> BoxFuture<'static, Result<pi_ai::auth::types::OAuthCredential, AuthError>> {
                 Box::pin(async move { Ok(credential) })
             }
@@ -704,7 +704,7 @@ fn headers_map_helper_is_available_for_fixtures() {
 fn refresh_models_publishes_extension_results() {
     use pi_ai::models::{ModelsPublication, PublishFn};
     use pi_ai::models_store::ModelsStoreEntry;
-    use tokio_util::sync::CancellationToken;
+    use pi_js_compat::abort::AbortSignal;
 
     let dir = temp_dir("refresh");
     let path = write_models(&dir, json!({}));
@@ -756,7 +756,7 @@ fn refresh_models_publishes_extension_results() {
             publish,
             allow_network: false,
             force: None,
-            signal: CancellationToken::new(),
+            signal: AbortSignal::default(),
         });
         refresh.unwrap().await.unwrap();
     });

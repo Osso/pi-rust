@@ -850,7 +850,7 @@ async fn get_self_update_plan_reports_lookup_failures() {
         fn fetch(
             &self,
             _request: pi_ai::request::HttpRequest,
-            _signal: Option<tokio_util::sync::CancellationToken>,
+            _signal: Option<pi_js_compat::abort::AbortSignal>,
         ) -> BoxFuture<'_, Result<pi_ai::request::HttpResponse, pi_ai::request::CallbackError>> {
             Box::pin(async { Err(pi_ai::request::CallbackError::new("offline")) })
         }

@@ -4,12 +4,12 @@ use pi_ai::types::TextOrImageContent;
 use pi_coding_agent::core::tools::code_index::{
     CodeIndexCommandResult, CodeIndexOperations, CodeIndexToolOptions, OutlineTool,
 };
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, parse_lossless};
 use std::{
     io,
     sync::{Arc, Mutex},
 };
-use tokio_util::sync::CancellationToken;
 
 #[derive(Default)]
 struct RecordingOperations {
@@ -20,7 +20,7 @@ impl CodeIndexOperations for RecordingOperations {
         &'a self,
         args: &'a [JsString],
         cwd: &'a JsString,
-        _: Option<&'a CancellationToken>,
+        _: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, io::Result<CodeIndexCommandResult>> {
         Box::pin(async move {
             self.calls.lock().unwrap().push((args.to_vec(), cwd.clone()));

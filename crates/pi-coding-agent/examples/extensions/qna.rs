@@ -17,7 +17,6 @@ use pi_js_compat::js_json::JsValue;
 use pi_js_compat::js_json::JsValue as Value;
 use pi_tui::tui::Component;
 use std::{rc::Rc, sync::Arc};
-use tokio_util::sync::CancellationToken;
 
 const SYSTEM_PROMPT: &str = r#"You are a question extractor. Given text from a conversation, extract any questions that need answering and format them for the user to fill in.
 
@@ -76,10 +75,11 @@ pub fn qna_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 let result = ui
                     .custom(
                         Arc::new(move |context, done| {
-                            let signal = CancellationToken::new();
+                            let controller_signal = pi_js_compat::abort::AbortController::new();
+                            let signal = controller_signal.signal();
                             let loader = QnaLoader {
                                 message: format!("Extracting questions using {}...", model.id),
-                                signal: signal.clone(),
+                                controller: controller_signal.clone(),
                                 done: done.clone(),
                             };
                             let registry = registry.clone();
@@ -190,7 +190,7 @@ fn find_assistant_text(branch: &[SessionEntry]) -> AssistantText {
 }
 struct QnaLoader {
     message: String,
-    signal: CancellationToken,
+    controller: pi_js_compat::abort::AbortController,
     done: ExtensionUiDone,
 }
 impl QnaLoader {
@@ -200,10 +200,10 @@ impl QnaLoader {
     // in the factory; local reconstruction must not request a redraw loop.
     fn native_loader(&self) -> BorderedLoader {
         let mut loader = BorderedLoader::new(Rc::new(|| {}), &self.message, BorderedLoaderOptions::default());
-        let signal = self.signal.clone();
+        let controller_signal = self.controller.clone();
         let done = self.done.clone();
         loader.set_on_abort(Some(Rc::new(move || {
-            signal.cancel();
+            controller_signal.abort(None);
             done.call(Some(JsValue::from(Value::Null)));
         })));
         loader

@@ -18,10 +18,10 @@ use pi_coding_agent::core::event_bus::EventBusController;
 use pi_coding_agent::core::extensions::{
     ExtensionFactory, ExtensionRegistry, create_extension_runtime, load_extension_from_factory,
 };
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
-use tokio_util::sync::CancellationToken;
 
 struct Random;
 impl RandomSource for Random {
@@ -44,7 +44,8 @@ struct StreamBody {
     bytes: Option<Vec<u8>>,
     failure: Option<String>,
     abort: bool,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
+    controller: pi_js_compat::abort::AbortController,
 }
 impl HttpBody for StreamBody {
     fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
@@ -52,10 +53,8 @@ impl HttpBody for StreamBody {
             if let Some(bytes) = self.bytes.take() {
                 return Some(Ok(bytes));
             }
-            if self.abort
-                && let Some(signal) = &self.signal
-            {
-                signal.cancel();
+            if self.abort && self.signal.is_some() {
+                self.controller.abort(None);
             }
             self.failure.take().map(|error| Err(CallbackError::new(error)))
         })
@@ -64,12 +63,13 @@ impl HttpBody for StreamBody {
 struct Transport {
     input: Value,
     calls: Arc<Mutex<Vec<Value>>>,
+    controller: pi_js_compat::abort::AbortController,
 }
 impl Fetch for Transport {
     fn fetch(
         &self,
         request: HttpRequest,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         Box::pin(async move {
             self.calls.lock().unwrap().push(json!({"type":"fetch", "url":request.url, "method":request.method, "headers":request.headers.into_iter().map(|(k,v)|(k,Value::String(v))).collect::<serde_json::Map<String, Value>>(), "body":serde_json::from_slice::<Value>(&request.body.unwrap()).unwrap(), "signal":signal.is_some()}));
@@ -88,6 +88,7 @@ impl Fetch for Transport {
                     headers: vec![],
                     body: Box::new(StreamBody {
                         bytes: Some(body.into_bytes()),
+                        controller: self.controller.clone(),
                         failure: self.input.get("streamError").map(|value| {
                             if self.input["thrownValue"] == true {
                                 value.to_string()
@@ -128,8 +129,8 @@ struct Interaction {
     calls: Arc<Mutex<Vec<Value>>>,
 }
 impl AuthInteraction for Interaction {
-    fn signal(&self) -> CancellationToken {
-        CancellationToken::new()
+    fn signal(&self) -> AbortSignal {
+        AbortSignal::default()
     }
     fn notify(&self, event: AuthEvent) {
         if let AuthEvent::AuthUrl { url, instructions } = event {
@@ -160,10 +161,15 @@ impl AuthInteraction for Interaction {
         })
     }
 }
-async fn provider(input: &Value, calls: Arc<Mutex<Vec<Value>>>) -> Arc<dyn Provider> {
+async fn provider(
+    input: &Value,
+    calls: Arc<Mutex<Vec<Value>>>,
+) -> (Arc<dyn Provider>, pi_js_compat::abort::AbortController) {
+    let controller = pi_js_compat::abort::AbortController::new();
     let transport = Arc::new(Transport {
         input: input.clone(),
         calls,
+        controller: controller.clone(),
     });
     let runtime = OAuthRuntime::new(transport, Arc::new(|| 1700000000000.0), Arc::new(Random));
     let factory: ExtensionFactory = Arc::new(move |api| {
@@ -197,11 +203,12 @@ async fn provider(input: &Value, calls: Arc<Mutex<Vec<Value>>>) -> Arc<dyn Provi
     .await
     .unwrap();
     assert!(extension_runtime.pending_native_provider_registrations().is_empty());
-    registered
+    let provider = registered
         .lock()
         .unwrap()
         .clone()
-        .expect("factory must register one native provider through runtime handler")
+        .expect("factory must register one native provider through runtime handler");
+    (provider, controller)
 }
 
 #[tokio::test]
@@ -263,7 +270,7 @@ async fn native_factory_oauth_matches_pinned_login_refresh_and_failures() {
     ] {
         let expected = oracle.request(&input);
         let calls = Arc::new(Mutex::new(vec![]));
-        let provider = provider(&input, calls.clone()).await;
+        let (provider, _) = provider(&input, calls.clone()).await;
         let oauth = provider.auth().oauth.as_ref().unwrap();
         let result = if input["kind"] == "login" {
             oauth
@@ -276,7 +283,7 @@ async fn native_factory_oauth_matches_pinned_login_refresh_and_failures() {
             oauth
                 .refresh(
                     OAuthCredential::new("FAKE-refresh", "FAKE-old", 0.0),
-                    CancellationToken::new(),
+                    AbortSignal::default(),
                 )
                 .await
         };
@@ -299,10 +306,10 @@ async fn native_provider_stream_reaches_controlled_http_with_exact_example_reque
     );
     let expected = oracle.request(&input);
     let calls = Arc::new(Mutex::new(vec![]));
-    let provider = provider(&input, calls.clone()).await;
+    let (provider, _) = provider(&input, calls.clone()).await;
     let mut options = pi_ai::request::SimpleStreamOptions::default();
     options.stream.request.api_key = Some("FAKE-key".into());
-    options.stream.request.signal = Some(CancellationToken::new());
+    options.stream.request.signal = Some(AbortSignal::default());
     options.reasoning = Some(pi_ai::types::ThinkingLevel::High);
     let mut stream = provider.stream_simple(
         provider.get_models()[0].clone(),

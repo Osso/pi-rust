@@ -14,9 +14,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use indexmap::IndexMap;
+use pi_js_compat::abort::{AbortController, AbortSignal};
 use serde_json::{Map, Value, json};
 use tokio::task::JoinHandle;
-use tokio_util::sync::CancellationToken;
 use url::Url;
 
 use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
@@ -244,12 +244,7 @@ fn required_api_key<'a>(model: &Model, options: &'a StreamOptions) -> Result<&'a
 }
 
 fn user_aborted(options: &MistralOptions) -> bool {
-    options
-        .stream
-        .request
-        .signal
-        .as_ref()
-        .is_some_and(CancellationToken::is_cancelled)
+    options.stream.request.signal.as_ref().is_some_and(AbortSignal::aborted)
 }
 
 fn done_reason(reason: StopReason) -> Option<DoneReason> {
@@ -458,7 +453,7 @@ async fn request_mistral_stream(
         )
         .await
         .map_err(|error| {
-            if user_aborted(options) || signal.is_cancelled() {
+            if user_aborted(options) || signal.aborted() {
                 MistralError::message(format!(
                     "Request aborted by client: AbortError: {}",
                     signal.error_message()
@@ -961,11 +956,11 @@ async fn consume_chat_stream(
     let mut sentinel = false;
 
     while !finished {
-        if signal.is_cancelled() {
+        if signal.aborted() {
             return Err(MistralError::message(signal.error_message()));
         }
         let chunk = tokio::select! {
-            () = signal.token.cancelled() => {
+            _ = signal.token.wait() => {
                 return Err(MistralError::message(signal.error_message()));
             }
             chunk = body.next_chunk() => chunk,
@@ -973,7 +968,7 @@ async fn consume_chat_stream(
         match chunk {
             Some(Ok(bytes)) => buffer.push_str(&decoder.push(&bytes, false)),
             Some(Err(error)) => {
-                return Err(MistralError::message(if signal.is_cancelled() {
+                return Err(MistralError::message(if signal.aborted() {
                     signal.error_message().into()
                 } else {
                     error.message
@@ -1629,11 +1624,11 @@ async fn read_response_text(
     let mut decoder = Utf8StreamDecoder::new();
     let mut text = String::new();
     loop {
-        if signal.is_cancelled() {
+        if signal.aborted() {
             return Err(MistralError::message(signal.error_message()));
         }
         let chunk = tokio::select! {
-            () = signal.token.cancelled() => {
+            _ = signal.token.wait() => {
                 return Err(MistralError::message(signal.error_message()));
             }
             chunk = body.next_chunk() => chunk,
@@ -1641,7 +1636,7 @@ async fn read_response_text(
         match chunk {
             Some(Ok(bytes)) => text.push_str(&decoder.push(&bytes, false)),
             Some(Err(error)) => {
-                return Err(MistralError::message(if signal.is_cancelled() {
+                return Err(MistralError::message(if signal.aborted() {
                     signal.error_message().into()
                 } else {
                     error.message
@@ -1657,7 +1652,7 @@ async fn read_response_text(
 
 /// Combined request signal: user abort, timeout, or neither.
 struct RequestSignal {
-    token: CancellationToken,
+    token: AbortSignal,
     reason: Arc<AtomicU8>,
     watcher: Option<JoinHandle<()>>,
 }
@@ -1666,10 +1661,11 @@ impl RequestSignal {
     const USER: u8 = 1;
     const TIMEOUT: u8 = 2;
 
-    fn start(user: Option<CancellationToken>, timeout_ms: f64) -> Self {
-        let token = CancellationToken::new();
+    fn start(user: Option<AbortSignal>, timeout_ms: f64) -> Self {
+        let controller = AbortController::new();
+        let token = controller.signal();
         let reason = Arc::new(AtomicU8::new(0));
-        let watcher = spawn_signal_watcher(token.clone(), Arc::clone(&reason), user, timeout_ms);
+        let watcher = spawn_signal_watcher(controller, Arc::clone(&reason), user, timeout_ms);
         Self {
             token,
             reason,
@@ -1677,8 +1673,8 @@ impl RequestSignal {
         }
     }
 
-    fn is_cancelled(&self) -> bool {
-        self.token.is_cancelled()
+    fn aborted(&self) -> bool {
+        self.token.aborted()
     }
 
     fn error_message(&self) -> String {
@@ -1698,9 +1694,9 @@ impl Drop for RequestSignal {
 }
 
 fn spawn_signal_watcher(
-    token: CancellationToken,
+    token: AbortController,
     reason: Arc<AtomicU8>,
-    user: Option<CancellationToken>,
+    user: Option<AbortSignal>,
     timeout_ms: f64,
 ) -> JoinHandle<()> {
     let timeout = Duration::from_millis(timeout_ms.max(0.0) as u64);
@@ -1710,13 +1706,13 @@ fn spawn_signal_watcher(
         match user {
             Some(user) => {
                 tokio::select! {
-                    () = user.cancelled() => {
+                    _ = user.wait() => {
                         reason.compare_exchange(0, RequestSignal::USER, Ordering::SeqCst, Ordering::SeqCst).ok();
-                        token.cancel();
+                        token.abort(None);
                     }
                     () = &mut timeout => {
                         reason.compare_exchange(0, RequestSignal::TIMEOUT, Ordering::SeqCst, Ordering::SeqCst).ok();
-                        token.cancel();
+                        token.abort(None);
                     }
                 }
             }
@@ -1725,7 +1721,7 @@ fn spawn_signal_watcher(
                 reason
                     .compare_exchange(0, RequestSignal::TIMEOUT, Ordering::SeqCst, Ordering::SeqCst)
                     .ok();
-                token.cancel();
+                token.abort(None);
             }
         }
     })

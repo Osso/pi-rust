@@ -2,7 +2,6 @@ use pi_js_compat::js_json::JsString;
 use std::time::{Duration, Instant};
 
 use pi_coding_agent::core::exec::{ExecOptions, exec_command};
-use tokio_util::sync::CancellationToken;
 
 fn cwd() -> pi_js_compat::js_json::JsString {
     std::env::temp_dir().to_string_lossy().as_ref().into()
@@ -74,8 +73,9 @@ async fn times_out_and_terminates_the_process() {
 
 #[tokio::test]
 async fn terminates_immediately_when_the_signal_is_already_aborted() {
-    let signal = CancellationToken::new();
-    signal.cancel();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
+    controller_signal.abort(None);
     let started = Instant::now();
     let result = exec_command(
         "sh",
@@ -93,11 +93,12 @@ async fn terminates_immediately_when_the_signal_is_already_aborted() {
 
 #[tokio::test]
 async fn terminates_when_the_signal_aborts_during_the_run() {
-    let signal = CancellationToken::new();
-    let canceller = signal.clone();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
+    let controller_canceller = controller_signal.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(50)).await;
-        canceller.cancel();
+        controller_canceller.abort(None);
     });
     let result = exec_command(
         "sh",

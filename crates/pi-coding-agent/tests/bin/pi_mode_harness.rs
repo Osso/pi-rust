@@ -27,10 +27,10 @@ use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::core::tools::result::terminating_text_result;
 use pi_coding_agent::modes::print_mode::{PrintMode, PrintModeOptions, run_print_mode};
 use pi_coding_agent::modes::rpc::rpc_mode::run_rpc_mode;
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8, parse_lossless};
 use pi_js_compat::{js_format, js_json};
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
 
 /// `createEndTurnToolDefinition()` as an `AgentTool`, matching the source tool.
 #[derive(Debug, Clone, Copy, Default)]
@@ -61,7 +61,7 @@ impl AgentTool for EndTurnAgentTool {
         &self,
         _tool_call_id: String,
         params: JsValue,
-        _signal: Option<CancellationToken>,
+        _signal: Option<AbortSignal>,
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> pi_ai::request::BoxFuture<'static, Result<AgentToolResult, ToolError>> {

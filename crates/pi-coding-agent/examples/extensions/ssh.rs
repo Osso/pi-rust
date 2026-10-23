@@ -181,7 +181,7 @@ fn finish_remote_bash(
     if options
         .signal
         .as_ref()
-        .is_some_and(tokio_util::sync::CancellationToken::is_cancelled)
+        .is_some_and(pi_js_compat::abort::AbortSignal::aborted)
     {
         return Err(ToolError::new("aborted"));
     }
@@ -199,13 +199,13 @@ fn finish_remote_bash(
 
 async fn wait_for_remote(
     child: &mut tokio::process::Child,
-    signal: Option<tokio_util::sync::CancellationToken>,
+    signal: Option<pi_js_compat::abort::AbortSignal>,
     timeout: Option<f64>,
 ) -> io::Result<(std::process::ExitStatus, bool)> {
-    let signal = signal.filter(|signal| !signal.is_cancelled());
+    let signal = signal.filter(|signal| !signal.aborted());
     let aborted = async {
         match signal {
-            Some(signal) => signal.cancelled().await,
+            Some(signal) => signal.wait().await,
             None => std::future::pending().await,
         }
     };
@@ -221,8 +221,8 @@ async fn wait_for_remote(
     let mut timed_out = false;
     let status = tokio::select! {
         status = child.wait() => status,
-        () = aborted => { terminate(child)?; child.wait().await },
-        () = timer => { timed_out = true; terminate(child)?; child.wait().await },
+        _ = aborted => { terminate(child)?; child.wait().await },
+        _ = timer => { timed_out = true; terminate(child)?; child.wait().await },
     }?;
     Ok((status, timed_out))
 }

@@ -8,8 +8,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use pi_agent_core::agent::ToolError;
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
-use tokio_util::sync::CancellationToken;
 
 use crate::core::tools::bash::{BashExecOptions, BashOperations};
 use crate::core::tools::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, truncate_tail};
@@ -25,7 +25,7 @@ pub struct BashExecutorOptions {
     /// Callback for streaming output chunks (already sanitized).
     pub on_chunk: Option<BashChunkCallback>,
     /// Cancellation token mapped from `AbortSignal`.
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
 }
 
 /// `BashResult`.
@@ -69,11 +69,11 @@ pub async fn execute_bash_with_operations(
             },
         )
         .await;
-    let cancelled = options.signal.as_ref().is_some_and(CancellationToken::is_cancelled);
+    let cancelled = options.signal.as_ref().is_some_and(AbortSignal::aborted);
     match result {
         Ok(result) => Ok(collector.finish(cancelled, result.exit_code)),
         Err(error) => {
-            if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+            if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
                 return Ok(collector.finish(true, None));
             }
             Err(error)

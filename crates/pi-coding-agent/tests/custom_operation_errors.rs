@@ -211,7 +211,7 @@ struct RejectingOperations {
     stage: &'static str,
     message: &'static str,
     abort: &'static str,
-    signal: tokio_util::sync::CancellationToken,
+    signal: pi_js_compat::abort::AbortController,
 }
 impl RejectingOperations {
     async fn reject<T>(&self, stage: &str, value: T) -> io::Result<T> {
@@ -219,11 +219,11 @@ impl RejectingOperations {
             return Ok(value);
         }
         if self.abort == "pending" {
-            self.signal.cancel();
+            self.signal.abort(None);
             return std::future::pending().await;
         }
         if self.abort == "reject" {
-            self.signal.cancel();
+            self.signal.abort(None);
         }
         Err(io::Error::other(self.message))
     }
@@ -262,15 +262,16 @@ async fn compare_rejection(tool_name: &str, stage: &'static str, abort: &'static
         "custom-operation-errors-oracle.ts",
         "packages/coding-agent/src/core/tools/read.ts",
     );
-    let signal = tokio_util::sync::CancellationToken::new();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
     if abort == "before" {
-        signal.cancel();
+        controller_signal.abort(None);
     }
     let ops = Arc::new(RejectingOperations {
         stage,
         message,
         abort,
-        signal: signal.clone(),
+        signal: controller_signal.clone(),
     });
     let tool: Box<dyn AgentTool> = if tool_name == "ls" {
         Box::new(LsTool::with_options(

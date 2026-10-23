@@ -17,7 +17,6 @@ use pi_coding_agent::core::auth_storage::{
     LockOperation, ReadOnlyAuthStorage, StorageError, read_stored_credential,
 };
 use serde_json::{Map, Value, json};
-use tokio_util::sync::CancellationToken;
 
 /// `AuthStorage` shares one process-wide read state per path, like the TypeScript module; tests
 /// that create stores therefore run one at a time.
@@ -420,8 +419,9 @@ fn pre_aborted_operations_do_not_create_the_file_or_run_the_mutation() {
     let dir = temp_dir("pre-aborted");
     let auth_path = dir.join("auth.json");
     let backend = FileAuthStorageBackend::new(&JsString::from(&auth_path.display().to_string()));
-    let signal = CancellationToken::new();
-    signal.cancel();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
+    controller_signal.abort(None);
     let ran = Arc::new(AtomicUsize::new(0));
     let counter = Arc::clone(&ran);
 
@@ -449,7 +449,8 @@ fn aborts_while_waiting_for_a_held_file_lock_without_running_the_mutation() {
     let auth_path = dir.join("auth.json");
     write_auth(&auth_path, json!({"anthropic": {"type": "api_key", "key": "stored"}}));
     let backend = FileAuthStorageBackend::new(&JsString::from(&auth_path.display().to_string()));
-    let signal = CancellationToken::new();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
     let ran = Arc::new(AtomicUsize::new(0));
     let counter = Arc::clone(&ran);
 
@@ -470,7 +471,7 @@ fn aborts_while_waiting_for_a_held_file_lock_without_running_the_mutation() {
             result = &mut pending => panic!("must not finish while the lock is held: {result:?}"),
             () = tokio::time::sleep(Duration::from_millis(50)) => {}
         }
-        signal.cancel();
+        controller_signal.abort(None);
         let error = pending.await.unwrap_err();
         assert!(error.is_aborted(), "error: {error:?}");
         holder.release().unwrap();
@@ -607,8 +608,9 @@ fn in_memory_backend_rejects_aborted_operations() {
     let _guard = serial();
     let backend = InMemoryAuthStorageBackend::new();
     backend.set_value(Some("{}".to_owned()));
-    let signal = CancellationToken::new();
-    signal.cancel();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
+    controller_signal.abort(None);
     let error = runtime()
         .block_on(backend.with_lock_async(
             Box::new(|_current| Box::pin(async { Ok(None) })),

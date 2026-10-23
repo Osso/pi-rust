@@ -13,9 +13,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use pi_agent_core::agent::ToolError;
+use pi_js_compat::abort::AbortSignal;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
-use tokio_util::sync::CancellationToken;
 
 use crate::core::permissions::presets::SandboxProfileName;
 use crate::core::tools::bash::{
@@ -190,7 +190,7 @@ impl BashOperations for SandboxedBashOperations {
         let bwrap_command = self.bwrap_command.clone();
         let shell_path = self.shell_path.clone().unwrap_or_else(|| "/bin/sh".into());
         Box::pin(async move {
-            if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+            if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
                 return Err(ToolError::new("aborted"));
             }
             run_bwrap_availability_check(&bwrap_command).map_err(ToolError::new)?;
@@ -268,7 +268,7 @@ async fn execute_bwrap_command(
                     }
                     _ = async {
                         match signal {
-                            Some(signal) => signal.cancelled().await,
+                            Some(signal) => { signal.wait().await; },
                             None => std::future::pending::<()>().await,
                         }
                     } => {
@@ -281,7 +281,7 @@ async fn execute_bwrap_command(
                 status = &mut wait => status,
                 _ = async {
                     match signal {
-                        Some(signal) => signal.cancelled().await,
+                        Some(signal) => { signal.wait().await; },
                         None => std::future::pending::<()>().await,
                     }
                 } => {
@@ -293,7 +293,7 @@ async fn execute_bwrap_command(
     };
     let _ = stdout_task.await;
     let _ = stderr_task.await;
-    if options.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+    if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
         return Err(ToolError::new("aborted"));
     }
     if timed_out {

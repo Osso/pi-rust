@@ -30,7 +30,7 @@ One shared native signal carrier matches Node AbortController/AbortSignal and th
 
 ## Known gaps (current cycle)
 
-- [ ] Migrate production consumers off tokio_util CancellationToken; no compatibility aliases or token fallback.
+- [x] Migrate production consumers off tokio_util CancellationToken; no compatibility aliases or token fallback.
 - [ ] Propagate supplied reasons through Node IO nested causes and coding/provider consumers.
 
 ## Out of scope

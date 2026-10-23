@@ -3,7 +3,7 @@
 use pi_js_compat::{js_format, js_json::JsString};
 use std::sync::Arc;
 
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 use crate::auth::{
     ApiKeyAuth, ApiKeyCredential, ApiKeyResolveInput, AuthContext, AuthError, AuthInteraction, AuthPrompt,
@@ -33,7 +33,7 @@ async fn resolve_value(
     name: &str,
     ctx: &Arc<dyn AuthContext>,
     credential: Option<&ApiKeyCredential>,
-    signal: &CancellationToken,
+    signal: &AbortSignal,
 ) -> Result<Option<JsString>, AuthError> {
     let from_credential = credential.and_then(|credential| {
         if name == CLOUDFLARE_API_KEY {
@@ -55,7 +55,7 @@ async fn resolve_cloudflare_env(
     kind: CloudflareAuthKind,
     ctx: &Arc<dyn AuthContext>,
     credential: Option<&ApiKeyCredential>,
-    signal: &CancellationToken,
+    signal: &AbortSignal,
 ) -> Result<Option<ResolvedCloudflareEnv>, AuthError> {
     let api_key = resolve_value(CLOUDFLARE_API_KEY, ctx, credential, signal).await?;
     let account_id = resolve_value(CLOUDFLARE_ACCOUNT_ID, ctx, credential, signal).await?;
@@ -85,8 +85,8 @@ async fn resolve_cloudflare_env(
     }))
 }
 
-fn check_aborted(signal: &CancellationToken) -> Result<(), AuthError> {
-    if signal.is_cancelled() {
+fn check_aborted(signal: &AbortSignal) -> Result<(), AuthError> {
+    if signal.aborted() {
         Err(AuthError::Aborted)
     } else {
         Ok(())

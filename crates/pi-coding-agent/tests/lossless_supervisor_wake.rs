@@ -14,7 +14,8 @@ async fn wake_socket_retains_raw_path_until_bind_and_connect() {
     server.start().await.unwrap();
     let observed = server.current_generation();
     notify_supervisor_request(&path);
-    let signal = tokio_util::sync::CancellationToken::new();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
     tokio::time::timeout(
         std::time::Duration::from_secs(2),
         server.wait_for_wake_after(observed, &signal),

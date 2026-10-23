@@ -27,7 +27,6 @@ use pi_coding_agent::supervisor::request_wake::SupervisorRequestWakeServer;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsObject as Map;
 use pi_js_compat::js_json::JsValue as Value;
-use tokio_util::sync::CancellationToken;
 
 const SOURCE_MODULE: &str = "packages/coding-agent/src/supervisor/main.ts";
 
@@ -158,10 +157,11 @@ async fn run_rust(dir: &str) -> Value {
         .expect("session")
         .session,
     );
-    let signal = CancellationToken::new();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
     let wake_server = Arc::new(SupervisorRequestWakeServer::new(&JsString::from(&control_db_path)));
     wake_server.start().await.expect("wake server");
-    let process_signal = signal.clone();
+    let controller_process_signal = controller_signal.clone();
     run_supervisor_request_loop(RunSupervisorRequestLoopInput {
         claim_token: "claim-token".to_owned().into(),
         console_prompts: Arc::new(Mutex::new(SupervisorConsolePromptQueue::new())),
@@ -171,10 +171,10 @@ async fn run_rust(dir: &str) -> Value {
         wake_server: Arc::clone(&wake_server),
         claim_next_request: None,
         process_request: Some(Arc::new(move |db_path, request, session| {
-            let process_signal = process_signal.clone();
+            let controller_process_signal = controller_process_signal.clone();
             Box::pin(async move {
                 process_supervisor_request(&db_path, request, session).await;
-                process_signal.cancel();
+                controller_process_signal.abort(None);
             })
         })),
     })

@@ -4,9 +4,9 @@ use indexmap::IndexMap;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
-use tokio_util::sync::CancellationToken;
 
 use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, truncate_tail};
 use crate::harness::types::{
@@ -21,7 +21,7 @@ pub struct ShellCaptureOptions {
     pub cwd: Option<JsString>,
     pub env: Option<IndexMap<String, JsString>>,
     pub timeout: Option<f64>,
-    pub abort: Option<CancellationToken>,
+    pub abort: Option<AbortSignal>,
     pub on_chunk: Option<Arc<ShellChunkHandler>>,
 }
 
@@ -115,7 +115,7 @@ pub async fn execute_shell_with_capture(
     if let Some(error) = capture_error {
         return Err(error);
     }
-    let aborted = options.abort.as_ref().is_some_and(CancellationToken::is_cancelled);
+    let aborted = options.abort.as_ref().is_some_and(AbortSignal::aborted);
     match result {
         Ok(result) => Ok(ShellCaptureResult {
             output,
@@ -201,7 +201,7 @@ fn finalize_capture(
 async fn write_full_output(
     env: Arc<dyn ExecutionEnv>,
     mut receiver: UnboundedReceiver<WriteOperation>,
-    abort: Option<CancellationToken>,
+    abort: Option<AbortSignal>,
 ) -> Result<Option<JsString>, ExecutionError> {
     let mut path = None;
     while let Some(operation) = receiver.recv().await {

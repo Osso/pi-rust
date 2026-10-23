@@ -1,7 +1,7 @@
 //! Port of `packages/ai/src/compat/extension-oauth-types.ts`.
 
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::JsString;
-use tokio_util::sync::CancellationToken;
 
 use crate::request::{BoxFuture, CallbackError};
 
@@ -51,7 +51,7 @@ pub trait OAuthLoginCallbacks: Send + Sync {
         None
     }
     fn on_select(&self, prompt: OAuthSelectPrompt) -> BoxFuture<'_, Result<Option<JsString>, CallbackError>>;
-    fn signal(&self) -> Option<CancellationToken> {
+    fn signal(&self) -> Option<AbortSignal> {
         None
     }
 }

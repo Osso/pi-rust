@@ -145,7 +145,7 @@ fn login_lifecycle_probe() {
                 }
             }
             let frames: Vec<Vec<u16>> = dialog.render(50).iter().map(|line| line.units().to_vec()).collect();
-            states.push(json!({"frames":frames,"answers":answers,"cancelled":dialog.signal().is_cancelled(),"focused":dialog.focused()}));
+            states.push(json!({"frames":frames,"answers":answers,"cancelled":dialog.signal().aborted(),"focused":dialog.focused()}));
         }
         all_actual.push(json!({"states":states,"events":*events.borrow()}));
         all_expected.push(expected["output"].clone());

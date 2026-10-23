@@ -1,7 +1,7 @@
 //! Port of `packages/ai/src/auth/oauth/xai.ts`.
 
+use pi_js_compat::abort::AbortSignal;
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
 
 use crate::auth::oauth::device_code::{
     OAuthDeviceCodeError, OAuthDeviceCodePollOptions, OAuthDeviceCodePollResult, poll_oauth_device_code_flow,
@@ -61,7 +61,7 @@ impl OAuthAuth for XaiOAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let runtime = self.runtime.clone();
         Box::pin(async move {
@@ -121,16 +121,16 @@ async fn post_form(
     runtime: &OAuthRuntime,
     url: &str,
     fields: &[(&str, &str)],
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<OAuthHttpResponse, CallbackError> {
     let request = form_request(url, form_encode(fields), true);
     let response = match send(&runtime.fetch, request, Some(signal.clone())).await {
         Ok(response) => response,
-        Err(_error) if signal.is_cancelled() => return Err(CallbackError::new("Login cancelled")),
+        Err(_error) if signal.aborted() => return Err(CallbackError::new("Login cancelled")),
         Err(error) => return Err(error),
     };
     if response.json.is_none() {
-        if signal.is_cancelled() {
+        if signal.aborted() {
             return Err(CallbackError::new("Login cancelled"));
         }
         return Err(CallbackError::new(format!(
@@ -202,10 +202,7 @@ fn credentials_from_token_response(
     ))
 }
 
-async fn request_device_code(
-    runtime: &OAuthRuntime,
-    signal: CancellationToken,
-) -> Result<XaiDeviceCode, CallbackError> {
+async fn request_device_code(runtime: &OAuthRuntime, signal: AbortSignal) -> Result<XaiDeviceCode, CallbackError> {
     let response = post_form(
         runtime,
         XAI_DEVICE_CODE_URL,
@@ -223,7 +220,7 @@ async fn request_device_code(
 async fn poll_for_tokens(
     runtime: &OAuthRuntime,
     device: &XaiDeviceCode,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<OAuthCredential, CallbackError> {
     let options = OAuthDeviceCodePollOptions {
         interval_seconds: device.interval_seconds,
@@ -312,7 +309,7 @@ async fn login_xai(
 async fn refresh_xai_token(
     runtime: &OAuthRuntime,
     refresh_token: &pi_js_compat::js_json::JsString,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<OAuthCredential, CallbackError> {
     let response = post_form(
         runtime,

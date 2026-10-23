@@ -10,7 +10,6 @@ use pi_js_compat::js_format;
 use pi_js_compat::js_json::{self, JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
-use tokio_util::sync::CancellationToken;
 
 use crate::core::detached_bash_runner::{
     append_artifact_record, finalize_detached_job_with_retry, hash_json, is_process_identity_alive, read_json_lines,
@@ -334,7 +333,7 @@ async fn wait_for_detached_pyrun_settlement(
     manifest: &DetachedPyrunLaunchManifest,
     runner: &PyrunRunnerClient,
 ) -> Result<PyrunSettlement, JsString> {
-    let abort = CancellationToken::new();
+    let abort = pi_js_compat::abort::AbortController::new();
     let control = Arc::new(Mutex::new(ControlState {
         cancel: None,
         identity: None,
@@ -377,7 +376,7 @@ async fn wait_for_detached_pyrun_settlement(
             append_artifact_record(&manifest_for_progress.data.artifacts.output_path, &record)
                 .map_err(|error| super::runner::PyrunRunnerError::new(JsString::from(error.to_string())))
         })),
-        Some(abort.clone()),
+        Some(abort.signal()),
         Some(dispatch_pi_request),
     );
     tokio::pin!(settled);
@@ -420,7 +419,7 @@ fn apply_detached_pyrun_runtime_commands(
     manifest: &DetachedPyrunLaunchManifest,
     control: &Arc<Mutex<ControlState>>,
     pending: &PendingRequests,
-    abort: &CancellationToken,
+    abort: &pi_js_compat::abort::AbortController,
     identity: &DetachedJobOwnershipIdentity,
 ) {
     let Ok(commands) =
@@ -453,7 +452,7 @@ fn apply_detached_pyrun_runtime_commands(
                 if control.cancel.is_none() {
                     control.cancel = Some(cancel.clone());
                     control.identity = Some(cancel.identity.clone());
-                    abort.cancel();
+                    abort.abort(None);
                 }
             }
         }

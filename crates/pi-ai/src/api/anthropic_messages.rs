@@ -10,9 +10,9 @@ use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use std::sync::Arc;
 
 use indexmap::IndexMap;
+use pi_js_compat::abort::AbortSignal;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use tokio_util::sync::CancellationToken;
 
 use crate::api::anthropic_sdk::{self, Auth, SdkRequest};
 use crate::api::github_copilot_headers::{build_copilot_dynamic_headers, has_copilot_vision_input};
@@ -1017,12 +1017,7 @@ async fn drive_stream(
     }
     reader.check_complete()?;
 
-    if options
-        .request
-        .signal
-        .as_ref()
-        .is_some_and(CancellationToken::is_cancelled)
-    {
+    if options.request.signal.as_ref().is_some_and(AbortSignal::aborted) {
         return Err("Request was aborted".to_owned().into());
     }
     if matches!(output.stop_reason, StopReason::Aborted | StopReason::Error) {
@@ -1357,7 +1352,7 @@ impl SseState {
 /// Incremental Anthropic SSE decoder shared with opt-in native provider examples.
 pub struct AnthropicEventReader {
     body: Box<dyn crate::request::HttpBody>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     queue: std::collections::VecDeque<SseEvent>,
     buffer: String,
     pending: Vec<u8>,
@@ -1368,7 +1363,7 @@ pub struct AnthropicEventReader {
 }
 
 impl AnthropicEventReader {
-    pub fn new(body: Box<dyn crate::request::HttpBody>, signal: Option<CancellationToken>) -> Self {
+    pub fn new(body: Box<dyn crate::request::HttpBody>, signal: Option<AbortSignal>) -> Self {
         Self {
             body,
             signal,
@@ -1393,7 +1388,7 @@ impl AnthropicEventReader {
             if self.finished {
                 return Ok(None);
             }
-            if self.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+            if self.signal.as_ref().is_some_and(AbortSignal::aborted) {
                 return Err("Request was aborted".to_owned().into());
             }
             match self.body.next_chunk().await {
@@ -1412,7 +1407,7 @@ impl AnthropicEventReader {
                     }
                 }
                 Some(Err(error)) => {
-                    if self.signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+                    if self.signal.as_ref().is_some_and(AbortSignal::aborted) {
                         return Err("Request was aborted".to_owned().into());
                     }
                     return Err(error.message);
@@ -1556,11 +1551,7 @@ async fn run_stream(sender: AssistantMessageEventSender, model: Model, context: 
                 }
             }
         }
-        let aborted = options
-            .request
-            .signal
-            .as_ref()
-            .is_some_and(CancellationToken::is_cancelled);
+        let aborted = options.request.signal.as_ref().is_some_and(AbortSignal::aborted);
         output.stop_reason = if aborted {
             StopReason::Aborted
         } else {

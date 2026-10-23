@@ -4,12 +4,12 @@ use std::sync::{Arc, OnceLock};
 
 use pi_agent_core::agent::types::{AgentToolResult, AgentToolUpdateCallback};
 use pi_ai::types::{TextContent, TextOrImageContent};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::io::AsyncWriteExt;
-use tokio_util::sync::CancellationToken;
 
 use crate::utils::child_process::node_spawn_error_message;
 
@@ -34,7 +34,7 @@ pub type AskSecretProvisioner = Arc<
             AskSecretProvisionRequest,
             JsString,
             JsString,
-            Option<CancellationToken>,
+            Option<AbortSignal>,
         ) -> BoxFuture<'static, Result<(), HandlerError>>
         + Send
         + Sync,
@@ -93,7 +93,7 @@ pub fn create_ask_secret_tool_definition(options: AskSecretToolOptions) -> ToolD
         execute: Arc::new(
             move |_tool_call_id: String,
                   params: JsValue,
-                  signal: Option<CancellationToken>,
+                  signal: Option<AbortSignal>,
                   _on_update: Option<AgentToolUpdateCallback>,
                   ctx: ExtensionContext| {
                 let provision = Arc::clone(&provision);
@@ -120,7 +120,7 @@ fn ask_secret_schema() -> serde_json::Value {
 async fn execute_ask_secret(
     provision: AskSecretProvisioner,
     params: JsValue,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     ctx: ExtensionContext,
 ) -> Result<AgentToolResult, HandlerError> {
     let request = parse_request(&params)?;
@@ -253,9 +253,9 @@ async fn provision_browser_credential(
     request: AskSecretProvisionRequest,
     username: JsString,
     password: JsString,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> Result<(), HandlerError> {
-    if signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+    if signal.as_ref().is_some_and(AbortSignal::aborted) {
         return Err(HandlerError::new("ask_secret cancelled"));
     }
     let mut command = tokio::process::Command::new(AUTH_SUDO_EXECUTABLE);
@@ -291,7 +291,7 @@ async fn provision_browser_credential(
     let outcome = match signal.clone() {
         Some(token) => {
             tokio::select! {
-                () = token.cancelled() => {
+                _ = token.wait() => {
                     let _ = child.kill().await;
                     Err(true)
                 }
@@ -312,8 +312,8 @@ async fn provision_browser_credential(
     }
 }
 
-fn provisioning_failure(signal: Option<&CancellationToken>) -> HandlerError {
-    if signal.is_some_and(CancellationToken::is_cancelled) {
+fn provisioning_failure(signal: Option<&AbortSignal>) -> HandlerError {
+    if signal.is_some_and(AbortSignal::aborted) {
         HandlerError::new("ask_secret cancelled")
     } else {
         HandlerError::new("Secrets Broker provisioning failed")

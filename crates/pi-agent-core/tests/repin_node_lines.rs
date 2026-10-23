@@ -116,7 +116,6 @@ async fn read_line_limit_closes_fifo_reader_before_writer_eof_like_frozen() {
 async fn read_lines_aborts_a_pending_fifo_read_before_writer_eof_like_frozen() {
     use std::io::Write;
     use std::sync::Arc;
-    use tokio_util::sync::CancellationToken;
     let mut oracle = oracle::TsOracle::spawn(
         "agent-core-node-lines-oracle.ts",
         "packages/agent-core/src/harness/env/nodejs.ts",
@@ -140,7 +139,8 @@ async fn read_lines_aborts_a_pending_fifo_read_before_writer_eof_like_frozen() {
     }));
     let native_path: JsString = path.to_str().unwrap().into();
     let read_path = native_path.clone();
-    let abort = CancellationToken::new();
+    let controller_abort = pi_js_compat::abort::AbortController::new();
+    let abort = controller_abort.signal();
     let token = abort.clone();
     let mut reader = tokio::spawn(async move {
         env.read_text_lines(
@@ -167,7 +167,7 @@ async fn read_lines_aborts_a_pending_fifo_read_before_writer_eof_like_frozen() {
     })
     .await
     .unwrap();
-    abort.cancel();
+    controller_abort.abort(None);
     let early = tokio::time::timeout(std::time::Duration::from_millis(200), &mut reader).await;
     let returned_before_eof = early.is_ok();
     drop(writer);

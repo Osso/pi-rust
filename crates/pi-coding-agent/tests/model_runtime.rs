@@ -19,8 +19,8 @@ use pi_coding_agent::core::model_runtime::{
     CreateModelRuntimeOptions, CredentialSynchronizationOperation, ModelRuntime, ModelRuntimeError,
 };
 use pi_coding_agent::core::provider_composer::{AuthStatusSource, ExtensionOAuthConfig, ProviderConfigInput};
+use pi_js_compat::abort::AbortSignal;
 use serde_json::{Map, Value, json};
-use tokio_util::sync::CancellationToken;
 
 fn temp_dir(name: &str) -> PathBuf {
     let unique = SystemTime::now()
@@ -350,7 +350,7 @@ async fn forwards_cancellation_to_extension_oauth_refresh() {
         json!({"type": "oauth", "access": "expired", "refresh": "refresh", "expires": 0.0}),
     )]);
     let runtime = ModelRuntime::create(create_options(storage)).await.unwrap();
-    let captured = Arc::new(Mutex::new(None::<CancellationToken>));
+    let captured = Arc::new(Mutex::new(None::<AbortSignal>));
     let sink = Arc::clone(&captured);
     runtime
         .register_provider(
@@ -383,7 +383,8 @@ async fn forwards_cancellation_to_extension_oauth_refresh() {
         )
         .unwrap();
     let model = runtime.get_model("extension-oauth", "extension-model").unwrap();
-    let controller = CancellationToken::new();
+    let controller_controller = pi_js_compat::abort::AbortController::new();
+    let controller = controller_controller.signal();
     let auth = runtime
         .get_auth_for_model(
             &model,
@@ -396,9 +397,9 @@ async fn forwards_cancellation_to_extension_oauth_refresh() {
         .unwrap();
     assert!(auth.is_some());
     let refresh_signal = captured.lock().unwrap().clone().unwrap();
-    assert!(!refresh_signal.is_cancelled());
-    controller.cancel();
-    assert!(refresh_signal.is_cancelled());
+    assert!(!refresh_signal.aborted());
+    controller_controller.abort(None);
+    assert!(refresh_signal.aborted());
 }
 
 #[tokio::test]

@@ -11,7 +11,6 @@ use pi_js_compat::{js_format, js_json::JsString, locale_compare};
 use pi_tui::components::input::InputOptions;
 use pi_tui::tui::component;
 use pi_tui::{Component, Container, DynamicBorder, Focusable, Input, Spacer, Text, fuzzy_filter};
-use tokio_util::sync::CancellationToken;
 
 use crate::core::model_resolver::ScopedModel;
 use crate::core::model_runtime::{ModelRuntime, ModelRuntimeError};
@@ -63,7 +62,7 @@ pub struct ModelSelectorComponent {
     scope: ModelScope,
     scope_text: Option<Text>,
     scope_hint_text: Option<Text>,
-    refresh_abort: CancellationToken,
+    refresh_abort: pi_js_compat::abort::AbortController,
     closed: bool,
     focused: bool,
     top_border: DynamicBorder,
@@ -115,7 +114,7 @@ impl ModelSelectorComponent {
             scope,
             scope_text: None,
             scope_hint_text: None,
-            refresh_abort: CancellationToken::new(),
+            refresh_abort: pi_js_compat::abort::AbortController::new(),
             closed: false,
             focused: false,
             top_border: dynamic_border(),
@@ -199,7 +198,7 @@ impl ModelSelectorComponent {
         let runtime = self.model_runtime.clone();
         let abort = self.refresh_abort.clone();
         let options = ModelsRefreshOptions {
-            signal: Some(abort.clone()),
+            signal: Some(abort.signal()),
             ..Default::default()
         };
         let refresh = runtime.refresh(options);
@@ -209,7 +208,7 @@ impl ModelSelectorComponent {
             result = &mut refresh => result,
             _ = tokio::time::sleep(REFRESH_TIMEOUT) => {
                 timed_out = true;
-                abort.cancel();
+                abort.abort(None);
                 refresh.await
             }
         };
@@ -261,7 +260,7 @@ impl ModelSelectorComponent {
             return;
         }
         self.closed = true;
-        self.refresh_abort.cancel();
+        self.refresh_abort.abort(None);
     }
 
     fn sort_models(&self, models: Vec<ModelItem>) -> Vec<ModelItem> {
