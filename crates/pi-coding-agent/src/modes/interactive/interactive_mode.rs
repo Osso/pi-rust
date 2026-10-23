@@ -8758,14 +8758,11 @@ impl InteractiveMode {
 
     fn show_session_selector(&self) {
         let session = self.session();
-        let (cwd, session_dir, uses_default_dir, current_file) = {
+        let (cwd, session_dir, current_file) = {
             let manager = session.session_manager();
             (
                 manager.get_cwd().to_owned(),
                 manager.get_session_dir().to_owned(),
-                manager
-                    .uses_default_session_dir()
-                    .unwrap_or_else(|error| error.raise_uncaught()),
                 manager.get_session_file().cloned(),
             )
         };
@@ -8795,34 +8792,48 @@ impl InteractiveMode {
             })
         };
         let all_loader: SessionListLoader = {
+            let session = session.clone();
             let apply = Rc::clone(&apply);
             let session_dir = session_dir.clone();
             let control_db_path = control_db_path.clone();
             Rc::new(move |progress: Option<ProgressCallback>| {
                 let mut progress_fn =
                     progress.map(|callback| move |loaded: usize, total: usize| callback(loaded as f64, total as f64));
-                let dir = (!uses_default_dir).then(|| session_dir.clone());
-                let result = crate::core::session_manager::SessionManager::list_all(
-                    dir.as_ref(),
-                    progress_fn
-                        .as_mut()
-                        .map(|callback| callback as &mut dyn FnMut(usize, usize)),
-                    control_db_path.as_ref(),
-                )
-                .map_err(|error| error.message().clone());
+                let result = session
+                    .session_manager()
+                    .uses_default_session_dir()
+                    .and_then(|uses_default_dir| {
+                        let dir = (!uses_default_dir).then(|| session_dir.clone());
+                        crate::core::session_manager::SessionManager::list_all(
+                            dir.as_ref(),
+                            progress_fn
+                                .as_mut()
+                                .map(|callback| callback as &mut dyn FnMut(usize, usize)),
+                            control_db_path.as_ref(),
+                        )
+                    })
+                    .map_err(|error| error.message().clone());
                 let applied = result.map(|sessions| apply(sessions));
                 Box::pin(async move { applied })
             })
         };
         let archived_loader: SessionListLoader = {
+            let session = session.clone();
             let apply = Rc::clone(&apply);
             let session_dir = session_dir.clone();
             let control_db_path = control_db_path.clone();
             Rc::new(move |_progress: Option<ProgressCallback>| {
-                let dir = (!uses_default_dir).then(|| session_dir.clone());
-                let result =
-                    crate::core::session_manager::SessionManager::list_archived(dir.as_ref(), control_db_path.as_ref())
-                        .map_err(|error| error.message().clone());
+                let result = session
+                    .session_manager()
+                    .uses_default_session_dir()
+                    .and_then(|uses_default_dir| {
+                        let dir = (!uses_default_dir).then(|| session_dir.clone());
+                        crate::core::session_manager::SessionManager::list_archived(
+                            dir.as_ref(),
+                            control_db_path.as_ref(),
+                        )
+                    })
+                    .map_err(|error| error.message().clone());
                 let applied = result.map(|sessions| apply(sessions));
                 Box::pin(async move { applied })
             })
@@ -12688,6 +12699,68 @@ mod ui_tests {
                 assert_eq!(
                     value.get("approvalPreset"),
                     Some(&serde_json::json!("llm-approved-deny"))
+                );
+            })
+            .await;
+    }
+
+    mod selector_config_oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+
+    #[test]
+    fn session_selector_config_failure_is_deferred_to_the_loader_catch() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut oracle = selector_config_oracle::TsOracle::spawn(
+            "session-selector-config-boundary-oracle.ts",
+            "packages/coding-agent/src/modes/interactive/interactive-mode.ts",
+        );
+        let result: serde_json::Value = oracle.request(&serde_json::json!({"cwd": directory.path().to_str().unwrap()}));
+        assert_eq!(result["ok"], true, "{result}");
+        assert_eq!(
+            result["output"],
+            serde_json::json!({"before": 0, "lookups": 1, "caught": true}),
+            "{result}"
+        );
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--ignored",
+                "--exact",
+                "modes::interactive::interactive_mode::ui_tests::session_selector_config_failure_child",
+                "--nocapture",
+            ])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    #[ignore = "isolated selector HOME/config child"]
+    async fn session_selector_config_failure_child() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let mut events = start(&mode).await;
+                pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+                pi_js_compat::process_env::set(&crate::config::env_agent_dir(), "file://not-local/config");
+                mode.show_session_selector();
+                assert!(
+                    mode.active_session_selector.borrow().is_some(),
+                    "current scope must mount before default-dir lookup"
+                );
+                let selector = mode.active_session_selector.borrow().clone().unwrap();
+                for _ in 0..5 {
+                    selector.lock().await.poll(Instant::now());
+                    tokio::task::yield_now().await;
+                }
+                selector.lock().await.handle_input(&JsString::from("\t"));
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("Failed to load sessions:")
+                })
+                .await;
+                assert!(
+                    output.contains("Failed to load sessions: File URL host must be"),
+                    "{output:?}"
                 );
             })
             .await;

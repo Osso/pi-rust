@@ -2,6 +2,10 @@
 
 Ported to `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs`.
 
+## Deferred session-selector default-directory failure (2026-10-23)
+
+Frozen interactive-mode.ts:6580/6612 evaluates usesDefaultSessionDir only inside the all/archived loaders; session-selector.ts:1005–1017 catches and displays Error.message. Native previously evaluated eagerly while mounting current scope and raised uncaught. Both native loaders now evaluate the live manager lazily, preserving the error until the selector's message boundary. The in-crate session_selector_config_failure test compares a frozen real-selector oracle (zero initial lookups, one all-scope lookup, caught status) and a native capture-terminal subprocess (current scope mounts, Tab displays the native URL error without a process crash). RED: selector-config-catch-red-2.log; GREEN: selector-config-catch-green-differential-2.log.
+
 ## AbortSignal consumer audit (2026-10-22)
 
 [Contract](../../specs/interactive-abort.md) · [Shared carrier](shared-abort.md). Parent's workspace-wide signature swap is the starting boundary, not reason parity evidence.
