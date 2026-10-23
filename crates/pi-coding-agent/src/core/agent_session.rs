@@ -95,6 +95,16 @@ impl AgentSessionError {
         self.original.as_ref()
     }
 }
+impl From<AgentSessionError> for pi_ai::request::CallbackError {
+    fn from(error: AgentSessionError) -> Self {
+        let callback = match error.native_error() {
+            Some(native) => Self::from_rejection(native.clone().into()),
+            None => Self::new(error.message().clone()),
+        };
+        callback.with_original(std::sync::Arc::new(error))
+    }
+}
+
 impl std::fmt::Display for AgentSessionError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&encode_node_utf8(&self.message))

@@ -63,7 +63,7 @@ impl ConfigError {
 
     /// Only source callback sites without a catch use this; getters remain fallible.
     pub fn raise_uncaught(self) -> ! {
-        std::panic::panic_any(self.into_native_error())
+        crate::utils::uncaught::throw_native_uncaught(self.into_native_error())
     }
 
     fn new(message: impl Into<JsString>) -> Self {
