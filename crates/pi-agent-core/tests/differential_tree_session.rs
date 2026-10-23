@@ -337,10 +337,45 @@ async fn frozen_storage_facade_and_fork_contracts_match() {
         parse(r#"[{"type":"leaf","id":"leaf","parentId":null,"timestamp":"t","targetId":"missing"}]"#),
         parse("[]"),
     ));
+    cases.push(memory_request(
+        "storage",
+        base,
+        parse(r#"[{"op":"append","entry":{"type":"label","id":"l1","parentId":"a","timestamp":"t","targetId":"root","label":" kept "}},{"op":"label","id":"root"},{"op":"append","entry":{"type":"leaf","id":"bad-leaf","parentId":"l1","timestamp":"t","targetId":"missing"}},{"op":"leaf"},{"op":"append","entry":{"type":"custom","id":"recovered","parentId":"a","timestamp":"t","customType":"marker"}},{"op":"leaf"},{"op":"path","id":"recovered"},{"op":"append","entry":{"type":"label","id":"l2","parentId":"recovered","timestamp":"t","targetId":"root","label":"\uFEFF \r\n"}},{"op":"label","id":"root"},{"op":"append","entry":{"type":"custom","id":"root","parentId":null,"timestamp":"t","customType":"replacement"}},{"op":"entries"},{"op":"path","id":"a"},{"op":"entry","id":"root"},{"op":"find","type":"message"}]"#),
+    ));
     for case in cases {
         let actual = rust(&case, &samples).await;
         let expected = request(&mut ts_oracle(), &case);
         assert_eq!(actual, expected, "case {}", js_json::stringify_lossless(&case));
+    }
+}
+
+#[tokio::test]
+async fn multiple_compaction_contexts_and_duplicate_boundary_ids_match_frozen() {
+    let base = parse(
+        r#"[{"type":"message","id":"root","parentId":null,"timestamp":"2023-11-14T22:13:20.000Z","message":{"role":"user","content":"root","timestamp":1}},{"type":"thinking_level_change","id":"think","parentId":"root","timestamp":"t","thinkingLevel":"high"},{"type":"model_change","id":"model","parentId":"think","timestamp":"t","provider":"fixture","modelId":"model"},{"type":"active_tools_change","id":"tools","parentId":"model","timestamp":"t","activeToolNames":["read","write"]}]"#,
+    );
+    let first = pi_js_compat::js_json!({"type":"compaction","id":"first","parentId":"tools","timestamp":ISO,"summary":"old summary","firstKeptEntryId":"root","tokensBefore":10});
+    let middle = pi_js_compat::js_json!({"type":"custom_message","id":"middle","parentId":"first","timestamp":ISO,"customType":"note","content":JsString::from_utf16(vec![0xd800]),"display":false,"details":null});
+    let tail = pi_js_compat::js_json!({"type":"branch_summary","id":"tail","parentId":"second","timestamp":ISO,"fromId":"other","summary":"branch"});
+    let mut cases = vec![base.as_array().unwrap().clone()];
+    for (first_kept, duplicate_id) in [
+        ("root", false),
+        ("middle", false),
+        ("missing", false),
+        ("first", false),
+        ("tail", false),
+        ("root", true),
+        ("middle", true),
+        ("missing", true),
+    ] {
+        let mut entries = base.as_array().unwrap().clone();
+        entries.extend([first.clone(),middle.clone(),pi_js_compat::js_json!({"type":"compaction","id":if duplicate_id {"first"} else {"second"},"parentId":"middle","timestamp":ISO,"summary":"latest summary","firstKeptEntryId":first_kept,"tokensBefore":20,"durationMs":1.5}),tail.clone()]);
+        cases.push(entries);
+    }
+    let mut oracle = ts_oracle();
+    for entries in cases {
+        let input = pi_js_compat::js_json!({"kind":"context","entries":entries});
+        assert_eq!(rust(&input, &[]).await, request(&mut oracle, &input));
     }
 }
 
