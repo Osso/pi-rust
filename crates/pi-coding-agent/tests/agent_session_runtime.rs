@@ -468,7 +468,7 @@ async fn after_turn_rejection_survives_the_real_agent_and_session_error_boundari
     use pi_js_compat::abort::AbortReason;
     let harness = build_harness(false, false).await;
     let native = pi_js_compat::node_error::NativeNodeError::new("RangeError", JsString::from_utf16(vec![0xd800]))
-        .with_property("code", "ERECOVER".into());
+        .with_property("code", JsValue::String("ERECOVER".into()));
     let reason = AbortReason::Error(native);
     let thrown = reason.clone();
     let mut handlers = inactive_recovery_handlers();
