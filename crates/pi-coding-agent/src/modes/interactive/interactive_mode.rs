@@ -7767,7 +7767,6 @@ impl InteractiveMode {
                 None,
                 crate::core::agent_session::ExecuteBashOptions {
                     exclude_from_context: Some(exclude_from_context),
-                    id: None,
                     operations: None,
                 },
             )
@@ -11072,7 +11071,6 @@ impl InteractiveMode {
                     self.ui.request_render();
                 }
             }
-            AgentSessionEvent::BashExecutionUpdate(_) => {}
             AgentSessionEvent::Agent(AgentEvent::AgentEnd { .. }) => {}
             AgentSessionEvent::Agent(AgentEvent::TurnStart) => {}
             AgentSessionEvent::Agent(AgentEvent::TurnEnd { .. }) => {}

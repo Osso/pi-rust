@@ -68,7 +68,7 @@ Provider human errors, auto-retry start/end error fields, compaction errors and 
 - Compaction: `compact`, `_checkCompaction`, `_runAutoCompaction`, `appendCompaction`,
   context estimate, materialization, abort hooks, compaction extension overrides.
 - Bash: `executeBash` over `bash_executor` (shell prefix, streaming
-  `bash_execution_update`, abort tokens), `recordBashResult`, pending flush,
+  caller onChunk callbacks and abort tokens), `recordBashResult`, pending flush,
   `abortBash`. `detachRunningTool`/`detachBashTool` and
   `hasDetachableTool`/`hasDetachableBashTool` delegate to the session's
   `ToolDetachRegistry` (`detach_running`/`has_running`); detaching does not
@@ -222,10 +222,7 @@ Remaining diagnostic dependencies at replacement-adapters-1: parent native Bash
 executor/controlDB/mailbox APIs, UI theme-name result, and209 claim ID; parent
 already has several of these awaiting the lane's next clean refresh.
 
-RPC-request ID follow-up: ExecuteBashOptions.id and BashExecutionUpdateEvent.id
-are Option<JsString> (client request IDs are echoed user data, not approved opaque
-provider tool-call IDs). Exact raw wire-echo fixture written, library-blocked.
-UserBashEvent.cwd is native through extension dispatch.
+Q15 correction2026-10-23: bash_execution_update/BashExecutionUpdateEvent and ExecuteBashOptions.id are removed old-only. Frozen executeBash5807–5810 accepts only excludeFromContext/operations and passes the caller onChunk directly at5825. Real callback streaming/commit assertions remain in execute_bash_records_streams_and_commits; raw RPC request IDs remain proven on actual bash responses and the full source/native bash-response process fixture, not an invented chunk event. UserBashEvent.cwd stays native through extension dispatch.
 
 ## Q5 executable-availability consumer (2026-10-23)
 

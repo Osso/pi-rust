@@ -85,6 +85,14 @@ impl Fixture {
         if done_error {
             env.push(("PI_HARNESS_DONE_ERROR", "1".into()));
         }
+        if let Some(messages) = responses
+            .as_array()
+            .unwrap()
+            .first()
+            .and_then(|response| response.get("initialMessages"))
+        {
+            env.push(("PI_HARNESS_INITIAL_MESSAGES", stringify_lossless(messages)));
+        }
         env
     }
 
@@ -157,7 +165,31 @@ fn print_text_prints_the_final_assistant_text() {
 }
 
 #[test]
-fn print_text_prints_the_end_turn_reason_when_no_text_was_produced() {
+fn print_text_respects_final_message_barriers() {
+    let mut assistant = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux-1", 0.0);
+    assistant
+        .content
+        .push(pi_ai::types::AssistantContent::Text(pi_ai::types::TextContent::new(
+            "older",
+        )));
+    for suffix in [
+        json!({"role":"user","content":"newer request","timestamp":1}),
+        json!({"role":"toolResult","toolCallId":"x","toolName":"read","content":[],"isError":false,"timestamp":1}),
+        json!({"role":"toolResult","toolCallId":"x","toolName":"end_turn","content":[],"isError":true,"timestamp":1}),
+        serde_json::to_value(pi_ai::types::AssistantMessage::empty("faux", "faux", "faux-1", 1.0)).unwrap(),
+    ] {
+        let fixture = Fixture::new();
+        compare(
+            &fixture,
+            "print-text",
+            &[],
+            json!([{"initialMessages":[assistant,suffix]}]),
+        );
+    }
+}
+
+#[test]
+fn print_text_omits_end_turn_only_messages() {
     let fixture = Fixture::new();
     compare(
         &fixture,
